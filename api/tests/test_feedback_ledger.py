@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import subprocess
-from datetime import date
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -26,7 +26,7 @@ def home(tmp_path: Path, monkeypatch):
 
 def _events(kind: str) -> list[dict]:
     """Ledger rows of one kind as plain dicts (``read_events`` yields dataclasses)."""
-    today = date.today()
+    today = datetime.now(timezone.utc).date()   # the ledger files and reads rows by their UTC day
     rows = [json.loads(e.to_json()) for e in telemetry.read_events(today.replace(day=1), today)]
     return [e for e in rows if e.get("kind") == kind]
 
@@ -244,7 +244,8 @@ def test_stats_by_connection_excludes_feedback_rows(home):
     telemetry.record(telemetry.UsageEvent(kind="resolution", stage="feedback", bank="memory", invocations=0,
                                           billing="free", refs={"item_id": "inbox-001"}))
     # stats is async: stats(memory_path, *, range_, today) (consumption_stats.py:188); rows are {"connection": name, ...}
-    out = run(stats(Path("/nonexistent"), range_="month", today=date.today()))
+    utc_today = datetime.now(timezone.utc).date()  # the ledger's day: UTC, like the routes
+    out = run(stats(Path("/nonexistent"), range_="month", today=utc_today))
     names = [row["connection"] for row in out["by_connection"]]
     assert names == ["anthropic"]
     assert any(row["stage"] == "feedback" for row in out["by_stage"])

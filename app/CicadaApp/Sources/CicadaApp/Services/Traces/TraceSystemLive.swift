@@ -205,7 +205,20 @@ struct LiveTracePermissionProbe: TracePermissionProbe {
         switch permission {
         case .accessibility: AXIsProcessTrusted()
         case .screenRecording: CGPreflightScreenCaptureAccess()
-        case .fullDiskAccess: FileManager.default.isReadableFile(atPath: NSHomeDirectory() + "/Library/Safari/Bookmarks.plist")
+        case .fullDiskAccess: Self.opensProtectedFile()
         }
+    }
+
+    /// Full Disk Access has no preflight API and no prompt: the one honest look is opening a file only it unlocks — the
+    /// two Cicada needs it for (Safari's bookmarks, Messages' database). `isReadableFile` checks POSIX bits alone, which
+    /// say yes while macOS still refuses the open.
+    static func opensProtectedFile(home: String = NSHomeDirectory()) -> Bool {
+        for path in ["/Library/Safari/Bookmarks.plist", "/Library/Messages/chat.db"] {
+            if let handle = FileHandle(forReadingAtPath: home + path) {
+                try? handle.close()
+                return true
+            }
+        }
+        return false
     }
 }

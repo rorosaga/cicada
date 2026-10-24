@@ -464,6 +464,10 @@ struct EpisodeText: Codable, Hashable {
     var site: String? = nil
     /// 2026-10-20 — messages their senders unsent, by position; empty against an older backend.
     var unsent: [EpisodeUnsent] = []
+    /// Ruling 39 — when Cicada received the episode, sent only when that is days after `timestamp` (the item's own
+    /// date); nil when the two are the same day or two, for a page, for an episode from before the ruling and from an
+    /// older backend.
+    var receivedAt: String? = nil
 
     var isPage: Bool { kind == "page" }
     var isPageRead: Bool { source == EvidenceSpeaker.pageReadSource }
@@ -497,6 +501,7 @@ struct EpisodeText: Codable, Hashable {
     enum CodingKeys: String, CodingKey {
         case episode, kind, text, length, hash, truncated, title, timestamp, harness, origin
         case conversationId, captureKind, turns, focus, agent, watch, source, correspondent, device, relay, site, unsent
+        case receivedAt
     }
 
     init(from decoder: Decoder) throws {
@@ -507,6 +512,7 @@ struct EpisodeText: Codable, Hashable {
         relay = (try? c.decodeIfPresent(EpisodeRelay.self, forKey: .relay)) ?? nil
         site = (try? c.decodeIfPresent(String.self, forKey: .site)) ?? nil
         unsent = (try? c.decodeIfPresent([EpisodeUnsent].self, forKey: .unsent)) ?? []
+        receivedAt = (try? c.decodeIfPresent(String.self, forKey: .receivedAt)) ?? nil
         episode = try c.decodeIfPresent(String.self, forKey: .episode) ?? ""
         kind = try c.decodeIfPresent(String.self, forKey: .kind) ?? "episode"
         text = try c.decodeIfPresent(String.self, forKey: .text) ?? ""

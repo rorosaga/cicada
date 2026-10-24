@@ -259,7 +259,7 @@ enum Copy {
     /// why the button didn't clear the instant the cycle stopped.
     static let cancelSleepExplainer =
         "Stops at the next safe point — never mid-write. Nothing is lost: any "
-        + "episodes not yet consolidated stay queued for the next cycle. A few "
+        + "conversations not yet read stay queued for the next cycle. A few "
         + "housekeeping checks (logos, connectors) can still run right after, "
         + "so \"Cancelling…\" may stay up a few seconds longer than expected."
 

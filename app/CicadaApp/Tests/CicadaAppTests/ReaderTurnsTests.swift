@@ -281,6 +281,20 @@ final class ReaderTurnsTests: XCTestCase {
         XCTAssertEqual(ReaderHeader.meta(page, locale: us, timeZone: utc), Copy.Provenance.fromThePage)
     }
 
+    /// Ruling 39 — the day Cicada received an item follows its own day, only when the backend sent it (it is days
+    /// later: a feed's back catalogue, an old import); an older backend's document decodes without it.
+    func testTheMetaLineSaysWhenAnOldItemCameIn() throws {
+        var doc = EpisodeText(episode: "ep_2023-05-01_001", text: "an article", timestamp: "2023-05-01T08:00:00+00:00")
+        XCTAssertEqual(ReaderHeader.meta(doc, locale: us, timeZone: utc), "May 1, 2023")
+        doc.receivedAt = "2026-10-24T09:00:00+00:00"
+        XCTAssertEqual(ReaderHeader.meta(doc, locale: us, timeZone: utc), "May 1, 2023 · added Oct 24, 2026")
+        let json = #"{"episode": "ep_2023-05-01_001", "text": "x", "receivedAt": "2026-10-24T09:00:00+00:00"}"#
+        let decoded = try JSONDecoder().decode(EpisodeText.self, from: Data(json.utf8))
+        XCTAssertEqual(decoded.receivedAt, "2026-10-24T09:00:00+00:00")
+        let older = try JSONDecoder().decode(EpisodeText.self, from: Data(#"{"episode": "e", "text": "x"}"#.utf8))
+        XCTAssertNil(older.receivedAt)
+    }
+
     /// R-DI11 — the washes become CitedSpan segments: the cited span current, the others soft, a
     /// derived match a mention; a focus that starts where another span does wins; out of range is skipped.
     func testWashesBecomeCitedSegments() {

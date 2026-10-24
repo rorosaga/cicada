@@ -28,8 +28,10 @@ def test_argv_pins_the_verified_flag_set():
     assert argv[argv.index("--tools") + 1] == ""
     assert argv[argv.index("--model") + 1] == "sonnet"
     # `--system-prompt` is a single `--flag=value` token (fix round 1, M1) —
-    # see test_argv_joins_the_system_prompt_into_one_token below for why.
-    assert "--system-prompt=SYS" in argv
+    # see test_argv_joins_the_system_prompt_into_one_token below for why. It carries the caller's text, then the
+    # context guard (perf report 2026-10-24).
+    assert f"--system-prompt={agent_engine.system_prompt_for('SYS')}" in argv
+    assert agent_engine.system_prompt_for("SYS").startswith("SYS\n\n")
 
 
 # --------------------------------------------------------------------------- #
@@ -64,7 +66,7 @@ def test_argv_joins_the_system_prompt_into_one_token():
     content rejected (the system prompt is free-form template text, not a
     value from a small known set like `model`)."""
     argv = agent_engine.build_argv(model="sonnet", system_prompt="-alsobad")
-    assert "--system-prompt=-alsobad" in argv
+    assert any(a.startswith("--system-prompt=-alsobad") for a in argv)
     # and the value never appears as its own bare argv token that a parser
     # could mistake for a flag.
     assert "-alsobad" not in argv
@@ -256,7 +258,7 @@ def test_complete_sends_the_prompt_on_stdin_and_runs_in_the_scratch_dir(agent_ru
     call = runner.calls[0]
     assert call["stdin"] == "BODY"
     assert call["cwd"] == str(agent_engine.scratch_dir())
-    assert "--system-prompt=S" in call["argv"]
+    assert f"--system-prompt={agent_engine.system_prompt_for('S')}" in call["argv"]
 
 
 def test_complete_appends_a_json_only_instruction_when_no_schema_is_registered(agent_runner, agent_envelopes):

@@ -184,7 +184,7 @@ def _capture_prompt(monkeypatch, **extra):
 
     def resolve_async(*args, **kwargs):
         async def complete(**call):
-            prompts.append(call["messages"][0]["content"])
+            prompts.append(call["messages"][-1]["content"])   # the judge's system message comes first
             return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='{"decision": "same"}'))])
         return complete
 

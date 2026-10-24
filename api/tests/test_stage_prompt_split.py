@@ -4,7 +4,8 @@ Each used to be one user message with the per-call data first, so no two calls s
 could serve (1 %, 16 % and 0 % of those stages' prompts at owner scale). Now the rules are the system message — the
 same bytes every call — and the data the user message. These tests hold the split to the prompts it replaces (frozen
 below, as they stood on dev before the change): every line of the old prompt is sent, once, in its order within its
-message, with one intended wording change.
+message, with one intended wording change. Since 2026-10-24 the merge asks only for the Summary and the new History
+lines (perf report, item 2): its input is still the old one, byte for byte, and its rules keep every date rule.
 """
 from __future__ import annotations
 
@@ -163,11 +164,33 @@ def _merge(name: str, body: str, desc: str, day: str):
         settings=Settings(**SETTINGS), page_last_referenced="2025-02-06", source_dates_seen=[day], today="2026-10-07")
 
 
-def test_the_merge_prompt_is_the_old_prompt_in_two_messages(monkeypatch):
+#: The merge rules every date rule of the old prompt kept word for word (perf report 2026-10-24, item 2: the merge now
+#: asks only for the Summary and the new History lines, so the body-shape rules went and these stayed).
+KEPT_MERGE_RULES = (
+    "at most 600 characters: what it is, what it is to the person (built it, uses it, works with them, is deciding "
+    "about it) and where it stands as of the latest dated information.",
+    "Resolve contradictions by preferring the information with the LATER DATE (under DATES) — not whichever was read "
+    "last. When the new information is dated earlier than the existing page, it never replaces the page's later "
+    "statements.",
+    "the earlier fact becomes a history entry (e.g., \"2026-03-15: Previously used Postgres, switched to SQLite\")",
+    "Preserve specific details — dates, names, numbers.",
+    "If the new information implies a change over time but the extraction did not provide an explicit dated history "
+    "entry, you may use the source episode date as the fallback date for that change.",
+    "Write as of when things were said, never as of today. A statement known only from conversations dated more than "
+    "90 days before today names its month and year (\"In February 2025, …\") and is never presented as current. Plans, "
+    "intentions and states of mind (\"considering\", \"planning\", \"interested in\", \"wants\", \"hopes\") always name "
+    "the month and year they were stated. Keep every date already written on the page. Never write \"currently\", "
+    "\"now\", \"recently\", \"this week\" or \"soon\".",
+    "SUMMARY LENGTH (by entity type): skill 1 sentence; person, tool, concept, location 1-2 sentences; project, "
+    "company 2-3 sentences.",
+)
+
+
+def test_the_merge_prompt_keeps_its_input_and_asks_only_for_the_kept_parts(monkeypatch):
     from api.services import owner_identity
 
     monkeypatch.setattr(owner_identity, "owner_name", lambda *a, **k: "Owner Example")
-    calls = _capture(monkeypatch, conflict_resolver, "Merged body.")
+    calls = _capture(monkeypatch, conflict_resolver, json.dumps({"summary": "Merged.", "history": []}))
     asyncio.run(_merge("Alpha Co", "## Summary\nAlpha Co runs a programme.", "Alpha Co moved office.", "2026-09-30"))
     asyncio.run(_merge("Beta Tool", "## Summary\nBeta Tool parses files.", "Beta Tool is faster.", "2026-08-01"))
     for messages, (name, body, desc, day) in zip(calls, [
@@ -177,11 +200,17 @@ def test_the_merge_prompt_is_the_old_prompt_in_two_messages(monkeypatch):
             entity_name=name, entity_type="company", existing_body=body, new_description=desc,
             new_history=json.dumps([{"date": day, "text": "Moved office."}]), source_reference_date=day,
             today="2026-10-07", page_last_referenced="2025-02-06", source_dates=day)
-        old += conflict_resolver._owner_line("Owner Example")   # appended to the one prompt, as now to the input
-        _assert_same_prompt(messages, old)
-        assert "THE OWNER" in messages[1]["content"]
+        old_input = old[old.index("ENTITY:"):old.index("INSTRUCTIONS:")].strip()
+        old_input += conflict_resolver._owner_line("Owner Example")
+        assert [m["role"] for m in messages] == ["system", "user"]
+        assert messages[1]["content"] == old_input, "the page and its new information are sent as before"
+        assert messages[0]["content"] == conflict_resolver._SYNTHESIS_RULES
     assert calls[0][0] == calls[1][0], "the rules are byte-identical across calls: cacheable"
-    assert calls[0][1] != calls[1][1]
+    rules = conflict_resolver._SYNTHESIS_RULES
+    for kept in KEPT_MERGE_RULES:
+        assert kept in rules, kept
+    assert "Output ONLY the updated markdown body" not in rules
+    assert rules.rstrip().endswith('{"summary": "the new summary paragraph", "history": ["YYYY-MM-DD: what happened"]}')
 
 
 def test_the_contradiction_prompt_is_the_old_prompt_in_two_messages(monkeypatch):

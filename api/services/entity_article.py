@@ -78,6 +78,16 @@ SUGGESTED_SECTIONS = {
     "deadline": ["What is due", "Where it stands"],
 }
 
+#: The writer's own short system message (perf report 2026-10-24, item 3): with none, a plan engine would send its
+#: own default system prompt, ~2.3k tokens describing a coding agent.
+SYSTEM = "You write pages of one person's private wiki from the record you are given, and answer in JSON."
+
+
+def messages(prompt_text: str) -> list[dict]:
+    """The writer's call: :data:`SYSTEM`, then the prompt."""
+    return [{"role": "system", "content": SYSTEM}, {"role": "user", "content": prompt_text}]
+
+
 PROMPT = """You are writing a page of a personal wiki: an article about one thing as it figures in one person's life.
 
 Write from the INPUT only. Every input has an id. The record (facts, dated history, claims) stays on the page below

@@ -379,4 +379,28 @@ final class ConversationsTests: XCTestCase {
         XCTAssertEqual(plan.ids, ["a", "b"])
         XCTAssertEqual(plan.hidden, 0)
     }
+
+    // MARK: - Words (ruling 39, 2026-10-24)
+
+    /// The row is one conversation; its count is how many times it was saved, never "episodes" (DR-59).
+    func testARowCountsSavesNeverEpisodes() {
+        let en = Locale(identifier: "en_US")
+        XCTAssertEqual(Copy.conversationSaved(1, locale: en), "Saved once")
+        XCTAssertEqual(Copy.conversationSaved(3, locale: en), "Saved 3 times")
+        XCTAssertEqual(Copy.conversationSaved(1_200, locale: en), "Saved 1,200 times")
+        XCTAssertEqual(Copy.conversationPages(1, locale: en), "1 page")
+        XCTAssertEqual(Copy.conversationPages(4, locale: en), "4 pages")
+        for n in [1, 3] {
+            XCTAssertFalse(Copy.conversationSaved(n).lowercased().contains("episode"))
+            XCTAssertFalse(Copy.conversationPages(n).lowercased().contains("entit"))
+        }
+    }
+
+    /// A page chip reads as its page's name (DR-54, DR-56), as Past reads' run detail does; an id the graph does not
+    /// hold stays verbatim, never humanised.
+    func testAPageChipReadsAsItsName() {
+        let names = EntityNames(byId: ["leo-example": "Leo Example"])
+        XCTAssertEqual(ConversationRow.pageLabel("leo-example", names: names), "Leo Example")
+        XCTAssertEqual(ConversationRow.pageLabel("not-in-graph", names: names), "not-in-graph")
+    }
 }

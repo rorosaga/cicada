@@ -54,6 +54,9 @@ extension Copy {
         static func turnCount(_ n: Int) -> String {
             n == 1 ? "1 turn" : "\(UsageFormat.count(n)) turns"
         }
+        /// Ruling 39 — when Cicada received an item, said only when it is days after the item's own date
+        /// ("3 May 2023 · added 24 Oct 2026").
+        static func added(_ day: String) -> String { "added \(day)" }
         static let resume = "Resume"
         static let close = "Close the conversation"
         static let back = "Back to the previous conversation"

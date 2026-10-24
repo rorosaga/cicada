@@ -6,12 +6,17 @@ struct AgentLiveRow: Decodable, Equatable, Identifiable {
     var connected = false
     var lastSeenAt: String? = nil
     var via: String? = nil
+    /// Onboarding v3 — the latest tool call (the agent asked Cicada something), never a connect or a harness's own
+    /// wiring check; nil on an older backend, which then never confirms a first call.
+    var lastCalledAt: String? = nil
 
-    init(id: String, connected: Bool = false, lastSeenAt: String? = nil, via: String? = nil) {
+    init(id: String, connected: Bool = false, lastSeenAt: String? = nil, via: String? = nil,
+         lastCalledAt: String? = nil) {
         self.id = id; self.connected = connected; self.lastSeenAt = lastSeenAt; self.via = via
+        self.lastCalledAt = lastCalledAt
     }
 
-    enum CodingKeys: String, CodingKey { case id, connected, lastSeenAt, via }
+    enum CodingKeys: String, CodingKey { case id, connected, lastSeenAt, via, lastCalledAt }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -19,6 +24,7 @@ struct AgentLiveRow: Decodable, Equatable, Identifiable {
         connected = c.lenient(.connected, false)
         lastSeenAt = c.lenient(.lastSeenAt)
         via = c.lenient(.via)
+        lastCalledAt = c.lenient(.lastCalledAt)
     }
 }
 

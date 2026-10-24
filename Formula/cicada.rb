@@ -13,7 +13,7 @@
 class Cicada < Formula
   desc "Memory for your AI agents: a git-versioned markdown knowledge graph"
   homepage "https://github.com/rorosaga/cicada"
-  url "https://github.com/rorosaga/cicada.git", tag: "v0.7.2"
+  url "https://github.com/rorosaga/cicada.git", tag: "v0.7.3"
   license "MIT"
   head "https://github.com/rorosaga/cicada.git", branch: "dev"
 

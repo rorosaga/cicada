@@ -87,7 +87,11 @@ Seven rails hold across all of them:
   count as no re-save, each reason but the first recorded in `removals_skipped`. A move or rename keeps the URL in the
   file, so it never marks. **No inbox question:** until v4 the sync asked "Still keep …?" (`removal`, G129 slice 2) — it
   existed because the bookmark sync had no other way to say a link had left the browser and no way to remove one from
-  Cicada; now the status says the first and the bookmark page's Remove does the second. A pending bookmark removal
+  Cicada; now the status says the first and the bookmark page's Remove does the second. **An unchanged file is no news (perf 2026-10-24):** the
+seen-set is rewritten only when its hashes, folder scope, `newest_added` or `left` map move
+(`bookmark_seen.entry_unchanged`); a sync that changes none of them writes nothing and commits nothing. Before, every
+wake of an unchanged file (the watch fires on each write Chrome makes) rewrote the file with a new `at` and made a
+`Bookmark sync` commit, and the file's mtime ticked the app's sources domain. A pending bookmark removal
   question is retired on the channel's next sync, its link marked from the day it was asked (`_retire_removal_questions`,
   trigger `sync/bookmark_left`); papers' `removal` questions are untouched.
 - **Capture must not depend on a model deciding to call a tool** (G105). Every Claude Code and
@@ -241,6 +245,19 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   episode carries `processed_by` (`sleep` vs `agent`) so a flipped flag is distinguishable from a
   consolidation. `processed_by` also takes `user` — a companion note the person wrote in the app
   (G141 PJ-3b's Log; already processed, so Sleep never re-reads it).
+- **Both dates on every episode** (TODO ruling 39, owner 2026-10-24: "have both dates recorded for everything when
+  available"). `timestamp` stays the item's own date where its source gives one — a note's last edit, a message's
+  send, a bookmark's `date_added`, a reminder's creation or completion, a Notion row's date, a watched day's first
+  watch, a calendar event's start once begun, a feed item's publication — and `received_at` (aware UTC,
+  `episode_ids.RECEIVED_KEY`) is when Cicada received it. `create_episode` stamps it on every new episode, right after
+  `timestamp` with the `turns` sidecar still last (`stamp_received`); the stager writes it in `write_new`
+  (`EpisodeDraft.received_at` pins it for a writer with a pinned clock, the demo); a writer's own value wins. It is set
+  once: an edit in place, a re-date (`redated_from` keeps the moved `timestamp`, never the receipt), a rename, a relay
+  upgrade and a tombstone leave it. A live hook's two dates are the same moment, both written. Ids are never renamed
+  for it and older episodes are not backfilled: a missing `received_at` is unknown. `test_both_dates.py` fails when a
+  module that mints an episode id creates one without it. Surfaces show the received day only when it is at least two
+  days after the item's own (`episode_time.received_shown` / `received_after`): the Reader's meta line, a Sources list
+  row's help and spoken label (`received`), recall's excerpt label.
 - **Unique across processes, revision-safe against Sleep** (audit 2026-10-02 K01/A01). A new episode
   is created with `episode_ids.create_episode`, which never replaces a file: when another process
   (a stdio MCP server, the Stop hook, the backend) took the minted id first, it mints again. Dedup
@@ -913,7 +930,10 @@ or `updated` write queues anything. A job held back by Sleep, a re-embed or the 
 
 **Claim preservation (G148 regression):** Stage 5 rewrites prose with the stored `claims` fences removed from section parsing, then reattaches those fences unchanged. Rebuilding `Related` cannot remove beliefs before the claim pipeline reconciles them; synthesis output never authors a claims fence.
 
-**`Related` reads the edges once:** `apply_changes` builds each entity's edges from `graph_edges.yaml` on the first update that needs them and reuses them for every page that pass merges (nothing in the pass writes the file); every reader of that file uses `markdown_parser.load_yaml`, the libyaml safe loader. The file grows with the claims; on a 2,000-page synthetic bank one pure-Python read cost ~3.8 s and was paid once per merged entity (`benchmarks/scale`). The hot readers (`apply_changes`, `_write_graph_edges`, `graph_builder`'s regenerate, upsert and graph read) go through `markdown_parser.load_yaml_file`, which parses the file once per change of its (inode, mtime, size) and hands each caller a private copy; `write_yaml` leaves what it wrote there, so a read straight after another step's write is a copy, not a parse (2026-10-16: a batch parsed the ~5 MB owner-scale file ~5 times at ~1.1 s each; a 3-batch synthetic drain went 147 s → 120 s).
+**`Related` reads the edges once:** `apply_changes` builds each entity's edges from `graph_edges.yaml` on the first update that needs them and reuses them for every page that pass merges (nothing in the pass writes the file); every reader of that file uses `markdown_parser.load_yaml`, the libyaml safe loader. The file grows with the claims; on a 2,000-page synthetic bank one pure-Python read cost ~3.8 s and was paid once per merged entity (`benchmarks/scale`). The hot readers (`apply_changes`, `_write_graph_edges`, `graph_builder`'s regenerate, upsert and graph read) go through `markdown_parser.load_yaml_file`, which parses the file once per change of its (inode, mtime, size) and hands each caller a private copy; `write_yaml` leaves what it wrote there, so a read straight after another step's write is a copy, not a parse (2026-10-16: a batch parsed the ~5 MB owner-scale file ~5 times at ~1.1 s each; a 3-batch synthetic drain went 147 s → 120 s). Each link's label is read against the claims on the page it starts from; `related_edges` indexes a page's claims by
+object once per rebuild instead of scanning the whole fence per edge (perf 2026-10-24: the owner page's thousands of
+links × thousands of claims on every owner write and every `refresh_related`; a 2-batch owner-scale drain spent 7.0 s
+in `_reconcile_related`, now 1.3 s, labels identical — `test_related_labels.py` checks them against a full scan).
 
 **One batch's page reads come from a cache (2026-10-16, owner decision 1).** Every step of a batch re-reads the pages —
 ~212k parses on a 3-batch owner-scale drain. `_run_batch` runs each batch inside `markdown_parser.page_cache(bank)`:
@@ -1003,6 +1023,13 @@ the page on that path (the prompt is given only the description and history — 
 offline eval) and a fact the rewrite left out or rephrased was dropped or doubled. Every exact item now keeps its
 source row on this path too. The cost: the rewrite can no longer delete a Key Fact it judged superseded; the dated
 History line it adds and the contradiction check's question to the person are how a superseded fact is resolved.
+
+**The legacy merge asks only for what is kept (perf report 2026-10-24, item 2).** Since only the Summary and the new
+History lines were ever kept, the call now asks for exactly those: `{"summary": …, "history": ["YYYY-MM-DD: …"]}`.
+It used to rewrite the whole body, about 3k output tokens a call and 26% of Sleep's model time. `_body_from_answer`
+builds the page body every caller already takes: the page as it is, every section kept exactly (a hand-written one
+included), with the answer's Summary and its new History lines (`adopt_rewrite`). Stage 5 and the inbox's conflict
+answer read it unchanged. An answer that is not that JSON is read as a whole body, as before.
 
 **A re-read is not a new mention (page quality, 2026-10-09).** Stage 3 makes no synthesis or contradiction call for
 an update whose conversations the page already credits (a resumed conversation read again, G104) when every sentence
@@ -1741,6 +1768,25 @@ now differs from what was added only in `confidence`, `status` and `decayed_thro
 stages the whole file, so a hand edit it carried shows). Anything else is kept. Same rails as the rest of the tool:
 refused while Sleep runs, dirty pages skipped, one `cicada` commit (`trigger: maintenance/skill-archive`).
 
+**Every engine call sends Cicada's own system prompt (perf report 2026-10-24, items 1 and 3).** `agent_engine.build_argv`
+always passes `--system-prompt=`, the replace form and never `--append-system-prompt`. A stage with no system message
+gets `DEFAULT_SYSTEM_PROMPT` (one line) instead of the CLI's default coding-agent prompt (~2.3k tokens a call).
+Disambiguation and the article writer have their own short ones. Every prompt ends with `CONTEXT_GUARD`, because the
+CLI still attaches context of its own. That includes **the signed-in account's email address**: on `claude` 2.1.310
+it comes from the plan sign-in, and no flag or variable removes it. In one benchmark Sleep it reached the owner page as
+three key facts. In the 2026-10-24 A/B a dev Sleep also gave the synthetic owner an alias made of the address's words
+before the `@`. The floor under the guard is `engine_identity`. On the Claude plan only, Stage 1 (link recon's batch
+call included) and the merge stage read the account's email from `claude auth status --json`, keep it in memory, and
+never log, write or send it. Async code reads it through `aidentities`, on a worker thread, so a cache miss never runs
+the CLI on the event loop. Its forms are the address, and the words before the `@` when there are two or more of three
+letters or more. The address counts only whole; the name only as its words adjacent and in order ("Anna May",
+"anna.may") or last word first before a comma ("May, Anna"), never the same words apart in a sentence. They drop
+any item carrying a form (an alias, a fact, a history line, a link, a claim, a summary sentence, an entity named for
+it, an article) unless what the model was given says it: the episode, the owner's name and source note in the
+extraction prompt, or the merge's own input. An address or a full name the person typed is kept, and the evidence
+rail places its span as before. The account's profile name is not filtered on its own, because it is often the
+owner's own page.
+
 **The engine's own runtime is never a page.** The `claude -p` CLI still tells the model its cwd, platform and shell despite `--system-prompt` (probed 2.1.x; `--exclude-dynamic-system-prompt-sections` is ignored with it), so the extraction prompt says that is not conversation content and Stage 2 drops, with a text-free debug line, any entity named for `$CICADA_HOME` or a path under it (`agent_engine.is_runtime_path`; the scratch dir is one).
 
 **The owner is never a page of a pronoun (G169).** One closed, language-aware list of self-reference spellings
@@ -2120,6 +2166,13 @@ with no timestamp or day and `untimed: true`. A change made only of memory entri
 `last_referenced`** (`created` and `decayed_through` are the cycle's day), and on an existing page moves neither
 `last_referenced` nor `decayed_through` and recovers no status; its facts, claims (with their `valid_from`) and
 `source_episodes` are written as usual. Any real conversation in the same change dates it as before.
+**A feed item is facts, not activity either** (TODO ruling 39, owner 2026-10-24). An RSS/Atom item is dated by when it
+was published (its `timestamp` and id day, `published_at`) and records when Cicada received it (`received_at`);
+`episode_time.is_feed_item` (`published_at` set, or `origin: rss` for the items written before, dated their poll day)
+makes it untimed by the same rule, so a new subscription's back catalogue is neither a burst of mentions today nor a
+page started years ago: what decay reads is the page's `last_referenced` / `decayed_through` / `learned_on` and the
+dated ids among `source_episodes`, and a feed id is never one of them. Stage 1 is told the item's published day and
+that it is the publisher's text (`source_dates.feed_note`), not an assistant's summary.
 Below 0.2 → `status: archived` (the page stays in `entities/`); below 0.4 → a decay nudge when live silence carries it across (never for what its age took there).
 Mentioned again → promoted back at `confidence = max(current, 0.6)` on the day it was said, read live or late (read
 on time); a mention never lowers, and one from long ago revives nothing its age would not have kept alive. Evergreen

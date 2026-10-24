@@ -346,10 +346,28 @@ def _obsolete(rows: list) -> list:
 
 def _repeats(sentence: str, obsolete: list) -> bool:
     """Does ``sentence`` repeat a closed claim's text or its literal value?"""
-    return any((c.text and c.text.casefold() in sentence.casefold()) or
-               (c.object_kind == "literal" and c.object and
-                re.search(r"(?<!\w)" + re.escape(c.object) + r"(?!\w)", sentence, re.IGNORECASE))
-               for c in obsolete)
+    return _repeater(obsolete)(sentence)
+
+
+def _repeater(obsolete: list):
+    """:func:`_repeats` for one page's closed claims, built once and asked of every sentence (perf 2026-10-24).
+
+    The same answer as testing each claim in turn — a closed claim's text inside the sentence (casefolded), or a
+    literal value as a whole word (case-insensitive) — with the texts folded once and the literals in one pattern: a
+    page with thousands of closed claims tested each of its sentences claim by claim, compiling a pattern per claim
+    (~170 ms of every Ask on the owner-scale synthetic bank)."""
+    texts = [c.text.casefold() for c in obsolete if c.text]
+    literals = sorted({c.object for c in obsolete if c.object_kind == "literal" and c.object}, key=len, reverse=True)
+    pattern = (re.compile(r"(?<!\w)(?:" + "|".join(re.escape(o) for o in literals) + r")(?!\w)", re.IGNORECASE)
+               if literals else None)
+
+    def repeats(sentence: str) -> bool:
+        if texts:
+            folded = sentence.casefold()
+            if any(t in folded for t in texts):
+                return True
+        return bool(pattern and pattern.search(sentence))
+    return repeats
 
 
 def _background(body: str, rows: list, *, include_history: bool) -> str:
@@ -357,9 +375,9 @@ def _background(body: str, rows: list, *, include_history: bool) -> str:
     prose = strip_claims_block(body)
     if include_history:
         return prose
-    obsolete = _obsolete(rows)
+    repeats = _repeater(_obsolete(rows))
     sentences = re.split(r"(?<=[.!?])\s+|\n", prose)
-    return "\n".join(s for s in sentences if not _repeats(s, obsolete))
+    return "\n".join(s for s in sentences if not repeats(s))
 
 
 _LATEST = re.compile(
@@ -445,6 +463,7 @@ def _retrieved_entities(memory_path: Path, hits: list[dict], *, include_history:
         loaded["claim_rows"] = eligible
         loaded["obsolete"] = [] if include_history else _obsolete(page_claims)
         loaded["claim_hit"] = meta.get("claim_id")
+        loaded["_page_claims"] = page_claims   # parsed once: the citation's evidence reads them (`_citations_for`)
         loaded["context_body"] = _background(loaded["body"], page_claims, include_history=include_history)
         if not eligible and not loaded["context_body"].strip():
             continue
@@ -550,10 +569,11 @@ def _page_lines(ent: dict, terms: set[str], budget: int, similar=None,
         items, provenance = {}, {}
     rows = []
     obsolete = ent.get("obsolete") or []
+    repeats = _repeater(obsolete) if obsolete else None
     for section in _PROSE_SECTIONS:
         for item in items.get(section, []):
             text = item.text.strip()
-            if not text or (obsolete and _repeats(text, obsolete)):
+            if not text or (repeats is not None and repeats(text)):
                 continue
             evs = (provenance.get(section, {}).get(item.key) or (None, []))[1]
             rows.append({"section": section, "text": text, "evidence": evs,
@@ -1665,13 +1685,16 @@ def _conversation_list(conversations: dict[str, dict], ids: list[str]) -> list[d
     return [{"episode_id": ep, **conversations[ep]} for ep in ids if ep in conversations]
 
 
-def _claim_evidence(body: str, claim_id: str) -> list[dict]:
+def _claim_evidence(body: str, claim_id: str, claims: list | None = None) -> list[dict]:
     """G118 slice 2 (R-PB12): the spans behind a claim-first citation, read
     from the page itself — the source of truth — not from the claims index,
     whose metadata carries no evidence and is only as fresh as its last
     rebuild. ``body`` is the one ``_load_entity`` already read, so this is a
-    ``parse_claims`` and no I/O. ``[]`` when the claim is gone or legacy."""
-    for claim in parse_claims(body or ""):
+    ``parse_claims`` and no I/O; ``claims``, when given, are that body's claims as
+    ``_retrieved_entities`` already parsed them (perf 2026-10-24: the owner page's
+    thousands of claims were parsed a second time per citation). ``[]`` when the
+    claim is gone or legacy."""
+    for claim in (claims if claims is not None else parse_claims(body or "")):
         if claim.id == claim_id:
             return [e.to_dict() for e in claim.evidence]
     return []
@@ -1704,6 +1727,6 @@ def _citations_for(entities: list[dict], cite_ids: list[str]) -> list[dict]:
             claim_id = str(prov.get("claim_id") or "").strip()
             if claim_id:
                 citation["claim_id"] = claim_id
-                citation["evidence"] = _claim_evidence(ent.get("body", ""), claim_id)
+                citation["evidence"] = _claim_evidence(ent.get("body", ""), claim_id, ent.get("_page_claims"))
         citations.append(citation)
     return citations

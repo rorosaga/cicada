@@ -460,8 +460,10 @@ async def sync_bookmarks(
             base = {"left": {**retired_marks, **bookmark_seen.left_of(prev_entry)}}
             left = bookmark_seen.next_left(base, current_hashes, removed, at=at, held=set(idx))
             total_left += len(set(left) - set(base["left"]))
-            bookmark_seen.write_channel_seen(memory_path, channel, folders=folders, hashes=current_hashes, at=at,
-                                             newest_added=newest_added(items), left=left)
+            wanted = {"folders": folders, "hashes": current_hashes, "newest_added": newest_added(items), "left": left}
+            if bookmark_seen.entry_unchanged(prev_entry, **wanted):
+                continue   # nothing moved but the clock: no rewrite, no commit, no sources tick (perf 2026-10-24)
+            bookmark_seen.write_channel_seen(memory_path, channel, at=at, **wanted)
             seen_touched = True
 
     if retired_paths or seen_touched or revived_paths:

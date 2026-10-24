@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import sqlite3
 import threading
 import time
@@ -1296,10 +1297,38 @@ def _entity_embed_text(fm: dict, body: str, stem: str, *, mode: str = "full") ->
         from api.services import claims as claims_mod
 
         body = claims_mod.served_prose(body or "")[0]
+    else:
+        body = without_decay_marks(body or "")
     text = "\n".join(str(p) for p in [" ".join(header), body] if p).strip()
     if mode == "prose" and len(text) > ENTITY_EMBED_MAX_CHARS:
         text = text[:ENTITY_EMBED_MAX_CHARS].rstrip()
     return text
+
+
+#: The claim keys decay's bookkeeping moves while the words stay (perf 2026-10-24): a night's decay charges each
+#: claim's ``confidence`` and advances its ``decayed_through`` watermark (``faded_by_age`` marks one its age took
+#: below the question line). In ``full`` mode they sat inside the embedded claims fence, so every page decay touched
+#: (~1,500 a night on the owner's bank) hashed as changed and was re-embedded with the same words — ~30 ms a page
+#: with the small on-device model, all cores busy. Left out of the embedded text, a page is re-embedded only when
+#: what it says moves, and an entity vector no longer carries a confidence (confidence does not rank recall).
+_DECAY_MARK = r'"(?:confidence|decayed_through|faded_by_age)": (?:null|-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?|"[^"\\]*")'
+#: A mark after another key (``, "key": value`` before the next ``,`` or the closing brace), then one that opens the
+#: object (``{"key": value, ``). Run in that order, every mark goes, however many sit side by side.
+_DECAY_MARK_RE = re.compile(r", " + _DECAY_MARK + r"(?=[,}])")
+_DECAY_MARK_FIRST_RE = re.compile(r"(?<=\{)" + _DECAY_MARK + r"(?:, )?")
+
+
+def without_decay_marks(body: str) -> str:
+    """``body`` with decay's bookkeeping keys (:data:`_DECAY_MARK_RE`) taken out of its claims fence's JSON lines.
+
+    Only inside a ```claims block, and only the one-line JSON shape every claims writer renders
+    (``claims._jsonl_line``): a key quoted in a claim's text is escaped (``\\"``) there and never matches, and prose
+    outside the fence is untouched. A legacy YAML fence is left as it is (it is rewritten as JSON on its next write)."""
+    if "```claims" not in body:
+        return body
+    from api.services.claims import _CLAIMS_BLOCK_RE
+
+    return _CLAIMS_BLOCK_RE.sub(lambda m: _DECAY_MARK_FIRST_RE.sub("", _DECAY_MARK_RE.sub("", m.group(0))), body)
 
 
 def _resolve_embed_fn(memory_path: Path | None = None) -> tuple[EmbedFn, str]:

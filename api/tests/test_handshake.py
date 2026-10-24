@@ -224,7 +224,8 @@ def test_handshake_events_never_show_as_an_unknown_connection(tmp_path, monkeypa
     monkeypatch.setenv("CICADA_TELEMETRY", "on")
     monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
     handshake.record("http", {"variant": "generic", "state_present": False, "state_age_hours": None}, bank="memory")
-    out = asyncio.run(consumption_stats.stats(tmp_path / "memory", range_="30d", today=date.today()))
+    utc_today = datetime.now(timezone.utc).date()  # the ledger's day: UTC, like the routes
+    out = asyncio.run(consumption_stats.stats(tmp_path / "memory", range_="30d", today=utc_today))
     assert out["by_connection"] == []
     assert [row["bank"] for row in out["by_bank"]] == ["memory"]  # still visible where it is informative
 

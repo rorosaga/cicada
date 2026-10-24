@@ -457,6 +457,11 @@ enum ReaderHeader {
         if let day = ReaderTime.day(timestamp: doc.timestamp, episode: doc.episode, locale: locale,
                                     timeZone: timeZone) {
             parts.append(day)
+            // Ruling 39 — the day Cicada received it, only when the backend says it is days after the item's own.
+            if let received = ReaderTime.day(timestamp: doc.receivedAt, episode: "", locale: locale,
+                                             timeZone: timeZone) {
+                parts.append(Copy.Provenance.added(received))
+            }
         }
         if !doc.isPage, !doc.turns.isEmpty { parts.append(Copy.Provenance.turnCount(doc.turns.count)) }
         if !doc.isPage, let device { parts.append(Copy.Devices.from(device)) }

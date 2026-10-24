@@ -18,7 +18,7 @@ enum SourceBlurb {
     private static func fallback(kind: SourceKind, label: String) -> String {
         switch kind {
         case .harness:
-            return "Conversations captured from \(label), one episode per session."
+            return "Conversations captured from \(label), one per session."
         case .browser:
             return "Bookmarks and tabs from \(label), synced as you browse."
         case .social:
@@ -42,9 +42,9 @@ enum SourceBlurb {
     // (the kind fallback is a legitimate answer), but never regresses one
     // that already had a specific sentence.
     private static let byId: [String: String] = [
-        "chat-export:claude": "Claude conversations you exported and imported, one episode per thread.",
-        "chat-export:chatgpt": "ChatGPT conversations you exported and imported, one episode per thread.",
-        "chat-export:gemini": "Your Gemini prompts and replies from Takeout, one episode per prompt.",
+        "chat-export:claude": "Claude conversations you exported and imported, one per thread.",
+        "chat-export:chatgpt": "ChatGPT conversations you exported and imported, one per thread.",
+        "chat-export:gemini": "Your Gemini prompts and replies from Takeout, one per prompt.",
         "chrome-bookmarks": "Bookmarks you save in Chrome, synced as you add them.",
         "safari-bookmarks": "Bookmarks you save in Safari, synced as you add them.",
         // Round 4 (C9, R-SR1): the default profile only, so the blurb says "main profile".

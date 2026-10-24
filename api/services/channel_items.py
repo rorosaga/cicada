@@ -71,6 +71,8 @@ from api.services import (
     bookmark_seen,
     bookmark_sync,
     calendar_local,
+    episode_ids,
+    episode_time,
     contacts_local,
     reminders_local,
     episode_scrub,
@@ -97,7 +99,8 @@ from api.services.channel_registry import CHANNEL_IDS
 #: a watched day carries `videos` and the month summaries are not listed.
 #: `g161-6`: marks-2 — a saved YouTube video's row carries `video` (its still is asked by the page's id), and a saved
 #: link still waiting for Sleep (an episode row) carries `host`/`site` (its icon is asked by the episode's id).
-SHAPE = "g161-6"
+#: `g161-7`: ruling 39 — a row whose item came in days after its own date carries `received` (that day).
+SHAPE = "g161-7"
 LIMIT_DEFAULT = 50
 LIMIT_MAX = 200
 TITLE_CAP = 120
@@ -204,6 +207,16 @@ def _row(kind: str, item_id: str, title: str, day: str | None, sort_at: datetime
             "_sort": (sort_at or datetime.min.replace(tzinfo=timezone.utc)).timestamp()}
 
 
+def _with_received(row: dict, received: str | None) -> dict:
+    """Ruling 39: a row whose item Cicada received days after its own date says that day too (``received``, the
+    Sources page's day rule) — a feed's back catalogue, an old bookmark; absent otherwise, so the common row says its
+    one day once."""
+    day = _day(received) if received else None
+    if day:
+        row["received"] = day
+    return row
+
+
 def _without_day(title: str, day: str | None) -> str:
     """Sources v4 (owner 2026-10-19: "avoid repetition") — a title that ends with the row's own day (a Messages
     sitting's "… · 2026-10-19", a watched day's) drops it: the row already shows that day, once, on its right."""
@@ -221,8 +234,9 @@ def _episode_row(fm: dict, stem: str, *, when_key: str | None = None) -> dict:
     when = own or fm.get("original_date") or fm.get("timestamp")
     # An event's day is its own calendar day as written (`2026-10-01T09:00:00-05:00` is Oct 1), never shifted to UTC.
     day = _day(str(own)[:10]) if own and len(str(own)) >= 10 else _day(when)
-    return _row("episode", str(fm.get("id") or stem), _without_day(_title(fm.get("title")), day), day,
-                _instant(when) or _instant(fm.get("timestamp")))
+    row = _row("episode", str(fm.get("id") or stem), _without_day(_title(fm.get("title")), day), day,
+               _instant(when) or _instant(fm.get("timestamp")))
+    return _with_received(row, episode_time.received_after(when, fm.get(episode_ids.RECEIVED_KEY)))
 
 
 class _Media:
@@ -246,9 +260,12 @@ class _Media:
         if fm is None or source_overview.is_hidden(fm):
             return None   # the Feed hides it too (F6), so a click would land nowhere
         entry = self.by_entity.get(entity_id) or {}
-        saved = entry.get("content_saved_at") or entry.get("saved_at") or fm.get("created")
+        own = entry.get("content_saved_at") or entry.get(episode_time.PUBLISHED_KEY)
+        saved = own or entry.get("saved_at") or fm.get("created")
         title = entry.get("title") or fm.get("name") or entry.get("url") or entity_id
         row = _row("media", entity_id, _title(title), _day(saved), _instant(saved))
+        # Ruling 39: the url index's `saved_at` is when Cicada took the link in; shown only beside an own date.
+        _with_received(row, episode_time.received_after(own, entry.get("saved_at")) if own else None)
         # Read only for the page served (`items`): the site and the why are per-row file reads at thousands of rows.
         row["_url"] = entry.get("url") or fm.get("url")
         row["_episode"] = entry.get("episode_id")

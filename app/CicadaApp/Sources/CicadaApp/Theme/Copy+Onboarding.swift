@@ -116,10 +116,14 @@ extension Copy {
     /// Intelligence (ruling 36 D1): a signed-in plan is pre-selected and said in words, with what will run; a key is
     /// an equal option one click away; a local model is never pitched.
     static let intelTitle = "Who reads your memory"
-    static let intelSubline = "Pages are built while you sleep."
-    /// D1 — "that step says in words what will run": the person's own harness, on their own plan's limits. The name is
-    /// the person's own current choice (provider-neutral copy's one exception).
-    static func intelRuns(_ harness: String) -> String { "Cicada runs your own \(harness) on your plan." }
+    /// Onboarding v3: the worm speaks, lightly, in the first person (HeyClicky's "I hear best on…").
+    static let intelSubline = "I build your pages while you sleep."
+    /// The plan's card names the plan once (ruling 39, 2026-10-24: "avoid repetition"). Settings → Intelligence keeps
+    /// its own headline (`Copy.EngineHeadline.usingPlan`); this card stands alone, so "you're signed in" goes unsaid.
+    static func intelUsing(_ plan: String) -> String { "Using your \(plan)" }
+    /// D1 — "that step says in words what will run": the person's own harness, on the plan the line above names. The
+    /// name is the person's own current choice (provider-neutral copy's one exception).
+    static func intelRuns(_ harness: String) -> String { "Cicada runs your own \(harness)." }
     static let intelUseKey = "Use an API key"
     static let intelUsePlan = "Use my plan"
     static let intelMoreKeys = "More keys in"
@@ -129,7 +133,6 @@ extension Copy {
     /// Agents.
     static let agentsTitle = "Connect your agents"
     static let agentsSubline = "They read your memory and add to it."
-    static let agentsFound = "Found"
     static let agentsConnect = "Connect"
     static let agentsRun = "Run these"
     static let agentsShowCommands = "Show commands"
@@ -138,9 +141,22 @@ extension Copy {
     static let agentsAnother = "Another agent"
     static let agentsPersonal = "Personal agents"
     static let agentsPersonalNames = "Grok Bot, Muse, Instinct, Dots, Poke"
+    /// Onboarding v3 (DR-39): *Another agent* and *Personal agents* fold under one remembered disclosure.
+    static let agentsOther = "Other agents"
+    static let agentsOtherSummary = "Any other agent · personal agents"
+    /// The one live check (after HeyClicky's "Testing, testing, 1, 2, 3" chip): the exact words to say to the person's
+    /// own agent — named only when it is theirs (provider-neutral copy), else "your agent".
+    static let agentsTryLead = "Then try it:"
+    static let agentsTryPrompt = "What do you remember about me?"
+    static func agentsTryAsk(_ agent: String?) -> String {
+        "Ask \(agent ?? "your agent"): what do you remember about me?"
+    }
+    static let agentsTryCopyHelp = "Copy the question"
+    /// The moment the first call lands: the agent that called, by its own name.
+    static func agentsFirstCall(_ agent: String) -> String { "\(agent) just called me. It works." }
 
     /// Sources.
-    static let sourcesSubline = "Tick what Cicada may read. Nothing is read before you tick."
+    static let sourcesSubline = "Tick what I may read. I read nothing before you tick."
     static let sourcesChats = "Chat history"
     static let sourcesDropFile = "Drop a file"
     static let sourcesHowToExport = "How to get an export"
@@ -148,26 +164,44 @@ extension Copy {
     static let sourcesComingIn = "Coming in"
     static let sourcesNeedsYou = "Needs you"
     static let sourcesOff = "Off"
-    /// R-OB7's consent, on the tile itself: the tick opens the setting and the source starts once it is allowed.
-    static let sourcesNeedsAccess = "Needs Full Disk Access. A tick opens the setting"
+    /// R-OB7's consent, on the tile itself: the tick shows the drag helper and the source starts once it is allowed.
+    static let sourcesNeedsAccess = "Needs Full Disk Access. A tick shows you how"
+    /// Onboarding v3 (DR-39): the tiles this Mac has data for lead; the accounts and Messages fold under one disclosure.
+    static let sourcesMore = "More sources"
 
     /// Home's Getting started after onboarding: what onboarding covered, as one line (`GettingStartedFold`).
     static func gsCoveredInSetup(_ n: Int, locale: Locale = .autoupdatingCurrent) -> String {
         n == 1 ? "1 thing already set up" : "\(UsageFormat.count(n, locale: locale)) things already set up"
     }
 
-    /// Done: what happens next, in one line (`DoneLine`).
-    static let doneLead = "Talk to your agent; Cicada remembers."
-    static func doneScheduled(_ when: String) -> String { "It reads \(when)." }
+    /// Done: what happens next, in one line (`DoneLine`) — in the worm's voice since onboarding v3.
+    static let doneLead = "Talk to your agent; I'll remember."
+    static func doneScheduled(_ when: String) -> String { "I read \(when)." }
     /// The owner's words (2026-10-22): "Cicada reads tonight, and now for what you brought in".
-    static func doneScheduledAndNow(_ when: String) -> String { "It reads \(when), and now for what you brought in." }
-    static let doneImportsNow = "It reads what you brought in now."
+    static func doneScheduledAndNow(_ when: String) -> String { "I read \(when), and now for what you brought in." }
+    static let doneImportsNow = "I read what you brought in now."
     /// The same "now", when it runs on a key the person chose — named, never left unsaid (re-review 2026-10-22).
-    static func doneImportsNowOnKey(_ provider: String) -> String { "It reads what you brought in now, on your \(provider) key." }
+    static func doneImportsNowOnKey(_ provider: String) -> String { "I read what you brought in now, on your \(provider) key." }
     static func doneScheduledAndNowOnKey(_ when: String, _ provider: String) -> String {
-        "It reads \(when), and now, on your \(provider) key, for what you brought in."
+        "I read \(when), and now, on your \(provider) key, for what you brought in."
     }
     static let doneReadNow = "Read now on Home builds your first pages."
+
+    /// Done (onboarding v3, 2026-10-24): it ends on the person's own memory, not "You're set." The flow's one wink is
+    /// the title.
+    static let doneTitle = "That's it. I'll take it from here."
+    static let doneAlready = "In your memory"
+    static let doneReading = "Reading now"
+    static let doneEmpty = "Nothing yet."
+    /// A conversation that came in with no title of its own.
+    static let doneUntitled = "A conversation"
+    /// The count under the first few: "and 9 more".
+    static func doneMore(_ n: Int, locale: Locale = .autoupdatingCurrent) -> String {
+        "and \(UsageFormat.count(n, locale: locale)) more"
+    }
+    /// What a revealed row is, for VoiceOver: a page, or a conversation waiting to be read.
+    static let donePage = "Page"
+    static let doneWaiting = "Waiting to be read"
 
     /// Buttons, titles and one-line captions — ≤ 60 characters (CopyConstantsTests).
     static var onboardingLabels: [String] {
@@ -179,11 +213,15 @@ extension Copy {
          seeHowChatGPTPath, seeHowGeminiPath, seeHowOpenPage("ChatGPT"), seeHowSteps(11), seeHowStepOf(11, 11),
          seeHowWhere(host: "takeout.google.com", path: seeHowGeminiPath), onboardingContinue, onboardingBack,
          onboardingOpenCicada, onboardingStepOf(6), onboardingComingIn(4), welcomeTryTheDemo, readyTitle, onboardingSkip, intelTitle,
-         intelSubline, intelRuns("Claude Code"), intelUseKey, intelUsePlan, intelMoreKeys, intelMoreKeysWhere, intelNothing, agentsTitle, agentsSubline,
-         agentsFound, agentsConnect, agentsRun, agentsShowCommands, agentsDone, agentsNoneFound, agentsAnother, agentsPersonal,
+         intelSubline, intelUsing("Claude plan"), intelRuns("Claude Code"), intelUseKey, intelUsePlan, intelMoreKeys, intelMoreKeysWhere, intelNothing, agentsTitle, agentsSubline,
+         agentsConnect, agentsRun, agentsShowCommands, agentsDone, agentsNoneFound, agentsAnother, agentsPersonal,
          agentsPersonalNames, sourcesSubline, sourcesChats, sourcesDropFile, sourcesHowToExport, sourcesOn,
          sourcesComingIn, sourcesNeedsYou, sourcesOff, sourcesNeedsAccess, doneLead, doneScheduled("tonight at 3:00"), doneImportsNow,
-         doneReadNow, gsCoveredInSetup(1), gsCoveredInSetup(4)]
+         doneReadNow, gsCoveredInSetup(1), gsCoveredInSetup(4), agentsOther, agentsOtherSummary, agentsTryLead,
+         agentsTryPrompt, agentsTryAsk("Claude Code"), agentsTryAsk(nil), agentsTryCopyHelp,
+         agentsFirstCall("Claude Code"), sourcesMore, doneTitle, doneAlready, doneReading, doneEmpty, doneUntitled, doneMore(9),
+         donePage, doneWaiting]
+            + Copy.Permission.labels
             + ChatVendor.allCases.map(importWait)
     }
 

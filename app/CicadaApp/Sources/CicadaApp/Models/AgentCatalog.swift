@@ -9,7 +9,7 @@ struct AgentCatalogEntry: Identifiable, Equatable {
         /// Copy and send a prompt; `runsItself` = it runs a command (vs. edits its own settings, R-AG3).
         case prompt(runsItself: Bool)
         case deeplink
-        /// R-AG2: the Claude app (config merge) first, claude.ai (remote) as Advanced.
+        /// R-AG2: Claude Desktop (config merge) first, claude.ai (remote) as Advanced.
         case claude
         case remote(RemoteApp)
         /// 2026-10-14 — "another agent": any agent not in the list adds Cicada to its own MCP settings from one
@@ -36,7 +36,7 @@ enum AgentCatalog {
               kind: .prompt(runsItself: true), setupHarnesses: ["claude-code"], featured: true),
         .init(id: "codex", name: "Codex", mark: "codex", symbol: "terminal",
               kind: .prompt(runsItself: true), setupHarnesses: ["codex"], featured: true),
-        .init(id: "claude", name: "Claude", mark: "claude", symbol: "bubble.left.and.bubble.right",
+        .init(id: "claude", name: "Claude Desktop", mark: "claude", symbol: "bubble.left.and.bubble.right",
               kind: .claude, setupHarnesses: ["claude-desktop", "claude"], featured: true),
         .init(id: "chatgpt", name: "ChatGPT", mark: "chatgpt", symbol: "bubble.left.and.bubble.right",
               kind: .remote(.chatgpt), setupHarnesses: ["chatgpt"], featured: true),

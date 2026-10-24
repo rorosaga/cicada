@@ -211,7 +211,7 @@ final class SourcesPageTests: XCTestCase {
         let mystery = SourceOverview(id: "origin:mystery-app", label: "mystery-app", kind: .import)
         XCTAssertEqual(SourceBlurb.text(for: mystery), "Links or files you added through mystery-app.")
         let cursor = SourceOverview(id: "harness:cursor", label: "Cursor", kind: .harness)
-        XCTAssertEqual(SourceBlurb.text(for: cursor), "Conversations captured from Cursor, one episode per session.")
+        XCTAssertEqual(SourceBlurb.text(for: cursor), "Conversations captured from Cursor, one per session.")
     }
 
     // MARK: - Track D: the queue strip

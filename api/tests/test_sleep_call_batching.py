@@ -50,7 +50,7 @@ def test_one_judge_call_numbers_each_entry_and_cuts_it_as_the_pair_prompt(monkey
     # The project entry is a type mismatch: `different` without asking; the two tools are entries 1 and 2.
     assert out == ["different", "different", "same"]
     assert len(prompts) == 1
-    prompt = prompts[0][0]["content"]
+    prompt = prompts[0][-1]["content"]   # after the judge's own system message
     assert "[1] Name: Alpha Notes" in prompt and "[2] Name: Alpha Sync" in prompt and "Alpha Engine" not in prompt
     assert "x" * 2000 in prompt and "x" * 2001 not in prompt          # each body cut at 2,000, as one pair
     assert "y" * 1500 in prompt and "y" * 1501 not in prompt          # the new description at 1,500

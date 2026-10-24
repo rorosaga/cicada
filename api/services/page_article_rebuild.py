@@ -297,6 +297,9 @@ async def write(result: Survey, settings, jobs: list[Job] | None = None) -> Surv
     llm_fn = resolve_llm_fn(settings, model=settings.effective_consolidation_model, completion=completion,
                             stage="merge")
 
+    from api.services import engine_identity
+
+    plan_ids = await engine_identity.aidentities(settings)
     in_a_row = result._in_a_row   # carried across batches: pages failing in a row is the run's, not a batch's
 
     async def one(job: Job) -> None:
@@ -315,7 +318,7 @@ async def write(result: Survey, settings, jobs: list[Job] | None = None) -> Surv
                 raise _Stop(f"{in_a_row['n']} pages in a row failed in the engine (last: {reason})") from exc
 
     async def ask(job: Job) -> None:
-        response = await llm_fn(messages=[{"role": "user", "content": job.writer["prompt"]}],
+        response = await llm_fn(messages=entity_article.messages(job.writer["prompt"]),
                                 response_format={"type": "json_object"})
         result.calls += 1
         model = getattr(response, "model", None)
@@ -324,8 +327,8 @@ async def write(result: Survey, settings, jobs: list[Job] | None = None) -> Surv
         raw = json_parse.parse_json_object(response.choices[0].message.content)
         written = entity_article.parse(raw, job.writer["inputs"], name=job.writer["name"],
                                        aliases=job.writer["aliases"], known=job.writer["known"])
-        if written is None:
-            result.invalid += 1
+        if written is None or (plan_ids and engine_identity.leaks(raw, job.writer["prompt"], plan_ids)):
+            result.invalid += 1   # an article carrying the engine's own account is no article (engine_identity)
             return
         for reason, n in written.dropped.items():
             result.paragraphs_left_out[reason] = result.paragraphs_left_out.get(reason, 0) + n

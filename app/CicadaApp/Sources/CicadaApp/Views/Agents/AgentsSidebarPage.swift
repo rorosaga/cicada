@@ -154,16 +154,18 @@ struct AgentSummary: Equatable {
         return out
     }
 
-    /// Connected when seen just now; Set up when configured, with conversations, or seen before; else Not set up.
+    /// Connected (green) when seen just now, configured, with conversations, or seen before (the line says when); else
+    /// Not connected.
     func presence(now: Date = Date()) -> Copy.Presence {
         Copy.Presence.of(seen: lastSeen, configured: connected, conversations: conversations, now: now)
     }
 
     /// "on this machine · 3 min ago · 12 conversations", or "… · last seen Oct 21 · …" — each part only when known.
+    /// Where it was seen, never where it could connect: a row nothing has seen says nothing (ruling 39 — "on this
+    /// machine" stood under nearly every row; the detail's Products say how each one connects).
     func line(now: Date) -> String {
         var parts: [String] = []
         let whereWord = via.flatMap { $0 == "remote" ? Copy.AgentsPage.connectsWord("remote") : Copy.AgentsPage.connectsWord("stdio") }
-            ?? connects.first.flatMap(Copy.AgentsPage.connectsWord)
         if let whereWord { parts.append(whereWord) }
         if let lastSeen {
             parts.append(presence(now: now) == .connected ? Copy.AgentsPage.seen(lastSeen, now: now)
@@ -180,6 +182,35 @@ struct AgentSummary: Equatable {
         var parts: [String] = [token.scopes.joined(separator: ", ")]
         if let used = token.lastUsedAt.flatMap(ISODate.parse) { parts.append(Copy.AgentsPage.seen(used)) }
         return parts.filter { !$0.isEmpty }.joined(separator: " · ")
+    }
+}
+
+/// The Products list of an umbrella's detail, pure (tested). A way that is two products (`remoteLabel`, ruling 39) is
+/// two lines: the local app by its own name with how it connects here ("Claude Desktop · on this machine"), and the
+/// remote surface by its name with the connector and the account's export ("claude.ai · from anywhere · by export") —
+/// so the connector is never named after the Mac app.
+enum AgentProducts {
+    struct Line: Equatable, Identifiable {
+        let id: String
+        let wayId: String
+        let name: String
+        let connects: [String]
+    }
+
+    static let remoteConnects: Set<String> = ["remote", "export"]
+
+    static func lines(_ ways: [ProviderWay]) -> [Line] {
+        ways.flatMap { way -> [Line] in
+            guard let remote = way.remoteLabel, !remote.isEmpty else {
+                return [Line(id: way.id, wayId: way.id, name: way.label, connects: way.connects)]
+            }
+            let here = way.connects.filter { !remoteConnects.contains($0) }
+            let there = way.connects.filter { remoteConnects.contains($0) }
+            var out: [Line] = []
+            if !here.isEmpty { out.append(Line(id: way.id, wayId: way.id, name: way.label, connects: here)) }
+            if !there.isEmpty { out.append(Line(id: "\(way.id)#remote", wayId: way.id, name: remote, connects: there)) }
+            return out
+        }
     }
 }
 
@@ -230,17 +261,17 @@ private struct AgentDetailColumn: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
-                DetailHeader(title: umbrella.label, blurb: summary.line(now: Date()), backLabel: backLabel,
+                DetailHeader(title: umbrella.label, blurb: Optional(summary.line(now: Date())).flatMap { $0.isEmpty ? nil : $0 }, backLabel: backLabel,
                              onShowList: onClose, closeHelp: Copy.Projects.closeHelp, onClose: onClose) {
                     LogoTile(logo: umbrella.logo, name: umbrella.label)
                 }
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
                     SectionLabel(Copy.AgentsPage.products)
                     VStack(alignment: .leading, spacing: 0) {
-                        ForEach(Array(umbrella.ways.enumerated()), id: \.element.id) { index, way in
+                        ForEach(Array(AgentProducts.lines(umbrella.ways).enumerated()), id: \.element.id) { index, line in
                             if index > 0 { SettingsDivider() }
-                            ConnectionLine(logo: AgentSummary.mark(way.id), name: way.label, systemFallback: "terminal",
-                                           detail: way.connects.compactMap(Copy.AgentsPage.connectsWord)
+                            ConnectionLine(logo: AgentSummary.mark(line.wayId), name: line.name, systemFallback: "terminal",
+                                           detail: line.connects.compactMap(Copy.AgentsPage.connectsWord)
                                                .joined(separator: " · ")) { EmptyView() }
                         }
                     }

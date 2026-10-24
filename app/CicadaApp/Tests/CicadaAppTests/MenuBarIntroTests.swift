@@ -49,12 +49,16 @@ final class MenuBarIntroTests: XCTestCase {
         manager.introduce(.instant, defaults: defaults)
         XCTAssertTrue(manager.isVisible)
         XCTAssertEqual(MenuBarIntro.phase(defaults), .done)
+        // Onboarding v3: the flight is Done's closing beat. Skip and Continue on the worm's step only move on to Done;
+        // Open Cicada by pointer flies (when the worm's frame is known), ⏎ never does (DR-60).
         let view = try? source("Views/Onboarding/OnboardingView.swift")
-        XCTAssertTrue(view?.contains("onSkip: { passMenuBarStep(.instant, .pointer) }") == true, "Skip never flies")
-        XCTAssertTrue(view?.contains("case .menuBar: passMenuBarStep(.instant, input)") == true,
-                      "⏎ never flies (DR-60)")
-        XCTAssertTrue(view?.contains("frame.map { .fly(from: $0) } ?? .instant") == true,
-                      "Continue by pointer flies, and only when the worm's frame is known")
+        XCTAssertTrue(view?.contains("onSkip: { go(.done, .pointer) }") == true, "Skip moves on, the worm waits")
+        XCTAssertTrue(view?.contains("case .done: openCicada(input == .keyboard ? .openCicadaByKey : .openCicadaByPointer")
+                      == true, "⏎ on Done is the key's exit")
+        XCTAssertEqual(OnboardingExit.openCicadaByKey.reveal(from: CGRect(x: 1, y: 1, width: 9, height: 9),
+                                                            reduceMotion: false), .instant, "⏎ never flies (DR-60)")
+        XCTAssertEqual(OnboardingExit.openCicadaByPointer.reveal(from: nil, reduceMotion: false), .instant,
+                       "no frame, no flight")
     }
 
     /// Hyrum: anyone who ran an earlier build has some `cicada.` key — the switch, a theme, an onboarded bank — and no
@@ -164,12 +168,15 @@ final class MenuBarIntroTests: XCTestCase {
 final class MenuBarStepTests: XCTestCase {
     func testTheStepExplainsWhatTheBadgeReallyCounts() {
         XCTAssertEqual(Copy.MeetWorm.title, "Meet your bookworm")
-        XCTAssertEqual(Copy.MeetWorm.subline, "It lives in your menu bar.")
-        XCTAssertEqual(Copy.MeetWorm.number, "Its number is how many conversations are waiting to become memory.")
-        XCTAssertEqual(Copy.MeetWorm.goesDown, "When Cicada sleeps, it reads them and the number goes down.")
+        // Onboarding v3: the worm speaks for itself, and points at the real item on a rerun.
+        XCTAssertEqual(Copy.MeetWorm.subline, "I'll live in your menu bar.")
+        XCTAssertEqual(Copy.MeetWorm.sublineShown, "That's me, up in your menu bar.")
+        XCTAssertEqual(Copy.MeetWorm.number, "My number counts conversations waiting to become memory.")
+        XCTAssertEqual(Copy.MeetWorm.goesDown, "When I sleep, I read them and it goes down.")
         XCTAssertTrue(Copy.waitingForSleep(3).contains("conversations waiting"),
                       "the same noun the menu bar's tooltip uses")
-        for line in [Copy.MeetWorm.title, Copy.MeetWorm.subline, Copy.MeetWorm.number, Copy.MeetWorm.goesDown] {
+        for line in [Copy.MeetWorm.title, Copy.MeetWorm.subline, Copy.MeetWorm.sublineShown, Copy.MeetWorm.number,
+                     Copy.MeetWorm.goesDown] {
             for jargon in ["episode", "consolidat", "badge", "queue", "readable", "Sleep cycle"] {
                 XCTAssertFalse(line.localizedCaseInsensitiveContains(jargon), "\(line) says \(jargon)")
             }

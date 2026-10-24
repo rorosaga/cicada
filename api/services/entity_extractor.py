@@ -568,6 +568,11 @@ async def extract(
     plan_name = engine_select.PLAN_NAMES.get(_engine, "Claude plan")
     tool_name = "Codex" if _engine == "codex-cli" else "Claude Code"
     entities_so_far = 0
+    # Perf report 2026-10-24, item 1: the plan account's email rides the CLI's own context. It is read once here and
+    # kept only in memory; an item carrying it is dropped below unless the conversation itself says it.
+    from api.services import engine_identity
+
+    plan_ids = await engine_identity.aidentities(settings)
 
     def _note_failed(episode: dict, exc: BaseException) -> None:
         if on_episode_failed is not None:
@@ -623,7 +628,14 @@ async def extract(
         # "Facts yes, activity no" (owner 2026-10-08): a memory export entry's date is the summary's, not a
         # mention's — its pages keep the facts and the source, never its date as when the thing came up.
         untimed = not episode_time.counts_as_activity(episode)
-        date_note = source_dates.summary_note(ep_day, today) if untimed else source_dates.date_note(ep_day, today)
+        # Ruling 39: a feed item is untimed too (no mention by the person), but its date is its publisher's, so the
+        # model is told when it was published rather than that it is an assistant's summary.
+        if episode_time.is_feed_item(episode):
+            date_note = source_dates.feed_note(ep_day, today)
+        elif untimed:
+            date_note = source_dates.summary_note(ep_day, today)
+        else:
+            date_note = source_dates.date_note(ep_day, today)
         # G179: a message conversation says who its other side is, before every chunk.
         source_note = correspondent_note(episode.get("correspondent"))
         their_observer = correspondent_observer(episode.get("correspondent"))
@@ -671,6 +683,12 @@ async def extract(
                         evidence.attach_relationship_evidence(value, ep_id, content, window=spans[ci],
                                                               kind_override=episode.get("evidence_kind"), gaps=gaps)
                     all_values.extend(chunk_values)
+
+                # What the model was given counts as said: the conversation, the owner's name and the source note.
+                given = "\n".join(t for t in (masked, owner or "", source_note or "") if t)
+                if plan_ids and engine_identity.scrub_extraction(all_entities, all_relationships, all_values,
+                                                                 given, plan_ids):
+                    logger.info(f"  {ep_id}: dropped what the engine took from its own account, not the conversation")
 
                 ep_origin = episode.get("origin", "unknown")
                 # The promotion rule's "more than 3 exchanges" and "the person's own words", counted on the

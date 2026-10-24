@@ -326,6 +326,7 @@ def _media_episode(bank_dir: Path, eid: str, title: str, url: str, media_type: s
           "url": url, "media_entity_id": eid, "folder": folder, "origin": origin}
     if processed:
         fm["processed_by"] = "sleep"
+    episode_ids.stamp_received(fm, now=at)   # ruling 39: a synthetic save, received when it was saved
     markdown_parser.write(episodes / f"{ep}.md", fm, body)
     return ep
 
@@ -401,6 +402,7 @@ def _write_calendar(bank_dir: Path, today: date) -> list[str]:
         drafts.append(episode_staging.EpisodeDraft(
             title=title, source_id=calendar_local.SOURCE_PREFIX + suffix, source=calendar_local.ORIGIN,
             origin=calendar_local.ORIGIN, body=body, timestamp=f"{today}T07:00:00+00:00", original_date=str(today),
+            received_at=f"{today}T07:00:00+00:00",
             extra={"event_start": start, "event_end": end, "calendar_id": cal}, writer="demo"))
     result = episode_staging.stage(drafts, bank_dir / "episodes", bank=bank_dir.name)
     sync_state.record_sync(bank_dir, calendar_local.CHANNEL_ID, count=len(_EVENTS), at=f"{today}T07:00:00+00:00")
@@ -413,6 +415,7 @@ def _write_tab_group(bank_dir: Path, today: date) -> list[str]:
     draft = episode_staging.EpisodeDraft(
         title=f"Tab group: {group['title']}", source_id=f"{tab_groups.SOURCE_PREFIX}chrome:Default:{group['identity']}",
         source="tab-group", origin=tab_groups.origin_for("chrome"), body=body, timestamp=f"{today}T08:00:00+00:00",
+        received_at=f"{today}T08:00:00+00:00",
         original_date=str(today), extra={"browser": "chrome", "profile": "Default", "tab_group_color": group["color"]},
         writer="demo")
     return list(episode_staging.stage([draft], bank_dir / "episodes", bank=bank_dir.name).paths)
@@ -493,6 +496,7 @@ def _write_capture(bank_dir: Path, today: date) -> str:
           "content_hash": hashlib.sha256(body.encode()).hexdigest()[:12], "session_id": SESSION,
           "harness": "claude-code", "capture_kind": "transcript", "captured_at": f"{day}T10:05:31+00:00"}
     episode_staging.set_turn_stamps(fm, stamps)
+    episode_ids.stamp_received(fm, now=fm["captured_at"])   # ruling 39: received when the hook captured it
     markdown_parser.write(episodes / f"{ep}.md", fm, body)
     return ep
 

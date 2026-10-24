@@ -2120,6 +2120,11 @@ def _share_content_token(a: str, b: str) -> bool:
     return bool(_name_tokens(a) & _name_tokens(b))
 
 
+#: The judge's own short system message (perf report 2026-10-24, item 3): with none, a plan engine would send its own
+#: default system prompt, ~2.3k tokens describing a coding agent, on every one of a night's judge calls.
+_DISAMBIG_SYSTEM = ("You judge whether entries in one person's knowledge graph name the same real-world thing, from "
+                    "the entries you are given, and answer in JSON.")
+
 _DISAMBIG_PROMPT = """You are deciding whether two entity entries from a personal knowledge graph refer to the same real-world thing.
 
 Both entries have overlapping names (for example a bare first name and that same first name with a surname) but the existing one was built from different conversations, so you need to look at the descriptions and decide whether merging them would be correct.
@@ -2211,7 +2216,7 @@ async def _llm_judge_same_entity(
             settings, model=disambig_model, completion=litellm.acompletion, stage="disambiguation"
         )
         response = await llm_fn(
-            messages=[{"role": "user", "content": prompt}],
+            messages=[{"role": "system", "content": _DISAMBIG_SYSTEM}, {"role": "user", "content": prompt}],
             response_format={"type": "json_object"},
             # Disable provider-side reasoning + cap the call: a same/different
             # judgment needs no chain-of-thought, and on GLM 5.2 reasoning-on
@@ -2339,7 +2344,7 @@ async def _llm_judge_batch(
             settings, model=disambig_model, completion=litellm.acompletion, stage="disambiguation"
         )
         response = await llm_fn(
-            messages=[{"role": "user", "content": prompt}],
+            messages=[{"role": "system", "content": _DISAMBIG_SYSTEM}, {"role": "user", "content": prompt}],
             response_format={"type": "json_object"},
             extra_body={"reasoning": {"enabled": False}},  # as the one-pair call: a judgment, no chain of thought
             timeout=120,

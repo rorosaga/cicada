@@ -272,3 +272,62 @@ def test_the_sources_etag_moves_when_a_bookmark_leaves(tmp_path, monkeypatch):
     etag = client.get("/sources").headers["etag"]
     _sync(memory, _chrome(A, B))
     assert client.get("/sources", headers={"If-None-Match": etag}).status_code == 200
+
+
+# --- An unchanged file is no news (perf 2026-10-24) ------------------------------------------------------------------
+
+def test_an_unchanged_bookmarks_file_rewrites_nothing_and_commits_nothing(tmp_path, monkeypatch):
+    """Every wake of an unchanged file used to rewrite the seen-set with a new ``at`` and commit it (one commit per
+    FSEvents wake, and an app refetch of the sources domain through the file's mtime). Nothing moved, nothing written;
+    a real change still advances the seen-set and commits it."""
+    from api.services import git_service
+
+    memory = _bank(tmp_path)
+    commits: list[list[str]] = []
+
+    async def fake_commit(memory_path, message, paths):
+        commits.append(list(paths))
+
+    monkeypatch.setattr(git_service, "commit_paths", fake_commit)
+    _sync(memory, _chrome(A, B, C))
+    seen = bookmark_seen.seen_path(memory)
+    first_bytes, first_stamp = seen.read_bytes(), seen.stat().st_mtime_ns
+    assert commits and "sources/bookmark_seen.json" in commits[-1]
+    commits.clear()
+
+    for _ in range(2):
+        r = _sync(memory, _chrome(A, B, C))
+        assert (r["new"], r["left_marked"], r["fresh_total"]) == (0, 0, 0)
+    assert commits == [], "an unchanged file commits nothing"
+    assert seen.read_bytes() == first_bytes and seen.stat().st_mtime_ns == first_stamp, "nor touches the seen-set"
+
+    later = _leaf("https://delta.example/four", "Delta four", NOW)
+    r = _sync(memory, _chrome(A, B, C, later))
+    assert r["new"] == 1 and commits and "sources/bookmark_seen.json" in commits[-1]
+    assert _h(later) in bookmark_seen.read_seen(memory)["chrome-bookmarks"]["hashes"]
+    commits.clear()
+    r = _sync(memory, _chrome(A, B, later))
+    assert r["left_marked"] == 1 and commits, "a link leaving the browser is news and is committed"
+
+
+def test_a_re_save_after_skipped_rewrites_is_still_seen(tmp_path):
+    """The skipped rewrites keep the previous ``at`` and ``newest_added``: a bookmark made again for a known link
+    (a newer node) is still a re-save on the next sync."""
+    memory = _bank(tmp_path)
+    _sync(memory, _chrome(A, B, C))
+    _sync(memory, _chrome(A, B, C))
+    again = _leaf(B["url"], "Beta two again", NOW)
+    r = _sync(memory, _chrome(A, B, C, again))
+    assert [f["url"] for f in r["fresh"] if f.get("resave")] == [B["url"]]
+
+
+def test_entry_unchanged_ignores_only_the_clock():
+    prev = bookmark_seen.channel_entry(folders=["b", "a"], hashes=["h2", "h1"], at="2026-10-01T00:00:00+00:00",
+                                       newest_added="2026-09-30T00:00:00+00:00", left={"h9": "2026-09-01"})
+    same = {"folders": ["a", "b"], "hashes": ["h1", "h2"], "newest_added": "2026-09-30T00:00:00+00:00",
+            "left": {"h9": "2026-09-01"}}
+    assert bookmark_seen.entry_unchanged(prev, **same)
+    assert not bookmark_seen.entry_unchanged(None, **same)
+    for key, value in (("hashes", ["h1"]), ("folders", None), ("newest_added", "2026-10-02T00:00:00+00:00"),
+                       ("left", {})):
+        assert not bookmark_seen.entry_unchanged(prev, **{**same, key: value}), key

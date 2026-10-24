@@ -159,6 +159,8 @@ def _write_episode(memory_path: Path, target: Target, body: str, session_fm: dic
     frontmatter = {
         "id": episode_id,
         "timestamp": at or episode_ids.utc_now_iso(),
+        # Ruling 39: a live record — received the moment it was written (the writer's pinned clock, when one is given).
+        **({episode_ids.RECEIVED_KEY: at} if at else {}),
         "source": SOURCE,
         # G9's closed origin vocabulary: an agent's write through MCP.
         "origin": "mcp",

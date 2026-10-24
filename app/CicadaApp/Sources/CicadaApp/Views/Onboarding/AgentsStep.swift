@@ -10,8 +10,11 @@ import SwiftUI
 /// collapsed *Show commands*, readable before the click (spec decision 14); the Claude app's *Set up Claude* merge;
 /// Cursor's catalog link; else *Copy setup prompt*. A Claude Code wired through the plugin answers no argv, so
 /// it is offered nothing to run (the plugin is the canonical door). The row turns green when the agent first calls
-/// Cicada (`AgentLiveProbe`, polled every 3 s while the step shows, R-AG15). Below: any other agent's prompt, and
-/// *Add an agent token* for personal agents (G213). DR-40, DR-48, DR-52.
+/// Cicada (`AgentLiveProbe`, polled every 3 s while the step shows, R-AG15). Onboarding v3 (2026-10-24, after
+/// HeyClicky's mic check): one live check — a chip with the exact words to say to the person's own agent and a copy
+/// button; when that agent's first call lands (`FirstAgentCall`, the backend's last-seen times) the chip gives way to
+/// a small confirmation. Continue stays enabled: connecting can wait. *Another agent* and *Personal agents* fold under
+/// one remembered *Other agents* disclosure (DR-39). DR-5, DR-39, DR-40, DR-48, DR-52, DR-66.
 struct AgentsStep: View {
     let live: AgentLiveProbe
 
@@ -22,6 +25,9 @@ struct AgentsStep: View {
     @State private var outcome: [String: String] = [:]
     @State private var copied: String?
     @State private var addingToken = false
+    /// DR-39 — each viewer's choice is remembered. A new key; nothing else reads it.
+    @AppStorage("cicada.onboarding.otherAgents") private var otherOpen = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let runtime = CicadaRuntime.current
 
     private var claudeAppInstalled: Bool {
@@ -51,16 +57,24 @@ struct AgentsStep: View {
                 }
             }
             .settingsCardSurface()
-            VStack(alignment: .leading, spacing: 0) {
-                anotherAgent
-                SettingsDivider()
-                // Five agents, so no one agent's mark speaks for them: a glyph, like "Another agent" (looks pass).
-                ConnectionLine(logo: nil, name: Copy.agentsPersonal, systemFallback: "person",
-                               detail: Copy.agentsPersonalNames, detailLines: 1) {
-                    NeutralButton(title: Copy.AgentsPage.addToken, size: .compact) { addingToken = true }
+            tryIt
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                DisclosureHeader(title: Copy.agentsOther, summary: Copy.agentsOtherSummary, isOpen: otherOpen) {
+                    otherOpen.toggle()
+                }
+                if otherOpen {
+                    VStack(alignment: .leading, spacing: 0) {
+                        anotherAgent
+                        SettingsDivider()
+                        // Five agents, so no one agent's mark speaks for them: a glyph, like "Another agent" (looks pass).
+                        ConnectionLine(logo: nil, name: Copy.agentsPersonal, systemFallback: "person",
+                                       detail: Copy.agentsPersonalNames, detailLines: 1) {
+                            NeutralButton(title: Copy.AgentsPage.addToken, size: .compact) { addingToken = true }
+                        }
+                    }
+                    .settingsCardSurface()
                 }
             }
-            .settingsCardSurface()
         }
         .task { await live.run() }
         .task { await directory.load() }
@@ -69,6 +83,54 @@ struct AgentsStep: View {
             for entry in AgentCatalog.all { await model.select(entry) }
         }
         .sheet(isPresented: $addingToken) { AddAgentTokenSheet { addingToken = false } }
+    }
+
+    // MARK: The one live check
+
+    /// The chip with the exact words to try, until the first call lands; then the confirmation, in the agent's own name.
+    /// The swap is an event, not a keyboard action: it fades (and grows a touch) on DR-61's card fade, a plain fade under
+    /// Reduce Motion (DR-66).
+    @ViewBuilder
+    private var tryIt: some View {
+        Group {
+            if let caller = live.firstCall {
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(CicadaTheme.icon(.inline))
+                        .foregroundStyle(CicadaTheme.success)
+                        .accessibilityHidden(true)
+                    Text(Copy.agentsFirstCall(AgentTryPrompt.callerName(caller, rows: rows)))
+                        .font(CicadaTheme.rowFont)
+                        .foregroundStyle(CicadaTheme.textPrimary)
+                }
+                .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.96)))
+                .accessibilityElement(children: .combine)
+            } else {
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    Text(Copy.agentsTryLead)
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                    HStack(spacing: CicadaTheme.spacingXS) {
+                        Text(Copy.agentsTryAsk(AgentTryPrompt.agentName(rows)))
+                            .font(CicadaTheme.rowFont)
+                            .foregroundStyle(CicadaTheme.textPrimary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .textSelection(.enabled)
+                        IconButton(systemName: copied == "try" ? "checkmark" : "doc.on.doc",
+                                   help: Copy.agentsTryCopyHelp, accessibilityLabel: Copy.agentsTryCopyHelp) {
+                            copy(Copy.agentsTryPrompt, id: "try")
+                        }
+                    }
+                    .padding(.leading, CicadaTheme.spacingSM)
+                    .padding(.vertical, CicadaTheme.scaled(2))
+                    .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(CicadaTheme.bgFocus))
+                    .ringed(in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
+                }
+                .transition(.opacity)
+            }
+        }
+        .animation(CicadaMotion.cardFade(reduceMotion: reduceMotion), value: live.firstCall)
     }
 
     // MARK: An umbrella

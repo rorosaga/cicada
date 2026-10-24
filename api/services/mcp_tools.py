@@ -35,7 +35,8 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable
 
-from api.services import agent_commits, agentic_write, demo_guard, episode_ids, episode_scrub, search_service
+from api.services import agent_commits, agentic_write, demo_guard, episode_ids, episode_scrub, episode_time
+from api.services import search_service
 # One fence rule for every frontmatter reader (L final review, finding 2).
 from api.services import bank_index, entity_bands, link_views, markdown_parser, page_lock, search_index, write_admission
 # One header and pair of markers for text the caller did not write (R-R29, G200 A9), re-exported for the bodies here.
@@ -1299,6 +1300,13 @@ def video_claim(ctx: ToolContext, limit=None, release: list | None = None) -> st
         return Reply("Error: could not reach the video queue.", code="error")
 
 
+def _request_surface(ctx) -> str:
+    """Where a G205 request came from: ``"remote"`` through a G135 connector (claude.ai, the phone apps), else
+    ``"local"`` (a stdio process here, or a paired device's own agent). One way can be two products — Claude Desktop
+    here, claude.ai there — and the request names the one that asked (ruling 39)."""
+    return "remote" if getattr(ctx, "connector_id", None) else "local"
+
+
 def _ask_person_to_sign_in(ctx: ToolContext, memory_path: Path, host: str, note: str | None, *,
                            url_hash: str | None = None, fallback: str) -> None:
     """G205: a login wall the agent met becomes one agent request in the person's Inbox (and a Mac notification),
@@ -1308,7 +1316,7 @@ def _ask_person_to_sign_in(ctx: ToolContext, memory_path: Path, host: str, note:
         from api.services import agent_live, agent_requests
 
         agent_requests.ask(memory_path, agent=agent_live.agent_for(ctx.harness, ctx.client_name), site=host,
-                           reason=note or fallback, url_hash=url_hash)
+                           reason=note or fallback, url_hash=url_hash, via=_request_surface(ctx))
     except Exception:  # noqa: BLE001
         pass
 
@@ -1568,7 +1576,7 @@ def _ask_sign_in_for_list(ctx: ToolContext, memory_path: Path, platform) -> None
         return
     try:
         agent_requests.ask(memory_path, agent=agent_live.agent_for(ctx.harness, ctx.client_name),
-                           site=platform.site, reason=platform.reason)
+                           site=platform.site, reason=platform.reason, via=_request_surface(ctx))
     except Exception:  # noqa: BLE001 — never fails the record
         pass
 
@@ -3839,15 +3847,22 @@ def _fuse_episode_hits(vector: list[dict], words: list[dict], top_k: int) -> lis
 
 
 def _unread_label(memory_path: Path, episode_id: str) -> str:
-    """`` (<day>, not yet read by Sleep)`` for a conversation still ``processed: false``, else ``""``."""
+    """`` (<day>, not yet read by Sleep)`` for a conversation still ``processed: false``, else ``""``. Ruling 39: the
+    day Cicada received it joins as ``added <day>`` when it is days after the item's own date (an old article from a
+    feed, an imported conversation) — `` (added <day>)`` alone on one Sleep has read."""
     try:
         f = bank_index.file(memory_path, "episodes", f"{episode_id}.md")
     except Exception:  # noqa: BLE001
         return ""
-    if f is None or (f.frontmatter or {}).get("processed"):
+    if f is None:
         return ""
-    day = str((f.frontmatter or {}).get("timestamp") or "")[:10] or episode_id[3:13]
-    return f" ({day}, not yet read by Sleep)"
+    fm = f.frontmatter or {}
+    received = episode_time.received_shown(fm)
+    added = f"added {episode_ids.local_day(received).isoformat()}" if received else None
+    if fm.get("processed"):
+        return f" ({added})" if added else ""
+    day = str(fm.get("timestamp") or "")[:10] or episode_id[3:13]
+    return " (" + ", ".join(p for p in (day, added, "not yet read by Sleep") if p) + ")"
 
 
 def _provisional_lines(memory_path: Path, query: str, subject_ids: list[str]) -> list[str]:

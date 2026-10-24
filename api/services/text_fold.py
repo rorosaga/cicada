@@ -148,9 +148,17 @@ def stem(word: str) -> str:
 
 def subject_terms(text: str | None, *, spanish: bool = False) -> set[str]:
     """The subject words of ``text``: folded, three letters or more, function words and numbers dropped, stemmed.
-    ``spanish``: a Spanish question — its function words (:data:`SPANISH_STOPWORDS`) go too."""
+    ``spanish``: a Spanish question — its function words (:data:`SPANISH_STOPWORDS`) go too.
+
+    A fresh set each call (callers may grow it); the words are worked out once per text (perf 2026-10-24: an Ask on
+    the owner-scale synthetic bank folded the same claim texts ~3,700 times, ~150 ms of its retrieval)."""
+    return set(_subject_terms(text or "", bool(spanish)))
+
+
+@lru_cache(maxsize=16384)
+def _subject_terms(text: str, spanish: bool) -> frozenset[str]:
     drop = SUBJECT_STOPWORDS | SPANISH_STOPWORDS if spanish else SUBJECT_STOPWORDS
-    return {stem(w) for w in words(text) if len(w) >= 3 and w not in drop and not w.isdigit()}
+    return frozenset(stem(w) for w in words(text) if len(w) >= 3 and w not in drop and not w.isdigit())
 
 
 def contains_all(text: str | None, q: str | None) -> bool:

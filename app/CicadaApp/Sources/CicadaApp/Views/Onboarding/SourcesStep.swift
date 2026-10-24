@@ -9,14 +9,19 @@ import UniformTypeIdentifiers
 /// detail over onboarding (`SourceCatalogDetail`), so its consents, chat picker and per-site switch are the page's
 /// own words; chat history takes a dropped export (the window's one drop target) or the file panel, and *How to get
 /// an export* opens the drawn walkthrough. Nothing is pre-ticked and nothing is read before a tick (R-OB6, R-IB12).
-/// Each consent macOS asks for is named by the tile's own help line, never raised by the step. DR-5, DR-9, DR-12,
-/// DR-48, DR-52, DR-70.
+/// Each consent macOS asks for is named by the tile's own help line, never raised by the step. Onboarding v3
+/// (2026-10-24): the tiles this Mac has data for lead and the rest fold under *More sources* (DR-39, remembered per
+/// viewer, open by itself when something inside is on); a browser macOS hides opens the Full Disk Access drag helper
+/// on its tick (`FoundTurnOn` → `PermissionDragHelper`); Calendar or Contacts refused in macOS's own prompt become a
+/// tile that opens the exact list. DR-5, DR-9, DR-12, DR-39, DR-48, DR-52, DR-70.
 struct SourcesStep: View {
     let imports: [ImportEntry]
     let snapshots: [FoundItemID: SetupRowSnapshot]
     let dropTargeted: Bool
     /// The browsers macOS hides until Full Disk Access is granted (`LocalInventory`, R-OB7).
     var needsAccess: Set<FoundItemID> = []
+    /// Calendar or Contacts refused in macOS's own prompt: the tile opens the exact list (`SourceTileGroups`).
+    var denied: Set<FoundItemID> = []
     let onTick: (ImportEntry, Bool) -> Void
     let onSeeHow: (ChatVendor) -> Void
 
@@ -24,16 +29,24 @@ struct SourcesStep: View {
     @Environment(IntakeRouter.self) private var intake
     @State private var reading = ReadingAgentModel()
     @State private var opened: SourceCatalogEntry?
+    /// DR-39 — each viewer's choice is remembered. A new key; nothing else reads it.
+    @AppStorage("cicada.onboarding.moreSources") private var moreOpen = false
 
     private var tiles: [SourceTile] { SourceTiles.tiles(imports: imports) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
             OnboardingHeadline(title: Copy.importTitle, subline: Copy.sourcesSubline)
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: CicadaTheme.scaled(OnboardingLayout.sourceTile)),
-                                         spacing: CicadaTheme.spacingSM)],
-                      alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                ForEach(tiles) { tile in tileView(tile) }
+            let groups = SourceTileGroups.split(tiles)
+            grid(groups.lead)
+            if !groups.more.isEmpty {
+                let open = SourceTileGroups.moreStartsOpen(remembered: moreOpen,
+                                                           anyOnInside: groups.more.contains { state(of: $0).ticked })
+                VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                    DisclosureHeader(title: Copy.sourcesMore, summary: groups.more.map(\.title).joined(separator: " · "),
+                                     isOpen: open) { moreOpen = !open }
+                    if open { grid(groups.more) }
+                }
             }
             if let error = intake.welcomeDropError {
                 Text(error).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.danger)
@@ -47,6 +60,14 @@ struct SourcesStep: View {
                 .environment(reading)
                 .frame(width: CicadaTheme.scaled(560), height: CicadaTheme.scaled(SourcesStepLayout.sheetHeight))
                 .background(CicadaTheme.bgBase)
+        }
+    }
+
+    private func grid(_ tiles: [SourceTile]) -> some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: CicadaTheme.scaled(OnboardingLayout.sourceTile)),
+                                     spacing: CicadaTheme.spacingSM)],
+                  alignment: .leading, spacing: CicadaTheme.spacingSM) {
+            ForEach(tiles) { tile in tileView(tile) }
         }
     }
 
@@ -73,7 +94,8 @@ struct SourcesStep: View {
                         .lineLimit(1)
                     // What a tick reads and the consent it leads to, visible before the click (fix round 2026-10-22).
                     if case .tick(let entry) = tile.kind,
-                       let caption = SourceTiles.caption(entry, needsAccess: needsAccess.contains(entry.id)) {
+                       let caption = denied.contains(entry.id) ? Copy.Permission.deniedTile
+                                     : SourceTiles.caption(entry, needsAccess: needsAccess.contains(entry.id)) {
                         // Looks pass 2 (review of #446): never cut — a consent caption is read before the tick.
                         Text(caption).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -140,6 +162,11 @@ struct SourcesStep: View {
     private func press(_ tile: SourceTile) {
         switch tile.kind {
         case .tick(let entry):
+            // macOS never asks twice: a refused Calendar or Contacts opens its own list instead of ticking again.
+            if denied.contains(entry.id), let url = SourceTileGroups.deniedSettingsURL(entry.id) {
+                NSWorkspace.shared.open(url)
+                return
+            }
             let phase = snapshots[entry.id]?.phase
             switch ImportRows.control(entry, phase: phase) {
             case .tick(let on): onTick(entry, !on)

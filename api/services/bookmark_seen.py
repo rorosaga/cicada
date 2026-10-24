@@ -79,7 +79,16 @@ def write_channel_seen(
     person has answered one yet (Rail 2's "always advance" half).
     """
     state = read_seen(memory_path)
-    state[channel] = {
+    state[channel] = channel_entry(folders=folders, hashes=hashes, at=at, newest_added=newest_added, left=left)
+    path = seen_path(memory_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def channel_entry(*, folders: list[str] | None, hashes: list[str], at: str | None = None,
+                  newest_added: str | None = None, left: dict[str, str] | None = None) -> dict[str, Any]:
+    """One channel's seen-set entry as :func:`write_channel_seen` stores it. Pure."""
+    entry: dict[str, Any] = {
         "folders": sorted(set(folders)) if folders else None,
         "hashes": sorted(set(hashes)),
         "at": at or episode_ids.utc_now_iso(),
@@ -87,13 +96,27 @@ def write_channel_seen(
     # G191 v3: the newest browser instant this sync saw, so the next one can tell a bookmark saved again (a newer
     # node for a known link) from one moved (the same node, the same instant). Absent when the file records none.
     if newest_added:
-        state[channel]["newest_added"] = newest_added
+        entry["newest_added"] = newest_added
     # G191 v4: the links held that left this browser, each with when a sync first saw it gone (`next_left`).
     if left:
-        state[channel]["left"] = {str(h): str(at) for h, at in sorted(left.items())}
-    path = seen_path(memory_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        entry["left"] = {str(h): str(when) for h, when in sorted(left.items())}
+    return entry
+
+
+def entry_unchanged(previous: dict[str, Any] | None, **wanted) -> bool:
+    """Would writing ``wanted`` (:func:`channel_entry`'s arguments) leave ``previous`` as it is, but for its ``at``?
+
+    Perf 2026-10-24: every wake of an unchanged bookmarks file (Chrome rewrites it on its own, and the watch fires on
+    each write) rewrote ``bookmark_seen.json`` with a new ``at`` and committed it — one git commit per wake and an app
+    refetch of the whole sources domain, for a seen-set that had not moved. ``at`` alone is no news: the next sync
+    reads the previous ``newest_added`` first (``_resaved``), and falls back to ``at`` only for a file that records
+    no instants, where no bookmark can read as saved later anyway."""
+    if not isinstance(previous, dict):
+        return False
+    new = channel_entry(**{**wanted, "at": "-"})
+    old = {k: v for k, v in previous.items() if k != "at"}
+    new.pop("at")
+    return old == new
 
 
 def _normalize_folders(folders: list[str] | None) -> list[str] | None:

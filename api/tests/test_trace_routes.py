@@ -86,10 +86,42 @@ def test_traces_are_off_by_default_and_a_sync_while_off_is_refused(client):
     assert c.post("/sources/traces/on", json={"consent_version": 0}).status_code == 422
 
 
-def test_a_youtube_view_from_traces_lands_in_the_watch_history_with_its_dwell(client):
+@pytest.fixture
+def frozen(monkeypatch):
+    """Pin the traces clock to one instant and the process zone to one name. The route passes no ``now``: the store
+    reads ``trace_store._now`` and promotion reads ``datetime.now`` in ``trace_memory``, so both are frozen. The
+    autouse ``utc`` fixture's teardown restores the zone."""
+    def freeze(zone: str, instant: str) -> datetime:
+        moment = datetime.fromisoformat(instant)
+
+        class Frozen(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return moment.astimezone(tz) if tz else moment.astimezone().replace(tzinfo=None)
+
+        monkeypatch.setenv("TZ", zone)
+        time.tzset()
+        monkeypatch.setattr(trace_store, "_now", lambda: moment)
+        monkeypatch.setattr(trace_memory, "datetime", Frozen)
+        return moment
+    return freeze
+
+
+@pytest.mark.parametrize(("zone", "now", "dwell_by_day"), [
+    # Same day: noon UTC, the watch runs 11:30-11:42 — one watched day, both spans of the video counted.
+    ("UTC", "2026-10-21T12:00:00+00:00", {"2026-10-21": 600}),
+    # Across UTC midnight: 23:55-00:07. A watched day is the local day a span started on (ruling 34), so the first
+    # span counts on the 21st and the second on the 22nd.
+    ("UTC", "2026-10-22T00:25:00+00:00", {"2026-10-21": 360, "2026-10-22": 240}),
+    # Across local midnight only: 23:55-00:07 in Madrid is 21:55-22:07 UTC, one UTC day — still split by the local
+    # day, never the UTC one.
+    ("Europe/Madrid", "2026-10-21T22:25:00+00:00", {"2026-10-21": 360, "2026-10-22": 240}),
+])
+def test_a_youtube_view_from_traces_lands_in_the_watch_history_with_its_dwell(client, frozen, zone, now,
+                                                                              dwell_by_day):
     c, memory = client
+    start = frozen(zone, now) - timedelta(minutes=30)
     _on(c)
-    start = _now() - timedelta(minutes=30)
     url = f"https://www.youtube.com/watch?v={VID}&t=42"
     r = c.post("/sources/traces/sync", json={"spans": [
         _span("span-0001", start, minutes=6, title="Bridge design, part one - YouTube", url=url),
@@ -101,20 +133,25 @@ def test_a_youtube_view_from_traces_lands_in_the_watch_history_with_its_dwell(cl
     ]})
     assert r.status_code == 200, r.text
     assert r.json()["kept"] == 4 and r.json()["promoted_files"] >= 1
-    day = _watch_days(memory)[f"watch-history:youtube:{start.date().isoformat()}"]
-    [row] = day.frontmatter["watched"]
-    assert row["url"] == f"https://www.youtube.com/watch?v={VID}" and row["via"] == ["traces"]
-    assert row["dwell_s"] == 600 and row["title"] == "Bridge design, part one"
-    assert "10 min on screen" in day.body
-    assert day.frontmatter["processed_by"] == history_index.INDEXED_BY       # index-only, like every watched day
+    days = {sid.removeprefix("watch-history:youtube:"): parsed for sid, parsed in _watch_days(memory).items()
+            if sid.startswith("watch-history:youtube:")}
+    assert sorted(days) == sorted(dwell_by_day)
+    for iso, dwell in dwell_by_day.items():
+        day = days[iso]
+        [row] = day.frontmatter["watched"]
+        assert row["url"] == f"https://www.youtube.com/watch?v={VID}" and row["via"] == ["traces"]
+        assert row["dwell_s"] == dwell and row["title"] == "Bridge design, part one"
+        assert f"{dwell // 60} min on screen" in day.body
+        assert day.frontmatter["processed_by"] == history_index.INDEXED_BY   # index-only, like every watched day
     assert "capture/traces" in _head(memory)
     # Ask's existing engine-free lookup answers the time-of-day question from it.
-    lines = watch_history.lookup(memory, "what was the bridge design video I watched")
-    clock = start.astimezone().strftime("%H:%M")
+    local = start.astimezone()
+    lines = watch_history.lookup(memory, "what was the bridge design video I watched", today=local.date())
+    clock = local.strftime("%H:%M")
     assert any("Bridge design, part one" in line and clock in line for line in lines), lines
     # The owner's own question: a time of day, no title, no "watch" verb — the day's watches, nearest first.
-    asked = watch_history.lookup(memory, f"what was that video at {clock}", today=start.astimezone().date())
-    assert asked[0].startswith(f"Watched on {start.astimezone().date().isoformat()}") and f"nearest to {clock}" in asked[0]
+    asked = watch_history.lookup(memory, f"what was that video at {clock}", today=local.date())
+    assert asked[0].startswith(f"Watched on {local.date().isoformat()}") and f"nearest to {clock}" in asked[0]
     assert "Bridge design, part one" in asked[1] and "not near" not in asked[1]
 
 

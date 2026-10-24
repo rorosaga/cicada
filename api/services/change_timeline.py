@@ -106,10 +106,12 @@ def _git_log(memory_path: Path, since: date, until: date) -> str | None:
     """git's ``--since``/``--until`` read LOCAL time while a commit's ``%ad``
     carries its own zone, so the window is padded a day each side and
     ``collect`` cuts it on the commit's own date — the same day the Sleep
-    page shows (``get_sleep_history`` reads ``%ad`` too)."""
+    page shows (``get_sleep_history`` reads ``%ad`` too). Both bounds carry a time: a bare date in ``--since`` is
+    read at the current time of day, which ate most of the padding day (a commit at 00:30 UTC on ``since`` fell out
+    of the window after 17:30 in a UTC-7 zone)."""
     try:
         proc = subprocess.run(
-            ["git", "log", f"-n{MAX_COMMITS}", f"--since={(since - timedelta(days=1)).isoformat()}",
+            ["git", "log", f"-n{MAX_COMMITS}", f"--since={(since - timedelta(days=1)).isoformat()}T00:00:00",
              f"--until={(until + timedelta(days=1)).isoformat()}T23:59:59", "--date=iso-strict",
              f"--format=%H{_SEP}%ad{_SEP}%s{_SEP}%b{_REC}"],
             cwd=str(memory_path), capture_output=True, text=True, timeout=GIT_TIMEOUT_S, check=False,

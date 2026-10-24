@@ -228,10 +228,10 @@ struct DevicesSettingsView: View {
     }
 
     /// The agents' rule (fix round 2026-10-22): the backend's own *connected* (seen within its window) is Connected; a
-    /// paired device seen before is Set up; one never seen is Not set up.
+    /// paired device seen before is Connected too (green; its line says "last seen <day>"); one never seen is Not connected.
     static func presence(_ row: DeviceStatusRow, now: Date) -> Copy.Presence {
         if row.connected { return .connected }
-        return row.lastSeenAt != nil ? .setUp : .notSetUp
+        return row.lastSeenAt != nil ? .idle : .notConnected
     }
 
     /// "Tailscale · 3 min ago · 2 waiting", or "… · last seen Oct 21" — how, when, and what waits; each part only
