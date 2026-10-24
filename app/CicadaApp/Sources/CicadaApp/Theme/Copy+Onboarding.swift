@@ -117,9 +117,12 @@ extension Copy {
     /// an equal option one click away; a local model is never pitched.
     static let intelTitle = "Who reads your memory"
     static let intelSubline = "Pages are built while you sleep."
-    /// D1 — "that step says in words what will run": the person's own harness, on their own plan's limits. The name is
-    /// the person's own current choice (provider-neutral copy's one exception).
-    static func intelRuns(_ harness: String) -> String { "Cicada runs your own \(harness) on your plan." }
+    /// The plan's card names the plan once (ruling 39, 2026-10-24: "avoid repetition"). Settings → Intelligence keeps
+    /// its own headline (`Copy.EngineHeadline.usingPlan`); this card stands alone, so "you're signed in" goes unsaid.
+    static func intelUsing(_ plan: String) -> String { "Using your \(plan)" }
+    /// D1 — "that step says in words what will run": the person's own harness, on the plan the line above names. The
+    /// name is the person's own current choice (provider-neutral copy's one exception).
+    static func intelRuns(_ harness: String) -> String { "Cicada runs your own \(harness)." }
     static let intelUseKey = "Use an API key"
     static let intelUsePlan = "Use my plan"
     static let intelMoreKeys = "More keys in"
@@ -129,7 +132,6 @@ extension Copy {
     /// Agents.
     static let agentsTitle = "Connect your agents"
     static let agentsSubline = "They read your memory and add to it."
-    static let agentsFound = "Found"
     static let agentsConnect = "Connect"
     static let agentsRun = "Run these"
     static let agentsShowCommands = "Show commands"
@@ -179,8 +181,8 @@ extension Copy {
          seeHowChatGPTPath, seeHowGeminiPath, seeHowOpenPage("ChatGPT"), seeHowSteps(11), seeHowStepOf(11, 11),
          seeHowWhere(host: "takeout.google.com", path: seeHowGeminiPath), onboardingContinue, onboardingBack,
          onboardingOpenCicada, onboardingStepOf(6), onboardingComingIn(4), welcomeTryTheDemo, readyTitle, onboardingSkip, intelTitle,
-         intelSubline, intelRuns("Claude Code"), intelUseKey, intelUsePlan, intelMoreKeys, intelMoreKeysWhere, intelNothing, agentsTitle, agentsSubline,
-         agentsFound, agentsConnect, agentsRun, agentsShowCommands, agentsDone, agentsNoneFound, agentsAnother, agentsPersonal,
+         intelSubline, intelUsing("Claude plan"), intelRuns("Claude Code"), intelUseKey, intelUsePlan, intelMoreKeys, intelMoreKeysWhere, intelNothing, agentsTitle, agentsSubline,
+         agentsConnect, agentsRun, agentsShowCommands, agentsDone, agentsNoneFound, agentsAnother, agentsPersonal,
          agentsPersonalNames, sourcesSubline, sourcesChats, sourcesDropFile, sourcesHowToExport, sourcesOn,
          sourcesComingIn, sourcesNeedsYou, sourcesOff, sourcesNeedsAccess, doneLead, doneScheduled("tonight at 3:00"), doneImportsNow,
          doneReadNow, gsCoveredInSetup(1), gsCoveredInSetup(4)]

@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Onboarding v2, step 2 (ruling 36 D1, G217, G50): who reads the memory. With a plan signed in, Auto already uses it —
-/// said in words with what runs ("Cicada runs your own Claude Code on your plan."), and *Use an API key
+/// said once with what runs ("Using your Claude plan" · "Cicada runs your own Claude Code."), and *Use an API key
 /// instead* opens the same paste → Verify rows Settings → Intelligence draws (`IntelligenceRow`). With nothing that can
 /// read, the plans and the keys show side by side, equal options. A local model is never offered here (D1). The step
 /// writes only on a click inside a row (Sign in, Verify, Use) — Continue and Skip change nothing, so an untouched

@@ -8,8 +8,8 @@ import Foundation
 /// Step 2's headline (ruling 36 D1): a signed-in plan pre-selected and said in words with what runs; a chosen engine by
 /// its own words; or nothing yet, which shows the plans and the keys side by side as equal options.
 enum IntelligenceStepState: Equatable {
-    /// Auto resolved to the person's plan: the plan's line ("Using your Claude plan — you're signed in.") and the
-    /// harness Cicada runs on their limits.
+    /// The person's plan reads, said once (ruling 39, 2026-10-24: "avoid repetition"): the plan by name ("Using your
+    /// Claude plan") and the harness Cicada runs on its limits ("Cicada runs your own Claude Code.").
     case plan(line: String, runs: String, mark: String)
     /// Something else reads (a key the person chose, a stored non-Auto choice): `EngineHeadline`'s own words.
     case chosen(title: String, line: String, mark: String)
@@ -25,17 +25,19 @@ enum IntelligenceStepState: Equatable {
         let headline = EngineHeadline.of(response)
         if headline.needsSignIn { return .nothing }
         if headline.isAuto, let engine = response.preview?.manual.engine, ScheduleHonesty.planEngines.contains(engine) {
-            return .plan(line: headline.line, runs: Copy.intelRuns(engine == "claude-cli" ? "Claude Code" : "Codex"),
-                         mark: engine == "claude-cli" ? "claude" : "openai")
+            return plan(response, card: engine == "claude-cli" ? "agent" : "codex")
         }
         // A plan chosen outright (or fixed by the environment) reads the same way: it is still the person's plan.
-        if ["agent", "codex"].contains(response.selected) {
-            let claude = response.selected == "agent"
-            let label = response.candidates.first { $0.id == response.selected }?.label ?? headline.title
-            return .plan(line: Copy.EngineHeadline.usingPlan(label), runs: Copy.intelRuns(claude ? "Claude Code" : "Codex"),
-                         mark: claude ? "claude" : "openai")
-        }
+        if ["agent", "codex"].contains(response.selected) { return plan(response, card: response.selected) }
         return .chosen(title: headline.title, line: headline.line, mark: EngineStepMark.logo(headline.mark))
+    }
+
+    private static func plan(_ response: SleepEngineResponse, card: String) -> IntelligenceStepState {
+        let claude = card == "agent"
+        let label = response.candidates.first { $0.id == card }?.label
+            ?? Copy.engineLabel(claude ? "claude-cli" : "codex-cli")
+        return .plan(line: Copy.intelUsing(label), runs: Copy.intelRuns(claude ? "Claude Code" : "Codex"),
+                     mark: claude ? "claude" : "openai")
     }
 }
 
@@ -75,12 +77,16 @@ struct AgentStepRow: Identifiable, Equatable {
     let entry: AgentCatalogEntry
     let connected: Bool
     let action: AgentRowAction
-    /// The product's name as its umbrella lists it ("Claude Code", "Claude app"), else the catalog's.
+    /// The product's name as its umbrella lists it ("Claude Code", "Claude Desktop"), else the catalog's.
     var name: String
+    /// Seen only through the remote connector (claude.ai with no Claude Desktop on this Mac): named by the way's
+    /// `remoteLabel`, never after the Mac app (ruling 39).
+    var viaRemote = false
     var id: String { entry.id }
 
-    init(entry: AgentCatalogEntry, connected: Bool, action: AgentRowAction, name: String? = nil) {
+    init(entry: AgentCatalogEntry, connected: Bool, action: AgentRowAction, name: String? = nil, viaRemote: Bool = false) {
         self.entry = entry; self.connected = connected; self.action = action; self.name = name ?? entry.name
+        self.viaRemote = viaRemote
     }
 
     /// Whether this product still has something to do here (`.none` is connected; `.preparing` waits for its setup).
@@ -102,7 +108,7 @@ struct AgentUmbrellaRow: Identifiable, Equatable {
     let products: [AgentStepRow]
 
     var connected: Bool { products.contains(where: \.connected) }
-    /// "Claude Code · Claude app" — the products found, in the umbrella's order.
+    /// "Claude Code · Claude Desktop" — the products found, in the umbrella's order.
     var detail: String { products.map(\.name).joined(separator: " · ") }
     var actionable: [AgentStepRow] { products.filter(\.actionable) }
 }
@@ -120,7 +126,8 @@ enum AgentStepRows {
             case .remote, .anyAgent: return nil
             case .claude:
                 guard claudeAppInstalled || connected else { return nil }
-                return AgentStepRow(entry: entry, connected: connected, action: connected ? .none : .setUpClaude)
+                return AgentStepRow(entry: entry, connected: connected, action: connected ? .none : .setUpClaude,
+                                    viaRemote: !claudeAppInstalled)
             case .prompt, .deeplink:
                 guard row?.installed == true || connected else { return nil }
                 return AgentStepRow(entry: entry, connected: connected,
@@ -141,7 +148,7 @@ enum AgentStepRows {
                 guard let i = left.firstIndex(where: { $0.id == way.id || way.setup.contains($0.id)
                     || $0.entry.setupHarnesses.contains(way.id) }) else { continue }
                 var product = left.remove(at: i)
-                product.name = way.label
+                product.name = product.viaRemote ? (way.remoteLabel ?? way.label) : way.label
                 mine.append(product)
             }
             if !mine.isEmpty {
@@ -166,10 +173,11 @@ enum AgentStepRows {
         }
     }
 
-    /// An umbrella's dot and word: green once any of its products called; Waiting after this step started one.
+    /// An umbrella's dot and word: green once any of its products called; Waiting after this step started one; Not
+    /// connected before — the Agents page's word for the same state (ruling 39: one status vocabulary, never "Found").
     static func status(_ row: AgentUmbrellaRow, started: Set<String>) -> (word: String, on: Bool) {
         if row.connected { return (Copy.Status.connected, true) }
-        return (row.products.contains { started.contains($0.id) } ? Copy.Status.waiting : Copy.agentsFound, false)
+        return (row.products.contains { started.contains($0.id) } ? Copy.Status.waiting : Copy.Status.notConnected, false)
     }
 
     static func action(for entry: AgentCatalogEntry, wiring: AgentWiring?,
@@ -186,10 +194,10 @@ enum AgentStepRows {
         return .preparing
     }
 
-    /// The row's dot and word: green once Cicada saw it call; Waiting after this step connected it; Found before.
+    /// The row's dot and word: green once Cicada saw it call; Waiting after this step connected it; Not connected before.
     static func status(_ row: AgentStepRow, started: Bool) -> (word: String, on: Bool) {
         if row.connected { return (Copy.Status.connected, true) }
-        return (started ? Copy.Status.waiting : Copy.agentsFound, false)
+        return (started ? Copy.Status.waiting : Copy.Status.notConnected, false)
     }
 }
 

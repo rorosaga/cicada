@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// One conversation row: title, harness badge, relative last-write time, an
-/// entity-count chip, and a chip per entity that conversation touched. Reused
+/// One conversation row: title, harness badge, relative last-write time, a
+/// page count, and a named `Tag` per page that conversation touched. Reused
 /// verbatim by `ConversationPopover` and, since G124, by a harness page
 /// (`HarnessConversationsView`), so it stays a plain memberwise-initializable
 /// type rather than reaching into `ConversationsSection`'s private state.
@@ -17,6 +17,10 @@ struct ConversationRow: View {
     /// harness is the page's header and a session is one episode (G104), so the row says neither: its title, its age
     /// and the pages it wrote. The popover, which mixes harnesses, keeps both.
     var inSourceList = false
+
+    /// The graph's names, so a page this conversation wrote reads as its name, never its id (DR-54, DR-56; as Past
+    /// reads' run detail does); optional for the popover's and previews' hosts.
+    @Environment(Store.self) private var store: Store?
 
     /// How many entity chips one row shows before the rest fold into
     /// "+N more". The backend already caps `entityIds`
@@ -49,15 +53,15 @@ struct ConversationRow: View {
                     // until engine calls carry session refs (G49), so this
                     // badge is deliberately dormant rather than removed.
                     if let model = conversation.model, !model.isEmpty { badge(model) }
+                    // The row is one conversation; `episodeCount` is how many times it was saved (its capture plus
+                    // what the agent saved in it) — said that way, never as "episodes" (ruling 39).
                     if !inSourceList || conversation.episodeCount > 1 {
-                        Text("\(UsageFormat.count(conversation.episodeCount)) episode"
-                             + (conversation.episodeCount == 1 ? "" : "s"))
+                        Text(Copy.conversationSaved(conversation.episodeCount))
                             .font(CicadaTheme.captionFont)
                             .foregroundStyle(CicadaTheme.textSecondary)
                     }
                     if conversation.entityCount > 0 && !inSourceList {
-                        badge("\(UsageFormat.count(conversation.entityCount)) entit"
-                              + (conversation.entityCount == 1 ? "y" : "ies"))
+                        badge(Copy.conversationPages(conversation.entityCount))
                     }
                     if let relative = relativeLastSeen {
                         Text(relative)
@@ -88,7 +92,7 @@ struct ConversationRow: View {
         )
         .accessibilityElement(children: .contain)
         .accessibilityLabel(
-            "\(conversation.displayTitle), \(conversation.episodeCount) episodes"
+            "\(conversation.displayTitle), \(Copy.conversationSaved(conversation.episodeCount).lowercased())"
             + (conversation.resumable ? ", resumable" : "")
         )
     }
@@ -105,44 +109,43 @@ struct ConversationRow: View {
                 // Deliberately NOT a button: there is no id behind it to open.
                 if plan.hidden > 0 {
                     Text("+\(UsageFormat.count(plan.hidden)) more")
-                        .font(CicadaTheme.captionFont)
+                        .font(CicadaTheme.metaFont)
                         .lineLimit(1)
-                        .padding(.horizontal, CicadaTheme.spacingSM).padding(.vertical, 3)
-                        .background(CicadaTheme.surfaceHover)
                         .foregroundStyle(CicadaTheme.textTertiary)
-                        .clipShape(Capsule())
-                        .accessibilityLabel("\(UsageFormat.count(plan.hidden)) more entities, not shown")
+                        .accessibilityLabel("\(UsageFormat.count(plan.hidden)) more pages, not shown")
                 }
             }
         }
     }
 
     @ViewBuilder
+    /// A page as a neutral `Tag` with its name (DR-5: the accent is not a tag's colour; DR-44, DR-54), the id only in
+    /// `.help` — the same chip Past reads' run detail draws.
     private func entityChip(_ entityId: String) -> some View {
-        let label = Text(entityId)
-            .font(CicadaTheme.captionFont)
-            .lineLimit(1)
-            .padding(.horizontal, CicadaTheme.spacingSM).padding(.vertical, 3)
-            .background(CicadaTheme.accent.opacity(0.10))
-            .foregroundStyle(CicadaTheme.accent)
-            .clipShape(Capsule())
+        let name = Self.pageLabel(entityId, names: store?.entityNames ?? .empty)
+        let label = Tag(text: name).lineLimit(1)
 
-        if let onSelectEntity {
-            Button { onSelectEntity(entityId) } label: { label }
-                .buttonStyle(.cicadaPlain)
-                .help("Open \(entityId)")
-                .accessibilityLabel("Open entity \(entityId)")
-        } else {
-            label.accessibilityLabel("Entity \(entityId)")
+        return Group {
+            if let onSelectEntity {
+                Button { onSelectEntity(entityId) } label: { label }
+                    .buttonStyle(.cicadaPlain)
+                    .accessibilityLabel("Open \(name)")
+            } else {
+                label.accessibilityLabel(name)
+            }
         }
+        .help(entityId)
     }
 
-    /// Falls back to the conversation kind when the backend didn't attribute
-    /// a harness (e.g. an older episode with no `harness` frontmatter).
+    /// A page id as its page's name; an id the graph does not hold stays as it is (`EntityNames.display`).
+    static func pageLabel(_ id: String, names: EntityNames) -> String { names.display(id) }
+
+    /// The harness by the name a person uses (DR-54, "Claude Code", never `claude-code`); the conversation's kind when
+    /// the backend didn't attribute one (an older episode with no `harness` frontmatter).
     private var harnessLabel: String {
         conversation.harness.isEmpty
-            ? (conversation.kind == "import" ? "import" : "conversation")
-            : conversation.harness
+            ? (conversation.kind == "import" ? "Import" : "Conversation")
+            : OriginIconography.label(for: conversation.harness)
     }
 
     /// `nil` when `lastSeen` is empty or unparseable, so the pill is simply

@@ -42,7 +42,7 @@ struct ConversationPopover: View {
             } else if known.isEmpty {
                 // Only reachable after a real 404 per id, now that the ids are
                 // resolved against the whole bank instead of a capped page.
-                caption("This bank has no episodes for that conversation.")
+                caption("This memory holds nothing from that conversation.")
             } else {
                 ForEach(known) { conversation in
                     // No `onSelectEntity`: a popover has no page to navigate,

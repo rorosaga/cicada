@@ -13,33 +13,33 @@ extension Copy {
         static let seen = "Seen"
         static let waiting = "Waiting"
         static let paired = "Paired"
-        /// 2026-10-22 fix round: configured or used before, not seen just now (grey).
-        static let setUp = "Set up"
-        static let notSetUp = "Not set up"
+        /// Installed or detected, not wired (ruling 39, 2026-10-24). Onboarding, the Agents page, Sources, Devices
+        /// and Settings → Intelligence say it in this word; "Found" and "Not set up" are never a status.
+        static let notConnected = "Not connected"
     }
 
-    /// The one status rule for an agent or a paired device (fix round 2026-10-22): *Connected* (green) when seen
-    /// within the backend's window; *Set up* (grey) when configured, when it brought conversations, or when it was
-    /// ever seen — its line then says when; *Not set up* otherwise.
+    /// The one status rule for an agent or a paired device (fix round 2026-10-22; words ruling 39, 2026-10-24): the dot
+    /// and the word agree. *Connected* (green) when seen within the backend's window, or when configured, when it
+    /// brought conversations, or when it was ever seen — recency lives in its line ("3 min ago", "last seen Oct 21"),
+    /// never in the dot's colour; *Not connected* (grey) otherwise. `.idle` only picks the line's wording.
     enum Presence: Equatable {
-        case connected, setUp, notSetUp
+        case connected, idle, notConnected
 
         static let recentSeconds: TimeInterval = 600
 
         static func of(seen: Date?, configured: Bool, conversations: Int, now: Date = Date()) -> Presence {
             if let seen, now.timeIntervalSince(seen) <= recentSeconds { return .connected }
-            return configured || conversations > 0 || seen != nil ? .setUp : .notSetUp
+            return configured || conversations > 0 || seen != nil ? .idle : .notConnected
         }
 
         var word: String {
             switch self {
-            case .connected: Status.connected
-            case .setUp: Status.setUp
-            case .notSetUp: Status.notSetUp
+            case .connected, .idle: Status.connected
+            case .notConnected: Status.notConnected
             }
         }
 
-        var on: Bool { self == .connected }
+        var on: Bool { self != .notConnected }
     }
 
     enum Intelligence {

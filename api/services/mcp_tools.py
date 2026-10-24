@@ -1299,6 +1299,13 @@ def video_claim(ctx: ToolContext, limit=None, release: list | None = None) -> st
         return Reply("Error: could not reach the video queue.", code="error")
 
 
+def _request_surface(ctx) -> str:
+    """Where a G205 request came from: ``"remote"`` through a G135 connector (claude.ai, the phone apps), else
+    ``"local"`` (a stdio process here, or a paired device's own agent). One way can be two products — Claude Desktop
+    here, claude.ai there — and the request names the one that asked (ruling 39)."""
+    return "remote" if getattr(ctx, "connector_id", None) else "local"
+
+
 def _ask_person_to_sign_in(ctx: ToolContext, memory_path: Path, host: str, note: str | None, *,
                            url_hash: str | None = None, fallback: str) -> None:
     """G205: a login wall the agent met becomes one agent request in the person's Inbox (and a Mac notification),
@@ -1308,7 +1315,7 @@ def _ask_person_to_sign_in(ctx: ToolContext, memory_path: Path, host: str, note:
         from api.services import agent_live, agent_requests
 
         agent_requests.ask(memory_path, agent=agent_live.agent_for(ctx.harness, ctx.client_name), site=host,
-                           reason=note or fallback, url_hash=url_hash)
+                           reason=note or fallback, url_hash=url_hash, via=_request_surface(ctx))
     except Exception:  # noqa: BLE001
         pass
 
@@ -1568,7 +1575,7 @@ def _ask_sign_in_for_list(ctx: ToolContext, memory_path: Path, platform) -> None
         return
     try:
         agent_requests.ask(memory_path, agent=agent_live.agent_for(ctx.harness, ctx.client_name),
-                           site=platform.site, reason=platform.reason)
+                           site=platform.site, reason=platform.reason, via=_request_surface(ctx))
     except Exception:  # noqa: BLE001 — never fails the record
         pass
 

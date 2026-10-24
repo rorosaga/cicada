@@ -21,8 +21,10 @@ extension Copy {
     static let agentStepCursorHow = "Cursor asks you to confirm. Then open a new chat."
     static let agentStepSaveChats = "Save chats on their own"
     static let agentStepSaveChatsHow = "Cicada keeps what you type and each final reply in a local chat — never files, tools or thinking."
-    static let agentStepClaudeApp = "Set up the Claude app on this Mac"
-    static let agentStepClaudeAppHow = "One click adds Cicada to Claude's settings. Then quit and reopen Claude."
+    /// Ruling 39 (2026-10-24, "avoid repetition"): the step's title, its line, its button (*Set up Claude Desktop*) and
+    /// the button's caption (`agentSetUpClaudeHow`) each say a different thing.
+    static let agentStepClaudeApp = "Add Cicada to Claude Desktop"
+    static let agentStepClaudeAppHow = "One click, then quit and reopen it."
     static let agentStepClaudeWeb = "Use it on claude.ai and your phone too"
     static func agentStepReach(_ name: String) -> String { "Let \(name) reach this Mac" }
     static func agentStepLink(_ name: String) -> String { "Create a link for \(name)" }

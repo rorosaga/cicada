@@ -177,12 +177,13 @@ extension Copy {
     }
     static let agentOpenInCursor = "Open in Cursor"
     static let agentOpenInCursorHow = "Cursor asks before it adds Cicada."
-    static let agentSetUpClaude = "Set up Claude"
-    static let agentSetUpClaudeHow = "Adds Cicada to Claude's settings and keeps everything else. Your old file is saved beside it first."
-    static let agentClaudeDone = "Done — quit and reopen Claude to finish."
-    static let agentClaudeAlready = "Claude is already set up — quit and reopen it if the tools don't show."
-    static let agentClaudeNotSetUp = "Open Claude once, then try again."
-    static let agentClaudeUnreadable = "Cicada couldn't read Claude's settings file, so it left it untouched. Add the snippet below by hand."
+    /// The Mac app is "Claude Desktop" everywhere (ruling 39, 2026-10-24), apart from claude.ai and the phone apps.
+    static let agentSetUpClaude = "Set up Claude Desktop"
+    static let agentSetUpClaudeHow = "Everything else in its settings stays. Your old file is saved beside it first."
+    static let agentClaudeDone = "Done — quit and reopen Claude Desktop to finish."
+    static let agentClaudeAlready = "Claude Desktop is already set up — quit and reopen it if the tools don't show."
+    static let agentClaudeNotSetUp = "Open Claude Desktop once, then try again."
+    static let agentClaudeUnreadable = "Cicada couldn't read Claude Desktop's settings file, so it left it untouched. Add the snippet below by hand."
 
     // MARK: Integrations → Calendar on this Mac (round-4 D2, R-FA11 … R-FA13)
     /// Never "Calendar": that is the ICS feed row's label (`calendar` channel), and the two sit in one section.

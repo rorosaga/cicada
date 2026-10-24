@@ -92,7 +92,7 @@ final class AgentStepsTests: XCTestCase {
 
     func testClaudeIsTheAppFirstThenClaudeAiAsAdvanced() throws {
         let s = steps("claude", setups: ["claude": try remote("claude")])
-        XCTAssertEqual(s.map(\.title), ["Set up the Claude app on this Mac", "Use it on claude.ai and your phone too", "Confirm"])
+        XCTAssertEqual(s.map(\.title), ["Add Cicada to Claude Desktop", "Use it on claude.ai and your phone too", "Confirm"])
         XCTAssertEqual(s[0].actions, [.setUpClaude])
         XCTAssertTrue(s[1].advanced)
         XCTAssertEqual(s[1].detail, "Create a link.")
