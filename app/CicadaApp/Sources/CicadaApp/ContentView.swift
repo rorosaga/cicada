@@ -390,6 +390,12 @@ struct ContentView: View {
         if shows {
             welcomeMode = .firstRun
             showFirstRun = true
+        } else if store.banks.value != nil, store.graph.value != nil,
+                  let mode = PermissionResume.reopensOnboarding(PermissionResume.peek(), gateShows: false) {
+            // v3 — reopened from the drag helper mid-setup (a rerun, or a first run whose memory already has pages):
+            // back to onboarding's Sources step, which takes the marker and ticks the browser again.
+            welcomeMode = mode
+            showFirstRun = true
         } else if MenuBarIntro.settlesWithoutStep(bankResolved: store.banks.value != nil,
                                                   graphLoaded: store.graph.value != nil,
                                                   gateShows: false, onboardingShowing: showFirstRun) {

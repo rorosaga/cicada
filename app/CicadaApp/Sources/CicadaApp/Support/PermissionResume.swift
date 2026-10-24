@@ -7,8 +7,13 @@ import Foundation
 
 /// Where a permission was asked, so a relaunch comes back to the same step.
 enum PermissionPlace: Equatable {
-    /// Onboarding's Sources step; `browser` is the browser channel whose tick asked (Safari), started again on return.
+    /// Onboarding's Sources step on a first run; `browser` is the browser channel whose tick asked (Safari), started
+    /// again on return.
     case onboarding(browser: String?)
+    /// The same step in a rerun (Settings → General's *Run setup again*). The bank may read as onboarded or hold pages
+    /// after the relaunch, so the first-run gate would not raise onboarding again: the app shell reopens the rerun
+    /// itself (`ContentView.evaluateFirstRun`).
+    case onboardingRerun(browser: String?)
     /// Sources → Traces (Screen Recording, Accessibility).
     case traces
     /// Anywhere else (Messages, a browser row, Home's Getting started): the Sources page.
@@ -17,6 +22,7 @@ enum PermissionPlace: Equatable {
     var word: String {
         switch self {
         case .onboarding(let browser): browser.map { "onboarding:\($0)" } ?? "onboarding"
+        case .onboardingRerun(let browser): browser.map { "rerun:\($0)" } ?? "rerun"
         case .traces: "traces"
         case .sources: "sources"
         }
@@ -27,14 +33,37 @@ enum PermissionPlace: Equatable {
         case "traces": self = .traces
         case "sources": self = .sources
         case "onboarding": self = .onboarding(browser: nil)
+        case "rerun": self = .onboardingRerun(browser: nil)
         default:
-            guard word.hasPrefix("onboarding:") else { return nil }
-            let browser = String(word.dropFirst("onboarding:".count))
-            self = .onboarding(browser: browser.isEmpty ? nil : browser)
+            if word.hasPrefix("onboarding:") {
+                let browser = String(word.dropFirst("onboarding:".count))
+                self = .onboarding(browser: browser.isEmpty ? nil : browser)
+            } else if word.hasPrefix("rerun:") {
+                let browser = String(word.dropFirst("rerun:".count))
+                self = .onboardingRerun(browser: browser.isEmpty ? nil : browser)
+            } else {
+                return nil
+            }
         }
     }
 
-    var isOnboarding: Bool { if case .onboarding = self { true } else { false } }
+    /// Onboarding's own places, first run or rerun: onboarding consumes their marker, never the app shell.
+    var isOnboarding: Bool {
+        switch self {
+        case .onboarding, .onboardingRerun: true
+        case .traces, .sources: false
+        }
+    }
+
+    var isRerun: Bool { if case .onboardingRerun = self { true } else { false } }
+
+    /// The browser whose tick asked, for either onboarding place.
+    var browser: String? {
+        switch self {
+        case .onboarding(let browser), .onboardingRerun(let browser): browser
+        case .traces, .sources: nil
+        }
+    }
 }
 
 /// The marker a relaunch leaves for the next launch: which permission, asked where, and when. One key, read once and
@@ -60,6 +89,22 @@ struct PermissionResume: Equatable {
     }
 
     func save(_ defaults: UserDefaults = .standard) { defaults.set(encoded, forKey: Self.defaultsKey) }
+
+    /// The waiting marker if it is fresh, left in place (the app shell asks whether onboarding must reopen; onboarding
+    /// itself then takes it).
+    static func peek(now: Date = Date(), defaults: UserDefaults = .standard) -> PermissionResume? {
+        guard let raw = defaults.string(forKey: defaultsKey), let marker = decode(raw),
+              now.timeIntervalSince(marker.at) <= maxAge, now.timeIntervalSince(marker.at) >= -60 else { return nil }
+        return marker
+    }
+
+    /// After a relaunch, whether the app shell must raise onboarding itself, and in which mode: an onboarding marker
+    /// is waiting while the first-run gate (settled) will not raise it — always so for a rerun, whose bank keeps its
+    /// pages. Nil: nothing to reopen, or the gate already shows onboarding (a first run), which takes the marker.
+    static func reopensOnboarding(_ marker: PermissionResume?, gateShows: Bool) -> OnboardingMode? {
+        guard let marker, marker.place.isOnboarding, !gateShows else { return nil }
+        return marker.place.isRerun ? .rerun : .firstRun
+    }
 
     /// The marker, if one is waiting and fresh, for a caller that handles `matching` places — removed once read. A
     /// stale or unreadable marker is removed too; one for another caller's place is left for that caller.

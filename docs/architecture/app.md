@@ -469,15 +469,20 @@ preflight can stay false until a fresh process) with *Reopen Cicada*; once Setti
 "Already on? Reopen Cicada" as a quiet text button. *Reopen Cicada* writes `PermissionResume`
 (`cicada.permission.resume`: kind, place, time; read once, dropped after ten minutes) and relaunches through
 `LiveAppRelauncher` (a shell that waits for this pid, then `open`s the bundle). The next launch comes back to the same
-step: onboarding's marker resumes Sources and ticks the browser again, Traces' opens Sources → Traces, any other opens
+step: onboarding's marker resumes Sources and ticks the browser again — a rerun's tick records the rerun
+(`.onboardingRerun`), and since a rerun's bank keeps its pages the first-run gate would not raise onboarding, so the
+shell reopens it in the marker's mode (`PermissionResume.reopensOnboarding`, also for a first run whose memory already
+has pages) and onboarding takes the marker whatever its mode — Traces' opens Sources → Traces, any other opens
 Sources, and the helper looks again by preflight. A host row's button is `PermissionAllowButton`: its title, an *Open*
 link once × closed the helper (`PermissionRowState.retry`), nothing once granted. Calendar and Contacts keep macOS's
 prompt; refused (`.denied`), their tile says "Turned off in macOS. Click to open the setting" and opens the exact list
 (`SourceTileGroups.deniedSettingsURL`). Reminders, Chrome's Automation and Notes are untouched. Every look is a preflight;
 the live Full Disk Access look opens Safari's bookmarks or Messages' database (`opensProtectedFile`). (2) **A live first
 call on Agents:** "Then try it:" and a chip "Ask <the person's own agent, else your agent>: what do you remember about
-me?" with a copy button (copies the question); `AgentLiveProbe` keeps the first answer's `lastSeenAt` per agent as a
-baseline and the first agent whose time moves past it is `firstCall` (`FirstAgentCall`), and the chip gives way to
+me?" with a copy button (copies the question); `AgentLiveProbe` keeps the first answer's `lastCalledAt` per agent as
+a baseline — a tool call, never `lastSeenAt`, which Cicada's own wiring check (`claude mcp get` initializes as Claude
+Code) and a session merely starting both move — and the first agent whose call is later is `firstCall`
+(`FirstAgentCall`), and the chip gives way to
 "<Agent> just called me. It works." with a check (card fade; a plain fade under Reduce Motion). Continue stays enabled.
 (3) Done ends on the person's memory (above). (4) The real menu-bar worm reacts (above). (5) **Fewer words:** titles ≤ 7
 words and bodies ≤ 25 (`OnboardingWords`, measured on each step's longest variant), the worm in a light first person,

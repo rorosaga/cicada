@@ -7,7 +7,9 @@ not telemetry: it holds what the Agents and Devices pages draw and nothing else.
 **What a row holds — names, devices and times only.** An agent row is ``(agent id, device id, via, first seen, last
 seen, calls)``: the agent id is the catalog way (``agent_catalog.way_for_client``), never the raw ``clientInfo``
 string; the device is a ``device_tokens`` id (``""`` for this machine); ``via`` is an enum (``mcp`` | ``tool`` |
-``remote``). A device row is ``(device id, how, last seen)`` with ``how`` one of :data:`HOW`. No query, no argument,
+``remote`` | ``call``). ``call`` (onboarding v3, 2026-10-24) is a stdio ``tools/call`` — the agent asked Cicada
+something — beside the ``mcp`` row its ``initialize`` writes, so a call can be told apart from a connect (a harness's
+own wiring check, ``claude mcp get``, initializes and never calls a tool). A device row is ``(device id, how, last seen)`` with ``how`` one of :data:`HOW`. No query, no argument,
 no path, no session id, no address.
 
 **Where:** ``$CICADA_HOME/agents/seen.db`` (0700 dir, 0600 file, sqlite WAL) — machine-global, outside every bank,
@@ -31,7 +33,10 @@ from pathlib import Path
 from api.services.auth import cicada_home
 
 STAMP_EVERY_S = 60.0
-VIAS = ("mcp", "tool", "remote")
+VIAS = ("mcp", "tool", "remote", "call")
+#: The vias that are a tool call (an agent asking something), never a bare connect: a stdio ``tools/call`` and a
+#: call through the tool door from another of the person's machines.
+CALL_VIAS = ("call", "tool")
 #: How a device reached this server. ``local`` = this machine; ``ssh`` = another device's token arriving on loopback
 #: (a tunnel); ``tailscale`` = through a Tailscale Serve proxy or from a tailnet address; ``lan`` = another private
 #: address. Derived from the request, never from what a client says about itself.

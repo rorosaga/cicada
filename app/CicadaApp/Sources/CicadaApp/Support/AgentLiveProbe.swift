@@ -48,23 +48,37 @@ final class AgentLiveProbe {
     }
 }
 
-/// Onboarding v3 (2026-10-24, after HeyClicky's mic check) — the Agents step's one live check: did an agent call
-/// Cicada since the step started? `GET /agents/live` already carries each agent's `lastSeenAt`, stamped on every
-/// call (`agent_seen`) and every remote request; a time that moved past the step's first answer is a new call. Ids and
-/// times only, nothing persisted.
+/// Onboarding v3 (2026-10-24, after HeyClicky's mic check) — the Agents step's one live check: did the person's agent
+/// ask Cicada something since the step started? It reads `lastCalledAt` — a `tools/call`, stamped apart from the
+/// `initialize` every connect writes (`agent_seen` `via: call`) — never `lastSeenAt`: Cicada's own wiring check
+/// (`GET /agents/wiring` runs `claude mcp get`, which spawns the server and initializes as Claude Code) and an agent
+/// merely starting a session move `lastSeenAt` without asking anything. A call newer than the step's first answer is
+/// the first call. Ids and times only, nothing persisted.
 enum FirstAgentCall {
-    /// What each agent's last call was when the step started.
+    /// Each agent's last tool call when the step started.
     static func baseline(_ rows: [AgentLiveRow]) -> [String: String] {
-        Dictionary(rows.compactMap { row in row.lastSeenAt.map { (row.id, $0) } }, uniquingKeysWith: { _, last in last })
+        Dictionary(rows.compactMap { row in row.lastCalledAt.map { (row.id, $0) } },
+                   uniquingKeysWith: { _, last in last })
     }
 
-    /// The first agent, in the answer's order, whose last call is newer than the baseline — a time it had not shown
-    /// before (a call only ever moves it forward). A wired agent that has never called (`via: config`, no time) is
-    /// not a call.
+    /// The first agent, in the answer's order, whose last tool call is later than the baseline's (or its first ever).
+    /// A connect alone (`lastSeenAt` moving, no `lastCalledAt`) and a wired agent that never called are not calls; a
+    /// time that went backwards is not one either.
     static func detect(baseline: [String: String], rows: [AgentLiveRow]) -> String? {
         rows.first { row in
-            guard let seen = row.lastSeenAt, !seen.isEmpty else { return false }
-            return baseline[row.id] != seen
+            guard let called = row.lastCalledAt, let now = instant(called) else { return false }
+            guard let before = baseline[row.id] else { return true }
+            guard let then = instant(before) else { return called > before }
+            return now > then
         }?.id
+    }
+
+    /// The backend's ISO-8601 UTC time (`2026-10-24T09:00:00Z`, fractional seconds tolerated).
+    static func instant(_ iso: String) -> Date? {
+        let plain = ISO8601DateFormatter()
+        if let date = plain.date(from: iso) { return date }
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return fractional.date(from: iso)
     }
 }

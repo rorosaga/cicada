@@ -65,7 +65,9 @@ struct OnboardingView: View {
         LiveSetupEffects(store: store,
                          deps: .live(inventory: inventory, watcher: watcher, intake: intake, calendar: calendar,
                                      local: local, store: store, contacts: contacts, tabGroups: tabGroups,
-                                     permissionPlace: { .onboarding(browser: $0) }),
+                                     permissionPlace: { [mode] browser in
+                                         mode == .rerun ? .onboardingRerun(browser: browser) : .onboarding(browser: browser)
+                                     }),
                          owner: owner, onShowHome: onShowHome, onClose: onClose,
                          onChecklistChanged: runner.checklistChanged)
     }
@@ -446,10 +448,15 @@ struct OnboardingView: View {
 
     /// v3 — Cicada was reopened from the drag helper (Full Disk Access waits for a fresh process): back on Sources,
     /// the browser whose tick asked is ticked again — it starts if the grant took, or shows the helper again.
+    /// A rerun's marker reopens the rerun (`ContentView` raised it); either mode lands on Sources once the person's
+    /// name is known — a rerun's owner is already saved.
     private func resumePermissionTick() {
-        guard ownerSaved, let marker = PermissionResume.take(matching: \.isOnboarding) else { return }
+        guard let savedName = owner?.name, OnboardingFlow.canStart(name: savedName),
+              let marker = PermissionResume.take(matching: \.isOnboarding) else { return }
+        ownerSaved = true
+        furthest = max(furthest, .sources)
         go(.sources, .keyboard)
-        guard case .onboarding(let browser?) = marker.place,
+        guard let browser = marker.place.browser,
               let entry = entries.first(where: { $0.id == .browser(browser) }) else { return }
         tick(entry, true)
     }

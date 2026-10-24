@@ -218,6 +218,56 @@ final class OnboardingV3PermissionTests: XCTestCase {
         }
     }
 
+    /// Review blocker 2: a rerun's marker reopens the rerun; a first run's reopens through the gate, or through the
+    /// shell when the gate will not raise it.
+    func testReopenComesBackToSourcesOnAFirstRunAndOnARerun() throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let first = PermissionResume(kind: .fullDiskAccess, place: .onboarding(browser: "safari"), at: now)
+        let rerun = PermissionResume(kind: .fullDiskAccess, place: .onboardingRerun(browser: "safari"), at: now)
+        XCTAssertEqual(PermissionResume.decode(rerun.encoded), rerun)
+        XCTAssertEqual(PermissionPlace(word: "rerun"), .onboardingRerun(browser: nil))
+        XCTAssertTrue(rerun.place.isOnboarding && rerun.place.isRerun)
+        XCTAssertEqual(rerun.place.browser, "safari")
+        XCTAssertEqual(first.place.browser, "safari")
+
+        XCTAssertNil(PermissionResume.reopensOnboarding(first, gateShows: true),
+                     "a first run: the gate raises onboarding, which takes the marker")
+        XCTAssertEqual(PermissionResume.reopensOnboarding(first, gateShows: false), .firstRun,
+                       "a first run whose memory already has pages: the shell raises it")
+        XCTAssertEqual(PermissionResume.reopensOnboarding(rerun, gateShows: false), .rerun,
+                       "a rerun's bank keeps its pages: the shell reopens the rerun")
+        XCTAssertNil(PermissionResume.reopensOnboarding(
+            PermissionResume(kind: .screenRecording, place: .traces, at: now), gateShows: false), "not onboarding's")
+        XCTAssertNil(PermissionResume.reopensOnboarding(nil, gateShows: false))
+
+        rerun.save(defaults)
+        XCTAssertEqual(PermissionResume.peek(now: now.addingTimeInterval(5), defaults: defaults), rerun)
+        XCTAssertNotNil(defaults.string(forKey: PermissionResume.defaultsKey), "peeking leaves it for onboarding")
+        XCTAssertNil(PermissionResume.take(matching: { !$0.isOnboarding }, now: now, defaults: defaults),
+                     "the shell's own resume never eats a rerun's marker")
+        XCTAssertEqual(PermissionResume.take(matching: \.isOnboarding, now: now, defaults: defaults), rerun)
+        XCTAssertNil(PermissionResume.peek(now: now.addingTimeInterval(PermissionResume.maxAge + 1), defaults: defaults))
+    }
+
+    /// The wiring that makes it so: a rerun's tick records the rerun place, the shell reopens onboarding in the mode the
+    /// marker names, and onboarding lands on Sources and ticks the browser whatever its mode.
+    func testTheRerunPlaceAndTheReopenAreWired() throws {
+        func source(_ suffix: String) throws -> String {
+            let file = try XCTUnwrap(ThemeTokenTests.swiftSources().first { $0.path.hasSuffix(suffix) })
+            return try String(contentsOf: file, encoding: .utf8)
+        }
+        let view = try source("Views/Onboarding/OnboardingView.swift")
+        XCTAssertTrue(view.contains("mode == .rerun ? .onboardingRerun(browser: browser) : .onboarding(browser: browser)"))
+        let resume = try XCTUnwrap(view.range(of: "private func resumePermissionTick() {"))
+        let body = String(view[resume.upperBound...].prefix(700))
+        XCTAssertTrue(body.contains("ownerSaved = true"), "a rerun's owner is already saved")
+        XCTAssertTrue(body.contains("go(.sources, .keyboard)"))
+        XCTAssertTrue(body.contains("marker.place.browser"), "either place's browser is ticked again")
+        XCTAssertFalse(body.contains("guard ownerSaved"), "never skipped for a rerun")
+        let content = try source("/ContentView.swift")
+        XCTAssertTrue(content.contains("PermissionResume.reopensOnboarding(PermissionResume.peek(), gateShows: false)"))
+    }
+
     func testOnlyScreenRecordingAndFullDiskAccessWaitForARelaunch() {
         XCTAssertTrue(TracePermission.screenRecording.needsRelaunch)
         XCTAssertTrue(TracePermission.fullDiskAccess.needsRelaunch)
@@ -267,40 +317,65 @@ final class OnboardingV3PermissionTests: XCTestCase {
 
 @MainActor
 final class OnboardingV3FirstCallTests: XCTestCase {
-    func testANewCallIsALastSeenTimeTheStepHadNotSeen() {
-        let start = [AgentLiveRow(id: "claude-code", connected: true, lastSeenAt: "2026-10-24T09:00:00Z", via: "mcp"),
-                     AgentLiveRow(id: "codex", connected: true, lastSeenAt: nil, via: "config")]
+    /// Review blocker 1: Cicada's own wiring check (`claude mcp get` initializes as Claude Code) and an agent merely
+    /// starting a session move `lastSeenAt`; only a tool call moves `lastCalledAt`, and only that is a first call.
+    func testAConnectOrAWiringProbeIsNeverACallOnlyAToolCallIs() {
+        let start = [AgentLiveRow(id: "claude-code", connected: true, lastSeenAt: "2026-10-24T09:00:00Z", via: "mcp")]
         let baseline = FirstAgentCall.baseline(start)
-        XCTAssertEqual(baseline, ["claude-code": "2026-10-24T09:00:00Z"])
-        XCTAssertNil(FirstAgentCall.detect(baseline: baseline, rows: start), "nothing new yet")
+        XCTAssertEqual(baseline, [:], "seen, never called")
+        XCTAssertNil(FirstAgentCall.detect(baseline: baseline, rows: [
+            AgentLiveRow(id: "claude-code", connected: true, lastSeenAt: "2026-10-24T09:00:03Z", via: "mcp"),
+        ]), "the wiring probe's initialize moved lastSeenAt: no call")
         XCTAssertNil(FirstAgentCall.detect(baseline: baseline,
                                            rows: [AgentLiveRow(id: "codex", connected: true, via: "config")]),
                      "wired but never called is no call")
         XCTAssertEqual(FirstAgentCall.detect(baseline: baseline, rows: [
-            AgentLiveRow(id: "claude-code", connected: true, lastSeenAt: "2026-10-24T09:00:00Z", via: "mcp"),
-            AgentLiveRow(id: "codex", connected: true, lastSeenAt: "2026-10-24T09:05:00Z", via: "mcp"),
-        ]), "codex", "an agent that never called before, calling now")
-        XCTAssertEqual(FirstAgentCall.detect(baseline: baseline, rows: [
-            AgentLiveRow(id: "claude-code", connected: true, lastSeenAt: "2026-10-24T09:06:00Z", via: "mcp"),
-        ]), "claude-code", "an agent already connected, calling again")
+            AgentLiveRow(id: "claude-code", connected: true, lastSeenAt: "2026-10-24T09:01:00Z", via: "mcp",
+                         lastCalledAt: "2026-10-24T09:01:00Z"),
+        ]), "claude-code", "a tools/call")
+    }
+
+    func testOnlyACallLaterThanTheBaselineCounts() {
+        let baseline = ["claude-code": "2026-10-24T09:00:00Z"]
+        func row(_ called: String) -> [AgentLiveRow] {
+            [AgentLiveRow(id: "claude-code", connected: true, lastSeenAt: called, via: "mcp", lastCalledAt: called)]
+        }
+        XCTAssertNil(FirstAgentCall.detect(baseline: baseline, rows: row("2026-10-24T09:00:00Z")), "the same call")
+        XCTAssertNil(FirstAgentCall.detect(baseline: baseline, rows: row("2026-10-24T08:59:00Z")), "never backwards")
+        XCTAssertEqual(FirstAgentCall.detect(baseline: baseline, rows: row("2026-10-24T09:00:01Z")), "claude-code")
+        XCTAssertEqual(FirstAgentCall.detect(baseline: baseline, rows: row("2026-10-24T09:00:01.250Z")), "claude-code",
+                       "fractional seconds read too")
     }
 
     func testTheProbeTakesItsBaselineFromTheFirstAnswerAndKeepsTheFirstCaller() {
         let probe = AgentLiveProbe(fetch: { AgentLiveResponse() })
-        probe.apply(AgentLiveResponse(agents: [AgentLiveRow(id: "claude-code", connected: true,
-                                                            lastSeenAt: "2026-10-24T08:00:00Z", via: "mcp")]))
+        let early = "2026-10-24T08:00:00Z"
+        probe.apply(AgentLiveResponse(agents: [AgentLiveRow(id: "claude-code", connected: true, lastSeenAt: early,
+                                                            via: "mcp", lastCalledAt: early)]))
         XCTAssertNil(probe.firstCall, "the first answer is the baseline, never a call")
         probe.apply(AgentLiveResponse(agents: [AgentLiveRow(id: "claude-code", connected: true,
-                                                            lastSeenAt: "2026-10-24T08:00:00Z", via: "mcp")]))
-        XCTAssertNil(probe.firstCall)
+                                                            lastSeenAt: "2026-10-24T08:00:30Z", via: "mcp",
+                                                            lastCalledAt: early)]))
+        XCTAssertNil(probe.firstCall, "a reconnect (the wiring re-read after Connect) is not a call")
         probe.apply(AgentLiveResponse(agents: [AgentLiveRow(id: "claude-code", connected: true,
-                                                            lastSeenAt: "2026-10-24T08:01:00Z", via: "mcp")]))
+                                                            lastSeenAt: "2026-10-24T08:01:00Z", via: "mcp",
+                                                            lastCalledAt: "2026-10-24T08:01:00Z")]))
         XCTAssertEqual(probe.firstCall, "claude-code")
         probe.apply(AgentLiveResponse(agents: [
-            AgentLiveRow(id: "claude-code", connected: true, lastSeenAt: "2026-10-24T08:01:00Z", via: "mcp"),
-            AgentLiveRow(id: "codex", connected: true, lastSeenAt: "2026-10-24T08:02:00Z", via: "mcp"),
+            AgentLiveRow(id: "codex", connected: true, lastSeenAt: "2026-10-24T08:02:00Z", via: "mcp",
+                         lastCalledAt: "2026-10-24T08:02:00Z"),
         ]))
         XCTAssertEqual(probe.firstCall, "claude-code", "the moment happens once")
+    }
+
+    func testAnOlderBackendWithoutLastCalledAtNeverConfirms() throws {
+        let json = #"{"agents":[{"id":"claude-code","connected":true,"lastSeenAt":"2026-10-24T09:00:00Z","via":"mcp"}]}"#
+        let response = try JSONDecoder().decode(AgentLiveResponse.self, from: Data(json.utf8))
+        XCTAssertNil(response.agents.first?.lastCalledAt)
+        XCTAssertNil(FirstAgentCall.detect(baseline: [:], rows: response.agents))
+        let fresh = #"{"agents":[{"id":"codex","connected":true,"lastSeenAt":null,"via":null,"lastCalledAt":"2026-10-24T09:00:00Z"}]}"#
+        XCTAssertEqual(try JSONDecoder().decode(AgentLiveResponse.self, from: Data(fresh.utf8)).agents.first?.lastCalledAt,
+                       "2026-10-24T09:00:00Z")
     }
 
     func testTheChipNamesThePersonsOwnAgentOrNone() throws {

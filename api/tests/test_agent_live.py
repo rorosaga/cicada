@@ -104,7 +104,7 @@ def test_claude_code_s_config_signal_is_the_stop_hook_only(homes):
     hook_registry.install(homes / ".claude/settings.json", event="Stop",
                           command=agent_wiring.hook_command(PY, REPO, "claude-code"))
     assert _snapshot(homes)["claude-code"] == {"id": "claude-code", "connected": True,
-                                               "last_seen_at": None, "via": "config"}
+                                               "last_seen_at": None, "via": "config", "last_called_at": None}
 
 
 def test_claude_desktop_s_library_config_is_never_read(homes):
@@ -193,7 +193,7 @@ def test_the_route_is_camel_case_and_never_runs_a_cli(homes, monkeypatch):
     # G217: the app's eleven pills first, in its order, then every other way the catalog tracks.
     ids = [a["id"] for a in body["agents"]]
     assert ids[:len(FIXTURE["live"])] == FIXTURE["live"] and ids == list(agent_live.TRACKED)
-    assert set(body["agents"][0]) == {"id", "connected", "lastSeenAt", "via"}
+    assert set(body["agents"][0]) == {"id", "connected", "lastSeenAt", "via", "lastCalledAt"}
 
 
 def test_no_path_under_library_or_claude_json_is_named():
