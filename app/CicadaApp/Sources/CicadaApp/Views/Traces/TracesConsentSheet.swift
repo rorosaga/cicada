@@ -103,8 +103,8 @@ struct TracesConsentSheet: View {
             if granted[kind] == true {
                 StatusWord(word: Copy.Traces.allowed, tone: .on)
             } else {
-                NeutralButton(title: Copy.Traces.allow, size: .compact) {
-                    PermissionDragHelper.present(kind: kind, probe: probe) { granted[kind] = true }
+                PermissionAllowButton(kind: kind, title: Copy.Traces.allow, probe: probe, place: .traces) {
+                    granted[kind] = true
                 }
             }
         }

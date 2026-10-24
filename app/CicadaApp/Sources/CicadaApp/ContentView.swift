@@ -86,6 +86,7 @@ struct ContentView: View {
             selectedTab = AppTab.restored(from: selectedTabRaw)
             evaluateFirstRun()
             intake.welcomeActive = showFirstRun
+            resumePermissionStep()
         }
         // The gear's dot reads the engine the person chose (owner 2026-10-16), so the choice is read once the backend
         // answers, not only when a page that shows it is visited. Keyed on the first status landing: a read before
@@ -338,6 +339,15 @@ struct ContentView: View {
             IntakeDrop.load(providers) { intake.accept(urls: $0, from: origin) }
             return true
         }
+    }
+
+    /// Onboarding v3 (2026-10-24) — Cicada was reopened from the drag helper's *Reopen Cicada* (Screen Recording or Full
+    /// Disk Access waiting for a fresh process): back to the same step, and the helper looks again by preflight — it
+    /// closes at once when the grant took, or asks again. Onboarding's own marker waits for onboarding (`OnboardingView`).
+    private func resumePermissionStep() {
+        guard let marker = PermissionResume.take(matching: { !$0.isOnboarding }) else { return }
+        if marker.place == .traces { router.routeToSourceDetail(SourceCatalog.tracesId) } else { router.routeToSources() }
+        PermissionDragHelper.present(kind: marker.kind, place: marker.place) {}
     }
 
     /// G145 — the paged onboarding over the whole window (R-IB11's placement), or nothing.

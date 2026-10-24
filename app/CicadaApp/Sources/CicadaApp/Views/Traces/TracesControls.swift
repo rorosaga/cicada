@@ -299,9 +299,7 @@ struct TracesControls: View {
             Text(words).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: CicadaTheme.spacingSM)
-            NeutralButton(title: button, size: .compact) {
-                PermissionDragHelper.present(kind: kind, probe: probe) { granted[kind] = true }
-            }
+            PermissionAllowButton(kind: kind, title: button, probe: probe, place: .traces) { granted[kind] = true }
         }
     }
 

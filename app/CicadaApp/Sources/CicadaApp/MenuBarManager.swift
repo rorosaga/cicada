@@ -22,6 +22,8 @@ final class MenuBarManager: NSObject {
     /// `.waiting` from a fresh install's launch until onboarding's *Meet your bookworm* step is passed or skipped.
     private(set) var introPhase: MenuBarIntro.Phase = .done
     @ObservationIgnored private var flight: MenuBarFlight?
+    /// Onboarding v3 — the hello in progress (`greet()`): which of the pose's beats shows now.
+    @ObservationIgnored private var greeting: (beats: [MenuBarGreeting.Beat], index: Int)?
 
     func setVisible(_ visible: Bool) {
         preference = visible
@@ -84,9 +86,49 @@ final class MenuBarManager: NSObject {
                 flight.fly(image: cg, from: start, to: target) { [weak self] in
                     button.alphaValue = 1
                     self?.flight = nil
+                    // Onboarding v3's closing beat: it lands, and says hello in its own frames.
+                    self?.greet()
                 }
             }
         }
+    }
+
+    /// Onboarding v3 (2026-10-24, after HeyClicky's live notch) — the real menu-bar worm says hello: the happy pose's
+    /// frames after its key frame, each on its own sheet time (ruling 18), under the real state's overlay (a waiting
+    /// worm keeps its number), then back to its own animation. *Meet your bookworm* asks for it while it talks about the
+    /// worm (a rerun, where the item is already up), and the flight asks for it on landing. Nothing under Reduce
+    /// Motion, while hidden, or mid-flight (`MenuBarGreeting.greets`).
+    func greet() {
+        guard MenuBarGreeting.greets(isVisible: isVisible, reduceMotion: reduceMotion, flying: flight != nil),
+              statusItem?.button != nil,
+              let (_, clip) = BookwormArt.clip(MenuBarGreeting.pose, look: .idle, set: .small) else { return }
+        let beats = MenuBarGreeting.beats(frameCount: clip.order.count, seconds: clip.seconds)
+        guard !beats.isEmpty else { return }
+        frameTimer?.invalidate()
+        frameTimer = nil
+        greeting = (beats, 0)
+        playGreetingBeat()
+    }
+
+    private func playGreetingBeat() {
+        guard let current = greeting else { return }
+        guard current.index < current.beats.count, isVisible, !reduceMotion else {
+            greeting = nil
+            restartAnimation()
+            return
+        }
+        renderCurrentFrame()
+        let hold = current.beats[current.index].hold
+        let timer = Timer(timeInterval: hold, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, let g = self.greeting else { return }
+                self.greeting = (g.beats, g.index + 1)
+                self.playGreetingBeat()
+            }
+        }
+        timer.tolerance = hold * CicadaMotion.spriteTimerTolerance
+        frameTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
     }
 
     /// Where the sprite sits on screen inside the status item's button: its 18 × 18 image, centred. Nil when AppKit has
@@ -295,6 +337,7 @@ final class MenuBarManager: NSObject {
     }
 
     private func restartAnimation() {
+        greeting = nil
         frameTimer?.invalidate()
         frameTimer = nil
         if reduceMotion { frameStep = 0 }
@@ -326,7 +369,13 @@ final class MenuBarManager: NSObject {
 
     private func renderCurrentFrame() {
         guard let button = statusItem?.button else { return }
-        let image = BookwormRenderer.smallImage(state: state, frameStep: frameStep, pointSize: Self.spritePointSize)
+        let image: NSImage
+        if let greeting, greeting.index < greeting.beats.count {
+            image = BookwormRenderer.smallImage(state: state, frameStep: greeting.beats[greeting.index].step,
+                                                pointSize: Self.spritePointSize, pose: MenuBarGreeting.pose)
+        } else {
+            image = BookwormRenderer.smallImage(state: state, frameStep: frameStep, pointSize: Self.spritePointSize)
+        }
         let label = Self.accessibilityLabel(for: state)
         image.accessibilityDescription = label
         button.image = image
@@ -668,4 +717,28 @@ enum TraceMenuAction: Equatable {
 private final class TraceMenuActionBox: NSObject {
     let action: TraceMenuAction
     init(_ action: TraceMenuAction) { self.action = action }
+}
+
+/// Onboarding v3 — the real menu-bar worm's hello, decided purely (`MenuBarGreetingTests`).
+enum MenuBarGreeting {
+    /// The happy sheet: its key frame holds, the frames after it are the hop.
+    static let pose: BookwormState = .happy
+
+    struct Beat: Equatable {
+        let step: Int
+        let hold: TimeInterval
+    }
+
+    /// The pose's frames after its key frame, each held for its sheet's own time (ruling 18). Empty for a pose of one
+    /// frame (nothing to play).
+    static func beats(frameCount: Int, seconds: [TimeInterval]) -> [Beat] {
+        guard frameCount > 1, !seconds.isEmpty else { return [] }
+        return (1..<frameCount).map { Beat(step: $0, hold: seconds[$0 % seconds.count]) }
+    }
+
+    /// Only where it can be seen and only as the sprite's own frames: never while hidden, under Reduce Motion (DR-66:
+    /// the moving value is gated), or while the flight still carries it.
+    static func greets(isVisible: Bool, reduceMotion: Bool, flying: Bool) -> Bool {
+        isVisible && !reduceMotion && !flying
+    }
 }

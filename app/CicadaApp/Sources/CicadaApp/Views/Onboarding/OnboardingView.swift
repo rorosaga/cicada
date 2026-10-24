@@ -64,7 +64,8 @@ struct OnboardingView: View {
     private var effects: LiveSetupEffects {
         LiveSetupEffects(store: store,
                          deps: .live(inventory: inventory, watcher: watcher, intake: intake, calendar: calendar,
-                                     local: local, store: store, contacts: contacts, tabGroups: tabGroups),
+                                     local: local, store: store, contacts: contacts, tabGroups: tabGroups,
+                                     permissionPlace: { .onboarding(browser: $0) }),
                          owner: owner, onShowHome: onShowHome, onClose: onClose,
                          onChecklistChanged: runner.checklistChanged)
     }
@@ -131,6 +132,10 @@ struct OnboardingView: View {
         .onChange(of: page) { _, next in
             furthest = max(furthest, next)
             pageShownAt = Date()
+            // v3 — staged against the real app: while the step talks about the worm, the real one (already up there on
+            // a rerun) says hello. A first run's worm says it on landing instead (`MenuBarManager.introduce`).
+            if next == .menuBar { menuBar?.greet() }
+            if next == .done { Task { await refreshReveal() } }
             // Resume where the person was if they quit mid-way — only once the name is saved (R-OB2).
             if ownerSaved, next != .welcome { OnboardingState.saveStep(next, bank: store.bank) }
         }
@@ -192,6 +197,7 @@ struct OnboardingView: View {
             SourcesStep(imports: entries, snapshots: Dictionary(uniqueKeysWithValues: s.map { ($0.id, $0) }),
                         dropTargeted: dropTargeted,
                         needsAccess: Set(inventory.items.filter { $0.readiness == .needsPermission }.map(\.id)),
+                        denied: deniedByMacOS,
                         onTick: tick, onSeeHow: { seeHow = $0 })
         case .welcome, .menuBar, .done: EmptyView()
         }
@@ -211,6 +217,29 @@ struct OnboardingView: View {
             PrimaryActionButton(title: Copy.onboardingContinue) { advance(.pointer) }
             KeyHint("⏎")
         }
+    }
+
+    /// Calendar and Contacts refused in macOS's own prompt (read from their readers' status — never asked again here).
+    private var deniedByMacOS: Set<FoundItemID> {
+        var out: Set<FoundItemID> = []
+        if case .denied? = calendar?.status { out.insert(.app(AppSourceDrivers.calendar)) }
+        if case .denied? = contacts?.status { out.insert(.app(AppSourceDrivers.contacts)) }
+        return out
+    }
+
+    /// Done's reveal: the pages this memory already holds and the conversations waiting to be read, from the Store's
+    /// live graph and the Sleep page's own queue — the person's own, never an example.
+    private var reveal: DoneReveal {
+        DoneReveal.of(pages: DoneReveal.pages(store.graph.value?.nodes ?? []),
+                      waiting: sleepVM.queuedEpisodes.map { DoneReveal.Conversation(id: $0.id, title: $0.title,
+                                                                                    origin: $0.origin) },
+                      reading: sleepVM.isRunning)
+    }
+
+    /// Done shows what is there now: one read of the graph, the status and the queue. It starts nothing.
+    private func refreshReveal() async {
+        await store.refresh([.graph, .status])
+        await sleepVM.load()
     }
 
     /// Done's one line (`DoneLine`) from the real schedule, both previews and what is still coming in — a rerun after
@@ -234,13 +263,15 @@ struct OnboardingView: View {
                             onGetStarted: { advance(.pointer) }, onSetUpLater: mode == .rerun ? closeRerun : setUpLater,
                             onTryDemo: tryDemo)
             } else if page == .menuBar {
-                MenuBarStep(waiting: store.status.value?.waitingForSleep, busy: busy,
+                MenuBarStep(waiting: store.status.value?.waitingForSleep,
+                            shownInMenuBar: menuBar?.introPhase == .done && menuBar?.isVisible == true, busy: busy,
                             onBack: { go(.sources, .pointer) },
-                            onSkip: { passMenuBarStep(.instant, .pointer) },
-                            onContinue: { frame in passMenuBarStep(frame.map { .fly(from: $0) } ?? .instant, .pointer) })
+                            onSkip: { go(.done, .pointer) },
+                            onContinue: { go(.done, .pointer) })
             } else {
-                DonePage(line: doneLine(snapshots), busy: busy, onBack: { go(.menuBar, .pointer) },
-                         onOpen: { advance(.pointer) })
+                DonePage(line: doneLine(snapshots), reveal: reveal, waiting: store.status.value?.waitingForSleep,
+                         busy: busy, onBack: { go(.menuBar, .pointer) },
+                         onOpen: { frame in openCicada(.openCicadaByPointer, from: frame) })
             }
         }
         .frame(width: width)
@@ -251,9 +282,9 @@ struct OnboardingView: View {
             Spacer(minLength: CicadaTheme.spacingLG)
             // A short window first drops the room (art only, DR-13), then scrolls the card with its actions inside it —
             // never clipped (G130).
-            if page == .menuBar {
-                // The big menu-bar worm stands where the room stands (`MenuBarStep` draws it over its own card): no
-                // room on this step, so the worm is never one picture among two.
+            if page == .menuBar || page == .done {
+                // The big menu-bar worm stands where the room stands (`MenuBarStep` and, since v3, `DonePage` draw it
+                // over their own card): no room on these steps, so the worm is never one picture among two.
                 ViewThatFits(in: .vertical) {
                     content
                     ScrollView { content }.scrollBounceBehavior(.basedOnSize)
@@ -277,19 +308,10 @@ struct OnboardingView: View {
         guard !busy, seeHow == nil else { return }
         switch page {
         case .welcome: getStarted(input)
-        case .done: openCicada()
-        // ⏎ on the worm's step: the worm is simply there, never flown (DR-60).
-        case .menuBar: passMenuBarStep(.instant, input)
+        // ⏎ on Done: the worm is simply there, never flown (DR-60).
+        case .done: openCicada(input == .keyboard ? .openCicadaByKey : .openCicadaByPointer, from: nil)
         default: if let next = page.next { go(next, input) }
         }
-    }
-
-    /// *Meet your bookworm* passed — Continue, ⏎ or Skip: the worm goes into the menu bar (flown only from a pointer's
-    /// Continue, faded under Reduce Motion) and Done follows at once, under the flight.
-    private func passMenuBarStep(_ reveal: MenuBarReveal, _ input: OnboardingInput) {
-        guard !busy else { return }
-        menuBar?.introduce(reveal.resolved(reduceMotion: reduceMotion))
-        go(.done, input)
     }
 
     private func go(_ target: OnboardingPage, _ input: OnboardingInput) {
@@ -366,8 +388,12 @@ struct OnboardingView: View {
     /// Seam 2 — the demo is `SetupRunner.demoPlan`, unchanged; T-Demo makes it richer.
     private func tryDemo() { run(SetupRunner.demoPlan) }
 
-    /// R-OB15 — mark, record the agents Cicada saw connect, offer the tour (seam 3), Home.
-    private func openCicada() {
+    /// R-OB15 — mark, record the agents Cicada saw connect, offer the tour (seam 3), Home. v3: the worm goes into the
+    /// menu bar first — flown from Done by a pointer's Open Cicada, faded under Reduce Motion, simply there on ⏎
+    /// (`OnboardingExit`); the window's close then finds it already introduced.
+    private func openCicada(_ exit: OnboardingExit, from frame: CGRect?) {
+        guard !busy else { return }
+        menuBar?.introduce(exit.reveal(from: frame, reduceMotion: reduceMotion))
         // Owner 2026-10-22: once right after onboarding when the person brought something in — a run they started.
         if DoneLine.readsNow(brought: DoneLine.brought(snapshots), canReadNow: DoneLine.canReadNow(engineVM.response)) {
             let vm = sleepVM
@@ -414,6 +440,18 @@ struct OnboardingView: View {
         }
         browsers = await Task.detached(priority: .userInitiated) { BrowserInventory.live() }.value
         await inventory.refresh()
+        if page == .done { await refreshReveal() }
+        resumePermissionTick()
+    }
+
+    /// v3 — Cicada was reopened from the drag helper (Full Disk Access waits for a fresh process): back on Sources,
+    /// the browser whose tick asked is ticked again — it starts if the grant took, or shows the helper again.
+    private func resumePermissionTick() {
+        guard ownerSaved, let marker = PermissionResume.take(matching: \.isOnboarding) else { return }
+        go(.sources, .keyboard)
+        guard case .onboarding(let browser?) = marker.place,
+              let entry = entries.first(where: { $0.id == .browser(browser) }) else { return }
+        tick(entry, true)
     }
 }
 

@@ -53,6 +53,18 @@ struct LivePermissionPollClock: PermissionPollClock {
     }
 }
 
+/// What the ask panel tells the person to do (onboarding v3, 2026-10-24, after HeyClicky's recovery rows): two
+/// instructions for two states, and the relaunch macOS sometimes needs before a grant shows.
+enum PermissionAsk: Equatable {
+    /// Cicada is not in the list yet: "Drag me into the … list."
+    case drag
+    /// Cicada has been in the list before (`PermissionMemory`), or the person came back from it: "Flip my toggle on."
+    case flip
+    /// Screen Recording or Full Disk Access, back from System Settings with the preflight still saying no: the switch may
+    /// be on already and need a fresh process — "Already on? Reopen Cicada to apply it."
+    case reopen
+}
+
 /// The helper's state, with no AppKit in it: which pane Open goes to, the words, and the poll that ticks the step.
 @MainActor
 @Observable
@@ -67,7 +79,10 @@ final class PermissionDragHelperModel {
     }
 
     let kind: TracePermission
+    let place: PermissionPlace
     private(set) var phase: Phase = .asking
+    /// The person came back to Cicada from System Settings and the preflight still says no.
+    private(set) var returnedWithoutGrant = false
 
     /// The step ticks (once).
     @ObservationIgnored var onGranted: (() -> Void)?
@@ -79,21 +94,41 @@ final class PermissionDragHelperModel {
     @ObservationIgnored private let probe: any TracePermissionProbe
     @ObservationIgnored private let opener: any PermissionSettingsOpener
     @ObservationIgnored private let clock: any PermissionPollClock
+    /// Nil (a test that does not pass one): nothing remembered, so every ask starts as a drag.
+    @ObservationIgnored private let memory: PermissionMemory?
+    @ObservationIgnored private let relauncher: (any AppRelauncher)?
+    @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private let interval: TimeInterval
     @ObservationIgnored private var token: PermissionPollToken?
 
     init(kind: TracePermission, probe: any TracePermissionProbe, opener: any PermissionSettingsOpener,
-         clock: any PermissionPollClock, interval: TimeInterval = CicadaTiming.permissionPoll) {
+         clock: any PermissionPollClock, interval: TimeInterval = CicadaTiming.permissionPoll,
+         place: PermissionPlace = .sources, memory: PermissionMemory? = nil,
+         relauncher: (any AppRelauncher)? = nil, now: @escaping () -> Date = Date.init) {
         self.kind = kind
         self.probe = probe
         self.opener = opener
         self.clock = clock
         self.interval = interval
+        self.place = place
+        self.memory = memory
+        self.relauncher = relauncher
+        self.now = now
     }
 
-    var need: String { Copy.Traces.need(kind) }
+    /// Toggle versus drag, and the relaunch case — from what the helper has seen, never from a prompting API.
+    var ask: PermissionAsk {
+        if returnedWithoutGrant, kind.needsRelaunch { return .reopen }
+        if returnedWithoutGrant || memory?.inList(kind) == true { return .flip }
+        return .drag
+    }
+
+    var need: String { Copy.Permission.line(kind, ask: ask) }
     var hint: String { Copy.Traces.nearMiss(kind) }
     var isFinished: Bool { phase == .granted || phase == .cancelled }
+    /// "Already on? Reopen Cicada" as a quiet second action once System Settings is open, for the two kinds whose
+    /// grant waits for a fresh process (HeyClicky's standing recovery line).
+    var offersReopen: Bool { kind.needsRelaunch && phase == .opened && relauncher != nil }
 
     /// The exact list in System Settings (Privacy & Security), by its deep link.
     static func settingsURL(for kind: TracePermission) -> URL {
@@ -127,6 +162,22 @@ final class PermissionDragHelperModel {
         if probe.granted(kind) { finish(granted: true) } else { onPoll?() }
     }
 
+    /// Cicada became the active app again. Only after Open: a look by preflight, and — still no — the panel's words move
+    /// on to the toggle, or to the relaunch for a kind that needs one.
+    func returned() {
+        guard !isFinished, phase == .opened else { return }
+        if probe.granted(kind) { finish(granted: true); return }
+        returnedWithoutGrant = true
+    }
+
+    /// "Reopen Cicada": leaves the marker that brings the next launch back to this step, then quits and reopens.
+    func reopen() {
+        guard !isFinished, let relauncher else { return }
+        token?.cancel()
+        token = nil
+        relauncher.relaunch(resume: PermissionResume(kind: kind, place: place, at: now()))
+    }
+
     func cancel() {
         guard !isFinished else { return }
         finish(granted: false)
@@ -141,8 +192,25 @@ final class PermissionDragHelperModel {
         token?.cancel()
         token = nil
         phase = granted ? .granted : .cancelled
-        if granted { onGranted?() }
+        if granted {
+            memory?.noteGranted(kind)
+            onGranted?()
+        }
         onFinish?()
+    }
+}
+
+/// A host row's control for one permission (Traces' steps and switches, the Full Disk Access fix under Messages and a
+/// browser): its button until the helper shows; once the person closed the helper with ×, the row quietly becomes an
+/// *Open* link that brings the helper back (HeyClicky: "this row will quietly switch to Open"); granted, it is done.
+enum PermissionRowState: Equatable {
+    case ask
+    case retry
+    case granted
+
+    static func after(_ phase: PermissionDragHelperModel.Phase?, granted: Bool) -> PermissionRowState {
+        if granted || phase == .granted { return .granted }
+        return phase == .cancelled ? .retry : .ask
     }
 }
 
@@ -163,27 +231,45 @@ final class PermissionDragHelper {
     let model: PermissionDragHelperModel
     private var askPanel: NSPanel?
     private var dragPanel: NSPanel?
+    private var activeObserver: NSObjectProtocol?
 
     private init(model: PermissionDragHelperModel) { self.model = model }
 
     /// Shows the helper for `kind`. `onGranted` runs once, when the preflight says yes; the panels then close.
+    /// `onFinish(granted)` runs once either way, so a host row can turn into its *Open* link after ×. `place` is where a
+    /// relaunch brings the person back (onboarding's Sources step, Traces, the Sources page).
     @discardableResult
     static func present(kind: TracePermission, probe: any TracePermissionProbe = LiveTracePermissionProbe(),
+                        place: PermissionPlace = .sources, onFinish: ((Bool) -> Void)? = nil,
                         onGranted: @escaping () -> Void) -> PermissionDragHelperModel {
         current?.model.cancel()
         let model = PermissionDragHelperModel(kind: kind, probe: probe, opener: LivePermissionSettingsOpener(),
-                                              clock: LivePermissionPollClock())
+                                              clock: LivePermissionPollClock(), place: place,
+                                              memory: PermissionMemory(), relauncher: LiveAppRelauncher())
         let helper = PermissionDragHelper(model: model)
         current = helper
         model.onGranted = onGranted
-        model.onFinish = { [weak helper] in
+        model.onFinish = { [weak helper, weak model] in
             helper?.closePanels()
             if current === helper { current = nil }
+            onFinish?(model?.phase == .granted)
         }
         model.onPoll = { [weak helper] in helper?.placeDragCard() }
         model.start()
-        if !model.isFinished { helper.showAskPanel() }
+        if !model.isFinished {
+            helper.showAskPanel()
+            // Back from System Settings: one look by preflight, and the words move on (toggle, or Reopen).
+            helper.activeObserver = NotificationCenter.default.addObserver(
+                forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak helper] _ in
+                MainActor.assumeIsolated { helper?.returned() }
+            }
+        }
         return model
+    }
+
+    private func returned() {
+        model.returned()
+        resizeAskPanel()
     }
 
     private static func makePanel() -> NSPanel {
@@ -204,7 +290,8 @@ final class PermissionDragHelper {
         let host = NSHostingView(rootView: PermissionAskCard(model: model, onOpen: { [weak self] in
             self?.model.open()
             self?.showDragCard()
-        }))
+            self?.resizeAskPanel()
+        }, onReopen: { [weak self] in self?.model.reopen() }))
         panel.contentView = host
         let size = host.fittingSize
         let visible = NSScreen.main?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1440, height: 876)
@@ -212,6 +299,15 @@ final class PermissionDragHelper {
                               width: size.width, height: size.height), display: false)
         panel.orderFrontRegardless()
         askPanel = panel
+    }
+
+    /// The ask card's words change with its state (drag → toggle → Reopen): the panel keeps its top edge and fits.
+    private func resizeAskPanel() {
+        guard let panel = askPanel, let host = panel.contentView else { return }
+        let size = host.fittingSize
+        let top = panel.frame.maxY
+        panel.setFrame(CGRect(x: panel.frame.midX - size.width / 2, y: top - size.height,
+                              width: size.width, height: size.height), display: true)
     }
 
     private func showDragCard() {
@@ -245,6 +341,8 @@ final class PermissionDragHelper {
     }
 
     private func closePanels() {
+        if let activeObserver { NotificationCenter.default.removeObserver(activeObserver) }
+        activeObserver = nil
         askPanel?.orderOut(nil)
         dragPanel?.orderOut(nil)
         askPanel = nil
@@ -278,10 +376,13 @@ final class PermissionDragHelper {
 
 // MARK: - The two cards
 
-/// The ask: one line of what is needed, the near-miss hint, Open, and ×.
+/// The ask: one first-person line for the state (drag me in · flip my toggle on · reopen to apply it), the near-miss
+/// hint while a drag is the job, the one primary, and ×. Screen Recording and Full Disk Access, once System Settings is
+/// open, also offer "Already on? Reopen Cicada" as a quiet text button (onboarding v3, HeyClicky's recovery line).
 private struct PermissionAskCard: View {
     let model: PermissionDragHelperModel
     let onOpen: () -> Void
+    let onReopen: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
@@ -295,20 +396,66 @@ private struct PermissionAskCard: View {
                     model.cancel()
                 }
             }
-            Text(model.hint)
-                .font(CicadaTheme.captionFont)
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
-            HStack {
-                Spacer()
-                PrimaryActionButton(title: Copy.Traces.open, action: onOpen)
-                    .help(Copy.Traces.openHelp)
+            if model.ask == .drag {
+                Text(model.hint)
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            HStack(spacing: CicadaTheme.spacingSM) {
+                if model.ask == .reopen {
+                    TextButton(title: Copy.Traces.open, flushLeading: true, action: onOpen)
+                        .help(Copy.Traces.openHelp)
+                    Spacer()
+                    PrimaryActionButton(title: Copy.Permission.reopen, action: onReopen)
+                        .help(Copy.Permission.reopenHelp)
+                } else {
+                    if model.offersReopen {
+                        TextButton(title: Copy.Permission.alreadyOn, flushLeading: true, action: onReopen)
+                            .help(Copy.Permission.reopenHelp)
+                    }
+                    Spacer()
+                    PrimaryActionButton(title: Copy.Traces.open, action: onOpen)
+                        .help(Copy.Traces.openHelp)
+                }
             }
         }
         .padding(CicadaTheme.spacingLG)
         .frame(width: CicadaTheme.scaled(340), alignment: .leading)
         .floatingSurface(in: CicadaTheme.shape(CicadaTheme.cornerRadius))
         .padding(CicadaTheme.spacingXL)   // room for the light theme's one soft shadow inside the clear window
+    }
+}
+
+/// A host row's button for one permission, through the one helper: its own title until the helper shows, an *Open*
+/// link once the person closed the helper (`PermissionRowState.retry`), and nothing once granted (the host shows its
+/// own Allowed / On). Traces' steps and switches and the Full Disk Access fix under Messages and a browser use it.
+struct PermissionAllowButton: View {
+    let kind: TracePermission
+    let title: String
+    var probe: any TracePermissionProbe = LiveTracePermissionProbe()
+    var place: PermissionPlace = .sources
+    let onGranted: () -> Void
+
+    @State private var phase: PermissionDragHelperModel.Phase?
+
+    var body: some View {
+        switch PermissionRowState.after(phase, granted: false) {
+        case .ask:
+            NeutralButton(title: title, size: .compact) { present() }
+        case .retry:
+            TextButton(title: Copy.Traces.open, inline: true) { present() }
+                .help(Copy.Permission.retryHelp)
+        case .granted:
+            EmptyView()
+        }
+    }
+
+    private func present() {
+        phase = .asking
+        PermissionDragHelper.present(kind: kind, probe: probe, place: place,
+                                     onFinish: { granted in phase = granted ? .granted : .cancelled },
+                                     onGranted: onGranted)
     }
 }
 

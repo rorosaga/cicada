@@ -9,24 +9,26 @@ import SwiftUI
 /// does when conversations arrive, holds, and an illustrated Sleep takes it away (`MenuBarStepModel`); the sprite's
 /// own frames keep their sheet timings (ruling 18). It is the menu-bar item itself, shown big, not a second
 /// illustration: no room on this step, no word on the art, every word on the card (DR-13). The card is ringed, never
-/// shadowed (DR-9, DR-10). Under Reduce Motion the worm holds on its number (DR-66). Continue by pointer flies the worm
-/// into the menu bar (`MenuBarFlight`); ⏎ and Skip put it there with no flight (DR-60). DR-17 (the onboarding headline),
+/// shadowed (DR-9, DR-10). Under Reduce Motion the worm holds on its number (DR-66). Since onboarding v3 (2026-10-24)
+/// the worm speaks for itself, and the flight is Done's closing beat: Continue, ⏎ and Skip all go on to Done, where the
+/// same worm waits over the card. On a rerun the real menu-bar worm is already up there, so the step says "That's me"
+/// and the real item says hello while the step talks about it (`MenuBarManager.greet`). DR-17 (the onboarding headline),
 /// DR-21 (the count in words beside the badge), DR-40, DR-61's dated exception (`CicadaMotion.wormCount…`).
 struct MenuBarStep: View {
     /// `StatusSnapshot.waitingForSleep` — the badge's own number — or nil before `/status` has answered.
     let waiting: Int?
+    /// The real menu-bar worm is already showing (a rerun): the step points at it.
+    var shownInMenuBar = false
     let busy: Bool
     let onBack: () -> Void
     let onSkip: () -> Void
-    /// Continue by pointer, with the big worm's frame on screen (nil when it cannot be measured: no flight then).
-    let onContinue: (CGRect?) -> Void
+    let onContinue: () -> Void
 
     /// Eight points per art pixel at 1×: 144 pt.
     static let wormPointSize: CGFloat = 144
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var shown: BookwormState = .happy
-    @State private var anchor = ScreenFrameAnchor.Holder()
 
     private var target: Int { MenuBarStepModel.target(waiting: waiting) }
 
@@ -39,7 +41,8 @@ struct MenuBarStep: View {
 
     private var card: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-            OnboardingHeadline(title: Copy.MeetWorm.title, subline: Copy.MeetWorm.subline)
+            OnboardingHeadline(title: Copy.MeetWorm.title,
+                               subline: shownInMenuBar ? Copy.MeetWorm.sublineShown : Copy.MeetWorm.subline)
             Text(Copy.MeetWorm.number)
                 .font(CicadaTheme.bodyFont)
                 .foregroundStyle(CicadaTheme.textPrimary)
@@ -52,7 +55,7 @@ struct MenuBarStep: View {
                 TextButton(title: Copy.onboardingBack, flushLeading: true, action: onBack)
                 Spacer(minLength: CicadaTheme.spacingSM)
                 TextButton(title: Copy.onboardingSkip, action: onSkip).disabled(busy)
-                PrimaryActionButton(title: Copy.onboardingContinue) { onContinue(anchor.screenFrame()) }
+                PrimaryActionButton(title: Copy.onboardingContinue, action: onContinue)
                     .disabled(busy)
                 KeyHint("⏎")
             }
@@ -64,7 +67,7 @@ struct MenuBarStep: View {
     /// The worm and its caption, above the card, where the room sits over Welcome.
     private var worm: some View {
         MenuBarStepWorm(state: reduceMotion ? MenuBarStepModel.still(target: target) : shown,
-                        caption: MenuBarStepModel.caption(waiting: waiting), anchor: anchor)
+                        caption: MenuBarStepModel.caption(waiting: waiting))
             // Restarts when the real count arrives or changes; ends with the step.
             .task(id: TaskKey(target: target, reduceMotion: reduceMotion)) { await play() }
     }
@@ -91,12 +94,10 @@ struct MenuBarStep: View {
 private struct MenuBarStepWorm: View {
     let state: BookwormState
     let caption: String
-    let anchor: ScreenFrameAnchor.Holder
 
     var body: some View {
         VStack(spacing: CicadaTheme.spacingSM) {
             BookwormView(state: state, pointSize: MenuBarStep.wormPointSize, artSet: .small)
-                .background(ScreenFrameAnchor(holder: anchor))
                 .accessibilityElement(children: .ignore)
                 .accessibilityAddTraits(.isImage)
                 .accessibilityLabel(Copy.MeetWorm.imageLabel)

@@ -10,6 +10,10 @@ import Observation
 final class AgentLiveProbe {
     private(set) var rows: [String: AgentLiveRow] = [:]
     private(set) var justConnected: Set<String> = []
+    /// Onboarding v3 — the first agent that called Cicada after this probe's first answer (`FirstAgentCall`): its id,
+    /// once, and then it stays (the Agents step's moment of confirmation).
+    private(set) var firstCall: String?
+    @ObservationIgnored private var baselineSeen: [String: String] = [:]
     private var loaded = false
 
     @ObservationIgnored private let fetch: @Sendable () async throws -> AgentLiveResponse
@@ -27,7 +31,12 @@ final class AgentLiveProbe {
     func apply(_ response: AgentLiveResponse) {
         let before = connected
         rows = Dictionary(response.agents.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
-        if loaded { justConnected.formUnion(connected.subtracting(before)) }
+        if loaded {
+            justConnected.formUnion(connected.subtracting(before))
+            if firstCall == nil { firstCall = FirstAgentCall.detect(baseline: baselineSeen, rows: response.agents) }
+        } else {
+            baselineSeen = FirstAgentCall.baseline(response.agents)
+        }
         loaded = true
     }
 
@@ -36,5 +45,26 @@ final class AgentLiveProbe {
             if let fresh = try? await fetch() { apply(fresh) }
             try? await Task.sleep(for: interval)
         }
+    }
+}
+
+/// Onboarding v3 (2026-10-24, after HeyClicky's mic check) — the Agents step's one live check: did an agent call
+/// Cicada since the step started? `GET /agents/live` already carries each agent's `lastSeenAt`, stamped on every
+/// call (`agent_seen`) and every remote request; a time that moved past the step's first answer is a new call. Ids and
+/// times only, nothing persisted.
+enum FirstAgentCall {
+    /// What each agent's last call was when the step started.
+    static func baseline(_ rows: [AgentLiveRow]) -> [String: String] {
+        Dictionary(rows.compactMap { row in row.lastSeenAt.map { (row.id, $0) } }, uniquingKeysWith: { _, last in last })
+    }
+
+    /// The first agent, in the answer's order, whose last call is newer than the baseline — a time it had not shown
+    /// before (a call only ever moves it forward). A wired agent that has never called (`via: config`, no time) is
+    /// not a call.
+    static func detect(baseline: [String: String], rows: [AgentLiveRow]) -> String? {
+        rows.first { row in
+            guard let seen = row.lastSeenAt, !seen.isEmpty else { return false }
+            return baseline[row.id] != seen
+        }?.id
     }
 }
