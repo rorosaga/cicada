@@ -10,9 +10,13 @@ import Foundation
 extension Copy {
     enum MeetWorm {
         static let title = "Meet your bookworm"
-        static let subline = "It lives in your menu bar."
-        static let number = "Its number is how many conversations are waiting to become memory."
-        static let goesDown = "When Cicada sleeps, it reads them and the number goes down."
+        /// Onboarding v3: the worm speaks for itself. Before the flight (a first run) it says where it will live; on a
+        /// rerun, with the real item already up there, it points at itself while that item says hello
+        /// (`MenuBarManager.greet`).
+        static let subline = "I'll live in your menu bar."
+        static let sublineShown = "That's me, up in your menu bar."
+        static let number = "My number counts conversations waiting to become memory."
+        static let goesDown = "When I sleep, I read them and it goes down."
         /// Under the worm while it counts an example (nothing waits yet), so the number is never read as the person's.
         static let example = "For example"
         /// Under the worm while it counts to the person's real waiting count: "3 waiting now".

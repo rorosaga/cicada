@@ -149,7 +149,7 @@ struct MessagesPanel: View {
     private var content: some View {
         switch watcher.status {
         case .needsAccess(let fix):
-            FullDiskAccessHint(error: fix)
+            FullDiskAccessHint(error: fix) { Task { await watcher.loadList() } }
             Button(Copy.Messages.tryAgain) { Task { await watcher.loadList() } }
                 .buttonStyle(.bordered)
         case .missing:

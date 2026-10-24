@@ -86,6 +86,7 @@ struct ContentView: View {
             selectedTab = AppTab.restored(from: selectedTabRaw)
             evaluateFirstRun()
             intake.welcomeActive = showFirstRun
+            resumePermissionStep()
         }
         // The gear's dot reads the engine the person chose (owner 2026-10-16), so the choice is read once the backend
         // answers, not only when a page that shows it is visited. Keyed on the first status landing: a read before
@@ -340,6 +341,15 @@ struct ContentView: View {
         }
     }
 
+    /// Onboarding v3 (2026-10-24) — Cicada was reopened from the drag helper's *Reopen Cicada* (Screen Recording or Full
+    /// Disk Access waiting for a fresh process): back to the same step, and the helper looks again by preflight — it
+    /// closes at once when the grant took, or asks again. Onboarding's own marker waits for onboarding (`OnboardingView`).
+    private func resumePermissionStep() {
+        guard let marker = PermissionResume.take(matching: { !$0.isOnboarding }) else { return }
+        if marker.place == .traces { router.routeToSourceDetail(SourceCatalog.tracesId) } else { router.routeToSources() }
+        PermissionDragHelper.present(kind: marker.kind, place: marker.place) {}
+    }
+
     /// G145 — the paged onboarding over the whole window (R-IB11's placement), or nothing.
     @ViewBuilder
     private var welcomeLayer: some View {
@@ -379,6 +389,12 @@ struct ContentView: View {
         )
         if shows {
             welcomeMode = .firstRun
+            showFirstRun = true
+        } else if store.banks.value != nil, store.graph.value != nil,
+                  let mode = PermissionResume.reopensOnboarding(PermissionResume.peek(), gateShows: false) {
+            // v3 — reopened from the drag helper mid-setup (a rerun, or a first run whose memory already has pages):
+            // back to onboarding's Sources step, which takes the marker and ticks the browser again.
+            welcomeMode = mode
             showFirstRun = true
         } else if MenuBarIntro.settlesWithoutStep(bankResolved: store.banks.value != nil,
                                                   graphLoaded: store.graph.value != nil,

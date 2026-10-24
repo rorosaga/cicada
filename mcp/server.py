@@ -1173,16 +1173,17 @@ def initialize_result(params: dict) -> dict:
     return result
 
 
-def _stamp_seen() -> None:
+def _stamp_seen(via: str = "mcp") -> None:
     """G217: this agent reached Cicada — one row in the last-seen registry (``agent_seen``: a catalog id and a time,
     at most once a minute), which telemetry off does not silence. On a client machine the server's tool door stamps
-    it instead, with the device. Never fails a call."""
+    it instead, with the device. ``via="call"`` (onboarding v3) marks a ``tools/call``: an agent asking something,
+    never a bare ``initialize`` such as a harness's own wiring check. Never fails a call."""
     try:
         if runtime_layout.is_client():
             return
         from api.services import agent_live, agent_seen
 
-        agent_seen.stamp_agent(agent_live.agent_for(SESSION.harness, CLIENT_INFO.get("name")), via="mcp")
+        agent_seen.stamp_agent(agent_live.agent_for(SESSION.harness, CLIENT_INFO.get("name")), via=via)
     except Exception:  # noqa: BLE001
         pass
 
@@ -1301,6 +1302,7 @@ def call_tool(name: str, arguments) -> dict:
 
     from_body = False
     _stamp_seen()
+    _stamp_seen(via="call")
     if name not in _SCHEMAS:
         reply = mcp_tools.Reply(f"Error: Unknown tool: {name[:80]}", code="invalid_arguments")
         checked = tool_contract.Checked()

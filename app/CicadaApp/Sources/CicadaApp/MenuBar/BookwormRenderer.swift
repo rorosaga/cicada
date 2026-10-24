@@ -12,14 +12,17 @@ enum BookwormRenderer {
         "small|\(mascot.id)|\(state.spriteKey)|\(rectIndex)|\(Int(pointSize))"
     }
 
+    /// `pose` (onboarding v3's greeting, `MenuBarGreeting`) draws another state's frames under this state's own
+    /// overlay, so a waiting worm keeps its badge while it says hello.
     static func smallImage(state: BookwormState, frameStep: Int, pointSize: CGFloat,
-                           mascot: Mascot = MascotPreference.selected()) -> NSImage {
-        let pair = BookwormArt.clip(state, look: .idle, set: .small, mascot: mascot)
+                           mascot: Mascot = MascotPreference.selected(), pose: BookwormState? = nil) -> NSImage {
+        let pair = BookwormArt.clip(pose ?? state, look: .idle, set: .small, mascot: mascot)
         let count = pair?.1.order.count ?? 1
         let step = ((frameStep % count) + count) % count
         let frame = pair?.1.order[step] ?? 0
         let rect = pair?.0.rectIndex[frame] ?? 0
         let key = cacheKey(state: state, rectIndex: rect, pointSize: pointSize, mascot: mascot)
+            + (pose.map { "|pose:" + $0.spriteKey } ?? "")
         lock.lock()
         defer { lock.unlock() }
         if let hit = cache[key] { return hit }

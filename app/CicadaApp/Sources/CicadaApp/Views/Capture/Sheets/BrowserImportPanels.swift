@@ -116,18 +116,21 @@ enum BrowserImportActions {
 
 /// The Full-Disk-Access fix, shown exactly where the read failed (R9). The
 /// button only appears for a permission failure — a genuinely missing file
-/// has no setting to open.
+/// has no setting to open. Onboarding v3 (2026-10-24): the button is the one drag helper
+/// (`PermissionDragHelper(kind: .fullDiskAccess)`) — Full Disk Access has no system prompt, so Cicada is never in the
+/// list until it is dragged in; × turns the button into an *Open* link. Messages and Safari share it.
 struct FullDiskAccessHint: View {
     let error: BrowserFileError
+    /// The grant landed (preflight only); the host re-reads. macOS may still want Cicada reopened — the helper offers it.
+    var onGranted: () -> Void = {}
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
             Text(error.userMessage)
                 .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.danger)
                 .fixedSize(horizontal: false, vertical: true)
             if case .notReadable = error {
-                Button("Open Full Disk Access settings") { NSWorkspace.shared.open(BrowserFileError.fullDiskAccessURL) }
-                    .buttonStyle(.bordered)
-                    .accessibilityLabel("Open System Settings at Full Disk Access")
+                PermissionAllowButton(kind: .fullDiskAccess, title: Copy.allowFullDiskAccess, onGranted: onGranted)
+                    .accessibilityLabel(Copy.allowFullDiskAccess)
             }
         }
     }

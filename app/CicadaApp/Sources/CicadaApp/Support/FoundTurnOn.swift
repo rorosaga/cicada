@@ -147,6 +147,10 @@ struct FoundTurnOnDeps {
     var apps: [String: AppSourceDriver] = [:]
     /// R-OB8 — untick on a browser row.
     var disableBrowser: @MainActor (String) -> Void = { _ in }
+    /// Onboarding v3 (2026-10-24) — a browser macOS hides until Full Disk Access is on: the drag helper for that list
+    /// (`PermissionDragHelper(kind: .fullDiskAccess)`), given the browser's channel so a relaunch resumes it. Nil (a
+    /// test, a host with no helper) opens the list itself, as before.
+    var askFullDiskAccess: (@MainActor (String) -> Void)? = nil
 
     /// The app-side collaborators default to nil, so a host that has none (the `+` strip) registers no app source
     /// and its `.app` rows still finish in Integrations.
@@ -154,7 +158,8 @@ struct FoundTurnOnDeps {
     static func live(inventory: LocalInventory, watcher: BrowserWatcher, intake: IntakeRouter,
                      calendar: CalendarReader? = nil, local: LocalSourceWatcher? = nil,
                      store: Store? = nil, contacts: ContactsReader? = nil,
-                     tabGroups: TabGroupWatcher? = nil) -> FoundTurnOnDeps {
+                     tabGroups: TabGroupWatcher? = nil,
+                     permissionPlace: @escaping (String) -> PermissionPlace = { _ in .sources }) -> FoundTurnOnDeps {
         var deps = FoundTurnOnDeps(
             wiring: { inventory.wiring },
             runtime: .current,
@@ -167,6 +172,11 @@ struct FoundTurnOnDeps {
         deps.apps = AppSourceDrivers.live(calendar: calendar, local: local, store: store, contacts: contacts,
                                           tabGroups: tabGroups)
         deps.disableBrowser = { watcher.disable($0) }
+        deps.askFullDiskAccess = { channel in
+            PermissionDragHelper.present(kind: .fullDiskAccess, place: permissionPlace(channel)) {
+                Task { await inventory.refresh() }
+            }
+        }
         return deps
     }
 }
@@ -222,7 +232,7 @@ enum FoundTurnOn {
             }
         case .browser(let channel):
             if deps.readiness(id) == .needsPermission {
-                deps.open(BrowserFileError.fullDiskAccessURL)
+                if let ask = deps.askFullDiskAccess { ask(channel) } else { deps.open(BrowserFileError.fullDiskAccessURL) }
                 return .needsPermission
             }
             do {

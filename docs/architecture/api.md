@@ -258,9 +258,14 @@ name a `cicada_…` tool; `llms.txt` maps each to its operation), `data`'s shape
 - `GET /agents/live` now answers every tracked way (`agent_catalog.TRACKED`): the eleven pills first in their old order
   and spelling, then the rest (tier 2 and 3); a non-pill way also lights `other`, as an unmatched client always did. A
   fourth signal, the last-seen registry `$CICADA_HOME/agents/seen.db` (`agent_seen`: catalog id, device id, `mcp|tool|
-  remote`, times, a call count — never a raw client string, query or path), is stamped by the stdio server on
+  remote|call`, times, a call count — never a raw client string, query or path), is stamped by the stdio server on
   `initialize` and every call and by `POST /tools/call`, at most once a minute per process, so detection survives
   `CICADA_TELEMETRY=off`. Row shape unchanged (`via` stays `mcp|remote|config`).
+- `GET /agents/live` rows gain `lastCalledAt` (onboarding v3, 2026-10-24, additive): the agent's latest tool call — a
+  stdio `tools/call` (stamped `via: call` beside the `initialize`'s `mcp` row) or `POST /tools/call` (`tool`) — and
+  never a connect, so a harness's own wiring check (`claude mcp get`, which initializes as the agent) never moves it.
+  Null until one; onboarding's Agents step confirms a first call from it. `lastSeenAt` and `via` are unchanged (`call`
+  counts as an MCP sighting).
 - `GET /devices/status` — `{devices: [{id, name, role: server|device, current, connected, how, lastSeenAt, queue}],
   connectedWithinSeconds}`: this server first, named by its own Computer Name (macOS `scutil`, else the host name),
   then each active device token by the name the person gave it. `how` is read from the device's last request

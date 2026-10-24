@@ -252,14 +252,14 @@ final class OnboardingStepsTests: XCTestCase {
                           honesty: honesty(mode, engine: engine))
         }
         XCTAssertEqual(line("daily", brought: true),
-                       "Talk to your agent; Cicada remembers. It reads tonight at 3:00, and now for what you brought in.")
-        XCTAssertEqual(line("daily", brought: false), "Talk to your agent; Cicada remembers. It reads tonight at 3:00.")
+                       "Talk to your agent; I'll remember. I read tonight at 3:00, and now for what you brought in.")
+        XCTAssertEqual(line("daily", brought: false), "Talk to your agent; I'll remember. I read tonight at 3:00.")
         XCTAssertEqual(line("manual", brought: true),
-                       "Talk to your agent; Cicada remembers. It reads what you brought in now.")
+                       "Talk to your agent; I'll remember. I read what you brought in now.")
         XCTAssertEqual(line("manual", brought: false),
-                       "Talk to your agent; Cicada remembers. Read now on Home builds your first pages.")
+                       "Talk to your agent; I'll remember. Read now on Home builds your first pages.")
         XCTAssertEqual(line("daily", brought: true, canRead: false, engine: "none"),
-                       "Talk to your agent; Cicada remembers. Read now on Home builds your first pages.",
+                       "Talk to your agent; I'll remember. Read now on Home builds your first pages.",
                        "nothing can read: neither tonight nor now is promised")
         XCTAssertEqual(DoneLine.line(brought: false, canReadNow: true, scheduleLoaded: false, honesty: honesty("daily")),
                        Copy.doneLead, "unknown is never an answer")
@@ -281,7 +281,7 @@ final class OnboardingStepsTests: XCTestCase {
         XCTAssertEqual(DoneLine.nowKey(response), "OpenAI")
         XCTAssertEqual(DoneLine.tail(brought: true, canReadNow: true, scheduleLoaded: true,
                                      honesty: honesty("manual", engine: "litellm"), nowKey: "OpenAI"),
-                       "It reads what you brought in now, on your OpenAI key.")
+                       "I read what you brought in now, on your OpenAI key.")
         XCTAssertNil(DoneLine.nowKey(self.response(selected: "auto", engine: "claude-cli")), "a plan is no key")
     }
 
@@ -300,7 +300,7 @@ final class OnboardingStepsTests: XCTestCase {
                                           Copy.intelUsing("Claude plan"), Copy.intelRuns("Claude Code"),
                                           Copy.intelUseKey])
         let sources = words(frame + [Copy.importTitle, Copy.sourcesSubline, Copy.sourcesHowToExport])
-        let done = words([Copy.readyTitle, Copy.doneLead, Copy.doneReadNow, Copy.onboardingBack,
+        let done = words([Copy.doneTitle, Copy.doneLead, Copy.doneReadNow, Copy.onboardingBack,
                           Copy.onboardingOpenCicada])
         let worm = words([Copy.MeetWorm.title, Copy.MeetWorm.subline, Copy.MeetWorm.number, Copy.MeetWorm.goesDown,
                           Copy.MeetWorm.example, Copy.onboardingBack, Copy.onboardingSkip, Copy.onboardingContinue])

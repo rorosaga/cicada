@@ -377,7 +377,7 @@ Needs you for that one session; once hidden or seen it lives only in Settings.
 one full-window layer, raised by `FirstRunGate` (unknown is never empty; never over the demo) or by the one door,
 `OnboardingState.reset` + `AppRouter.requestFirstRun` (Settings → General's *Run setup again*, the demo's *Finish setting
 up*): **Welcome · Intelligence · Agents · Sources · Meet your bookworm · Done** (`OnboardingPage`; the worm's step since
-2026-10-23, below). Welcome and Done are the study room over a
+2026-10-23, below). Welcome (and, until v3, Done — now the menu-bar worm over its card) is the study room over a
 card (`OnboardingRoom`, the one illustration, DR-13; the worm's mood per step); the three working steps are the split
 frame — the room in its `bgPane` pane, the column with "Step n of 6 · k still coming in", *Set up later*, and a foot of
 Back, a visible **Skip** and the one primary Continue (⏎ never animates). What each step shows is pure data in
@@ -417,22 +417,34 @@ memory." / "When Cicada sleeps, it reads them and the number goes down." — wit
 the badge's own source, `StatusSnapshot.waitingForSleep`; the worm counts up to it when some already wait ("3 waiting
 now"), else to an example of 12 ("For example"), holds, shows Sleep's five stage dots and starts again
 (`MenuBarStepModel`, timings `CicadaMotion.wormCount…`, the sprite's own frames on their sheet timings, ruling 18). Reduce
-Motion holds it on its number. **The menu-bar item waits for this step** (`MenuBarIntro`, `cicada.menuBar.intro`:
+Motion holds it on its number. Since v3 the worm speaks for itself ("I'll live in your menu bar." / "My number counts
+conversations waiting to become memory." / "When I sleep, I read them and it goes down."); on a rerun, with the real
+item already up, it says "That's me, up in your menu bar." and the real menu-bar worm says hello while the step talks
+about it (`MenuBarManager.greet`: the happy sheet's frames after its key frame, on their own sheet timings (ruling 18),
+under the real state's overlay so a waiting worm keeps its number; never hidden, mid-flight or under Reduce Motion,
+`MenuBarGreeting`). A first run's worm says the same hello on landing. **The menu-bar item waits for this step** (`MenuBarIntro`, `cicada.menuBar.intro`:
 `waiting` | `done`, an absent key reads `done`): it is written `waiting` only at the launch of a fresh install (no
 `cicada.` key in the app's defaults — decided by `CicadaApp`'s first stored property, before any other writes one), so
 every earlier install keeps its worm and *Show in menu bar* (`cicada.menuBar.visible`) is untouched; the item shows when
-the switch is on and the intro is not waiting. Continue by pointer flies the worm into the menu bar (`MenuBarFlight`: a
-transient borderless non-activating `NSPanel` at `.mainMenu + 3`, born over the big worm and animated by AppKit to the
+the switch is on and the intro is not waiting. Since v3 (below) the flight is Done's closing beat: Open Cicada by
+pointer flies the worm into the menu bar (`MenuBarFlight`: a
+transient borderless non-activating `NSPanel` at `.mainMenu + 3`, born over Done's worm and animated by AppKit to the
 status item's button frame in `wormFlightDuration`, a layer with nearest-neighbour filters, ordered out once the real
 item shows under it — a window cannot draw over the menu bar from inside its content); Reduce Motion fades the item in;
-⏎, Skip, *Set up later*, the demo and every other way out show it with no flight (`ContentView` on onboarding closing),
-and a first-run gate that settles with no onboarding coming lets it in at once. A status item macOS keeps off screen (a
-full menu bar) is shown without a flight.
-*Done* (`DonePage`): "You're set.", `DoneLine` — "Talk to your agent; Cicada remembers." plus the schedule's own time
-when a schedule can read (a new memory reads nightly, `features.md`) and "and now for what you brought in" when something
-came in during setup and an engine can read it, else "Read now on Home builds your first pages." — one `MemoryQuotes` line
-(G153), Open Cicada (one run now when something came in, a run the person started; mark the bank, record connected
-agents, offer the tour, Home). **Persisted values (Hyrum mode B):** `cicada.hasOnboarded.<bank>` unchanged; new `cicada.onboarding.step.<bank>`
+⏎, *Set up later*, the demo and every other way out show it with no flight (`OnboardingExit`, and `ContentView` on
+onboarding closing), and a first-run gate that settles with no onboarding coming lets it in at once. A status item macOS
+keeps off screen (a full menu bar) is shown without a flight. Continue, ⏎ and Skip on *Meet your bookworm* only move on
+to Done.
+*Done* (`DonePage`, v3): the menu-bar worm over the card (6 pt per art pixel, the badge's own number), "That's it. I'll
+take it from here." (the flow's one wink), then what is already in this memory (`DoneReveal`: the first three pages —
+never the owner's seeded page, a facet or a hub — then conversations waiting to be read, each with its origin's mark,
+"and N more"; "Nothing yet." alone when empty; "Reading now" while a read runs, its pages landing through the Store's
+live graph), `DoneLine` in the worm's voice — "Talk to your agent; I'll remember." plus the schedule's own time when a
+schedule can read (a new memory reads nightly, `features.md`) and "and now for what you brought in" when something came
+in during setup and an engine can read it, else "Read now on Home builds your first pages." — one `MemoryQuotes` line
+(G153, now caption-sized), Open Cicada (the worm flies up; the one read after an import when something came in — the
+owner's "+ once after an import", the only read onboarding ever starts, Done itself starts none; mark the bank, record
+connected agents, offer the tour, Home). **Persisted values (Hyrum mode B):** `cicada.hasOnboarded.<bank>` unchanged; new `cicada.onboarding.step.<bank>`
 holds the step reached as a word, so a person who quits mid-way resumes there once their name is saved; finishing,
 *Set up later* and *Run setup again* clear it; `OnboardingPage(stored:)` maps the seven-step names (`import` → Sources,
 `whoReads` → Intelligence, `skills` → Sources, `keepRunning`/`ready` → Done; the worm's step stores `menuBar`). The old Skills step (`POST
@@ -443,6 +455,40 @@ and once `OnboardingState.isOnboarded` it never asks again what onboarding cover
 or coming in fold into one line ("N things already set up"), only open rows stay, and the past-chats and *Also on this
 Mac* offers go. Settings → Intelligence's In use row says in one line when ruling 36 D1's one-time step kept a local model
 as the person's choice (`autoLocalKeptOn`).
+
+**Onboarding v3 (2026-10-24, after HeyClicky's onboarding; DR-5, DR-13, DR-39, DR-59, DR-60, DR-61, DR-66; §9).**
+Same six steps, ids and stored names (Hyrum: no saved step is reset). (1) **Permissions as a designed flow.**
+`PermissionDragHelper` is the Full Disk Access door for Messages and Safari: `FullDiskAccessHint` (Messages' row and
+panel, a browser's row, the import panels) and a hidden browser's tick (`FoundTurnOn` → `FoundTurnOnDeps
+.askFullDiskAccess`, so onboarding's Sources tile and Home's Getting started too) open it instead of System Settings.
+The ask card's line follows `PermissionAsk`: *drag* ("Drag me into the … list.") until Cicada has been seen in that list
+(`PermissionMemory`, `cicada.permission.seen.<kind>`, written on a preflight yes), then *flip* ("I'm already in the …
+list. Flip my toggle on."); back from System Settings with no grant (`didBecomeActive` → `returned()`), Accessibility
+moves to *flip* and Screen Recording / Full Disk Access to *reopen* ("Already on? Reopen Cicada to apply it.", their
+preflight can stay false until a fresh process) with *Reopen Cicada*; once Settings is open those two also offer
+"Already on? Reopen Cicada" as a quiet text button. *Reopen Cicada* writes `PermissionResume`
+(`cicada.permission.resume`: kind, place, time; read once, dropped after ten minutes) and relaunches through
+`LiveAppRelauncher` (a shell that waits for this pid, then `open`s the bundle). The next launch comes back to the same
+step: onboarding's marker resumes Sources and ticks the browser again — a rerun's tick records the rerun
+(`.onboardingRerun`), and since a rerun's bank keeps its pages the first-run gate would not raise onboarding, so the
+shell reopens it in the marker's mode (`PermissionResume.reopensOnboarding`, also for a first run whose memory already
+has pages) and onboarding takes the marker whatever its mode — Traces' opens Sources → Traces, any other opens
+Sources, and the helper looks again by preflight. A host row's button is `PermissionAllowButton`: its title, an *Open*
+link once × closed the helper (`PermissionRowState.retry`), nothing once granted. Calendar and Contacts keep macOS's
+prompt; refused (`.denied`), their tile says "Turned off in macOS. Click to open the setting" and opens the exact list
+(`SourceTileGroups.deniedSettingsURL`). Reminders, Chrome's Automation and Notes are untouched. Every look is a preflight;
+the live Full Disk Access look opens Safari's bookmarks or Messages' database (`opensProtectedFile`). (2) **A live first
+call on Agents:** "Then try it:" and a chip "Ask <the person's own agent, else your agent>: what do you remember about
+me?" with a copy button (copies the question); `AgentLiveProbe` keeps the first answer's `lastCalledAt` per agent as
+a baseline — a tool call, never `lastSeenAt`, which Cicada's own wiring check (`claude mcp get` initializes as Claude
+Code) and a session merely starting both move — and the first agent whose call is later is `firstCall`
+(`FirstAgentCall`), and the chip gives way to
+"<Agent> just called me. It works." with a check (card fade; a plain fade under Reduce Motion). Continue stays enabled.
+(3) Done ends on the person's memory (above). (4) The real menu-bar worm reacts (above). (5) **Fewer words:** titles ≤ 7
+words and bodies ≤ 25 (`OnboardingWords`, measured on each step's longest variant), the worm in a light first person,
+one wink (Done's title), no "!" or capitals; *Another agent* and *Personal agents* fold under *Other agents*
+(`cicada.onboarding.otherAgents`), and Messages, YouTube, X and Instagram under *More sources*
+(`cicada.onboarding.moreSources`, open by itself when one inside is on) — DR-39. (6) No sound: it needs a design ruling.
 
 **Engine choice in onboarding: Auto first (settings defaults pass 2, owner 2026-10-22; ruling 31).** Until D6 Settings drew
 `EngineChooser(foldsOtherEngines: true)` (the engine card): the card opens on `EngineHeadline` — *Auto* and what it uses now from
@@ -541,7 +587,8 @@ how long (timeline 30 days, screenshots and their text 7), what goes into memory
 when asked), how to wipe, and the honest limit ("anything running as you on this Mac can read what you can"); *Turn on*
 posts the consent (`TraceRecorder.turnOn`), then two skippable steps — Accessibility (window titles) and Screen
 Recording (screenshots) — each through **`PermissionDragHelper(kind:)`**, the one reusable permission component
-(kinds `screenRecording`, `accessibility`, `fullDiskAccess` — the last for Messages and Safari, wiring a follow-up): a
+(kinds `screenRecording`, `accessibility`, `fullDiskAccess` — the last for Messages and Safari, wired by onboarding v3
+below): a
 small non-activating floating panel with one line ("I need screen recording. Drag me into the Screen Recording list.")
 and *Open*, which deep-links `x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture` /
 `?Privacy_Accessibility` / `?Privacy_AllFiles`; a second card placed over System Settings (by its window bounds only)

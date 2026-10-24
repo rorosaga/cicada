@@ -193,6 +193,20 @@ def _registry_seen() -> tuple[dict[str, str], dict[str, str]]:
     return mcp, remote
 
 
+def _registry_calls() -> dict[str, str]:
+    """Onboarding v3: each agent's latest tool call (``agent_seen.CALL_VIAS``) — the person's agent asking Cicada
+    something, never a connect. A harness's wiring check (``claude mcp get``) initializes and calls nothing, so it
+    never moves this time."""
+    calls: dict[str, str] = {}
+    for r in agent_seen.agents():
+        if r["via"] not in agent_seen.CALL_VIAS:
+            continue
+        ts = _iso(r["lastSeen"])
+        if ts and ts > calls.get(r["agent"], ""):
+            calls[r["agent"]] = ts
+    return calls
+
+
 def _merge(*maps: dict[str, str]) -> dict[str, str]:
     out: dict[str, str] = {}
     for m in maps:
@@ -218,5 +232,7 @@ def snapshot(*, home: Path, now: datetime | None = None, python: str | None = No
     reg_mcp, reg_remote = _registry_seen()
     mcp = _fold_other(_merge(_mcp_seen(), reg_mcp))
     remote = _fold_other(_merge(_remote_seen(now or datetime.now(timezone.utc)), reg_remote))
-    return {"agents": [row(a, config=config.get(a), mcp_ts=mcp.get(a), remote_ts=remote.get(a))
+    calls = _fold_other(_registry_calls())
+    return {"agents": [{**row(a, config=config.get(a), mcp_ts=mcp.get(a), remote_ts=remote.get(a)),
+                        "last_called_at": calls.get(a)}
                        for a in TRACKED]}
