@@ -9,21 +9,25 @@ every bank.
 A model also reads a name out of the address: a newuser benchmark Sleep on dev (2026-10-24) gave the synthetic owner
 page an alias made of the two words of the account's address before the ``@``. So the identity has two forms: the
 address itself, and, when the part before the ``@`` holds two or more words of three letters or more, those words
-together (:func:`_forms`).
+said as a name: adjacent and in order, or last word first before a comma (:func:`_forms`, :func:`_pattern`). The
+address counts only whole, and the same words apart in a sentence are not the name.
 
 ``agent_engine.CONTEXT_GUARD`` tells the model the attached context is not part of the request. This module is the
-floor under that guard. Stage 1 (:func:`scrub_extraction`) and the merge stage (:func:`scrub_lines`) drop any item
-that carries a form, unless the text the item was made from already says that form. The person who types their own
-address, or their own full name, keeps it exactly as before, and the evidence rail places its span as it always has.
+floor under that guard. Stage 1 (:func:`scrub_extraction`, link recon's batch call included) and the merge stage
+(:func:`scrub_lines`) drop any item that carries a form, unless the text the item was made from already says that
+form. The person who types their own address, or their own full name, keeps it exactly as before, and the evidence
+rail places its span as it always has.
 
 Only the email is read. Of the account's fields, it is the one the CLI puts in front of the model. The account's
 profile name is not filtered by itself, because it is often the owner's own page name.
 
 The value comes from ``claude auth status --json`` on this machine. It is read only when Sleep runs on the Claude
-plan (``llm_mode == "agent"``), kept in this process's memory, and never logged, written or sent.
+plan (``llm_mode == "agent"``), kept in this process's memory, and never logged, written or sent. Async code reads it
+through :func:`aidentities`, so the CLI never runs on the event loop.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import threading
@@ -74,6 +78,15 @@ def identities(settings) -> frozenset[str]:
         return values
 
 
+async def aidentities(settings) -> frozenset[str]:
+    """:func:`identities` for async code: the read runs on a worker thread, so a cache miss (``claude auth status``,
+    up to 10 s) never stalls the event loop, where a request handler such as the inbox conflict answer may be
+    waiting. Off the Claude plan nothing is read, so no thread is taken."""
+    if str(getattr(settings, "llm_mode", "") or "").strip().lower() != "agent":
+        return frozenset()
+    return await asyncio.to_thread(identities, settings)
+
+
 def clear() -> None:
     """Forget the cached read (tests, and a sign-in change)."""
     global _cached
@@ -99,10 +112,31 @@ def _forms(ids: Iterable[str]) -> frozenset[tuple[str, ...]]:
     return frozenset(forms)
 
 
+def _pattern(form: tuple[str, ...]) -> re.Pattern:
+    """How ``form`` is said. The address only whole: no address character on either side, so a longer address that
+    merely contains it is not it. A name form only as its words adjacent and in order (``Anna May``, ``anna.may``)
+    or with the last word first before a comma (``May, Anna``); the same words apart (``Anna and May``) are two
+    other things, not the name."""
+    pattern = _PATTERNS.get(form)
+    if pattern is None:
+        if len(form) == 1:
+            pattern = re.compile(rf"(?<![\w.+%-]){re.escape(form[0])}(?![\w-]|\.\w)")
+        else:
+            words = [re.escape(w) for w in form]
+            in_order = _SEP.join(words)
+            last_first = rf"{words[-1]}\s*,\s*{_SEP.join(words[:-1])}"
+            pattern = re.compile(rf"(?<![^\W\d_])(?:{in_order}|{last_first})(?![^\W\d_])")
+        _PATTERNS[form] = pattern
+    return pattern
+
+
+#: What may stand between two words of a name: spaces, or the dot, underscore or hyphen an address joins them with.
+_SEP = r"[\s._-]+"
+_PATTERNS: dict[tuple[str, ...], re.Pattern] = {}
+
+
 def _says(text: str, form: tuple[str, ...]) -> bool:
-    if len(form) == 1:
-        return form[0] in text
-    return all(re.search(rf"(?<![^\W\d_]){re.escape(word)}(?![^\W\d_])", text) for word in form)
+    return _pattern(form).search(text) is not None
 
 
 def foreign(ids: Iterable[str], source_text: str) -> frozenset[tuple[str, ...]]:
@@ -113,7 +147,7 @@ def foreign(ids: Iterable[str], source_text: str) -> frozenset[tuple[str, ...]]:
 
 def carries(value, forms: frozenset[tuple[str, ...]]) -> bool:
     """True when ``value`` (text, or a list/dict of text) says any of ``forms`` (from :func:`foreign`),
-    case-insensitively: the address anywhere, or every word of a name form as a word."""
+    case-insensitively: the whole address, or a name form's words adjacent (:func:`_pattern`)."""
     if not forms or value is None:
         return False
     if isinstance(value, dict):

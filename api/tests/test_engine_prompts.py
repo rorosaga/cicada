@@ -8,12 +8,16 @@
    output is the page body every caller already takes.
 4. Disambiguation and the article writer send short system messages of their own.
 
+Review of #468: the sign-in is read off the event loop by every async reader (1b); link recon's batch call carries the
+same floor as Stage 1 (2b); a name form counts only as its words said together, the address only whole (2c).
+
 Every address here is a placeholder; no test reads the real sign-in (`conftest._no_real_plan_account`).
 """
 from __future__ import annotations
 
 import asyncio
 import json
+import threading
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -21,8 +25,8 @@ import pytest
 
 from api.config import Settings
 from api.services import (
-    agent_engine, conflict_resolver, engine_identity, entity_article, entity_body, entity_extractor, entity_resolver,
-    providers,
+    agent_engine, conflict_resolver, engine_identity, entity_article, entity_body, entity_extractor, entity_orientation,
+    entity_resolver, link_recon, page_article_rebuild, providers,
 )
 from api.services.connections.base import CliResult
 
@@ -111,6 +115,112 @@ def test_an_unreadable_sign_in_costs_the_floor_never_the_run(monkeypatch):
     monkeypatch.setattr(engine_identity, "reader", boom)
     engine_identity.clear()
     assert engine_identity.identities(Settings(_env_file=None, llm_mode="agent")) == frozenset()
+
+
+# --- 1b. the sign-in is read off the event loop ----------------------------------------------------------------------
+#
+# A cache miss runs `claude auth status` (up to 10 s). On the event loop it would stall every request in flight, the
+# inbox conflict answer among them. The slow fake reader below waits for a concurrent request on the same loop to
+# answer, which that request can only do while the loop is free.
+
+
+def _slow_reader(monkeypatch) -> tuple[threading.Event, dict]:
+    answered = threading.Event()
+    seen: dict = {}
+
+    def reader():
+        seen["loop_was_free"] = answered.wait(timeout=3.0)
+        return frozenset({ACCOUNT})
+
+    monkeypatch.setattr(engine_identity, "reader", reader)
+    engine_identity.clear()
+    return answered, seen
+
+
+async def _alongside_a_request(work, answered: threading.Event):
+    async def request():
+        await asyncio.sleep(0.01)
+        answered.set()
+        return "answered"
+
+    return await asyncio.gather(work, request())
+
+
+def _plan_settings(**over):
+    return Settings(_env_file=None, litellm_model="gpt-5.4-mini", llm_mode="agent", **over)
+
+
+def _fake_llm(reply: str):
+    async def fake(**kw):
+        return _resp(reply)
+
+    return lambda *a, **k: fake
+
+
+def _write_article_path(monkeypatch):
+    monkeypatch.setattr(conflict_resolver, "resolve_llm_fn", _fake_llm("{}"))
+    monkeypatch.setattr(entity_article, "parse", lambda *a, **k: SimpleNamespace(dropped={}))
+    monkeypatch.setattr(entity_article, "payload", lambda *a, **k: {"lead": "Written."})
+    job = {"change": {"id": "alpha-co"},
+           "article": {"prompt": "PROMPT", "inputs": [], "name": "Alpha Co", "aliases": [], "known": set()}}
+    return conflict_resolver._write_article(job, _plan_settings())
+
+
+def _merge_path(monkeypatch, *, synthesis: bool):
+    monkeypatch.setattr(conflict_resolver, "resolve_llm_fn",
+                        _fake_llm(json.dumps({"summary": "Alpha Co moved to the harbour.", "history": []})))
+    if synthesis:
+        monkeypatch.setattr(entity_orientation, "context", lambda *a, **k: {})
+        monkeypatch.setattr(entity_orientation, "bounded_prompt", lambda data: "PROMPT")
+        monkeypatch.setattr(entity_orientation, "valid_summary", lambda summary: True)
+        monkeypatch.setattr(entity_orientation, "restated_facts", lambda *a, **k: [])
+        monkeypatch.setattr(entity_orientation, "covered_sentences", lambda *a, **k: [])
+        monkeypatch.setattr(entity_orientation, "compose", lambda *a, **k: "## Summary\nAlpha Co moved.")
+    return conflict_resolver._synthesize_entity_update(
+        entity_name="Alpha Co", entity_type="company", existing_body=PAGE, new_description="Moved to the harbour.",
+        new_history_entries=[], source_reference_date="2026-09-30",
+        settings=_plan_settings(summary_synthesis_enabled=synthesis), today="2026-10-07")
+
+
+def _rebuild_path(monkeypatch):
+    monkeypatch.setattr(providers, "resolve_llm_fn", _fake_llm("{}"))
+    return page_article_rebuild.write(page_article_rebuild.Survey(), _plan_settings(), jobs=[])
+
+
+def _recon_path(monkeypatch):
+    monkeypatch.setattr(providers, "resolve_llm_fn", _fake_llm(json.dumps({"entities": []})))
+    return link_recon.default_extract("A saved link about canoes.", _plan_settings())
+
+
+def _stage1_path(monkeypatch):
+    monkeypatch.setattr(providers, "resolve_llm_fn", _fake_llm(json.dumps({"entities": [], "relationships": []})))
+    episode = {"id": "ep_2026-10-20_001", "timestamp": "2026-10-20T10:00:00Z", "origin": "claude-code",
+               "content": "user: The cedar strips arrived.\nassistant: Nice."}
+    return entity_extractor.extract([episode], _plan_settings())
+
+
+@pytest.mark.parametrize("path", [
+    _write_article_path,
+    lambda mp: _merge_path(mp, synthesis=False),
+    lambda mp: _merge_path(mp, synthesis=True),
+    _rebuild_path,
+    _recon_path,
+    _stage1_path,
+], ids=["article", "merge", "orientation", "article-rebuild", "link-recon", "stage1"])
+def test_reading_the_sign_in_never_blocks_the_event_loop(monkeypatch, path):
+    answered, seen = _slow_reader(monkeypatch)
+    _, request = asyncio.run(_alongside_a_request(path(monkeypatch), answered))
+    assert request == "answered"
+    assert seen.get("loop_was_free") is True, "the sign-in was read on the event loop"
+
+
+def test_off_the_plan_no_sign_in_is_read_at_all(monkeypatch):
+    def reader():
+        raise AssertionError("read off the Claude plan")
+
+    monkeypatch.setattr(engine_identity, "reader", reader)
+    engine_identity.clear()
+    assert asyncio.run(engine_identity.aidentities(Settings(_env_file=None, llm_mode="byok"))) == frozenset()
 
 
 # --- 2. Stage 1 ------------------------------------------------------------------------------------------------------
@@ -213,6 +323,80 @@ def test_scrub_lines_drops_only_what_carries_the_account():
     out = engine_identity.scrub_lines(body, "nothing", frozenset({"x@example.test"}))
     assert out == "## Summary\nA canoe build.\n\n## Key Facts\n- Cedar strips"
     assert engine_identity.scrub_lines(body, "said x@example.test", frozenset({"x@example.test"})) == body
+
+
+# --- 2b. link recon's batch call -------------------------------------------------------------------------------------
+
+
+def _recon(text: str, reply: dict):
+    with patch.object(providers, "resolve_llm_fn", _fake_llm(json.dumps(reply))):
+        return asyncio.run(link_recon.default_extract(text, Settings(_env_file=None, llm_mode="agent")))
+
+
+RECON_REPLY = {"entities": [
+    {"name": ACCOUNT, "type": "concept"},
+    {"name": "Plan Account", "type": "person"},
+    {"name": "Cedar Canoe", "type": "project", "aliases": ["Canoe", "Plan Account's canoe"],
+     "key_facts": ["Cedar strips", f"Shared by {ACCOUNT}"]},
+]}
+
+
+def test_link_recon_drops_the_plan_account_the_links_never_said(plan_account):
+    out = _recon("1. Building a cedar canoe: strips, epoxy and patience.", json.loads(json.dumps(RECON_REPLY)))
+    assert [e["name"] for e in out] == ["Cedar Canoe"]
+    assert out[0]["aliases"] == ["Canoe"]
+    assert out[0]["key_facts"] == ["Cedar strips"]
+
+
+def test_link_recon_keeps_what_the_links_themselves_say(plan_account):
+    out = _recon(f"1. Plan Account's cedar canoe build log, by {ACCOUNT}.", json.loads(json.dumps(RECON_REPLY)))
+    assert [e["name"] for e in out] == [ACCOUNT, "Plan Account", "Cedar Canoe"]
+    assert out[2]["key_facts"] == ["Cedar strips", f"Shared by {ACCOUNT}"]
+
+
+# --- 2c. how a form is said ------------------------------------------------------------------------------------------
+
+OTHER = frozenset({"anna.may@example.test"})
+
+
+@pytest.mark.parametrize("item", [
+    "Anna and May went to the harbour",
+    "May met Anna at the market",
+    "Joanna May-Smith",
+    "Wrote to joanna.may@example.test",
+    "Wrote to anna.mayfield@example.test",
+])
+def test_the_same_words_apart_or_a_longer_address_are_not_the_identity(item):
+    assert not engine_identity.leaks(item, "nothing said", OTHER)
+
+
+@pytest.mark.parametrize("item", [
+    "Anna May", "anna.may", "Signed in as Anna May.", "May, Anna", "ANNA MAY", "Wrote to anna.may@example.test.",
+])
+def test_the_name_said_together_or_the_whole_address_is_the_identity(item):
+    assert engine_identity.leaks(item, "nothing said", OTHER)
+
+
+def test_words_apart_in_the_input_are_no_evidence_for_the_name():
+    assert engine_identity.leaks("Anna May", "user: Anna and May went to the harbour.", OTHER)
+
+
+@pytest.mark.parametrize("said", ["user: I'm Anna May.", "user: May, Anna (that's me)."])
+def test_the_name_the_input_says_is_kept(said):
+    """The owner whose address spells their own name, and who said it: the item is theirs to keep."""
+    entities = [{"name": "Anna May", "type": "person", "aliases": ["Anna May"], "key_facts": ["Signed in as Anna May"]}]
+    assert engine_identity.scrub_extraction(entities, [], [], said, OTHER) == 0
+    assert entities[0]["name"] == "Anna May" and entities[0]["aliases"] == ["Anna May"]
+
+
+def test_the_name_is_dropped_without_evidence_and_words_apart_are_kept():
+    entities = [{"name": "Harbour Trip", "type": "event",
+                 "key_facts": ["Anna and May went to the harbour", "Booked by Anna May"]},
+                {"name": "Anna May", "type": "person"}]
+    dropped = engine_identity.scrub_extraction(entities, [], [], "user: Anna and May went to the harbour.", OTHER)
+    assert dropped == 2
+    assert [e["name"] for e in entities] == ["Harbour Trip"]
+    assert entities[0]["key_facts"] == ["Anna and May went to the harbour"]
 
 
 # --- 3. the merge ----------------------------------------------------------------------------------------------------

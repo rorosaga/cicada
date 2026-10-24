@@ -1775,9 +1775,12 @@ Disambiguation and the article writer have their own short ones. Every prompt en
 CLI still attaches context of its own. That includes **the signed-in account's email address**: on `claude` 2.1.310
 it comes from the plan sign-in, and no flag or variable removes it. In one benchmark Sleep it reached the owner page as
 three key facts. In the 2026-10-24 A/B a dev Sleep also gave the synthetic owner an alias made of the address's words
-before the `@`. The floor under the guard is `engine_identity`. On the Claude plan only, Stage 1 and the merge stage
-read the account's email from `claude auth status --json`, keep it in memory, and never log, write or send it. Its
-forms are the address, and the words before the `@` when there are two or more of three letters or more. They drop
+before the `@`. The floor under the guard is `engine_identity`. On the Claude plan only, Stage 1 (link recon's batch
+call included) and the merge stage read the account's email from `claude auth status --json`, keep it in memory, and
+never log, write or send it. Async code reads it through `aidentities`, on a worker thread, so a cache miss never runs
+the CLI on the event loop. Its forms are the address, and the words before the `@` when there are two or more of three
+letters or more. The address counts only whole; the name only as its words adjacent and in order ("Anna May",
+"anna.may") or last word first before a comma ("May, Anna"), never the same words apart in a sentence. They drop
 any item carrying a form (an alias, a fact, a history line, a link, a claim, a summary sentence, an entity named for
 it, an article) unless what the model was given says it: the episode, the owner's name and source note in the
 extraction prompt, or the merge's own input. An address or a full name the person typed is kept, and the evidence

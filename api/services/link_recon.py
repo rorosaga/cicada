@@ -215,10 +215,17 @@ async def default_extract(text: str, settings) -> list[dict]:
     (8 x 300 words is well under ``CHUNK_SIZE``); ``sanitize_decay_class`` is
     irrelevant here because recon never creates a page.
     """
+    from api.services import engine_identity
     from api.services.entity_extractor import _extract_chunk
 
+    plan_ids = await engine_identity.aidentities(settings)
     parsed = await _extract_chunk("link-recon", text, 0, 1, settings)
-    return [e for e in (parsed.get("entities") or []) if isinstance(e, dict)]
+    entities = [e for e in (parsed.get("entities") or []) if isinstance(e, dict)]
+    # Perf report 2026-10-24, item 1: the same floor as Stage 1. The rendered batch is all the model was given, so an
+    # entity, alias or fact carrying the plan account's identity that the batch does not say is dropped.
+    if plan_ids:
+        engine_identity.scrub_extraction(entities, [], [], text, plan_ids)
+    return entities
 
 
 async def default_match(entity: dict, existing_by_name: dict, settings, cache: dict) -> str | None:
