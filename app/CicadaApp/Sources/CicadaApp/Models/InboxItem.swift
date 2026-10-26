@@ -39,19 +39,39 @@ enum InboxKind: String, Codable {
         self = InboxKind(rawValue: raw) ?? .unknown
     }
 
+    /// A kind in a person's words (inbox v2, owner 2026-10-26: "I don't really get … possible duplicates and stuff"):
+    /// the tabs, the glyph's help and VoiceOver. "Decay", "Clarification", "Divergence" and "Predicate fold" were the
+    /// pipeline's names; the wire values above never change.
     var label: String {
         switch self {
-        case .decay: "Decay"
+        case .decay: "Fading"
         case .conflict: "Conflict"
-        case .clarification: "Clarification"
+        case .clarification: "Question"
         case .mergeSuggestion: "Possible duplicate"
-        case .divergence: "Divergence"
-        case .normalization: "Predicate fold"
+        case .divergence: "Disagreement"
+        case .normalization: "Wording"
         case .removal: "Removed bookmark"
         case .followup: "Follow-up"
         case .pageEdit: "Page edit"
         case .agentRequest: "Agent request"
         case .unknown: "Update available"
+        }
+    }
+
+    /// The heading of a kind's group in the Inbox (inbox v2): what the questions under it are, plural.
+    var groupTitle: String {
+        switch self {
+        case .decay: "Fading pages"
+        case .conflict: "Conflicts"
+        case .clarification: "Questions"
+        case .mergeSuggestion: "Possible duplicates"
+        case .divergence: "Disagreements with an agent"
+        case .normalization: "Wording to check"
+        case .removal: "Removed bookmarks"
+        case .followup: "Follow-ups"
+        case .pageEdit: "Proposed page edits"
+        case .agentRequest: "Agent requests"
+        case .unknown: "Other questions"
         }
     }
 

@@ -17,6 +17,23 @@ extension Copy {
         static let groupCloseHelp = "Hide these questions"
         static func groupSpoken(_ kind: String, _ n: Int) -> String { "\(kind), \(UsageFormat.count(n)) questions" }
         static let groupReview = "Review one at a time"
+        /// What a kind's questions ask, in one plain sentence, under its open group (inbox v2, owner 2026-10-26: a
+        /// first-time reader should not need to know what "decay" or a "fold" is). Says what each answer does.
+        static func kindExplainer(_ kind: InboxKind) -> String {
+            switch kind {
+            case .decay: "Pages you haven't mentioned in a while. Keep the ones that still matter; the rest fade and come back the next time you mention them."
+            case .conflict: "Two things on record disagree. Pick the one that's true now, or keep both."
+            case .clarification: "Names and details Cicada couldn't place on its own. Answer in a few words, or skip."
+            case .mergeSuggestion: "Two names that may be the same thing. Merge them into one page, or keep them apart."
+            case .divergence: "An agent wrote something different from what you said. Your words stay unless you change them."
+            case .normalization: "Two ways of saying the same relation. Say whether they mean the same thing."
+            case .removal: "Bookmarks you removed from your browser. Keep the saved page, or archive it."
+            case .followup: "Plans that went quiet or passed their date. Say how they went."
+            case .pageEdit: "Changes an agent proposed to a page's words. Apply each one, or dismiss it."
+            case .agentRequest: "Things an agent needs you to do."
+            case .unknown: "Questions from a newer version of Cicada."
+            }
+        }
         static func pageQuestions(_ n: Int) -> String { "\(UsageFormat.count(n)) questions" }
 
         // "Settled by a check" (owner ruling 2026-10-16): questions a web lookup or the person's agent answered.
@@ -129,6 +146,7 @@ extension Copy {
         static let showFewer = "Show fewer"
         static func showAll(_ n: Int) -> String { "Show all \(UsageFormat.count(n))" }
         static let openQuestion = "Open this question"
+        static func openPageHelp(_ name: String) -> String { "Open \(name)'s page" }
 
         // The columns (Task 5 — DR-43, DR-50, R-DI10): the page states keep their pre-DS-2 words.
         static let dot = "·"
@@ -149,6 +167,29 @@ extension Copy {
 }
 
 extension Copy.Inbox {
+    /// A possible duplicate, in plain words (inbox v2, owner 2026-10-26: "I don't really get … possible duplicates").
+    /// Merge's sentence is what the backend's merge does (`inbox_service._resolve_clarification`): the name becomes
+    /// another name of the existing page, and a page of its own folds into it.
+    enum Duplicate {
+        static let newName = "Name from a conversation"
+        static let existingPage = "Existing page"
+        static let noPageYet = "No page yet — only mentioned in a conversation."
+        static let noSummary = "No summary yet."
+        static func mergeNames(_ mention: String, _ existing: String) -> String {
+            "Merge files \u{201C}\(mention)\u{201D} under \(existing) as another name for it."
+        }
+        static func mergeFolds(_ mention: String, _ existing: String) -> String {
+            "Merge folds \u{201C}\(mention)\u{201D} into \(existing): its facts, links and mentions move there, and its name stays as another name."
+        }
+        static let keepWords = "Keep separate, and Cicada won't suggest this pair again."
+        static let undoWords = "Each answer can be undone for a few seconds after."
+        static let noTarget = "Cicada didn't say which page this could be. Name it below."
+        static let somethingElse = "Something else"
+        static let somethingElseHelp = "Describe it instead, merge with a different page, or keep the other name"
+        static let mergeHelp = "Join the two into one page"
+        static let keepHelp = "They're different; don't ask about this pair again"
+    }
+
     /// The quick review (owner 2026-10-19): one kind at a time, the same answers in the same place.
     enum Review {
         static func kindTitle(_ kind: ReviewKind) -> String {

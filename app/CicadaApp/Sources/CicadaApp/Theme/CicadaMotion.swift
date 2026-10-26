@@ -327,6 +327,21 @@ extension CicadaMotion {
     static let wormFlightCurve: (Float, Float, Float, Float) = (0.77, 0, 0.175, 1)
 }
 
+// MARK: - Disclosures (inbox v2, owner 2026-10-26: "When I open the drop-downs, it can be smoother")
+
+extension CicadaMotion {
+    /// A fold opening: its content grows from the header and fades in (`DisclosureReveal`), the rows under it eased
+    /// down with it, on the drawer curve — no bounce (DR-62), under the 300 ms UI ceiling (DR-61).
+    static let disclosureOpenDuration: TimeInterval = 0.24
+    /// A fold closing is quicker than it opened (DR-65: exits are faster than entrances).
+    static let disclosureCloseDuration: TimeInterval = 0.18
+
+    /// Reduce Motion keeps the fade and drops the growth (DR-66): `fade`, ~100 ms linear.
+    static func disclosure(opening: Bool, reduceMotion: Bool) -> Animation {
+        reduceMotion ? fade : CicadaCurve.drawer(opening ? disclosureOpenDuration : disclosureCloseDuration)
+    }
+}
+
 // MARK: - The guided tour (G152)
 
 /// F-08's motion for the coach mark: on its first appearance it rises 6 pt over 240 ms with the scrim fading in

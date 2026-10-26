@@ -245,7 +245,8 @@ struct InboxFocusCard: View {
         case .informational: InformationalBody(item: item, names: store.entityNames, onAnswer: onAnswer)
         case .freeText: FreeTextBody(item: item, field: $field, onAnswer: onAnswer)
         case .name: NameBody(item: item, field: $field, onAnswer: onAnswer)
-        case .merge: MergeBody(item: item, names: store.entityNames, field: $field, onAnswer: onAnswer)
+        case .merge: MergeBody(item: item, names: store.entityNames, nodes: store.graph.value?.nodes ?? [],
+                               field: $field, onAnswer: onAnswer)
         case .legacyDecay: LegacyDecayBody(onAnswer: onAnswer)
         case .dismissOnly: DismissBody(onAnswer: onAnswer)
         }

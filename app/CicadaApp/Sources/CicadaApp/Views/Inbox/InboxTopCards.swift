@@ -130,54 +130,109 @@ struct AgentRequestCard: View {
     }
 }
 
-/// G61 — "Confirm N links": one row per waiting link (its kind's glyph, the link, the page it is for, where it was
-/// found on hover), each answered alone with Yes / No; the card leaves when the last row is answered.
+/// G61 — "Confirm N links". Inbox v2 (owner 2026-10-26: "I don't really get the confirmation of links"): the card says
+/// what it is in one sentence, then each page once — its picture and name (a click opens it) — and under it each
+/// waiting link: what it is ("bob-example · GitHub profile"), why Cicada proposed it, and what confirming changes
+/// ("their picture and updates can come from here"). One quiet primary per link (Confirm, a neutral button, DR-40) and
+/// a quieter decline (a text button). Past three pages the rest wait behind "N more pages", one fold (DR-39). Each link
+/// is still answered alone; there is no answer-all, and the card leaves when the last is answered.
 struct WhereToCheckReviewCard: View {
     let item: InboxItem
     var openPage: (String) -> Void = { _ in }
 
     @Environment(Store.self) private var store
     @State private var answered: Set<String> = []
+    @State private var showAll = false
 
     private var rows: [WhereToCheckRow] { (item.rows ?? []).filter { !answered.contains($0.id) } }
 
     var body: some View {
-        if !rows.isEmpty {
-            VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+        let pages = WhereToCheckWords.byPage(rows)
+        if !pages.isEmpty {
+            VStack(alignment: .leading, spacing: 0) {
                 Text(item.questionText)
-                    .font(CicadaTheme.rowFont).foregroundStyle(CicadaTheme.textPrimary)
-                VStack(alignment: .leading, spacing: CicadaTheme.scaled(RowMetrics.twoLineGap)) {
-                    ForEach(rows) { row in rowView(row) }
+                    .font(CicadaTheme.metaMediumFont).foregroundStyle(CicadaTheme.textPrimary)
+                Text(Copy.WhereToCheck.explainer)
+                    .font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: CicadaTheme.scaled(ColumnLayout.textMaxWidth), alignment: .leading)
+                    .padding(.top, CicadaTheme.scaled(2))
+                VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
+                    ForEach(pages.prefix(WhereToCheckWords.firstPages)) { page in pageView(page) }
+                }
+                .padding(.top, CicadaTheme.spacingMD)
+                let rest = Array(pages.dropFirst(WhereToCheckWords.firstPages))
+                if !rest.isEmpty {
+                    DisclosureHeader(title: Copy.WhereToCheck.showMore(rest.count), isOpen: showAll,
+                                     help: Copy.WhereToCheck.showMoreHelp) { showAll.toggle() }
+                        .padding(.top, CicadaTheme.spacingSM)
+                    if showAll {
+                        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
+                            ForEach(rest) { page in pageView(page) }
+                        }
+                        .padding(.top, CicadaTheme.spacingSM)
+                        .disclosureReveal()
+                    }
                 }
             }
             .padding(CicadaTheme.spacingMD)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .background(CicadaTheme.bgFocus, in: CicadaTheme.shape(CicadaTheme.cornerRadius))
             .ringed(in: CicadaTheme.shape(CicadaTheme.cornerRadius))
         }
     }
 
-    private func rowView(_ row: WhereToCheckRow) -> some View {
-        let words = LinkWords.of(ref: row.ref, label: row.label, linkKind: row.linkKind)
-        return HStack(spacing: CicadaTheme.spacingSM) {
-            Image(systemName: LinkKindGlyph.symbol(words.kind))
-                .font(CicadaTheme.icon(.list))
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .frame(width: CicadaTheme.scaled(18))
-            VStack(alignment: .leading, spacing: CicadaTheme.scaled(1)) {
-                Text(words.label)
-                    .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textPrimary).lineLimit(1)
-                Button { openPage(row.page) } label: {
-                    Text(row.pageName.isEmpty ? row.page : row.pageName)
-                        .font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary).lineLimit(1)
+    /// One page: its picture and name once, then its waiting links.
+    private func pageView(_ page: WhereToCheckWords.PageRows) -> some View {
+        HStack(alignment: .top, spacing: CicadaTheme.scaled(12)) {
+            EntityPicture(id: page.page, name: page.pageName, type: EntityType(rawValue: page.pageType) ?? .unknown,
+                          size: 28)
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                Button { openPage(page.page) } label: {
+                    Text(page.pageName)
+                        .font(CicadaTheme.rowFont).foregroundStyle(CicadaTheme.textPrimary).lineLimit(1)
                 }
                 .buttonStyle(.cicadaPlain)
+                .help(Copy.Inbox.openPageHelp(page.pageName))
+                ForEach(page.rows) { row in rowView(row) }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    private func rowView(_ row: WhereToCheckRow) -> some View {
+        let words = LinkWords.of(ref: row.ref, label: row.label, linkKind: row.linkKind)
+        let short = WhereToCheckWords.shortRef(row.ref)
+        return HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
+            Image(systemName: LinkKindGlyph.symbol(words.kind))
+                .font(CicadaTheme.icon(.inline))
+                .foregroundStyle(CicadaTheme.textTertiary)
+                .frame(width: CicadaTheme.scaled(16))
+                .padding(.top, CicadaTheme.scaled(2))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
+                HStack(spacing: CicadaTheme.scaled(6)) {
+                    Text(words.label)
+                        .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textPrimary).lineLimit(1)
+                    Text(Eyebrow.text(WhereToCheckWords.kindName(words.kind, pageType: row.pageType),
+                                      short == words.label ? "" : short))
+                        .font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
+                        .lineLimit(1).truncationMode(.middle)
+                }
+                Text(WhereToCheckWords.why(row) + " " + WhereToCheckWords.effect(row, kind: words.kind))
+                    .font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: CicadaTheme.scaled(ColumnLayout.textMaxWidth), alignment: .leading)
             }
             .help(Self.evidenceWords(row))
             Spacer(minLength: CicadaTheme.spacingSM)
-            NeutralButton(title: Copy.WhereToCheck.yes, size: .compact,
+            NeutralButton(title: Copy.WhereToCheck.confirm, size: .compact,
                           help: Copy.WhereToCheck.rowHelp(yes: true, label: words.label)) { answer(row, take: true) }
-            TextButton(title: Copy.WhereToCheck.no,
+            // One column for the answers, whatever the decline says, so every Confirm lines up.
+            TextButton(title: WhereToCheckWords.declineLabel(row),
                        help: Copy.WhereToCheck.rowHelp(yes: false, label: words.label)) { answer(row, take: false) }
+                .frame(minWidth: CicadaTheme.scaled(104), alignment: .leading)
         }
         .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine))
     }

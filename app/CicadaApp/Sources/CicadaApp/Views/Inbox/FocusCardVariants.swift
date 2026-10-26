@@ -128,16 +128,21 @@ struct NameBody: View {
     }
 }
 
-/// A possible duplicate — the port of the pre-DS-2 merge card (G113 slice 3b), with neutral
-/// buttons (DR-40). The existing entity is the merge's DATA source (it owns the real frontmatter
-/// and history) and is editable, seeded from `mergeTargetHint`; the survivor picker chooses only
-/// which NAME the merged page keeps. No "Recommended" here either (G115 §4): the server never sets
-/// one on a merge, and the view never invents what the server withheld.
+/// A possible duplicate. Inbox v2 (owner 2026-10-26: "I don't really get … possible duplicates"): the two sides stand
+/// side by side — the name a conversation used and the existing page, each with its picture, its type and its
+/// one-line summary (or "No page yet" for a name below the promotion bar) — then what each answer does, in words, and
+/// the answers: Merge (the one neutral button, DR-40), Keep separate and Skip (quieter text buttons). The rarer moves —
+/// describing it instead, merging with a different page, keeping the other name — wait under "Something else", one
+/// fold (DR-39), open from the start when Sleep named no page. What is sent is unchanged: the existing page is the
+/// merge's DATA source (it owns the real frontmatter and history), seeded from `mergeTargetHint`; the survivor picker
+/// chooses only which NAME the merged page keeps. No "Recommended" (G115 §4): the server never sets one on a merge.
 struct MergeBody: View {
     let item: InboxItem
     /// R-DL5 — the survivor row and the "A → B" line show the existing page's name when the hint is its id;
     /// `existingName`, which the buttons send, stays exactly what it was (the wire never changes).
     var names: EntityNames = .empty
+    /// The graph's pages, for the two sides' pictures, types and summaries (display only).
+    var nodes: [GraphNode] = []
     let field: FocusState<InboxFocusCard.Field?>.Binding
     let onAnswer: (QuestionResolution) -> Void
 
@@ -146,7 +151,9 @@ struct MergeBody: View {
     @State private var answerText = ""
     @State private var mergeText = ""
     @State private var survivor: Survivor = .existing
+    @State private var moreOpen = false
 
+    private var pair: MergePair { MergePair.of(item, nodes: nodes) }
     private var mentionName: String { item.displayName }
     /// The pre-DS-2 rule: what the person typed, else the server's hint.
     private var existingName: String {
@@ -155,13 +162,119 @@ struct MergeBody: View {
     }
 
     var body: some View {
+        let pair = pair
+        VStack(alignment: .leading, spacing: CicadaTheme.scaled(20)) {
+            // DR-31 — two tiles side by side while they fit; stacked in a narrow column or at 1.4×.
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
+                    tile(pair.mention, caption: Copy.Inbox.Duplicate.newName)
+                    tile(pair.existing, caption: Copy.Inbox.Duplicate.existingPage)
+                }
+                VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                    tile(pair.mention, caption: Copy.Inbox.Duplicate.newName)
+                    tile(pair.existing, caption: Copy.Inbox.Duplicate.existingPage)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                Text(pair.canMerge ? pair.mergeWords : Copy.Inbox.Duplicate.noTarget)
+                Text(Copy.Inbox.Duplicate.keepWords)
+                Text(Copy.Inbox.Duplicate.undoWords).foregroundStyle(CicadaTheme.textTertiary)
+            }
+            .font(CicadaTheme.metaFont)
+            .foregroundStyle(CicadaTheme.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: CicadaTheme.spacingSM) {
+                mergeButton
+                // G113 slice 3b — a remembered verdict needs the other side of the pair; with none, the fold below
+                // names it first (and "Keep separate" appears once there is one).
+                if let reject = MergeReject.resolution(existingName: existingName) {
+                    TextButton(title: Copy.Inbox.keepSeparate, help: Copy.Inbox.Duplicate.keepHelp) { onAnswer(reject) }
+                }
+                TextButton(title: Copy.Inbox.skip) { onAnswer(QuestionResolution(action: "skip")) }
+                Spacer(minLength: 0)
+            }
+
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                DisclosureHeader(title: Copy.Inbox.Duplicate.somethingElse, isOpen: moreOpen,
+                                 help: Copy.Inbox.Duplicate.somethingElseHelp) { moreOpen.toggle() }
+                if moreOpen {
+                    somethingElse.disclosureReveal()
+                }
+            }
+        }
+        .onAppear {
+            if mergeText.isEmpty, let hint = item.mergeTargetHint { mergeText = hint }
+            // Sleep named no page: the field to name one is the way forward, so it starts open (seeded, never animated).
+            if !pair.canMerge { moreOpen = true }
+        }
+    }
+
+    private var mergeButton: some View {
+        NeutralButton(title: Copy.Inbox.merge, isDisabled: mergeText.trimmed.isEmpty,
+                      help: Copy.Inbox.Duplicate.mergeHelp, disabledHelp: Copy.Inbox.mergeNeedsTarget) {
+            // The data source is always the existing target; the survivor is the chosen name.
+            let keep = survivor == .mention ? mentionName : existingName
+            onAnswer(QuestionResolution(action: "merge", mergeTarget: mergeText.trimmed, mergeSurvivor: keep))
+        }
+    }
+
+    /// One side: what it is, its picture, name and type, and its summary in a line or three.
+    private func tile(_ side: MergePair.Side, caption: String) -> some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+            Text(caption)
+                .font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
+            HStack(spacing: CicadaTheme.scaled(10)) {
+                if side.hasPage {
+                    EntityPicture(id: side.id, name: side.name, type: side.type ?? .unknown, size: 32)
+                } else {
+                    Image(systemName: "text.quote")
+                        .font(CicadaTheme.icon(.list))
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                        .frame(width: CicadaTheme.scaled(32), height: CicadaTheme.scaled(32))
+                        .accessibilityHidden(true)
+                }
+                VStack(alignment: .leading, spacing: CicadaTheme.scaled(1)) {
+                    Text(side.name.isEmpty ? "—" : names.display(side.name))
+                        .font(CicadaTheme.font(size: 14, weight: .medium))
+                        .foregroundStyle(CicadaTheme.textPrimary)
+                        .lineLimit(2)
+                    if let type = side.type, type != .unknown {
+                        Text(type.label)
+                            .font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
+                    }
+                }
+            }
+            Text(side.summary ?? (side.hasPage ? Copy.Inbox.Duplicate.noSummary : Copy.Inbox.Duplicate.noPageYet))
+                .font(CicadaTheme.metaFont)
+                .foregroundStyle(side.summary == nil ? CicadaTheme.textTertiary : CicadaTheme.textSecondary)
+                .lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(CicadaTheme.scaled(14))
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(CicadaTheme.bgOption))
+        .ringed(in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
+        .accessibilityElement(children: .combine)
+    }
+
+    /// DR-43 — every merge control stays reachable: the description and Answer, the existing page, the
+    /// Keep-as-canonical picker and the "A → B" line.
+    private var somethingElse: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
             Grid(alignment: .leading, horizontalSpacing: CicadaTheme.spacingMD, verticalSpacing: CicadaTheme.spacingSM) {
                 GridRow {
                     SectionLabel(Copy.Inbox.describeEntity)
-                    InboxTextField(prompt: Copy.Inbox.describePrompt, text: $answerText,
-                                   isFocused: field.wrappedValue == .answer)
-                        .focused(field, equals: .answer)
+                    HStack(spacing: CicadaTheme.spacingSM) {
+                        InboxTextField(prompt: Copy.Inbox.describePrompt, text: $answerText,
+                                       isFocused: field.wrappedValue == .answer)
+                            .focused(field, equals: .answer)
+                        NeutralButton(title: Copy.Inbox.answer, size: .compact, isDisabled: answerText.trimmed.isEmpty,
+                                      disabledHelp: Copy.Inbox.answerNeedsText) {
+                            onAnswer(QuestionResolution(action: "answer", answer: answerText.trimmed))
+                        }
+                    }
                 }
                 GridRow {
                     SectionLabel(Copy.Inbox.existingEntity)
@@ -185,23 +298,6 @@ struct MergeBody: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
-
-            // DR-31 — a row of four buttons can outgrow a 440 column at 1.4×; it folds onto two
-            // lines rather than wanting more width than the column gives.
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: CicadaTheme.spacingSM) {
-                    skipButton.padding(.leading, -CicadaTheme.scaled(10))
-                    Spacer(minLength: CicadaTheme.spacingSM)
-                    actionButtons
-                }
-                VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                    HStack(spacing: CicadaTheme.spacingSM) { actionButtons }
-                    skipButton.padding(.leading, -CicadaTheme.scaled(10))
-                }
-            }
-        }
-        .onAppear {
-            if mergeText.isEmpty, let hint = item.mergeTargetHint { mergeText = hint }
         }
     }
 
@@ -209,31 +305,6 @@ struct MergeBody: View {
     private var mentionNote: String {
         [Copy.Inbox.newFromExtraction, item.suggestedClassification].compactMap { $0 }
             .filter { !$0.isEmpty }.joined(separator: " · ")
-    }
-
-    private var skipButton: some View {
-        TextButton(title: Copy.Inbox.skip) { onAnswer(QuestionResolution(action: "skip")) }
-    }
-
-    @ViewBuilder
-    private var actionButtons: some View {
-        NeutralButton(title: Copy.Inbox.answer, isDisabled: answerText.trimmed.isEmpty,
-                      disabledHelp: Copy.Inbox.answerNeedsText) {
-            onAnswer(QuestionResolution(action: "answer", answer: answerText.trimmed))
-        }
-        // G113 slice 3b — a remembered verdict: the backend needs the other side of the pair
-        // (`merge_target_hint` OR `mergeTarget`), so disable rather than fire a request it must 400.
-        NeutralButton(title: Copy.Inbox.keepSeparate,
-                      isDisabled: MergeReject.resolution(existingName: existingName) == nil,
-                      disabledHelp: Copy.Inbox.mergeNeedsTarget) {
-            if let r = MergeReject.resolution(existingName: existingName) { onAnswer(r) }
-        }
-        NeutralButton(title: Copy.Inbox.merge, isDisabled: mergeText.trimmed.isEmpty,
-                      disabledHelp: Copy.Inbox.mergeNeedsTarget) {
-            // The data source is always the existing target; the survivor is the chosen name.
-            let keep = survivor == .mention ? mentionName : existingName
-            onAnswer(QuestionResolution(action: "merge", mergeTarget: mergeText.trimmed, mergeSurvivor: keep))
-        }
     }
 
     private func survivorRow(_ name: String, note: String, on: Bool, action: @escaping () -> Void) -> some View {

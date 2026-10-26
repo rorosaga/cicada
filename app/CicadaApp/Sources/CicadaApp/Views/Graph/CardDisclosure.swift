@@ -14,7 +14,7 @@ struct CardDisclosure<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
             DisclosureHeader(title: title, summary: summary, isOpen: isOpen) { isOpen.toggle() }
-            if isOpen { content() }
+            if isOpen { content().disclosureReveal() }   // inbox v2: the shared fold's height + fade
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
