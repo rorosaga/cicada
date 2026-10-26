@@ -3,17 +3,19 @@
 The grammar is research-hub's, extended. A view is the **CommonMark link title**, so the line stays a working link in
 git, GitHub, Obsidian and every other markdown reader::
 
-    [label](URL)                          link        (Sleep's default; an agent's too)
+    [label](URL)                          link        (Sleep's default; an agent's too) — drawn by context, below
     <URL>   or a bare URL                 raw
-    [label](URL "raw")                    raw
-    [label](URL "mention")                mention     (site · title, inline)
+    [label](URL "raw")                    raw         its address (``example.com/guide``)
+    [label](URL "url")                    url         the plain link, chosen: its words, underlined (owner 2026-10-26)
+    [label](URL "mention")                mention     (site icon · site · title, inline)
     [label](URL "bookmark")               bookmark    (a card: alone on its line)
+    [label](URL "embed")                  embed       a video's own player, or a PDF's card (owner 2026-10-26);
+                                                      on anything else research-hub's reading: a screenshot
     [label](URL "screenshot")             screenshot  the newest capture of the page
     [label](URL "screenshot 2026-10-14")  screenshot  the capture from that day (else the nearest earlier, in words)
     [label](URL "captures")               captures    every capture, oldest to newest
     [label](URL "look")                   look        the newest saved look (G196) of this URL
     [label](URL "look 2026-10-14")        look        the one saved that day
-    [label](URL "embed")                  embed       research-hub's word: a screenshot of a website
 
 The rules (one table, two sides — ``Views/Common/LinkView.swift`` is this module's twin, and both read
 ``api/tests/fixtures/link_views.json``, the way ``video_urls.json`` pins ``VideoRef``):
@@ -26,9 +28,11 @@ The rules (one table, two sides — ``Views/Common/LinkView.swift`` is this modu
   a sentence, it draws as a **mention** (research-hub's fallback, ``link-ref.ts``).
 * The label is the title. A label equal to the URL means the page has no title of its own; the renderer shows the one
   Cicada knows and never writes it back.
-* Sleep writes plain links; context decides how a plain link is drawn (inside a sentence: link; a ``## Links``
-  bullet: mention; a bare URL: raw). An agent writes a view word only when it means one, and the person's switch is a
-  pinned page edit under their name (G198).
+* Sleep writes plain links; context decides how a plain link is drawn (:func:`drawn`, owner 2026-10-26, Notion's
+  model): inside a sentence a **mention**, alone on its line (a paragraph or any bullet) a **bookmark**, a bare URL
+  its address. ``embed`` is never a default. An agent writes a view word only when it means one, and the person's
+  choice from a link's menu is a pinned page edit under their name (G198) — ``url`` is that menu's "URL", the plain
+  link kept plain where context would draw a mention or a card.
 
 Every text exit (recall, an excerpt, an export) passes prose through :func:`plain` so a quote never shows
 ``"bookmark"``. Pure: no I/O, no network.
@@ -39,14 +43,16 @@ import re
 from dataclasses import asdict, dataclass
 
 #: Inline views: they sit inside a sentence.
-INLINE_VIEWS = ("link", "raw", "mention")
+INLINE_VIEWS = ("link", "raw", "mention", "url")
 #: Block views: each needs a line to itself.
 BLOCK_VIEWS = ("bookmark", "screenshot", "captures", "look", "embed")
 VIEWS = INLINE_VIEWS + BLOCK_VIEWS
 #: The views a date may pin.
 DATED_VIEWS = ("screenshot", "look")
-#: What the person's switcher offers, in order (``embed`` and ``raw`` are accepted, never offered).
-SWITCHER_VIEWS = ("link", "mention", "bookmark", "screenshot", "captures", "look")
+#: What a link's menu offers, in order — Notion's four (Mention, Bookmark, Embed, URL), then the views of what Cicada
+#: captured. The app offers each only where it fits (a block view alone on its line, Embed for a video or a PDF, a
+#: capture view where one exists). ``link`` (no word) and ``raw`` are read, never offered.
+SWITCHER_VIEWS = ("mention", "bookmark", "embed", "url", "screenshot", "captures", "look")
 
 _TITLE = re.compile(r"^(?P<view>[a-z]+)(?: (?P<day>\d{4}-\d{2}-\d{2}))?$")
 #: A markdown link that is not an image: ``[label](url)`` or ``[label](url "title")`` / ``'title'``. The label may
@@ -198,6 +204,15 @@ def links_in(line: str) -> list[LinkRef]:
         end = m.start() + len(url)
         found.append(LinkRef(url, url, "raw", "raw", None, _is_block(rest, m.start(), end), m.start(), end, url))
     return sorted(found, key=lambda r: r.start)
+
+
+def drawn(ref: LinkRef) -> str:
+    """How ``ref`` draws (owner 2026-10-26): its own view word, else the context's default — a plain markdown link alone
+    on its line is a bookmark, one inside a sentence a mention; a bare URL or autolink its address. Never ``embed`` by
+    default. The app's ``LinkGrammar.drawn`` is the twin (``link_views.json``'s ``drawn``)."""
+    if ref.asked != "link":
+        return ref.view
+    return "bookmark" if ref.block and ref.markdown.startswith("[") else "mention"
 
 
 def trim_bare(url: str) -> str:

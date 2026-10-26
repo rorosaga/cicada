@@ -38,6 +38,22 @@ def test_every_line_yields_the_fixtures_links(case):
     assert [{k: r.to_dict()[k] for k in keys} for r in link_views.links_in(case["line"])] == case["links"]
 
 
+@pytest.mark.parametrize("case", FIXTURE["drawn"], ids=lambda c: c["line"][:40])
+def test_a_link_with_no_view_word_draws_by_its_context(case):
+    """Owner 2026-10-26 (Notion's model): a plain link in a sentence is a mention, alone on its line a bookmark; a view
+    word always wins; embed is never a default."""
+    assert [link_views.drawn(r) for r in link_views.links_in(case["line"])] == case["drawn"]
+
+
+def test_embed_is_never_a_default_and_url_is_an_inline_view():
+    assert "url" in link_views.INLINE_VIEWS and "embed" in link_views.BLOCK_VIEWS
+    assert link_views.SWITCHER_VIEWS[:4] == ("mention", "bookmark", "embed", "url")
+    for case in FIXTURE["drawn"]:
+        if "embed" in case["drawn"]:
+            assert '"embed"' in case["line"]
+    assert link_views.plain('[T](https://example.com/t "url")') == "[T](https://example.com/t)"
+
+
 def test_plain_drops_view_words_and_keeps_a_real_tooltip():
     for case in FIXTURE["plain"]:
         assert link_views.plain(case["in"]) == case["out"]
@@ -62,11 +78,11 @@ def test_the_edit_tools_description_names_only_views_the_parser_accepts():
 
     text = next(t for t in stdio_server().TOOLS if t["name"] == "cicada_edit_page")["description"]
     taught = set(re.findall(r'"((?:mention|bookmark|screenshot|captures|look|embed)(?: \d{4}-\d{2}-\d{2})?)"', text))
-    taught |= set(re.findall(r"`(mention|bookmark|screenshot|captures|look)`", text))
+    taught |= set(re.findall(r"`(mention|bookmark|embed|url|screenshot|captures|look)`", text))
     assert taught, "the description teaches no view"
     for word in taught:
         assert link_views.parse_title(word) is not None, word
-    assert {v for v in link_views.SWITCHER_VIEWS if v != "link"} <= {w.split()[0] for w in taught}
+    assert set(link_views.SWITCHER_VIEWS) <= {w.split()[0] for w in taught}
 
 
 # --------------------------------------------------------------------------- titled links survive every parser

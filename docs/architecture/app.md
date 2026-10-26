@@ -2320,36 +2320,55 @@ of #383, so another cited span is as findable as the current one in the document
 `SleepMotion` a duration is spelled; `hoverLift()` for things that open, `iconHover()` for glyphs; a keyboard action
 never animates. Sprites play per frame from their sheets within `CicadaMotion`'s sprite caps (ruling 18).
 
-**Links show as what they are (owner rulings 2026-10-14; DR-5, 9, 13, 32, 37, 45, 52, 53, 58, 61, 63, 71).** A link on a
-page draws the way its markdown title asks (`storage.md`, the link-title grammar; `LinkGrammar` in `LinkView.swift`, one
-fixture with the backend). In the article (`WikiArticle`/`WikiInline`): a link in a sentence is accent and underlined; a bare
-URL or `<URL>` is a live link that reads as its address (`example.com/guide` — the design guessed a bare URL was dead text,
-`LinkViewTests` shows Foundation links it, so the fix is its words); a plain link alone on a `## Links` bullet (Sleep's
-own `- [T](url) — note`) is a **bookmark card** by context, its note under it (owner 2026-10-26: the cards were never
-seen, because Sleep writes plain links and the only way to a card was the hover 🔗 switcher; `WikiArticle.linksCard` —
-nothing is written to the page, and the switcher there offers Mention and the block views, not "Link", which would write
-the token already on the page); a **mention** — `"mention"`, a block view written inside a sentence, or a plain link
-sharing a `## Links` bullet with other words or links — reads as the site in `textTertiary` (a `WikiInline.SitePart`
-run, coloured when the row is drawn so a cached article follows the theme) then the title with a 30% underline; a view
-word is never shown. A link alone on its line asking for a block view is a row of its own (`WikiRow.Kind.link`) drawn by
-`LinkBlockView`: **bookmark** → `BookmarkCard` (title, two lines of description, mark · site · one date — "Read Oct 2"
-when Cicada read the site's words, else "Saved Oct 2", else "Not read yet" — the stored picture left at ≥ 440 pt, on top
-when narrower, on a ring, hover a fill); **screenshot** → `CaptureCard` (16:10, the caption below the picture never over
-it: "Captured Oct 14, 2026 · 3 months ago", or "Saved to Looks Oct 14 · today" while a saved look stands in, "· nearest
-to Oct 14" for a pinned day with none that day; ⤢ opens the lightbox with the date line); **captures** → `CaptureStrip`;
-**look** → `LookSwatch` (the crop, `LooksPaletteStrip`, site · "Saved to Looks Oct 14"). Each degrades one step and says
-so: "No capture of this page yet", "No captures of this page yet", "No saved look of this page yet" (DR-32). ⧗ Site
-exploration's dated captures (the screenshot from a capture, the gallery, "Changed since you saved it", a gone site, the
-Reader's "How it looked when you saved it", ⌘K's site mark) wait for that pipeline; until then `captures[]` is empty and
-a look's screenshot of the same URL stands in. Every fact comes from `GET /entities/{id}/links` through `LinkFactsCache`
-(in memory, not a Store domain); the app fetches nothing of the web: a click opens the saved item's page when the backend
-matched the URL to one, else the browser, and ⌘-click always opens the browser (`LinkOpen`). A line with links has a 🔗
-in the gutter (and an accessibility action, `LineLinksAction`) opening `LinkLinePopover`: each link's bookmark card, then
-**the person's view switcher** — text tabs (DR-45) of the views Cicada has something for (Link, Mention; and for a link
-alone on its line Bookmark, Screenshot with a picture of the page, Captures with a capture, Look with a saved look), ↗ and
-Copy link (DR-53). Choosing one is `POST /entities/{id}/edits` with the link's token as `old` and the same link with its
-view word as `new`, `all` and `pinned`, committed under the person with the reason "Shown as a bookmark." (owner ruling
-4: the choice is memory, in git, visible to every agent; undo is the page's history). `PageLinkRow` (Where this comes
+**Links show as what they are (owner rulings 2026-10-14; Notion's model, owner 2026-10-26; DR-5, 9, 12, 13, 16, 32, 37,
+52, 53, 58, 61, 63, 69, 71; §9 2026-10-26).** A link on a page draws the way its markdown title asks (`storage.md`, the
+link-title grammar; `LinkGrammar` in `LinkView.swift`, one fixture with the backend), and a link that asks for nothing
+draws by context (`LinkGrammar.drawn`, the fixture's `drawn` cases): **inside a sentence a mention, alone on its line a
+bookmark, never an embed** — the owner pointed at his own editor (research-hub, TipTap) as the look to match. In the
+article (`WikiArticle`/`WikiInline`): a **mention** — a plain link in a sentence, `"mention"`, or a block view written
+inside a sentence — reads as the site's icon (15 pt, the tab-icon corner, `MentionIcon`; the icon only where the page's
+icon route serves it, `LinkFact.icon`, else a tertiary globe — a `Text` cannot hold the ring monogram), the site in
+`textTertiary` (a `WikiInline.SitePart` run carrying the link's URL), then the title in the primary ink and the row
+face's medium weight, underlined in the tertiary tone (`WikiInline.MentionTitle`; both restyled when the row is drawn,
+`themed`, so a cached article follows the theme; the icon goes in at draw time, `WikiInline.composed`, so the line stays
+one selectable, wrapping `Text`); a link the person chose as **URL** (`"url"`) reads as its words, accent and underlined;
+a bare URL or `<URL>` is a live link that reads as its address (`example.com/guide` — `LinkViewTests` shows Foundation
+links it); a view word is never shown. A link alone on its line that draws as a block — a plain link alone in a paragraph
+or on any bullet (Sleep's own `## Links` shape `- [T](url) — note` among them; #475 did only `## Links`), or a link naming
+a block view — is a row of its own (`WikiRow.Kind.link`, `WikiArticle.blockLink`; nothing is written to the page) drawn by
+`LinkBlockView`: **bookmark** → `BookmarkCard`, research-hub's measured card: 10 pt corner (`cornerRadius`), the ring,
+`bgFocus`, the stored picture left at full height (220 × 124 pt) when ≥ 440 pt wide and on top when narrower; words padded
+11/14/12 with 5 pt gaps — title 14 medium, two lines of description at 12, then mark · address · one date ("Read Oct 2",
+else "Saved Oct 2", else "Not read yet") at 12 tertiary; **embed** (only when chosen, and only for what can be embedded,
+`LinkEmbed`) → `LinkEmbedView`: a video with a provider's own player (`VideoRef.kind == .embed`) shows its stored still
+behind a play button and loads the player URL `VideoRef` derives in place only on that click, never autoplaying (G162,
+R11); a PDF (a `.pdf` path or an arXiv `/pdf/` link) is a card with the document's mark, its words and "PDF", nothing
+fetched; an `"embed"` on anything else keeps research-hub's old reading, a screenshot; **screenshot** → `CaptureCard`
+(16:10, the caption below the picture never over it: "Captured Oct 14, 2026 · 3 months ago", or "Saved to Looks Oct 14 ·
+today" while a saved look stands in, "· nearest to Oct 14" for a pinned day with none that day; ⤢ opens the lightbox with
+the date line); **captures** → `CaptureStrip`; **look** → `LookSwatch` (the crop, `LooksPaletteStrip`, site · "Saved to
+Looks Oct 14"). Each degrades one step and says so: "No capture of this page yet", "No captures of this page yet", "No
+saved look of this page yet" (DR-32). ⧗ Site exploration's dated captures (the screenshot from a capture, the gallery,
+"Changed since you saved it", a gone site, the Reader's "How it looked when you saved it", ⌘K's site mark) wait for that
+pipeline; until then `captures[]` is empty and a look's screenshot of the same URL stands in. Every fact comes from `GET
+/entities/{id}/links` through `LinkFactsCache` (in memory, not a Store domain); the app fetches nothing of the web to draw
+a card: a click opens the saved item's page when the backend matched the URL to one, else the browser, and ⌘-click
+always opens the browser (`LinkOpen`). **Each link's view menu** — never only on hover: a card carries a ⋯ menu in its
+corner (`LinkViewMenu`, compact, on the card's own fill), a right-click on a card or on any line with links opens the same
+choices (`LinkViewMenuItems`; titled by each link's words when the line has several), and the line's 🔗 in the gutter
+shows on hover *or* while it holds keyboard focus (it stays in the focus order) and opens `LinkLinePopover`: each link's
+bookmark card, then "Show as · Bookmark ▾", ↗ and Copy link (DR-53); VoiceOver reaches it as *Links on this line*
+(`LineLinksAction`). The menu is one native inline picker, so the view the link draws as now is checked
+(`LinkCardModel.current`): **Mention** and **URL** always; **Bookmark** for a link alone on its line; **Embed** ("Embed
+video" for a video) only alone on its line and only when `LinkEmbed` finds something; then Screenshot, Captures and Look
+only where Cicada has a picture, a capture or a saved look (`LinkCardModel.offered`). Choosing one is `POST
+/entities/{id}/edits` with the link's token as `old` and the same link with its view word as `new` (`LinkCardModel.token`
+— the choice is always written, even where it matches today's default, so a later change of the default never undoes
+it), `all` and `pinned`, committed under the person with the reason "Shown as a bookmark." / "Shown as a plain link."
+(owner ruling 4: the choice is memory, in git, visible to every agent; undo is the page's history), and the card re-reads
+the page (`GraphViewModel.reloadEntity`) so the link redraws in its new view at once — before, it said "Saved" and kept
+the old view until the page was reopened. `PageLinkRow` (Where
+this comes
 from) adds the link's date to its URL line and opens the same bookmark card after a short hover
 (`CicadaMotion.linkPreviewOpenDelay` 0.25 s / `linkPreviewCloseDelay` 0.08 s). A media page's website card is now a
 `BookmarkCard` (no all-caps site, a ring, DR-20/9). **Pictures in prose go through the gate:** `ImageThumbnail` loads only a

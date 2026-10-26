@@ -54,21 +54,33 @@ struct LinkSiteMark: View {
     }
 }
 
-/// research-hub's bookmark, on a ring: title (one line), description (two), then mark · site · the date line. The
-/// picture is on the left when the card is at least 440 pt wide, on top when narrower (`ViewThatFits`).
+/// research-hub's bookmark (owner 2026-10-26, measured from their editor): a horizontal card on a ring, the stored
+/// picture on the left at full height (220 pt wide, no corner of its own — the card's clip rounds it), then title (one
+/// line, 14 medium), description (two lines, 12) and mark · address · the one date line (12, tertiary). On top when the
+/// card is narrower than 440 pt (`ViewThatFits`). The picture is only one Cicada stores (`StoredPreview`); else none.
 struct BookmarkCard: View {
     static let wideMinWidth: CGFloat = 440
+    /// The measured look (DESIGN_RULES §9, 2026-10-26): the card's height with a picture, the picture's width, and the
+    /// words' padding (top, sides, bottom) and gap.
+    static let pictureHeight: CGFloat = 124
+    static let pictureWidth: CGFloat = 220
+    static let padTop: CGFloat = 11
+    static let padSide: CGFloat = 14
+    static let padBottom: CGFloat = 12
+    static let gap: CGFloat = 5
 
     let fact: LinkFact
     var ref: LinkRef? = nil
     var entityId: String? = nil
     /// A degraded view says why in words, under the date line ("No capture of this page yet").
     var status: String? = nil
+    /// Room kept at the title's end for a control drawn over the card's corner (the link's view menu).
+    var trailingInset: CGFloat = 0
 
     @Environment(\.openURL) private var openURL
     @State private var hovering = false
 
-    private var shape: RoundedRectangle { CicadaTheme.shape(CicadaTheme.cornerRadiusSmall) }
+    private var shape: RoundedRectangle { CicadaTheme.shape(CicadaTheme.cornerRadius) }
     private var hasPicture: Bool { StoredPreviewPath.loads(fact.preview) }
 
     var body: some View {
@@ -96,10 +108,11 @@ struct BookmarkCard: View {
     private var wide: some View {
         HStack(alignment: .top, spacing: 0) {
             if hasPicture {
-                picture.frame(width: 180).frame(maxHeight: .infinity).clipped()
+                picture.frame(width: CicadaTheme.scaled(Self.pictureWidth)).frame(maxHeight: .infinity).clipped()
             }
             words
         }
+        .frame(minHeight: hasPicture ? CicadaTheme.scaled(Self.pictureHeight) : nil)
         .fixedSize(horizontal: false, vertical: true)
     }
 
@@ -117,11 +130,12 @@ struct BookmarkCard: View {
     }
 
     private var words: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.scaled(3)) {
+        VStack(alignment: .leading, spacing: CicadaTheme.scaled(Self.gap)) {
             Text(LinkCardModel.title(ref, fact: fact))
-                .font(CicadaTheme.bodyFont.weight(.semibold))
+                .font(CicadaTheme.font(size: 14, weight: .medium))
                 .foregroundStyle(CicadaTheme.textPrimary)
                 .lineLimit(1)
+                .padding(.trailing, trailingInset)
             if let description = fact.description, !description.isEmpty {
                 Text(description)
                     .font(CicadaTheme.metaFont)
@@ -134,8 +148,8 @@ struct BookmarkCard: View {
                     .font(CicadaTheme.metaFont)
                     .foregroundStyle(CicadaTheme.textTertiary)
                     .lineLimit(1)
+                    .truncationMode(.middle)
             }
-            .padding(.top, CicadaTheme.scaled(2))
             if let status {
                 Text(status)
                     .font(CicadaTheme.metaFont)
@@ -144,13 +158,12 @@ struct BookmarkCard: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(CicadaTheme.spacingMD)
+        .padding(.top, CicadaTheme.scaled(Self.padTop))
+        .padding(.horizontal, CicadaTheme.scaled(Self.padSide))
+        .padding(.bottom, CicadaTheme.scaled(Self.padBottom))
     }
 
-    private var footer: String {
-        let site = fact.site ?? LinkGrammar.display(fact.url)
-        return "\(site) · \(LinkCardModel.dateLine(fact) ?? Copy.Links.notRead)"
-    }
+    private var footer: String { LinkCardModel.footer(fact) }
 }
 
 /// A picture of the page at 16:10, then its caption below it — never over it (DR-13): mark · title · "Captured Oct 14,
@@ -273,37 +286,35 @@ struct LookSwatch: View {
     }
 }
 
-/// A link alone on its line that asks for a block view: the card for that view, degraded one step and said in words
-/// when Cicada has nothing for it yet, then the line's note.
+/// A link drawn as a block: the card for the view it draws as (`LinkCardModel.current` — its own word, else a bookmark
+/// by context), degraded one step and said in words when Cicada has nothing for it yet, the link's view menu in the
+/// card's corner — a click away, never only on hover (owner 2026-10-26) — then the line's note.
 struct LinkBlockView: View {
     let ref: LinkRef
     let note: String?
     let entityId: String?
 
+    @State private var status: String?
+
     var body: some View {
         let fact = LinkFactsCache.shared.fact(ref.url, on: entityId)
+        let menu = entityId != nil && !LinkCardModel.offered(ref, fact: fact).isEmpty
+        let inset = menu ? LinkViewMenu.side + CicadaTheme.spacingXS : 0
         VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-            switch ref.asked {
-            case .screenshot, .embed:
-                if let shot = LinkCardModel.shot(fact, day: ref.day) {
-                    CaptureCard(fact: fact, shot: shot, ref: ref, entityId: entityId)
-                } else {
-                    BookmarkCard(fact: fact, ref: ref, entityId: entityId, status: Copy.Links.noCapture)
+            card(fact, inset: inset)
+                .overlay(alignment: .topTrailing) {
+                    if menu, let entityId {
+                        LinkViewMenu(ref: ref, fact: fact, entityId: entityId, compact: true, status: $status)
+                            .padding(CicadaTheme.spacingXS)
+                    }
                 }
-            case .captures:
-                if fact.captures.isEmpty {
-                    BookmarkCard(fact: fact, ref: ref, entityId: entityId, status: Copy.Links.noCaptures)
-                } else {
-                    CaptureStrip(fact: fact, entityId: entityId)
+                .contextMenu {
+                    if let entityId { LinkViewMenuItems(ref: ref, fact: fact, entityId: entityId, status: $status) }
                 }
-            case .look:
-                if let look = LinkCardModel.look(fact, day: ref.day) {
-                    LookSwatch(fact: fact, look: look, entityId: entityId)
-                } else {
-                    BookmarkCard(fact: fact, ref: ref, entityId: entityId, status: Copy.Links.noLook)
-                }
-            default:
-                BookmarkCard(fact: fact, ref: ref, entityId: entityId)
+            if let status {
+                Text(status)
+                    .font(CicadaTheme.metaFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
             }
             if let note, !note.isEmpty {
                 Text(note)
@@ -313,6 +324,156 @@ struct LinkBlockView: View {
             }
         }
         .frame(maxWidth: 640, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private func card(_ fact: LinkFact, inset: CGFloat) -> some View {
+        switch LinkCardModel.current(ref) {
+        case .embed:
+            if let embed = LinkEmbed.of(ref.url) {
+                LinkEmbedView(ref: ref, fact: fact, embed: embed, entityId: entityId, trailingInset: inset)
+            } else {
+                BookmarkCard(fact: fact, ref: ref, entityId: entityId, trailingInset: inset)
+            }
+        case .screenshot:
+            if let shot = LinkCardModel.shot(fact, day: ref.day) {
+                CaptureCard(fact: fact, shot: shot, ref: ref, entityId: entityId)
+            } else {
+                BookmarkCard(fact: fact, ref: ref, entityId: entityId, status: Copy.Links.noCapture,
+                             trailingInset: inset)
+            }
+        case .captures:
+            if fact.captures.isEmpty {
+                BookmarkCard(fact: fact, ref: ref, entityId: entityId, status: Copy.Links.noCaptures,
+                             trailingInset: inset)
+            } else {
+                CaptureStrip(fact: fact, entityId: entityId)
+            }
+        case .look:
+            if let look = LinkCardModel.look(fact, day: ref.day) {
+                LookSwatch(fact: fact, look: look, entityId: entityId)
+            } else {
+                BookmarkCard(fact: fact, ref: ref, entityId: entityId, status: Copy.Links.noLook, trailingInset: inset)
+            }
+        default:
+            BookmarkCard(fact: fact, ref: ref, entityId: entityId, trailingInset: inset)
+        }
+    }
+}
+
+/// The Embed view (owner 2026-10-26). A video: its stored still (the picture Cicada keeps for a saved video — YouTube's
+/// own still among them) behind a play button, and on the person's click the provider's own player in place — the
+/// player URL `VideoRef` derives from the link, loaded only now, never autoplaying (G162, R11). A PDF: a card with the
+/// document's mark, its words and "PDF"; nothing is fetched to draw it, and a click opens it like any card.
+struct LinkEmbedView: View {
+    let ref: LinkRef
+    let fact: LinkFact
+    let embed: LinkEmbed
+    var entityId: String? = nil
+    var trailingInset: CGFloat = 0
+
+    @Environment(\.openURL) private var openURL
+    @State private var playing = false
+    @State private var hovering = false
+
+    private var shape: RoundedRectangle { CicadaTheme.shape(CicadaTheme.cornerRadius) }
+
+    var body: some View {
+        switch embed {
+        case .video(let player): video(player)
+        case .pdf: pdf
+        }
+    }
+
+    private func video(_ player: URL) -> some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+            Color.clear
+                .aspectRatio(16.0 / 9.0, contentMode: .fit)
+                .frame(maxWidth: .infinity)
+                .overlay {
+                    if playing {
+                        WebView(url: player)
+                    } else {
+                        Button { playing = true } label: {
+                            ZStack {
+                                if StoredPreviewPath.loads(fact.preview) {
+                                    StoredPreview(path: fact.preview) { CicadaTheme.bgPane }
+                                } else {
+                                    CicadaTheme.bgPane
+                                }
+                                Image(systemName: "play.fill")
+                                    .font(CicadaTheme.icon(.titlebar))
+                                    .foregroundStyle(CicadaTheme.textPrimary)
+                                    .frame(width: CicadaTheme.scaled(44), height: CicadaTheme.scaled(44))
+                                    .background(Circle().fill(hovering ? CicadaTheme.bgHover : CicadaTheme.bgFocus))
+                                    .overlay(Circle().strokeBorder(CicadaTheme.ring(.resting), lineWidth: 1))
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.cicadaPlain)
+                        .onHover { hovering = $0 }
+                        .help(Copy.Links.play)
+                        .accessibilityLabel(Copy.Links.play)
+                    }
+                }
+                .clipShape(shape)
+                .ringed(.resting, in: shape)
+            HStack(spacing: CicadaTheme.spacingXS) {
+                LinkSiteMark(fact: fact, entityId: entityId)
+                Text("\(LinkCardModel.title(ref, fact: fact)) · \(fact.site ?? LinkGrammar.display(fact.url))")
+                    .font(CicadaTheme.metaFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 0)
+                IconButton(systemName: "arrow.up.right", help: Copy.Links.openInBrowser) { LinkOpen.browserOpen(ref.url) }
+            }
+        }
+    }
+
+    private var pdf: some View {
+        Button { LinkOpen.open(fact, openURL: openURL) } label: {
+            HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
+                Image(systemName: "doc.richtext")
+                    .font(CicadaTheme.icon(.titlebar))
+                    .foregroundStyle(CicadaTheme.textSecondary)
+                    .frame(width: CicadaTheme.scaled(40), height: CicadaTheme.scaled(52))
+                    .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(CicadaTheme.bgPane))
+                    .ringed(.resting, in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
+                VStack(alignment: .leading, spacing: CicadaTheme.scaled(BookmarkCard.gap)) {
+                    Text(LinkCardModel.title(ref, fact: fact))
+                        .font(CicadaTheme.font(size: 14, weight: .medium))
+                        .foregroundStyle(CicadaTheme.textPrimary)
+                        .lineLimit(2)
+                        .padding(.trailing, trailingInset)
+                    if let description = fact.description, !description.isEmpty {
+                        Text(description)
+                            .font(CicadaTheme.metaFont)
+                            .foregroundStyle(CicadaTheme.textSecondary)
+                            .lineLimit(2)
+                    }
+                    Text("\(Copy.Links.pdf) · \(LinkCardModel.footer(fact))")
+                        .font(CicadaTheme.metaFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.top, CicadaTheme.scaled(BookmarkCard.padTop))
+            .padding(.horizontal, CicadaTheme.scaled(BookmarkCard.padSide))
+            .padding(.bottom, CicadaTheme.scaled(BookmarkCard.padBottom))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(shape.fill(hovering ? CicadaTheme.bgHover : CicadaTheme.bgFocus))
+            .clipShape(shape)
+            .ringed(.resting, in: shape)
+            .contentShape(shape)
+        }
+        .buttonStyle(.cicadaPlain)
+        .onHover { hovering = $0 }
+        .help("\(fact.url)\n\(Copy.Links.openHint)")
+        .accessibilityElement(children: .combine)
+        .accessibilityHint(Copy.Links.openHint)
     }
 }
 
@@ -351,79 +512,138 @@ struct ProseImage: View {
     }
 }
 
-// MARK: - The person's view switcher
+// MARK: - A link's view menu (owner 2026-10-26)
 
-/// Text tabs (DR-45) of the views Cicada has something for, then ↗ and Copy link (DR-53). Choosing one is an ordinary
-/// page edit under the person's name, pinned so Sleep's next rewrite keeps it (owner ruling 4); undo is the page's
-/// history, like any edit.
-struct LinkSwitcher: View {
-    let ref: LinkRef
-    let fact: LinkFact
-    let entityId: String
-    let inLinks: Bool
-
-    @State private var saving = false
-    @State private var message: String?
-
-    private var current: LinkViewKind { LinkCardModel.current(ref, inLinks: inLinks) }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-            HStack(spacing: CicadaTheme.spacingXS) {
-                TextTabs(tabs: LinkCardModel.offered(ref, fact: fact, inLinks: inLinks)
-                            .map { TextTab(id: $0, label: Copy.Links.viewName($0)) },
-                         selection: Binding(get: { current }, set: { chosen in
-                             guard let chosen, chosen != current, !saving else { return }
-                             Task { await apply(chosen) }
-                         }), showsCounts: false)
-                    .disabled(saving)
-                    .accessibilityLabel(Copy.Links.showAs)
-                Spacer(minLength: 0)
-                IconButton(systemName: "arrow.up.right", help: Copy.Links.openInBrowser) { LinkOpen.browserOpen(ref.url) }
-                IconButton(systemName: "doc.on.doc", help: Copy.Links.copyLink) { AppPasteboard.copy(ref.url) }
-            }
-            if let message {
-                Text(message)
-                    .font(CicadaTheme.metaFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-            } else if saving {
-                Text(Copy.Links.saving)
-                    .font(CicadaTheme.metaFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-            }
-        }
-    }
-
-    private func apply(_ view: LinkViewKind) async {
-        let new = LinkGrammar.markdown(label: ref.label, url: ref.url, view: view,
-                                       day: view == ref.asked ? ref.day : nil)
-        guard new != ref.markdown else { return }
-        saving = true
-        defer { saving = false }
+/// Writes the person's choice: an ordinary page edit under their name, pinned so Sleep's next rewrite keeps it (owner
+/// ruling 4); undo is the page's history, like any edit. The answer is the line the menu shows (nil: nothing to do).
+@MainActor
+enum LinkViewChange {
+    /// `reload` re-reads the page, so the link redraws in its new view at once (the card's body is memoised; before
+    /// 2026-10-26 a switch said "Saved" and the page kept drawing the old view until it was reopened).
+    static func apply(_ ref: LinkRef, _ view: LinkViewKind, entityId: String,
+                      reload: (() async -> Void)? = nil) async -> String? {
+        guard let new = LinkCardModel.token(ref, choosing: view) else { return nil }
         do {
             _ = try await APIClient.shared.editPage(entityId: entityId, reason: Copy.Links.reason(view),
                                                     old: ref.markdown, new: new)
-            message = Copy.Links.savedAs(view)
             await LinkFactsCache.shared.refresh(entityId)
+            await reload?()
+            return Copy.Links.savedAs(view)
         } catch let error where SleepRefusal.matches(error) {
-            message = Copy.Links.busy
+            return Copy.Links.busy
         } catch {
-            message = Copy.Links.couldNotSave
+            return Copy.Links.couldNotSave
         }
     }
 }
 
-/// The 🔗 gutter button's popover: each link on the line as a bookmark preview, with the switcher under it when the
-/// person can change it, and the hint line (P-h: hover is never the only explanation). The one path to an inline
-/// link's card — SwiftUI `Text` cannot hover per run — and VoiceOver's (`LineLinksAction`).
+/// The views a link's menu offers, as one inline picker — the native menu checks the one the link draws as now — then
+/// ↗ and Copy link. Shared by the card's menu, a row's right-click menu and the 🔗 popover.
+struct LinkViewMenuItems: View {
+    let ref: LinkRef
+    let fact: LinkFact
+    let entityId: String
+    @Binding var status: String?
+    /// Titles the picker with the link's words (a right-click menu over a line with several links).
+    var titled = false
+    @Environment(GraphViewModel.self) private var graphVM: GraphViewModel?
+
+    var body: some View {
+        let current = LinkCardModel.current(ref)
+        Picker(titled ? ref.shownLabel : Copy.Links.showAs, selection: Binding(get: { current }, set: { chosen in
+            guard chosen != current else { return }
+            status = Copy.Links.saving
+            let graph = graphVM
+            Task {
+                status = await LinkViewChange.apply(ref, chosen, entityId: entityId) {
+                    await graph?.reloadEntity(id: entityId)
+                }
+            }
+        })) {
+            ForEach(LinkCardModel.offered(ref, fact: fact), id: \.self) { view in
+                Text(Copy.Links.menuName(view, url: ref.url)).tag(view)
+            }
+        }
+        .pickerStyle(.inline)
+        Button(Copy.Links.openInBrowser) { LinkOpen.browserOpen(ref.url) }
+        Button(Copy.Links.copyLink) { AppPasteboard.copy(ref.url) }
+    }
+}
+
+/// A link's view menu as a control: Mention, Bookmark, Embed (only when there is something to embed), URL, then the
+/// capture views Cicada has — the current one checked. `compact` is the card corner's ⋯ (a 24 pt target on the card's
+/// own fill, DR-53/DR-69); otherwise "Show as · Bookmark" in the meta face.
+struct LinkViewMenu: View {
+    static let side: CGFloat = 24
+
+    let ref: LinkRef
+    let fact: LinkFact
+    let entityId: String
+    var compact = false
+    @Binding var status: String?
+
+    var body: some View {
+        Menu {
+            LinkViewMenuItems(ref: ref, fact: fact, entityId: entityId, status: $status)
+        } label: {
+            if compact {
+                Image(systemName: "ellipsis")
+                    .font(CicadaTheme.icon(.inline))
+                    .foregroundStyle(CicadaTheme.textSecondary)
+                    .frame(width: CicadaTheme.scaled(Self.side), height: CicadaTheme.scaled(Self.side))
+            } else {
+                Text(Eyebrow.text(Copy.Links.showAs, Copy.Links.menuName(LinkCardModel.current(ref), url: ref.url)))
+                    .font(CicadaTheme.metaMediumFont)
+                    .foregroundStyle(CicadaTheme.textSecondary)
+            }
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(compact ? .hidden : .visible)
+        .fixedSize()
+        .background {
+            if compact { CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(CicadaTheme.bgFocus) }
+        }
+        .help(Copy.Links.menuHelp)
+        .accessibilityLabel(Copy.Links.showAs)
+        .accessibilityValue(Copy.Links.menuName(LinkCardModel.current(ref), url: ref.url))
+    }
+}
+
+/// The 🔗 popover's switcher under a link's card: the view menu, then ↗ and Copy link (DR-53), and the line it says.
+struct LinkSwitcher: View {
+    let ref: LinkRef
+    let fact: LinkFact
+    let entityId: String
+
+    @State private var status: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+            HStack(spacing: CicadaTheme.spacingXS) {
+                LinkViewMenu(ref: ref, fact: fact, entityId: entityId, status: $status)
+                Spacer(minLength: 0)
+                IconButton(systemName: "arrow.up.right", help: Copy.Links.openInBrowser) { LinkOpen.browserOpen(ref.url) }
+                IconButton(systemName: "doc.on.doc", help: Copy.Links.copyLink) { AppPasteboard.copy(ref.url) }
+            }
+            if let status {
+                Text(status)
+                    .font(CicadaTheme.metaFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+            }
+        }
+    }
+}
+
+/// The 🔗 gutter button's popover: each link on the line as a bookmark preview, with its view menu under it when the
+/// person can change it, and the hint line (P-h: hover is never the only explanation). VoiceOver's path too
+/// (`LineLinksAction`); a right-click on the line opens the same choices directly.
 struct LinkLinePopover: View {
     let refs: [LinkRef]
     let entityId: String?
-    let inLinks: Bool
 
     var body: some View {
         ScrollView {
-            LinkLineList(refs: refs, entityId: entityId, inLinks: inLinks)
+            LinkLineList(refs: refs, entityId: entityId)
         }
         .frame(width: 400)
         .frame(maxHeight: 520)
@@ -436,23 +656,22 @@ struct LinkLinePopover: View {
 struct LinkLineList: View {
     let refs: [LinkRef]
     let entityId: String?
-    let inLinks: Bool
 
     var body: some View {
-            VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-                ForEach(Array(refs.enumerated()), id: \.offset) { _, ref in
-                    let fact = LinkFactsCache.shared.fact(ref.url, on: entityId)
-                    VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                        BookmarkCard(fact: fact, ref: ref, entityId: entityId)
-                        if let entityId, !LinkCardModel.offered(ref, fact: fact, inLinks: inLinks).isEmpty {
-                            LinkSwitcher(ref: ref, fact: fact, entityId: entityId, inLinks: inLinks)
-                        }
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
+            ForEach(Array(refs.enumerated()), id: \.offset) { _, ref in
+                let fact = LinkFactsCache.shared.fact(ref.url, on: entityId)
+                VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                    BookmarkCard(fact: fact, ref: ref, entityId: entityId)
+                    if let entityId, !LinkCardModel.offered(ref, fact: fact).isEmpty {
+                        LinkSwitcher(ref: ref, fact: fact, entityId: entityId)
                     }
                 }
-                Text(Copy.Links.openHint)
-                    .font(CicadaTheme.metaFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
             }
-            .padding(CicadaTheme.spacingMD)
+            Text(Copy.Links.openHint)
+                .font(CicadaTheme.metaFont)
+                .foregroundStyle(CicadaTheme.textTertiary)
+        }
+        .padding(CicadaTheme.spacingMD)
     }
 }

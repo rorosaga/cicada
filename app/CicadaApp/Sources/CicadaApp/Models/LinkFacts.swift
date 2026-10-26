@@ -97,6 +97,12 @@ enum LinkCardModel {
         return LinkGrammar.display(fact.url)
     }
 
+    /// A card's last line beside the site's mark (owner 2026-10-26, research-hub's bookmark): the link's address, then
+    /// the one date line — "example.com/guide · Read Oct 2", else "· Not read yet".
+    static func footer(_ fact: LinkFact) -> String {
+        "\(LinkGrammar.display(fact.url)) · \(dateLine(fact) ?? Copy.Links.notRead)"
+    }
+
     /// A picture of the page for the screenshot view: a capture from that day (else the nearest earlier, else the
     /// newest), standing in a saved look's screenshot until site exploration lands. Nil: no picture of it yet.
     struct Shot: Equatable {
@@ -145,35 +151,68 @@ enum LinkCardModel {
         return "\(head) · \(age)"
     }
 
-    /// The views the person's switcher offers for a link: a view only where Cicada has something for it (Screenshot
-    /// with a picture of the page, Captures with a capture, Look with a saved look), and block views only for a link
-    /// alone on its line.
+    /// The views a link's menu offers (owner 2026-10-26, Notion's model): Mention and URL always; Bookmark only for a
+    /// link alone on its line (a block view in a sentence would draw as a mention anyway); Embed only for a link alone
+    /// on its line that has something to embed (`LinkEmbed`: a video's own player, a PDF); then Screenshot, Captures
+    /// and Look only where Cicada has a picture, a capture or a saved look. The view the link draws as now is always
+    /// offered, so the menu can check it.
     /// A bare URL or `<URL>` is never switched: it is the page's own words, not a link token to restyle.
-    /// In `## Links` a plain link is the context's default (a card alone on its bullet, else a mention), so "Link" is
-    /// not offered there: choosing it would write the very token already on the page.
-    static func offered(_ ref: LinkRef, fact: LinkFact, inLinks: Bool = false) -> [LinkViewKind] {
+    static func offered(_ ref: LinkRef, fact: LinkFact) -> [LinkViewKind] {
         guard ref.markdown.hasPrefix("[") else { return [] }
+        let now = current(ref)
         return LinkViewKind.switcher.filter { view in
+            if view == now { return true }
             switch view {
-            case .link: return !inLinks
-            case .mention: return true
+            case .mention, .url: return true
             case .bookmark: return ref.block
+            case .embed: return ref.block && LinkEmbed.of(ref.url) != nil
             case .screenshot: return ref.block && (!fact.captures.isEmpty || !fact.looks.isEmpty)
             case .captures: return ref.block && !fact.captures.isEmpty
             case .look: return ref.block && !fact.looks.isEmpty
-            case .raw, .embed: return false
+            case .link, .raw: return false
             }
         }
     }
 
-    /// The view a link draws as now, as the switcher underlines it: its own view word, else the context's default.
-    static func current(_ ref: LinkRef, inLinks: Bool) -> LinkViewKind {
-        switch ref.asked {
-        // A `## Links` bullet that is one link alone draws as a card (owner 2026-10-26), any other as a mention.
-        case .link: return inLinks ? (ref.block && ref.markdown.hasPrefix("[") ? .bookmark : .mention) : .link
-        case .embed: return .screenshot
-        case .raw: return .link
-        default: return ref.asked
+    /// The view a link draws as now, as its menu checks it: its own view word, else the context's default
+    /// (`LinkGrammar.drawn`). An `embed` with nothing to embed is research-hub's reading of the word, a screenshot; an
+    /// explicit `"raw"` is the plain link the menu calls URL.
+    static func current(_ ref: LinkRef) -> LinkViewKind {
+        switch LinkGrammar.drawn(ref) {
+        case .embed: return LinkEmbed.of(ref.url) != nil ? .embed : .screenshot
+        case .raw, .link: return .url
+        case let view: return view
         }
+    }
+
+    /// The token a menu choice writes: the link with that view's word (the person's choice is always written, so a
+    /// later change of the context's default never undoes it). Nil when it is the token already on the page.
+    static func token(_ ref: LinkRef, choosing view: LinkViewKind) -> String? {
+        let new = LinkGrammar.markdown(label: ref.label, url: ref.url, view: view,
+                                       day: view == ref.asked ? ref.day : nil)
+        return new == ref.markdown ? nil : new
+    }
+}
+
+/// What an `embed` draws (owner 2026-10-26: "Embed video" for a video, "Embed" for a PDF): a video's own player — the
+/// player URL `VideoRef` derives from the link, never one a provider returned (G162) — or a PDF's card. Nil: nothing to
+/// embed, and the menu offers no Embed. Pure: no network.
+enum LinkEmbed: Equatable {
+    case video(player: URL)
+    case pdf
+
+    static func of(_ url: String) -> LinkEmbed? {
+        if let ref = VideoRef.resolve(url), ref.kind == .embed, let player = ref.embedURL { return .video(player: player) }
+        return isPDF(url) ? .pdf : nil
+    }
+
+    /// A web link to a PDF: its path ends in `.pdf`, or an arXiv `/pdf/` link.
+    static func isPDF(_ raw: String) -> Bool {
+        guard let comps = URLComponents(string: raw), let scheme = comps.scheme?.lowercased(),
+              scheme == "https" || scheme == "http" else { return false }
+        let path = comps.path.lowercased()
+        if path.hasSuffix(".pdf") { return true }
+        let host = (comps.host ?? "").lowercased()
+        return (host == "arxiv.org" || host.hasSuffix(".arxiv.org")) && path.hasPrefix("/pdf/")
     }
 }
