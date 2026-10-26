@@ -266,6 +266,12 @@ name a `cicada_…` tool; `llms.txt` maps each to its operation), `data`'s shape
   never a connect, so a harness's own wiring check (`claude mcp get`, which initializes as the agent) never moves it.
   Null until one; onboarding's Agents step confirms a first call from it. `lastSeenAt` and `via` are unchanged (`call`
   counts as an MCP sighting).
+- `GET /diagnostics/report?lines=N` (tester readiness, 2026-10-26; 1 ≤ N ≤ 1000, default 200) — plain text, `no-store`,
+  not a Store domain: the backend half of *Report a problem…* — version, platform, engine mode (an enum, never an
+  account), connected channel ids, the bank count, recent warnings and errors, and the tails of `backend*.log` and the
+  app's `update.log` from the fixed log dirs (`$CICADA_LOG_DIR`, `$CICADA_HOME/logs`, a checkout's `logs/`), each line
+  through `diagnostics.redact` (secrets, home path, emails, URLs, bank names, quoted text, wikilinks, bank paths, ids in
+  request paths). It sends nothing; the app shows it before the person copies, saves or sends it.
 - `GET /devices/status` — `{devices: [{id, name, role: server|device, current, connected, how, lastSeenAt, queue}],
   connectedWithinSeconds}`: this server first, named by its own Computer Name (macOS `scutil`, else the host name),
   then each active device token by the name the person gave it. `how` is read from the device's last request

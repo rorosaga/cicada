@@ -4103,6 +4103,19 @@ extension APIClient: IntakeAPI {
     /// subprocess-free on the server, so the Agents page can poll it every few seconds (R-AG15).
     func fetchAgentLive() async throws -> AgentLiveResponse { try await get("/agents/live") }
 
+    /// Report a problem (tester readiness, 2026-10-26): the backend's half of the report, plain text, already redacted
+    /// (`api/services/diagnostics.py`). Not a Store domain: fetched when the sheet opens, held only by it.
+    func fetchDiagnosticsReport(lines: Int = 200) async throws -> String {
+        let request = makeRequest("/diagnostics/report?lines=\(lines)", method: "GET", json: false)
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw APIError.serverUnreachable }
+        guard (200...299).contains(http.statusCode) else {
+            if http.statusCode == 401 { Self.invalidateToken() }
+            throw APIError.httpError(http.statusCode, String(data: data, encoding: .utf8) ?? "")
+        }
+        return String(decoding: data, as: UTF8.self)
+    }
+
     /// Round-4 D5 (C5) — `GET /agents/setup?harness=<id>`: the prompt a person pastes into their agent so it
     /// installs Cicada itself. A 404 (an unknown harness, or a backend from before C5) throws, and the caller
     /// shows nothing new. The id is escaped like `fetchRecentConversations`' filters, so no value can smuggle a

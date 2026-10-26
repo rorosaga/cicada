@@ -42,6 +42,8 @@ struct OnboardingView: View {
     @State private var name = ""
     @State private var owner: OwnerSettings?
     @State private var editingName = false
+    /// The Mac account's name, offered in the field when nothing is saved (`WelcomeName.suggestion`); nil otherwise.
+    @State private var nameSuggestion: String?
     @State private var busy = false
     @State private var failure: String?
     @State private var seeHow: ChatVendor?
@@ -213,9 +215,10 @@ struct OnboardingView: View {
             SourcesStep(imports: entries, snapshots: Dictionary(uniqueKeysWithValues: s.map { ($0.id, $0) }),
                         dropTargeted: dropTargeted,
                         needsAccess: Set(inventory.items.filter { $0.readiness == .needsPermission }.map(\.id)),
-                        denied: deniedByMacOS,
+                        denied: deniedByMacOS, localAgent: live.connectedLocally,
                         onTick: tick, onSeeHow: { seeHow = $0 })
-        case .savedLists: SavedListsStep(ticked: $savedTicks, failure: savedFailure)
+        case .savedLists: SavedListsStep(ticked: $savedTicks, failure: savedFailure,
+                                         agentConnected: live.connectedLocally)
         case .welcome, .menuBar, .done: EmptyView()
         }
     }
@@ -276,7 +279,10 @@ struct OnboardingView: View {
         let width = OnboardingLayout.cardWidth(windowWidth: size.width, scale: CGFloat(CicadaTheme.uiScale))
         let content = Group {
             if page == .welcome {
-                WelcomePage(mode: mode, name: $name, editingName: $editingName, busy: busy, failure: failure,
+                WelcomePage(mode: mode, name: $name, editingName: $editingName,
+                            fromMacAccount: WelcomeName.unconfirmed(name: name, suggestion: nameSuggestion,
+                                                                    editing: editingName),
+                            busy: busy, failure: failure,
                             waitingDrops: ownerSaved ? 0 : intake.welcomeDrops.count,
                             onGetStarted: { advance(.pointer) }, onSetUpLater: mode == .rerun ? closeRerun : setUpLater,
                             onTryDemo: tryDemo)
@@ -436,7 +442,9 @@ struct OnboardingView: View {
 
     private func setUpLater() {
         guard ownerSaved || OnboardingFlow.canStart(name: name) else { editingName = true; return }
-        run(OnboardingFlow.laterSteps(name: name, ownerSaved: ownerSaved))
+        // The untouched Mac-account suggestion is not the person's answer: Set up later saves no name for it.
+        let unconfirmed = WelcomeName.unconfirmed(name: name, suggestion: nameSuggestion, editing: editingName)
+        run(OnboardingFlow.laterSteps(name: unconfirmed ? nil : name, ownerSaved: ownerSaved))
     }
 
     /// Seam 2 — the demo is `SetupRunner.demoPlan`, unchanged; T-Demo makes it richer.
@@ -479,8 +487,13 @@ struct OnboardingView: View {
     private func load() async {
         owner = try? await APIClient.shared.fetchOwnerSettings()
         // A name typed while the GET was in flight wins over the prefill.
-        if name.isEmpty { name = WelcomeName.initial(saved: owner?.name, fullUserName: NSFullUserName()) }
-        editingName = !OnboardingFlow.canStart(name: name)
+        if name.isEmpty {
+            // Tester readiness (2026-10-26): the Mac account's name is a suggestion in the open field, never a greeting
+            // the person did not confirm — Continue (or ⏎) confirms it, an edit replaces it.
+            nameSuggestion = WelcomeName.suggestion(saved: owner?.name, fullUserName: NSFullUserName())
+            name = WelcomeName.initial(saved: owner?.name, fullUserName: NSFullUserName())
+        }
+        editingName = nameSuggestion != nil || !OnboardingFlow.canStart(name: name)
         if engineVM.response == nil { Task { await engineVM.load() } }
         // The schedule line (`OnboardingScheduleLine`) shows nothing until the schedule is known — Home's guard.
         if !sleepVM.scheduleLoaded { Task { await sleepVM.load() } }

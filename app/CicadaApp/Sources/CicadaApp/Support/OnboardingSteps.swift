@@ -262,6 +262,7 @@ enum SourceTiles {
         case .connected: (Copy.sourcesOn, .on)
         case .needsSignIn: (Copy.sourcesNeedsYou, .attention)
         case .off: (Copy.sourcesOff, .off)
+        case .waitingForAgent: (Copy.Catalog.waitingForAgent, .off)
         }
     }
 

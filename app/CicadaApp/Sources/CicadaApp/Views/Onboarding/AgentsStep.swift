@@ -45,6 +45,10 @@ struct AgentsStep: View {
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
             OnboardingHeadline(title: Copy.agentsTitle, subline: Copy.agentsSubline)
+            // Tester readiness (2026-10-26): the one thing a tester must already have, said before they connect.
+            Text(Copy.agentsNeedsPlan)
+                .font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
             VStack(alignment: .leading, spacing: 0) {
                 if rows.isEmpty, model.wiring != nil {
                     Text(Copy.agentsNoneFound)

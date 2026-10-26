@@ -112,6 +112,9 @@ agent you already talk to.
 
 On an Apple silicon Mac with macOS 14 or later:
 
+**You also need Claude Code (or Codex) installed and signed in to a paid plan** — Cicada uses it to read your
+conversations into memory (an API key added in Settings works instead).
+
 ```sh
 curl -fsSL https://raw.githubusercontent.com/rorosaga/cicada/main/scripts/install-release.sh | bash
 ```

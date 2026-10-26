@@ -8,6 +8,23 @@ enum WelcomeName {
         return saved.isEmpty ? fullUserName.trimmingCharacters(in: .whitespacesAndNewlines) : saved
     }
 
+    /// Tester readiness (2026-10-26) — the Mac account's full name is only a suggestion: with no saved name, Welcome
+    /// opens on the name field prefilled with it (nil here: there is a saved name, or the Mac gives none), so the
+    /// person sees it and confirms or edits it. A shared or oddly named account never becomes the owner unseen.
+    static func suggestion(saved: String?, fullUserName: String) -> String? {
+        guard (saved ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        let mac = fullUserName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return mac.isEmpty ? nil : mac
+    }
+
+    /// The name is still the untouched suggestion in its open field: never confirmed (not submitted with ⏎, not
+    /// edited). Continue is the person's confirmation (the field is in front of them); Set up later is not, so it
+    /// saves no name then and the bank keeps its "Owner" placeholder until they give one (`owner_identity`).
+    static func unconfirmed(name: String, suggestion: String?, editing: Bool) -> Bool {
+        guard editing, let suggestion else { return false }
+        return name.trimmingCharacters(in: .whitespacesAndNewlines) == suggestion
+    }
+
     static func firstWord(_ name: String) -> String {
         name.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: " ").first.map(String.init) ?? ""
     }

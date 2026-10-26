@@ -36,6 +36,7 @@ struct SettingsGeneralView: View {
     @Environment(BackendAgentService.self) private var backendAgent
     /// G182 phase 5 — the in-app updater; inert (and its row hidden) in a developer build.
     @Environment(UpdateService.self) private var updates
+    @Environment(AppRouter.self) private var router
     /// G182 — `/healthz`'s version, read once per visit; nil until it answers (never a mismatch).
     @State private var backendVersion: String?
     private let appVersion = AppVersion.current()
@@ -156,6 +157,13 @@ struct SettingsGeneralView: View {
                             .labelsHidden()
                     } below: {
                         if updates.state != .idle { UpdateStatusLine() }
+                    }
+                }
+                // Tester readiness (2026-10-26) — beside the version a report quotes; the same sheet as Help's item.
+                SettingsDivider()
+                SettingsRow(.reportProblem, title: Copy.ReportProblem.title, detail: Copy.ReportProblem.settingsDetail) {
+                    NeutralButton(title: Copy.ReportProblem.settingsButton, size: .compact) {
+                        router.openReportProblem()
                     }
                 }
             }

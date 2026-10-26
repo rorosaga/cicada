@@ -33,6 +33,7 @@ from api.routers import (
     conversations,
     design,
     devices,
+    diagnostics,
     embeddings,
     explore,
     entities,
@@ -335,5 +336,6 @@ app.include_router(videos.router, tags=["videos"])
 app.include_router(explore.router, tags=["explore"])
 app.include_router(embeddings.router, tags=["embeddings"])
 app.include_router(devices.router, tags=["devices"])
+app.include_router(diagnostics.router, tags=["diagnostics"])
 app.include_router(tools.router, tags=["tools"])
 app.include_router(agent_api.router, tags=["agent-api"])

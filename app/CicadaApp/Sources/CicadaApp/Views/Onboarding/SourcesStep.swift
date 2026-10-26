@@ -22,6 +22,8 @@ struct SourcesStep: View {
     var needsAccess: Set<FoundItemID> = []
     /// Calendar or Contacts refused in macOS's own prompt: the tile opens the exact list (`SourceTileGroups`).
     var denied: Set<FoundItemID> = []
+    /// An agent on this Mac is connected (`AgentLiveProbe.connectedLocally`): a list read in the browser is On only then.
+    var localAgent = false
     let onTick: (ImportEntry, Bool) -> Void
     let onSeeHow: (ChatVendor) -> Void
 
@@ -181,7 +183,8 @@ struct SourcesStep: View {
 
     private func catalogRow(_ entry: SourceCatalogEntry) -> SourceCatalogRow {
         SourceCatalog.rows(entries: [entry], channels: store.channels.value ?? [],
-                           overview: store.sourcesOverview.value ?? [], readableSites: reading.readableSites)[0]
+                           overview: store.sourcesOverview.value ?? [], readableSites: reading.readableSites,
+                           savedListsOn: reading.savedListsOn, localAgent: localAgent)[0]
     }
 
     /// The file panel the old Import page ran: the URLs go to the one intake, which stages them while onboarding

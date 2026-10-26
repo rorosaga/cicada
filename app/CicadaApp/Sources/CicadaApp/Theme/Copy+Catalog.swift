@@ -12,6 +12,10 @@ extension Copy {
         static let connected = "Connected"
         static let needsSignIn = "Needs sign-in"
         static let off = "Off"
+        /// A list that is on but that only the person's own agent reads, while no agent on this Mac is connected.
+        static let waitingForAgent = "On · waits for your agent"
+        static let waitingForAgentHelp = "Your own agent reads this in your signed-in browser. Connect one on the "
+            + "Agents page; until then nothing is read."
         static let justNow = "just now"
 
         static let connect = "Connect"

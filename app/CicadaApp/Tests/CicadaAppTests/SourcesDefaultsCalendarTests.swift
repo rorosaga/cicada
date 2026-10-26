@@ -87,11 +87,13 @@ final class SourcesDefaultsCalendarTests: XCTestCase {
         XCTAssertNil(SourceCatalog.exportHow("pinterest"), "a connector imports no file")
     }
 
-    func testAYouTubeListKeptCurrentReadsConnected() {
+    func testAYouTubeListKeptCurrentReadsConnectedOnlyWithAnAgentHere() {
         let youtube = SourceCatalog.fixed.first { $0.id == "youtube" }!
         XCTAssertEqual(SourceCatalog.status(for: youtube, channels: [], overview: [], readableSites: []), .off)
         XCTAssertEqual(SourceCatalog.status(for: youtube, channels: [], overview: [], readableSites: [],
-                                            savedListsOn: ["youtube"]), .connected)
+                                            savedListsOn: ["youtube"], localAgent: true), .connected)
+        XCTAssertEqual(SourceCatalog.status(for: youtube, channels: [], overview: [], readableSites: [],
+                                            savedListsOn: ["youtube"]), .waitingForAgent)
     }
 
     // MARK: Calendar accounts

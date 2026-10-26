@@ -45,9 +45,11 @@ enum OnboardingFlow {
     }
 
     /// Set up later. From Welcome it still saves the name (G117 R1); from a later page the name is saved and what
-    /// the person started keeps running. Never the tour — it follows a finished setup, not a skip.
-    static func laterSteps(name: String, ownerSaved: Bool) -> [StartStep] {
-        (ownerSaved ? [] : [StartStep.saveOwner(trimmed(name))]) + [.markOnboarded, .recordGettingStarted([]), .showHome]
+    /// the person started keeps running. Never the tour — it follows a finished setup, not a skip. A nil name is one the
+    /// person never confirmed (the Mac account's, untouched — `WelcomeName.unconfirmed`): nothing is saved for it.
+    static func laterSteps(name: String?, ownerSaved: Bool) -> [StartStep] {
+        let save = !ownerSaved && name != nil ? [StartStep.saveOwner(trimmed(name ?? ""))] : []
+        return save + [.markOnboarded, .recordGettingStarted([]), .showHome]
     }
 
     /// R-OB19 — Close on a rerun (the topbar, Welcome's Close, Esc). The rule `plan(mode: .rerun)` carried (I-b final

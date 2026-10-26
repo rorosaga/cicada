@@ -6,6 +6,7 @@ import subprocess
 import pytest
 
 from api.services import claims, markdown_parser as md, prose_repair as repair
+from _checkout_venv import needs_checkout_venv
 
 
 @pytest.fixture
@@ -150,6 +151,7 @@ def test_dirty_bank_no_call_and_no_git_index_write(bank, tmp_path):
     assert calls == [] and snapshot(bank) == before
 
 
+@needs_checkout_venv
 def test_cli_inventory_bootstraps_scratch_and_has_no_apply(bank, tmp_path):
     repo = Path(__file__).resolve().parents[2]
     scratch = tmp_path / 'cli-out'

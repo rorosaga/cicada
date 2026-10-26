@@ -7,6 +7,14 @@
       "disposition": "uninstrumented_guarded"
     }
   ],
+  "services/org_sites.py": [
+    {
+      "function": "_write_page_locked",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "preserve_frontmatter_guarded"
+    }
+  ],
   "services/read_on_time_recompute.py": [
     {
       "function": "apply",

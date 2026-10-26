@@ -521,6 +521,31 @@ one wink (Done's title), no "!" or capitals; *Another agent* and *Personal agent
 (`cicada.onboarding.otherAgents`), and Messages, YouTube, X and Instagram under *More sources*
 (`cicada.onboarding.moreSources`, open by itself when one inside is on) — DR-39. (6) **Sound, soft and rare** (owner 2026-10-24, DESIGN_RULES §9): `OnboardingSound`, one per onboarding run, held by `OnboardingView`, plays macOS's own *Tink* when a permission lands — the drag helper's grant (`FoundTurnOnDeps.live`'s `onPermissionGranted`, passed only by onboarding), a preflight that turns an asked-for row ready (`startGranted`), or the relaunch's fresh look (`resumePermissionTick`) — and *Pop* when the Agents step's `firstCall` lands. Each moment at most once, spent the first time even when silent; at the alert volume (`com.apple.sound.beep.volume`) through `NSSound(named:)`; never with "Play user interface sound effects" off (`com.apple.sound.uiaudio.enabled`), a muted default output (Core Audio's mute, or its volume at zero) or a zero alert volume; never under XCTest, in a demo bank or in a verify-cicada copy (bundle id `com.rorosaga.cicada.verify.*`). Both moments come from outside Cicada, so no key or click in it makes a sound. Nothing else in the app plays one (`OnboardingSoundTests`' source lint).
 
+**Tester readiness (2026-10-26, branch `fix/tester-readiness`; the readiness assessment's blockers 2–3 and two
+should-fixes).** (1) **A list only an agent reads is never "Connected" without one.** `SourceCatalog.status` takes
+`localAgent` — an agent on this Mac connected through stdio or its config (`AgentLiveRow.connectedLocally`: `via`
+`mcp` or `config`, never only `remote`; the reading tools are stdio only), from `GET /agents/live`, polled by the
+Sources page while it shows (`AgentLiveProbe`, ids and times only). An allowed walled site, a saved list kept current
+(X, Instagram, LinkedIn) and YouTube's Watch later / history read **Connected** only with one; turned on with none they
+read **On · waits for your agent** (`SourceCatalogStatus.waitingForAgent`, a grey dot — nothing is broken, nothing is
+read), the detail says why under the word, no last-sync line shows, and the header ("Sources · N connected") does not
+count them. Onboarding's Sources tiles use the same rule, and the saved-lists step says "No agent is connected yet…"
+when none is. (2) **Report a problem…** (Help menu, and Settings → General beside Version): `ReportProblemSheet` shows the
+whole report before anything leaves the Mac — the app's version and build and the macOS version on top
+(`ProblemReport.header`), then the backend's half from `GET /diagnostics/report` (`api/services/diagnostics.py`: backend
+version, platform, engine mode as an enum — never an account or email, G148 — connected source ids, the bank count,
+recent warnings and errors, and the tail of `backend*.log` and the app's `update.log`, every line through `redact`:
+secrets via `episode_scrub`, the home path → `~`, another account's home, emails, URLs, bank names, quoted text,
+wikilinks, bank-relative paths and the ids in request paths). **Copy**, **Save…**, and one **Send** that copies the
+report and opens `ProblemReport.destination` (one constant: the repository's public new-issue page with a short
+template, said as public in the sheet; a `mailto:` works the same) — nothing is sent by itself. (3) **The Mac account's
+name is a suggestion.** With no saved name, Welcome opens on the name field prefilled with it under "From this Mac's
+account. Is that what you go by?" (`WelcomeName.suggestion`); Continue or ⏎ confirms it, an edit replaces it, and Set up
+later saves no name for an untouched suggestion (`WelcomeName.unconfirmed` → `OnboardingFlow.laterSteps(name: nil)`), so
+the bank keeps `owner_identity`'s "Owner" placeholder (G169's self-references still land on it) until a name is given.
+(4) **The prerequisite, said once in each place:** the Agents step, the README's install section and
+`install-release.sh`'s first line name Claude Code or Codex signed in to a paid plan (or an API key in Settings).
+
 **Engine choice in onboarding: Auto first (settings defaults pass 2, owner 2026-10-22; ruling 31).** Until D6 Settings drew
 `EngineChooser(foldsOtherEngines: true)` (the engine card): the card opens on `EngineHeadline` — *Auto* and what it uses now from
 `preview.manual` ("Using your Claude plan — you're signed in.", the ChatGPT plan, the model on this Mac, or "Nothing to

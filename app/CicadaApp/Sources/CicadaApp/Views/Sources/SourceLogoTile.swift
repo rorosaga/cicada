@@ -62,7 +62,8 @@ extension SourceCatalogStatus {
         switch self {
         case .connected: .on
         case .needsSignIn: .attention
-        case .off: .off
+        // Grey, not amber: nothing is broken and nothing is read yet; the words say what it waits for.
+        case .off, .waitingForAgent: .off
         }
     }
 }

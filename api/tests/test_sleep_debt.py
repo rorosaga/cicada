@@ -195,6 +195,35 @@ def test_compute_counts_only_unprocessed_and_finds_the_oldest(tmp_path):
     assert debt.age_pct == round(100 * 40.0 / 72.0)
 
 
+@pytest.mark.parametrize("now_local", [datetime(2026, 10, 26, 12, 0), datetime(2026, 3, 30, 12, 0)],
+                         ids=["autumn-back", "spring-forward"])
+def test_an_age_across_a_clock_change_is_real_hours(tmp_path, now_local):
+    """Measured 2026-10-25: an episode 40 h old read 39 h because the age was a naive local subtraction across the
+    autumn DST change. The zone and `now` are pinned here, so this holds on any machine on any day."""
+    import os
+    import time
+
+    before = os.environ.get("TZ")
+    os.environ["TZ"] = "Europe/Madrid"
+    time.tzset()
+    try:
+        memory = _init_bank(tmp_path)
+        stamp = (now_local.astimezone(timezone.utc) - timedelta(hours=40)).strftime("%Y-%m-%dT%H:%M:%S") + "Z"
+        markdown_parser.write(memory / "episodes" / "ep_dst.md",
+                              {"id": "ep_dst", "processed": False, "source": "mcp", "timestamp": stamp}, "Body.")
+        _, oldest, _ = sleep_debt._count_and_oldest(memory, now=now_local)
+        assert oldest == pytest.approx(40.0, abs=1e-6)
+        # The last-cycle age goes through the same measure: 40 real hours across the change, not 39 or 41.
+        assert sleep_debt._hours_between(sleep_debt._parse_episode_timestamp(stamp), now_local) == \
+            pytest.approx(40.0, abs=1e-6)
+    finally:
+        if before is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = before
+        time.tzset()
+
+
 def test_compute_finds_the_most_recent_real_sleep_cycle_commit(tmp_path):
     memory = _init_bank(tmp_path)
     (memory / "entities" / "e1.md").write_text("---\nid: e1\n---\nbody")
