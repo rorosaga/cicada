@@ -375,3 +375,14 @@ def test_a_malformed_port_in_pasted_code_is_no_site_and_no_crash():
     # Found on a real bank copy: a person's turn carried "http://localhost:9000`" — urlparse's .port raised.
     assert site_sources.origin_of("http://northwind.edu:9000`") is None
     assert org_sites.site_origin("https://northwind.edu:9000`/x") is None
+
+
+def test_a_match_only_through_an_alias_is_never_trusted(tmp_path):
+    # Measured on a real bank copy: a page whose aliases conflate it with a bigger product got that product's site.
+    memory = _uni_bank(tmp_path)
+    wiki = FakeWikidata(items={"Q900010": {"label": "Northwind", "description": "private research university, Madrid",
+                                           "P31": ["Q3918"], "P856": ["https://northwind-univ.edu"]}},
+                        search={"Northwind": ["Q900010"]})
+    _run(memory, wiki, Pages({"https://northwind-univ.edu": UNI_HOME}))
+    [site] = _websites(_fm(memory))
+    assert fact_sources.is_proposed(site) and site["evidence"]["reason"] == "matched_by_alias"

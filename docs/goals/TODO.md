@@ -19,6 +19,12 @@
   the file comes from. The Calendar row lists the accounts it read and opens Internet Accounts to add Google's (no
   prompt); Google's secret iCal address through the feed path is not offered, because a subscription is stored in the
   bank's `calendars.yaml`, which would put a credential in the bank. Needs the owner: the detail-pane screenshots.
+- **2026-10-26 — ruling 40 recorded; an organisation's own website found during consolidation (G61, G146; branch
+  `feat/org-website-sources`).** `org_sites` in Sleep's site-check step: the record, then one Wikidata match, trusted
+  only when the homepage names the entity, otherwise a proposal in the "Confirm N links" review; a public place with a
+  trusted site draws its logo. Dry run on a copy of the owner's bank: 66 trusted, 132 proposals, 285 nothing. **Next:**
+  the owner reads the dry run's rows before anything touches the real bank (nothing was applied); the app should show
+  `verified.why` ("Found by Cicada: …") on the source row (needs a Mac).
 - **2026-10-24 — ruling 39 recorded; both dates on every episode (G218, G71; branch `feat/both-dates`).** Every new
   episode records `received_at` beside `timestamp` (the item's own date), stamped by `create_episode`; a feed item is
   dated by its publisher and is no time signal, so a back catalogue is neither activity nor a charge; the Reader, the
@@ -1800,3 +1806,38 @@ A whole row moves to DONE only after its remaining implementation and required a
     recorded reads a day across X, Instagram and LinkedIn, one site at a time, stdio only, never a site grant, every
     item indexed and never read by a model (ruling 30), a sign-in wall pauses that list for a week. **Revisit** if a
     default-on list produces sign-in requests for accounts the person does not have, or on the owner's word.
+40. **An organisation's own website is found during consolidation, and trusted when Cicada is sure (owner, 2026-10-26;
+    G61, G146; amends ruling 36 D5 and the pictures rail for organisations; branch `feat/org-website-sources`).** The
+    owner's words: "A lot of entity pages, like universities and stuff, don't have a picture. For me this is too
+    important because it means that we are not even inferring some things, like the sources where things can be updated
+    for that entity page. For example a university has a website. Why wasn't this detected? When consolidated it should
+    be part of a source that's used to update and from it we also infer the picture if we are 100% sure." **Scope:**
+    `company` (universities and institutions included), `tool` and public `location` pages with no trusted `website` —
+    never a person, the owner, the person's own projects (ruling 27's line), a name that is not a public proper name, a
+    name carrying a person's or a project's name, or a page its description calls the person's own. **"100% sure"** (the
+    coordinator's definition, implemented as written): the record already ties the site to the page (an origin whose
+    label is the page's name, alias or acronym, in the person's own located line or on the page itself), or ONE
+    Wikidata item whose label IS the page's name, whose class agrees with the page type, that is no human or country,
+    whose country does not conflict with the page's, listing one official site (P856) — and, either way, the site's own
+    homepage names the entity (a lookup also needs two of the page's distinctive words in the item's description or the
+    homepage's head). A search engine's hit is never enough. Anything short of that is a proposal in the one "Confirm N
+    links" review (D5), never trusted until the person takes it; a removal is remembered and never re-added. Once
+    trusted, the logo is drawn from it (a public place too) and it is re-checked under ruling 26. It runs in Sleep's
+    site-check step behind `CICADA_ALLOW_CONNECTOR_FETCH` (≤ 40 pages, ≤ 20 Wikidata lookups a night; the person's
+    `verify-sites` click is ungated), sends only the organisation's name and at most two proper aliases, spends no model
+    call, and never fails Sleep (`org_sites`, `storage.md`). **Why — the cause, measured on a copy of the owner's bank
+    (real values redacted):** the bank did hold 370 `website` sources (the brief's "zero" counted `kind: website`; the
+    role is `predicate: website`), 193 verified; but a site reached a page only from Stage 1's optional field when the
+    page was CREATED (`conflict_resolver.py:780`, company/tool/project only, "only when certain"), or from the backfill's
+    `website` claim / own-name `## Links` host whose label had to be 3+ letters (`site_sources.py:123,155`) — so a page
+    made before G61 S3-b, a `location` (`site_sources.py:42`, `logo_service.py:81`) or a short-named one (the owner's
+    university, `<org>.edu` with a two-letter label, on 77 conversations) never got one; 120 Stage-1 proposals sat
+    "not confirmed" for want of two summary words on the homepage (`site_sources.py:309`), outside the D5 review; and the
+    D5 step proposes only profile links and repositories (`source_proposals.py:218,223`). The dry run
+    (`api.scripts.org_sites_dry_run`) over the copy examined 483 live in-scope pages: **66 trusted** (29 from the record,
+    37 from Wikidata; 60 draw a logo), **132 proposals**, 285 nothing; 1,020 skipped (762 archived, 142 already with a
+    trusted site, 56 private names, 52 projects, 8 carrying a person's name). A hand check of every trusted row found
+    3 of 79 wrong on the first pass (two common-word namesakes, one alias the page conflated); the content check was
+    narrowed to curated text and alias-only matches made proposals, and the second pass trusts none of the three.
+    **Revisit** if a trusted auto-site is removed by the person (count `sources_removed` rows by `user` on entries with
+    `verified.how` `wikidata+name` / `record*`), or if a fetched logo is ever shown on the wrong organisation.

@@ -606,9 +606,11 @@ def content_agrees(fm: dict, body: str, description: str, identity, exclude: fro
     tokens = [t for t in site_sources._distinctive_tokens(fm, body) if t not in _GENERIC and t not in exclude]
     if not tokens:
         return False
+    # The curated words only: the item's description and what the site says about itself in its head. The body's
+    # excerpt was measured too loose — on a real bank copy it matched "reports", "questions", "lists" on namesakes.
     parts = [description or ""]
     if identity is not None and getattr(identity, "status", "") == "ok":
-        parts += [identity.title, identity.site_name, identity.meta_description, identity.excerpt]
+        parts += [identity.title, identity.site_name, identity.meta_description]
     words = set(text_fold.words(" ".join(parts)))
     stems = {text_fold.stem(w) for w in words}
     # Two, as Cicada's own site check asks (``site_sources.judge``): one shared word ("search", "options") is chance.
@@ -686,13 +688,17 @@ async def decide(memory_path: Path | None, entity_id: str, fm: dict, body: str, 
             named = identity is not None and homepage_names(identity, names + result.labels)
             same_thing = content_agrees(fm, body, result.description, identity, bank.person_words)
             finding.evidence = {"lookup": "wikidata", "item": result.item}
-            if named and same_thing:
+            if named and same_thing and not result.via_alias:
                 finding.site, finding.basis, finding.trusted = site, BASIS_LOOKUP, True
                 finding.why = _why_lookup(name, str(result.item))
                 return finding
             if result.via_alias and not same_thing:
                 # Found only through an alias, and nothing the page says is on the item or its site: a namesake.
                 finding.reason = "namesake"
+                return finding
+            if result.via_alias:
+                # An alias can be another thing the page conflates with its subject: the person decides.
+                finding.proposals, finding.basis, finding.reason = [site], BASIS_LOOKUP, "matched_by_alias"
                 return finding
             finding.proposals, finding.basis = [site], BASIS_LOOKUP
             finding.reason = ("not_fetched" if identity is None else "homepage_unconfirmed" if not named

@@ -833,11 +833,13 @@ Round 4 (C2–C4):
   agreeing items listing one site are one thing); a country the page names that is not the item's P17 is a conflict. A
   search engine's hit is never used. **Trusted** (`verified: {at, how: record | record+name | wikidata+name, why, item}`,
   `added_by: cicada`, `access: public`) only when the site's homepage names the entity in its title or site name
-  (`fetch_identity`, same rail) — and, for a lookup, two distinctive words of the page's summary are on the item's
-  description or the homepage (the namesake guard, `content_agrees`); the person's own located line whose link is the
+  (`fetch_identity`, same rail) — and, for a lookup, the item matched the page's own NAME (an alias-only match is a
+  proposal, `matched_by_alias`) and two distinctive words of the page's summary are in the item's description or the
+  homepage's title, site name or meta description (the namesake guard, `content_agrees`; the body excerpt was measured
+  too loose on a real bank copy); the person's own located line whose link is the
   page's own name stands alone when the site exists but blocks bots. **Anything less is a proposal** (`proposed: true`,
   `evidence: {lookup: wikidata, item, reason}` or the record's span, reason `ambiguous | country_conflict |
-  homepage_unconfirmed | content_unconfirmed | record_names_another_site`) that joins the one "Confirm N links" review —
+  homepage_unconfirmed | content_unconfirmed | matched_by_alias | record_names_another_site`) that joins the one "Confirm N links" review —
   the tail re-syncs the review after the commit — and `verify` never stamps a proposal behind the person. An ambiguous
   match proposes only sites whose label is the page's name; a namesake found only through an alias proposes nothing. An
   untrusted entry for the same site is upgraded in place, never duplicated; a tombstone for the site (`sources_removed`,

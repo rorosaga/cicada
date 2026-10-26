@@ -25,6 +25,7 @@ from pathlib import Path
 
 
 async def survey(bank: Path, *, limit: int | None, lookup: bool, fetch: bool, logos: bool, show_all: bool,
+                 only: frozenset[str] = frozenset(),
                  concurrency: int = 4) -> list[dict]:
     from api.services import bank_index, link_enrichment, logo_service, markdown_parser, org_sites
 
@@ -40,6 +41,8 @@ async def survey(bank: Path, *, limit: int | None, lookup: bool, fetch: bool, lo
             skipped.append({"id": f.stem, "name": str(fm.get("name") or f.stem), "type": fm.get("type"),
                             "outcome": "skipped", "reason": reason})
     pages.sort(key=lambda r: (-r[0], r[1]))
+    if only:
+        pages = [p for p in pages if p[1] in only]
     if limit:
         pages = pages[:limit]
     classes = org_sites.Classes(org_sites.wikidata_get)
@@ -87,13 +90,15 @@ def main(argv=None) -> int:
     parser.add_argument("--no-fetch", action="store_true", help="no homepage read (nothing can be trusted by a fetch)")
     parser.add_argument("--logos", action="store_true", help="ask the logo ladder for each trusted site's domain")
     parser.add_argument("--all", action="store_true", help="also list in-scope-type pages that are skipped, and why")
+    parser.add_argument("--ids", default="", help="only these page ids, comma-separated")
     args = parser.parse_args(argv)
     bank = Path(args.bank).expanduser().resolve()
     if not (bank / "entities").is_dir():
         print(f"not a bank: {bank}", file=sys.stderr)
         return 2
     rows = asyncio.run(survey(bank, limit=args.limit, lookup=not args.no_lookup, fetch=not args.no_fetch,
-                              logos=args.logos, show_all=args.all))
+                              logos=args.logos, show_all=args.all,
+                              only=frozenset(i for i in args.ids.split(",") if i)))
     totals = Counter(r["outcome"] for r in rows)
     by_basis = Counter(f"{r['outcome']}:{r.get('basis')}" for r in rows if r["outcome"] in ("trusted", "proposal"))
     if args.json:
