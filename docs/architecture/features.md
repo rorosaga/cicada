@@ -240,6 +240,10 @@ keys when the page appears and after every answer (the question only when DR-27 
 repeated digit never sweeps the queue past its one Undo (DS-3c). An option, an informational value or a merge target
 that is exactly a page's id reads as the page's name (`Store.entityNames`, display only). The Sources page's Deletions render the same card and Undo row.
 
+**Groups (owner 2026-10-26).** Under All the list is one collapsible group per kind with its count and its quick review,
+and inside a group the questions about one page sit together under its name (`app.md`, *The Inbox in groups*). Display
+only: `GET /inbox` and every resolver are unchanged, nothing is answered for a group, and the walk follows the groups.
+
 **The quick review (owner 2026-10-19).** The app reviews one kind at a time (`app.md`, *The quick review*); every
 answer is `POST /inbox/{id}/resolve` through the same resolvers, provenance the person's, after the same Undo window —
 there is no bulk accept. To decide without opening the page, `GET /inbox` serves two more fields derived at read

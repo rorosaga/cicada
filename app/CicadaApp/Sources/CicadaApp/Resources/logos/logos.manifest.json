@@ -66,31 +66,31 @@
       "umbrella": "Anthropic / Claude"
     },
     {
-      "file": "cline.png",
-      "id": "cline",
+      "file": "copilot.png",
+      "id": "copilot",
       "licence": "Vendor’s own published asset; no licence beyond nominative use",
       "origin": "set",
-      "restrictions": "Trademark of Cline Bot Inc.; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
-      "setFile": "app/assets/logo-set/cline.svg",
-      "sha256": "dcbd3ee347e4873dd4baa154f700e704671cff134fdf3e4e512ac3ffb0d79d21",
-      "sourceTier": "official site",
-      "sourceUrl": "https://cline.bot/assets/branding/logos/cline-icon-dark.svg",
-      "svgSha256": "a34dcb49437c420e107c986e1e63b721d64843e82238ba0c43786447c92e0589",
-      "umbrella": "Cline"
+      "restrictions": "Trademark of GitHub, Inc.; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
+      "setFile": "app/assets/logo-set/copilot.svg",
+      "sha256": "15c778e6ce09839f406f2a1a11052bd905187cacb09958819fc90588a45724d0",
+      "sourceTier": "official GitHub",
+      "sourceUrl": "https://raw.githubusercontent.com/primer/octicons/9a274e212ee25c400ff666ce25a57866b7eacc25/icons/copilot-48.svg",
+      "svgSha256": "d94b7a94a4c23816b02285f53eca6386429b67522271483fa0f18ab3596617dc",
+      "umbrella": "GitHub Copilot"
     },
     {
-      "derivedFrom": "cline.png (this manifest) — the vendor's white mark: cline.svg with its one fill #1C1C24 → #FFFFFF",
-      "file": "cline-dark.png",
-      "id": "cline-dark",
+      "derivedFrom": "copilot.png (this manifest) — monoflip copilot.png copilot-dark.png",
+      "file": "copilot-dark.png",
+      "id": "copilot-dark",
       "licence": "Vendor’s own published asset; no licence beyond nominative use",
       "origin": "recut",
-      "restrictions": "Trademark of Cline Bot Inc.; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
-      "setFile": "app/assets/logo-set/cline.svg",
-      "sha256": "8974bb0a35d1d6b32f8d3a136dae8bc10dc64844c6c727bf193c9ab85866cf74",
-      "sourceTier": "official site",
-      "sourceUrl": "https://cline.bot/assets/branding/logos/cline-icon-dark.svg",
-      "svgSha256": "a34dcb49437c420e107c986e1e63b721d64843e82238ba0c43786447c92e0589",
-      "umbrella": "Cline"
+      "restrictions": "Trademark of GitHub, Inc.; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
+      "setFile": "app/assets/logo-set/copilot.svg",
+      "sha256": "21ac8c2798fab55dfff727103bc7606f8d296b751cc1cbc34fd79d903e67a7dc",
+      "sourceTier": "official GitHub",
+      "sourceUrl": "https://raw.githubusercontent.com/primer/octicons/9a274e212ee25c400ff666ce25a57866b7eacc25/icons/copilot-48.svg",
+      "svgSha256": "d94b7a94a4c23816b02285f53eca6386429b67522271483fa0f18ab3596617dc",
+      "umbrella": "GitHub Copilot"
     },
     {
       "file": "cursor.png",
@@ -129,7 +129,7 @@
       "sourceTier": "official site",
       "sourceUrl": "https://devin.ai/favicon.svg",
       "svgSha256": "fe0753d2e3823bc1eb8a37943234fac63733b8c9e8abff0ca0402a6c7ddcd682",
-      "umbrella": "Windsurf / Devin"
+      "umbrella": "Devin"
     },
     {
       "derivedFrom": "devin.png (this manifest) — monoflip devin.png devin-dark.png",
@@ -143,7 +143,7 @@
       "sourceTier": "official site",
       "sourceUrl": "https://devin.ai/favicon.svg",
       "svgSha256": "fe0753d2e3823bc1eb8a37943234fac63733b8c9e8abff0ca0402a6c7ddcd682",
-      "umbrella": "Windsurf / Devin"
+      "umbrella": "Devin"
     },
     {
       "file": "firefox.png",
@@ -238,19 +238,6 @@
       "umbrella": "Google Calendar"
     },
     {
-      "file": "goose.png",
-      "id": "goose",
-      "licence": "Vendor’s own published asset; no licence beyond nominative use",
-      "origin": "set",
-      "restrictions": "Trademark of Block, Inc.; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
-      "setFile": "app/assets/logo-set/goose.png",
-      "sha256": "13ec3476e92aef23b72629a8680c2e20c2efd86a74a39707a305a8722ff49ac2",
-      "sourceTier": "official GitHub",
-      "sourceUrl": "https://raw.githubusercontent.com/block/goose/7ba1b1625d9002f8e66230313c5ab772e35c4c1f/ui/desktop/src/images/icon-512.png",
-      "svgSha256": "bb2f305f5bf8fb895ec6e525c068a550a8f06ace3c21ded48c7cedf5f985c2c3",
-      "umbrella": "Goose"
-    },
-    {
       "file": "grok.png",
       "id": "grok",
       "licence": "Vendor’s own published asset; no licence beyond nominative use",
@@ -316,19 +303,6 @@
       "umbrella": "Instinct"
     },
     {
-      "file": "kiro.png",
-      "id": "kiro",
-      "licence": "Vendor’s own published asset; no licence beyond nominative use",
-      "origin": "set",
-      "restrictions": "Trademark of Amazon Web Services; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
-      "setFile": "app/assets/logo-set/kiro.svg",
-      "sha256": "fa25aa2ad24e2f38c4c8fe552c519640d73f10506dd0d4a5ab7d3b13e84ea92f",
-      "sourceTier": "official site",
-      "sourceUrl": "https://kiro.dev/icon.svg",
-      "svgSha256": "774cbc1c7ecec8c935a6091595583d7a92fc8289d6f1db3f071c0f50c61c369f",
-      "umbrella": "Kiro"
-    },
-    {
       "file": "linkedin.png",
       "id": "linkedin",
       "licence": "svgl catalogue (MIT for the catalogue code; each mark stays its owner’s trademark)",
@@ -342,19 +316,6 @@
       "umbrella": "LinkedIn"
     },
     {
-      "file": "meta.png",
-      "id": "meta",
-      "licence": "svgl catalogue (MIT for the catalogue code; each mark stays its owner’s trademark)",
-      "origin": "set",
-      "restrictions": "Trademark of Meta Platforms, Inc.; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
-      "setFile": "app/assets/logo-set/meta.svg",
-      "sha256": "107cf010da650a64903c5f086800a7ad2dbb8d6720a313d0ad0f98bb395adf52",
-      "sourceTier": "svgl",
-      "sourceUrl": "https://raw.githubusercontent.com/pheralb/svgl/f9b726cee1d1f3c697a18c880185e89d9a55bb70/static/library/meta.svg",
-      "svgSha256": "de8f359748d51c76357157fad55cda7f0cae59aa9f1d45b8230ba7646c4370cf",
-      "umbrella": "Meta"
-    },
-    {
       "file": "mistral.png",
       "id": "mistral",
       "licence": "Vendor’s own published asset; no licence beyond nominative use",
@@ -366,6 +327,19 @@
       "sourceUrl": "https://mistral.ai/favicon.svg",
       "svgSha256": "66ceaf186f2075da38e5a3c2e46fc0015936e0cb57692d1f8ae0ba565354874d",
       "umbrella": "Mistral"
+    },
+    {
+      "file": "muse.png",
+      "id": "muse",
+      "licence": "Vendor’s own published asset; no licence beyond nominative use",
+      "origin": "set",
+      "restrictions": "Trademark of Meta Platforms, Inc.; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
+      "setFile": "app/assets/logo-set/muse.svg",
+      "sha256": "0a6f36f2d031c7de83a025d54e825828b5c37b7990e99fd84c93d0351302baf2",
+      "sourceTier": "official site",
+      "sourceUrl": "https://muse.ai/images/favicon/app-squiggle.svg",
+      "svgSha256": "6373d89d274258a38432f3c3729cd716498b8ded849b174a7998683dcf4aaba5",
+      "umbrella": "Muse"
     },
     {
       "file": "notion.png",
@@ -481,19 +455,6 @@
       "sourceUrl": "https://raw.githubusercontent.com/pheralb/svgl/f9b726cee1d1f3c697a18c880185e89d9a55bb70/static/library/pinterest.svg",
       "svgSha256": "0127681e08c89a5ea15ffced075255430384ffd6738ea5d1f842fe28592a2467",
       "umbrella": "Pinterest"
-    },
-    {
-      "file": "poke.png",
-      "id": "poke",
-      "licence": "Vendor’s own published asset; no licence beyond nominative use",
-      "origin": "set",
-      "restrictions": "Trademark of The Interaction Company; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
-      "setFile": "app/assets/logo-set/poke.png",
-      "sha256": "b39e743d4174391528e9cb664b15bee94e3787365ca00e492c9bf120bbd299a2",
-      "sourceTier": "official site",
-      "sourceUrl": "https://poke.com/icons/poke-512.png",
-      "svgSha256": "385308a9717ed438882d4b3579a8faa0045124af3b2dc0837686596615f54f77",
-      "umbrella": "Poke"
     },
     {
       "file": "raindrop.png",
@@ -624,19 +585,6 @@
       "sourceUrl": "https://unpkg.com/@lobehub/icons-static-svg@1.97.0/icons/together-color.svg",
       "svgSha256": "27ccaf118a431c386b88418a34a4346afd9638dde10e3f2295db2eec1fa5898a",
       "umbrella": "Together AI"
-    },
-    {
-      "file": "vscode.png",
-      "id": "vscode",
-      "licence": "Vendor’s own published asset; no licence beyond nominative use",
-      "origin": "set",
-      "restrictions": "Trademark of Microsoft; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
-      "setFile": "app/assets/logo-set/vscode.png",
-      "sha256": "175c27c2bd82288bacd9cf323981643759e4fe6af71330aa9bb190a994c37c13",
-      "sourceTier": "official site",
-      "sourceUrl": "https://code.visualstudio.com/assets/apple-touch-icon.png",
-      "svgSha256": "175c27c2bd82288bacd9cf323981643759e4fe6af71330aa9bb190a994c37c13",
-      "umbrella": "VS Code / GitHub Copilot"
     },
     {
       "file": "warp.png",

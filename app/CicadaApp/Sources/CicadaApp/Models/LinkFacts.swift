@@ -149,11 +149,14 @@ enum LinkCardModel {
     /// with a picture of the page, Captures with a capture, Look with a saved look), and block views only for a link
     /// alone on its line.
     /// A bare URL or `<URL>` is never switched: it is the page's own words, not a link token to restyle.
-    static func offered(_ ref: LinkRef, fact: LinkFact) -> [LinkViewKind] {
+    /// In `## Links` a plain link is the context's default (a card alone on its bullet, else a mention), so "Link" is
+    /// not offered there: choosing it would write the very token already on the page.
+    static func offered(_ ref: LinkRef, fact: LinkFact, inLinks: Bool = false) -> [LinkViewKind] {
         guard ref.markdown.hasPrefix("[") else { return [] }
         return LinkViewKind.switcher.filter { view in
             switch view {
-            case .link, .mention: return true
+            case .link: return !inLinks
+            case .mention: return true
             case .bookmark: return ref.block
             case .screenshot: return ref.block && (!fact.captures.isEmpty || !fact.looks.isEmpty)
             case .captures: return ref.block && !fact.captures.isEmpty
@@ -166,7 +169,8 @@ enum LinkCardModel {
     /// The view a link draws as now, as the switcher underlines it: its own view word, else the context's default.
     static func current(_ ref: LinkRef, inLinks: Bool) -> LinkViewKind {
         switch ref.asked {
-        case .link: return inLinks ? .mention : .link
+        // A `## Links` bullet that is one link alone draws as a card (owner 2026-10-26), any other as a mention.
+        case .link: return inLinks ? (ref.block && ref.markdown.hasPrefix("[") ? .bookmark : .mention) : .link
         case .embed: return .screenshot
         case .raw: return .link
         default: return ref.asked

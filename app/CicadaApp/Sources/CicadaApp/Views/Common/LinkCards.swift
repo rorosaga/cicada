@@ -370,7 +370,8 @@ struct LinkSwitcher: View {
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
             HStack(spacing: CicadaTheme.spacingXS) {
-                TextTabs(tabs: LinkCardModel.offered(ref, fact: fact).map { TextTab(id: $0, label: Copy.Links.viewName($0)) },
+                TextTabs(tabs: LinkCardModel.offered(ref, fact: fact, inLinks: inLinks)
+                            .map { TextTab(id: $0, label: Copy.Links.viewName($0)) },
                          selection: Binding(get: { current }, set: { chosen in
                              guard let chosen, chosen != current, !saving else { return }
                              Task { await apply(chosen) }
@@ -443,7 +444,7 @@ struct LinkLineList: View {
                     let fact = LinkFactsCache.shared.fact(ref.url, on: entityId)
                     VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                         BookmarkCard(fact: fact, ref: ref, entityId: entityId)
-                        if let entityId, !LinkCardModel.offered(ref, fact: fact).isEmpty {
+                        if let entityId, !LinkCardModel.offered(ref, fact: fact, inLinks: inLinks).isEmpty {
                             LinkSwitcher(ref: ref, fact: fact, entityId: entityId, inLinks: inLinks)
                         }
                     }

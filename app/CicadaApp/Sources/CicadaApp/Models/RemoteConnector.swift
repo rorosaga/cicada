@@ -232,7 +232,7 @@ enum RemoteApp: String, CaseIterable, Identifiable {
         case .claudeCode: "Claude Code"
         case .codex: "Codex"
         case .cursor: "Cursor"
-        case .vscode: "VS Code"
+        case .vscode: "GitHub Copilot"
         case .geminiCLI: "Gemini CLI"
         case .other: "Other app"
         }

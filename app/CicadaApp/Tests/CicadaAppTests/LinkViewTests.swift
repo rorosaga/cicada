@@ -97,7 +97,9 @@ final class LinkViewTests: XCTestCase {
         XCTAssertEqual(site.map { String(mention[$0.range].characters) }, "blog.example.com ")
     }
 
-    func testAPlainLinkInTheLinksSectionIsAMentionAndElsewhereALink() {
+    /// Owner 2026-10-26: a `## Links` bullet that is one plain link (Sleep's own shape, `- [T](url) — note`) draws as a
+    /// bookmark card; two links on a bullet stay mentions; prose stays a link. Nothing is written to the page.
+    func testAPlainLinkAloneInTheLinksSectionIsACardAndElsewhereALink() {
         let markdown = """
         ## Article
         ### Pricing
@@ -105,16 +107,26 @@ final class LinkViewTests: XCTestCase {
 
         ## Links
         - [How we priced seats](https://blog.example.com/seats) — the write-up
+        - [Docs](https://docs.example.com/a) and [the blog](https://blog.example.com/b)
+        - https://bare.example.com/page
         """
         let rows = WikiArticle.build(markdown).rows
         let prose = rows.first { $0.kind == .paragraph }!
         XCTAssertEqual(String(prose.text.characters), "The team wrote it up in the write-up.")
         XCTAssertFalse(prose.inLinks)
-        let bullet = rows.first { if case .item = $0.kind { return true }; return false }!
-        XCTAssertTrue(bullet.inLinks)
-        XCTAssertEqual(String(bullet.text.characters), "blog.example.com How we priced seats — the write-up")
-        XCTAssertEqual(bullet.links.map(\.url), ["https://blog.example.com/seats"])
-        XCTAssertEqual(LinkCardModel.current(bullet.links[0], inLinks: true), .mention)
+        let card = rows.first { if case .link = $0.kind { return true }; return false }!
+        guard case .link(let ref, let note) = card.kind else { return XCTFail("\(card.kind)") }
+        XCTAssertEqual(ref.url, "https://blog.example.com/seats")
+        XCTAssertEqual(ref.asked, .link, "the page's token is untouched: no view word is written")
+        XCTAssertEqual(note, "the write-up")
+        XCTAssertTrue(card.inLinks)
+        XCTAssertEqual(LinkCardModel.current(ref, inLinks: true), .bookmark)
+        XCTAssertEqual(LinkCardModel.offered(ref, fact: .unknown(ref.url), inLinks: true), [.mention, .bookmark])
+        let items = rows.filter { if case .item = $0.kind { return true }; return false }
+        XCTAssertEqual(items.count, 2, "two links on a bullet and a bare URL stay lines")
+        XCTAssertTrue(items[0].inLinks)
+        XCTAssertEqual(LinkCardModel.current(items[0].links[0], inLinks: true), .mention)
+        XCTAssertEqual(items[1].links.first?.asked, .raw)
     }
 
     func testABlockViewAloneOnItsLineIsARowOfItsOwnWithItsNote() {

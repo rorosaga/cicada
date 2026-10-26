@@ -126,7 +126,7 @@ APPS: dict[str, RemoteApp] = {a.id: a for a in (
     RemoteApp("claude-code", "Claude Code", "claude-code-remote", "header"),
     RemoteApp("codex", "Codex", "codex-remote", "header"),
     RemoteApp("cursor", "Cursor", "cursor", "header"),
-    RemoteApp("vscode", "VS Code", "vscode", "header"),
+    RemoteApp("vscode", "GitHub Copilot", "vscode", "header"),   # in VS Code (owner, 2026-10-26)
     RemoteApp("gemini-cli", "Gemini CLI", "gemini-cli", "header"),
     RemoteApp("other", "Other app", "remote-app", "both"),
 )}

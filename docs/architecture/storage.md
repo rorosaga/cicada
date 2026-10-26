@@ -162,6 +162,7 @@ as a block only when the link stands alone on its line (after a list marker, bef
 it draws as a mention. A bare URL or `<URL>` reads as its address (`example.com/guide`). **One grammar, two sides:**
 `api/services/link_views.py` and the app's `LinkGrammar` (`LinkView.swift`) both read
 `api/tests/fixtures/link_views.json`. **Sleep writes plain links** — context decides how one is drawn (a `## Links`
+bullet that is one link alone as a bookmark card — owner 2026-10-26, the app only, nothing written — one sharing its
 bullet as a mention, a link in a sentence as a link) — and a view word is written only on purpose: by an agent through
 `cicada_edit_page`, or by the person's switcher (`POST /entities/{id}/edits`, `api.md`), which is a pinned `corrections`
 row (`[T](url)` → `[T](url "bookmark")`), so Sleep's next rewrite writes the view back. The three backend link readers
