@@ -29,7 +29,7 @@ import SwiftUI
 /// Items" link only when approval is pending), with DESIGN_RULES winning: neutral controls (DR-40), the command in
 /// a `CommandBox` (DR-19).
 struct SettingsGeneralView: View {
-    @AppStorage(ThemeStore.defaultsKey) private var appearanceRaw: String = AppearancePreference.dark.rawValue
+    @AppStorage(ThemeStore.defaultsKey) private var appearanceRaw: String = AppearancePreference.defaultChoice.rawValue
     @AppStorage(MenuBarPreference.defaultsKey) private var showsMenuBar = true
     @Environment(Store.self) private var store
     @Environment(LoginItemService.self) private var loginItems
@@ -58,9 +58,13 @@ struct SettingsGeneralView: View {
         SettingsPage(section: .general) {
             // F-10 — Look: the window's light and the chrome's size.
             SettingsGroupCard {
-                SettingsRow(.appearance, title: Copy.appearance) {
-                    PillPicker(title: Copy.appearance, selection: appearance,
-                               options: AppearancePreference.allCases.map { PillOption(value: $0, label: $0.label) })
+                // Owner 2026-10-26 — three live miniatures (Light · Dark · System), System by default; the sidebar's
+                // toggle retired into this row.
+                SettingsRow(.appearance, title: Copy.appearance, detail: Copy.appearanceDetail) {
+                    EmptyView()
+                } below: {
+                    AppearancePicker(selection: appearance)
+                        .padding(.top, CicadaTheme.scaled(2))
                 }
                 SettingsDivider()
                 SettingsRow(.textSize, title: Copy.textSize) {

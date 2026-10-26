@@ -15,6 +15,9 @@ extension Copy {
     static let appearanceSystem = "System"
     static let appearanceLight = "Light"
     static let appearanceDark = "Dark"
+    static let appearanceSystemHelp = "Follow your Mac: light or dark as macOS is"
+    static let appearanceLightHelp = "Always light"
+    static let appearanceDarkHelp = "Always dark"
     // Settings → General → Scene retired with the painted art (owner 2026-10-16): there is no painting left to pick.
     static let textSize = "Text size"
     static let textSizeDetail = "⌘+ and ⌘− do the same from any page."

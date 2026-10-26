@@ -1,0 +1,68 @@
+{
+  "authors": [],
+  "batch": 3,
+  "batches": 3,
+  "commitHash": "0000000000000000000000000000000000000000",
+  "date": "2026-09-30T17:05:00+00:00",
+  "drainId": "sleep_leg1",
+  "durationMs": 660000,
+  "engine": "claude-cli",
+  "entitiesCreated": 3,
+  "entitiesUpdated": 0,
+  "episodes": 3,
+  "filesChanged": [
+    "entities/e-ep_2026-09-01_006.md",
+    "entities/e-ep_2026-09-01_007.md",
+    "entities/e-ep_2026-09-01_008.md",
+    "episodes/ep_2026-09-01_006.md",
+    "episodes/ep_2026-09-01_007.md",
+    "episodes/ep_2026-09-01_008.md"
+  ],
+  "kind": "sleep",
+  "message": "Sleep cycle 2026-09-30 (batch 3 of 3)",
+  "run": {
+    "batches": 3,
+    "catchUpFor": null,
+    "created": 9,
+    "filed": 9,
+    "finishedAt": "2026-09-30T17:05:00+00:00",
+    "frozen": 9,
+    "id": "sleep_leg1",
+    "models": [
+      "model-a",
+      "model-b"
+    ],
+    "parked": 0,
+    "pausedMs": 16620000,
+    "pauses": 1,
+    "questionsRaised": 0,
+    "readMs": 8040000,
+    "startedAt": "2026-09-30T10:14:00+00:00",
+    "startedBy": "user",
+    "state": "finished",
+    "updated": 0,
+    "usageSummary": {
+      "basis": "list",
+      "connection": "claude-plan",
+      "costUsd": null,
+      "engine": "claude-cli",
+      "equivCostUsd": 0.15,
+      "plan": null,
+      "planShare": []
+    }
+  },
+  "sessions": 3,
+  "usageSummary": {
+    "basis": "list",
+    "connection": "claude-plan",
+    "costUsd": null,
+    "engine": "claude-cli",
+    "equivCostUsd": 0.03,
+    "plan": {
+      "after": 0.45,
+      "before": 0.45,
+      "window": "five_hour"
+    },
+    "planShare": []
+  }
+}

@@ -765,6 +765,8 @@ GET_ROUTES: dict[str, tuple[str, str]] = {
     "GET /contributors/calendar": (NONE, "reads commits"),
     "GET /contributors/top-entities": (NONE, "reads commits"),
     "GET /sleep/history/{commit}": (NONE, "reads a commit"),
+    "GET /sleep/history/{commit}/items": (NONE, "reads a commit's file list and the bank's names"),
+    "GET /sleep/runs/{drain_id}/items": (NONE, "reads its batch commits' file lists and the bank's names"),
     "GET /handshake": (OUTSIDE, "the telemetry ledger row (outside every bank) and the primer cache"),
     "GET /banks/{name}/export": (OUTSIDE, "a temporary archive outside the bank, removed after it is sent"),
     "GET /sources/folders": (NONE, "builds response records"),

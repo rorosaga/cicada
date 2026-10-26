@@ -210,7 +210,8 @@ for one release the first ⌘4 that lands on Skills toasts "The Feed is now part
 restores to Sleep. Each cell's tooltip
 naming its page and shortcut (450 ms, then instant while warm), selection by brightness and one neutral fill
 (`bgSelected` — never the accent, `SelectionTintLintTests`), the Inbox count a neutral `bgBadge` numeral, a spinner on
-Sleep while a cycle runs, the gear and the sun/moon toggle at its foot, no wordmark. The gear's `warning` dot lights only
+Sleep while a cycle runs, the gear alone at its foot (the sun/moon toggle retired into Settings → General → Appearance,
+owner 2026-10-26), no wordmark. The gear's `warning` dot lights only
 when the engine the person chose is a plan that is installed but signed out (owner 2026-10-16,
 `ConnectionsViewModel.needsAttention(engine:)` over `EngineOption.connectionId` — a plan merely available, never chosen,
 is not the person's problem; the engine choice is read once the backend answers). ⌃⌘S or the titlebar toggle swaps it
@@ -284,8 +285,13 @@ longer says a fresh memory "was set up for the larger version on another Mac": `
 checkout with no bundled model) and `SearchUnderstanding.meaning` then offers the sharper version
 (`meaningNotYet`); a backend without the key reads as before. Search is `SettingsIndex` over `QuickMatch` — the
 palette's one ranker — and landing always selects, scrolls, washes (the selected fill and the focus ring) and
-announces the row (G139). `SettingsSection` raw values did not move. General's appearance offers System, which
-follows the Mac's own light/dark through one app-scope observer (`ThemeStore.observeSystemAppearance`). General (F-10:
+announces the row (G139). `SettingsSection` raw values did not move. General's appearance is three live miniatures —
+Light · Dark · System (`AppearancePicker`, owner 2026-10-26), each a drawing of the app in that appearance's own palette
+(`AppearancePalette`), System the two halves side by side; the chosen tile wears the accent ring, ← / → move the choice;
+a pointer's choice cross-fades the window on `CicadaMotion.settle`, a key switches in one frame (`AppearanceMotion`,
+DR-60). **System is the default** (`AppearancePreference.defaultChoice`: an absent or unknown value; a stored `light`/`dark`
+is an explicit choice, kept on upgrade) and follows the Mac's own light/dark through one app-scope observer
+(`ThemeStore.observeSystemAppearance`). The palette's Switch to light/dark actions write the same key. General (F-10:
 Look · Startup · When Cicada is closed) holds Appearance and Text size (Scene retired with the painted art, owner
 2026-10-16: it picked a painting, and none is left), Open Cicada at
 login (`LoginItemService` over `SMAppService.mainApp`; an unsigned build that macOS does not keep says so), Show in
@@ -1761,9 +1767,23 @@ Past reads otherwise (`SleepTab.resolve`), and a tab switch is instant and close
 4.5 MB per load on a large bank, 2026-10-19) and revalidated with its ETag, the rows and tag held in `SleepViewModel`
 (not a Store domain; a 304 keeps them, a bank switch drops both); **Saved** and
 **Videos** are the Feed's lists (above, *Clusters and Sleep's saved lists*); **Past reads** (`SleepPastReads`) is Last
-cycle · Readout · Past nights in D's list grammar — section labels over rows, no cards; Last cycle's rows in words,
-"Rested" as a sentence, the readout as key–value rows, a past read opening in place under its row with its Models, tokens
-and cost (ruling 12). Said once (2026-10-19): a Past nights row prints its day only when it is the first of that day;
+cycle · Readout · Past nights; Last cycle's rows in words, "Rested" as a sentence, the readout as key–value rows.
+**Past nights is one card per consolidation** (owner 2026-10-26, `RunCardModel` / `RunCardView`): a run that read in batches
+is one card, a plain cycle one card, a decay pass or an inbox resolution none. The card says when it ran and who started
+it ("You started it" / "On schedule", a catch-up's missed time), one line of what it included ("12 conversations · 3 new
+pages · 18 updates · 2 questions" — the server's whole-run figures on `SleepRunRef`: `created`, `updated`,
+`models`, `usageSummary`; the questions are the dropdown's own count, raised + settled, asked for each card as it
+comes on screen; unknown is left out, never zero), the engine's mark and words with the
+models the ledger says ran, the plan share or cost with its basis (ruling 12, `CycleUsageText`), how long it read, and
+how it ended (Finished · Reading now · Paused at your plan's limit · Paused to leave room in your plan · Paused ·
+Stopped · Didn't finish). A resting ring on `bgFocus`, no shadow (DR-9, DR-37; §9 2026-10-26). Opening it (one card
+open at a time; only a pointer's click eases, on `CicadaMotion.groupExpand`; a key, an event-less action or an assistive press opens in one frame, `RunCardMotion`) drops down what it
+consolidated, grouped under `DisclosureHeader`s — Conversations read (each opens in the Reader), New pages and Updated
+pages (neutral `Tag`s, each opens its page; a page gone since shows its id), Questions raised and settled (each opens
+in the Inbox) — from `GET /sleep/runs/{id}/items` or `GET /sleep/history/{commit}/items` (`SleepConsolidated`, held by
+`SleepViewModel.consolidated` with its ETag, revalidated on each open, a 304 keeping it, emptied on a bank switch); a
+group shows 8 rows (pages 24) then *Show all N*. *Models and batches* folds the run's models, tokens and cost with
+their basis, and its batches and pauses (`RunDetailBlock`; a plain cycle's `CycleUsageBlock`). Said once (2026-10-19): a Past nights row prints its day only when it is the first of that day;
 when no row — a run's batches included — recorded usage or a time the section's label says so once ("Past nights ·
 usage and time not recorded", `PastNightsLayout`) instead of every row; a run's row names its engine in words beside
 its mark; the readout's *Last engine* row steps aside while the newest Past nights row
@@ -1983,9 +2003,9 @@ menu's *Keep plan free* (Off or 5–30 % of the window, plan engines only, a lin
 12's two homes; the page's lists are the other (Past reads and Waiting, Details until 2026-10-16): Last cycle's run rows (`LastCycleRow.runRows`, merged over the pre-v5 drain rows), per-source counts and
 per-conversation rows from `GET /sleep/queue` (refetched when the run's counts move, never per tick) with Retry for a parked one — offered only while no run reads or waits paused, since the
 server refuses it then (`LastCycleRow.canRetryParked`) — a scheduled run's spend note billed from the run's own usage, never today's preview, and Past nights
-folded by run (`PastNightItem.group`, the run's numbers from the server's `run`, never summed from visible rows; opened: models, cost, pages,
-batches and pauses from `GET /sleep/runs/{id}`, cached in the view model and refetched when the run's counts, pause or end move; touched pages
-by name, the id in `.help`). A scheduled run that caught up a time the Mac slept or was off through (`sleep_catch_up`,
+folded by run into one card each (`PastNightItem.group` → `RunCardModel`, the run's numbers from the server's `run`, never summed from
+visible rows; opened: its items from `/items`, and models, cost, batches and pauses from `GET /sleep/runs/{id}` under *Models and
+batches*, cached in the view model and refetched when the run's counts, pause or end move; pages by name, the id in `.help`). A scheduled run that caught up a time the Mac slept or was off through (`sleep_catch_up`,
 `features.md`) carries `catchUpFor` on its `run` and its row says so in words — "Missed 3:00 AM — caught up at 8:12 AM",
 "tried" for a failed one, the missed day added when it is not the run's (`RunPresentation.catchUp`, owner 2026-10-19). The app-level `SleepViewModel` empties its queue, waiting rows (and their ETag), run details and history details on a bank switch
 (`Store.onBankChanged`). `PriceLintTests` keeps `$` and token literals out of every other Sleep

@@ -355,6 +355,7 @@ def attach_usage(entries, events, *, detail: bool = False, memory_path=None) -> 
             summaries = sleep_runs.all_runs(memory_path)
         except Exception:  # noqa: BLE001 - a grouping hint must never fail a history read
             summaries = {}
+    run_figures: dict[str, dict] = {}
     for entry in entries:
         if getattr(entry, "kind", "sleep") != "sleep":
             continue
@@ -373,7 +374,31 @@ def attach_usage(entries, events, *, detail: bool = False, memory_path=None) -> 
                 from api.services import sleep_runs
                 from api.models.schemas import SleepRunRef
 
-                entry.run = SleepRunRef(**sleep_runs.to_run_ref(summary))
+                if entry.drain_id not in run_figures:
+                    run_figures[entry.drain_id] = _run_figures(ledger, entry.drain_id, summary)
+                entry.run = SleepRunRef(**sleep_runs.to_run_ref(summary), **run_figures[entry.drain_id])
+
+
+def _run_figures(ledger: Ledger, drain_id: str, summary: dict) -> dict:
+    """A run's whole figures for its card (owner 2026-10-26): pages made and changed summed over its batches'
+    ``sleep_run`` rows, the questions its summary counted, and the usage and models of every call tagged with the
+    run — never summed from the visible page of history. Unknown stays ``None``."""
+    rows = ledger.runs_by_drain.get(drain_id) or []
+
+    def total(key: str) -> int | None:
+        values = [(r.refs or {}).get(key) for r in rows]
+        values = [int(v) for v in values if isinstance(v, int)]
+        return sum(values) if values else None
+
+    usage = usage_for_drain(ledger, drain_id)
+    questions = summary.get("questions_raised")
+    return {
+        "created": total("entities_created"),
+        "updated": total("entities_updated"),
+        "questions_raised": int(questions) if isinstance(questions, int) else None,
+        "usage_summary": summarize(usage),
+        "models": [m.model for m in (usage.models if usage else []) if m.model],
+    }
 
 
 # --------------------------------------------------------------------------- #

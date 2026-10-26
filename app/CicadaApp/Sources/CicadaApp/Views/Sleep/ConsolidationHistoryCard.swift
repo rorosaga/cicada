@@ -154,79 +154,64 @@ enum SleepHistoryPresentation {
     }
 }
 
-/// "PAST NIGHTS" (G125 R4/R12; renamed from "Recent consolidations" when it
-/// moved into Details, Track Z §4.2) — the Sleep page's history, newest
-/// first. Each row is one commit; tapping it asks the caller (`onToggle`) to
-/// flip `expanded` and fetch `details[commit]` if it isn't cached yet — this
-/// view never fetches on its own, mirroring `StudyListCard`'s own "pure
-/// renderer of what the caller already resolved" posture.
-///
-/// R-HS15 — its label over 36 pt rows, no card (DR-37); an engine wears its
-/// real mark (`EngineMark`, DR-52) where the pill used a generic cpu/key glyph.
+/// "PAST NIGHTS" (G125 R4/R12) — the Sleep page's history, newest first, one card per consolidation (owner
+/// 2026-10-26: "Just say: this consolidation ran at this time and it included this thing, with a dropdown"). A run that
+/// read in batches is one card (`PastNightItem.group`), a plain cycle one card; a decay pass and an inbox resolution
+/// are not consolidations and get none (`RunCardModel.cards`). Opening a card asks the caller (`onToggle`) to flip its
+/// open state and fetch its items, and its run's or commit's detail — this view never fetches on its own.
 struct ConsolidationHistoryCard: View {
     let entries: [SleepHistoryEntry]
     let details: [String: SleepCycleDetail]
+    /// The open plain cycle (its commit) and the open run (its id) — one card is open at a time.
     let expanded: String?
-    let onToggle: (String) -> Void
-    var onSelectEntity: ((String) -> Void)?
-    /// Sleep page v5 (A8) — a run that read in batches is one row (`PastNightItem.group`); opening it shows its
-    /// detail (`GET /sleep/runs/{id}`, cached by the view model) and its batches' own commits under it.
-    var runDetails: [String: SleepRunDetail] = [:]
     var expandedRun: String? = nil
-    var onToggleRun: (String) -> Void = { _ in }
-    /// The graph's names, so a changed page reads as its name, never its id (DR-54, DR-56); optional for previews.
-    @Environment(Store.self) private var store: Store?
+    var runDetails: [String: SleepRunDetail] = [:]
+    var items: [SleepConsolidatedKey: SleepConsolidated] = [:]
+    var itemsFailed: Set<SleepConsolidatedKey> = []
+    let onToggle: (RunCardModel) -> Void
+    var onSelectEntity: ((String) -> Void)?
+    /// A card on screen asks for its items once (`SleepViewModel.loadConsolidated`): they carry its question count.
+    var onLoadItems: (SleepConsolidatedKey) -> Void = { _ in }
 
     var body: some View {
+        let cards = RunCardModel.cards(entries, details: runDetails, items: items)
+        // Say it once (owner 2026-10-19): what no card recorded is said on the section's label, not on every card.
         let layout = PastNightsLayout(entries)
         SleepDetailsSection(title: layout.title) {
-            if entries.isEmpty {
+            if cards.isEmpty {
                 Text("Nothing consolidated yet.")
                     .font(CicadaTheme.bodyFont)
                     .foregroundStyle(CicadaTheme.textTertiary)
                     .padding(.horizontal, CicadaTheme.scaled(10))
                     .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine))
             } else {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(layout.items) { item in
-                        switch item {
-                        case .cycle(let entry):
-                            cycleRow(entry, layout: layout, showsDate: layout.datedIds.contains(item.id))
-                        case .run(let ref, let members):
-                            PastRunRow(ref: ref, newest: members[0], isExpanded: expandedRun == ref.id,
-                                       showsDate: layout.datedIds.contains(item.id),
-                                       onToggle: { onToggleRun(ref.id) })
-                            if expandedRun == ref.id {
-                                VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                                    RunDetailBlock(detail: runDetails[ref.id], onSelectEntity: onSelectEntity)
-                                        .padding(.leading, CicadaTheme.scaled(142))
-                                        .padding(.trailing, CicadaTheme.scaled(40))
-                                    ForEach(members) { entry in cycleRow(entry, layout: layout, showsDate: false) }
-                                }
-                                .padding(.bottom, CicadaTheme.spacingSM)
-                            }
-                        }
+                LazyVStack(alignment: .leading, spacing: CicadaTheme.scaled(10)) {
+                    ForEach(cards) { card in
+                        RunCardView(card: card, isOpen: isOpen(card), items: items[card.key],
+                                    itemsFailed: itemsFailed.contains(card.key), runDetail: runDetail(card),
+                                    cycleDetail: details[card.members[0].commitHash],
+                                    showsUsage: !layout.usageSaidOnce,
+                                    onToggle: { onToggle(card) }, onSelectEntity: onSelectEntity,
+                                    onAppear: { if items[card.key] == nil { onLoadItems(card.key) } })
                     }
                 }
             }
         }
     }
 
-    @ViewBuilder
-    private func cycleRow(_ entry: SleepHistoryEntry, layout: PastNightsLayout, showsDate: Bool) -> some View {
-        PastNightRow(entry: entry, isExpanded: expanded == entry.commitHash, showsDate: showsDate,
-                     showsUsage: !layout.usageSaidOnce, showsDuration: !layout.durationSaidOnce, onToggle: onToggle)
-        if expanded == entry.commitHash {
-            detail(for: entry)
-                // The mock's indent: the detail starts under the headline.
-                .padding(.leading, CicadaTheme.scaled(142))
-                .padding(.trailing, CicadaTheme.scaled(40))
-                .padding(.bottom, CicadaTheme.spacingSM)
+    private func isOpen(_ card: RunCardModel) -> Bool {
+        switch card.key {
+        case .run(let id): expandedRun == id
+        case .commit(let hash): expanded == hash
         }
     }
 
-    /// Everything the row draws, in words — the pill and the `—` are both
-    /// silent marks otherwise.
+    private func runDetail(_ card: RunCardModel) -> SleepRunDetail? {
+        if case .run(let id) = card.key { return runDetails[id] }
+        return nil
+    }
+
+    /// Everything a cycle's row draws, in words — kept for the cycle summaries other surfaces read.
     static func rowAccessibilityLabel(_ entry: SleepHistoryEntry) -> String {
         var parts = [SleepHistoryPresentation.dateText(entry.date)]
         let time = SleepHistoryPresentation.timeText(entry.date)
@@ -235,13 +220,27 @@ struct ConsolidationHistoryCard: View {
         if let pill = SleepHistoryPresentation.enginePill(entry) { parts.append(pill) }
         return parts.joined(separator: ", ")
     }
+}
 
-    /// 2026-09-28 — per model: calls, tokens in and out, and the cost with its basis in words; then the
-    /// total, and a plan's window before → after with the honest limit. Nothing here for an inbox or
-    /// decay commit, which never has a `sleep_run`.
+/// A plain cycle's models and what it cost, each with its basis (ruling 12; 2026-09-28) — the run card's details for
+/// a cycle that was not a run. A plan run leads with how much of the plan it used (owner 2026-10-16); the total, then
+/// the list-price equivalent under it; a plan's window before → after with the honest limit.
+struct CycleUsageBlock: View {
+    let detail: SleepCycleDetail?
+
+    var body: some View {
+        if let d = detail {
+            content(CycleUsageText.detailLines(d.usage, kind: d.kind))
+        } else {
+            Text(Copy.SleepV5.runLoading)
+                .font(CicadaTheme.metaFont)
+                .foregroundStyle(CicadaTheme.textTertiary)
+        }
+    }
+
     @ViewBuilder
-    private func usageBlock(_ d: SleepCycleDetail) -> some View {
-        let lines = CycleUsageText.detailLines(d.usage, kind: d.kind)
+    private func content(_ lines: (models: [String], total: String?, plan: [(text: String, help: String)], empty: String?,
+                                   share: (text: String, help: String)?, equiv: String?)) -> some View {
         if let empty = lines.empty {
             Text(empty)
                 .font(CicadaTheme.metaFont)
@@ -249,7 +248,6 @@ struct ConsolidationHistoryCard: View {
         } else if !lines.models.isEmpty || !lines.plan.isEmpty || lines.share != nil {
             VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
                 if let share = lines.share {
-                    // Owner 2026-10-16 — a plan run leads with how much of the plan it used, its basis in the line.
                     Text(share.text)
                         .font(CicadaTheme.metaFont)
                         .monospacedDigit()
@@ -291,201 +289,6 @@ struct ConsolidationHistoryCard: View {
                         .foregroundStyle(CicadaTheme.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-            }
-        }
-    }
-
-    /// Counts go through `UsageFormat` (DR-21). Changed pages are neutral `Tag`s with their names, as a batched run's
-    /// detail draws them (looks pass 2026-10-23: they were a wall of accent-coloured slugs; DR-5, DR-44, DR-54).
-    @ViewBuilder
-    private func detail(for entry: SleepHistoryEntry) -> some View {
-        if let d = details[entry.commitHash] {
-            VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                if !d.episodesByOrigin.isEmpty {
-                    FlowLayout(spacing: 6) {
-                        ForEach(d.episodesByOrigin.sorted(by: { $0.key < $1.key }), id: \.key) { origin, count in
-                            HStack(spacing: CicadaTheme.spacingXS) {
-                                OriginMark(origin: origin, size: CicadaTheme.scaled(12))
-                                Text(UsageFormat.count(count))
-                                    .font(CicadaTheme.metaFont)
-                                    .monospacedDigit()
-                                    .foregroundStyle(CicadaTheme.textSecondary)
-                            }
-                        }
-                    }
-                }
-
-                Text("\(UsageFormat.count(d.sessions)) conversation\(d.sessions == 1 ? "" : "s") · \(d.authors.map(SleepHistoryPresentation.authorLabel).joined(separator: ", "))")
-                    .font(CicadaTheme.metaFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-
-                if d.entities.isEmpty {
-                    Text("No entity pages changed.")
-                        .font(CicadaTheme.metaFont)
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                } else {
-                    FlowLayout(spacing: 6) {
-                        let names = store?.entityNames ?? .empty
-                        ForEach(d.entities) { entity in
-                            Button { onSelectEntity?(entity.id) } label: {
-                                Tag(text: RunDetailBlock.pageLabel(entity.id, names: names))
-                            }
-                            .buttonStyle(.cicadaPlain)
-                            .help(entity.id)
-                        }
-                        if d.truncated {
-                            Text("+ more")
-                                .font(CicadaTheme.metaFont)
-                                .foregroundStyle(CicadaTheme.textTertiary)
-                        }
-                    }
-                }
-
-                usageBlock(d)
-
-                if d.inboxChanges > 0 {
-                    Text("\(UsageFormat.count(d.inboxChanges)) inbox item\(d.inboxChanges == 1 ? "" : "s") changed")
-                        .font(CicadaTheme.metaFont)
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                }
-            }
-        } else {
-            HStack(spacing: CicadaTheme.spacingSM) {
-                ProgressView().controlSize(.small)
-                Text("Loading…")
-                    .font(CicadaTheme.metaFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-            }
-        }
-    }
-}
-
-/// One Past nights row (R-HS15): the date and the time side by side (the D-Sleep mock), the
-/// headline, the engine's mark and pill words, the measured duration and the chevron — one row of
-/// at least 36 pt (DR-34) with a `bgHover` fill under the pointer, never a lift. Its own view for
-/// its own `@State hovering`.
-private struct PastNightRow: View {
-    let entry: SleepHistoryEntry
-    let isExpanded: Bool
-    /// Say it once — the day only on its first row; the rows under it on the same day leave it blank.
-    var showsDate = true
-    /// False when the section's label already says no row recorded usage (or time).
-    var showsUsage = true
-    var showsDuration = true
-    let onToggle: (String) -> Void
-    @State private var hovering = false
-
-    var body: some View {
-        // A decay-only commit is arithmetic, not a consolidation an LLM
-        // authored (G85) — every part of its row reads as muted so it never
-        // looks like the same kind of event as a real cycle.
-        let isDecay = entry.kind == "decay"
-        Button {
-            onToggle(entry.commitHash)
-        } label: {
-            HStack(spacing: CicadaTheme.spacingSM) {
-                // The time exists only since `--date=iso-strict` (Task 1); a legacy `yyyy-MM-dd`
-                // row reads "—" rather than a fabricated midnight (R-A14).
-                Text(showsDate ? SleepHistoryPresentation.dateText(entry.date) : "")
-                    .font(CicadaTheme.metaFont)
-                    .monospacedDigit()
-                    .foregroundStyle(isDecay ? CicadaTheme.textTertiary : CicadaTheme.textSecondary)
-                    .frame(width: CicadaTheme.scaled(48), alignment: .leading)
-                Text(SleepHistoryPresentation.timeText(entry.date))
-                    .font(CicadaTheme.metaFont)
-                    .monospacedDigit()
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                    .frame(width: CicadaTheme.scaled(60), alignment: .leading)
-
-                VStack(alignment: .leading, spacing: 1) {
-                    headline(isDecay: isDecay)
-                    // 2026-09-28 — what the cycle cost, one line under the counts; words come from
-                    // `CycleUsageText`, so no figure is spelled in this view.
-                    if showsUsage, let usage = CycleUsageText.summaryLine(kind: entry.kind, summary: entry.usageSummary) {
-                        Text(usage)
-                            .font(CicadaTheme.metaFont)
-                            .monospacedDigit()
-                            .foregroundStyle(CicadaTheme.textTertiary)
-                            .lineLimit(2)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .help(CycleUsageText.summaryHelp(entry.usageSummary) ?? "")
-                    }
-                }
-
-                // The pill is also set for an author-only commit with no engine; the mark shows
-                // only when there is an engine to mean.
-                if let pill = SleepHistoryPresentation.enginePill(entry) {
-                    HStack(spacing: CicadaTheme.scaled(4)) {
-                        if let engine = entry.engine {
-                            EngineMark(engine: engine, size: CicadaTheme.scaled(12))
-                        }
-                        Text(pill)
-                            .font(CicadaTheme.metaFont)
-                            .foregroundStyle(CicadaTheme.textTertiary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                    }
-                    .frame(maxWidth: CicadaTheme.scaled(250), alignment: .leading)
-                }
-
-                Spacer(minLength: CicadaTheme.spacingSM)
-
-                // P18 — a `—` is a value with a reason, and the reason is on hover: the duration
-                // is joined from the `sleep_run` telemetry ledger by commit hash, and there is
-                // simply no row to join when telemetry was off (R5).
-                if showsDuration {
-                    Text(SleepHistoryPresentation.durationText(ms: entry.durationMs))
-                        .font(CicadaTheme.metaFont)
-                        .monospacedDigit()
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                        .frame(width: CicadaTheme.scaled(52), alignment: .trailing)
-                        .help(entry.durationMs == nil ? Copy.noTimingRecorded : "")
-                }
-
-                DisclosureChevron(isOpen: isExpanded)
-                    .frame(width: CicadaTheme.scaled(28))
-            }
-            .padding(.leading, CicadaTheme.scaled(10))
-            .padding(.trailing, CicadaTheme.scaled(4))
-            .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine))
-            .rowHoverFill(hovering: hovering)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.cicadaPlain)
-        .onHover { hovering = $0 }
-        .accessibilityLabel(ConsolidationHistoryCard.rowAccessibilityLabel(entry))
-    }
-
-    /// The row's counts, on one line where they fit and on two where they do
-    /// not — never truncated (round-2 live check; R-A11/R-A14).
-    ///
-    /// `ViewThatFits` does the measuring rather than a width plumbed down from
-    /// `SleepView`: the thing that decides is the text's own rendered width,
-    /// which moves with `uiScale` (⌘+ grows the glyphs while the right column
-    /// keeps its share of the page) and with the reader's window. A pure
-    /// `headlineLines(entry:compact:)` still owns the WORDING of both
-    /// candidates, so what the row can say is asserted in a table test and
-    /// only which of the two is drawn depends on the layout.
-    private func headline(isDecay: Bool) -> some View {
-        ViewThatFits(in: .horizontal) {
-            headlineText(SleepHistoryPresentation.headlineLines(entry, compact: false), isDecay: isDecay)
-            headlineText(SleepHistoryPresentation.headlineLines(entry, compact: true), isDecay: isDecay)
-        }
-    }
-
-    /// Each line may still wrap to two of its own at an extreme zoom — the
-    /// last candidate `ViewThatFits` is handed is used whether or not it fits,
-    /// so this is what stands between a very narrow column and a clipped
-    /// count. `fixedSize(horizontal: false, vertical: true)` is what lets the
-    /// wrapped line claim the height it needs inside the row's `HStack`.
-    private func headlineText(_ lines: [String], isDecay: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 1) {
-            ForEach(lines, id: \.self) { line in
-                Text(line)
-                    .font(CicadaTheme.bodyFont)
-                    .foregroundStyle(isDecay ? CicadaTheme.textTertiary : CicadaTheme.textPrimary)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }

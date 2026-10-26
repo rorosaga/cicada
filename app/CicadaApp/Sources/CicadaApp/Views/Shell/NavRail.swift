@@ -29,7 +29,6 @@ struct NavRail: View {
     var isSleeping: Bool
     var needsAttention: Bool
 
-    @AppStorage(ThemeStore.defaultsKey) private var colorSchemeRaw: String = AppColorScheme.dark.rawValue
     @AppStorage(FeedMovedHint.shownKey) private var feedMovedHintShown = false
     @AppStorage(TracesPageVisibility.key) private var tracesPage = false
     @Environment(Store.self) private var store: Store?
@@ -95,14 +94,10 @@ struct NavRail: View {
         }
     }
 
-    /// The gear and the theme toggle: a column on the rail, a row in the labelled sidebar.
+    /// The gear alone (owner 2026-10-26: the light/dark toggle left the side panel for Settings → General → Appearance,
+    /// which offers System too).
     private var foot: some View {
-        let layout = labelled ? AnyLayout(HStackLayout(spacing: CicadaTheme.spacingXS))
-                              : AnyLayout(VStackLayout(spacing: CicadaTheme.spacingXS))
-        return layout {
-            RailGear(needsAttention: needsAttention)
-            RailThemeToggle(colorSchemeRaw: $colorSchemeRaw)
-        }
+        RailGear(needsAttention: needsAttention)
     }
 }
 
@@ -183,8 +178,8 @@ struct RailBadge: View {
     }
 }
 
-/// A 36 pt foot cell (the rail's pitch, not IconButton's 28): the gear and the theme toggle
-/// sit at the rail's own size so the foot lines up with the pages above it.
+/// A 36 pt foot cell (the rail's pitch, not IconButton's 28): the gear
+/// sits at the rail's own size so the foot lines up with the pages above it.
 private struct RailFootGlyph: View {
     let systemName: String
     let hovering: Bool
@@ -221,27 +216,6 @@ private struct RailGear: View {
         .buttonStyle(.cicadaPlain)
         .help(needsAttention ? Copy.settingsAttentionHelp : Copy.settingsHelp)
         .accessibilityLabel(needsAttention ? Copy.settingsAttentionLabel : Copy.settings)
-        .onHover { hovering = $0 }
-    }
-}
-
-/// Sun/moon (DR-22): an explicit Light or Dark — flipping the glyph means "not this one", which
-/// a `system` preference cannot say. The glyph swaps with `.symbolEffect(.replace)`.
-private struct RailThemeToggle: View {
-    @Binding var colorSchemeRaw: String
-    @State private var hovering = false
-
-    var body: some View {
-        let dark = CicadaTheme.mode == .dark
-        Button {
-            colorSchemeRaw = (dark ? AppearancePreference.light : AppearancePreference.dark).rawValue
-        } label: {
-            RailFootGlyph(systemName: dark ? "moon" : "sun.max", hovering: hovering)
-                .contentTransition(.symbolEffect(.replace))
-        }
-        .buttonStyle(.cicadaPlain)
-        .help(dark ? Copy.switchToLight : Copy.switchToDark)
-        .accessibilityLabel(dark ? Copy.switchToLight : Copy.switchToDark)
         .onHover { hovering = $0 }
     }
 }

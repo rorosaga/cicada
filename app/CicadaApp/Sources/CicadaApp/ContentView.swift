@@ -30,7 +30,7 @@ struct ContentView: View {
     /// §3). An overlay on this root, not a sheet (A11).
     @State private var paletteOpen = false
     /// "Switch to light/dark" writes the key `CicadaApp` already observes.
-    @AppStorage(ThemeStore.defaultsKey) private var colorSchemeRaw = AppColorScheme.dark.rawValue
+    @AppStorage(ThemeStore.defaultsKey) private var colorSchemeRaw = AppearancePreference.defaultChoice.rawValue
     @Environment(FindPaletteModel.self) private var find
     /// R-IB5 — ⌘K on Home focuses this field instead of opening the overlay.
     @Environment(HomeSearch.self) private var homeSearch

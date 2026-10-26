@@ -1058,3 +1058,19 @@ extension Color {
         self.init(.sRGB, red: r1 + m, green: g1 + m, blue: b1 + m, opacity: opacity)
     }
 }
+
+/// The two appearances' own tokens, read whatever the window shows now — what Settings → General → Appearance's
+/// miniatures paint (`AppearanceMiniature`, owner 2026-10-26). The values are the palettes' (`CicadaTheme.Light` /
+/// `.Dark`, private to this file) and §3.5's resting ring for each, never a second copy of a colour.
+struct AppearancePalette {
+    let rail, base, pane, selected, ring, text, faint, accent: Color
+
+    static let light = AppearancePalette(
+        rail: CicadaTheme.Light.bgRail, base: CicadaTheme.Light.bgBase, pane: CicadaTheme.Light.bgPane,
+        selected: CicadaTheme.Light.bgSelected, ring: Color.black.opacity(0.08), text: CicadaTheme.Light.textPrimary,
+        faint: CicadaTheme.Light.textTertiary, accent: CicadaTheme.accent)
+    static let dark = AppearancePalette(
+        rail: CicadaTheme.Dark.bgRail, base: CicadaTheme.Dark.bgBase, pane: CicadaTheme.Dark.bgPane,
+        selected: CicadaTheme.Dark.bgSelected, ring: Color.white.opacity(0.07), text: CicadaTheme.Dark.textPrimary,
+        faint: CicadaTheme.Dark.textTertiary, accent: CicadaTheme.accent)
+}

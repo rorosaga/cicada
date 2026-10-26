@@ -151,7 +151,7 @@ struct CicadaApp: App {
     // native AppKit window chrome (titlebar/background), which NSWindow
     // doesn't pick up from SwiftUI state automatically — see
     // `syncWindowChrome` below.
-    @AppStorage("cicada.colorScheme") private var colorSchemeRaw: String = AppColorScheme.dark.rawValue
+    @AppStorage("cicada.colorScheme") private var colorSchemeRaw: String = AppearancePreference.defaultChoice.rawValue
     /// Round-4 decision 6 (R-HO16) — Settings → General → Show in menu bar, per viewer, on by default.
     @AppStorage(MenuBarPreference.defaultsKey) private var menuBarVisible = true
     @AppStorage(MascotPreference.defaultsKey) private var mascotRaw = MascotRegistry.bookworm.id
@@ -627,7 +627,8 @@ struct CicadaApp: App {
     /// a preference change and a system flip both land here.
     private func applyAppearance() {
         let mode = appColorScheme
-        CicadaTheme.mode = mode
+        // Owner 2026-10-26 — a pointer's choice cross-fades the window; a key press switches in one frame (DR-60).
+        withAnimation(AppearanceMotion.current()) { CicadaTheme.mode = mode }
         if let window = NSApplication.shared.windows.first(where: { $0.canBecomeKey }) {
             syncWindowChrome(window, mode: mode)
         }

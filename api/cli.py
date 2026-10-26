@@ -681,7 +681,8 @@ def cmd_handshake(boot: Boot, args) -> Result:
         return Result(text=str(reply), data=reply.data or {"tokens_est": len(reply) // 4},
                       warnings=_root_warnings(boot))
     names = frozenset(r.name for r in cli_map.exposed())
-    text = handshake.build_cli(state_dictionary.read_state(boot.pin.path), commands=names, bank=boot.pin.name,
+    text = handshake.build_cli(state_dictionary.with_live_engine(state_dictionary.read_state(boot.pin.path)),
+                               commands=names, bank=boot.pin.name,
                                tz=handshake.local_timezone())
     handshake.record("cli", {"variant": handshake.CLI_VARIANT}, bank=boot.pin.path.name,
                      harness=_identity().harness)

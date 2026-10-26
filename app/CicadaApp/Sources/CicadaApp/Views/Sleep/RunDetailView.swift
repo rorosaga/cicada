@@ -86,87 +86,7 @@ enum RunPresentation {
     }
 }
 
-/// A run's row in Past nights: its day and start, "Reading all", the run's own numbers, and a chevron.
-struct PastRunRow: View {
-    let ref: SleepRunRef
-    let newest: SleepHistoryEntry
-    let isExpanded: Bool
-    /// Say it once — the day only on the first row of that day (`PastNightsLayout`).
-    var showsDate = true
-    let onToggle: () -> Void
-    @State private var hovering = false
-
-    var body: some View {
-        let start = ref.startedAt ?? newest.date
-        Button(action: onToggle) {
-            HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
-                Text(showsDate ? SleepHistoryPresentation.dateText(start) : "")
-                    .font(CicadaTheme.metaFont)
-                    .monospacedDigit()
-                    .foregroundStyle(CicadaTheme.textSecondary)
-                    .frame(width: CicadaTheme.scaled(48), alignment: .leading)
-                Text(SleepHistoryPresentation.timeText(start))
-                    .font(CicadaTheme.metaFont)
-                    .monospacedDigit()
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                    .frame(width: CicadaTheme.scaled(60), alignment: .leading)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(RunPresentation.title(ref))
-                        .font(CicadaTheme.bodyFont)
-                        .foregroundStyle(CicadaTheme.textPrimary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    if let caughtUp = RunPresentation.catchUp(ref) {
-                        // Owner 2026-10-19 — a schedule's missed time, said in words on the run's own row (DR-48 rows).
-                        Text(caughtUp)
-                            .font(CicadaTheme.metaFont)
-                            .monospacedDigit()
-                            .foregroundStyle(CicadaTheme.textSecondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    if let times = RunPresentation.times(ref) {
-                        Text(times)
-                            .font(CicadaTheme.metaFont)
-                            .monospacedDigit()
-                            .foregroundStyle(CicadaTheme.textTertiary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                Spacer(minLength: CicadaTheme.spacingSM)
-                // The engine in words beside its mark, as a cycle row says it (review of #363): the readout leaves its
-                // engine row to Past nights' newest row, which may be this one.
-                if let pill = SleepHistoryPresentation.enginePill(newest) {
-                    HStack(spacing: CicadaTheme.scaled(4)) {
-                        if let engine = newest.engine {
-                            EngineMark(engine: engine, size: CicadaTheme.scaled(12))
-                        }
-                        Text(pill)
-                            .font(CicadaTheme.metaFont)
-                            .foregroundStyle(CicadaTheme.textTertiary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                    }
-                    .frame(maxWidth: CicadaTheme.scaled(250), alignment: .trailing)
-                }
-                DisclosureChevron(isOpen: isExpanded)
-                    .frame(width: CicadaTheme.scaled(28))
-            }
-            .padding(.leading, CicadaTheme.scaled(10))
-            .padding(.trailing, CicadaTheme.scaled(4))
-            .padding(.vertical, CicadaTheme.scaled(6))
-            .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine))
-            .rowHoverFill(hovering: hovering)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.cicadaPlain)
-        .onHover { hovering = $0 }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel([Copy.SleepV5.readingAll, RunPresentation.summary(ref), RunPresentation.catchUp(ref),
-                             RunPresentation.times(ref)]
-            .compactMap { $0 }.joined(separator: ", "))
-    }
-}
-
-/// A run opened in Past nights (A8): the models it called and what it cost (in `CycleUsageText`'s words, each with
+/// A run's models and batches, under its card's "Models and batches" fold (A8; the run card, 2026-10-26): the models it called and what it cost (in `CycleUsageText`'s words, each with
 /// its basis), the pages it touched, and the batches with the pauses between them. Ids, counts and enums only; a
 /// model's name is the ledger's own — the person's engine — and which stages it served is data, never copy.
 struct RunDetailBlock: View {
@@ -254,22 +174,12 @@ struct RunDetailBlock: View {
 
     @ViewBuilder
     private func pages(_ detail: SleepRunDetail) -> some View {
-        if let pages = detail.pages, pages.created > 0 || !pages.first.isEmpty {
-            VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
-                SectionLabel(Copy.SleepV5.pagesItTouched)
-                FlowLayout(spacing: 6) {
-                    let names = store?.entityNames ?? .empty
-                    ForEach(pages.first.prefix(8), id: \.self) { id in
-                        // The page's neutral pill (DR-44), never an accent label (DR-5); the id stays in `.help`.
-                        Button { onSelectEntity?(id) } label: { Tag(text: Self.pageLabel(id, names: names)) }
-                            .buttonStyle(.cicadaPlain)
-                            .help(id)
-                    }
-                }
-                Text(Copy.SleepV5.pagesSummary(created: pages.created, ownerTouched: pages.ownerTouched))
-                    .font(CicadaTheme.metaFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-            }
+        // The pages themselves are the card's dropdown (the run card, 2026-10-26; DR-38 says them once); what stays here
+        // is the one fact the dropdown does not carry — whether the run touched the person's own page.
+        if let pages = detail.pages, pages.created > 0 || pages.ownerTouched != nil {
+            Text(Copy.SleepV5.pagesSummary(created: pages.created, ownerTouched: pages.ownerTouched))
+                .font(CicadaTheme.metaFont)
+                .foregroundStyle(CicadaTheme.textTertiary)
         }
     }
 

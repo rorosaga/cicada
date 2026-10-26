@@ -77,12 +77,17 @@ async def get_state(
             await state_dictionary.refresh_and_commit(memory_path, settings, force=refresh)
 
     await write_admission.run_admitted(memory_path, refresh_cursor)
+    # The engine is named as it is now (the Settings choice, `state_dictionary.with_live_engine`), so it is part of
+    # the tag: a choice changed since the file was written must not answer 304 with the old engine.
+    state = await run_in_threadpool(state_dictionary.read_state, memory_path)
+    state = state_dictionary.with_live_engine(state, settings)
+    eng = (state or {}).get("engine") or {}
     etag = sync_service.etag_for(
-        memory_path, "entities", "inbox", "episodes", "git_head", extra=f"state={_state_mtime_ns(settings)}"
+        memory_path, "entities", "inbox", "episodes", "git_head",
+        extra=f"state={_state_mtime_ns(settings)};engine={eng.get('engine')}/{eng.get('model')}",
     )
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
-    state = await run_in_threadpool(state_dictionary.read_state, memory_path)
     if state is None:
         raise HTTPException(404, "this bank has no _state.md yet and it could not be generated")
 

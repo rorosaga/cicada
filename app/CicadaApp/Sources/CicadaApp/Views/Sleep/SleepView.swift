@@ -568,10 +568,9 @@ struct SleepView: View {
                            onToggleHistory: toggleHistory, onSelectEntity: onSelectEntity, runRows: runRows(page),
                            runPaused: sleepVM.isPaused, onRetryParked: retryParked,
                            runDetails: sleepVM.runDetails, expandedRun: sleepVM.expandedRun,
-                           onToggleRun: { id in
-                               sleepVM.expandedRun = sleepVM.expandedRun == id ? nil : id
-                               Task { @MainActor in await sleepVM.loadRunDetail(id) }
-                           })
+                           onToggleRun: toggleRun,
+                           items: sleepVM.consolidated, itemsFailed: sleepVM.consolidatedFailed,
+                           onLoadItems: { key in Task { @MainActor in await sleepVM.loadConsolidated(key) } })
                 // DR-36 — key–value rows and prose keep the 760 pt text column.
                 .frame(maxWidth: SleepLayout.contentWidth, alignment: .leading)
                 .padding(.horizontal, plan.gutter)
@@ -1006,11 +1005,25 @@ struct SleepView: View {
     /// again this session.
     private func toggleHistory(_ commit: String) {
         let opening = sleepVM.expanded != commit
-        withAnimation(SleepMotion.disclosure(reduceMotion: reduceMotion)) {
+        // One card open at a time; a click eases open, a key opens in one frame (DR-60, `RunCardMotion`).
+        withAnimation(RunCardMotion.current(reduceMotion: reduceMotion)) {
             sleepVM.expanded = opening ? commit : nil
+            if opening { sleepVM.expandedRun = nil }
         }
         if opening {
             Task { @MainActor in await sleepVM.loadDetail(commit) }
+        }
+    }
+
+    /// A run's card: the same one-open rule and motion as a cycle's; its detail (models, batches) loads beside its items.
+    private func toggleRun(_ id: String) {
+        let opening = sleepVM.expandedRun != id
+        withAnimation(RunCardMotion.current(reduceMotion: reduceMotion)) {
+            sleepVM.expandedRun = opening ? id : nil
+            if opening { sleepVM.expanded = nil }
+        }
+        if opening {
+            Task { @MainActor in await sleepVM.loadRunDetail(id) }
         }
     }
 
