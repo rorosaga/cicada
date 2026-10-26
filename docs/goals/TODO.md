@@ -22,7 +22,7 @@
 - **2026-10-26 — ruling 40 recorded; an organisation's own website found during consolidation (G61, G146; branch
   `feat/org-website-sources`).** `org_sites` in Sleep's site-check step: the record, then one Wikidata match, trusted
   only when the homepage names the entity, otherwise a proposal in the "Confirm N links" review; a public place with a
-  trusted site draws its logo. Dry run on a copy of the owner's bank: 66 trusted, 132 proposals, 285 nothing. **Next:**
+  trusted site draws its logo. Dry run on a copy of the owner's bank: 55 trusted, 114 proposals, 29 left to another writer's entry or a waiting proposal, 285 nothing. **Next:**
   the owner reads the dry run's rows before anything touches the real bank (nothing was applied); the app should show
   `verified.why` ("Found by Cicada: …") on the source row (needs a Mac).
 - **2026-10-24 — ruling 39 recorded; both dates on every episode (G218, G71; branch `feat/both-dates`).** Every new
@@ -1834,8 +1834,10 @@ A whole row moves to DONE only after its remaining implementation and required a
     university, `<org>.edu` with a two-letter label, on 77 conversations) never got one; 120 Stage-1 proposals sat
     "not confirmed" for want of two summary words on the homepage (`site_sources.py:309`), outside the D5 review; and the
     D5 step proposes only profile links and repositories (`source_proposals.py:218,223`). The dry run
-    (`api.scripts.org_sites_dry_run`) over the copy examined 483 live in-scope pages: **66 trusted** (29 from the record,
-    37 from Wikidata; 60 draw a logo), **132 proposals**, 285 nothing; 1,020 skipped (762 archived, 142 already with a
+    (`api.scripts.org_sites_dry_run`) over the copy examined 483 live in-scope pages: **55 trusted** (18 from the record,
+    37 from Wikidata; 50 draw a logo), **114 proposals**, 29 left alone (a proposal already waiting, or another
+    writer's entry for the same site, which keeps the nightly site check — that check, read only, would trust 4 of
+    its 80 untrusted entries), 285 nothing; 1,020 skipped (762 archived, 142 already with a
     trusted site, 56 private names, 52 projects, 8 carrying a person's name). A hand check of every trusted row found
     3 of 79 wrong on the first pass (two common-word namesakes, one alias the page conflated); the content check was
     narrowed to curated text and alias-only matches made proposals, and the second pass trusts none of the three.
