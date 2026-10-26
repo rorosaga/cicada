@@ -9,10 +9,18 @@ import SwiftUI
 struct SavedListsStep: View {
     @Binding var ticked: Set<SavedListItem>
     let failure: String?
+    /// Tester readiness (2026-10-26): with no agent on this Mac connected, nothing can read these yet — said here, so
+    /// the consent is not mistaken for a connection (Sources then shows them "On · waits for your agent").
+    var agentConnected = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
             OnboardingHeadline(title: Copy.savedListsTitle, subline: Copy.savedListsSubline)
+            if !agentConnected {
+                Text(Copy.savedListsNoAgent)
+                    .font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                 ForEach(SavedListItem.allCases) { item in
                     Toggle(isOn: Binding(get: { ticked.contains(item) },

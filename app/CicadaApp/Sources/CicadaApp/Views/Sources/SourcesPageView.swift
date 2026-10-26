@@ -42,8 +42,12 @@ struct SourcesPageView: View {
             overview: overview)
         return SourceCatalog.rows(entries: entries, channels: channels, overview: overview,
                                   readableSites: reading.readableSites, localReaders: localReaders,
-                                  savedListsOn: reading.savedListsOn)
+                                  savedListsOn: reading.savedListsOn, localAgent: agents.connectedLocally)
     }
+
+    /// Tester readiness (2026-10-26) — whether an agent on this Mac is connected, polled while the page shows
+    /// (`GET /agents/live`, ids and times only): a list read in the browser is Connected only with one.
+    @State private var agents = AgentLiveProbe()
 
     @Environment(CalendarReader.self) private var calendarReader: CalendarReader?
     @Environment(ContactsReader.self) private var contactsReader: ContactsReader?
@@ -122,6 +126,7 @@ struct SourcesPageView: View {
         .environment(reading)
         .task { await exploreCache.refresh() }
         .task { await reading.loadSettings() }
+        .task { await agents.run() }
         .task { browsers = await Task.detached(priority: .userInitiated) { BrowserInventory.live() }.value }
         .onAppear { consumeAddSource() }
         .onChange(of: router.pendingAddSource) { _, _ in consumeAddSource() }

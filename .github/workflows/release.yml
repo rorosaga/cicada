@@ -111,6 +111,8 @@ jobs:
         env:
           CICADA_BUILD_NUMBER: ${{ steps.v.outputs.build }}
           CICADA_SIGN_IDENTITY: "-"
+          # Report a problem's private address; a repository variable, empty until the owner sets it (RELEASING.md).
+          CICADA_REPORT_EMAIL: ${{ vars.CICADA_REPORT_EMAIL }}
         run: cd app/CicadaApp && ./bundle.sh --release --with-backend
 
       - name: The app's version agrees

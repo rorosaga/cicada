@@ -443,3 +443,32 @@ def test_a_match_only_through_an_alias_is_never_trusted(tmp_path):
     _run(memory, wiki, Pages({"https://northwind-univ.edu": UNI_HOME}))
     [site] = _websites(_fm(memory))
     assert fact_sources.is_proposed(site) and site["evidence"]["reason"] == "matched_by_alias"
+
+
+def test_writing_a_found_site_keeps_the_pages_section_provenance(tmp_path):
+    """G118: the site writer touches ``sources`` only, so a page's item links (``section_provenance``) and the body
+    they point into come back byte for byte — the disposition `section_writer_inventory.json` declares for it."""
+    from api.services import evidence, section_provenance as sp
+    from api.services.claims import Evidence
+
+    memory = _uni_bank(tmp_path)
+    path = memory / "entities" / "northwind-example-university.md"
+    parsed = markdown_parser.parse(path)
+    [fact] = sp.scan(parsed.body)["key_facts"]
+    ev = Evidence(episode="ep_2026-10-07_001", hash=evidence.body_hash("user: synthetic"), start=0, end=6,
+                  kind="user")
+    parsed.frontmatter[sp.FIELD] = sp.encode({"key_facts": {fact.key: (fact.text_hash, [ev])}})
+    markdown_parser.write(path, parsed.frontmatter, parsed.body)
+    before = markdown_parser.parse(path)
+    assert sp.matched(before.frontmatter, before.body)["key_facts"], "the fixture page carries a matched item link"
+
+    finding = org_sites.Finding("northwind-example-university", "Northwind Example University", "company",
+                                site="https://northwind-univ.edu", basis="record", trusted=True,
+                                why="Found by Cicada: the page's own record carries it")
+    assert org_sites._write_page_locked(memory, "northwind-example-university", finding, "2026-10-26",
+                                        site_sources.Report()) == 1
+    after = markdown_parser.parse(path)
+    assert _websites(after.frontmatter), "the site was written"
+    assert after.body == before.body
+    assert after.frontmatter[sp.FIELD] == before.frontmatter[sp.FIELD]
+    assert sp.matched(after.frontmatter, after.body) == sp.matched(before.frontmatter, before.body)

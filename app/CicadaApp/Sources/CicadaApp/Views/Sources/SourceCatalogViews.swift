@@ -205,7 +205,15 @@ struct SourceCatalogDetail: View {
                 }
             }
             .padding(.horizontal, CicadaTheme.spacingXL)
-            .padding(.bottom, CicadaTheme.spacingMD)
+            .padding(.bottom, row.status == .waitingForAgent ? CicadaTheme.spacingXS : CicadaTheme.spacingMD)
+            if row.status == .waitingForAgent {
+                // Tester readiness (2026-10-26): on, but nothing reads it until an agent on this Mac is connected.
+                Text(Copy.Catalog.waitingForAgentHelp)
+                    .font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, CicadaTheme.spacingXL)
+                    .padding(.bottom, CicadaTheme.spacingMD)
+            }
             VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
                 controls.environment(\.sourceDetailHeadShown, true)
                 if let site = row.entry.site { readingToggle(site) }

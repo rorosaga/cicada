@@ -11,6 +11,19 @@ final class WelcomeLogicTests: XCTestCase {
         XCTAssertEqual(WelcomeName.firstWord("  "), "")
     }
 
+    /// Tester readiness (2026-10-26) — the Mac account's full name is a suggestion the person confirms or edits, never a
+    /// name stored unseen: offered only when nothing is saved, and "unconfirmed" while it sits untouched in the field.
+    func testTheMacAccountNameIsOnlyASuggestionUntilConfirmed() {
+        XCTAssertEqual(WelcomeName.suggestion(saved: nil, fullUserName: " Ada Example "), "Ada Example")
+        XCTAssertNil(WelcomeName.suggestion(saved: "Bob Example", fullUserName: "Ada Example"), "a saved name wins")
+        XCTAssertNil(WelcomeName.suggestion(saved: nil, fullUserName: "  "), "no name from the Mac, no suggestion")
+        XCTAssertTrue(WelcomeName.unconfirmed(name: "Ada Example", suggestion: "Ada Example", editing: true))
+        XCTAssertFalse(WelcomeName.unconfirmed(name: "Ada", suggestion: "Ada Example", editing: true), "edited")
+        XCTAssertFalse(WelcomeName.unconfirmed(name: "Ada Example", suggestion: "Ada Example", editing: false),
+                       "submitted with ⏎ is confirmed")
+        XCTAssertFalse(WelcomeName.unconfirmed(name: "Ada Example", suggestion: nil, editing: true), "typed, not offered")
+    }
+
     func testTheEngineLineNeverPromisesWhatAnUntouchedChooserWontDo() {
         let inputs = HonestyInputs(schedule: ScheduleConfig(mode: "manual", hour: 3, minute: 0), preview: nil,
                                    hasKey: false, ollamaReady: false, claudeConnected: false)

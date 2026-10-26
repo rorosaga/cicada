@@ -104,6 +104,8 @@ extension Copy {
     // MARK: The Welcome (Task 4, design §4.1)
     static let welcomeHelloNoName = "Hello."
     static let welcomeYourName = "Your name"
+    /// Tester readiness (2026-10-26): the field's prefill is the Mac account's name, a suggestion until confirmed.
+    static let welcomeNameFromMac = "From this Mac's account. Is that what you go by?"
     static let welcomeWhoReads = "Who reads what you save"
     static let welcomeStarting = "Starting…"
     static let welcomeSetUpLater = "Set up later"
@@ -149,7 +151,7 @@ extension Copy {
         gsWaiting(1_061), gsRunning(read: 1_061, total: 1_061), gsFinished(pages: 1_061),
         gsCapped(read: 1_061, left: 1_061), gsKeepReading,
         welcomeHelloNoName, welcomeYourName, welcomeWhoReads, welcomeStarting, welcomeSetUpLater, welcomeClose,
-        welcomeRemoveDrop, welcomeHello("Ada"), welcomeNotYou("Ada"),
+        welcomeRemoveDrop, welcomeHello("Ada"), welcomeNotYou("Ada"), welcomeNameFromMac,
         reminderRemindMe, reminderInThreeHours, reminderTomorrowMorning, reminderInTwoDays, reminderBody,
         reminderDropHere, reminderDismiss, welcomeAskForOne,
         reminderRowLine(requested: "2 hours ago", reminder: "in 21 hours"),

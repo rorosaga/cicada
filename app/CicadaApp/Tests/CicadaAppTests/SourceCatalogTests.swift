@@ -37,9 +37,52 @@ final class SourceCatalogTests: XCTestCase {
         XCTAssertEqual(row("x", in: r)?.status, .off)
     }
 
-    func testInstagramIsConnectedOnlyOnceItsSiteMayBeRead() {
+    func testInstagramIsConnectedOnlyOnceItsSiteMayBeReadByAnAgentHere() {
         XCTAssertEqual(row("instagram", in: rows())?.status, .off)
-        XCTAssertEqual(row("instagram", in: rows(readable: ["instagram"]))?.status, .connected)
+        let entries = SourceCatalog.entries(browsers: [], wisprPresent: false, overview: [])
+        let withAgent = SourceCatalog.rows(entries: entries, channels: [], overview: [], readableSites: ["instagram"],
+                                           localAgent: true)
+        XCTAssertEqual(row("instagram", in: withAgent)?.status, .connected)
+        XCTAssertEqual(row("instagram", in: rows(readable: ["instagram"]))?.status, .waitingForAgent)
+    }
+
+    /// Tester readiness (2026-10-26, `13-sources.png`): a fresh setup that accepted the pre-ticked saved-lists step with
+    /// no agent connected read "Sources · 5 connected", X, YouTube, Instagram and LinkedIn each Connected. A list only
+    /// an agent reads is Connected only while an agent on this Mac is connected; until then it is on, says what it
+    /// waits for, and the header does not count it.
+    func testSavedListsWithNoAgentHereWaitAndAreNotCounted() {
+        let entries = SourceCatalog.entries(browsers: [], wisprPresent: false, overview: [])
+        let synced = [SourceChannel(id: "calendar-local", label: "Calendar", connected: true,
+                                    lastSync: "2026-10-26T10:00:00Z")]
+        let lists: Set<String> = ["x", "instagram", "linkedin", "youtube"]
+        let waiting = SourceCatalog.rows(entries: entries, channels: synced, overview: [], readableSites: [],
+                                         savedListsOn: lists, localAgent: false)
+        for id in ["x", "youtube", "instagram", "linkedin"] {
+            XCTAssertEqual(row(id, in: waiting)?.status, .waitingForAgent, id)
+            XCTAssertNil(SourceCatalog.line(row(id, in: waiting)!, now: .now), "\(id): no sync line while waiting")
+        }
+        XCTAssertEqual(SourceCatalog.connectedCount(waiting), 1, "only the calendar is connected")
+        XCTAssertEqual(Copy.Catalog.eyebrow(SourceCatalog.connectedCount(waiting)), Copy.Catalog.eyebrow(1))
+        // Every other row is untouched by the lists: nothing else waits.
+        XCTAssertEqual(Set(waiting.filter { $0.status == .waitingForAgent }.map(\.id)), ["x", "youtube", "instagram",
+                                                                                      "linkedin"])
+        let connected = SourceCatalog.rows(entries: entries, channels: synced, overview: [], readableSites: [],
+                                           savedListsOn: lists, localAgent: true)
+        XCTAssertEqual(SourceCatalog.connectedCount(connected), 5)
+        XCTAssertEqual(SourceCatalogStatus.waitingForAgent.word, "On · waits for your agent")
+        XCTAssertNotEqual(SourceCatalogStatus.waitingForAgent.tone, .on, "never painted as connected")
+    }
+
+    /// Only an agent on this Mac reads a list in the browser (the reading tools are stdio only): a connector-only app
+    /// is not one; a config that names Cicada, or a stdio call, is.
+    func testOnlyALocalAgentCountsForAListReadInTheBrowser() {
+        XCTAssertFalse(AgentLiveResponse.anyConnectedLocally([]))
+        XCTAssertFalse(AgentLiveResponse.anyConnectedLocally([AgentLiveRow(id: "claude-ai", connected: true,
+                                                                           via: "remote")]))
+        XCTAssertFalse(AgentLiveResponse.anyConnectedLocally([AgentLiveRow(id: "codex", connected: false)]))
+        XCTAssertTrue(AgentLiveResponse.anyConnectedLocally([AgentLiveRow(id: "claude-code", connected: true,
+                                                                          via: "config")]))
+        XCTAssertTrue(AgentLiveResponse.anyConnectedLocally([AgentLiveRow(id: "codex", connected: true, via: "mcp")]))
     }
 
     func testTheLineIsTheLastSyncOnlyWhileOn() {
@@ -164,11 +207,12 @@ final class SourceCatalogTests: XCTestCase {
                        "with no reader on this Mac switched off, a Takeout history import counts")
     }
 
-    /// G206 (#426) — a saved list the person's agent keeps current is a connection; the copy no longer says "coming".
+    /// G206 (#426) — a saved list the person's agent keeps current is a connection (with an agent here to read it); the
+    /// copy no longer says "coming".
     func testASavedListOnIsConnectedAndTheInstagramCopySaysWhatExists() {
         let entries = SourceCatalog.entries(browsers: [], wisprPresent: false, overview: [])
         let r = SourceCatalog.rows(entries: entries, channels: [], overview: [], readableSites: [],
-                                   savedListsOn: ["instagram", "x"])
+                                   savedListsOn: ["instagram", "x"], localAgent: true)
         XCTAssertEqual(row("instagram", in: r)?.status, .connected)
         XCTAssertEqual(row("x", in: r)?.status, .connected)
         XCTAssertEqual(row("linkedin", in: r)?.status, .off)

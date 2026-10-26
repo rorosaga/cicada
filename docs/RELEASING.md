@@ -163,6 +163,20 @@ To rotate it (only if it leaks): generate a new pair, `gh secret set CICADA_UPDA
 new-key.pem`, commit the new public key, and cut a release **signed with the old key** that carries the new public key
 — an installed app only trusts the key it was built with. Then the next release can be signed with the new key.
 
+## Where Report a problem sends (owner 2026-10-26)
+
+Help → Report a Problem… shows the person a redacted report and, in a release that carries a report address, one
+**Send** that copies it and opens a new email to that address. The address is a private email and never lives in this
+public repo: it is the repository **variable** `CICADA_REPORT_EMAIL`, which `release.yml` passes to `bundle.sh`, which
+stamps it into the app's Info.plist as `CicadaReportEmail`. Set or change it with:
+
+```sh
+gh variable set CICADA_REPORT_EMAIL --body "<the address>"
+```
+
+and it applies from the next release. Unset (and in every developer build) the app has no Send: the sheet offers Copy
+and Save and says "Send this to the person who gave you Cicada". There is no fallback to public GitHub issues.
+
 ## Keeping macOS permissions across updates
 
 macOS (TCC) files every privacy grant — Full Disk Access, Contacts, Calendar, Automation, Screen Recording — against

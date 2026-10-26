@@ -317,6 +317,14 @@ final class AppRouter {
         }
     }
 
+    /// Report a problem… (tester readiness 2026-10-26) — Help menu and Settings → General open the one sheet the main
+    /// window presents (`ReportProblemSheet`); with no window open, the window that opens shows it.
+    var reportProblemOpen = false
+
+    func openReportProblem() {
+        reportProblemOpen = true
+    }
+
     /// The Sources page with its *Reading in your browser* sheet open (Reading the web's switches since D6).
     var pendingReadingSheet = false
 

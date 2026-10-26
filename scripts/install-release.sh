@@ -28,6 +28,8 @@ die()  { printf '\033[31m✗\033[0m %s\n' "$1" >&2; exit 1; }
 major="$(sw_vers -productVersion | cut -d. -f1)"
 [ "$major" -ge 14 ] || die "Cicada needs macOS 14 Sonoma or later (this Mac runs $(sw_vers -productVersion))."
 
+say "Cicada needs Claude Code (or Codex) signed in to a paid plan to read your conversations into memory (an API key in Settings works instead)."
+
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 

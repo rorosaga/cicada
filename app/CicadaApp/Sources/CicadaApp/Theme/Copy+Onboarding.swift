@@ -133,6 +133,11 @@ extension Copy {
     /// Agents.
     static let agentsTitle = "Connect your agents"
     static let agentsSubline = "They read your memory and add to it."
+    /// Tester readiness (2026-10-26) — the one prerequisite, said where agents are connected: consolidation runs on the
+    /// person's own Claude Code or Codex plan (or a key they add). Names the two tools as what to have, never as a
+    /// choice Cicada made for them (provider-neutral copy, owner 2026-09-30).
+    static let agentsNeedsPlan = "To read your conversations into memory, Cicada needs Claude Code or Codex signed in "
+        + "to a paid plan, or an API key added in Settings."
     static let agentsConnect = "Connect"
     static let agentsRun = "Run these"
     static let agentsShowCommands = "Show commands"
@@ -174,6 +179,7 @@ extension Copy {
     static let savedListsTitle = "Keep your saved lists current"
     static let savedListsSubline = "Your own agent reads these in your signed-in browser, at most 10 times a day. "
         + "These sites' terms discourage automated access, even to your own account."
+    static let savedListsNoAgent = "No agent is connected yet, so nothing reads these until you connect one."
     static let savedListsKeep = "Keep them current"
     static let savedListsSaveFailed = "That didn't save. Try again, or turn the lists on later on the Sources page."
     static func savedListsItem(_ item: SavedListItem) -> String {

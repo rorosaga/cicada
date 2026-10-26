@@ -112,6 +112,9 @@ agent you already talk to.
 
 On an Apple silicon Mac with macOS 14 or later:
 
+**You also need Claude Code (or Codex) installed and signed in to a paid plan** — Cicada uses it to read your
+conversations into memory (an API key added in Settings works instead).
+
 ```sh
 curl -fsSL https://raw.githubusercontent.com/rorosaga/cicada/main/scripts/install-release.sh | bash
 ```
@@ -120,6 +123,9 @@ That installs the latest release into `~/Applications` and opens it. The app car
 on-device search model, so nothing else needs installing, and it keeps itself up to date. Downloading the zip from
 [Releases](https://github.com/rorosaga/cicada/releases) works too; until the app is notarized, macOS asks once
 (System Settings → Privacy & Security → Open Anyway). How releases are cut: [`docs/RELEASING.md`](docs/RELEASING.md).
+Until the app is signed by Apple, macOS may ask again after an update for permissions you gave it (Full Disk Access,
+Contacts, Calendar…); grant them again. To report a problem, use Help → Report a Problem… in the app: it shows you the
+report before anything is sent.
 
 ## Install on a server (Linux), or with Homebrew
 

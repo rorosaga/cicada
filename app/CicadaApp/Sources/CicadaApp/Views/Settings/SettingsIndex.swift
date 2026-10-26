@@ -70,7 +70,7 @@ enum SettingsIndex {
     /// in the same commit (R-O1).
     static let staticIDs: [SettingsRowID] = [
         .appearance, .textSize, .openAtLogin, .showInMenuBar, .backgroundService,
-        .runSetup, .guidedTour, .demoMemory, .appVersion, .autoUpdate,
+        .runSetup, .guidedTour, .demoMemory, .appVersion, .autoUpdate, .reportProblem,
         .ownerName, .ownerPhoto, .ownerEmail, .ownerProfiles, .ownerHandle, .ownerPage,
         .engineChoice, .plansAndKeys, .sleepUsePlan, .engineOverage, .engineAutoClaude,
         .sceneryPreview, .sleepRuns, .sleepTime, .sleepInterval, .scenerySource, .sceneryTime, .sceneryWeather, .mascot,
@@ -117,6 +117,8 @@ enum SettingsIndex {
         SettingsEntry(.autoUpdate, .general, Copy.Updates.autoTitle,
                       keywords: ["update", "updates", "automatic", "upgrade", "new version", "check for updates", "install"],
                       anchor: .appVersion),
+        SettingsEntry(.reportProblem, .general, Copy.ReportProblem.title,
+                      keywords: ["report", "problem", "bug", "issue", "feedback", "diagnostics", "logs", "help"]),
         // You
         SettingsEntry(.ownerName, .you, Copy.ownerNameTitle, keywords: ["name", "me", "owner", "who"]),
         SettingsEntry(.ownerPhoto, .you, Copy.Profiles.photo, keywords: ["photo", "picture", "face"],

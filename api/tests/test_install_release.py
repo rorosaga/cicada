@@ -78,6 +78,9 @@ def test_it_installs_the_checked_release_and_trashes_the_old_copy(release):
     done = _run(env)
     assert done.returncode == 0, done.stderr + done.stdout
     assert "Installed Cicada 9.9.9" in done.stdout
+    # Tester readiness (2026-10-26): the one prerequisite is said first, before anything downloads.
+    first = done.stdout.splitlines()[0]
+    assert "Claude Code (or Codex)" in first and "paid plan" in first
     assert "9.9.9" in (dest / "Contents" / "Info.plist").read_text()
     trashed = list((home / ".Trash").glob("Cicada *.app"))
     assert len(trashed) == 1 and "0.0.1" in (trashed[0] / "Contents" / "Info.plist").read_text()

@@ -21,15 +21,20 @@ enum SourceCatalogGroup: String, CaseIterable, Identifiable {
     }
 }
 
-/// Dot plus one word, and only these three (ruling 36, the connection model's status words for Sources).
+/// Dot plus one word (ruling 36, the connection model's status words for Sources), and one honest fourth: a list the
+/// person turned on that only their own agent can read, while no such agent is connected (tester readiness
+/// 2026-10-26 — a fresh setup read "5 connected" with nothing able to read four of them). It is on, it is not
+/// connected, and it never counts as connected.
 enum SourceCatalogStatus: Equatable {
     case connected, needsSignIn, off
+    case waitingForAgent
 
     var word: String {
         switch self {
         case .connected: Copy.Catalog.connected
         case .needsSignIn: Copy.Catalog.needsSignIn
         case .off: Copy.Catalog.off
+        case .waitingForAgent: Copy.Catalog.waitingForAgent
         }
     }
 }
@@ -211,10 +216,12 @@ enum SourceCatalog {
     /// and, for a reader this Mac runs, that reader is still on (`localReaders`: channel id → on; 2026-10-23 — a
     /// Calendar disconnected here kept reading Connected, because the backend only knows it synced once); also a
     /// folder channel for Folders, an allowed site for an account read in the browser, any conversation for an agent's
-    /// row; Off otherwise.
+    /// row; Off otherwise. A site an agent reads in the person's browser (an allowed site, a saved list kept current)
+    /// is Connected only while a local agent that can read it is connected (`localAgent`: one on this Mac, through
+    /// stdio and hooks — the reading tools are stdio only); turned on with none, it waits for one, and says so.
     static func status(for entry: SourceCatalogEntry, channels: [SourceChannel], overview: [SourceOverview],
                        readableSites: Set<String>, localReaders: [String: Bool] = [:],
-                       savedListsOn: Set<String> = []) -> SourceCatalogStatus {
+                       savedListsOn: Set<String> = [], localAgent: Bool = false) -> SourceCatalogStatus {
         // G218 — traces read Connected only while the recorder records here; paused, off or on a server they read Off
         // (ruling 36's three words; the detail's own line says "Paused until …").
         if entry.id == tracesId { return localReaders[tracesId] == true ? .connected : .off }
@@ -235,11 +242,14 @@ enum SourceCatalog {
         }) {
             return .connected
         }
-        if let site = entry.site, entry.verb == .turnOn, readableSites.contains(site) { return .connected }
-        // G206: the person's agent keeps this site's saved list current (agent reading on and the list's switch on).
-        if let site = entry.site, savedListsOn.contains(site) { return .connected }
-        // 2026-10-26: the same for YouTube's Watch later and history (`savedListsOn` holds "youtube" then).
-        if entry.id == "youtube", savedListsOn.contains("youtube") { return .connected }
+        let agentReads = entry.site.map { site in
+            (entry.verb == .turnOn && readableSites.contains(site))
+                // G206: the person's agent keeps this site's saved list current (agent reading on, the list's switch on).
+                || savedListsOn.contains(site)
+        } ?? false
+            // 2026-10-26: the same for YouTube's Watch later and history (`savedListsOn` holds "youtube" then).
+            || (entry.id == "youtube" && savedListsOn.contains("youtube"))
+        if agentReads { return localAgent ? .connected : .waitingForAgent }
         return .off
     }
 
@@ -258,12 +268,12 @@ enum SourceCatalog {
 
     static func rows(entries: [SourceCatalogEntry], channels: [SourceChannel], overview: [SourceOverview],
                      readableSites: Set<String>, localReaders: [String: Bool] = [:],
-                     savedListsOn: Set<String> = []) -> [SourceCatalogRow] {
+                     savedListsOn: Set<String> = [], localAgent: Bool = false) -> [SourceCatalogRow] {
         entries.map { entry in
             SourceCatalogRow(entry: entry,
                              status: status(for: entry, channels: channels, overview: overview,
                                             readableSites: readableSites, localReaders: localReaders,
-                                            savedListsOn: savedListsOn),
+                                            savedListsOn: savedListsOn, localAgent: localAgent),
                              lastSync: lastSync(for: entry, channels: channels, overview: overview))
         }
     }
@@ -276,7 +286,7 @@ enum SourceCatalog {
         }
     }
 
-    /// "Sources · 6 connected" — the eyebrow counts what is on.
+    /// "Sources · 6 connected" — the eyebrow counts what is connected; a list waiting for an agent is not.
     static func connectedCount(_ rows: [SourceCatalogRow]) -> Int {
         rows.filter { $0.status == .connected }.count
     }
@@ -284,7 +294,7 @@ enum SourceCatalog {
     /// The second line, only when it says something: when it last synced ("2 h ago"), else nothing (the status word
     /// on the right says the rest — never a sentence, design-refs pattern 4).
     static func line(_ row: SourceCatalogRow, now: Date, locale: Locale = .autoupdatingCurrent) -> String? {
-        guard row.status != .off, let last = row.lastSync else { return nil }
+        guard row.status == .connected || row.status == .needsSignIn, let last = row.lastSync else { return nil }
         guard now.timeIntervalSince(last) >= 60 else { return Copy.Catalog.justNow }
         let f = RelativeDateTimeFormatter()
         f.unitsStyle = .short

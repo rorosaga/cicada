@@ -257,6 +257,10 @@ struct ContentView: View {
         // DR-33 — Settings is a panel inside this window, above every other layer; the shell
         // under it is inert (R-DS21).
         .overlay { if router.settingsOpen { SettingsPanel() } }
+        // Report a problem… (tester readiness 2026-10-26): the Help menu and Settings → General open it here.
+        .sheet(isPresented: Binding(get: { router.reportProblemOpen }, set: { router.reportProblemOpen = $0 })) {
+            ReportProblemSheet { router.reportProblemOpen = false }
+        }
         // R-DS24 — the palette never shares the window with the panel, and the intake's overlay
         // (a drop, the Dock) takes the window back from it.
         .onChange(of: router.settingsOpen) { _, open in if open && paletteOpen { closePalette() } }

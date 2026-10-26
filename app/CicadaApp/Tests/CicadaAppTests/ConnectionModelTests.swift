@@ -100,10 +100,14 @@ final class ConnectionModelTests: XCTestCase {
         XCTAssertFalse(ProfileLink.needsConnecting("https://github.com/bob-example"))
     }
 
+    /// Agents is the ninth cell, ⌘9. G218's Traces page (2026-10-26) is appended after it as the tenth, with no ⌘ key
+    /// (⌘0 is Actual Size), so no existing shortcut moved (DR-22).
     func testTheAgentsPageIsTheNinthCellAndNoShortcutMoved() {
-        XCTAssertEqual(AppTab.allCases.last, .agents)
+        XCTAssertEqual(AppTab.allCases.suffix(2), [.agents, .traces])
         XCTAssertEqual(RailItem.digit(for: .agents), 9)
+        XCTAssertEqual(RailItem.shortcut(for: .agents), "⌘9")
         XCTAssertEqual(RailItem.digit(for: .projects), 8)
+        XCTAssertNil(RailItem.keyDigit(for: .traces), "a tenth page gets no digit key")
         XCTAssertEqual(AppTab.restored(from: "Agents"), .agents)
     }
 

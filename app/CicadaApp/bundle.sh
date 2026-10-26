@@ -158,6 +158,11 @@ if [ "$WITH_BACKEND" = "1" ]; then
   plutil -replace CicadaUpdatePublicKey -string "$(tr -d '[:space:]' < "$REPO_ROOT_DIR/scripts/release/update-public-key.txt")" \
     "$APP/Contents/Info.plist"
   plutil -replace CicadaUpdateRepo -string "${CICADA_UPDATE_REPO:-rorosaga/cicada}" "$APP/Contents/Info.plist"
+  # Report a problem's private address (owner 2026-10-26): CI's CICADA_REPORT_EMAIL repository variable, never a
+  # default in the repo (it is public). Unset, the key is absent and the sheet offers Copy and Save only.
+  if [ -n "${CICADA_REPORT_EMAIL:-}" ]; then
+    plutil -replace CicadaReportEmail -string "$CICADA_REPORT_EMAIL" "$APP/Contents/Info.plist"
+  fi
   # Symbols are 60% of the binary and nothing on a tester's Mac reads them.
   strip -x "$APP/Contents/MacOS/CicadaApp"
   "$REPO_ROOT_DIR/scripts/release/sign-app.sh" "$APP"

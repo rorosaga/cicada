@@ -10,6 +10,8 @@ struct WelcomePage: View {
     let mode: OnboardingMode
     @Binding var name: String
     @Binding var editingName: Bool
+    /// The field holds the Mac account's name, not yet confirmed: say where it came from (tester readiness 2026-10-26).
+    var fromMacAccount = false
     let busy: Bool
     let failure: String?
     /// Exports dropped on this page, held until Get started (R-OB2) — said, so a drop never vanishes silently.
@@ -25,6 +27,16 @@ struct WelcomePage: View {
     var body: some View {
         let first = WelcomeName.firstWord(name)
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
+            if editingName && fromMacAccount {
+                Text(Copy.welcomeHelloNoName)
+                    .font(CicadaTheme.displayFont(size: 40))
+                    .tracking(CicadaTheme.displayTracking(size: 40))
+                    .foregroundStyle(CicadaTheme.textPrimary)
+                    .accessibilityAddTraits(.isHeader)
+                Text(Copy.welcomeNameFromMac)
+                    .font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if editingName {
                 TextField(Copy.welcomeYourName, text: $name)
                     .textFieldStyle(.roundedBorder)

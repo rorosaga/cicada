@@ -30,6 +30,9 @@ final class OnboardingFlowTests: XCTestCase {
                        [.saveOwner("Ada"), .markOnboarded, .recordGettingStarted([]), .showHome])
         XCTAssertEqual(OnboardingFlow.laterSteps(name: "Ada", ownerSaved: true),
                        [.markOnboarded, .recordGettingStarted([]), .showHome])
+        // An unconfirmed Mac-account suggestion is no answer: nothing is saved for it (tester readiness 2026-10-26).
+        XCTAssertEqual(OnboardingFlow.laterSteps(name: nil, ownerSaved: false),
+                       [.markOnboarded, .recordGettingStarted([]), .showHome])
     }
 
     /// R-OB15 — Open Cicada marks the live bank (a rerun too: I-b final review, finding 2), records the agents Cicada
