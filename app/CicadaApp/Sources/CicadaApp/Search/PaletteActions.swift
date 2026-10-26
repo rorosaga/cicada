@@ -23,9 +23,11 @@ enum PaletteActions {
             add("consolidate", "Consolidate now", keywords: ["sleep", "run", "consolidate"],
                 symbol: "moon.zzz", destination: .action(.consolidate), order: 0)
         }
-        for (i, tab) in AppTab.allCases.enumerated() {
+        // Owner 2026-10-26 — only the pages the rail shows; each with its own ⌘ digit, which never moves (DR-22).
+        for (i, tab) in AppTab.shown(tracesPage: inputs.tracesPage).enumerated() {
+            let key = RailItem.shortcut(for: tab)
             add("tab.\(tab.rawValue)", "Go to \(tab.title)", keywords: ["open", "page", "show"], symbol: tab.icon,
-                trailing: i < 9 ? "⌘\(i + 1)" : nil, destination: .tab(tab), order: 10 + i)
+                trailing: key.isEmpty ? nil : key, destination: .tab(tab), order: 10 + i)
         }
         if inputs.appearance == .dark {
             add("appearance.light", "Switch to light", keywords: ["appearance", "theme", "day"],

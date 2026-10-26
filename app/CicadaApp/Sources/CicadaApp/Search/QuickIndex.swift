@@ -13,6 +13,8 @@ struct QuickIndexInputs: Sendable {
     var isSleeping = false
     var unprocessed = 0
     var appearance: AppColorScheme = .dark
+    /// G218 (owner 2026-10-26) — the Traces page is on the rail, so ⌘K offers "Go to Traces".
+    var tracesPage = false
 
     @MainActor
     static func from(_ store: Store, askHistory: [AskHistoryEntry]) -> QuickIndexInputs {
@@ -22,7 +24,7 @@ struct QuickIndexInputs: Sendable {
                          askHistory: askHistory,
                          isSleeping: store.status.value?.sleep.status == "running",
                          unprocessed: store.status.value?.episodes.unprocessed ?? 0,
-                         appearance: CicadaTheme.mode)
+                         appearance: CicadaTheme.mode, tracesPage: TracesPageVisibility.stored)
     }
 
     /// Changes whenever an input could have (R-SU5) — timestamps, counts and
@@ -43,7 +45,7 @@ struct QuickIndexInputs: Sendable {
                      "\(askHistoryCount)",
                      store.status.value?.sleep.status ?? "",
                      (store.status.value?.episodes.unprocessed ?? 0) > 0 ? "waiting" : "rested",
-                     CicadaTheme.mode.rawValue]
+                     CicadaTheme.mode.rawValue, TracesPageVisibility.stored ? "traces" : "-"]
         return ([store.bank] + stamps + flags).joined(separator: "|")
     }
 }

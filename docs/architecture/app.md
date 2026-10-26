@@ -56,6 +56,13 @@ Agents page, ⌘9, `AppTab.agents`, appended so no shortcut moved — DR-22).
   behind the versioned first-use sheet), the signed-in session (ruling 25), the YouTube lists, Never explore, how the
   agent reads and watches, the sites — in one sheet from the Sources page's header (`ReadingInBrowserSheet`); the
   retired `reading` section and its rows open it (`SettingsHome.readingInBrowser`, `AppRouter.routeToReadingInBrowser`).
+  **Where to check** (owner 2026-10-26, G61) opens the sheet, above the switches (`AddedSourcesSection`): paste a link,
+  optionally pick a page by name (live pages only, never creating one), *Add* — with a page it is that page's source
+  as the person's own (`POST /entities/{id}/sources`), with none it is saved as a link (`POST /sources/save`). Below it,
+  every page's sources the person and their agents added (`GET /sources/where-to-check`, an agent named by its harness),
+  each with who and when and an ✕ that removes it as the person (`/sources/change` remove — remembered). Not a Store
+  domain: `AddedSourcesModel` keeps the list in memory with its ETag (a 304 keeps it) and reads it again after each
+  write; a removal is optimistic with rollback.
 - **Status words** (fix round; words ruling 39, 2026-10-24): a dot and one word from one vocabulary — *Connected*,
   *Not connected*, *Off* (the person turned it off), *Needs sign-in* — across onboarding, the Agents page, Sources and
   Settings; "Found" and "Not set up" are never a status. The dot and the word agree: an agent or a paired device is *Connected* (green) when seen within the backend's window, configured, with conversations or seen before — recency lives in the line ("3 min ago", "last seen <day>"), never in the dot — else *Not connected* (`Copy.Presence`: `.connected`, `.idle` (only the line's wording differs), `.notConnected`). A plan or key in Settings → Intelligence nobody connected reads *Not connected*, never *Off*. An agent's detail draws the connect steps (`AgentSetupSteps`:
@@ -628,6 +635,18 @@ or after `CicadaTiming.traceScreenshotsShown` (5 min). The menu bar shows "Recor
 Resume traces / Forget the last 15 minutes while traces are on (`MenuBarManager` `TraceMenuState`, read as the menu
 opens; no dot on the sprite, which would collide with the count badge). The recorder (`TraceRecorder`, environment,
 `start()` on launch) is described in `capture-and-sleep.md`, "Activity traces"; the store in `storage.md`.
+
+**The Traces page (owner 2026-10-26, G218).** Once traces are on or were ever on (`TracesPageVisibility`: enabled,
+consent given, or a day kept — the recorder's answer, mirrored per viewer into `cicada.traces.pageShown` so the rail
+knows at launch; a server connection or a Wipe takes it away), **Traces** is a rail page (`AppTab.traces`, appended
+tenth with no ⌘ digit — DR-22, ⌘0 is Actual Size) and ⌘K offers *Go to Traces*. `TracesPage`: the eyebrow (Traces ·
+the state line) with *Settings…* (`TracesSettingsSheet`: `TracesControls` without *Browse*) and *Wipe all traces…*; one
+line, "Everything here stays on this Mac, encrypted; screenshots N days, timeline N days" from the person's own
+retention; then `TracesTimelineView` in its page layout — the days down the side (`bgSelected` selection, instant),
+the day's screenshots behind the same Touch ID gate and its spans beside them, the search in the header; leaving the
+page drops every screenshot like closing the sheet did. Sources' Traces detail becomes one line and *Open Traces*
+(`TracesSourcesLink`) once the page exists; before traces were first turned on it keeps the switch (`TracesControls`).
+A hidden Traces page lands on Sources (`AppTab.landing`).
 
 **Messages (G179, 2026-10-15).** Its panel's **Read again** (2026-10-20, shown while a chat is ticked) re-reads every
 ticked chat from its first message so sittings saved before reactions, replies, edits and attachments were kept get
@@ -1526,6 +1545,13 @@ the start or end of a longer name — "Claude" is not named by "Claude Code"; in
   a record with no basis reads "The agent didn't say how it read this", never a claim about when it was made.
   The Reader's header for a watch record and each `media` turn's fidelity are built from the episode's `watch` block.
   Every string is in `Copy+Videos.swift`, and `VideoCopyNeutralityTests` fails on a provider or model name.
+
+**Hidden (owner 2026-10-26) until the G222 redesign.** `PageSwitches.projectsPage` is off: the rail draws no Projects
+cell (⌘8 opens nothing; no other digit moved), ⌘K has no *Go to Projects* and a project's row opens its page on the
+graph, the tour skips its Projects stop (`TourStop.shown`), `routeToProject` / `routeToBacklogItem` open the project's
+own page (`routeToEntity`), and a stored "Projects" selection lands on Clusters (`AppTab.landing`). Nothing below is
+deleted and no project page changes; turning the switch back on restores all of it. Projects still appear in Clusters,
+on the graph, on a person's card ("What's happening", which now opens the project's page) and in ⌘K as pages.
 
 **Projects (G141 PJ-5, Direction D; v2 owner 2026-10-19 — dated ruling in `docs/design/DESIGN_RULES.md` §9).** The
 eighth page (⌘8, after Sources): a list page in progressive columns over `GET /projects` and `GET /projects/{id}/timeline`, which are **not** Store domains —

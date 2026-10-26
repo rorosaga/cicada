@@ -200,6 +200,23 @@ extension Copy {
         }
         static let close = "Close"
 
+        // MARK: - The Traces page (owner 2026-10-26)
+
+        /// The page's one line on where traces live, with the person's own retention.
+        static func staysHere(shotDays: Int, timelineDays: Int) -> String {
+            let shots = shotDays == 1 ? "1 day" : "\(shotDays) days"
+            let line = timelineDays == 1 ? "1 day" : "\(timelineDays) days"
+            return "Everything here stays on this Mac, encrypted; screenshots \(shots), timeline \(line)."
+        }
+        static let settings = "Settings…"
+        static let settingsHelp = "Pause, what is recorded, what joins memory, how long it is kept, what is never recorded."
+        static let settingsTitle = "Traces settings"
+        static let daysSection = "Days"
+        /// Sources' Traces row once the page exists: one line and the way there.
+        static let onItsPage = "Your traces have their own page: the timeline by day, and screenshots after Touch ID."
+        static let openPage = "Open Traces"
+        static let openPageHelp = "Go to the Traces page."
+
         // MARK: - The menu bar
 
         static let menuRecording = "Recording traces"

@@ -708,6 +708,12 @@ Round 4 (C2–C4):
   is refused then too (it used to write uncommitted). The card reads a page's sources with the beliefs each backs (the
   page's current claims of the source's predicate), its non-source `## Links` and its conversations by app in one
   read, `GET /entities/{id}/sources/overview` (`page_sources`, owner 2026-10-14; `api.md`). A Contacts card row offers only Remove on the card.
+  **Every page's added sources in one read (G61, owner 2026-10-26).** `GET /sources/where-to-check` (`source_roster`)
+  lists the sources the person (`added_by: user`) and their named agents (a `source_overview.HARNESS_LABELS` harness)
+  added on live pages, newest first, capped at 500 with the total — Cicada's own, a Sleep model's citation, the
+  engine-free step's `agent` proposals and Contacts cards stay on their pages. Engine-free, read from the frontmatter
+  cache, ETag over `entities` plus `source_roster.SHAPE`; it writes nothing — the Sources area adds and removes through
+  the page's own routes, so `fact_sources` stays the one writer.
   **Re-checked, dated, the newest evidence wins (G61, TODO ruling 26, owner 2026-10-14).** A tracked source (trusted, not
   `only_me`, a `url`) keeps its re-check state on its own entry: `refresh: {at, outcome, good, episode, hash, changed?,
   asked?, tries?, blocked?, misses?: [{at, outcome}], dead?: {since, at, outcome}}` and the person's cadence

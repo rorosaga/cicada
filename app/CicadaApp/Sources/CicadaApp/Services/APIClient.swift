@@ -3888,6 +3888,16 @@ extension APIClient: SyncAPI {
     /// G124 — `GET /sources/overview`. A 404 means the backend predates the
     /// endpoint: keep whatever snapshot the page already has rather than
     /// blanking the grid.
+    /// G61 (owner 2026-10-26) — `GET /sources/where-to-check`: every page's sources the person and their agents added.
+    /// Not a Store domain: `AddedSourcesModel` keeps it in memory with this ETag. An older backend's 404 reads as empty.
+    func fetchWhereToCheck(etag: String?) async throws -> Conditional<AddedSourcesResponse> {
+        do {
+            return try await getConditional("/sources/where-to-check", etag: etag)
+        } catch APIError.httpError(404, _) {
+            return Conditional(value: AddedSourcesResponse(items: [], total: 0), etag: nil, notModified: false)
+        }
+    }
+
     func fetchSourcesOverview(etag: String?) async throws -> Conditional<[SourceOverview]> {
         do {
             let c: Conditional<SourceOverviewResponse> = try await getConditional("/sources/overview", etag: etag)

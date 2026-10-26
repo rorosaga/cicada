@@ -40,6 +40,14 @@ final class TraceRecorder {
     /// Spans waiting to be posted (memory only).
     private(set) var pendingCount = 0
     var isRecording: Bool { state == .recording }
+    /// The backend has answered at least once (`apply`): before that, `settings` are defaults, not the person's.
+    private(set) var loaded = false
+    /// G218 (owner 2026-10-26) — whether the Traces page belongs on the rail; nil until the backend has answered.
+    /// Never on a Mac that talks to a server: traces stay on the Mac that records them.
+    var pageShown: Bool? {
+        if state == .notThisMac { return false }
+        return loaded ? TracesPageVisibility.shown(settings: settings, status: status) : nil
+    }
 
     @ObservationIgnored private let backend: any TraceBackend
     @ObservationIgnored private let workspace: any TraceWorkspace
@@ -216,6 +224,7 @@ final class TraceRecorder {
         status = answer.status
         lists = answer.policy
         consentVersion = answer.consentVersion
+        loaded = true
         if !settings.enabled {
             disarm()
             state = .off

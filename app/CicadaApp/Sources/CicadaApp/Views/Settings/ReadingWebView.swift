@@ -786,6 +786,13 @@ struct ReadingInBrowserSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // G61 (owner 2026-10-26) — the quick add and every page's where-to-check, first: what is read lives above
+            // the switches for how it is read.
+            AddedSourcesSection()
+                .padding(.horizontal, CicadaTheme.spacingXL)
+                .padding(.top, CicadaTheme.spacingLG)
+                .padding(.bottom, CicadaTheme.spacingMD)
+            Divider()
             ReadingWebView()
                 .environment(skillsVM)
                 .task { await skillsVM.load() }
@@ -795,7 +802,7 @@ struct ReadingInBrowserSheet: View {
             }
             .padding(CicadaTheme.spacingMD)
         }
-        .frame(width: CicadaTheme.scaled(680), height: CicadaTheme.scaled(620))
+        .frame(width: CicadaTheme.scaled(680), height: CicadaTheme.scaled(700))
         .background(CicadaTheme.bgBase)
     }
 }
