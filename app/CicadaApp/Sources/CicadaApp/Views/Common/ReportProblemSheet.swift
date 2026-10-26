@@ -2,8 +2,9 @@ import AppKit
 import SwiftUI
 
 /// Report a problem… (tester readiness, 2026-10-26) — Help menu and Settings → General. The report is shown whole before
-/// anything leaves the Mac: Copy, Save…, and one Send that copies it and opens `ProblemReport.destination` with a short
-/// template (the person pastes; nothing is sent by itself). The sheet says whether that destination is public.
+/// anything leaves the Mac: Copy, Save…, and — only in a release carrying the private report address — one Send that
+/// copies it and opens a new email with a short template (the person pastes; nothing is sent by itself). Without the
+/// address the sheet says to send it to the person who gave them Cicada.
 /// DR-5 (the accent only on Send, the sheet's one primary), DR-21 (monospaced report), DR-38 (each line said once),
 /// DR-40 (neutral buttons for Copy and Save).
 struct ReportProblemSheet: View {
@@ -11,6 +12,8 @@ struct ReportProblemSheet: View {
 
     @State private var report: String?
     @State private var copied = false
+    /// The release's private report address as a mail link; nil in a build without one (no Send).
+    private let sendURL = ProblemReport.sendURL(email: ProblemReport.reportEmail())
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
@@ -31,7 +34,7 @@ struct ReportProblemSheet: View {
             }
             .background(CicadaTheme.bgPane)
             .clipShape(CicadaTheme.shape(6))
-            Text(ProblemReport.destinationIsPublic ? Copy.ReportProblem.publicNote : Copy.ReportProblem.privateNote)
+            Text(sendURL == nil ? Copy.ReportProblem.noSendNote : Copy.ReportProblem.sendNote)
                 .font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: CicadaTheme.spacingSM) {
@@ -40,9 +43,12 @@ struct ReportProblemSheet: View {
                 NeutralButton(title: Copy.ReportProblem.save, size: .compact, isDisabled: report == nil) { save() }
                 Spacer()
                 NeutralButton(title: Copy.ReportProblem.close, size: .compact, shortcut: .cancelAction) { onClose() }
-                PrimaryActionButton(title: Copy.ReportProblem.send) { send() }
-                    .disabled(report == nil)
-                    .help(Copy.ReportProblem.sendHelp)
+                // Only a release that carries the private address has Send — never a public page (owner 2026-10-26).
+                if let sendURL {
+                    PrimaryActionButton(title: Copy.ReportProblem.send) { send(sendURL) }
+                        .disabled(report == nil)
+                        .help(Copy.ReportProblem.sendHelp)
+                }
             }
         }
         .padding(CicadaTheme.spacingXL)
@@ -72,11 +78,11 @@ struct ReportProblemSheet: View {
         try? report.write(to: url, atomically: true, encoding: .utf8)
     }
 
-    /// The person's own click: the report goes on the clipboard and the destination opens with its template.
-    private func send() {
+    /// The person's own click: the report goes on the clipboard and a new email opens with its template.
+    private func send(_ url: URL) {
         guard let report else { return }
         AppPasteboard.copy(report)
         copied = true
-        NSWorkspace.shared.open(ProblemReport.sendURL())
+        NSWorkspace.shared.open(url)
     }
 }

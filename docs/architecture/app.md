@@ -536,9 +536,12 @@ whole report before anything leaves the Mac — the app's version and build and 
 version, platform, engine mode as an enum — never an account or email, G148 — connected source ids, the bank count,
 recent warnings and errors, and the tail of `backend*.log` and the app's `update.log`, every line through `redact`:
 secrets via `episode_scrub`, the home path → `~`, another account's home, emails, URLs, bank names, quoted text,
-wikilinks, bank-relative paths and the ids in request paths). **Copy**, **Save…**, and one **Send** that copies the
-report and opens `ProblemReport.destination` (one constant: the repository's public new-issue page with a short
-template, said as public in the sheet; a `mailto:` works the same) — nothing is sent by itself. (3) **The Mac account's
+wikilinks, bank-relative paths and the ids in request paths); the header also carries the one known issue (an update
+can make macOS ask again for permissions, while releases are ad-hoc signed). **Copy**, **Save…**, and — only in a
+release whose Info.plist carries `CicadaReportEmail` (from CI's `CICADA_REPORT_EMAIL` variable, owner 2026-10-26; never
+an address in the repo, docs/RELEASING.md) — one **Send** that copies the report and opens a new email with a short
+template. Without the address (developer builds, or before it is set) there is no Send: the sheet says "Send this to
+the person who gave you Cicada" — never a public issue page. Nothing is sent by itself. (3) **The Mac account's
 name is a suggestion.** With no saved name, Welcome opens on the name field prefilled with it under "From this Mac's
 account. Is that what you go by?" (`WelcomeName.suggestion`); Continue or ⏎ confirms it, an edit replaces it, and Set up
 later saves no name for an untouched suggestion (`WelcomeName.unconfirmed` → `OnboardingFlow.laterSteps(name: nil)`), so
