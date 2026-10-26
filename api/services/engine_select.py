@@ -295,6 +295,38 @@ def powered_connection_id(settings, registry, connected_ids) -> str | None:
     return key_card if key_card in connected else None
 
 
+_LADDER_MODES = {CLAUDE_CONNECTION_ID: "agent", CODEX_CONNECTION_ID: "codex"}
+
+
+def expected_settings(settings, registry, connected_ids) -> tuple[str, object]:
+    """``(configured mode, a copy resolved the way a Sleep you start would run)`` — the answer every place that
+    NAMES the engine reads (the handshake's Now line, ``_state.md``), never a probe (R-E24, the module docstring).
+
+    The same rungs as :func:`resolve_settings` with ``user_triggered=True``, except that connectivity comes from an
+    ALREADY-probed set (``connected_ids``, the registry's cache): an env pin wins; else the Settings picker's pref and
+    its model; Auto takes the first plan on the ladder the cache shows connected and otherwise stays ``auto`` (decided
+    when a run starts — never the metered key's model); a chosen key reads the Claude toggle the same way.
+
+    A copy already resolved (``resolve_settings`` adds ``llm_mode`` to its fields set) or carrying a no-engine reason
+    is returned as it is. A duck-typed stand-in (no ``model_copy``) is never resolved and no registry is read for it.
+    """
+    if settings is None or no_engine(settings) or not hasattr(settings, "model_copy"):
+        mode = (getattr(settings, "llm_mode", None) or "byok").strip().lower()
+        return mode, settings
+    env_explicit = "llm_mode" in getattr(settings, "model_fields_set", set())
+    configured = configured_mode(settings, None if env_explicit else registry)
+    connected = set(connected_ids or ())
+    mode = configured
+    if mode == "auto":
+        mode = next((_LADDER_MODES[c] for c in _AUTO_LADDER if c in connected), "auto")
+    elif mode == "byok" and registry is not None and use_for_sleep(registry) and CLAUDE_CONNECTION_ID in connected:
+        mode = "agent"
+    updates: dict = {"llm_mode": mode} if mode != (settings.llm_mode or "").strip().lower() else {}
+    if not env_explicit:
+        updates.update(_model_overrides(registry, mode))
+    return configured, (settings.model_copy(update=updates) if updates else settings)
+
+
 def _model_overrides(registry, mode: str) -> dict:
     """The ``{field: value}`` overrides a G122 model/disambiguation-model
     pref applies for ``mode``, keyed off whichever field that mode actually

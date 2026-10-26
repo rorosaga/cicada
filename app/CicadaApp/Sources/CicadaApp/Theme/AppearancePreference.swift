@@ -19,10 +19,31 @@ enum AppearancePreference: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Unknown or absent → dark: the app's original look, and the default
-    /// `ThemeStore` has always had.
+    /// Owner 2026-10-26: "Light, dark, or system; the default is system." Unknown or absent → System, so a person who
+    /// never chose follows their Mac; a stored `"light"` / `"dark"` (the retired sidebar toggle's, or Settings') is an
+    /// explicit choice and is kept on upgrade. Every `@AppStorage` of the key defaults to this value's raw string.
+    static let defaultChoice: AppearancePreference = .system
+
     static func stored(_ raw: String?) -> AppearancePreference {
-        raw.flatMap(Self.init(rawValue:)) ?? .dark
+        raw.flatMap(Self.init(rawValue:)) ?? defaultChoice
+    }
+
+    /// The picker's order, left to right: the two explicit looks, then the one that follows the Mac.
+    static let pickerOrder: [AppearancePreference] = [.light, .dark, .system]
+
+    /// ← / → on the picker: the neighbour in `pickerOrder`, stopping at either end.
+    static func stepped(_ from: AppearancePreference, by: Int) -> AppearancePreference {
+        guard let at = pickerOrder.firstIndex(of: from) else { return from }
+        return pickerOrder[min(max(at + by, 0), pickerOrder.count - 1)]
+    }
+
+    /// What a tile's hover says.
+    var help: String {
+        switch self {
+        case .system: Copy.appearanceSystemHelp
+        case .light: Copy.appearanceLightHelp
+        case .dark: Copy.appearanceDarkHelp
+        }
     }
 
     func resolved(systemIsDark: Bool) -> AppColorScheme {

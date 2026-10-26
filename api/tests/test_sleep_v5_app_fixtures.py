@@ -196,6 +196,28 @@ def test_the_run_detail_fixture_is_the_servers_wire(tmp_path, monkeypatch):
     _write_or_compare("sleep-run-detail.json", body)
 
 
+def test_the_run_card_fixtures_are_the_servers_wire(tmp_path, monkeypatch):
+    """The run card (owner 2026-10-26): a history entry's whole-run figures and the run's items. Titles become
+    placeholders (no conversation title in a fixture), commits and times are pinned."""
+    memory, cfg, ids = _paused_run(tmp_path, monkeypatch)
+    main.app.dependency_overrides[get_settings] = lambda: cfg
+    client = TestClient(main.app)
+    items = client.get("/sleep/runs/sleep_leg1/items").json()
+    assert [c["id"] for c in items["conversations"]] == ids
+    items["commits"] = ["0" * 40 for _ in items["commits"]]
+    for i, c in enumerate(items["conversations"]):
+        c["title"], c["timestamp"] = f"Conversation {i + 1}", "2026-09-01T10:00:00"
+    _write_or_compare("sleep-run-items.json", items)
+    entry = next(r for r in client.get("/sleep/history", params={"limit": 15}).json() if r.get("drainId"))
+    entry["commitHash"], entry["date"], entry["durationMs"] = "0" * 40, "2026-09-30T17:05:00+00:00", 660_000
+    entry["message"] = "Sleep cycle 2026-09-30 (batch 3 of 3)"
+    run = entry["run"]
+    run["startedAt"], run["finishedAt"] = "2026-09-30T10:14:00+00:00", "2026-09-30T17:05:00+00:00"
+    run["readMs"], run["pausedMs"] = 8_040_000, 16_620_000
+    assert run["created"] == len(ids) and run["models"] == ["model-a", "model-b"]
+    _write_or_compare("sleep-history-run.json", entry)
+
+
 def test_the_reading_options_fixture_is_the_servers_wire(tmp_path):
     memory = seed_bank(tmp_path, episode_ids(3))
     main.app.dependency_overrides[get_settings] = lambda: settings(memory, sleep_max_episodes_per_cycle=25)

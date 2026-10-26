@@ -409,9 +409,14 @@ def _engine_block(settings, connected_ids: list[str] | None) -> dict:
     pass keep working."""
     from api.services import engine_select
 
+    # The engine a Sleep you start would actually run (engine_select.expected_settings): the Settings picker's choice
+    # and its model, Auto read against the cached connected set — never a leftover API model on an unresolved Auto.
+    chosen, settings = engine_select.expected_settings(settings, _registry_for(settings), connected_ids)
     mode = str(getattr(settings, "llm_mode", None) or "byok").strip().lower()
     engine = engine_select.engine_label(settings) if settings is not None else "litellm"
-    if mode == "agent":
+    if engine in (engine_select.AUTO_LABEL, engine_select.NO_ENGINE_LABEL):
+        model = None
+    elif mode == "agent":
         model = getattr(settings, "agent_model", None)
     elif mode == "codex":
         # R-E17: "" = the plan's current default, which only a cycle's
@@ -421,7 +426,46 @@ def _engine_block(settings, connected_ids: list[str] | None) -> dict:
         model = f"ollama/{getattr(settings, 'ollama_model', 'llama3.1')}"
     else:
         model = getattr(settings, "effective_consolidation_model", None) or getattr(settings, "litellm_model", None)
-    return {"mode": mode, "engine": engine, "model": model or None, "connected": list(connected_ids or [])}
+    return {"mode": chosen, "engine": engine, "model": model or None, "connected": list(connected_ids or [])}
+
+
+def _registry_for(settings):
+    """The connections registry for a real ``Settings`` (prefs are a file read, statuses a cache), ``None`` for a
+    hermetic stand-in or when it cannot be built — the engine block then reads configuration alone."""
+    if settings is None or not hasattr(settings, "model_fields_set"):
+        return None
+    try:
+        from api.services.connections.registry import get_registry
+
+        return get_registry(settings)
+    except Exception:  # noqa: BLE001 — naming the engine never fails a projection
+        return None
+
+
+def engine_phrase(eng: dict | None) -> str:
+    """The engine as the Now line and ``_state.md``'s body name it: the engine id a Sleep commit's ``Cicada-Engine``
+    trailer carries and its model — or, for an Auto no cache has resolved, that a run decides it."""
+    eng = eng or {}
+    if eng.get("engine") == "auto":
+        return "engine auto (decided when Sleep starts)"
+    return f"engine {eng.get('engine')} ({eng.get('model') or 'unset'})"
+
+
+def with_live_engine(state: dict | None, settings=None) -> dict | None:
+    """``state`` with its engine read NOW: ``_state.md`` is rewritten only when the bank changes, so a choice made in
+    Settings since would otherwise be named stale on every primer. Uses the connected set the file recorded (the
+    writer's cache) — a read path never probes. ``None`` stays ``None``."""
+    if state is None:
+        return None
+    try:
+        if settings is None:
+            from api.config import get_settings
+
+            settings = get_settings()
+        recorded = (state.get("engine") or {}).get("connected") or []
+        return {**state, "engine": _engine_block(settings, list(recorded))}
+    except Exception:  # noqa: BLE001 — the recorded engine is the fallback, never a failed primer
+        return state
 
 
 def _default_git_runner(memory_path: Path, args: list[str]) -> str | None:
@@ -619,7 +663,7 @@ def render_body(fm: dict) -> str:
         return f"- [[{p['name']}]] (`{p['id']}`)" + (f" — {p['one_liner']}" if p.get("one_liner") else "")
 
     lines = ["# Cicada — now", "",
-             f"Bank `{fm['bank']}` · engine {fm['engine']['engine']} ({fm['engine']['model'] or 'unset'}) · "
+             f"Bank `{fm['bank']}` · {engine_phrase(fm['engine'])} · "
              f"inbox {fm['inbox']['pending']} pending · queue {fm['sleep']['queue_depth']} · "
              f"last Sleep {fm['sleep']['last_at'] or 'never'} · as of {fm['generated_at']}"]
     if fm.get("owner_id"):

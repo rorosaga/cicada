@@ -528,7 +528,7 @@ def _now_block(state: dict | None, bank: str, *, remote: bool = False, tz: str |
     inb = state.get("inbox") or {}
     lines = [
         "## Now",
-        f"- {where} · engine {eng.get('engine')} ({eng.get('model') or 'unset'}) · "
+        f"- {where} · {state_dictionary.engine_phrase(eng)} · "
         f"inbox: {inb.get('pending', 0)} pending · Sleep queue {slp.get('queue_depth', 0)} · "
         f"last Sleep {slp.get('last_at') or 'never'} · as of {state.get('generated_at')}",
     ]
@@ -806,6 +806,11 @@ def load_or_build(
 
     reading = reading_settings.agent_enabled()
     reading_key = f"rd{int(reading)}"
+    # The engine is read now (the Settings choice, never a probe) and is part of the text, so part of the key: a
+    # choice made since `_state.md` was written must never serve yesterday's engine.
+    state = state_dictionary.with_live_engine(state_dictionary.read_state(memory_path))
+    eng = (state or {}).get("engine") or {}
+    reading_key += ":" + hashlib.sha256(f"{eng.get('engine')}\0{eng.get('model')}".encode("utf-8")).hexdigest()[:6]
     if variant == REMOTE_VARIANT:
         if not tools:
             raise ValueError("the remote handshake needs the connection's tools")
@@ -842,7 +847,6 @@ def load_or_build(
             reading_tools=reading_tools, max_tokens=MAX_TOKENS - reserve, skill=skill, server=server)
     cache_dir = Path(cache_dir) if cache_dir is not None else _cache_dir()
     cache_file = cache_dir / f"{memory_path.name}.{cache_name}.json"
-    state = state_dictionary.read_state(memory_path)
     meta = {
         "variant": variant,
         "state_present": state is not None,

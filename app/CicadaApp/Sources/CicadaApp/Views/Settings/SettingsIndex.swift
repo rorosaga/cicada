@@ -270,7 +270,7 @@ enum SettingsIndex {
 enum SettingsLiveValue {
     struct Inputs {
         var scheduleMode: String?
-        var appearance: AppearancePreference = .dark
+        var appearance: AppearancePreference = AppearancePreference.defaultChoice
         var uiScale: Double = 1.0
         var connections: [ConnectionStatus] = []
     }

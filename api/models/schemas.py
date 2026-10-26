@@ -3141,6 +3141,14 @@ class SleepRunRef(CamelModel):
     started_by: str = "user"
     #: A scheduled run that stood in for a time the Mac slept or was off through: that time (aware ISO). Owner 2026-10-19.
     catch_up_for: Optional[str] = None
+    # Owner 2026-10-26 (the run card): the run's whole figures, joined at read from its batches' `sleep_run` ledger
+    # rows (pages made and changed), its summary (questions) and every call tagged with its run (usage, models).
+    # `None` when not recorded (telemetry off), never zero.
+    created: Optional[int] = None
+    updated: Optional[int] = None
+    questions_raised: Optional[int] = None
+    usage_summary: Optional["CycleUsageSummary"] = None
+    models: list[str] = Field(default_factory=list)
 
 
 class SleepRunPause(CamelModel):
@@ -3206,6 +3214,43 @@ class SleepCycleDetail(SleepHistoryEntry):
     episodes_by_origin: dict[str, int] = Field(default_factory=dict)
     inbox_changes: int = 0
     usage: Optional[CycleUsage] = None
+
+
+class SleepConsolidatedConversation(CamelModel):
+    id: str
+    title: Optional[str] = None
+    origin: str = "unknown"
+    timestamp: Optional[str] = None
+
+
+class SleepConsolidatedPage(CamelModel):
+    id: str
+    name: Optional[str] = None
+    type: Optional[str] = None
+    #: The page is no longer in the bank (merged or removed since): the row shows its id and opens nothing.
+    gone: bool = False
+
+
+class SleepConsolidatedQuestion(CamelModel):
+    id: str
+    title: Optional[str] = None
+    kind: Optional[str] = None
+    entity_id: Optional[str] = None
+    status: Optional[str] = None
+
+
+class SleepConsolidated(CamelModel):
+    """``GET /sleep/runs/{id}/items`` and ``GET /sleep/history/{commit}/items`` — what one consolidation read and
+    wrote, item by item, from its commits' own file lists (``sleep_consolidated``). Each list is capped; ``counts``
+    are whole."""
+    commits: list[str] = Field(default_factory=list)
+    conversations: list[SleepConsolidatedConversation] = Field(default_factory=list)
+    created: list[SleepConsolidatedPage] = Field(default_factory=list)
+    updated: list[SleepConsolidatedPage] = Field(default_factory=list)
+    questions_raised: list[SleepConsolidatedQuestion] = Field(default_factory=list)
+    questions_settled: list[SleepConsolidatedQuestion] = Field(default_factory=list)
+    counts: dict[str, int] = Field(default_factory=dict)
+    truncated: bool = False
 
 
 class EpisodeQueueItem(CamelModel):

@@ -1413,6 +1413,16 @@ every other writer (the settled-question undos, the inbox tidy, the web sweep) t
 `state_dictionary.refresh_admitted`; `test_write_admission_sites.py` lists the direct callers. `sleep.next_at` is computed per request, never persisted: in the file it advanced
 every day and made every idle night commit.
 
+**The engine it names is the one a Sleep you start would run (2026-10-26).** `engine: {mode, engine, model, connected}` is
+`engine_select.expected_settings` — the same rungs as `resolve_settings` (an env pin, else the Settings picker's
+`sleep-engine` pref and its model, Auto's first plan the cached connected set shows, a chosen key's Claude toggle), never
+a probe: `mode` is what the person chose, `engine` the id a Sleep commit's `Cicada-Engine:` trailer carries, `model` that
+engine's model, and an Auto nothing has resolved reads `auto` with no model ("decided when Sleep starts") — never the
+leftover `CICADA_LITELLM_MODEL` it used to show (a picker set to the Claude plan at haiku once read "engine auto
+(openrouter/…)" while every commit said `claude-cli`). The file is rewritten only when the bank moves, so every reader
+overlays the engine read now (`state_dictionary.with_live_engine`, over the connected set the file recorded): the
+handshake (and its cache key), `cicada handshake`, the CLI door and `GET /state` (whose ETag folds it in).
+
 **`_state.md` schema v3 (G141):** each of the top 7 project rows gains `next: {slug, name, target}`
 and, once happenings exist, `now: {claim, text ≤ 80, since, verbatim?}` — the first claim text the
 file holds; `verbatim` marks the person's own Log sentence, which a remote primer shows as 'a note of

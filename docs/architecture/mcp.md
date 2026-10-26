@@ -642,6 +642,12 @@ wiring stay `install.sh`'s and the app's).
   (`handshake.claude_skill`, part of the primer's cache key): `cicada:cicada` when the plugin is on (the same
   `registry.plugin_state` test), else `~/.claude/skills/cicada` when `install.sh --skill` or the Skills page put a copy
   there, else no policy file at all.
+- **The engine the Now line names (2026-10-26).** "engine claude-cli (haiku)" is the engine a Sleep the person starts
+  would run — the Settings picker's choice and its model, Auto's first connected plan, never a leftover API model on an
+  unresolved Auto — read when the primer is built (`state_dictionary.with_live_engine`, `engine_select.expected_settings`,
+  no probe) and part of the primer's cache key, so a choice made after `_state.md` was written reaches the next primer.
+  An Auto nothing has resolved says "engine auto (decided when Sleep starts)". Same line in `cicada handshake`
+  (`storage.md`, "The engine it names").
 - **The MCP server.** `scripts/cicada-mcp` execs the same checkout's `mcp/server.py` or the app's `cicada-mcp`
   launcher; the `memory_path` setting, when set, becomes `CICADA_MEMORY_PATH` (the memory root — the server resolves
   the active bank itself, as install.sh's own registration does).

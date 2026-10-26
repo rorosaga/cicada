@@ -283,7 +283,8 @@ def _run(tool, args, *, ctx, state, surface, options, root, memory_path, bank_na
 
             names = frozenset(r.name for r in cli_map.exposed())
             tz = options.get("tz") if isinstance(options.get("tz"), str) else None
-            text = handshake.build_cli(state_dictionary.read_state(memory_path), commands=names,
+            text = handshake.build_cli(state_dictionary.with_live_engine(state_dictionary.read_state(memory_path)),
+                                       commands=names,
                                        bank=bank_name or memory_path.name, tz=tz, server=_server(options))
             handshake.record("cli", {"variant": handshake.CLI_VARIANT}, bank=memory_path.name, harness=ctx.harness)
             return Answer(text=text, data={"tokens_est": len(text) // 4})

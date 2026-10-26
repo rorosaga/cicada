@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response
@@ -8,6 +9,7 @@ from api.models.schemas import (
     ScheduleConfig,
     ScheduleResponse,
     SleepCancelResponse,
+    SleepConsolidated,
     SleepCycleDetail,
     SleepDebtResponse,
     SleepDrain,
@@ -35,6 +37,7 @@ from api.services import (
     last_cycle,
     reading_hosts,
     sleep_autocontinue,
+    sleep_consolidated,
     sleep_debt,
     sleep_drain,
     sleep_engine_prefs,
@@ -328,6 +331,44 @@ async def sleep_run_detail_route(drain_id: str, request: Request, response: Resp
     if detail is None:
         raise HTTPException(status_code=404, detail="Not a run")
     return detail
+
+
+def _items_etag(memory_path, key: str) -> str:
+    """The items read git (the commits) and the bank's names (episodes, pages, questions), so all four move the tag."""
+    return sync_service.etag_for(memory_path, "git_head", "entities", "episodes", "inbox", "telemetry",
+                                 extra=f"items|{sleep_consolidated.SHAPE}|{key}")
+
+
+@router.get("/sleep/runs/{drain_id}/items", response_model=SleepConsolidated)
+async def sleep_run_items_route(drain_id: str, request: Request, response: Response,
+                                settings: Settings = Depends(get_settings)):
+    """What a run consolidated, item by item (owner 2026-10-26): the conversations it read, the pages it made and
+    changed, the questions it raised and settled — from its batch commits' own file lists. Not a Store domain: the
+    app keeps it in memory beside the run's detail and revalidates with the ETag."""
+    if not drain_id.replace("_", "").replace("-", "").isalnum():
+        raise HTTPException(status_code=404, detail="Not a run")
+    etag = _items_etag(settings.memory_path, f"run|{drain_id}")
+    if (early := sync_service.conditional(request, response, etag)) is not None:
+        return early
+    commits = sleep_consolidated.run_commits(settings.memory_path, drain_id)
+    if not commits:
+        raise HTTPException(status_code=404, detail="Not a run")
+    return await sleep_consolidated.build(settings.memory_path, commits)
+
+
+@router.get("/sleep/history/{commit}/items", response_model=SleepConsolidated)
+async def sleep_cycle_items_route(commit: str, request: Request, response: Response,
+                                  settings: Settings = Depends(get_settings)):
+    """What one plain cycle consolidated — the same items as a run's, from its one commit."""
+    if not re.fullmatch(r"[0-9a-f]{7,40}", commit or ""):
+        raise HTTPException(status_code=404, detail="Not a Sleep cycle commit")
+    etag = _items_etag(settings.memory_path, f"commit|{commit}")
+    if (early := sync_service.conditional(request, response, etag)) is not None:
+        return early
+    detail = await git_service.get_sleep_cycle_detail(settings.memory_path, commit)
+    if detail is None or detail.kind != "sleep":
+        raise HTTPException(status_code=404, detail="Not a Sleep cycle commit")
+    return await sleep_consolidated.build(settings.memory_path, [detail.commit_hash])
 
 
 @router.get("/sleep/queue", response_model=SleepQueueResponse)

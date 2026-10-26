@@ -154,6 +154,7 @@ final class DesignConsistency3LintTests: XCTestCase {
     func testASpacingStepIsSpelledByItsToken() throws {
         let fixedFrames: [String: String] = [
             "ImportFamilies.swift": "the family tile's mark cluster: 22 pt marks in a 48 pt frame, spelled in points",
+            "AppearancePicker.swift": "the appearance miniatures: a 132 × 84 pt drawing of the app, spelled in points",
         ]
         let pattern = try NSRegularExpression(
             pattern: #"\.padding\((\.[a-zA-Z]+, )?(4|8|12|16|24|32)\)|(?<![a-zA-Z])spacing: (4|8|12|16|24|32)(?=[,)])"#)

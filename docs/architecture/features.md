@@ -524,6 +524,10 @@ a running cycle (it looks again next probe, and checks again after counting the 
 bank active when it fires (`bank_registry.unpin`, G183(d)); nothing readable (only parked or index-only history) runs
 nothing and the time counts as handled, so a capture later that day waits for the next time as on any day. The run's
 summary carries `catch_up_for` (`sleep_runs`, `SleepRunRef.catch_up_for`), which Past nights says in words (`app.md`).
+**Past nights is one card per consolidation (owner 2026-10-26):** when it ran and who started it, what it included, the
+engine and models, the plan usage or cost with its basis (ruling 12), how long it read and how it ended; its dropdown
+lists the conversations it read, the pages it made and changed and the questions it raised and settled, each opening
+where it lives (`GET /sleep/runs/{id}/items`, `GET /sleep/history/{commit}/items`; `api.md`, `app.md`).
 A plan-pinned scheduled run (`CICADA_LLM_MODE=agent|codex`, one batch, no run summary) catches up the same way but its
 row carries no catch-up words. **The menu bar counts what waits for Sleep:** `GET /status` `episodes.readable`
 (`sleep_debt.readable_count`) is the bookworm's badge (`app.md`).

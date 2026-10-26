@@ -387,9 +387,20 @@ episode (the original shape, kept for any client still asking); `processed=false
 app asks for (`APIClient.fetchEpisodeQueue(etag:)`: the Sleep page's Waiting rows and count fallback, a source's queue
 strip) — and `processed=true` with `offset`/`limit` (≤ 1000) pages the read ones; `X-Total-Count` is the filtered total.
 The paged call has no app client, and none is needed (checked 2026-10-19): no surface lists read conversations from
-this route — Sleep › Past reads runs (`/sleep/history`, `/sleep/runs/{id}`), the waiting list is `/sleep/queue` (≤ 200)
+this route — Sleep › Past reads runs (`/sleep/history`, `/sleep/runs/{id}`, and a card's items, below), the waiting list is `/sleep/queue` (≤ 200)
 and `processed=false`, and a source's conversations are `/conversations/recent` (≤ 200, filtered before its cap). A
 surface that one day lists read episodes pages here instead of downloading them all.
+
+**What one consolidation read and wrote (owner 2026-10-26, the run card).** `GET /sleep/runs/{id}/items` (a run's batch
+commits, from its `sleep_run` ledger rows; 404 for an unknown run) and `GET /sleep/history/{commit}/items` (one Sleep
+cycle's commit; 404 for a decay, inbox or non-Sleep commit) answer `SleepConsolidated`: `conversations` (id, title,
+origin, timestamp), `created` / `updated` pages (id, name, type, `gone`), `questionsRaised` / `questionsSettled` (id,
+title, kind, entityId, status), whole `counts` and `truncated` (each list ≤ 200). Read from the bank's history — each
+commit's own file list (`diff-tree --root --name-status -M`: an episode's `processed` flip, a page added or modified, an
+`inbox/inbox-*.md` added, an item moved under `inbox/settled/`) — never a model; names and titles are read from the bank
+now. ETag over `git_head`, `entities`, `episodes`, `inbox`, `telemetry` and `sleep_consolidated.SHAPE`; the client mapping
+is `APIClient.fetchSleepConsolidated(_:etag:)` → `SleepViewModel.consolidated` (a 304 keeps its copy). `/sleep/history`'s
+`run` gained the whole run's `created`, `updated`, `questionsRaised`, `usageSummary` and `models` (`cycle_usage._run_figures`).
 Rows are chosen from `bank_index`'s cached headers (`sleep_cycle.episode_headers`) and only the sent rows' bodies are
 read: on a synthetic 8,237-episode bank (10 waiting) the bare call is 4.3 MB / 1.7 s warm before and 0.4 s after, the
 waiting list 5 KB / 45 ms, a 304 ~25 ms. ETag over `episodes` with `extra` = `sleep.EPISODES_SHAPE|<query>|<folders.json

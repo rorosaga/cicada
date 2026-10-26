@@ -76,6 +76,10 @@ struct SleepPastReads: View {
     var runDetails: [String: SleepRunDetail] = [:]
     var expandedRun: String? = nil
     var onToggleRun: (String) -> Void = { _ in }
+    /// The run cards' dropdowns (owner 2026-10-26): what each consolidation read and wrote, and the loader an open asks.
+    var items: [SleepConsolidatedKey: SleepConsolidated] = [:]
+    var itemsFailed: Set<SleepConsolidatedKey> = []
+    var onLoadItems: (SleepConsolidatedKey) -> Void = { _ in }
 
     /// Retry on a parked conversation only when the server would take it: no run reading, none waiting paused.
     private var canRetry: Bool {
@@ -118,9 +122,16 @@ struct SleepPastReads: View {
                                  && history.first(where: { $0.kind == "sleep" })?.engine == lastFigures?.engine)
                 .id(DetailsSection.readout.anchorID)
                 .saturation(liveness.saturation)
-            ConsolidationHistoryCard(entries: history, details: details, expanded: expanded,
-                                     onToggle: onToggleHistory, onSelectEntity: onSelectEntity,
-                                     runDetails: runDetails, expandedRun: expandedRun, onToggleRun: onToggleRun)
+            ConsolidationHistoryCard(entries: history, details: details, expanded: expanded, expandedRun: expandedRun,
+                                     runDetails: runDetails, items: items, itemsFailed: itemsFailed,
+                                     onToggle: { card in
+                                         switch card.key {
+                                         case .run(let id): onToggleRun(id)
+                                         case .commit(let hash): onToggleHistory(hash)
+                                         }
+                                         onLoadItems(card.key)
+                                     },
+                                     onSelectEntity: onSelectEntity)
                 .id(DetailsSection.pastNights.anchorID)
                 .saturation(liveness.saturation)
         }

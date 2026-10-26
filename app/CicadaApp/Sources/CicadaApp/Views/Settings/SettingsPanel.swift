@@ -25,7 +25,7 @@ import SwiftUI
 /// control's `.cancelAction`, which is a visible control's shortcut, never a hidden one.
 struct SettingsPanel: View {
     @AppStorage("cicada.settingsSection") private var sectionRaw = SettingsSection.general.rawValue
-    @AppStorage(ThemeStore.defaultsKey) private var appearanceRaw = AppearancePreference.dark.rawValue
+    @AppStorage(ThemeStore.defaultsKey) private var appearanceRaw = AppearancePreference.defaultChoice.rawValue
     @State private var selection: SettingsSection = .general
     @State private var focus = SettingsFocus()
     @State private var query = ""

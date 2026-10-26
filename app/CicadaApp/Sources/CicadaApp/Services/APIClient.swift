@@ -3051,6 +3051,12 @@ actor APIClient {
         return try await get("/sleep/runs/\(encoded)")
     }
 
+    /// `GET /sleep/runs/{id}/items` or `GET /sleep/history/{commit}/items` — what one consolidation read and wrote
+    /// (the run card's dropdown; not a Store domain). Sent with the ETag the caller holds: a 304 keeps its copy.
+    func fetchSleepConsolidated(_ key: SleepConsolidatedKey, etag: String?) async throws -> Conditional<SleepConsolidated> {
+        try await getConditional(key.path, etag: etag)
+    }
+
     /// Cooperative-cancel whatever cycle is currently running. See
     /// `SleepCancelResponse` — always 200, `status` says whether there was
     /// anything to cancel.

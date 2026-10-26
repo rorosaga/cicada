@@ -314,13 +314,24 @@ struct SleepRunRef: Codable, Equatable {
     var startedBy: String
     /// A scheduled run that stood in for a time the Mac slept or was off through: that time (owner 2026-10-19).
     var catchUpFor: String?
+    /// Owner 2026-10-26 (the run card) — the whole run's figures, joined by the server from its batches and every call
+    /// tagged with it; `nil` when not recorded (telemetry off, an older backend), never zero.
+    var created: Int?
+    var updated: Int?
+    var questionsRaised: Int?
+    var usageSummary: CycleUsageSummary?
+    var models: [String] = []
 
     init(id: String, batches: Int = 0, filed: Int = 0, parked: Int = 0, frozen: Int = 0, pauses: Int = 0,
          readMs: Int = 0, pausedMs: Int = 0, startedAt: String? = nil, finishedAt: String? = nil,
-         state: String? = nil, startedBy: String = "user", catchUpFor: String? = nil) {
+         state: String? = nil, startedBy: String = "user", catchUpFor: String? = nil, created: Int? = nil,
+         updated: Int? = nil, questionsRaised: Int? = nil, usageSummary: CycleUsageSummary? = nil,
+         models: [String] = []) {
         self.id = id; self.batches = batches; self.filed = filed; self.parked = parked; self.frozen = frozen
         self.pauses = pauses; self.readMs = readMs; self.pausedMs = pausedMs; self.startedAt = startedAt
         self.finishedAt = finishedAt; self.state = state; self.startedBy = startedBy; self.catchUpFor = catchUpFor
+        self.created = created; self.updated = updated; self.questionsRaised = questionsRaised
+        self.usageSummary = usageSummary; self.models = models
     }
 
     init(from decoder: Decoder) throws {
@@ -334,10 +345,15 @@ struct SleepRunRef: Codable, Equatable {
         state = (try? c.decodeIfPresent(String.self, forKey: .state)) ?? nil
         startedBy = ((try? c.decodeIfPresent(String.self, forKey: .startedBy)) ?? nil) ?? "user"
         catchUpFor = (try? c.decodeIfPresent(String.self, forKey: .catchUpFor)) ?? nil
+        created = (try? c.decodeIfPresent(Int.self, forKey: .created)) ?? nil
+        updated = (try? c.decodeIfPresent(Int.self, forKey: .updated)) ?? nil
+        questionsRaised = (try? c.decodeIfPresent(Int.self, forKey: .questionsRaised)) ?? nil
+        usageSummary = (try? c.decodeIfPresent(CycleUsageSummary.self, forKey: .usageSummary)) ?? nil
+        models = ((try? c.decodeIfPresent([String].self, forKey: .models)) ?? nil) ?? []
     }
     enum CodingKeys: String, CodingKey {
         case id, batches, filed, parked, frozen, pauses, readMs, pausedMs, startedAt, finishedAt, state, startedBy
-        case catchUpFor
+        case catchUpFor, created, updated, questionsRaised, usageSummary, models
     }
 }
 
