@@ -2076,6 +2076,16 @@ acts (`TourLintTests`), opening `DemoShowcase`'s person and project only in the 
 first visit, is offered once on Home after onboarding (`TourOffer`), and replays from Settings → General, every `?` and
 the banner; finishing or skipping is remembered per viewer (`cicada.tour.done`).
 
+**The app icon (owner 2026-10-26, provisional: "for now"; DESIGN_RULES §9).** The Dock, Finder, About panel and
+Launchpad show the menu-bar bookworm — the `awake` key frame of `Resources/sprites/bookworm-small.png`, without the
+status item's code-drawn badge — on a graphite plate (`bgButton` `#232427` → `bgPane` `#141517`) on Apple's 824-in-1024
+grid. `Art/AppIcon/make-icon.swift` (run from the repository root) writes `Art/AppIcon/Cicada.icns` (ten sizes),
+`Cicada-1024.png` and the plugin's `.claude-plugin/icon.png`; `--preview <png>` writes a review sheet. From 32 px up each
+art pixel is a whole (size / 32) device-pixel square, nearest-neighbour; 16@1x carries a hand-drawn 12 × 12 worm
+(`smallRows`). `bundle.sh` copies the committed `.icns` into every build (`make app`, `make install-app`, the release
+build) and `Info.plist` names it (`CFBundleIconFile`); nothing in the app sets the icon at runtime. The previous
+book-and-glasses art stays in `docs/design/cicada-icon/v4/`.
+
 **Brand marks (Track L).** One map, `OriginIconography.logoName(for:)`, and one precedence:
 **installed app icon → bundled PNG → SF Symbol**. Apple's marks are never committed (Safari and
 Apple Notes resolve through `NSWorkspace` by bundle id, then their own SF Symbol); every other mark

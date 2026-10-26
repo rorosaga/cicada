@@ -48,8 +48,9 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 cp "$BIN_DIR/CicadaApp" "$APP/Contents/MacOS/CicadaApp"
-# The app icon: the book and glasses on a graphite plate, built by Art/AppIcon/make-icon.swift from the Aseprite art in
-# docs/design/cicada-icon/v4/ (rerun that script after editing the art; the .icns is committed so a build needs no tools).
+# The app icon: the menu-bar bookworm on a graphite plate (owner 2026-10-26, provisional), built by
+# Art/AppIcon/make-icon.swift from the menu bar's own sprite sheet, Sources/CicadaApp/Resources/sprites/bookworm-small.png
+# (rerun that script after editing the art; the .icns is committed so a build needs no tools).
 # Info.plist names it (CFBundleIconFile).
 cp Art/AppIcon/Cicada.icns "$APP/Contents/Resources/Cicada.icns"
 # Bundle.cicadaResources (Utilities/ResourceBundle.swift) resolves the SwiftPM resource bundle relative to the executable —
