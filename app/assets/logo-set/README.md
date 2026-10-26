@@ -72,7 +72,9 @@ their browser tab and dock, which is why the bundled one "looked so far from the
 - **Warp: 196 px.** warp.dev serves no SVG and nothing larger. svgl's `warp.svg` is the retired teal
   mark.
 - **Muse (2026-10-26).** The owner asked for Muse's own mark: `muse.svg` is the SVG favicon muse.ai
-  serves (the same drawing as its App Store icon). Meta's infinity (svgl) left the set with it.
+  serves (the same drawing as its App Store icon). muse.ai is Meta's: the App Store listing "Muse from Meta"
+  names Meta Platforms, Inc. with seller URL muse.ai, and the site's footer reads "© Meta 2026". Meta's infinity
+  (svgl) left the set with it.
 - **GitHub Copilot (2026-10-26).** GitHub's brand site has published only lockups since 2025, so the
   bare Copilot glyph comes from GitHub's own Primer Octicons repo (`copilot-48.svg`, pinned commit).
   VS Code's icon left the set; Cline, Goose, Kiro and Poke left with their catalog rows.

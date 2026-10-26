@@ -55,7 +55,7 @@ final class InboxGroupsTests: XCTestCase {
         let lines = InboxListLine.lines(sections, byKind: true, held: nil, heldItem: nil, reviews: reviews) {
             $0 == .conflict
         }
-        XCTAssertEqual(lines.map(\.id), ["kind:conflict", "pagehead:page:alpha-project", "c1", "c2", "kind:decay"])
+        XCTAssertEqual(lines.map(\.id), ["kind:conflict", "pagehead:conflict:page:alpha-project", "c1", "c2", "kind:decay"])
         guard case .kind(_, let count, let open, let review) = lines[0] else { return XCTFail("\(lines[0])") }
         XCTAssertEqual(count, 2)
         XCTAssertTrue(open)
@@ -65,6 +65,21 @@ final class InboxGroupsTests: XCTestCase {
         XCTAssertEqual(decayReview?.kind, .decay)
         guard case .entry(_, let nested) = lines[2] else { return XCTFail("\(lines[2])") }
         XCTAssertTrue(nested, "a row under its page's header leaves the page's name out")
+    }
+
+    /// Review of #475: one page with questions of two kinds, both groups open, draws two page headers, never one id twice.
+    func testOnePageInTwoOpenKindGroupsNeverRepeatsALineId() throws {
+        let items = [try item("c1", priority: 0.9), try item("c2", priority: 0.8),
+                     try item("d1", kind: "decay", priority: 0.3), try item("d2", kind: "decay", priority: 0.2)]
+        let lines = InboxListLine.lines(InboxGroups.sections(items, byKind: true), byKind: true, held: nil,
+                                        heldItem: nil, reviews: []) { _ in true }
+        let ids = lines.map(\.id)
+        XCTAssertEqual(Set(ids).count, ids.count, "\(ids)")
+        XCTAssertEqual(ids.filter { $0.hasPrefix("pagehead:") },
+                       ["pagehead:conflict:page:alpha-project", "pagehead:decay:page:alpha-project"])
+        let tab = InboxListLine.lines(InboxGroups.sections(items, byKind: false), byKind: false, held: nil,
+                                      heldItem: nil, reviews: []) { _ in true }
+        XCTAssertEqual(tab.map(\.id).filter { $0.hasPrefix("pagehead:") }, ["pagehead:all:page:alpha-project"])
     }
 
     func testTheHeldAnswersUndoRowStaysInItsGroupEvenWhenItWasTheLast() throws {

@@ -118,24 +118,26 @@ enum InboxListLine: Identifiable {
             var pages = section.pages
             if heldHere, let heldItem, let held {
                 pages = insert(heldItem, into: pages)
-                out += pageLines(pages, heldId: held.id) { item in
+                out += pageLines(pages, in: section.id, heldId: held.id) { item in
                     item.id == held.id ? .undo(held, item) : .item(item)
                 }
             } else {
-                out += pageLines(pages, heldId: nil) { .item($0) }
+                out += pageLines(pages, in: section.id, heldId: nil) { .item($0) }
             }
         }
         return out
     }
 
-    private static func pageLines(_ pages: [InboxGroups.PageGroup], heldId: String?,
+    private static func pageLines(_ pages: [InboxGroups.PageGroup], in section: String, heldId: String?,
                                   entry: (InboxItem) -> InboxRowEntry) -> [InboxListLine] {
         var out: [InboxListLine] = []
         for page in pages {
             // The Undo row is not a question still waiting, so a page's header counts the others.
             let waiting = page.items.filter { $0.id != heldId }.count
             let header = page.hasHeader && waiting > 1
-            if header { out.append(.page(id: page.id, name: page.name, count: waiting)) }
+            // One page can head a group in two kinds at once (two conflicts and two decay questions): the line's id
+            // carries its section, so no two lines in the list share an id (review of #475).
+            if header { out.append(.page(id: "\(section):\(page.id)", name: page.name, count: waiting)) }
             out += page.items.map { .entry(entry($0), nested: header) }
         }
         return out
