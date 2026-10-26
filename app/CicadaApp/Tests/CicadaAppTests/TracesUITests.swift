@@ -346,6 +346,26 @@ final class TracesUIBrowserModelTests: XCTestCase {
         XCTAssertTrue(backend.textFetches.isEmpty)
     }
 
+    /// The rail's second click: back to the newest day, no search, no screenshot open (2026-10-19 "Say it once" (5)).
+    func testReturnToRootIsTheNewestDayWithNoSearch() async {
+        let backend = TracesUIBackend()
+        let clock = { Date(timeIntervalSince1970: 1_792_800_000) }   // a fixed day
+        let model = TracesBrowserModel(backend: backend, authenticator: TracesUIAuthenticator(answer: true), now: clock)
+        var status = TraceStoreStatus()
+        status.oldestDay = model.today.adding(-5).description
+        model.setStatus(status)
+        await model.select(model.today.adding(-3))
+        model.query = "alpha"
+        await model.search()
+        model.selectedFrame = frame.id
+        await model.returnToRoot()
+        XCTAssertEqual(model.day, model.today)
+        XCTAssertEqual(model.query, "")
+        XCTAssertNil(model.hits)
+        XCTAssertNil(model.selectedFrame)
+        XCTAssertEqual(backend.timelineDays.last, model.today.description, "the newest day is read again")
+    }
+
     func testCloseDropsEveryScreenshotFromMemory() async {
         let backend = TracesUIBackend()
         let model = TracesBrowserModel(backend: backend, authenticator: TracesUIAuthenticator(answer: true))

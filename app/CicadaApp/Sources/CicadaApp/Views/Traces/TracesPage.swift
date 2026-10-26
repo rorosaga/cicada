@@ -18,6 +18,12 @@ struct TracesPage: View {
     @State private var showSettings = false
     @State private var confirmWipe = false
     @State private var note: String?
+    /// The rail's second click returns the page to its root through the shared mechanism (`onRailReselect` →
+    /// `popToRoot`: instant from ⌘, eased from a click — DR-60/61): Settings and the wipe question close, the note
+    /// goes, and the timeline goes back to the newest day with no search (`TracesBrowserModel.returnToRoot`).
+    @State private var rootToken = 0
+    @Environment(AppRouter.self) private var router: AppRouter?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -42,7 +48,7 @@ struct TracesPage: View {
             .padding(.horizontal, CicadaTheme.spacingGutter)
             .padding(.bottom, CicadaTheme.spacingLG)
             if let recorder {
-                TracesTimelineView(status: recorder.status)
+                TracesTimelineView(status: recorder.status, rootToken: rootToken)
                     .padding(.horizontal, CicadaTheme.spacingGutter)
                     .padding(.bottom, CicadaTheme.spacingLG)
             }
@@ -50,6 +56,14 @@ struct TracesPage: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(CicadaTheme.bgBase)
         .task { await recorder?.refreshStatus() }
+        .onRailReselect(.traces, router: router) {
+            router?.popToRoot(reduceMotion: reduceMotion) {
+                showSettings = false
+                confirmWipe = false
+                note = nil
+                rootToken &+= 1
+            }
+        }
         .sheet(isPresented: $showSettings) {
             TracesSettingsSheet { showSettings = false }
         }

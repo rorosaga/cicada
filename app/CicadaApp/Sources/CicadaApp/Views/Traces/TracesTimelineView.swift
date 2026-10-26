@@ -132,6 +132,16 @@ final class TracesBrowserModel {
         selectedFrame = nil
     }
 
+    /// The rail's second click (2026-10-19 "Say it once", (5)): back to the page's root — the newest day, no search, no
+    /// screenshot open. The screenshots' unlock is left as it is: going home is not hiding them, and their own five
+    /// minutes still run.
+    func returnToRoot() async {
+        query = ""
+        hits = nil
+        selectedFrame = nil
+        await select(days.first ?? today)
+    }
+
     /// The sheet closed: nothing of a screenshot stays.
     func close() {
         hide()
@@ -144,6 +154,8 @@ struct TracesTimelineView: View {
     /// The sheet's Close. nil on the Traces page (owner 2026-10-26), which lays the days out as a column instead of a
     /// menu and has no close: leaving the page drops every screenshot the same way closing the sheet did.
     var onClose: (() -> Void)?
+    /// Bumped by the Traces page when its rail cell is clicked again: the timeline returns to its root.
+    var rootToken = 0
 
     @State private var model = TracesBrowserModel(backend: APIClient.shared, authenticator: LiveTraceAuthenticator())
     @FocusState private var searchFocused: Bool
@@ -169,6 +181,10 @@ struct TracesTimelineView: View {
             await model.load()
         }
         .onDisappear { model.close() }
+        .onChange(of: rootToken) { _, _ in
+            searchFocused = false
+            Task { await model.returnToRoot() }
+        }
     }
 
     private var content: some View {
