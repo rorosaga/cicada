@@ -144,14 +144,6 @@ brew install rorosaga/cicada/cicada
 cicada-setup          # memory folder, search model, agent hooks, background service
 ```
 
-**Not live yet:** both lines arrive with the next release (`main` is still 0.3.1, which has neither file). To try them
-before that, from `dev`:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/rorosaga/cicada/dev/scripts/install-server.sh | CICADA_REF=dev bash
-git clone -b dev https://github.com/rorosaga/cicada && brew tap rorosaga/cicada "$PWD/cicada" && brew install --HEAD rorosaga/cicada/cicada
-```
-
 ## Quick start (from source)
 
 Requirements: macOS 14+, Python 3.12, [uv](https://github.com/astral-sh/uv), Xcode command
@@ -183,9 +175,9 @@ plugin's settings empty. From a source checkout, set its `cicada_repo` setting t
 `./install.sh` once: with the plugin on it leaves Claude Code to the plugin and removes the entries it had registered,
 so nothing runs twice. `make doctor` says which one Claude Code is using.
 
-First launch opens a four-step sheet — your name, a consolidation engine, one capture channel, and
-your first Sleep cycle — or "try a demo bank first" if you'd rather look around before wiring in
-your own life. Re-open it any time from Settings → General → "Run setup again".
+First launch opens a short setup — who reads your memory, your agents, what to bring in, your saved lists and the
+menu-bar bookworm — or *Try the demo* if you'd rather look around before wiring in your own life. Re-open it any time
+from Settings → General → *Run setup again*.
 
 `api/.env` is a source checkout's settings file. The backend reads it from its own folder, whatever directory it
 starts in, after a restart. A variable set in the backend's environment, such as its LaunchAgent plist, wins over the
