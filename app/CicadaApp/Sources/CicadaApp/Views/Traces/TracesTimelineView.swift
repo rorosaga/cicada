@@ -141,12 +141,37 @@ final class TracesBrowserModel {
 
 struct TracesTimelineView: View {
     let status: TraceStoreStatus
-    let onClose: () -> Void
+    /// The sheet's Close. nil on the Traces page (owner 2026-10-26), which lays the days out as a column instead of a
+    /// menu and has no close: leaving the page drops every screenshot the same way closing the sheet did.
+    var onClose: (() -> Void)?
 
     @State private var model = TracesBrowserModel(backend: APIClient.shared, authenticator: LiveTraceAuthenticator())
     @FocusState private var searchFocused: Bool
 
+    private var isPage: Bool { onClose == nil }
+
     var body: some View {
+        Group {
+            if isPage {
+                HStack(alignment: .top, spacing: CicadaTheme.spacingXL) {
+                    dayColumn
+                    content
+                }
+            } else {
+                content
+                    .padding(CicadaTheme.spacingXL)
+                    .frame(width: CicadaTheme.scaled(720), height: CicadaTheme.scaled(560), alignment: .topLeading)
+            }
+        }
+        .background(CicadaTheme.bgBase)
+        .task(id: status.oldestDay) {
+            model.setStatus(status)
+            await model.load()
+        }
+        .onDisappear { model.close() }
+    }
+
+    private var content: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
             header
             if let problem = model.problem {
@@ -159,23 +184,53 @@ struct TracesTimelineView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .padding(CicadaTheme.spacingXL)
-        .frame(width: CicadaTheme.scaled(720), height: CicadaTheme.scaled(560), alignment: .topLeading)
-        .background(CicadaTheme.bgBase)
-        .task {
-            model.setStatus(status)
-            await model.load()
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    /// The page's days, newest first: one row each, the open one selected (DR-22's selection: `bgSelected`, never the
+    /// accent). A switch is instant (DR-60).
+    private var dayColumn: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+            SectionLabel(Copy.Traces.daysSection)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(model.days, id: \.self) { day in
+                        let selected = day == model.day && model.hits == nil
+                        Button {
+                            Task { await model.select(day) }
+                        } label: {
+                            Text(dayLabel(day)).font(CicadaTheme.rowFont)
+                                .foregroundStyle(selected ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
+                                .lineLimit(1)
+                                .padding(.horizontal, CicadaTheme.spacingSM)
+                                .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(RowMetrics.oneLine),
+                                       alignment: .leading)
+                                .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
+                                    .fill(selected ? CicadaTheme.bgSelected : Color.clear))
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.cicadaPlain)
+                        .help(RelativeDay.full(day))
+                        .accessibilityAddTraits(selected ? [.isSelected] : [])
+                    }
+                }
+            }
         }
-        .onDisappear { model.close() }
+        .frame(width: CicadaTheme.scaled(168), alignment: .topLeading)
     }
 
     // MARK: - Header
 
     private var header: some View {
         HStack(spacing: CicadaTheme.spacingSM) {
-            Text(Copy.Traces.browserTitle).font(CicadaTheme.headingFont).foregroundStyle(CicadaTheme.textPrimary)
-                .accessibilityAddTraits(.isHeader)
-            dayMenu
+            if isPage {
+                Text(dayLabel(model.day)).font(CicadaTheme.headingFont).foregroundStyle(CicadaTheme.textPrimary)
+                    .accessibilityAddTraits(.isHeader)
+            } else {
+                Text(Copy.Traces.browserTitle).font(CicadaTheme.headingFont).foregroundStyle(CicadaTheme.textPrimary)
+                    .accessibilityAddTraits(.isHeader)
+                dayMenu
+            }
             Spacer(minLength: CicadaTheme.spacingSM)
             TextField("", text: $model.query)
                 .focused($searchFocused)
@@ -185,10 +240,12 @@ struct TracesTimelineView: View {
                 .onChange(of: model.query) { _, words in
                     if words.isEmpty { Task { await model.search() } }
                 }
-            IconButton(systemName: "xmark", help: Copy.Traces.close, accessibilityLabel: Copy.Traces.close,
-                       shortcut: .cancelAction) {
-                model.close()
-                onClose()
+            if let onClose {
+                IconButton(systemName: "xmark", help: Copy.Traces.close, accessibilityLabel: Copy.Traces.close,
+                           shortcut: .cancelAction) {
+                    model.close()
+                    onClose()
+                }
             }
         }
     }

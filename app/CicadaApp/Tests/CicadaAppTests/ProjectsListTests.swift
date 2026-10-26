@@ -295,14 +295,15 @@ final class ProjectsListTests: XCTestCase {
         XCTAssertEqual(AppTab.projects.icon, "point.topleft.down.to.point.bottomright.curvepath")
         XCTAssertTrue(AppTab.projects.hostsOwnReader)
         XCTAssertEqual(AppTab.restored(from: "Projects"), .projects)
+        // Owner 2026-10-26: the page is hidden behind `PageSwitches.projectsPage` — no palette row, and a project opens
+        // as its own page on the graph. The page, its digit and its reselect stay for when the switch returns it.
         let row = PaletteActions.docs(QuickIndexInputs()).first { $0.row.key.id == "tab.Projects" }?.row
-        XCTAssertEqual(row?.title, "Go to Projects")
-        XCTAssertEqual(row?.trailing, "⌘8")
+        XCTAssertNil(row)
         let router = AppRouter()
         router.routeToProject("rover-arm-project")
-        XCTAssertEqual(router.pendingTab, .projects)
-        XCTAssertEqual(router.consumeProject(), "rover-arm-project")
-        XCTAssertNil(router.consumeProject(), "read-then-clear")
+        XCTAssertEqual(router.pendingTab, .graph)
+        XCTAssertEqual(router.consumeRevealEntity(), "rover-arm-project")
+        XCTAssertNil(router.consumeProject(), "nothing staged for a hidden page")
         router.routeToInboxItem("inbox-007")
         XCTAssertEqual(router.pendingTab, .inbox)
         XCTAssertEqual(router.consumeInboxItem(), "inbox-007")

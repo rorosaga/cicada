@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from api.config import Settings, get_settings
 from api.models.schemas import (
     BookmarkLeft,
+    CamelModel,
     BookmarkRemoveRequest,
     BookmarkRemoveResponse,
     BookmarkSyncRequest,
@@ -1150,6 +1151,46 @@ async def sources_due(settings: Settings = Depends(get_settings)):
         "items": rows[:200],
         "total": len(rows),
     }
+
+
+class WhereToCheckRow(CamelModel):
+    entity_id: str
+    entity_name: str
+    entity_type: str = ""
+    who: str
+    agent: str | None = None
+    added_by: str
+    ref: str
+    kind: str
+    predicate: str | None = None
+    added_at: str = ""
+    proposed: bool = False
+
+
+class WhereToCheckResponse(CamelModel):
+    items: list[WhereToCheckRow]
+    total: int
+
+
+@router.get("/sources/where-to-check", response_model=WhereToCheckResponse)
+async def sources_where_to_check(
+    request: Request,
+    response: Response,
+    settings: Settings = Depends(get_settings),
+):
+    """G61 (owner 2026-10-26) — every page's sources the person or one of their agents added, newest first, for the
+    Sources page's "Reading in your browser" area (``source_roster``). Engine-free, never fetches, writes nothing; the
+    adds and removals go through the page's own source routes, so each store keeps its one writer. On demand, not a
+    Store domain: the ETag (entities, plus the shape) serves the area's in-memory copy (``AddedSourcesModel``), so there
+    is no ``VersionVector`` mapping."""
+    from api.services import source_roster
+
+    memory_path = settings.memory_path
+    etag = sync_service.etag_for(memory_path, "entities", extra=source_roster.SHAPE)
+    if (early := sync_service.conditional(request, response, etag)) is not None:
+        return early
+    rows = await run_in_threadpool(source_roster.roster, memory_path)
+    return WhereToCheckResponse(items=[WhereToCheckRow(**r) for r in rows[:source_roster.LIMIT]], total=len(rows))
 
 
 @router.get("/sources/overview", response_model=SourceOverviewResponse)

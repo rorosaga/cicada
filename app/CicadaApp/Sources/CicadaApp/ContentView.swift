@@ -13,6 +13,9 @@ struct ContentView: View {
     @AppStorage("cicada.selectedTab") private var selectedTabRaw = AppTab.home.rawValue
     /// R-DS15 — per viewer: the icon rail (default) or the labelled sidebar.
     @AppStorage(ShellMetrics.labelledKey) private var labelledSidebar = false
+    /// G218 (owner 2026-10-26) — the Traces page is on the rail (mirrored from the recorder's answer).
+    @AppStorage(TracesPageVisibility.key) private var tracesPage = false
+    @Environment(TraceRecorder.self) private var traceRecorder: TraceRecorder?
     // G117 / G145 (round 4 phase B) — the onboarding flow: six pages (Welcome,
     // Import, Agents, Who reads, Keep it running, You're set) replacing Track I's
     // one-screen Welcome and, before it, the four-step first-run sheet. Still gated per-bank (`OnboardingState`, R5)
@@ -83,7 +86,7 @@ struct ContentView: View {
         // cold launch. `FirstRunGate` holds the rule (unknown is never empty);
         // this view just re-asks it whenever an input lands.
         .onAppear {
-            selectedTab = AppTab.restored(from: selectedTabRaw)
+            selectedTab = AppTab.restored(from: selectedTabRaw).landing(tracesPage: tracesPage)
             evaluateFirstRun()
             intake.welcomeActive = showFirstRun
             resumePermissionStep()
@@ -141,6 +144,10 @@ struct ContentView: View {
     var body: some View {
         refreshStage
         .onChange(of: selectedTab) { _, newValue in
+            // Owner 2026-10-26 — a hidden page is never shown, whichever door asked for it (a stored selection, a
+            // hand-off, ⌘K, the tour): it lands where its content is now (`AppTab.landing`).
+            let landing = newValue.landing(tracesPage: tracesPage)
+            guard landing == newValue else { selectedTab = landing; return }
             selectedTabRaw = newValue.rawValue
             // Bug 3 / G108 — a different tab drops the entity card's stale
             // "go deeper" trail (the currently-open card, if any, is left
@@ -148,6 +155,13 @@ struct ContentView: View {
             graphVM.resetNavigationHistory()
         }
         .onChange(of: router.pendingPalette) { _, _ in consumePaletteRequest() }
+        // G218 — the recorder's answer decides the Traces page; before it answers, the last answer stands. A Wipe (or
+        // traces never turned on) takes the page away, and a page left showing lands on Sources.
+        .onChange(of: traceRecorder?.pageShown, initial: true) { _, shown in
+            guard let shown else { return }
+            tracesPage = shown
+            if !shown, selectedTab == .traces { selectedTab = .sources }
+        }
         // R-SU5 — the instant tier is rebuilt off the main actor whenever an
         // input moves, open or not, so the first ⌘K never waits on a build.
         .background { FindIndexTask() }
@@ -435,7 +449,7 @@ struct ContentView: View {
     /// and opens through `AppRouter.openSettings` (R-HS20).
     private func openFind(_ destination: FindDestination) {
         switch destination {
-        case .entity(let id) where ProjectsModel.isProject(id, in: store.graph.value):
+        case .entity(let id) where PageSwitches.projectsPage && ProjectsModel.isProject(id, in: store.graph.value):
             // G141 PJ-5 (R-PP24, spec §11.1) — a project opens where it is tracked: Projects, its detail open.
             router.routeToProject(id)
         case .entity(let id), .belief(let id, _):
@@ -597,6 +611,8 @@ struct ContentView: View {
             SkillsPage()
         case .agents:
             AgentsSidebarPage()
+        case .traces:
+            TracesPage()
         }
     }
 }

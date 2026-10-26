@@ -31,6 +31,7 @@ struct NavRail: View {
 
     @AppStorage(ThemeStore.defaultsKey) private var colorSchemeRaw: String = AppColorScheme.dark.rawValue
     @AppStorage(FeedMovedHint.shownKey) private var feedMovedHintShown = false
+    @AppStorage(TracesPageVisibility.key) private var tracesPage = false
     @Environment(Store.self) private var store: Store?
     @Environment(AppRouter.self) private var router: AppRouter?
     @State private var tooltip = RailTooltipState()
@@ -38,7 +39,9 @@ struct NavRail: View {
     var body: some View {
         VStack(alignment: labelled ? .leading : .center, spacing: 0) {
             VStack(spacing: CicadaTheme.spacingXS) {
-                ForEach(AppTab.allCases, id: \.self) { tab in cell(tab) }
+                // Owner 2026-10-26 — a hidden page (Projects behind `PageSwitches`, Traces until it was ever on)
+                // draws no cell; every other cell keeps its ⌘ digit (DR-22).
+                ForEach(AppTab.shown(tracesPage: tracesPage), id: \.self) { tab in cell(tab) }
             }
             Spacer(minLength: CicadaTheme.spacingLG)
             foot

@@ -151,6 +151,9 @@ struct TracesRunningApp: Identifiable, Hashable {
 struct TracesControls: View {
     var probe: any TracePermissionProbe = LiveTracePermissionProbe()
     var asker: any TraceBrowserAsking = LiveTraceBrowserAsker()
+    /// "Browse traces…" opens the timeline sheet; off on the Traces page's own Settings (owner 2026-10-26), where the
+    /// timeline is the page.
+    var showsBrowse = true
 
     @Environment(TraceRecorder.self) private var recorder
     @State private var showConsent = false
@@ -244,7 +247,9 @@ struct TracesControls: View {
                     do { try await recorder.forget(minutes: 15); note = Copy.Traces.forgot } catch { note = describe(error) }
                 }
             }
-            NeutralButton(title: Copy.Traces.browse, size: .compact, help: Copy.Traces.browseHelp) { showBrowser = true }
+            if showsBrowse {
+                NeutralButton(title: Copy.Traces.browse, size: .compact, help: Copy.Traces.browseHelp) { showBrowser = true }
+            }
         }
     }
 

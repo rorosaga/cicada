@@ -14,14 +14,16 @@ final class SidebarTabTests: XCTestCase {
     /// Looks on pages (owner 2026-10-20): the ninth page, Looks, went — a look lives on the page of the thing it shows.
     /// Ruling 36 D6 (2026-10-22): Agents became a sidebar page, appended at the end so nothing before it moved (DR-22).
     func testTheSidebarIsNineRowsInVisualOrder() {
-        XCTAssertEqual(AppTab.allCases, [.home, .graph, .clusters, .skills, .sleep, .inbox, .sources, .projects, .agents])
+        XCTAssertEqual(AppTab.allCases, [.home, .graph, .clusters, .skills, .sleep, .inbox, .sources, .projects, .agents,
+                                        .traces])
     }
 
     /// ⌘ map A (owner, 2026-10-16) — Skills takes the Feed's ⌘4 and nothing else moves: every shortcut a person
     /// learned still opens the page it opened.
     func testMapANothingButTheFeedsCellMoves() {
         XCTAssertEqual(AppTab.allCases.map { RailItem.shortcut(for: $0) },
-                       ["⌘1", "⌘2", "⌘3", "⌘4", "⌘5", "⌘6", "⌘7", "⌘8", "⌘9"])
+                       ["⌘1", "⌘2", "⌘3", "⌘4", "⌘5", "⌘6", "⌘7", "⌘8", "⌘9", ""],
+                       "Traces, the tenth page (2026-10-26), has no digit: ⌘0 is Actual Size")
         XCTAssertEqual(RailItem.shortcut(for: .skills), "⌘4")
         XCTAssertEqual(RailItem.shortcut(for: .sleep), "⌘5")
         XCTAssertEqual(RailItem.shortcut(for: .inbox), "⌘6")
@@ -49,6 +51,64 @@ final class SidebarTabTests: XCTestCase {
         XCTAssertEqual(AppTab.sources.rawValue, "Sources")
         XCTAssertEqual(AppTab.projects.rawValue, "Projects")
         XCTAssertEqual(AppTab.agents.rawValue, "Agents")
+        XCTAssertEqual(AppTab.traces.rawValue, "Traces")
+    }
+
+    // MARK: Hidden pages (owner 2026-10-26)
+
+    /// Projects is hidden behind its one switch, and Traces shows only once traces were ever on; the cells that stay
+    /// keep their digits (DR-22) — ⌘8 simply opens nothing while Projects is away.
+    func testHiddenPagesLeaveTheRailAndNoDigitMoves() {
+        XCTAssertFalse(PageSwitches.projectsPage, "owner 2026-10-26: hidden until the redesign")
+        XCTAssertEqual(AppTab.shown(tracesPage: false),
+                       [.home, .graph, .clusters, .skills, .sleep, .inbox, .sources, .agents])
+        XCTAssertEqual(AppTab.shown(tracesPage: true).last, .traces)
+        XCTAssertEqual(AppTab.shown(tracesPage: false, projectsPage: true),
+                       [.home, .graph, .clusters, .skills, .sleep, .inbox, .sources, .projects, .agents],
+                       "the switch brings Projects back where it was")
+        XCTAssertEqual(AppTab.shown(tracesPage: false).map { RailItem.shortcut(for: $0) },
+                       ["⌘1", "⌘2", "⌘3", "⌘4", "⌘5", "⌘6", "⌘7", "⌘9"])
+    }
+
+    /// Every door to a hidden page lands where its content is now: a stored "Projects" selection, a ⌘K row, a hand-off.
+    func testAHiddenPageLandsWhereItsContentIs() {
+        XCTAssertEqual(AppTab.projects.landing(tracesPage: true), .clusters)
+        XCTAssertEqual(AppTab.projects.landing(tracesPage: true, projectsPage: true), .projects)
+        XCTAssertEqual(AppTab.traces.landing(tracesPage: false), .sources)
+        XCTAssertEqual(AppTab.traces.landing(tracesPage: true), .traces)
+        XCTAssertEqual(AppTab.restored(from: "Projects").landing(tracesPage: false), .clusters)
+        XCTAssertEqual(AppTab.restored(from: "Traces").landing(tracesPage: false), .sources)
+        for tab in AppTab.allCases where tab != .projects && tab != .traces {
+            XCTAssertEqual(tab.landing(tracesPage: false), tab)
+        }
+    }
+
+    /// The Traces page is on the rail while traces are on, or once they were ever on; never before, and a Wipe (which
+    /// clears the consent and every day) takes it away.
+    func testTheTracesPageShowsOnceTracesWereEverOn() {
+        var settings = TraceSettings()
+        var status = TraceStoreStatus()
+        XCTAssertFalse(TracesPageVisibility.shown(settings: settings, status: status))
+        settings.enabled = true
+        XCTAssertTrue(TracesPageVisibility.shown(settings: settings, status: status))
+        settings.enabled = false
+        settings.consentedAt = "2026-10-20T09:00:00Z"
+        XCTAssertTrue(TracesPageVisibility.shown(settings: settings, status: status), "turned off, still ever on")
+        settings.consentedAt = nil
+        status.days = 2
+        XCTAssertTrue(TracesPageVisibility.shown(settings: settings, status: status), "days still kept")
+    }
+
+    /// ⌘K offers only the pages the rail shows, each with its own digit.
+    func testThePaletteGoesOnlyToShownPages() {
+        let titles = { (traces: Bool) in
+            PaletteActions.docs(QuickIndexInputs(tracesPage: traces)).map(\.row.title).filter { $0.hasPrefix("Go to ") }
+        }
+        XCTAssertFalse(titles(false).contains("Go to Projects"))
+        XCTAssertFalse(titles(false).contains("Go to Traces"))
+        XCTAssertTrue(titles(true).contains("Go to Traces"))
+        let agents = PaletteActions.docs(QuickIndexInputs()).first { $0.row.title == "Go to Agents" }
+        XCTAssertEqual(agents?.row.trailing, "⌘9")
     }
 
     /// The six retired raw values still exist in some user's defaults. Each
@@ -84,13 +144,15 @@ final class SidebarTabTests: XCTestCase {
     }
 
     /// ⌘1–9 follow the visual order, and every row has an icon. Nine pages since Agents joined (ruling 36 D6,
-    /// 2026-10-22), so every page still has a ⌘ slot — Skills at ⌘4, Agents at ⌘9; a tenth would have none (DR-22).
+    /// 2026-10-22), so every page still has a ⌘ slot — Skills at ⌘4, Agents at ⌘9. Traces (2026-10-26) is the tenth
+    /// and the one page with none (DR-22: ⌘0 is Actual Size, and no shortcut moves to make room).
     func testEveryTabHasAShortcutSlotAndAnIcon() {
-        XCTAssertEqual(AppTab.allCases.count, 9)
+        XCTAssertEqual(AppTab.allCases.count, 10)
         XCTAssertEqual(AppTab.allCases.firstIndex(of: .home), 0, "⌘1 is Home")
         XCTAssertEqual(AppTab.allCases.firstIndex(of: .graph), 1, "⌘2 is Graph")
+        XCTAssertNil(RailItem.key(for: .traces))
         for (index, tab) in AppTab.allCases.enumerated() {
-            XCTAssertTrue(index < 9, "\(tab.rawValue) has no ⌘ slot")
+            XCTAssertTrue(index < 9 || tab == .traces, "\(tab.rawValue) has no ⌘ slot")
             XCTAssertFalse(tab.icon.isEmpty, tab.rawValue)
             XCTAssertFalse(tab.icon.hasSuffix(".fill"), "DR-53: outline glyphs")
             XCTAssertEqual(tab.title, tab.rawValue, "the label and the identity must agree")

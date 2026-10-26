@@ -181,6 +181,8 @@ struct SourceCatalogDetail: View {
     @Environment(LocalSourceWatcher.self) private var localSources
     @State private var flowTile: AddSourceTile?
     @State private var browsers = BrowserInventory.empty
+    /// G218 (owner 2026-10-26) — the Traces page is on the rail.
+    @AppStorage(TracesPageVisibility.key) private var tracesPage = false
 
     private var channels: [SourceChannel] { store.channels.value ?? [] }
     private var mine: [SourceChannel] { SourceCatalog.channelsOf(row.entry, in: channels) }
@@ -254,7 +256,8 @@ struct SourceCatalogDetail: View {
         case MessagesWatcher.channel:
             MessagesRow(channel: mine.first)
         case SourceCatalog.tracesId:
-            TracesControls()
+            // Owner 2026-10-26 — once traces were ever on they have their own page; Sources keeps a link to it.
+            if tracesPage { TracesSourcesLink() } else { TracesControls() }
         case LocalSourceWatcher.wisprChannel:
             WisprFlowRow(channel: mine.first)
         case "folders":

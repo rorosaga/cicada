@@ -172,6 +172,8 @@ final class AppRouter {
     var pendingProject: String?
 
     func routeToProject(_ id: String) {
+        // Owner 2026-10-26 — while the Projects page is hidden, a project opens as the page it is (`PageSwitches`).
+        guard PageSwitches.projectsPage else { routeToEntity(id); return }
         closeSettings()
         pendingTab = .projects
         pendingProject = id
@@ -198,7 +200,8 @@ final class AppRouter {
     var pendingBacklogItem: String?
 
     func routeToBacklogItem(project: String, item: String) {
-        pendingBacklogItem = item
+        // The item's column lives on the Projects page; hidden, the project's own page opens instead.
+        if PageSwitches.projectsPage { pendingBacklogItem = item }
         routeToProject(project)
     }
 

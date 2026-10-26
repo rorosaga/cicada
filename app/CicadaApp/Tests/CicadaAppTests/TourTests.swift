@@ -24,6 +24,8 @@ final class TourTests: XCTestCase {
 
     func testSixStopsInTheBriefsOrder() {
         XCTAssertEqual(TourStop.allCases, [.search, .home, .inbox, .person, .projects, .sleep])
+        XCTAssertEqual(TourStop.shown(projectsPage: true), TourStop.allCases)
+        XCTAssertEqual(TourStop.shown(projectsPage: false), [.search, .home, .inbox, .person, .sleep])
     }
 
     func testTheDemoOpensItsShowcaseAndARealBankOnlyThePages() {
@@ -80,12 +82,14 @@ final class TourTests: XCTestCase {
         XCTAssertTrue(tour.spotlights(.commandBar))
         tour.back()
         XCTAssertEqual(tour.currentStop, .search, "Back stops at the first stop")
-        for _ in 0..<5 { tour.next() }
+        // Owner 2026-10-26: the Projects stop sits out while its page is hidden (`PageSwitches`), so five stops.
+        XCTAssertEqual(tour.count, 5)
+        for _ in 0..<4 { tour.next() }
         XCTAssertEqual(tour.currentStop, .sleep)
         XCTAssertTrue(tour.isLast)
         XCTAssertFalse(tour.spotlights(.commandBar))
         tour.back()
-        XCTAssertEqual(tour.currentStop, .projects)
+        XCTAssertEqual(tour.currentStop, .person)
         tour.next(); tour.next()
         XCTAssertFalse(tour.isActive, "Done on the last stop ends it")
         XCTAssertTrue(TourMemory.isDone(defaults))
@@ -185,8 +189,10 @@ final class TourTests: XCTestCase {
     func testRoutingUsesTheRoutersHandOffsAndNothingElse() {
         let router = AppRouter()
         TourRouting.apply(.project(DemoShowcase.project), router: router)
-        XCTAssertEqual(router.pendingTab, .projects)
-        XCTAssertEqual(router.pendingProject, DemoShowcase.project)
+        // Owner 2026-10-26: with the Projects page hidden, a project opens as its own page on the graph.
+        XCTAssertEqual(router.pendingTab, .graph)
+        XCTAssertEqual(router.pendingRevealEntity, DemoShowcase.project)
+        XCTAssertNil(router.pendingProject)
         TourRouting.apply(.clustersEntity(DemoShowcase.person), router: router)
         XCTAssertEqual(router.pendingTab, .clusters)
         XCTAssertEqual(router.pendingClustersEntity, DemoShowcase.person)

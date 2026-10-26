@@ -38,6 +38,10 @@ enum AppTab: String, CaseIterable {
     /// the Agents page). Appended so no existing shortcut moves (DR-22). A new raw value; a saved Settings
     /// `"agents"` section lands here through `SettingsSection.retired`.
     case agents = "Agents"
+    /// G218 (owner 2026-10-26) — activity traces' own page: the day's timeline and its screenshots behind Touch ID.
+    /// Appended, the tenth page, so no shortcut moves (DR-22) and it has no ⌘ digit (`RailItem.keyDigit`). Shown only
+    /// while traces are on or were ever on (`TracesPageVisibility`); otherwise Sources keeps the switch.
+    case traces = "Traces"
 
     /// Decodes a persisted selection, mapping every retired tab to whichever
     /// page inherited its content. Anything unrecognised falls back to Home.
@@ -66,6 +70,7 @@ enum AppTab: String, CaseIterable {
         case .projects: "point.topleft.down.to.point.bottomright.curvepath"
         case .skills: "puzzlepiece.extension"
         case .agents: "powerplug"   // looks pass 2026-10-23: `cable.connector` is a solid glyph among outlines (DR-53)
+        case .traces: "timeline.selection"
         }
     }
 
@@ -84,4 +89,44 @@ extension AppTab {
         default: false
         }
     }
+}
+
+/// Pages that can be hidden without deleting them (owner 2026-10-26). One switch per page; code and data stay.
+enum PageSwitches {
+    /// Owner 2026-10-26: "The Projects page really doesn't convince me. Hide it for now — some detected projects
+    /// aren't even mine." Off until the redesign (G141's row in docs/goals/memory-evolution.md). Turning it back on is
+    /// this one value: the rail, ⌘K, a project's ⌘K row, the tour and every hand-off read it.
+    static let projectsPage = false
+}
+
+extension AppTab {
+    /// The rail's cells and ⌘K's "Go to" rows, in `allCases` order — so a hidden page leaves its ⌘ digit unused
+    /// rather than moving another page's (DR-22).
+    static func shown(tracesPage: Bool, projectsPage: Bool = PageSwitches.projectsPage) -> [AppTab] {
+        allCases.filter { $0.landing(tracesPage: tracesPage, projectsPage: projectsPage) == $0 }
+    }
+
+    /// Where a selection of this page lands: itself, or — for a hidden page — the page that holds its content now
+    /// (Projects → Clusters, where project pages still are; Traces → Sources, where its switch is).
+    func landing(tracesPage: Bool, projectsPage: Bool = PageSwitches.projectsPage) -> AppTab {
+        switch self {
+        case .projects where !projectsPage: .clusters
+        case .traces where !tracesPage: .sources
+        default: self
+        }
+    }
+}
+
+/// G218 (owner 2026-10-26) — whether the Traces page is on the rail: while traces are on, or once they were ever
+/// turned on (consent given, or a day kept). A Wipe forgets it with everything else. Mirrored per viewer into
+/// `UserDefaults` (`key`) by `ContentView` once the recorder has its answer, so the rail and ⌘K read it at launch
+/// without waiting for the backend; losing it only hides the page until the recorder answers again.
+enum TracesPageVisibility {
+    static let key = "cicada.traces.pageShown"
+
+    static func shown(settings: TraceSettings, status: TraceStoreStatus) -> Bool {
+        settings.enabled || settings.consentedAt != nil || status.days > 0
+    }
+
+    static var stored: Bool { UserDefaults.standard.bool(forKey: key) }
 }
