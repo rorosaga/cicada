@@ -68,7 +68,9 @@ struct WikiArticle: Sendable, Equatable {
         var inLinks = false
         func add(_ kind: WikiRow.Kind, _ text: AttributedString, _ source: Range<Int>, links: [LinkRef] = []) {
             rows.append(WikiRow(id: rows.count, kind: kind, text: text, source: source, links: links,
-                                inLinks: inLinks && { if case .item = kind { return true }; return false }()))
+                                inLinks: inLinks && {
+                                    switch kind { case .item, .link: return true; default: return false }
+                                }()))
         }
         while rows.count < maxRows, let line = reader.peek() {
             let trimmed = line.text.trimmingCharacters(in: .whitespaces)
@@ -131,7 +133,7 @@ struct WikiArticle: Sendable, Equatable {
                 continue
             }
             if let item = listItem(line.text) {
-                if let block = blockLink(item.text) {
+                if let block = blockLink(item.text) ?? (inLinks ? linksCard(item.text) : nil) {
                     add(.link(block.ref, note: block.note), AttributedString(), line.start..<line.end, links: [block.ref])
                     reader.advance()
                     continue
@@ -172,6 +174,21 @@ struct WikiArticle: Sendable, Equatable {
         guard text.contains("]("), text.contains("\"") || text.contains("'"), text.contains("http") else { return nil }
         let refs = LinkGrammar.links(in: text)
         guard refs.count == 1, let ref = refs.first, ref.block, ref.asked.isBlock else { return nil }
+        let rest = (text as NSString).substring(from: ref.range.location + ref.range.length)
+        let note = rest.drop { " \t—–-".contains($0) }.trimmingCharacters(in: .whitespaces)
+        return (ref, note.isEmpty ? nil : note)
+    }
+
+    /// A `## Links` bullet that is one plain markdown link alone on its line (before an optional ` — note`): drawn as a
+    /// bookmark card by context (owner 2026-10-26: "links … in other designs, like in Notion (cards/bookmarks)"). The
+    /// page keeps its plain link — nothing is written, and Sleep keeps writing plain links; the card draws only what
+    /// Cicada already knows of the URL (no linked page is fetched). Nil for a bare URL, a tooltip-free link inside a
+    /// sentence, or a link that names its own view (that view wins, `blockLink`).
+    static func linksCard(_ text: String) -> (ref: LinkRef, note: String?)? {
+        guard text.contains("]("), text.contains("http") else { return nil }
+        let refs = LinkGrammar.links(in: text)
+        guard refs.count == 1, let ref = refs.first, ref.block, ref.asked == .link, ref.markdown.hasPrefix("[")
+        else { return nil }
         let rest = (text as NSString).substring(from: ref.range.location + ref.range.length)
         let note = rest.drop { " \t—–-".contains($0) }.trimmingCharacters(in: .whitespaces)
         return (ref, note.isEmpty ? nil : note)

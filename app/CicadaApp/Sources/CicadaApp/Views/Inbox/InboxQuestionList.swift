@@ -26,6 +26,11 @@ struct InboxQuestionList: View {
     var footer: AnyView? = nil
     /// Drawn before the questions at full width only — the quick review's entry points (owner 2026-10-19).
     var header: AnyView? = nil
+    /// The grouped list at full width (owner 2026-10-26, `InboxGroups`): kind headers with counts, page headers,
+    /// questions. Nil draws `entries` flat, as the narrow columns always do.
+    var lines: [InboxListLine]? = nil
+    var toggleGroup: (InboxKind) -> Void = { _ in }
+    var startReview: (ReviewKind) -> Void = { _ in }
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -50,9 +55,16 @@ struct InboxQuestionList: View {
             ScrollView {
                 VStack(spacing: style == .triage ? CicadaTheme.scaled(RowMetrics.twoLineGap) : 0) {
                     if style == .wide, let header { header }
-                    ForEach(entries) { entry in
-                        Group { row(entry, slots: slots, now: now) }
-                            .id(entry.id)
+                    if style == .wide, let lines {
+                        ForEach(Array(lines.enumerated()), id: \.element.id) { index, line in
+                            Group { self.line(line, first: index == 0, slots: slots, now: now) }
+                                .id(line.id)
+                        }
+                    } else {
+                        ForEach(entries) { entry in
+                            Group { row(entry, slots: slots, now: now) }
+                                .id(entry.id)
+                        }
                     }
                     if style == .wide, let footer { footer }
                 }
@@ -83,12 +95,28 @@ struct InboxQuestionList: View {
         .onExitCommand { escape() }
     }
 
+    /// One line of the grouped list (owner 2026-10-26). A header is a disclosure, never an answer: opening or closing a
+    /// group sends nothing, and the group's one action is its quick review, which still asks one question at a time.
+    @ViewBuilder private func line(_ line: InboxListLine, first: Bool, slots: InboxRowSlots, now: Date) -> some View {
+        switch line {
+        case .kind(let kind, let count, let isOpen, let review):
+            InboxGroupHeader(kind: kind, count: count, isOpen: isOpen, review: review,
+                             toggle: { toggleGroup(kind) }, startReview: startReview)
+                .padding(.top, first ? 0 : CicadaTheme.spacingSM)
+        case .page(_, let name, let count):
+            InboxPageHeader(name: name, count: count)
+        case .entry(let entry, let nested):
+            row(entry, slots: slots, now: now, nested: nested)
+        }
+    }
+
     /// One entry's row — split out of `body`, which sat near the type checker's release-build budget.
-    @ViewBuilder private func row(_ entry: InboxRowEntry, slots: InboxRowSlots, now: Date) -> some View {
+    @ViewBuilder private func row(_ entry: InboxRowEntry, slots: InboxRowSlots, now: Date,
+                                  nested: Bool = false) -> some View {
         switch entry {
         case .item(let item):
             InboxRow(item: item, style: style, slots: slots, selected: item.id == openId,
-                     now: now) { open(item) }
+                     now: now, nested: nested) { open(item) }
         case .undo(let held, let item):
             InboxUndoRow(held: held, item: item, style: style,
                          shortcutEnabled: undoShortcut, onUndo: undo)
@@ -106,6 +134,8 @@ struct InboxRow: View {
     var slots = InboxRowSlots(entity: true, source: true)
     let selected: Bool
     let now: Date
+    /// Under its page's header (owner 2026-10-26): the page is said once, there, so the row leaves its name out.
+    var nested = false
     /// F-09's Needs you draws the row alone — the row already opens the question (R-HO12).
     var showsOpenButton = true
     let open: () -> Void
@@ -198,7 +228,7 @@ struct InboxRow: View {
             if slots.entity {
                 // Say it once — a question that already names its page ("Still tracking Beta Project?") leaves the
                 // column blank; the slot keeps its width so the columns still line up.
-                Text(InboxRowWords.namesItsPage(item) ? "" : item.displayName)
+                Text(nested || InboxRowWords.namesItsPage(item) ? "" : item.displayName)
                     .font(CicadaTheme.metaFont)
                     .foregroundStyle(metaColor)
                     .lineLimit(1)
@@ -351,5 +381,63 @@ enum InboxRowWords {
     private static func continuesAName(word: String?) -> Bool {
         guard let first = word?.first else { return false }
         return first.isUppercase || first.isNumber || first == "("
+    }
+}
+
+/// A kind's group in the full-width list (owner 2026-10-26): the disclosure with the kind's words and its count, and
+/// the group's one action — the quick review (owner 2026-10-19), which asks its questions one at a time with the same
+/// answers, the same Undo window and the same resolvers as the card. There is no answer-all: nothing here resolves
+/// anything. A pointer toggles it instantly (DR-61); a fill, never a lift (DR-48); neutral, never the accent (DR-40).
+struct InboxGroupHeader: View {
+    let kind: InboxKind
+    let count: Int
+    let isOpen: Bool
+    let review: ReviewEntries.Entry?
+    let toggle: () -> Void
+    let startReview: (ReviewKind) -> Void
+
+    var body: some View {
+        HStack(spacing: CicadaTheme.spacingSM) {
+            DisclosureHeader(title: kind.label, summary: UsageFormat.count(count), summaryWhenOpen: true,
+                             isOpen: isOpen, help: isOpen ? Copy.Inbox.groupCloseHelp : Copy.Inbox.groupOpenHelp,
+                             fillsWidth: true, spokenTitle: Copy.Inbox.groupSpoken(kind.label, count)) {
+                Instant.run { toggle() }
+            }
+            if let review {
+                TextButton(title: Copy.Inbox.groupReview, help: Copy.Inbox.Review.entryHelp(review.kind)) {
+                    startReview(review.kind)
+                }
+                .fixedSize()
+            }
+        }
+        .padding(.horizontal, CicadaTheme.scaled(10))
+        .frame(height: CicadaTheme.scaled(RowMetrics.oneLine))
+    }
+}
+
+/// The page two or more questions in a group are about, said once above them (owner 2026-10-26).
+struct InboxPageHeader: View {
+    let name: String
+    let count: Int
+
+    var body: some View {
+        HStack(spacing: CicadaTheme.scaled(6)) {
+            Text(name)
+                .font(CicadaTheme.metaMediumFont)
+                .foregroundStyle(CicadaTheme.textSecondary)
+                .lineLimit(1)
+            Text(Copy.Inbox.pageQuestions(count))
+                .font(CicadaTheme.metaFont)
+                .monospacedDigit()
+                .foregroundStyle(CicadaTheme.textTertiary)
+                .lineLimit(1)
+            Spacer(minLength: 0)
+        }
+        // Under the questions' glyph column, so the page reads as their heading.
+        .padding(.leading, CicadaTheme.scaled(10))
+        .padding(.top, CicadaTheme.spacingXS)
+        .frame(minHeight: CicadaTheme.scaled(RowMetrics.titleOnly))
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
     }
 }

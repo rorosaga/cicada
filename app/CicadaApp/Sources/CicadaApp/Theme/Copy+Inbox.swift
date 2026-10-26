@@ -12,6 +12,13 @@ extension Copy {
         /// The kinds that did not fit, under one menu (owner 2026-10-16).
         static let moreKinds = "More kinds"
 
+        // The list in groups (owner 2026-10-26): a kind's group, and the page two or more questions are about.
+        static let groupOpenHelp = "Show these questions"
+        static let groupCloseHelp = "Hide these questions"
+        static func groupSpoken(_ kind: String, _ n: Int) -> String { "\(kind), \(UsageFormat.count(n)) questions" }
+        static let groupReview = "Review one at a time"
+        static func pageQuestions(_ n: Int) -> String { "\(UsageFormat.count(n)) questions" }
+
         // "Settled by a check" (owner ruling 2026-10-16): questions a web lookup or the person's agent answered.
         static let settledTitle = "Settled by a check"
         static func settledHeader(_ n: Int) -> String { "Settled by a check · \(UsageFormat.count(n))" }

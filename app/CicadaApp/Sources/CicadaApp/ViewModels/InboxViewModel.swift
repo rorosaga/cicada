@@ -63,24 +63,68 @@ final class InboxViewModel {
     var agentRequests: [InboxItem] { items.filter { $0.kind == .agentRequest } }
     var whereToCheckReviews: [InboxItem] { items.filter(\.isWhereToCheckReview) }
 
-    var visible: [InboxItem] { InboxColumns.visible(questions, filter: columns.kindFilter) }
+    /// The questions in the order the list draws them (owner 2026-10-26): grouped by kind under All, by page inside
+    /// (`InboxGroups`), so ↑/↓ and the next question after an answer follow the screen.
+    var visible: [InboxItem] { Self.ordered(questions, filter: columns.kindFilter) }
+
+    private static func ordered(_ questions: [InboxItem], filter: InboxKind?) -> [InboxItem] {
+        InboxGroups.ordered(InboxColumns.visible(questions, filter: filter), byKind: filter == nil)
+    }
+
+    /// The person's own open/closed choice per kind's group, for this memory (a bank switch forgets it).
+    private(set) var groupChoices: [InboxKind: Bool] = [:]
+
+    var sections: [InboxGroups.Section] {
+        InboxGroups.sections(InboxColumns.visible(questions, filter: columns.kindFilter),
+                             byKind: columns.kindFilter == nil)
+    }
+
+    func isGroupOpen(_ kind: InboxKind?, in sections: [InboxGroups.Section]) -> Bool {
+        InboxGroups.isOpen(kind, sections: sections, chosen: groupChoices, openKind: openItem?.kind)
+    }
+
+    /// A kind's header was clicked: open or close its group. Nothing is answered.
+    func toggleGroup(_ kind: InboxKind) {
+        let sections = sections
+        groupChoices[kind] = !isGroupOpen(kind, in: sections)
+    }
+
+    /// The held answer's question, when the list on screen would show it (a kind's tab hides another kind's).
+    private var heldInList: InboxItem? {
+        guard let item = heldQuestion, columns.kindFilter == nil || columns.kindFilter == item.kind else { return nil }
+        return item
+    }
+
+    /// The full-width list's lines: kind headers with counts and their quick review, page headers, questions.
+    var lines: [InboxListLine] {
+        let sections = sections
+        return InboxListLine.lines(sections, byKind: columns.kindFilter == nil, held: held, heldItem: heldInList,
+                                   reviews: reviewEntries) {
+            isGroupOpen($0, in: sections)
+        }
+    }
     var openItem: InboxItem? { columns.openId.flatMap { id in questions.first { $0.id == id } } }
     var held: ResolveGrace? { store.currentHeld }
     /// The held answer's question, from the snapshot (`visibleInbox` hides it) — the Undo row's words.
     var heldQuestion: InboxItem? { held.flatMap { h in store.inbox.value?.first { $0.id == h.id } } }
+    /// Every question as one flat list in the groups' order (the narrow columns beside an open question), with the
+    /// held answer's Undo row in its question's place.
     var rows: [InboxRowEntry] {
-        InboxRows.entries(visible: visible, held: held, snapshot: store.inbox.value ?? [], filter: columns.kindFilter)
+        InboxListLine.lines(sections, byKind: columns.kindFilter == nil, held: held, heldItem: heldInList,
+                            reviews: []) { _ in true }
+            .compactMap { if case .entry(let entry, _) = $0 { return entry } else { return nil } }
     }
     var eyebrow: String { InboxEyebrow.text(visible: visible, openId: columns.openId) }
     /// DR-45 — the tabs replace the kind chips and their `countByKind`, their one reader.
     var tabs: [TextTab<InboxKind>] { InboxTabs.tabs(questions) }
 
     func setFilter(_ kind: InboxKind?) {
-        columns.filter(kind, visibleAfter: InboxColumns.visible(questions, filter: kind))
+        columns.filter(kind, visibleAfter: Self.ordered(questions, filter: kind))
     }
     func reconcile() { columns.reconcile(visible: visible, kinds: Set(questions.map(\.kind))) }
     func resetColumns() {
         columns = InboxColumns()
+        groupChoices = [:]
         review = nil   // ids repeat across banks: a review never crosses a switch
     }
 

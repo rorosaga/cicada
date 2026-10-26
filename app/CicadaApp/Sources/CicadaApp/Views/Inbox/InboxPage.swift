@@ -89,8 +89,17 @@ struct InboxPage: View {
                                                 reviews: viewModel.whereToCheckReviews,
                                                 answer: { item, resolution in viewModel.answer(item, resolution) },
                                                 openPage: { router.routeToClustersEntity($0) })
-                                  InboxReviewEntriesRow(entries: viewModel.reviewEntries) { startReview($0) }
-                              }))
+                                  // Say it once: under All each kind's group carries its own review.
+                                  if viewModel.columns.kindFilter != nil {
+                                      InboxReviewEntriesRow(entries: viewModel.reviewEntries
+                                          .filter { $0.kind.inboxKind == viewModel.columns.kindFilter }) {
+                                          startReview($0)
+                                      }
+                                  }
+                              }),
+                              lines: viewModel.lines,
+                              toggleGroup: { viewModel.toggleGroup($0) },
+                              startReview: { startReview($0) })
                 .focused($focus, equals: .list)
                 .tourAnchor(.inbox)
         } detail: { plan in

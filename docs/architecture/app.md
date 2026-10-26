@@ -67,7 +67,13 @@ Agents page, ⌘9, `AppTab.agents`, appended so no shortcut moved — DR-22).
   `sourcesOverview` by harness). A row opens its detail (DR-74): products and how each connects (`AgentProducts`: a way with a `remoteLabel` is two lines — "Claude Desktop · on this machine" and "claude.ai · from anywhere · by export" — so the connector is never named after the Mac app), page edits as *Writes
   at once* / *Proposes* (G198's list), *Copy setup prompt* (`/agents/setup`), *Import its chat export*, and *Remembers
   automatically* for a harness with hooks. *Add an agent token* (DR-75) makes a G213 token and shows its paragraph once;
-  active tokens list with Revoke; the command-line tool closes the page.
+  active tokens list with Revoke; the command-line tool closes the page. **Who is listed (owner 2026-10-26):** only a
+  product that can actually reach Cicada, by its current name and its own mark — *Devin* (Windsurf became Devin Desktop
+  on 2026-06-02; with the Devin CLI and cloud Devin, way id `windsurf` kept), *GitHub Copilot* with the Copilot glyph
+  (VS Code agent mode and the Copilot CLI; way id `vscode` and the G135 app id kept, its label "GitHub Copilot"), *Muse*
+  with Muse's own mark (Meta's agent; umbrella id `meta` kept), and xAI's three ways (Grok Build, the Grok app's custom
+  connector, Grok Bot asked in chat). Cline, Goose, Kiro and Poke left the table and the logo set; a person who had
+  connected one still lights *Another agent* and an old sign-in request reads "An agent" (`agent_catalog`'s docstring).
 - **Marks:** one per provider umbrella from the curated set (`app/assets/logo-set/`, `scripts/build-logo-set.py`, origin
   `set` in `logos.manifest.json`); `codex`/`chatgpt` draw OpenAI's mark and `gemini-cli` Gemini's through `BrandMark`.
   A listed connection's mark sits in `LogoTile` (26 pt in a 36 pt ring tile; `.dense` 18 in 24); a status is
@@ -2181,9 +2187,21 @@ page), its failure saying the page changed since (`settledSleepUndoFailed`). Neu
 from the server, Not now); `InboxBodyPreview` draws its `body` — "Why: …" and the changes as "- Replace “old” with
 “new”" lines — even beside a cause quote, because the body is the change itself (every other kind keeps the old rule:
 the body only when there is neither a cause nor a quote).
+**The Inbox in groups (owner 2026-10-26: "super dense … grouping things would be best"; DR-40, 45, 48, 59, 60, 61).**
+Under All the full-width list is one collapsible group per kind (`InboxGroups`, `InboxListLine`, `InboxGroupHeader`):
+the kind's tab word and its count, and *Review one at a time* — the quick review below, the group's one action. There is
+no answer-all: a header only opens or closes (instantly, `Instant.run`), and every answer is still one question through
+the card or the review, held for the Undo window. Groups sit where their most urgent question would (the G115 order);
+past `InboxGroups.openFirstUpTo` (12) questions every group starts closed, so a full inbox reads as its kinds and counts;
+the person's open/closed choice holds for the memory, and the open question's group is always open. Inside a group (and
+under a kind's tab) two or more questions about one page sit together under the page's name, said once (`InboxPageHeader`;
+the rows leave the name out). The order the groups draw is the list's walk (`InboxViewModel.visible`): ↑/↓ and the next
+question after an answer follow the screen; the narrow columns draw the same order flat. Under a kind's tab the review
+row shows that kind's review only (say it once).
+
 **The quick review (owner 2026-10-19)** goes one kind at a time inside the Inbox page, never a new window. Above the
-questions at full width (`InboxQuestionList`'s `header`), `InboxReviewEntriesRow` lists one text button per kind with
-something to review — "Fading pages · 49", then Folds, Conflicts and Questions with theirs (`ReviewEntries`, counts
+questions at full width under a kind's tab (`InboxQuestionList`'s `header`; under All each group's header carries it),
+`InboxReviewEntriesRow` lists one text button per kind with something to review — "Fading pages · 49", then Folds, Conflicts and Questions with theirs (`ReviewEntries`, counts
 through `UsageFormat`) — and a click replaces the columns with `InboxReviewView`: the eyebrow says the place ("Inbox ·
 Fading pages"; the line under the card counts answered, skipped and left), one card at a time (`ReviewCardView`, capped at the focus card's width), the same answers in
 the same place on every card (`ReviewCard.answers`): **Keep / Let fade** for decay (`keep`/`archive`, in that order
@@ -2269,8 +2287,12 @@ never animates. Sprites play per frame from their sheets within `CicadaMotion`'s
 page draws the way its markdown title asks (`storage.md`, the link-title grammar; `LinkGrammar` in `LinkView.swift`, one
 fixture with the backend). In the article (`WikiArticle`/`WikiInline`): a link in a sentence is accent and underlined; a bare
 URL or `<URL>` is a live link that reads as its address (`example.com/guide` — the design guessed a bare URL was dead text,
-`LinkViewTests` shows Foundation links it, so the fix is its words); a **mention** — `"mention"`, a block view written
-inside a sentence, or a plain link in a `## Links` bullet — reads as the site in `textTertiary` (a `WikiInline.SitePart`
+`LinkViewTests` shows Foundation links it, so the fix is its words); a plain link alone on a `## Links` bullet (Sleep's
+own `- [T](url) — note`) is a **bookmark card** by context, its note under it (owner 2026-10-26: the cards were never
+seen, because Sleep writes plain links and the only way to a card was the hover 🔗 switcher; `WikiArticle.linksCard` —
+nothing is written to the page, and the switcher there offers Mention and the block views, not "Link", which would write
+the token already on the page); a **mention** — `"mention"`, a block view written inside a sentence, or a plain link
+sharing a `## Links` bullet with other words or links — reads as the site in `textTertiary` (a `WikiInline.SitePart`
 run, coloured when the row is drawn so a cached article follows the theme) then the title with a 30% underline; a view
 word is never shown. A link alone on its line asking for a block view is a row of its own (`WikiRow.Kind.link`) drawn by
 `LinkBlockView`: **bookmark** → `BookmarkCard` (title, two lines of description, mark · site · one date — "Read Oct 2"
