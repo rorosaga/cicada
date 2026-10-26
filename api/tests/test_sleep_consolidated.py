@@ -131,3 +131,35 @@ def test_each_history_entry_carries_the_whole_runs_figures(tmp_path, monkeypatch
     assert run["questionsRaised"] is not None
     assert run["models"] == ["model-a"]
     assert run["usageSummary"]["engine"] == "claude-cli" and run["usageSummary"]["basis"]
+
+
+def _settle(memory, item_id, *, subject, date=None):
+    """What `inbox_tend` commits for a settle: the item moved under inbox/settled/, in a commit of its own."""
+    import os
+    import subprocess
+
+    inbox = memory / "inbox"
+    (inbox / "settled").mkdir(parents=True, exist_ok=True)
+    (inbox / f"{item_id}.md").write_text(f"---\nid: {item_id}\nkind: clarification\nstatus: pending\n"
+                                         f"title: Which alpha-project?\n---\nbody\n", encoding="utf-8")
+    git(memory, "add", "-A")
+    git(memory, "commit", "-qm", f"raise {item_id}")
+    git(memory, "mv", f"inbox/{item_id}.md", f"inbox/settled/{item_id}.md")
+    env = {**os.environ, **({"GIT_COMMITTER_DATE": date, "GIT_AUTHOR_DATE": date} if date else {})}
+    subprocess.run(["git", "commit", "-qm", subject], cwd=memory, check=True, env=env)
+
+
+def test_sleeps_own_settles_during_the_run_are_its_settled_questions(tmp_path, monkeypatch):
+    """Sleep commits a settle on its own (`Inbox settled by Sleep (<kind>) <date>`), never inside a batch commit: the
+    run's settled questions are those commits inside its window — not a person's resolution, not one long after."""
+    memory, cfg, _ids = _run(tmp_path, monkeypatch, n=1, cap=5)
+    _settle(memory, "inbox-901", subject="Inbox settled by Sleep (clarification) 2026-10-26")
+    _settle(memory, "inbox-902", subject="Inbox resolution 2026-10-26")
+    _settle(memory, "inbox-903", subject="Inbox settled by Sleep (clarification) 2030-01-01",
+            date="2030-01-01T00:00:00+00:00")
+    body = _client(cfg).get("/sleep/runs/sleep_card/items").json()
+    assert [q["id"] for q in body["questionsSettled"]] == ["inbox-901"]
+    assert body["counts"]["questions_settled"] == 1
+    commit = sleep_consolidated.run_commits(memory, "sleep_card")[0]
+    cycle = _client(cfg).get(f"/sleep/history/{commit}/items").json()
+    assert [q["id"] for q in cycle["questionsSettled"]] == ["inbox-901"], "a plain cycle reads the same window"

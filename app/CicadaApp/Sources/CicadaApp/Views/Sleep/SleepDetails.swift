@@ -131,7 +131,7 @@ struct SleepPastReads: View {
                                          }
                                          onLoadItems(card.key)
                                      },
-                                     onSelectEntity: onSelectEntity)
+                                     onSelectEntity: onSelectEntity, onLoadItems: onLoadItems)
                 .id(DetailsSection.pastNights.anchorID)
                 .saturation(liveness.saturation)
         }

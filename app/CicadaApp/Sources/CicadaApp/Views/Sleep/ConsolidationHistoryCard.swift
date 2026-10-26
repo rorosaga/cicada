@@ -170,9 +170,11 @@ struct ConsolidationHistoryCard: View {
     var itemsFailed: Set<SleepConsolidatedKey> = []
     let onToggle: (RunCardModel) -> Void
     var onSelectEntity: ((String) -> Void)?
+    /// A card on screen asks for its items once (`SleepViewModel.loadConsolidated`): they carry its question count.
+    var onLoadItems: (SleepConsolidatedKey) -> Void = { _ in }
 
     var body: some View {
-        let cards = RunCardModel.cards(entries, details: runDetails)
+        let cards = RunCardModel.cards(entries, details: runDetails, items: items)
         // Say it once (owner 2026-10-19): what no card recorded is said on the section's label, not on every card.
         let layout = PastNightsLayout(entries)
         SleepDetailsSection(title: layout.title) {
@@ -189,7 +191,8 @@ struct ConsolidationHistoryCard: View {
                                     itemsFailed: itemsFailed.contains(card.key), runDetail: runDetail(card),
                                     cycleDetail: details[card.members[0].commitHash],
                                     showsUsage: !layout.usageSaidOnce,
-                                    onToggle: { onToggle(card) }, onSelectEntity: onSelectEntity)
+                                    onToggle: { onToggle(card) }, onSelectEntity: onSelectEntity,
+                                    onAppear: { if items[card.key] == nil { onLoadItems(card.key) } })
                     }
                 }
             }

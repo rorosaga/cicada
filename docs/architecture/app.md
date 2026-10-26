@@ -1772,11 +1772,12 @@ cycle · Readout · Past nights; Last cycle's rows in words, "Rested" as a sente
 is one card, a plain cycle one card, a decay pass or an inbox resolution none. The card says when it ran and who started
 it ("You started it" / "On schedule", a catch-up's missed time), one line of what it included ("12 conversations · 3 new
 pages · 18 updates · 2 questions" — the server's whole-run figures on `SleepRunRef`: `created`, `updated`,
-`questionsRaised`, `models`, `usageSummary`; unknown is left out, never zero), the engine's mark and words with the
+`models`, `usageSummary`; the questions are the dropdown's own count, raised + settled, asked for each card as it
+comes on screen; unknown is left out, never zero), the engine's mark and words with the
 models the ledger says ran, the plan share or cost with its basis (ruling 12, `CycleUsageText`), how long it read, and
 how it ended (Finished · Reading now · Paused at your plan's limit · Paused to leave room in your plan · Paused ·
 Stopped · Didn't finish). A resting ring on `bgFocus`, no shadow (DR-9, DR-37; §9 2026-10-26). Opening it (one card
-open at a time; a click eases on `CicadaMotion.groupExpand`, a key opens in one frame, `RunCardMotion`) drops down what it
+open at a time; only a pointer's click eases, on `CicadaMotion.groupExpand`; a key, an event-less action or an assistive press opens in one frame, `RunCardMotion`) drops down what it
 consolidated, grouped under `DisclosureHeader`s — Conversations read (each opens in the Reader), New pages and Updated
 pages (neutral `Tag`s, each opens its page; a page gone since shows its id), Questions raised and settled (each opens
 in the Inbox) — from `GET /sleep/runs/{id}/items` or `GET /sleep/history/{commit}/items` (`SleepConsolidated`, held by

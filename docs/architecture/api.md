@@ -397,7 +397,7 @@ cycle's commit; 404 for a decay, inbox or non-Sleep commit) answer `SleepConsoli
 origin, timestamp), `created` / `updated` pages (id, name, type, `gone`), `questionsRaised` / `questionsSettled` (id,
 title, kind, entityId, status), whole `counts` and `truncated` (each list ≤ 200). Read from the bank's history — each
 commit's own file list (`diff-tree --root --name-status -M`: an episode's `processed` flip, a page added or modified, an
-`inbox/inbox-*.md` added, an item moved under `inbox/settled/`) — never a model; names and titles are read from the bank
+`inbox/inbox-*.md` added, an item moved under `inbox/settled/`) — never a model. Sleep's settles are commits of their own (`Inbox settled by Sleep (<kind>) <date>`, `inbox_tend`), never inside a batch commit, so the settled questions come from those commits inside the run's window (`started_at` → `finished_at`, or the cycle's commit less its duration → the commit, plus a 300 s grace for the per-drain tidy; `sleep_consolidated.settle_commits`) — a person's `Inbox resolution` is never one; names and titles are read from the bank
 now. ETag over `git_head`, `entities`, `episodes`, `inbox`, `telemetry` and `sleep_consolidated.SHAPE`; the client mapping
 is `APIClient.fetchSleepConsolidated(_:etag:)` → `SleepViewModel.consolidated` (a 304 keeps its copy). `/sleep/history`'s
 `run` gained the whole run's `created`, `updated`, `questionsRaised`, `usageSummary` and `models` (`cycle_usage._run_figures`).

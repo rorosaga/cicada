@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import XCTest
 @testable import CicadaApp
 
@@ -167,10 +168,27 @@ final class RunCardModelTests: XCTestCase {
     }
 
     /// DR-60: a key opens the dropdown in one frame; the pointer eases; Reduce Motion never animates.
+    @MainActor
     func testTheDropdownAnimatesOnlyFromThePointer() {
         XCTAssertNil(RunCardMotion.animation(eventType: .keyDown, reduceMotion: false))
+        XCTAssertNil(RunCardMotion.animation(eventType: nil, reduceMotion: false), "no event of its own: one frame")
         XCTAssertNil(RunCardMotion.animation(eventType: .leftMouseUp, reduceMotion: true))
         XCTAssertNotNil(RunCardMotion.animation(eventType: .leftMouseUp, reduceMotion: false))
+        var inside: Animation? = CicadaMotion.groupExpand(reduceMotion: false)
+        RunCardMotion.assistive { inside = RunCardMotion.current(reduceMotion: false) }
+        XCTAssertNil(inside, "an assistive press opens in one frame whatever event came last")
+    }
+
+    /// The card's question count is the dropdown's (raised + settled); before its items load it names none.
+    func testTheCardsQuestionsAreTheDropdownsCount() throws {
+        let e = try fixture(SleepHistoryEntry.self, "sleep-history-run.json")
+        XCTAssertFalse(try XCTUnwrap(RunCardModel.cards([e], locale: us).first).summary.contains("question"))
+        let items = SleepConsolidated(questionsRaised: [.init(id: "inbox-1")], questionsSettled: [.init(id: "inbox-2")],
+                                      counts: ["questions_raised": 1, "questions_settled": 1])
+        let card = try XCTUnwrap(RunCardModel.cards([e], items: [.run("sleep_leg1"): items], locale: us).first)
+        XCTAssertEqual(card.summary, "9 conversations · 9 new pages · 2 questions")
+        XCTAssertEqual(RunCardModel.questions(items), 2)
+        XCTAssertNil(RunCardModel.questions(nil))
     }
 
     // MARK: The view model

@@ -4,7 +4,8 @@
 ``GET /sleep/history/{commit}/items`` (one plain cycle). Read from git, never from a model: each commit's own file
 list (``git diff-tree --name-status``) says which conversations a batch read (their ``processed`` flip lands in the
 batch commit), which pages it made (added) or changed (modified), and which questions it raised (a new
-``inbox/inbox-*.md``) or settled (an item moved under ``inbox/settled/``). The manifest in the commit body is not
+``inbox/inbox-*.md``) or settled (an item moved under ``inbox/settled/`` — in Sleep's own settle commits during the run,
+:func:`settle_commits`, since a settle never rides a batch commit). The manifest in the commit body is not
 enough on its own: the first commit of a bank collapses a new folder to one ``episodes/`` line.
 
 Names and titles are read from the bank now — what the app already shows for each episode, page and question — and a
@@ -13,6 +14,7 @@ file gone since reads as its id. Each list is capped (``CAP``) with ``truncated`
 from __future__ import annotations
 
 import re
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from api.models.schemas import (
@@ -88,14 +90,19 @@ def _capped(items: list) -> tuple[list, bool]:
     return items[:CAP], len(items) > CAP
 
 
-async def build(memory_path: Path, commits: list[str]) -> SleepConsolidated:
+async def build(memory_path: Path, commits: list[str], settles: list[str] | None = None) -> SleepConsolidated:
     """The items of ``commits`` (oldest first), each listed once: a page made in one batch and changed in a later
-    one is a new page; a question raised and settled inside the run is listed under both."""
+    one is a new page; a question raised and settled inside the run is listed under both. ``settles`` are Sleep's own
+    settle commits during the run (:func:`settle_commits`) — they add only to the questions it settled."""
     episodes: list[str] = []
     created: list[str] = []
     updated: list[str] = []
     raised: list[str] = []
     settled: list[str] = []
+    for commit in settles or []:
+        for status, path in await changed_files(memory_path, commit):
+            if status == "A" and (m := _SETTLED.match(path)) and m.group("name") not in settled:
+                settled.append(m.group("name"))
     for commit in commits:
         for status, path in await changed_files(memory_path, commit):
             if status == "D":
@@ -133,6 +140,45 @@ async def build(memory_path: Path, commits: list[str]) -> SleepConsolidated:
                 "questions_raised": len(raised), "questions_settled": len(settled)},
         truncated=any((t1, t2, t3, t4, t5)),
     )
+
+
+#: Sleep's settles are commits of their own (``inbox_tend``: ``Inbox settled by Sleep (<kind>) <date>``, its own
+#: author), made after a batch's commit and once per drain — never inside a batch commit. A run's settles are those
+#: subjects inside its window; the grace covers the per-drain tidy that runs after its last batch.
+SETTLE_SUBJECT = "Inbox settled by Sleep"
+SETTLE_GRACE_S = 300
+
+
+async def settle_commits(memory_path: Path, start: str | None, end: str | None) -> list[str]:
+    """Sleep's settle commits between ``start`` and ``end`` (+ the grace; aware ISO; ``end`` None = now), oldest
+    first. ``[]`` with no start or when git cannot answer."""
+    if not start:
+        return []
+    try:
+        since = datetime.fromisoformat(start)
+        until = datetime.fromisoformat(end) if end else datetime.now(timezone.utc)
+    except ValueError:
+        return []
+    until = until + timedelta(seconds=SETTLE_GRACE_S)
+    try:
+        out = await git_service._run_git(Path(memory_path), "log", "--reverse", "--format=%H%x1f%s",
+                                         f"--since={since.isoformat()}", f"--until={until.isoformat()}")
+    except Exception:  # noqa: BLE001 - a list for a dropdown, never worth failing a page
+        return []
+    commits: list[str] = []
+    for line in out.splitlines():
+        sha, _, subject = line.partition("\x1f")
+        if subject.startswith(SETTLE_SUBJECT) and sha:
+            commits.append(sha)
+    return commits
+
+
+def run_window(memory_path: Path, drain_id: str) -> tuple[str | None, str | None]:
+    """A run's ``(started_at, finished_at)`` from its summary (``finished_at`` None while it reads or waits)."""
+    from api.services import sleep_runs
+
+    summary = sleep_runs.get(memory_path, drain_id) or {}
+    return summary.get("started_at"), summary.get("finished_at")
 
 
 def run_commits(memory_path: Path, drain_id: str) -> list[str]:

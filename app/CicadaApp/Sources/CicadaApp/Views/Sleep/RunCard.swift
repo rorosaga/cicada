@@ -69,12 +69,25 @@ struct RunCardModel: Equatable, Identifiable {
     }
 
     /// Every card Past nights draws, newest first: one per run, one per plain Sleep cycle; decay and inbox commits drop.
+    /// `items` are the dropdowns' lists as far as they have loaded (`SleepViewModel.consolidated`): the card's question
+    /// count is the dropdown's own, so the two never disagree; before a card's items load it names no questions.
     static func cards(_ entries: [SleepHistoryEntry], details: [String: SleepRunDetail] = [:],
+                      items: [SleepConsolidatedKey: SleepConsolidated] = [:],
                       locale: Locale = .autoupdatingCurrent, timeZone: TimeZone = .current) -> [RunCardModel] {
-        PastNightItem.group(entries).compactMap { make($0, detail: nil, details: details, locale: locale, timeZone: timeZone) }
+        PastNightItem.group(entries).compactMap {
+            make($0, detail: nil, details: details, items: items, locale: locale, timeZone: timeZone)
+        }
+    }
+
+    /// The questions a card names: the dropdown's raised and settled, whole counts; `nil` until its items load.
+    static func questions(_ items: SleepConsolidated?) -> Int? {
+        guard let items else { return nil }
+        return items.count("questions_raised", items.questionsRaised.count)
+            + items.count("questions_settled", items.questionsSettled.count)
     }
 
     static func make(_ item: PastNightItem, detail: SleepRunDetail? = nil, details: [String: SleepRunDetail] = [:],
+                     items: [SleepConsolidatedKey: SleepConsolidated] = [:],
                      locale: Locale = .autoupdatingCurrent, timeZone: TimeZone = .current) -> RunCardModel? {
         switch item {
         case .cycle(let entry):
@@ -83,7 +96,8 @@ struct RunCardModel: Equatable, Identifiable {
             return RunCardModel(
                 id: entry.commitHash, key: .commit(entry.commitHash), ranAt: entry.date, starter: nil, catchUp: nil,
                 summary: Copy.RunCard.summary(conversations: conversations, created: entry.entitiesCreated,
-                                              updated: entry.entitiesUpdated, questions: nil, locale: locale),
+                                              updated: entry.entitiesUpdated,
+                                              questions: questions(items[.commit(entry.commitHash)]), locale: locale),
                 engine: entry.engine ?? entry.usageSummary?.engine,
                 models: entry.authors.filter { $0 != "user" }, usage: entry.usageSummary,
                 durationMs: entry.durationMs, outcome: .finished, members: [entry])
@@ -96,7 +110,7 @@ struct RunCardModel: Equatable, Identifiable {
                 starter: ref.startedBy == "schedule" ? Copy.RunCard.startedBySchedule : Copy.RunCard.startedByYou,
                 catchUp: RunPresentation.catchUp(ref, timeZone: timeZone),
                 summary: Copy.RunCard.summary(conversations: ref.filed, created: ref.created, updated: ref.updated,
-                                              questions: ref.questionsRaised, locale: locale),
+                                              questions: questions(items[.run(ref.id)]), locale: locale),
                 engine: newest.engine ?? ref.usageSummary?.engine, models: models,
                 usage: ref.usageSummary ?? (members.count == 1 ? newest.usageSummary : nil),
                 durationMs: ref.readMs > 0 ? ref.readMs : nil,
@@ -135,12 +149,34 @@ struct RunCardModel: Equatable, Identifiable {
     }
 }
 
-/// How the dropdown moves (DR-60, DR-61): a pointer's click eases on `CicadaMotion.groupExpand`; a key press —
-/// or an assistive press — opens it in one frame; Reduce Motion never animates.
+/// How the dropdown moves (DR-60, DR-61): only a pointer's click eases, on `CicadaMotion.groupExpand`. A key press, an
+/// action with no event of its own, and an assistive press (VoiceOver's VO-Space, Switch Control — routed through
+/// `assistive(_:)`, because `NSApp.currentEvent` is then whatever came last, often a click) open it in one frame;
+/// Reduce Motion never animates.
 enum RunCardMotion {
+    private static let pointerEvents: Set<NSEvent.EventType> = [
+        .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp, .otherMouseDown, .otherMouseUp,
+    ]
+
+    @MainActor private static var pressingAssistively = false
+
     static func animation(eventType: NSEvent.EventType?, reduceMotion: Bool) -> Animation? {
-        if eventType == .keyDown || eventType == .keyUp { return nil }
+        guard let eventType, pointerEvents.contains(eventType) else { return nil }
         return CicadaMotion.groupExpand(reduceMotion: reduceMotion)
+    }
+
+    /// The motion for the action running now: none inside an assistive press, else by its event.
+    @MainActor
+    static func current(reduceMotion: Bool) -> Animation? {
+        pressingAssistively ? nil : animation(eventType: NSApp.currentEvent?.type, reduceMotion: reduceMotion)
+    }
+
+    /// Runs an assistive press's action so `current` answers one frame whatever event came last.
+    @MainActor
+    static func assistive(_ action: () -> Void) {
+        pressingAssistively = true
+        defer { pressingAssistively = false }
+        action()
     }
 }
 
@@ -201,6 +237,8 @@ struct RunCardView: View {
     var showsUsage = true
     let onToggle: () -> Void
     var onSelectEntity: ((String) -> Void)?
+    /// Asked once the card is on screen: its items carry the question count its summary names (the dropdown's own).
+    var onAppear: () -> Void = {}
 
     @State private var hovering = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -219,6 +257,7 @@ struct RunCardView: View {
         .background(CicadaTheme.shape(CicadaTheme.cornerRadius).fill(CicadaTheme.bgFocus))
         .ringed(hovering && !isOpen ? .strong : .resting, in: CicadaTheme.shape(CicadaTheme.cornerRadius))
         .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
+        .onAppear(perform: onAppear)
     }
 
     private var head: some View {
@@ -262,6 +301,8 @@ struct RunCardView: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel(card.accessibilityLabel())
         .accessibilityValue(isOpen ? Copy.Lists.expanded : Copy.Lists.collapsed)
+        // DR-60: an assistive press opens the card in one frame, whatever event came last.
+        .modifier(AssistivePress(action: { RunCardMotion.assistive(onToggle) }))
     }
 
     private var outcome: some View {
@@ -343,7 +384,7 @@ struct RunItemsView: View {
                 note(Copy.RunCard.loading)
             }
             DisclosureHeader(title: Copy.RunCard.detailsTitle, isOpen: detailsOpen, fillsWidth: true) {
-                let animation = RunCardMotion.animation(eventType: NSApp.currentEvent?.type, reduceMotion: reduceMotion)
+                let animation = RunCardMotion.current(reduceMotion: reduceMotion)
                 withAnimation(animation) { detailsOpen.toggle() }
             }
             if detailsOpen {
@@ -353,12 +394,12 @@ struct RunItemsView: View {
     }
 
     private func toggleGroup(_ id: String) {
-        let animation = RunCardMotion.animation(eventType: NSApp.currentEvent?.type, reduceMotion: reduceMotion)
+        let animation = RunCardMotion.current(reduceMotion: reduceMotion)
         withAnimation(animation) { openGroups.formSymmetricDifference([id]) }
     }
 
     private func toggleShowAll(_ id: String) {
-        let animation = RunCardMotion.animation(eventType: NSApp.currentEvent?.type, reduceMotion: reduceMotion)
+        let animation = RunCardMotion.current(reduceMotion: reduceMotion)
         withAnimation(animation) { showingAll.formSymmetricDifference([id]) }
     }
 

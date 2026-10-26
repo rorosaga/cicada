@@ -1,5 +1,5 @@
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response
 
@@ -353,7 +353,9 @@ async def sleep_run_items_route(drain_id: str, request: Request, response: Respo
     commits = sleep_consolidated.run_commits(settings.memory_path, drain_id)
     if not commits:
         raise HTTPException(status_code=404, detail="Not a run")
-    return await sleep_consolidated.build(settings.memory_path, commits)
+    start, end = sleep_consolidated.run_window(settings.memory_path, drain_id)
+    settles = await sleep_consolidated.settle_commits(settings.memory_path, start, end)
+    return await sleep_consolidated.build(settings.memory_path, commits, settles)
 
 
 @router.get("/sleep/history/{commit}/items", response_model=SleepConsolidated)
@@ -368,7 +370,14 @@ async def sleep_cycle_items_route(commit: str, request: Request, response: Respo
     detail = await git_service.get_sleep_cycle_detail(settings.memory_path, commit)
     if detail is None or detail.kind != "sleep":
         raise HTTPException(status_code=404, detail="Not a Sleep cycle commit")
-    return await sleep_consolidated.build(settings.memory_path, [detail.commit_hash])
+    # The cycle's window: from when it began reading (its commit less its duration) to its commit, plus the grace.
+    try:
+        end_at = datetime.fromisoformat(detail.date)
+        start_at = end_at - timedelta(milliseconds=detail.duration_ms or 0)
+        settles = await sleep_consolidated.settle_commits(settings.memory_path, start_at.isoformat(), end_at.isoformat())
+    except ValueError:
+        settles = []
+    return await sleep_consolidated.build(settings.memory_path, [detail.commit_hash], settles)
 
 
 @router.get("/sleep/queue", response_model=SleepQueueResponse)
