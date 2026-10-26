@@ -153,7 +153,8 @@ struct MergeBody: View {
     @State private var survivor: Survivor = .existing
     @State private var moreOpen = false
 
-    private var pair: MergePair { MergePair.of(item, nodes: nodes) }
+    /// The side by side follows what Merge will send: the field, seeded with Sleep's page (review of #481).
+    private var pair: MergePair { MergePair.of(item, nodes: nodes, target: mergeText) }
     private var mentionName: String { item.displayName }
     /// The pre-DS-2 rule: what the person typed, else the server's hint.
     private var existingName: String {
@@ -168,11 +169,11 @@ struct MergeBody: View {
             ViewThatFits(in: .horizontal) {
                 HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
                     tile(pair.mention, caption: Copy.Inbox.Duplicate.newName)
-                    tile(pair.existing, caption: Copy.Inbox.Duplicate.existingPage)
+                    existingTile(pair)
                 }
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                     tile(pair.mention, caption: Copy.Inbox.Duplicate.newName)
-                    tile(pair.existing, caption: Copy.Inbox.Duplicate.existingPage)
+                    existingTile(pair)
                 }
             }
 
@@ -220,8 +221,16 @@ struct MergeBody: View {
         }
     }
 
+    /// The existing side: Sleep's page, or the page the person typed — then named as theirs.
+    private func existingTile(_ pair: MergePair) -> some View {
+        tile(pair.existing,
+             caption: pair.existingIsTyped ? Copy.Inbox.Duplicate.typedPage : Copy.Inbox.Duplicate.existingPage,
+             missing: pair.existingIsTyped ? Copy.Inbox.Duplicate.noSuchPage : Copy.Inbox.Duplicate.noPageYet)
+    }
+
     /// One side: what it is, its picture, name and type, and its summary in a line or three.
-    private func tile(_ side: MergePair.Side, caption: String) -> some View {
+    private func tile(_ side: MergePair.Side, caption: String,
+                      missing: String = Copy.Inbox.Duplicate.noPageYet) -> some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
             Text(caption)
                 .font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
@@ -246,7 +255,7 @@ struct MergeBody: View {
                     }
                 }
             }
-            Text(side.summary ?? (side.hasPage ? Copy.Inbox.Duplicate.noSummary : Copy.Inbox.Duplicate.noPageYet))
+            Text(side.summary ?? (side.hasPage ? Copy.Inbox.Duplicate.noSummary : missing))
                 .font(CicadaTheme.metaFont)
                 .foregroundStyle(side.summary == nil ? CicadaTheme.textTertiary : CicadaTheme.textSecondary)
                 .lineLimit(3)

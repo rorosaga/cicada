@@ -2297,7 +2297,8 @@ page yet" for a name below the promotion bar — then what each answer does (Mer
 as another name, or folds its page into it; Keep separate is remembered; each answer can be undone in its window), then
 **Merge** (the one neutral button), *Keep separate* and *Skip* (text buttons). Describing it, merging with another page
 and the Keep-as-canonical picker with its "A → B" line wait under *Something else* (open from the start when Sleep named
-no page); every resolution sent is the one it sent before. **Confirm N links** (`WhereToCheckReviewCard`,
+no page); a page typed there becomes the existing side ("Page you named", found by id or name) and Merge's sentence names
+it, so the card always shows what will be sent; every resolution sent is the one it sent before. **Confirm N links** (`WhereToCheckReviewCard`,
 `WhereToCheckWords`): one sentence of what the card is ("Nothing is used until you confirm it"), each page once with its
 picture and name (a click opens it), and under it each waiting link: its label, what it is and where ("GitHub profile ·
 github.com/…"), why it is there ("You mentioned it in a conversation.") and what confirming changes ("their picture and

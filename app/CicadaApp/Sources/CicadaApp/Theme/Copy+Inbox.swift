@@ -173,6 +173,9 @@ extension Copy.Inbox {
     enum Duplicate {
         static let newName = "Name from a conversation"
         static let existingPage = "Existing page"
+        /// The page the person typed under "Something else" — what Merge will now use (review of #481).
+        static let typedPage = "Page you named"
+        static let noSuchPage = "No page by this name. Merge needs an existing page."
         static let noPageYet = "No page yet — only mentioned in a conversation."
         static let noSummary = "No summary yet."
         static func mergeNames(_ mention: String, _ existing: String) -> String {

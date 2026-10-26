@@ -28,9 +28,15 @@ struct MergePair: Equatable {
         return name.isEmpty ? nil : name
     }
 
-    static func of(_ item: InboxItem, nodes: [GraphNode]) -> MergePair {
+    /// `target` is what the card will send as the merge target (`MergeBody`'s field, seeded with `mergeTargetHint`):
+    /// when the person typed another page, the existing side and Merge's sentence follow it, never Sleep's suggestion
+    /// (review of #481). Looked up by page id, then by name (case-insensitive), as the backend's tolerant lookup does.
+    static func of(_ item: InboxItem, nodes: [GraphNode], target: String? = nil) -> MergePair {
         func node(_ id: String) -> GraphNode? {
             id.isEmpty ? nil : nodes.first { $0.id == id && !$0.isFacet }
+        }
+        func named(_ text: String) -> GraphNode? {
+            node(text) ?? nodes.first { !$0.isFacet && $0.name.compare(text, options: .caseInsensitive) == .orderedSame }
         }
         func summary(_ node: GraphNode?) -> String? {
             let text = node?.summary?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -41,12 +47,22 @@ struct MergePair: Equatable {
                            type: mentionNode?.type ?? item.entityType.flatMap(EntityType.init(rawValue:)),
                            summary: summary(mentionNode), hasPage: mentionNode != nil)
         let hint = (item.mergeTargetHint ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let typed = (target ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !typed.isEmpty, typed != hint {
+            let typedNode = named(typed)
+            let existing = Side(id: typedNode?.id ?? typed, name: typedNode?.name ?? typed, type: typedNode?.type,
+                                summary: summary(typedNode), hasPage: typedNode != nil)
+            return MergePair(mention: mention, existing: existing, existingIsTyped: true)
+        }
         let existingNode = node(hint)
         let existingName = existingNode?.name ?? candidateName(item) ?? hint
         let existing = Side(id: hint, name: existingName, type: existingNode?.type, summary: summary(existingNode),
                             hasPage: existingNode != nil)
         return MergePair(mention: mention, existing: existing)
     }
+
+    /// The existing side is the page the person typed under "Something else", not Sleep's suggestion.
+    var existingIsTyped = false
 
     /// Whether the card can offer Merge at once: it knows which existing page the name would join.
     var canMerge: Bool { !existing.id.isEmpty }

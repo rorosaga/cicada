@@ -120,6 +120,32 @@ final class InboxV2Tests: XCTestCase {
         XCTAssertTrue(both.mergeWords.contains("another name"))
     }
 
+    /// Review of #481: after the person types another page under "Something else", the side by side and Merge's
+    /// sentence show the page that will be sent, never Sleep's suggestion.
+    func testTheExistingSideFollowsThePageThePersonTyped() throws {
+        let merge = try decode(#"{"id":"m3","kind":"merge_suggestion","requiredInput":"merge","title":"Is Bob E. the same as Bob Example?","entityId":"bob-e","entityName":"Bob E.","mergeTargetHint":"bob-example","uncertaintyType":"Possible duplicate of Bob Example","createdDate":"2026-09-01"}"#)
+        let nodes = [FindFixtures.node("bob-example", "Bob Example", type: .person, summary: "A friend."),
+                     FindFixtures.node("bob-other", "Bob Other", type: .person, summary: "A colleague.")]
+        let seeded = MergePair.of(merge, nodes: nodes, target: "bob-example")
+        XCTAssertFalse(seeded.existingIsTyped, "the field still holds Sleep's page")
+        XCTAssertEqual(seeded.existing.name, "Bob Example")
+
+        let byName = MergePair.of(merge, nodes: nodes, target: "bob other")
+        XCTAssertTrue(byName.existingIsTyped)
+        XCTAssertEqual(byName.existing.id, "bob-other")
+        XCTAssertEqual(byName.existing.summary, "A colleague.")
+        XCTAssertTrue(byName.mergeWords.contains("Bob Other"))
+        XCTAssertFalse(byName.mergeWords.contains("Bob Example"))
+
+        let byId = MergePair.of(merge, nodes: nodes, target: "bob-other")
+        XCTAssertEqual(byId.existing.name, "Bob Other")
+
+        let unknown = MergePair.of(merge, nodes: nodes, target: "Nobody Example")
+        XCTAssertTrue(unknown.existingIsTyped)
+        XCTAssertFalse(unknown.existing.hasPage, "a name with no page is said as such")
+        XCTAssertEqual(unknown.existing.name, "Nobody Example")
+    }
+
     func testAPossibleDuplicateWithNoPageNamedCannotMergeAtOnce() throws {
         let merge = try decode(#"{"id":"m2","kind":"merge_suggestion","requiredInput":"merge","title":"Is Bea the same as Bea Example?","entityId":"bea","entityName":"Bea","uncertaintyType":"Possible duplicate of Bea Example","createdDate":"2026-09-01"}"#)
         let pair = MergePair.of(merge, nodes: [])
