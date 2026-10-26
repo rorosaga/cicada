@@ -7,7 +7,10 @@ One row per live ``company`` / ``tool`` / ``location`` page with no trusted webs
 which pages are out of scope, and ``--all`` lists those too): the site found, its basis (``record`` — the page or the
 person's own words already carry it; ``lookup`` — Wikidata's official website for exactly one matching item), whether it
 would be **trusted** (its homepage names the entity) or only a **proposal** for the "Confirm N links" review, why, and
-the logo domain it would yield. ``--logos`` also asks the logo ladder for that domain (bytes are never stored).
+the logo domain it would yield. ``--logos`` also asks the logo ladder for that domain (bytes are never stored). A
+finding the step would not write — a proposal already waiting, or another writer's entry for the same site — reads
+``left_alone``. ``--site-check`` instead lists what the nightly site check (``site_sources.verify``) would conclude
+today for every untrusted website entry it decides on, and whether tonight's run is due to read it.
 
 Read only: no page, no inbox item and no cache is written, nothing is committed. It does reach the network (Wikidata's
 API and each candidate site's homepage, on Cicada's own rail) unless ``--no-lookup`` / ``--no-fetch``; only page
@@ -18,9 +21,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import copy
 import json
 import sys
 from collections import Counter
+from datetime import date
 from pathlib import Path
 
 
@@ -66,12 +71,18 @@ async def survey(bank: Path, *, limit: int | None, lookup: bool, fetch: bool, lo
                                              get=org_sites.wikidata_get if lookup else None,
                                              classes=classes if lookup else None,
                                              fetch_identity=identity if fetch else None)
+            outcome = finding.outcome
+            if outcome != "none" and org_sites.apply(copy.deepcopy(fm), finding, date.today().isoformat()) == 0:
+                # What the step would actually write: a waiting proposal or another writer's entry for the same site
+                # is left alone (that writer's site keeps Cicada's nightly check), as is a tombstoned site.
+                outcome = "left_alone"
             row = {"id": entity_id, "name": finding.name, "type": finding.type,
-                   "conversations": len(fm.get("source_episodes") or []), "outcome": finding.outcome,
+                   "conversations": len(fm.get("source_episodes") or []), "outcome": outcome,
+                   "finding": finding.outcome,
                    "site": finding.site or (finding.proposals[0] if finding.proposals else None),
                    "proposals": finding.proposals, "basis": finding.basis, "item": finding.item,
                    "why": finding.why, "reason": finding.reason, "evidence": finding.evidence}
-            row["logo_domain"] = logo_service._host(finding.site) if finding.trusted else None
+            row["logo_domain"] = logo_service._host(finding.site) if outcome == "trusted" else None
             if logos and row["logo_domain"]:
                 got = await logo_service.fetch_logo(row["logo_domain"])
                 row["logo"] = f"{got[1]} {len(got[0])} bytes" if got else "miss (monogram)"
@@ -79,6 +90,44 @@ async def survey(bank: Path, *, limit: int | None, lookup: bool, fetch: bool, lo
 
     rows = await asyncio.gather(*(one(stem) for _, stem in pages))
     return list(rows) + skipped
+
+
+async def site_check_survey(bank: Path, *, concurrency: int = 4) -> list[dict]:
+    """What the nightly site check (``site_sources.verify``) would conclude, today, for every untrusted ``website``
+    entry it owns the decision on — not a proposal, on a live company/tool/project page — under its current rule
+    (``site_sources.judge``: the name in the site's head AND two summary words). Read only; ``due`` says whether
+    tonight's run would read it (its 30-day recheck window)."""
+    from datetime import date as _date
+
+    from api.services import bank_index, fact_sources, link_enrichment, markdown_parser, site_sources
+
+    today = _date.today()
+    todo = []
+    for f in bank_index.files(bank, "entities"):
+        fm = f.frontmatter or {}
+        if str(fm.get("type") or "").lower() not in site_sources.SITE_TYPES or \
+                str(fm.get("status") or "") in ("archived", "dropped"):
+            continue
+        due_refs = {d.get("ref") for d in site_sources._pending(fm, today)}
+        for s in fact_sources.as_sources(fm.get("sources")):
+            if fact_sources.same_predicate(s.get("predicate"), fact_sources.WEBSITE) and not fact_sources.trusted(s) \
+                    and not fact_sources.is_proposed(s):
+                todo.append((f.stem, s, s.get("ref") in due_refs))
+    sem = asyncio.Semaphore(concurrency)
+
+    async def one(stem: str, source: dict, due: bool) -> dict:
+        async with sem:
+            parsed = markdown_parser.parse(bank / "entities" / f"{stem}.md")
+            ref = str(source.get("ref") or "")
+            if site_sources.is_platform(ref):
+                verdict = "platform"
+            else:
+                verdict = site_sources.judge(parsed.frontmatter, parsed.body,
+                                             await link_enrichment.fetch_identity(ref, None))
+            return {"id": stem, "name": str(parsed.frontmatter.get("name") or stem), "ref": ref,
+                    "added_by": source.get("added_by"), "due": due, "verdict": verdict}
+
+    return list(await asyncio.gather(*(one(*t) for t in todo)))
 
 
 def main(argv=None) -> int:
@@ -91,11 +140,26 @@ def main(argv=None) -> int:
     parser.add_argument("--logos", action="store_true", help="ask the logo ladder for each trusted site's domain")
     parser.add_argument("--all", action="store_true", help="also list in-scope-type pages that are skipped, and why")
     parser.add_argument("--ids", default="", help="only these page ids, comma-separated")
+    parser.add_argument("--site-check", action="store_true",
+                        help="instead: what the nightly site check would conclude for each untrusted website entry")
     args = parser.parse_args(argv)
     bank = Path(args.bank).expanduser().resolve()
     if not (bank / "entities").is_dir():
         print(f"not a bank: {bank}", file=sys.stderr)
         return 2
+    if args.site_check:
+        checks = asyncio.run(site_check_survey(bank))
+        verdicts = Counter(c["verdict"] for c in checks)
+        by_writer = Counter(f"{c['added_by']}:{c['verdict']}" for c in checks)
+        due = Counter(c["verdict"] for c in checks if c["due"])
+        if args.json:
+            print(json.dumps({"site_check": checks, "verdicts": dict(verdicts), "by_writer": dict(by_writer),
+                              "due_tonight": dict(due)}, indent=2, default=str))
+        else:
+            for c in checks:
+                print(f"{c['verdict']:<12} {'due' if c['due'] else 'later':<5} {c['name'][:48]:<48} {c['ref']}")
+            print(f"\nverdicts: {dict(verdicts)}  by writer: {dict(by_writer)}  due tonight: {dict(due)}")
+        return 0
     rows = asyncio.run(survey(bank, limit=args.limit, lookup=not args.no_lookup, fetch=not args.no_fetch,
                               logos=args.logos, show_all=args.all,
                               only=frozenset(i for i in args.ids.split(",") if i)))

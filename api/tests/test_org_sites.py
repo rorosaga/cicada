@@ -351,6 +351,29 @@ def test_the_dry_run_writes_nothing(tmp_path, monkeypatch, capsys):
     assert {p: p.read_bytes() for p in memory.rglob("*.md")} == before
 
 
+def test_the_dry_run_reports_what_the_step_leaves_alone_and_what_the_site_check_would_trust(tmp_path, monkeypatch,
+                                                                                              capsys):
+    from api.scripts import org_sites_dry_run
+
+    entry = {"ref": "https://northwind-univ.edu", "kind": "url", "predicate": "website", "added_by": "agent",
+             "added_at": "2026-10-01"}
+    memory = _uni_bank(tmp_path, sources=[entry])
+    before = {p: p.read_bytes() for p in memory.rglob("*.md")}
+    monkeypatch.setattr(org_sites, "wikidata_get", _uni_wikidata())
+
+    async def identity(url, settings=None):
+        return UNI_HOME
+
+    monkeypatch.setattr(link_enrichment, "fetch_identity", identity)
+    assert org_sites_dry_run.main(["--bank", str(memory), "--json"]) == 0
+    [row] = [r for r in json.loads(capsys.readouterr().out)["rows"] if r["id"] == "northwind-example-university"]
+    assert row["finding"] == "trusted" and row["outcome"] == "left_alone" and row["logo_domain"] is None
+    assert org_sites_dry_run.main(["--bank", str(memory), "--json", "--site-check"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["verdicts"] == {"verified": 1} and out["due_tonight"] == {"verified": 1}
+    assert {p: p.read_bytes() for p in memory.rglob("*.md")} == before
+
+
 def test_the_persons_click_runs_the_step_and_commits_as_cicada(tmp_path, monkeypatch):
     memory = _uni_bank(tmp_path)
     monkeypatch.setenv("CICADA_MEMORY_PATH", str(memory))
