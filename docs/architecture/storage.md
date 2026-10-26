@@ -841,8 +841,10 @@ Round 4 (C2–C4):
   `evidence: {lookup: wikidata, item, reason}` or the record's span, reason `ambiguous | country_conflict |
   homepage_unconfirmed | content_unconfirmed | matched_by_alias | record_names_another_site`) that joins the one "Confirm N links" review —
   the tail re-syncs the review after the commit — and `verify` never stamps a proposal behind the person. An ambiguous
-  match proposes only sites whose label is the page's name; a namesake found only through an alias proposes nothing. An
-  untrusted entry for the same site is upgraded in place, never duplicated; a tombstone for the site (`sources_removed`,
+  match proposes only sites whose label is the page's name; a namesake found only through an alias proposes nothing. Only
+  Cicada's own unconfirmed entry for the same site is upgraded in place (never duplicated); a proposal waiting for the
+  person, or another writer's entry for that site (an agent's, Stage 1's), is never upgraded or re-marked — Stage 1's
+  keeps Cicada's nightly `verify`; a tombstone for the site (`sources_removed`,
   whoever removed it) is never re-added; a page with a trusted site is never looked up. The why travels on
   `EntitySource.verified.why` ("Found by Cicada: official site listed on Wikidata (Q…), and its homepage names …"); the
   person undoes it by removing the source. Once trusted, `logo_service` draws the mark and `source_refresh` re-checks it

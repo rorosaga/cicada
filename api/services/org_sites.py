@@ -112,7 +112,7 @@ def _names(fm: dict) -> list[str]:
 
 def proper_name(name: str) -> bool:
     """A name that reads as a public proper name: no path, handle, possessive or leading article; at most six words;
-    one word, or every significant word capitalised ("IE University", "Claude Code" — not "university robotics lab")."""
+    one word, or every significant word capitalised ("Northwind University", "Acme Cloud" — not "the lab at my school")."""
     text = " ".join(str(name or "").split())
     if len(text) < 2 or len(text) > 80 or _PRIVATE_NAME.search(text) or _BARE_DOMAIN.fullmatch(text):
         return False
@@ -188,7 +188,8 @@ def _squash(text: str) -> str:
 
 
 def name_keys(fm: dict) -> set[str]:
-    """The page's names squashed ("ieuniversity", "ie") and the acronyms of its multi-word names ("cmu")."""
+    """The page's names squashed ("northwinduniversity", "nw") and the acronyms of its multi-word names ("nwu" for
+    "Northwind West University")."""
     keys: set[str] = set()
     for name in _names(fm):
         if not proper_name(name):
@@ -601,7 +602,7 @@ discussed introduced outcome position profile range scheduled successful assigne
 def content_agrees(fm: dict, body: str, description: str, identity, exclude: frozenset[str] = frozenset()) -> bool:
     """At least one distinctive word of the page's own summary or key facts (``site_sources._distinctive_tokens``,
     less dates, sizes and the people's names in ``exclude``) is in the item's Wikidata description or on the site's
-    homepage — the namesake guard ("a browser company called Strawberry" is not the hotel chain of that name). A page
+    homepage — the namesake guard ("a browser company called <org-a>" is not a hotel chain of that name). A page
     that says nothing distinctive agrees with nothing."""
     tokens = [t for t in site_sources._distinctive_tokens(fm, body) if t not in _GENERIC and t not in exclude]
     if not tokens:
@@ -735,10 +736,11 @@ def trusted_entry(finding: Finding, today: str) -> dict:
 
 
 def apply(fm: dict, finding: Finding, today: str) -> int:
-    """Put the finding on ``fm`` (pure over the dict; the caller writes). A trusted site upgrades an untrusted entry for
-    the same site in place, else is added; proposals are added as ``proposed`` entries the review lists, or mark an
-    existing untrusted entry for the same site as proposed. Never over a tombstone, a trusted site or a cap. Returns
-    how many entries were added or changed."""
+    """Put the finding on ``fm`` (pure over the dict; the caller writes). A trusted site upgrades Cicada's own
+    unconfirmed, unproposed entry for the same site in place, else is added — never over a proposal waiting for the
+    person or another writer's entry for that site; proposals are added as ``proposed`` entries the review lists, or
+    mark Cicada's own unconfirmed entry for the same site as proposed. Never over a tombstone, a trusted site or a cap.
+    Returns how many entries were added or changed."""
     existing = [s for s in (fm.get("sources") or []) if isinstance(s, dict)]
     if has_trusted_site(fm):
         return 0
@@ -750,8 +752,12 @@ def apply(fm: dict, finding: Finding, today: str) -> int:
         for s in existing:
             if fact_sources.same_predicate(s.get("predicate"), fact_sources.WEBSITE) and \
                     reading_hosts.site_of(str(s.get("ref") or "")) == reading_hosts.site_of(finding.site):
-                for key in ("checked", "tries", fact_sources.PROPOSED):
-                    s.pop(key, None)
+                if fact_sources.is_proposed(s) or str(s.get("added_by") or fact_sources.USER) != AUTHOR:
+                    # A proposal waits for the person (ruling 36 D5), and another writer's entry is theirs: neither is
+                    # upgraded behind them. Another writer's unproposed site still has Cicada's own nightly check.
+                    return 0
+                s.pop("checked", None)
+                s.pop("tries", None)
                 s["verified"] = new["verified"]
                 s["access"] = fact_sources.ACCESS_PUBLIC
                 fm["sources"] = existing
@@ -767,8 +773,8 @@ def apply(fm: dict, finding: Finding, today: str) -> int:
                 and reading_hosts.site_of(str(s.get("ref") or "")) == reading_hosts.site_of(site)]
         if same:
             entry = same[0]
-            if str(entry.get("added_by") or fact_sources.USER) != fact_sources.USER and not entry.get(
-                    fact_sources.PROPOSED):
+            # Only Cicada's own unconfirmed entry joins the review; another writer's is left as that writer put it.
+            if str(entry.get("added_by") or fact_sources.USER) == AUTHOR and not entry.get(fact_sources.PROPOSED):
                 entry[fact_sources.PROPOSED] = True
                 entry.setdefault("evidence", dict(finding.evidence) or {"page": True})
                 changed += 1

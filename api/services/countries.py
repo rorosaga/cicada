@@ -1,6 +1,6 @@
 """Country names, English and Spanish, folded to one canonical key — a closed table for ``org_sites``' context check.
 
-Only what is needed to say "the page names Spain, the Wikidata item is in the United States": whole-word matches of a
+Only what is needed to say "the page names country A, the Wikidata item is in country B": whole-word matches of a
 country's common names. Ambiguous words that are also ordinary words or US states ("Georgia", "Jordan", "Chad",
 "Niger", "Turkey", "China" as porcelain) are left out or kept only in an unambiguous spelling, so a page that names
 none of these reads as naming no country — which is never a conflict.

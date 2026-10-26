@@ -18,10 +18,10 @@ from api.services import (bank_index, entity_picture, fact_sources, link_enrichm
                           org_sites, site_sources, source_proposals)
 from api.services.link_enrichment import PageIdentity
 
-UNI_BODY = ("## Summary\nNorthwind Example University is a private research university with campuses in Madrid, "
-            "offering engineering, robotics and business programmes.\n\n## Key Facts\n- Located in Spain\n")
+UNI_BODY = ("## Summary\nNorthwind Example University is a private research university with campuses in Lisbon, "
+            "offering engineering, robotics and business programmes.\n\n## Key Facts\n- Located in Portugal\n")
 UNI_HOME = PageIdentity("ok", "https://northwind-univ.edu/", "Northwind Example University | Home", "Northwind",
-                        "A private research university in Madrid: engineering, robotics and business programmes.",
+                        "A private research university in Lisbon: engineering, robotics and business programmes.",
                         "Northwind Example University offers engineering, robotics and business programmes. " * 3)
 
 
@@ -73,11 +73,11 @@ class Pages:
 
 
 def _uni_wikidata(**extra) -> FakeWikidata:
-    items = {"Q900001": {"label": "Northwind Example University", "description": "private university in Spain",
+    items = {"Q900001": {"label": "Northwind Example University", "description": "private university in Portugal",
                          "P31": ["Q3918"], "P856": ["https://www.northwind-univ.edu/es/"], "P17": ["Q29"]}}
     items.update(extra.pop("items", {}))
     return FakeWikidata(items=items, search=extra.pop("search", {"Northwind Example University": ["Q900001"]}),
-                        labels={"Q29": "Spain", "Q30": "United States of America"}, **extra)
+                        labels={"Q29": "Portugal", "Q30": "United States of America"}, **extra)
 
 
 @pytest.fixture(autouse=True)
@@ -167,11 +167,11 @@ def test_a_homepage_that_does_not_name_the_entity_leaves_a_proposal(tmp_path):
 
 def test_a_namesake_found_only_through_an_alias_is_nothing(tmp_path):
     memory = _uni_bank(tmp_path)
-    wiki = FakeWikidata(items={"Q900009": {"label": "Northwind", "description": "hotel chain in Norway",
+    wiki = FakeWikidata(items={"Q900009": {"label": "Northwind", "description": "hotel chain in Finland",
                                            "P31": ["Q43229"], "P856": ["https://northwind-hotels.no"]}},
                         search={"Northwind": ["Q900009"]})
     hotel = PageIdentity("ok", "https://northwind-hotels.no/", "Northwind hotels", "Northwind", "Book a room",
-                         "Book hotel rooms across Norway. " * 5)
+                         "Book hotel rooms across Finland. " * 5)
     _run(memory, wiki, Pages({"https://northwind-hotels.no": hotel}))
     assert _websites(_fm(memory)) == []
 
@@ -377,10 +377,44 @@ def test_a_malformed_port_in_pasted_code_is_no_site_and_no_crash():
     assert org_sites.site_origin("https://northwind.edu:9000`/x") is None
 
 
+def test_a_proposal_stays_a_proposal_when_a_later_night_confirms_the_homepage(tmp_path):
+    # Review of #476: night 1 the homepage does not answer -> a proposal in the review; a later night it answers. The
+    # waiting entry must not be stamped behind the person (ruling 36 D5, ruling 40).
+    memory = _uni_bank(tmp_path)
+    _run(memory, _uni_wikidata(), Pages({"https://northwind-univ.edu": PageIdentity("failed:http_503")}))
+    [site] = _websites(_fm(memory))
+    assert fact_sources.is_proposed(site) and site["evidence"]["reason"] == "homepage_unconfirmed"
+    later = date.today().replace(year=date.today().year + 1)
+    _run(memory, _uni_wikidata(), Pages({"https://northwind-univ.edu": UNI_HOME}), today=later)
+    [site] = _websites(_fm(memory))
+    assert fact_sources.is_proposed(site) and not fact_sources.trusted(site) and "verified" not in site
+
+
+def test_another_writers_entry_for_the_same_site_is_never_upgraded_or_marked(tmp_path):
+    entry = {"ref": "https://northwind-univ.edu", "kind": "url", "predicate": "website", "added_by": "agent",
+             "added_at": "2026-10-01"}
+    memory = _uni_bank(tmp_path, sources=[dict(entry)])
+    _run(memory, _uni_wikidata(), Pages({"https://northwind-univ.edu": UNI_HOME}))
+    assert _websites(_fm(memory)) == [entry], "an agent's (or Stage 1's) entry stays as that writer put it"
+    other = PageIdentity("ok", "https://northwind-univ.edu/", "Domain for sale", "", "", "For sale.")
+    memory2 = _uni_bank(tmp_path / "b", sources=[dict(entry)])
+    _run(memory2, _uni_wikidata(), Pages({"https://northwind-univ.edu": other}))
+    assert _websites(_fm(memory2)) == [entry]
+
+
+def test_cicadas_own_unconfirmed_entry_is_upgraded_in_place(tmp_path):
+    entry = {"ref": "https://northwind-univ.edu", "kind": "url", "predicate": "website", "added_by": "cicada",
+             "added_at": "2026-10-01", "checked": {"at": "2026-10-02", "outcome": "unconfirmed"}}
+    memory = _uni_bank(tmp_path, sources=[dict(entry)])
+    _run(memory, _uni_wikidata(), Pages({"https://northwind-univ.edu": UNI_HOME}))
+    [site] = _websites(_fm(memory))
+    assert fact_sources.trusted(site) and "checked" not in site and site["verified"]["how"] == "wikidata+name"
+
+
 def test_a_match_only_through_an_alias_is_never_trusted(tmp_path):
     # Measured on a real bank copy: a page whose aliases conflate it with a bigger product got that product's site.
     memory = _uni_bank(tmp_path)
-    wiki = FakeWikidata(items={"Q900010": {"label": "Northwind", "description": "private research university, Madrid",
+    wiki = FakeWikidata(items={"Q900010": {"label": "Northwind", "description": "private research university, Lisbon",
                                            "P31": ["Q3918"], "P856": ["https://northwind-univ.edu"]}},
                         search={"Northwind": ["Q900010"]})
     _run(memory, wiki, Pages({"https://northwind-univ.edu": UNI_HOME}))
