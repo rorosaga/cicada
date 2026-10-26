@@ -229,7 +229,7 @@ struct OnboardingView: View {
             }
             Spacer(minLength: CicadaTheme.spacingSM)
             if page.skippable {
-                TextButton(title: Copy.onboardingSkip) { advance(.pointer) }
+                TextButton(title: Copy.onboardingSkip) { skip() }
             }
             PrimaryActionButton(title: page == .savedLists ? SavedListsStepModel.primaryTitle(savedTicks)
                                                            : Copy.onboardingContinue) { advance(.pointer) }
@@ -328,9 +328,16 @@ struct OnboardingView: View {
         case .welcome: getStarted(input)
         // ⏎ on Done: the worm is simply there, never flown (DR-60).
         case .done: openCicada(input == .keyboard ? .openCicadaByKey : .openCicadaByPointer, from: nil)
-        case .savedLists: saveLists(input)
+        case .savedLists where SavedListsStepModel.writes(on: .primary): saveLists(input)
         default: if let next = page.next { go(next, input) }
         }
+    }
+
+    /// Skip moves on and writes nothing of its own (review of #474: on *Saved lists* it ran the consent button's PUT).
+    /// Only the primary sends a step's answer (`SavedListsStepModel.writes(on:)`).
+    private func skip() {
+        guard !busy, seeHow == nil else { return }
+        if let next = page.next { go(next, .pointer) }
     }
 
     private func go(_ target: OnboardingPage, _ input: OnboardingInput) {

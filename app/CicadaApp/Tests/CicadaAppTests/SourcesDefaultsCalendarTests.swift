@@ -27,6 +27,27 @@ final class SourcesDefaultsCalendarTests: XCTestCase {
         XCTAssertEqual(SavedListsStepModel.primaryTitle([.x]), Copy.savedListsKeep)
     }
 
+    /// Review of #474 (blocker): Skip on *Saved lists* ran the consent button's PUT — everything pre-ticked, so agent
+    /// reading, its acknowledgement and all five lists turned on. Skip moves on and sends nothing.
+    func testSkipSendsNoWrite() throws {
+        XCTAssertFalse(SavedListsStepModel.writes(on: .skip))
+        XCTAssertTrue(SavedListsStepModel.writes(on: .primary))
+        let file = try XCTUnwrap(ThemeTokenTests.swiftSources().first {
+            $0.path.hasSuffix("Views/Onboarding/OnboardingView.swift") })
+        let view = try String(contentsOf: file, encoding: .utf8)
+        XCTAssertTrue(view.contains("TextButton(title: Copy.onboardingSkip) { skip() }"),
+                      "the foot's Skip goes through skip(), never advance()")
+        let start = try XCTUnwrap(view.range(of: "private func skip() {"))
+        let body = String(view[start.upperBound...].prefix(400))
+        let end = body.range(of: "\n    }")?.lowerBound ?? body.endIndex
+        let skipBody = String(body[..<end])
+        XCTAssertFalse(skipBody.contains("saveLists"), "Skip never sends the step's answer")
+        XCTAssertFalse(skipBody.contains("advance("), "advance() sends Saved lists' answer")
+        XCTAssertFalse(skipBody.contains("setReadingSettings"))
+        XCTAssertTrue(skipBody.contains("go(next, .pointer)"))
+        XCTAssertTrue(view.contains("case .savedLists where SavedListsStepModel.writes(on: .primary): saveLists(input)"))
+    }
+
     func testTheWriteRidesOnePutWithNoSiteGrant() {
         let write = SavedListsStepModel.write(Set(SavedListItem.allCases))
         let body = APIClient.readingSettingsBody(agentEnabled: true, acknowledge: true,

@@ -364,6 +364,11 @@ enum SavedListsStepModel {
         return Write(consent: !ticked.isEmpty, youtubeLists: youtube, savedLists: saved)
     }
 
+    enum FootButton { case primary, skip }
+
+    /// Only the primary (and its ⏎) sends the answer; Skip moves on and sends nothing (review of #474).
+    static func writes(on button: FootButton) -> Bool { button == .primary }
+
     /// The foot's one primary: the answer when something is ticked, else simply moving on (the unticked are noted off).
     static func primaryTitle(_ ticked: Set<SavedListItem>) -> String {
         ticked.isEmpty ? Copy.onboardingContinue : Copy.savedListsKeep

@@ -557,10 +557,11 @@ final class OnboardingV3ExitTests: XCTestCase {
         XCTAssertEqual(OnboardingPage.menuBar.next, .done)
     }
 
-    /// Hyrum: no step id or stored name moved, so a saved step resumes where it did.
+    /// Hyrum: no step id or stored name moved, so a saved step resumes where it did. *Saved lists* (2026-10-26) adds a
+    /// new name; every earlier one is unchanged.
     func testSavedProgressStillResumes() {
         XCTAssertEqual(OnboardingPage.allCases.map(\.storedName),
-                       ["welcome", "intelligence", "agents", "sources", "menuBar", "done"])
+                       ["welcome", "intelligence", "agents", "sources", "savedLists", "menuBar", "done"])
         for (stored, page) in [("agents", OnboardingPage.agents), ("menuBar", .menuBar), ("done", .done),
                                ("import", .sources), ("whoReads", .intelligence), ("ready", .done)] {
             XCTAssertEqual(OnboardingPage(stored: stored), page, stored)
