@@ -275,9 +275,12 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   already on the record — never one guessed from a name; a proposal is never trusted, drawn or re-checked until the
   person takes it, one grouped review ("Confirm N links"); Sleep settles one only when the person's own located line
   names that one page and the link's account is its name or alias — co-occurrence is never proof (`storage.md`).
+  **An organisation's own site (ruling 40, 2026-10-26):** for a company, tool or public place — never a person, a
+  project or a private name — Sleep trusts a site the record ties to the page or ONE unambiguous Wikidata match, only
+  when its homepage names it; anything less is a proposal in that review; a removal is never re-added (`org_sites`).
 - **Pictures:** one precedence (the person's choice → Contacts photo → the photo a ticked Messages chat shares → a
   person's public-profile photo → a brand's logo → a media thumbnail → a monogram). **A logo comes only from a trusted
-  `website` source — never a domain guessed from a name; a person never gets a logo and no service is sent a person's name (G146/G159).** A saved link's own site may show its own icon, asked of that site only (or the icon host its homepage declares, 2026-10-20; an SVG icon only sanitised and drawn to a PNG out of process, never served as SVG, 2026-10-20), on the person's view (owner 2026-10-19; `storage.md`); a watched or saved YouTube video its still, from YouTube's own host for that id only, on the same terms (2026-10-19). A person's photo is asked only
+  `website` source — never a domain guessed from a name; a person never gets a logo and no service is sent a person's name (G146/G159).** Ruling 40's homepage-confirmed find is trusted, and a public place with one draws its mark. A saved link's own site may show its own icon, asked of that site only (or the icon host its homepage declares, 2026-10-20; an SVG icon only sanitised and drawn to a PNG out of process, never served as SVG, 2026-10-20), on the person's view (owner 2026-10-19; `storage.md`); a watched or saved YouTube video its still, from YouTube's own host for that id only, on the same terms (2026-10-19). A person's photo is asked only
   with an identifier already on the page or record and given as their own account — the owner's hashed email, a GitHub,
   X, Instagram or LinkedIn profile link (owner, 2026-10-09; Instagram, D5), never a proposal the person has not taken (`network.md`); a LinkedIn link from the person's connections counts as given
   on a confident match, never an alias-only one (owner 2026-10-17). The photo a chat shares in Messages is its page's

@@ -171,13 +171,14 @@ def media_picture(entity_id: str, fm: dict) -> str | None:
 
 
 def logo_eligible(fm: dict) -> bool:
-    """R-PE9 — a brand (`company`/`tool`), or any page whose own `logo:` names a domain; never a person or a media
-    page (R-PE3)."""
+    """R-PE9 — a brand (`company`/`tool`), a public place with a trusted site of its own (ruling 40,
+    `logo_service.draws_logo`), or any page whose own `logo:` names a domain; never a person or a media page (R-PE3)."""
     kind = str((fm or {}).get("type") or "concept").strip().lower()
     if kind in ("person", "media"):
         return False
     explicit = (fm or {}).get("logo")
-    return kind in LOGO_TYPES or (isinstance(explicit, str) and bool(explicit.strip()))
+    return kind in LOGO_TYPES or logo_service.draws_logo(fm or {}) or (
+        isinstance(explicit, str) and bool(explicit.strip()))
 
 
 def inputs_for(fm: dict, *, logo_available: bool = False) -> PictureInputs:

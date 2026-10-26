@@ -277,6 +277,18 @@ def _disable_connector_fetch(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_wikidata(monkeypatch):
+    """Ruling 40: no test may ask Wikidata. The person's click (``/maintenance/verify-sites``) is ungated by design, so
+    the default getter answers "no answer" here; ``org_sites``' own tests inject theirs."""
+    from api.services import org_sites
+
+    async def _none(params):
+        return None
+
+    monkeypatch.setattr(org_sites, "wikidata_get", _none)
+
+
+@pytest.fixture(autouse=True)
 def _no_real_agent_spawn(monkeypatch):
     """G74(a): no test may spawn the real `claude` CLI.
 

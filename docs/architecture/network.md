@@ -11,7 +11,12 @@ Three backend gates, and a separate app-side scenery gate below. They do **not**
   in-cycle pass (`sleep_cycle._link_summarizer`, G61 phase 2 S0) and the G102 tail backfill, both
   through `link_enrichment.default_fetch`, the rail's reference transport — **the site check** (G61 S3-b: the Sleep tail's
   `site_sources.verify` reads a proposed official site through `link_enrichment.fetch_identity`, which shares that
-  transport's `_stream_html`; a walled or platform host is never requested) — **the source refresh** (G61, TODO ruling
+  transport's `_stream_html`; a walled or platform host is never requested) — **the organisation-site lookup** (TODO
+  ruling 40, `org_sites`, in the same step: Wikidata's API `www.wikidata.org/w/api.php` — `wbsearchentities` with only an
+  organisation's, tool's or public place's own name and at most two proper-looking aliases, never a person's name, a
+  project's or a private one, then `wbgetclaims` for item and class ids — spaced 0.2 s, 4 s / ≤ 512 KB, no cookies, no
+  proxy env, `net_guard` on every hop, User-Agent `Cicada/1 (<repo URL>) httpx`, a 429 waited out once, ≤ 20 pages a
+  night; and each candidate's homepage through `fetch_identity`) — **the source refresh** (G61, TODO ruling
   26: `source_refresh.run_tail` re-reads the due tracked PUBLIC sources through `_stream_html`, at most 20 a night, one
   per site, a walled or refused host never requested; it states only what the page says in schema.org JSON-LD, and a
   404/410, a name or connection failure, a parking host or "for sale" title, or a landing on another site is a strike —

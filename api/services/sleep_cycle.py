@@ -1167,7 +1167,9 @@ async def _where_to_check_safely(memory_path: Path) -> None:
 
 async def _site_sources_safely(memory_path: Path) -> None:
     """G61 S3-b — propose an official site from what a page already says (its `website` claim, a `## Links` host that
-    is its own name) and confirm proposed sites on Cicada's OWN rail (`link_enrichment.fetch_identity`): at most
+    is its own name), find an organisation's own site from the record or one unambiguous Wikidata match (`org_sites`,
+    ruling 40 — trusted only when its homepage names it, otherwise proposed for the grouped review, which is re-synced
+    after the commit) and confirm proposed sites on Cicada's OWN rail (`link_enrichment.fetch_identity`): at most
     `site_sources.TAIL_BUDGET` fetches a night, one per site, never a walled or platform host. Behind
     `CICADA_ALLOW_CONNECTOR_FETCH` (the unattended-fetch gate; a skipped night writes nothing and asks nothing). One
     path-scoped `cicada` commit (`Site check <date>`, trigger `sleep/site-check`, no engine trailer); pages dirty
@@ -1185,9 +1187,14 @@ async def _site_sources_safely(memory_path: Path) -> None:
         except Exception as exc:
             logger.warning(f"Site check skipped: tree status unreadable ({type(exc).__name__})")
             return
-    report = site_sources.Report()   # built first and handed to both steps, so a page written before a failure is on it
+    from api.services import org_sites
+
+    report = site_sources.Report()   # built first and handed to every step, so a page written before a failure is on it
     try:
         await asyncio.to_thread(site_sources.propose, memory_path, skip, report)
+        # Ruling 40: an organisation's own site from the record or one unambiguous Wikidata match, trusted only when its
+        # homepage names it; anything less is a proposal for the "Confirm N links" review.
+        await org_sites.run(memory_path, report=report, skip=skip)
         await site_sources.verify(memory_path, budget=site_sources.TAIL_BUDGET, skip=skip, report=report)
     except Exception as exc:
         # A page written before the failure must not ride the next `git add -A` writer's commit (the G85 smear).
@@ -1204,6 +1211,10 @@ async def _site_sources_safely(memory_path: Path) -> None:
     except Exception as exc:
         logger.warning(f"Site check commit failed — undoing: {type(exc).__name__}: {exc}")
         await asyncio.to_thread(site_sources.restore, memory_path, report)
+        return
+    if report.counts.get("org_proposal"):
+        # The night's new website proposals join the one grouped review now, not at the next run (ruling 36 D5).
+        await _where_to_check_safely(memory_path)
 
 
 async def _source_refresh_safely(memory_path: Path) -> None:

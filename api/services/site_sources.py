@@ -84,9 +84,10 @@ def origin_of(value) -> str | None:
     try:
         parsed = urlparse(text)
         host = (parsed.hostname or "").lower().rstrip(".")
+        port = parsed.port   # raises on a malformed port ("host:9000`" in pasted code)
     except ValueError:
         return None
-    if parsed.scheme not in ("https", "http") or parsed.port not in (None, 443, 80):
+    if parsed.scheme not in ("https", "http") or port not in (None, 443, 80):
         return None
     if host.startswith("www."):
         host = host[4:]
@@ -304,6 +305,9 @@ def _pending(fm: dict, today: date) -> list[dict]:
     due: list[dict] = []
     for s in fact_sources.as_sources(fm.get("sources")):
         if not fact_sources.same_predicate(s.get("predicate"), fact_sources.WEBSITE) or fact_sources.trusted(s):
+            continue
+        if fact_sources.is_proposed(s):
+            # Ruling 36 D5 / ruling 40: a proposal waits for the person — no read of Cicada's may trust it behind them.
             continue
         checked = s.get("checked") if isinstance(s.get("checked"), dict) else None
         if checked and checked.get("outcome") in ("unconfirmed", "unreachable"):
