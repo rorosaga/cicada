@@ -34,9 +34,15 @@ def _report(settings: Settings, lines: int) -> str:
         on = [c["id"] for c in channels if c.get("connected")]
     except Exception:
         on = []
+    try:
+        names = diagnostics.bank_names_known(settings.memory_path)
+    except Exception:
+        names = set()
+    from api.services import agent_catalog
+
     return diagnostics.build(
         version=__version__, engine_mode=str(settings.llm_mode or ""), sources_on=on, bank_count=len(banks),
-        bank_names=banks,
+        bank_names=banks, names=names, keep=set(agent_catalog.TRACKED),
         home=Path.home(), dirs=diagnostics.log_dirs(cicada_home(), agent_wiring.REPO_ROOT), lines=lines)
 
 

@@ -534,9 +534,9 @@ when none is. (2) **Report a problem…** (Help menu, and Settings → General b
 whole report before anything leaves the Mac — the app's version and build and the macOS version on top
 (`ProblemReport.header`), then the backend's half from `GET /diagnostics/report` (`api/services/diagnostics.py`: backend
 version, platform, engine mode as an enum — never an account or email, G148 — connected source ids, the bank count,
-recent warnings and errors, and the tail of `backend*.log` and the app's `update.log`, every line through `redact`:
-secrets via `episode_scrub`, the home path → `~`, another account's home, emails, URLs, bank names, quoted text,
-wikilinks, bank-relative paths and the ids in request paths); the header also carries the one known issue (an update
+recent warnings and errors, and the tail of `backend*.log` and the app's `update.log`, every line through one `Redactor`:
+the bank's own page ids, names, aliases and waiting names withheld as tokens, then URLs, emails, file names, homes,
+quoted text, slugs and the rest, and a line where anything risky survives withheld down to its structure — `api.md`); the header also carries the one known issue (an update
 can make macOS ask again for permissions, while releases are ad-hoc signed). **Copy**, **Save…**, and — only in a
 release whose Info.plist carries `CicadaReportEmail` (from CI's `CICADA_REPORT_EMAIL` variable, owner 2026-10-26; never
 an address in the repo, docs/RELEASING.md) — one **Send** that copies the report and opens a new email with a short

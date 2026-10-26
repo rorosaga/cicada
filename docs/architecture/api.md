@@ -270,8 +270,13 @@ name a `cicada_…` tool; `llms.txt` maps each to its operation), `data`'s shape
   not a Store domain: the backend half of *Report a problem…* — version, platform, engine mode (an enum, never an
   account), connected channel ids, the bank count, recent warnings and errors, and the tails of `backend*.log` and the
   app's `update.log` from the fixed log dirs (`$CICADA_LOG_DIR`, `$CICADA_HOME/logs`, a checkout's `logs/`), each line
-  through `diagnostics.redact` (secrets, home path, emails, URLs, bank names, quoted text, wikilinks, bank paths, ids in
-  request paths). It sends nothing; the app shows it before the person copies, saves or sends it.
+  through one `diagnostics.Redactor` built per report: every page id, name and alias in the active bank and every
+  waiting name (`pending_store`) and bank name is withheld as a token (and a parenthesis after it); then URLs (cut only
+  at whitespace), %-decoded emails, `*.md` / `*.claims.jsonl` / `*.jsonl` / `*.yaml` file names (Cicada's own kept),
+  any home (POSIX with spaces, Windows), bank paths, wikilinks, quoted text, a capitalised parenthesis, request-path
+  ids and hyphenated slugs not on the keep list (channel and agent ids); a line where a name, URL or email still
+  survives keeps only its structure (time, level, logger, exception class, file:line) and reads `[message withheld]`.
+  It sends nothing; the app shows it before the person copies, saves or sends it.
 - `GET /devices/status` — `{devices: [{id, name, role: server|device, current, connected, how, lastSeenAt, queue}],
   connectedWithinSeconds}`: this server first, named by its own Computer Name (macOS `scutil`, else the host name),
   then each active device token by the name the person gave it. `how` is read from the device's last request
