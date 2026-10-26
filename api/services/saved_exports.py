@@ -88,6 +88,7 @@ _INSTAGRAM_FILES = {"saved_posts.json", "saved_collections.json", "liked_posts.j
 _TIKTOK_TXT = {
     "like list.txt": ("Likes", False),
     "favorite videos.txt": ("Favorites", False),
+    "favourite videos.txt": ("Favorites", False),
     "video browsing history.txt": ("Browsing History", True),
     "browsing history.txt": ("Browsing History", True),
     "watch history.txt": ("Browsing History", True),

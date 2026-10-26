@@ -453,7 +453,7 @@ as "<agent> noted: …". No line says "in your browser" of what an agent did, or
 stuff … like for youtube watch later/history").** The third door onto the watch record (`capture-and-sleep.md`, *Watch
 history*), on this section's rails: Cicada never spawns a browser, never signs in and never fetches either page; it only
 offers. **Consent:** agent reading on (its sheet acknowledged) AND the person turned the list on in Reading in your browser
-(`reading.json` `youtube_lists`, `{watch_later|history: day}`, off by default, refused without a current acknowledgement). The switch is a **standing ask for exactly that page**, not
+(`reading.json` `youtube_lists`, `{watch_later|history: day}`, on by default since 2026-10-26 — onboarding asks once, pre-ticked; an older install's for accounts its memory shows (`list_defaults`); an off kept in `youtube_lists_off` is never overridden — refused without a current acknowledgement). The switch is a **standing ask for exactly that page**, not
 a site grant: it never lets a wall page of youtube.com, or any other page of it, be recorded — the one dated exception
 to "only a link the person asked about, or a wall page of a site they allowed" (owner 2026-10-16, CLAUDE.md's rail). **The offer** (`youtube_lists.py`; state in
 `$CICADA_HOME/youtube_lists.json`, ids, enums, counts and times only, `flock`ed): a list is *due* when allowed, not
@@ -477,7 +477,7 @@ walled site: X Bookmarks (`https://x.com/i/bookmarks`), Instagram Saved (the pro
 `https://www.instagram.com/` — Cicada keeps no profile name) and LinkedIn Saved posts
 (`https://www.linkedin.com/my-items/saved-posts/`). Cicada never spawns a browser, never signs in and never fetches a list
 page; it only offers. **Consent:** agent reading on (its sheet acknowledged) AND the person turned that site's list on
-(`reading.json` `saved_lists`, `{x|instagram|linkedin: day}`, off by default, refused without a current acknowledgement;
+(`reading.json` `saved_lists`, `{x|instagram|linkedin: day}`, on by default since 2026-10-26 on the same terms, offs in `saved_lists_off` — refused without a current acknowledgement;
 `PUT /reading/settings` `savedLists` patch, the Sources page's switch; `GET /reading/settings` carries `savedLists`
 and `saved` — per site the last read, its outcome, item count and pause, plus `readsToday`/`dailyReads`). Like a YouTube
 list it is a **standing ask for exactly that page**, never a site grant: it lets no other page of the site be recorded.

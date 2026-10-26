@@ -408,6 +408,18 @@ each tick tile shows what it reads and the consent it leads to before the click 
 idle line or a browser's reads, "Needs Full Disk Access" for a browser macOS hides),
 chat history takes a drop or the file panel, *How to get an export* opens `ExportWalkthroughSheet`. Nothing is pre-ticked
 or read before a tick (R-OB6, R-IB12).
+*Saved lists* (`SavedListsStep`, owner 2026-10-26, ruling 39's dated line; step 5 of 7, stored `savedLists`): every
+list the person's own agent can keep current from their signed-in browser (`SavedListItem`: YouTube Watch later and
+history, X Bookmarks, Instagram Saved, LinkedIn Saved posts), each with its platform's mark, **pre-ticked** — except one
+the reading settings record as turned off (`youtubeListsOff` / `savedListsOff`) — under "Keep your saved lists
+current" and one line: their own agent, their signed-in browser, at most 10 times a day, and that the sites' terms
+discourage automated access. The foot's primary reads *Keep them current* (*Continue* with nothing ticked) and is the
+consent: one `PUT /reading/settings` (`SavedListsStepModel.write`) with the ticked lists on, `agentEnabled` and
+`acknowledge` when anything is ticked, every unticked list `false` (recorded off, so no later default turns it on);
+a failure stays on the step with its sentence. Skip writes nothing. Nothing is read before the button; the first read
+starts when the person's agent next opens a session (the SessionStart note counts the due lists, and
+`cicada_reading_queue` lists them; verified on scratch state, 2026-10-26). The one departure from "nothing is
+pre-ticked", dated in DESIGN_RULES §9. *Meet your bookworm*'s Back returns here.
 *Meet your bookworm* (`MenuBarStep`, owner 2026-10-23: "have the little worm with the number appear only after
 explaining it"): after Sources, because what Sources brings in is what the number counts, and right before Done, so the
 worm lands in the menu bar as setup closes. No room on this step: the menu bar's own 18 × 18 sprite with its code-drawn
@@ -1185,6 +1197,21 @@ agent reads (`agent_methods`), not an install.
   row no channel speaks for, so a reader turned off never returns through its episodes); a row's last sync is the newest
   capture write (`captured_at` / `last_turn_at`), not a session's start; Instagram's line says what G206 shipped and a
   saved list switched on reads Connected.
+- **Lists on by default, where a file comes from, Google Calendar (owner 2026-10-26; G71, G206, G142).** *Lists:*
+  the YouTube row's detail now holds its two list switches (`youtubeListToggle`, `YouTubeListWords`' titles and lines;
+  the first-use sheet first when agent reading is not on, `ReadingFirstUseSheet(youtubeList:)`), and a YouTube list
+  kept current reads Connected (`savedListsOn` holds `youtube`). The backend turns on an older install's undecided
+  lists for accounts its memory shows when `GET /reading/settings` is read (`list_defaults`, ruling 39's dated line);
+  an off the person chose is never overridden. *Import a file:* every row that imports a file says, before its button,
+  where the platform hands the file out (`SourceCatalog.exportHow`: YouTube's Takeout, Instagram's Export your
+  information, TikTok's Download your data in JSON, LinkedIn's Get a copy of your data, a browser's bookmarks export;
+  Notion keeps `notionHow`); the walkthroughs name TikTok's file `user_data_tiktok.json` and Instagram's Export your
+  information. *Calendar:* `CalendarRow` lists the accounts the last read included (`CalendarReader.accounts`,
+  `CalendarAccountGroup.groups`: "Includes iCloud (3 calendars) · …", On My Mac last; shown on this Mac only, never
+  posted) and, always, "Google calendars come in through macOS…" with *Add a Google account*, which opens System
+  Settings → Internet Accounts (`CalendarRow.internetAccountsURL`) and asks macOS for nothing. A Google calendar's
+  secret iCal address through Calendar feeds is not offered: a feed subscription is stored in the bank's
+  `calendars.yaml`, and that address is a credential.
 - **Reminders and Notion (G219, ruling 38: one way in, never written back; 2026-10-23).** *This Mac* gains
   **Reminders** after Contacts (`SourceCatalog.fixed`, id `reminders-local`, the installed Reminders app's icon,
   `com.apple.reminders`). Its detail is `RemindersRow`: `CalendarRow`'s line and buttons (Connect · Refresh ·

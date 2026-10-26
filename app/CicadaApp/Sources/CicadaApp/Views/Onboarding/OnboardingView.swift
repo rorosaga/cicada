@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 /// Onboarding v2 (G217, G92, ruling 36; 2026-10-22; built on round 4 phase B, G145) — one full-window layer over the
-/// shell (R-IB11's placement kept), six steps of one verb each: Welcome and Done are the study room over a card, and
+/// shell (R-IB11's placement kept), seven steps of one verb each: Welcome and Done are the study room over a card, and
 /// *Meet your bookworm* (owner 2026-10-23) the menu-bar worm over a card (`MenuBarStep`); the
 /// three working steps (Intelligence, Agents, Sources) are the split frame — the room in its pane (`OnboardingRoom`,
 /// the one illustration, DR-13), then the column: the topbar ("Step n of 5 · k still coming in", Set up later), the
@@ -53,6 +53,9 @@ struct OnboardingView: View {
     @State private var browsers = BrowserInventory.empty
     @State private var allowRequested: Set<FoundItemID> = []
     @State private var pageShownAt = Date()
+    /// *Saved lists* (owner 2026-10-26): pre-ticked from the person's reading settings (an off they chose stays off).
+    @State private var savedTicks: Set<SavedListItem> = Set(SavedListItem.allCases)
+    @State private var savedFailure: String?
     @FocusState private var rootFocused: Bool
 
     private var apps: [String: AppSourceDriver] {
@@ -212,6 +215,7 @@ struct OnboardingView: View {
                         needsAccess: Set(inventory.items.filter { $0.readiness == .needsPermission }.map(\.id)),
                         denied: deniedByMacOS,
                         onTick: tick, onSeeHow: { seeHow = $0 })
+        case .savedLists: SavedListsStep(ticked: $savedTicks, failure: savedFailure)
         case .welcome, .menuBar, .done: EmptyView()
         }
     }
@@ -225,9 +229,10 @@ struct OnboardingView: View {
             }
             Spacer(minLength: CicadaTheme.spacingSM)
             if page.skippable {
-                TextButton(title: Copy.onboardingSkip) { advance(.pointer) }
+                TextButton(title: Copy.onboardingSkip) { skip() }
             }
-            PrimaryActionButton(title: Copy.onboardingContinue) { advance(.pointer) }
+            PrimaryActionButton(title: page == .savedLists ? SavedListsStepModel.primaryTitle(savedTicks)
+                                                           : Copy.onboardingContinue) { advance(.pointer) }
             KeyHint("⏎")
         }
     }
@@ -278,7 +283,7 @@ struct OnboardingView: View {
             } else if page == .menuBar {
                 MenuBarStep(waiting: store.status.value?.waitingForSleep,
                             shownInMenuBar: menuBar?.introPhase == .done && menuBar?.isVisible == true, busy: busy,
-                            onBack: { go(.sources, .pointer) },
+                            onBack: { go(.savedLists, .pointer) },
                             onSkip: { go(.done, .pointer) },
                             onContinue: { go(.done, .pointer) })
             } else {
@@ -323,8 +328,16 @@ struct OnboardingView: View {
         case .welcome: getStarted(input)
         // ⏎ on Done: the worm is simply there, never flown (DR-60).
         case .done: openCicada(input == .keyboard ? .openCicadaByKey : .openCicadaByPointer, from: nil)
+        case .savedLists where SavedListsStepModel.writes(on: .primary): saveLists(input)
         default: if let next = page.next { go(next, input) }
         }
+    }
+
+    /// Skip moves on and writes nothing of its own (review of #474: on *Saved lists* it ran the consent button's PUT).
+    /// Only the primary sends a step's answer (`SavedListsStepModel.writes(on:)`).
+    private func skip() {
+        guard !busy, seeHow == nil else { return }
+        if let next = page.next { go(next, .pointer) }
     }
 
     private func go(_ target: OnboardingPage, _ input: OnboardingInput) {
@@ -396,6 +409,27 @@ struct OnboardingView: View {
         }
     }
 
+    /// *Saved lists*' one button: the answer is the consent (owner 2026-10-26). The ticked lists turn on with agent
+    /// reading and its acknowledgement in one call; the unticked are recorded off, so no later default turns them on.
+    /// A failure stays on the step with the reason. Skip never comes here.
+    private func saveLists(_ input: OnboardingInput) {
+        let write = SavedListsStepModel.write(savedTicks)
+        busy = true
+        savedFailure = nil
+        Task {
+            do {
+                _ = try await APIClient.shared.setReadingSettings(
+                    agentEnabled: write.consent ? true : nil, acknowledge: write.consent,
+                    youtubeLists: write.youtubeLists, savedLists: write.savedLists)
+                busy = false
+                go(.menuBar, input)
+            } catch {
+                busy = false
+                savedFailure = Copy.savedListsSaveFailed
+            }
+        }
+    }
+
     private func playSound(_ moment: OnboardingSoundMoment) {
         sound.moment(moment, inDemo: DemoMode.isActive(store.banks.value))
     }
@@ -457,6 +491,9 @@ struct OnboardingView: View {
             ownerSaved = true
             furthest = saved
             page = saved
+        }
+        if let reading = try? await APIClient.shared.fetchReadingSettings() {
+            savedTicks = SavedListsStepModel.initialTicks(reading)
         }
         browsers = await Task.detached(priority: .userInitiated) { BrowserInventory.live() }.value
         await inventory.refresh()

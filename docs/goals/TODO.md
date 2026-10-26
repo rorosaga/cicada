@@ -10,6 +10,15 @@
 
 ## Current state and evidence
 
+- **2026-10-26 — saved lists on by default, TikTok's export read again, Google Calendar on the Mac (G71, G206, G142;
+  ruling 39 dated line; branch `feat/sources-defaults-calendar`).** Onboarding asks once, pre-ticked, whether the
+  person's own agent keeps their saved lists current (the answer is the consent); offs are remembered; an older
+  install's lists turn on for accounts its memory shows. TikTok's current `user_data_tiktok.json` keeps favourites and
+  likes under "Likes and Favorites" and watch history under "Your Activity" → "Watch History": the reader returned
+  "Your Activity" alone and refused the file — fixed and tested on today's layout. Every Import a file row says where
+  the file comes from. The Calendar row lists the accounts it read and opens Internet Accounts to add Google's (no
+  prompt); Google's secret iCal address through the feed path is not offered, because a subscription is stored in the
+  bank's `calendars.yaml`, which would put a credential in the bank. Needs the owner: the detail-pane screenshots.
 - **2026-10-24 — ruling 39 recorded; both dates on every episode (G218, G71; branch `feat/both-dates`).** Every new
   episode records `received_at` beside `timestamp` (the item's own date), stamped by `create_episode`; a feed item is
   dated by its publisher and is no time signal, so a back catalogue is neither activity nor a charge; the Reader, the
@@ -1775,3 +1784,19 @@ A whole row moves to DONE only after its remaining implementation and required a
     treating what a feed published as no mention by the person, answers both. **Revisit** (a)'s feed rule only if a
     feed proves to carry the person's own words (a feed of their own posts), and its surface threshold on the owner's
     word; (b) through the G218 row's triggers.
+    **Dated line (owner, 2026-10-26; G71, G206; branch `feat/sources-defaults-calendar`) — saved lists on by default,
+    as item (b) says of agents checking the person's accounts.** Owner: "By default the user should have them all on.
+    Re-reading my saved stuff should be the default. Maybe when first onboarding you ask the user 'Do you want an agent
+    to go through your saved posts?'" **(1)** Onboarding gains one step after Sources, *Saved lists*: every list the
+    person's own agent can read (YouTube Watch later and history, X Bookmarks, Instagram Saved, LinkedIn Saved posts)
+    pre-ticked, one line that their own agent reads them in their own signed-in browser and that the sites' terms
+    discourage automated access, and one button. That answer is the consent: the ticked lists turn on with agent reading
+    and its first-use acknowledgement in one call, the unticked are recorded off. Skip writes nothing. **(2)** An off
+    is now remembered (`reading.json`'s `youtube_lists_off` / `saved_lists_off`): nothing automatic turns it on again.
+    **(3)** An install from before this line gets the default only for an account its memory already shows (an
+    export's, a watched day's, an earlier read's origin: `list_defaults`), only once agent reading counts (its sheet
+    acknowledged, the master switch not off), applied once when the Sources page reads its settings; a list an agent
+    read before that holds no switch now was turned off by the person, so it is recorded off. **Unchanged:** at most 10
+    recorded reads a day across X, Instagram and LinkedIn, one site at a time, stdio only, never a site grant, every
+    item indexed and never read by a model (ruling 30), a sign-in wall pauses that list for a week. **Revisit** if a
+    default-on list produces sign-in requests for accounts the person does not have, or on the owner's word.

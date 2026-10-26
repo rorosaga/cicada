@@ -164,6 +164,20 @@ enum SourceCatalog {
         return all
     }
 
+    /// 2026-10-26 — where the file an entry imports comes from, said before its Import a file button. Every entry that
+    /// offers a file import has one (Notion says its own in `notionHow`; chat exports live on the Agents page); an
+    /// entry with no line imports no file.
+    static func exportHow(_ id: String) -> String? {
+        switch id {
+        case "youtube": Copy.Catalog.howYouTube
+        case "instagram": Copy.Catalog.howInstagram
+        case "tiktok": Copy.Catalog.howTikTok
+        case "linkedin": Copy.Catalog.howLinkedIn
+        case "files": Copy.Catalog.howBookmarksFile
+        default: nil
+        }
+    }
+
     /// The overview row an entry's "what came in" reads, when there is one.
     static func overviewRow(for entry: SourceCatalogEntry, in overview: [SourceOverview]) -> SourceOverview? {
         if let id = entry.overviewId { return overview.first { $0.id == id } }
@@ -224,6 +238,8 @@ enum SourceCatalog {
         if let site = entry.site, entry.verb == .turnOn, readableSites.contains(site) { return .connected }
         // G206: the person's agent keeps this site's saved list current (agent reading on and the list's switch on).
         if let site = entry.site, savedListsOn.contains(site) { return .connected }
+        // 2026-10-26: the same for YouTube's Watch later and history (`savedListsOn` holds "youtube" then).
+        if entry.id == "youtube", savedListsOn.contains("youtube") { return .connected }
         return .off
     }
 

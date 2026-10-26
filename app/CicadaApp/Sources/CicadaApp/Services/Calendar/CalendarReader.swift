@@ -17,6 +17,10 @@ final class CalendarReader {
     static let enabledKey = "cicada.calendar.enabled"
 
     private(set) var status: Status = .off
+    /// 2026-10-26 (owner: "make sure I can connect Google Calendar") — the accounts the last read included, each with
+    /// its calendar count, so the row says which accounts come in (a Google account added in Internet Accounts is one
+    /// of them). Empty before the first read; shown on this Mac only, never posted.
+    private(set) var accounts: [CalendarAccountGroup] = []
     var isEnabled: Bool { defaults.bool(forKey: Self.enabledKey) }
 
     @ObservationIgnored private let store: CalendarStore
@@ -64,6 +68,7 @@ final class CalendarReader {
         watch = nil; periodic = nil; pending = nil
         again = false
         status = .off
+        accounts = []
     }
 
     func syncNow() async { guard isEnabled else { return }; await sync() }
@@ -110,6 +115,7 @@ final class CalendarReader {
             // R-FA11 — C6 tombstones every saved event the window no longer holds, so a read with no calendars at
             // all (EventKit not ready, access gone mid-read) is never posted: it would mark the whole window deleted.
             guard !snapshot.calendars.isEmpty else { status = .failed(Copy.calendarNotReady); return }
+            accounts = CalendarAccountGroup.groups(snapshot.calendars)
             let payload = CalendarSyncPayload(
                 window: .init(from: CalendarEventMapper.iso(window.from, timeZone: .current),
                               to: CalendarEventMapper.iso(window.to, timeZone: .current)),

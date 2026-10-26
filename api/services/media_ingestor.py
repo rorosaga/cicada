@@ -1081,27 +1081,29 @@ def _is_instagram_saved_json(data) -> bool:
 # (activity-section key, the list key inside it, the folder name, is_history).
 _TIKTOK_SECTIONS = (
     ("Favorite Videos", "FavoriteVideoList", "Favorites", False),
+    # TikTok's own data-types page spells it both ways; an export generation that writes "Favourite" is the same list.
+    ("Favourite Videos", "FavoriteVideoList", "Favorites", False),
     ("Like List", "ItemFavoriteList", "Likes", False),
     ("Video Browsing History", "VideoList", "Browsing History", True),
+    # The current export (checked 2026-10-26): ``Your Activity`` → ``Watch History`` → ``VideoList``.
+    ("Watch History", "VideoList", "Browsing History", True),
 )
 
 
 def _tiktok_activity(data) -> dict | None:
-    """The activity dict, under the old ``Activity`` key or the newer ``Your
-    Activity`` one — or, failing both, every known section found one level
-    under any top-level wrapper (TikTok has regrouped these across export
-    generations, e.g. a ``Likes and Favorites`` wrapper)."""
+    """Every known section, wherever this export generation keeps it: under ``Activity`` (old), or spread over
+    top-level wrappers — today's ``user_data_tiktok.json`` keeps Favorite Videos and Like List under ``Likes and
+    Favorites`` and Watch History under ``Your Activity`` (2026-10-26; the old reader returned ``Your Activity``
+    alone and so never saw the favourites or likes, and refused the file). A section found at the top level counts
+    too; the first place a section name is found wins."""
     if not isinstance(data, dict):
         return None
-    for key in ("Activity", "Your Activity"):
-        section = data.get(key)
-        if isinstance(section, dict):
-            return section
     found: dict = {}
-    for wrapper in data.values():
+    wrappers = [data.get("Activity"), data.get("Your Activity")] + list(data.values()) + [data]
+    for wrapper in wrappers:
         if isinstance(wrapper, dict):
             for name, _list_key, _folder, _hist in _TIKTOK_SECTIONS:
-                if name in wrapper and name not in found:
+                if name in wrapper and name not in found and isinstance(wrapper[name], dict):
                     found[name] = wrapper[name]
     return found or None
 
@@ -1131,6 +1133,7 @@ def parse_tiktok_export(data, *, include_history: bool = False) -> list[RawItem]
         return []
 
     items: list[RawItem] = []
+    seen: set[tuple] = set()
     for section_name, list_key, folder, is_history in _TIKTOK_SECTIONS:
         if is_history and not include_history:
             continue
@@ -1147,6 +1150,11 @@ def parse_tiktok_export(data, *, include_history: bool = False) -> list[RawItem]
             if not isinstance(url, str) or not url.strip():
                 continue
             date = row.get("Date") or row.get("date")
+            # One list under two spellings (Favorite/Favourite, the two history names) is one row per entry.
+            key = (folder, url.strip(), str(date or ""))
+            if key in seen:
+                continue
+            seen.add(key)
             items.append(RawItem(
                 url=url.strip(),
                 added=saved_at.from_tiktok(date),

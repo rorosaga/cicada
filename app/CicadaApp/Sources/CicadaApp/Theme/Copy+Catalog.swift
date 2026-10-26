@@ -38,6 +38,18 @@ extension Copy {
             + "dated when they were created; importing again only adds what changed. Cicada never writes to Notion."
         static let calendarFeeds = "Calendar feeds"
 
+        /// 2026-10-26 — where each platform hands out the file an "Import a file" row takes, in the platform's own
+        /// words, checked that day (TikTok against its data-types page; the backend reads today's JSON layout).
+        static let howYouTube = "From Google Takeout: Deselect all, tick YouTube and YouTube Music, keep history and "
+            + "playlists, export once, and drop the .zip here."
+        static let howInstagram = "From Instagram: Accounts Center → Your information and permissions → Export your "
+            + "information → Saved, format JSON. Unzip it and drop saved_posts.json here."
+        static let howTikTok = "From TikTok: Profile → menu → Settings and privacy → Account → Download your data, "
+            + "file format JSON. When it's ready (a few days), unzip it and drop user_data_tiktok.json here."
+        static let howLinkedIn = "From LinkedIn: Settings → Data privacy → Get a copy of your data → Saved items. "
+            + "Unzip the archive and drop Saved Items.csv here."
+        static let howBookmarksFile = "A bookmarks file any browser exports (HTML or JSON) — in Chrome, Bookmarks → "
+            + "Bookmark manager → ⋮ → Export bookmarks."
         static let whatCameIn = "What came in"
         static let reading = "Reading"
         static func readSite(_ name: String) -> String { "Your agent may read \(name) in your browser" }

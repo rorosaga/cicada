@@ -25,14 +25,19 @@
   standing deny, machine-wide, D3).
 * ``youtube_lists`` — ``{list: day}`` (G71, owner 2026-10-16): the YouTube lists
   (``watch_later``, ``history``) the person asked their own agent to keep current
-  from their signed-in browser (``youtube_lists``). Off by default; each is a
+  from their signed-in browser (``youtube_lists``). On by default since 2026-10-26 (see ``youtube_lists_off``); each is a
   standing ask for exactly that page (never a youtube.com site grant), needs a current acknowledgement
   to turn on, and counts only while the master switch is on.
 * ``saved_lists`` — ``{site: day}`` (G206, redesign 2026-10-22): the saved lists on
   X (Bookmarks), Instagram (Saved) and LinkedIn (Saved posts) the person asked
   their own agent to keep current (``saved_lists``), on the same terms as
-  ``youtube_lists``: off by default, a standing ask for exactly that list page,
+  ``youtube_lists``: on by default since 2026-10-26 (see ``saved_lists_off``), a standing ask for exactly that list page,
   never a site grant.
+* ``youtube_lists_off`` / ``saved_lists_off`` — ``{key: day}`` (owner 2026-10-26, ruling 39 dated line): the lists
+  the person turned OFF. The lists are on by default since then — asked once, pre-ticked, in onboarding (the answer
+  is the consent), and on an existing install turned on by :func:`apply_list_defaults` only for an account this memory
+  already shows — so an off must be remembered to be respected: nothing automatic ever turns on a list held here.
+* ``lists_defaulted`` — ``{key: day}``: the lists :func:`apply_list_defaults` turned on, so it never decides one twice.
 * ``agent_ack`` — ``{date, v}``: the person's "I understand" on the first-use
   sheet. Turning the switch on needs a current one; a change of the sheet's
   wording bumps ``ACK_VERSION`` and asks again (until they do, the switch reads
@@ -187,10 +192,68 @@ def saved_list_allowed(key: str) -> bool:
     return agent_enabled() and key in saved_lists()
 
 
+def _day_map(raw, keys) -> dict[str, str]:
+    return {k: str(raw[k] or "")[:10] for k in keys if k in raw} if isinstance(raw, dict) else {}
+
+
+def youtube_lists_off() -> dict[str, str]:
+    """``{list: day turned off}`` — the person's explicit offs (never turned on by a default)."""
+    return _day_map(_load().get("youtube_lists_off"), YOUTUBE_LISTS)
+
+
+def saved_lists_off() -> dict[str, str]:
+    """``{site: day turned off}`` — the person's explicit offs (never turned on by a default)."""
+    return _day_map(_load().get("saved_lists_off"), SAVED_LISTS)
+
+
+def apply_list_defaults(*, detected: set[str], read_before: set[str] = frozenset(),
+                        today: date | None = None) -> list[str]:
+    """Lists are on by default (owner 2026-10-26): turn on, once, each list the person never decided, for an account
+    this memory already shows (``detected``: ``youtube``, ``x``, ``instagram``, ``linkedin``) — and only once agent
+    reading counts (its sheet, or onboarding's question, acknowledged; the master switch not turned off), since that
+    answer is the consent. A list with an explicit on or off is never touched. ``read_before`` (``youtube:history``,
+    ``saved:x``…) names lists an agent read before that hold no on now: the person turned those off before the off was
+    recorded, so they are recorded off, never on. Returns the ``family:key`` names changed."""
+    data = _load()
+    if not (data.get("agent") is not False and _ack_ok(data)):
+        return []
+    day = (today or date.today()).isoformat()
+    changed: list[str] = []
+    defaulted = data.get("lists_defaulted") if isinstance(data.get("lists_defaulted"), dict) else {}
+    for family, keys, account in (("youtube", YOUTUBE_LISTS, lambda _k: "youtube"),
+                                  ("saved", SAVED_LISTS, lambda k: k)):
+        on_key, off_key = f"{family}_lists", f"{family}_lists_off"
+        on = data.get(on_key) if isinstance(data.get(on_key), dict) else {}
+        off = data.get(off_key) if isinstance(data.get(off_key), dict) else {}
+        for key in keys:
+            name = f"{family}:{key}"
+            if key in on or key in off or name in defaulted:
+                continue
+            if name in read_before:
+                off[key] = day
+            elif account(key) in detected:
+                on[key] = day
+                defaulted[name] = day
+            else:
+                continue
+            changed.append(name)
+        if on:
+            data[on_key] = dict(sorted(on.items()))
+        if off:
+            data[off_key] = dict(sorted(off.items()))
+    if changed:
+        if defaulted:
+            data["lists_defaulted"] = dict(sorted(defaulted.items()))
+        _save(data)
+    return changed
+
+
 def snapshot() -> dict:
     held = ack()
     lists = youtube_lists()
     saved = saved_lists()
+    yt_off = youtube_lists_off()
+    saved_off = saved_lists_off()
     return {
         "agentEnabled": agent_enabled(),
         "allowedSites": allowed_sites(),
@@ -200,6 +263,9 @@ def snapshot() -> dict:
         "neverExplore": never_explore(),
         "youtubeLists": {"watchLater": "watch_later" in lists, "history": "history" in lists},
         "savedLists": {k: k in saved for k in SAVED_LISTS},
+        # 2026-10-26: the lists the person turned off (an off is remembered; nothing automatic turns it on again).
+        "youtubeListsOff": {"watchLater": "watch_later" in yt_off, "history": "history" in yt_off},
+        "savedListsOff": {k: k in saved_off for k in SAVED_LISTS},
     }
 
 
@@ -267,11 +333,20 @@ def update(*, agent_enabled_: bool | None = None, acknowledge: bool = False, sit
                 "Read the sheet and tick I understand before turning this on. Nothing was changed.")
         held_lists = data.get("youtube_lists") if isinstance(data.get("youtube_lists"), dict) else {}
         held_lists = {k: str(v) for k, v in held_lists.items() if k in YOUTUBE_LISTS}
+        held_off = data.get("youtube_lists_off") if isinstance(data.get("youtube_lists_off"), dict) else {}
+        held_off = {k: str(v) for k, v in held_off.items() if k in YOUTUBE_LISTS}
         for key, on in youtube_lists_.items():
             if on:
                 held_lists.setdefault(str(key), (today or date.today()).isoformat())
+                held_off.pop(str(key), None)
             else:
                 held_lists.pop(str(key), None)
+                # Remembered (2026-10-26): lists are on by default, so an off must outlive every default.
+                held_off.setdefault(str(key), (today or date.today()).isoformat())
+        if held_off:
+            data["youtube_lists_off"] = dict(sorted(held_off.items()))
+        else:
+            data.pop("youtube_lists_off", None)
         if held_lists:
             data["youtube_lists"] = dict(sorted(held_lists.items()))
         else:
@@ -286,11 +361,20 @@ def update(*, agent_enabled_: bool | None = None, acknowledge: bool = False, sit
                 "Read the sheet and tick I understand before turning this on. Nothing was changed.")
         held_saved = data.get("saved_lists") if isinstance(data.get("saved_lists"), dict) else {}
         held_saved = {k: str(v) for k, v in held_saved.items() if k in SAVED_LISTS}
+        held_off = data.get("saved_lists_off") if isinstance(data.get("saved_lists_off"), dict) else {}
+        held_off = {k: str(v) for k, v in held_off.items() if k in SAVED_LISTS}
         for key, on in saved_lists_.items():
             if on:
                 held_saved.setdefault(str(key), (today or date.today()).isoformat())
+                held_off.pop(str(key), None)
             else:
                 held_saved.pop(str(key), None)
+                # Remembered (2026-10-26): lists are on by default, so an off must outlive every default.
+                held_off.setdefault(str(key), (today or date.today()).isoformat())
+        if held_off:
+            data["saved_lists_off"] = dict(sorted(held_off.items()))
+        else:
+            data.pop("saved_lists_off", None)
         if held_saved:
             data["saved_lists"] = dict(sorted(held_saved.items()))
         else:

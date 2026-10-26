@@ -89,17 +89,22 @@ struct ReadingSettingsResponse: Decodable, Equatable {
     var exploreSignedIn: Bool
     /// `{site: day}` the person said never to explore (D3).
     var neverExplore: [String: String]
-    /// G71 (2026-10-16): the YouTube lists the person asked their own agent to keep current, off by default.
+    /// G71 (2026-10-16): the YouTube lists the person asked their own agent to keep current (on by default since
+    /// 2026-10-26 — onboarding asks once, pre-ticked).
     var youtubeLists: YouTubeListSwitches
     /// When each list was last read for this memory, and whether the lists are paused (a sign-in the agent lacked).
     var youtube: YouTubeListsStatus?
     /// G206 (2026-10-22): `{x|instagram|linkedin: on}` — the saved lists the person asked their own agent to keep
     /// current from their signed-in browser. Off, and absent from an older backend, by default.
     var savedLists: [String: Bool] = [:]
+    /// 2026-10-26 — the lists the person turned off. Lists are on by default since then (asked once, pre-ticked, in
+    /// onboarding), so an off is remembered and onboarding's rerun leaves these unticked. Absent from an older backend.
+    var youtubeListsOff = YouTubeListSwitches()
+    var savedListsOff: [String: Bool] = [:]
 
     enum CodingKeys: String, CodingKey {
         case agentEnabled, allowedSites, ackedAt, ackCurrent, lastAgentRead, exploreSignedIn, neverExplore
-        case youtubeLists, youtube, savedLists
+        case youtubeLists, youtube, savedLists, youtubeListsOff, savedListsOff
     }
 
     init(agentEnabled: Bool = false, allowedSites: [String: String] = [:], ackedAt: String? = nil,
@@ -129,6 +134,8 @@ struct ReadingSettingsResponse: Decodable, Equatable {
         youtubeLists = (try? c.decode(YouTubeListSwitches.self, forKey: .youtubeLists)) ?? YouTubeListSwitches()
         youtube = try? c.decodeIfPresent(YouTubeListsStatus.self, forKey: .youtube)
         savedLists = (try? c.decode([String: Bool].self, forKey: .savedLists)) ?? [:]
+        youtubeListsOff = (try? c.decode(YouTubeListSwitches.self, forKey: .youtubeListsOff)) ?? YouTubeListSwitches()
+        savedListsOff = (try? c.decode([String: Bool].self, forKey: .savedListsOff)) ?? [:]
     }
 }
 

@@ -18,7 +18,9 @@ extension ReadingAgentModel {
     /// G206 — the saved lists the person's agent keeps current: none while agent reading is off.
     var savedListsOn: Set<String> {
         guard let settings, settings.agentEnabled else { return [] }
-        return Set(settings.savedLists.filter { $0.value }.map { $0.key })
+        // 2026-10-26: a YouTube list kept current reads as "youtube" (the YouTube row's Connected).
+        let youtube = settings.youtubeLists.watchLater || settings.youtubeLists.history
+        return Set(settings.savedLists.filter { $0.value }.map { $0.key } + (youtube ? ["youtube"] : []))
     }
 }
 
@@ -174,6 +176,8 @@ struct SourceCatalogDetail: View {
     @State private var consentSite: String?
     /// Whether that switch was the site's saved list (G206), so the sheet turns on the list, never the site.
     @State private var consentSavedList = false
+    /// 2026-10-26 — the YouTube list whose switch raised the first-use sheet.
+    @State private var consentYouTube: YouTubeList?
     @Environment(LocalSourceWatcher.self) private var localSources
     @State private var flowTile: AddSourceTile?
     @State private var browsers = BrowserInventory.empty
@@ -217,6 +221,11 @@ struct SourceCatalogDetail: View {
             AddSourceSheet(initialTile: tile, onClose: { flowTile = nil }, flowOnly: true)
         }
         .task { await reading.loadSettings() }
+        .sheet(item: $consentYouTube) { list in
+            SettingsSheet(title: Copy.Reading.sheetTitle, onClose: { consentYouTube = nil }) {
+                ReadingFirstUseSheet(model: reading, site: nil, label: nil, youtubeList: list) { consentYouTube = nil }
+            }
+        }
         .sheet(isPresented: Binding(get: { consentSite != nil }, set: { if !$0 { consentSite = nil } })) {
             SettingsSheet(title: Copy.Reading.sheetTitle, onClose: { consentSite = nil }) {
                 ReadingFirstUseSheet(model: reading, site: consentSite, label: row.entry.title,
@@ -258,6 +267,8 @@ struct SourceCatalogDetail: View {
                 TimelineView(.periodic(from: .now, by: SourceRowText.refreshInterval)) { context in
                     WatchHistoryRow(channel: mine.first, now: context.date)
                 }
+                ForEach(YouTubeList.allCases) { youtubeListToggle($0) }
+                importHow
                 tileButton(Copy.Catalog.importFile)
             }
         case AppleNotesWatcher.channel:
@@ -278,6 +289,7 @@ struct SourceCatalogDetail: View {
             }
         case "files":
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                importHow
                 IntakePanel(origin: .emptyState(.sources), compact: true)
                 tileButton(Copy.Catalog.importFile)
             }
@@ -302,6 +314,7 @@ struct SourceCatalogDetail: View {
                     Text(Copy.Catalog.instagramHonest)
                         .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
+                    importHow
                     tileButton(Copy.Catalog.importFile)
                 }
             } else if !mine.isEmpty {
@@ -313,8 +326,22 @@ struct SourceCatalogDetail: View {
                                       openFlow: entry.tile.map { tile in { flowTile = tile } })
                 }
             } else {
-                tileButton(verbTitle(entry.verb))
+                VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                    importHow
+                    tileButton(verbTitle(entry.verb))
+                }
             }
+        }
+    }
+
+    /// 2026-10-26 (owner: "For TikTok there's an 'Import a file' option. Is this true?") — every source that imports a
+    /// file says, before the button, exactly where the platform hands that file out (`SourceCatalog.exportHow`).
+    @ViewBuilder
+    private var importHow: some View {
+        if let how = SourceCatalog.exportHow(row.entry.id) {
+            Text(how)
+                .font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -366,6 +393,35 @@ struct SourceCatalogDetail: View {
             if !on {
                 Text(Copy.Catalog.savedListOff).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    /// 2026-10-26 — the YouTube lists the person's own agent keeps current (G71), on the YouTube row itself: on by
+    /// default (onboarding asks once, pre-ticked; an existing install's are on when this memory holds YouTube), the
+    /// same words as Reading in your browser's group, the first-use sheet first when agent reading is not yet on.
+    private func youtubeListToggle(_ list: YouTubeList) -> some View {
+        let on = reading.enabled && (reading.settings?.youtubeLists.isOn(list) ?? false)
+        return VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+            Toggle(isOn: Binding(get: { on }, set: { value in flipYouTube(list, on: value) })) {
+                Text(YouTubeListWords.title(list))
+                    .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textPrimary)
+            }
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            Text(YouTubeListWords.detail(list, on: on, status: reading.settings?.youtube))
+                .font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func flipYouTube(_ list: YouTubeList, on: Bool) {
+        Task { @MainActor in
+            await reading.loadSettings()
+            if on, reading.needsFirstUseSheet || !reading.enabled {
+                consentYouTube = list
+            } else {
+                _ = await reading.setYouTubeList(list, on)
             }
         }
     }
