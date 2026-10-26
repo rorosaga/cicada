@@ -79,31 +79,83 @@ final class LinkViewTests: XCTestCase {
         XCTAssertEqual(String(WikiInline.attributed("at <https://example.com/x>.").characters), "at example.com/x.")
     }
 
-    /// Review B2: a URL with balanced parentheses is one URL, so the link reads as its words.
+    /// Review B2: a URL with balanced parentheses is one URL — a plain link in a sentence, now a mention (site, then its
+    /// words), keeps the whole URL in both runs.
     func testAWikipediaLinkStaysOneLink() {
         let text = WikiInline.attributed("See [Foo](https://en.wikipedia.org/wiki/Foo_(bar)) here.")
-        XCTAssertEqual(String(text.characters), "See Foo here.")
-        XCTAssertEqual(runs(text).first { $0.1 != nil }?.1, "https://en.wikipedia.org/wiki/Foo_(bar)")
+        XCTAssertEqual(String(text.characters), "See en.wikipedia.org Foo here.")
+        XCTAssertTrue(runs(text).filter { $0.1 != nil }.allSatisfy { $0.1 == "https://en.wikipedia.org/wiki/Foo_(bar)" })
     }
 
     func testAViewWordIsNeverShownAndAMentionReadsAsSiteThenTitle() {
         let titled = WikiInline.attributed(#"See [the guide](https://docs.example.com/g "The setup guide") now."#)
-        XCTAssertEqual(String(titled.characters), "See the guide now.")
+        XCTAssertEqual(String(titled.characters), "See docs.example.com the guide now.", "a tooltip is no view word")
         let mention = WikiInline.attributed(#"Read [How we priced seats](https://blog.example.com/seats "bookmark") today."#)
         XCTAssertEqual(String(mention.characters), "Read blog.example.com How we priced seats today.")
         XCTAssertTrue(runs(mention).filter { $0.1 != nil }.allSatisfy { $0.1 == "https://blog.example.com/seats" })
         XCTAssertTrue(WikiInline.hasSitePart(mention))
-        let site = mention.runs.first { $0[WikiInline.SitePart.self] == true }
+        let site = mention.runs.first { $0[WikiInline.SitePart.self] != nil }
         XCTAssertEqual(site.map { String(mention[$0.range].characters) }, "blog.example.com ")
+        XCTAssertEqual(site.flatMap { $0[WikiInline.SitePart.self] }, "https://blog.example.com/seats")
+        let title = mention.runs.first { $0[WikiInline.MentionTitle.self] != nil }
+        XCTAssertEqual(title.map { String(mention[$0.range].characters) }, "How we priced seats")
+        XCTAssertEqual(WikiInline.mentionURLs(mention), ["https://blog.example.com/seats"])
     }
 
-    /// Owner 2026-10-26: a `## Links` bullet that is one plain link (Sleep's own shape, `- [T](url) — note`) draws as a
-    /// bookmark card; two links on a bullet stay mentions; prose stays a link. Nothing is written to the page.
-    func testAPlainLinkAloneInTheLinksSectionIsACardAndElsewhereALink() {
+    // MARK: Notion's model (owner 2026-10-26)
+
+    /// The fixture's `drawn` cases, the same ones `link_views.drawn` passes: in a sentence a mention, alone on its line
+    /// a bookmark, a bare URL its address, a view word wins, never an embed by default.
+    func testALinkWithNoViewWordDrawsByItsContextAsTheBackendSays() throws {
+        struct DrawnCase: Decodable { let line: String; let drawn: [String] }
+        struct Drawn: Decodable { let drawn: [DrawnCase] }
+        let cases = try JSONDecoder().decode(
+            Drawn.self, from: Data(contentsOf: VideoFixtures.apiFixtures.appendingPathComponent("link_views.json"))).drawn
+        XCTAssertFalse(cases.isEmpty)
+        for c in cases {
+            XCTAssertEqual(LinkGrammar.links(in: c.line).map { LinkGrammar.drawn($0).rawValue }, c.drawn, c.line)
+        }
+    }
+
+    /// A plain link in prose is a mention (the site's mark is added when the row is drawn); one the person chose as
+    /// URL reads as its own words, the plain link.
+    func testAPlainLinkInASentenceIsAMentionAndAChosenURLIsItsWords() {
+        let plain = WikiInline.attributed("The team wrote it up in [the write-up](https://blog.example.com/seats).")
+        XCTAssertEqual(String(plain.characters), "The team wrote it up in blog.example.com the write-up.")
+        XCTAssertTrue(WikiInline.hasSitePart(plain))
+        let chosen = WikiInline.attributed(#"The team wrote it up in [the write-up](https://blog.example.com/seats "url")."#)
+        XCTAssertEqual(String(chosen.characters), "The team wrote it up in the write-up.")
+        XCTAssertFalse(WikiInline.hasSitePart(chosen))
+        XCTAssertEqual(runs(chosen).first { $0.1 != nil }?.0, "the write-up")
+    }
+
+    /// A row's text with each mention led by its site's mark: one `Text`, so the line still wraps and selects.
+    func testAMentionIsLedByItsSitesMark() {
+        let mention = WikiInline.attributed("See [A](https://a.example.com/x) and [B](https://b.example.com/y).")
+        var asked: [String] = []
+        _ = WikiInline.composed(WikiInline.themed(mention, font: CicadaTheme.bodyFont)) { url in
+            asked.append(url)
+            return Text(verbatim: "•")
+        }
+        XCTAssertEqual(asked, ["https://a.example.com/x", "https://b.example.com/y"])
+        let themed = WikiInline.themed(mention)
+        let site = themed.runs.first { $0[WikiInline.SitePart.self] != nil }
+        XCTAssertNil(site?.underlineStyle, "a mention's site is not underlined; its title is")
+        XCTAssertNotNil(themed.runs.first { $0[WikiInline.MentionTitle.self] != nil }?.underlineStyle)
+        let icon = MentionIcon.rounded(NSImage(size: NSSize(width: 64, height: 64)))
+        XCTAssertEqual(icon.size.width, CicadaTheme.scaled(MentionIcon.side))
+    }
+
+    /// Owner 2026-10-26: a plain link alone on its line — a `## Links` bullet (Sleep's own shape, `- [T](url) — note`),
+    /// any other bullet, or a paragraph — draws as a bookmark card; two links on a bullet stay mentions; a link in a
+    /// sentence is a mention; a bare URL stays its address. Nothing is written to the page.
+    func testAPlainLinkAloneOnItsLineIsACardAndInASentenceAMention() {
         let markdown = """
         ## Article
         ### Pricing
         The team wrote it up in [the write-up](https://blog.example.com/seats).
+
+        [Roadmap](https://alpha.example.org/roadmap)
 
         ## Links
         - [How we priced seats](https://blog.example.com/seats) — the write-up
@@ -112,20 +164,21 @@ final class LinkViewTests: XCTestCase {
         """
         let rows = WikiArticle.build(markdown).rows
         let prose = rows.first { $0.kind == .paragraph }!
-        XCTAssertEqual(String(prose.text.characters), "The team wrote it up in the write-up.")
-        XCTAssertFalse(prose.inLinks)
-        let card = rows.first { if case .link = $0.kind { return true }; return false }!
-        guard case .link(let ref, let note) = card.kind else { return XCTFail("\(card.kind)") }
-        XCTAssertEqual(ref.url, "https://blog.example.com/seats")
-        XCTAssertEqual(ref.asked, .link, "the page's token is untouched: no view word is written")
-        XCTAssertEqual(note, "the write-up")
-        XCTAssertTrue(card.inLinks)
-        XCTAssertEqual(LinkCardModel.current(ref, inLinks: true), .bookmark)
-        XCTAssertEqual(LinkCardModel.offered(ref, fact: .unknown(ref.url), inLinks: true), [.mention, .bookmark])
+        XCTAssertEqual(String(prose.text.characters), "The team wrote it up in blog.example.com the write-up.")
+        let cards = rows.compactMap { row -> (LinkRef, String?)? in
+            if case .link(let ref, let note) = row.kind { return (ref, note) }
+            return nil
+        }
+        XCTAssertEqual(cards.map(\.0.url), ["https://alpha.example.org/roadmap", "https://blog.example.com/seats"])
+        XCTAssertEqual(cards.map(\.1), [nil, "the write-up"])
+        for (ref, _) in cards {
+            XCTAssertEqual(ref.asked, .link, "the page's token is untouched: no view word is written")
+            XCTAssertEqual(LinkCardModel.current(ref), .bookmark)
+            XCTAssertEqual(LinkCardModel.offered(ref, fact: .unknown(ref.url)), [.mention, .bookmark, .url])
+        }
         let items = rows.filter { if case .item = $0.kind { return true }; return false }
         XCTAssertEqual(items.count, 2, "two links on a bullet and a bare URL stay lines")
-        XCTAssertTrue(items[0].inLinks)
-        XCTAssertEqual(LinkCardModel.current(items[0].links[0], inLinks: true), .mention)
+        XCTAssertEqual(LinkCardModel.current(items[0].links[0]), .mention)
         XCTAssertEqual(items[1].links.first?.asked, .raw)
     }
 
@@ -136,6 +189,8 @@ final class LinkViewTests: XCTestCase {
         ## Links
         - [Getting started](https://docs.example.com/start "screenshot 2026-10-14") — the setup guide we followed
         - [Roadmap](https://alpha.example.org/roadmap "look") and more words, so a mention
+        - [Seats](https://blog.example.com/seats "mention")
+        - [Seats](https://blog.example.com/seats "url") — chosen plain
         """
         let rows = WikiArticle.build(markdown).rows
         guard case .link(let first, let none) = rows[0].kind else { return XCTFail("\(rows[0].kind)") }
@@ -147,6 +202,43 @@ final class LinkViewTests: XCTestCase {
         XCTAssertEqual(note, "the setup guide we followed")
         guard case .item = rows[3].kind else { return XCTFail("\(rows[3].kind)") }
         XCTAssertEqual(rows[3].links.first?.view, .mention)
+        guard case .item = rows[4].kind, case .item = rows[5].kind else {
+            return XCTFail("a chosen Mention or URL stays a line, even alone: \(rows[4].kind), \(rows[5].kind)")
+        }
+        XCTAssertEqual(LinkCardModel.current(rows[4].links[0]), .mention)
+        XCTAssertEqual(LinkCardModel.current(rows[5].links[0]), .url)
+    }
+
+    /// Embed is offered only for what can be embedded — a video with a provider's own player, a PDF — and only alone on
+    /// its line; it draws the player URL `VideoRef` derives, never the link itself, and nothing else ever embeds.
+    func testEmbedIsOfferedOnlyForAVideoOrAPDFAndNeverByDefault() throws {
+        let video = LinkGrammar.links(in: "[A talk](https://www.youtube.com/watch?v=dQw4w9WgXcQ)")[0]
+        let pdf = LinkGrammar.links(in: "- [The paper](https://papers.example.org/seats.PDF) — read it")[0]
+        let arxiv = LinkGrammar.links(in: "[Paper](https://arxiv.org/pdf/2608.27454)")[0]
+        let site = LinkGrammar.links(in: "[Seats](https://blog.example.com/seats)")[0]
+        let inSentence = LinkGrammar.links(in: "In [the talk](https://www.youtube.com/watch?v=dQw4w9WgXcQ) she says so.")[0]
+        guard case .video(let player) = try XCTUnwrap(LinkEmbed.of(video.url)) else { return XCTFail("not a video") }
+        XCTAssertEqual(player, VideoRef.resolve(video.url)?.embedURL, "the provider's own player URL, derived")
+        XCTAssertNotEqual(player.absoluteString, video.url)
+        XCTAssertEqual(LinkEmbed.of(pdf.url), .pdf)
+        XCTAssertEqual(LinkEmbed.of(arxiv.url), .pdf)
+        XCTAssertNil(LinkEmbed.of(site.url))
+        XCTAssertNil(LinkEmbed.of("https://example.com/notes?file=a.pdf"), "a query is not a path")
+        XCTAssertEqual(LinkCardModel.offered(video, fact: .unknown(video.url)), [.mention, .bookmark, .embed, .url])
+        XCTAssertEqual(LinkCardModel.offered(pdf, fact: .unknown(pdf.url)), [.mention, .bookmark, .embed, .url])
+        XCTAssertEqual(LinkCardModel.offered(site, fact: .unknown(site.url)), [.mention, .bookmark, .url])
+        XCTAssertEqual(LinkCardModel.offered(inSentence, fact: .unknown(inSentence.url)), [.mention, .url])
+        for ref in [video, pdf, arxiv, site, inSentence] {
+            XCTAssertNotEqual(LinkCardModel.current(ref), .embed, "never an embed by default: \(ref.markdown)")
+        }
+        XCTAssertEqual(Copy.Links.menuName(.embed, url: video.url), "Embed video")
+        XCTAssertEqual(Copy.Links.menuName(.embed, url: pdf.url), "Embed")
+        // An `embed` word on a page that has nothing to embed is research-hub's screenshot.
+        let old = LinkGrammar.links(in: #"[Seats](https://blog.example.com/seats "embed")"#)[0]
+        XCTAssertEqual(LinkCardModel.current(old), .screenshot)
+        let chosen = LinkGrammar.links(in: #"[A talk](https://www.youtube.com/watch?v=dQw4w9WgXcQ "embed")"#)[0]
+        XCTAssertEqual(LinkCardModel.current(chosen), .embed)
+        guard case .link = WikiArticle.build(chosen.markdown).rows[0].kind else { return XCTFail("an embed is a block") }
     }
 
     func testATitledImageKeepsItsURL() {
@@ -214,26 +306,43 @@ final class LinkViewTests: XCTestCase {
                        "Captured Oct 14, 2025 · a year ago")
     }
 
-    func testTheSwitcherOffersAViewOnlyWhereCicadaHasSomethingForIt() {
+    func testTheMenuOffersAViewOnlyWhereCicadaHasSomethingForIt() {
         let alone = LinkGrammar.links(in: "[Seats](https://blog.example.com/seats)")[0]
         let inSentence = LinkGrammar.links(in: "Read [Seats](https://blog.example.com/seats) now")[0]
         let bare = LinkFact(url: seats)
-        XCTAssertEqual(LinkCardModel.offered(alone, fact: bare), [.link, .mention, .bookmark])
-        XCTAssertEqual(LinkCardModel.offered(inSentence, fact: bare), [.link, .mention])
+        XCTAssertEqual(LinkCardModel.offered(alone, fact: bare), [.mention, .bookmark, .url])
+        XCTAssertEqual(LinkCardModel.offered(inSentence, fact: bare), [.mention, .url])
         // A bare URL or an autolink is the page's own words: never offered a switch (review B1).
         for raw in LinkGrammar.links(in: "See https://x.example.com/a and <https://x.example.com/b>.") {
             XCTAssertEqual(LinkCardModel.offered(raw, fact: bare), [], raw.markdown)
         }
         let withLook = LinkFact(url: seats, looks: [LinkFact.Look(id: "2026-10-14-a", day: "2026-10-14", image: "/d", palette: [])])
-        XCTAssertEqual(LinkCardModel.offered(alone, fact: withLook), [.link, .mention, .bookmark, .screenshot, .look])
+        XCTAssertEqual(LinkCardModel.offered(alone, fact: withLook), [.mention, .bookmark, .url, .screenshot, .look])
+        // The view a link draws as is always offered, so the menu can check it — a screenshot with no picture yet too.
+        let asked = LinkGrammar.links(in: #"[Seats](https://blog.example.com/seats "screenshot")"#)[0]
+        XCTAssertEqual(LinkCardModel.offered(asked, fact: bare), [.mention, .bookmark, .url, .screenshot])
+        XCTAssertEqual(LinkCardModel.current(asked), .screenshot)
     }
 
-    func testASwitchIsTheSameLinkWithItsViewWord() {
+    /// A choice is the same link with its view word — always written, so a later change of the context's default
+    /// never undoes it — and round-trips through the grammar to the view chosen; choosing what is already written
+    /// writes nothing.
+    func testAChoiceIsTheSameLinkWithItsViewWordAndRoundTrips() {
         let ref = LinkGrammar.links(in: "- [Seats](https://blog.example.com/seats) — the write-up")[0]
-        XCTAssertEqual(LinkGrammar.markdown(label: ref.label, url: ref.url, view: .bookmark),
-                       #"[Seats](https://blog.example.com/seats "bookmark")"#)
+        XCTAssertEqual(LinkCardModel.token(ref, choosing: .bookmark), #"[Seats](https://blog.example.com/seats "bookmark")"#)
+        XCTAssertEqual(LinkCardModel.token(ref, choosing: .url), #"[Seats](https://blog.example.com/seats "url")"#)
         XCTAssertEqual(ref.markdown, "[Seats](https://blog.example.com/seats)")
+        for view in LinkViewKind.switcher {
+            guard let token = LinkCardModel.token(ref, choosing: view) else { return XCTFail("\(view) wrote nothing") }
+            let back = LinkGrammar.links(in: "- \(token) — the write-up")[0]
+            XCTAssertEqual(back.asked, view, token)
+            XCTAssertEqual(back.url, ref.url)
+            XCTAssertEqual(LinkGrammar.plain(token), ref.markdown, "a quote never shows the view word")
+            XCTAssertNil(LinkCardModel.token(back, choosing: view), "choosing it again writes nothing")
+        }
         XCTAssertEqual(Copy.Links.reason(.bookmark), "Shown as a bookmark.")
+        XCTAssertEqual(Copy.Links.reason(.url), "Shown as a plain link.")
+        XCTAssertEqual(Copy.Links.savedAs(.embed), "Saved · shown as an embed")
     }
 
     func testLinkFactsDecodeTheRoutesShape() throws {

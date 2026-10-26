@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// The entity card's article: the page's prose as rows (`WikiArticle`), drawn lazily — only the rows on screen are laid
@@ -62,8 +63,15 @@ struct WikiRowView: View {
     let row: WikiRow
     let onSource: ((WikiRow) -> Void)?
     var entityId: String? = nil
+    @Environment(Store.self) private var store: Store?
     @State private var hovering = false
     @State private var showLinks = false
+    @FocusState private var linksFocused: Bool
+    /// The site icons of the row's mentions, by link URL (`MentionIcon`), loaded once the page's link facts say the
+    /// icon route serves them.
+    @State private var icons: [String: NSImage] = [:]
+    /// What the last view change from this line's right-click menu said ("Saving…", "Saved · shown as a bookmark").
+    @State private var status: String?
 
     /// `MarkdownBody`'s rhythm: blocks `spacingSM` apart, a list's items 4 apart, a heading given room above.
     static func gap(above row: WikiRow, after previous: WikiRow) -> CGFloat {
@@ -81,51 +89,102 @@ struct WikiRowView: View {
         }
     }
 
-    /// The line's web links have a 🔗 in the gutter: their previews and, on the page's own card, the view switcher.
+    /// The line's web links have a 🔗 in the gutter: their previews and, on the page's own card, each link's view menu.
+    /// It shows on hover and while it holds keyboard focus (it stays in the focus order, owner 2026-10-26: never only
+    /// on hover); a right-click on the line opens the same choices.
     private var hasLinks: Bool { !row.links.isEmpty }
 
+    /// The links on a text line the person can switch (a block row's card carries its own menu).
+    private var switchable: [LinkRef] {
+        guard entityId != nil else { return [] }
+        if case .link = row.kind { return [] }
+        return row.links.filter { $0.markdown.hasPrefix("[") }
+    }
+
     var body: some View {
-        content
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.trailing, CicadaTheme.scaled(28) * CGFloat((hasSource ? 1 : 0) + (hasLinks ? 1 : 0)))
-            .overlay(alignment: .topTrailing) {
-                HStack(spacing: 0) {
-                    if hasLinks, hovering || showLinks {
-                        IconButton(systemName: "link", help: Copy.Links.linksOnLine) { showLinks = true }
-                            .popover(isPresented: $showLinks, arrowEdge: .trailing) {
-                                LinkLinePopover(refs: row.links, entityId: entityId, inLinks: row.inLinks)
-                            }
-                    }
-                    if hasSource, hovering, let onSource {
-                        IconButton(systemName: "text.quote", help: Copy.Graph.lineSource) { onSource(row) }
-                    }
-                }
-                .offset(y: -CicadaTheme.scaled(5))
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+            content
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if let status {
+                Text(status)
+                    .font(CicadaTheme.metaFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
             }
-            .onHover { hovering = $0 }
-            .modifier(LineLinksAction(enabled: hasLinks) { showLinks = true })
+        }
+        .padding(.trailing, CicadaTheme.scaled(28) * CGFloat((hasSource ? 1 : 0) + (hasLinks ? 1 : 0)))
+        .overlay(alignment: .topTrailing) {
+            HStack(spacing: 0) {
+                if hasLinks {
+                    IconButton(systemName: "link", help: Copy.Links.linksOnLine) { showLinks = true }
+                        .focused($linksFocused)
+                        .opacity(hovering || showLinks || linksFocused ? 1 : 0)
+                        .popover(isPresented: $showLinks, arrowEdge: .trailing) {
+                            LinkLinePopover(refs: row.links, entityId: entityId)
+                        }
+                }
+                if hasSource, hovering, let onSource {
+                    IconButton(systemName: "text.quote", help: Copy.Graph.lineSource) { onSource(row) }
+                }
+            }
+            .offset(y: -CicadaTheme.scaled(5))
+        }
+        .onHover { hovering = $0 }
+        .modifier(LineLinksAction(enabled: hasLinks) { showLinks = true })
+        .contextMenu {
+            if let entityId, !switchable.isEmpty {
+                ForEach(Array(switchable.enumerated()), id: \.offset) { _, ref in
+                    LinkViewMenuItems(ref: ref, fact: LinkFactsCache.shared.fact(ref.url, on: entityId),
+                                      entityId: entityId, status: $status, titled: switchable.count > 1)
+                }
+            }
+        }
+        .task(id: iconKey) { await loadIcons() }
     }
 
     private var lineSource: LineSourceAction { LineSourceAction(enabled: hasSource) { onSource?(row) } }
 
-    /// The row's text in the current theme (a mention's site in the tertiary colour, `WikiInline.themed`).
-    private var text: AttributedString {
-        row.links.isEmpty ? row.text : WikiInline.themed(row.text)
+    // MARK: Mentions
+
+    /// The row's mentions whose site icon the page's icon route serves (`LinkFact.icon`), as the task's key: it reruns
+    /// when the link facts arrive or the bank changes.
+    private var iconKey: String {
+        guard let entityId, WikiInline.hasSitePart(row.text) else { return "" }
+        let served = WikiInline.mentionURLs(row.text).filter { LinkFactsCache.shared.fact($0, on: entityId).icon }
+        return served.isEmpty ? "" : "\(store?.bank ?? "")|\(entityId)|\(served.joined(separator: " "))"
+    }
+
+    private func loadIcons() async {
+        guard !iconKey.isEmpty, let entityId, let bank = store?.bank else { return }
+        for url in WikiInline.mentionURLs(row.text) where icons[url] == nil {
+            let fact = LinkFactsCache.shared.fact(url, on: entityId)
+            guard fact.icon, let site = fact.site ?? LinkGrammar.site(url),
+                  let image = await SiteIconStore.shared.image(site: site, bank: bank, entity: entityId, saved: nil)
+            else { continue }
+            icons[url] = MentionIcon.rounded(image)
+        }
+    }
+
+    /// The row's text in the current theme, each mention led by its site's icon (`WikiInline.composed`).
+    private func text(_ font: Font) -> Text {
+        guard !row.links.isEmpty, WikiInline.hasSitePart(row.text) else { return Text(row.text) }
+        return WikiInline.composed(WikiInline.themed(row.text, font: font)) { url in
+            MentionIcon.text(icons[url])
+        }
     }
 
     @ViewBuilder
     private var content: some View {
         switch row.kind {
         case .heading(let level):
-            Text(text)
+            text(Self.headingFont(level))
                 .font(Self.headingFont(level))
                 .foregroundStyle(CicadaTheme.textPrimary)
                 .textSelection(.enabled)
                 .accessibilityAddTraits(.isHeader)
                 .modifier(lineSource)
         case .paragraph:
-            Text(text)
+            text(CicadaTheme.bodyFont)
                 .font(CicadaTheme.bodyFont)
                 .lineSpacing(CicadaTheme.scaled(2))
                 .foregroundStyle(CicadaTheme.textPrimary)
@@ -138,7 +197,7 @@ struct WikiRowView: View {
                     .foregroundStyle(CicadaTheme.textTertiary)
                     .frame(minWidth: 16, alignment: .trailing)
                     .accessibilityHidden(true)
-                Text(text)
+                text(CicadaTheme.bodyFont)
                     .font(CicadaTheme.bodyFont)
                     .lineSpacing(CicadaTheme.scaled(2))
                     .foregroundStyle(CicadaTheme.textPrimary)
@@ -161,7 +220,7 @@ struct WikiRowView: View {
         case .quote:
             HStack(alignment: .top, spacing: 0) {
                 Rectangle().fill(CicadaTheme.ring(.strong)).frame(width: 3)
-                Text(text)
+                text(CicadaTheme.bodyFont)
                     .font(CicadaTheme.bodyFont)
                     .foregroundStyle(CicadaTheme.textSecondary)
                     .italic()
@@ -192,6 +251,32 @@ struct WikiRowView: View {
     }
 }
 
+/// A mention's mark inside a line of text (owner 2026-10-26, research-hub's mention): the site's own icon at 15 pt with
+/// the tab-icon corner (`SiteIconLayout.cornerRadius`, scaled to the side), sitting on the baseline like a glyph; a site
+/// whose icon Cicada does not serve shows the tertiary globe — a `Text` cannot hold the ring monogram, and the globe
+/// says "a website" without guessing a mark (G146).
+enum MentionIcon {
+    static let side: CGFloat = 15
+
+    static func rounded(_ image: NSImage) -> NSImage {
+        let side = CicadaTheme.scaled(Self.side)
+        let radius = CicadaTheme.scaled(SiteIconLayout.cornerRadius) * Self.side / SiteIconLayout.Size.inline.points
+        return NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
+            NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius).addClip()
+            image.draw(in: rect)
+            return true
+        }
+    }
+
+    static func text(_ image: NSImage?) -> Text {
+        if let image {
+            return Text(Image(nsImage: image)).baselineOffset(-CicadaTheme.scaled(2.5))
+        }
+        return Text(Image(systemName: "globe"))
+            .font(CicadaTheme.font(size: 11))
+            .foregroundStyle(CicadaTheme.textTertiary)
+    }
+}
 /// VoiceOver reaches a line's links without hovering: the same popover the 🔗 opens.
 struct LineLinksAction: ViewModifier {
     let enabled: Bool

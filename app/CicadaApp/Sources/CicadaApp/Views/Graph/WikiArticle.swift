@@ -22,8 +22,8 @@ struct WikiRow: Identifiable, Sendable, Equatable {
         case rule
         case embed(ref: String)
         case image(url: String, alt: String)
-        /// A link alone on its line that asks for a block view (`[T](url "bookmark")`, owner rulings 2026-10-14),
-        /// with the line's ` — note` after it.
+        /// A link alone on its line that draws as a block (`[T](url "bookmark")`, owner rulings 2026-10-14; a plain
+        /// link alone on its line is a bookmark by context, owner 2026-10-26), with the line's ` — note` after it.
         case link(LinkRef, note: String?)
     }
 
@@ -32,10 +32,8 @@ struct WikiRow: Identifiable, Sendable, Equatable {
     /// The inline-rendered text (wikilinks as `cicada://entity/…` links); plain for a code block.
     let text: AttributedString
     let source: Range<Int>
-    /// The web links on the line, in order — the 🔗 gutter's previews and the person's view switcher.
+    /// The web links on the line, in order — the 🔗 gutter's previews and each link's view menu.
     var links: [LinkRef] = []
-    /// The line is a `## Links` bullet: a plain link there draws as a mention.
-    var inLinks = false
 }
 
 struct WikiArticle: Sendable, Equatable {
@@ -65,19 +63,14 @@ struct WikiArticle: Sendable, Equatable {
         var rows: [WikiRow] = []
         var dropped = false
         var contained = false
-        var inLinks = false
         func add(_ kind: WikiRow.Kind, _ text: AttributedString, _ source: Range<Int>, links: [LinkRef] = []) {
-            rows.append(WikiRow(id: rows.count, kind: kind, text: text, source: source, links: links,
-                                inLinks: inLinks && {
-                                    switch kind { case .item, .link: return true; default: return false }
-                                }()))
+            rows.append(WikiRow(id: rows.count, kind: kind, text: text, source: source, links: links))
         }
         while rows.count < maxRows, let line = reader.peek() {
             let trimmed = line.text.trimmingCharacters(in: .whitespaces)
             if trimmed.hasPrefix("## ") || trimmed == "##" {
                 dropped = dropping.contains(trimmed)
                 contained = containers.contains(trimmed)
-                inLinks = trimmed == "## Links"
                 if contained, !dropped {
                     reader.advance()
                     continue
@@ -133,12 +126,12 @@ struct WikiArticle: Sendable, Equatable {
                 continue
             }
             if let item = listItem(line.text) {
-                if let block = blockLink(item.text) ?? (inLinks ? linksCard(item.text) : nil) {
+                if let block = blockLink(item.text) {
                     add(.link(block.ref, note: block.note), AttributedString(), line.start..<line.end, links: [block.ref])
                     reader.advance()
                     continue
                 }
-                emitInline(item.text, line: line, inLinks: inLinks) {
+                emitInline(item.text, line: line) {
                     add(.item(marker: item.marker, indent: item.indent), $0, $1, links: $2)
                 } embed: { add($0, $1, $2) }
                 reader.advance()
@@ -161,34 +154,23 @@ struct WikiArticle: Sendable, Equatable {
                 add(.link(block.ref, note: block.note), AttributedString(), start..<end, links: [block.ref])
                 continue
             }
-            emitInline(paragraph, line: Line(text: "", start: start, end: end), inLinks: false) {
+            emitInline(paragraph, line: Line(text: "", start: start, end: end)) {
                 add(.paragraph, $0, $1, links: $2)
             } embed: { add($0, $1, $2) }
         }
         return WikiArticle(rows: rows, complete: reader.peek() == nil || rows.count < maxRows)
     }
 
-    /// A line that is one link asking for a block view, alone (after a list marker, before an optional ` — note`):
-    /// the link and its note. Nil for anything else — a block view inside a sentence draws as a mention.
+    /// A line that is one link drawn as a block, alone (after a list marker, before an optional ` — note`): the link
+    /// and its note. That is a link naming a block view, or — owner 2026-10-26, Notion's model — a plain markdown link
+    /// alone on its line, a paragraph or any bullet (Sleep's `## Links` shape `- [T](url) — note` among them), which
+    /// is a bookmark by context (`LinkGrammar.drawn`). The page keeps its plain link: nothing is written, and the card
+    /// draws only what Cicada already knows of the URL (no linked page is fetched). Nil for anything else — a bare URL,
+    /// two links on a line, a link inside a sentence (a block view there draws as a mention).
     static func blockLink(_ text: String) -> (ref: LinkRef, note: String?)? {
-        guard text.contains("]("), text.contains("\"") || text.contains("'"), text.contains("http") else { return nil }
-        let refs = LinkGrammar.links(in: text)
-        guard refs.count == 1, let ref = refs.first, ref.block, ref.asked.isBlock else { return nil }
-        let rest = (text as NSString).substring(from: ref.range.location + ref.range.length)
-        let note = rest.drop { " \t—–-".contains($0) }.trimmingCharacters(in: .whitespaces)
-        return (ref, note.isEmpty ? nil : note)
-    }
-
-    /// A `## Links` bullet that is one plain markdown link alone on its line (before an optional ` — note`): drawn as a
-    /// bookmark card by context (owner 2026-10-26: "links … in other designs, like in Notion (cards/bookmarks)"). The
-    /// page keeps its plain link — nothing is written, and Sleep keeps writing plain links; the card draws only what
-    /// Cicada already knows of the URL (no linked page is fetched). Nil for a bare URL, a tooltip-free link inside a
-    /// sentence, or a link that names its own view (that view wins, `blockLink`).
-    static func linksCard(_ text: String) -> (ref: LinkRef, note: String?)? {
         guard text.contains("]("), text.contains("http") else { return nil }
         let refs = LinkGrammar.links(in: text)
-        guard refs.count == 1, let ref = refs.first, ref.block, ref.asked == .link, ref.markdown.hasPrefix("[")
-        else { return nil }
+        guard refs.count == 1, let ref = refs.first, ref.block, LinkGrammar.drawn(ref).isBlock else { return nil }
         let rest = (text as NSString).substring(from: ref.range.location + ref.range.length)
         let note = rest.drop { " \t—–-".contains($0) }.trimmingCharacters(in: .whitespaces)
         return (ref, note.isEmpty ? nil : note)
@@ -196,11 +178,11 @@ struct WikiArticle: Sendable, Equatable {
 
     /// A line's text with its `![[embed]]` and `![alt](url)` tokens split out into rows of their own, in order
     /// (`TranscludingMarkdownView`'s segments).
-    private static func emitInline(_ text: String, line: Line, inLinks: Bool,
+    private static func emitInline(_ text: String, line: Line,
                                    text emitText: (AttributedString, Range<Int>, [LinkRef]) -> Void,
                                    embed emitEmbed: (WikiRow.Kind, AttributedString, Range<Int>) -> Void) {
         func emit(_ part: String) {
-            emitText(WikiInline.attributed(part, inLinks: inLinks), line.start..<line.end, LinkGrammar.links(in: part))
+            emitText(WikiInline.attributed(part), line.start..<line.end, LinkGrammar.links(in: part))
         }
         guard text.contains("!["), let regex = embedPattern else {
             emit(text)
@@ -328,22 +310,36 @@ struct WikiArticle: Sendable, Equatable {
 /// `cicada://entity/…` links (`MarkdownBody.linkifyWikilinks`, the one rewrite). Links carry the accent and an
 /// underline (DR-5's link use); every other run takes the `Text`'s own colour, so a cached article follows the theme.
 ///
-/// Links show as what they are (owner rulings 2026-10-14, `LinkGrammar`): a view word in a link's title is never
-/// shown; a bare URL or `<URL>` reads as its address (`example.com/guide`, the full URL in the link); a **mention** —
-/// `"mention"`, a block view inside a sentence, or a plain link in a `## Links` bullet — reads as its site, in the
-/// tertiary colour (`WikiInline.themed`, applied when the row is drawn), then its title with a lighter underline.
+/// Links show as what they are (owner rulings 2026-10-14, `LinkGrammar`; Notion's model, owner 2026-10-26): a view
+/// word in a link's title is never shown; a bare URL or `<URL>` reads as its address (`example.com/guide`, the full URL
+/// in the link); a link the person chose as **URL** reads as its words in the accent, underlined; a **mention** — a
+/// plain link inside a sentence, `"mention"`, or a block view inside a sentence — reads as the site's icon (added when
+/// the row is drawn, `WikiInline.composed`), its site in the tertiary colour, then its title in the medium weight,
+/// underlined in a hairline tone (`WikiInline.themed`, applied when the row is drawn so a cached row follows the theme).
 enum WikiInline {
-    /// Marks the run that names a mention's site, so the drawn row colours it in the current theme.
+    /// Marks the run that names a mention's site — its value the link's URL, so the drawn row can put the site's icon
+    /// before it and colour it in the current theme.
     enum SitePart: AttributedStringKey {
-        typealias Value = Bool
+        typealias Value = String
         static let name = "cicada.linkSite"
     }
 
-    static func attributed(_ raw: String, inLinks: Bool = false) -> AttributedString {
+    /// Marks a mention's title run (its value the link's URL), drawn in the medium weight with a hairline underline.
+    enum MentionTitle: AttributedStringKey {
+        typealias Value = String
+        static let name = "cicada.mentionTitle"
+    }
+
+    /// How a link in a line of text draws: `LinkGrammar.drawn`, where a block view (a card cannot sit in a sentence)
+    /// is a mention.
+    static func inlineView(_ ref: LinkRef) -> LinkViewKind {
+        let view = LinkGrammar.drawn(ref)
+        return view.isBlock ? .mention : view
+    }
+
+    static func attributed(_ raw: String) -> AttributedString {
         let refs = LinkGrammar.links(in: raw)
-        let views = refs.map { ref -> LinkViewKind in
-            inLinks && ref.asked == .link ? .mention : ref.view
-        }
+        let views = refs.map(inlineView)
         var source = raw
         if !refs.isEmpty {
             // Back to front, so each token's range still holds: every link becomes a plain `[words](url)`.
@@ -368,7 +364,7 @@ enum WikiInline {
             }
         }
         var queue = Array(zip(refs, views))
-        var mentions: [(range: Range<AttributedString.Index>, site: String, url: URL)] = []
+        var mentions: [(range: Range<AttributedString.Index>, site: String, url: URL, raw: String)] = []
         for group in groups {
             attr[group.range].foregroundColor = CicadaTheme.accent
             attr[group.range].underlineStyle = .single
@@ -376,14 +372,14 @@ enum WikiInline {
                   let at = queue.firstIndex(where: { Self.same($0.0.url, group.url) }) else { continue }
             let (ref, view) = queue.remove(at: at)
             if view == .mention, let site = LinkGrammar.site(ref.url) {
-                attr[group.range].underlineStyle = Text.LineStyle(pattern: .solid, color: CicadaTheme.accent.opacity(0.3))
-                mentions.append((group.range, site, group.url))
+                attr[group.range][MentionTitle.self] = ref.url
+                mentions.append((group.range, site, group.url, ref.url))
             }
         }
         for mention in mentions.reversed() {
             var prefix = AttributedString(mention.site + " ")
             prefix.link = mention.url
-            prefix[SitePart.self] = true
+            prefix[SitePart.self] = mention.raw
             attr.insert(prefix, at: mention.range.lowerBound)
         }
         return attr
@@ -393,18 +389,53 @@ enum WikiInline {
         url.absoluteString == raw || URL(string: LinkGrammar.escapeURL(raw)) == url
     }
 
-    /// A cached row drawn in the current theme: a mention's site in the tertiary colour.
-    static func themed(_ text: AttributedString) -> AttributedString {
+    /// A cached row drawn in the current theme: a mention's site in the tertiary colour, no underline; its title in the
+    /// primary ink and, when the row's face is given, that face's medium weight, underlined in the tertiary tone.
+    static func themed(_ text: AttributedString, font: Font? = nil) -> AttributedString {
         var out = text
-        for run in text.runs where run[SitePart.self] == true {
-            out[run.range].foregroundColor = CicadaTheme.textTertiary
+        for run in text.runs {
+            if run[SitePart.self] != nil {
+                out[run.range].foregroundColor = CicadaTheme.textTertiary
+                out[run.range].underlineStyle = nil
+            } else if run[MentionTitle.self] != nil {
+                out[run.range].foregroundColor = CicadaTheme.textPrimary
+                out[run.range].underlineStyle = Text.LineStyle(pattern: .solid, color: CicadaTheme.textTertiary)
+                if let font { out[run.range].font = font.weight(.medium) }
+            }
         }
         return out
     }
 
     /// Whether a row needs `themed` (it holds a mention).
     static func hasSitePart(_ text: AttributedString) -> Bool {
-        text.runs.contains { $0[SitePart.self] == true }
+        text.runs.contains { $0[SitePart.self] != nil }
+    }
+
+    /// The URLs of a row's mentions, in order, once each.
+    static func mentionURLs(_ text: AttributedString) -> [String] {
+        var seen: [String] = []
+        for run in text.runs {
+            if let url = run[SitePart.self], !seen.contains(url) { seen.append(url) }
+        }
+        return seen
+    }
+
+    /// The row's `Text` with each mention's site icon before its site (research-hub's mention: icon · site · title).
+    /// `icon` draws the mark for a mention's URL; a `Text` so the line stays one selectable, wrapping text.
+    static func composed(_ text: AttributedString, icon: (String) -> Text) -> Text {
+        var out = Text(verbatim: "")
+        var pending = AttributedString()
+        var previous: String?
+        for run in text.runs {
+            let site = run[SitePart.self]
+            if let site, site != previous {
+                out = out + Text(pending) + icon(site) + Text(verbatim: " ")
+                pending = AttributedString()
+            }
+            previous = site
+            pending.append(text[run.range])
+        }
+        return out + Text(pending)
     }
 }
 

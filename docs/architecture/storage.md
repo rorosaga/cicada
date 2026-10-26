@@ -153,19 +153,24 @@ an edit through Sleep, in the frontmatter:
 
 **How a link is drawn: the link-title grammar (owner rulings 2026-10-14).** A link on a page may name its *view* in its
 standard markdown title, so the line stays a working link in git, GitHub, Obsidian and every other reader (research-hub's
-grammar, extended): `[T](url)` is a link; `[T](url "mention")` draws site · title inline; `"bookmark"` a card;
+grammar, extended): `[T](url)` is a link that names no view, drawn by context (below); `[T](url "mention")` draws site
+icon · site · title inline; `"url"` the plain link, chosen (owner 2026-10-26); `"bookmark"` a card; `"embed"` a video's
+own player or a PDF's card (owner 2026-10-26; on anything else research-hub's reading, a screenshot);
 `"screenshot"` a picture of the page, `"screenshot 2026-10-14"` the one from that day (else the nearest earlier, said in
-words); `"captures"` every capture, oldest to newest; `"look"` / `"look 2026-10-14"` a saved look (G196) of the URL;
-`"embed"` (research-hub's word) reads as a screenshot. The title is exactly `<view>` or `<view> <yyyy-mm-dd>`, lower
+words); `"captures"` every capture, oldest to newest; `"look"` / `"look 2026-10-14"` a saved look (G196) of the URL.
+The title is exactly `<view>` or `<view> <yyyy-mm-dd>`, lower
 case, a date only with `screenshot` or `look`; any other title is a real tooltip and means a link. A block view is drawn
 as a block only when the link stands alone on its line (after a list marker, before an optional ` — note`); in a sentence
 it draws as a mention. A bare URL or `<URL>` reads as its address (`example.com/guide`). **One grammar, two sides:**
 `api/services/link_views.py` and the app's `LinkGrammar` (`LinkView.swift`) both read
-`api/tests/fixtures/link_views.json`. **Sleep writes plain links** — context decides how one is drawn (a `## Links`
-bullet that is one link alone as a bookmark card — owner 2026-10-26, the app only, nothing written — one sharing its
-bullet as a mention, a link in a sentence as a link) — and a view word is written only on purpose: by an agent through
-`cicada_edit_page`, or by the person's switcher (`POST /entities/{id}/edits`, `api.md`), which is a pinned `corrections`
-row (`[T](url)` → `[T](url "bookmark")`), so Sleep's next rewrite writes the view back. The three backend link readers
+`api/tests/fixtures/link_views.json`. **Sleep writes plain links** — context decides how one is drawn
+(`link_views.drawn` / `LinkGrammar.drawn`, the fixture's `drawn` cases; owner 2026-10-26, Notion's model, nothing
+written): inside a sentence a mention, alone on its line (a paragraph or any bullet, before an optional note) a bookmark,
+a bare URL its address, never an embed — and a view word is written only on purpose: by an agent through
+`cicada_edit_page`, or by the person's choice from a link's view menu (Mention, Bookmark, Embed only for a video or a
+PDF, URL, then the capture views; `POST /entities/{id}/edits`, `api.md`), which is a pinned `corrections` row (`[T](url)`
+→ `[T](url "bookmark")`; always the word, even where it matches today's default), so Sleep's next rewrite writes the view
+back. The three backend link readers
 (`entity_body`'s `## Links` dedup, `page_sources`, `site_sources`) read a titled link by its URL
 (`link_views.LINK_TAIL`); recall's quotes drop the view word (`link_views.plain`) while `cicada_recall_detail` keeps it,
 since an edit copies its words from there.
