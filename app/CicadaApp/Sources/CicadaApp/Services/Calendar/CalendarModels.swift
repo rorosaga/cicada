@@ -59,6 +59,28 @@ struct CalendarSyncResult: Decodable, Equatable, Sendable {
     }
 }
 
+/// One account the Calendar app holds (an EventKit source: iCloud, a Google account added in Internet Accounts,
+/// Exchange, On My Mac) and how many of its calendars a read included — pure (`SourcesDefaultsCalendarTests`).
+struct CalendarAccountGroup: Equatable, Identifiable, Sendable {
+    let name: String
+    let calendars: Int
+    var id: String { name }
+
+    /// By account, most calendars first, then by name; a calendar with no account is filed under "On My Mac", last.
+    static func groups(_ calendars: [CalendarInfo]) -> [CalendarAccountGroup] {
+        var counts: [String: Int] = [:]
+        var unnamed = 0
+        for info in calendars {
+            let name = (info.account ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            if name.isEmpty { unnamed += 1 } else { counts[name, default: 0] += 1 }
+        }
+        let named = counts.map { CalendarAccountGroup(name: $0.key, calendars: $0.value) }
+            .sorted { $0.calendars != $1.calendars ? $0.calendars > $1.calendars
+                      : $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        return named + (unnamed > 0 ? [CalendarAccountGroup(name: Copy.calendarOnMyMac, calendars: unnamed)] : [])
+    }
+}
+
 enum CalendarAccess: Equatable, Sendable { case notDetermined, granted, denied, restricted, writeOnly }
 
 /// The seam over EventKit (C7), so a test never asks macOS for anything.

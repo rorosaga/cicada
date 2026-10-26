@@ -19,7 +19,9 @@ aliases), and the platform's own ids are never asked for.
 **The rails are G166's.** Cicada never spawns a browser, never signs in and never fetches a list page: it only
 *offers* the task — lines in ``cicada_reading_queue`` (stdio only) and one in the recall hook's count — while agent
 reading is on (its first-use sheet acknowledged) **and** the person turned that site's list on (``reading_settings
-.saved_lists``, off by default; a standing ask for exactly that page, never a site grant). The agent records through
+.saved_lists``, on by default since 2026-10-26 — asked once, pre-ticked, in onboarding, and on an existing install
+turned on by ``list_defaults`` only for an account the memory shows, never over an off the person chose; a standing
+ask for exactly that page, never a site grant). The agent records through
 ``cicada_record_saved_list`` (``record`` scope, stdio only). ``needs_login`` or ``blocked`` pauses THAT site's list for
 a week (a sign-in on X says nothing about Instagram) and asks the person, through the G205 Inbox kind, to sign in;
 turning the list on again lifts the pause (Try again). Bounds until measured (G206): one site's list offered at a time,

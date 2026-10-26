@@ -291,6 +291,85 @@ enum SourceTiles {
     }
 }
 
+// MARK: Saved lists
+
+/// One list the person's own agent can keep current from their signed-in browser (G71 YouTube, G206 X, Instagram,
+/// LinkedIn) — every list the backend supports (`reading_settings.YOUTUBE_LISTS`, `SAVED_LISTS`), in the step's order.
+enum SavedListItem: String, CaseIterable, Identifiable {
+    case youtubeWatchLater, youtubeHistory, x, instagram, linkedin
+
+    var id: String { rawValue }
+
+    /// The `PUT /reading/settings` patch this list rides and its key there.
+    var family: Family { self == .youtubeWatchLater || self == .youtubeHistory ? .youtube : .saved }
+    var key: String {
+        switch self {
+        case .youtubeWatchLater: YouTubeList.watchLater.rawValue
+        case .youtubeHistory: YouTubeList.history.rawValue
+        case .x: "x"
+        case .instagram: "instagram"
+        case .linkedin: "linkedin"
+        }
+    }
+
+    /// The mark (`OriginIconography`): the platform's own logo.
+    var origin: String {
+        switch self {
+        case .youtubeWatchLater: "youtube-playlist"
+        case .youtubeHistory: "youtube-history"
+        case .x: "x-bookmarks"
+        case .instagram: "instagram-saved"
+        case .linkedin: "linkedin-saved"
+        }
+    }
+
+    var title: String { Copy.savedListsItem(self) }
+
+    enum Family { case youtube, saved }
+}
+
+/// The step's rules (owner 2026-10-26, ruling 39's dated line): every list pre-ticked except one the person turned off
+/// before (an off is never overridden); the one button's answer is the consent — the ticked lists on with the first-use
+/// acknowledgement in the same call, the unticked ones recorded off, so no later default turns them on.
+enum SavedListsStepModel {
+    static func initialTicks(_ settings: ReadingSettingsResponse?) -> Set<SavedListItem> {
+        Set(SavedListItem.allCases.filter { !turnedOff($0, settings) })
+    }
+
+    static func turnedOff(_ item: SavedListItem, _ settings: ReadingSettingsResponse?) -> Bool {
+        guard let settings else { return false }
+        switch item {
+        case .youtubeWatchLater: return settings.youtubeListsOff.watchLater
+        case .youtubeHistory: return settings.youtubeListsOff.history
+        default: return settings.savedListsOff[item.key] == true
+        }
+    }
+
+    struct Write: Equatable {
+        /// Agent reading on, with the acknowledgement: only when something is ticked.
+        let consent: Bool
+        let youtubeLists: [String: Bool]
+        let savedLists: [String: Bool]
+    }
+
+    static func write(_ ticked: Set<SavedListItem>) -> Write {
+        var youtube: [String: Bool] = [:]
+        var saved: [String: Bool] = [:]
+        for item in SavedListItem.allCases {
+            switch item.family {
+            case .youtube: youtube[item.key] = ticked.contains(item)
+            case .saved: saved[item.key] = ticked.contains(item)
+            }
+        }
+        return Write(consent: !ticked.isEmpty, youtubeLists: youtube, savedLists: saved)
+    }
+
+    /// The foot's one primary: the answer when something is ticked, else simply moving on (the unticked are noted off).
+    static func primaryTitle(_ ticked: Set<SavedListItem>) -> String {
+        ticked.isEmpty ? Copy.onboardingContinue : Copy.savedListsKeep
+    }
+}
+
 // MARK: Done
 
 /// Step 5's one line (owner 2026-10-22: a new install consolidates nightly, and once right after onboarding when the

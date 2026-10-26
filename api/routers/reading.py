@@ -37,8 +37,8 @@ from pydantic import BaseModel
 from api.config import Settings, get_settings
 from api.routers.capture import refuse_capture_into_demo
 from api.services import (
-    logo_service, media_ingestor, reading_asks, reading_hosts, reading_prompt, reading_queue, reading_service,
-    reading_settings, saved_lists, sync_service, youtube_lists,
+    list_defaults, logo_service, media_ingestor, reading_asks, reading_hosts, reading_prompt, reading_queue,
+    reading_service, reading_settings, saved_lists, sync_service, youtube_lists,
 )
 
 router = APIRouter()
@@ -85,6 +85,9 @@ def _settings_body(memory_path=None) -> dict:
 
 @router.get("/reading/settings")
 async def get_reading_settings(request: Request, response: Response, settings: Settings = Depends(get_settings)):
+    # 2026-10-26: saved lists are on by default — an existing install's never-decided lists of accounts this memory
+    # shows turn on once agent reading counts (`list_defaults`); an off the person chose is never overridden.
+    await asyncio.to_thread(list_defaults.apply, settings.memory_path)
     body = _settings_body(settings.memory_path)
     etag = '"' + sync_service._digest(body) + '"'
     if (early := sync_service.conditional(request, response, etag)) is not None:

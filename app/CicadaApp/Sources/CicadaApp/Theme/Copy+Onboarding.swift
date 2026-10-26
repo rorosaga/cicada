@@ -169,6 +169,23 @@ extension Copy {
     /// Onboarding v3 (DR-39): the tiles this Mac has data for lead; the accounts and Messages fold under one disclosure.
     static let sourcesMore = "More sources"
 
+    /// Saved lists (owner 2026-10-26, ruling 39's dated line): asked once, pre-ticked; the button's answer is the
+    /// consent. One plain line on how (their own agent, their own signed-in browser, the cap) and on the sites' terms.
+    static let savedListsTitle = "Keep your saved lists current"
+    static let savedListsSubline = "Your own agent reads these in your signed-in browser, at most 10 times a day. "
+        + "These sites' terms discourage automated access, even to your own account."
+    static let savedListsKeep = "Keep them current"
+    static let savedListsSaveFailed = "That didn't save. Try again, or turn the lists on later on the Sources page."
+    static func savedListsItem(_ item: SavedListItem) -> String {
+        switch item {
+        case .youtubeWatchLater: "YouTube Watch later"
+        case .youtubeHistory: "YouTube history"
+        case .x: "X Bookmarks"
+        case .instagram: "Instagram Saved"
+        case .linkedin: "LinkedIn Saved posts"
+        }
+    }
+
     /// Home's Getting started after onboarding: what onboarding covered, as one line (`GettingStartedFold`).
     static func gsCoveredInSetup(_ n: Int, locale: Locale = .autoupdatingCurrent) -> String {
         n == 1 ? "1 thing already set up" : "\(UsageFormat.count(n, locale: locale)) things already set up"

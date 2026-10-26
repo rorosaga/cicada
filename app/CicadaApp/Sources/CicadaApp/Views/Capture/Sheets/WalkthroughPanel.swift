@@ -72,7 +72,7 @@ enum WalkthroughVendor: String, CaseIterable, Identifiable {
         ]
         case .instagram: [
             "Open Accounts Center → Your information and permissions.",
-            "Choose “Download your information”, JSON format.",
+            "Choose “Export your information”, Saved, JSON format.",
             "Instagram emails you a link — download and unzip it.",
             "Drop saved_posts.json here.",
         ]
@@ -80,7 +80,7 @@ enum WalkthroughVendor: String, CaseIterable, Identifiable {
             "Open Settings and privacy → Account → Download your data",
             "Choose JSON as the file format",
             "Request the data and wait for the email (1–4 days)",
-            "Unzip it and drop user_data.json below",
+            "Unzip it and drop user_data_tiktok.json below",
         ]
         case .linkedin: [
             "Open Settings → Data privacy → Get a copy of your data",

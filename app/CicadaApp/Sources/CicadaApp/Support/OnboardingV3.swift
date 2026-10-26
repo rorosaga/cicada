@@ -161,6 +161,7 @@ enum OnboardingWords {
             Step(name: "agents, after the first call", title: Copy.agentsTitle,
                  body: [Copy.agentsSubline, Copy.agentsFirstCall("Claude Desktop")]),
             Step(name: "sources", title: Copy.importTitle, body: [Copy.sourcesSubline]),
+            Step(name: "saved lists", title: Copy.savedListsTitle, body: [Copy.savedListsSubline]),
             Step(name: "meet your bookworm", title: Copy.MeetWorm.title,
                  body: [Copy.MeetWorm.sublineShown, Copy.MeetWorm.number, Copy.MeetWorm.goesDown]),
             Step(name: "done", title: Copy.doneTitle,

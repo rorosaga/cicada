@@ -702,6 +702,9 @@ struct ReadingFirstUseSheet: View {
     /// G206 — the sheet was raised by a saved list's switch: Turn on enables agent reading and that list, never the
     /// site's pages (review of #448: it granted the site and left the list off).
     var savedList = false
+    /// 2026-10-26 — raised by a YouTube list's switch on the Sources page's YouTube row: Turn on enables agent reading
+    /// with the acknowledgement, then that list.
+    var youtubeList: YouTubeList? = nil
     let done: () -> Void
     @State private var understood = false
     @State private var failure: String?
@@ -735,7 +738,10 @@ struct ReadingFirstUseSheet: View {
                 TextButton(title: Copy.Reading.sheetNotNow, action: done)
                 PrimaryActionButton(title: Copy.Reading.sheetTurnOn) {
                     Task {
-                        let ok = if savedList, let site {
+                        let ok = if let youtubeList {
+                            await model.setEnabled(true, acknowledge: true, site: nil)
+                                ? await model.setYouTubeList(youtubeList, true) : false
+                        } else if savedList, let site {
                             await model.setSavedList(site, true, acknowledge: true)
                         } else {
                             await model.setEnabled(true, acknowledge: true, site: site)

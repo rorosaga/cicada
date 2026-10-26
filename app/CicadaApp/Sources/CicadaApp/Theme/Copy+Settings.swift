@@ -215,6 +215,18 @@ extension Copy {
     static let calendarStopTitle = "Stop reading your calendars?"
     static let calendarStopDetail = "Events already in your memory stay there."
     static let calendarStop = "Stop reading"
+    /// 2026-10-26 — Google Calendar on the Mac: the accounts the Calendar app holds, and the one way to add Google's.
+    static let calendarOnMyMac = "On My Mac"
+    static func calendarIncludes(_ groups: [CalendarAccountGroup], locale: Locale = .autoupdatingCurrent) -> String {
+        "Includes " + groups.map { group in
+            let count = group.calendars == 1 ? "1 calendar"
+                : "\(UsageFormat.count(group.calendars, locale: locale)) calendars"
+            return "\(group.name) (\(count))"
+        }.joined(separator: " · ")
+    }
+    static let calendarGoogleHow = "Google calendars come in through macOS: add your Google account in Internet "
+        + "Accounts with Calendars on, and its calendars appear here."
+    static let calendarAddGoogle = "Add a Google account"
 
     // MARK: Sources → Reminders (G219)
     static let remindersTitle = "Reminders"

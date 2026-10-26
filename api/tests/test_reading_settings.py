@@ -22,7 +22,9 @@ def test_the_default_is_off_and_empty():
     assert snap == {"agentEnabled": False, "allowedSites": {}, "ackedAt": None, "ackCurrent": False,
                     "exploreSignedIn": True, "neverExplore": {},
                     "youtubeLists": {"watchLater": False, "history": False},   # G71: both lists off by default
-                    "savedLists": {"x": False, "instagram": False, "linkedin": False}}   # G206: all three off
+                    "savedLists": {"x": False, "instagram": False, "linkedin": False},   # G206: all three off
+                    "youtubeListsOff": {"watchLater": False, "history": False},   # 2026-10-26: no off on record
+                    "savedListsOff": {"x": False, "instagram": False, "linkedin": False}}
     assert not reading_settings.path().exists(), "reading never creates the file"
 
 
@@ -178,3 +180,70 @@ def test_reading_is_on_by_default_only_behind_the_current_sheet(tmp_path, monkey
     reading_settings.update(agent_enabled_=True)
     assert reading_settings.agent_enabled() is True
     assert "agent" not in reading_settings._load(), "on is the default, so it is not stored"
+
+
+# --- saved lists on by default (owner 2026-10-26; ruling 39's dated line) ----------------------------------------------
+
+
+def _acked():
+    reading_settings.update(acknowledge=True, today=date(2026, 10, 26))
+
+
+def test_an_off_is_remembered_and_an_on_clears_it():
+    _acked()
+    snap = reading_settings.update(saved_lists_={"x": False}, youtube_lists_={"history": False},
+                                   today=date(2026, 10, 26))
+    assert snap["savedListsOff"]["x"] is True and snap["youtubeListsOff"]["history"] is True
+    assert snap["savedLists"]["x"] is False
+    snap = reading_settings.update(saved_lists_={"x": True})
+    assert snap["savedLists"]["x"] is True and snap["savedListsOff"]["x"] is False
+
+
+def test_an_off_needs_no_acknowledgement():
+    """Onboarding's unticked lists are recorded off even when the person ticked nothing at all."""
+    snap = reading_settings.update(saved_lists_={"instagram": False})
+    assert snap["savedListsOff"]["instagram"] is True and not reading_settings.ack_current()
+
+
+def test_defaults_turn_on_only_detected_accounts_and_only_once_acknowledged():
+    assert reading_settings.apply_list_defaults(detected={"youtube", "x"}) == [], "no consent, nothing turns on"
+    _acked()
+    changed = reading_settings.apply_list_defaults(detected={"youtube", "x"}, today=date(2026, 10, 26))
+    assert changed == ["youtube:watch_later", "youtube:history", "saved:x"]
+    snap = reading_settings.snapshot()
+    assert snap["youtubeLists"] == {"watchLater": True, "history": True}
+    assert snap["savedLists"] == {"x": True, "instagram": False, "linkedin": False}
+    assert reading_settings.saved_list_allowed("x") and reading_settings.youtube_list_allowed("history")
+    assert reading_settings.apply_list_defaults(detected={"youtube", "x"}) == [], "decided once"
+
+
+def test_defaults_never_override_an_explicit_off():
+    _acked()
+    reading_settings.update(saved_lists_={"x": False})
+    reading_settings.update(saved_lists_={"linkedin": True})
+    assert reading_settings.apply_list_defaults(detected={"x", "linkedin"}) == []
+    assert set(reading_settings.saved_lists()) == {"linkedin"}
+
+
+def test_a_default_turned_off_stays_off():
+    _acked()
+    reading_settings.apply_list_defaults(detected={"instagram"})
+    reading_settings.update(saved_lists_={"instagram": False})
+    assert reading_settings.apply_list_defaults(detected={"instagram"}) == []
+    assert not reading_settings.saved_list_allowed("instagram")
+
+
+def test_a_list_read_before_with_no_switch_now_was_turned_off():
+    """Before 2026-10-26 an off left no record; a list an agent read that holds no on was turned off by the person."""
+    _acked()
+    changed = reading_settings.apply_list_defaults(detected={"youtube"}, read_before={"youtube:history"})
+    assert changed == ["youtube:watch_later", "youtube:history"]
+    snap = reading_settings.snapshot()
+    assert snap["youtubeLists"] == {"watchLater": True, "history": False}
+    assert snap["youtubeListsOff"]["history"] is True
+
+
+def test_defaults_wait_while_the_master_switch_is_off():
+    _acked()
+    reading_settings.update(agent_enabled_=False)
+    assert reading_settings.apply_list_defaults(detected={"x"}) == []
