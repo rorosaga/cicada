@@ -147,12 +147,10 @@ Search model offers the larger one (EmbeddingGemma): about 2 GB, installed into 
 tester's own Hugging Face token (they accept the model's license there first). Each memory keeps the model it was
 built with.
 
-## Before the first release (owner)
+## Dry-run branch
 
-- `VERSION` already says 0.3.0 and nothing is tagged, so the first release needs no bump: `make release-pr`, then merge.
-- `main` trails `dev` but its own commits are old promotion merges, so the release PR merges cleanly.
-- The dry runs so far were pushed to `ci/release-dry-run`; that branch is deleted after use and recreated by the next
-  `git push -f origin HEAD:ci/release-dry-run`.
+The dry runs are pushed to `ci/release-dry-run`; that branch is deleted after use and recreated by the next
+`git push -f origin HEAD:ci/release-dry-run`.
 
 ## The update signing key
 
