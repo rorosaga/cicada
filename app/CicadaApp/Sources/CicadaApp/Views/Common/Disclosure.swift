@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// DR-39 / DR-53 (consistency pass, 2026-10-20) — the one disclosure glyph. Every fold in the app drew its own: a
@@ -40,15 +41,21 @@ struct DisclosureHeader: View {
     var fillsWidth = false
     /// What VoiceOver names when the visible words carry a count ("Settled by a check · 3" reads "Settled by a check").
     var spokenTitle: String? = nil
+    /// A mark between the chevron and the title — the Inbox's kind glyph, said once for its group (inbox v2).
+    var leading: AnyView? = nil
     let toggle: () -> Void
 
     @State private var hovering = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        Button(action: toggle) {
+        // Inbox v2 (2026-10-26): the fold moves at its source — a click eases it open on `CicadaMotion.disclosure`, a
+        // key (Space with Full Keyboard Access) or an assistive press lands in one frame (DR-60, `DisclosureMotion`).
+        // A caller that already moves its own way (Projects' `groupExpand`) keeps it: the inner transaction wins.
+        Button { DisclosureMotion.toggle(opening: !isOpen, reduceMotion: reduceMotion, toggle) } label: {
             HStack(spacing: CicadaTheme.scaled(6)) {
                 DisclosureChevron(isOpen: isOpen).iconHover(hovering: hovering)   // DR-64: an interactive glyph
+                if let leading { leading }
                 Text(title)
                     .foregroundStyle(hovering ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
                     .lineLimit(1)
@@ -71,6 +78,7 @@ struct DisclosureHeader: View {
         .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
         .onHover { hovering = $0 }
         .help(help ?? "")
+        .modifier(AssistivePress(action: { Instant.run(toggle) }))
         .accessibilityLabel(spokenTitle ?? title)
         .accessibilityAddTraits(.isHeader)
         .accessibilityValue(Self.spokenValue(isOpen: isOpen, summary: summaryShown))
@@ -104,7 +112,7 @@ struct DisclosureButton: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        Button(action: action) {
+        Button { DisclosureMotion.toggle(opening: !isOpen, reduceMotion: reduceMotion, action) } label: {
             DisclosureChevron(isOpen: isOpen, color: hovering ? CicadaTheme.textPrimary : CicadaTheme.textTertiary)
                 .iconHover(hovering: hovering)
                 .frame(width: CicadaTheme.scaled(28), height: CicadaTheme.scaled(28))
@@ -116,7 +124,95 @@ struct DisclosureButton: View {
         .help(help)
         .accessibilityLabel(help)
         .accessibilityValue(isOpen ? Copy.Lists.expanded : Copy.Lists.collapsed)
+        .modifier(AssistivePress(action: { Instant.run(action) }))
         .onHover { hovering = $0 }
         .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
+    }
+}
+
+/// How a fold moves (inbox v2, owner 2026-10-26: "When I open the drop-downs, it can be smoother"). A pointer's click
+/// eases it — the content grows out of its header and fades in (`disclosureReveal()`), and whatever sits below slides
+/// down with it, on `CicadaMotion.disclosure`; closing is quicker than opening (DR-65). A key lands in one frame (DR-60):
+/// the event running the action says which it was, as `LooksZoom` reads it. Reduce Motion keeps only a short fade
+/// (DR-66). Every `DisclosureHeader` and `DisclosureButton` toggles through this, so every fold in the app moves alike.
+enum DisclosureMotion {
+    enum Trigger: Equatable { case pointer, keyboard }
+
+    static func trigger(for type: NSEvent.EventType?) -> Trigger {
+        type == .keyDown || type == .keyUp ? .keyboard : .pointer
+    }
+
+    /// The animation a toggle runs under, or nil for one frame.
+    static func animation(_ trigger: Trigger, opening: Bool, reduceMotion: Bool) -> Animation? {
+        trigger == .keyboard ? nil : CicadaMotion.disclosure(opening: opening, reduceMotion: reduceMotion)
+    }
+
+    @MainActor
+    static func toggle(opening: Bool, reduceMotion: Bool, trigger: Trigger? = nil, _ body: () -> Void) {
+        let resolved = trigger ?? Self.trigger(for: NSApp.currentEvent?.type)
+        if let animation = animation(resolved, opening: opening, reduceMotion: reduceMotion) {
+            withAnimation(animation, body)
+        } else {
+            Instant.run(body)
+        }
+    }
+}
+
+/// A fold's content arriving and leaving: its height grows from 0 to its own (the rows below ease down with it, no
+/// jump) while it fades in, clipped to what has grown so nothing draws over the next row. Under Reduce Motion only
+/// the fade (DR-66). Put it on the view a fold inserts: `if isOpen { content.disclosureReveal() }`.
+extension View {
+    func disclosureReveal() -> some View { modifier(DisclosureRevealTransition()) }
+}
+
+private struct DisclosureRevealTransition: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content.transition(reduceMotion ? .opacity
+            : .modifier(active: DisclosureReveal(progress: 0), identity: DisclosureReveal(progress: 1)))
+    }
+}
+
+/// `progress` 0…1 of a fold's content: that share of its height, at that opacity. Animatable, so a transition
+/// interpolates it frame by frame.
+struct DisclosureReveal: ViewModifier, Animatable {
+    var progress: Double
+
+    var animatableData: Double {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    func body(content: Content) -> some View {
+        DisclosureRevealLayout(progress: progress) { content }
+            .clipShape(DisclosureRevealClip(open: progress >= 1))
+            .opacity(progress)
+    }
+}
+
+/// Reports `progress` of its content's natural height and places the content at its top, so the stack around it
+/// moves by exactly what has grown.
+struct DisclosureRevealLayout: Layout {
+    var progress: Double
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let child = subviews.first else { return .zero }
+        let size = child.sizeThatFits(ProposedViewSize(width: proposal.width, height: nil))
+        return CGSize(width: size.width, height: size.height * max(0, min(1, progress)))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: bounds.origin, anchor: .topLeading,
+                              proposal: ProposedViewSize(width: bounds.width, height: nil))
+    }
+}
+
+/// The clip while a fold moves; once fully open it clips nothing, so a ring or hover fill at an edge is never cut.
+private struct DisclosureRevealClip: Shape {
+    let open: Bool
+
+    func path(in rect: CGRect) -> Path {
+        Path(open ? rect.insetBy(dx: -10_000, dy: -10_000) : rect)
     }
 }

@@ -73,6 +73,7 @@ struct AgentsStep: View {
                         }
                     }
                     .settingsCardSurface()
+                    .disclosureReveal()
                 }
             }
         }

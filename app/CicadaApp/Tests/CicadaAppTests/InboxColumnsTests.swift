@@ -136,7 +136,7 @@ final class InboxColumnsTests: XCTestCase {
         XCTAssertEqual(InboxEyebrow.text(visible: [a, b, d], openId: "b"), "Inbox")
         XCTAssertEqual(InboxEyebrow.text(visible: [], openId: nil), "Inbox")
         let tabs = InboxTabs.tabs([a, b, d])
-        XCTAssertEqual(tabs.map(\.label), ["All", "Decay", "Conflict"], "present kinds, in the stable order")
+        XCTAssertEqual(tabs.map(\.label), ["All", "Fading", "Conflict"], "present kinds, in the stable order")
         XCTAssertEqual(tabs.map(\.count), [3, 1, 2])
         XCTAssertEqual(tabs.map(\.id), [nil, .decay, .conflict])
     }

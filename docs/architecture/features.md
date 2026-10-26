@@ -244,6 +244,9 @@ that is exactly a page's id reads as the page's name (`Store.entityNames`, displ
 **Groups (owner 2026-10-26).** Under All the list is one collapsible group per kind with its count and its quick review,
 and inside a group the questions about one page sit together under its name (`app.md`, *The Inbox in groups*). Display
 only: `GET /inbox` and every resolver are unchanged, nothing is answered for a group, and the walk follows the groups.
+**Inbox v2 (owner 2026-10-26)** is display only too: kinds in a person's words with one sentence each, the possible
+duplicate's two pages side by side with what Merge does, and *Confirm N links* saying what each link is, why it is there
+and what confirming changes; every fold eases open on a click and lands in one frame on a key (`app.md`, *Inbox v2*).
 
 **The quick review (owner 2026-10-19).** The app reviews one kind at a time (`app.md`, *The quick review*); every
 answer is `POST /inbox/{id}/resolve` through the same resolvers, provenance the person's, after the same Undo window —

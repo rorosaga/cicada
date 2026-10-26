@@ -56,9 +56,28 @@ struct InboxQuestionList: View {
                 VStack(spacing: style == .triage ? CicadaTheme.scaled(RowMetrics.twoLineGap) : 0) {
                     if style == .wide, let header { header }
                     if style == .wide, let lines {
-                        ForEach(Array(lines.enumerated()), id: \.element.id) { index, line in
-                            Group { self.line(line, first: index == 0, slots: slots, now: now) }
-                                .id(line.id)
+                        // Inbox v2: a kind's header, then its body as ONE block that grows out of the header and
+                        // fades in when the group opens (`disclosureReveal`), so the groups below ease down rather
+                        // than jump. The ids stay on each line, so ⌘K's landing still scrolls to its row.
+                        ForEach(InboxListBlock.blocks(lines)) { block in
+                            VStack(spacing: 0) {
+                                if let header = block.header {
+                                    self.line(header, slots: slots, now: now)
+                                        .padding(.top, block.isFirst ? 0 : CicadaTheme.spacingLG)
+                                        .id(header.id)
+                                }
+                                if !block.body.isEmpty {
+                                    VStack(spacing: 0) {
+                                        if let kind = block.kind {
+                                            InboxGroupExplainer(kind: kind)
+                                        }
+                                        ForEach(block.body) { line in
+                                            self.line(line, slots: slots, now: now).id(line.id)
+                                        }
+                                    }
+                                    .disclosureReveal()
+                                }
+                            }
                         }
                     } else {
                         ForEach(entries) { entry in
@@ -97,26 +116,26 @@ struct InboxQuestionList: View {
 
     /// One line of the grouped list (owner 2026-10-26). A header is a disclosure, never an answer: opening or closing a
     /// group sends nothing, and the group's one action is its quick review, which still asks one question at a time.
-    @ViewBuilder private func line(_ line: InboxListLine, first: Bool, slots: InboxRowSlots, now: Date) -> some View {
+    @ViewBuilder private func line(_ line: InboxListLine, slots: InboxRowSlots, now: Date) -> some View {
         switch line {
         case .kind(let kind, let count, let isOpen, let review):
             InboxGroupHeader(kind: kind, count: count, isOpen: isOpen, review: review,
                              toggle: { toggleGroup(kind) }, startReview: startReview)
-                .padding(.top, first ? 0 : CicadaTheme.spacingSM)
         case .page(_, let name, let count):
             InboxPageHeader(name: name, count: count)
         case .entry(let entry, let nested):
-            row(entry, slots: slots, now: now, nested: nested)
+            // Inbox v2: inside a group the kind is said once, by its header, so the row leaves its glyph out.
+            row(entry, slots: slots, now: now, nested: nested, grouped: true)
         }
     }
 
     /// One entry's row — split out of `body`, which sat near the type checker's release-build budget.
     @ViewBuilder private func row(_ entry: InboxRowEntry, slots: InboxRowSlots, now: Date,
-                                  nested: Bool = false) -> some View {
+                                  nested: Bool = false, grouped: Bool = false) -> some View {
         switch entry {
         case .item(let item):
             InboxRow(item: item, style: style, slots: slots, selected: item.id == openId,
-                     now: now, nested: nested) { open(item) }
+                     now: now, nested: nested, showsGlyph: !grouped) { open(item) }
         case .undo(let held, let item):
             InboxUndoRow(held: held, item: item, style: style,
                          shortcutEnabled: undoShortcut, onUndo: undo)
@@ -138,6 +157,9 @@ struct InboxRow: View {
     var nested = false
     /// F-09's Needs you draws the row alone — the row already opens the question (R-HO12).
     var showsOpenButton = true
+    /// Inbox v2 (2026-10-26): under its kind's header the glyph would say the kind a second time on every row
+    /// (DR-38); the slot stays empty so the questions still line up with the header's title.
+    var showsGlyph = true
     let open: () -> Void
 
     @State private var hovering = false
@@ -222,7 +244,15 @@ struct InboxRow: View {
     /// would overflow the column (R-DI26); the question always keeps the rest.
     private var wide: some View {
         HStack(spacing: CicadaTheme.spacingMD) {
-            KindGlyph(kind: item.kind)
+            if showsGlyph {
+                KindGlyph(kind: item.kind)
+            } else {
+                // Under the group's title: the header's chevron slot and gap (12 + 6) plus the glyph's slot, less the
+                // row's own gap after it, so the question starts where the title does.
+                Color.clear.frame(width: CicadaTheme.scaled(12 + 6 + KindGlyph.slotWidth + 6) - CicadaTheme.spacingMD,
+                                  height: 1)
+                    .accessibilityHidden(true)
+            }
             question.frame(maxWidth: CicadaTheme.scaled(ColumnLayout.textMaxWidth), alignment: .leading)
             Spacer(minLength: 0)
             if slots.entity {
@@ -387,7 +417,10 @@ enum InboxRowWords {
 /// A kind's group in the full-width list (owner 2026-10-26): the disclosure with the kind's words and its count, and
 /// the group's one action — the quick review (owner 2026-10-19), which asks its questions one at a time with the same
 /// answers, the same Undo window and the same resolvers as the card. There is no answer-all: nothing here resolves
-/// anything. A pointer toggles it instantly (DR-61); a fill, never a lift (DR-48); neutral, never the accent (DR-40).
+/// anything. Inbox v2 (2026-10-26): the kind's glyph leads, once, for the rows under it; the title is the plural in a
+/// person's words ("Fading pages"); the review shows only while the group is open, so a closed inbox reads as kinds
+/// and counts and nothing else. The header picks the motion (`DisclosureMotion`): a click eases it, a key never does.
+/// A fill, never a lift (DR-48); neutral, never the accent (DR-40).
 struct InboxGroupHeader: View {
     let kind: InboxKind
     let count: Int
@@ -398,12 +431,11 @@ struct InboxGroupHeader: View {
 
     var body: some View {
         HStack(spacing: CicadaTheme.spacingSM) {
-            DisclosureHeader(title: kind.label, summary: UsageFormat.count(count), summaryWhenOpen: true,
+            DisclosureHeader(title: kind.groupTitle, summary: UsageFormat.count(count), summaryWhenOpen: true,
                              isOpen: isOpen, help: isOpen ? Copy.Inbox.groupCloseHelp : Copy.Inbox.groupOpenHelp,
-                             fillsWidth: true, spokenTitle: Copy.Inbox.groupSpoken(kind.label, count)) {
-                Instant.run { toggle() }
-            }
-            if let review {
+                             fillsWidth: true, spokenTitle: Copy.Inbox.groupSpoken(kind.groupTitle, count),
+                             leading: AnyView(KindGlyph(kind: kind).accessibilityHidden(true)), toggle: toggle)
+            if isOpen, let review {
                 TextButton(title: Copy.Inbox.groupReview, help: Copy.Inbox.Review.entryHelp(review.kind)) {
                     startReview(review.kind)
                 }
@@ -412,6 +444,67 @@ struct InboxGroupHeader: View {
         }
         .padding(.horizontal, CicadaTheme.scaled(10))
         .frame(height: CicadaTheme.scaled(RowMetrics.oneLine))
+    }
+}
+
+/// Under an open group, what its questions ask and what the answers do, in one plain sentence (inbox v2): the
+/// first-time reader's "what is this?", said once per group rather than on every row.
+struct InboxGroupExplainer: View {
+    let kind: InboxKind
+
+    var body: some View {
+        Text(Copy.Inbox.kindExplainer(kind))
+            .font(CicadaTheme.metaFont)
+            .foregroundStyle(CicadaTheme.textTertiary)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: CicadaTheme.scaled(ColumnLayout.textMaxWidth), alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            // In line with the header's title: its padding, the chevron's 12 pt slot, the glyph's slot, and their gaps.
+            .padding(.leading, CicadaTheme.scaled(10 + 12 + 6 + KindGlyph.slotWidth + 6))
+            .padding(.bottom, CicadaTheme.spacingSM)
+    }
+}
+
+/// The grouped list's lines cut into blocks for drawing: a kind's header and the lines under it, which arrive and
+/// leave together as one disclosure. A kind's tab has no header: its one block is all body.
+struct InboxListBlock: Identifiable {
+    let id: String
+    let header: InboxListLine?
+    let body: [InboxListLine]
+    let isFirst: Bool
+
+    /// The kind the block is about: its header's, or — under a kind's tab, where there is no header — its questions'.
+    var kind: InboxKind? {
+        if case .kind(let kind, _, _, _)? = header { return kind }
+        for line in body {
+            switch line {
+            case .entry(.item(let item), _), .entry(.undo(_, let item), _): return item.kind
+            default: continue
+            }
+        }
+        return nil
+    }
+
+    static func blocks(_ lines: [InboxListLine]) -> [InboxListBlock] {
+        var out: [InboxListBlock] = []
+        var header: InboxListLine?
+        var body: [InboxListLine] = []
+        func flush() {
+            guard header != nil || !body.isEmpty else { return }
+            out.append(InboxListBlock(id: header?.id ?? "block:\(out.count)", header: header, body: body,
+                                      isFirst: out.isEmpty))
+        }
+        for line in lines {
+            if case .kind = line {
+                flush()
+                header = line
+                body = []
+            } else {
+                body.append(line)
+            }
+        }
+        flush()
+        return out
     }
 }
 
@@ -433,8 +526,8 @@ struct InboxPageHeader: View {
                 .lineLimit(1)
             Spacer(minLength: 0)
         }
-        // Under the questions' glyph column, so the page reads as their heading.
-        .padding(.leading, CicadaTheme.scaled(10))
+        // Under the group's kind glyph (inbox v2: past the header's chevron), a step left of the questions it heads.
+        .padding(.leading, CicadaTheme.scaled(10 + 12 + 6))
         .padding(.top, CicadaTheme.spacingXS)
         .frame(minHeight: CicadaTheme.scaled(RowMetrics.titleOnly))
         .accessibilityElement(children: .combine)

@@ -47,17 +47,19 @@ private struct SettledGroup: View {
     var body: some View {
         if !rows.isEmpty {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                DisclosureHeader(title: header, isOpen: open, help: help, spokenTitle: title) {
-                    Instant.run { open.toggle() }
-                }
+                // The header picks the motion: a click eases it open, a key lands in one frame (DR-60).
+                DisclosureHeader(title: header, isOpen: open, help: help, spokenTitle: title) { open.toggle() }
 
                 if open {
-                    ForEach(rows) { row in
-                        SettledCheckRow(row: row, tracked: model.tracked.contains(row.id),
-                                        busy: model.busy.contains(row.id),
-                                        undo: { Task { await model.undo(row, then: onUndone) } },
-                                        track: { Task { await model.track(row) } })
+                    VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                        ForEach(rows) { row in
+                            SettledCheckRow(row: row, tracked: model.tracked.contains(row.id),
+                                            busy: model.busy.contains(row.id),
+                                            undo: { Task { await model.undo(row, then: onUndone) } },
+                                            track: { Task { await model.track(row) } })
+                        }
                     }
+                    .disclosureReveal()
                 }
             }
         }

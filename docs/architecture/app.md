@@ -2273,7 +2273,7 @@ the body only when there is neither a cause nor a quote).
 **The Inbox in groups (owner 2026-10-26: "super dense … grouping things would be best"; DR-40, 45, 48, 59, 60, 61).**
 Under All the full-width list is one collapsible group per kind (`InboxGroups`, `InboxListLine`, `InboxGroupHeader`):
 the kind's tab word and its count, and *Review one at a time* — the quick review below, the group's one action. There is
-no answer-all: a header only opens or closes (instantly, `Instant.run`), and every answer is still one question through
+no answer-all: a header only opens or closes (a click eases, a key is one frame — *One fold motion* below), and every answer is still one question through
 the card or the review, held for the Undo window. Groups sit where their most urgent question would (the G115 order);
 past `InboxGroups.openFirstUpTo` (12) questions every group starts closed, so a full inbox reads as its kinds and counts;
 the person's open/closed choice holds for the memory, and the open question's group is always open. Inside a group (and
@@ -2281,6 +2281,39 @@ under a kind's tab) two or more questions about one page sit together under the 
 the rows leave the name out). The order the groups draw is the list's walk (`InboxViewModel.visible`): ↑/↓ and the next
 question after an answer follow the screen; the narrow columns draw the same order flat. Under a kind's tab the review
 row shows that kind's review only (say it once).
+
+**Inbox v2 (owner 2026-10-26: "fix how dense the inbox looks … I don't really get the confirmation of links … as are
+possible duplicates … When I open the drop-downs, it can be smoother"; DR-35, 38, 39, 40, 42, 43, 52, 59, 60, 61, 62, 65,
+66; §9 2026-10-26).** *Words:* a kind is named in a person's words (`InboxKind.label` — Fading, Conflict, Question,
+Possible duplicate, Disagreement, Wording, …; the wire values never change), a group by its plural (`groupTitle` —
+"Fading pages", "Possible duplicates"), and an open group starts with one plain sentence of what its questions ask and
+what the answers do (`InboxGroupExplainer`, `Copy.Inbox.kindExplainer`). *Density:* the kind's glyph leads its header
+once and the rows under it leave theirs out (the slot stays, so the questions line up); groups sit `spacingLG` apart;
+*Review one at a time* shows only while its group is open, so a closed inbox is kinds and counts alone. *Motion:* a
+group's body is one block (`InboxListBlock`) that grows out of its header and fades in (`disclosureReveal()`), the
+groups below easing down with it. **Possible duplicate** (`MergeBody`, `MergePair`): the two sides side by side — "Name
+from a conversation" and "Existing page", each with its `EntityPicture`, type and the graph's one-line summary, or "No
+page yet" for a name below the promotion bar — then what each answer does (Merge files the name under the existing page
+as another name, or folds its page into it; Keep separate is remembered; each answer can be undone in its window), then
+**Merge** (the one neutral button), *Keep separate* and *Skip* (text buttons). Describing it, merging with another page
+and the Keep-as-canonical picker with its "A → B" line wait under *Something else* (open from the start when Sleep named
+no page); a page typed there becomes the existing side ("Page you named", found by id or name) and Merge's sentence names
+it, so the card always shows what will be sent; every resolution sent is the one it sent before. **Confirm N links** (`WhereToCheckReviewCard`,
+`WhereToCheckWords`): one sentence of what the card is ("Nothing is used until you confirm it"), each page once with its
+picture and name (a click opens it), and under it each waiting link: its label, what it is and where ("GitHub profile ·
+github.com/…"), why it is there ("You mentioned it in a conversation.") and what confirming changes ("their picture and
+updates can come from here" for a person's own profile, "its logo and updates come from here" for a site on any other
+page). **Confirm** (neutral) and *Not theirs* / *Not this one* (text) answer one link, as before; past three pages the
+rest wait under *N more pages*.
+
+**One fold motion (inbox v2).** `DisclosureHeader` and `DisclosureButton` toggle through `DisclosureMotion`: a click
+eases on `CicadaMotion.disclosure` (drawer curve, 240 ms open, 180 ms close), a key — the event running the action is a
+key press — or an assistive press (`AssistivePress`) lands in one frame (DR-60), and Reduce Motion keeps a ~100 ms fade
+(DR-66). Content a fold inserts takes `.disclosureReveal()`: an animatable `DisclosureReveal` reports its share of the
+content's natural height (`DisclosureRevealLayout`) and fades it in, clipped only while it moves. The Inbox's groups and
+settled sections, the entity card's sections (`CardDisclosure`), *Confirm N links*' *N more pages*, the duplicate card's
+*Something else* and onboarding's two folds use it; every other `DisclosureHeader` caller eases its layout through the
+header without a change (Projects keeps its own `groupExpand`, the inner transaction winning).
 
 **The quick review (owner 2026-10-19)** goes one kind at a time inside the Inbox page, never a new window. Above the
 questions at full width under a kind's tab (`InboxQuestionList`'s `header`; under All each group's header carries it),

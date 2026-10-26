@@ -45,7 +45,7 @@ struct SourcesStep: View {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                     DisclosureHeader(title: Copy.sourcesMore, summary: groups.more.map(\.title).joined(separator: " · "),
                                      isOpen: open) { moreOpen = !open }
-                    if open { grid(groups.more) }
+                    if open { grid(groups.more).disclosureReveal() }
                 }
             }
             if let error = intake.welcomeDropError {
