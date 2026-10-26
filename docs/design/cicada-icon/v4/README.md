@@ -1,5 +1,9 @@
 # Cicada app icon: the book and glasses
 
+> **Not the current app icon (2026-10-26).** The owner asked, "for now", for the menu-bar bookworm on a dark plate
+> instead (DESIGN_RULES §9, 2026-10-26). `make-icon.swift` now reads the menu bar's sprite sheet; this art is kept here
+> to return to. The text below describes the icon as it was.
+
 2026-09-30. The owner asked for the book and glasses as the macOS app icon, on a very dark gray background.
 
 Source art (drawn in Aseprite):
