@@ -319,6 +319,18 @@ def _trusted_website_host(frontmatter: dict) -> str | None:
     return None
 
 
+#: Ruling 40 (2026-10-26): a public place (a campus, a museum) draws its own site's mark too — but only once it holds a
+#: trusted ``website`` source; a location never asks for a logo on its type alone.
+SITE_ONLY_TYPES = {"location"}
+
+
+def draws_logo(frontmatter: dict) -> bool:
+    """A brand (``company``/``tool``), or a public place with a trusted site of its own. Never a person or media."""
+    fm = frontmatter or {}
+    kind = str(fm.get("type") or "").strip().lower()
+    return kind in GUESSABLE_TYPES or (kind in SITE_ONLY_TYPES and _trusted_website_host(fm) is not None)
+
+
 def domain_for(frontmatter: dict, body: str = "") -> str | None:
     """Resolve an entity page to the domain whose icon should represent it — from a source, never from a guess.
 
@@ -917,7 +929,7 @@ async def warm_logos(memory_path: Path, *, limit: int = 50, fetcher: Fetcher | N
     candidates: list[tuple[int, str]] = []
     for f in bank_index.files(memory_path, "entities"):
         fm = f.frontmatter or {}
-        if str(fm.get("type") or "").lower() not in GUESSABLE_TYPES:
+        if not draws_logo(fm):
             continue
         related = fm.get("related") or []
         candidates.append((len(related) if isinstance(related, list) else 0, f.stem))

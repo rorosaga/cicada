@@ -809,13 +809,50 @@ Round 4 (C2–C4):
   network failure is `tries` up to three nights, then `checked: {outcome: unreachable}` and asked again in 30 days —
   never tombstoned. A platform host found in a `website` entry is removed without a request (reason `platform`).
   `fact_sources.trusted` (the person's, one they took, or verified) is the only trust; nothing else draws a picture (and
-  only a `company` or `tool` page draws one; a project's site is a source only). The
+  only a `company` or `tool` page draws one — and, since ruling 40, a `location` that holds a trusted site,
+  `logo_service.draws_logo`; a project's site is a source only). The
   Sleep tail step (`sleep_cycle._site_sources_safely`: propose, then verify, ≤ 25 fetches a night, one per site) runs
   behind `CICADA_ALLOW_CONNECTOR_FETCH`, in one path-scoped `cicada` commit `Site check <date>`, trigger
   `sleep/site-check`, no engine trailer, dirty pages skipped; the run's `Report` is built first and handed to both steps,
   so ANY failure restores every page written (the G85 smear), as does a failed commit. `verify` parses and writes off the
   event loop. `POST /maintenance/verify-sites` is the person's click (ungated, at most 40 fetches — the answer carries
   `budget` and `deferred` —, 409 while Sleep runs or in a demo bank, trigger `user/companion_app`), counts only.
+  **An organisation's own site, found during consolidation (ruling 40, 2026-10-26, `org_sites`).** Between `propose`
+  and `verify`, the same step examines up to 40 live `company`, `tool` and `location` pages with no TRUSTED `website`
+  (busiest first; ≤ 20 Wikidata lookups a night, 60 on the route) — never a person, the owner, a project, a name that is
+  not a public proper name (a possessive, a leading article, lowercase words, a path or handle), a name carrying a
+  person's or a project's name, or a page its description calls the person's own (`skip_reason`). **The record first**
+  (no network): an origin whose site label is the page's name, an alias or its acronym — from a line of the person's own
+  turn that names the page, or from the page itself (an alias that is a domain, `## Links`, a key-fact line about its
+  site or domain, its current `website` claim); a wikilink, camelCase or a code-like ending (`.id`, `.py`) is never a
+  domain; the site is the registrable domain (`careers.<org>.edu` → `<org>.edu`). **Then one structured public lookup**:
+  Wikidata (`wbsearchentities` on the page's name, then at most two proper-looking aliases; `wbgetclaims` P31/P279/
+  P856/P17/P625) — exactly ONE thing whose label or alias IS the page's name, whose class reaches the page type's roots
+  within five P279 steps (organisation / software-website-product / geographic place; a sited organisation counts as a
+  public place), never a human, a country or sovereign state, with one official site (P856, platforms dropped; several
+  agreeing items listing one site are one thing); a country the page names that is not the item's P17 is a conflict. A
+  search engine's hit is never used. **Trusted** (`verified: {at, how: record | record+name | wikidata+name, why, item}`,
+  `added_by: cicada`, `access: public`) only when the site's homepage names the entity in its title or site name
+  (`fetch_identity`, same rail) — and, for a lookup, the item matched the page's own NAME (an alias-only match is a
+  proposal, `matched_by_alias`) and two distinctive words of the page's summary are in the item's description or the
+  homepage's title, site name or meta description (the namesake guard, `content_agrees`; the body excerpt was measured
+  too loose on a real bank copy); the person's own located line whose link is the
+  page's own name stands alone when the site exists but blocks bots. **Anything less is a proposal** (`proposed: true`,
+  `evidence: {lookup: wikidata, item, reason}` or the record's span, reason `ambiguous | country_conflict |
+  homepage_unconfirmed | content_unconfirmed | matched_by_alias | record_names_another_site`) that joins the one "Confirm N links" review —
+  the tail re-syncs the review after the commit — and `verify` never stamps a proposal behind the person. An ambiguous
+  match proposes only sites whose label is the page's name; a namesake found only through an alias proposes nothing. Only
+  Cicada's own unconfirmed entry for the same site is upgraded in place (never duplicated); a proposal waiting for the
+  person, or another writer's entry for that site (an agent's, Stage 1's), is never upgraded or re-marked — Stage 1's
+  keeps Cicada's nightly `verify`; a tombstone for the site (`sources_removed`,
+  whoever removed it) is never re-added; a page with a trusted site is never looked up. The why travels on
+  `EntitySource.verified.why` ("Found by Cicada: official site listed on Wikidata (Q…), and its homepage names …"); the
+  person undoes it by removing the source. Once trusted, `logo_service` draws the mark and `source_refresh` re-checks it
+  (ruling 26). Wikidata calls are spaced 0.2 s, 4 s / ≤ 512 KB each, no cookies, `net_guard`, User-Agent
+  `Cicada/1 (<repo URL>) httpx`, a 429 honoured once. The "looked up on" cache (page id, day, outcome, conversation
+  count) and the P279 class cache live in `$CICADA_HOME/site_lookup/` — never in a bank; a page is looked at again after
+  30 days or when it gains conversations. No model runs. `api.scripts.org_sites_dry_run --bank <copy>` lists per page
+  the site, basis, trusted vs proposal, reason and logo domain, writing nothing.
 - `logo:` — a domain hint for `logo_service`. Logos are cached under `$CICADA_HOME/logos/<bank>/`,
   **never inside a bank** — a logo is a derived artifact of the outside world, not versioned memory. Since G61 S3-b a
   page's domain comes from a source and never a guess: `logo:` first, else the first TRUSTED `website` source

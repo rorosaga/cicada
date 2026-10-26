@@ -352,6 +352,7 @@ def _body(rows: list[dict]) -> str:
         ev = r.get("evidence") or {}
         where = (f"in your own words, {ev['episode']}" if ev.get("episode") and ev.get("kind", "user") == "user"
                  else f"in {ev['episode']}" if ev.get("episode")
+                 else f"listed as its official site on Wikidata ({ev.get('item')})" if ev.get("lookup") == "wikidata"
                  else "in the page's own text" if ev.get("page") else f"added by {r.get('added_by') or 'an agent'}")
         lines.append(f"- {r['page_name']}: {r['label']} ({r['link_kind']}) {r['ref']} — {where}")
     return "\n".join(lines) + "\n"
