@@ -192,7 +192,7 @@ final class RemoteConnectorTests: XCTestCase {
         XCTAssertEqual(OriginIconography.logoName(for: "codex-remote"), "codex")
         XCTAssertNil(OriginIconography.logoName(for: "perplexity"))
         XCTAssertEqual(OriginIconography.label(for: "claude-web"), "Claude")
-        XCTAssertEqual(OriginIconography.label(for: "vscode"), "VS Code")
+        XCTAssertEqual(OriginIconography.label(for: "vscode"), "GitHub Copilot")
         XCTAssertNotEqual(OriginIconography.symbol(for: "perplexity"), "tray")
     }
 

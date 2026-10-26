@@ -1,6 +1,6 @@
 {
- "generated": "2026-10-22",
- "count": 49,
+ "generated": "2026-10-26",
+ "count": 45,
  "needs_a_mac": [
   "Calendar",
   "Contacts",
@@ -113,26 +113,51 @@
    "note": "grok.com’s own favicon: the Grok glyph on its dark tile. The xAI wordmark-glyph is not used: the product people connect is Grok."
   },
   {
-   "slug": "meta",
+   "slug": "muse",
    "group": "agent",
-   "file": "meta.svg",
+   "file": "muse.svg",
    "format": "svg",
    "pixels": null,
    "meets_bar": true,
-   "source_tier": "svgl",
-   "source_url": "https://raw.githubusercontent.com/pheralb/svgl/f9b726cee1d1f3c697a18c880185e89d9a55bb70/static/library/meta.svg",
-   "fetched": "2026-10-22",
-   "sha256": "de8f359748d51c76357157fad55cda7f0cae59aa9f1d45b8230ba7646c4370cf",
-   "umbrella": "Meta",
+   "source_tier": "official site",
+   "source_url": "https://muse.ai/images/favicon/app-squiggle.svg",
+   "fetched": "2026-10-26",
+   "sha256": "6373d89d274258a38432f3c3729cd716498b8ded849b174a7998683dcf4aaba5",
+   "umbrella": "Muse",
    "sub_products": [
-    "Muse (app, WhatsApp)",
-    "Meta AI"
+    "Muse from Meta (app, web, WhatsApp)"
    ],
    "dark_variant": null,
-   "replaces_bundled": [],
-   "license": "svgl catalogue (MIT for the catalogue code; each mark stays its owner’s trademark)",
+   "replaces_bundled": [
+    "meta"
+   ],
+   "license": "Vendor’s own published asset; no licence beyond nominative use",
    "trademark": "Trademark of Meta Platforms, Inc.; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
-   "note": "meta.ai blocks scripted fetches (403 challenge) and Meta’s brand page answered 400, so the umbrella mark comes from svgl. Muse’s own App Store icon (a blue “m” stroke, 512 px, Apple’s CDN) is kept at src/site/muse-appstore.png if the owner prefers the product mark."
+   "note": "Owner 2026-10-26: the agent is Muse, so the umbrella wears Muse’s own mark (the blue “m” squiggle muse.ai serves as its SVG favicon, the same drawing as its App Store icon), not Meta’s infinity, which is retired from the set."
+  },
+  {
+   "slug": "copilot",
+   "group": "agent",
+   "file": "copilot.svg",
+   "format": "svg",
+   "pixels": null,
+   "meets_bar": true,
+   "source_tier": "official GitHub",
+   "source_url": "https://raw.githubusercontent.com/primer/octicons/9a274e212ee25c400ff666ce25a57866b7eacc25/icons/copilot-48.svg",
+   "fetched": "2026-10-26",
+   "sha256": "d94b7a94a4c23816b02285f53eca6386429b67522271483fa0f18ab3596617dc",
+   "umbrella": "GitHub Copilot",
+   "sub_products": [
+    "GitHub Copilot in VS Code (agent mode)",
+    "GitHub Copilot CLI"
+   ],
+   "dark_variant": "luminance inversion (as the bundled set’s R4 -dark rows)",
+   "replaces_bundled": [
+    "vscode"
+   ],
+   "license": "Vendor’s own published asset; no licence beyond nominative use",
+   "trademark": "Trademark of GitHub, Inc.; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
+   "note": "Owner 2026-10-26: GitHub Copilot with the Copilot mark, not VS Code’s. GitHub’s brand site publishes only lockups since 2025; the bare Copilot glyph is GitHub’s own, from its Primer Octicons repository, pinned to one commit. Black on transparent, so it gets the luminance-inverted dark sibling."
   },
   {
    "slug": "cursor",
@@ -229,25 +254,6 @@
    "note": null
   },
   {
-   "slug": "poke",
-   "group": "agent",
-   "file": "poke.png",
-   "format": "png",
-   "pixels": 512,
-   "meets_bar": true,
-   "source_tier": "official site",
-   "source_url": "https://poke.com/icons/poke-512.png",
-   "fetched": "2026-10-22",
-   "sha256": "385308a9717ed438882d4b3579a8faa0045124af3b2dc0837686596615f54f77",
-   "umbrella": "Poke",
-   "sub_products": [],
-   "dark_variant": null,
-   "replaces_bundled": [],
-   "license": "Vendor’s own published asset; no licence beyond nominative use",
-   "trademark": "Trademark of The Interaction Company; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
-   "note": null
-  },
-  {
    "slug": "zed",
    "group": "agent",
    "file": "zed.svg",
@@ -267,30 +273,6 @@
    "note": "The mark from Zed’s own repo; zed.dev only serves ≤ 64 px rasters. The 512 px app icon (mark on a dark squircle) is at src/gh/zed-app-icon@2x.png."
   },
   {
-   "slug": "vscode",
-   "group": "agent",
-   "file": "vscode.png",
-   "format": "png",
-   "pixels": 256,
-   "meets_bar": true,
-   "source_tier": "official site",
-   "source_url": "https://code.visualstudio.com/assets/apple-touch-icon.png",
-   "fetched": "2026-10-22",
-   "sha256": "175c27c2bd82288bacd9cf323981643759e4fe6af71330aa9bb190a994c37c13",
-   "umbrella": "VS Code / GitHub Copilot",
-   "sub_products": [
-    "VS Code",
-    "GitHub Copilot (agent mode, CLI)"
-   ],
-   "dark_variant": null,
-   "replaces_bundled": [
-    "vscode"
-   ],
-   "license": "Vendor’s own published asset; no licence beyond nominative use",
-   "trademark": "Trademark of Microsoft; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
-   "note": "One umbrella: Copilot runs inside VS Code here, so no second Copilot mark."
-  },
-  {
    "slug": "devin",
    "group": "agent",
    "file": "devin.svg",
@@ -301,76 +283,17 @@
    "source_url": "https://devin.ai/favicon.svg",
    "fetched": "2026-10-22",
    "sha256": "fe0753d2e3823bc1eb8a37943234fac63733b8c9e8abff0ca0402a6c7ddcd682",
-   "umbrella": "Windsurf / Devin",
+   "umbrella": "Devin",
    "sub_products": [
-    "Windsurf editor",
-    "Devin"
+    "Devin Desktop (formerly Windsurf)",
+    "Devin CLI",
+    "Devin (cloud)"
    ],
    "dark_variant": "luminance inversion (as the bundled set’s R4 -dark rows)",
    "replaces_bundled": [],
    "license": "Vendor’s own published asset; no licence beyond nominative use",
    "trademark": "Trademark of Cognition AI; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
-   "note": "windsurf.com now redirects to devin.ai; this cluster mark is what both serve today. The old Windsurf “wave” (lobe-icons, svgl) is retired and not used."
-  },
-  {
-   "slug": "cline",
-   "group": "agent",
-   "file": "cline.svg",
-   "format": "svg",
-   "pixels": null,
-   "meets_bar": true,
-   "source_tier": "official site",
-   "source_url": "https://cline.bot/assets/branding/logos/cline-icon-dark.svg",
-   "fetched": "2026-10-22",
-   "sha256": "a34dcb49437c420e107c986e1e63b721d64843e82238ba0c43786447c92e0589",
-   "umbrella": "Cline",
-   "sub_products": [],
-   "dark_variant": "luminance inversion (as the bundled set’s R4 -dark rows)",
-   "replaces_bundled": [],
-   "license": "Vendor’s own published asset; no licence beyond nominative use",
-   "trademark": "Trademark of Cline Bot Inc.; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
-   "note": null
-  },
-  {
-   "slug": "goose",
-   "group": "agent",
-   "file": "goose.png",
-   "format": "png",
-   "pixels": 512,
-   "meets_bar": true,
-   "source_tier": "official GitHub",
-   "source_url": "https://raw.githubusercontent.com/block/goose/7ba1b1625d9002f8e66230313c5ab772e35c4c1f/ui/desktop/src/images/icon-512.png",
-   "fetched": "2026-10-22",
-   "sha256": "bb2f305f5bf8fb895ec6e525c068a550a8f06ace3c21ded48c7cedf5f985c2c3",
-   "umbrella": "Goose",
-   "sub_products": [
-    "Goose desktop",
-    "Goose CLI"
-   ],
-   "dark_variant": null,
-   "replaces_bundled": [],
-   "license": "Vendor’s own published asset; no licence beyond nominative use",
-   "trademark": "Trademark of Block, Inc.; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
-   "note": "The desktop app icon. The docs’ logo.svg is a mascot illustration, not the product mark."
-  },
-  {
-   "slug": "kiro",
-   "group": "agent",
-   "file": "kiro.svg",
-   "format": "svg",
-   "pixels": null,
-   "meets_bar": true,
-   "source_tier": "official site",
-   "source_url": "https://kiro.dev/icon.svg",
-   "fetched": "2026-10-22",
-   "sha256": "774cbc1c7ecec8c935a6091595583d7a92fc8289d6f1db3f071c0f50c61c369f",
-   "umbrella": "Kiro",
-   "sub_products": [],
-   "dark_variant": null,
-   "replaces_bundled": [],
-   "license": "Vendor’s own published asset; no licence beyond nominative use",
-   "trademark": "Trademark of Amazon Web Services; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
-   "note": null
+   "note": "windsurf.com now redirects to devin.ai and Windsurf became Devin Desktop on 2026-06-02; this cluster mark is what devin.ai serves today. The old Windsurf “wave” (lobe-icons, svgl) is retired and not used."
   },
   {
    "slug": "warp",

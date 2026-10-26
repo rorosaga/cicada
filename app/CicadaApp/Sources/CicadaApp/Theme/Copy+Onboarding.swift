@@ -140,7 +140,7 @@ extension Copy {
     static let agentsNoneFound = "No agents found on this Mac."
     static let agentsAnother = "Another agent"
     static let agentsPersonal = "Personal agents"
-    static let agentsPersonalNames = "Grok Bot, Muse, Instinct, Dots, Poke"
+    static let agentsPersonalNames = "Grok Bot, Muse, Instinct, Dots"
     /// Onboarding v3 (DR-39): *Another agent* and *Personal agents* fold under one remembered disclosure.
     static let agentsOther = "Other agents"
     static let agentsOtherSummary = "Any other agent · personal agents"

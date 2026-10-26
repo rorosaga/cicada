@@ -208,7 +208,7 @@ HARNESS_LABELS = {
     "grok": "Grok",                     # round 4 R-AG7
     "claude-code-remote": "Claude Code (remote)",
     "codex-remote": "Codex (remote)",
-    "vscode": "VS Code",
+    "vscode": "GitHub Copilot",
     "gemini-cli": "Gemini CLI",
     "remote-app": "Other remote app",
     "agent-api": "Agents over HTTP",   # G213: an agent token's episodes (`catalog.API_HARNESS`)

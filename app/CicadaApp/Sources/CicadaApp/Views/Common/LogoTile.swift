@@ -76,9 +76,8 @@ struct LogoTile: View {
 /// reads this list so an orphaned file still fails.
 enum LogoSet {
     static let umbrellaMarks: [String] = [
-        "claude", "openai", "gemini", "grok", "meta", "cursor", "opencode", "hermes", "openclaw", "poke", "vscode",
-        "zed", "devin", "cline", "goose", "kiro", "warp", "amp", "instinct", "openrouter", "fireworks", "deepinfra",
-        "together", "groq", "mistral",
+        "claude", "openai", "gemini", "grok", "muse", "cursor", "opencode", "hermes", "openclaw", "copilot", "zed",
+        "devin", "warp", "amp", "instinct", "openrouter", "fireworks", "deepinfra", "together", "groq", "mistral",
     ]
     static let sourceMarks: [String] = [
         "x", "instagram", "youtube", "linkedin", "reddit", "tiktok", "github", "scholar", "telegram", "whatsapp",

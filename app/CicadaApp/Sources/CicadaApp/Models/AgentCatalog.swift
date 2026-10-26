@@ -55,7 +55,7 @@ enum AgentCatalog {
         // No vendor, so no mark: the neutral glyph Integrations' "Other agents" wears (DR-52).
         .init(id: "other", name: "Another agent", mark: nil, symbol: IntegrationHarnessRows.otherAgentsSymbol,
               kind: .anyAgent, setupHarnesses: ["other"], featured: false,
-              searchTerms: ["other", "any agent", "windsurf", "zed", "vs code", "copilot", "cline", "goose"]),
+              searchTerms: ["other", "any agent", "devin", "windsurf", "zed", "github copilot", "copilot", "vs code"]),
     ]
 
     static var featured: [AgentCatalogEntry] { all.filter(\.featured) }

@@ -1,13 +1,13 @@
 # Cicada logo set — 2026-10-22
 
-49 marks, one per provider umbrella, each from the highest source on this ladder that had a
+45 marks, one per provider umbrella, each from the highest source on this ladder that had a
 faithful SVG or a PNG of at least 256 px: the brand's own site icon or app icon → its official
 GitHub assets → lobehub/lobe-icons (`@lobehub/icons-static-svg@1.97.0`) → svgl (pheralb/svgl @
 `f9b726c`) → simple-icons (16.35.0, mono). simple-icons was never needed. Two marks come from
 Wikimedia Commons (Scholar, RSS); in both cases there is no better official file, and they match
 what the owner's site serves.
 
-- `*.svg` / `*.png`: the set. 38 SVG, 11 PNG.
+- `*.svg` / `*.png`: the set. 37 SVG, 8 PNG.
 - `manifest.json`: slug, file, format, pixel size, source tier and URL, sha256, umbrella,
   sub-products, which bundled ids it replaces, dark-variant rule, licence and trademark note.
 - `sheet.html` / `sheet.png`: each mark at 26 px in a 36 px rounded tile with a 1 px ring, on light
@@ -24,9 +24,9 @@ what the owner's site serves.
 | OpenAI | blossom (chatgpt.com) | Codex, ChatGPT, OpenAI API, Dots |
 | Google Gemini | four-colour sparkle (gemini.google.com) | Gemini app, Gemini CLI / Antigravity, Gemini API, Vertex AI |
 | xAI Grok | Grok glyph (grok.com) | Grok app, Grok Build, Grok Bot, xAI API |
-| Meta | Meta infinity (svgl) | Muse, Meta AI |
-| VS Code / GitHub Copilot | VS Code (code.visualstudio.com) | VS Code, Copilot |
-| Windsurf / Devin | Cognition cluster (devin.ai) | Windsurf editor, Devin |
+| Muse (Meta) | Muse's blue "m" squiggle (muse.ai) | Muse from Meta |
+| GitHub Copilot | Copilot glyph (GitHub's Primer Octicons, pinned commit) | Copilot in VS Code, Copilot CLI |
+| Devin | Cognition cluster (devin.ai) | Devin Desktop (Windsurf until 2026-06-02), Devin CLI, cloud Devin |
 
 **OpenAI: the blossom, not a ChatGPT tile and not Dots' own mark.** The blossom is OpenAI itself,
 so Codex, ChatGPT, the API and Dots all fit under it. Dots' yellow mark (kept at
@@ -71,16 +71,18 @@ their browser tab and dock, which is why the bundled one "looked so far from the
   older mark, so it is not used. Ask the owner which one Instinct shows in Messages.
 - **Warp: 196 px.** warp.dev serves no SVG and nothing larger. svgl's `warp.svg` is the retired teal
   mark.
-- **Meta / Muse.** meta.ai blocks scripted fetches (403 challenge) and Meta's brand page answered
-  400, so the Meta infinity comes from svgl. Muse's own App Store icon (a blue "m" stroke, 512 px,
-  from Apple's CDN) is at `src/site/muse-appstore.png` in case the owner wants the product mark.
+- **Muse (2026-10-26).** The owner asked for Muse's own mark: `muse.svg` is the SVG favicon muse.ai
+  serves (the same drawing as its App Store icon). Meta's infinity (svgl) left the set with it.
+- **GitHub Copilot (2026-10-26).** GitHub's brand site has published only lockups since 2025, so the
+  bare Copilot glyph comes from GitHub's own Primer Octicons repo (`copilot-48.svg`, pinned commit).
+  VS Code's icon left the set; Cline, Goose, Kiro and Poke left with their catalog rows.
 - **claude.ai and openai.com answered 403.** claude.com and chatgpt.com served the same marks.
 - **Style is not fully uniform, and can't be without restyling.** Some vendors publish a bare glyph
   (Claude, Gemini, Cursor, Groq, …). Others only publish a tiled app icon (Grok, OpenCode,
-  OpenRouter, Poke, Amp, Goose, Hermes, Warp, Wispr, Notion, Instinct). Each is used as published.
+  OpenRouter, Amp, Hermes, Warp, Wispr, Notion, Instinct). Each is used as published.
   Where a tiled vendor also has a bare glyph, it came from a lower rung (lobe-icons, svgl) or is a
   redraw, so I kept the official tile.
-- **Dark mode.** Five marks are black on transparent: OpenAI, Zed, Cline, Windsurf/Devin and
+- **Dark mode.** Five marks are black on transparent: OpenAI, Zed, Copilot, Devin and
   GitHub. These are flagged `dark_variant` and use the bundled set's existing rule: an exact
   luminance inversion on dark. Nothing else is recoloured.
 - **WhatsApp, Spotify, YouTube, LinkedIn, Reddit, Instagram, Brave, Raindrop, Pinterest**: their

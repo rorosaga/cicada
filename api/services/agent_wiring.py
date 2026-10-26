@@ -423,7 +423,7 @@ def config_prompt(product: str, where: str, key: str, spec: dict) -> str:
 
 
 #: The Agents page's "another agent" row (2026-10-14): any agent that keeps its
-#: own MCP servers — Windsurf, Zed, VS Code, Cline, Goose, one not written yet.
+#: own MCP servers — Devin, Zed, GitHub Copilot, one not written yet.
 GENERIC_AGENT = "other"
 
 

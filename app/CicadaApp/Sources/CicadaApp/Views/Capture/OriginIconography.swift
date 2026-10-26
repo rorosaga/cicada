@@ -149,7 +149,7 @@ enum OriginIconography {
         case "grok": "Grok"
         case "claude-code-remote": "Claude Code (remote)"
         case "codex-remote": "Codex (remote)"
-        case "vscode": "VS Code"
+        case "vscode": "GitHub Copilot"
         case "remote-app": "Other remote app"
         default: origin.capitalized
         }
@@ -291,7 +291,7 @@ enum OriginIconography {
         case "chatgpt": "chatgpt"
         case "claude-code-remote": "claude-code"
         case "codex-remote": "codex"
-        case "vscode": "vscode"
+        case "vscode": "copilot"
         default: nil
         }
     }
