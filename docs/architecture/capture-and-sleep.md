@@ -1718,12 +1718,21 @@ mechanisms, each closed for every type, not only people:
 - **An alias is a name this page goes by, never co-occurrence.** Stage 1 gave one person the name and nickname of the
   other person in the same conversation, and Stage 5 unions every new alias onto the page for good, where it brings that
   page to every later judge call and lead question. Now Stage 2 drops, before anything keys a name, an alias that is the
-  name of another thing extracted from the same conversation (`_drop_conversation_names`, before the G209 handle split)
-  — unless that other entry lists this one's name back ("Full Name" ↔ "Nick"): the extractor saying they are one thing,
-  kept. Either way the pair is marked named together (`NAMED_WITH`) and goes to the judge with that note, so neither is
-  ever created unjudged — and, after the loop, a NEW alias that is the name or an alias of another same-type page on disk or born in this batch,
-  when the page being written does not hold it itself (`_drop_other_pages_names`). What a page already lists is
-  untouched; removing an existing wrong alias is the person's repair.
+  name or an alias of ANOTHER entry extracted from the same conversation (`_drop_conversation_names`, before the G209
+  handle split) — unless that entry lists this one's name back ("Full Name" ↔ "Nick": the extractor saying they are one
+  thing), or the alias starts a word of this entry's own name (its own short form). A nickname two entries of one
+  conversation both claim otherwise goes from both. Either way the pair is marked named together (`NAMED_WITH`) and goes
+  to the judge with that note, so neither is ever created unjudged. What a page already lists is untouched; removing an
+  existing wrong alias is the person's repair. An alias is NOT dropped for being another page's name or alias: a
+  nickname the person uses is kept even when others share it (ruling 41, below).
+- **Nicknames at scale (ruling 41, owner 2026-10-27).** A nickname never joins on its own: a person page titled by a
+  nickname (`nickname_title`), or a name two or more other person pages answer to, is never a direct match — it goes to
+  the judge with every page answering to it (`_shared_name`; one other holder stays G209's lead question). More than
+  `MAX_NAME_HOLDERS` (5) pages answering to one name make it common ("babe", "bro", initials): its holders are not each
+  judged, and a person mention named only so is held quietly — no page, no question. The leads are looked up in one
+  index built per run (`NameIndex`: name/alias key → pages; folded spelling bucketed by first letter and length), never
+  by a scan over every alias of every page: 43 ms to build and 2.3 ms a name for candidates (0.4 ms the direct match) on
+  a synthetic 2,500-page bank with ~20k aliases.
 
 **A reference is not recorded as a new alias (2026-10-08, narrowed in fix round 1).** An alias is another NAME for the
 thing; a phrase that only points at it inside one conversation ("the lock", "this project", "la base") is not.
@@ -1887,6 +1896,15 @@ and ids (a portability bug). `api/services/role_people.py` is the one place that
 - **Stage 5.4 asks** (`ask_after_write`): after the pages are written, each unnamed person page the batch touched
   gets one inbox question, "What's the name of your partner?" (`features.md`), unless one is open or the person
   declined. It rides the cycle's commit like every question the cycle opens.
+- **A nickname is the title only until a name is found** (ruling 41, owner 2026-10-27): Stage 1's "<nickname>
+  (unnamed)" (no relation word) becomes a page titled by the nickname, `unnamed: true` + `nickname_title: true`, the
+  nickname also an alias (`canonicalize`, `nickname_of`), asked "What's <nickname>'s name?" when it holds no relation.
+  A name question Sleep finds answered only by a nickname (`inbox_tend._nickname`: the reader marks it one, or it is
+  lowercase where the quote has capitals) titles the page by it as its own Sleep commit — the question stays open and
+  follows the page, a nickname exactly one other person page answers to asks "Is <A> the same as <B>?", never a merge.
+  A name — the person's inbox answer, or a settle that passes `written_as_name` — takes the title through `rename`,
+  which keeps the nickname as an alias and drops `nickname_title`; that switch is never asked. The mark is how the page
+  shows it is a nickname until a name arrives.
 - **Stage 5.4b asks about one relation held twice** (`ask_exclusive`, 2026-10-27): a relation one person holds at a time
   (`EXCLUSIVE`: partner — partner, spouse, girlfriend, boyfriend, wife, husband, fiancé(e) and the Spanish words —,
   mother, father, stepmother, stepfather) held by two or more live person pages (`exclusive_holders`: `owner_roles`, a

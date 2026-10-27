@@ -129,6 +129,7 @@ async def resolve(
     # The pairs the person said are different (`merge_rejections`): a shared alias or a close spelling never brings
     # one of them back to the judge.
     rejected_pairs = _load_rejected(getattr(settings, "memory_path", None))
+    name_index = NameIndex(existing_by_name)   # every name and alias, once: the leads' lookups (2026-10-27)
 
     # G169: a speaker reference ("User", "the user", "me", "yo", "mí"...) is the
     # bank's owner, never a page of its own. One qualified decision
@@ -361,7 +362,7 @@ async def resolve(
     # decision is still made here, in this order (``_Lookahead``).
     concurrency = max(1, int(getattr(settings, "sleep_resolve_concurrency", 1) or 1))
     lookahead = (
-        _Lookahead(_lookahead_plan(ordered_entities, existing_by_name, aliases, rejected_pairs), settings=settings,
+        _Lookahead(_lookahead_plan(ordered_entities, existing_by_name, aliases, rejected_pairs, name_index), settings=settings,
                    cache=llm_match_cache, concurrency=concurrency, cancel_check=cancel_check,
                    connections=connections)
         if concurrency > 1 else None
@@ -383,9 +384,17 @@ async def resolve(
                 new_entity=entity,
                 existing_by_name=existing_by_name,
                 created_by_id=resolved_creates,
+                aliases=aliases,
             )
             if match is None:
                 match = _answered_match(entity, aliases)
+            if (match is None and (entity.get("type") or "").lower() == "person"
+                    and _common_name(name, existing_by_name, aliases)):
+                # A name many people answer to (owner 2026-10-27): no page of its own and no question — held.
+                page = (existing_by_name.get(name.strip().lower())
+                        or (aliases.get(person_leads.handle_key(name)) or [None])[0])
+                match = {"decision": "unsure", "quiet": True,
+                         "candidate": {"source": "existing", "id": page["id"], "data": page}}
             if match is not None and lookahead is not None:
                 lookahead.discard(done_names)
             if match is None:
@@ -400,6 +409,7 @@ async def resolve(
                     prejudged=await lookahead.take(done_names) if lookahead is not None else None,
                     gate=lookahead.gate if lookahead is not None else None,
                     rejected=rejected_pairs,
+                    index=name_index,
                 )
 
             if match is None and _written_type(entity, siblings) == "project":
@@ -596,9 +606,6 @@ async def resolve(
     if not cancelled:
         pending_actions.extend(_held_alias_questions(held_people, existing, resolved_creates, clarifier,
                                                      settings.memory_path, owner_page_id=owner_page_id))
-    crossed = _drop_other_pages_names(resolved_updates, resolved_creates, existing_by_name, aliases)
-    if crossed:
-        logger.info(f"Stage 2: {crossed} alias(es) dropped that are another page's name or alias")
     resolved = list(resolved_updates.values()) + list(resolved_creates.values())
     for raw, full in named_handles.items():
         if full in name_to_id and raw not in name_to_id:
@@ -1854,24 +1861,28 @@ def _find_direct_candidate_match(
     new_entity: dict,
     existing_by_name: dict[str, dict],
     created_by_id: dict[str, dict],
+    aliases: dict[str, list[dict]] | None = None,
 ) -> dict | None:
     new_name = (new_entity.get("name") or "").strip()
     new_name_lower = new_name.lower()
+    person = _is_person(new_entity)
 
     existing_match = existing_by_name.get(new_name_lower)
-    if existing_match is not None:
+    if existing_match is not None and not (person and _shared_name(new_name, existing_match, aliases)):
         return {
             "decision": "same",
             "candidate": {"source": "existing", "id": existing_match["id"], "data": existing_match},
         }
 
-    person = _is_person(new_entity)
-    for existing_name, existing_data in existing_by_name.items():
-        if fuzz.ratio(new_name_lower, existing_name) > 85 and not (person and _near_person(new_name, existing_name)):
-            return {
-                "decision": "same",
-                "candidate": {"source": "existing", "id": existing_data["id"], "data": existing_data},
-            }
+    if existing_match is None:
+        for existing_name, existing_data in existing_by_name.items():
+            if (fuzz.ratio(new_name_lower, existing_name) > 85
+                    and not (person and (_near_person(new_name, existing_name)
+                                         or _shared_name(new_name, existing_data, aliases)))):
+                return {
+                    "decision": "same",
+                    "candidate": {"source": "existing", "id": existing_data["id"], "data": existing_data},
+                }
 
     for candidate_id, create_change in created_by_id.items():
         candidate_entity = create_change.get("entity", {}) or {}
@@ -1886,6 +1897,21 @@ def _find_direct_candidate_match(
             }
 
     return None
+
+
+def _shared_name(new_name: str, page: dict, aliases: dict[str, list[dict]] | None) -> bool:
+    """A person name two or more other pages answer to, or a page titled by a nickname (owner ruling 2026-10-27): never a direct
+    join on the name alone — the page goes to the judge with every other person page that lists the name. "Babe",
+    "bro", initials: a nickname two people share says nothing about which one a new mention is."""
+    fm = (page or {}).get("frontmatter") or {}
+    if str(fm.get("type") or "").lower() != "person":
+        return False
+    if fm.get(role_people.NICKNAME_KEY):
+        return True
+    # One other page listing it is G209's lead (the mention stays on its own page and the question is asked); two or
+    # more mean the name is common to several people.
+    return sum(1 for other in (aliases or {}).get(person_leads.handle_key(new_name), ())
+               if str(other.get("id")) != str(page.get("id")) and _page_type(other) == "person") >= 2
 
 
 def _is_person(entity: dict) -> bool:
@@ -1909,10 +1935,11 @@ def _page_aliases(page: dict) -> list[str]:
 
 
 def _drop_conversation_names(extracted: list[dict]) -> int:
-    """Take out of each extracted thing's ``aliases`` every name of ANOTHER thing extracted from the same conversation
-    (2026-10-27) — unless that other thing lists this one's name back. Two people named in one conversation ("A and B
-    applied together") are two things; an alias is a name this thing goes by, never a name that only sat beside it.
-    Two entries that list each other ("Full Name" ↔ "Nick") are the extractor saying they are one thing: kept.
+    """Take out of each extracted thing's ``aliases`` every name — or alias — of ANOTHER thing extracted from the same
+    conversation (2026-10-27), unless that other thing lists this one's name back. Two people named in one conversation
+    ("A and B applied together") are two things; an alias is a name this thing goes by, never a name (or a nickname)
+    that belongs to someone beside it. Two entries that list each other ("Full Name" ↔ "Nick") are the extractor saying
+    they are one thing: kept. A nickname two entries of one conversation both claim is ambiguous: dropped from both.
 
     Either way the two are marked ``NAMED_WITH`` each other, so the judge weighs the pair with a "named together in one
     conversation" note (`_spelling_lead`) and neither page is created unjudged. In place; returns how many went."""
@@ -1921,6 +1948,13 @@ def _drop_conversation_names(extracted: list[dict]) -> int:
         entities = [e for e in extraction.get("entities", []) or [] if isinstance(e, dict)]
         by_key = {person_leads.handle_key(e.get("name") or ""): e for e in entities}
         by_key.pop("", None)
+        alias_of: dict[str, list[dict]] = {}
+        listed_by: dict[int, set[str]] = {}   # what each entry listed before any drop: the decision is order-free
+        for e in entities:
+            listed_by[id(e)] = {person_leads.handle_key(a) for a in e.get("aliases") or [] if isinstance(a, str)}
+            for a in e.get("aliases") or []:
+                if isinstance(a, str) and a.strip():
+                    alias_of.setdefault(person_leads.handle_key(a), []).append(e)
         for entity in entities:
             listed = entity.get("aliases")
             if not isinstance(listed, list) or not listed:
@@ -1929,15 +1963,20 @@ def _drop_conversation_names(extracted: list[dict]) -> int:
             kept = []
             for alias in listed:
                 key = person_leads.handle_key(alias)
-                other = by_key.get(key) if key != own else None
-                if other is None:
+                named_other = by_key.get(key) if key != own else None
+                others = ([named_other] if named_other is not None else
+                          [e for e in alias_of.get(key, ()) if e is not entity] if key != own else [])
+                if named_other is None and len(key) >= 3 and any(w.startswith(key) for w in own.split()):
+                    others = []   # the start of a word of its own name: its own short form
+                if not others:
                     kept.append(alias)
                     continue
-                for a, b in ((entity, other), (other, entity)):
-                    named = a.setdefault(NAMED_WITH, [])
-                    if b.get("name") and b["name"] not in named:
-                        named.append(b["name"])
-                if any(person_leads.handle_key(x) == own for x in other.get("aliases") or [] if isinstance(x, str)):
+                for other in others:
+                    for a, b in ((entity, other), (other, entity)):
+                        named = a.setdefault(NAMED_WITH, [])
+                        if b.get("name") and b["name"] not in named:
+                            named.append(b["name"])
+                if all(own in listed_by.get(id(o), ()) for o in others):
                     kept.append(alias)   # listed both ways: one thing, by the extractor's own word
             if len(kept) != len(listed):
                 dropped += len(listed) - len(kept)
@@ -1952,51 +1991,6 @@ NAMED_WITH = "_named_with"
 
 def _page_type(page: dict) -> str:
     return str(((page or {}).get("frontmatter") or {}).get("type") or "concept").lower()
-
-
-def _drop_other_pages_names(resolved_updates: dict[str, dict], resolved_creates: dict[str, dict],
-                            existing_by_name: dict[str, dict], alias_index: dict[str, list[dict]]) -> int:
-    """Take out of every change this batch writes the NEW aliases that already name another page of the same type —
-    its name or one of its aliases — when the page being written does not hold that alias itself (2026-10-27).
-
-    An alias Sleep writes is unioned onto the page for good (``conflict_resolver.apply_changes``) and from then on
-    brings that page to every judge call and lead question about the name (G209). Another page's name put there is
-    how one person's name came to sit on someone else's page, and a "Possible duplicate" question was raised from it.
-    Who the alias really belongs to is the judge's or the person's to say, never a union's. What a page already lists
-    is untouched. In place; returns how many aliases went."""
-    created_names: dict[str, list[tuple[str, str]]] = {}   # what this batch's own creates answer to, before any drop
-    for cid, change in resolved_creates.items():
-        entity = change.get("entity") or {}
-        kind = str(entity.get("type") or "concept").lower()
-        for text in {entity.get("name") or "", *(a for a in entity.get("aliases") or [] if isinstance(a, str))}:
-            if str(text).strip():
-                created_names.setdefault(person_leads.handle_key(text), []).append((cid, kind))
-    dropped = 0
-    for change in (*resolved_updates.values(), *resolved_creates.values()):
-        entity = change.get("entity") or {}
-        listed = entity.get("aliases")
-        if not isinstance(listed, list) or not listed:
-            continue
-        own = str(change.get("id") or "")
-        kind = (_page_type(change["existing"]) if change.get("existing")
-                else str(entity.get("type") or "concept").lower())
-        kept = []
-        for alias in listed:
-            key = person_leads.handle_key(alias)
-            holders = list(alias_index.get(key, ()))
-            named = existing_by_name.get(str(alias or "").strip().lower())
-            if named is not None:
-                holders.append(named)
-            others = [p for p in holders if str(p.get("id")) != own and _page_type(p) == kind]
-            mine = any(str(p.get("id")) == own for p in holders)
-            others_born = [cid for cid, t in created_names.get(key, ()) if cid != own and t == kind]
-            if (others and not mine) or others_born:
-                continue
-            kept.append(alias)
-        if len(kept) != len(listed):
-            dropped += len(listed) - len(kept)
-            entity["aliases"] = kept
-    return dropped
 
 
 def _alias_index(existing_by_name: dict[str, dict]) -> dict[str, list[dict]]:
@@ -2321,6 +2315,9 @@ def _lead_note(new_name: str, candidate: dict) -> str:
     if candidate.get("together"):
         parts.append(f'B and "{candidate["together"]}" were named together in one conversation, and its extraction '
                      "tied them by an alias.")
+    if candidate.get("shared_name"):
+        parts.append(f'Several people in this memory are called "{candidate["shared_name"]}" (a name or a nickname '
+                     "they share), so the name alone does not tell which one B is.")
     if candidate.get("shared_alias"):
         parts.append(f'B is also called "{candidate["shared_alias"]}", a name A goes by.')
     if candidate.get("close"):
@@ -2591,59 +2588,141 @@ async def _llm_judge_batch(
     return [str(d) for d in decisions]
 
 
+#: More pages than this answering to one name or nickname ("babe", "bro", initials) make it common, not a lead
+#: (owner 2026-10-27, "many people sharing common nicknames"): its holders are not each judged — a person mention
+#: named only so is held quietly (no page, no question) until something more specific says who it is.
+MAX_NAME_HOLDERS = 5
+
+
+def _common_name(name: str, existing_by_name: dict[str, dict], aliases: dict[str, list[dict]] | None) -> bool:
+    holders = {str(p.get("id")) for p in (aliases or {}).get(person_leads.handle_key(name), ())}
+    page = existing_by_name.get(str(name or "").strip().lower())
+    if page is not None:
+        holders.add(str(page.get("id")))
+    return len(holders) > MAX_NAME_HOLDERS
+
+
+class NameIndex:
+    """The bank's names and aliases, indexed once per Stage 2 run (owner 2026-10-27: "should work at scale with many many
+    nicknames"): ``by_key`` — a name's or alias's key → ``(text, page)`` for every page answering to it; ``buckets`` —
+    ``(first letter, length)`` of its folded spelling → ``(text, page)``, so a close spelling is looked up among the few
+    names of about its length, never by a scan over every alias of every page. References and pronouns are not indexed
+    (`alias_policy`)."""
+
+    def __init__(self, existing_by_name: dict[str, dict]):
+        self.by_key: dict[str, list[tuple[str, dict]]] = {}
+        self.buckets: dict[tuple[str, int], list[tuple[str, dict]]] = {}
+        for page in existing_by_name.values():
+            texts = [_candidate_display_name({"source": "existing", "id": page["id"], "data": page}),
+                     *_page_aliases(page)]
+            seen: set[str] = set()
+            for text in texts:
+                key = person_leads.handle_key(text)
+                if not key or key in seen or alias_policy.is_reference(text):
+                    continue
+                seen.add(key)
+                self.by_key.setdefault(key, []).append((text, page))
+                spelled = _spelling_key(text)
+                if len(spelled) >= 4:
+                    self.buckets.setdefault((spelled[0], len(spelled)), []).append((text, page))
+
+    def answering(self, text: str) -> list[tuple[str, dict]]:
+        return self.by_key.get(person_leads.handle_key(text), [])
+
+    def close_to(self, name: str) -> list[tuple[str, dict]]:
+        spelled = _spelling_key(name)
+        if len(spelled) < 4:
+            return []
+        return [(text, page) for n in range(len(spelled) - 2, len(spelled) + 3)
+                for text, page in self.buckets.get((spelled[0], n), ()) if close_spelling(name, text)]
+
+
 def _existing_llm_candidates(
     new_entity: dict, existing_by_name: dict[str, dict], aliases: dict[str, list[dict]] | None = None,
-    rejected: frozenset | set = frozenset(),
+    rejected: frozenset | set = frozenset(), index: "NameIndex | None" = None,
 ) -> list[dict]:
     """The pages on disk the judge weighs ``new_entity`` against, in judging order.
 
     First the same-type pages that list the name among their ``aliases`` (marked
-    ``alias``; they need share no word with it — an acronym, a short form), then
-    the same-type pages tied to it by a shared alias or a close spelling
-    (``_spelling_lead``, 2026-10-27), then the same-type pages that share a
-    content token with the name; none already a strict-fuzz match. A function of
-    the extraction and the bank alone —
-    nothing the per-name loop decides changes it — which is what lets ``resolve``
-    judge these ahead of the loop (``_Lookahead``)."""
+    ``alias``; they need share no word with it — an acronym, a short form, a
+    nickname), then the same-type pages tied to it by a lead (``_spelling_lead``,
+    2026-10-27: a shared alias, a close spelling, named together in one
+    conversation; for a person, a page whose name it is but that several pages
+    answer to, or one titled by a nickname), then the same-type pages that share a
+    content token with the name; none already a direct match. Leads come from
+    ``index`` (built once per run, `NameIndex`). A function of the extraction and
+    the bank alone — nothing the per-name loop decides changes it — which is what
+    lets ``resolve`` judge these ahead of the loop (``_Lookahead``)."""
     new_name = new_entity.get("name") or ""
     new_type = (new_entity.get("type") or "concept").lower()
     candidates: list[dict] = []
-    for page in (aliases or {}).get(person_leads.handle_key(new_name), ()) if new_name else ():
+    holders = (aliases or {}).get(person_leads.handle_key(new_name), ()) if new_name else ()
+    for page in holders if len(holders) <= MAX_NAME_HOLDERS else ():   # a common nickname is no lead
         candidate = {"source": "existing", "id": page["id"], "data": page, "alias": True}
         if new_type in _candidate_types(candidate):
             candidates.append(_with_lead(candidate, new_entity, _spelling_lead(
                 new_entity, _candidate_display_name(candidate), _page_aliases(page))))
     if not new_name:
         return candidates
+    if index is None:
+        index = NameIndex(existing_by_name)
     new_name_lower = new_name.lower()
+    new_key = person_leads.handle_key(new_name)
     tokens, person = bool(_name_tokens(new_name)), _is_person(new_entity)
     held = {candidate["id"] for candidate in candidates}
-    # 2026-10-27: a page that shares an alias with the new name, or whose name or alias it is a close spelling of, is
-    # weighed too — after the pages that list the name itself, before the ones that only share a word with it. Two
-    # spellings of one person ("Kovask", "Kovasc") share no word and score under the direct match's 85.
+
+    # The pages a lead points at, looked up in the index — never a scan over every alias of every page.
+    pointed: dict[str, dict] = {}
+    for alias in new_entity.get("aliases") or []:
+        if str(alias).strip() and person_leads.handle_key(alias) != new_key and not alias_policy.is_reference(alias):
+            answering = index.answering(alias)
+            for _text, page in answering if len(answering) <= MAX_NAME_HOLDERS else ():
+                pointed.setdefault(page["id"], page)
+    for other in new_entity.get(NAMED_WITH) or []:
+        for _text, page in index.answering(other):
+            pointed.setdefault(page["id"], page)
+    for _text, page in index.close_to(new_name):
+        pointed.setdefault(page["id"], page)
+    if person:
+        for name_lower, page in existing_by_name.items():
+            # A person name the direct match would take is the judge's when it is not one spelling, or when several
+            # pages answer to it (`_shared_name`).
+            if fuzz.ratio(new_name_lower, name_lower) > 85 and (
+                    _near_person(new_name, name_lower) or _shared_name(new_name, page, aliases)):
+                pointed.setdefault(page["id"], page)
+
     shared: list[dict] = []
-    token_sharing: list[dict] = []
-    for existing_name_lower, existing_data in existing_by_name.items():
-        if existing_data["id"] in held:
+    for page_id, page in pointed.items():
+        if page_id in held:
             continue
-        candidate = {"source": "existing", "id": existing_data["id"], "data": existing_data}
+        candidate = {"source": "existing", "id": page_id, "data": page}
         if new_type not in _candidate_types(candidate):
             continue
-        existing_display = _candidate_display_name(candidate)
-        lead = _spelling_lead(new_entity, existing_display, _page_aliases(existing_data))
-        if person and fuzz.ratio(new_name_lower, existing_name_lower) > 85:
-            if not _near_person(new_name, existing_name_lower):
-                continue   # one spelling: the direct match's
-            lead.setdefault("close", existing_display)   # "Delfine" / "Delphine": the judge's, never a direct join
-        elif not lead and not (tokens and _share_content_token(new_name, existing_display)):
+        display = _candidate_display_name(candidate)
+        lead = _spelling_lead(new_entity, display, _page_aliases(page))
+        if person and fuzz.ratio(new_name_lower, display.lower()) > 85:
+            if _near_person(new_name, display):
+                lead.setdefault("close", display)
+            elif _shared_name(new_name, page, aliases):
+                lead.setdefault("shared_name", display)
+        if not lead:
             continue
-        elif fuzz.ratio(new_name_lower, existing_name_lower) > 85:
-            continue
-        if lead:
-            held.add(existing_data["id"])
-            if not _rejected_pair(rejected, new_name, existing_data["id"]):
-                shared.append(_with_lead(candidate, new_entity, lead))
-        else:
+        held.add(page_id)
+        if not _rejected_pair(rejected, new_name, page_id):
+            shared.append(_with_lead(candidate, new_entity, lead))
+
+    token_sharing: list[dict] = []
+    if tokens:
+        for existing_name_lower, existing_data in existing_by_name.items():
+            if existing_data["id"] in held:
+                continue
+            candidate = {"source": "existing", "id": existing_data["id"], "data": existing_data}
+            if new_type not in _candidate_types(candidate):
+                continue
+            if not _share_content_token(new_name, _candidate_display_name(candidate)):
+                continue
+            if fuzz.ratio(new_name_lower, existing_name_lower) > 85:
+                continue
             token_sharing.append(candidate)
     return candidates + shared + token_sharing
 
@@ -2811,6 +2890,7 @@ async def _find_llm_candidate_match(
     prejudged: list[tuple[dict, str]] | None = None,
     gate: asyncio.Semaphore | None = None,
     rejected: frozenset | set = frozenset(),
+    index: "NameIndex | None" = None,
 ) -> dict | None:
     """Look for an existing or in-cycle entity that the LLM judges as same/unsure.
 
@@ -2831,7 +2911,8 @@ async def _find_llm_candidate_match(
 
     if prejudged is None:
         judged = await _judge_candidates(
-            new_entity, _existing_llm_candidates(new_entity, existing_by_name, aliases, rejected), cache, settings,
+            new_entity, _existing_llm_candidates(new_entity, existing_by_name, aliases, rejected, index), cache,
+            settings,
             gate=gate, connections=connections)
     else:
         judged = list(prejudged)
@@ -2852,6 +2933,7 @@ LOOKAHEAD_NAMES_PER_SLOT = 4
 def _lookahead_plan(
     ordered_entities: list[tuple[str, dict]], existing_by_name: dict[str, dict],
     aliases: dict[str, list[dict]] | None = None, rejected: frozenset | set = frozenset(),
+    index: "NameIndex | None" = None,
 ) -> list[tuple[dict, list[dict]] | None]:
     """What ``_Lookahead`` may judge ahead: per name in the loop's order, its
     existing-page candidates — or ``None`` where the loop makes no existing-page
@@ -2864,9 +2946,9 @@ def _lookahead_plan(
     for _, entity in ordered_entities:
         name_lower = (entity.get("name") or "").strip().lower()
         entry: tuple[dict, list[dict]] | None = None
-        if (_find_direct_candidate_match(entity, existing_by_name, {}) is None
+        if (_find_direct_candidate_match(entity, existing_by_name, {}, aliases) is None
                 and not any(name_lower == other or fuzz.ratio(name_lower, other) > 85 for other in earlier)):
-            candidates = _existing_llm_candidates(entity, existing_by_name, aliases, rejected)
+            candidates = _existing_llm_candidates(entity, existing_by_name, aliases, rejected, index)
             if candidates:
                 entry = (entity, candidates)
         plan.append(entry)

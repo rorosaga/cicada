@@ -1470,8 +1470,8 @@ def _question_prompt(memory_path: Path, fm: dict, lines: list[str], *,
         choices = {"merge": f"{name} is {other}", "different": f"{name} is not {other}"}
         how = "Options:\n" + "\n".join(f"- {k}: {v}" for k, v in choices.items())
     elif str(fm.get("asks") or "") == "name":
-        how = ("Give only the person's name, exactly as they wrote it, in \"answer\". A nickname, pet name or word "
-               "they only call the person by is not their name: then answered=false.")
+        how = ("Give only the person's name, exactly as they wrote it, in \"answer\". If their words call the person "
+               "only by a nickname or pet name, give that in \"answer\" and add \"nickname\": true.")
     else:
         how = (f"Give the answer as a short phrase (at most {MAX_ANSWER_CHARS} characters) in their words, "
                "in \"answer\".")
@@ -1528,6 +1528,20 @@ _FOLLOWUP_WORDS = {
     "dropped": frozenset("""dropped cancelled canceled abandoned scrapped cancele cancelado cancelada
                          abandonado""".split()),
 }
+
+
+#: A name question answered only by a nickname (owner ruling 2026-10-27): not a settle — the page is titled by the
+#: nickname and the question stays open (`_nickname`).
+NICKNAME_RULE = "nickname_in_conversation"
+NICKNAME_ACTION = "nickname"
+
+
+def _nickname_known(memory_path: Path, fm: dict, nickname: str) -> bool:
+    page = _page(memory_path, str(fm.get("entity_id") or ""))
+    if page is None:
+        return True   # nothing to title
+    names = {_fold_name(page[1].get("name")), *(_fold_name(a) for a in page[1].get("aliases") or [])}
+    return _fold_name(nickname) in names
 
 
 def written_as_name(answer, quote: str) -> bool:
@@ -1626,6 +1640,15 @@ def _answer_decision(memory_path: Path, path: Path, fm: dict, reply: dict, choic
     answer = " ".join(str(reply.get("answer") or "").split())[:MAX_ANSWER_CHARS]
     if not answer:
         return None, "no_answer"
+    if str(fm.get("asks") or "") == "name" and answer_supported(
+            memory_path, {**fm, "asks": ""}, {"action": "answer", "answer": answer}, quote) and (
+            reply.get("nickname") is True or not written_as_name(answer, quote)):
+        # Owner ruling 2026-10-27: a nickname the person uses titles a page that has no name and stays its alias; the
+        # name question stays open, so a name, when it comes, still takes the title.
+        if _nickname_known(memory_path, fm, answer):
+            return None, "nickname_known"
+        return Decision(path.stem, kind, NICKNAME_RULE, {"action": NICKNAME_ACTION, "answer": answer},
+                        answer=answer, quote=words, model=model), ""
     if not answer_supported(memory_path, fm, {"action": "answer", "answer": answer}, quote):
         return None, "quote_says_otherwise"   # the person's words, but not saying this answer
     return Decision(path.stem, kind, rule, {"action": "answer", "answer": answer},
@@ -1912,6 +1935,9 @@ async def apply(memory_path: Path, settings, d: Decision, *, engine: str | None 
                               fold_pages=bool(d.request and d.request.get("action") == "merge"))
     token = inbox_actor.set_actor(actor)
     quote_token = inbox_service._ANSWER_QUOTE.set([d.quote] if d.quote else None)
+    if d.request and d.request.get("action") == NICKNAME_ACTION:
+        record_path.unlink(missing_ok=True)
+        return await asyncio.to_thread(_nickname, memory_path, path, d, settings)
     try:
         if d.request is None:
             await asyncio.to_thread(_retire, memory_path, path, fm, d, actor)
@@ -1948,6 +1974,43 @@ def _resolve_page_locked(memory_path: Path, d: Decision, settings) -> None:
 
     with page_lock.page_lock(memory_path):
         asyncio.run(inbox_service._resolve_admitted(d.item_id, InboxResolveRequest(**d.request), settings, None))
+
+
+def _nickname(memory_path: Path, path: Path, d: Decision, settings) -> bool:
+    """Title the question's page by the nickname the person's own words call them (owner ruling 2026-10-27), as one
+    Sleep commit, under the page lock. The name question stays open and follows the page; a nickname exactly one other
+    person page answers to raises "Is <A> the same as <B>?" — never a merge. Returns False when nothing changed."""
+    from api.services import git_service, page_lock, role_people
+
+    with page_lock.page_lock(memory_path):
+        parsed = markdown_parser.parse(path)
+        qfm = dict(parsed.frontmatter)
+        page_id = str(qfm.get("entity_id") or "")
+        if not (memory_path / "entities" / f"{page_id}.md").is_file() or _nickname_known(memory_path, qfm, d.answer):
+            return False
+        before = git_service.snapshot_dirty_sync(memory_path)
+        owner_fm = role_people.owner_frontmatter(memory_path, settings)
+        outcome = role_people.title_by_nickname(memory_path, page_id, d.answer, owner_fm)
+        qfm["entity_id"], qfm["entity_name"] = outcome.page_id, d.answer
+        markdown_parser.write(path, qfm, parsed.body)
+        rel = path.relative_to(memory_path).as_posix()
+        paths = [*outcome.paths, rel]
+        others = role_people.same_name(memory_path, d.answer, exclude=outcome.page_id)
+        if len(others) == 1:
+            asked = role_people.ask_same(
+                memory_path, outcome.page_id, others[0],
+                f"You call this person {d.answer}, a name another person in this memory also goes by.")
+            if asked:
+                paths.append(asked)
+        bank_index.invalidate(memory_path)
+        lines = [f"{p}: updated (source: {d.item_id}, trigger: {TRIGGER}:{d.rule})" for p in dict.fromkeys(paths)]
+        message = git_service.build_commit_message(
+            f"Titled by a nickname by Sleep {date.today().isoformat()}", lines,
+            authors=[d.model] if d.model else ["cicada"])
+        git_service.commit_touched_sync(memory_path, message, list(dict.fromkeys(paths)), before=before,
+                                        kept_subject=f"Uncommitted edit kept apart {date.today().isoformat()}",
+                                        kept_trigger="inbox/kept-apart")
+    return True
 
 
 def _retire(memory_path: Path, path: Path, fm: dict, d: Decision, actor: inbox_actor.Actor) -> None:

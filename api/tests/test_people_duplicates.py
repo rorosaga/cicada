@@ -149,14 +149,15 @@ def test_a_same_verdict_joins_the_close_spelling_to_its_page(bank, monkeypatch):
     assert result["name_to_id"]["talwyk"] == "talvik"
 
 
-def test_a_shared_alias_alone_is_the_judges_call_and_the_alias_stays_off_the_new_page(bank, monkeypatch):
-    """No close spelling: a "different" verdict stands, and the shared alias is another page's, so it is not written."""
+def test_a_shared_alias_alone_is_the_judges_call_and_the_nickname_is_kept(bank, monkeypatch):
+    """No close spelling: a "different" verdict stands, and the nickname the person uses stays the new page's alias
+    (owner ruling 2026-10-27: a nickname is always kept, even one other people share)."""
     result = _resolve(bank, monkeypatch, _three_holders(),
                       [_mention("Quenby", 1, aliases=["Tal"]), _mention("Quenby", 2, aliases=["Tal"])],
                       _Judge("different"))
     assert _creates(result) == ["quenby"]
     page = next(c for c in result["changes"] if c["id"] == "quenby")
-    assert "Tal" not in (page["entity"].get("aliases") or [])
+    assert "Tal" in page["entity"]["aliases"]
 
 
 def test_a_close_spelling_alone_is_brought_and_the_judge_decides(bank, monkeypatch):
@@ -219,18 +220,18 @@ def test_an_alias_naming_another_person_in_the_same_conversation_is_dropped(bank
                           others=[("Dax Venn", ["Dax"])])]
     result = _resolve(bank, monkeypatch, [_page("Mira Quell")], extracted, _Judge())
     mira = next(c for c in result["changes"] if c["id"] == "mira-quell")
-    assert mira["entity"]["aliases"] == ["Dax", "Mimi"]   # "Dax" names nothing else extracted here
+    assert mira["entity"]["aliases"] == ["Mimi"]   # "Dax" is the other person's nickname in this conversation
     dax = next(e for e in extracted[0]["entities"] if e["name"] == "Dax Venn")
     assert dax["aliases"] == ["Dax"]
 
 
 @pytest.mark.parametrize("alias, kept", [
-    ("Ostro Lane", False),   # another person page's name
-    ("Pip", False),          # another person page's alias
-    ("Ostro", True),         # a company's name: another type, not the same claim on a person
-    ("Mimi", True),          # names no other page
+    ("Ostro Lane", True),    # a nickname that is also another page's name: kept (ruling 2026-10-27); a later mention
+    ("Pip", True),           # of it meets every page that answers to it (`_shared_name`, G209's lead)
+    ("Ostro", True),
+    ("Mimi", True),
 ])
-def test_an_alias_another_page_already_answers_to_is_not_written(bank, monkeypatch, alias, kept):
+def test_a_nickname_from_another_conversation_is_kept_whoever_else_answers_to_it(bank, monkeypatch, alias, kept):
     pages = [_page("Mira Quell"), _page("Ostro Lane"), _page("Pella Ray", aliases=["Pip"]),
              _page("Ostro", etype="company")]
     result = _resolve(bank, monkeypatch, pages, [_mention("Mira Quell", 1, aliases=[alias])], _Judge())
@@ -272,14 +273,14 @@ def test_the_pair_meets_the_judge_when_one_side_already_has_a_page(bank, monkeyp
     assert [(c["new_name"], c["existing_name"]) for c in judge.calls] == [("Elspeth Moorcroft", "Ellie")]
 
 
-def test_an_alias_a_page_born_in_the_same_batch_answers_to_is_not_written_elsewhere(bank, monkeypatch):
-    """Two conversations in one batch: one introduces Dax Venn ("Dax"), another wrongly gives "Dax" to Mira."""
+def test_a_nickname_two_people_share_across_conversations_stays_on_both(bank, monkeypatch):
+    """Two conversations in one batch, each calling a different person "Dax": a shared nickname, kept on both pages."""
     extracted = [_mention("Dax Venn", 1, aliases=["Dax"]), _mention("Dax Venn", 2, aliases=["Dax"]),
                  _mention("Mira Quell", 3, aliases=["Dax"])]
     result = _resolve(bank, monkeypatch, [_page("Mira Quell")], extracted, _Judge())
     assert _creates(result) == ["dax-venn"]
     assert "Dax" in next(c for c in result["changes"] if c["id"] == "dax-venn")["entity"]["aliases"]
-    assert "Dax" not in (next(c for c in result["changes"] if c["id"] == "mira-quell")["entity"].get("aliases") or [])
+    assert "Dax" in next(c for c in result["changes"] if c["id"] == "mira-quell")["entity"]["aliases"]
 
 
 def test_a_page_keeps_an_alias_it_already_holds(bank, monkeypatch):
@@ -401,3 +402,117 @@ def test_a_name_settle_needs_the_answer_written_as_a_name(answer, quote, expecte
     assert inbox_tend.written_as_name(answer, quote) is expected
     fm = {"kind": "clarification", "asks": "name"}
     assert inbox_tend.answer_supported(Path("."), fm, {"action": "answer", "answer": answer}, quote) is expected
+
+
+# ---------- owner ruling 2026-10-27: nicknames count as nicknames, a name until a name is found ----------
+
+NICKS = ["Cori", "Vee", "Hal", "CH", "Corvy", "Bird", "Coco", "Ina", "Vina", "Halo"]
+
+
+def test_one_person_with_ten_nicknames_keeps_them_all_and_each_meets_the_judge(bank, monkeypatch):
+    result = _resolve(bank, monkeypatch, [_page("Corvina Hale")], [_mention("Corvina Hale", 1, aliases=NICKS)],
+                      _Judge())
+    page = next(c for c in result["changes"] if c["id"] == "corvina-hale")
+    assert page["entity"]["aliases"] == NICKS
+    pages = [_page("Corvina Hale", aliases=NICKS)]
+    for n, nick in enumerate(NICKS):
+        judge = _Judge("same")
+        out = _resolve(bank, monkeypatch, pages, [_mention(nick, 1 + n % 9)], judge)
+        assert [c["existing_name"] for c in judge.calls] == ["Corvina Hale"], nick   # a lead, never a direct join
+        assert out["name_to_id"][nick.lower()] == "corvina-hale"
+
+
+@pytest.mark.parametrize("verdict, created, asked", [("different", ["bee"], False), ("unsure", [], True)])
+def test_three_people_sharing_a_nickname_never_join_on_it_alone(bank, monkeypatch, verdict, created, asked):
+    pages = [_page("Ada Brook", aliases=["Bee"]), _page("Beatrix Lowe", aliases=["Bee"]),
+             _page("Bianca Cole", aliases=["Bee"])]
+    judge = _Judge(verdict)
+    result = _resolve(bank, monkeypatch, pages, [_mention("Bee", 1), _mention("Bee", 2)], judge)
+    assert sorted(c["existing_name"] for c in judge.calls) == ["Ada Brook", "Beatrix Lowe", "Bianca Cole"]
+    assert _creates(result) == created
+    assert not any(c["action"] == "update" for c in result["changes"])
+    assert any(q[0] == "merge_suggestion" for q in _questions(bank)) is asked
+
+
+def test_a_page_titled_by_a_nickname_is_never_joined_on_that_name_alone(bank, monkeypatch):
+    titled = _page("Bee", aliases=["Bee"])
+    titled["frontmatter"].update({role_people.NICKNAME_KEY: True, "unnamed": True})
+    judge = _Judge("different")
+    result = _resolve(bank, monkeypatch, [titled], [_mention("Bee", 1), _mention("Bee", 2)], judge)
+    assert [c["existing_name"] for c in judge.calls] == ["Bee"]
+    assert "bee" not in {c["id"] for c in result["changes"] if c["action"] == "update"}
+
+
+def test_stage_1s_unnamed_nickname_is_titled_by_the_nickname_and_asked_its_name():
+    extracted = [{"episode_id": "ep_2026-10-01_001", "relationships": [{"source": "Bun (unnamed)", "target": "x"}],
+                  "entities": [{"name": "Bun (unnamed)", "type": "person", "aliases": []}]}]
+    role_people.canonicalize(extracted, [], {"name": "Alpha Owner", "owner": True})
+    entity = extracted[0]["entities"][0]
+    assert entity["name"] == "Bun" and entity["aliases"] == ["Bun"]
+    assert role_people.create_fields(entity) == {"unnamed": True, role_people.NICKNAME_KEY: True}
+    assert extracted[0]["relationships"][0]["source"] == "Bun"
+
+
+def _memory(tmp_path):
+    memory = tmp_path / "memory"
+    for sub in ("entities", "episodes", "inbox"):
+        (memory / sub).mkdir(parents=True)
+    _write(memory, OWNER, {"name": "Alpha Owner", "owner": True})
+    _write(memory, "partner", {"name": "Partner", "unnamed": True, "owner_roles": ["partner"]})
+    return memory
+
+
+def test_a_nickname_titles_the_page_until_a_name_arrives(tmp_path):
+    memory = _memory(tmp_path)
+    out = role_people.title_by_nickname(memory, "partner", "Bun", None)
+    fm = markdown_parser.parse(memory / "entities" / f"{out.page_id}.md").frontmatter
+    assert out.page_id == "bun" and fm["name"] == "Bun"
+    assert fm[role_people.NICKNAME_KEY] is True and fm["unnamed"] is True and "Bun" in fm["aliases"]
+    assert fm["owner_roles"] == ["partner"]
+    question = role_people.ensure_question(memory, "bun")
+    assert markdown_parser.parse(question).frontmatter["question"] == "What's the name of your partner?"
+
+    named = role_people.answer_name(memory, "bun", "partner", "Ana Lima", None)
+    fm = markdown_parser.parse(memory / "entities" / f"{named.page_id}.md").frontmatter
+    assert named.page_id == "ana-lima" and fm["name"] == "Ana Lima" and "Bun" in fm["aliases"]
+    assert role_people.NICKNAME_KEY not in fm and "unnamed" not in fm
+
+
+def test_a_nickname_page_with_no_relation_is_asked_for_the_name_behind_it(tmp_path):
+    memory = _memory(tmp_path)
+    _write(memory, "bun", {"name": "Bun", "unnamed": True, role_people.NICKNAME_KEY: True, "aliases": ["Bun"]})
+    question = markdown_parser.parse(role_people.ensure_question(memory, "bun")).frontmatter
+    assert question["question"] == "What's Bun's name?" and question["owner_role"] == ""
+
+
+def test_a_name_question_answered_by_a_nickname_titles_the_page_and_stays_open(tmp_path, monkeypatch):
+    memory = _memory(tmp_path)
+    monkeypatch.setattr(inbox_tend, "persons_span", lambda *a: object())
+    fm = {"kind": "clarification", "asks": "name", "entity_id": "partner"}
+    path = memory / "inbox" / "inbox-001.md"
+    markdown_parser.write(path, fm, "q")
+    for reply in ({"answered": True, "answer": "bun", "quote": "Please forward the itinerary to bun tonight"},
+                  {"answered": True, "answer": "Bun", "nickname": True,
+                   "quote": "Please forward the itinerary to Bun tonight"}):
+        d, why = inbox_tend._answer_decision(memory, path, fm, reply, {}, "ep_2026-10-01_001", None, "said")
+        assert why == "" and d.request == {"action": inbox_tend.NICKNAME_ACTION, "answer": reply["answer"]}
+    named, why = inbox_tend._answer_decision(
+        memory, path, fm, {"answered": True, "answer": "Ana Lima", "quote": "Her name is Ana Lima"}, {},
+        "ep_2026-10-01_001", None, "said")
+    assert named.request == {"action": "answer", "answer": "Ana Lima"}   # a name still settles it
+
+
+def test_a_short_form_two_entries_of_one_conversation_claim_stays_with_the_name_it_starts():
+    extracted = [_mention("Mira Quell", 1, aliases=["Kov"], others=[("Kovask Lin", ["Kov"])])]
+    er._drop_conversation_names(extracted)
+    mira, kovask = extracted[0]["entities"]
+    assert mira["aliases"] == [] and kovask["aliases"] == ["Kov"]
+    assert mira[er.NAMED_WITH] == ["Kovask Lin"]
+
+
+def test_a_nickname_many_people_share_is_held_quietly_not_judged_against_each(bank, monkeypatch):
+    pages = [_page(f"Person {c}", aliases=["Babe"]) for c in "ABCDEF"]     # more than MAX_NAME_HOLDERS
+    judge = _Judge("same")
+    result = _resolve(bank, monkeypatch, pages, [_mention("Babe", 1), _mention("Babe", 2)], judge)
+    assert judge.calls == [] and _creates(result) == [] and _questions(bank) == []
+    assert not any(c["action"] == "update" for c in result["changes"])
