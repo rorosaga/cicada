@@ -174,6 +174,20 @@ that stale identity match. This is one recorded source call, with no chain walk 
 (`CONTRACT_VERSION` 15, A2). The primer and installed skill gently suggest an optional brief `State:`
 (in flight / blocked / next) at the end of working replies; continuity does not depend on it. This line is included
 in the whole ≤1,800 proxy-token handshake budget, including max-primer/startup fixtures; R12 still holds.
+**Projects (ruling 45, 2026-10-27).** `cicada_create_project(project, description?, evidence?, repo?)` starts a project
+the person asked for: a harness on their G198 trust list lands it in their list (`mine: {via: agent}`), any other client
+— a remote app always — leaves a suggestion labelled as its proposal; a name already a page is refused with that page
+named. `cicada_link_conversation(project, reason, episode? | session?, remove?)` ties a conversation (recorded with the
+agent's name); an agent unties only what it tied, and the person's untie is final. `cicada_add_influence(project, what? |
+url?, how?, evidence?)` records what fed a project — a link as the agent's source, a name as a claim with the agent as
+observer (`inspired-by`, `references`, `uses`; a person as `works-on` on their page), plain text when no page matches,
+never a page made. All three are `record` remotely, one `cli_map` row each (`projects create|link|influence`, proposed
+spellings; `/v1` `projects_create`, `projects_link`, `projects_influence`), admitted, committed alone under the harness.
+`cicada_edit_page` takes `name` and `description` for a project (the header, `description_by` the harness; the old name
+stays an alias; untrusted → an inbox proposal). `cicada_project`'s reply says whether the project is in the person's
+list, their description (remote: only with `sources`), and how many conversations and influences are tied. Handshake
+Option A: the primer names none of them; the skill does. `cicada_capture_turns` takes an optional `project` — the
+relaying app's word on which project the conversation is in, only from its own context, kept as `relay.project`.
 **`cicada_note_progress`** (G141) records a happening or a milestone the person
 described — observer always the agent, `record` scope remotely, never creates a page, echoes how the date
 was decided; `cicada_retract_claim` withdraws an event the same way.

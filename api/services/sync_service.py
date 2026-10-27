@@ -193,8 +193,16 @@ def components(memory_path: Path, *, sleep_state=None, reuse: dict | None = None
         # G205: agent requests live outside the bank; a bank that never had one keeps its old stamp (and ETags).
         # Requests expire after days, not seconds, so today's date covers an expiry with nothing written.
         inbox_component += f":r{requests_mtime:.6f}:{date.today().isoformat()}"
+    # Ruling 45: `project_groupings.yaml` (dismissed ChatGPT groupings, imported provider ids) changes what the Projects
+    # list says without touching a page, so it rides the `entities` component — every read keyed on it (`/projects`,
+    # and the app's `ProjectsRefresh`, which revalidates on `entities`) moves with it. A bank without the file keeps
+    # its stamp byte for byte.
+    groupings = mp / "project_groupings.yaml"
+    entities_component = bank_index.dir_fingerprint(mp / "entities")
+    if groupings.exists():
+        entities_component += f":g{file_mtime(groupings):.6f}"
     return {
-        "entities": bank_index.dir_fingerprint(mp / "entities"),
+        "entities": entities_component,
         "edges": f"{file_mtime(mp / 'graph_edges.yaml'):.6f}",
         "hubs": bank_index.dir_fingerprint(mp / "hubs"),
         "inbox": inbox_component,

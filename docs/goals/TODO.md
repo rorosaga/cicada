@@ -25,6 +25,12 @@
   the file comes from. The Calendar row lists the accounts it read and opens Internet Accounts to add Google's (no
   prompt); Google's secret iCal address through the feed path is not offered, because a subscription is stored in the
   bank's `calendars.yaml`, which would put a credential in the bank. Needs the owner: the detail-pane screenshots.
+- **2026-10-27 — ruling 45 recorded; the Projects list is the person's (G141, G222; branch `feat/projects-v2`).**
+  Backend and wire (PR 1): `mine` / `not_mine`, the person's description and rename, Suggested with its reasons,
+  every conversation tied with why (FTS-backed, `partial` while the index builds), influences, three agent tools
+  (`cicada_create_project`, `cicada_link_conversation`, `cicada_add_influence`) on every door, Claude export projects,
+  ChatGPT project ids and the relay's `project`; wire `g141-7`. The SwiftUI page is PR 2 (needs a Mac). **Next:** the
+  acting owner confirms `CLAUDE_EXPORT_MINE` with the owner.
 - **2026-10-27 — ruling 44 recorded; light web context and "why it matters to you" (G121, branch
   `feat/web-context`).** Public pages get cited, dated world facts on plan runs, kept current by use and volatility,
   undoable; a private person's name never leaves; every page's relevance derived on read. Dry run on a copy of the
@@ -1965,3 +1971,40 @@ A whole row moves to DONE only after its remaining implementation and required a
     the telemetry ledger's reads, though the brief asked for them — CLAUDE.md says nothing learned from the ledger is
     auto-applied; the owner decides. **Revisit** if the person undoes a context lookup on a page the test called public
     (count `context_undo` rows), or a person the test called public turns out to be someone they know.
+45. **The Projects list is the person's; everything detected is suggested, never archived (owner, 2026-10-27; G141,
+    G222; amends ruling 36 D4; branch `feat/projects-v2`).** The owner's words (2026-10-26): "some projects there are
+    detected and are not even mine." **Q1 (yes):** the list shows only the person's own projects — created in the app
+    or from their own shell (`cicada projects new`; refused from an agent's shell, ruling 21a), created by a trusted
+    agent on their ask, a watched folder they named, or a suggestion they accepted. Everything else (a repository birth,
+    a words birth, a fallback concept, another client's proposal, a ChatGPT grouping with no page) waits under
+    **Suggested** with its reason, strongest first, and is never archived, deleted, renamed or retyped. "Not mine" keeps
+    the page as it is (`not_mine: {day}`, on the page, so it travels with a merge) behind "N dismissed". **Q2 (yes):** a
+    project the person already logged progress on in the app (a claim with `origin: companion_app`) is theirs on day
+    one — derived on read, never written, so no write runs over a bank. **Q3:** a harness on the person's G198 trust list
+    (Claude Code and Codex by default) lands `cicada_create_project` in the list; any other client, a remote app
+    always, leaves a suggestion labelled as its proposal. **Q4:** a words birth ("my X project") is suggested, showing
+    the located sentence, one tap to accept (it cannot tell "helping with <bob-example>'s mural project" from the
+    person's own). **Q5:** the person's `description` (with `description_by`) is the header, written only by their
+    doors (the app's PATCH, a trusted agent's `cicada_edit_page(name=, description=)`, others proposing in the inbox),
+    never by Sleep; Sleep's article stays below as the Overview. **Q6:** the dated list is called "Timeline". **Q7
+    (yes):** the project detail is a card plus a "project knowledge" side panel, Claude-desktop style (DESIGN_RULES §9
+    dated row); at narrow widths the panel folds under the card. **Q8:** a conversation is tied by its repository, the
+    person naming the project in their own turn, Sleep's claims citing it, or a tie by hand — never co-occurrence — plus
+    (addendum) the provider's own project id and the relaying app's word; an untie by the person overrides all and no
+    signal re-adds it; an agent unties only what it tied. **Q9:** "something new" as an influence is a plain-text claim
+    object and never mints a page. **Handshake:** Option A — the primer names no new tool; the skill carries
+    `cicada_create_project`. **Addendum (owner, 2026-10-27): projects already made in Claude and ChatGPT.** A Claude
+    export's `projects.json` makes or matches one page per non-starter project (`born: {origin: created, via:
+    claude-export}`, `mine: {via: import}` while `project_ownership.CLAUDE_EXPORT_MINE` holds — one constant the acting
+    owner may flip to make them suggestions); its description seeds the person's only when empty; its instructions are
+    shown by span into the imported episode and its documents by name (their contents are never read); a project id
+    seen once is kept in the bank's `project_groupings.yaml`, so a page the person deleted or marked not theirs is never
+    re-created. Claude's `conversations.json` links no conversation to a project. A ChatGPT `g-p-` id
+    (`conversation_template_id` or `gizmo_id`; a custom GPT's `g-` id is not a project) rides on the episode as
+    `provider_project` — frontmatter only, never re-queued — and is a conversation signal ("In your ChatGPT project");
+    with no page it is one page-less suggestion ("A ChatGPT project, N conversations") the person names on accept. The
+    relay's optional `project` (`cicada_capture_turns`) is the app's word, kept as `relay.project`, labelled "the app
+    said". Sleep is told either as context, never as a claim. **Measured** on R-PJB9's 2,500-page synthetic bench: the
+    conversations read p95 13 ms, the detail with its count 39 ms (budget 150 ms), the list 45 ms
+    (budget 80 ms), on an idle Mac (`make test-bench`). **Revisit** if the person dismisses
+    most of what a trusted agent creates (Q3), or accepts most words births as they come (Q4).

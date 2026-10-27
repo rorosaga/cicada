@@ -68,11 +68,18 @@ def offset_from_meta(meta) -> int | None:
     return episode_ids.zone_offset_minutes(hint.get("timezone")) if isinstance(hint, dict) else None
 
 
+def _project_word(value) -> str | None:
+    text = " ".join(value.split()) if isinstance(value, str) else ""
+    return text[:120] or None
+
+
 def capture_turns(ctx: mcp_tools.ToolContext, message, previous_reply=None, *, app: str | None = None,
-                  utc_offset_minutes: int | None = None) -> str:
+                  utc_offset_minutes: int | None = None, project=None) -> str:
     """``utc_offset_minutes`` (ruling 34): the person's offset when the app sent a zone hint (:func:`offset_from_meta`),
     so a new relayed episode's id carries their day; without one (claude.ai sends none, and a model's guess is never
-    taken) the id takes this server's zone."""
+    taken) the id takes this server's zone. ``project`` (ruling 45 addendum): the relaying app's own word on which
+    project the conversation is in — kept on the episode as the app said it (``relay.project``), a conversation signal
+    labelled "the app said", never the person's words."""
     memory_path = ctx.memory_path()
     text = message if isinstance(message, str) else ""
     if not text.strip():
@@ -85,7 +92,7 @@ def capture_turns(ctx: mcp_tools.ToolContext, message, previous_reply=None, *, a
         memory_path, harness=ctx.harness, session_id=ctx.session_id, turns=turns,
         keep_assistant=_keep_replies(), bank=memory_path.name,
         bank_paths=None,  # a relayed conversation is no workspace session: the continuity registry stays out
-        relay={"app": app, "connector": ctx.connector_id, "channel": CHANNEL},
+        relay={"app": app, "connector": ctx.connector_id, "channel": CHANNEL, "project": _project_word(project)},
         utc_offset_minutes=utc_offset_minutes)
     if result.status == "refused":
         reason = result.reason or "refused"

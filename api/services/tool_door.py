@@ -163,7 +163,13 @@ DISPATCH: dict[str, Callable[[mcp_tools.ToolContext, dict], str]] = {
         a.get("new_predicate"), a.get("access"), a.get("entity")),
     "cicada_edit_page": lambda c, a: mcp_tools.edit_page(
         c, _s(a, "subject"), _s(a, "reason"), a.get("edits"), a.get("section"), a.get("text"), a.get("add_aliases"),
-        a.get("remove_aliases"), a.get("evidence"), a.get("resolves")),
+        a.get("remove_aliases"), a.get("evidence"), a.get("resolves"), a.get("name"), a.get("description")),
+    "cicada_create_project": lambda c, a: mcp_tools.create_project(c, _s(a, "project"), a.get("description"),
+                                                                   a.get("evidence"), a.get("repo")),
+    "cicada_link_conversation": lambda c, a: mcp_tools.link_conversation(
+        c, _s(a, "project"), a.get("episode"), a.get("session"), bool(a.get("remove", False)), a.get("reason")),
+    "cicada_add_influence": lambda c, a: mcp_tools.add_influence(c, _s(a, "project"), a.get("what"), a.get("url"),
+                                                                 a.get("how"), a.get("evidence")),
     "cicada_resolve_inbox": lambda c, a: mcp_tools.resolve_inbox(
         c, _s(a, "id"), a.get("option_key"), a.get("answer"), bool(a.get("defer", False)), a.get("remind_days"),
         skip=bool(a.get("skip", False)), reject=bool(a.get("reject", False)), quote=a.get("quote")),

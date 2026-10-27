@@ -1701,14 +1701,25 @@ class ProjectProgress(CamelModel):
     total: int = 0
 
 
+class ProjectDescriptionBy(CamelModel):
+    by: str = "user"             # `user`, or the harness that set it on the person's ask
+    day: Optional[str] = None
+    session: Optional[str] = None
+
+
 class ProjectRef(CamelModel):
     id: str
     name: str
-    one_liner: str = ""
+    one_liner: str = ""          # the person's description when set (ruling 45, Q5), else Sleep's first line
     parent: Optional[str] = None
     children: list[str] = []
     status: str = "active"
     created: Optional[str] = None
+    # g141-7 (ruling 45): whose list it is in, and the person's own header line.
+    mine: bool = False
+    mine_via: Optional[str] = None   # app | cli | agent | accepted | folder | import | progress
+    description: Optional[str] = None
+    description_by: Optional[ProjectDescriptionBy] = None
 
 
 class ProjectNow(CamelModel):
@@ -1783,10 +1794,34 @@ class ProjectRow(ProjectRef):
     followups: int = 0
 
 
+class SuggestedProject(CamelModel):
+    """A project Cicada noticed that the person has not claimed (ruling 45): never archived or deleted, shown under
+    Suggested with why. ``kind`` is ``page`` (a project page or a fallback concept, ``id`` its page) or ``group`` (a
+    provider's project with no page yet — a ChatGPT ``g-p-`` grouping; ``id`` is the grouping, named on accept)."""
+    id: str
+    kind: str = "page"
+    name: str = ""
+    page_type: Optional[str] = None      # project | concept (a fallback page)
+    why_kind: str = "none"               # repo | words | agent | provider | export | none | fallback
+    why: str = ""
+    quote: Optional[str] = None          # the person's located sentence, for a words birth
+    episode: Optional[str] = None
+    day: Optional[str] = None
+    repo_name: Optional[str] = None
+    sessions: int = 0
+    by: Optional[str] = None
+    provider: Optional[str] = None
+    dismissed: bool = False
+
+
 class ProjectsResponse(CamelModel):
     projects: list[ProjectRow] = []
     tz_name: str = "UTC"
     partial: bool = False
+    # g141-7 (ruling 45): `projects` keeps every live project page (each row says `mine`); the page draws the person's
+    # own and folds the rest, plus fallback pages and provider groupings, under Suggested (strongest first).
+    suggested: list[SuggestedProject] = []
+    dismissed: int = 0
 
 
 class ProjectTimeline(CamelModel):
@@ -1808,6 +1843,106 @@ class ProjectTimeline(CamelModel):
     origin: ProjectOrigin = Field(default_factory=ProjectOrigin)
     sections: list[ProjectSection] = []
     people: list[ProjectPerson] = []
+    # g141-7 (ruling 45): the side panel — sources and influences, how many conversations are tied, and what a provider
+    # project carried (its instructions, quoted by span, and its documents by name).
+    influences: list["ProjectInfluence"] = []
+    conversation_count: int = 0
+    knowledge: list["ProjectKnowledge"] = []
+
+
+class ProjectInfluence(CamelModel):
+    id: str                      # `s:<index>` for a source, `c:<claim id>` for a claim
+    source: str = "claim"        # link | note | path | claim
+    label: str = ""
+    url: Optional[str] = None
+    entity: Optional[str] = None
+    entity_type: Optional[str] = None
+    tag: str = "Thing"           # Film, Book, Paper, Video, Link, Person, Tool, … (the side panel's group)
+    how: Optional[str] = None    # inspired | reference | uses | person
+    by: str = "user"             # user | a harness label | sleep
+    day: Optional[str] = None
+    claim_id: Optional[str] = None
+    predicate: Optional[str] = None
+    ref: Optional[str] = None
+    page: Optional[str] = None   # the page the claim or source is on (a person's, for works-on)
+    reversed: bool = False
+
+
+class ProjectKnowledge(CamelModel):
+    """A provider project's own knowledge (the addendum): Claude's instructions as a span into the imported episode,
+    and its documents by name — never their contents."""
+    provider: str
+    project_id: str
+    name: str = ""
+    episode: Optional[str] = None
+    instructions: Optional[str] = None
+    start: Optional[int] = None
+    end: Optional[int] = None
+    docs: list[str] = []
+
+
+class ProjectConversationRow(TimelineConversation):
+    day: Optional[str] = None
+    why: list[str] = []          # repo | named | claims | added | provider | relay
+    relayed: bool = False
+    provider_label: Optional[str] = None
+    manual: bool = False
+
+
+class ProjectConversations(CamelModel):
+    project: str
+    total: int = 0
+    counts: dict[str, int] = {}
+    conversations: list[ProjectConversationRow] = []
+    offset: int = 0
+    partial: bool = False
+
+
+class ProjectCreate(CamelModel):
+    name: str
+    description: str = ""
+    via: Optional[str] = None    # `cli` from the person's own shell (`cicada projects new`); the app sends none
+
+
+class ProjectAccept(CamelModel):
+    name: Optional[str] = None   # a provider grouping is named on accept
+
+
+class ProjectPatch(CamelModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+
+
+class ConversationTie(CamelModel):
+    episode: str
+    remove: bool = False
+
+
+class InfluenceCreate(CamelModel):
+    url: Optional[str] = None
+    what: Optional[str] = None
+    entity: Optional[str] = None
+    how: Optional[str] = None
+    note: Optional[str] = None
+
+
+class InfluenceWithdraw(CamelModel):
+    claim_id: Optional[str] = None
+    page: Optional[str] = None
+    ref: Optional[str] = None
+    predicate: Optional[str] = None
+
+
+class ProjectOwnershipResponse(CamelModel):
+    id: str
+    action: str
+    mine: bool = False
+    claim_id: Optional[str] = None
+    page: Optional[str] = None
+    episode_id: Optional[str] = None
+
+
+ProjectTimeline.model_rebuild()
 
 
 # G141 PJ-3b (§5.3) — the person's writes from the Projects page. Every day on

@@ -2725,8 +2725,23 @@ def project(ctx: ToolContext, project: str, since=None, tz: str | None = None) -
     text = project_text.render(timeline, state, memory_path=memory_path, today=today, raw=ctx.raw_excerpts,
                                can_note=ctx.can("cicada_note_progress"), can_detail=ctx.can("cicada_recall_detail"),
                                backlog=open_items, can_backlog=ctx.can("cicada_backlog"), detail_call=detail)
+    # Ruling 45: whose list it is in, the person's description (their own words: remote, only with `sources`), and
+    # how much is tied to it.
+    ref_ = timeline.project
+    extra = []
+    if ref_.description and ctx.raw_excerpts:
+        by = ref_.description_by.by if ref_.description_by else "user"
+        extra.append(f"Description ({'the person' if by == 'user' else by + ', on their ask'}): {ref_.description}")
+    extra.append("In the person's projects." if ref_.mine else
+                 "Not in the person's projects yet: it waits under Suggested on their Projects page.")
+    extra.append(f"Conversations tied: {timeline.conversation_count} · sources and influences: "
+                 f"{len(timeline.influences)}.")
+    head, _, rest = text.partition("\n")
+    text = "\n".join([head, *extra, *([rest] if rest else [])])
     return Reply(text, data={"project_id": timeline.project.id, "name": timeline.project.name,
-                             "open_backlog": [getattr(i, "id", None) for i in open_items]})
+                             "open_backlog": [getattr(i, "id", None) for i in open_items],
+                             "mine": ref_.mine, "description": ref_.description if ctx.raw_excerpts else None,
+                             "conversations": timeline.conversation_count, "influences": len(timeline.influences)})
 
 
 def _now_in(tz_name: str | None) -> datetime:
@@ -3726,7 +3741,7 @@ def _answer_inbox_by_edit(ctx: ToolContext, memory_path: Path, resolves, spans) 
 
 def edit_page(ctx: ToolContext, subject: str, reason: str, edits=None, section: str | None = None,
               text: str | None = None, add_aliases=None, remove_aliases=None, evidence: list | None = None,
-              resolves=None) -> str:
+              resolves=None, name: str | None = None, description: str | None = None) -> str:
     """``cicada_edit_page`` (G198, owner ruling 2026-10-14): change a page's words or aliases, with a reason that
     becomes the commit message. An agent on the person's trusted list (``page_editors``) applies it at once, under its
     own name; any other files a proposal in the inbox. Facts stay with the claim tools: the claims fence and its
@@ -3741,7 +3756,7 @@ def edit_page(ctx: ToolContext, subject: str, reason: str, edits=None, section: 
         return refusal
     try:
         clean = page_edits.clean_reason(reason)
-        request = page_edits.parse_request(edits, section, text, add_aliases, remove_aliases)
+        request = page_edits.parse_request(edits, section, text, add_aliases, remove_aliases, name, description)
     except page_edits.EditError as exc:
         return Reply(f"Nothing changed — {exc}", code="refused")
     pinned = ctx.memory_path
@@ -3756,6 +3771,155 @@ def edit_page(ctx: ToolContext, subject: str, reason: str, edits=None, section: 
     finally:
         ctx.memory_path = pinned
     return "\n".join(lines)
+
+
+# --- ruling 45: projects the person starts, the conversations tied to them, what fed them -----------------------------
+
+PROJECT_SLEEPING = ("Nothing changed — Cicada is consolidating memory right now, and a change made now could be swept "
+                    "into its commit under the wrong name. Try again in a few minutes.")
+
+
+def _project_page(memory_path: Path, project: str):
+    from api.services import project_ownership
+    from api.services.id_utils import resolve_entity_file
+
+    page = resolve_entity_file(memory_path, (project or "").strip()) if (project or "").strip() else None
+    if page is None:
+        return None, Reply(f"No project '{project}' — use the project's id or name.", code="not_found")
+    fm = parse_frontmatter(page.read_text(encoding="utf-8"))[0]
+    if not project_ownership.is_project_like(fm) or str(fm.get("status") or "active") == "dropped":
+        return None, Reply(f"`{page.stem}` is not a project.", code="not_found")
+    return page.stem, None
+
+
+@_holding_pages
+def create_project(ctx: ToolContext, name: str, description: str | None = None, evidence: list | None = None,
+                   repo: str | None = None) -> str:
+    """``cicada_create_project`` (ruling 45, Q3): the person asked for a project to be started. A harness on the person's
+    trust list (G198, ``page_editors``) puts it in their list at once; any other client — a remote app included — leaves
+    it under Suggested, labelled as its proposal, for the person to add. Refuses a name that is already a page (the
+    reply names it, so the agent links that page instead). The person's ask, cited in ``evidence``, is kept as a span."""
+    from api.services import evidence as evidence_mod
+    from api.services import page_editors, project_ownership
+
+    memory_path = ctx.memory_path()
+    if (refusal := _demo_refusal(memory_path)) is not None:
+        return refusal
+    if ctx.sleep_running():
+        return Reply(PROJECT_SLEEPING, code="sleep_writing")
+    spans = evidence_mod.verify_many(memory_path, evidence)
+    persons = [s for s in spans or [] if getattr(s, "kind", None) == "user" and getattr(s, "start", -1) >= 0]
+    first = persons[0] if persons else None
+    listed = page_editors.is_trusted(ctx.author, remote=ctx.is_remote)
+    try:
+        eid, paths = project_ownership.create(
+            memory_path, name, description or "", via=project_ownership.VIA_AGENT, by=ctx.author, listed=listed,
+            session=ctx.session_id or None, episode=first.episode if first else None,
+            span={"start": first.start, "end": first.end, "hash": first.hash, "kind": first.kind} if first else None,
+            repo=(repo or "").strip() or None)
+    except project_ownership.OwnershipError as exc:
+        return Reply(f"Not created — {exc}", code="refused")
+    _source_event(ctx, memory_path, eid, "project_created" if listed else "project_proposed")
+    agent_commits.commit_write(memory_path, subject=ctx.commit_subject,
+                               lines=[f"{p}: created (trigger: {ctx.trigger})" for p in paths], paths=paths,
+                               author=ctx.author, session=ctx.session_id)
+    if listed:
+        return Reply(f"Created the project {project_ownership.clean_name(name)} ({eid}) in the person's projects. "
+                     "Record what happens on it with cicada_note_progress." if ctx.can("cicada_note_progress") else
+                     f"Created the project {project_ownership.clean_name(name)} ({eid}) in the person's projects.",
+                     data={"project_id": eid, "listed": True})
+    return Reply(f"Proposed the project {project_ownership.clean_name(name)} ({eid}): it waits under Suggested on the "
+                 "person's Projects page, as your proposal, until they add it.",
+                 data={"project_id": eid, "listed": False})
+
+
+@_holding_pages
+def link_conversation(ctx: ToolContext, project: str, episode: str | None = None, session: str | None = None,
+                      remove: bool = False, reason: str | None = None) -> str:
+    """``cicada_link_conversation`` (ruling 45): tie a conversation to a project, or untie one this agent tied. The
+    person's own untie (in the app) is final: no agent re-ties it."""
+    from api.services import project_ownership
+
+    memory_path = ctx.memory_path()
+    if (refusal := _demo_refusal(memory_path)) is not None:
+        return refusal
+    if not str(reason or "").strip():
+        return Reply("Say why in `reason` (one sentence). Nothing changed.", code="invalid_arguments")
+    if ctx.sleep_running():
+        return Reply(PROJECT_SLEEPING, code="sleep_writing")
+    stem, miss = _project_page(memory_path, project)
+    if miss is not None:
+        return miss
+    episodes: list[str] = []
+    if episode:
+        episodes = [str(episode).strip()]
+    elif session:
+        episodes = _session_episodes(memory_path, str(session).strip())
+        if not episodes:
+            return Reply(f"No conversation with session '{session}'.", code="not_found")
+    else:
+        sid = (ctx.session_id or "").strip()
+        episodes = _session_episodes(memory_path, sid) if sid else []
+        if not episodes:
+            return Reply("Name the conversation: `episode` (its ep_… id) or `session`.", code="invalid_arguments")
+    # One conversation, one page write (`project_ownership.tie` takes every episode of it and checks them all before it
+    # writes): a refusal leaves nothing behind, never a half-tied conversation under this agent's name.
+    try:
+        paths = project_ownership.tie(memory_path, stem, episodes[0], remove=bool(remove), by=ctx.author,
+                                      session=ctx.session_id or None)
+    except project_ownership.OwnershipError as exc:
+        return Reply(f"Nothing changed — {exc}", code="refused")
+    episodes = project_ownership.conversation_episodes(memory_path, episodes[0])
+    if not paths:
+        return f"Nothing to change: {'untied' if remove else 'already tied'}."
+    _source_event(ctx, memory_path, stem, "conversation_untied" if remove else "conversation_tied")
+    clean = " ".join(str(reason).split())[:300]
+    agent_commits.commit_write(memory_path, subject=ctx.commit_subject,
+                               lines=[f"{p}: updated (trigger: {ctx.trigger})" for p in paths] + ["", f"Reason: {clean}"],
+                               paths=paths, author=ctx.author, session=ctx.session_id)
+    n = len(episodes)
+    what = "the conversation" + (f" ({n} episodes)" if n > 1 else "")
+    return (f"Untied {what} you had tied from {stem}." if remove else
+            f"Tied {what} to {stem}; the person sees it on the project's page as added by you.")
+
+
+def _session_episodes(memory_path: Path, sid: str) -> list[str]:
+    from api.services.project_timeline import _Bank
+
+    return _Bank(memory_path, None).session_episodes(sid)
+
+
+@_holding_pages
+def add_influence(ctx: ToolContext, project: str, what: str | None = None, url: str | None = None,
+                  how: str | None = None, evidence: list | None = None) -> str:
+    """``cicada_add_influence`` (ruling 45, Q9): something that fed a project — a link becomes one of its sources (yours,
+    removable by you); a name becomes one claim with you as the observer, never the person's own words. A name that
+    matches no page stays plain text: no page is made."""
+    from api.services import project_influences
+
+    memory_path = ctx.memory_path()
+    if (refusal := _demo_refusal(memory_path)) is not None:
+        return refusal
+    if ctx.sleep_running():
+        return Reply(PROJECT_SLEEPING, code="sleep_writing")
+    stem, miss = _project_page(memory_path, project)
+    if miss is not None:
+        return miss
+    try:
+        result = project_influences.add(
+            memory_path, stem, url=url, what=what, how=how, observer="agent", author=ctx.author,
+            origin=ctx.claim_origin, session_id=ctx.session_id or None, evidence=evidence)
+    except project_influences.InfluenceError as exc:
+        return Reply(f"Not added — {exc}", code="refused")
+    _source_event(ctx, memory_path, stem, "influence_added")
+    agent_commits.commit_write(memory_path, subject=ctx.commit_subject,
+                               lines=[f"{p}: updated (trigger: {ctx.trigger})" for p in result["paths"]],
+                               paths=result["paths"], author=ctx.author, session=ctx.session_id)
+    if result["kind"] == "source":
+        return f"Added {result['ref']} to {stem}'s sources and influences, as yours."
+    return (f"Recorded it as an influence on {stem} ({result['claim_id']}), with you as the observer. Withdraw it with "
+            "cicada_retract_claim if it proves wrong." if ctx.can("cicada_retract_claim") else
+            f"Recorded it as an influence on {stem} ({result['claim_id']}), with you as the observer.")
 
 
 def get_perspective(

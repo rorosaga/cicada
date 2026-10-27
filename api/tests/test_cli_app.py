@@ -141,6 +141,10 @@ BACKEND_CASES = [
     (["feed", "remove", "https://example.com/feed.xml"], "DELETE", "/sources/feeds",
      {"url": "https://example.com/feed.xml"}, {"status": "ok"}),
     (["feed", "poll"], "POST", "/sources/poll-feeds", None, {"polled": 0}),
+    # Ruling 45: the person's own project, from their own shell.
+    (["projects", "new", "Alpha Garden", "--description", "Beds by the fence."], "POST", "/projects",
+     {"name": "Alpha Garden", "description": "Beds by the fence.", "via": "cli"},
+     {"id": "alpha-garden", "action": "created", "mine": True}),
     (["page", "decay", "alpha-project", "durable"], "PUT", "/entities/alpha-project/decay",
      {"decayClass": "durable"}, {"decayClass": "durable"}),
     (["inbox", "answer", "inbox-001", "--option", "keep"], "POST", "/inbox/inbox-001/resolve",
@@ -308,6 +312,7 @@ PERSON_ARGV = {
     "sleep options": ["sleep", "options", "--batch-size", "10"],
     "index install": ["index", "install", "--model", "x"],
     "feed poll": ["feed", "poll"],
+    "projects new": ["projects", "new", "Alpha Garden"],
     "settings owner": ["settings", "owner", "--name", "Alex Example"],
     "picture set": ["picture", "set", "bob-example", "PICTURE"],
     "picture initials": ["picture", "initials", "bob-example"],

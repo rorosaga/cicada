@@ -474,6 +474,23 @@ def agent_session_note(episode: dict) -> str | None:
             "to the person (submit, send, pay, confirm) is not done.]\n\n")
 
 
+def project_note(episode: dict) -> str | None:
+    """Ruling 45 addendum: the provider's own project grouping (a ChatGPT ``g-p-`` id) or the relaying app's word on the
+    project, told to the model as context — the conversation sits in a project the person made there. Never a claim by
+    itself; ``None`` for every other episode."""
+    grouping = episode.get("provider_project")
+    relay = episode.get("relay") if isinstance(episode.get("relay"), dict) else {}
+    said = relay.get("project") if isinstance(relay.get("project"), str) else None
+    if isinstance(grouping, dict) and grouping.get("provider"):
+        app = {"chatgpt": "ChatGPT", "claude": "Claude"}.get(str(grouping["provider"]), str(grouping["provider"]))
+        name = str(grouping.get("name") or "").strip()
+        where = f'the person\'s {app} project "{name}"' if name else f"one of the person's {app} projects"
+        return f"[Context: this conversation was held inside {where}.]\n\n"
+    if said:
+        return f'[Context: the app that relayed this conversation said it belongs to the project "{said[:120]}".]\n\n'
+    return None
+
+
 def assistant_observer(episode: dict) -> str | None:
     """``external:<name>`` — the observer of a claim drawn only from the other side's words: a message conversation's
     correspondent (G179), else the agent whose ``assistant:`` lines they are (:func:`_agent_name`). ``None`` when the
@@ -776,6 +793,9 @@ async def extract(
         # G179: a message conversation says who its other side is, before every chunk.
         # A harness session says whose its assistant lines are, and that their acts are not the person's.
         source_note = correspondent_note(episode.get("correspondent")) or agent_session_note(episode)
+        # Ruling 45 addendum: the provider's project grouping, or the relaying app's word on it, as context.
+        if (in_project := project_note(episode)) is not None:
+            source_note = (source_note or "") + in_project
         their_observer = assistant_observer(episode)
         session_id = str(episode.get("session_id") or "").strip() or None
 

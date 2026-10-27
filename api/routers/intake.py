@@ -118,6 +118,8 @@ class ParsedExport:
     ignored: list[dict] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     counts: dict[str, int] = field(default_factory=dict)
+    #: Ruling 45 addendum: the projects a Claude export's ``projects.json`` names (``conv.claude_project_list``).
+    claude_projects: list[dict] = field(default_factory=list)
 
     @property
     def vendor(self) -> str | None:
@@ -134,6 +136,7 @@ class ParsedExport:
         self.warnings += other.warnings
         self.vendors |= other.vendors
         self.origins |= other.origins
+        self.claude_projects += other.claude_projects
         for key, value in other.counts.items():
             self.counts[key] = self.counts.get(key, 0) + value
         if self.format == "unknown":
@@ -242,8 +245,9 @@ def _parse_json(content: bytes, base: str) -> ParsedExport:
         raise HTTPException(400, "Unrecognized JSON export format")
     fmt, vendor, origin, key = shape
     episodes = conv._stamp_origin(_JSON_PARSERS[source](data), origin)
+    projects = conv.claude_project_list(data) if source == "anthropic_projects" else []
     return ParsedExport(episodes, fmt, {vendor}, {origin}, [base or "export.json"],
-                        counts={key: len(episodes)})
+                        counts={key: len(projects) if projects else len(episodes)}, claude_projects=projects)
 
 
 def _parse_zip(content: bytes, *, owner_names: tuple[str, ...] = ()) -> ParsedExport:
@@ -398,6 +402,8 @@ class ImportResult:
     #: Unchanged conversations whose export carries extras (`turn_extras`): the job writes them beside their words,
     #: frontmatter only, after its own writes — counted in ``skipped`` already, never in the job's total.
     extras_only: list[dict] = field(default_factory=list)
+    #: Ruling 45 addendum: what the job runs after staging (a Claude export's projects), given the stager's result.
+    after: object = None
 
 
 def resolve_target(settings: Settings, bank: str | None, *, scaffold: bool = True) -> tuple[str, Path, bool]:
@@ -461,11 +467,24 @@ def import_bytes(content: bytes, filename: str, settings: Settings, *, bank: str
         # stays out of the job's count and the request returns as fast as before.
         extras_only = [e for e in staging.skip if id(e) not in legacy
                        and (e.get("unsent") or any(m.get("extras") for m in e.get("messages") or []))]
+        after = None
+        if parsed.claude_projects:
+            from api.services import provider_projects
+
+            def after(staged, _projects=parsed.claude_projects, _target=target):
+                provider_projects.after_import(_target, _projects, staged)
         return ImportResult(name, active, parsed, 0, 0, len(staging.skip), date_from, date_to,
-                            pending=(pending, target / "episodes"), extras_only=extras_only)
+                            pending=(pending, target / "episodes"), extras_only=extras_only, after=after)
     # `episode_staging.stage` holds its own process-wide lock (G114 ids).
     staged = conv._stage_export(todo, target / "episodes")
     created, updated, skipped = staged.as_tuple()
+    if parsed.claude_projects:
+        # Ruling 45 addendum: each project the person made in Claude makes or matches its page, after its knowledge
+        # episode is staged (so the page can point at the instructions by span).
+        from api.services import provider_projects
+
+        if provider_projects.after_import(target, parsed.claude_projects, staged) == "deferred":
+            parsed.warnings.append(provider_projects.DEFERRED)
     # G207: what this import wrote becomes recallable now; a small one is also read right away.
     from api.services import awake_read
 
@@ -602,7 +621,8 @@ async def import_file(
         return _import_response(result)
     todo, episodes_dir = result.pending
     job = intake_jobs.start(len(todo), already_skipped=result.skipped)
-    background_tasks.add_task(intake_jobs.run, job.id, todo, episodes_dir, extras_only=result.extras_only)
+    background_tasks.add_task(intake_jobs.run, job.id, todo, episodes_dir, extras_only=result.extras_only,
+                              after=result.after)
     response.status_code = 202
     return _import_response(result, job=job)
 

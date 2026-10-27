@@ -200,3 +200,15 @@ def test_the_reader_is_told_a_relay_until_an_export_upgrades_it(memory):
     assert episode_staging.stage([_export(source="chatgpt")], memory / "episodes").updated == 1
     assert markdown_parser.parse(path).frontmatter["relay"]["upgraded_at"]
     assert provenance.episode_document(memory, path.stem).relay is None
+
+
+def test_the_apps_word_on_the_project_is_kept_until_it_says_another(memory):
+    """Ruling 45 addendum: an optional `project` the relaying app knows from its own context, stored as its word."""
+    runtime, connector = _runtime(), _connector()
+    handle = _handle(runtime, connector)
+    runtime.call(connector, "cicada_capture_turns", {"conversation": handle, "message": FIRST,
+                                                     "project": "Alpha Project"})
+    _capture(runtime, connector, handle, SECOND, REPLY)          # a later turn that names none
+    [path] = _relayed(memory)
+    fm = markdown_parser.parse(path).frontmatter
+    assert fm["relay"]["project"] == "Alpha Project" and fm["evidence_kind"] == "assistant"
