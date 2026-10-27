@@ -185,7 +185,7 @@ def test_primer_with_three_bridges_item_9_and_both_method_lines_fits_with_room_f
     # 1,500 before G162 named `basis` and the video queue in item 3; 1,525 left the state block 275 of the 1,800.
     # G61 S3-a names the two source tools in item 4 (~25 tokens): 1,545 leaves it 255.
     # G198 names cicada_edit_page in item 4 (~16 tokens): 1,612 leaves the state block 188.
-    assert len(text) // 4 <= 1620, "the fixed part leaves room for the state block"  # A2 State guidance + G198 + "Where to check" (ruling 36 D5, +~16): leaves ≥180 of the unchanged 1,800
+    assert len(text) // 4 <= 1630, "the fixed part leaves room for the state block"  # lean reads (2026-10-27: ask first, cicada_sources for an ep_ id, +~8) + A2 State guidance + G198 + "Where to check" (ruling 36 D5, +~16): leaves ≥180 of the unchanged 1,800
     assert "brief `State:`" in text and "optional" in text
     for line in methods + bridges:
         assert line in text

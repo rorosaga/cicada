@@ -936,7 +936,70 @@ def _clip_section(title: str, content: str, limit: int) -> str:
     return f"## {title}\n" + "\n".join(kept)
 
 
-def summarize_for_recall(body: str, *, max_chars: int = 3200) -> str:
+#: A bullet repeats what was already shown when this share of its subject words is already there (and every anchor).
+REPEAT_SHARE = 0.8
+_ANCHOR = re.compile(r"\[\[[^\]]+\]\]|https?://\S+|\b[\w-]+\.[a-z]{2,}\b|\d[\d.,:/-]*|\b[A-Z][\w'’-]+")
+
+
+def _anchors(text: str) -> set[str]:
+    """What makes a line a distinct fact even when its words repeat: numbers and dates, links and domains, wikilinks,
+    and capitalised names past the line's first word."""
+    from api.services import text_fold
+
+    line = re.sub(r"^\s*[-*]\s+", "", text)
+    return {text_fold.fold(m.group(0)).strip(".,:;") for m in _ANCHOR.finditer(line) if m.start() > 0
+            or m.group(0)[:1].isdigit() or m.group(0).startswith(("[[", "http"))}
+
+
+def _shown_whole(anchor: str, folded: str) -> bool:
+    """Is ``anchor`` in ``folded`` as a whole token — never inside a longer one (``40`` is not shown by ``400``, nor
+    ``5`` by ``2025``; review of #488)."""
+    return re.search(r"(?<![\w.,:/-])" + re.escape(anchor) + r"(?![\w]|[.,:/-]\w)", folded) is not None
+
+
+def collapse_repeats(lines: list[str], shown: str) -> tuple[list[str], int]:
+    """``lines`` (a section's bullets) less those that only repeat ``shown`` or a bullet kept before them — render
+    time only, the page is never edited (lean reads, 2026-10-27: one real page held 15 key facts saying about 4
+    things, then said them again in its Article and History).
+
+    Conservative on purpose: a bullet is folded only when every anchor it holds (a number, a date, a link, a name,
+    :func:`_anchors`) is already shown AND at least :data:`REPEAT_SHARE` of its subject words are. A bullet carrying
+    anything new — one date, one name — is kept, so a distinct fact is never dropped. Lines that are not bullets
+    are always kept. Returns the kept lines and how many were folded."""
+    from api.services import text_fold
+
+    seen_terms = set(text_fold.subject_terms(shown))
+    seen_anchors = _anchors(shown) | {text_fold.fold(w) for w in re.findall(r"\d[\d.,:/-]*", shown)}
+    seen_folded = text_fold.fold(shown)
+    kept: list[str] = []
+    folded = 0
+    for line in lines:
+        if not line.lstrip().startswith(("- ", "* ")):
+            kept.append(line)
+            continue
+        terms = text_fold.subject_terms(line)
+        anchors = _anchors(line)
+        new_anchor = any(a not in seen_anchors and not _shown_whole(a, seen_folded) for a in anchors)
+        share = (len(terms & seen_terms) / len(terms)) if terms else 1.0
+        if not new_anchor and share >= REPEAT_SHARE:
+            folded += 1
+            continue
+        kept.append(line)
+        seen_terms |= terms
+        seen_anchors |= anchors
+        seen_folded += " " + text_fold.fold(line)
+    return kept, folded
+
+
+def _collapsed_section(title: str, content: str, shown: str) -> tuple[str, str]:
+    """A section's content with repeated bullets folded (:func:`collapse_repeats`), the fold said in one line."""
+    kept, folded = collapse_repeats(content.splitlines(), shown)
+    if folded:
+        kept.append(f"- ({folded:,} more line(s) here repeat the facts above; the full page has them)")
+    return "\n".join(kept).strip(), shown + "\n" + content
+
+
+def summarize_for_recall(body: str, *, max_chars: int = 3200, collapse: bool = False) -> str:
     """Section-aware truncation that always leads with Summary + Key Facts.
 
     Byte-offset truncation can cut Key Facts (where specific figures live). This
@@ -944,7 +1007,8 @@ def summarize_for_recall(body: str, *, max_chars: int = 3200) -> str:
     whole lines with the cut said in words (``_clip_section``), Key Facts always
     keeping at least a third of the budget — then appends further canonical
     sections in priority order until the char budget is reached. The result is
-    bounded by about ``max_chars`` whatever the page holds.
+    bounded by about ``max_chars`` whatever the page holds. ``collapse`` (recall, 2026-10-27) folds bullets that only
+    repeat what is already shown (:func:`collapse_repeats`), saying how many in one line; the page is never edited.
     """
     from api.services.claims import strip_claims_block
     sections = parse_sections(strip_claims_block(body))
@@ -953,6 +1017,10 @@ def summarize_for_recall(body: str, *, max_chars: int = 3200) -> str:
     used = 0
     summary = sections.get("Summary", "").strip()
     facts = sections.get("Key Facts", "").strip()
+    shown = summary
+    if collapse and facts:
+        # Lean reads (2026-10-27): a key fact that only repeats the Summary or an earlier fact is folded at render.
+        facts, shown = _collapsed_section("Key Facts", facts, shown)
     floor = max_chars // 3
     facts_reserve = min(len(facts) + len("## Key Facts\n"), floor) if facts else 0
     # The leading tier, bounded:
@@ -969,6 +1037,8 @@ def summarize_for_recall(body: str, *, max_chars: int = 3200) -> str:
         if title in ("Summary", "Key Facts"):
             continue
         content = sections.get(title, "").strip()
+        if collapse and content and title in ("History", "Open Questions"):
+            content, shown = _collapsed_section(title, content, shown)
         if not content:
             continue
         block = f"## {title}\n{content}"

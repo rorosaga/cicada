@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Callable
 
 from api.services import agent_commits, agentic_write, demo_guard, episode_ids, episode_scrub, episode_time
+from api.services import episode_actor
 from api.services import search_service
 # One fence rule for every frontmatter reader (L final review, finding 2).
 from api.services import bank_index, entity_bands, link_views, markdown_parser, page_lock, search_index, write_admission
@@ -418,10 +419,14 @@ def ask(ctx: ToolContext, query: str, top_k: int = 6) -> str:
             _log_failure("cicada_ask", e)
             return Reply(f"Error: could not answer ({type(e).__name__}).", code="error")
 
-    return _render_ask(result)
+    return _render_ask(result, ctx)
 
 
-def _render_ask(result: dict) -> str:
+#: The most "who spoke" lines an Ask reply adds for the conversations its citations name (2026-10-27).
+ASK_ACTORS_SHOWN = 4
+
+
+def _render_ask(result: dict, ctx: ToolContext | None = None) -> str:
     lines = [result.get("answer", "").strip()]
     confidence = result.get("confidence", 0.0)
     try:
@@ -450,13 +455,46 @@ def _render_ask(result: dict) -> str:
 
     # The conversations no page cites that the answer rested on (2026-10-19): the episode id is what
     # `cicada_write_claim`'s evidence cites, so an agent can put the detail on a page with its provenance.
+    # Lean reads (2026-10-27): who was on the other side of each conversation, from the episode's own fields
+    # (`episode_actor`) — "a Claude Code session (id …, resumable)", "<name> (an AI agent), over Messages" —
+    # never guessed; a conversation whose record names nobody gets no label.
+    memory_path = ctx.memory_path() if ctx is not None else None
+
+    def who(episode_id: str) -> str | None:
+        # A session id only for a caller that may read the conversation's words (review of #488): the `sources`
+        # scope remotely, always on stdio.
+        return (episode_actor.actor_for(memory_path, episode_id, ids=bool(ctx.raw_excerpts))
+                if memory_path is not None else None)
+
     conversations = result.get("conversations", []) or []
     if conversations:
         lines.append("\n**From conversations no page cites:**")
         for c in conversations:
             title = str(c.get("title") or "").strip()
             day = str(c.get("day") or "").strip()
-            lines.append(f"- {c.get('episode_id', '?')}" + (f" · {day}" if day else "") + (f" · {title}" if title else ""))
+            actor = who(str(c.get("episode_id") or ""))
+            lines.append(f"- {c.get('episode_id', '?')}" + (f" · {day}" if day else "")
+                         + (f" · {title}" if title else "") + (f" · with {actor}" if actor else ""))
+
+    listed = {str(c.get("episode_id") or "") for c in conversations}
+    cited: list[tuple[str, str]] = []
+    for c in citations:
+        for ep in c.get("source_episodes", []) or []:
+            ep = str(ep)
+            if ep in listed or any(ep == e for e, _ in cited):
+                continue
+            actor = who(ep)
+            if actor:
+                cited.append((ep, actor))
+    if cited:
+        # Agents that acted in a session or a chat first; an imported export's app after them (they crowd the rest).
+        cited.sort(key=lambda row: row[1].endswith(episode_actor.EXPORT_SUFFIX))
+        lines.append("\n**Who spoke in the cited conversations:**")
+        lines.extend(f"- {ep} · with {actor}" for ep, actor in cited[:ASK_ACTORS_SHOWN])
+        if len(cited) > ASK_ACTORS_SHOWN:
+            lines.append(f"- … and {len(cited) - ASK_ACTORS_SHOWN:,} more")
+    if (conversations or cited) and ctx is not None and ctx.can("cicada_sources") and not ctx.is_cli:
+        lines.append('\n_Read a conversation whole with `cicada_sources(entity_id="<episode id>")`._')
 
     return "\n".join(lines).strip()
 
@@ -1894,12 +1932,16 @@ def _recall(ctx: ToolContext, query: str) -> str:
     claim_subjects = live(_claim_subject_search(memory_path, query, top_k=8))
     merged = _rrf_fuse(semantic, keyword, claim_subjects)
     seen_ids: set[str] = {h.get("entity_id") or h.get("id") for h in merged}
+    # Lean reads (2026-10-27): only pages some leg ranks near its own best are shown — at most RECALL_PAGES_SHOWN,
+    # never fewer than the top one (`_above_floor`).
+    shown_hits = _above_floor(merged, semantic, keyword, claim_subjects,
+                              named=_named_hits(entities_dir, query, merged))
 
     # === Structured hints block (machine-parseable, emitted first) ===
     # A small model that ignores prose can json.loads this fenced block to get
     # an explicit action list of entity ids and the best-matching hub.
     suggested = [
-        (h.get("entity_id") or h.get("id")) for h in merged[:7]
+        (h.get("entity_id") or h.get("id")) for h in shown_hits
         if (h.get("entity_id") or h.get("id"))
     ]
     from api.services import telemetry  # G124 R11: a suggested page is a read (ids only)
@@ -1940,8 +1982,9 @@ def _recall(ctx: ToolContext, query: str) -> str:
     ranked_ids = frozenset(i for i in seen_ids if i)
     entity_blocks: list[str] = []
     entity_block_ids: list[str] = []
-    for hit in merged[:7]:
-        block = _render_entity_summary(entities_dir, hit, ranked_ids=ranked_ids, more_call=more_call)
+    for rank, hit in enumerate(shown_hits):
+        block = _render_entity_summary(entities_dir, hit, ranked_ids=ranked_ids, more_call=more_call,
+                                       body_max=RECALL_TOP_BODY if rank == 0 else RECALL_OTHER_BODY)
         if block:
             entity_blocks.append(block)
             entity_block_ids.append(hit.get("entity_id"))
@@ -1952,21 +1995,23 @@ def _recall(ctx: ToolContext, query: str) -> str:
         output_parts.append("\n\n".join(entity_blocks))
 
     # === G140 Q-R2 (R3 P4c): what changed recently on the top pages ===
-    changes = _recent_changes(entities_dir, merged, date.today())
+    changes = _recent_changes(entities_dir, shown_hits, date.today())
     if changes:
         output_parts.append(
             f"**Changed recently (last {RECENT_CHANGE_DAYS} days):**\n" + "\n".join(changes)
         )
 
     # === G207: what conversations Sleep hasn't read yet already say (a quick read's provisional claims) ===
-    provisional = _provisional_lines(memory_path, query, [h.get("entity_id") or h.get("id") for h in merged[:7]])
+    provisional = _provisional_lines(memory_path, query, [h.get("entity_id") or h.get("id") for h in shown_hits])
     if provisional:
         output_parts.append("**Not yet read by Sleep (provisional — a quick read of conversations since the last "
                             "Sleep; Sleep confirms, corrects or drops each):**\n" + "\n".join(provisional))
 
-    # === Wikilink traversal: one hop out from the top entities ===
+    # === Wikilink traversal: one hop out — only when the floor left a single page (2026-10-27) ===
+    # With two or more pages shown, their own `Related:` lines already name the neighbours; the heads of pages no leg
+    # ranked were most of what a recall carried and rarely what was asked.
     hop_blurbs: list[str] = []
-    for hit in merged[:3]:
+    for hit in (shown_hits if len(shown_hits) == 1 else []):
         eid = hit.get("entity_id") or hit.get("id")
         if not eid:
             continue
@@ -1988,7 +2033,7 @@ def _recall(ctx: ToolContext, query: str) -> str:
             r_fm, r_body = parse_frontmatter(related_path.read_text(encoding="utf-8"))
             hop_blurbs.append(
                 f"- **{r_fm.get('name', related_id)}** (via [[{fm.get('name', eid)}]]): "
-                f"{link_views.plain(strip_claims_block(r_body))[:240].strip()}"
+                f"{link_views.plain(strip_claims_block(r_body))[:RECALL_HOP_CHARS].strip()}"
             )
     if hop_blurbs:
         output_parts.append("**Related (one hop out):**\n" + "\n".join(hop_blurbs))
@@ -2000,13 +2045,24 @@ def _recall(ctx: ToolContext, query: str) -> str:
     if ctx.raw_excerpts:
         episode_hits = _fuse_episode_hits(_leann_search_episodes(memory_path, query, top_k=3),
                                           _lexical_search_episodes(memory_path, query, top_k=3), top_k=3)
-        if episode_hits:
-            ep_lines = ["**Related conversation excerpts:**"]
-            for ep in episode_hits:
-                meta = ep.get("metadata", {}) or {}
-                ep_id = meta.get("episode_id", "unknown")
-                snippet = (ep.get("text") or "")[:400].strip().replace("\n", " ")
-                ep_lines.append(f"- [{ep_id}]{_unread_label(memory_path, ep_id)} {snippet}")
+        ep_lines = ["**Related conversation excerpts:**"]
+        quoted: set[str] = set()
+        for ep in episode_hits:
+            meta = ep.get("metadata", {}) or {}
+            ep_id = meta.get("episode_id", "unknown")
+            if ep_id in quoted:
+                continue   # 2026-10-27: one passage per conversation (the vector leg alone returned the same one 3x)
+            quoted.add(ep_id)
+            snippet = (ep.get("text") or "")[:RECALL_EXCERPT_CHARS].strip().replace("\n", " ")
+            if _mostly_links(snippet):
+                continue   # 2026-10-27: a bare link (a mail client's wrapped URL) says nothing an agent can use
+            # 2026-10-27: who the person was talking to, from the episode's own fields (`episode_actor`).
+            who = episode_actor.actor_for(memory_path, ep_id)
+            ep_lines.append(f"- [{ep_id}]{_unread_label(memory_path, ep_id)}" + (f" with {who}:" if who else "")
+                            + f" {snippet}")
+        if len(ep_lines) > 1:
+            if ctx.can("cicada_sources") and not ctx.is_cli:
+                ep_lines.append('_Read one whole with `cicada_sources(entity_id="<episode id>")`._')
             output_parts.append("\n".join(ep_lines))
 
     # G180: a graph with no page at all is an empty graph whether or not `entities/` was
@@ -2490,8 +2546,21 @@ def _watch_history_line(memory_path: Path, fm: dict, entity_id: str) -> str | No
         return None
 
 
+#: Lean reads (2026-10-27): the most of one conversation a stdio read of an episode id returns. The same size as
+#: `cicada_continue`'s reply; past it the reply names the read that pages the rest. A remote read keeps R-R28's
+#: 1,000 characters (`ctx.sources_limit`).
+EPISODE_READ_MAX = 12_000
+
+
 def sources(ctx: ToolContext, entity_id: str) -> str:
-    """Render the source episode chunks behind an entity (chunks mode)."""
+    """Render the source episode chunks behind an entity (chunks mode) — or, given an episode id Cicada printed
+    (``ep_<day>_<n>``, lean reads 2026-10-27), that one conversation (:func:`_episode_read`)."""
+    if episode_ids.EPISODE_ID_RE.match(str(entity_id or "").strip()):
+        from api.services.id_utils import bank_file
+
+        page = bank_file(ctx.memory_path() / "entities", str(entity_id).strip())
+        if page is None or not page.exists():
+            return _episode_read(ctx, str(entity_id).strip())
     try:
         from api.services.entity_sources import gather_entity_sources
         bundle = gather_entity_sources(ctx.memory_path(), entity_id, mode="chunks")
@@ -2510,6 +2579,58 @@ def sources(ctx: ToolContext, entity_id: str) -> str:
     for e in eps:
         parts.append(f"\n### episode {e['id']}\n{(e.get('chunk') or '').strip()[:max_chars]}")
     return "\n".join(parts)
+
+
+def _episode_read(ctx: ToolContext, episode_id: str) -> str | Reply:
+    """One stored conversation by its id: who was on the other side (``episode_actor``), its day and title, then its
+    words as stored — already scrubbed by every writer, the dropped-middle marker labelled as Cicada's note (gate B2).
+
+    The door is ``cicada_sources`` on purpose: it is the ``sources`` scope's tool, so a remote connection reads a
+    conversation's words only when the person granted that scope, at R-R28's size (``ctx.sources_limit``), and the
+    reply is fenced as reference data like every read. Every episode id Cicada prints (Ask's conversations, recall's
+    excerpts, a page's sources) reads here; the id goes through the one-segment guard before it touches the disk."""
+    from api.services import evidence
+    from api.services.id_utils import bank_file
+
+    memory_path = ctx.memory_path()
+    path = bank_file(memory_path / "episodes", episode_id)
+    if path is None or not path.exists():
+        return Reply(f"No page or conversation '{episode_id}'.", code="not_found")
+    try:
+        parsed = markdown_parser.parse(path)
+    except Exception as exc:  # noqa: BLE001
+        _log_failure("cicada_sources", exc)
+        return Reply(f"Could not read conversation '{episode_id}' ({type(exc).__name__}).", code="error")
+    fm = parsed.frontmatter or {}
+    day = str(fm.get("timestamp") or "")[:10] or episode_id[3:13]
+    from api.services import history_index
+
+    kind = history_index.kind(fm)
+    if kind is not None:
+        # Ruling 30: a watched day, a month's summary, a saved-list item or a trace day is indexed, never read by a
+        # model by id — one line saying what it is and where to ask, as recall and Ask treat it (review of #488).
+        what = {"history": "a day of the person's watch history", "month": "a month's summary of the watch history",
+                "list": "a save from one of the person's saved lists", "traces": "an activity-trace day"}[kind]
+        ask = " Ask about what it holds with `cicada_ask`." if ctx.can("cicada_ask") and not ctx.is_cli else ""
+        return Reply(f"`{episode_id}` · {day} is {what}: indexed for lookup, not read by an agent by id.{ask}",
+                     data={"episode_id": episode_id, "index_only": kind})
+    body = evidence.label_gaps(parsed.body, evidence.gap_ranges(fm, parsed.body)).strip()
+    who = episode_actor.actor(fm)
+    title = " ".join(str(fm.get("title") or "").split())
+    head = [f"**Conversation `{episode_id}`** · {day}" + (f" · {title}" if title else "")]
+    head.append(f"With: {who}." if who else "With: nobody else is named on this record (the person's own capture).")
+    if fm.get("source_deleted_at"):
+        head.append(f"Removed from its source on {str(fm['source_deleted_at'])[:10]}; kept as evidence.")
+    if not fm.get("processed"):
+        head.append("Not yet read by Sleep.")
+    _, max_chars = ctx.sources_limit
+    limit = max_chars if ctx.is_remote else EPISODE_READ_MAX
+    if len(body) > limit:
+        cut = body[:limit].rsplit("\n", 1)[0] if "\n" in body[:limit] else body[:limit]
+        more = (f" `cicada_continue(session=\"{episode_id}\")` pages the rest by turn."
+                if ctx.can("cicada_continue") and not ctx.is_cli else "")
+        body = cut.rstrip() + f"\n… (the first {len(cut):,} of {len(body):,} characters.{more})"
+    return Reply("\n".join(head) + "\n\n" + body, data={"episode_id": episode_id, "actor": who})
 
 
 def timeline(ctx: ToolContext, since=None) -> str:
@@ -3917,6 +4038,18 @@ RECALL_RELATED_SHOWN = 12        # related names on a hit's `Related:` line befo
 RECALL_ENTITY_BODY_MAX = 6_000   # one hit's quoted body, after the type-aware truncation (a backstop)
 RECALL_INBOX_SHOWN = 5           # open questions in recall's inbox block before "… and N more"
 RECALL_HUB_BODY_MAX = 8_000      # the cold-start hub member list
+# Lean reads (2026-10-27). One recall on the owner's bank was 14,400 characters — 7 pages, 5 off-topic, the one
+# relevant page saying its facts three times — and the agent then called `cicada_ask` anyway. The values below were
+# measured over 25 real questions on a 7,962-page bank (docs/architecture/mcp.md, "Recall's size"). The page budgets
+# are the body's; the heading and `Related:` line ride on top.
+RECALL_PAGES_SHOWN = 5           # pages above the floor shown at most (was a flat 7)
+RECALL_LEG_KEEP = 3              # a leg's own first ranks that may pass the floor
+RECALL_VECTOR_GAP = 0.05         # how far below the vector leg's best cosine a page may sit and still pass
+RECALL_WORD_SHARE = 0.5          # the share of the word leg's best score a page needs to pass
+RECALL_TOP_BODY = 1_800          # the best page's body: Summary, then its distinct key facts
+RECALL_OTHER_BODY = 700          # every other page's body
+RECALL_HOP_CHARS = 160           # one one-hop head (shown only when a single page passed the floor)
+RECALL_EXCERPT_CHARS = 400       # one conversation excerpt (unchanged)
 
 
 def _clip_lines(text: str, limit: int, marker: str) -> str:
@@ -3949,8 +4082,87 @@ def _related_line(related: list, ranked_ids: frozenset, more_call: str | None) -
     return f"Related: {', '.join(shown)} … and {len(names) - len(shown):,} more{where}"
 
 
+def _named_hits(entities_dir: Path, query: str, merged: list[dict]) -> set[str]:
+    """The fused pages whose name or an alias IS the query, or appears in it as a whole phrase (folded, three letters or
+    more) — kept by the floor and the cap whatever the legs say (review of #488: a page only the word leg ranked first
+    could drop out of five behind pages two legs ranked)."""
+    import re as _re
+
+    from api.services import text_fold
+
+    q = " ".join(text_fold.fold(query).split())
+    out: set[str] = set()
+    for h in merged:
+        eid = h.get("entity_id") or h.get("id")
+        if not eid:
+            continue
+        try:
+            fm, _ = parse_frontmatter((entities_dir / f"{eid}.md").read_text(encoding="utf-8"))
+        except OSError:
+            continue
+        aliases = fm.get("aliases") if isinstance(fm.get("aliases"), list) else []
+        for name in [fm.get("name") or "", *aliases]:
+            n = " ".join(text_fold.fold(str(name)).split())
+            if len(n) >= 3 and (n == q or _re.search(r"(?<!\w)" + _re.escape(n) + r"(?!\w)", q)):
+                out.add(str(eid))
+                break
+    return out
+
+
+def _above_floor(merged: list[dict], *legs: list[dict], named: set[str] | frozenset = frozenset()) -> list[dict]:
+    """Recall's relevance floor (lean reads, 2026-10-27): the fused hits some leg ranks near its own best, in fused
+    order, at most :data:`RECALL_PAGES_SHOWN`, and never fewer than the fused top one.
+
+    Fusion alone has no floor — a recall showed 7 pages whatever their scores, 5 of them off-topic on the owner's
+    bank. A page passes when, in at least one leg, it is among that leg's first :data:`RECALL_LEG_KEEP` AND close to
+    that leg's best: within :data:`RECALL_VECTOR_GAP` of the best cosine (the vector leg), at least
+    :data:`RECALL_WORD_SHARE` of the best score (the word leg), or simply ranked there (the claim leg, which carries
+    no comparable score)."""
+    def eid(h: dict) -> str | None:
+        return h.get("entity_id") or h.get("id")
+
+    passing: set[str] = set()
+    for leg in legs:
+        top = [h for h in (leg or [])[:RECALL_LEG_KEEP] if eid(h)]
+        if not top:
+            continue
+        source = str(top[0].get("source") or "")
+        best = top[0].get("score")
+        for hit in top:
+            score = hit.get("score")
+            close = True
+            if isinstance(best, (int, float)) and isinstance(score, (int, float)):
+                if source == "vector":
+                    close = score >= best - RECALL_VECTOR_GAP
+                elif source != "claim" and best > 0:
+                    close = score >= best * RECALL_WORD_SHARE
+            if close:
+                passing.add(str(eid(hit)))
+    shown = [h for h in merged if eid(h) and str(eid(h)) in passing]
+    if merged and eid(merged[0]) and str(eid(merged[0])) not in passing:
+        shown.insert(0, merged[0])
+    # A page the query names exactly is always shown, past the cap if it must; the rest fill what is left, in fused
+    # order.
+    kept = [h for h in merged if eid(h) and str(eid(h)) in named]
+    for h in shown:
+        if len(kept) >= RECALL_PAGES_SHOWN:
+            break
+        if h not in kept:
+            kept.append(h)
+    order = {id(h): i for i, h in enumerate(merged)}
+    return sorted(kept, key=lambda h: order.get(id(h), len(order)))
+
+
+def _mostly_links(text: str) -> bool:
+    """An excerpt that is more than half link characters (a wrapped mail-client URL, a pasted address)."""
+    import re as _re
+
+    links = sum(len(m) for m in _re.findall(r"https?://\S+", text or ""))
+    return bool(text) and links > len(text) / 2
+
+
 def _render_entity_summary(entities_dir: Path, hit: dict, *, ranked_ids: frozenset = frozenset(),
-                           more_call=None) -> str:
+                           more_call=None, body_max: int | None = None) -> str:
     """One hit's block: heading, ``Related:`` line, quoted body — each bounded (2026-10-22). ``more_call(eid)``
     spells the call that reads the whole page (``None`` for a caller that cannot make it)."""
     eid = hit.get("entity_id")
@@ -3969,7 +4181,7 @@ def _render_entity_summary(entities_dir: Path, hit: dict, *, ranked_ids: frozens
                                   today=date.today())
     related = fm.get("related", []) or []
 
-    truncated = _type_aware_truncate(body, etype)
+    truncated = _type_aware_truncate(body, etype, max_chars=body_max, collapse=body_max is not None)
 
     lines = [
         f"### {name} ({etype}, {said})",
@@ -3985,19 +4197,24 @@ def _render_entity_summary(entities_dir: Path, hit: dict, *, ranked_ids: frozens
     return "\n".join(lines)
 
 
-def _type_aware_truncate(body: str, entity_type: str) -> str:
+def _type_aware_truncate(body: str, entity_type: str, *, max_chars: int | None = None,
+                         collapse: bool = False) -> str:
+    """A page's body as recall quotes it. ``max_chars`` (2026-10-27) lowers the type's own budget for one hit;
+    ``collapse`` folds bullets that only repeat what is shown (``entity_body.collapse_repeats``)."""
     from api.services.claims import strip_claims_block
     # A recall quotes the page's words, never its link views (`[T](url "bookmark")` → `[T](url)`); recall_detail
     # keeps them, since it is the text an edit copies from.
     body = link_views.plain(strip_claims_block(body))
     if not body:
         return ""
-    if entity_type in SHORT_TYPES:
+    if entity_type in SHORT_TYPES and max_chars is None:
         return body
     try:
         from api.services.entity_body import summarize_for_recall
         budget = 2000 if entity_type in MEDIUM_TYPES else 3200
-        return summarize_for_recall(body, max_chars=budget)
+        if max_chars is not None:
+            budget = min(budget, max_chars)
+        return summarize_for_recall(body, max_chars=budget, collapse=collapse)
     except Exception:
         # pyyaml-free fallback: faithful OLD behavior per entity type
         if entity_type in MEDIUM_TYPES:
