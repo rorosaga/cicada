@@ -67,7 +67,7 @@ def _line(bank: Path, name: str, against: str, claims: list[dict]) -> None:
 
 
 def _question(bank: Path, item_id: str, name: str, target_id: str, target_name: str, *, held: bool = True,
-              entity_id: str = "", fold_page: bool = False) -> None:
+              entity_id: str = "", fold_page: bool = False, created: str = "2026-10-02") -> None:
     """A "Possible duplicate" question as Stage 2 writes it about a mention it held (``held_mention``), or — with
     ``held=False`` — a question about a page (``fold_page`` for #483's exclusive-relation one)."""
     markdown_parser.write(bank / "inbox" / f"{item_id}.md", {
@@ -76,7 +76,7 @@ def _question(bank: Path, item_id: str, name: str, target_id: str, target_name: 
         "entity_id": entity_id or name.lower().replace(" ", "-"), "entity_name": name,
         "title": f"Is {name} the same as {target_name}?", "uncertainty_type": f"Possible duplicate of {target_name}",
         "suggested_classification": f"person — could refer to the same person as {target_name}",
-        "suggested_confidence": 0.7, "created_date": "2026-10-02", "source_episode": EP1,
+        "suggested_confidence": 0.7, "created_date": created, "source_episode": EP1,
         "merge_target_hint": target_id}, "Could not safely decide.")
 
 
@@ -369,3 +369,24 @@ def test_stage_2_marks_the_questions_it_raises_about_a_held_mention(tmp_path):
                                        {"source": "existing", "id": "alex", "data": page})
     [item] = (root / "inbox").glob("inbox-*.md")
     assert markdown_parser.parse(item).frontmatter.get(er.HELD_MENTION_KEY) is True
+
+
+@pytest.mark.parametrize("created, folds", [("2026-10-27", False), ("2026-11-03", False), ("2026-10-26", True)])
+def test_sleep_never_folds_an_unflagged_question_from_483_on_once_its_line_is_gone(bank, created, folds):
+    """#483 held names before Stage 2 marked its questions: an unflagged "Is Alex the same as Alex Kim?" raised from its
+    merge day on may be about a held mention whose id is page alex's. Stage 2 later joins "Alex" elsewhere and its line
+    leaves the store; the question stays open (`check_organic_resolution`). Sleep's "same" must not fold page alex then.
+    An older unflagged page-pair question keeps ruling 29's fold."""
+    from api.services import inbox_service
+
+    assert inbox_service.UNFLAGGED_FOLD_CUTOFF == "2026-10-27"
+    _question(bank, "inbox-001", "Alex", "alex-kim", "Alex Kim", held=False, created=created)
+    pending_store.release(bank, ["Alex"])   # Stage 2 joined "Alex" to alex-lee; its line is gone
+    _commit(bank, "an unflagged question whose line has left")
+    d = inbox_tend.Decision("inbox-001", "merge_suggestion", "judged_same",
+                            {"action": "merge", "merge_target": "alex-kim"}, answer="Same as Alex Kim")
+    d.fingerprint = (bank / "inbox" / "inbox-001.md").read_bytes()
+
+    assert asyncio.run(inbox_tend.apply(bank, _Settings(bank), d))
+
+    assert (bank / "entities" / "alex.md").exists() is not folds

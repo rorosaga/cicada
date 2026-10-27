@@ -40,6 +40,13 @@ from api.services.sleep_refusal import SleepWriting
 
 logger = logging.getLogger(__name__)
 
+#: G209 (2026-10-27, #483's merge day): an unflagged "Possible duplicate" question raised on or after this date may be
+#: about a mention Sleep held whose id is the id of a DIFFERENT page — #483 began holding such names before Stage 2
+#: marked its questions (`held_mention`, #484). Once the name's pending line is gone (Stage 2 joined it elsewhere), nothing
+#: tells the two apart, so Sleep's "same" settle never folds the page of such a question unless it carries `fold_page`.
+#: An older page-pair question keeps ruling 29's fold. ISO date, compared as a string.
+UNFLAGGED_FOLD_CUTOFF = "2026-10-27"
+
 
 # ---------- Loading ----------
 
@@ -2702,8 +2709,10 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
         subject_file = resolve_entity_file(settings.memory_path, entity_id) if entity_id else None
         about_mention = parsed.frontmatter.get(HELD_MENTION_KEY) is True and not fold_flag
         subject_page = subject_file.stem if subject_file is not None and not about_mention else ""
-        held_here = about_mention or (subject_file is not None
-                                      and _store.held_against(settings.memory_path, mention) == subject_file.stem)
+        unflagged_recent = (not fold_flag
+                            and str(parsed.frontmatter.get("created_date") or "")[:10] >= UNFLAGGED_FOLD_CUTOFF)
+        held_here = about_mention or unflagged_recent or (
+            subject_file is not None and _store.held_against(settings.memory_path, mention) == subject_file.stem)
 
         if not rename:
             # Survivor == existing target: absorb the mention into the target.
