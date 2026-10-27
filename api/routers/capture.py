@@ -23,7 +23,8 @@ from pydantic import BaseModel, Field, model_validator
 
 from api.config import Settings, get_settings
 from api.services import (
-    awake_read, bank_registry, continuity_sessions, demo_guard, episode_ids, harness_integrations, hook_recall,
+    agent_memory_notes, awake_read, bank_registry, continuity_sessions, demo_guard, episode_ids, harness_integrations,
+    hook_recall, write_admission,
 )
 from api.services.telegram_capture import (
     TELEGRAM_WEBHOOK_SECRET_ENV,
@@ -444,6 +445,73 @@ async def hook_context_endpoint(req: HookContextRequest, settings: Settings = De
     hook_recall.record(req.event, req.harness, result, latency_ms=latency_ms, model=req.model, bank=bank)
     return {"additionalContext": result.text, "injected": list(result.injected),
             "reason": result.reason, "latencyMs": latency_ms}
+
+
+# ── Ruling 43 (owner 2026-10-27): an agent's own memory notes ──────────────────────────────────────────────────────
+# The harness's hook reads `~/.claude/projects/*/memory/*.md` on the machine where they live and posts their bytes;
+# the backend opens nothing (`agent_memory_notes`). One switch per memory, on by default.
+
+
+class AgentMemoryNote(BaseModel):
+    project: str = Field(..., min_length=1, max_length=255)
+    file: str = Field(..., min_length=1, max_length=255)
+    text: str = Field(..., max_length=agent_memory_notes.MAX_NOTE_CHARS)
+    #: The file's modification time, aware ISO-8601 — the note's own date when its head names none.
+    modified_at: str | None = Field(None, max_length=64)
+
+
+class AgentMemoryRequest(BaseModel):
+    """Every note under the harness root, read by its hook. Snake_case: the sender is a stdlib script."""
+
+    harness: Literal[*agent_memory_notes.HARNESSES]
+    notes: list[AgentMemoryNote] = Field(..., max_length=agent_memory_notes.MAX_NOTES)
+    #: True when ``notes`` is everything the root holds — only then is a note missing from it tombstoned.
+    complete: bool = False
+
+
+class AgentMemorySettings(BaseModel):
+    enabled: bool
+
+
+@router.get("/capture/agent-memory/settings", response_model=AgentMemorySettings)
+async def get_agent_memory_settings(settings: Settings = Depends(get_settings)):
+    return AgentMemorySettings(**agent_memory_notes.load_settings(settings.memory_path))
+
+
+@router.put("/capture/agent-memory/settings", response_model=AgentMemorySettings,
+            dependencies=[Depends(refuse_capture_into_demo)])
+@write_admission.route()
+async def put_agent_memory_settings(req: AgentMemorySettings, settings: Settings = Depends(get_settings)):
+    from api.services import folder_source
+
+    saved = agent_memory_notes.save_settings(settings.memory_path, enabled=req.enabled)
+    await folder_source.commit_paths_for(
+        settings.memory_path, [f"sources/{agent_memory_notes.SETTINGS_FILENAME}"],
+        subject="Agent memory notes setting", trigger="user/companion_app")
+    return AgentMemorySettings(**saved)
+
+
+@router.post("/capture/agent-memory", dependencies=[Depends(refuse_capture_into_demo)])
+@write_admission.route()   # held, never refused: notes stage while Sleep runs, as a session does
+async def capture_agent_memory(req: AgentMemoryRequest, request: Request, settings: Settings = Depends(get_settings)):
+    """Ruling 43: one episode per note, the agent's words (``evidence_kind: assistant``), dated when the note was last
+    written; an edit updates in place, a note gone from a complete post is tombstoned. ``{"status": "off"}`` when the
+    person turned the source off for this memory — nothing is read. 409 in a demo bank. The device that signed the
+    post files its own notes, so two machines never tombstone each other's."""
+    from api.services import folder_source
+
+    memory_path = settings.memory_path
+    if not agent_memory_notes.load_settings(memory_path)["enabled"]:
+        return {"status": "off", "bank": memory_path.name}
+    device = getattr(request.state, "device", None)
+    report = await asyncio.to_thread(
+        agent_memory_notes.ingest, memory_path, [n.model_dump() for n in req.notes], harness=req.harness,
+        device=device.id if device is not None else None, complete=req.complete)
+    paths = report.pop("paths")
+    if paths:
+        await folder_source.commit_paths_for(memory_path, paths, subject="Agent memory notes",
+                                             trigger="capture/agent_memory", author=req.harness)
+    return {"status": "ok", "bank": memory_path.name, **report}
 
 
 # ── G212 (owner 2026-10-22): a paired phone's captures ─────────────────────────────────────────────────────────────

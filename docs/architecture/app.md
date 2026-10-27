@@ -51,7 +51,9 @@ Agents page, ⌘9, `AppTab.agents`, appended so no shortcut moved — DR-22).
   *Memory on* and the folded *Apps outside this machine* (the remote connector, `page:remote`) follow.
 - **Privacy & data** gains Search & memory's one row (*Search runs on this Mac* and the sharper-model download); the
   fade card shows only while it holds a suggestion or a chosen pace. Watched folders are sources (`WatchedFoldersGroup`
-  is kept whole for the Sources page).
+  is kept whole for the Sources page). Under *Agent conversations*, *Your agents' notes* (ruling 43, `.agentNotes`) is
+  the memory's one switch for the agents' own memory notes (`GET`/`PUT /capture/agent-memory/settings`), on by
+  default, optimistic with rollback; disabled until the backend answers (`capture-and-sleep.md`).
 - **Reading in your browser** (fix round 2026-10-22): Reading the web's switches — the master switch (on by default
   behind the versioned first-use sheet), the signed-in session (ruling 25), the YouTube lists, Never explore, how the
   agent reads and watches, the sites — in one sheet from the Sources page's header (`ReadingInBrowserSheet`); the

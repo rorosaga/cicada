@@ -515,7 +515,9 @@ async def resolve(
             # agent, for them) acted on — measured on the conversation at Stage 1 (`application_page`).
             applied = application_page.birth_of(entity, siblings)
             should_promote = (
-                len(heard_now | heard_before) >= settings.sleep_promotion_threshold
+                # Ruling 43: counted by conversation — an agent's memory note is its session's, never one of its own.
+                len(promotion.conversation_keys(heard_now | heard_before, getattr(settings, "memory_path", None)))
+                >= settings.sleep_promotion_threshold
                 or linked_to_existing
                 or any(promotion.substantive(e) for e in (entity, *siblings))
                 or applied is not None
@@ -794,7 +796,7 @@ def _resolve_correspondents(
             taken.add(page_id)
             heard_now = {str(e.get("source_episode") or "") for e in group} - {""}
             heard_before = set(line.episodes()) - heard_now if line is not None else set()
-            promote = (len(heard_now | heard_before) >= threshold
+            promote = (len(promotion.conversation_keys(heard_now | heard_before, memory_path)) >= threshold
                        or any(promotion.substantive(e) for e in group)
                        or any(linked(str(e.get("name") or "")) for e in group))
             if promote:
@@ -1666,7 +1668,7 @@ async def _settle_unborn(
     made = 0
     for members in groups:
         heard = set().union(*(m.heard for m in members))
-        if not (any(m.passes for m in members) or len(heard) >= threshold):
+        if not (any(m.passes for m in members) or len(promotion.conversation_keys(heard, memory_path)) >= threshold):
             for m in members:
                 if not m.stored:
                     hold(m.name, m.entity, m.siblings, False)

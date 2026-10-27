@@ -119,6 +119,11 @@ struct FolderSyncResult: Decodable, Equatable, Sendable {
 
 /// G134 — per memory. Dictation is opt-in (R-LS23); `ownerSpeakerNames` is the
 /// only way a meeting speaker is ever the owner (R-LS22).
+/// Ruling 43: `GET`/`PUT /capture/agent-memory/settings` — the agents' own memory notes, on unless turned off.
+struct AgentMemorySettings: Codable, Equatable, Sendable {
+    var enabled = true
+}
+
 struct WisprFlowSettings: Codable, Equatable, Sendable {
     var enabled = false
     var includeDictation = false

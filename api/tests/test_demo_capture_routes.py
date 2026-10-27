@@ -68,6 +68,9 @@ GATED = {
     ("POST", "/capture/note"): "/capture/note",
     # G91 (ruling 38): a photo or file a paired device sends — its episode into the active bank.
     ("POST", "/capture/file"): "/capture/file",
+    # Ruling 43: an agent's own memory notes, posted by its hook, and their switch.
+    ("POST", "/capture/agent-memory"): "/capture/agent-memory",
+    ("PUT", "/capture/agent-memory/settings"): "/capture/agent-memory/settings",
     # G166: "Add to your graph" writes a skill page into the bank.
     ("POST", "/agent-methods/skills/{skill}/page"): "/agent-methods/skills/browser-harness/page",
 }

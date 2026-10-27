@@ -120,3 +120,50 @@ def person_said(rel: dict) -> bool:
     """A relationship whose evidence is located in a person's own words."""
     return any(isinstance(ev, dict) and ev.get("kind") in PERSON_KINDS and int(ev.get("start", -1)) >= 0
                for ev in rel.get("evidence") or [])
+
+
+#: Ruling 43: an agent's own memory note (`agent_memory_notes`) is no conversation of its own for the 2+ rung.
+AGENT_MEMORY_SOURCE = "agent-memory"
+
+
+def conversation_keys(episode_ids, memory_path=None) -> set[str]:
+    """The distinct conversations among ``episode_ids``, for the "2+ conversations" rung.
+
+    A captured harness session counts as ``session:<id>``; an agent's memory note counts as the session that wrote it
+    (``session:<origin_session_id>``, else its ``origin_episode``'s key) — so a session and its notes, two notes of one
+    session, or a note and its project's index never make two — and a note with no session counts as nothing. Every
+    other id is its own conversation, as before; an id with no readable episode (an older pending line's) too."""
+    from pathlib import Path
+
+    from api.services import bank_index
+
+    def header(eid: str) -> dict | None:
+        if memory_path is None or not eid.startswith("ep_"):
+            return None
+        try:
+            f = bank_index.file(Path(memory_path), "episodes", f"{eid}.md")
+        except Exception:  # noqa: BLE001 — an unreadable header counts as the id itself
+            return None
+        return (f.frontmatter or {}) if f is not None else None
+
+    def key(eid: str, depth: int = 0) -> str | None:
+        fm = header(eid)
+        if fm is None:
+            return eid
+        if str(fm.get("source") or "") == AGENT_MEMORY_SOURCE:
+            sid = str(fm.get("origin_session_id") or "").strip()
+            if sid:
+                return f"session:{sid}"
+            origin = str(fm.get("origin_episode") or "").strip()
+            return key(origin, depth + 1) if origin and depth == 0 else None
+        sid = str(fm.get("session_id") or "").strip()
+        if sid and fm.get("capture_kind") == "transcript":
+            return f"session:{sid}"
+        return eid
+
+    out: set[str] = set()
+    for eid in episode_ids:
+        k = key(str(eid))
+        if k:
+            out.add(k)
+    return out

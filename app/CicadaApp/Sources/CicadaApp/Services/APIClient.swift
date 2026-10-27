@@ -2592,6 +2592,15 @@ actor APIClient {
         return try await post("/sources/folders/\(encodedID(id))/sync?preview=\(preview)&resolve=\(resolve)", body: body)
     }
 
+    /// Ruling 43: the agents' own memory notes switch, per memory.
+    func fetchAgentMemorySettings() async throws -> AgentMemorySettings {
+        try await get("/capture/agent-memory/settings")
+    }
+
+    func saveAgentMemorySettings(enabled: Bool) async throws -> AgentMemorySettings {
+        try await put("/capture/agent-memory/settings", body: ["enabled": enabled])
+    }
+
     func fetchWisprSettings() async throws -> WisprFlowSettings {
         try await get("/capture/local-source/wispr-flow/settings")
     }

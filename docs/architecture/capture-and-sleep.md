@@ -752,6 +752,65 @@ join, and neither does a Codex MCP write, because Codex gives an MCP server no s
 or Gemini CLI MCP write, whose captured episode exists but whose MCP session is not tied to it. The app
 then says the model wasn't shared.
 
+#### An agent's own memory notes (ruling 43, 2026-10-27)
+
+Owner: "yes 100% cicada can read claude memory notes." Claude Code keeps auto-memory notes per project —
+`~/.claude/projects/<project>/memory/*.md`, each with a YAML head (`name`, `description`, and `type`,
+`originSessionId`, `modified` at the top level or under `metadata`) — plus a `MEMORY.md` index. They are agent-written,
+curated summaries, often a cleaner record than the raw turns. The transcripts beside them keep their own rail.
+
+- **Who reads: the harness's own hook.** `api/hooks/memory_notes.py` (stdlib, run by path) reads every project's
+  `memory/*.md` on the machine where they live and posts their bytes to `POST /capture/agent-memory`; the backend parses
+  bytes (`api/services/agent_memory_notes.py`) and opens no path for this source. Why not the backend: its one read
+  under `~/.claude` stays the validated transcript read, and a client of a server elsewhere (ruling 28) or a headless
+  server could not reach the notes anyway. Why not the app: Linux and a plugin-only install have none. The hook fires
+  inside a session, which is when notes change. Only `<project>/memory/*.md` regular files are read — no symlink at
+  any level, no `.jsonl`, nothing over 256 KB; `$CLAUDE_CONFIG_DIR/projects` when the harness sets one.
+- **When.** After a Claude Code `Stop` or `PreCompact` (never `SessionEnd`, whose time is the person's exit) the
+  capture hook stats every note and compares a fingerprint (each note's path, mtime and size) with the last post that
+  landed (`$CICADA_HOME/state/agent-memory-notes.json`). Only when a note changed, appeared or went away, the server
+  changed, or an hour passed (a bank switch, the switch turned back on) does it start a detached `--sweep` child, so the
+  harness never waits; a lock keeps two sessions from sweeping at once. The first firing after install has no
+  fingerprint, so it back-fills every note once; every later post is idempotent. A post that does not land is not
+  spooled: the fingerprint stays, and the next firing sends again. One `capture.log` line per sweep: counts only.
+- **The post** is a full snapshot (`complete: true`), newest first, at most 2,000 notes and 8 MB of note text
+  (`request_limits`: 12 MB); past either, or with any note skipped rather than read (a symlink, over 256 KB, unreadable),
+  it is sent incomplete and tombstones nothing. On a client it goes to the
+  server with this device's token, and each device's notes are keyed under its own id
+  (`agent-memory:<harness>:<device>:<project>/<file>`, `local` for the server's own token), so two machines never
+  tombstone each other's.
+- **The episode.** One per note through `episode_staging`: an edit updates it in place with `processed: false`; a note
+  missing from a complete post is tombstoned (`source_deleted_at`), never unlinked, and cleared if it returns; the body
+  is scrubbed (writer `agent-memory`); a demo bank answers 409 (`refuse_capture_into_demo`). `source: agent-memory`,
+  `origin` and `harness` the harness. The body is one `assistant:` turn (the description, then the note) and the
+  episode declares **`evidence_kind: assistant`** — the ruling-32 relay precedent: stored, searchable and read by Sleep,
+  never the person's own words (not promotion's own-words rung, not ruling 29's settling; a claim resting on it never
+  closes one resting on theirs, `inbox_tend.may_close`). `timestamp` is the note's own `modified` (else the file's
+  mtime), `received_at` is stamped by `create_episode` (ruling 39); an edit moves `timestamp` in place
+  (`EpisodeDraft.redate`). `agent_memory: {project, file, type, description}` carries the head.
+- **Which agent and session.** `origin_session_id` is the note's `originSessionId`; `origin_episode` is that session's
+  captured episode (`capture_kind: transcript`) when the bank holds it — linked on a later sync, frontmatter only, once
+  the session lands after the note. Never `session_id`: that key means the episode IS the session (G104).
+- **How Sleep reads it.** `episode_time.UNTIMED_SOURCES` includes `agent-memory`: a note's date is when the summary was
+  last edited, not when anything in it came up — the same rule as a chat export's memory entry — so it is no mention for
+  decay and never a page's activity; its facts are kept, and the session that wrote it is captured on its own. Stage 1
+  prepends the memory-summary note (`entity_extractor.MEMORY_SOURCES`): older, lower trust, prefer a conversation's
+  newer statement. A note's value claims are dated by the note, so newer conversation evidence closes them, never the
+  reverse. **Not a conversation of its own:** promotion's "2+ conversations" (Stage 2, every rung that counts, the
+  pending store's `heard_in` included) and a skill's (`skill_grounding`) count `promotion.conversation_keys` — a
+  captured session is `session:<id>`, a note is its `origin_session_id`'s session (else its `origin_episode`'s key), a
+  note with neither counts as none — so a session and its notes, two notes of one session, or a note and its index
+  never make two. `heard_in` keeps the raw episode ids: they are the page's source credits.
+- **The index.** `MEMORY.md` is mostly one link per note, each captured on its own; a line that links to a note file
+  is dropped (its note says it, or the note was deleted and the pointer is stale), and an index with nothing else is no
+  episode.
+- **The switch.** `sources/agent_memory.json` per memory, on unless the person turned it off (`GET`/`PUT
+  /capture/agent-memory/settings`; Settings → Privacy, "Your agents' notes"). Off, the route answers `{"status": "off"}`
+  and stores nothing; episodes already captured stay.
+- **Other harnesses.** Codex keeps a global (not per-project) `~/.codex/memories/` — a `MEMORY.md`, a
+  `memory_summary.md`, `raw_memories.md` and `rollout_summaries/*.md`, itself a git repository. Not read yet: the
+  `capture --harness codex` hook would need the same reader pointed there, with its own head format.
+
 #### Capture from every agent (capture-everywhere, 2026-10-14)
 
 Owner, 2026-10-14: "The idea is for this to be an all-rounded capture and use of all providers." Every agent is

@@ -189,6 +189,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   never the person's own words until that app's export upgrades it in place (`capture-and-sleep.md`).
 - **Transcripts under `~/.claude/` are never read anywhere else** — the MCP seam and resume only `isfile()` them.
   A client of a server elsewhere reads its session there with Cicada's own extractor and posts the capped turns (ruling 28).
+  **Agent memory notes (ruling 43):** Claude Code's `projects/*/memory/*.md` are read by its own hook, never the backend
+  — the backend's one `~/.claude` read stays the transcript, and it works the same on a client or a headless server —
+  posted as bytes, one agent-worded episode per note, one switch, on by default (`capture-and-sleep.md`).
 - **One id rule** (`episode_ids`): max-suffix+1 per date — the conversation's local day, never renamed (ruling 34) —
   aware UTC timestamps; `processed_by` says who flipped it. **Both dates (ruling 39):** `timestamp` is the item's own
   date, `received_at` when Cicada received it — stamped once by `create_episode`, never backfilled; a feed item is

@@ -90,6 +90,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from workspace_identity import observe_if_needed, remember  # stdlib sibling, run by path
 import hook_client as remote_client  # stdlib sibling: a client of a server elsewhere (G181 phase 2)
 import hook_spool as spool  # stdlib sibling: what a client could not deliver yet
+import memory_notes  # stdlib sibling: the agent's own memory notes (ruling 43)
 
 TIMEOUT_S = 3.0
 #: G110 gate A: a SessionEnd flush delays the session's exit, so its request
@@ -339,7 +340,19 @@ def _outcome(text: str) -> str:
         return ""
 
 
-def main(argv=None, *, stdin=None, stdout=None, environ=None, post=None, log_path=None, token_path=None) -> int:
+def _memory_notes(environ, *, harness: str, event: str, tag: str, log_path: Path, spawn=None) -> None:
+    """Ruling 43: after a Claude Code Stop or PreCompact, start a detached sweep of the agent's memory notes when one
+    changed (``memory_notes.maybe_start``: a stat of each note, never a read here). Never fails the hook."""
+    try:
+        started = memory_notes.maybe_start(environ, harness=harness, event=event, spawn=spawn)
+    except Exception as exc:  # noqa: BLE001 - the harness must never see a failure
+        started = f"memory notes: error: {type(exc).__name__}"
+    if started:
+        _log(log_path, f"{tag} {started}")
+
+
+def main(argv=None, *, stdin=None, stdout=None, environ=None, post=None, log_path=None, token_path=None,
+         memory_spawn=None) -> int:
     """Forward the harness payload; return 0 unconditionally.
 
     Every collaborator is injectable (``stdin``, ``environ``, ``post``,
@@ -396,10 +409,12 @@ def main(argv=None, *, stdin=None, stdout=None, environ=None, post=None, log_pat
             if not session_id:
                 _log(log_path, f"{tag} skipped: no session_id")
                 return 0
-            return _client_capture(payload, harness=harness, session_id=session_id, event=event, tag=tag,
-                                   home=home, environ=environ,
-                                   post=post if post is not _default_post else _client_send,
-                                   log_path=log_path, started=started)
+            outcome = _client_capture(payload, harness=harness, session_id=session_id, event=event, tag=tag,
+                                      home=home, environ=environ,
+                                      post=post if post is not _default_post else _client_send,
+                                      log_path=log_path, started=started)
+            _memory_notes(environ, harness=harness, event=event, tag=tag, log_path=log_path, spawn=memory_spawn)
+            return outcome
         if turn_harness:
             if not session_id or event != "AfterAgent":
                 _log(log_path, f"{tag} skipped: not an AfterAgent payload")
@@ -454,6 +469,7 @@ def main(argv=None, *, stdin=None, stdout=None, environ=None, post=None, log_pat
         if status == 200:
             remember(home, harness, session_id, workspace, environ=environ)
         _log(log_path, f"{tag} http {status} {_outcome(text)}".rstrip())
+        _memory_notes(environ, harness=harness, event=event, tag=tag, log_path=log_path, spawn=memory_spawn)
     except Exception as exc:  # noqa: BLE001 - the harness must never see a failure
         _log(log_path, f"{tag} error: {type(exc).__name__}: {exc}")
     return 0
