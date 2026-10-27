@@ -1750,7 +1750,9 @@ mechanisms, each closed for every type, not only people:
   MENTION releases: Stage 2 marks the questions it raises about a name it holds (`held_mention`), because the
   mention's id can be the id of the page it was held against; a question about a page (`fold_page`, a page pair, or an
   older unmarked item) never releases a line held against that page, and Sleep's "same" settle never folds the page a
-  held mention shares its id with. "Someone else", dismiss and skip release nothing: the resolver never mints a page,
+  held mention shares its id with, nor the page of an unflagged question raised from 2026-10-27 on
+  (`UNFLAGGED_FOLD_CUTOFF`) — where the fold is refused Sleep does not settle at all, and the question waits for the
+  person. "Someone else", dismiss and skip release nothing: the resolver never mints a page,
   so the name waits for Stage 2's promotion rule ("<name> (another)") and its claims follow there. With no titled page and no lead, the mention
   goes on by the usual rule. The leads are looked up in one
   index built per run (`NameIndex`: name/alias key → pages; folded spelling bucketed by first letter and length), never

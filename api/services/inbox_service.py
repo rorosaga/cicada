@@ -2713,6 +2713,12 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
                             and str(parsed.frontmatter.get("created_date") or "")[:10] >= UNFLAGGED_FOLD_CUTOFF)
         held_here = about_mention or unflagged_recent or (
             subject_file is not None and _store.held_against(settings.memory_path, mention) == subject_file.stem)
+        if (inbox_actor.folds_pages() and held_here and not fold_flag and subject_file is not None
+                and not subject_file.samefile(target_path)):
+            # Sleep's "same" would fold that page, and the fold is refused: settling without it would close the
+            # duplicate question with both pages left, so the person never sees it again. Sleep does not settle it —
+            # nothing written, the question left pending for the person (`inbox_tend.apply`).
+            raise HTTPException(409, "Sleep does not settle this: the fold is the person's call.")
 
         if not rename:
             # Survivor == existing target: absorb the mention into the target.

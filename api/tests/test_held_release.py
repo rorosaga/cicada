@@ -344,17 +344,20 @@ def test_sleeps_same_settle_on_a_held_mention_never_folds_the_page_sharing_its_i
         _question(bank, "inbox-001", "Alex", "alex-kim", "Alex Kim", held=False)
         _commit(bank, "an older question with no mark")
     alex = (bank / "entities" / "alex.md").read_bytes()
+    question = (bank / "inbox" / "inbox-001.md").read_bytes()
+    head = _git(bank, "rev-parse", "HEAD")
     d = inbox_tend.Decision("inbox-001", "merge_suggestion", "judged_same",
                             {"action": "merge", "merge_target": "alex-kim"}, answer="Same as Alex Kim")
-    d.fingerprint = (bank / "inbox" / "inbox-001.md").read_bytes()
+    d.fingerprint = question
 
-    assert asyncio.run(inbox_tend.apply(bank, _Settings(bank), d))
+    # The fold is refused, so Sleep does not settle at all: closing the question with both pages left would hide it.
+    assert not asyncio.run(inbox_tend.apply(bank, _Settings(bank), d))
 
+    assert (bank / "inbox" / "inbox-001.md").read_bytes() == question, "left pending for the person, untouched"
+    assert not (bank / "inbox" / "settled" / "inbox-001.md").exists()
     assert (bank / "entities" / "alex.md").read_bytes() == alex, "the page the mention was held against is untouched"
-    if held:   # asked about the mention: its claims land on the page Sleep judged it to be
-        assert ("alex-kim", "mentors", "mira-quell") in _claims(bank, "alex-kim")
-    else:      # unmarked, so possibly about the page: nothing released, nothing folded
-        assert _line_claims(bank, "Alex") == ["clm_held_1", "clm_held_2"]
+    assert _claims(bank, "alex-kim") == [] and _line_claims(bank, "Alex") == ["clm_held_1", "clm_held_2"]
+    assert _git(bank, "rev-parse", "HEAD") == head and not _git(bank, "status", "--porcelain").strip()
 
 
 def test_stage_2_marks_the_questions_it_raises_about_a_held_mention(tmp_path):
@@ -383,10 +386,15 @@ def test_sleep_never_folds_an_unflagged_question_from_483_on_once_its_line_is_go
     _question(bank, "inbox-001", "Alex", "alex-kim", "Alex Kim", held=False, created=created)
     pending_store.release(bank, ["Alex"])   # Stage 2 joined "Alex" to alex-lee; its line is gone
     _commit(bank, "an unflagged question whose line has left")
+    question = (bank / "inbox" / "inbox-001.md").read_bytes()
     d = inbox_tend.Decision("inbox-001", "merge_suggestion", "judged_same",
                             {"action": "merge", "merge_target": "alex-kim"}, answer="Same as Alex Kim")
-    d.fingerprint = (bank / "inbox" / "inbox-001.md").read_bytes()
+    d.fingerprint = question
 
-    assert asyncio.run(inbox_tend.apply(bank, _Settings(bank), d))
+    assert asyncio.run(inbox_tend.apply(bank, _Settings(bank), d)) is folds
 
     assert (bank / "entities" / "alex.md").exists() is not folds
+    if not folds:   # refused fold: not settled, the question waits for the person, untouched
+        assert (bank / "inbox" / "inbox-001.md").read_bytes() == question
+        assert not (bank / "inbox" / "settled" / "inbox-001.md").exists()
+        assert not _git(bank, "status", "--porcelain").strip()
