@@ -1352,7 +1352,9 @@ def _member_fact(bank: _Bank, eid: str) -> str:
                 if _open(c) and c.object_kind == "literal" and c.object and not is_event(c)]
         return " · ".join(lits[:3])
     if t == "person":
-        c = next((c for c in bank.claims(eid) if _open(c) and c.predicate == "works-at"), None)
+        # The newest current place (2026-10-27), as the person card names it — never the first one the page lists.
+        places = [c for c in bank.claims(eid) if _open(c) and c.predicate == "works-at"]
+        c = max(places, key=lambda c: (c.valid_from or "", c.recorded_at or ""), default=None)
         return _object_label(bank, c) if c else ""
     if t == "media":
         media = fm.get("media") if isinstance(fm.get("media"), dict) else {}

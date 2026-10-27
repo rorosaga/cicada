@@ -387,7 +387,57 @@ def build_endings_fn(memory_path: Path | None) -> EndingFn:
 
     ending.ended_by = ended_by  # type: ignore[attr-defined]
     ending.depends_on = depends_on  # type: ignore[attr-defined]
+    ending.onset = build_onsets_fn(memory_path)  # type: ignore[attr-defined]
     return ending
+
+
+class Onset(NamedTuple):
+    canonical: str               # the predicate whose belief the label starts ("joined" -> works-at)
+    subject: frozenset[str]      # the entity types the subject's page must be one of
+    object: frozenset[str]       # the entity types the object's page must be one of
+
+    def fits(self, subject_type: str, object_type: str) -> bool:
+        return subject_type in self.subject and object_type in self.object
+
+
+OnsetFn = Callable[[str], "Onset | None"]
+
+
+def build_onsets_fn(memory_path: Path | None) -> OnsetFn:
+    """A ``label -> Onset | None`` oracle over the seed's ``starts`` and the bank's (union; 2026-10-27, past roles).
+
+    "joined Acme" says a job at Acme began, so Stage 3 writes it as ``works-at`` — but only between the declared
+    entity types (a person and a company), because "joined" also names a club, a programme or a waitlist. Labels
+    compare slugged; a label two canonicals list starts nothing (when unsure, nothing is folded). A start never
+    closes another belief: the oracle only says which predicate the claim is."""
+    sources = [_load_seed_map()]
+    if memory_path is not None:
+        sources.append(_read_runtime_map(memory_path))
+    found: dict[str, set[str]] = {}
+    subjects: dict[str, set[str]] = {}
+    objects: dict[str, set[str]] = {}
+    for data in sources:
+        raw = data.get("starts") if isinstance(data, dict) else None
+        if not isinstance(raw, dict):
+            continue
+        for canonical, spec in raw.items():
+            canon = _slugify_predicate(str(canonical))
+            if not canon or not isinstance(spec, dict):
+                continue
+            subjects.setdefault(canon, set()).update(str(t).strip().lower() for t in spec.get("subject") or [])
+            objects.setdefault(canon, set()).update(str(t).strip().lower() for t in spec.get("object") or [])
+            for label in spec.get("labels") or []:
+                slug = _slugify_predicate(str(label))
+                if slug:
+                    found.setdefault(slug, set()).add(canon)
+    table = {slug: Onset(next(iter(canons)), frozenset(subjects.get(next(iter(canons)), ())),
+                         frozenset(objects.get(next(iter(canons)), ())))
+             for slug, canons in found.items() if len(canons) == 1}
+
+    def onset(label: str) -> Onset | None:
+        return table.get(_slugify_predicate(label or ""))
+
+    return onset
 
 
 @lru_cache(maxsize=1)

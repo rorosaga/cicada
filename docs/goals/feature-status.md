@@ -9,6 +9,7 @@ Status, in order: `proposed` → `building` (a branch exists) → `PR #n` (open 
 
 | ID | Feature | Status | PR | Updated |
 |---|---|---|---|---|
+| [G121](memory-evolution.md#g121) | Past roles are history: "worked at / worked on / lived in / studied at / reported to" closed, "joined <company>" a job (type-gated starts), a stated start day, and `past_roles_repair` for banks written before | building | — | 2026-10-27 |
 | [G217](memory-evolution.md#g217) | Sources: a list only the person's agent reads (allowed site, saved list, YouTube lists) reads "On · waits for your agent" until an agent on this Mac is connected, and the header counts only what is connected (tester readiness blocker 2) | PR #482 | [#482](https://github.com/rorosaga/cicada/pull/482) | 2026-10-26 |
 | [G182](memory-evolution.md#g182) | Report a problem… (Help menu, Settings → General): the report shown before it leaves the Mac (versions, engine mode, source ids, redacted log tails from `GET /diagnostics/report`), Copy, Save…, and Send as a private email only when the release carries `CICADA_REPORT_EMAIL` (no address in the repo; otherwise "send this to the person who gave you Cicada") | PR #482 | [#482](https://github.com/rorosaga/cicada/pull/482) | 2026-10-26 |
 | [G92](memory-evolution.md#g92) | Onboarding: the Mac account's name is a prefilled suggestion the person confirms or edits, never saved unseen; the Agents step, README and `install-release.sh` say Claude Code or Codex on a paid plan is needed | PR #482 | [#482](https://github.com/rorosaga/cicada/pull/482) | 2026-10-26 |
