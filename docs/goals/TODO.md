@@ -19,6 +19,10 @@
   the file comes from. The Calendar row lists the accounts it read and opens Internet Accounts to add Google's (no
   prompt); Google's secret iCal address through the feed path is not offered, because a subscription is stored in the
   bank's `calendars.yaml`, which would put a credential in the bank. Needs the owner: the detail-pane screenshots.
+- **2026-10-27 — ruling 41 recorded; one person as several People cards (G209, PR #483).** Resolve weighs a new
+  name's own aliases, close spellings and names said together; an alias is never another entry's of the same
+  conversation; one exclusive relation held twice asks; nicknames titled and kept per ruling 41. The bank's repair is
+  left to the owner on a per-item dry run.
 - **2026-10-26 — ruling 40 recorded; an organisation's own website found during consolidation (G61, G146; branch
   `feat/org-website-sources`).** `org_sites` in Sleep's site-check step: the record, then one Wikidata match, trusted
   only when the homepage names the entity, otherwise a proposal in the "Confirm N links" review; a public place with a
@@ -1844,3 +1848,22 @@ A whole row moves to DONE only after its remaining implementation and required a
     narrowed to curated text and alias-only matches made proposals, and the second pass trusts none of the three.
     **Revisit** if a trusted auto-site is removed by the person (count `sources_removed` rows by `user` on entries with
     `verified.how` `wikidata+name` / `record*`), or if a fetched logo is ever shown on the wrong organisation.
+41. **Nicknames count as nicknames, unless there is no name — then a nickname is the name until a name is found
+    (owner, 2026-10-27; G209; branch `fix/people-duplicates`).** The owner's words: "Nicknames should count as nicknames
+    unless there is no name, then it's a name until a name is found", and it "should work at scale with many many
+    nicknames". **As built:** a nickname the person uses is always kept as an alias of that person's page, even one
+    other people share or one that is another page's name (Sleep no longer drops an alias for being another page's; only
+    a name or nickname of ANOTHER entry of the same conversation is dropped, unless the two list each other or it starts
+    a word of this entry's own name). A page with no name is titled by the nickname (`nickname_title: true` with
+    `unnamed: true`), never "X (unnamed)" or the role; its name question stays open. A ruling-29 settle that finds only a
+    nickname (lowercase where a quote has capitals, or the reader marks it a nickname) titles the page and keeps the
+    question; a name — the person's inbox answer, or a settle that passes `written_as_name` — takes the title, keeps the
+    nickname as an alias, and is never asked. **At scale:** a nickname never joins on its own — a page titled by one, or
+    a name two or more other people answer to, goes to the judge; more than five pages answering to one name make it
+    common (`MAX_NAME_HOLDERS`): its alias holders are not each judged, but the mention's own aliases, a name said with
+    it and the page titled exactly by it still are; a name never creates over a page it did not join (held and asked,
+    then "<name> (another)" once the person says someone else), and a held name's edges and claims never land on the
+    page that shares it (its claims, both ways, wait on its pending line until Stage 2 decides); lookups go through one
+    index per run (`NameIndex`): 2.3 ms a name on a synthetic 2,500-page bank with ~20k aliases. **Revisit** if a
+    nickname-titled page is renamed by the person to its nickname again, or a held common-nickname mention is later
+    found to have been someone's only name.

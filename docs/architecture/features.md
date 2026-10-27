@@ -378,7 +378,10 @@ and that fresh decision is applied; a judged rule needs `policy()` to still answ
 type-mismatch and same-page refusals hold) and a guard over at least every page the judge reads, unchanged; a name
 question (`asks: name`) and any free `answer` settle only as `said_on_record`, on the person's words located again
 (`persons_span`) in a conversation that does not raise it, said after every side of it, and only when those words
-SAY the answer (`answer_supported`, no model: a free answer's words, a name as one phrase, a conflict side's label
+SAY the answer (`answer_supported`, no model: a free answer's words, a name as one phrase written as a name —
+`written_as_name`, 2026-10-27: capitalised where the person wrote it unless that quote has no capital at all; a
+nickname said in passing, "send it to <nickname>", titles the page instead and keeps the question open (ruling 41,
+`capture-and-sleep.md`, "Placeholder people") —, a conflict side's label
 or claim object, a follow-up's state word — the same check Sleep's own reading applies in `_answer_decision`); the model and engine become
 the author only for a rule an engine read and only as an id that engine uses — any other settle is Sleep's own
 (`cicada`). Per-id outcomes: `settled`, `changed`, `refused` (a code),

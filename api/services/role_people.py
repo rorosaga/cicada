@@ -49,6 +49,10 @@ from api.services.id_utils import sanitize_id
 ROLES_KEY = "owner_roles"
 #: Frontmatter: this person page has no name yet — its title is the relation.
 UNNAMED_KEY = "unnamed"
+#: Frontmatter: the page's title is a nickname the person uses, not a name (owner ruling 2026-10-27: "Nicknames should
+#: count as nicknames unless there is no name, then it's a name until a name is found"). Set with ``unnamed: true``, so
+#: the name question stays open; when a name arrives the title switches to it and the nickname stays an alias.
+NICKNAME_KEY = "nickname_title"
 #: Frontmatter: the person said "I'd rather not say" — the page keeps its role title and is never asked again.
 DECLINED_KEY = "name_declined"
 #: Inbox: a clarification that asks for a name carries ``asks: name``.
@@ -328,6 +332,16 @@ def canonicalize(extracted: list[dict], existing: list[dict], owner_fm: dict | N
                 continue
             role = parse(entity.get("name", ""), names)
             if role is None:
+                nick = nickname_of(entity.get("name", ""))
+                if nick is not None:
+                    # Owner ruling 2026-10-27: Stage 1's "<nickname> (unnamed)" is a nickname with no name yet — the
+                    # page is titled by it (never "X (unnamed)"), marked as one, and asked its name.
+                    renames[_clean(entity["name"]).lower()] = nick
+                    entity["name"] = nick
+                    entity[UNNAMED_KEY] = True
+                    entity[NICKNAME_KEY] = True
+                    entity["aliases"] = [*(a for a in entity.get("aliases") or []
+                                           if _clean(str(a)).lower() != nick.lower()), nick]
                 continue
             target, new = _target(role, carriers, taken)
             renames[_clean(entity["name"]).lower()] = target
@@ -369,7 +383,21 @@ def create_fields(entity: dict) -> dict:
     """The frontmatter a new placeholder page is born with (``conflict_resolver.apply_changes``)."""
     if not entity.get(UNNAMED_KEY):
         return {}
-    return {ROLES_KEY: list(entity.get(ROLES_KEY) or []), UNNAMED_KEY: True}
+    fields: dict = {UNNAMED_KEY: True}
+    if entity.get(ROLES_KEY):
+        fields[ROLES_KEY] = list(entity.get(ROLES_KEY) or [])
+    if entity.get(NICKNAME_KEY):
+        fields[NICKNAME_KEY] = True
+    return fields
+
+
+def nickname_of(name: str) -> str | None:
+    """``"<word(s)> (unnamed)"`` that is not a relation → the words, a nickname the person uses; else ``None``."""
+    text = _clean(name)
+    stripped = _UNNAMED_SUFFIX.sub("", text).strip()
+    if stripped == text or not stripped or len(stripped) > MAX_NAME_CHARS:
+        return None
+    return stripped
 
 
 # ---------------------------------------------------------------- the question
@@ -432,9 +460,11 @@ def ensure_question(memory_path: Path, page_id: str, *, owner_fm: dict | None = 
     keys = roles_of(fm)
     role = parse(str(fm.get("name") or ""), owner_names(owner_fm), bare=True)
     key = keys[0] if keys else (role.key if role is not None else "")
-    if not key:
+    nickname = str(fm.get("name") or "") if fm.get(NICKNAME_KEY) else ""
+    if not key and not nickname:
         return None
-    question = f"What's the name of your {key}?"
+    # A page titled by a nickname is asked for the name behind it (owner ruling 2026-10-27).
+    question = f"What's the name of your {key}?" if key else f"What's {nickname}'s name?"
     episodes = [str(e) for e in fm.get("source_episodes") or [] if e]
     item_fm = {
         "kind": "clarification",
@@ -460,7 +490,9 @@ def ensure_question(memory_path: Path, page_id: str, *, owner_fm: dict | None = 
     inbox = memory_path / "inbox"
     inbox.mkdir(parents=True, exist_ok=True)
     path = _next_item(inbox)
-    markdown_parser.write(path, item_fm, _lead(parsed.body) or f"Cicada knows this person only as your {key}.")
+    fallback = (f"Cicada knows this person only as your {key}." if key
+                else f"You call this person {nickname}; Cicada does not know their name yet.")
+    markdown_parser.write(path, item_fm, _lead(parsed.body) or fallback)
     return path
 
 
@@ -483,6 +515,166 @@ def ask_after_write(memory_path: Path, changes: list[dict], owner_fm: dict | Non
     return asked
 
 
+# ---------------------------------------------------------------- one person per exclusive relation
+
+#: Relations one person holds toward the owner at a time, by class: two pages holding the same one are probably one
+#: person under two names (a name and a nickname, two spellings, a name and a role page). Each word is a role head
+#: (:data:`SINGULAR_ROLES`) or one a predicate spells; a "step-" or "ex-" relation, or one with a past qualifier, is
+#: not this class (``_names_role`` reads exact tokens only).
+EXCLUSIVE = {
+    "partner": frozenset({"partner", "spouse", "wife", "husband", "boyfriend", "girlfriend", "fiance", "fiancé",
+                          "fiancee", "fiancée", "pareja", "esposa", "esposo", "novia", "novio", "prometida",
+                          "prometido"}),
+    "mother": frozenset({"mother", "mom", "mum", "madre", "mamá", "mama"}),
+    "father": frozenset({"father", "dad", "padre", "papá", "papa"}),
+    "stepmother": frozenset({"stepmother"}),
+    "stepfather": frozenset({"stepfather"}),
+}
+_CLASS_OF = {head: cls for cls, heads in EXCLUSIVE.items() for head in heads}
+
+
+def _label_class(label: str, *, from_owner: bool) -> str | None:
+    """The exclusive relation a predicate or edge label names (``_names_role``'s exact forms), or ``None``."""
+    for head in [t for t in _tokens(label) if t in _CLASS_OF]:
+        cls = _CLASS_OF[head]
+        if _names_role(label, head, from_owner=from_owner):
+            return cls
+        # A partner relation reads the same from either side ("<owner> girlfriend-of <page>" is no different).
+        if from_owner and cls == "partner" and _names_role(label, head, from_owner=False):
+            return cls
+    return None
+
+
+def _key_class(key: str) -> str | None:
+    """The exclusive relation an ``owner_roles`` key or a role title stands for ("partner", "current girlfriend")."""
+    role = parse(key, bare=True)
+    if role is None or not role.singular:
+        return None
+    return _CLASS_OF.get(role.head)
+
+
+def exclusive_holders(memory_path: Path, settings=None) -> dict[str, list[str]]:
+    """``{relation class: person page ids that hold it}`` for every class two or more pages hold — what the record
+    says, never a guess: ``owner_roles`` (the person's answer, or a merge with evidence), a placeholder titled by the
+    relation, an open claim between the page and the owner whose predicate names it, or a graph edge that does.
+    Dropped and archived pages, and the owner's own, hold nothing."""
+    from api.services import bank_index, owner_identity
+    from api.services.claims import is_event, parse_claims
+
+    memory_path = Path(memory_path)
+    entries = {f.path.stem: f for f in bank_index.files(memory_path, "entities") if f.path.suffix == ".md"}
+    owner_id = owner_identity.owner_page_id(
+        [{"id": pid, "frontmatter": f.frontmatter or {}} for pid, f in entries.items()], memory_path, settings)
+    if not owner_id:
+        return {}
+    people = {pid for pid, f in entries.items()
+              if pid != owner_id and _person(f.frontmatter or {}) and not (f.frontmatter or {}).get("owner")
+              and str((f.frontmatter or {}).get("status") or "active") not in ("dropped", "archived")}
+    held: dict[str, set[str]] = {}
+
+    def hold(cls: str | None, pid: str) -> None:
+        if cls is not None:
+            held.setdefault(cls, set()).add(pid)
+
+    for pid in people:
+        fm = entries[pid].frontmatter or {}
+        for key in roles_of(fm):
+            hold(_key_class(key), pid)
+        if fm.get(UNNAMED_KEY):
+            hold(_key_class(str(fm.get("name") or "")), pid)
+
+    def consider(subject: str, obj: str, label: str) -> None:
+        if subject in people and obj == owner_id:
+            hold(_label_class(label, from_owner=False), subject)
+        elif subject == owner_id and obj in people:
+            hold(_label_class(label, from_owner=True), obj)
+
+    for pid in [owner_id, *sorted(people)]:
+        entry = entries.get(pid)
+        if entry is None:
+            continue
+        try:
+            claims = parse_claims(entry.body())
+        except Exception:  # noqa: BLE001 - an unreadable block is no evidence
+            continue
+        for c in claims:
+            if c.object_kind == "literal" or is_event(c) or c.valid_to or c.superseded_by:
+                continue
+            consider(str(c.subject or ""), str(c.object or ""), c.predicate)
+    edges_file = memory_path / "graph_edges.yaml"
+    if edges_file.is_file():
+        try:
+            data = yaml.safe_load(edges_file.read_text(encoding="utf-8")) or {}
+        except Exception:  # noqa: BLE001
+            data = {}
+        for e in data.get("edges", []) or []:
+            if isinstance(e, dict):
+                consider(str(e.get("source") or ""), str(e.get("target") or ""), str(e.get("label") or ""))
+    return {cls: sorted(ids) for cls, ids in held.items() if len(ids) >= 2}
+
+
+def _page_name(memory_path: Path, page_id: str) -> str:
+    try:
+        return str(markdown_parser.parse(Path(memory_path) / "entities" / f"{page_id}.md").frontmatter.get("name")
+                   or page_id)
+    except Exception:  # noqa: BLE001
+        return page_id
+
+
+def ask_same(memory_path: Path, page_id: str, other_id: str, context: str) -> str | None:
+    """One "Is <A> the same as <B>?" question between two pages that both exist, answered by folding one page into the
+    other (``fold_page``) — never a merge without the person's answer. ``None`` when the pair is already asked, or the
+    person said they are different (``ClarificationManager.create``)."""
+    from api.services.clarification_manager import ClarificationManager
+
+    name, other_name = _page_name(memory_path, page_id), _page_name(memory_path, other_id)
+    item = ClarificationManager(Path(memory_path)).create(
+        entity_name=name, source_episode="", uncertainty_type=f"Possible duplicate of {other_name}",
+        suggested_classification="person", suggested_confidence=0.6, source_context=context)
+    if not item:
+        return None
+    # The subject and the candidate by id (a name may not round-trip to its id), and the person is told the subject
+    # was a page when this was asked: a "merge" folds that page in (`inbox_service._resolve_clarification`).
+    item_path = Path(memory_path) / "inbox" / f"{item}.md"
+    parsed = markdown_parser.parse(item_path)
+    parsed.frontmatter["entity_id"] = page_id
+    parsed.frontmatter["merge_target_hint"] = other_id
+    parsed.frontmatter[FOLD_PAGE_KEY] = True
+    markdown_parser.write(item_path, parsed.frontmatter, parsed.body)
+    return f"inbox/{item}.md"
+
+
+def ask_exclusive(memory_path: Path, changes: list[dict], settings=None) -> list[str]:
+    """Sleep, after Stage 5 wrote the pages: when a person page this batch touched holds a relation one person holds
+    at a time (:data:`EXCLUSIVE`) and another person page holds it too, one "Is <A> the same as <B>?" question per
+    pair (2026-10-27). Never a merge: who a person is takes the person's own answer (`role_people` rail, ruling 29)."""
+    touched = {str(c.get("id") or "") for c in changes or [] if c.get("action") in ("create", "update")}
+    touched.discard("")
+    if not touched:
+        return []
+    asked: list[str] = []
+    for cls, holders in exclusive_holders(memory_path, settings).items():
+        mine = [pid for pid in holders if pid in touched]
+        done: set[frozenset[str]] = set()
+        for pid in mine:
+            for other in holders:
+                pair = frozenset((pid, other))
+                if other == pid or pair in done:
+                    continue
+                done.add(pair)
+                context = (f"Both {_page_name(memory_path, pid)} and {_page_name(memory_path, other)} are recorded as "
+                           f"your {cls}, a relation one person usually holds. If they are one person, merging keeps "
+                           "everything both pages say.")
+                try:
+                    path = ask_same(memory_path, pid, other, context)
+                except Exception as exc:  # noqa: BLE001 - a question is never worth a failed cycle
+                    logger.warning(f"exclusive relation question skipped: {type(exc).__name__}")
+                    continue
+                if path is not None:
+                    asked.append(path)
+    return asked
+
+
 # ---------------------------------------------------------------- the answer
 
 
@@ -502,6 +694,38 @@ def _drop_role_aliases(fm: dict, names: list[str], only: set[str] | None = None)
         fm["aliases"] = kept
     else:
         fm.pop("aliases", None)
+
+
+def _add_alias(fm: dict, alias: str) -> None:
+    listed = [a for a in fm.get("aliases") or [] if isinstance(a, str)]
+    if alias and alias.lower() not in {a.lower() for a in listed}:
+        fm["aliases"] = [*listed, alias]
+
+
+def title_by_nickname(memory_path: Path, page_id: str, nickname: str, owner_fm: dict | None) -> Outcome:
+    """A name question answered only by a nickname the person uses (owner ruling 2026-10-27): the page with no name
+    takes the nickname as its title, marked ``nickname_title`` with ``unnamed`` kept, so its name question stays open
+    and a name, when it comes, takes the title (``rename``). The nickname is also an alias. A page that already has a
+    name keeps it and only gains the alias. Never a merge: a nickname other pages answer to joins nothing."""
+    memory_path = Path(memory_path)
+    path = memory_path / "entities" / f"{page_id}.md"
+    parsed = markdown_parser.parse(path)
+    fm = dict(parsed.frontmatter)
+    nick = _clean(nickname)
+    if not fm.get(UNNAMED_KEY):
+        _add_alias(fm, nick)
+        markdown_parser.write(path, fm, parsed.body)
+        return Outcome(page_id, "nicknamed", [f"entities/{page_id}.md"])
+    outcome = rename(memory_path, page_id, nick, owner_fm, named=False,
+                     note=f"\n\n_You call this person {nick}; the page is titled so until you say their name._")
+    new_path = memory_path / "entities" / f"{outcome.page_id}.md"
+    parsed = markdown_parser.parse(new_path)
+    fm = dict(parsed.frontmatter)
+    fm[NICKNAME_KEY] = True
+    fm[UNNAMED_KEY] = True
+    _add_alias(fm, nick)
+    markdown_parser.write(new_path, fm, parsed.body)
+    return Outcome(outcome.page_id, "nicknamed", outcome.paths, removed=outcome.removed)
 
 
 def _add_role(fm: dict, key: str) -> None:
@@ -643,6 +867,9 @@ def rename(memory_path: Path, page_id: str, new_name: str, owner_fm: dict | None
     if named:
         fm.pop(UNNAMED_KEY, None)
         fm.pop(DECLINED_KEY, None)
+        if fm.pop(NICKNAME_KEY, None):
+            # Owner ruling 2026-10-27: the name takes the title, the nickname stays a name they go by.
+            _add_alias(fm, old_name)
     fm["version"] = int(fm.get("version", 1) or 1) + 1
     body = parsed.body
     if note:
