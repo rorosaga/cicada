@@ -458,6 +458,42 @@ def test_why_it_matters_reads_tense_from_the_record(bank):
     assert grace.tense == "is"   # the person's own words on the page, and a "watched" from the owner
 
 
+def test_an_event_reads_as_a_dated_happening_never_as_a_relation_that_ended(bank):
+    """G141: a done happening is born closed (valid_to = its day). It is "attended X on <day>", never "until", and a
+    superseded milestone state is history, not a second relation."""
+    ep = f"ep_{RECENT}_001"
+    said = [Evidence(episode=ep, start=0, end=10, kind="user", hash="x")]
+    event_day = (TODAY - timedelta(days=20)).isoformat()
+    target = (TODAY + timedelta(days=40)).isoformat()
+    body = write_claims("## Summary\nExample Summit is a conference.\n", [
+        _claim("clm_job", "example-summit", "worked-at", "Example Summit Org", kind="literal", valid_from="2025-01-01",
+               valid_to="2026-06-01", text="Owner Example worked at Example Summit Org", evidence=said),
+        _claim("clm_evt", "example-summit", "happened", "attended example summit", kind="literal",
+               valid_from=event_day, valid_to=event_day, status="done", text="Attended Example Summit",
+               evidence=said),
+        _claim("clm_ms0", "example-summit", "milestone", "speak", kind="literal", valid_from="2026-02-01",
+               valid_to="2026-03-01", superseded_by="clm_ms1", status="planned", target="2026-05-01",
+               text="Speak at Example Summit", evidence=said),
+        _claim("clm_ms1", "example-summit", "milestone", "speak", kind="literal", valid_from="2026-03-01",
+               supersedes="clm_ms0", status="planned", target=target, text="Speak at Example Summit",
+               evidence=said),
+    ])
+    _entity(bank, "example-summit", type="event", name="Example Summit", source_episodes=[ep], body=body)
+    bank_index.invalidate()
+    claims = parse_claims(markdown_parser.parse(bank / "entities" / "example-summit.md").body)
+    rels = {r.claim_id: r for r in page_relevance.relations(bank, "example-summit", claims, today=TODAY)}
+    assert set(rels) == {"clm_job", "clm_evt", "clm_ms1"}          # the superseded state is not a relation
+    evt, job, plan = rels["clm_evt"], rels["clm_job"], rels["clm_ms1"]
+    assert evt.tense == "was" and evt.until == "" and evt.event == "done"
+    assert page_relevance._relation_clause(evt) == f"Attended Example Summit on {event_day}"
+    assert job.tense == "was" and page_relevance._relation_clause(job).endswith("(until 2026-06-01)")
+    assert plan.tense == "will_be"
+    assert page_relevance._relation_clause(plan) == f"Speak at Example Summit (planned for {target})"
+    line = page_relevance.for_page(bank, "example-summit", today=TODAY).line
+    assert line.startswith("Why it will matter to you: Speak at Example Summit (planned for ")
+    assert f"Attended Example Summit on {event_day}" in line and "until" not in line.split(";")[1]
+
+
 # ---------------------------------------------------------------------------------------------------- routes
 
 

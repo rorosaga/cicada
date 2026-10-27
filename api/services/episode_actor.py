@@ -32,13 +32,10 @@ def _label(harness: str) -> str:
 
 
 def _last_model(fm: dict) -> str | None:
-    turns = fm.get("turns")
-    if not isinstance(turns, list):
-        return None
-    for turn in reversed(turns):
-        if isinstance(turn, dict) and turn.get("speaker") == "assistant" and turn.get("model"):
-            return str(turn["model"]).strip() or None
-    return None
+    """The last agent turn's model, read through the one tolerant reader of the agent stamps (``agent_turns``)."""
+    from api.services import agent_turns
+
+    return next((s.model for s in reversed(agent_turns.stamps(fm)) if s.model), None)
 
 
 def actor(fm: dict | None, *, ids: bool = True) -> str | None:
