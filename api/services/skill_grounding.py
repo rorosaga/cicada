@@ -44,7 +44,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from api.services import episode_time, evidence, markdown_parser, section_provenance, skill_hold
+from api.services import episode_time, evidence, markdown_parser, promotion, section_provenance, skill_hold
 from api.services.id_utils import bank_file, build_name_index, resolve_entity_id, sanitize_id
 from api.services.skill_hold import HeldSkill
 from api.services.skill_tag import is_agent_skill
@@ -240,7 +240,9 @@ def ground(
         timing = {ep_id: (episodes[ep_id].timestamp, episodes[ep_id].untimed) for ep_id in draft.chosen}
         line = held_by_slug.get(skill_id)
         held = _held_conversation(memory_path, line)
-        if draft.action == "create" and len(draft.chosen | set(held)) < MIN_CONVERSATIONS:
+        # Ruling 43: counted by conversation, so an agent's memory note is its session's, never one of its own.
+        if draft.action == "create" and len(promotion.conversation_keys(draft.chosen | set(held), memory_path)) \
+                < MIN_CONVERSATIONS:
             # One conversation: held, not written. A line that already names it holds it already.
             if line is None or line.source_episode not in draft.chosen:
                 plan.held.append(HeldSkill(

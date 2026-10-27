@@ -774,7 +774,8 @@ curated summaries, often a cleaner record than the raw turns. The transcripts be
   fingerprint, so it back-fills every note once; every later post is idempotent. A post that does not land is not
   spooled: the fingerprint stays, and the next firing sends again. One `capture.log` line per sweep: counts only.
 - **The post** is a full snapshot (`complete: true`), newest first, at most 2,000 notes and 8 MB of note text
-  (`request_limits`: 12 MB); past either it is sent incomplete and tombstones nothing. On a client it goes to the
+  (`request_limits`: 12 MB); past either, or with any note skipped rather than read (a symlink, over 256 KB, unreadable),
+  it is sent incomplete and tombstones nothing. On a client it goes to the
   server with this device's token, and each device's notes are keyed under its own id
   (`agent-memory:<harness>:<device>:<project>/<file>`, `local` for the server's own token), so two machines never
   tombstone each other's.
@@ -795,8 +796,11 @@ curated summaries, often a cleaner record than the raw turns. The transcripts be
   decay and never a page's activity; its facts are kept, and the session that wrote it is captured on its own. Stage 1
   prepends the memory-summary note (`entity_extractor.MEMORY_SOURCES`): older, lower trust, prefer a conversation's
   newer statement. A note's value claims are dated by the note, so newer conversation evidence closes them, never the
-  reverse. Known: the pending store counts a note and its session as two conversations, as it does a memory export entry
-  (ruling 43's revisit trigger).
+  reverse. **Not a conversation of its own:** promotion's "2+ conversations" (Stage 2, every rung that counts, the
+  pending store's `heard_in` included) and a skill's (`skill_grounding`) count `promotion.conversation_keys` — a
+  captured session is `session:<id>`, a note is its `origin_session_id`'s session (else its `origin_episode`'s key), a
+  note with neither counts as none — so a session and its notes, two notes of one session, or a note and its index
+  never make two. `heard_in` keeps the raw episode ids: they are the page's source credits.
 - **The index.** `MEMORY.md` is mostly one link per note, each captured on its own; a line that links to a note file
   is dropped (its note says it, or the note was deleted and the pointer is stale), and an index with nothing else is no
   episode.

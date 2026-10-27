@@ -15,7 +15,8 @@ as a detached child (``--sweep``) so the harness never waits on it. The first fi
 so it back-fills every note once; every later post is idempotent (the stager skips an unchanged note).
 
 The post is a full snapshot (``complete: true``), so a deleted note is tombstoned server-side. A root that is missing
-or unreadable posts nothing; a snapshot past :data:`MAX_POST_BYTES` or :data:`MAX_NOTES` is sent incomplete (newest
+or unreadable posts nothing; a snapshot past :data:`MAX_POST_BYTES` or :data:`MAX_NOTES`, or with any note skipped rather
+than read (a symlink, over the cap, unreadable), is sent incomplete (newest
 first) and tombstones nothing. A post that does not land is not spooled: the fingerprint stays, so the next firing
 sends the snapshot again.
 
@@ -73,9 +74,13 @@ def projects_root(environ) -> Path | None:
     return home / ".claude" / "projects" if home is not None else None
 
 
-def scan(root: Path | None) -> list[tuple[str, str, Path, int, int]] | None:
+def scan(root: Path | None) -> list[tuple[str, str, Path | None, int, int]] | None:
     """Every note: ``(project, file, path, mtime_ns, size)``, newest first. ``None`` when the root is not a readable
-    folder (nothing is posted then). Only ``<project>/memory/*.md`` regular files, no symlink followed at any level."""
+    folder (nothing is posted then). Only ``<project>/memory/*.md`` regular files, no symlink followed at any level.
+
+    A note that is there but will not be read — a symlink, over :data:`MAX_NOTE_BYTES`, one that cannot be stat'ed,
+    or a memory folder that cannot be listed — is kept with ``path`` ``None``: :func:`build` then sends the post
+    incomplete, so the server never tombstones it as deleted."""
     if root is None:
         return None
     try:
@@ -90,21 +95,30 @@ def scan(root: Path | None) -> list[tuple[str, str, Path, int, int]] | None:
             if not project.is_dir(follow_symlinks=False):
                 continue
             notes_dir = Path(project.path) / NOTES_DIR
-            if notes_dir.is_symlink() or not notes_dir.is_dir():
+            if notes_dir.is_symlink():
+                out.append((project.name, "", None, 0, 0))   # not followed, not read: the post is incomplete
+                continue
+            if not notes_dir.is_dir():
                 continue
             entries = list(os.scandir(notes_dir))
         except OSError:
+            out.append((project.name, "", None, 0, 0))
             continue
         for entry in entries:
             if not entry.name.endswith(SUFFIX) or entry.name.startswith("."):
                 continue
             try:
+                if entry.is_symlink():
+                    out.append((project.name, entry.name, None, 0, 0))
+                    continue
                 if not entry.is_file(follow_symlinks=False):
                     continue
                 st = entry.stat(follow_symlinks=False)
             except OSError:
+                out.append((project.name, entry.name, None, 0, 0))
                 continue
             if st.st_size > MAX_NOTE_BYTES:
+                out.append((project.name, entry.name, None, st.st_mtime_ns, st.st_size))
                 continue
             out.append((project.name, entry.name, Path(entry.path), st.st_mtime_ns, st.st_size))
     out.sort(key=lambda n: (-n[3], n[0], n[1]))
@@ -183,14 +197,19 @@ def build(notes) -> tuple[list[dict], bool]:
     total = 0
     complete = len(notes) <= MAX_NOTES
     for project, file, path, mtime_ns, _size in notes[:MAX_NOTES]:
+        if path is None:
+            complete = False   # there but skipped (scan): never read as deleted
+            continue
         try:
             if path.is_symlink():
+                complete = False
                 continue
             raw = path.read_bytes()
         except OSError:
             complete = False   # a note that could not be read must not read as deleted
             continue
         if len(raw) > MAX_NOTE_BYTES:
+            complete = False
             continue
         if total + len(raw) > MAX_POST_BYTES:
             complete = False
@@ -210,7 +229,7 @@ def sweep(environ, *, post=None, log=None, now: float | None = None) -> str:
     notes = scan(projects_root(environ))
     if notes is None:
         return "skipped: no projects folder"
-    if not notes:
+    if not any(n[2] is not None for n in notes):
         return "skipped: no notes"
     base, token, problem = destination(environ)
     if problem:
@@ -238,7 +257,7 @@ def maybe_start(environ, *, harness: str, event: str, spawn=None, now: float | N
     if harness != HARNESS or event not in EVENTS or str(environ.get(DETACHED_ENV) or "") == "1":
         return None
     notes = scan(projects_root(environ))
-    if not notes:   # no folder, or no note: nothing to send (an empty snapshot tombstones nothing anyway)
+    if not notes or not any(n[2] is not None for n in notes):   # no folder, or no note it would read: nothing to send (an empty snapshot tombstones nothing anyway)
         return None
     base, _token, problem = destination(environ)
     if problem:

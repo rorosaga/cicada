@@ -1915,7 +1915,8 @@ A whole row moves to DONE only after its remaining implementation and required a
     409s), `evidence_kind: assistant` (the ruling-32 precedent: read by Sleep, never the person's own words), dated by
     the note's `modified` (ruling 39), no mention for decay (`episode_time.UNTIMED_SOURCES`, like a chat export's memory
     entry), told to Sleep as an older lower-trust summary, `origin_session_id` and `origin_episode` naming the session.
-    One switch per memory, on by default (Settings → Privacy, "Your agents' notes"). **Revisit** if a note-derived claim
-    ever closes one resting on the person's own words, or if notes and their session together lift a one-off name to the
-    two-conversation floor often enough to matter (the pending store counts them as two today, as it does a memory
-    export entry).
+    One switch per memory, on by default (Settings → Privacy, "Your agents' notes"). Promotion's and a skill's "2+
+    conversations" count conversations, not episodes (`promotion.conversation_keys`): a note is its session's, and a
+    note with no session counts as none — a session and its notes, two notes of one session, or a note and its index
+    never make two (review of #487). **Revisit** if a note-derived claim ever closes one resting on the person's own
+    words.

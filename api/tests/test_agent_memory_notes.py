@@ -279,7 +279,8 @@ def test_the_hook_reads_only_memory_notes_and_never_a_transcript(tmp_path, monke
     assert not any(p.endswith(".jsonl") for p in opened)
     [sent] = posted
     assert sent["url"] == "http://127.0.0.1:8000/capture/agent-memory" and sent["token"] == "t0ken"
-    assert sent["body"]["complete"] is True and sent["body"]["harness"] == "claude-code"
+    # The symlinked note is skipped, never read — so the post says it is partial and nothing is tombstoned.
+    assert sent["body"]["complete"] is False and sent["body"]["harness"] == "claude-code"
     assert sorted(n["file"] for n in sent["body"]["notes"]) == ["MEMORY.md", "alpha-event.md"]
     assert "CANARY" not in json.dumps(sent["body"])
 
@@ -324,3 +325,87 @@ def test_the_capture_hook_starts_the_sweep_after_a_stop(tmp_path):
                       token_path=Path(environ["CICADA_HOME"]) / "api_token", memory_spawn=started.append)
     assert rc == 0 and len(started) == 1
     assert "memory notes: sweep started" in (tmp_path / "capture.log").read_text(encoding="utf-8")
+
+
+def test_a_skipped_note_makes_the_post_incomplete(tmp_path):
+    home = tmp_path / "home"
+    mem = home / ".claude" / "projects" / PROJECT / "memory"
+    mem.mkdir(parents=True)
+    (mem / "alpha-event.md").write_text(_note(), encoding="utf-8")
+    cicada = tmp_path / "cicada"
+    cicada.mkdir()
+    (cicada / "api_token").write_text("t\n", encoding="utf-8")
+    environ = {"HOME": str(home), "CICADA_HOME": str(cicada)}
+    sent: list[dict] = []
+
+    def post(url, body, token, timeout):
+        sent.append(json.loads(body))
+        return 200, '{"status": "ok"}'
+
+    memory_notes.sweep(environ, post=post)
+    assert sent[-1]["complete"] is True                                   # every note read: complete
+    (mem / "huge.md").write_bytes(b"x" * (memory_notes.MAX_NOTE_BYTES + 1))
+    memory_notes.sweep(environ, post=post)
+    assert sent[-1]["complete"] is False                                  # over the cap: skipped, never "deleted"
+    assert [n["file"] for n in sent[-1]["notes"]] == ["alpha-event.md"]
+
+
+# --- promotion counts conversations, never notes (review of #487) --------------------------------------------------
+
+def _episode(bank, eid, fm, body="assistant: Delta Rig came up.\n"):
+    markdown_parser.write(bank / "episodes" / f"{eid}.md",
+                          {"id": eid, "timestamp": "2026-10-21T10:00:00+00:00", "processed": False, **fm}, body)
+    bank_index.invalidate()
+
+
+SESSION = {"source": "claude-code", "session_id": SID, "harness": "claude-code", "capture_kind": "transcript"}
+NOTE = {"source": "agent-memory", "evidence_kind": "assistant", "origin_session_id": SID}
+
+
+def test_a_note_and_its_session_are_one_conversation(bank):
+    _episode(bank, "ep_2026-10-21_001", SESSION, "user: Delta Rig\n\nassistant: ok\n")
+    _episode(bank, "ep_2026-10-21_002", NOTE)
+    _episode(bank, "ep_2026-10-21_003", {**NOTE, "agent_memory": {"file": "MEMORY.md"}})
+    assert promotion.conversation_keys(["ep_2026-10-21_001", "ep_2026-10-21_002"], bank) == {f"session:{SID}"}
+    # Two notes of one session (or a note and its project's index): one.
+    assert len(promotion.conversation_keys(["ep_2026-10-21_002", "ep_2026-10-21_003"], bank)) == 1
+    # A note linked only by its session's episode counts as that session.
+    _episode(bank, "ep_2026-10-21_004", {"source": "agent-memory", "origin_episode": "ep_2026-10-21_001"})
+    assert promotion.conversation_keys(["ep_2026-10-21_001", "ep_2026-10-21_004"], bank) == {f"session:{SID}"}
+    # A note with no session counts as nothing; a different real conversation still counts.
+    _episode(bank, "ep_2026-10-21_005", {"source": "agent-memory"})
+    _episode(bank, "ep_2026-10-22_001", {"source": "telegram"}, "user: Delta Rig again\n")
+    assert promotion.conversation_keys(["ep_2026-10-21_005"], bank) == set()
+    assert len(promotion.conversation_keys(["ep_2026-10-21_002", "ep_2026-10-22_001"], bank)) == 2
+
+
+def _resolve(bank, monkeypatch, episode_ids):
+    import asyncio
+    from types import SimpleNamespace
+
+    from api.services import entity_resolver as er
+
+    monkeypatch.setattr(er, "SqliteVecIndexer", lambda *a, **k: None)
+
+    async def no_model(*a, **k):
+        raise AssertionError("no model call expected")
+    monkeypatch.setattr(er, "_llm_judge_same_entity", no_model)
+    settings = SimpleNamespace(memory_path=bank, litellm_model="synthetic-model", litellm_disambiguation_model="",
+                               sleep_promotion_threshold=2)
+    extracted = [{"episode_id": eid, "episode_timestamp": "2026-10-21T10:00:00+00:00", "origin": "claude-code",
+                  "entities": [{"name": "Delta Rig", "type": "tool", "confidence": 0.9, "source_episode": eid,
+                                "description": "A rig."}], "relationships": []} for eid in episode_ids]
+    out = asyncio.run(er.resolve(extracted, [], settings))
+    return [c for c in out["changes"] if c.get("action") == "create" and c.get("id") == "delta-rig"]
+
+
+def test_a_name_only_notes_mention_stays_held(bank, monkeypatch):
+    _episode(bank, "ep_2026-10-21_002", NOTE)
+    _episode(bank, "ep_2026-10-21_003", {**NOTE, "agent_memory": {"file": "beta.md"}})
+    assert _resolve(bank, monkeypatch, ["ep_2026-10-21_002", "ep_2026-10-21_003"]) == []
+
+
+def test_a_note_and_a_different_real_conversation_promote(bank, monkeypatch):
+    _episode(bank, "ep_2026-10-21_002", NOTE)
+    _episode(bank, "ep_2026-10-22_001", {"source": "telegram"}, "user: Delta Rig again\n")
+    assert len(_resolve(bank, monkeypatch, ["ep_2026-10-21_002", "ep_2026-10-22_001"])) == 1
