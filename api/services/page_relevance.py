@@ -12,7 +12,10 @@ What counts, in order:
    ledger included), or a claim on this page that cites the person's own words (``user`` / ``speaker`` evidence,
    ``promotion.PERSON_KINDS``). Its tense is read from the claim: closed (``valid_to``, or an elapsed stated end) is
    **was**; starting later, or a plan/intent predicate, is **will be**; otherwise **is**. A sink predicate
-   (``relates-to``) is no relation.
+   (``relates-to``) is no relation. **An event (G141) is not a relation that ended:** a done happening is born
+   closed, so its tense and words come from its own ``status`` — "<what happened> on <day>", never "until"; a planned
+   milestone is **will be** ("planned for <target>"); an ongoing happening **is**. Only an event's head counts (a
+   superseded state is history), and a withdrawal record is never a relation.
 2. **No stated relation** — said plainly, with what the record does show: how many conversations it came up in and
    when last, or that only an import or Cicada's own reading put it here. Never padded.
 
@@ -45,8 +48,10 @@ class Relation:
     tense: str          # was | is | will_be
     text: str
     claim_id: str
-    since: str = ""     # the day it was said or started
-    until: str = ""     # the day it ended (was only)
+    since: str = ""     # the day it was said or started (an event's own day)
+    until: str = ""     # the day it ended (was only; never an event's)
+    event: str = ""     # an event's status (G141): ongoing | done | dropped | planned | missed
+    target: str = ""    # a milestone's planned day
 
 
 @dataclass
@@ -168,6 +173,16 @@ def tense_of(claim, today: date) -> str:
     return "is"
 
 
+def event_tense(claim) -> str:
+    """An event's tense from its status, never from ``valid_to`` (a done happening is born closed, G141)."""
+    status = str(getattr(claim, "status", "") or "")
+    if status == "ongoing":
+        return "is"
+    if status == "planned":
+        return "will_be"
+    return "was"
+
+
 def _text(claim, names: dict[str, str]) -> str:
     from api.services import predicates
 
@@ -201,10 +216,20 @@ def relations(memory_path: Path, entity_id: str, page_claims: list, *, today: da
             pool.append(c)
         elif _cites_person(c):
             pool.append(c)
+    from api.services.claims import is_event, is_record
+
     for c in pool:
-        if c.id in seen or str(c.predicate or "").lower() in SINK_PREDICATES or getattr(c, "recovered_by", None):
+        if c.id in seen or str(c.predicate or "").lower() in SINK_PREDICATES or getattr(c, "recovered_by", None) \
+                or is_record(c):
             continue
         seen.add(c.id)
+        if is_event(c):
+            if c.superseded_by:       # a later state of the same event is its head
+                continue
+            out.append(Relation(tense=event_tense(c), text=_text(c, names), claim_id=c.id,
+                                since=_day(c.valid_from) or _day(c.recorded_at),
+                                event=str(c.status or "done"), target=_day(getattr(c, "target", None))))
+            continue
         t = tense_of(c, today)
         out.append(Relation(tense=t, text=_text(c, names), claim_id=c.id,
                             since=_day(c.valid_from) or _day(c.recorded_at),
@@ -240,7 +265,19 @@ def conversations(memory_path: Path, fm: dict) -> tuple[int, str, int]:
 # ---- the line ------------------------------------------------------------------------------------------------------
 
 
+def _event_clause(r: Relation) -> str:
+    if r.event == "planned":
+        return f"{r.text} (planned for {r.target})" if r.target else f"{r.text} (planned)"
+    if r.event == "ongoing":
+        return f"{r.text} (since {r.since})" if r.since else r.text
+    if r.event in ("dropped", "missed"):
+        return f"{r.text} ({r.event}" + (f" on {r.since})" if r.since else ")")
+    return f"{r.text} on {r.since}" if r.since else r.text
+
+
 def _relation_clause(r: Relation) -> str:
+    if r.event:
+        return _event_clause(r)
     if r.tense == "was":
         return f"{r.text}" + (f" (until {r.until})" if r.until else "")
     if r.since:

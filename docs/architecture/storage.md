@@ -860,9 +860,10 @@ Round 4 (C2–C4):
   with `action: context | context_skip | context_undo`, ids and enums only.
   **Why it matters to you (ruling 44; `page_relevance`)** is derived on every read, never stored: a stated relation
   between the owner and the page (either page, the owner's ledger included) or a claim citing the person's own words,
-  tense from the claim (closed → was, starts later or a plan/intent predicate → will be, else is); else "No personal
-  relation on the record" with the conversation count and last day. Served as `relevance` on `GET /entities/{id}` and
-  as one line at the end of `cicada_recall_detail` (not on the owner's page).
+  tense from the claim (closed → was, starts later or a plan/intent predicate → will be, else is; an event (G141)
+  from its own status — a done happening "<what> on <day>", never "until", a planned milestone will be, only its head
+  counts); else "No personal relation on the record" with the conversation count and last day. Served as `relevance`
+  on `GET /entities/{id}` and as one line at the end of `cicada_recall_detail` (not on the owner's page).
   **Sleep's own settles (ruling 29)** share `inbox/settled/`: `settled: {group: sleep, at, by, by_kind: sleep, rule,
   reason, answer, entity_id, entity_name, predicate, evidence?: {episode, start, end}}` — a span into the person's words,
   never a copy — committed in the resolver's own commit, which is what `inbox_tend.undo` reverses (three-way); the
