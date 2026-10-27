@@ -228,6 +228,7 @@ class Page:
     world: list = field(default_factory=list)       # open world-tier claims on the page
     owner_id: str | None = None
     owner_words: frozenset = frozenset()            # the owner's name words (3+ letters): "about their own life"
+    own_ids: frozenset = frozenset()                # the owner's page and every project page
 
 
 def _cites_the_person(claim) -> bool:
@@ -248,15 +249,56 @@ def _is_protected(claim, page: "Page | None" = None) -> bool:
     predicate's truth lives in the person (``locus: person``). What the person said about a public thing's world
     fact (a public figure's employer, a tool's version) is a dated world fact like any other: the newest dated,
     cited evidence replaces it, closed with its history kept and undoable (ruling 26's rule for a re-check)."""
+    if page is not None and _points_at_the_person(claim, page):
+        return True   # the owner or one of their projects as the object: theirs, whatever its evidence
     if not _cites_the_person(claim):
         return False
     if page is None:
         return True   # no page to judge by: err on the person's side
-    if page.owner_id and str(getattr(claim, "object", "") or "") == page.owner_id:
-        return True
     if page.owner_words and set(text_fold.words(str(getattr(claim, "text", "") or ""))) & page.owner_words:
         return True
     return _locus(str(getattr(claim, "predicate", "") or "")) == "person"
+
+
+def _points_at_the_person(claim, page: "Page") -> bool:
+    """A claim whose object is the owner's page or one of the person's project pages (``led-by`` the owner,
+    ``part-of`` their project): about their own life, never a world fact a lookup may replace."""
+    obj = str(getattr(claim, "object", "") or "")
+    return bool(obj) and obj in page.own_ids
+
+
+#: A relation from a page to the owner or their project that says whose it is (read with hyphens as spaces).
+_OWNERSHIP = re.compile(
+    r"\b(?:led|owned|founded|co ?founded|cofounded|created|built|made|developed|maintained|run|operated|managed|"
+    r"started|launched|designed|written|authored) by\b|"
+    r"^(?:is )?(?:a )?(?:part|component|subsidiary|division|product|feature|module|page|section|skill|piece|branch|"
+    r"subproject|spin ?off|team|unit|lab) (?:of|in|within)\b|^belongs to\b|^(?:is )?owned by\b")
+
+
+_project_cache: dict[str, tuple[tuple, frozenset]] = {}
+
+
+def own_ids(memory_path: Path) -> frozenset:
+    """The owner's page id and every project page id — read once per state of ``entities/``."""
+    memory_path = Path(memory_path)
+    try:
+        stamp = bank_index.dir_stamp(memory_path, "entities")
+    except Exception:  # noqa: BLE001
+        stamp = None
+    hit = _project_cache.get(str(memory_path))
+    if hit is not None and stamp is not None and hit[0] == stamp:
+        return hit[1]
+    ids: set[str] = set()
+    try:
+        for f in bank_index.files(memory_path, "entities"):
+            fm = f.frontmatter or {}
+            if fm.get("owner") is True or str(fm.get("type") or "").strip().lower() == "project":
+                ids.add(f.stem)
+    except Exception:  # noqa: BLE001
+        pass
+    out = frozenset(ids)
+    _project_cache[str(memory_path)] = (stamp, out)
+    return out
 
 
 _LOCUS_FN: list = []
@@ -304,6 +346,7 @@ def load_page(memory_path: Path, entity_id: str, *, today: date | None = None) -
     owner_name = page_relevance.page_names(memory_path).get(owner_id or "", "")
     return Page(entity_id=entity_id, name=" ".join(str(fm.get("name") or entity_id).split()),
                 owner_id=owner_id, owner_words=frozenset(w for w in text_fold.words(owner_name) if len(w) >= 3),
+                own_ids=own_ids(memory_path),
                 type=str(fm.get("type") or "").strip().lower(), fm=fm, body=parsed.body, claims=claims,
                 relevance=rel, use=use, depth=depth_for(rel, use), last_mentioned=rel.last_mentioned,
                 world=world_claims(claims, today=today))
@@ -374,6 +417,14 @@ def local_verdict(memory_path: Path, page: Page, facts: web_settle.BankFacts) ->
         own = re.compile(r"(?:^|-)(?:founded|co-?founded|cofounded|created|built|owns|develops|developed|maintains|"
                          r"runs|works-on|building)(?:-|$)")
         if any(own.search(str(c.predicate or "").lower()) for c in by_object.get(page.entity_id, [])):
+            return Verdict(False, "own_thing")
+        # The page's own claims saying the owner or one of their projects owns, leads or contains it (led by the
+        # owner, part of their project): the person's own thing, never a search query. Any other relation to them
+        # (Docker runs their project, a company offered them a job) is why it matters, not whose it is — measured on
+        # the bank copy, the bare "points at them" rule made 127 of 1,190 public pages private, Apple and Docker among
+        # them.
+        if any(c.object_kind == "node" and _points_at_the_person(c, page) and _OWNERSHIP.search(
+                str(c.predicate or "").lower().replace("-", " ").replace("_", " ")) for c in page.claims):
             return Verdict(False, "own_thing")
         if page.type == "concept":
             return Verdict(None, "needs_encyclopedia")
@@ -1135,13 +1186,17 @@ async def deeper(memory_path: Path, settings, entity_id: str, *, llm_fn: Callabl
         return {"status": "not_found"}
     memo = load_memo(memory_path)
     facts = web_settle.bank_facts(memory_path)
+    local = local_verdict(memory_path, page, facts)   # nothing sent
+    if local.public is False:
+        return {"status": "private", "reason": local.reason}
+    # The engine before any request: an install with no plan search sends nothing, not even to Wikidata.
+    resolved, label, why = engine if engine is not None else await engine_for(settings, user_triggered=True)
+    if resolved is None:
+        return {"status": "skipped", "reason": why, "words": REASON_WORDS.get(why, "")}
     v = await verdict(memory_path, page, facts, memo, get=get or org_sites.wikidata_get, today=date.today())
     save_memo(memory_path, memo)
     if not v.public:
         return {"status": "private", "reason": v.reason}
-    resolved, label, why = engine if engine is not None else await engine_for(settings, user_triggered=True)
-    if resolved is None:
-        return {"status": "skipped", "reason": why, "words": REASON_WORDS.get(why, "")}
     looked = await look_up(llm_fn or _llm_fn(resolved), page, "deep", facts)
     memo = load_memo(memory_path)
     if looked.reason not in ("engine_error", "plan_limit"):

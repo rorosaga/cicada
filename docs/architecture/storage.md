@@ -812,7 +812,8 @@ Round 4 (C2–C4):
   **Light web context (TODO ruling 44, owner 2026-10-27; G121; `web_context`).** A public page gets cited, dated
   world-tier claims, kept current. *Who:* `company`, `tool`, `location` on the local test (a public proper name, no
   person's or project's name in it, not the person's own — `org_sites.proper_name`, `_OWN_THING`, an owner claim that
-  founded/built/owns it); a `concept` or a `person` only when, after the local test, Wikidata has exactly ONE item that
+  founded/built/owns it, or a claim on the page saying the owner or one of their projects leads, owns or contains it —
+  `led-by`, `part-of` … pointing at them, `_OWNERSHIP`); a `concept` or a `person` only when, after the local test, Wikidata has exactly ONE item that
   IS the name, of the right kind (a human for a person, not one otherwise), with a Wikipedia article. A person's local
   test, with nothing sent: a full name, not relation-shaped or role-only (`unnamed`, `owner_roles`); no relation to the
   owner on either page that says they know each other — met, talked or messaged, friend, family, partner, colleague
@@ -838,7 +839,8 @@ Round 4 (C2–C4):
   context`) with one `attachment` + quote per fact and each claim's `page` span into it (never `sources:`); claims
   observer `agent`, `source_trust: external`, `origin: web-context`, confidence 0.8, id `clm_<day>_ctx_<hash>`,
   `valid_from` the source's full date or today; an open world claim of the same predicate whose value the lookup does not
-  name is closed today (`superseded_by`) — history stays on the page and in git — unless it is the person's own words
+  name is closed today (`superseded_by`) — history stays on the page and in git — unless it points at the person (its
+  object is the owner's page or a project page: protected whatever its evidence) or is the person's own words
   about their own life (it cites their words — `user`/`speaker` evidence, `user_stated`, their own origins — AND its
   object is the owner's page, its text names the owner, or its predicate is `locus: person`): then the predicate is
   `protected` and nothing is written for it. What the person said about a public thing's world fact (a public figure's

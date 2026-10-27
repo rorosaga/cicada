@@ -307,6 +307,50 @@ def test_admired_is_public_met_is_private_one_word_is_private(bank):
         assert private not in wd.sent
 
 
+def test_a_claim_pointing_at_the_owner_or_a_project_is_theirs(bank):
+    """Review blocker (2026-10-27): a company the owner leads, or one part of their project, is their own thing — never a
+    search query — and a claim whose object is the owner or a project is never replaced, whatever its evidence."""
+    ep = f"ep_{RECENT}_001"
+    no_quote = [Evidence(episode=ep, start=-1, end=-1, kind="assistant", hash="x")]
+    _entity(bank, "acme-studio", type="company", name="Acme Studio", source_episodes=[ep], body=write_claims(
+        "## Summary\nAcme Studio is a design studio.\n",
+        [_claim("clm_a1", "acme-studio", "led-by", "olive-ownerton", evidence=no_quote)]))
+    _entity(bank, "beta-labs", type="company", name="Beta Labs", source_episodes=[ep], body=write_claims(
+        "## Summary\nBeta Labs is a lab.\n", [_claim("clm_b1", "beta-labs", "part-of", "alpha-project",
+                                                    evidence=no_quote)]))
+    # A public company that only relates to the person (it offered them a job) is not theirs: still public.
+    _entity(bank, "delta-corp", type="company", name="Delta Corp", source_episodes=[ep], body=write_claims(
+        "## Summary\nDelta Corp is a company.\n", [_claim("clm_d1", "delta-corp", "offered-a-job-to", "olive-ownerton",
+                                                          evidence=no_quote)]))
+    bank_index.invalidate()
+    facts = web_settle.bank_facts(bank)
+    wd = FakeWikidata()
+    for eid in ("acme-studio", "beta-labs"):
+        page = web_context.load_page(bank, eid)
+        assert web_context.local_verdict(bank, page, facts) == web_context.Verdict(False, "own_thing")
+    assert web_context.local_verdict(bank, web_context.load_page(bank, "delta-corp"), facts).public is True
+    calls: list[str] = []
+    _run(bank, calls=calls, get=wd, answers=dict(ANSWERS, **{"Acme Studio": {"sure": True, "facts": [
+        _fact("led-by", "Jane Doe")]}}))
+    assert not any("Acme Studio" in c or "Beta Labs" in c for c in calls)
+    assert "Acme Studio" not in wd.sent and "Beta Labs" not in wd.sent
+    # Even handed a lookup directly, the owner's claim is protected: nothing closes it.
+    page = web_context.load_page(bank, "acme-studio")
+    found = [web_context.Fact("led-by", "Jane Doe", "", "https://news.news-example.net/a", "Jane Doe leads it.")]
+    assert [c.action for c in web_context.diff(page, found, set())] == ["protected"]
+    assert web_context.apply(bank, page, found, checker="m") is None
+    claims = {c.id: c for c in parse_claims(markdown_parser.parse(bank / "entities" / "acme-studio.md").body)}
+    assert claims["clm_a1"].valid_to is None and claims["clm_a1"].superseded_by is None
+
+
+def test_go_deeper_on_a_metered_only_install_sends_nothing(bank):
+    wd, calls = FakeWikidata(), []
+    out = asyncio.run(web_context.deeper(bank, _settings(), "grace-example", llm_fn=_engine_fn(ANSWERS, calls),
+                                         engine=(None, "anthropic/claude-x", "metered_only"), get=wd, commit=False))
+    assert out["status"] == "skipped" and out["reason"] == "metered_only"
+    assert wd.sent == [] and calls == []
+
+
 def test_a_wikidata_error_body_is_no_answer_and_never_cached(bank):
     async def error(params):
         return {"error": {"code": "maxlag"}}
