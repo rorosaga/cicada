@@ -276,15 +276,20 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   person allowed, and **an inbox check never settles, reorders or changes a belief** (S3 is shadow) — **except a question
   about a public thing (ruling 27):** a web lookup settles it with a cited claim (a citation, never a tracked source),
   undoable under "Settled by a check"; never a person's name, their files, projects or life (`mcp.md`); it is the default
-  path on every plan run plus a one-off backlog sweep, and Cicada's own settings are never asked (27b, 2026-10-19). **A tracked source's
+  path on every plan run plus a one-off backlog sweep, and Cicada's own settings are never asked (27b, 2026-10-19).
+  **Ruling 44 (owner, 2026-10-27) amends 27 and 40:** a public page — a public figure only by the public test (one
+  encyclopedia match, no personal relation; err private), a company, program, tool or place — gets cited, dated world
+  facts on plan runs (never a metered key), re-checked by use and volatility, never over the person's own words; a private
+  person's name never reaches any service; every page says why it matters to the person, derived on read (`web_context`,
+  `page_relevance`, `storage.md`). **A tracked source's
   dated re-check does (ruling 26):** a new dated fact; the newest evidence wins, even over the person's own words; the same
   day or undated asks once; dead = two failed visits a week apart; walled pages only by the person's agent (`storage.md`).
   **Where to check (ruling 36 D5, 2026-10-22):** an agent (`inferred`) or Sleep's engine-free step may PROPOSE a link
   already on the record — never one guessed from a name; a proposal is never trusted, drawn or re-checked until the
   person takes it, one grouped review ("Confirm N links"); Sleep settles one only when the person's own located line
   names that one page and the link's account is its name or alias — co-occurrence is never proof (`storage.md`).
-  **An organisation's own site (ruling 40, 2026-10-26):** for a company, tool or public place — never a person, a
-  project or a private name — Sleep trusts a site the record ties to the page or ONE unambiguous Wikidata match, only
+  **An organisation's own site (ruling 40, 2026-10-26):** for a company, tool or public place — never a person (a
+  public figure's context is ruling 44's, never a site), a project or a private name — Sleep trusts a site the record ties to the page or ONE unambiguous Wikidata match, only
   when its homepage names it; anything less is a proposal in that review; a removal is never re-added (`org_sites`).
 - **Pictures:** one precedence (the person's choice → Contacts photo → the photo a ticked Messages chat shares → a
   person's public-profile photo → a brand's logo → a media thumbnail → a monogram). **A logo comes only from a trusted

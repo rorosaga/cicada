@@ -1298,5 +1298,25 @@
       "frontmatter": "{**parsed.frontmatter, HELD_MENTION_KEY: True}",
       "disposition": "uninstrumented_guarded"
     }
+  ],
+  "services/web_context.py": [
+    {
+      "function": "apply",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "apply",
+      "method": "write",
+      "frontmatter": "{'kind': 'context', 'question': f'What is current about {page.name}?', 'entity_id': page.entity_id, 'entity_name': page.name, 'settled': record}",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "undo",
+      "method": "write",
+      "frontmatter": "page.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    }
   ]
 }

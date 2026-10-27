@@ -1034,7 +1034,9 @@ def list_settled(memory_path: Path) -> list[dict]:
     where, and what it wrote — and "Settled by Sleep" (``group: sleep``, ruling 29) — what Sleep answered or assumed
     and by which rule."""
     out: list[dict] = []
-    for path in (Path(memory_path) / "inbox" / SETTLED_DIR).glob("inbox-*.md"):
+    settled_dir = Path(memory_path) / "inbox" / SETTLED_DIR
+    # ``ctx-*``: a light-context lookup's record (owner ruling 44, ``web_context``) — undone by ``web_context.undo``.
+    for path in [*settled_dir.glob("inbox-*.md"), *settled_dir.glob("ctx-*.md")]:
         try:
             parsed = markdown_parser.parse(path)
         except Exception as exc:  # noqa: BLE001 — one unreadable record never hides the others
