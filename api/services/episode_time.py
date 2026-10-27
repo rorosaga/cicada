@@ -32,8 +32,10 @@ from api.services import bank_index
 #: ``traces-day`` (G218): a day of activity traces, counted — what was on screen is not the person mentioning it.
 #: ``notion-export-undated`` (G219, review of #455): a Notion page with no date of its own, stamped the day it was
 #: imported — its facts are kept, but the import day is not when anything in it was said. Dated rows stay timed.
+#: ``agent-memory`` (ruling 43, 2026-10-27): an agent's own memory note (``agent_memory_notes``) — like a memory export
+#: entry, its date is when the summary was last edited, and the session that wrote it is captured on its own.
 UNTIMED_SOURCES = frozenset({"claude_memory", "agent_relay", "source-refresh", "web-check", "traces-day",
-                             "notion-export-undated"})
+                             "notion-export-undated", "agent-memory"})
 
 #: Ruling 39 (owner 2026-10-24): a feed item (RSS/Atom) is dated by when it was published (``timestamp``, and its
 #: ``published_at``) and records when Cicada received it (``received_at``). It is something the outside world

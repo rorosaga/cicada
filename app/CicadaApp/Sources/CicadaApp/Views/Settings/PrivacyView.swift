@@ -23,6 +23,9 @@ struct PrivacyView: View {
     @State private var exporting: String?
     @State private var exportNote: String?
     @State private var deleteProblem: String?
+    /// Ruling 43: nil until the backend says (no guess); the switch is disabled meanwhile.
+    @State private var agentNotes: Bool?
+    @State private var agentNotesProblem: String?
 
     private var banks: [MemoryBank] { store.banks.value?.banks ?? [] }
     /// The active bank and the one that IS the memory folder are never
@@ -111,6 +114,16 @@ struct PrivacyView: View {
                 }
                 SettingsDivider()
                 SettingsRow(.transcripts, title: Copy.transcriptsTitle, detail: Copy.transcriptsShort)
+                SettingsDivider()
+                SettingsRow(.agentNotes, title: Copy.agentNotesTitle, detail: agentNotesProblem ?? Copy.agentNotesShort) {
+                    Toggle(Copy.agentNotesTitle, isOn: Binding(
+                        get: { agentNotes ?? true },
+                        set: { on in saveAgentNotes(on) }))
+                        .toggleStyle(.switch)
+                        .controlSize(.mini)
+                        .labelsHidden()
+                        .disabled(agentNotes == nil)
+                }
             }
         }
         .task { await load() }
@@ -145,12 +158,28 @@ struct PrivacyView: View {
         // until the next sync tick; one refresh on open costs a single request.
         await store.refresh([.status, .banks])
         memoryRoot = (try? await APIClient.shared.fetchHealth())?.memoryRoot
+        agentNotes = (try? await APIClient.shared.fetchAgentMemorySettings())?.enabled
         if let remote = try? await APIClient.shared.fetchRemoteStatus() {
             if remote.enabled {
                 let live = (try? await APIClient.shared.fetchRemoteConnectors())?.filter(\.isActive).count ?? 0
                 remoteLine = Copy.remoteOn(live)
             } else {
                 remoteLine = Copy.remoteOff
+            }
+        }
+    }
+
+    /// Optimistic, rolled back on a refusal (a demo memory answers 409), which is then said in the row.
+    private func saveAgentNotes(_ on: Bool) {
+        let before = agentNotes
+        agentNotes = on
+        Task { @MainActor in
+            do {
+                agentNotes = try await APIClient.shared.saveAgentMemorySettings(enabled: on).enabled
+                agentNotesProblem = nil
+            } catch {
+                agentNotes = before
+                agentNotesProblem = AddSourceSheet.friendlyError(error)
             }
         }
     }

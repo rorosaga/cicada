@@ -686,7 +686,9 @@ wiring stay `install.sh`'s and the app's).
   nothing on stdout, which would become the agent's context. Every capture rail stays in the scripts it runs:
   `CICADA_CAPTURE=off` stops capture and `CICADA_RECALL=off` recall (Cicada's own spawns set both; Sleep's `claude -p`
   also runs `--safe-mode`, which disables plugins), one
-  episode per session, the transcript read by the backend only under the harness root. The plugin's `recall` setting
+  episode per session, the transcript read by the backend only under the harness root. After a `Stop` or `PreCompact`
+  the same capture script also starts the memory-notes sweep (ruling 43, `api/hooks/memory_notes.py`, detached, only
+  when a note changed), so the plugin carries it with no new hook. The plugin's `recall` setting
   (*Remember automatically*, on by default) silences only the recall hooks.
 - **The skill the handshake names.** The Claude Code prelude names the `cicada` skill that is there
   (`handshake.claude_skill`, part of the primer's cache key): `cicada:cicada` when the plugin is on (the same

@@ -10,6 +10,12 @@
 
 ## Current state and evidence
 
+- **2026-10-27 — ruling 43 recorded; an agent's own memory notes are captured (G105, G110; branch
+  `feat/agent-memory-notes`).** The Claude Code hook reads `projects/*/memory/*.md` where they live and posts their
+  bytes; one agent-worded episode per note (edit in place, delete tombstoned, scrubbed, demo 409, dated by the note,
+  no mention, `origin_session_id` → the session's episode); the first firing back-fills; one Privacy switch, on.
+  On this Mac, read-only: 204 notes (15 of them indexes) in 22 of 71 project folders, 1.1 MB. Codex's
+  `~/.codex/memories/` is comparable and not read yet (`capture-and-sleep.md`).
 - **2026-10-26 — saved lists on by default, TikTok's export read again, Google Calendar on the Mac (G71, G206, G142;
   ruling 39 dated line; branch `feat/sources-defaults-calendar`).** Onboarding asks once, pre-ticked, whether the
   person's own agent keeps their saved lists current (the answer is the consent); offs are remembered; an older
@@ -1895,3 +1901,21 @@ A whole row moves to DONE only after its remaining implementation and required a
     it?" nudge is a follow-up (it must go through the inbox and ask-gate rails). **Revisit** if a one-conversation
     event page is archived unread by the person more often than not, or a real application is missed because the person's
     words name it only by a pronoun.
+43. **Cicada may read an agent's own memory notes (owner, 2026-10-27; G105, G110; amends the capture rails; branch
+    `feat/agent-memory-notes`).** The owner's words: "yes 100% cicada can read claude memory notes." **Scope:** Claude
+    Code's auto-memory notes, `~/.claude/projects/<project>/memory/*.md`, and their `MEMORY.md` index — every project
+    folder, not just the current one. **Not** the transcripts: their rail is unchanged. **Why:** in a real session the
+    agent's own note held the cleanest record of something Cicada had blurred — which event it was, that a form was
+    filled and its submission left to the person, and the session that did it (`originSessionId`) — and Cicada never saw
+    it (real values redacted). **As built:** the harness's own hook reads the notes on the machine where they live and
+    posts their bytes (`api/hooks/memory_notes.py` → `POST /capture/agent-memory`); the backend parses bytes and opens
+    no path for this source, so its one read under `~/.claude` stays the transcript read, and a client of a server
+    elsewhere (ruling 28) or a headless server with no app works the same way. One episode per note through
+    `episode_staging` (an edit in place, re-queued; a note gone from a complete post tombstoned; scrubbed; a demo bank
+    409s), `evidence_kind: assistant` (the ruling-32 precedent: read by Sleep, never the person's own words), dated by
+    the note's `modified` (ruling 39), no mention for decay (`episode_time.UNTIMED_SOURCES`, like a chat export's memory
+    entry), told to Sleep as an older lower-trust summary, `origin_session_id` and `origin_episode` naming the session.
+    One switch per memory, on by default (Settings → Privacy, "Your agents' notes"). **Revisit** if a note-derived claim
+    ever closes one resting on the person's own words, or if notes and their session together lift a one-off name to the
+    two-conversation floor often enough to matter (the pending store counts them as two today, as it does a memory
+    export entry).

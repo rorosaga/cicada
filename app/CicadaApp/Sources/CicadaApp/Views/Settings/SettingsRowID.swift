@@ -106,6 +106,8 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
     static let credentials = SettingsRowID("credentials")
     static let remoteAccess = SettingsRowID("remoteAccess")
     static let transcripts = SettingsRowID("transcripts")
+    /// Ruling 43: the agents' own memory notes, one switch per memory.
+    static let agentNotes = SettingsRowID("agentNotes")
     // Search & files (owner, 2026-10-14): the folder list and the two consent rows. Search version, Rebuild search,
     // the Advanced disclosure and Memory's Fetch link previews left the app (settings defaults, owner 2026-10-22).
     static let searchFolders = SettingsRowID("searchFolders")

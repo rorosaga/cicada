@@ -402,6 +402,9 @@ MEMORY_SOURCE_NOTE = (
     "[Source: claude_memory — the assistant's own older summary about the user; "
     "dated, possibly outdated, lower trust.]\n\n"
 )
+#: Episode sources that get :data:`MEMORY_SOURCE_NOTE`: a chat export's memory entry and (ruling 43) an agent's own
+#: memory note — both the assistant's summary, dated when last edited, so a conversation's newer statement wins.
+MEMORY_SOURCES = frozenset({"claude_memory", "agent-memory"})
 
 
 #: G179: a message conversation's other side, told to the model before the conversation (the model sees the chunk,
@@ -791,7 +794,7 @@ async def extract(
                     parsed = await _extract_chunk(
                         ep_id, chunk, ci, len(chunks), settings,
                         # Only a memory episode carries a note; every other call keeps its shape.
-                        **({"source": "claude_memory"} if episode.get("source") == "claude_memory" else {}),
+                        **({"source": "claude_memory"} if episode.get("source") in MEMORY_SOURCES else {}),
                         **({"gap_note": note} if note else {}),
                         **({"date_note": date_note} if date_note else {}),
                         **({"owner": owner} if owner else {}),

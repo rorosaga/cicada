@@ -337,6 +337,10 @@ extension Copy {
     static let transcriptsFact = "When an agent finishes a reply, Cicada reads that conversation to keep your words and the agent's final answer. It never opens those files for anything else."
     /// D6's word budget: the fact in one line.
     static let transcriptsShort = "Read only for your words and the agent's final answer."
+    /// Ruling 43 (owner 2026-10-27): the notes a coding agent keeps about your work. Provider-neutral: the step, not
+    /// the product. A promise, so it must be true: the agent's words, never yours; the hook reads them, nothing else.
+    static let agentNotesTitle = "Your agents' notes"
+    static let agentNotesShort = "Notes your agents keep about your work, saved as their words, never yours."
     static let bankActive = "Active"
     static func bankCounts(entities: Int, episodes: Int) -> String {
         "\(UsageFormat.count(entities)) \(entities == 1 ? "entity" : "entities") · \(UsageFormat.count(episodes)) \(episodes == 1 ? "conversation" : "conversations")"
