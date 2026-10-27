@@ -580,3 +580,85 @@ def test_a_held_common_name_keeps_its_pending_line_with_the_indexer_on(tmp_path,
     _resolve(root, monkeypatch, _six_alexes(), [_mention("Alex", 1), _mention("Alex", 2)], _Judge("different"))
     lines = [line for line in pending_store.load(root) if line.name == "Alex"]
     assert len(lines) == 1 and sorted(lines[0].episodes()) == ["ep_2026-10-01_001", "ep_2026-10-02_001"]
+
+
+# ---------- a held name's claims, Stage 2 → the claim pipeline ----------
+
+def _pipeline_bank(tmp_path):
+    from api.services import predicates
+
+    memory = tmp_path / "memory"
+    for sub in ("entities", "episodes", "inbox"):
+        (memory / sub).mkdir(parents=True)
+    predicates.install_predicate_map(memory)
+    existing = []
+    for page in [*_six_alexes(), _page("Mira Quell")]:
+        fm = {**page["frontmatter"], "status": "active"}
+        markdown_parser.write(memory / "entities" / f"{page['id']}.md", fm, "## Summary\nA synthetic page.")
+        existing.append({"id": page["id"], "frontmatter": fm, "body": "## Summary\nA synthetic page."})
+    return memory, existing
+
+
+def _pipeline_settings(memory):
+    return SimpleNamespace(memory_path=memory, litellm_model="synthetic-model", litellm_disambiguation_model="",
+                           archive_threshold=0.2, decay_nudge_threshold=0.4, sleep_promotion_threshold=2,
+                           sleep_resolve_concurrency=1, link_enrich_enabled=False)
+
+
+def _held_alex_batch():
+    batch = []
+    for n in (1, 2):
+        ep, ts = f"ep_2026-10-0{n}_001", f"2026-10-0{n}T12:00:00+00:00"
+        entity = {"name": "Alex", "type": "person", "confidence": 0.7, "summary": f"Alex in {ep}.", "aliases": [],
+                  "source_episode": ep, "source_episode_timestamp": ts}
+        rels = [{"source": "Mira Quell", "target": "Alex", "label": "works with"},
+                {"source": "Alex", "target": "Mira Quell", "label": "mentors"}] if n == 1 else []
+        batch.append({"episode_id": ep, "episode_timestamp": ts, "origin": "claude-code", "entities": [entity],
+                      "relationships": [{**r, "source_episode": ep, "source_episode_timestamp": ts} for r in rels]})
+    return batch
+
+
+def test_a_held_names_claims_both_ways_wait_on_its_pending_line_and_no_page_says_held(tmp_path, monkeypatch):
+    from api.services import claim_pipeline, pending_store
+
+    memory, existing = _pipeline_bank(tmp_path)
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(memory))
+    monkeypatch.setattr(er.SqliteVecIndexer, "_rebuild_pending_index", lambda self, entries: None)
+    extracted = _held_alex_batch()
+    judge = _Judge("different")
+    monkeypatch.setattr(er, "_llm_judge_same_entity", judge)
+
+    async def batch(new_name, new_type, new_description, entries, settings, *, new_connections=""):
+        return ["different"] * len(entries)
+    monkeypatch.setattr(er, "_llm_judge_batch", batch)
+    stage2 = asyncio.run(er.resolve(extracted, existing, _pipeline_settings(memory)))
+    assert stage2["name_to_id"]["alex"] == er.HELD_ENDPOINT
+
+    result = claim_pipeline.run_claim_pipeline(
+        extracted, existing, memory, _pipeline_settings(memory), now_date="2026-10-03",
+        name_to_id=stage2["name_to_id"], decided_names=stage2["decided_names"])
+
+    for page in (memory / "entities").glob("*.md"):
+        assert "held:" not in page.read_text(), page.name
+    line = next(e for e in pending_store.load(memory) if e.name == "Alex")
+    assert line.held_against == "alex"
+    pairs = sorted((c["subject"], c["predicate"], c["object"]) for c in line.held_claims)
+    assert [(s, o) for s, _p, o in pairs] == [("alex", "mira-quell"), ("mira-quell", "alex")]
+    assert result["claims_held"] == 2 and result["claims_page_less"] == 0
+
+    # A later cycle that does not mention the name never releases them onto the page that shares it ...
+    later = claim_pipeline.run_claim_pipeline([], existing, memory, _pipeline_settings(memory),
+                                              now_date="2026-10-04", name_to_id={"alex": "alex"}, decided_names=[])
+    assert later["claims_released"] == 0
+    assert all("mentors" not in p.read_text() for p in (memory / "entities").glob("*.md"))
+
+    # ... and Stage 2 joining it there releases each claim to the right page, the object-side one by its object.
+    done = claim_pipeline.run_claim_pipeline([], existing, memory, _pipeline_settings(memory), now_date="2026-10-05",
+                                             name_to_id={"alex": "alex"}, decided_names=["alex"])
+    assert done["claims_released"] == 2
+    from api.services.claims import parse_claims
+    alex = [(c.subject, c.object) for c in parse_claims(markdown_parser.parse(memory / "entities" / "alex.md").body)]
+    mira = [(c.subject, c.object) for c in
+            parse_claims(markdown_parser.parse(memory / "entities" / "mira-quell.md").body)]
+    assert ("alex", "mira-quell") in alex and ("mira-quell", "alex") in mira
+    assert not [e for e in pending_store.load(memory) if e.name == "Alex" and e.held_claims]

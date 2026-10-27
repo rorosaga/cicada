@@ -87,9 +87,12 @@ class PendingEntity:
     # G179: a message conversation's correspondent waiting below the promotion bar — ``{name, kind}``. Its line is
     # keyed by the id its page will get (`correspondents.free_id`), never by its plain name, and found by this mark.
     correspondent: dict = field(default_factory=dict)
+    # G209 (2026-10-27): the existing page this name was held AGAINST — a page bears its name (and its slug) but Stage 2
+    # did not decide it is that page. Its held claims are released onto that page only on Stage 2's own verdict.
+    held_against: str = ""
 
     _OPTIONAL = ("summary", "key_facts", "links", "open_questions", "aliases", "item_inputs", "heard_in",
-                 "correspondent")
+                 "correspondent", "held_against")
 
     def to_dict(self) -> dict:
         data = {
@@ -146,6 +149,7 @@ class PendingEntity:
             item_inputs=[d for d in dicts("item_inputs") if d.get("text") and isinstance(d.get("evidence"), list)],
             heard_in=[d for d in dicts("heard_in") if d.get("episode")],
             correspondent=data.get("correspondent") if isinstance(data.get("correspondent"), dict) else {},
+            held_against=str(data.get("held_against") or ""),
         )
 
 
@@ -428,7 +432,8 @@ def hold(
         return out
 
 
-def ready(memory_path: Path, target_of: Callable[[str, str], str]) -> list[Release]:
+def ready(memory_path: Path, target_of: Callable[[str, str], str],
+          decided: Iterable[str] = ()) -> list[Release]:
     """Read-only: the holding lines whose claims can go onto a page NOW (R-HP5).
 
     ``target_of(line_name, subject)`` names the page — Stage 5.56 passes Stage
@@ -437,8 +442,13 @@ def ready(memory_path: Path, target_of: Callable[[str, str], str]) -> list[Relea
     back re-keyed onto the target (R-CS1: a claim follows Stage 2's match),
     everything else as held. Nothing is removed here: that is :func:`release`,
     after the write succeeded (R-HP4). A held dict that no longer parses is
-    skipped and counted in a warning — a count, never a name (R-CS3)."""
+    skipped and counted in a warning — a count, never a name (R-CS3).
+
+    G209 (2026-10-27): a line held AGAINST a page (``held_against``) is released onto that page only when its name is in
+    ``decided`` (Stage 2 joined it there this cycle) — never because the page shares its name. A claim held on the
+    line's behalf as its OBJECT (another page's claim about this name) keeps its subject and is re-pointed by object."""
     entities_dir = Path(memory_path) / "entities"
+    decided_names = {str(n).lower() for n in decided or ()}
     out: list[Release] = []
     unreadable = 0
     for line in load(memory_path):
@@ -450,12 +460,19 @@ def ready(memory_path: Path, target_of: Callable[[str, str], str]) -> list[Relea
                 unreadable += 1
         if not claims:
             continue
-        target = target_of(line.name, claims[0].subject) or claims[0].subject
+        slug = sanitize_id(line.name)
+        own = slug if any(slug in (c.subject, c.object) for c in claims) else claims[0].subject
+        target = target_of(line.name, own) or own
+        if line.held_against and target == line.held_against and line.name.lower() not in decided_names:
+            continue
         page = bank_file(entities_dir, target)
         if page is None or not page.is_file():
             continue
         for claim in claims:
-            claim.subject = target
+            if claim.subject != slug and claim.object == slug:
+                claim.object = target   # held for this name as another page's object: that page keeps the claim
+            else:
+                claim.subject = target
         out.append(Release(line.name, target, claims))
     if unreadable:
         logger.warning(f"pending store: {unreadable} held claim(s) could not be read; they leave with their line")

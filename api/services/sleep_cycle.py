@@ -2952,6 +2952,7 @@ async def _run_stages(
             run_claim_pipeline, extracted, existing, memory_path, settings,
             # G141 PJ-0: Stage 2's own map, so a claim lands where its edge did.
             name_to_id=resolved_result.get("name_to_id"),
+            decided_names=resolved_result.get("decided_names"),
             **decay_kw,
         )
         _state.claims_page_less = int(claim_result.get("claims_page_less", 0) or 0)

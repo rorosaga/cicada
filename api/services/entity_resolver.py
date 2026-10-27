@@ -272,6 +272,7 @@ async def resolve(
     named_handle_lines = _named_handle_lines(settings.memory_path)
     held_people: list[tuple[dict, list[dict]]] = []   # person names this batch held below the bar (W1, below)
     held_names: set[str] = set()   # every name this batch held (its endpoints follow the hold, below)
+    decided_names: set[str] = set()   # every name this batch joined to a page or gave one
 
     # A self-reference's facts are the owner's: they land on the owner page, under
     # its own name and type (a "User" concept must not retype or rename it). With
@@ -356,11 +357,11 @@ async def resolve(
             parked = entity
             for sibling in siblings:
                 parked = _merge_entity_payload(parked, sibling)
-            pending_actions.append((
-                indexer.index_pending_entity,
-                (_pending_line(name, entity, parked, siblings, confidence),),
-                {},
-            ))
+            line = _pending_line(name, entity, parked, siblings, confidence)
+            against = existing_by_name.get(name.strip().lower())
+            if against is not None:
+                line.held_against = str(against.get("id") or "")   # held although a page bears its name (G209)
+            pending_actions.append((indexer.index_pending_entity, (line,), {}))
 
     unborn: list[_Unborn] = []   # project names with no birth, decided after the loop (`_settle_unborn`)
     total_names = len(ordered_entities)
@@ -436,6 +437,7 @@ async def resolve(
             if match is not None and match["decision"] == "same":
                 candidate = match["candidate"]
                 name_to_id[name_lower] = candidate["id"]
+                decided_names.add(name_lower)   # its held claims may follow it there (`pending_store.ready`)
                 # Deferred (see the transactional-Stage-2 docstring above): this
                 # can DELETE an inbox item, which must never happen for a name
                 # whose match a cancellation is about to discard.
@@ -572,6 +574,7 @@ async def resolve(
                     entity = _card_entity(entity, card)
                 entity_id = sanitize_id(entity["name"])
                 name_to_id[name_lower] = entity_id
+                decided_names.add(name_lower)
                 resolved_creates[entity_id] = _create_change(entity_id, entity)
                 if birth is not None and _written_type(entity, siblings) == "project":
                     resolved_creates[entity_id]["project_birth"] = birth
@@ -698,6 +701,8 @@ async def resolve(
         # G141 PJ-0 (R-PJ17): the map the edges above resolved through, so
         # Stage 5.56's claims land on the same pages (`claim_pipeline`).
         "name_to_id": dict(name_to_id),
+        # G209: the names this batch decided (joined or created): a line held against a page releases only on these.
+        "decided_names": sorted(decided_names),
         # G169: the qualified self-reference decision this stage keyed by.
         "self_references": refs,
         # The pending lines this batch's creates folded in, for Stage 5 to take once the pages exist.

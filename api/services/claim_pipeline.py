@@ -97,7 +97,7 @@ def subject_resolver(name_to_id: dict[str, str] | None, owner_id: str | None,
         if table.get(key) == HELD_ENDPOINT:
             # Stage 2 held this name although a page bears it (2026-10-27): never that page by name. A subject no page
             # and no pending line has, so its claims count as page-less (`hold_page_less`).
-            return f"held:{sanitize_id(name)}"
+            return f"{HELD_PREFIX}{sanitize_id(name)}"
         return endpoint_id(key, table) or sanitize_id(name)
 
     return resolve
@@ -146,7 +146,7 @@ def _release_target(name_to_id: dict[str, str] | None) -> Callable[[str, str], s
     def target(name: str, subject: str) -> str:
         hit = table.get((name or "").strip().lower())
         if hit == HELD_ENDPOINT:
-            return f"held:{subject}"   # held again this cycle: its claims stay with the line (no such page)
+            return f"{HELD_PREFIX}{subject}"   # held again this cycle: its claims stay with the line (no such page)
         return hit or subject
 
     return target
@@ -154,6 +154,7 @@ def _release_target(name_to_id: dict[str, str] | None) -> Callable[[str, str], s
 
 def _releases(
     memory_path: Path, name_to_id: dict[str, str] | None, existing_by_subject: dict[str, list[Claim]],
+    decided: list[str] | None = None,
 ) -> tuple[list[Release], list[Claim], dict[str, list[str]]]:
     """G141 PJ-0b (R-HP5, R-HP6, R-HP8): the held claims whose name has a page now,
     read WITHOUT touching the store — the lines leave only after the write
@@ -163,22 +164,46 @@ def _releases(
     own claim. ``credit`` maps each target page to the episodes its claims
     were heard in. A store that cannot be read releases nothing this cycle."""
     try:
-        releases = pending_store.ready(memory_path, _release_target(name_to_id))
+        releases = pending_store.ready(memory_path, _release_target(name_to_id), decided or ())
     except Exception as e:  # noqa: BLE001 - a hold is never worth the cycle's claims
         logger.warning(f"pending-store release skipped: {type(e).__name__}: {e}")
         return [], [], {}
     offered: list[Claim] = []
     credit: dict[str, list[str]] = {}
     for rel in releases:
-        on_page = {c.id for c in existing_by_subject.get(rel.target, [])}
-        episodes = credit.setdefault(rel.target, [])
         for claim in rel.claims:
+            # A claim held as this name's object belongs to its subject's page (`pending_store.ready`).
+            on_page = {c.id for c in existing_by_subject.get(claim.subject, [])}
+            episodes = credit.setdefault(claim.subject, [])
             for ep in claim.source_episodes:
                 if ep and ep not in episodes:
                     episodes.append(ep)
             if claim.id not in on_page:
                 offered.append(claim)
     return releases, offered, credit
+
+
+HELD_PREFIX = "held:"
+
+
+def _split_held(claims: list[Claim]) -> tuple[list[Claim], dict[str, list[Claim]]]:
+    """The claims touching a held name (``held:<slug>`` from :func:`subject_resolver`), taken out of the page path and
+    keyed by the held name's plain slug — the pending line's (``pending_store.hold``) — with the marker removed."""
+    kept: list[Claim] = []
+    held: dict[str, list[Claim]] = {}
+    for claim in claims:
+        subject, obj = str(claim.subject or ""), str(claim.object or "")
+        if subject.startswith(HELD_PREFIX):
+            claim.subject = subject[len(HELD_PREFIX):]
+            if obj.startswith(HELD_PREFIX):
+                claim.object = obj[len(HELD_PREFIX):]
+            held.setdefault(claim.subject, []).append(claim)
+        elif obj.startswith(HELD_PREFIX):
+            claim.object = obj[len(HELD_PREFIX):]
+            held.setdefault(claim.object, []).append(claim)
+        else:
+            kept.append(claim)
+    return kept, held
 
 
 def _credit_episodes(frontmatter: dict, episodes: list[str] | None) -> bool:
@@ -206,7 +231,7 @@ def _settle_store(
     guarded (R-HP10): a failure is logged and costs only the hold — what could
     not be held is counted page-less by the caller. Returns R-HP12's counts."""
     counts = {"claims_held": 0, "claims_hold_capped": 0, "claims_released": 0, "claims_waiting": 0}
-    done = [rel for rel in releases if rel.target in written]
+    done = [rel for rel in releases if all(c.subject in written for c in rel.claims)]
     try:
         pending_store.release(memory_path, [rel.name for rel in done])
         counts["claims_released"] = sum(len(rel.claims) for rel in done)
@@ -310,6 +335,7 @@ def run_claim_pipeline(
     extra_claims: list[Claim] | None = None,
     name_to_id: dict[str, str] | None = None,
     decay: bool = True,
+    decided_names: list[str] | None = None,
 ) -> dict:
     """Emit → release → reconcile → write → hold claims over the live entity pages (additive).
 
@@ -330,6 +356,8 @@ def run_claim_pipeline(
             exact verdict for it (R-HP5). ``None`` keeps ``sanitize_id``.
         decay: ``False`` skips claim decay (a drain charges it once, in its last
             batch — ``sleep_drain``); everything else runs.
+        decided_names: Stage 2's ``resolve(...)["decided_names"]`` — the names it joined or created this cycle; a line
+            held against a page that bears its name is released there only on these (G209).
 
     Returns a dict: ``{"nudges": [...], "audit": [...], "claims_written": int,
     "subjects_written": int, "subjects_skipped": int, "claims_page_less": int,
@@ -355,6 +383,10 @@ def run_claim_pipeline(
     # Stage-1 only — never the person's extra_claims, never a released claim:
     # the only claims a hold ever takes (R-HP2).
     stage1_ids = {c.id for c in incoming}
+    # G209 (2026-10-27): a claim whose subject OR object is a name Stage 2 held although a page bears it never reaches a
+    # page: it is held on that name's pending line under the plain slug (as its subject, or as another page's claim
+    # with it as the object), never written with a ``held:`` value, never keyed to the page sharing its name.
+    incoming, held_offers = _split_held(incoming)
 
     # ---- G141 PJ-0b: release what was held for a name that has a page now ----
     # Released claims go FIRST, so they meet Stage 3 as the page's own claims
@@ -364,7 +396,7 @@ def run_claim_pipeline(
     # What each page holds now, by value: the reconciler edits claims in place (decay, supersede), so the write-back
     # compares against this to render only the pages that changed (F6, benchmarks/scale).
     as_read = {subject: [c.to_dict() for c in claims] for subject, claims in existing_by_subject.items()}
-    releases, released, credit = _releases(memory_path, name_to_id, existing_by_subject)
+    releases, released, credit = _releases(memory_path, name_to_id, existing_by_subject, decided_names)
     incoming = released + incoming
     # G61 S1 reads this as "newly written by this pass" — true of a released claim too (R-HP8).
     emitted_ids = stage1_ids | {c.id for c in released}
@@ -453,6 +485,10 @@ def run_claim_pipeline(
             logger.warning(
                 f"claim write-back skipped for {subject}: {type(e).__name__}: {e}"
             )
+
+    for slug, claims in held_offers.items():
+        page_less_offers.setdefault(slug, []).extend(claims)
+        page_less_claim_ids.extend(c.id for c in claims)
 
     # ---- G141 PJ-0b: settle the pending store — release, then hold (R-HP4, R-HP10) ----
     hold = _settle_store(memory_path, releases, set(written_subjects), page_less_offers, stage1_ids,

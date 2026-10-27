@@ -1863,7 +1863,7 @@ A whole row moves to DONE only after its remaining implementation and required a
     common (`MAX_NAME_HOLDERS`): its alias holders are not each judged, but the mention's own aliases, a name said with
     it and the page titled exactly by it still are; a name never creates over a page it did not join (held and asked,
     then "<name> (another)" once the person says someone else), and a held name's edges and claims never land on the
-    page that shares it; lookups go through one
+    page that shares it (its claims, both ways, wait on its pending line until Stage 2 decides); lookups go through one
     index per run (`NameIndex`): 2.3 ms a name on a synthetic 2,500-page bank with ~20k aliases. **Revisit** if a
     nickname-titled page is renamed by the person to its nickname again, or a held common-nickname mention is later
     found to have been someone's only name.

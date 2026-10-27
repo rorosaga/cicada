@@ -1734,8 +1734,12 @@ mechanisms, each closed for every type, not only people:
   whose page id is another page's that it did not join (judged different, or unsure) is never created over it: it is
   held and "Possible duplicate of …" is asked; once the person says it is someone else, it gets a page of its own,
   "<name> (another)". A held name that an existing page bears has no endpoint (`HELD_ENDPOINT` in `name_to_id`): its
-  edges are dropped and its claims never keyed to that page by name (`claim_pipeline` gives them a `held:` subject no
-  page has, counted page-less; held claims of its line stay with the line). With no titled page and no lead, the mention
+  edges are dropped and its claims never keyed to that page by name: every claim whose subject OR object is the held
+  name is taken out of the page path (`claim_pipeline._split_held`) and held on its pending line under the plain slug —
+  as its subject, or as another page's claim with it as the object — so no page fence ever holds a `held:` value. The
+  line carries `held_against: <page>`: its claims are released onto that page only when Stage 2 joins the name there
+  (`decided_names`), never because the page shares its name; an object-side claim is released by re-pointing its
+  object and stays on its subject's page (`pending_store.ready`). With no titled page and no lead, the mention
   goes on by the usual rule. The leads are looked up in one
   index built per run (`NameIndex`: name/alias key → pages; folded spelling bucketed by first letter and length), never
   by a scan over every alias of every page: 43 ms to build and 2.3 ms a name for candidates (0.4 ms the direct match) on
