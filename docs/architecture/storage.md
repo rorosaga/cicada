@@ -1199,8 +1199,10 @@ Round 4 (C2–C4):
   `episode`/`span` for the person's ask) joins `repo|words` for a page someone made on purpose.
 - `project_groupings.yaml` (ruling 45, bank root) — what has no page to carry it: `dismissed` (ChatGPT groupings the
   person said are not theirs) and `imported` (`{provider, id}` of every provider project an import has seen, so a page
-  the person deleted is never re-created). Written by `project_ownership.dismiss_group` and `provider_projects`, committed
-  under the person.
+  the person deleted is never re-created, recorded only after the page's commit). Each writer reads it whole and
+  changes only its own key (`project_ownership.update_groupings`), committed under the person; its mtime rides the
+  sync `entities` component, so `/projects` and the app's `ProjectsRefresh` move with it. A Claude export's pages are
+  written inside the bank's write admission and wait for the next import while Sleep writes (`provider_projects`).
 - `provider_project: {provider, id, name?}` on an episode (ruling 45 addendum) — a provider's own project grouping (a
   ChatGPT `g-p-` id read from `conversation_template_id`/`gizmo_id`), outside the body and its hash: an unchanged
   conversation that gains it is updated in its frontmatter only and never re-queued (`episode_staging`). `relay.project`

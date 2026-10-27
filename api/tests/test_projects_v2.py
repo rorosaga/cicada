@@ -256,3 +256,31 @@ def test_a_merge_carries_the_persons_keys(tmp_path):
 
 def test_the_shape_moves_so_caches_refetch_once():
     assert project_timeline.PROJECT_SHAPE == "g141-7"
+
+
+def test_a_dismissed_grouping_moves_the_lists_etag(client):
+    """Review of #492 (3): the groupings file rides the `entities` component, so the list never answers 304 after a
+    dismiss (and the app's `ProjectsRefresh`, which watches `entities`, asks again)."""
+    c, bank = client
+    _episode(bank, "ep_2026-09-21_911", "user: notes", provider_project={"provider": "chatgpt", "id": "g-p-etagtest1"})
+    first = c.get("/projects")
+    etag = first.headers["etag"]
+    assert c.get("/projects", headers={"If-None-Match": etag}).status_code == 304
+    assert c.post("/projects/g-p-etagtest1/dismiss").status_code == 200
+    again = c.get("/projects", headers={"If-None-Match": etag})
+    assert again.status_code == 200
+    assert next(s for s in again.json()["suggested"] if s["id"] == "g-p-etagtest1")["dismissed"] is True
+
+
+def test_an_untie_holds_for_every_episode_of_the_conversation(client):
+    """Review of #492 (4): a conversation of several episodes is untied whole, so no older episode brings it back."""
+    c, bank = client
+    for n in (1, 2):
+        _episode(bank, f"ep_2026-09-2{n}_921", f"user: The Rover Arm Project, part {n}.", session_id="ses-multi-0001")
+    rows = c.get("/projects/rover-arm-project/conversations").json()["conversations"]
+    assert [r["episodeId"] for r in rows if r["id"] == "ses-multi-0001"] == ["ep_2026-09-22_921"]
+    assert c.post("/projects/rover-arm-project/conversations",
+                  json={"episode": "ep_2026-09-22_921", "remove": True}).status_code == 200
+    rows = c.get("/projects/rover-arm-project/conversations").json()["conversations"]
+    assert all(r["id"] != "ses-multi-0001" for r in rows)
+    assert set(_fm(bank, "rover-arm-project")["conversations_removed"]) >= {"ep_2026-09-21_921", "ep_2026-09-22_921"}

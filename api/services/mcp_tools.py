@@ -3862,14 +3862,14 @@ def link_conversation(ctx: ToolContext, project: str, episode: str | None = None
         episodes = _session_episodes(memory_path, sid) if sid else []
         if not episodes:
             return Reply("Name the conversation: `episode` (its ep_… id) or `session`.", code="invalid_arguments")
-    paths: list[str] = []
+    # One conversation, one page write (`project_ownership.tie` takes every episode of it and checks them all before it
+    # writes): a refusal leaves nothing behind, never a half-tied conversation under this agent's name.
     try:
-        for ep in episodes:
-            paths += project_ownership.tie(memory_path, stem, ep, remove=bool(remove), by=ctx.author,
-                                           session=ctx.session_id or None)
+        paths = project_ownership.tie(memory_path, stem, episodes[0], remove=bool(remove), by=ctx.author,
+                                      session=ctx.session_id or None)
     except project_ownership.OwnershipError as exc:
         return Reply(f"Nothing changed — {exc}", code="refused")
-    paths = list(dict.fromkeys(paths))
+    episodes = project_ownership.conversation_episodes(memory_path, episodes[0])
     if not paths:
         return f"Nothing to change: {'untied' if remove else 'already tied'}."
     _source_event(ctx, memory_path, stem, "conversation_untied" if remove else "conversation_tied")
@@ -3878,7 +3878,7 @@ def link_conversation(ctx: ToolContext, project: str, episode: str | None = None
                                lines=[f"{p}: updated (trigger: {ctx.trigger})" for p in paths] + ["", f"Reason: {clean}"],
                                paths=paths, author=ctx.author, session=ctx.session_id)
     n = len(episodes)
-    what = f"{n} conversation{'s' if n != 1 else ''}"
+    what = "the conversation" + (f" ({n} episodes)" if n > 1 else "")
     return (f"Untied {what} you had tied from {stem}." if remove else
             f"Tied {what} to {stem}; the person sees it on the project's page as added by you.")
 

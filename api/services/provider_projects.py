@@ -36,26 +36,16 @@ _INSTRUCTIONS_LEAD = "Prompt template: "
 
 
 def _imported(memory_path: Path) -> set[tuple[str, str]]:
-    path = Path(memory_path) / project_ownership.GROUPINGS_FILE
-    try:
-        data = markdown_parser.load_yaml(path.read_text(encoding="utf-8")) or {}
-    except (OSError, ValueError):
-        return set()
-    return {(str(r.get("provider")), str(r.get("id"))) for r in data.get("imported") or [] if isinstance(r, dict)}
+    rows = project_ownership.read_groupings(memory_path).get("imported") or []
+    return {(str(r.get("provider")), str(r.get("id"))) for r in rows if isinstance(r, dict)}
 
 
 def _remember(memory_path: Path, keys: set[tuple[str, str]]) -> list[str]:
-    path = Path(memory_path) / project_ownership.GROUPINGS_FILE
-    try:
-        data = markdown_parser.load_yaml(path.read_text(encoding="utf-8")) or {}
-    except (OSError, ValueError):
-        data = {}
-    have = {(str(r.get("provider")), str(r.get("id"))) for r in data.get("imported") or [] if isinstance(r, dict)}
+    have = _imported(memory_path)
     if keys <= have:
         return []
-    data["imported"] = [{"provider": p, "id": i} for p, i in sorted(have | keys)]
-    markdown_parser.write_yaml(path, data)
-    return [project_ownership.GROUPINGS_FILE]
+    return project_ownership.update_groupings(memory_path, "imported",
+                                              [{"provider": p, "id": i} for p, i in sorted(have | keys)])
 
 
 def _instructions_span(memory_path: Path, episode: str | None) -> dict | None:
@@ -80,9 +70,11 @@ def _day(raw) -> str | None:
 
 @page_lock.locked
 def adopt_claude(memory_path: Path, projects: list[dict], episode_ids: dict[str, str] | None = None,
-                 *, today: date | None = None) -> list[str]:
-    """Make or match a page for each Claude project; returns the paths written. ``episode_ids`` maps a knowledge
-    episode's ``source_id`` (``claude-project:<uuid>``) to its id, from the stager."""
+                 *, today: date | None = None) -> tuple[list[str], set[tuple[str, str]]]:
+    """Make or match a page for each Claude project: ``(paths written, provider ids to remember)``. The ids are
+    recorded as imported by :func:`after_import` only once the pages are committed, so a page lost before its commit
+    is made again on the next import. ``episode_ids`` maps a knowledge episode's ``source_id``
+    (``claude-project:<uuid>``) to its id, from the stager."""
     memory_path = Path(memory_path)
     episode_ids = episode_ids or {}
     seen = _imported(memory_path)
@@ -142,14 +134,16 @@ def adopt_claude(memory_path: Path, projects: list[dict], episode_ids: dict[str,
             markdown_parser.write(page, fm, parsed.body)
             paths.append(f"entities/{page.name}")
         remembered.add(key)
-    paths += _remember(memory_path, remembered)
     bank_index.invalidate()
-    return list(dict.fromkeys(paths))
+    return list(dict.fromkeys(paths)), remembered
 
 
-def commit(memory_path: Path, paths: list[str]) -> None:
+def commit(memory_path: Path, paths: list[str]) -> bool:
+    """Commit the pages alone under the person; True when they are committed (or the bank keeps no git)."""
     if not paths:
-        return
+        return True
+    if not (Path(memory_path) / ".git").exists():
+        return True
     from api.services import git_service
 
     message = git_service.build_commit_message(
@@ -157,18 +151,36 @@ def commit(memory_path: Path, paths: list[str]) -> None:
         authors=["user"])
     try:
         git_service.commit_paths_sync(memory_path, message, paths)
-    except Exception as exc:  # noqa: BLE001 — the pages stand; a later writer's commit picks them up
+    except Exception as exc:  # noqa: BLE001 — the pages stand; the next import records them
         logger.warning(f"Claude export projects: commit skipped ({type(exc).__name__})")
+        return False
+    return True
 
 
-def after_import(memory_path: Path, projects: list[dict], staged) -> list[str]:
-    """The import's last step: adopt, then commit what it wrote. Never raises into the import."""
+#: What the import says when Sleep held the pages: the projects wait for the next import, nothing is lost.
+DEFERRED = ("Your Claude projects weren't added yet because Cicada was consolidating memory. Import the export again "
+            "once it finishes; your conversations are already in.")
+
+
+def after_import(memory_path: Path, projects: list[dict], staged) -> str:
+    """The import's last step, inside the bank's write admission (G183): adopt, commit what it wrote, and only then
+    remember the ids as imported. While Sleep holds the pages nothing is written and the projects wait for the next
+    import (``deferred``). Never raises into the import. Returns ``adopted`` | ``deferred`` | ``failed`` | ``none``."""
     if not projects:
-        return []
+        return "none"
+    from api.services import write_admission
+
     try:
-        paths = adopt_claude(memory_path, projects, getattr(staged, "episode_ids", None) or {})
+        with write_admission.shared(memory_path):
+            if write_admission.holding():
+                logger.info("Claude export projects: deferred while Sleep holds the pages")
+                return "deferred"
+            paths, keys = adopt_claude(memory_path, projects, getattr(staged, "episode_ids", None) or {})
+            if not commit(memory_path, paths):
+                return "failed"
+            remembered = _remember(memory_path, keys)
+            commit(memory_path, remembered)
     except Exception as exc:  # noqa: BLE001 — the conversations are imported either way
         logger.warning(f"Claude export projects: not adopted ({type(exc).__name__})")
-        return []
-    commit(memory_path, paths)
-    return paths
+        return "failed"
+    return "adopted"

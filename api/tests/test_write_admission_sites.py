@@ -414,10 +414,12 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "PUT /sleep/run-options": (OUTSIDE, None),
     "PUT /sleep/schedule": (OUTSIDE, None),
     "PUT /sleep/engine": (OUTSIDE, None),
-    "POST /conversations/upload": (CAPTURE, None),
+    # Ruling 45: a Claude export's projects make or match pages, inside their own admission.
+    "POST /conversations/upload": (PER_WRITE, "api.services.provider_projects.after_import"),
     "POST /conversations/{conversation_id}/resume": (NONE, None),
     "POST /intake/sniff": (NONE, None),
-    "POST /intake/import": (CAPTURE, None),
+    # Ruling 45: a Claude export's projects make or match pages, inside their own admission.
+    "POST /intake/import": (PER_WRITE, "api.services.provider_projects.after_import"),
     "PUT /agent-methods": (HELD, "api.services.skill_pages.ensure"),
     "POST /agent-methods/skills/{skill}/page": (HELD, "api.services.skill_pages.ensure"),
     "POST /sources/save": (ADMITTED, "api.routers.sources._save_source"),   # G212: wrapped by its Idempotency-Key
@@ -445,7 +447,8 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "DELETE /banks/{name}": (BANKS, None),
     "POST /banks/demo": (BANKS, None),
     "POST /banks/leave-demo": (BANKS, None),
-    "POST /banks/{name}/import": (CAPTURE, None),
+    # Ruling 45: a Claude export's projects make or match pages, inside their own admission.
+    "POST /banks/{name}/import": (PER_WRITE, "api.services.provider_projects.after_import"),
     "PUT /settings/owner": (ADMITTED, None),
     "PUT /settings/editors": (OUTSIDE, None),         # G198: $CICADA_HOME/editors.json, never the bank
     "POST /sources/folders": (ADMITTED, None),
@@ -626,6 +629,8 @@ HOLDING_SITES = {
     "api/services/coexist_reopen.py": "apply(): asked inside its own shared() hold, before the page lock and its commit",
     "api/services/past_roles_repair.py": "apply(): asked inside its own shared() hold, before the page lock and its "
                                          "commit (coexist_reopen's order)",
+    "api/services/provider_projects.py": "after_import(): a Claude export's projects, asked inside its own shared() "
+                                         "hold before the page lock and the commit; deferred while Sleep writes",
 }
 
 

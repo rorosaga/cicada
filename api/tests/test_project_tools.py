@@ -63,7 +63,7 @@ def test_a_create_refuses_an_existing_page_and_names_it(bank):
 
 def test_an_agent_unties_only_what_it_tied_and_never_reties_a_persons_untie(bank):
     ctx = _ctx(bank)
-    assert "Tied 1" in mcp_tools.link_conversation(ctx, "alpha-project", "ep_2026-09-01_001", reason="About alpha.")
+    assert "Tied the conversation" in mcp_tools.link_conversation(ctx, "alpha-project", "ep_2026-09-01_001", reason="About alpha.")
     assert project_ownership.tied_by(_fm(bank, "alpha-project"), "ep_2026-09-01_001") == "claude-code"
     other = mcp_tools.link_conversation(_ctx(bank, harness="codex"), "alpha-project", "ep_2026-09-01_001",
                                         remove=True, reason="Not it.")
@@ -99,3 +99,32 @@ def test_an_edit_renames_a_project_and_keeps_the_old_name(bank):
     assert "renamed" in str(reply)
     fm = _fm(bank, "alpha-project")
     assert fm["name"] == "Alpha Prime" and any(a.lower() == "alpha project" for a in fm["aliases"])
+
+
+def test_a_refused_tie_writes_nothing_for_any_episode(bank):
+    """Review of #492 (4): the tool checks the whole conversation before it writes, so a refusal leaves no half-tie
+    under the agent's name and a clean tree."""
+    for n in (1, 2):
+        markdown_parser.write(bank / "episodes" / f"ep_2026-09-0{n}_301.md",
+                              {"id": f"ep_2026-09-0{n}_301", "timestamp": f"2026-09-0{n}T09:00:00+00:00",
+                               "session_id": "ses-two-parts", "processed": True}, "user: alpha")
+    bank_index.invalidate()
+    project_ownership.tie(bank, "alpha-project", "ep_2026-09-02_301", remove=True)   # the person unties the newest
+    before = (bank / "entities" / "alpha-project.md").read_text()
+    head = _git(bank, "rev-parse", "HEAD")
+    reply = mcp_tools.link_conversation(_ctx(bank), "alpha-project", "ep_2026-09-01_301", reason="Retry.")
+    assert getattr(reply, "code", None) == "refused"
+    assert (bank / "entities" / "alpha-project.md").read_text() == before
+    assert _git(bank, "rev-parse", "HEAD") == head, "nothing committed under the agent's name"
+
+
+def test_an_agent_ties_every_episode_of_a_conversation_at_once(bank):
+    for n in (1, 2):
+        markdown_parser.write(bank / "episodes" / f"ep_2026-09-0{n}_302.md",
+                              {"id": f"ep_2026-09-0{n}_302", "timestamp": f"2026-09-0{n}T09:00:00+00:00",
+                               "session_id": "ses-two-more", "processed": True}, "user: alpha")
+    bank_index.invalidate()
+    reply = mcp_tools.link_conversation(_ctx(bank), "alpha-project", session="ses-two-more", reason="About alpha.")
+    assert "2 episodes" in str(reply)
+    fm = _fm(bank, "alpha-project")
+    assert {project_ownership.tied_by(fm, e) for e in ("ep_2026-09-01_302", "ep_2026-09-02_302")} == {"claude-code"}

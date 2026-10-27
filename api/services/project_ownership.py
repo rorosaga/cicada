@@ -406,19 +406,35 @@ def set_header(memory_path: Path, stem: str, *, name: str | None = None, desc: s
     return _rewrite(memory_path, stem, change)
 
 
+def conversation_episodes(memory_path: Path, episode: str) -> list[str]:
+    """Every episode of the conversation ``episode`` belongs to — the same session id, else the same source id
+    (`project_timeline._conv_key`'s rule), oldest first; the episode alone when it has neither."""
+    files = {f.stem: f.frontmatter or {} for f in bank_index.files(Path(memory_path), "episodes")}
+    fm = files.get(episode) or {}
+    for key in ("session_id", "source_id"):
+        value = str(fm.get(key) or "").strip()
+        if value:
+            return sorted(stem for stem, efm in files.items() if str(efm.get(key) or "").strip() == value)
+    return [episode]
+
+
+@page_lock.locked
 def tie(memory_path: Path, stem: str, episode: str, *, remove: bool = False, by: str = "user",
         session: str | None = None) -> list[str]:
-    """Tie a conversation to the project by hand, or untie it.
+    """Tie a conversation to the project by hand, or untie it — every episode of the conversation at once
+    (:func:`conversation_episodes`), in one page write, so a conversation never comes back through an older episode.
 
     The person's untie overrides every automatic signal and no signal re-adds it (the ``sources_removed`` rule); tying
     it again lifts the untie. An agent's tie is recorded with its name; an agent may untie only what it tied (the
-    "withdraw only what it wrote" rail), which drops its tie and never marks the conversation untied."""
+    "withdraw only what it wrote" rail), which drops its tie and never marks the conversation untied. Every check runs
+    before anything is written: a refusal writes nothing."""
     from api.services import evidence
 
     if not evidence.is_episode_id(episode):
         raise OwnershipError(f"{episode!r} is not a conversation id (like ep_2026-10-01_001).")
     if not (Path(memory_path) / "episodes" / f"{episode}.md").is_file():
         raise OwnershipError(f"No conversation {episode!r}.")
+    episodes = conversation_episodes(memory_path, episode) or [episode]
     person = by == "user"
 
     def change(fm: dict):
@@ -426,29 +442,30 @@ def tie(memory_path: Path, stem: str, episode: str, *, remove: bool = False, by:
             raise OwnershipError(f"{stem!r} is not a project.")
         added = [x for x in (fm.get(ADDED_KEY) or []) if _entry_episode(x)]
         removed = [x for x in (fm.get(REMOVED_KEY) or []) if _entry_episode(x)]
-        had = [x for x in added if _entry_episode(x) == episode]
+        untied = set(tied(fm, REMOVED_KEY))
+        ours = set(episodes)
         if remove:
             if not person:
-                mine = [x for x in had if isinstance(x, dict) and x.get("by") == by]
+                mine = [x for x in added if _entry_episode(x) in ours and isinstance(x, dict) and x.get("by") == by]
                 if not mine:
                     raise OwnershipError("You can untie only a conversation you tied; the person decides the rest in "
                                          "the app.")
-                added = [x for x in added if x not in mine]
+                added = [x for x in added if not any(x is m for m in mine)]
             else:
-                if episode in tied(fm, REMOVED_KEY) and not had:
+                if ours <= untied and not any(_entry_episode(x) in ours for x in added):
                     return False
-                added = [x for x in added if _entry_episode(x) != episode]
-                removed.append(episode)
+                added = [x for x in added if _entry_episode(x) not in ours]
+                removed += [e for e in episodes if e not in untied]
         else:
-            if episode in tied(fm, REMOVED_KEY) and not person:
+            if ours & untied and not person:
                 raise OwnershipError("The person untied that conversation from this project; it stays untied.")
-            removed = [x for x in removed if _entry_episode(x) != episode]
-            if had and episode not in tied(fm, REMOVED_KEY):
+            removed = [x for x in removed if _entry_episode(x) not in ours]
+            have = {_entry_episode(x) for x in added}
+            missing = [e for e in episodes if e not in have]
+            if not missing and not (ours & untied):
                 return False
-            if not had:
-                entry = episode if person else {"episode": episode, "by": by, **({"session": session} if session
-                                                                                  else {})}
-                added.append(entry)
+            for e in missing:
+                added.append(e if person else {"episode": e, "by": by, **({"session": session} if session else {})})
         for key, rows in ((ADDED_KEY, added), (REMOVED_KEY, removed)):
             if rows:
                 fm[key] = rows[-MAX_TIED:]
@@ -510,21 +527,36 @@ def is_group_id(value) -> bool:
     return isinstance(value, str) and bool(_GROUP_ID.match(value))
 
 
-def dismissed_groups(memory_path: Path) -> set[str]:
+def read_groupings(memory_path: Path) -> dict:
+    """The whole groupings file (``dismissed`` and ``imported``), or ``{}``. Every writer reads it whole and changes
+    only its own key (:func:`update_groupings`), so one writer never drops the other's list."""
     path = Path(memory_path) / GROUPINGS_FILE
     try:
         data = markdown_parser.load_yaml(path.read_text(encoding="utf-8")) or {}
     except (OSError, ValueError):
-        return set()
-    return {str(g) for g in data.get("dismissed") or [] if is_group_id(str(g))}
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
+def update_groupings(memory_path: Path, key: str, value) -> list[str]:
+    """Set one key of the groupings file, keeping every other key as it is."""
+    data = read_groupings(memory_path)
+    if data.get(key) == value:
+        return []
+    data[key] = value
+    markdown_parser.write_yaml(Path(memory_path) / GROUPINGS_FILE, data)
+    return [GROUPINGS_FILE]
+
+
+def dismissed_groups(memory_path: Path) -> set[str]:
+    return {str(g) for g in read_groupings(memory_path).get("dismissed") or [] if is_group_id(str(g))}
+
+
+@page_lock.locked
 def dismiss_group(memory_path: Path, group: str, *, today: date | None = None) -> list[str]:
     if not is_group_id(group):
         raise OwnershipError(f"{group!r} is not a project grouping.")
     have = dismissed_groups(memory_path)
     if group in have:
         return []
-    path = Path(memory_path) / GROUPINGS_FILE
-    markdown_parser.write_yaml(path, {"dismissed": sorted(have | {group})})
-    return [GROUPINGS_FILE]
+    return update_groupings(memory_path, "dismissed", sorted(have | {group}))

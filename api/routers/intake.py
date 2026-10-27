@@ -483,7 +483,8 @@ def import_bytes(content: bytes, filename: str, settings: Settings, *, bank: str
         # episode is staged (so the page can point at the instructions by span).
         from api.services import provider_projects
 
-        provider_projects.after_import(target, parsed.claude_projects, staged)
+        if provider_projects.after_import(target, parsed.claude_projects, staged) == "deferred":
+            parsed.warnings.append(provider_projects.DEFERRED)
     # G207: what this import wrote becomes recallable now; a small one is also read right away.
     from api.services import awake_read
 

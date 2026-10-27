@@ -383,7 +383,8 @@ new shape refetches once. New routes, each **admitted** (409 while Sleep holds t
 `Cicada-Author: user`: `POST /projects` {name, description, via?: cli} (refuses a name already a page with **409**
 naming it), `POST /projects/{id}/accept` {name?} (a fallback page is retyped in place; a `g-p-` grouping id needs a name
 and becomes a new page), `POST /projects/{id}/dismiss`, `PATCH /projects/{id}` {name?, description?},
-`POST /projects/{id}/conversations` {episode, remove?}, `POST /projects/{id}/influences` {url? | what? | entity?, how?,
+`POST /projects/{id}/conversations` {episode, remove?} (the whole conversation — every episode of its session or source
+id — in one page write), `POST /projects/{id}/influences` {url? | what? | entity?, how?,
 note?} and `POST /projects/{id}/influences/withdraw` {claimId, page?} | {ref, predicate?}. `GET
 /projects/{id}/conversations?offset&limit` (≤ 200) answers {project, total, counts: {repo, named, claims, added, provider,
 relay}, conversations: [TimelineConversation + {day, why, relayed, providerLabel, manual}], offset, partial} — the same

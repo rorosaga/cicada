@@ -132,3 +132,39 @@ def test_sleep_is_told_the_grouping_as_context():
 def test_the_signal_reads_the_provider_id(bank):
     assert project_conversations.ep_provider({"provider_project": {"provider": "chatgpt", "id": "g-p-1"}}) == \
         ("chatgpt", "g-p-1")
+
+
+def test_dismissing_a_grouping_keeps_what_the_import_remembers(bank):
+    """Review of #492 (1): both writers share `project_groupings.yaml`; each changes only its own key."""
+    _import(bank, PROJECTS)
+    (bank / "entities" / "empty-example.md").unlink()
+    bank_index.invalidate()
+    project_ownership.dismiss_group(bank, "g-p-synthetic99")
+    data = project_ownership.read_groupings(bank)
+    assert data["dismissed"] == ["g-p-synthetic99"] and data["imported"]
+    _import(bank, PROJECTS)
+    assert "empty-example" not in _pages(bank), "a deleted page never comes back"
+    _import(bank, PROJECTS)
+    assert project_ownership.dismissed_groups(bank) == {"g-p-synthetic99"}
+
+
+def test_while_sleep_holds_the_pages_the_projects_wait_and_nothing_is_remembered(bank, monkeypatch):
+    """Review of #492 (2): the adoption runs inside the bank's write admission; while Sleep writes, nothing is written
+    and no id is recorded, so the next import adds them."""
+    from api.services import write_admission
+
+    monkeypatch.setattr(write_admission, "holding", lambda: True)
+    result = _import(bank, PROJECTS)
+    assert _pages(bank) == {}
+    assert provider_projects.DEFERRED in result.parsed.warnings
+    assert not project_ownership.read_groupings(bank).get("imported")
+    monkeypatch.setattr(write_admission, "holding", lambda: False)
+    _import(bank, PROJECTS)
+    assert set(_pages(bank)) == {"cedar-canoe-example", "empty-example"}
+
+
+def test_an_id_is_remembered_only_after_the_pages_are_committed(bank, monkeypatch):
+    monkeypatch.setattr(provider_projects, "commit", lambda memory_path, paths: False)
+    _import(bank, PROJECTS)
+    assert set(_pages(bank)) == {"cedar-canoe-example", "empty-example"}
+    assert not project_ownership.read_groupings(bank).get("imported")
