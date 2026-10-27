@@ -371,6 +371,23 @@ the detail keeps the series (`PROJECT_SHAPE` g141-4, 2026-10-19: 40 % of the lis
 /projects/{id}/threads/{claim_id}` and `POST /projects/{id}/withdraw` (happenings only) — answer **409**
 while Sleep runs and each commits alone over its own pages as `Cicada-Author: user`,
 `user/companion_app`.
+**g141-7 (2026-10-27, ruling 45).** A row and the detail's `project` carry `mine`, `mineVia`, `description` and
+`descriptionBy` {by, day, session?}, and `oneLiner` is the person's description when there is one. `GET /projects` keeps
+its `projects` array (every live project page, each saying `mine` — the CLI and `followups` read it, Hyrum) and adds
+`suggested` [{id, kind: page|group, name, pageType, whyKind: repo|words|agent|provider|export|none|fallback, why, quote,
+episode, day, repoName, sessions, by, provider, dismissed}] (strongest first, dismissed last) and `dismissed` (a count).
+The detail adds `influences` [{id, source, label, url, entity, entityType, tag, how, by, day, claimId, predicate, ref,
+page, reversed}], `conversationCount` and `knowledge` [{provider, projectId, name, episode, instructions, start, end,
+docs}]. The client mapping ships with the bump: the app's `ProjectsCache` keys both reads on the server's ETag, so the
+new shape refetches once. New routes, each **admitted** (409 while Sleep holds the pages), committing alone as
+`Cicada-Author: user`: `POST /projects` {name, description, via?: cli} (refuses a name already a page with **409**
+naming it), `POST /projects/{id}/accept` {name?} (a fallback page is retyped in place; a `g-p-` grouping id needs a name
+and becomes a new page), `POST /projects/{id}/dismiss`, `PATCH /projects/{id}` {name?, description?},
+`POST /projects/{id}/conversations` {episode, remove?}, `POST /projects/{id}/influences` {url? | what? | entity?, how?,
+note?} and `POST /projects/{id}/influences/withdraw` {claimId, page?} | {ref, predicate?}. `GET
+/projects/{id}/conversations?offset&limit` (≤ 200) answers {project, total, counts: {repo, named, claims, added, provider,
+relay}, conversations: [TimelineConversation + {day, why, relayed, providerLabel, manual}], offset, partial} — the same
+ETag folding as the timeline, no ETag while the word index builds or a raw scan answered (`partial`).
 
 **The settings file (2026-10-13).** A developer checkout's settings file is `api/.env`, found by `api/settings_file.py`
 from the package's own folder — **never the working directory**, so neither the repo root (the launchd backend's cwd)

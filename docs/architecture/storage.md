@@ -1182,6 +1182,30 @@ Round 4 (C2–C4):
   project that has no birth yet but cleared the promotion bar (the fallback page, `capture-and-sleep.md`). Read by the
   judge (a later project mention meets the page) and by Stage 5, which removes it when a birth makes the page the
   project; nothing else writes it.
+- **Ruling 45 (2026-10-27): whose project it is** — keys on a `project` page (or a fallback page), written only by the
+  person's doors (the app's routes, `cicada projects new`, a trusted agent on their ask) through `project_ownership`, the
+  one writer of `mine` / `not_mine` and the two conversation lists; never by Sleep, which carries them through every
+  rewrite (Stage 3 updates the page's own frontmatter) and every merge (`project_ownership.carry_on_merge`), and never
+  moved by a correspondent split. `mine: {via: app|cli|agent|accepted|import, day, by, session?}` — in the person's list;
+  a folder birth (`born.via: folder`) and a page with a claim of `origin: companion_app` read as theirs without it
+  (derived on read, Q2). `not_mine: {day}` — a dismissed suggestion; the page is never archived, deleted or retyped for
+  it. `description` + `description_by: {by, day, session?}` — the person's header line (Q5); Sleep's article stays the
+  Overview. `conversations_added` (an id = the person's tie; `{episode, by, session?}` = an agent's, which only it may
+  untie) and `conversations_removed` (the person's untie, which every automatic signal respects). `provider_projects:
+  [{provider, id, name?, episode?, docs?, instructions?: {start, end, hash}}]` — the project's own id in Claude (from an
+  export) or ChatGPT (a `g-p-` grouping the person named on accept); `instructions` is a span into the imported
+  knowledge episode, read back only while `evidence.span_status` holds (`project_timeline._knowledge`), and `docs` are
+  names only. `born.origin: created` with `via: app|cli|agent|accepted|claude-export` (and `by`, `session`, an
+  `episode`/`span` for the person's ask) joins `repo|words` for a page someone made on purpose.
+- `project_groupings.yaml` (ruling 45, bank root) — what has no page to carry it: `dismissed` (ChatGPT groupings the
+  person said are not theirs) and `imported` (`{provider, id}` of every provider project an import has seen, so a page
+  the person deleted is never re-created). Written by `project_ownership.dismiss_group` and `provider_projects`, committed
+  under the person.
+- `provider_project: {provider, id, name?}` on an episode (ruling 45 addendum) — a provider's own project grouping (a
+  ChatGPT `g-p-` id read from `conversation_template_id`/`gizmo_id`), outside the body and its hash: an unchanged
+  conversation that gains it is updated in its frontmatter only and never re-queued (`episode_staging`). `relay.project`
+  on a relayed episode is the relaying app's word on its project (`cicada_capture_turns(project=)`), kept until the app
+  says another.
 - `media.kind: paper` + `paper:` (G133) — a paper page: `arxiv_id`, `doi`, `authors`, `published`,
   `venue`, `sections`, and `metadata_status` once a lookup failed. The ids are the identity
   (`media-arxiv-<id>` / `media-doi-<hash>`); the abstract is a `describes` claim from

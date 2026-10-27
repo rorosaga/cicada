@@ -430,8 +430,42 @@ def _export_entry_timestamp(entry: dict) -> str | None:
     return None
 
 
+def _claude_doc_names(project: dict) -> list[str]:
+    """A Claude project's knowledge files, by name only — never their contents (the import reads none of them)."""
+    out: list[str] = []
+    for doc in project.get("docs") or []:
+        if isinstance(doc, dict):
+            name = str(doc.get("filename") or doc.get("file_name") or doc.get("name") or "").strip()
+            if name and name not in out:
+                out.append(name[:200])
+    return out[:50]
+
+
+def claude_project_list(data: list) -> list[dict]:
+    """Ruling 45 addendum: every project the person made in Claude (``projects.json``), starter projects left out —
+    ``{uuid, name, description, created_at, docs, has_instructions}``. The import makes or matches a project page for
+    each (``provider_projects.adopt_claude``); Claude's ``conversations.json`` carries no project field, so nothing
+    links a conversation to one."""
+    out: list[dict] = []
+    for project in data if isinstance(data, list) else []:
+        if not isinstance(project, dict):
+            continue
+        name = " ".join(str(project.get("name") or "").split())
+        uuid = str(project.get("uuid") or "").strip()
+        if not name or not uuid or project.get("is_starter_project") or name == "How to use Claude":
+            continue
+        out.append({"uuid": uuid, "name": name, "description": " ".join(str(project.get("description") or "").split()),
+                    "created_at": project.get("created_at"), "docs": _claude_doc_names(project),
+                    "has_instructions": bool(str(project.get("prompt_template") or "").strip())})
+    return out
+
+
 def parse_anthropic_projects(data: list) -> list[dict]:
-    """Parse Anthropic projects.json — project descriptions as knowledge episodes."""
+    """Parse Anthropic projects.json — project descriptions as knowledge episodes.
+
+    Ruling 45 addendum: each carries ``source_id: claude-project:<uuid>`` so a re-import updates it in place, and the
+    hash an episode staged before the id existed would carry (``legacy_hashes``), so a bank that already holds it is
+    never given a second copy."""
     episodes: list[dict] = []
 
     for project in data:
@@ -455,13 +489,21 @@ def parse_anthropic_projects(data: list) -> list[dict]:
 
         content = "\n\n".join(content_parts)
 
-        episodes.append({
+        episode = {
             "title": f"Claude Project — {name}",
             "source": "claude_project",
             "messages": [{"role": "system", "text": content, "timestamp": project.get("created_at")}],
             "timestamp": project.get("created_at"),
             "original_date": _extract_date(project.get("created_at")),
-        })
+        }
+        draft = episode_staging.draft_from_export(episode)
+        legacy = [episode_staging.content_hash(episode_staging.render(draft)[0]),
+                  episode_staging.content_hash(episode_staging._raw_render(draft))]
+        if project.get("uuid"):
+            episode["source_id"] = f"claude-project:{project['uuid']}"
+            episode["source_updated_at"] = project.get("updated_at")
+            episode["legacy_hashes"] = list(dict.fromkeys(legacy))
+        episodes.append(episode)
 
     return episodes
 
@@ -545,7 +587,7 @@ def parse_chatgpt_json(data: list) -> list[dict]:
         if isinstance(update_time, (int, float)) and update_time > 0:
             source_updated_at = episode_ids.to_utc_iso(update_time)
 
-        episodes.append({
+        episode = {
             "title": title,
             "source": "chatgpt",
             "messages": messages,
@@ -553,10 +595,25 @@ def parse_chatgpt_json(data: list) -> list[dict]:
             "original_date": _extract_date(conv_timestamp),
             "source_id": source_id,
             "source_updated_at": source_updated_at,
-        })
+        }
+        if (group := chatgpt_project_id(conversation)) is not None:
+            # Ruling 45 addendum: ChatGPT's own project grouping, a fifth conversation signal. A custom GPT (`g-…`)
+            # is not a project and is never read as one.
+            episode["provider_project"] = {"provider": "chatgpt", "id": group}
+        episodes.append(episode)
 
     episodes.sort(key=lambda e: e.get("timestamp", ""))
     return episodes
+
+
+def chatgpt_project_id(conversation: dict) -> str | None:
+    """The ChatGPT project a conversation belongs to: a ``g-p-`` id in ``conversation_template_id`` or ``gizmo_id``
+    (an export of 2026-09 carried it only for custom GPTs, ``g-…``, which are not projects)."""
+    for key in ("conversation_template_id", "gizmo_id", "project_id"):
+        value = conversation.get(key)
+        if isinstance(value, str) and value.startswith("g-p-") and 8 <= len(value) <= 84:
+            return value
+    return None
 
 
 def _chatgpt_files(metadata: dict, parts: list) -> list[dict]:

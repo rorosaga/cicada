@@ -224,6 +224,13 @@ _DISPATCH: dict[str, Callable[[mcp_tools.ToolContext, dict], str]] = {
         a.get("triage"), a.get("paid")),
     "cicada_add_backlog_note": lambda c, a: mcp_tools.add_backlog_note(
         c, str(a.get("item") or ""), str(a.get("note") or ""), a.get("status")),
+    "cicada_create_project": lambda c, a: mcp_tools.create_project(
+        c, str(a.get("project") or ""), a.get("description"), a.get("evidence"), a.get("repo")),
+    "cicada_link_conversation": lambda c, a: mcp_tools.link_conversation(
+        c, str(a.get("project") or ""), a.get("episode"), a.get("session"), bool(a.get("remove", False)),
+        a.get("reason")),
+    "cicada_add_influence": lambda c, a: mcp_tools.add_influence(
+        c, str(a.get("project") or ""), a.get("what"), a.get("url"), a.get("how"), a.get("evidence")),
     "cicada_record_watch": lambda c, a: mcp_tools.record_watch(
         c, str(a.get("url") or ""), str(a.get("summary") or ""), a.get("excerpts"), a.get("chapters"),
         basis=a.get("basis"), engine=a.get("engine"), duration=a.get("duration"), lease_token=a.get("lease_token")),
@@ -394,7 +401,8 @@ class RemoteRuntime:
 
             with self._write_lock:
                 text = relay_capture.capture_turns(ctx, args.get("message"), args.get("previous_reply"),
-                                                   app=connector.app, utc_offset_minutes=utc_offset_minutes)
+                                                   app=connector.app, utc_offset_minutes=utc_offset_minutes,
+                                                   project=args.get("project"))
         elif tool in catalog.WRITE_TOOLS:
             with self._write_lock:
                 text = _DISPATCH[tool](ctx, args)

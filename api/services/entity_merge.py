@@ -438,6 +438,11 @@ def merge_entities(memory_path: Path, loser_id: str, winner_id: str,
     from api.services import page_edits
 
     page_edits.carry_marks(wfm, lfm)
+    # Ruling 45: the person's word on a project — mine / not mine, their description, conversations tied or untied by
+    # hand, a provider's project id — survives a merge.
+    from api.services import project_ownership
+
+    project_ownership.carry_on_merge(wfm, lfm)
     # G147: the person's "keep" answers on either page count for the merged one.
     from api.services import decay_policy
 

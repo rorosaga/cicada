@@ -119,6 +119,9 @@ class Request:
     text: str | None = None
     add_aliases: list[str] = field(default_factory=list)
     remove_aliases: list[str] = field(default_factory=list)
+    #: Ruling 45 (Q5): a project's display name and the person's header line (`project_ownership.apply_header`).
+    name: str | None = None
+    description: str | None = None
 
     def to_dict(self) -> dict:
         out: dict = {}
@@ -130,6 +133,10 @@ class Request:
             out["add_aliases"] = list(self.add_aliases)
         if self.remove_aliases:
             out["remove_aliases"] = list(self.remove_aliases)
+        if self.name is not None:
+            out["name"] = self.name
+        if self.description is not None:
+            out["description"] = self.description
         return out
 
 
@@ -162,9 +169,19 @@ def _names(raw, label: str) -> list[str]:
     return out
 
 
-def parse_request(edits=None, section=None, text=None, add_aliases=None, remove_aliases=None) -> Request:
+def parse_request(edits=None, section=None, text=None, add_aliases=None, remove_aliases=None, name=None,
+                  description=None) -> Request:
     """The call's arguments as a :class:`Request`, or :class:`EditError` saying what is wrong."""
+    from api.services import project_ownership
+
     request = Request()
+    try:
+        if name is not None and str(name).strip():
+            request.name = project_ownership.clean_name(name)
+        if description is not None:
+            request.description = project_ownership.clean_description(description)
+    except project_ownership.OwnershipError as exc:
+        raise EditError(str(exc)) from None
     if edits is not None:
         if isinstance(edits, dict):
             edits = [edits]
@@ -210,15 +227,17 @@ def parse_request(edits=None, section=None, text=None, add_aliases=None, remove_
     both = {a.casefold() for a in request.add_aliases} & {a.casefold() for a in request.remove_aliases}
     if both:
         raise EditError("The same alias can't be added and removed in one call.")
-    if not (request.edits or request.section or request.add_aliases or request.remove_aliases):
-        raise EditError("Nothing to change: give `edits`, `section` and `text`, `add_aliases` or `remove_aliases`.")
+    if not (request.edits or request.section or request.add_aliases or request.remove_aliases
+            or request.name is not None or request.description is not None):
+        raise EditError("Nothing to change: give `edits`, `section` and `text`, `add_aliases`, `remove_aliases`, "
+                        "`name` or `description`.")
     return request
 
 
 def request_from_dict(raw) -> Request:
     raw = raw if isinstance(raw, dict) else {}
     return parse_request(raw.get("edits"), raw.get("section"), raw.get("text"), raw.get("add_aliases"),
-                         raw.get("remove_aliases"))
+                         raw.get("remove_aliases"), raw.get("name"), raw.get("description"))
 
 
 def clean_reason(reason) -> str:
@@ -625,6 +644,18 @@ def plan(frontmatter: dict, body: str, request: Request, *, author: str, day: st
             fm.pop(ALIASES_REMOVED, None)
         touched.append("aliases")
 
+    # Ruling 45 (Q5): a project's name and the person's description — the header Sleep never rewrites.
+    if request.name is not None or request.description is not None:
+        from api.services import project_ownership
+
+        if not project_ownership.is_project_like(fm):
+            raise EditError("`name` and `description` change a project's header; this page is not a project.")
+        header = project_ownership.apply_header(fm, name=request.name, desc=request.description, by=author, day=day)
+        if not header and not changes:
+            raise EditError("That leaves the project's name and description as they are.")
+        changes += header
+        touched.append("header")
+
     # Pinned corrections: kept on the page so Sleep's next rewrite writes the fix, never the old words.
     pinned = 0
     rows = corrections(fm)
@@ -710,6 +741,11 @@ def preview(name: str, request: Request, reason: str) -> str:
         lines += [f"  > {line}" if line else "  >" for line in (request.text or "").splitlines()]
     lines += [f"- Add the alias “{a}”" for a in request.add_aliases]
     lines += [f"- Remove the alias “{a}”" for a in request.remove_aliases]
+    if request.name is not None:
+        lines.append(f"- Rename it “{request.name}” (the old name stays findable)")
+    if request.description is not None:
+        lines.append(f"- Set its description to “{request.description}”" if request.description
+                     else "- Clear its description")
     return "\n".join(lines)
 
 

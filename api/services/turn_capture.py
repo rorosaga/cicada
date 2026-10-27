@@ -324,8 +324,12 @@ def capture_turns(
         extra: dict = {STATE_KEY: _entries(conv, ids)}
         if relay is not None:
             first = next((t.text for t in kept if t.role == "user"), None)
+            # Ruling 45 addendum: the app's word on the project, once said, stays until it says another.
+            before = stored.frontmatter.get(RELAY_KEY) if stored is not None else None
+            said = relay.get("project") or (before.get("project") if isinstance(before, dict) else None)
             extra = {"evidence_kind": "assistant",
-                     RELAY_KEY: {**{k: v for k, v in relay.items() if v is not None},
+                     RELAY_KEY: {**{k: v for k, v in relay.items() if v is not None and k != "project"},
+                                 **({"project": said} if said else {}),
                                  "first": relay_match_key(first)},
                      **extra}
         return tc.write_session(memory_path, harness=harness, session_id=sid, conv=conv, existing=existing,

@@ -143,7 +143,7 @@ ROWS: tuple[Row, ...] = (
     Row(("page", "edit"), "cicada_edit_page", "Fix a page's words or aliases, with your reason.",
         (_p("subject"), _p("reason"), _f("edits", "json"), _f("section"), _f("text"),
          _f("add_aliases", "list", flag_name="add-alias"), _f("remove_aliases", "list", flag_name="remove-alias"),
-         _f("evidence", "json"), _f("resolves", "json")), mutates=True),
+         _f("evidence", "json"), _f("resolves", "json"), _f("name"), _f("description")), mutates=True),
     Row(("inbox", "list"), "cicada_check_nudges", "Questions Cicada has for the person on a topic.",
         (_f("mode"), _f("topic"), _f("entity_ids", "list", flag_name="entity-id")), api_op="inbox"),
     Row(("inbox", "resolve"), "cicada_resolve_inbox", "Record the person's own answer to a question.",
@@ -155,6 +155,14 @@ ROWS: tuple[Row, ...] = (
     Row(("progress", "add"), "cicada_note_progress", "Record what happened in a project.",
         (_p("project"), _p("kind"), _p("summary"), _p("status"), _f("when"), _f("target"), _f("milestone"),
          _f("settles"), _f("participants", "json"), _f("evidence", "json")), mutates=True),
+    # Ruling 45 (2026-10-27): proposed spellings, not exposed — `project` is the read's own command, so these live under
+    # `projects`; the person's own shell starts one with `projects new` (an app command, below).
+    Row(("projects", "create"), "cicada_create_project", "Start a project the person asked for.",
+        (_p("project"), _f("description"), _f("evidence", "json"), _f("repo")), mutates=True),
+    Row(("projects", "link"), "cicada_link_conversation", "Tie a conversation to a project, or untie one you tied.",
+        (_p("project"), _p("reason"), _f("episode"), _f("session"), _f("remove", "bool")), mutates=True),
+    Row(("projects", "influence"), "cicada_add_influence", "Record something that fed a project: a link or a thing.",
+        (_p("project"), _f("what"), _f("url"), _f("how"), _f("evidence", "json")), mutates=True),
     Row(("backlog", "list"), "cicada_backlog", "A project's backlog.",
         (_p("project"), _f("status"), _f("item"))),
     Row(("backlog", "add"), "cicada_add_backlog_item", "File an item on a project's backlog.",
@@ -275,6 +283,9 @@ ROWS: tuple[Row, ...] = (
                            "background.", (_p("model"),), via="backend", mutates=True, person=True),
     _app(("index", "install"), "Download a search model (only ever on the person's command).", (_f("model"),),
          via="backend", mutates=True, person=True),
+    # Projects (ruling 45): the person's own, from their own shell.
+    _app(("projects", "new"), "Start a project of your own: a name and a description.",
+         (_p("project"), _f("description")), via="backend", mutates=True, person=True),
     # Sources and imports.
     _app(("feed", "list"), "The RSS/Atom feeds this memory follows."),
     _app(("feed", "add"), "Follow an RSS/Atom feed.", (_p("url"), _f("tag", "list")), via="backend", mutates=True),

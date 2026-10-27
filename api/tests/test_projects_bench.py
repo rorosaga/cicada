@@ -77,3 +77,14 @@ def test_the_detail_and_the_list_fit_their_budgets(big):
     listing = _p95(lambda: project_timeline.list_projects(big, tz_name="UTC"))
     print(f"\nG141 bench p95: build {detail * 1000:.1f} ms · list {listing * 1000:.1f} ms")
     assert detail <= 0.150 and listing <= 0.080
+
+
+def test_the_conversations_read_fits_the_timelines_budget(big):
+    """Ruling 45: the FTS-backed conversation scan (the person naming the project, checked in their own turns), at the
+    same p95 as `/timeline`."""
+    from api.services import project_conversations
+
+    convs = _p95(lambda: project_conversations.build(big, "proj-00", tz_name="UTC"))
+    detail = _p95(lambda: project_timeline.build(big, "proj-00", tz_name="UTC"))
+    print(f"\nprojects v2 bench p95: conversations {convs * 1000:.1f} ms · build (with the count) {detail * 1000:.1f} ms")
+    assert convs <= 0.150 and detail <= 0.150

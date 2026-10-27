@@ -846,6 +846,8 @@ TOOLS = [
                 "section": {"type": "string", "description": "Optional: the title of one section to rewrite whole (e.g. 'Summary', or a section inside the Article). Needs `text`."},
                 "text": {"type": "string", "description": "The section's new content, without its heading."},
                 "add_aliases": {"type": "array", "items": {"type": "string"}, "description": "Optional: other names the thing goes by."},
+                "name": {"type": "string", "maxLength": 120, "description": "Optional, a project only: its new display name, when the person asks to rename it (the old name stays findable as an alias)."},
+                "description": {"type": "string", "maxLength": 600, "description": "Optional, a project only: the one-line description the person asked for, shown as the project's header. Sleep never rewrites it; an empty string clears it."},
                 "remove_aliases": {"type": "array", "items": {"type": "string"}, "description": "Optional: aliases that are wrong, spelled exactly as listed (accents included)."},
                 "evidence": {
                     "type": "array",
@@ -875,6 +877,41 @@ TOOLS = [
             },
             "required": ["subject", "reason"],
         },
+    },
+    {
+        # Ruling 45 (2026-10-27): a project the person asked for. A harness on their trust list (G198) lands it in their
+        # list; any other client's waits under Suggested as its proposal.
+        "name": "cicada_create_project",
+        "description": "Start a project when the person asks you to ('start a project for this', 'make this a project'). Give its name as `project` and, if they said one, a one-line description; cite their ask in `evidence`. If the person has listed your app as one that may edit their memory directly it lands in their projects; otherwise it waits under Suggested for them to add. Refused when the name is already a page: the reply names it, so use that page instead.",
+        "inputSchema": {"type": "object", "required": ["project"], "properties": {
+            "project": {"type": "string", "maxLength": 120, "description": "The new project's name, as the person said it."},
+            "description": {"type": "string", "maxLength": 600, "description": "Optional: one line on what it is, in the person's terms."},
+            "evidence": {"type": "array", "items": {"type": "object", "required": ["episode", "quote"], "properties": {
+                "episode": {"type": "string"}, "quote": {"type": "string"}}},
+                "description": "Optional: the person's exact words asking for it, from a saved episode."},
+            "repo": {"type": "string", "description": "Optional: the repository's folder name, when the project is one."}}},
+    },
+    {
+        "name": "cicada_link_conversation",
+        "description": "Tie a conversation to one of the person's projects when it is about that project and nothing ties it yet, or untie one you tied by mistake (`remove`). Give a one-sentence `reason`. A conversation the person untied stays untied.",
+        "inputSchema": {"type": "object", "required": ["project", "reason"], "properties": {
+            "project": {"type": "string", "description": "The project page (id or name)."},
+            "episode": {"type": "string", "description": "The conversation's episode id (ep_…). Leave out both this and `session` for this conversation."},
+            "session": {"type": "string", "description": "Optional: a session id, for every episode of that conversation."},
+            "remove": {"type": "boolean", "description": "Untie a conversation you tied."},
+            "reason": {"type": "string", "maxLength": 300, "description": "Why, in one sentence."}}},
+    },
+    {
+        "name": "cicada_add_influence",
+        "description": "Record something that fed one of the person's projects — a film, a book, a paper, a tool, a person, a link — when they say it influenced it. Give `url` for a link, else `what` (a name; an existing page is used when it matches, otherwise it stays plain text). `how` says the kind: inspired, reference, uses or person. It is recorded as yours, never as the person's own words; quote them in `evidence`.",
+        "inputSchema": {"type": "object", "required": ["project"], "properties": {
+            "project": {"type": "string", "description": "The project page (id or name)."},
+            "what": {"type": "string", "maxLength": 200, "description": "The thing, by name."},
+            "url": {"type": "string", "maxLength": 2048, "description": "Or a link."},
+            "how": {"type": "string", "enum": ["inspired", "reference", "uses", "person"], "description": "Optional: how it fed the project. Default inspired."},
+            "evidence": {"type": "array", "items": {"type": "object", "required": ["episode", "quote"], "properties": {
+                "episode": {"type": "string"}, "quote": {"type": "string"}}},
+                "description": "Optional: the person's exact words, from a saved episode."}}},
     },
     {
         "name": "cicada_pending",
@@ -1617,7 +1654,18 @@ def _handle_local_tool(name: str, arguments: dict) -> str:
         return mcp_tools.edit_page(
             _ctx(), arguments.get("subject", ""), arguments.get("reason", ""), arguments.get("edits"),
             arguments.get("section"), arguments.get("text"), arguments.get("add_aliases"),
-            arguments.get("remove_aliases"), arguments.get("evidence"), arguments.get("resolves"))
+            arguments.get("remove_aliases"), arguments.get("evidence"), arguments.get("resolves"),
+            arguments.get("name"), arguments.get("description"))
+    elif name == "cicada_create_project":
+        return mcp_tools.create_project(_ctx(), arguments.get("project", ""), arguments.get("description"),
+                                        arguments.get("evidence"), arguments.get("repo"))
+    elif name == "cicada_link_conversation":
+        return mcp_tools.link_conversation(_ctx(), arguments.get("project", ""), arguments.get("episode"),
+                                           arguments.get("session"), bool(arguments.get("remove", False)),
+                                           arguments.get("reason"))
+    elif name == "cicada_add_influence":
+        return mcp_tools.add_influence(_ctx(), arguments.get("project", ""), arguments.get("what"),
+                                       arguments.get("url"), arguments.get("how"), arguments.get("evidence"))
     elif name == "cicada_pending":
         return handle_pending(arguments.get("limit"))
     elif name == "cicada_mark_processed":

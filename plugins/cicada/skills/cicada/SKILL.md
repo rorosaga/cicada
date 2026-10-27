@@ -142,6 +142,20 @@ start at the index, pick a hub, then drill into entities. Use hubs to answer
 - A link worth keeping (article, repo, video) -> `cicada_save_url(url, note?)`.
   Cicada fetches and indexes it as a media source.
 
+## Projects
+- When the person asks you to start a project ("make this a project", "start a
+  project for the garden") -> `cicada_create_project(project, description?,
+  evidence=[{episode, quote}])`, citing their ask. If they listed your app as one
+  that may edit their memory directly it lands in their projects; otherwise it
+  waits under Suggested on their Projects page for them to add. A name that is
+  already a page is refused, with the page named: use that one.
+- A conversation about a project that nothing ties to it ->
+  `cicada_link_conversation(project, episode, reason)`; you can untie only what
+  you tied. Something that fed a project (a film, a paper, a tool, a person) ->
+  `cicada_add_influence(project, what or url, how)`. Rename a project or set its
+  one-line description when asked -> `cicada_edit_page(subject, reason, name=…,
+  description=…)`.
+
 ## Fixing what memory says
 Never edit files under `entities/`, `hubs/`, `backlog/` or `_index.md` directly:
 every write goes through a tool, so provenance (git, the author and session

@@ -221,9 +221,17 @@ def draft_from_export(episode: dict) -> EpisodeDraft:
         unsent=list(episode.get("unsent") or []),
         writer="import",
         # An importer may declare whose words the episode holds (a Claude memory is
-        # the assistant's); absent, the per-line markers decide as before.
-        extra={"evidence_kind": episode["evidence_kind"]} if episode.get("evidence_kind") else {},
+        # the assistant's); absent, the per-line markers decide as before. Ruling 45: a provider's own project
+        # grouping rides beside it (``provider_project``), frontmatter only.
+        extra={**({"evidence_kind": episode["evidence_kind"]} if episode.get("evidence_kind") else {}),
+               **({PROVIDER_PROJECT_KEY: dict(episode["provider_project"])}
+                  if isinstance(episode.get("provider_project"), dict) else {})},
     )
+
+
+#: Ruling 45: a provider's own project grouping on an imported conversation (a ChatGPT ``g-p-`` id), outside the body
+#: and its hash; an unchanged conversation that gains it is updated in its frontmatter only, never re-queued.
+PROVIDER_PROJECT_KEY = "provider_project"
 
 
 def content_hash(text: str) -> str:
@@ -691,6 +699,16 @@ def _set_extras(path: Path, extras: dict) -> None:
 
 
 @_under_episode_lock
+def _set_meta(path: Path, values: dict) -> None:
+    """Same words, new writer-owned frontmatter (a provider's project grouping): the body, its hash, every span and
+    the queue are untouched."""
+    parsed = markdown_parser.parse(path)
+    fm = dict(parsed.frontmatter)
+    fm.update(values)
+    markdown_parser.write(path, fm, parsed.body)
+
+
+@_under_episode_lock
 def _repoint(path: Path, draft: EpisodeDraft, old_sid: str) -> None:
     parsed = markdown_parser.parse(path)
     fm = dict(parsed.frontmatter)
@@ -865,6 +883,14 @@ def _stage_locked(drafts: list[EpisodeDraft], episodes_dir: Path, *,
                     entry.fm["content_sha"] = draft.content_sha
                     result.restamped += 1
                     result.paths.append(_rel(entry.path, episodes_dir))
+                grouping = draft.extra.get(PROVIDER_PROJECT_KEY)
+                if grouping and entry.fm.get(PROVIDER_PROJECT_KEY) != grouping:
+                    # Ruling 45: the provider's project grouping arrived (or moved) and no word did: frontmatter only.
+                    if write:
+                        _set_meta(entry.path, {PROVIDER_PROJECT_KEY: grouping})
+                    entry.fm[PROVIDER_PROJECT_KEY] = grouping
+                    if (rel := _rel(entry.path, episodes_dir)) not in result.paths:
+                        result.paths.append(rel)
                 extras = render_extras(draft, raw=entry.fm.get("content_hash") != digest)
                 if extras != turn_extras.stored(entry.fm):
                     # A reaction, an unsend or a reply's target moved and no word did (turn_extras): frontmatter only.

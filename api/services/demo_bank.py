@@ -129,6 +129,7 @@ def populate(bank_dir: Path, today: date | None = None) -> None:
     _commit_history(bank_dir, today)
     scenario = _write_scenario(bank_dir, today)
     _commit_scenario(bank_dir, today, scenario)
+    _write_scenario_ownership(bank_dir, today)   # ruling 45 — before the events, whose commits tests read as newest
     _write_scenario_backlog(bank_dir, today)   # G150 R-B26 — before the events: a test reads their commits as newest
     _write_design_board(bank_dir, today)   # design taste (2026-10-14) — before the events, for the same reason
     _expire_scenario(bank_dir, today)
@@ -136,6 +137,34 @@ def populate(bank_dir: Path, today: date | None = None) -> None:
     _write_scenario_person(bank_dir, today)
     _write_scenario_followups(bank_dir, today)
     _write_showcase(bank_dir, today)   # round 4 T-Demo — last, so no id or byte the scenario tests pin moves
+
+
+def _write_scenario_ownership(bank_dir: Path, today: date) -> None:
+    """Ruling 45: the Projects page lists the person's own projects and suggests the rest. The demo shows both: the
+    Pick And Place Demo is one Bob started in the app (with his description); the Garden Sensor Project was born from a
+    repository an agent session ran in, so it waits under Suggested with that reason. (The Rover Arm Project is Bob's
+    already: he logged progress on it in the app.) Frontmatter only, through the ownership module's own writers."""
+    from api.services import project_ownership
+
+    ents = bank_dir / "entities"
+    day = today.isoformat()
+    page = ents / "pick-and-place-demo.md"
+    parsed = markdown_parser.parse(page, ledger=False)
+    fm = dict(parsed.frontmatter)
+    fm[project_ownership.MINE_KEY] = {"via": project_ownership.VIA_APP, "day": day, "by": "user"}
+    fm[project_ownership.DESCRIPTION_KEY] = "Get the rover arm to pick a part off the bench and place it in a tray."
+    fm[project_ownership.DESCRIPTION_BY_KEY] = {"by": "user", "day": day}
+    markdown_parser.write(page, fm, parsed.body)
+    page = ents / "garden-sensor-project.md"
+    parsed = markdown_parser.parse(page, ledger=False)
+    fm = dict(parsed.frontmatter)
+    fm["born"] = {"origin": "repo", "day": str(today - timedelta(days=52)),
+                  "repo": {"name": "garden-sensor", "family": "demo-garden-sensor"}}
+    markdown_parser.write(page, fm, parsed.body)
+    paths = ["entities/pick-and-place-demo.md", "entities/garden-sensor-project.md"]
+    _run_commit(bank_dir, git_service.build_commit_message(
+        "Project update", [f"{p}: updated (source: n/a, trigger: user/companion_app)" for p in paths],
+        authors=["user"]), paths)
 
 
 def _write_showcase(bank_dir: Path, today: date) -> None:

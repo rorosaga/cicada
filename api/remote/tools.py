@@ -109,7 +109,11 @@ REMOTE_TOOLS: dict[str, dict] = {t["name"]: t for t in (
           "Cicada stores what you relay as relayed by this app, not as the person's own words.",
           {"message": {"type": "string", "description": "The person's message this turn, word for word."},
            "previous_reply": {"type": "string",
-                              "description": "Your previous reply, word for word. Omit on the first turn."}},
+                              "description": "Your previous reply, word for word. Omit on the first turn."},
+           # Ruling 45 addendum: the app's own word on which project this conversation is in.
+           "project": {"type": "string", "maxLength": 120,
+                       "description": "Optional: the name of the project this conversation is in, only when you "
+                                      "know it from your own context (the app's project); never a guess."}},
           ("message",), read_only=False, idempotent=True),
     _tool("cicada_write_claim",
           "Record one fact as subject – predicate – object, marked as coming from this app. Use observer "
@@ -410,6 +414,37 @@ REMOTE_TOOLS: dict[str, dict] = {t["name"]: t for t in (
            "status": {"type": "string", "enum": ["open", "doing", "done", "dropped"],
                       "description": "Optional: move the item as you note it."}},
           ("item", "note"), read_only=False),
+    # Ruling 45: a remote app's project waits under Suggested until the person adds it.
+    _tool("cicada_create_project",
+          "Start a project when the person asks you to. It waits under Suggested on their Projects page, as this "
+          "app's proposal, until they add it. Refused when the name is already a page: the reply names it.",
+          {"project": {"type": "string", "maxLength": 120, "description": "The new project's name, as the person "
+                                                                          "said it."},
+           "description": {"type": "string", "maxLength": 600, "description": "Optional: one line on what it is."},
+           "evidence": {"type": "array", "items": {"type": "object", "required": ["episode", "quote"], "properties": {
+               "episode": {"type": "string"}, "quote": {"type": "string"}}}},
+           "repo": {"type": "string", "description": "Optional: the repository's folder name."}},
+          ("project",), read_only=False),
+    _tool("cicada_link_conversation",
+          "Tie a conversation to one of the person's projects when it is about that project, or untie one this app "
+          "tied (`remove`). Give a one-sentence reason. A conversation the person untied stays untied.",
+          {"project": {"type": "string", "description": "The project page (id or name)."},
+           "episode": {"type": "string", "description": "The episode id (ep_…) to tie."},
+           "session": {"type": "string", "description": "Optional: a session id instead."},
+           "remove": {"type": "boolean", "description": "Untie one this app tied."},
+           "reason": {"type": "string", "maxLength": 300, "description": "Why, in one sentence."}},
+          ("project", "reason"), read_only=False, idempotent=True),
+    _tool("cicada_add_influence",
+          "Record something that fed one of the person's projects — a film, a book, a paper, a tool, a person, a "
+          "link — when they say it did. `url` for a link, else `what` (a name; plain text when no page matches). "
+          "Recorded as this app's, never as the person's own words.",
+          {"project": {"type": "string", "description": "The project page (id or name)."},
+           "what": {"type": "string", "maxLength": 200, "description": "The thing, by name."},
+           "url": {"type": "string", "maxLength": 2048, "description": "Or a link."},
+           "how": {"type": "string", "enum": ["inspired", "reference", "uses", "person"]},
+           "evidence": {"type": "array", "items": {"type": "object", "required": ["episode", "quote"], "properties": {
+               "episode": {"type": "string"}, "quote": {"type": "string"}}}}},
+          ("project",), read_only=False),
     _tool("cicada_resolve_inbox",
           "Record the person's own answer to one of Cicada's questions: the option_key they chose, defer=true "
           "to ask again later, reject=true when two names are NOT the same, or skip=true when they did not "

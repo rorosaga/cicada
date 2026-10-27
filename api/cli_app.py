@@ -813,6 +813,16 @@ def cmd_feed_add(boot, args) -> Result:
     return Result(text=f"Subscribed to {record.get('url', args.url)}.", data=record, warnings=_warn(boot))
 
 
+def cmd_projects_new(boot, args) -> Result:
+    """Ruling 45: the person starts a project from their own shell — theirs, listed (`via: cli`). Refused from an
+    agent's shell (ruling 21a): an agent asks with `cicada_create_project`, where the trust list decides."""
+    require_person("Starting a project as yours")
+    record = call(boot, "POST", "/projects", body={"name": args.project, "description": args.description or "",
+                                                   "via": "cli"})
+    return Result(text=f"Started {args.project} ({record.get('id')}) in your projects.", data=record,
+                  warnings=_warn(boot))
+
+
 def cmd_feed_remove(boot, args) -> Result:
     result = call(boot, "DELETE", "/sources/feeds", body={"url": args.url})
     return Result(text=f"Unsubscribed from {args.url}.", data=result, warnings=_warn(boot))
@@ -1447,6 +1457,7 @@ COMMANDS = {
     "sleep options": cmd_sleep_options, "sleep history": cmd_sleep_history,
     "index status": cmd_index_status, "index rebuild": cmd_index_rebuild, "index use": cmd_index_use,
     "index install": cmd_index_install,
+    "projects new": cmd_projects_new,
     "feed list": cmd_feed_list, "feed add": cmd_feed_add, "feed remove": cmd_feed_remove, "feed poll": cmd_feed_poll,
     "settings owner": cmd_settings_owner, "engine list": cmd_engine_list, "engine connect": cmd_engine_connect,
     "picture set": cmd_picture_set, "picture initials": cmd_picture_initials, "picture clear": cmd_picture_clear,

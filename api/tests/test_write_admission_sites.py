@@ -395,6 +395,14 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /projects/{project_id}/happenings": (ADMITTED, None),
     "POST /projects/{project_id}/threads/{claim_id}": (ADMITTED, None),
     "POST /projects/{project_id}/withdraw": (ADMITTED, None),
+    # Ruling 45: the person's own projects, header, ties and influences.
+    "POST /projects": (ADMITTED, None),
+    "POST /projects/{project_id}/accept": (ADMITTED, None),
+    "POST /projects/{project_id}/dismiss": (ADMITTED, None),
+    "PATCH /projects/{project_id}": (ADMITTED, None),
+    "POST /projects/{project_id}/conversations": (ADMITTED, None),
+    "POST /projects/{project_id}/influences": (ADMITTED, None),
+    "POST /projects/{project_id}/influences/withdraw": (ADMITTED, None),
     "POST /projects/{project_id}/backlog": (ADMITTED, None),
     "POST /backlog/{project_id}/{item_id}/notes": (ADMITTED, None),
     "PATCH /backlog/{project_id}/{item_id}": (ADMITTED, None),
@@ -560,6 +568,9 @@ TOOLS: dict[str, tuple[str, str | None]] = {
     "cicada_record_read": (ADMITTED, "record_read"),
     "cicada_record_watch": (ADMITTED, "record_watch"),
     "cicada_add_backlog_item": (ADMITTED, "add_backlog_item"),
+    "cicada_create_project": (ADMITTED, "create_project"),          # ruling 45: the page, committed alone
+    "cicada_link_conversation": (ADMITTED, "link_conversation"),
+    "cicada_add_influence": (ADMITTED, "add_influence"),
     "cicada_add_backlog_note": (ADMITTED, "add_backlog_note"),
     "cicada_save_design": (ADMITTED, "save_design"),
     "cicada_edit_page": (ADMITTED, "_edit_page_locked"),        # G198: the page or the proposal, committed alone

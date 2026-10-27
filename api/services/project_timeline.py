@@ -34,12 +34,13 @@ from typing import Callable
 
 from api.models.schemas import (
     ActivityDay, ClusterGroup, ClusterMember, MilestoneRow, OpenThread, PendingConversations, ProjectCluster,
-    ProjectNow, ProjectProgress, ProjectRef, ProjectRow, ProjectsResponse, ProjectTimeline, TimelineConversation,
+    ProjectDescriptionBy, ProjectKnowledge, ProjectNow, ProjectProgress, ProjectRef, ProjectRow, ProjectsResponse,
+    ProjectTimeline, SuggestedProject, TimelineConversation,
     TimelineFact, TimelineItem, TimelineParticipant, TimelineQuote, TimelineWindow,
 )
 from api.services import (
-    bank_index, claim_expiry, entity_body, episode_time, evidence, inbox_context, project_birth, project_sections,
-    project_state, search_index, session_stats, turn_authorship, when,
+    bank_index, claim_expiry, entity_body, episode_time, evidence, inbox_context, project_birth, project_ownership,
+    project_sections, project_state, search_index, session_stats, turn_authorship, when,
 )
 from api.services.claim_reconciler import is_human
 from api.services.claims import (
@@ -60,7 +61,9 @@ from api.services.transclusion_resolver import claim_to_model
 # `people`.
 # g141-6 (2026-10-23): `lastRepoDay` — the newest day an agent session ran in the project's repository (the hook's own
 # observation); its days count as activity in `momentDays`, and a moment needs the project discussed in substance.
-PROJECT_SHAPE = "g141-6"
+# g141-7 (2026-10-27, ruling 45): a row and the detail say `mine` / `mineVia` and the person's `description` (+ who set
+# it); the list adds `suggested` and `dismissed`; the detail adds `influences`, `conversationCount` and `knowledge`.
+PROJECT_SHAPE = "g141-7"
 TREE_DEPTH = 2
 MAX_SCAN_PAGES = 200          # §6.6: raw scans are capped; hitting the cap sets `partial`
 COMMONS_DEGREE = 12           # R-PJ20
@@ -600,6 +603,91 @@ def _neg(day: str) -> str:
     `inbox_service._neg_date_key` trick, inlined so the read model never imports
     the inbox service)."""
     return "".join(str(9 - int(ch)) if ch.isdigit() else ch for ch in day)
+
+
+def _header(bank: _Bank, eid: str) -> dict:
+    """Ruling 45: a project's `mine`, `mineVia`, the person's `description` and who set it — and the one line the list
+    shows, which is that description when there is one (Sleep's first line otherwise)."""
+    fm = bank.fm(eid)
+    via = project_ownership.mine_via(fm, logged_progress=project_ownership.logged_progress(bank.claims(eid)))
+    desc = project_ownership.description(fm) or None
+    by = project_ownership.description_by(fm)
+    return {"mine": via is not None, "mine_via": via, "description": desc,
+            "description_by": ProjectDescriptionBy(**{k: str(v) for k, v in by.items()
+                                                      if k in ("by", "day", "session") and v})
+            if by and desc else None,
+            "one_liner": desc[:120] if desc else _one_liner(bank, eid)}
+
+
+def _repo_session_count(bank: _Bank, eid: str) -> int:
+    fm = bank.fm(eid)
+    folds = project_birth.name_folds({"name": fm.get("name") or eid, "aliases": fm.get("aliases") or []})
+    born = fm.get("born") if isinstance(fm.get("born"), dict) else {}
+    family = str(((born or {}).get("repo") or {}).get("family") or "")
+    return sum(1 for fam, names, _ in bank.repo_sessions() if (family and fam == family) or (names & folds))
+
+
+def _suggestion(bank: _Bank, eid: str) -> SuggestedProject:
+    fm = bank.fm(eid)
+    w = project_ownership.why(bank.path, eid, fm, repo_sessions=_repo_session_count(bank, eid))
+    return SuggestedProject(id=eid, kind="page", name=bank.name(eid), page_type=bank.type_of(eid), why_kind=w.kind,
+                            why=w.text, quote=w.quote, episode=w.episode, day=w.day, repo_name=w.repo_name,
+                            sessions=w.sessions, by=w.by, dismissed=project_ownership.dismissed(fm))
+
+
+def _groups(bank: _Bank, claimed: set[tuple[str, str]]) -> list[SuggestedProject]:
+    """A ChatGPT project the person's conversations carry (``provider_project``) that no page records: one page-less
+    suggestion per grouping, named by the person on accept (the addendum)."""
+    from api.services import project_conversations
+
+    seen: dict[str, list] = {}
+    for ep, f in bank.episodes.items():
+        p = project_conversations.ep_provider(f.frontmatter or {})
+        if p is None or p in claimed or not project_ownership.is_group_id(p[1]):
+            continue
+        row = seen.setdefault(p[1], [p[0], 0, None, None])
+        row[1] += 1
+        name = str(((f.frontmatter or {}).get("provider_project") or {}).get("name") or "").strip()
+        if name and not row[2]:
+            row[2] = name
+        day = _ep_day(bank, ep)
+        if day and (row[3] is None or day > row[3]):
+            row[3] = day
+    gone = project_ownership.dismissed_groups(bank.path) if seen else set()
+    out = []
+    for gid, (provider, n, name, day) in sorted(seen.items()):
+        label = project_conversations.PROVIDER_LABELS.get(provider, provider)
+        out.append(SuggestedProject(
+            id=gid, kind="group", name=name or f"A {label} project", why_kind="provider",
+            why=f"A {label} project, {n} conversation{'s' if n != 1 else ''}.", sessions=n, day=day,
+            provider=provider, dismissed=gid in gone))
+    return out
+
+
+def _knowledge(memory_path: Path, fm: dict) -> list[ProjectKnowledge]:
+    """The addendum: what a provider project carried — Claude's instructions as a span into the imported episode (shown
+    only while the episode still holds those bytes), and its documents by name."""
+    out = []
+    for row in project_ownership.provider_projects(fm):
+        span = row.get("instructions") if isinstance(row.get("instructions"), dict) else {}
+        text = None
+        start = end = None
+        ep = str(row.get("episode") or "") or None
+        if ep and span:
+            body = evidence.source_text(memory_path, ep)
+            try:
+                start, end = int(span.get("start")), int(span.get("end"))
+            except (TypeError, ValueError):
+                start = end = None
+            if body is not None and start is not None and 0 <= start < end <= len(body) and evidence.span_status(
+                    body, end=end, hash=str(span.get("hash") or "")) in (evidence.SPAN_CURRENT, evidence.SPAN_GROWN):
+                text = body[start:end]
+            else:
+                start = end = None
+        out.append(ProjectKnowledge(provider=str(row["provider"]), project_id=str(row["id"]),
+                                    name=str(row.get("name") or ""), episode=ep, instructions=text, start=start,
+                                    end=end, docs=[str(d) for d in row.get("docs") or [] if isinstance(d, str)][:50]))
+    return out
 
 
 def _one_liner(bank: _Bank, eid: str) -> str:
@@ -1460,8 +1548,11 @@ def build(memory_path: Path, project_id: str, *, tz_name: str | None, since: str
     targets = [m.target for m in milestones if m.target]
     days = [i.day for i in items if i.day]
     persons = project_sections.people(around, bank.type_of, bank.name, owner=owner)
-    ref = ProjectRef(id=root, name=bank.name(root), one_liner=_one_liner(bank, root), parent=parent,
-                     children=tree[1:], status=str(fm.get("status") or "active"), created=created)
+    ref = ProjectRef(id=root, name=bank.name(root), parent=parent, children=tree[1:],
+                     status=str(fm.get("status") or "active"), created=created, **_header(bank, root))
+    from api.services import project_conversations, project_influences
+
+    tied_count = project_conversations.count(memory_path, root, tz_name=tz_name, bank=bank)
     return ProjectTimeline(
         project=ref, tz_name=bank.tz_name,
         window=TimelineWindow(start=min([x for x in (created, *days) if x], default=None),
@@ -1482,7 +1573,10 @@ def build(memory_path: Path, project_id: str, *, tz_name: str | None, since: str
         origin=project_birth.wire(memory_path, root, fm),
         sections=project_sections.build(memory_path, root, bank.body(root), items=items, milestones=milestones,
                                         persons=persons),
-        people=persons)
+        people=persons,
+        # Ruling 45: the side panel.
+        influences=project_influences.build(bank, root, reverse), conversation_count=tied_count,
+        knowledge=_knowledge(memory_path, fm))
 
 
 def now_next(memory_path: Path, project_id: str) -> tuple[dict | None, dict | None]:
@@ -1677,7 +1771,7 @@ def list_projects(memory_path: Path, *, tz_name: str | None, transcript_exists: 
                  sorted(milestones, key=lambda m: m.status != "planned")[:MILESTONES_IN_ROW]]
         fm = bank.fm(root)
         rows.append(ProjectRow(
-            id=root, name=bank.name(root), one_liner=_one_liner(bank, root), parent=parent, children=tree[1:],
+            id=root, name=bank.name(root), parent=parent, children=tree[1:], **_header(bank, root),
             status=str(fm.get("status") or "active"), created=_day(fm.get("created")),
             origin=project_birth.recorded_kind(fm), planned=bool(milestones), last_moment_day=days[-1] if days else None,
             last_repo_day=max(repo_days) if repo_days else None,
@@ -1688,4 +1782,16 @@ def list_projects(memory_path: Path, *, tz_name: str | None, transcript_exists: 
             progress=ProjectProgress(**progress), activity=_activity(bank, claims)[:1],
             followups=sum(followups.get(t, 0) for t in tree)))
     rows.sort(key=lambda r: (r.last_moment_day is None, _neg(r.last_moment_day) if r.last_moment_day else "", r.id))
-    return ProjectsResponse(projects=rows, tz_name=bank.tz_name, partial=partial or bank.partial)
+    # Ruling 45: every project page the person has not claimed, every fallback page (a thing called a project with no
+    # birth) and every provider grouping no page records — under Suggested, strongest first, dismissed ones last.
+    suggested = [_suggestion(bank, r.id) for r in rows if not r.mine]
+    suggested += [_suggestion(bank, s) for s in bank.stems
+                  if bank.live(s) and bank.type_of(s) == project_birth.FALLBACK_TYPE
+                  and project_birth.proposed(bank._fm(s))]
+    claimed = {(str(p["provider"]), str(p["id"])) for s in bank.stems
+               for p in project_ownership.provider_projects(bank._fm(s))}
+    suggested += _groups(bank, claimed)
+    order = {k: i for i, k in enumerate(project_ownership.WHY_ORDER)}
+    suggested.sort(key=lambda g: (g.dismissed, order.get(g.why_kind, len(order)), -g.sessions, g.name.lower(), g.id))
+    return ProjectsResponse(projects=rows, tz_name=bank.tz_name, partial=partial or bank.partial,
+                            suggested=suggested, dismissed=sum(1 for g in suggested if g.dismissed))
