@@ -1860,7 +1860,10 @@ A whole row moves to DONE only after its remaining implementation and required a
     question; a name — the person's inbox answer, or a settle that passes `written_as_name` — takes the title, keeps the
     nickname as an alias, and is never asked. **At scale:** a nickname never joins on its own — a page titled by one, or
     a name two or more other people answer to, goes to the judge; more than five pages answering to one name make it
-    common (`MAX_NAME_HOLDERS`): a mention named only so is held quietly, no page, no question; lookups go through one
+    common (`MAX_NAME_HOLDERS`): its alias holders are not each judged, but the mention's own aliases, a name said with
+    it and the page titled exactly by it still are; a name never creates over a page it did not join (held and asked,
+    then "<name> (another)" once the person says someone else), and a held name's edges and claims never land on the
+    page that shares it; lookups go through one
     index per run (`NameIndex`): 2.3 ms a name on a synthetic 2,500-page bank with ~20k aliases. **Revisit** if a
     nickname-titled page is renamed by the person to its nickname again, or a held common-nickname mention is later
     found to have been someone's only name.

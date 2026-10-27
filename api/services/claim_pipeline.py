@@ -55,7 +55,7 @@ from api.services import markdown_parser, owner_identity, pending_store, telemet
 from api.services.claim_reconciler import reconcile_stage3
 from api.services.claims import Claim, is_event, parse_claims, write_claims
 from api.services.entity_extractor import entities_to_claims
-from api.services.entity_resolver import endpoint_id
+from api.services.entity_resolver import HELD_ENDPOINT, endpoint_id
 from api.services.id_utils import sanitize_id
 from api.services.pending_store import HoldOutcome, Release
 
@@ -93,7 +93,12 @@ def subject_resolver(name_to_id: dict[str, str] | None, owner_id: str | None,
     def resolve(name: str) -> str:
         if owner_id and decision.is_speaker(name):
             return owner_id
-        return endpoint_id((name or "").strip().lower(), table) or sanitize_id(name)
+        key = (name or "").strip().lower()
+        if table.get(key) == HELD_ENDPOINT:
+            # Stage 2 held this name although a page bears it (2026-10-27): never that page by name. A subject no page
+            # and no pending line has, so its claims count as page-less (`hold_page_less`).
+            return f"held:{sanitize_id(name)}"
+        return endpoint_id(key, table) or sanitize_id(name)
 
     return resolve
 
@@ -139,7 +144,10 @@ def _release_target(name_to_id: dict[str, str] | None) -> Callable[[str, str], s
     table = {str(k): str(v) for k, v in (name_to_id or {}).items()}
 
     def target(name: str, subject: str) -> str:
-        return table.get((name or "").strip().lower()) or subject
+        hit = table.get((name or "").strip().lower())
+        if hit == HELD_ENDPOINT:
+            return f"held:{subject}"   # held again this cycle: its claims stay with the line (no such page)
+        return hit or subject
 
     return target
 

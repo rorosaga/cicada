@@ -1728,8 +1728,15 @@ mechanisms, each closed for every type, not only people:
 - **Nicknames at scale (ruling 41, owner 2026-10-27).** A nickname never joins on its own: a person page titled by a
   nickname (`nickname_title`), or a name two or more other person pages answer to, is never a direct match — it goes to
   the judge with every page answering to it (`_shared_name`; one other holder stays G209's lead question). More than
-  `MAX_NAME_HOLDERS` (5) pages answering to one name make it common ("babe", "bro", initials): its holders are not each
-  judged, and a person mention named only so is held quietly — no page, no question. The leads are looked up in one
+  `MAX_NAME_HOLDERS` (5) pages listing one name make it common ("babe", "bro", initials): those alias holders are not
+  each judged, but everything more specific still points — the mention's own aliases ("Alex" said as "Alex Kim"), a name
+  said with it, a close spelling, and the page titled exactly by the name, which joins on the judge's `same`. A name
+  whose page id is another page's that it did not join (judged different, or unsure) is never created over it: it is
+  held and "Possible duplicate of …" is asked; once the person says it is someone else, it gets a page of its own,
+  "<name> (another)". A held name that an existing page bears has no endpoint (`HELD_ENDPOINT` in `name_to_id`): its
+  edges are dropped and its claims never keyed to that page by name (`claim_pipeline` gives them a `held:` subject no
+  page has, counted page-less; held claims of its line stay with the line). With no titled page and no lead, the mention
+  goes on by the usual rule. The leads are looked up in one
   index built per run (`NameIndex`: name/alias key → pages; folded spelling bucketed by first letter and length), never
   by a scan over every alias of every page: 43 ms to build and 2.3 ms a name for candidates (0.4 ms the direct match) on
   a synthetic 2,500-page bank with ~20k aliases.

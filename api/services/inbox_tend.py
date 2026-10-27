@@ -1933,11 +1933,11 @@ async def apply(memory_path: Path, settings, d: Decision, *, engine: str | None 
                               extra_paths=[record_rel], extra_lines=[line],
                               record=(record_path, {**fm, "settled": _record(fm, d, authors[0], span)}, body),
                               fold_pages=bool(d.request and d.request.get("action") == "merge"))
+    if d.request and d.request.get("action") == NICKNAME_ACTION:
+        # Not a settle (ruling 41): no record, no Sleep actor, no answer quote set — its own commit (`_nickname`).
+        return await asyncio.to_thread(_nickname, memory_path, path, d, settings)
     token = inbox_actor.set_actor(actor)
     quote_token = inbox_service._ANSWER_QUOTE.set([d.quote] if d.quote else None)
-    if d.request and d.request.get("action") == NICKNAME_ACTION:
-        record_path.unlink(missing_ok=True)
-        return await asyncio.to_thread(_nickname, memory_path, path, d, settings)
     try:
         if d.request is None:
             await asyncio.to_thread(_retire, memory_path, path, fm, d, actor)

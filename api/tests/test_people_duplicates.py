@@ -510,9 +510,73 @@ def test_a_short_form_two_entries_of_one_conversation_claim_stays_with_the_name_
     assert mira[er.NAMED_WITH] == ["Kovask Lin"]
 
 
-def test_a_nickname_many_people_share_is_held_quietly_not_judged_against_each(bank, monkeypatch):
-    pages = [_page(f"Person {c}", aliases=["Babe"]) for c in "ABCDEF"]     # more than MAX_NAME_HOLDERS
+def test_a_nickname_many_people_share_is_not_judged_against_each_holder(bank, monkeypatch):
+    """More than MAX_NAME_HOLDERS pages list it: no alias holder is judged, and with no page titled by it and nothing more
+    specific, the mention goes on by the usual rule — a page of its own the person can merge, never a dead end."""
+    pages = [_page(f"Person {c}", aliases=["Babe"]) for c in "ABCDEF"]
     judge = _Judge("same")
     result = _resolve(bank, monkeypatch, pages, [_mention("Babe", 1), _mention("Babe", 2)], judge)
-    assert judge.calls == [] and _creates(result) == [] and _questions(bank) == []
+    assert judge.calls == [] and _creates(result) == ["babe"]
     assert not any(c["action"] == "update" for c in result["changes"])
+
+
+def _six_alexes():
+    """A page titled exactly "Alex" and six more people who also go by it (over MAX_NAME_HOLDERS), one "Alex Kim"."""
+    return [_page("Alex"), *(_page(n, aliases=["Alex"]) for n in
+                            ("Alex Kim", "Alexandra Roe", "Alexei Voss", "Alessandro Pine", "Alexis Dorn", "Alec Moor"))]
+
+
+def test_a_common_name_reaches_the_page_titled_by_it_and_joins_on_same(bank, monkeypatch):
+    judge = _Judge("different", Alex="same")
+    result = _resolve(bank, monkeypatch, _six_alexes(), [_mention("Alex", 1), _mention("Alex", 2)], judge)
+    names = [c["existing_name"] for c in judge.calls]   # the titled page first; never each alias holder by alias
+    assert names[0] == "Alex" and set(names) <= {"Alex", "Alex Kim"}   # "Alex Kim" only as a shared word
+    assert result["name_to_id"]["alex"] == "alex" and _creates(result) == []
+
+
+def test_a_common_name_judged_different_is_held_and_asked_never_created_over_the_page(bank, monkeypatch):
+    result = _resolve(bank, monkeypatch, _six_alexes(), [_mention("Alex", 1), _mention("Alex", 2)], _Judge("different"))
+    assert _creates(result) == [] and not any(c["id"] == "alex" for c in result["changes"])
+    assert ("merge_suggestion", "alex", "alex") in _questions(bank)
+
+
+def test_a_specific_alias_points_past_the_common_name(bank, monkeypatch):
+    judge = _Judge("different", **{"Alex Kim": "same"})
+    result = _resolve(bank, monkeypatch, _six_alexes(),
+                      [_mention("Alex", 1, aliases=["Alex Kim"]), _mention("Alex", 2, aliases=["Alex Kim"])], judge)
+    assert "Alex Kim" in [c["existing_name"] for c in judge.calls]
+    assert result["name_to_id"]["alex"] == "alex-kim"
+
+
+def test_a_held_common_names_edges_and_claims_follow_the_hold(bank, monkeypatch):
+    from api.services import claim_pipeline
+
+    extracted = [_mention("Alex", 1), _mention("Alex", 2)]
+    extracted[0]["relationships"] = [{"source": "Alex", "target": "Ostro Lane", "label": "works with"}]
+    pages = [*_six_alexes(), _page("Ostro Lane")]
+    result = _resolve(bank, monkeypatch, pages, extracted, _Judge("different"))
+    assert result["name_to_id"]["alex"] == er.HELD_ENDPOINT
+    assert result["relationships"] == []                              # never attached to the page "Alex" by name
+    resolve_id = claim_pipeline.subject_resolver(result["name_to_id"], None)
+    assert resolve_id("Alex") == "held:alex" and resolve_id("Ostro Lane") == "ostro-lane"
+    assert claim_pipeline._release_target(result["name_to_id"])("Alex", "alex") == "held:alex"
+
+
+def test_the_person_saying_it_is_someone_else_gives_it_a_page_of_its_own(bank, monkeypatch):
+    merge_rejections.add_rejected(bank, "alex", "alex")
+    result = _resolve(bank, monkeypatch, _six_alexes(), [_mention("Alex", 1), _mention("Alex", 2)], _Judge("different"))
+    assert _creates(result) == ["alex-(another)"]
+    assert result["name_to_id"]["alex"] == "alex-(another)"
+
+
+def test_a_held_common_name_keeps_its_pending_line_with_the_indexer_on(tmp_path, monkeypatch):
+    from api.services import pending_store
+
+    root = tmp_path / "synthetic-bank"
+    for name in ("entities", "episodes", "inbox"):
+        (root / name).mkdir(parents=True)
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(root))
+    monkeypatch.setattr(er.SqliteVecIndexer, "_rebuild_pending_index", lambda self, entries: None)
+    _resolve(root, monkeypatch, _six_alexes(), [_mention("Alex", 1), _mention("Alex", 2)], _Judge("different"))
+    lines = [line for line in pending_store.load(root) if line.name == "Alex"]
+    assert len(lines) == 1 and sorted(lines[0].episodes()) == ["ep_2026-10-01_001", "ep_2026-10-02_001"]

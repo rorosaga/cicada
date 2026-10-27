@@ -24,6 +24,11 @@ from api.services.id_utils import sanitize_id
 from api.services.vector_index import PendingEntity, SqliteVecIndexer
 
 
+#: ``name_to_id``'s value for a name Stage 2 HELD although an existing page bears it (2026-10-27): no endpoint — its
+#: edges are dropped and its claims never keyed to that page by name (`claim_pipeline.subject_resolver`).
+HELD_ENDPOINT = "\x00held"
+
+
 def endpoint_id(name: str, name_to_id: dict[str, str]) -> str | None:
     """The id Stage 2 resolved ``name`` to, or ``None`` — the edge rule, as one function.
 
@@ -37,10 +42,12 @@ def endpoint_id(name: str, name_to_id: dict[str, str]) -> str | None:
     """
     key = (name or "").lower()
     hit = name_to_id.get(key)
+    if hit == HELD_ENDPOINT:
+        return None   # held: it is no page yet, least of all the one that shares its name
     if hit:
         return hit
     for known_name, known_id in name_to_id.items():
-        if fuzz.ratio(key, known_name) > 85:
+        if known_id != HELD_ENDPOINT and fuzz.ratio(key, known_name) > 85:
             return known_id
     return None
 
@@ -264,6 +271,7 @@ async def resolve(
     lead_pairs: set[tuple[str, str]] = set()
     named_handle_lines = _named_handle_lines(settings.memory_path)
     held_people: list[tuple[dict, list[dict]]] = []   # person names this batch held below the bar (W1, below)
+    held_names: set[str] = set()   # every name this batch held (its endpoints follow the hold, below)
 
     # A self-reference's facts are the owner's: they land on the owner page, under
     # its own name and type (a "User" concept must not retype or rename it). With
@@ -318,6 +326,7 @@ async def resolve(
 
     def hold(name: str, entity: dict, siblings: list[dict], ambiguous_match: bool) -> None:
         """A name below the bar: asked about when its confidence is low, and parked as one pending line."""
+        held_names.add(name.strip().lower())
         confidence = float(entity.get("confidence", 0.3) or 0.3)
         if (entity.get("type") or "").lower() == "person" and not ambiguous_match:
             held_people.append((entity, siblings))
@@ -388,13 +397,6 @@ async def resolve(
             )
             if match is None:
                 match = _answered_match(entity, aliases)
-            if (match is None and (entity.get("type") or "").lower() == "person"
-                    and _common_name(name, existing_by_name, aliases)):
-                # A name many people answer to (owner 2026-10-27): no page of its own and no question — held.
-                page = (existing_by_name.get(name.strip().lower())
-                        or (aliases.get(person_leads.handle_key(name)) or [None])[0])
-                match = {"decision": "unsure", "quiet": True,
-                         "candidate": {"source": "existing", "id": page["id"], "data": page}}
             if match is not None and lookahead is not None:
                 lookahead.discard(done_names)
             if match is None:
@@ -549,10 +551,26 @@ async def resolve(
                     {"clarifier": clarifier, "entity": entity, "candidate": match["candidate"]},
                 ))
 
+            taken = (should_promote and not ambiguous_match and card is None
+                     and sanitize_id(name) in existing_ids)
+            if taken:
+                page = next((e for e in existing if str(e.get("id")) == sanitize_id(name)), None)
+                if page is not None and _said_different(settings.memory_path, name, page["id"]):
+                    # The person said it is someone else: a page of its own beside the one with that name.
+                    entity = {**entity, "name": _another_title(name, existing_ids, resolved_creates)}
+                    taken = False
+                elif page is not None:
+                    # 2026-10-27: the page with this exact id is another one it did not join (a name several people
+                    # answer to, judged different or with no lead): never a create over it — held, and asked.
+                    pending_actions.append((
+                        _create_duplicate_clarification, (),
+                        {"clarifier": clarifier, "entity": entity,
+                         "candidate": {"source": "existing", "id": page["id"], "data": page}}))
+                    ambiguous_match = True
             if should_promote and not ambiguous_match:
                 if card is not None:
                     entity = _card_entity(entity, card)
-                entity_id = sanitize_id(entity["name"] if card is not None else name)
+                entity_id = sanitize_id(entity["name"])
                 name_to_id[name_lower] = entity_id
                 resolved_creates[entity_id] = _create_change(entity_id, entity)
                 if birth is not None and _written_type(entity, siblings) == "project":
@@ -606,6 +624,11 @@ async def resolve(
     if not cancelled:
         pending_actions.extend(_held_alias_questions(held_people, existing, resolved_creates, clarifier,
                                                      settings.memory_path, owner_page_id=owner_page_id))
+    for held in held_names:
+        # 2026-10-27: a held name that is also an existing page's name (registered above) must not have its edges and
+        # claims keyed to that page by name: the hold says Stage 2 did not decide it is that page.
+        if held in existing_by_name:
+            name_to_id[held] = HELD_ENDPOINT
     resolved = list(resolved_updates.values()) + list(resolved_creates.values())
     for raw, full in named_handles.items():
         if full in name_to_id and raw not in name_to_id:
@@ -1914,6 +1937,16 @@ def _shared_name(new_name: str, page: dict, aliases: dict[str, list[dict]] | Non
                if str(other.get("id")) != str(page.get("id")) and _page_type(other) == "person") >= 2
 
 
+def _another_title(name: str, existing_ids: set[str], creates: dict[str, dict]) -> str:
+    """A title for someone the person said is not the page already called ``name`` ("Alex (another)")."""
+    n = 1
+    while True:
+        title = f"{name} (another)" if n == 1 else f"{name} (another {n})"
+        if sanitize_id(title) not in existing_ids and sanitize_id(title) not in creates:
+            return title
+        n += 1
+
+
 def _is_person(entity: dict) -> bool:
     return str((entity or {}).get("type") or "").strip().lower() == "person"
 
@@ -2589,17 +2622,10 @@ async def _llm_judge_batch(
 
 
 #: More pages than this answering to one name or nickname ("babe", "bro", initials) make it common, not a lead
-#: (owner 2026-10-27, "many people sharing common nicknames"): its holders are not each judged — a person mention
-#: named only so is held quietly (no page, no question) until something more specific says who it is.
+#: (owner 2026-10-27, "many people sharing common nicknames"): its holders are not each judged as aliases. What is
+#: more specific still points (the mention's own aliases, a name said with it, a close spelling, the page titled exactly
+#: by that name), and a mention that meets none of them goes on by the usual rule.
 MAX_NAME_HOLDERS = 5
-
-
-def _common_name(name: str, existing_by_name: dict[str, dict], aliases: dict[str, list[dict]] | None) -> bool:
-    holders = {str(p.get("id")) for p in (aliases or {}).get(person_leads.handle_key(name), ())}
-    page = existing_by_name.get(str(name or "").strip().lower())
-    if page is not None:
-        holders.add(str(page.get("id")))
-    return len(holders) > MAX_NAME_HOLDERS
 
 
 class NameIndex:
