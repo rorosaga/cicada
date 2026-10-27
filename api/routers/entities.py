@@ -10,6 +10,7 @@ from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
 from api.models.schemas import (
+    EntityRelevance,
     PageBlameResponse,
     SourcesOverview,
     ContextEpisodeExcerpt,
@@ -47,6 +48,7 @@ from api.models.schemas import (
     VideoChapter,
 )
 from api.services import (
+    page_relevance,
     claims_ledger,
     decay_policy,
     decay_tuning,
@@ -176,7 +178,23 @@ async def get_entity(
         picture_source=picture.source,
         picture_inputs=PictureInputsModel(**picture_inputs.to_fields()),
         quiet=quiet_pages.page_is_quiet(settings.memory_path, entity_id),
+        relevance=EntityRelevance(**(await run_in_threadpool(
+            page_relevance.for_page, settings.memory_path, entity_id, fm=fm, body=parsed.body)).to_dict()),
     )
+
+
+@router.post("/entities/{entity_id}/web-context")
+async def look_up_context(entity_id: str, settings: Settings = Depends(get_settings)):
+    """Owner ruling 44 (G121) — "go deeper" on this one page: a deep web lookup now, by the person's click (or their
+    agent through the API). The same public test (a private person's name is never sent anywhere), pinned queries,
+    citations, protection of the person's own words and undo ("Settled by a check") as Sleep's light context; plan
+    only, never a metered key. Not behind the connector switch: a click never is. 404 for no such page, 409 while Sleep
+    holds the pages."""
+    from api.services import web_context
+
+    if not (settings.memory_path / "entities" / f"{entity_id}.md").exists():
+        raise HTTPException(404, f"Entity {entity_id} not found")
+    return await web_context.deeper(settings.memory_path, settings, entity_id)
 
 
 @router.get("/entities/{entity_id}/raw", response_model=EntityRawResponse)

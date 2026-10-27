@@ -24,7 +24,10 @@ Three backend gates, and a separate app-side scenery gate below. They do **not**
   its own; the engine's search does, so the gate is asked before any engine call, and what reaches the search is only a
   public subject's name plus at most one generic category word, every reported search held to it (the prompt's
   local context, ruling 27a, is never searched) — `capture-and-sleep.md`; on every plan run, scheduled ones included
-  since the plan switch is on by default, ruling 27b) — and
+  since the plan switch is on by default, ruling 27b) — **light web context** (TODO ruling 44: `web_context.run_tail`
+  decides the engine before reading any page — plan search only, a metered key never — then asks Wikidata, through
+  `org_sites.wikidata_get`, only for a name that passed the local public test (≤ 20 a run), and the engine's search only
+  with the pinned queries; ≤ `web_context_per_run` lookups a run; `storage.md`) — and
   paper details (below). It is **opt-OUT** (on by default; `=off` disables it, which is what the test suite sets).
   The backlog's one-off web-check sweep (`POST /inbox/web-check`, ruling 27b) is the person's start, so the gate is
   reported in its counts, never applied — the same pinned query and nothing else leaves.

@@ -1306,6 +1306,53 @@ async def _web_check_safely(memory_path: Path, settings: Settings, *, user_trigg
         await asyncio.to_thread(web_lookup.restore, memory_path, report)
 
 
+async def _web_context_safely(memory_path: Path, settings: Settings, *, user_triggered: bool) -> None:
+    """Owner ruling 44 (G121): light web context for public pages that are new or whose world facts are due — cited,
+    dated world-tier claims, the newest replacing an older one, never the person's own words (`web_context`). Plan
+    only (a metered key is skipped, said in words); behind `CICADA_ALLOW_CONNECTOR_FETCH`; `web_context_per_run`
+    lookups a run. One commit (`Web context <date>`, trigger `sleep/web-context`) under the model that looked; pages
+    dirty before it ran are left alone; a failed step or commit puts every page back. Never raises."""
+    from api.services import agent_engine, web_context, web_lookup, web_settle
+
+    skip: frozenset[str] = frozenset()
+    if (memory_path / ".git").exists():
+        try:
+            skip = await _dirty_paths(memory_path)
+        except Exception as exc:
+            logger.warning(f"Web context skipped: tree status unreadable ({type(exc).__name__})")
+            return
+    cycle_id = _state.cycle_id
+    drain = _state.drain
+    batch_id = f"{cycle_id}-ctx" if (cycle_id and drain is not None) else cycle_id
+    report = web_context.Report()
+    try:
+        if drain is not None and batch_id:
+            sleep_drain.register_batch(batch_id, drain)
+        with agent_engine.use_scope(web_lookup.scope_name(batch_id)):
+            await web_context.run_tail(memory_path, settings, user_triggered=user_triggered, skip=skip, report=report)
+    except Exception as exc:
+        logger.warning(f"Web context failed — undoing {report.written} page(s): {type(exc).__name__}")
+        await asyncio.to_thread(web_lookup.restore, memory_path, report)
+        return
+    finally:
+        if drain is not None and batch_id:
+            sleep_drain.unregister_batch(batch_id)
+    # Counts and enums only — never a name, a query, a link or a fact.
+    logger.info(f"Web context: {report.looked_up} looked up, {report.written} page(s) written, "
+                f"{report.wikidata} public-test request(s), skipped {report.skipped}"
+                + (f" — {report.words or report.reason}" if report.reason else ""))
+    if not report.paths or not (memory_path / ".git").exists():
+        return
+    message = web_settle.commit_message("Web context", report.lines,
+                                        authors=report.models or [report.engine or "agent"], engine=report.engine)
+    try:
+        async with _lock:
+            await asyncio.to_thread(web_settle.commit_sync, memory_path, message, report.paths)
+    except Exception as exc:
+        logger.warning(f"Web context commit failed — undoing {report.written} page(s): {type(exc).__name__}")
+        await asyncio.to_thread(web_lookup.restore, memory_path, report)
+
+
 async def _tend_inbox_safely(memory_path: Path, settings: Settings, episodes: list[dict], *, run_policy: bool,
                              engine: str | None) -> None:
     """Ruling 29 — Sleep tends the inbox (`inbox_tend`): what this batch's conversations answered in the person's own
@@ -1429,9 +1476,11 @@ async def _run_engine_independent_tail(
             await _source_refresh_safely(memory_path)
             # Owner ruling 2026-10-16: public-thing questions looked up and settled, before any poll's `git add -A`.
             if skip_links:
-                logger.info("web check skipped: the run stopped at the plan's limit")
+                logger.info("web check and light context skipped: the run stopped at the plan's limit")
             else:
                 await _web_check_safely(memory_path, settings, user_triggered=user_triggered)
+                # Owner ruling 44 (G121): public pages' world facts looked up and kept current, same slot.
+                await _web_context_safely(memory_path, settings, user_triggered=user_triggered)
             await _poll_connectors_safely(memory_path)
             await _poll_feeds_and_calendars_safely(memory_path)
             if skip_links:

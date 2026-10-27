@@ -268,6 +268,10 @@ class Settings(BaseSettings):
     # person's own Sleep engine. A cheap Sleep tier answered "not sure" on what its own search plainly said. Empty = the
     # person's Sleep model. Never applied to a metered key (that spend is the person's own choice of model).
     web_check_agent_model: str = "sonnet"      # CICADA_WEB_CHECK_AGENT_MODEL
+    # Owner ruling 44 (2026-10-27, G121): light web context for public pages on Sleep's tail — at most this many
+    # lookups a run (one plan web-search call each, plus at most `web_context.WIKIDATA_BUDGET` public-test lookups);
+    # 0 turns the step off. Plan only: a metered key is never spent here. `web_context`.
+    web_context_per_run: int = 6               # CICADA_WEB_CONTEXT_PER_RUN
     # Track C: reuse (zero-LLM) and fetch+summarize shared that one budget with
     # reuse spent first, so a night with 20 reuse candidates read no new page.
     # This many of the cap are reserved for fetches while any wait (the in-cycle

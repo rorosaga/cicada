@@ -485,6 +485,17 @@ class EntityDecay(CamelModel):
     mention_weeks: int
 
 
+class EntityRelevance(CamelModel):
+    """Owner ruling 44 (G121) — why the page matters to the person, derived at read from the record
+    (`page_relevance`): ``tense`` self|is|will_be|was|none, ``line`` the sentence, the claims it rests on."""
+
+    tense: str
+    line: str
+    conversations: int = 0
+    last_mentioned: str = ""
+    basis: list[dict] = []
+
+
 class EntityBands(CamelModel):
     """G180 parity — the card's classifications, computed behind the API (`entity_bands`) so no client re-derives
     them: ``confidence`` very|fairly|unsure|doubtful, ``fade_pace`` never|very_slowly|slowly|usual|quickly (from the
@@ -575,6 +586,8 @@ class EntityResponse(CamelModel):
     picture_inputs: Optional[PictureInputsModel] = None
     # Owner ruling 2026-10-20 — `GraphNode.quiet`'s twin from the same rule (`quiet_pages`), derived at read.
     quiet: bool = False
+    # Owner ruling 44 (G121) — "why it matters to you", derived at read (`page_relevance`), never stored. Additive.
+    relevance: Optional[EntityRelevance] = None
 
 
 class PaperSummary(CamelModel):

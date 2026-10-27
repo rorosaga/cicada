@@ -2513,6 +2513,9 @@ def recall_detail(ctx: ToolContext, entity_id: str, *, start: int | None = None,
             watched = _watch_history_line(memory_path, fm, cid)
             if watched:
                 text = text.rstrip("\n") + "\n\n" + watched + "\n"
+            why = None if fm.get("owner") is True else _relevance_line(memory_path, cid)
+            if why:
+                text = text.rstrip("\n") + "\n\n" + why + "\n"
             budget = REMOTE_DETAIL_BUDGET if ctx.is_remote else RECALL_DETAIL_BUDGET
             if not whole and start is None and len(text) > budget:
                 try:
@@ -2529,6 +2532,18 @@ def recall_detail(ctx: ToolContext, entity_id: str, *, start: int | None = None,
                          segments=getattr(text, "segments", None))
 
     return Reply(f"Entity '{entity_id}' not found.", code="not_found")
+
+
+def _relevance_line(memory_path: Path, entity_id: str) -> str | None:
+    """Owner ruling 44 (G121): why the page matters to the person — one derived line from the record
+    (``page_relevance``), read now, never written. ``None`` on the owner's page or any failure."""
+    try:
+        from api.services import page_relevance
+
+        rel = page_relevance.for_page(memory_path, entity_id)
+    except Exception:  # noqa: BLE001 — a derived line never fails a read
+        return None
+    return None if rel.tense == "self" else rel.line
 
 
 def _watch_history_line(memory_path: Path, fm: dict, entity_id: str) -> str | None:

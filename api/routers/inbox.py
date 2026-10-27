@@ -72,6 +72,10 @@ async def undo_settled(item_id: str, settings: Settings = Depends(get_settings))
     memory_path = settings.memory_path
     if _settled_group(memory_path, item_id) == "sleep":
         return await _undo_sleep_settle(item_id, settings)
+    from api.services import web_context
+
+    if web_context.is_record_id(item_id):
+        return await _undo_context(item_id, settings)
     # An edit already on a page the undo rewrites is committed apart, never as the person's undo (audit P1-3).
     before = await git_service.snapshot_dirty(memory_path)
 
@@ -91,6 +95,31 @@ async def undo_settled(item_id: str, settings: Settings = Depends(get_settings))
     web_settle.record_event(memory_path, action="undo", item_id=item_id, entity_id=None, by_kind="person")
     await state_dictionary.refresh_admitted(memory_path, settings)   # admitted; skipped while Sleep holds the pages
     return {"status": "reopened", "id": target}
+
+
+async def _undo_context(item_id: str, settings: Settings) -> dict:
+    """Owner ruling 44 — a light-context lookup taken back (``web_context.undo``): its claims withdrawn, what it closed
+    reopened, each value remembered so no lookup writes it again. Committed as the person's (``Web context undone``)."""
+    from api.services import git_service, page_lock, state_dictionary, web_context, web_settle, write_admission
+    from api.services.sleep_refusal import SleepWriting
+
+    memory_path = settings.memory_path
+    before = await git_service.snapshot_dirty(memory_path)
+
+    def work() -> None:
+        with page_lock.page_lock(memory_path):
+            paths, lines = web_context.undo(memory_path, item_id)
+            web_settle.commit_sync(memory_path, web_settle.commit_message("Web context undone", lines,
+                                                                          authors=["user"]), paths, before=before)
+
+    try:
+        await write_admission.run_admitted(memory_path, lambda: asyncio.to_thread(work),
+                                           refuse=lambda: SleepWriting(inbox_service.SLEEP_BUSY))
+    except web_settle.NotSettleable as exc:
+        raise HTTPException(404, str(exc)) from exc
+    web_settle.record_event(memory_path, action="context_undo", item_id=item_id, entity_id=None, by_kind="person")
+    await state_dictionary.refresh_admitted(memory_path, settings)
+    return {"status": "undone", "id": item_id}
 
 
 def _settled_group(memory_path, item_id: str) -> str:

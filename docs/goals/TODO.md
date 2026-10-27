@@ -25,6 +25,12 @@
   the file comes from. The Calendar row lists the accounts it read and opens Internet Accounts to add Google's (no
   prompt); Google's secret iCal address through the feed path is not offered, because a subscription is stored in the
   bank's `calendars.yaml`, which would put a credential in the bank. Needs the owner: the detail-pane screenshots.
+- **2026-10-27 — ruling 44 recorded; light web context and "why it matters to you" (G121, branch
+  `feat/web-context`).** Public pages get cited, dated world facts on plan runs, kept current by use and volatility,
+  undoable; a private person's name never leaves; every page's relevance derived on read. Dry run on a copy of the
+  owner's bank: 9 of 281 people public, 39 lookups, 76 adds and 1 replacement; the stale-employer page now closes its
+  old employer. **Next:** the owner checks the people
+  list in the report; the app should show the relevance line and a "go deeper" button (needs a Mac).
 - **2026-10-27 — ruling 41 recorded; one person as several People cards (G209, PR #483).** Resolve weighs a new
   name's own aliases, close spellings and names said together; an alias is never another entry's of the same
   conversation; one exclusive relation held twice asks; nicknames titled and kept per ruling 41. The bank's repair is
@@ -1920,3 +1926,42 @@ A whole row moves to DONE only after its remaining implementation and required a
     note with no session counts as none — a session and its notes, two notes of one session, or a note and its index
     never make two (review of #487). **Revisit** if a note-derived claim ever closes one resting on the person's own
     words.
+44. **The internet adds context to public things, and every page says why it matters to the person (owner,
+    2026-10-27; G121; amends rulings 27 and 40; branch `feat/web-context`).** The owner's words: "looking up public
+    figures not only them but companies, programs, anything really i think internet can add a lot of useful context,
+    but depends on the request. Can start small or be bigger, memory should always state why it is/was/will be
+    relevant to me and also be up to date." **What still holds:** a private person's name is never sent to any
+    service (friends, family, anyone known only from the person's life); the person's own files, projects and life are
+    never sent; a removal is never re-added; telemetry is ids and enums. **The public test (`web_context`), err
+    private:** a company, tool or place on ruling 27's local test; a concept or a person only when, after a local test
+    that sends nothing, Wikidata has exactly ONE item that IS the name, of the right kind (a human for a person), with a
+    Wikipedia article. A person's local test: a full name, not relation-shaped or role-only; no acquaintance with the
+    owner on the record — met, talked or messaged, friend, family, partner, colleague or classmate, a contact, invited
+    by, interviewed by, taught or supervised — in a relation or a sentence naming the owner (being inspired by, reading,
+    watching, quoting, citing, following or admiring their work is not acquaintance; coordinator, 2026-10-27); no
+    conversation from a personal channel; a public cue on the page (a public role, or public work: a talk, a tweet, a
+    book, a video, a role at a company). **As built:** Sleep's tail (plan
+    runs only — a metered key is skipped in words; behind `CICADA_ALLOW_CONNECTOR_FETCH`; `web_context_per_run` = 6
+    lookups and ≤ 20 Wikidata tests a run) looks up public pages that are new or due, depth by use (a line, more for a
+    page the person comes back to, dates and deadlines for a commitment), every search one of the pinned queries;
+    cited, dated world claims (a citation, never a tracked source); the newest replaces an older world fact with history
+    kept, never a claim on the person's own words about their own life (what they said about a public figure's
+    employer is a dated world fact like any other); a fact the results say is over with nothing in its place is closed,
+    not rewritten; each lookup undoable under "Settled by a check", a value taken back
+    never written again. Re-checks weigh volatility (30 / 180 days / never) by use (conversations, stated relations,
+    a recent mention); a page silent 180 days only on request (`POST /entities/{id}/web-context`, "go deeper").
+    "Why it matters to you" is derived on read from stated relations and the person's own words (`page_relevance`),
+    tense from the claim, "No personal relation on the record" when there is none. **Measured** on a copy of the owner's
+    bank (real values redacted; full rows in the worker's report, outside the repo): of 281 person pages, **9 public**
+    after the acquaintance rule (5 before it; the figure whose stale employer raised this ruling was among those it
+    wrongly kept private) — all with one encyclopedia match; 106 single names, 48 an acquaintance relation, 56 the owner
+    named with an acquaintance word, 16 no public cue, 28 Wikidata zero, several or no article, 18 a name shape,
+    role-only page, personal channel or the owner. Of 1,190 live candidates, 565 public (39 concepts stayed private when
+    Wikidata requests were refused mid-run — err private; an error body is now never cached as an answer). On that
+    figure's page one lookup closes the stale "works at" as ended in the source's year, with nothing invented in its
+    place. 39 haiku
+    lookups on the plan (cap 40, one smoke call): 35 with facts, 2 unsure, 2 none; 76 facts would be added and 1
+    replaced (a tool's description), 0 protected; every person verdict is listed for the owner to check. **Not used:**
+    the telemetry ledger's reads, though the brief asked for them — CLAUDE.md says nothing learned from the ledger is
+    auto-applied; the owner decides. **Revisit** if the person undoes a context lookup on a page the test called public
+    (count `context_undo` rows), or a person the test called public turns out to be someone they know.

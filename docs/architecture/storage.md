@@ -809,6 +809,60 @@ Round 4 (C2–C4):
   counts those numbers, so the undo can put the question back under its own (`web_settle.undo`, which takes back only
   the claims in `claim_ids` — from the pending line or the page — and the closures whose claim still reads as `after`;
   the episode stays; the question returns with `web_check: undone`, so no check settles it again).
+  **Light web context (TODO ruling 44, owner 2026-10-27; G121; `web_context`).** A public page gets cited, dated
+  world-tier claims, kept current. *Who:* `company`, `tool`, `location` on the local test (a public proper name, no
+  person's or project's name in it, not the person's own — `org_sites.proper_name`, `_OWN_THING`, an owner claim that
+  founded/built/owns it, or a claim on the page saying the owner or one of their projects leads, owns or contains it —
+  `led-by`, `part-of` … pointing at them, `_OWNERSHIP`); a `concept` or a `person` only when, after the local test, Wikidata has exactly ONE item that
+  IS the name, of the right kind (a human for a person, not one otherwise), with a Wikipedia article. A person's local
+  test, with nothing sent: a full name, not relation-shaped or role-only (`unnamed`, `owner_roles`); no relation to the
+  owner on either page that says they know each other — met, talked or messaged, friend, family, partner, colleague
+  or classmate, a contact, invited by, interviewed by, taught or supervised (`_ACQUAINTANCE`; being inspired by,
+  reading, watching, quoting, citing, following or admiring their public work is not acquaintance); no sentence of the
+  prose naming the owner (a surname the subject shares excepted) or "the user"/"you" with such a word; no conversation
+  from a personal channel (`imessage`, `email`, `linkedin` …); and a public cue on the page — a public role (founder,
+  author, researcher …) or public work (a talk, a tweet, a book, a video, a role at a company). A Wikidata error body
+  or a failed request is `lookup_failed`: private for now, never cached.
+  Failing it, the name reaches no service. Never the owner, a `project`, `skill`, `directory`, `deadline` or `media`
+  (ruling 30's saves). Wikidata's answer is cached outside every bank 90 days. *What:* one engine call per page on the
+  plan's own web search (`web_lookup.engine_for`'s plan branch; a metered key is `metered_only`, skipped in words), every
+  reported search one of the pinned queries — the name plus at most one category word from Cicada's own description
+  (never for a person), and for a deep lookup the name plus "dates" / "deadline" — or nothing is written. Facts come back
+  as `{predicate, value, as_of, url, quote}` from a closed vocabulary per type (`description`, `works-at`, `role`,
+  `known-for`, `headquartered-in`, `founded`, `led-by`, `industry`, `status`, `owned-by`, `made-by`, `latest-version`,
+  `license`, `pricing`, `located-in`, `part-of`; deep adds `deadline`, `starts`, `ends`, `application-opens`, `edition`,
+  `takes-place-in`); a fact citing a walled or refused page (`web_settle.check_ref`) or naming a person of the bank is
+  dropped. *Depth by use* (`use` = conversations + 2 per current stated relation + 2 for a mention in the last 30 days):
+  a line (≤ 2 facts, one search), `standard` at use ≥ 4 (≤ 4), `deep` for a current commitment relation — applied,
+  attending, registered, a deadline (≤ 8, three searches). *Write* (`apply`, one commit `Web context <date>` under the
+  model, trigger `sleep/web-context`, or `person/web-context` for the click): a `web-check` episode (`check_kind:
+  context`) with one `attachment` + quote per fact and each claim's `page` span into it (never `sources:`); claims
+  observer `agent`, `source_trust: external`, `origin: web-context`, confidence 0.8, id `clm_<day>_ctx_<hash>`,
+  `valid_from` the source's full date or today; an open world claim of the same predicate whose value the lookup does not
+  name is closed today (`superseded_by`) — history stays on the page and in git — unless it points at the person (its
+  object is the owner's page or a project page: protected whatever its evidence) or is the person's own words
+  about their own life (it cites their words — `user`/`speaker` evidence, `user_stated`, their own origins — AND its
+  object is the owner's page, its text names the owner, or its predicate is `locus: person`): then the predicate is
+  `protected` and nothing is written for it. What the person said about a public thing's world fact (a public figure's
+  employer) is replaced like any dated world fact. A fact on file that the results say is over with nothing in its
+  place comes back `ended: true` and is closed (`valid_to` the source's date, never before the claim began) with no new
+  claim — a value that only says something ended ("Left X") is dropped; an end the person takes back is remembered too.
+  An unchanged value is `confirm` (memo only). One record `inbox/settled/ctx-<n>.md` (`kind: context`,
+  `settled: {group: check, …, claim_ids, closed}`) lists it under "Settled by a check"; `POST
+  /inbox/settled/ctx-<n>/undo` (`web_context.undo`, `Web context undone`, as `user`) withdraws the claims, reopens what
+  is still as it left it, and remembers each value as a hash so no lookup writes it again. *When* (`plan`, `due`): a page
+  never looked up first (`unchecked` when it holds model-knowledge world facts, else `new`), by use; then `recheck` when
+  the memo's day is older than the most volatile predicate's base (role, price, deadline 30 days; description,
+  headquarters 180; founding: never) ÷ (1 + log2(1 + use)); no conversation in 180 days → only on request. The memo is
+  `$CICADA_HOME/web_context/<bank>.json` (page ids, days, enums, hashes). *Budget:* `web_context_per_run` (default 6)
+  lookups and ≤ 20 Wikidata public tests a run, behind `CICADA_ALLOW_CONNECTOR_FETCH`; `POST /entities/{id}/web-context`
+  is the person's "go deeper" (deep, one page, ungated by the connector switch, same test). Telemetry: `web_check` rows
+  with `action: context | context_skip | context_undo`, ids and enums only.
+  **Why it matters to you (ruling 44; `page_relevance`)** is derived on every read, never stored: a stated relation
+  between the owner and the page (either page, the owner's ledger included) or a claim citing the person's own words,
+  tense from the claim (closed → was, starts later or a plan/intent predicate → will be, else is); else "No personal
+  relation on the record" with the conversation count and last day. Served as `relevance` on `GET /entities/{id}` and
+  as one line at the end of `cicada_recall_detail` (not on the owner's page).
   **Sleep's own settles (ruling 29)** share `inbox/settled/`: `settled: {group: sleep, at, by, by_kind: sleep, rule,
   reason, answer, entity_id, entity_name, predicate, evidence?: {episode, start, end}}` — a span into the person's words,
   never a copy — committed in the resolver's own commit, which is what `inbox_tend.undo` reverses (three-way); the
