@@ -461,8 +461,9 @@ while its page is archived (it is about who the person is, not whether the page 
 `_subject_gone` with `clarification:name`): only a dropped or merged-away page retires it. A `merge_suggestion`
 flagged `fold_page` folds its page into the target on `merge`; every other item (Stage 2's, asked about a mention)
 keeps the note-only answer, even when a page was promoted under the mention's slug since. A `merge` on a name Sleep
-held (G209) also lands the claims held on its pending line on the target, in the same commit (`capture-and-sleep.md`,
-held names); `reject`, `dismiss` and `skip` release nothing.
+held (G209, an item marked `held_mention`) also lands the claims held on its pending line on the target, through
+Stage 3, in the same commit (`capture-and-sleep.md`, held names); `reject`, `dismiss` and `skip` release nothing, and
+Sleep's settle never folds the page a held mention shares its id with.
 The app draws a name field, Submit and "I'd rather not say" (`NameBody`, `app.md`); an older build sees the option
 and Other… and still answers it.
 

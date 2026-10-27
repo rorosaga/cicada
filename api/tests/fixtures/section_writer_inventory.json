@@ -75,6 +75,12 @@
   ],
   "services/claim_pipeline.py": [
     {
+      "function": "land_answered",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
       "function": "run_claim_pipeline",
       "method": "write",
       "frontmatter": "parsed.frontmatter",
@@ -1089,6 +1095,24 @@
       "disposition": "fresh_frontmatter_untracked"
     },
     {
+      "function": "ask_same",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "title_by_nickname",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "title_by_nickname",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
       "function": "_note",
       "method": "write",
       "frontmatter": "parsed.frontmatter",
@@ -1219,6 +1243,12 @@
   ],
   "services/inbox_tend.py": [
     {
+      "function": "_nickname",
+      "method": "write",
+      "frontmatter": "qfm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
       "function": "undo",
       "method": "write",
       "frontmatter": "{**fm, UNDONE_KEY: 'undone'}",
@@ -1250,6 +1280,14 @@
       "function": "answer",
       "method": "write",
       "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    }
+  ],
+  "services/entity_resolver.py": [
+    {
+      "function": "_mark_held_mention",
+      "method": "write",
+      "frontmatter": "{**parsed.frontmatter, HELD_MENTION_KEY: True}",
       "disposition": "uninstrumented_guarded"
     }
   ]

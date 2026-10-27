@@ -2431,21 +2431,23 @@ def _answer_page_edit(path: Path, fm: dict, memory_path: Path, label: str, befor
     bank_index.invalidate(memory_path)
 
 
-def _release_answered(memory_path: Path, mention: str, target_id: str) -> list[str]:
+def _release_answered(memory_path: Path, mention: str, target_id: str, settings, *,
+                      subject_page: str = "") -> list[str]:
     """G209 (2026-10-27): the person answered that a held name IS ``target_id``. The claims Sleep held on that name's
     pending line — as its subject, or as another page's claim with it as the object — land now, on the page they named
     (`pending_store.answered`, `claim_pipeline.land_answered`), instead of waiting for the name to be mentioned again.
     The landed claims leave the line in the same write, so they are released once. Returns the manifest lines for
     every page written and for the store: they ride in the answer's own commit, so the answer's undo takes the claims
-    back off and puts them back on the line."""
+    back off and puts them back on the line. ``subject_page``: see `pending_store.answered` — an answer about a page
+    never releases a line Sleep held against that page."""
     from api.services import claim_pipeline, pending_store
 
     if not mention or not target_id:
         return []
-    release = pending_store.answered(memory_path, mention, target_id)
+    release = pending_store.answered(memory_path, mention, target_id, subject_page=subject_page)
     if release is None:
         return []
-    written, landed = claim_pipeline.land_answered(memory_path, release)
+    written, landed = claim_pipeline.land_answered(memory_path, release, settings)
     if pending_store.drop_released(memory_path, release.name, landed):
         written.append(pending_store.PENDING_STORE_FILE)
     return [f"{rel}: updated (trigger: inbox/merge_suggestion/resolved:merge)" for rel in written]
@@ -2689,6 +2691,20 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
         except MalformedClaimsBlockError as exc:
             raise HTTPException(409, f"'{target_path.stem}' has an unreadable claims block; repair it before merging ({exc})")
 
+        # G209: is this a question about the mention Sleep HELD (Stage 2 marks those, `HELD_MENTION_KEY`), or about a
+        # page? Its entity id may be both — the held mention's slug is the id of the page it was held against. A page
+        # question never releases a line held against that page, and Sleep's settle never folds the page a held
+        # mention shares its id with: who that page is takes the person's answer about the page.
+        from api.services import pending_store as _store
+        from api.services.entity_resolver import HELD_MENTION_KEY
+
+        fold_flag = parsed.frontmatter.get("fold_page") is True
+        subject_file = resolve_entity_file(settings.memory_path, entity_id) if entity_id else None
+        about_mention = parsed.frontmatter.get(HELD_MENTION_KEY) is True and not fold_flag
+        subject_page = subject_file.stem if subject_file is not None and not about_mention else ""
+        held_here = about_mention or (subject_file is not None
+                                      and _store.held_against(settings.memory_path, mention) == subject_file.stem)
+
         if not rename:
             # Survivor == existing target: absorb the mention into the target.
             from api.services import pending_store, person_leads
@@ -2706,7 +2722,8 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
                     target.frontmatter["aliases"] = [*names, mention]
             markdown_parser.write(target_path, target.frontmatter, new_body)
             # G209: what Sleep held on the name's pending line lands on the page the person named, in this same write.
-            released = _release_answered(settings.memory_path, mention, target_path.stem)
+            released = _release_answered(settings.memory_path, mention, target_path.stem, settings,
+                                         subject_page=subject_page)
             # Its pending line leaves the store; a line still holding claims (one whose page is gone) stays until
             # Stage 2 resolves the name and Stage 5.56 writes them (`pending_store.take`).
             taken = pageless and pending_store.take(settings.memory_path, mention)[1]
@@ -2716,9 +2733,8 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
             # flagged `fold_page`) folds that page into the target through the one merge primitive — its claims,
             # sources and references follow. Any other item was asked about a mention: a page promoted under that
             # slug since is not what the person answered about, so it is left alone (the note above, as before).
-            mention_path = (resolve_entity_file(settings.memory_path, entity_id)
-                            if entity_id and (parsed.frontmatter.get("fold_page") is True
-                                              or inbox_actor.folds_pages()) else None)
+            mention_path = (subject_file
+                            if entity_id and (fold_flag or (inbox_actor.folds_pages() and not held_here)) else None)
             if mention_path is not None and not mention_path.samefile(target_path):
                 try:
                     merged = merge_entities(settings.memory_path, loser_id=mention_path.stem,
@@ -2787,7 +2803,8 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
                 merge_lines = _merge_manifest([f"entities/{old_id}.md", *renamed],
                                               removed=f"entities/{old_id}.md")
                 # G209: the page the person named now lives under the mention's own name; a held line lands there.
-                merge_lines += _release_answered(settings.memory_path, mention, survivor_path.stem)
+                merge_lines += _release_answered(settings.memory_path, mention, survivor_path.stem, settings,
+                                                 subject_page=subject_page)
 
             path.unlink()
             entity_id = survivor_slug

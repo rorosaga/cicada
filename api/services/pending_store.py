@@ -487,18 +487,24 @@ def _repoint(claims: list[Claim], slug: str, target: str) -> list[Claim]:
     return claims
 
 
-def answered(memory_path: Path, name: str, target: str) -> Release | None:
+def answered(memory_path: Path, name: str, target: str, *, subject_page: str = "") -> Release | None:
     """Read-only: the line named ``name`` (case-insensitive) re-keyed onto ``target`` — the page the PERSON said this
     name is (G209 held release, 2026-10-27: their inbox answer "same as <target>", through their own resolver). The
     same re-pointing as :func:`ready`; ``held_against`` is not consulted, because the person's answer is the verdict
     Stage 2 would otherwise wait for. ``None`` when no line holds claims under that name. Nothing is removed here:
-    that is :func:`drop_released`, after the claims are on their pages."""
+    that is :func:`drop_released`, after the claims are on their pages.
+
+    ``subject_page``: the page the question was asked about, when it was asked about a PAGE (a fold-page question, a
+    page pair) rather than the held mention. A line Sleep held AGAINST that page is skipped: its claims were refused
+    for that page, and an answer about the page says nothing about the mention."""
     key = (name or "").strip().lower()
     if not key or not target:
         return None
     for line in load(memory_path):
         if line.name.lower() != key or not line.held_claims:
             continue
+        if subject_page and line.held_against == subject_page:
+            return None
         claims: list[Claim] = []
         for data in line.held_claims:
             try:
@@ -509,6 +515,12 @@ def answered(memory_path: Path, name: str, target: str) -> Release | None:
             return None
         return Release(line.name, target, _repoint(claims, sanitize_id(line.name), target))
     return None
+
+
+def held_against(memory_path: Path, name: str) -> str:
+    """The page the line named ``name`` (case-insensitive) was held against, ``""`` for none."""
+    key = (name or "").strip().lower()
+    return next((line.held_against for line in load(memory_path) if key and line.name.lower() == key), "")
 
 
 def drop_released(memory_path: Path, name: str, claim_ids: Iterable[str]) -> bool:

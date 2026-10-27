@@ -66,10 +66,14 @@ def _line(bank: Path, name: str, against: str, claims: list[dict]) -> None:
         heard_in=[{"episode": EP1}, {"episode": EP2}]))
 
 
-def _question(bank: Path, item_id: str, name: str, target_id: str, target_name: str) -> None:
+def _question(bank: Path, item_id: str, name: str, target_id: str, target_name: str, *, held: bool = True,
+              entity_id: str = "", fold_page: bool = False) -> None:
+    """A "Possible duplicate" question as Stage 2 writes it about a mention it held (``held_mention``), or — with
+    ``held=False`` — a question about a page (``fold_page`` for #483's exclusive-relation one)."""
     markdown_parser.write(bank / "inbox" / f"{item_id}.md", {
+        **({"held_mention": True} if held else {}), **({"fold_page": True} if fold_page else {}),
         "kind": "merge_suggestion", "required_input": "merge", "status": "pending", "priority": 0.7,
-        "entity_id": name.lower().replace(" ", "-"), "entity_name": name,
+        "entity_id": entity_id or name.lower().replace(" ", "-"), "entity_name": name,
         "title": f"Is {name} the same as {target_name}?", "uncertainty_type": f"Possible duplicate of {target_name}",
         "suggested_classification": f"person — could refer to the same person as {target_name}",
         "suggested_confidence": 0.7, "created_date": "2026-10-02", "source_episode": EP1,
@@ -264,3 +268,104 @@ def test_a_held_line_is_released_once_never_again_onto_another_page(bank):
     later = claim_pipeline.run_claim_pipeline([], [], bank, settings, now_date="2026-10-05",
                                               name_to_id={"alex": "alex-lee"}, decided_names=["alex"])
     assert later["claims_released"] == 0 and _claims(bank, "alex-lee") == []
+
+
+# --------------------------------------------------------------------------- review of #484
+
+
+def _open(bank: Path, eid: str) -> list[tuple[str, str, str]]:
+    return sorted((c.subject, c.predicate, c.object)
+                  for c in parse_claims(markdown_parser.parse(bank / "entities" / f"{eid}.md").body)
+                  if c.valid_to is None and not c.superseded_by)
+
+
+def _reconcile_fixture(bank: Path) -> None:
+    """``alex-kim`` already holds ``mentors mira-quell`` and ``part-of alpha-team`` (single-valued); the held line
+    restates the first and says ``part-of beta-team``."""
+    from api.services.claims import write_claims
+
+    page = bank / "entities" / "alex-kim.md"
+    parsed = markdown_parser.parse(page)
+    direct = [Claim(id=f"clm_direct_{n}", text=f"alex-kim {p} {o}", subject="alex-kim", predicate=p, object=o,
+                    valid_from="2026-09-01", recorded_at="2026-09-01", source_episodes=["ep_2026-09-01_001"])
+              for n, (p, o) in enumerate((("mentors", "mira-quell"), ("part-of", "alpha-team")), 1)]
+    markdown_parser.write(page, parsed.frontmatter, write_claims(parsed.body, direct))
+    _line(bank, "Alex", "alex", [_held("alex", "part-of", "beta-team", 6, EP2)])   # carried onto the line
+    _commit(bank, "a page that already says things")
+
+
+def test_released_claims_meet_stage_3_like_stage_2s_release(bank, tmp_path):
+    import shutil
+
+    _reconcile_fixture(bank)
+    copy = tmp_path / "stage2-copy"
+    shutil.copytree(bank, copy)
+
+    _answer(bank, "inbox-001", action="merge", merge_target="alex-kim")
+    answered = _open(bank, "alex-kim")
+    assert answered.count(("alex-kim", "mentors", "mira-quell")) == 1, "a restatement is reinforced, not doubled"
+    assert [o for _s, p, o in answered if p == "part-of"] == ["beta-team"], "single-valued: one open part-of"
+
+    # The same line released by Stage 2 on the same bank leaves the same open claims.
+    settings = type("S", (), {"memory_path": copy, "litellm_model": "m", "archive_threshold": 0.2,
+                              "decay_nudge_threshold": 0.4})()
+    claim_pipeline.run_claim_pipeline([], [], copy, settings, now_date=None,
+                                      name_to_id={"alex": "alex-kim"}, decided_names=["alex"], decay=False)
+    assert _open(copy, "alex-kim") == answered
+
+
+def test_an_answer_about_the_page_never_releases_a_line_held_against_it(bank):
+    _page(bank, "kesa-lin", "Kesa Lin", "person")
+    # #483's exclusive-relation question: about PAGE alex, folding it into kesa-lin on "same".
+    _question(bank, "inbox-003", "Alex", "kesa-lin", "Kesa Lin", held=False, entity_id="alex", fold_page=True)
+    _commit(bank, "an exclusive-relation question")
+
+    _answer(bank, "inbox-003", action="merge", merge_target="kesa-lin")
+
+    assert ("kesa-lin", "mentors", "mira-quell") not in _claims(bank, "kesa-lin")
+    assert ("mira-quell", "works-with", "kesa-lin") not in _claims(bank, "mira-quell")
+    assert _line_claims(bank, "Alex") == ["clm_held_1", "clm_held_2"], "refused for alex: still held"
+
+
+def test_an_unmarked_question_on_the_page_a_line_was_held_against_releases_nothing(bank):
+    """A page-pair question (a dedup sweep's, or one from before the mark) whose subject is the page the line was
+    held against says nothing about the mention."""
+    _question(bank, "inbox-003", "Alex", "alex-lee", "Alex Lee", held=False)
+    _commit(bank, "a page question")
+
+    _answer(bank, "inbox-003", action="merge", merge_target="alex-lee")
+
+    assert _claims(bank, "alex-lee") == [] and _line_claims(bank, "Alex") == ["clm_held_1", "clm_held_2"]
+
+
+@pytest.mark.parametrize("held", [True, False], ids=["marked", "unmarked-but-held-against"])
+def test_sleeps_same_settle_on_a_held_mention_never_folds_the_page_sharing_its_id(bank, held):
+    if not held:
+        _question(bank, "inbox-001", "Alex", "alex-kim", "Alex Kim", held=False)
+        _commit(bank, "an older question with no mark")
+    alex = (bank / "entities" / "alex.md").read_bytes()
+    d = inbox_tend.Decision("inbox-001", "merge_suggestion", "judged_same",
+                            {"action": "merge", "merge_target": "alex-kim"}, answer="Same as Alex Kim")
+    d.fingerprint = (bank / "inbox" / "inbox-001.md").read_bytes()
+
+    assert asyncio.run(inbox_tend.apply(bank, _Settings(bank), d))
+
+    assert (bank / "entities" / "alex.md").read_bytes() == alex, "the page the mention was held against is untouched"
+    if held:   # asked about the mention: its claims land on the page Sleep judged it to be
+        assert ("alex-kim", "mentors", "mira-quell") in _claims(bank, "alex-kim")
+    else:      # unmarked, so possibly about the page: nothing released, nothing folded
+        assert _line_claims(bank, "Alex") == ["clm_held_1", "clm_held_2"]
+
+
+def test_stage_2_marks_the_questions_it_raises_about_a_held_mention(tmp_path):
+    from api.services import entity_resolver as er
+    from api.services.clarification_manager import ClarificationManager
+
+    root = tmp_path / "memory"
+    (root / "inbox").mkdir(parents=True)
+    clarifier = ClarificationManager(root)
+    page = {"id": "alex", "frontmatter": {"name": "Alex", "type": "person"}, "body": ""}
+    er._create_duplicate_clarification(clarifier, {"name": "Alex", "type": "person", "source_episode": EP1},
+                                       {"source": "existing", "id": "alex", "data": page})
+    [item] = (root / "inbox").glob("inbox-*.md")
+    assert markdown_parser.parse(item).frontmatter.get(er.HELD_MENTION_KEY) is True
