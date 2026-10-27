@@ -56,7 +56,7 @@ from api.services.claim_reconciler import reconcile_stage3
 from api.services.claims import Claim, is_event, parse_claims, write_claims
 from api.services.entity_extractor import entities_to_claims
 from api.services.entity_resolver import HELD_ENDPOINT, endpoint_id
-from api.services.id_utils import sanitize_id
+from api.services.id_utils import bank_file, sanitize_id
 from api.services.pending_store import HoldOutcome, Release
 
 #: What Stage 1 writes for an endpoint that IS the person (G169: one closed,
@@ -219,6 +219,89 @@ def _credit_episodes(frontmatter: dict, episodes: list[str] | None) -> bool:
         return False
     frontmatter["source_episodes"] = have + missing
     return True
+
+
+def land_answered(memory_path: Path, release: Release, settings, *,
+                  now_date: str | None = None) -> tuple[list[str], list[str]]:
+    """G209 held release (2026-10-27): put an answered line's claims onto their pages — the person's inbox answer said
+    the held name IS ``release.target`` (`pending_store.answered`). Each claim goes to its subject's page (the target,
+    or for a claim held as the name's object, the other page that holds it) through Stage 3 exactly as Stage 5.56's
+    release sends them (R-HP6): the released claims as incoming against the page's own claims
+    (``reconcile_stage3``, decay left to Sleep), so a restated claim is reinforced, not written twice, and a
+    single-valued one supersedes or asks as it would have in a cycle. The reconciler's questions go to the inbox and
+    its audit to the ledger, as the cycle's do; the conversation each claim was heard in credits its page (R-HP8). A
+    claim whose page is missing, or whose page's fence cannot be read, stays held.
+
+    Returns ``(memory-relative paths written — pages and new or changed inbox questions, ids now on a page)``; the
+    caller drops exactly those ids from the line (`pending_store.drop_released`) and commits the paths."""
+    memory_path = Path(memory_path)
+    entities_dir = memory_path / "entities"
+    files: dict[str, Path] = {}
+    parsed_by: dict[str, object] = {}
+    existing_by_subject: dict[str, list[Claim]] = {}
+    by_subject: dict[str, list[Claim]] = {}
+    for claim in release.claims:
+        by_subject.setdefault(str(claim.subject or ""), []).append(claim)
+    for subject in by_subject:
+        filepath = bank_file(entities_dir, subject) if subject else None
+        if filepath is None or not filepath.is_file():
+            continue
+        try:
+            parsed = markdown_parser.parse(filepath)
+            existing_by_subject[subject] = parse_claims(parsed.body, strict=True)
+        except Exception as e:  # noqa: BLE001 - an unreadable fence keeps its claims held, never overwritten
+            logger.warning(f"answered release skipped a page: {type(e).__name__}")
+            continue
+        files[subject], parsed_by[subject] = filepath, parsed
+    if not existing_by_subject:
+        return [], []
+    as_read = {subject: [c.to_dict() for c in claims] for subject, claims in existing_by_subject.items()}
+    incoming: list[Claim] = []
+    for subject, claims in by_subject.items():
+        if subject in existing_by_subject:
+            have = {c.id for c in existing_by_subject[subject]}
+            incoming.extend(c for c in claims if c.id not in have)
+    reconciled, nudges, audit = reconcile_stage3(incoming, existing_by_subject, settings, now_date=now_date,
+                                                 decay=False)
+    for entry in audit:
+        try:
+            telemetry.record_audit([entry], subject_hint=release.target, bank=memory_path.name, stage="reconcile")
+        except Exception:  # noqa: BLE001 - the ledger is never worth the answer
+            pass
+    written: list[str] = []
+    for subject, filepath in files.items():
+        parsed = parsed_by[subject]
+        claims = reconciled.get(subject, existing_by_subject[subject])
+        episodes: list[str] = []
+        for claim in by_subject[subject]:
+            for ep in claim.source_episodes:
+                if ep and ep not in episodes:
+                    episodes.append(ep)
+        credited = _credit_episodes(parsed.frontmatter, episodes)
+        changed = [c.to_dict() for c in claims] != as_read[subject]
+        if not (changed or credited):
+            continue
+        body = write_claims(parsed.body, claims) if changed else parsed.body
+        if changed:
+            try:
+                from api.services import conflict_resolver
+
+                body = conflict_resolver.refresh_related(subject, parsed.frontmatter, body, memory_path,
+                                                         conflict_resolver._edges_by_entity(memory_path), claims)
+            except Exception as e:  # noqa: BLE001 - a derived view never costs the claims
+                logger.warning(f"Related refresh skipped for a page: {type(e).__name__}")
+        markdown_parser.write(filepath, parsed.frontmatter, body)
+        written.append(f"entities/{filepath.name}")
+    if nudges:
+        from api.services.inbox_generator import write_claim_nudges
+
+        inbox = memory_path / "inbox"
+        before = {p.name: p.read_bytes() for p in inbox.glob("inbox-*.md")} if inbox.is_dir() else {}
+        write_claim_nudges(nudges, memory_path)
+        after = {p.name: p.read_bytes() for p in inbox.glob("inbox-*.md")} if inbox.is_dir() else {}
+        written.extend(f"inbox/{name}" for name, data in sorted(after.items()) if before.get(name) != data)
+    landed = [c.id for subject in files for c in by_subject[subject]]
+    return written, landed
 
 
 def _settle_store(

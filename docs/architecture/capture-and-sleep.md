@@ -1448,7 +1448,8 @@ old shape and promotes as before. The rail and its numbers are unchanged; only h
 name before it has a page is not lost (G141 PJ-0b): Stage 5.56 holds those claims on the name's line in
 `<bank>/pending_entities.jsonl` (`api/services/pending_store.py`: spans, not copies; at most 50 per name,
 the rest counted) and releases them onto the page, first and through Stage 3, in the cycle whose Stage 5
-gives the name one — a holding line leaves the store only then. A Stage-4 skill seen in one conversation waits in a
+gives the name one — a holding line leaves the store only then, or when the person's "same as" answer on the name
+lands its claims on the page they named (G209, *held names* below). A Stage-4 skill seen in one conversation waits in a
 store of its own (see *A new skill page needs two conversations*).
 
 **Every mention in a batch is credited (2026-10-08).** Several conversations in one batch can name an entity by the
@@ -1739,7 +1740,20 @@ mechanisms, each closed for every type, not only people:
   as its subject, or as another page's claim with it as the object — so no page fence ever holds a `held:` value. The
   line carries `held_against: <page>`: its claims are released onto that page only when Stage 2 joins the name there
   (`decided_names`), never because the page shares its name; an object-side claim is released by re-pointing its
-  object and stays on its subject's page (`pending_store.ready`). With no titled page and no lead, the mention
+  object and stays on its subject's page (`pending_store.ready`). **The person's answer releases it too (2026-10-27):**
+  "same as B" on the name's "Possible duplicate" question lands the line's claims on B in the resolver's own write
+  (`inbox_service._release_answered` → `pending_store.answered` → `claim_pipeline.land_answered`: through Stage 3
+  against the page's claims exactly as Stage 5.56's release, decay left to Sleep, its questions to the inbox in the
+  same commit; an object-side claim re-pointed the same way; the conversation credits the page), the landed claims
+  leave the line (`drop_released`) and the pages plus `pending_entities.jsonl` ride in the answer's commit, so Sleep's
+  undo (or a revert) takes them back off. A claim whose page is gone stays held. Only a question about the held
+  MENTION releases: Stage 2 marks the questions it raises about a name it holds (`held_mention`), because the
+  mention's id can be the id of the page it was held against; a question about a page (`fold_page`, a page pair, or an
+  older unmarked item) never releases a line held against that page, and Sleep's "same" settle never folds the page a
+  held mention shares its id with, nor the page of an unflagged question raised from 2026-10-27 on
+  (`UNFLAGGED_FOLD_CUTOFF`) — where the fold is refused Sleep does not settle at all, and the question waits for the
+  person. "Someone else", dismiss and skip release nothing: the resolver never mints a page,
+  so the name waits for Stage 2's promotion rule ("<name> (another)") and its claims follow there. With no titled page and no lead, the mention
   goes on by the usual rule. The leads are looked up in one
   index built per run (`NameIndex`: name/alias key → pages; folded spelling bucketed by first letter and length), never
   by a scan over every alias of every page: 43 ms to build and 2.3 ms a name for candidates (0.4 ms the direct match) on

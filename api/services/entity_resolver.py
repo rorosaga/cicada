@@ -27,6 +27,10 @@ from api.services.vector_index import PendingEntity, SqliteVecIndexer
 #: ``name_to_id``'s value for a name Stage 2 HELD although an existing page bears it (2026-10-27): no endpoint — its
 #: edges are dropped and its claims never keyed to that page by name (`claim_pipeline.subject_resolver`).
 HELD_ENDPOINT = "\x00held"
+#: G209 (2026-10-27): a "Possible duplicate" question Stage 2 raised about a mention it HELD — the mention, never the
+#: page that may share its id. The answer releases what the mention's line holds (`inbox_service._release_answered`),
+#: and Sleep's settle never folds the page sharing the id (`inbox_service._resolve_clarification`).
+HELD_MENTION_KEY = "held_mention"
 
 
 def endpoint_id(name: str, name_to_id: dict[str, str]) -> str | None:
@@ -545,7 +549,7 @@ async def resolve(
             if ambiguous_match and match.get("lead") is not None:
                 pending_actions.append((_create_lead_clarification, (),
                                         {"clarifier": clarifier, "lead": match["lead"], "index": person_index,
-                                         "entity": entity}))
+                                         "entity": entity, "held": True}))
             elif ambiguous_match and not match.get("quiet"):
                 pending_actions.append((
                     _create_duplicate_clarification,
@@ -1863,7 +1867,7 @@ def _open_held_duplicates(memory_path: Path, page_ids: set[str]) -> int:
 
 
 def _create_lead_clarification(clarifier: ClarificationManager, lead: "person_leads.Lead",
-                               index: "person_leads.PersonIndex", entity: dict) -> None:
+                               index: "person_leads.PersonIndex", entity: dict, held: bool = False) -> None:
     """The "Possible duplicate of …" question a G209 lead raises: the page carrying the name (``lead.page``) against
     the page that lists it (``lead.holder``), the lead in words as its context. Never a merge; a pair the person
     already said were different is never asked again (`ClarificationManager.create`)."""
@@ -1871,7 +1875,7 @@ def _create_lead_clarification(clarifier: ClarificationManager, lead: "person_le
     holder = index.by_id.get(lead.holder) or {}
     holder_name = person_leads.page_name(holder)
     try:
-        clarifier.create(
+        item = clarifier.create(
             # A name still below the promotion bar has no page: the question is about the name as it was said.
             entity_name=person_leads.page_name(page) if page is not None else str(entity.get("name") or lead.key),
             source_episode=entity.get("source_episode", ""),
@@ -1881,8 +1885,22 @@ def _create_lead_clarification(clarifier: ClarificationManager, lead: "person_le
             source_context=person_leads.lead_reason(lead, holder_name),
             source_episode_timestamp=entity.get("source_episode_timestamp"),
         )
+        if held:   # asked about the mention this batch held, not the page that carries its name
+            _mark_held_mention(clarifier, item)
     except Exception as e:
         logger.debug(f"Failed to create a lead question: {type(e).__name__}")
+
+
+def _mark_held_mention(clarifier: ClarificationManager, item: object) -> None:
+    """Mark a question Stage 2 just raised as one about the mention it held (:data:`HELD_MENTION_KEY`). A re-ask
+    (``create`` returned ``None``) or a test double writes nothing."""
+    path = getattr(clarifier, "dir", None)
+    if not isinstance(item, str) or not isinstance(path, Path) or not (path / f"{item}.md").is_file():
+        return
+    from api.services import markdown_parser
+
+    parsed = markdown_parser.parse(path / f"{item}.md")
+    markdown_parser.write(path / f"{item}.md", {**parsed.frontmatter, HELD_MENTION_KEY: True}, parsed.body)
 
 
 def _find_direct_candidate_match(
@@ -2091,7 +2109,7 @@ def _create_duplicate_clarification(
 ) -> None:
     candidate_name = _candidate_display_name(candidate)
     try:
-        clarifier.create(
+        item = clarifier.create(
             entity_name=entity.get("name", "unknown"),
             source_episode=entity.get("source_episode", ""),
             uncertainty_type=f"Possible duplicate of {candidate_name}",
@@ -2106,6 +2124,8 @@ def _create_duplicate_clarification(
             ),
             source_episode_timestamp=entity.get("source_episode_timestamp"),
         )
+        # Every caller holds the name it asks about (an unsure match, a name over a page it did not join).
+        _mark_held_mention(clarifier, item)
     except Exception as e:
         logger.debug(
             f"Failed to create duplicate clarification for {entity.get('name', 'unknown')}: {e}"
