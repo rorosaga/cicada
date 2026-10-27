@@ -238,6 +238,40 @@ def test_an_alias_another_page_already_answers_to_is_not_written(bank, monkeypat
     assert (alias in (mira["entity"].get("aliases") or [])) is kept
 
 
+def _pair(n, full_aliases, nick_aliases):
+    return _mention("Elspeth Moorcroft", n, aliases=full_aliases, others=[("Ellie", nick_aliases)])
+
+
+@pytest.mark.parametrize("concurrency", [1, 3])
+def test_two_entries_that_list_each_other_keep_the_alias_and_meet_the_judge(bank, monkeypatch, concurrency):
+    """The extractor says "Elspeth Moorcroft" ↔ "Ellie" both ways: one thing by its own word, never dropped."""
+    judge = _Judge("same")
+    extracted = [_pair(1, ["Ellie"], ["Elspeth Moorcroft"]), _pair(2, ["Ellie"], ["Elspeth Moorcroft"])]
+    result = _resolve(bank, monkeypatch, [], extracted, judge, concurrency)
+    assert [(c["new_name"], c["existing_name"]) for c in judge.calls] == [("Ellie", "Elspeth Moorcroft")]
+    assert "named together in one conversation" in judge.calls[0]["note"]
+    assert _creates(result) == ["elspeth-moorcroft"]
+    assert "Ellie" in next(c for c in result["changes"] if c["id"] == "elspeth-moorcroft")["entity"]["aliases"]
+
+
+def test_a_one_way_alias_is_dropped_but_the_pair_still_meets_the_judge(bank, monkeypatch):
+    judge = _Judge("unsure")
+    extracted = [_pair(1, ["Ellie"], []), _pair(2, ["Ellie"], [])]
+    result = _resolve(bank, monkeypatch, [], extracted, judge)
+    assert [(c["new_name"], c["existing_name"]) for c in judge.calls] == [("Ellie", "Elspeth Moorcroft")]
+    assert "named together in one conversation" in judge.calls[0]["note"]
+    assert _creates(result) == ["elspeth-moorcroft"]          # "Ellie" held and asked, never an unjudged page
+    assert ("merge_suggestion", "ellie", "elspeth-moorcroft") in _questions(bank)
+    page = next(c for c in result["changes"] if c["id"] == "elspeth-moorcroft")
+    assert "Ellie" not in (page["entity"].get("aliases") or [])
+
+
+def test_the_pair_meets_the_judge_when_one_side_already_has_a_page(bank, monkeypatch):
+    judge = _Judge("different")
+    _resolve(bank, monkeypatch, [_page("Ellie")], [_pair(1, ["Ellie"], [])], judge)
+    assert [(c["new_name"], c["existing_name"]) for c in judge.calls] == [("Elspeth Moorcroft", "Ellie")]
+
+
 def test_an_alias_a_page_born_in_the_same_batch_answers_to_is_not_written_elsewhere(bank, monkeypatch):
     """Two conversations in one batch: one introduces Dax Venn ("Dax"), another wrongly gives "Dax" to Mira."""
     extracted = [_mention("Dax Venn", 1, aliases=["Dax"]), _mention("Dax Venn", 2, aliases=["Dax"]),

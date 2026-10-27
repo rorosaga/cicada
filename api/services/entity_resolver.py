@@ -1910,24 +1910,44 @@ def _page_aliases(page: dict) -> list[str]:
 
 def _drop_conversation_names(extracted: list[dict]) -> int:
     """Take out of each extracted thing's ``aliases`` every name of ANOTHER thing extracted from the same conversation
-    (2026-10-27). Two people named in one conversation ("A and B applied together") are two things; an alias is a
-    name this thing goes by, never a name that only sat beside it. In place; returns how many aliases went."""
+    (2026-10-27) — unless that other thing lists this one's name back. Two people named in one conversation ("A and B
+    applied together") are two things; an alias is a name this thing goes by, never a name that only sat beside it.
+    Two entries that list each other ("Full Name" ↔ "Nick") are the extractor saying they are one thing: kept.
+
+    Either way the two are marked ``NAMED_WITH`` each other, so the judge weighs the pair with a "named together in one
+    conversation" note (`_spelling_lead`) and neither page is created unjudged. In place; returns how many went."""
     dropped = 0
     for extraction in extracted or []:
         entities = [e for e in extraction.get("entities", []) or [] if isinstance(e, dict)]
-        names = {person_leads.handle_key(e.get("name") or "") for e in entities}
-        names.discard("")
+        by_key = {person_leads.handle_key(e.get("name") or ""): e for e in entities}
+        by_key.pop("", None)
         for entity in entities:
             listed = entity.get("aliases")
             if not isinstance(listed, list) or not listed:
                 continue
             own = person_leads.handle_key(entity.get("name") or "")
-            kept = [a for a in listed
-                    if person_leads.handle_key(a) == own or person_leads.handle_key(a) not in names]
+            kept = []
+            for alias in listed:
+                key = person_leads.handle_key(alias)
+                other = by_key.get(key) if key != own else None
+                if other is None:
+                    kept.append(alias)
+                    continue
+                for a, b in ((entity, other), (other, entity)):
+                    named = a.setdefault(NAMED_WITH, [])
+                    if b.get("name") and b["name"] not in named:
+                        named.append(b["name"])
+                if any(person_leads.handle_key(x) == own for x in other.get("aliases") or [] if isinstance(x, str)):
+                    kept.append(alias)   # listed both ways: one thing, by the extractor's own word
             if len(kept) != len(listed):
                 dropped += len(listed) - len(kept)
                 entity["aliases"] = kept
     return dropped
+
+
+#: An extracted entity's field (never written to a page): the names of things the same conversation's extraction
+#: tied to it by an alias (`_drop_conversation_names`); each is a lead for the judge.
+NAMED_WITH = "_named_with"
 
 
 def _page_type(page: dict) -> str:
@@ -2273,13 +2293,17 @@ def _spelling_key(name: str) -> str:
 def _spelling_lead(new_entity: dict, page_name: str, page_aliases) -> dict:
     """What ties a new name to a page beyond its own name (2026-10-27): ``shared_alias`` — a name the new extraction
     says it also goes by is the page's name or one of its aliases; ``close`` — the new name is a close spelling of the
-    page's name or one of its aliases (:func:`close_spelling`). Empty when neither."""
+    page's name or one of its aliases (:func:`close_spelling`); ``together`` — the page's name is one the same
+    conversation's extraction tied to the new name by an alias (``NAMED_WITH``). Empty when none."""
     new_name = str(new_entity.get("name") or "")
     new_key = person_leads.handle_key(new_name)
     # A reference or a pronoun ("she", "the girlfriend") is no name, on either side (`alias_policy`).
     own = {person_leads.handle_key(a): str(a) for a in new_entity.get("aliases") or [] if str(a).strip()
            and person_leads.handle_key(a) != new_key and not alias_policy.is_reference(a)}
+    together = {person_leads.handle_key(n) for n in new_entity.get(NAMED_WITH) or [] if str(n).strip()}
     lead: dict = {}
+    if together and person_leads.handle_key(page_name) in together:
+        lead["together"] = str(page_name)
     for text in (page_name, *(page_aliases or ())):
         text = str(text or "")
         if not text.strip() or alias_policy.is_reference(text):
@@ -2294,6 +2318,9 @@ def _spelling_lead(new_entity: dict, page_name: str, page_aliases) -> dict:
 def _lead_note(new_name: str, candidate: dict) -> str:
     """The judge's note for a candidate a shared alias or a close spelling brought (``_spelling_lead``)."""
     parts = []
+    if candidate.get("together"):
+        parts.append(f'B and "{candidate["together"]}" were named together in one conversation, and its extraction '
+                     "tied them by an alias.")
     if candidate.get("shared_alias"):
         parts.append(f'B is also called "{candidate["shared_alias"]}", a name A goes by.')
     if candidate.get("close"):
@@ -2309,7 +2336,7 @@ def _lead_note(new_name: str, candidate: dict) -> str:
 def _with_lead(candidate: dict, new_entity: dict, lead: dict) -> dict:
     if lead:
         candidate.update(lead)
-        if not candidate.get("alias"):
+        if not candidate.get("alias") or lead.get("together"):
             candidate["note"] = _lead_note(str(new_entity.get("name") or ""), candidate)
     return candidate
 
@@ -2402,7 +2429,8 @@ async def _llm_judge_same_entity(
         new_name=new_name,
         new_type=new_type or "unknown",
         new_description=(new_description or "")[:1500] or "(empty)",
-        alias_note=_ALIAS_NOTE.format(new_name=new_name) if recorded_alias else ("\n" + note if note else ""),
+        alias_note=(_ALIAS_NOTE.format(new_name=new_name) + note if recorded_alias
+                    else ("\n" + note if note else "")),
         new_connections=f"\nConnections in its conversations:\n{new_connections[:800]}" if new_connections else "",
     )
     # Stage 2 disambiguation has its own dedicated model so we can route the
@@ -2526,8 +2554,8 @@ async def _llm_judge_batch(
         entry = entries[i]
         blocks.append(_BATCH_ENTRY.format(
             index=number, name=entry["name"], type=entry["type"] or "unknown",
-            alias_note=(_BATCH_ALIAS_NOTE.format(new_name=new_name) if entry.get("alias")
-                        else str(entry.get("note") or "")),
+            alias_note=(_BATCH_ALIAS_NOTE.format(new_name=new_name) + str(entry.get("note") or "")
+                        if entry.get("alias") else str(entry.get("note") or "")),
             body=strip_claims_block(entry["body"] or "")[:2000] or "(empty)"))
     prompt = _DISAMBIG_BATCH_PROMPT.format(
         new_name=new_name,
@@ -2724,6 +2752,8 @@ async def _judge_candidates(
                 if candidate.get("alias"):
                     kwargs.update(existing_body=_alias_context(candidate), recorded_alias=True,
                                   new_connections=connections)
+                    if candidate.get("note"):
+                        kwargs.update(note=candidate["note"])
                 elif candidate.get("note"):
                     kwargs.update(note=candidate["note"])
                 return [await _llm_judge_same_entity(**kwargs)]

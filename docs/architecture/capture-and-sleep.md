@@ -1718,8 +1718,10 @@ mechanisms, each closed for every type, not only people:
 - **An alias is a name this page goes by, never co-occurrence.** Stage 1 gave one person the name and nickname of the
   other person in the same conversation, and Stage 5 unions every new alias onto the page for good, where it brings that
   page to every later judge call and lead question. Now Stage 2 drops, before anything keys a name, an alias that is the
-  name of another thing extracted from the same conversation (`_drop_conversation_names`, before the G209 handle split),
-  and, after the loop, a NEW alias that is the name or an alias of another same-type page on disk or born in this batch,
+  name of another thing extracted from the same conversation (`_drop_conversation_names`, before the G209 handle split)
+  — unless that other entry lists this one's name back ("Full Name" ↔ "Nick"): the extractor saying they are one thing,
+  kept. Either way the pair is marked named together (`NAMED_WITH`) and goes to the judge with that note, so neither is
+  ever created unjudged — and, after the loop, a NEW alias that is the name or an alias of another same-type page on disk or born in this batch,
   when the page being written does not hold it itself (`_drop_other_pages_names`). What a page already lists is
   untouched; removing an existing wrong alias is the person's repair.
 
