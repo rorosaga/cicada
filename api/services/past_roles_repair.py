@@ -11,14 +11,17 @@ same for the claims already on a page.
 
 **What changes — every check must pass; when in doubt, nothing.**
 
-* ``close`` — an open claim whose predicate is a canonical with a past tense in the seed's endings (``works-at``,
-  ``works-with``, ``lives-in``, ``studies-at``, ``reports-to``), whose own words carry one of that canonical's ``past`` or ``over``
-  labels ("Bob worked at Acme") and none of its present ones ("works at", "works for"), and which is not the person's
-  own (``is_human``) — becomes the closed history Stage 3 writes for a past tense with nothing open: ``valid_to =
-  valid_from``. A present belief on the same object stays as it is.
+* ``close`` — an open claim whose predicate is one of a person's states (:data:`STATES`), whose own words carry one
+  of that canonical's ``past`` or ``over`` labels ("Bob worked at Acme"; for :data:`ENDINGS_ONLY` only an ending — "worked
+  on" and "worked with" report ongoing work) and none of its present ones ("works at", "works for"), and which is not the person's own
+  (``is_human``) — becomes the closed history Stage 3 writes for a past tense with nothing open: ``valid_to =
+  valid_from``. A present belief on the same object stays as it is. **Only when it rests on one conversation, or every
+  quote it cites says the past or an ending:** a restatement only adds sources and never rewrites the claim's words,
+  so "worked at" first and "works at" in later conversations is one open claim whose words are the first ones
+  (``restated``, kept).
 * ``close`` too — an open claim kept under an ending's own label that is a synonym of its canonical ("formerly worked
   at", "studied at" in a bank seeded before the synonym): moved under the canonical and closed the same way.
-* ``start`` — an open claim under a ``starts`` label ("joined") between the declared page types (a person and a
+* ``start`` — an open claim under a ``starts`` label ("started working at") between the declared page types (a person and a
   company for ``works-at``): moved under the canonical, nothing else touched. Kept, counted, when the page already
   holds that belief current (``already_current``) or the types do not fit (``types``).
 
@@ -43,8 +46,8 @@ from datetime import date
 from pathlib import Path
 from typing import Callable
 
-from api.services import claim_recovery, decay_policy, git_service, markdown_parser, page_lock, predicates, \
-    write_admission
+from api.services import (claim_recovery, decay_policy, evidence, git_service, markdown_parser, page_lock, predicates,
+                          write_admission)
 from api.services.claim_reconciler import is_human, open_, same_object
 from api.services.claims import (
     Claim,
@@ -60,6 +63,12 @@ TRIGGER = "maintenance/past-roles"
 AUTHOR = git_service.CICADA_AUTHOR
 SUBJECT = "Close past roles"
 LEDGER_SUFFIX = ".claims.jsonl"
+#: A person's states: the canonicals whose past or ending words are history (never a tool's ``uses``).
+STATES = ("works-at", "works-on", "works-with", "lives-in", "studies-at", "reports-to")
+#: States whose past tense is no ending on its own, so only their ``over`` labels close a claim here: "I worked on
+#: alpha-project today" or "worked with Bob this morning" reports ongoing work (review 2026-10-27). Stage 3's live rule
+#: for "worked with" (2026-10-22) is unchanged; this repair does not apply it backwards to a bank's history.
+ENDINGS_ONLY = ("works-on", "works-with")
 CLOSE, START = "close", "start"
 
 SleepIsWriting = claim_recovery.SleepIsWriting
@@ -120,7 +129,6 @@ def _vocabulary(bank: Path) -> _Vocabulary:
     sources = [predicates._load_seed_map(), predicates._read_runtime_map(bank)]
     endings: dict[str, set[str]] = {}
     synonyms: dict[str, set[str]] = {}
-    said_past: set[str] = set()
     for data in sources:
         if not isinstance(data, dict):
             continue
@@ -131,14 +139,13 @@ def _vocabulary(bank: Path) -> _Vocabulary:
             if not isinstance(modes, dict):
                 continue
             canon = predicates._slugify_predicate(str(canonical))
-            for mode in (predicates.ENDING_OVER, predicates.ENDING_PAST):
+            modes_read = (predicates.ENDING_OVER,) if canon in ENDINGS_ONLY else (predicates.ENDING_OVER,
+                                                                                   predicates.ENDING_PAST)
+            for mode in modes_read:
                 endings.setdefault(canon, set()).update(
                     predicates._slugify_predicate(str(label)) for label in modes.get(mode) or [])
-            if modes.get(predicates.ENDING_PAST):
-                said_past.add(canon)
-    # Only a state with a past tense (a job, a collaboration, a home, a school, a manager): a tool's `uses` has none.
     tenses = {canon: (labels, ({canon} | synonyms.get(canon, set())) - labels)
-              for canon, labels in endings.items() if canon in said_past}
+              for canon, labels in endings.items() if canon in STATES and labels}
     ending = predicates.build_endings_fn(bank)
     return _Vocabulary(tenses, ending, getattr(ending, "onset"))
 
@@ -148,6 +155,14 @@ def _says(text: str, labels: set[str]) -> bool:
     return any(label and f"-{label}-" in words for label in labels)
 
 
+def _without(text: str, labels: set[str]) -> str:
+    """``text`` slugged with every one of ``labels`` taken out, longest first."""
+    words = "-" + predicates._slugify_predicate(text or "") + "-"
+    for label in sorted((lb for lb in labels if lb), key=len, reverse=True):
+        words = words.replace(f"-{label}-", "-")
+    return words
+
+
 def _head(bank: Path) -> str:
     try:
         return claim_recovery._head(bank)
@@ -155,19 +170,34 @@ def _head(bank: Path) -> str:
         return ""
 
 
-def classify(c: Claim, page_claims: list[Claim], vocab: _Vocabulary,
-             type_of: Callable[[str], str]) -> tuple[str | None, str, str | None] | None:
-    """``(action, reason, canonical)`` for one claim, or ``None`` when nothing here is about it. Pure."""
+def _conversations(c: Claim) -> set[str]:
+    refs = {str(e) for e in c.source_episodes or [] if e}
+    refs.update(str(ev.episode) for ev in c.evidence or [] if getattr(ev, "episode", None))
+    return refs
+
+
+def _every_quote_says(c: Claim, labels: set[str], quote_of: Callable[[object], str | None]) -> bool:
+    """Every cited span reads one of ``labels`` — a reasoning entry or an unreadable span is no such quote."""
+    quotes = [quote_of(ev) for ev in c.evidence or []]
+    return bool(quotes) and all(q and _says(q, labels) for q in quotes)
+
+
+def classify(c: Claim, page_claims: list[Claim], vocab: _Vocabulary, type_of: Callable[[str], str],
+             quote_of: Callable[[object], str | None] = lambda _ev: None) -> tuple[str | None, str, str | None] | None:
+    """``(action, reason, canonical)`` for one claim, or ``None`` when nothing here is about it. ``quote_of`` reads an
+    evidence entry's quoted text (``None`` for a reasoning entry); the rest is pure."""
     if not open_(c) or c.superseded_by or is_event(c) or is_record(c) or is_recovered_history(c):
         return None
     if c.predicate in vocab.tenses:
         ended, present = vocab.tenses[c.predicate]
         if not _says(c.text, ended):
             return None
-        if _says(c.text, present):
+        if _says(_without(c.text, ended), present):   # "previously worked on" holds "worked on": not present words
             return None, "present_words", c.predicate
         if is_human(c):
             return None, "persons_own", c.predicate
+        if len(_conversations(c)) > 1 and not _every_quote_says(c, ended, quote_of):
+            return None, "restated", c.predicate
         return CLOSE, "past_words", c.predicate
     hit = vocab.ending(c.predicate)
     if hit is not None and hit.synonym and hit.canonical in vocab.tenses:
@@ -198,6 +228,17 @@ def analyze(bank) -> Plan:
     def type_of(entity_id: str) -> str:
         return lookup(entity_id).entity_type
 
+    texts: dict[str, str | None] = {}
+
+    def quote_of(ev) -> str | None:
+        if not getattr(ev, "is_span", lambda: False)():
+            return None
+        doc = str(ev.episode or "")
+        if doc not in texts:
+            texts[doc] = evidence.source_text(bank, doc)
+        text = texts[doc]
+        return text[ev.start:ev.end] if text else None
+
     for path in sorted((bank / "entities").glob("*.md")):
         rel = f"entities/{path.name}"
         try:
@@ -211,7 +252,7 @@ def analyze(bank) -> Plan:
         # An archived page is repaired too: a mention brings it back with its claims, and a past job must not return
         # as a current one.
         for c in page_claims:
-            verdict = classify(c, page_claims, vocab, type_of)
+            verdict = classify(c, page_claims, vocab, type_of, quote_of)
             if verdict is not None:
                 action, reason, canonical = verdict
                 plan.items.append(Item(rel, c.id, action, reason, c.predicate, canonical))

@@ -201,7 +201,8 @@ EXTRACTION GUIDELINES:
   "reports to" say it is CURRENT; one that ended is "previously lived in", "studied at", "graduated from",
   "previously reported to". A job, home or school someone had before — a public figure's earlier employers
   included, whether the conversation says it or you know it — is never written in the present tense.
-  A job that began is "works at" (or "joined"), a home "lives in" (or "moved to"), with STARTS when the day is said.
+  A job that began ("joined", "started at", "was hired by") is "works at", a home someone moved to "lives in",
+  each with STARTS when the day is said; joining a club, a team, a course or a university is never "works at".
 - A SWITCH IS SAID ABOUT WHAT SWITCHED. When the user's words say they dropped, stopped using, moved off,
   moved from or switched away from something — "moved from A to B", "replaced A with B" included — FOR A PROJECT (the project is named in that turn, or is plainly what that turn is
   about), the source is the PROJECT: "<project> dropped <old thing>", and what takes its place is "<project> uses

@@ -365,8 +365,8 @@ endings:
       - stores-in
       - authenticates-with
       - integrates-with
-  # 2026-10-27 (past roles): "<person> worked on <project>" — a public figure's earlier work included — stayed a
-  # current involvement dated the day it was said. Said while a "works on" is open it reinforces it, as "worked at" does.
+  # 2026-10-27 (past roles): "<person> previously worked on <project>" stayed a current involvement. Only endings: never
+  # "worked on" as a past tense — "I worked on alpha-project today" reports ongoing work, not work that ended (review).
   works-on:
     over:
       - previously worked on
@@ -374,8 +374,6 @@ endings:
       - used to work on
       - no longer works on
       - stopped working on
-    past:
-      - worked on
   # 2026-10-27 (past roles): a person's home, school and manager end the way a job does. Measured on an owner bank:
   # "lived in", "studied at" and "reported to" had no ending, so a past one read as current or stayed under its own
   # label. Never "moved away from" / "moved from" — `uses` holds those, and a label two canonicals claim ends nothing.
@@ -410,7 +408,7 @@ endings:
 
 # ---------------------------------------------------------------------------
 # STARTS (2026-10-27, past roles): a label that says a current belief BEGAN —
-# "joined Acme" is a job at Acme. Keyed by the canonical it starts; labels are
+# "started working at Acme" is a job at Acme. Keyed by the canonical it starts; labels are
 # compared slugged, and a label two canonicals list starts nothing. Stage 3 reads
 # the label as said (`predicate_raw`, else an agent's predicate) and writes the
 # claim under the canonical (`claim_reconciler`, `EndingFn.onset`), with no fold
@@ -421,15 +419,17 @@ endings:
 # A start never closes another current belief of its canonical: a person who
 # joins a lab may keep a job (2026-10-14). Only an ending, a stated end or the
 # person's own edit closes one.
+# Never a bare "joined" / "joins" / "started at" (review 2026-10-27): the closed
+# types file a club, a team, a university, a lab and an agency all as `company`,
+# so "joined Chess Club" would read "Works at: Chess Club". Stage 1 writes a job
+# that began as "works at" with its STARTS day instead. Never "moved into": an
+# office or a building is a `location` too.
 # ---------------------------------------------------------------------------
 starts:
   works-at:
     subject: [person]
     object: [company]
     labels:
-      - joined
-      - joins
-      - started at
       - started working at
       - began working at
       - started a job at
@@ -444,7 +444,6 @@ starts:
     labels:
       - moved to
       - relocated to
-      - moved into
       - now lives in
   studies-at:
     subject: [person]
