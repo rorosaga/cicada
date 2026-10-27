@@ -52,7 +52,7 @@ times — and Ask said "the assistant" where the episode recorded a Claude Code 
   head); excerpts one passage per conversation, a passage that is mostly a link skipped, each naming who the person
   was talking to (`episode_actor`), and one line naming the read (`cicada_sources`, only for a caller holding it).
 - **Measured** on a 7,962-page bank copy with its own search model, 25 questions (people, events, projects, "who did
-  X", "did I send Y"): 457,788 → 141,277 characters in all (median 18,713 → 5,781, largest 22,453 → 8,444), the answer-bearing fact in 23
+  X", "did I send Y"): 457,788 → 150,672 characters in all (median 18,713 → 6,038, largest 22,453 → 8,625), the answer-bearing fact in 23
   of 25 replies before and after. The two misses are the same before and after: both facts sit only on the 482 KB
   owner page, one without its event's name (a Sleep write, not a read).
 
