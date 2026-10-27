@@ -837,6 +837,20 @@ def _place_ending(new: Claim, ending: "predicates.Ending", slot: list[Claim], se
     return new
 
 
+def _onset_canonical(new: Claim, raw_label: str | None, onset_fn, subject_fn) -> str | None:
+    """The canonical a start label writes ``new`` under ("joined" -> ``works-at``; ``predicates.build_onsets_fn``), or
+    ``None``: no start label, already the canonical, or the subject's and object's pages are not the declared types
+    (a page not there yet has no type, so it starts nothing — "<company> joined <a programme>" keeps its label)."""
+    if onset_fn is None or new.object_kind != "node":
+        return None
+    hit = onset_fn(str(raw_label or new.predicate))
+    if hit is None or hit.canonical == new.predicate:
+        return None
+    if not hit.fits(subject_fn(new.subject).entity_type, subject_fn(new.object).entity_type):
+        return None
+    return hit.canonical
+
+
 def _job_for(claim: Claim, slot: list[Claim], canonical: str, at_id: str) -> Claim | None:
     """The job ``claim`` rests on (W7): the subject's ``canonical`` belief about the organisation ``at_id`` that was
     current the day ``claim`` began, else an open one, else the latest. A born-closed record (an ending, or "previously
@@ -985,6 +999,7 @@ def reconcile_stage3(
     # A memory export entry says nothing about when (`episode_time`): read once for the pass.
     untimed = episode_time.untimed_ids(memory_path)
     depends_on = getattr(endings_fn, "depends_on", None)
+    onset_fn = getattr(endings_fn, "onset", None)
     premise_pairs: list[tuple[Claim, str]] = []
     for new in incoming_claims:
         sub = new.subject
@@ -1013,6 +1028,13 @@ def reconcile_stage3(
         # One question per pair, raised after the pass so it names every claim
         # the pages keep for it — a reinforced restatement keeps the OLD id.
         raw_label = getattr(new, "predicate_raw", None)
+        started = _onset_canonical(new, raw_label, onset_fn, subject_fn)
+        if started is not None:
+            # "joined Acme" is a job at Acme (2026-10-27): written under the canonical, with no fold question (the
+            # list is curated), and placed like any other claim of it — a start never closes another place.
+            audit.append({"action": "started", "claim": new.id, "as": started})
+            new.predicate = started
+            raw_label = None
         ending = endings_fn(str(raw_label or new.predicate))
         ended_by = getattr(endings_fn, "ended_by", None)
         if ending is not None and _place_ending(new, ending, slot, settings, today, audit, untimed,

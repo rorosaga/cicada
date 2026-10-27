@@ -49,6 +49,7 @@ Output valid JSON with this exact structure:
       "target": "Entity Name B",
       "label": "specific relationship verb phrase",
       "evidence_quote": "the exact words from the transcript this relationship rests on (verbatim, at most 240 characters)",
+      "starts": "YYYY-MM-DD   (optional; see STARTS below)",
       "ends": "YYYY-MM-DD   (optional; see ENDS below)",
       "at": "Organisation Name   (optional; reports to / managed by / manages only; see AT below)"
     }
@@ -196,6 +197,12 @@ EXTRACTION GUIDELINES:
 - "works at" says the place is CURRENT. A job or role that ended is labelled by its ending — "left",
   "previously worked at" — never "works at". Two places at once (a job and a lab, a day job and a side
   project) are two "works at" relationships; one never replaces the other.
+- The same holds for where someone lives, studies and who they report to: "lives in", "studies at" and
+  "reports to" say it is CURRENT; one that ended is "previously lived in", "studied at", "graduated from",
+  "previously reported to". A job, home or school someone had before — a public figure's earlier employers
+  included, whether the conversation says it or you know it — is never written in the present tense.
+  A job that began ("joined", "started at", "was hired by") is "works at", a home someone moved to "lives in",
+  each with STARTS when the day is said; joining a club, a team, a course or a university is never "works at".
 - A SWITCH IS SAID ABOUT WHAT SWITCHED. When the user's words say they dropped, stopped using, moved off,
   moved from or switched away from something — "moved from A to B", "replaced A with B" included — FOR A PROJECT (the project is named in that turn, or is plainly what that turn is
   about), the source is the PROJECT: "<project> dropped <old thing>", and what takes its place is "<project> uses
@@ -207,6 +214,10 @@ EXTRACTION GUIDELINES:
   2026-03-11; "yesterday was my last day" is 2026-03-03. On an ending ("left", "dropped") it is the day it ended;
   on any other relationship ("works at" with a last day ahead) it is the day it will stop. Omit it when no day is
   stated, or when the day is unclear — never a relative phrase, never a guess.
+- STARTS (optional): the day a relationship began, when the conversation states that day — a first day at a
+  job, the day someone joined or moved. An absolute YYYY-MM-DD resolved from the conversation's date as TIME
+  says: said on 2026-05-20, "as of yesterday, joined" is 2026-05-19. Omit it when no day is stated or it is
+  unclear, and on an ending or a past tense ("left", "worked at") — never a relative phrase, never a guess.
 - AT (optional, only on "reports to", "managed by" and "manages"): the organisation that working relationship
   belongs to, when the conversation says it (the user's manager at the company they work at: "at" is that
   company).
@@ -934,8 +945,13 @@ def entities_to_claims(
             # belief it closes closes then, not on the day it was said; on any other label it is a stated end.
             ends = _stated_day(rel.get("ends"))
             expected_end = None
+            hit = endings(raw_label)
+            starts = _stated_day(rel.get("starts"))
+            if starts and hit is None and (not ends or starts <= ends):
+                # 2026-10-27: when it became true, as said ("as of yesterday, joined" is the day before) — never on an
+                # ending or a past tense, whose record is history dated when it was said.
+                valid_from = starts
             if ends:
-                hit = endings(raw_label)
                 if hit is not None and hit.mode == predicates.ENDING_OVER:
                     valid_from = ends
                 elif hit is None and (not valid_from or ends >= valid_from):

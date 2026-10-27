@@ -610,6 +610,8 @@ HOLDING_SITES = {
     "api/routers/state.py": "GET /state's cursor refresh: inside its run_admitted",
     "api/services/claim_recovery.py": "apply(): asked inside its own shared() hold, before the page lock and its commit",
     "api/services/coexist_reopen.py": "apply(): asked inside its own shared() hold, before the page lock and its commit",
+    "api/services/past_roles_repair.py": "apply(): asked inside its own shared() hold, before the page lock and its "
+                                         "commit (coexist_reopen's order)",
 }
 
 

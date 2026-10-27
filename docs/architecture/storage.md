@@ -328,6 +328,29 @@ relative; with none open it is closed history, never a current place. **Order ne
 the page (a "left" claim, or an ending record's own words) is kept as closed history, whatever order the claims are
 read in, and a re-read of a claim the page holds closed (same id, G104) only adds its sources — a page never holds one
 id twice. No fold question is raised for an ending. Stage 1's prompt says "works at" means current.
+**Past roles (2026-10-27, G121):** a person's whole current state has a past tense, not only a job — the seed's
+endings cover `works-on` (endings only — "previously worked on", "no longer works on"…; never "worked on" as a past
+tense: "I worked on alpha-project today" reports ongoing work), `lives-in` ("lived in", "lived at"; over: "moved out
+of", "previously lived in"…), `studies-at` ("studied at"; over: "graduated from", "dropped out of"…) and `reports-to`
+("reported to"; over: "previously reported to"…), with the past and ending spellings as synonyms, so a public figure's
+earlier employer said in passing is closed history, never a current place dated the day it was said. `lives-in`, `studies-at` and `reports-to` are canonicals but in neither cardinality list: Stage 3 coexists
+them, the inbox still asks. Stage 1's prompt says the same of homes, schools and managers, and that a job someone had
+before — what the model knows of a public figure included — is never written in the present tense.
+**A start is the belief it starts (2026-10-27):** the seed's `starts` (`predicates.build_onsets_fn`, seed ∪ bank,
+slugged, a label two canonicals list starts nothing) names the labels that say a belief began — `works-at`: "started
+working at", "began working at", "was hired by", "now works at"…; `lives-in`: "moved to", "relocated to"…;
+`studies-at`: "enrolled at" (never "enrolled in": measured, it named courses) — each with the entity types the
+subject's and the object's pages must be (a person and a company; a person and a location). **Never a bare "joined",
+"joins" or "started at", nor "moved into"** (review 2026-10-27): the closed types file a club, a team, a university, a
+lab and an agency all as `company` and an office as `location`, so "joined Chess Club" would have read "Works at: Chess
+Club". Stage 1's prompt writes a job that began as "works at" with its `starts` day instead, and says joining a club,
+a team, a course or a university is never "works at". Stage 3 writes a listed start under the canonical
+(`claim_reconciler._onset_canonical`, audit `started`, no fold question); "<company> was hired by …", or a start to a
+page that is not there, keeps its own label. **A start
+never closes another current belief** — a person who joins a lab may keep a job (2026-10-14); whether the newer of two
+current places should close the older is an open question for the owner, not a rule. A Stage 1 relationship may carry
+`starts`, the absolute day it began ("as of yesterday, joined" said on 2026-05-20 is 2026-05-19), resolved by the model
+and dropped unless a real ISO date, never on an ending or a past tense; it is the claim's `valid_from`.
 **A switch is said about what switched (2026-10-23, owner):** an ending closes only claims on its own subject — "<person>
 dropped <tool>" never closes a project's use of it. Stage 1's prompt writes a project's switch on the project
 ("<project> dropped <tool>", "<project> uses <new>"), in the active voice and never as "replaces" / "replaced by"; the
@@ -368,6 +391,24 @@ not past tense or an ending and the page does not say the person left that place
 place not already current. Everything else stays closed, counted by reason — when in doubt, history. It refuses unless
 Sleep is idle (admission held, the backend must answer `writing: false`), skips a dirty page, writes through the one
 claims writer and deletes nothing: the close stays in git.
+**Repairing past roles (2026-10-27):** `python -m api.services.past_roles_repair --bank <path> [--plan <file>]
+[--apply]` applies the two rules above to claims written before them, on every page (archived ones too: a mention
+brings a page back with its claims). An open claim under one of a person's states (`STATES`: works-at, works-on,
+works-with, lives-in, studies-at, reports-to) whose own words carry one of its past or ending labels (for `works-on`
+only an ending) and none of its present ones ("worked at", not "works at") becomes closed history (`valid_to =
+valid_from`, what Stage 3 writes for a past tense with nothing open) — **only when it rests on one conversation, or
+every quote it cites says the past or an ending**: a restatement adds sources and never rewrites a claim's words, so
+"worked at" in May and "works at" in two later conversations is one open claim whose words are May's (`restated`,
+kept); an ending kept under its own label that is a
+synonym ("formerly worked at", "studied at" in a bank seeded before) moves under the canonical, closed the same way; an
+open start label between the declared types moves under its canonical, unless the page already holds that belief
+current. Never the person's own claim, never a claim whose words are present tense (evidence alone is never read as
+an ending), and nothing closed because a newer belief exists. Dry run by default (counts by action and reason; the plan
+holds ids, paths, predicates and reasons, never text); `--apply` has `coexist_reopen`'s guards (Sleep idle, page lock,
+git's write lock, dirty pages skipped) and commits the pages written alone, as `cicada` (`Close past roles <date>`).
+For `works-on` and `works-with` only an ending closes a claim here (`ENDINGS_ONLY`: "worked on" and "worked with"
+report ongoing work). Measured on an owner bank (dry run over a copy, 2026-10-27, after review): 17 claims to close on
+11 pages (7 by their words, all `works-at` on public figures' pages; 10 ending labels), 1 start, 1 kept (already current).
 
 **Contexts and the fence (F1).** `context` is an open vocabulary whose *shape* is pinned by
 `claim_contexts` — a short lowercase slug. Any other value (G60's `as of <date>`) keeps its job as a
