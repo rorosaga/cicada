@@ -138,7 +138,7 @@ def _warn_if_transcript_missing() -> None:
 TOOLS = [
     {
         "name": "cicada_recall",
-        "description": "Search Cicada's knowledge graph for entities related to a topic. Returns concise summaries (Pass 1). Pending inbox items are surfaced first when relevant. Use this at the start of conversations to check what Cicada already knows about the topic being discussed. If a fact might exist, call cicada_recall_detail on the top suggested entity before concluding it is absent. State only facts present in tool results; do not add adjacent details from general knowledge.",
+        "description": "Search Cicada's knowledge graph for what it knows about a topic. Returns only the pages that match well (at most 5): the best page's summary and distinct key facts, a shorter summary of each other match, and a few conversation excerpts naming who the person was talking to — a few thousand characters, not whole pages (Pass 1). An open question about the topic is surfaced first when there is one. Use this at the start of a topic to see what Cicada already knows; for a direct factual question (who, when, did I, what happened) call cicada_ask instead, which reads pages, claims and conversations and answers with citations. If a fact might exist, call cicada_recall_detail on the top suggested entity before concluding it is absent. State only facts present in tool results; do not add adjacent details from general knowledge.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -656,12 +656,15 @@ TOOLS = [
     {
         "name": "cicada_sources",
         "description": "Return the primary source conversation chunks that produced an entity "
-                       "(the episodes it was consolidated from). Use this to ground or verify a "
-                       "fact against what the user actually said, or to show provenance.",
+                       "(the episodes it was consolidated from) — or, given an episode id Cicada printed "
+                       "(ep_<date>_<n>, from cicada_ask, cicada_recall or a page), that one conversation: who the "
+                       "person was talking to and what was said. Use this to ground or verify a fact against what "
+                       "the user actually said, or to show provenance.",
         "inputSchema": {
             "type": "object",
             "properties": {"entity_id": {"type": "string",
-                "description": "The entity id (e.g. 'bob-example') to fetch sources for."}},
+                "description": "The entity id (e.g. 'bob-example') to fetch sources for, or an episode id "
+                               "(e.g. 'ep_2026-10-21_004') to read that conversation."}},
             "required": ["entity_id"],
         },
     },

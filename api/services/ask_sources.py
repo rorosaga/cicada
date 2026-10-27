@@ -164,7 +164,12 @@ def _who(turn, fm: dict, owner_name: str | None) -> str:
     if turn.role == "user":
         return f"{owner_name} (the person this memory belongs to)" if owner_name else "the person this memory belongs to"
     if turn.role == "assistant":
-        return "the assistant (an AI agent, not the person)"
+        # Lean reads (2026-10-27): which agent, from the episode's own fields — "a Claude Code session", "<name> (an
+        # AI agent), over Messages" — so the answer can say who did it. A record naming nobody keeps the old words.
+        from api.services import episode_actor
+
+        actor = episode_actor.actor(fm, ids=False)
+        return f"{actor} — the assistant, not the person" if actor else "the assistant (an AI agent, not the person)"
     if turn.role == "speaker":
         label = (turn.marker or "").split(":", 1)[-1].strip() or "someone else"
         corr = fm.get("correspondent") if isinstance(fm.get("correspondent"), dict) else {}

@@ -331,8 +331,10 @@ REMOTE_TOOLS: dict[str, dict] = {t["name"]: t for t in (
           ("item_id", "source", "outcome"), read_only=False, idempotent=True, open_world=True),
     _tool("cicada_sources",
           "Return the conversation excerpts a page was built from, word for word (at most three, each cut at "
-          "1,000 characters).",
-          {"entity_id": {"type": "string", "description": "The page id."}}, ("entity_id",), read_only=True),
+          "1,000 characters) — or, given a conversation id Cicada printed (ep_<date>_<n>), the start of that "
+          "conversation and who the person was talking to.",
+          {"entity_id": {"type": "string", "description": "The page id, or an episode id such as "
+                                                          "'ep_2026-10-21_004'."}}, ("entity_id",), read_only=True),
     _tool("cicada_timeline",
           "What changed in the person's memory recently, day by day: what was captured, the pages Cicada "
           "created or updated overnight, pages that faded, facts that reached their stated end, and what "

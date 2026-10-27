@@ -34,6 +34,51 @@ with `- … and N more on the full page`; a hit's body is backstopped at 6,000 c
 blocks first (never the top one) and says which in one line (`_fit_recall`); under the budget it is unchanged byte
 for byte. Headings and line shapes are the same; only lengths change.
 
+**Lean reads (2026-10-27, G140/G148/G149).** A real session (values redacted) spent ~6.3k tokens over 5 calls and still
+grepped transcripts: one recall was 14,400 characters — 7 pages, 5 off-topic, the relevant page saying its facts three
+times — and Ask said "the assistant" where the episode recorded a Claude Code session. Now:
+- **A relevance floor** (`_above_floor`). A fused page is shown only when some leg ranks it among its first
+  `RECALL_LEG_KEEP` (3) and close to that leg's best: within `RECALL_VECTOR_GAP` (0.05) of the best cosine, at least
+  `RECALL_WORD_SHARE` (half) of the best word score, or simply ranked there (the claim leg). At most
+  `RECALL_PAGES_SHOWN` (5), never fewer than the fused top one. The hints block's `suggested_entities`, "Changed
+  recently" and the provisional block follow the pages shown.
+- **A body budget.** The best page's body gets `RECALL_TOP_BODY` (1,800 characters), every other `RECALL_OTHER_BODY`
+  (700) — skills and deadlines too. `summarize_for_recall(collapse=True)` folds a Key Facts, History or Open
+  Questions bullet that only repeats what is already shown (`entity_body.collapse_repeats`: every anchor — a number, a
+  date, a link, a wikilink, a capitalised name — already shown, and 80% of its subject words), saying how many in one
+  line. A bullet carrying anything new is kept; the page is never edited.
+- **The extras earn their place.** "Related (one hop out)" only when a single page passed the floor (160 characters a
+  head); excerpts one passage per conversation, a passage that is mostly a link skipped, each naming who the person
+  was talking to (`episode_actor`), and one line naming the read (`cicada_sources`, only for a caller holding it).
+- **Measured** on a 7,962-page bank copy with its own search model, 25 questions (people, events, projects, "who did
+  X", "did I send Y"): 457,788 → 141,277 characters in all (median 18,713 → 5,781, largest 22,453 → 8,444), the answer-bearing fact in 23
+  of 25 replies before and after. The two misses are the same before and after: both facts sit only on the 482 KB
+  owner page, one without its event's name (a Sleep write, not a read).
+
+**Every episode id reads (2026-10-27).** `cicada_sources(entity_id)` takes an episode id Cicada printed (`ep_<day>_<n>`
+from Ask, recall's excerpts, a page) and returns that conversation: a header (id, day, title), `With: <actor>`, a
+removed-from-source or not-yet-read note when true, then its words as stored — scrubbed at capture, the dropped-middle
+marker labelled (gate B2). The door is `cicada_sources` and not a new tool: it is the `sources` scope's own tool, so a
+remote connection reads a conversation only with that scope, at R-R28's 1,000 characters, and every door fences it as
+a read; no schema, CLI row or `/v1` operation changed (a page id still reads as before, and a page that happens to be
+named like an episode id still wins). A stdio read returns up to `EPISODE_READ_MAX` (12,000 characters) and names
+`cicada_continue(session=<id>)` for the rest — only where that stdio-only tool is held.
+
+**Who was on the other side (2026-10-27).** `episode_actor.actor(fm)` names it from the episode's own fields, never
+guessed: `a Claude Code session (id <session>, resumable, model <m>)` (resumable for Claude Code and Codex), `an
+agent's saved note from a … session`, `Claude, relayed through the remote connector` (ruling 32), `<name> (an AI
+agent), over Messages` or `<name>, over Messages` (the episode's `correspondent`), `ChatGPT, from the person's
+exported conversations`; `None` — and no label — for the person's own capture. Ask's prompt labels an agent's turn
+`a Claude Code session — the assistant, not the person` (no id; a record that names nobody keeps the old words, so a
+benchmark conversation's prompt is byte for byte what it was). Ask's reply adds `· with <actor>` to each "From
+conversations no page cites" line, a **Who spoke in the cited conversations** block (at most 4, agents before an
+export's app) and the `cicada_sources` read line.
+
+**Factual questions go to Ask (contract 22, remote 15).** Item 1 now reads "A factual question: `cicada_ask`, no recall
+first" and names `cicada_sources(entity_id)` for an `ep_…` conversation; the remote contract
+says the same, each tool only where the connection holds it (R12). The empty-state primer is ~1,381 proxy tokens (was
+~1,368), inside the 1,800 budget.
+
 **Before Sleep (G207, 2026-10-22).** Recall's "Related conversation excerpts" (under the `sources` scope, R-R22)
 rank-fuse two legs, keeping 3: the vector leg (`_leann_search_episodes`), which step 0 fills right after capture
 (`capture-and-sleep.md`, "After capture"), and a word leg over the FTS passages (`_lexical_search_episodes`:

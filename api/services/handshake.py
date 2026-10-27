@@ -77,7 +77,9 @@ from api.services.auth import cicada_home
 # 20: G61 "Where to check" (ruling 36 D5) — item 4 defines it and names `inferred` / `evidence` on cicada_add_source.
 # 21: the codex prelude names Codex's own capture hook and the ~/.codex/AGENTS.md block `cicada setup` writes (it
 #     no longer asks an agent to set an MCP env it cannot reach).
-CONTRACT_VERSION = 21
+# 22: lean reads (2026-10-27) — item 1 sends a direct factual question straight to cicada_ask (no recall first)
+#     and names cicada_sources for a conversation an answer names.
+CONTRACT_VERSION = 22
 MAX_TOKENS = 1800
 VARIANTS = ("claude-code", "codex", "desktop", "generic")
 
@@ -103,7 +105,9 @@ REMOTE_VARIANT = "remote"
 # 12: ruling 32 (owner 2026-10-19) — a connection that can capture is asked to relay every turn.
 # 13: ruling 34 (G162 F1) — a video hand-back carries its lease_token.
 # 14: G61 "Where to check" (ruling 36 D5) — the sources item defines it and names `inferred` / `evidence`.
-REMOTE_CONTRACT_VERSION = 14
+# 15: lean reads (2026-10-27) — a direct factual question goes straight to cicada_ask; cicada_sources reads a
+#     conversation an answer names, each only where the connection holds it.
+REMOTE_CONTRACT_VERSION = 15
 # The runtime replaces this with a freshly minted handle AFTER the cache read,
 # so one cached primer serves every conversation of a tool set.
 CONVERSATION_SLOT = "{{conversation}}"
@@ -153,13 +157,18 @@ def _remote_contract(tools: frozenset[str], reading: bool = False) -> str:
     reads = [text for tool, text in (
         ("cicada_recall", "`cicada_recall(query)` at the start of a topic"),
         ("cicada_recall_detail", "`cicada_recall_detail(entity_id)` for a page"),
-        ("cicada_ask", "`cicada_ask` for a direct factual question"),
+        ("cicada_sources", "`cicada_sources(entity_id)` for an `ep_…` conversation"),
         ("cicada_timeline", "`cicada_timeline(since)` for what changed recently"),
         ("cicada_project", "`cicada_project(project)` for where a project stands"),
         ("cicada_backlog", "`cicada_backlog(project)` for a project's backlog"),
     ) if tool in tools]
+    # Lean reads (2026-10-27): "recall first, then ask" made an agent pay for both on a factual question.
+    ask = "A factual question: `cicada_ask`, no recall first." if "cicada_ask" in tools else ""
     if reads:
-        items.append("Recall first: " + ", ".join(reads) + ". State only what the tools returned.")
+        items.append((ask + " " if ask else "Recall first: ") + ("Otherwise: " if ask else "") + ", ".join(reads)
+                     + ". State only what the tools returned.")
+    elif ask:
+        items.append(ask + " State only what the tools returned.")
     if "cicada_check_nudges" in tools:
         answer = (
             "resolve one with `cicada_resolve_inbox(id, option_key)` only with the person's own choice "
@@ -324,9 +333,10 @@ def _prelude(variant: str, skill: str) -> str:
 # `state_dictionary` so the state file and the primer can never drift apart.
 _CONTRACT = (
     "## Contract\n"
-    "1. Recall first: `cicada_recall(query)` at the start of a topic, `cicada_recall_detail(entity_id)` for a "
-    "page, `cicada_ask` for a direct factual question, `cicada_timeline(since)` for what changed recently. State "
-    "only what the tools returned. Ask where a project stands with `cicada_project(project)` and where the "
+    "1. A factual question: `cicada_ask`, no recall first. `cicada_recall(query)` at the start of a topic, "
+    "`cicada_recall_detail(entity_id)` for a page, `cicada_sources(entity_id)` for an `ep_…` conversation, "
+    "`cicada_timeline(since)` for what changed recently. State only what the tools returned. Ask where a project "
+    "stands with `cicada_project(project)` and where the "
     "work in this folder stopped with `cicada_continue()`. When useful, end a working reply with a brief `State:` "
     "(in flight / blocked / next); optional, not a handoff ritual.\n"
     "2. Questions come up naturally or not at all: after `cicada_recall`, `cicada_check_nudges(mode=\"ask\", "

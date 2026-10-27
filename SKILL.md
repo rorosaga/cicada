@@ -66,8 +66,14 @@ bank's current projects and pending questions, and which conversations resume.
 This file only adds the traversal notes below.
 
 ## Two-pass recall (small-model friendly)
-1. `cicada_recall(query)` — Pass 1. Returns concise entity summaries plus an
-   open question only when the query is about that question's own subject.
+0. A direct factual question (who, when, did I, what happened) goes straight to
+   `cicada_ask` — no recall first. It names who was on the other side of each
+   conversation it used ("a Claude Code session (id …, resumable)", "<name> (an AI
+   agent), over Messages"); read one whole with `cicada_sources(entity_id="ep_…")`.
+1. `cicada_recall(query)` — Pass 1. Returns only the pages that match well (at
+   most 5: the best one's summary and distinct key facts, shorter summaries of the
+   rest) plus an open question only when the query is about that question's own
+   subject. Repeated key facts are folded and said in one line.
    Read the summaries and the "Related" list. Each heading says when the page
    was last said and its state (`last said 3 weeks ago on <day> · fading`); a
    page silent for months is a dated belief, so say how old it is before you
