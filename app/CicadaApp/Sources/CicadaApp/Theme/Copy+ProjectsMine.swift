@@ -40,6 +40,12 @@ extension Copy {
             }
         }
 
+        /// A wire day (`YYYY-MM-DD`) as the reader's own words for it (DR-58: `RelativeDay`, never the raw ISO string).
+        static func day(_ raw: String?, today: ISODay = ISODay.today(), locale: Locale = .autoupdatingCurrent) -> String? {
+            guard let raw, let day = ISODay(String(raw.prefix(10))) else { return nil }
+            return RelativeDay.absolute(day, today: today, locale: locale)
+        }
+
         // MARK: The header
         static let editNameHelp = "Rename (Return to save, Esc to cancel)"
         static let editDescriptionHelp = "Edit the description (Return to save, Esc to cancel)"
@@ -55,16 +61,19 @@ extension Copy {
             case "progress": how = "You've logged progress here"
             default: how = "Suggested by Cicada"
             }
-            return day.map { "\(how) · \($0)" } ?? how
+            return Self.day(day).map { "\(how) · \($0)" } ?? how
         }
         static func editedBy(_ by: String, day: String?) -> String {
             let who = by == "user" ? "you" : "\(OriginIconography.label(for: by)) on your ask"
-            return "Description last edited by \(who)" + (day.map { " · \($0)" } ?? "")
+            return "Description last edited by \(who)" + (Self.day(day).map { " · \($0)" } ?? "")
         }
 
         // MARK: Sections
         static let inProgress = "In progress"
         static let done = "Done"
+        static let nothingDone = "Nothing marked done yet."
+        static func showAll(_ n: Int) -> String { "Show all \(UsageFormat.count(n))" }
+        static let showFewer = "Show fewer"
         static let timeline = "Timeline"
 
         // MARK: The knowledge panel
@@ -102,7 +111,7 @@ extension Copy {
             case "sleep": who = "from Sleep"
             default: who = "\(OriginIconography.label(for: by)) wrote"
             }
-            return who + (day.map { " · \($0)" } ?? "")
+            return who + (Self.day(day).map { " · \($0)" } ?? "")
         }
         static let undo = "Undo"
         static let instructions = "Instructions"

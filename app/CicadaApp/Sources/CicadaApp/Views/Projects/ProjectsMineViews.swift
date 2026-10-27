@@ -17,6 +17,8 @@ struct ProjectsSuggestedSection: View {
     let toggle: () -> Void
     let accept: (SuggestedProject) -> Void
     let dismiss: (SuggestedProject) -> Void
+    /// The narrow triage column: every row stacks its buttons under its words (never a truncated label).
+    var compact = false
 
     private var live: [SuggestedProject] { suggested.filter { !$0.dismissed } }
     private var gone: [SuggestedProject] { suggested.filter(\.dismissed) }
@@ -34,7 +36,7 @@ struct ProjectsSuggestedSection: View {
                     .padding(.horizontal, CicadaTheme.scaled(10))
                 ForEach(live) { s in
                     SuggestedProjectRow(suggestion: s, blocked: blocked, accept: { accept(s) },
-                                        dismiss: { dismiss(s) })
+                                        dismiss: { dismiss(s) }, compact: compact)
                 }
                 if !gone.isEmpty {
                     HStack(spacing: CicadaTheme.spacingXS) {
@@ -47,7 +49,8 @@ struct ProjectsSuggestedSection: View {
                     .padding(.horizontal, CicadaTheme.scaled(10))
                     if showDismissed {
                         ForEach(gone) { s in
-                            SuggestedProjectRow(suggestion: s, blocked: blocked, accept: { accept(s) }, dismiss: nil)
+                            SuggestedProjectRow(suggestion: s, blocked: blocked, accept: { accept(s) }, dismiss: nil,
+                                                compact: compact)
                         }
                     }
                 }
@@ -63,6 +66,8 @@ struct SuggestedProjectRow: View {
     let blocked: Bool
     let accept: () -> Void
     let dismiss: (() -> Void)?
+    /// Always the stacked layout (the narrow column); otherwise beside when it fits.
+    var compact = false
 
     private var glyph: some View {
         Image(systemName: Copy.ProjectsMine.reasonGlyph(suggestion.whyKind))
@@ -81,13 +86,25 @@ struct SuggestedProjectRow: View {
             Text(suggestion.why)
                 .font(CicadaTheme.metaFont)
                 .foregroundStyle(CicadaTheme.textTertiary)
-                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
             if let quote = suggestion.quote, !quote.isEmpty {
                 Text("“\(quote)”")   // count-lint:ok — the person's sentence, no number
                     .font(CicadaTheme.metaFont.italic())
                     .foregroundStyle(CicadaTheme.textSecondary)
                     .lineLimit(2)
             }
+        }
+    }
+
+    /// The words over the buttons; the reason wraps, a label never truncates.
+    private var stacked: some View {
+        HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
+            glyph
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                words
+                buttons.fixedSize()
+            }
+            Spacer(minLength: 0)
         }
     }
 
@@ -106,20 +123,19 @@ struct SuggestedProjectRow: View {
     var body: some View {
         // A row wide enough holds the buttons beside the words; the narrow triage column puts them under the words,
         // never truncated.
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
-                glyph
-                words.fixedSize(horizontal: true, vertical: false)
-                Spacer(minLength: CicadaTheme.spacingSM)
-                buttons.fixedSize()
-            }
-            HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
-                glyph
-                VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                    words
-                    buttons.fixedSize()
+        Group {
+            if compact {
+                stacked
+            } else {
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
+                        glyph
+                        words.fixedSize(horizontal: true, vertical: false)
+                        Spacer(minLength: CicadaTheme.spacingSM)
+                        buttons.fixedSize()
+                    }
+                    stacked
                 }
-                Spacer(minLength: 0)
             }
         }
         .padding(CicadaTheme.scaled(10))
@@ -243,6 +259,12 @@ struct ProjectHeaderEditor: View {
             .foregroundStyle(CicadaTheme.textTertiary)
             .lineLimit(1)
         }
+        // Review of #493: a draft is never lost — clicking elsewhere (another project, which rebuilds this column)
+        // saves it to THIS project, as ⏎ would; only Esc drops it.
+        .onChange(of: focused) { _, isFocused in
+            if !isFocused, editing != nil { commit() }
+        }
+        .onDisappear { if editing != nil { commit() } }
     }
 
     private func field(prompt: String, font: Font) -> some View {
@@ -251,6 +273,7 @@ struct ProjectHeaderEditor: View {
             .focused($focused)
             .cicadaField(isFocused: focused, prompt: prompt, isEmpty: draft.isEmpty)
             .onSubmit { commit() }
+            // Esc cancels: `editing` goes first, so the focus loss that follows saves nothing.
             .onExitCommand { Instant.run { editing = nil } }
             .onAppear { focused = true }
     }
@@ -262,12 +285,7 @@ struct ProjectHeaderEditor: View {
     }
 
     private func commit() {
-        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        switch editing {
-        case .name where !text.isEmpty && text != ref.name: save(text, nil)
-        case .description where text != (ref.description ?? ""): save(nil, text)
-        default: break
-        }
+        if let change = ProjectHeaderDraft.change(editing, draft: draft, ref: ref) { save(change.name, change.description) }
         editing = nil
     }
 }
@@ -314,7 +332,8 @@ struct ProjectKnowledgePanel: View {
                         .font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
                 }
                 ForEach(groups, id: \.0) { tag, rows in
-                    SectionLabel(tag).padding(.top, CicadaTheme.scaled(2))
+                    // A kind the record knows labels its group; the rest sit under no label (never "Thing").
+                    if !tag.isEmpty { SectionLabel(tag).padding(.top, CicadaTheme.scaled(2)) }
                     ForEach(rows) { influenceRow($0) }
                 }
             }
@@ -343,10 +362,12 @@ struct ProjectKnowledgePanel: View {
         var order: [String] = []
         var by: [String: [ProjectInfluence]] = [:]
         for row in timeline.influences {
-            if by[row.tag] == nil { order.append(row.tag) }
-            by[row.tag, default: []].append(row)
+            let tag = ProjectInfluence.knownTags.contains(row.tag) ? row.tag : ""
+            if by[tag] == nil { order.append(tag) }
+            by[tag, default: []].append(row)
         }
-        return order.map { ($0, by[$0] ?? []) }
+        // The unlabelled group comes last.
+        return order.filter { !$0.isEmpty }.map { ($0, by[$0] ?? []) } + (by[""].map { [("", $0)] } ?? [])
     }
 
     private func block<C: View>(@ViewBuilder _ content: () -> C) -> some View {
@@ -368,7 +389,7 @@ struct ProjectKnowledgePanel: View {
                 Text(row.title.isEmpty ? Copy.Projects.page : row.title)
                     .font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary).lineLimit(1)
                 Spacer(minLength: CicadaTheme.spacingXS)
-                if let day = row.day {
+                if let day = Copy.ProjectsMine.day(row.day) {
                     Text(day).font(CicadaTheme.metaFont).monospacedDigit().foregroundStyle(CicadaTheme.textTertiary)
                 }
             }
@@ -522,5 +543,19 @@ enum ProjectKnowledgeLayout {
 
     static func sideBySide(available: CGFloat) -> Bool {
         available >= CicadaTheme.scaled(cardWidth * 0.85 + panelWidth + gap)
+    }
+}
+
+
+/// What a header edit sends, if anything: a non-empty new name, or a description that differs (an empty one clears it).
+enum ProjectHeaderDraft {
+    static func change(_ field: ProjectHeaderEditor.Field?, draft: String, ref: ProjectRef)
+        -> (name: String?, description: String?)? {
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch field {
+        case .name where !text.isEmpty && text != ref.name: return (text, nil)
+        case .description where text != (ref.description ?? ""): return (nil, text)
+        default: return nil
+        }
     }
 }

@@ -52,18 +52,6 @@ final class ProjectsMineTests: XCTestCase {
         XCTAssertEqual(cache.displayList?.dismissed, (cache.list?.dismissed ?? 0) + 1)
     }
 
-    func testAConfirmedPaintClearsOnlyOnALaterAnswer() async throws {
-        let wire = try ProjectFixtures.load()
-        let (cache, reads) = await listCache(wire)
-        let id = UUID()
-        cache.paint(.header(id: "pick-and-place-demo", name: "Pick Demo", description: nil), id: id)
-        XCTAssertEqual(cache.displayList?.projects.first { $0.id == "pick-and-place-demo" }?.name, "Pick Demo")
-        cache.confirmPaint(id)
-        reads.listReplies = [.success(Conditional(value: nil, etag: "l1", notModified: true))]
-        await cache.refreshList()
-        XCTAssertTrue(cache.paints.isEmpty, "an answer requested after the confirmation holds the write")
-    }
-
     func testEveryChangeGoesToItsRoute() {
         XCTAssertEqual(ProjectChange.create(name: "A", description: "B").route.path, "/projects")
         XCTAssertEqual(ProjectChange.accept(id: "g-p-abc123", name: "Garden").route.path, "/projects/g-p-abc123/accept")
@@ -116,5 +104,71 @@ final class ProjectsMineTests: XCTestCase {
         XCTAssertEqual(ProjectsListState.of(phase: .loaded, hasList: true, rows: 0, suggestions: 3, lines: 0,
                                             finding: false), .emptyMine)
         XCTAssertEqual(ProjectsListState.of(phase: .loaded, hasList: true, rows: 0, lines: 0, finding: false), .empty)
+    }
+
+    /// Review of #493 (3): Done gathers closed happenings and done milestones, newest first.
+    func testDoneIsNewestFirstAndHoldsOnlyWhatFinished() throws {
+        let t = try ProjectFixtures.timeline("rover-arm-project")
+        let done = ProjectDone.entries(t, backlog: nil)
+        let happenings = t.items.filter { $0.kind == "happening" && $0.state == "done" }.count
+        let milestones = t.milestones.filter { $0.status == "done" }.count
+        XCTAssertEqual(done.filter { $0.kind == .happening }.count, happenings)
+        XCTAssertEqual(done.filter { $0.kind == .milestone }.count, milestones)
+        XCTAssertGreaterThan(done.count, 0, "the demo has finished work — a test over nothing passes vacuously")
+        let days = done.compactMap(\.day)
+        XCTAssertEqual(days, days.sorted(by: >))
+    }
+
+    /// Review of #493 (5): a kind the record does not know is never labelled "Thing".
+    func testAnUnknownKindIsNotAGroupLabel() {
+        XCTAssertTrue(ProjectInfluence.knownTags.contains("Film"))
+        XCTAssertFalse(ProjectInfluence.knownTags.contains("Thing"))
+    }
+
+    /// Review of #493: a paint drawn by the list and the timeline waits for both, so neither flashes the old words.
+    func testAPaintWaitsForEveryReadThatDrawsIt() async throws {
+        let wire = try ProjectFixtures.load()
+        let reads = FakeProjectsAPI()
+        reads.listReplies = [.success(Conditional(value: wire.projects, etag: "l1", notModified: false))]
+        reads.timelineReplies["pick-and-place-demo"] = [
+            .success(Conditional(value: try XCTUnwrap(wire.timelines["pick-and-place-demo"]), etag: "t1",
+                                 notModified: false))]
+        let cache = ProjectsCache(api: reads)
+        await cache.refreshList()
+        let id = UUID()
+        cache.paint(.header(id: "pick-and-place-demo", name: "Pick Demo", description: nil), id: id)
+        cache.confirmPaint(id)
+        await cache.refreshTimeline("pick-and-place-demo")
+        XCTAssertEqual(cache.paints.count, 1, "the list has not answered yet")
+        XCTAssertEqual(cache.displayList?.projects.first { $0.id == "pick-and-place-demo" }?.name, "Pick Demo")
+        reads.listReplies = [.success(Conditional(value: nil, etag: "l1", notModified: true))]
+        await cache.refreshList()
+        XCTAssertTrue(cache.paints.isEmpty)
+    }
+
+    /// Review of #493: what a header edit sends — clicking away saves like ⏎; an unchanged or empty name sends nothing.
+    func testAHeaderDraftSendsOnlyARealChange() throws {
+        let ref = try ProjectFixtures.timeline("pick-and-place-demo").project
+        XCTAssertEqual(ProjectHeaderDraft.change(.name, draft: " Pick Demo ", ref: ref)?.name, "Pick Demo")
+        XCTAssertNil(ProjectHeaderDraft.change(.name, draft: "  ", ref: ref))
+        XCTAssertNil(ProjectHeaderDraft.change(.name, draft: ref.name, ref: ref))
+        XCTAssertEqual(ProjectHeaderDraft.change(.description, draft: "", ref: ref)?.description, "", "clears it")
+        XCTAssertNil(ProjectHeaderDraft.change(nil, draft: "x", ref: ref), "Esc cleared the field first: nothing")
+    }
+
+    /// Review of #493 (DR-58): a day is the reader's words, never the raw ISO string.
+    func testDaysAreSpokenNotIso() {
+        let today = ISODay(year: 2026, month: 10, day: 27)
+        let words = Copy.ProjectsMine.day("2026-08-20", today: today, locale: Locale(identifier: "en_US"))
+        XCTAssertNotNil(words)
+        XCTAssertFalse(words?.contains("2026-08-20") ?? true)
+        XCTAssertFalse(Copy.ProjectsMine.startedLine("app", day: "2026-08-20").contains("2026-08-20"))
+    }
+
+    /// Review of #493: the Reader opened from a project's panel carries the project, so its header offers the untie.
+    func testTheReaderKnowsWhichProjectOpenedIt() {
+        let target = ReaderTarget(episode: "ep_2026-09-12_001", subjectId: "p", fromProject: "p")
+        XCTAssertEqual(target.fromProject, "p")
+        XCTAssertNil(ReaderTarget(episode: "ep_2026-09-12_001").fromProject)
     }
 }

@@ -110,7 +110,7 @@ final class ProjectsCache {
                 list = value
                 listETag = answer.etag
             }
-            if answer.value != nil || answer.notModified { settlePaints(requestedAt: tick) }
+            if answer.value != nil || answer.notModified { settlePaints(requestedAt: tick, read: Self.listKey) }
             listPhase = .loaded
         } catch {
             guard started == epoch, generations.isLatest(Self.listKey, generation) else { return }
@@ -127,7 +127,7 @@ final class ProjectsCache {
             let answer = try await api.fetchProjectTimeline(id: id, etag: timelines[id] == nil ? nil : timelineETags[id])
             guard started == epoch, generations.isLatest(id, generation) || timelines[id] == nil else { return }
             if let value = answer.value { store(value, etag: answer.etag, for: id) }
-            if answer.value != nil || answer.notModified { settlePaints(requestedAt: tick) }
+            if answer.value != nil || answer.notModified { settlePaints(requestedAt: tick, read: "t:\(id)") }
             // Any answer — fresh or a 304 over what is cached — holds every write the server accepted before it was
             // REQUESTED, so it settles a paint confirmed before then.
             if answer.value != nil || answer.notModified {
@@ -159,7 +159,7 @@ final class ProjectsCache {
                 conversations[id] = value
                 conversationETags[id] = answer.etag
             }
-            if answer.value != nil || answer.notModified { settlePaints(requestedAt: tick) }
+            if answer.value != nil || answer.notModified { settlePaints(requestedAt: tick, read: "c:\(id)") }
         } catch {
             // Last-known-good stays (DR-43); the panel says nothing new rather than blanking.
         }
@@ -178,16 +178,25 @@ final class ProjectsCache {
         for p in gone { if let project = p.change.projectId { bump(project) } }
     }
 
-    /// The server accepted it: the paint stays until an answer requested after now holds it.
+    /// The server accepted it: the paint stays until every read that draws it has answered after now — the list, the
+    /// project's timeline, its conversations — so no surface flashes the old words while another answers first.
     func confirmPaint(_ id: UUID) {
         paintClock &+= 1
-        if let i = paints.firstIndex(where: { $0.id == id }) { paints[i].confirmedAt = paintClock }
+        guard let i = paints.firstIndex(where: { $0.id == id }) else { return }
+        paints[i].confirmedAt = paintClock
+        paints[i].awaiting = ProjectPaint.reads(paints[i].change)
+        if paints[i].awaiting.isEmpty { paints.remove(at: i) }
     }
 
-    private func settlePaints(requestedAt tick: Int) {
-        let before = paints.count
-        paints.removeAll { ($0.confirmedAt ?? Int.max) <= tick }
-        if paints.count != before { for key in timelines.keys { bump(key) } }
+    private func settlePaints(requestedAt tick: Int, read: String) {
+        var changed = false
+        for i in paints.indices where (paints[i].confirmedAt ?? Int.max) <= tick && paints[i].awaiting.contains(read) {
+            paints[i].awaiting.remove(read)
+            changed = true
+        }
+        guard changed else { return }
+        paints.removeAll { $0.confirmedAt != nil && $0.awaiting.isEmpty }
+        for key in timelines.keys { bump(key) }
     }
 
     private func store(_ value: ProjectTimeline, etag: String?, for id: String) {
@@ -300,6 +309,19 @@ struct ProjectPaint: Identifiable, Equatable {
     let id: UUID
     let change: ProjectChange
     var confirmedAt: Int?
+    /// The reads that still have to answer (after the confirmation) before the paint goes.
+    var awaiting: Set<String> = []
+
+    /// Which reads draw this paint: the list (`ProjectsCache.listKey`), a timeline (`t:<id>`), conversations (`c:<id>`).
+    static func reads(_ change: ProjectChange) -> Set<String> {
+        let list = "\u{0}list"
+        switch change {
+        case .accept(let id, _), .dismiss(let id), .header(let id, _, _): return [list, "t:\(id)"]
+        case .tie(let id, _, true): return ["t:\(id)", "c:\(id)"]
+        case .withdrawInfluence(let id, _, _, _, _): return ["t:\(id)"]
+        case .create, .tie, .addInfluence: return []
+        }
+    }
 
     init(id: UUID, change: ProjectChange) {
         self.id = id

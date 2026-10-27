@@ -171,12 +171,15 @@ struct ProjectDetailColumn: View {
         let gap: (ProjectSection?) -> CGFloat = { previous in
             CicadaTheme.scaled(previous.map { folded.contains($0) } ?? false ? 6 : 26)
         }
-        header(name: t.project.name, oneLiner: t.project.oneLiner, parent: t.project.parent, ref: t.project)
-        summaryView(ProjectSummary.make(t, state: state, today: today), t)
-        bandView(band, t)
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
+                // The page scrolls as one (review of #493): the header, the summary and the band ride with the story, so
+                // nothing slides under them and the band's labels are never clipped.
+                header(name: t.project.name, oneLiner: t.project.oneLiner, parent: t.project.parent, ref: t.project)
+                summaryView(ProjectSummary.make(t, state: state, today: today), t)
+                bandView(band, t)
+                    .padding(.bottom, CicadaTheme.spacingMD)
                 HStack(alignment: .top, spacing: CicadaTheme.scaled(ProjectKnowledgeLayout.gap)) {
                 // R-FA3 — one lazy stack whose children are every section AND every Lately label and row, so a long
                 // story builds only what is on screen; the gaps the nested stacks gave ride on each child's padding.
@@ -195,10 +198,16 @@ struct ProjectDetailColumn: View {
                                           writesBlocked: blocked)
                     }
                     .padding(.top, gap(nil))
+                    // Ruling 45 (proposal §2.5): In progress · Done · Timeline.
+                    let done = ProjectDone.entries(t, backlog: backlogCache.list(projectId))
+                    section(.done, title: Copy.ProjectsMine.done, meta: UsageFormat.count(done.count)) {
+                        ProjectDoneSection(entries: done)
+                    }
+                    .padding(.top, gap(.now))
                     let latelyOpen = !collapsed.contains(.lately)
                     ProjectSectionHeader(title: Copy.Projects.lately, meta: UsageFormat.count(d.happenings),
                                          isOpen: latelyOpen) { setOpen(.lately, !latelyOpen) }
-                        .padding(.top, gap(.now))
+                        .padding(.top, gap(.done))
                     if latelyOpen {
                         ForEach(ProjectStory.latelyEntries(d.groups)) { entry in
                             latelyEntry(entry, t: t, state: state, names: names, readerEpisode: readerEpisode)
@@ -389,7 +398,7 @@ struct ProjectDetailColumn: View {
     private func knowledgePanel(_ t: ProjectTimeline) -> some View {
         ProjectKnowledgePanel(
             timeline: t, conversations: cache.displayConversations(projectId), blocked: blocked,
-            openConversation: { row in provenance.open(ReaderTarget(episode: row.episodeId, focus: .mention(entityId: projectId), subjectId: projectId, knownTitle: row.title, knownHarness: row.harness)) },
+            openConversation: { row in provenance.open(ReaderTarget(episode: row.episodeId, focus: .mention(entityId: projectId), subjectId: projectId, knownTitle: row.title, knownHarness: row.harness, fromProject: projectId)) },
             untie: { row in Task { await change(.tie(id: projectId, episode: row.episodeId, remove: true)) } },
             openEntity: openEntity, addInfluence: { addingInfluence = true },
             undoInfluence: { row in

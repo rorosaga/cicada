@@ -147,6 +147,10 @@ struct ProjectInfluence: Decodable, Equatable, Identifiable, Sendable {
         page = c.lenient(.page)
     }
 
+    /// The kinds that label a group in the side panel; anything else (the server's "Thing", "Idea", …) sits unlabelled.
+    static let knownTags: Set<String> = ["Film", "Book", "Paper", "Video", "Link", "Person", "Tool", "Podcast",
+                                         "Article", "Media", "Organisation", "Place", "Project"]
+
     /// The person may take back what they added, a link or a claim on the project.
     var undoable: Bool { claimId != nil || ref != nil }
 }

@@ -117,7 +117,8 @@ struct ProjectsPage: View {
                                 accept: { s in
                                     if s.needsName { naming = s } else { Task { await change(.accept(id: s.id, name: nil)) } }
                                 },
-                                dismiss: { s in Task { await change(.dismiss(id: s.id)) } })
+                                dismiss: { s in Task { await change(.dismiss(id: s.id)) } },
+                                compact: plan.listStyle != .wide)
                             .padding(.top, CicadaTheme.scaled(14))
                         }
                     })
