@@ -138,10 +138,10 @@ def test_the_direct_match_sends_a_distinct_name_to_the_judge_not_the_page():
 
 # ---------- item 1: taking part needs the role in the cited words ----------
 
-def _rel(label: str, body: str, quote: str) -> dict:
+def _rel(label: str, body: str, quote: str, kind: str = "assistant") -> dict:
     start = body.index(quote)
     return {"source": "Owner A", "target": "Example Olympiad", "label": label, "starts": "2026-01-01",
-            "evidence": [{"episode": "ep_x", "start": start, "end": start + len(quote), "kind": "assistant"}]}
+            "evidence": [{"episode": "ep_x", "start": start, "end": start + len(quote), "kind": kind}]}
 
 
 def test_a_story_about_an_event_is_a_mention_not_taking_part():
@@ -166,9 +166,52 @@ def test_the_role_in_the_words_keeps_the_relationship():
     assert participation.hold(rel, work) is None
 
 
-def test_an_inference_with_no_quote_never_supplies_the_role():
-    rel = {"source": "Owner A", "target": "Example Hackathon", "label": "won", "evidence": [{"reasoning": "x"}]}
-    assert participation.hold(rel, "anything") == "won"
+def test_no_located_span_keeps_the_claim():
+    """G118: an unlocatable quote becomes reasoning and the claim is still written — dates included."""
+    rel = {"source": "Owner A", "target": "Example Hackathon", "label": "won", "starts": "2026-03-01",
+           "evidence": [{"reasoning": "x"}]}
+    assert participation.hold(rel, "anything") is None
+    assert rel["label"] == "won" and rel["starts"] == "2026-03-01"
+
+
+#: The review's cases (#491): a role said every way people say it.
+REVIEW_CASES = [
+    ("works at", "my new gig at Acme"),
+    ("works at", "I am at Acme since June"),
+    ("works at", "Acme (2023-2024)"),
+    ("placed second at", "We got second at HackX"),
+    ("attended", "I went to HackX last weekend"),
+    ("graduated from", "Me gradué de la UPM en 2023"),
+    ("attended", "Estuvimos en la conferencia X"),
+]
+
+
+def test_the_persons_own_words_keep_every_way_of_saying_a_role():
+    for label, said in REVIEW_CASES:
+        body = f"user: {said}. Anyway, more later."
+        rel = _rel(label, body, said, kind="user")
+        assert participation.hold(rel, body) is None, (label, said)
+        assert rel["label"] == label
+
+
+def test_a_summary_that_only_says_the_story_is_still_a_mention():
+    for label, _said in REVIEW_CASES:
+        body = "assistant: Q4 answer: the HackX story, how the robot project began."
+        rel = _rel(label, body, "the HackX story")
+        assert participation.hold(rel, body) == label, label
+        assert rel["label"] == participation.MENTIONED
+
+
+def test_the_persons_own_words_about_a_story_are_a_mention():
+    body = "user: my application essay was about the HackX story."
+    rel = _rel("competed in", body, "my application essay was about the HackX story", kind="user")
+    assert participation.hold(rel, body) == "competed in"
+
+
+def test_the_role_may_sit_in_the_next_sentence():
+    body = "assistant: Notes on HackX. The team placed and the demo went well. Next steps below."
+    rel = _rel("competed in", body, "Notes on HackX")
+    assert participation.hold(rel, body) is None
 
 
 def test_other_labels_are_not_this_rules_to_judge():
@@ -287,6 +330,14 @@ def test_an_everyday_page_needs_two_subject_words():
     assert inbox_ask_gate.relevant(fm, said, everyday=True) == (False, "everyday_page")
     assert inbox_ask_gate.relevant(fm, "the main project import trial counted the conversations",
                                    everyday=True)[0]
+
+
+def test_an_everyday_question_with_one_subject_word_can_still_pass():
+    """A question whose only subject word is one (``min(EVERYDAY_TERMS, len(about))``) is not unaskable."""
+    fm = {"kind": "conflict", "entity_id": "main-project", "entity_name": "Main Project", "predicate": "license"}
+    assert inbox_ask_gate.subject_terms(fm) == {"licens"}
+    assert inbox_ask_gate.relevant(fm, "which license does the main project use?", everyday=True)[0]
+    assert not inbox_ask_gate.relevant(fm, "the main project needs a new logo", everyday=True)[0]
 
 
 def _episodes_bank(root: Path, n_conversations: int, naming: int) -> Path:

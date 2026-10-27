@@ -125,7 +125,7 @@ def relevant(fm: dict, conversation: str | None, entity_ids=(), *, everyday: boo
         return False, "no_subject"
     shared = about & terms(conversation)
     if everyday:
-        return (True, "same_subject") if len(shared) >= EVERYDAY_TERMS else (False, "everyday_page")
+        return (True, "same_subject") if len(shared) >= min(EVERYDAY_TERMS, len(about)) else (False, "everyday_page")
     return ((True, "same_subject") if shared else (False, "other_subject"))
 
 

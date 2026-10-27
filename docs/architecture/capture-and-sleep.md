@@ -1849,10 +1849,15 @@ for every case, measured on the owner's bank copy (numbers in the report, never 
   story"; the person had not taken part in that event. Stage 1's prompt now says it (TAKING PART NEEDS A ROLE
   IN THE TEXT), and a deterministic guard holds it for any engine (`participation.hold`, right after the G118 span is
   located): a relationship whose label STARTS with a claim of taking part — competed / took part / participated in,
-  won, attended, works / worked / interned at, studied at, enrolled in, graduated from — is kept only when its own
-  located words say a role of that family, not negated ("did not compete"), in English or Spanish. Otherwise it is
-  re-labelled `mentioned`: the link stays, the claim of taking part and its STARTS/ENDS/AT go. A relationship with no
-  located quote is held to the same bar. "competes with", "planned to attend", "works with" are not this rule's.
+  won, attended, works / worked / interned at, studied at, enrolled in, graduated from — is read against its located
+  span's sentence and one sentence either side (speaker labels stripped). **An agent's or a summary's words** (any
+  evidence kind but `user`, where the misread came from): kept only when that window says a role of the family, not
+  negated ("did not compete"), in English or Spanish. **The person's own words:** kept unless the window positively
+  shows a topic marker ("story", "about", "essay on", "topic") and no role word — people say roles every way ("my new
+  gig at …", "Me gradué de …"). **No located span:** kept, dates included (G118: provenance never blocks memory).
+  A relabel makes it `mentioned`: the link stays, the claim of taking part and its STARTS/ENDS/AT go. "competes with",
+  "planned to attend", "works with" are not this rule's (review of #491 narrowed it: 37 of 176 stored claims would
+  have flipped, now 7).
 - **A fuzzy join never takes a name with a word or number the other lacks.** `fuzz.ratio > 85` joined "<agency> <city>"
   to the city's page, "Amazon EBS" to "Amazon EKS", "Course 2" to "Course 1", "ask" to "dask" — at the direct match
   (an entity merged into the wrong page) and at `endpoint_id` (an edge or claim keyed to it). `distinct_names` now
