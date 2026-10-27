@@ -980,7 +980,8 @@ thing ("X is a CI platform. … X is a CI/CD automation platform." keeps the fir
 de-glues an existing Summary on the page's next update. Whatever an orientation loses — a distinct incoming one beside
 a usable Summary, the sentences a lead leaves out, a replaced one — goes through `entity_body.retain_orientation`: a
 sentence equal to a Summary sentence or a Key Fact (`fact_policy`: the same text up to case, accents, whitespace,
-wikilink brackets and trailing punctuation) is dropped; every other sentence becomes a Key Fact. Nothing goes to History any more: the "Undated
+wikilink brackets and trailing punctuation) is dropped; every other sentence becomes a Key Fact (a sentence that leans
+on the one before it stays joined to it: *Facts keep their context*). Nothing goes to History any more: the "Undated
 background:" bullets this replaced repeated Key Facts word for word (667 on the owner's clean run). Incoming facts the
 Summary already holds as the same text are suppressed; existing facts/human prose are never removed. Exact input evidence follows the
 surviving Summary or fact via `section_provenance.merge_selected` (a one-sentence orientation that becomes a fact
@@ -1089,7 +1090,8 @@ said and what day it is now (`api/services/source_dates.py`).
   the person's (`user:`) and whose are the other side's — an AI agent's `assistant:` lines named by the contact
   ("Instinct"), or a person's `speaker:` lines — and that "I" in their lines is them. After the evidence locate, the
   model's own `observer` on a relationship is dropped, and a relationship whose located spans are all the other side's
-  gets observer `external:<name>` (`correspondent_observer`); one the person's words also back stays `agent`
+  gets observer `external:<name>` (`correspondent_observer`; any other assistant's: `assistant_observer`, *Facts keep
+  their context*); one the person's words also back stays `agent`
   (`entities_to_claims` resets it when chunks disagree). Never `user_stated` either way.
   The system prompt's TIME rules say:
   - write as of the conversation's date;
@@ -1438,6 +1440,28 @@ summary and for every relationship); "an explicit link" was any relationship the
   it; the name the conversation used becomes an alias; a merged spelling never renames it), Stage 5 writes the card's
   G61 sources and thumbnail on it as it creates it (`contacts_local.seed_page`), and a second spelling in the same
   batch joins that page (`entity_resolver._card_for` / `_card_entity`). Stage 2 logs a count, never a name.
+- **An application the person acted on (TODO ruling 42, owner 2026-10-27; `api/services/application_page.py`)** is a
+  fifth rung: a specific event, program, hackathon, fellowship, course or opening gets its page from one conversation
+  when Stage 1 marked it with an `application` (status `drafted|filled|sent|registered|accepted|rejected|attended`,
+  `by` user or assistant — the model's field, consumed at Stage 1 and never written) **and** the conversation shows the
+  act: one sentence of a person's own turn (`promotion.PERSON_KINDS`) names it (exact, `project_birth`'s name
+  matching) and says it was done (`application_page.DONE`: applied, registered, signed up, RSVP'd, enrolled,
+  submitted, sent the application/form/request, filled in or out, requested to join, drafted, was accepted/rejected,
+  attended; a few languages), with no question, plan, wish or negation in that sentence (`NOT_DONE`: should I,
+  planning to, going to, want to, thinking of, haven't, not yet…; a sentence ending "?" never counts), or — only in a
+  harness transcript (`capture_kind: transcript`, not relayed) — one sentence of the agent's own line does ("The X
+  form is filled in"). Never a `person`, `tool`, `skill`, `location`, `directory`, `media` or `deadline`; never a
+  save, a bookmark, a mention, a plan, a question, a form named in another sentence, or a texted agent explaining how
+  to apply (only a harness agent acts in the person's tools). The
+  record (`application_birth`: episode, day, status, `by` = `user` or the agent's product name, the session when an
+  agent acted, the name's span) rides on the extraction like `project_birth`. Stage 1 then writes the application on
+  the thing (`record_facts`): a dated fact naming who acted ("As of <day>, Claude Code (session 1a2b3c4d) had filled in
+  <owner>'s application to [[X]]; sending it was left to <owner>."), the open step as an open question when the status
+  leaves one, and the status as a `values[]` entry — a single-valued claim a later conversation's status supersedes,
+  observed `external:<harness>` when the agent acted, carrying the session. What the owner's extraction says about the
+  thing — key facts, summary sentences (each standing alone), history entries naming it — moves onto it
+  (`move_from_owner`); the owner keeps its relationship claim (the link). A thing the model typed `project` with no D4
+  birth is written as the fallback `concept` (ruling 36 D4 still holds). Its decay is the event page's own.
 Below the bar nothing is lost: the pending line now carries what was said — summary, key facts, links, open questions,
 aliases, their G118 item records and every conversation that named it (`heard_in`) — and a re-park unions instead of
 replacing. When a later conversation promotes the name, the line is folded into the create through the same seam a
@@ -1998,6 +2022,52 @@ where it stands, the facts worth remembering once each. What changed, besides pr
   commit (`trigger: maintenance/page-quality`), refused while Sleep runs, dirty pages and pages with free prose in a
   list section skipped (`skipped_free_prose`). Near-duplicate facts
   already on a page and one-conversation pages are counted, never changed.
+
+### Facts keep their context (2026-10-27)
+
+A Key Fact is read alone — by recall, by `cicada_ask`, on an owner page of ~2,000 Key Facts — so it must say what it
+is about, who did it, and never say one thing twice. Four mechanisms, each engine-free except the prompt:
+
+- **A displaced orientation splits into facts that stand alone (`fact_policy.standalone`).** Before, every writer that
+  turned an orientation which lost the Summary into Key Facts (`entity_body.retain_orientation`,
+  `merge_sections_fallback`, `entity_orientation.compose`, `pending_store._carry`, `entity_resolver`'s same-name fold)
+  split it at every sentence, so "<owner> … is applying to [[X]]. As of <day> he had the application form filled in …"
+  became two bullets and the second named no event (owner bank: 322 owner bullets name nothing beyond the owner; 58 of
+  them sit, unrecorded, right after a sentence naming a thing — the split's signature). Now a sentence that **leans**
+  (`fact_policy.leans`) stays joined to the one before it when that one names something other than the page: it names
+  nothing beyond the page (no wikilink, no capitalised word but the first, a month, a weekday or "I"), or it opens with
+  a pronoun or demonstrative after a sentence not about the page (one that does not open with the page's name or a
+  pronoun). A leading date phrase ("As of 2026-10-21", "In March 2026,") is read past. Lossless: words are only kept
+  together. `entity_body.lead` keeps a leaning sentence with the one it leans on when that one leaves the Summary.
+  `fact_policy.sentences` (the Summary's own sentence list, dedup) is unchanged.
+- **One fact said twice folds when written (`fact_policy.extends`, `fold_extensions`; ruling 23's trigger).** A fact
+  folds into another only when every word of it is there, in order, at the start of the other (after an optional
+  leading date phrase), and the other goes on past a clause boundary (`, ; : . ! ?` and a space, a dash, a bracket, or
+  with / which / who / whose / where / including / via / through) — "Rolling admissions" into "Rolling admissions with
+  no deadline, …". Never inside a word or a number ("Acme" / "Acme's competitor", "200" / "200,000"), never past "or",
+  "but", "than", "until" or "to", never a dated fact into an undated one. The longer takes the shorter's place, so no
+  word, date or number is lost, and the folded fact's G118 rows move onto it (`section_provenance.refresh` and
+  `merge_selected`). `fact_policy.union` and `entity_body._merge_facts` apply it — existing bullets included on a
+  machine page, never on a page a person edited (`extend_existing=False`). Measured on the owner bank: 109 facts on 79
+  pages fold, every one of 25 sampled loss-free. Paraphrase is not touched: ~2,700 facts on 477 pages pair up at
+  content-word Jaccard ≥ 0.6, and 2,741 Key Facts on 772 pages re-introduce their page ("X is a …", a displaced
+  orientation) — only the opt-in synthesis call folds those (ruling 23).
+- **Who said it, who did it.** A claim resting only on the other side's words is theirs (`entity_extractor
+  .assistant_observer`): a texted agent's (G179), and now a harness session's agent (`external:<harness>`) and a chat
+  export's assistant (`external:chatgpt|claude|gemini`); a relayed episode (`evidence_kind`) keeps its own rail. Such
+  an observer shares Cicada's own `agent` slot in the reconciler (`claim_reconciler.slot_observer`: the same
+  extraction of the same conversation), so a newer value or application status closes an older one whichever wrote
+  it, a restatement reinforces, and the bank's assistant-only claims already written `agent` need no repair; the trust
+  table and the owner's-words rail keep either from closing the person's own claim (an agent-only status after the
+  person's own words is asked about). A
+  harness transcript's chunks open with a note naming the agent (`agent_session_note`): what it says it did is its
+  act, a step it left to the person is not done. The prompt's KEY FACTS: every fact stands alone and names its thing;
+  WHO DID IT — the person's act only from their own lines or a record (a confirmation, a receipt); an explanation or a
+  suggestion is never the person's act, a plan stays a plan; an agent's act names the agent, and a step it left is a
+  fact, an open question and a status value on the thing.
+- **The session rides the claim.** `_get_unprocessed_episodes` passes `harness` and `capture_kind`; every Stage-1 claim
+  read from an episode with a `session_id` carries it in `session_ids` (the Sleep claim's `session_id` scalar stays the
+  MCP writer's, empty). Owner bank before: 2,147 of 2,150 claims from harness sessions carried none.
 
 ### Pages as articles (G194, 2026-10-09)
 The owner: "i dont get yet why the consolidation as wikipedia articles of stuff still doesnt fill like this?" — pages

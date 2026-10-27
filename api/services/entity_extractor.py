@@ -40,6 +40,7 @@ Output valid JSON with this exact structure:
       "confidence": 0.7,
       "decay_class": "durable|active|volatile",
       "website": "https://example.com   (optional; company, tool or project only)",
+      "application": {"status": "drafted|filled|sent|registered|accepted|rejected|attended", "by": "user|assistant"},
       "description": "Optional. Same content as summary; kept only for backward compatibility."
     }
   ],
@@ -80,16 +81,34 @@ SUMMARY (## Summary) — one paragraph, at most 600 characters:
 - skill: 1 sentence, written as an instruction. person, tool, concept, location, directory: 1-2
   sentences. project, company: 2-3 sentences.
 - Introduce the thing once. Atomic facts belong in key_facts, not in the summary.
+- A sentence about something other than the entity names it ("is applying to [[<event>]]; its form
+  was filled in on …"), never "the form", "the event" or "it" left for the sentence before to explain.
 
 KEY FACTS (## Key Facts) — facts about the thing worth remembering:
 - First the user's relation to it: what they built, chose, use it for, decided, plan, think of it.
 - Then durable facts about the thing that this conversation established: roles, components the
   user relies on, dates-as-facts, identifiers, quantities, prices, versions the user chose,
   locations, affiliations, contact handles.
+- Every fact stands alone: it is read without the facts around it, on a page that may hold thousands.
+  Name what it is about — "the [[<event>]] application form", never "the application form",
+  "the event", "the trip" or "it" when the thing has a name — on whichever entity it sits, the user's
+  own included.
 - Write each fact about the thing, not about the conversation: never "the assistant suggested /
   said / recommended / explained …", "was described as …", "was mentioned / discussed in a
-  conversation", "the user asked about …". When the user acted on an assistant's suggestion, write
-  what they did or decided; a suggestion nobody took up is not a fact about the thing.
+  conversation", "the user asked about …".
+- WHO DID IT. What the user did, decided, has or plans comes only from the user's own lines, or from a
+  record the conversation shows (a confirmation, a receipt, an order or booking number). An assistant's
+  explanation, suggestion or instruction ("the link is for registering", "register soon") is never
+  written as the user's act: "registered", "booked", "applied", "sent", "paid" need the user's own
+  words or such a record. A stated plan stays a plan ("planned to register"). When the user says they
+  acted on a suggestion, write what they did; a suggestion nobody took up is not a fact about the thing.
+- An act the assistant did itself in the user's tools — filled in a form, drafted, booked, uploaded,
+  sent — is the assistant's: write it with the assistant's name as the note before the conversation
+  gives it ("[[<agent>]] filled in the [[<event>]] application form on <date>"), never as the
+  user's, and never as "the assistant". A step it left to the user (submit, send, pay, confirm) is not
+  done: say so on the thing it belongs to ("the request to join had not been sent as of <date>"), add
+  an open question there ("Has <user> sent the [[<event>]] request to join?"), and give that
+  thing a status value (VALUES).
 - Leave out implementation trivia of a single debugging or how-to session — an artifact or file
   name, an action or package version, an error message, a command, a line of code — unless the user
   said it matters beyond that session.
@@ -131,6 +150,17 @@ WEBSITE (optional, company, tool or project ONLY) — the entity's own official 
 - An origin URL only ("https://example.com"): never a profile, an article, a repository host or a social page.
 - Omit it when unsure. A guess is worse than nothing: it is checked against the site itself and removed when wrong.
 
+APPLICATION (optional, per entity) — only on a SPECIFIC event, program, hackathon, fellowship, course or job
+opening the user acted on in this conversation: applied to it, registered or signed up for it, filled in its form —
+or the assistant did one of those for them in their tools ("by": "assistant").
+- status: where it stands at the end of the conversation — drafted, filled (form filled in, not sent), sent,
+  registered, accepted, rejected, attended.
+- The entity is the event or program itself (its own name), never the user. Its facts — the form, the dates, the
+  status, what is left to do — go on it, not on the user's own entity; the user keeps only the relationship
+  ("<user> applied to <event>").
+- Never for a bookmark, a link saved for later, a thing only mentioned or considered, or an assistant only
+  explaining how to apply. Omit the field otherwise.
+
 TIME (every conversation is written up as of its own date):
 - A note before the conversation gives the date it took place and today's date. Write what it says as of the
   conversation's date, never as of today.
@@ -150,7 +180,9 @@ TIME (every conversation is written up as of its own date):
 
 VALUES (values[]) — a value of something about an entity that a later conversation can replace with a new one:
 a count ("korean restaurants tried": "4"), a time, score or personal best ("charity 5k personal best": "25:50"),
-a price or amount, a size, a version or plan in use, a current status. One entry per value the conversation
+a price or amount, a size, a version or plan in use, a current status — an application, booking, order or
+message the conversation leaves part-done included ("application status": "form filled in, not sent"), so a
+later conversation's "sent" or "accepted" replaces it. One entry per value the conversation
 states as true at the time; when it states two for the same thing, the later one.
 - attribute: the thing measured, in plain lowercase words, without the entity's name and without the value — the
   words someone would use for it again next time ("personal best 5k time", not "new record set last spring").
@@ -404,6 +436,90 @@ def correspondent_observer(correspondent: dict | None) -> str | None:
     return f"external:{slug}" if slug and slug != "unnamed" else None
 
 
+def _agent_name(episode: dict) -> str | None:
+    """The agent whose words are an episode's ``assistant:`` lines, from the episode's own record: the harness that
+    captured the session (``claude-code``, ``codex``…), else a chat export's app (``chatgpt-export`` → ``chatgpt``).
+    ``None`` for a message conversation (its correspondent says who), a relayed one (``evidence_kind``: stored as
+    relayed, its own rail) and anything else."""
+    if isinstance(episode.get("correspondent"), dict) or episode.get("evidence_kind"):
+        return None
+    from api.services.episode_title import assistant_of
+
+    harness = str(episode.get("harness") or "").strip().lower()
+    return assistant_of(harness) or assistant_of(episode.get("origin"))
+
+
+def agent_session_note(episode: dict) -> str | None:
+    """The note for a harness-captured session: its ``assistant:`` lines are that agent, acting in the person's tools
+    (its acts are its own, a step it left to the person is not done). ``None`` for every other episode."""
+    harness = str(episode.get("harness") or "").strip().lower()
+    if not harness or episode.get("capture_kind") != "transcript" or _agent_name(episode) is None:
+        return None
+    from api.services.episode_title import PRODUCT
+
+    name = PRODUCT.get(harness, harness)
+    return (f'[Source: a {name} session. Lines starting "user:" are the person\'s own messages; lines starting '
+            f'"assistant:" are {name}, an AI agent working for the person in their tools. What {name} says it did '
+            f"(filled in a form, wrote or sent something, booked) is {name}'s act, never the person's; a step it left "
+            "to the person (submit, send, pay, confirm) is not done.]\n\n")
+
+
+def assistant_observer(episode: dict) -> str | None:
+    """``external:<name>`` — the observer of a claim drawn only from the other side's words: a message conversation's
+    correspondent (G179), else the agent whose ``assistant:`` lines they are (:func:`_agent_name`). ``None`` when the
+    episode names neither."""
+    observer = correspondent_observer(episode.get("correspondent"))
+    if observer:
+        return observer
+    from api.services.id_utils import sanitize_id
+
+    agent = _agent_name(episode)
+    slug = sanitize_id(agent) if agent else ""
+    return f"external:{slug}" if slug and slug != "unnamed" else None
+
+
+def _is_owner(entity: dict, owner: str | None) -> bool:
+    from api.services.owner_identity import is_self_reference
+    from api.services.text_fold import fold
+
+    name = " ".join(str(entity.get("name") or "").split())
+    return bool(name) and ((bool(owner) and fold(name) == fold(owner)) or is_self_reference(name))
+
+
+def _application_pages(entities: list, episode: dict, episode_id: str, content: str, *, owner: str | None,
+                       day: str | None, gaps=()) -> list[tuple[dict, bool]]:
+    """Ruling 42 at Stage 1 (`application_page`): mark each entity this conversation shows the person (or a harness
+    agent, for them) acted on, write its application onto it, and move what the owner's extraction says about it
+    there. The model's ``application`` field is consumed here and never reaches a page. Returns the status values to
+    add, each with whether an agent acted."""
+    from api.services import application_page
+
+    marked = []
+    for entity in entities:
+        if not isinstance(entity, dict):
+            continue
+        entity.pop(application_page.KEY, None)  # never the model's to set
+        birth = None
+        if not _is_owner(entity, owner):
+            birth = application_page.at_extraction(entity, episode_id=episode_id, frontmatter=episode, text=content,
+                                                   day=day, override=episode.get("evidence_kind"), gaps=gaps)
+        entity.pop("application", None)
+        if birth is not None:
+            entity[application_page.KEY] = birth
+            marked.append(entity)
+    if not marked:
+        return []
+    owners = [e for e in entities if isinstance(e, dict) and _is_owner(e, owner)]
+    values = []
+    for entity in marked:
+        for owner_entity in owners:
+            application_page.move_from_owner(owner_entity, entity)
+        value = application_page.record_facts(entity, entity[application_page.KEY], owner=owner)
+        if value is not None:
+            values.append((value, entity[application_page.KEY]["by"] != "user"))
+    return values
+
+
 def _only_their_words(rel: dict) -> bool:
     """Every located span of ``rel`` sits in the other side's turns (``assistant`` or ``speaker``), and there is one."""
     spans = [e for e in rel.get("evidence") or [] if isinstance(e, dict) and e.get("kind") != "reasoning"]
@@ -648,8 +764,10 @@ async def extract(
         else:
             date_note = source_dates.date_note(ep_day, today)
         # G179: a message conversation says who its other side is, before every chunk.
-        source_note = correspondent_note(episode.get("correspondent"))
-        their_observer = correspondent_observer(episode.get("correspondent"))
+        # A harness session says whose its assistant lines are, and that their acts are not the person's.
+        source_note = correspondent_note(episode.get("correspondent")) or agent_session_note(episode)
+        their_observer = assistant_observer(episode)
+        session_id = str(episode.get("session_id") or "").strip() or None
 
         async with semaphore:
             # Sleep-control checkpoint 2: this task may have waited a while
@@ -705,6 +823,10 @@ async def extract(
                 # The promotion rule's "more than 3 exchanges" and "the person's own words", counted on the
                 # conversation itself (`promotion`), never guessed from what the model wrote about it.
                 units = promotion.exchanges(content, override=episode.get("evidence_kind"), gaps=gaps)
+                # Ruling 42: a specific event, program or application the person (or an agent, for them) acted on
+                # gets its page from this one conversation, and the application lives there, not on the owner's.
+                app_values = _application_pages(all_entities, episode, ep_id, content, owner=owner,
+                                                day=ep_day.isoformat() if ep_day and not untimed else None, gaps=gaps)
                 narration = 0
                 for entity in all_entities:
                     facts = entity.get("key_facts")
@@ -746,7 +868,8 @@ async def extract(
                     rel["source_episode_timestamp"] = episode.get("timestamp")
                     rel["origin"] = ep_origin
                     # The observer is never the model's to set; G179: a claim resting only on the other side's
-                    # words is theirs (`external:<name>`), never the person's and never Cicada's own reading.
+                    # words is theirs (`external:<name>`), never the person's and never Cicada's own reading —
+                    # a texted agent's, a harness session's agent's or a chat export's assistant's alike.
                     rel.pop("observer", None)
                     if their_observer and _only_their_words(rel):
                         rel["observer"] = their_observer
@@ -757,6 +880,13 @@ async def extract(
                     value.pop("observer", None)
                     if their_observer and _only_their_words(value):
                         value["observer"] = their_observer
+                for value, by_agent in app_values:
+                    value["source_episode"] = ep_id
+                    value["source_episode_timestamp"] = episode.get("timestamp")
+                    value["origin"] = ep_origin
+                    if by_agent and their_observer:
+                        value["observer"] = their_observer  # the agent's act, as the agent reported it
+                    all_values.append(value)
 
                 results[i] = {
                     "episode_id": ep_id,
@@ -766,6 +896,10 @@ async def extract(
                     "relationships": all_relationships,
                     "values": all_values,
                 }
+                if session_id:
+                    # The session it was said in, from the episode's own record: every claim read from it carries
+                    # it (`entities_to_claims`), so an agent's act names the session that did it.
+                    results[i]["session_id"] = session_id
                 # G179: the other side of a message conversation is its own page, of its own type — the entity
                 # that names them is marked (and typed) here, from the episode's own record (`correspondents`).
                 correspondents.mark_extraction(results[i], episode.get("correspondent"))
@@ -923,6 +1057,8 @@ def entities_to_claims(
     for extraction in extracted:
         episode_id = str(extraction.get("episode_id", "") or "")
         origin = str(extraction.get("origin") or "unknown")
+        # The session the episode was captured in (its own record): which session said, or did, what a claim holds.
+        sessions = [str(extraction["session_id"])] if extraction.get("session_id") else []
         for rel in extraction.get("relationships", []) or []:
             source = str(rel.get("source", "") or "").strip()
             target = str(rel.get("target", "") or "").strip()
@@ -991,6 +1127,7 @@ def entities_to_claims(
                 origin=origin,
                 evidence=rel_evidence,
                 expected_end=expected_end,
+                session_ids=list(sessions),
             )
             # The pre-normalization label (for the Stage-3 normalization audit).
             setattr(claim, "predicate_raw", raw_label)
@@ -1004,6 +1141,7 @@ def entities_to_claims(
             claim = _value_claim(value, episode_id, origin, to_id)
             if claim is None:
                 continue
+            claim.session_ids = list(sessions)
             if claim.id in by_id:
                 first = by_id[claim.id]
                 for ev in claim.evidence:

@@ -98,9 +98,32 @@ def is_external(c: Claim) -> bool:
     return c.source_trust == "external"
 
 
+def slot_observer(c: Claim) -> str:
+    """The observer a claim's slot is keyed by. Cicada's own reading (``agent``) and the conversation's own assistant
+    (``external:<the agent its origin names>``: ``external:claude-code`` on a ``claude-code`` claim,
+    ``external:chatgpt`` on a ``chatgpt-export`` one — `entity_extractor.assistant_observer`, 2026-10-27) share one
+    slot: both are read from the same conversation by the same extraction, only whose words back it differs. So a newer
+    value closes an older one whichever of the two wrote it, a restatement reinforces instead of opening a second claim,
+    and the bank's assistant-only claims written as ``agent`` before 2026-10-27 need no repair. The trust table and
+    the owner's-words rail (`inbox_tend.may_close`) still decide: neither ever closes the person's own claim. A texted
+    agent or another person (``external:<correspondent>``, G179) and every other ``external:`` keep slots of their own."""
+    observer = c.observer or ""
+    if observer.startswith("external:"):
+        from api.services.episode_title import assistant_of
+        from api.services.id_utils import sanitize_id
+
+        # Only an assistant's origin: a harness, or a chat export. `external:linkedin` is a source's word, never the
+        # conversation's assistant.
+        agent = assistant_of(c.origin)
+        if agent and observer == f"external:{sanitize_id(agent)}":
+            return "agent"
+    return observer
+
+
 def K(c: Claim) -> tuple[str, str, str, str]:
-    """The mechanical belief-slot key: (subject, predicate, context, observer)."""
-    return (c.subject, c.predicate, c.context, c.observer)
+    """The mechanical belief-slot key: (subject, predicate, context, observer) — the observer as
+    :func:`slot_observer` reads it."""
+    return (c.subject, c.predicate, c.context, slot_observer(c))
 
 
 def open_(c: Claim) -> bool:
@@ -764,7 +787,7 @@ def _adopt_value_attribute(new: Claim, slot: list[Claim]) -> None:
     if any(open_(c) and K(c) == K(new) for c in slot):
         return
     match = next((c for c in slot if open_(c) and is_value_claim(c) and c.subject == new.subject
-                  and c.context == new.context and c.observer == new.observer
+                  and c.context == new.context and slot_observer(c) == slot_observer(new)
                   and same_value_attribute(c.predicate, new.predicate)), None)
     if match is not None:
         new.predicate = match.predicate

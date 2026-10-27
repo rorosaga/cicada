@@ -1867,3 +1867,31 @@ A whole row moves to DONE only after its remaining implementation and required a
     index per run (`NameIndex`): 2.3 ms a name on a synthetic 2,500-page bank with ~20k aliases. **Revisit** if a
     nickname-titled page is renamed by the person to its nickname again, or a held common-nickname mention is later
     found to have been someone's only name.
+42. **An event, program or application the person acted on gets its own page from one conversation, and the
+    application lives there (owner, 2026-10-27; G194, G141; branch `fix/facts-keep-context`).** The owner's words: "I
+    think it will be useful to have them as pages, maybe for a specific event/program/etc, and in it info about the
+    application. Like seeing info about 'Rodrigo applied to this and this' on my page makes it so my page is huge, and
+    full of stale information. If smth goes stale it should be the specific event." **As built (`application_page`):**
+    a named exception to the 2-conversation promotion rule — one conversation is enough when Stage 1 marks a specific
+    event, program, hackathon, fellowship, course or opening with an `application` (status drafted / filled / sent /
+    registered / accepted / rejected / attended) AND the conversation shows the act: one sentence of the person's own turn
+    names it and says it was done (applied, registered, signed up, submitted, filled in, requested to join…), with no
+    question, plan, wish or negation in it, or — in a harness transcript only — one sentence of the agent's own line
+    does ("the X form is filled in"). Never a person, tool, skill, place or folder; never a bookmark, a save, a
+    mention, a plan, a question ("Should I register for X?") or a texted agent explaining how to apply. An agent's
+    status and the person's later one are one belief: the agent's `external:<harness>` shares Cicada's own slot
+    (`claim_reconciler.slot_observer`), so the newer closes the older — except that an agent-only status never closes
+    the person's own words (the owner's-words rail asks instead). The page holds the application: a dated fact
+    with who acted (the agent and the first 8 characters of its session, from the episode's own record), the open step
+    as an open question, and the status as a value claim a later status replaces (observed `external:<agent>` when the
+    agent acted, with the session). Stage 1 moves what the owner's extraction says about the thing (key facts, summary
+    sentences, history) onto it; the owner keeps the relationship claim — the link — and nothing else. A thing the model
+    typed a project without a D4 birth is written as the fallback `concept`, never a project. Decay and staleness are
+    the event page's own. **Dry run (owner bank copy, 2026-10-27):** 39 owner-page lines carry an act word; a reading
+    picks 12 about 6 events, and the gate (re-checked on each event's own conversations) passes 3: 8 lines move to
+    Exponential Community, Arctic Express and Antigravity; Cambridge MLMI ("applying", never "applied"), a YC hackathon
+    and a design talk (attended, but no sentence of the person's says so) stay; owner page 481,809 → 480,954 bytes — stale "applied to" lines are a small part of
+    its size (report `facts-keep-context.md`). The repair of existing pages waits for the owner's approval of that list. A "did you send
+    it?" nudge is a follow-up (it must go through the inbox and ask-gate rails). **Revisit** if a one-conversation
+    event page is archived unread by the person more often than not, or a real application is missed because the person's
+    words name it only by a pronoun.

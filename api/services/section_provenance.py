@@ -10,7 +10,7 @@ import re
 from collections import Counter
 from dataclasses import dataclass, replace
 
-from api.services import entity_body, evidence
+from api.services import entity_body, evidence, fact_policy
 from api.services.claims import Evidence
 
 FIELD = 'section_provenance'
@@ -284,7 +284,13 @@ def merge_selected(base: dict, incoming: dict, selected: dict) -> list[dict]:
         for value in values:
             if isinstance(value, str):
                 text = value.strip()
-                rows = by_text.get(text)
+                rows = dict(by_text.get(text) or {})
+                if field == 'key_facts':
+                    # A fact folded into this one (`fact_policy.extends`) brings its source rows with it.
+                    for other, other_rows in by_text.items():
+                        if other != text and fact_policy.extends(text, other):
+                            for key, ev in other_rows.items():
+                                rows.setdefault(key, ev)
                 if rows:
                     records.setdefault((field, text), {'field': field, 'text': text, 'evidence': list(rows.values())})
     return list(records.values())
@@ -301,6 +307,8 @@ def refresh(frontmatter: dict, original_body: str, body: str, entity: dict, *, s
     if raw is not None and decoded is None:
         return  # preserve unknown/malformed metadata without recertification
     old = matched(frontmatter, original_body)
+    texts = {section: {item.key: item.text for item in items}
+             for section, items in scan(original_body).items() if section == 'key_facts'}
     incoming = {}
     selected_summary = 'description' if synthesized else ('summary' if entity.get('summary') else 'description')
     for record in entity.get(INPUTS, []) or []:
@@ -312,6 +320,8 @@ def refresh(frontmatter: dict, original_body: str, body: str, entity: dict, *, s
             continue
         text = record['text']
         item = _item(text, ())
+        if section == 'key_facts':
+            texts.setdefault(section, {}).setdefault(item.key, text)
         entry = incoming.setdefault(section, {}).setdefault(item.key, (item.text_hash, []))
         if entry[0] == item.text_hash:
             for ev in record['evidence']:
@@ -321,9 +331,14 @@ def refresh(frontmatter: dict, original_body: str, body: str, entity: dict, *, s
     decoded = decoded or {}
     unavailable = unavailable_sections(original_body, decoded) | unavailable_sections(body, decoded)
     records = {section: items for section, items in decoded.items() if section in unavailable}
-    for section, items in scan(body).items():
+    current = scan(body)
+    for section, items in current.items():
         if section in unavailable:
             continue
+        # A fact folded into one that says it word for word and then more (`fact_policy.extends`) is gone from the
+        # page; its source rows move onto the fact that now holds it, so no source is lost with the repeat.
+        present = {item.key for item in items}
+        folded = [(key, text) for key, text in texts.get(section, {}).items() if key not in present]
         for item in items:
             if item.ambiguous:
                 continue
@@ -332,6 +347,12 @@ def refresh(frontmatter: dict, original_body: str, body: str, entity: dict, *, s
                 value = candidates.get(section, {}).get(item.key)
                 if value and value[0] == item.text_hash:
                     evs.extend(ev for ev in value[1] if ev not in evs)
+            for key, text in folded:
+                if fact_policy.extends(item.text, text):
+                    for candidates in (old, incoming):
+                        value = candidates.get(section, {}).get(key)
+                        if value and value[0] == evidence.body_hash(text):
+                            evs.extend(ev for ev in value[1] if ev not in evs)
             if evs:
                 records.setdefault(section, {})[item.key] = (item.text_hash, evs)
     if records or raw is not None:

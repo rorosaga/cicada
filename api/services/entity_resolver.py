@@ -13,8 +13,8 @@ from loguru import logger
 from thefuzz import fuzz
 
 from api.config import Settings
-from api.services import (agent_engine, alias_policy, contacts_local, correspondents, engine_errors, entity_body,
-                          entity_types, fact_policy, json_parse, owner_identity, people_directory, person_leads,
+from api.services import (agent_engine, alias_policy, application_page, contacts_local, correspondents, engine_errors,
+                          entity_body, entity_types, fact_policy, json_parse, owner_identity, people_directory, person_leads,
                           project_birth, promotion, quiet_pages, role_people, section_provenance, text_fold)
 from api.services.clarification_manager import (
     CONFIDENCE_THRESHOLD,
@@ -511,10 +511,14 @@ async def resolve(
             if pending_entry is not None and not pending_entry.episodes():
                 heard_before = {"(unrecorded)"}  # a line from before episodes were kept: an earlier conversation
 
+            # Ruling 42: one conversation is enough for a specific event, program or application the person (or an
+            # agent, for them) acted on — measured on the conversation at Stage 1 (`application_page`).
+            applied = application_page.birth_of(entity, siblings)
             should_promote = (
                 len(heard_now | heard_before) >= settings.sleep_promotion_threshold
                 or linked_to_existing
                 or any(promotion.substantive(e) for e in (entity, *siblings))
+                or applied is not None
             )
             card = None if ambiguous_match else _card_for(entity, siblings, waiting_cards, person_keys, episode_kind,
                                                           memory_path=Path(settings.memory_path))
@@ -535,6 +539,12 @@ async def resolve(
             birth = project_birth.birth_of(entity, siblings)
             # W4: the gate reads the type the create will WRITE — a sibling's "project" overrides a "concept" when the
             # payloads merge (`_merge_entity_payload`), so a page was once written as a project with no birth.
+            if _written_type(entity, siblings) == "project" and birth is None and applied is not None:
+                # Ruling 42: an event or program applied to is no project (D4 still holds); its page is the fallback
+                # type, born from the application.
+                for e in (entity, *siblings):
+                    if e.get("type") == "project":
+                        e["type"] = project_birth.FALLBACK_TYPE
             if _written_type(entity, siblings) == "project":
                 if birth is None and not ambiguous_match:
                     # Owner 2026-10-23 (amends D4): no birth, so never a project page — but one thing said under
@@ -1062,9 +1072,11 @@ def _merge_entity_payload(base: dict, incoming: dict) -> dict:
     said = fact_policy.sentences(chosen)
     key_facts = [f for f in key_facts if not fact_policy.covered(str(f), said)]
     folded = " ".join(chosen.split()).lower()
+    names = [merged.get("name"), base.get("name"), incoming.get("name"),
+             *_union_text(base.get("aliases"), incoming.get("aliases"))]
     for text in (base_text, incoming_text, *_effective_summaries(base), *_effective_summaries(incoming)):
         if text and " ".join(text.split()).lower() not in folded:
-            for sentence in fact_policy.sentences(text):
+            for sentence in fact_policy.standalone(text, names):
                 if not fact_policy.covered(sentence, said + [str(f) for f in key_facts]):
                     key_facts = _union_text(key_facts, [sentence])
     if key_facts:
