@@ -278,8 +278,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   undoable under "Settled by a check"; never a person's name, their files, projects or life (`mcp.md`); it is the default
   path on every plan run plus a one-off backlog sweep, and Cicada's own settings are never asked (27b, 2026-10-19).
   **Ruling 44 (owner, 2026-10-27) amends 27 and 40:** a public page — a public figure only by the public test (one
-  encyclopedia match, no personal relation; err private), a company, program, tool or place — gets cited, dated world
-  facts on plan runs (never a metered key), re-checked by use and volatility, never over the person's own words; a private
+  encyclopedia match, no acquaintance on the record; err private), a company, program, tool or place — gets cited, dated
+  world facts on plan runs (never a metered key), re-checked by use and volatility, never over the person's own words
+  about their own life; a private
   person's name never reaches any service; every page says why it matters to the person, derived on read (`web_context`,
   `page_relevance`, `storage.md`). **A tracked source's
   dated re-check does (ruling 26):** a new dated fact; the newest evidence wins, even over the person's own words; the same

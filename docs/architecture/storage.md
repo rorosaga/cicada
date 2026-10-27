@@ -815,9 +815,13 @@ Round 4 (C2–C4):
   founded/built/owns it); a `concept` or a `person` only when, after the local test, Wikidata has exactly ONE item that
   IS the name, of the right kind (a human for a person, not one otherwise), with a Wikipedia article. A person's local
   test, with nothing sent: a full name, not relation-shaped or role-only (`unnamed`, `owner_roles`); no relation to the
-  owner on either page but consuming their public work (watched, read, saved, follows); no sentence of the prose naming
-  the owner (a surname the subject shares excepted) or "the user"/"you" outside that sense; no conversation from a
-  personal channel (`imessage`, `email`, `linkedin` …); and a public role on the page (founder, author, researcher …).
+  owner on either page that says they know each other — met, talked or messaged, friend, family, partner, colleague
+  or classmate, a contact, invited by, interviewed by, taught or supervised (`_ACQUAINTANCE`; being inspired by,
+  reading, watching, quoting, citing, following or admiring their public work is not acquaintance); no sentence of the
+  prose naming the owner (a surname the subject shares excepted) or "the user"/"you" with such a word; no conversation
+  from a personal channel (`imessage`, `email`, `linkedin` …); and a public cue on the page — a public role (founder,
+  author, researcher …) or public work (a talk, a tweet, a book, a video, a role at a company). A Wikidata error body
+  or a failed request is `lookup_failed`: private for now, never cached.
   Failing it, the name reaches no service. Never the owner, a `project`, `skill`, `directory`, `deadline` or `media`
   (ruling 30's saves). Wikidata's answer is cached outside every bank 90 days. *What:* one engine call per page on the
   plan's own web search (`web_lookup.engine_for`'s plan branch; a metered key is `metered_only`, skipped in words), every
@@ -834,9 +838,14 @@ Round 4 (C2–C4):
   context`) with one `attachment` + quote per fact and each claim's `page` span into it (never `sources:`); claims
   observer `agent`, `source_trust: external`, `origin: web-context`, confidence 0.8, id `clm_<day>_ctx_<hash>`,
   `valid_from` the source's full date or today; an open world claim of the same predicate whose value the lookup does not
-  name is closed today (`superseded_by`) — history stays on the page and in git — unless it cites the person's own words
-  (`user`/`speaker` evidence, `user_stated`, the person's own origins): then the predicate is `protected` and nothing is
-  written for it; an unchanged value is `confirm` (memo only). One record `inbox/settled/ctx-<n>.md` (`kind: context`,
+  name is closed today (`superseded_by`) — history stays on the page and in git — unless it is the person's own words
+  about their own life (it cites their words — `user`/`speaker` evidence, `user_stated`, their own origins — AND its
+  object is the owner's page, its text names the owner, or its predicate is `locus: person`): then the predicate is
+  `protected` and nothing is written for it. What the person said about a public thing's world fact (a public figure's
+  employer) is replaced like any dated world fact. A fact on file that the results say is over with nothing in its
+  place comes back `ended: true` and is closed (`valid_to` the source's date, never before the claim began) with no new
+  claim — a value that only says something ended ("Left X") is dropped; an end the person takes back is remembered too.
+  An unchanged value is `confirm` (memo only). One record `inbox/settled/ctx-<n>.md` (`kind: context`,
   `settled: {group: check, …, claim_ids, closed}`) lists it under "Settled by a check"; `POST
   /inbox/settled/ctx-<n>/undo` (`web_context.undo`, `Web context undone`, as `user`) withdraws the claims, reopens what
   is still as it left it, and remembers each value as a hash so no lookup writes it again. *When* (`plan`, `due`): a page

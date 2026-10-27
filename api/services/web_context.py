@@ -11,11 +11,12 @@ always state why it is/was/will be relevant to me and also be up to date."
   name, or that the page says is the person's own.
 * A **person** is public only when ALL of these hold, and private otherwise:
   1. locally, with nothing sent: a full name (two words or more, not relation-shaped, not a role-only page); no
-     relation to the owner on the record other than consuming their public work (read, watched, saved, follows) and
-     none whose label says they know each other (met, messaged, contact, invited, class, partner … — ``_INTERACTION``,
-     broad on purpose); no sentence of the page's prose that names the owner or speaks of "the user" with such a word; no
-     conversation from a personal channel (Messages, a LinkedIn import); and a public role on the page (founder,
-     author, researcher, politician, YouTuber …);
+     acquaintance with the owner on the record — a relation, or a prose sentence naming the owner or "the user", that
+     says they know each other: met, talked or messaged, friend, family, partner, colleague or classmate, a contact,
+     invited by, interviewed by, taught or supervised (``_ACQUAINTANCE``); being inspired by, reading, watching,
+     quoting, citing, following or admiring their public work is not acquaintance; no conversation from a personal
+     channel (Messages, a LinkedIn import); and a public cue on the page — a public role (founder, author, researcher
+     …) or public work (a talk, a tweet, a book, a video, a role at a company);
   2. then, and only then, Wikidata: exactly ONE item whose label or alias IS the name, that is a human (P31 = Q5),
      with an encyclopedia article (a Wikipedia sitelink). Zero or several → private.
   A name that fails step 1 never reaches any service — not Wikidata, not the search.
@@ -28,8 +29,9 @@ external``, ``origin: web-context``), their citations in one ``web-check`` episo
 the page's ``sources:``, never a tracked source — ruling 27's shape), and one record under ``inbox/settled/ctx-<n>.md``
 so the person can take it back from "Settled by a check" (:func:`undo`). The newest cited value replaces an older open
 world fact of the same predicate (closed, ``superseded_by`` — history kept on the page and in git); a fact that cites
-the person's own words is never closed or contradicted (``protected``); a value the person took back is never written
-again (the memo's ``undone``).
+the person's own words about their own life is never closed or contradicted (``protected``; what they said about a
+public thing's world fact is replaced like any dated world fact, history kept); a value the person took back is never
+written again (the memo's ``undone``).
 
 **Depth follows use** (:func:`depth_for`): a passing page gets a line (≤ 2 facts, one search); one the person comes back
 to gets more (≤ 4, two searches); one with a commitment — applied to, attending, registered, a deadline — gets dates
@@ -83,20 +85,24 @@ STANDARD_USE = 4
 SCOPE_TYPES = frozenset({"person", "company", "tool", "location", "concept"})
 #: Personal channels: a conversation from one of these makes a person someone the owner knows.
 PERSONAL_SOURCES = frozenset({"imessage", "messages", "email", "gmail", "whatsapp", "contacts", "linkedin"})
-#: Relations to the owner that are only consuming someone's public work — not knowing them.
-_CONSUMING = re.compile(r"(?:^|-)(?:read|reads|watched|watches|watch|listened|listens|saved|bookmarked|follows|"
-                        r"followed|admires|cited|cites|quoted|quotes|subscribed|subscribes|likes|liked|has-open|"
-                        r"has-open-tabs-for|saved-bookmark-of|referenced|mentioned|searched|found-interesting|"
-                        r"inspired|concert|tickets|fan|adapted|curious)(?:-|$)")
-#: Words that say the person and someone know each other, or could: any of them keeps a person private — in a
-#: relation's label or in a sentence of the page that names the owner. Broad on purpose: err private.
-_INTERACTION = re.compile(
-    r"met|meet|talk|spoke|speak|chat|messag|e-?mail|call|text|introduc|friend|classmate|colleague|co-?work|"
-    r"professor|teach|taught|lectur|mentor|supervis|advis|contact|connect|coffee|interview|work(?:s|ed|ing)?[- ]with|"
-    r"collaborat|partner|girlfriend|boyfriend|wife|husband|famil|brother|sister|mother|father|dad|mom|cousin|uncle|"
-    r"aunt|invit|reach|outreach|linkedin|hire|recruit|offer|refer|recommend|schedul|thesis|class|course|team|boss|"
-    r"manager|report|helped|asked|told|sent|forward|tagged|admin|alongside|co-?author|together|neighbou?r|roommate|"
-    r"flatmate|knows|known personally|dated|dating|ex-",
+#: Acquaintance on the record (coordinator rule 2026-10-27): a relation, or a sentence naming the owner, that says the
+#: two know each other — met, talked or messaged, friend, family, partner, colleague or classmate, a contact, invited
+#: by, interviewed by, a shared chat, taught or supervised. Being inspired by, reading, watching, quoting, citing,
+#: following, admiring or wanting to work at their company is NOT one: that is consuming public work. Applied to a
+#: relation's label (hyphens read as spaces) and to each prose sentence that names the owner.
+_ACQUAINTANCE = re.compile(
+    r"\b(?:met|meet|meets|meeting|talked|talks? (?:with|to)|spoke|speaks? (?:with|to)|chatted|chats? with|"
+    r"messag\w*|texted|texts?|e-?mailed|e-?mails? (?:with|to|from)|called|phoned|dm(?:s|ed)?|whatsapp\w*|"
+    r"friends?|friendship|befriended|family|brother|sister|mother|father|dad|mom|mum|son|daughter|cousin|uncle|aunt|"
+    r"wife|husband|partner|girlfriend|boyfriend|dating|dated (?:him|her)|ex-\w+|"
+    r"colleagues?|co-?workers?|teammates?|same team|classmates?|same class|class(?:es)? (?:with|of|taught)|"
+    r"roommates?|flatmates?|neighbou?rs?|"
+    r"contacts?|contacted|connected|connection|reached out|reach out|outreach|introduc\w*|approach(?:ed|ing)? (?:him|her|them)|(?:person|one) to approach|"
+    r"invited by|invited (?:him|her|them)|invitation (?:from|to)|interviewed by|interviewed with|interview invitation|"
+    r"interview(?:ed|ing)? (?:him|her|them)|shares? a chat|group chat|"
+    r"taught|teaches|teacher|professor of|supervis\w*|advis(?:or|er|es|ed)|mentor\w*|thesis (?:director|tutor)|"
+    r"boss|manager of|reports to|works? with|worked with|working with|collaborat\w*|co-?authored|alongside|"
+    r"hired|recruit\w*|referred|referral|offered|forwarded|knows|known personally)\b",
     re.IGNORECASE)
 PUBLIC_ROLE = re.compile(
     r"\b(?:founder|co-?founder|ceo|cto|chief executive|president|prime minister|minister|senator|congress(?:wo)?man|"
@@ -104,7 +110,12 @@ PUBLIC_ROLE = re.compile(
     r"philosopher|historian|professor|investor|venture capitalist|entrepreneur|youtuber|podcaster|streamer|"
     r"influencer|actor|actress|filmmaker|film director|musician|singer|rapper|composer|artist|athlete|footballer|"
     r"tennis player|chess player|grandmaster|astronaut|nobel|known for|public figure|blogger|commentator|"
-    r"fundador|cofundador|autor|escritor|investigador|cantante|presidente|periodista)\b", re.IGNORECASE)
+    r"fundador|cofundador|autor|escritor|investigador|cantante|presidente|periodista|"
+    # Public work on the page counts as a cue too (a talk, a tweet, a book, a video, a role at a company): the
+    # encyclopedia match below still has to hold.
+    r"talks?|keynote|lectures?|tweets?|tweeted|posts? on x|book|books|video|videos|youtube channel|podcast|"
+    r"interview with|paper|papers|essay|blog|newsletter|substack|engineer at|works at|worked at|joined)\b",
+    re.IGNORECASE)
 #: Words an owner alias may carry that name nobody ("the user", an address's "gmail", a school's "edu").
 _NOT_A_NAME = frozenset({"the", "user", "person", "owner", "speaker", "student", "com", "edu", "org", "net", "gmail",
                          "mail", "email", "outlook", "icloud", "hotmail", "yahoo", "me", "you"})
@@ -191,6 +202,9 @@ def save_memo(memory_path: Path, memo: dict) -> None:
         logger.debug(f"web context memo not saved: {type(exc).__name__}")
 
 
+ENDED_MARK = "ended:"
+
+
 def value_hash(predicate: str, value: str) -> str:
     """A taken-back value, remembered without its words."""
     return hashlib.sha256(f"{predicate}\x00{text_fold.fold(value)}".encode("utf-8")).hexdigest()[:16]
@@ -212,10 +226,11 @@ class Page:
     depth: str = "line"
     last_mentioned: str = ""
     world: list = field(default_factory=list)       # open world-tier claims on the page
+    owner_id: str | None = None
+    owner_words: frozenset = frozenset()            # the owner's name words (3+ letters): "about their own life"
 
 
-def _is_protected(claim) -> bool:
-    """A claim that carries the person's own words: never closed or contradicted by a lookup."""
+def _cites_the_person(claim) -> bool:
     from api.services.claims import is_persons_words
 
     if str(getattr(claim, "source_trust", "") or "") == "user_stated" or is_persons_words(claim):
@@ -225,6 +240,35 @@ def _is_protected(claim) -> bool:
         if getattr(ev, "kind", None) in promotion.PERSON_KINDS and isinstance(start, int) and start >= 0:
             return True
     return False
+
+
+def _is_protected(claim, page: "Page | None" = None) -> bool:
+    """The person's own words about their own life: never closed or contradicted by a lookup (ruling 44). A claim
+    that cites their words AND is about them — its object is the owner's page, its text names the owner, or its
+    predicate's truth lives in the person (``locus: person``). What the person said about a public thing's world
+    fact (a public figure's employer, a tool's version) is a dated world fact like any other: the newest dated,
+    cited evidence replaces it, closed with its history kept and undoable (ruling 26's rule for a re-check)."""
+    if not _cites_the_person(claim):
+        return False
+    if page is None:
+        return True   # no page to judge by: err on the person's side
+    if page.owner_id and str(getattr(claim, "object", "") or "") == page.owner_id:
+        return True
+    if page.owner_words and set(text_fold.words(str(getattr(claim, "text", "") or ""))) & page.owner_words:
+        return True
+    return _locus(str(getattr(claim, "predicate", "") or "")) == "person"
+
+
+_LOCUS_FN: list = []
+
+
+def _locus(predicate: str) -> str:
+    """The seed vocabulary's ``locus`` for a predicate, read once per process."""
+    if not _LOCUS_FN:
+        from api.services import predicates
+
+        _LOCUS_FN.append(predicates.build_locus_fn(None))
+    return _LOCUS_FN[0](predicate)
 
 
 def world_claims(claims: list, *, today: date | None = None) -> list:
@@ -256,7 +300,10 @@ def load_page(memory_path: Path, entity_id: str, *, today: date | None = None) -
     rel = page_relevance.for_page(memory_path, entity_id, today=today, fm=fm, body=parsed.body)
     recent = bool(rel.last_mentioned) and rel.last_mentioned >= (today - timedelta(days=30)).isoformat()
     use = rel.conversations + 2 * sum(1 for r in rel.relations if r.tense in ("is", "will_be")) + (2 if recent else 0)
+    owner_id = page_relevance._owner_id(memory_path)
+    owner_name = page_relevance.page_names(memory_path).get(owner_id or "", "")
     return Page(entity_id=entity_id, name=" ".join(str(fm.get("name") or entity_id).split()),
+                owner_id=owner_id, owner_words=frozenset(w for w in text_fold.words(owner_name) if len(w) >= 3),
                 type=str(fm.get("type") or "").strip().lower(), fm=fm, body=parsed.body, claims=claims,
                 relevance=rel, use=use, depth=depth_for(rel, use), last_mentioned=rel.last_mentioned,
                 world=world_claims(claims, today=today))
@@ -341,15 +388,14 @@ def local_verdict(memory_path: Path, page: Page, facts: web_settle.BankFacts) ->
         return Verdict(False, "owner")
     _, by_object = page_relevance.owner_index(memory_path)
     def knows(predicate) -> bool:
-        p = str(predicate or "").lower()
-        return bool(_INTERACTION.search(p)) or not _CONSUMING.search(p)
+        return bool(_ACQUAINTANCE.search(str(predicate or "").replace("-", " ").replace("_", " ")))
 
     if any(knows(c.predicate) for c in by_object.get(page.entity_id, [])):
         return Verdict(False, "personal_relation")
     if owner_id and any(c.object_kind == "node" and c.object == owner_id and knows(c.predicate) for c in page.claims):
         return Verdict(False, "personal_relation")
     for sentence in _owner_mentions(_prose(page.body), facts.owner_names, page.name):
-        if _INTERACTION.search(sentence):
+        if _ACQUAINTANCE.search(sentence):
             return Verdict(False, "owner_in_prose")
     if _personal_channel(memory_path, fm):
         return Verdict(False, "personal_channel")
@@ -377,7 +423,8 @@ async def wikidata_verdict(page: Page, get: JsonGet) -> Verdict:
     want_human = page.type == "person"
     data = await get({"action": "wbsearchentities", "search": page.name, "language": "en", "uselang": "en",
                       "type": "item", "limit": org_sites.SEARCH_LIMIT})
-    if data is None:
+    if data is None or not isinstance(data.get("search"), list):
+        # An error body (rate limit, maxlag) is no answer: never read, or cached, as "no such person".
         return Verdict(False, "lookup_failed")
     target = text_fold.fold(page.name)
     hits = [h for h in data.get("search") or [] if isinstance(h, dict) and h.get("id")
@@ -386,6 +433,8 @@ async def wikidata_verdict(page: Page, get: JsonGet) -> Verdict:
     kind: list[str] = []
     for hit in hits:
         p31 = await get({"action": "wbgetclaims", "entity": hit["id"], "property": "P31"})
+        if p31 is None or "claims" not in p31:   # a failed request is no answer: never read as "not a human"
+            return Verdict(False, "lookup_failed")
         classes = org_sites._claim_values(p31, "P31")
         if (org_sites.HUMAN in classes) == want_human:
             kind.append(hit["id"])
@@ -394,6 +443,8 @@ async def wikidata_verdict(page: Page, get: JsonGet) -> Verdict:
     if len(kind) > 1:
         return Verdict(False, "ambiguous")
     ent = await get({"action": "wbgetentities", "ids": kind[0], "props": "sitelinks"})
+    if ent is None or "entities" not in ent:
+        return Verdict(False, "lookup_failed")
     entity = ((ent or {}).get("entities") or {}).get(kind[0]) or {}
     if not _has_article(entity):
         return Verdict(False, "no_article")
@@ -540,6 +591,9 @@ SYSTEM_PROMPT = (
     "for it (YYYY, YYYY-MM or YYYY-MM-DD), or \"\" when it gives none. Prefer the most recent result; for a role, an "
     "employer, a price or a version give the current one. Never write a relative date (\"next month\"). Never name a "
     "private person. Use only the predicates listed. A value is at most 12 words.\n"
+    "When a fact on file is no longer true and the results name nothing in its place, give it with its value on file and "
+    "\"ended\": true (a person who left an organisation and joined none the results name). Never write that something "
+    "ended as a value.\n"
     "Answer {\"sure\": false, \"facts\": []} when the results are about different things sharing the name and the "
     "notes do not say which, or when they say nothing about the subject.\n"
     "Reply with one JSON object and nothing else: {\"sure\": true, \"facts\": [{\"predicate\": <one listed>, "
@@ -557,7 +611,9 @@ def build_messages(page: Page, depth: str, facts: web_settle.BankFacts) -> list[
         lines.append("The person's own notes about this subject (only for telling which result is the one meant):")
         lines.append("  " + web_settle.clean_context_line(desc, facts, keep=keep))
     if page.world:
-        lines.append("Facts on file (check them against the results):")
+        lines.append("Facts on file — for each, give the same predicate with what the results say NOW: the same value "
+                 "when it is still true, the new value when it changed (a person who left an organisation: where "
+                 "they work now):")
         for c in page.world[:8]:
             lines.append("  " + web_settle.clean_context_line(f"{c.predicate}: {c.object}", facts, keep=keep))
     lines.append(f"Predicates you may use (at most {limit} facts in all):")
@@ -572,8 +628,12 @@ class Fact:
     as_of: str
     url: str
     quote: str
+    #: The value on file is no longer true and the results name no replacement: close it, write nothing new.
+    ended: bool = False
 
 
+#: A value that only says something ended ("Left X in 2024", "former CEO") is no value: it must come as ``ended``.
+_ENDED_VALUE = re.compile(r"^\s*(?:left|no longer|former(?:ly)?|ex-|previously|stepped down|departed)\b", re.IGNORECASE)
 _AS_OF = re.compile(r"^\d{4}(?:-\d{2}(?:-\d{2})?)?$")
 
 
@@ -609,7 +669,13 @@ def parse_facts(page: Page, depth: str, text: str, facts: web_settle.BankFacts) 
             web_settle.check_ref(url, "public")   # a walled or refused page is never cited
         except web_settle.NotSettleable:
             continue
-        out.append(Fact(pred, value, as_of if _AS_OF.match(as_of) else "", url, quote))
+        ended = row.get("ended") is True
+        on_file = {text_fold.fold(str(c.object or "")) for c in page.world if str(c.predicate or "").lower() == pred}
+        if ended and text_fold.fold(value) not in on_file:
+            continue   # an end is said only of a value on file
+        if not ended and _ENDED_VALUE.search(value):
+            continue
+        out.append(Fact(pred, value, as_of if _AS_OF.match(as_of) else "", url, quote, ended))
         if len(out) >= DEPTHS[depth][0]:
             break
     return out, ("ok" if out else "no_facts")
@@ -672,8 +738,18 @@ def diff(page: Page, found: list[Fact], undone: set[str]) -> list[Change]:
         by_pred.setdefault(f.predicate, []).append(f)
     for pred, rows in by_pred.items():
         open_same = [c for c in page.world if str(c.predicate or "").lower() == pred]
-        values = {text_fold.fold(r.value) for r in rows}
+        values = {text_fold.fold(r.value) for r in rows if not r.ended}
         for r in rows:
+            if r.ended:
+                if value_hash(pred, ENDED_MARK + r.value) in undone:
+                    out.append(Change(pred, r.value, "undone", url=r.url))
+                    continue
+                ending = [c for c in open_same if text_fold.fold(str(c.object or "")) == text_fold.fold(r.value)]
+                if any(_is_protected(c, page) for c in ending):
+                    out.append(Change(pred, r.value, "protected", [r.value], url=r.url))
+                elif ending:
+                    out.append(Change(pred, r.value, "end", [r.value], url=r.url))
+                continue
             if value_hash(pred, r.value) in undone:
                 out.append(Change(pred, r.value, "undone", url=r.url))
                 continue
@@ -681,8 +757,8 @@ def diff(page: Page, found: list[Fact], undone: set[str]) -> list[Change]:
                 out.append(Change(pred, r.value, "confirm", url=r.url))
                 continue
             stale = [c for c in open_same if text_fold.fold(str(c.object or "")) not in values]
-            if any(_is_protected(c) for c in stale):
-                out.append(Change(pred, r.value, "protected", [str(c.object) for c in stale if _is_protected(c)],
+            if any(_is_protected(c, page) for c in stale):
+                out.append(Change(pred, r.value, "protected", [str(c.object) for c in stale if _is_protected(c, page)],
                                   url=r.url))
                 continue
             out.append(Change(pred, r.value, "replace" if stale else "add", [str(c.object) for c in stale],
@@ -754,12 +830,14 @@ def apply(memory_path: Path, page: Page, found: list[Fact], *, checker: str, ori
         return None
     page.claims, page.world = claims, world_claims(claims)
     changes = diff(page, found, undone or set())
-    to_write = [c for c in changes if c.action in ("add", "replace")]
+    to_write = [c for c in changes if c.action in ("add", "replace", "end")]
     if not to_write:
         return None
     rows = [f for f in found if any(c.predicate == f.predicate and c.value == f.value for c in to_write)]
+    ending = [f for f in rows if f.ended]
+    rows = [f for f in rows if not f.ended]
     label = checker if checker and checker != "agent" else "an agent"
-    episode_id = _write_episode(memory_path, page, rows, label, origin)
+    episode_id = _write_episode(memory_path, page, rows + ending, label, origin)
     from api.services.web_settle import _evidence_for
 
     today = date.today().isoformat()
@@ -779,7 +857,7 @@ def apply(memory_path: Path, page: Page, found: list[Fact], *, checker: str, ori
                     recorded_at=today, evidence=list(_evidence_for(memory_path, episode_id, f.quote)))
         values = {text_fold.fold(r.value) for r in rows if r.predicate == f.predicate}
         for old in claims:
-            if (str(old.predicate or "").lower() == f.predicate and id(old) in world_ids and not _is_protected(old)
+            if (str(old.predicate or "").lower() == f.predicate and id(old) in world_ids and not _is_protected(old, page)
                     and text_fold.fold(str(old.object or "")) not in values and old.valid_to is None):
                 before = old.to_dict()
                 old.valid_to = today
@@ -787,14 +865,28 @@ def apply(memory_path: Path, page: Page, found: list[Fact], *, checker: str, ori
                 closed.append({"id": old.id, "before": json.dumps(before, sort_keys=True),
                                "after": json.dumps(old.to_dict(), sort_keys=True)})
         new_claims.append(new)
-    if not new_claims:
+    ended: list[list[str]] = []
+    for f in ending:
+        end_day = f.as_of if len(f.as_of) == 10 and f.as_of <= today else today
+        for old in claims:
+            if (str(old.predicate or "").lower() == f.predicate and id(old) in world_ids and old.valid_to is None
+                    and not _is_protected(old, page)
+                    and text_fold.fold(str(old.object or "")) == text_fold.fold(f.value)):
+                before = old.to_dict()
+                # Never closed before it began: a claim recorded after the end the source dates keeps its own start.
+                began = str(old.valid_from or "")[:10]
+                old.valid_to = end_day if not began or end_day >= began else began
+                closed.append({"id": old.id, "before": json.dumps(before, sort_keys=True),
+                               "after": json.dumps(old.to_dict(), sort_keys=True)})
+                ended.append([f.predicate, f.value])
+    if not new_claims and not ended:
         (memory_path / "episodes" / f"{episode_id}.md").unlink(missing_ok=True)
         return None
     markdown_parser.write(entity_path, parsed.frontmatter, write_claims(parsed.body, claims + new_claims))
     record_id = _next_record_id(memory_path)
     settled_dir = memory_path / "inbox" / web_settle.SETTLED_DIR
     settled_dir.mkdir(parents=True, exist_ok=True)
-    first = rows[0]
+    first = (rows + ending)[0]
     try:
         ref, host = web_settle.check_ref(first.url, "public")
     except web_settle.NotSettleable:
@@ -802,9 +894,12 @@ def apply(memory_path: Path, page: Page, found: list[Fact], *, checker: str, ori
     record = {
         "at": _now_iso(), "by": checker or "agent", "by_kind": "sleep" if origin == "sleep" else "person",
         "scope": "public", "group": "check", "ref": ref, "host": host, "quote": first.quote,
-        "answer": "; ".join(f"{c.predicate}: {c.object}" for c in new_claims), "predicate": new_claims[0].predicate,
-        "entity_id": page.entity_id, "entity_name": page.name, "claim_id": new_claims[0].id,
+        "answer": "; ".join([f"{c.predicate}: {c.object}" for c in new_claims]
+                            + [f"{p_}: {v} (no longer)" for p_, v in ended]),
+        "predicate": new_claims[0].predicate if new_claims else ended[0][0],
+        "entity_id": page.entity_id, "entity_name": page.name, "claim_id": new_claims[0].id if new_claims else "",
         "claim_ids": [c.id for c in new_claims], "episode": episode_id, "held": False, "closed": closed,
+        "ended": ended,
         **({"engine": engine} if engine else {}),
     }
     markdown_parser.write(settled_dir / f"{record_id}.md",
@@ -865,6 +960,7 @@ def undo(memory_path: Path, record_id: str) -> tuple[list[str], list[str]]:
             markdown_parser.write(entity_path, page.frontmatter, write_claims(page.body, kept))
             paths.append(f"entities/{entity_id}.md")
             lines.append(f"entities/{entity_id}.md: updated (source: {record_id}, trigger: inbox/web-context/undone)")
+    taken += [(str(p_), ENDED_MARK + str(v)) for p_, v in (rec.get("ended") or []) if p_ and v]
     rec_path.unlink()
     bank_index.invalidate(memory_path)
     paths.append(f"inbox/{web_settle.SETTLED_DIR}/{record_id}.md")

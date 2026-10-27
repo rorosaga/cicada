@@ -218,11 +218,103 @@ def test_replacement_keeps_history_and_undo_takes_it_back(bank):
     assert not [c for c in again if c.origin == web_context.ORIGIN]
 
 
-def test_the_persons_own_words_are_never_overridden(bank):
+def test_the_persons_words_about_their_own_life_are_never_overridden(bank):
+    """What the person said about their own application stays; what they said about a public figure's employer is a
+    dated world fact, replaced by newer cited evidence with its history kept (the stale-employer case)."""
+    ep = f"ep_{RECENT}_002"
+    body = write_claims("## Summary\nExample Fellowship is a fellowship program.\n", [
+        _claim("clm_f1", "example-fellowship", "deadline", "2026-11-01", kind="literal",
+               text="Olive Ownerton's application deadline for Example Fellowship is 2026-11-01",
+               evidence=[Evidence(episode=ep, start=0, end=10, kind="user", hash="x")]),
+    ])
+    _entity(bank, "example-fellowship", type="company", name="Example Fellowship",
+            source_episodes=[f"ep_{RECENT}_001", ep, f"ep_{RECENT}_003"], body=body)
+    bank_index.invalidate()
     _run(bank)
-    claims = {c.id: c for c in parse_claims(markdown_parser.parse(bank / "entities" / "grace-example.md").body)}
-    assert claims["clm_g1"].valid_to is None and claims["clm_g1"].superseded_by is None
-    assert not [c for c in claims.values() if c.origin == web_context.ORIGIN and c.predicate == "works-at"]
+    fellowship = {c.id: c for c in parse_claims(markdown_parser.parse(bank / "entities" / "example-fellowship.md").body)}
+    assert fellowship["clm_f1"].valid_to is None and fellowship["clm_f1"].superseded_by is None
+    assert not [c for c in fellowship.values() if c.origin == web_context.ORIGIN and c.predicate == "deadline"]
+    grace = {c.id: c for c in parse_claims(markdown_parser.parse(bank / "entities" / "grace-example.md").body)}
+    new = [c for c in grace.values() if c.origin == web_context.ORIGIN and c.predicate == "works-at"]
+    assert len(new) == 1 and new[0].object == "New Corp"
+    assert grace["clm_g1"].valid_to == TODAY.isoformat() and grace["clm_g1"].superseded_by == new[0].id
+
+
+def test_a_role_that_ended_with_no_successor_is_closed_not_rewritten(bank):
+    answers = dict(ANSWERS, **{"Hal Example": {"sure": True, "facts": [
+        dict(_fact("works-at", "Old Corp", as_of="2026-02-13"), ended=True),
+        _fact("works-at", "Left Old Corp in 2024"),   # an end written as a value: dropped
+    ]}})
+    _run(bank, answers=answers)
+    hal = {c.id: c for c in parse_claims(markdown_parser.parse(bank / "entities" / "hal-example.md").body)}
+    assert hal["clm_h1"].valid_to == "2026-02-13" and hal["clm_h1"].superseded_by is None
+    assert not [c for c in hal.values() if c.origin == web_context.ORIGIN]
+    row = [r for r in web_settle.list_settled(bank) if r["entity_id"] == "hal-example"][0]
+    assert "no longer" in row["answer"]
+    web_context.undo(bank, row["id"])
+    hal = {c.id: c for c in parse_claims(markdown_parser.parse(bank / "entities" / "hal-example.md").body)}
+    assert hal["clm_h1"].valid_to is None
+    memo = web_context.load_memo(bank)
+    memo["pages"].pop("hal-example")
+    web_context.save_memo(bank, memo)
+    _run(bank, answers=answers)   # the end the person took back is never written again
+    hal = {c.id: c for c in parse_claims(markdown_parser.parse(bank / "entities" / "hal-example.md").body)}
+    assert hal["clm_h1"].valid_to is None
+
+
+def test_admired_is_public_met_is_private_one_word_is_private(bank):
+    """Consuming someone's public work is not knowing them; acquaintance on the record is (coordinator, 2026-10-27)."""
+    ep = f"ep_{RECENT}_001"
+    owner = markdown_parser.parse(bank / "entities" / "olive-ownerton.md")
+    extra = [
+        _claim("clm_o5", "olive-ownerton", "was-inspired-by-interview-with", "jules-example"),
+        _claim("clm_o6", "olive-ownerton", "quoted-tweet-by", "jules-example"),
+        _claim("clm_o7", "olive-ownerton", "cites-in-thesis-script", "jules-example"),
+        _claim("clm_o8", "olive-ownerton", "met-at-conference", "max-example"),
+        _claim("clm_o9", "olive-ownerton", "classmate-of", "nora-example"),
+    ]
+    markdown_parser.write(bank / "entities" / "olive-ownerton.md", owner.frontmatter,
+                          write_claims(owner.body, parse_claims(owner.body) + extra))
+    _entity(bank, "jules-example", type="person", name="Jules Example", source_episodes=[ep],
+            body="## Summary\nJules Example is an AI engineer known for lectures and a widely read blog.\n"
+                 "Olive Ownerton watched the interview and was inspired by the wiki approach.\n")
+    _entity(bank, "max-example", type="person", name="Max Example", source_episodes=[ep],
+            body="## Summary\nMax Example is a founder.\n")
+    _entity(bank, "nora-example", type="person", name="Nora Example", source_episodes=[ep],
+            body="## Summary\nNora Example is an author.\n")
+    _entity(bank, "pia-example", type="person", name="Pia Example", source_episodes=[ep],
+            body="## Summary\nPia Example gave a talk on robots. Olive Ownerton met her afterwards.\n")
+    _entity(bank, "tove-example", type="person", name="Tove Example", source_episodes=[ep],
+            body="## Summary\nTove Example's talk and tweets on agents.\n")
+    _entity(bank, "sol", type="person", name="Sol", source_episodes=[ep], body="## Summary\nSol is a founder.\n")
+    bank_index.invalidate()
+    wd = FakeWikidata()
+    wd.humans.update({"Jules Example": ["Q7"], "Tove Example": ["Q8"]})
+    facts = web_settle.bank_facts(bank)
+    memo = web_context.load_memo(bank)
+
+    def verdict(eid):
+        return asyncio.run(web_context.verdict(bank, web_context.load_page(bank, eid), facts, memo, get=wd,
+                                               today=TODAY))
+
+    assert verdict("jules-example") == web_context.Verdict(True, "encyclopedia_match")   # admired only
+    assert verdict("tove-example") == web_context.Verdict(True, "encyclopedia_match")    # public work is a cue
+    assert verdict("max-example").reason == "personal_relation"                          # met
+    assert verdict("nora-example").reason == "personal_relation"                         # a classmate
+    assert verdict("pia-example").reason == "owner_in_prose"                             # "met her" in prose
+    assert verdict("sol").reason == "single_name"
+    for private in ("Max Example", "Nora Example", "Pia Example", "Sol"):
+        assert private not in wd.sent
+
+
+def test_a_wikidata_error_body_is_no_answer_and_never_cached(bank):
+    async def error(params):
+        return {"error": {"code": "maxlag"}}
+
+    page = web_context.load_page(bank, "grace-example")
+    memo = web_context.load_memo(bank)
+    v = asyncio.run(web_context.verdict(bank, page, web_settle.bank_facts(bank), memo, get=error, today=TODAY))
+    assert v == web_context.Verdict(False, "lookup_failed") and "grace-example" not in memo["wd"]
 
 
 def test_order_most_used_and_unchecked_first_then_due_by_volatility(bank):
