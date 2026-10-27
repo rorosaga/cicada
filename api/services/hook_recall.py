@@ -195,7 +195,48 @@ def _says(words: list[str], positions: dict[str, list[int]], phrase: list[str]) 
     return any(words[i:i + n] == phrase for i in positions.get(phrase[0], ()))
 
 
-def mention_strength(words: list[str], positions: dict[str, list[int]], meta: dict) -> int:
+#: A one-word alias whose word is in this many other page names is a common noun, not a name (2026-10-27):
+#: "hackathon", "the hackathon" on one event's page named that event in every message about any hackathon.
+COMMON_NAME_PAGES = 3
+COMMON_TTL_S = 600.0
+_COMMON: dict[str, tuple[float, frozenset[str]]] = {}
+_COMMON_LOCK = threading.Lock()
+
+
+def common_name_words(reader: "search_index.Reader", memory_path: Path) -> frozenset[str]:
+    """The words at least :data:`COMMON_NAME_PAGES` page names share (folded), from the index's entity rows, cached
+    per bank for :data:`COMMON_TTL_S`. Derived from the bank, never a list of nouns."""
+    key, now = str(memory_path), time.monotonic()
+    with _COMMON_LOCK:
+        hit = _COMMON.get(key)
+    if hit and now - hit[0] < COMMON_TTL_S:
+        return hit[1]
+    import json
+
+    counts: dict[str, int] = {}
+    try:
+        rows = reader.conn.execute("SELECT meta FROM docs WHERE kind = 'entity'").fetchall()
+    except Exception:  # noqa: BLE001 — no index: nothing is common
+        rows = []
+    for (raw,) in rows:
+        try:
+            name = str(json.loads(raw or "{}").get("name") or "")
+        except ValueError:
+            continue
+        for w in set(text_fold.words(name)):
+            counts[w] = counts.get(w, 0) + 1
+    common = frozenset(w for w, n in counts.items() if n >= COMMON_NAME_PAGES)
+    with _COMMON_LOCK:
+        _COMMON[key] = (now, common)
+    return common
+
+
+def _content_words(phrase: list[str]) -> list[str]:
+    return [w for w in phrase if len(w) >= MIN_WORD_CHARS and w not in STOPWORDS and not w.isdigit()]
+
+
+def mention_strength(words: list[str], positions: dict[str, list[int]], meta: dict,
+                     common: frozenset[str] = frozenset()) -> int:
     """How many words of this page's name, or its best alias, the message says
     in a row. 0 when nothing it says passes the floor (R-H2).
 
@@ -204,14 +245,19 @@ def mention_strength(words: list[str], positions: dict[str, list[int]], meta: di
     (≥ 3 characters, not a stopword, not a number), so "The One" is not named
     by every "the one". A one-word name counts only for the types one word
     names (a person, a project, a company, a tool, a place): a concept called
-    "Memory" is not named by "a memory leak"."""
+    "Memory" is not named by "a memory leak". An alias whose one real word is
+    in several page names (``common``, :func:`common_name_words`) — "hackathon",
+    "the hackathon" — is a common noun, not this page's name."""
     etype = str(meta.get("type") or "concept")
     best = 0
-    for label in [meta.get("name") or "", *(meta.get("aliases") or [])]:
+    for n, label in enumerate([meta.get("name") or "", *(meta.get("aliases") or [])]):
         phrase = text_fold.words(str(label))
         if not phrase or len(phrase) > MAX_NAME_WORDS or len(phrase) <= best:
             continue
-        if not any(len(w) >= MIN_WORD_CHARS and w not in STOPWORDS and not w.isdigit() for w in phrase):
+        content = _content_words(phrase)
+        if not content:
+            continue
+        if n and len(content) == 1 and content[0] in common:
             continue
         if len(phrase) == 1 and etype not in SINGLE_WORD_TYPES:
             continue
@@ -234,16 +280,49 @@ def _rank_key(meta: dict, strength: int, bm25: float) -> tuple:
             -float(meta.get("confidence") or 0.0), bm25)
 
 
-def current_claims(rows: list[tuple[str, dict]]) -> list[tuple[str, str | None]]:
+#: Subject words a claim must share with the message, beyond its page's own name, to ride the note on words alone.
+CLAIM_SHARED_TERMS = 2
+
+
+def _claim_fits(text: str, about: set[str], own: set[str], others: tuple[str, ...]) -> bool:
+    """Is a claim about what the message is about? It shares :data:`CLAIM_SHARED_TERMS` subject words with the message
+    beyond its page's own name, or it names (whole) another page the message names — "<A> works on <B>" when the
+    message names both."""
+    if len((text_fold.subject_terms(text) - own) & about) >= min(CLAIM_SHARED_TERMS, len(about)):
+        return True
+    folded = " " + " ".join(text_fold.words(text)) + " "
+    return any(f" {name} " in folded for name in others)
+
+
+def current_claims(rows: list[tuple[str, dict]], about: set[str] | None = None,
+                   own: set[str] = frozenset(), others: tuple[str, ...] = ()) -> list[tuple[str, str | None]]:
     """At most two CURRENT claims, newest first, each with the day it became
     true (R-H5). Closed and superseded claims are history, not recall, and a
-    done happening is born closed (G141), so it drops out with them."""
+    done happening is born closed (G141), so it drops out with them.
+
+    ``about`` (the message's subject words beyond the names it says, :func:`message_subject`) keeps only the claims
+    about what the message is about (:func:`_claim_fits`; ``own`` the page's own name words, ``others`` the folded
+    names of the other pages the message names) — 2026-10-27: the newest two claims of a city named in a message
+    about a job were two lines about other people's affairs. A page the message names keeps its
+    summary; no claim is better than an unrelated one. ``None`` or an empty ``about`` — a message that only names the
+    page ("how is Alpha going?") — keeps the newest current claims: the page itself is the subject."""
     live = [(text, p) for text, p in rows
             if text.strip() and isinstance(p, dict) and is_current(p)]
+    if about:
+        live = [(text, p) for text, p in live if _claim_fits(text, about, own, others)]
     live.sort(key=lambda r: (str(r[1].get("valid_from") or ""), float(r[1].get("confidence") or 0.0)),
               reverse=True)
     return [(clip(text, CLAIM_CHARS), str(p.get("valid_from") or "")[:10] or None)
             for text, p in live[:MAX_CLAIMS_PER_PAGE]]
+
+
+def message_subject(prompt: str, named: tuple[str, ...]) -> set[str]:
+    """What a message is about beyond the names it says: its subject words (``text_fold.subject_terms``) without the
+    hook's own stopwords (the verbs and nouns every prompt uses) and without the words of the pages it names."""
+    names: set[str] = set()
+    for name in named:
+        names |= text_fold.subject_terms(name)
+    return {t for t in text_fold.subject_terms(prompt_window(prompt)) if t not in STOPWORDS} - names
 
 
 def _live_claim_rows(memory_path: Path, ref: str) -> list[tuple[str, dict]] | None:
@@ -258,9 +337,16 @@ def _live_claim_rows(memory_path: Path, ref: str) -> list[tuple[str, dict]] | No
         return None
 
 
-def _page_note(doc: search_index.Doc, claim_rows: list[tuple[str, dict]]) -> PageNote | None:
+def _page_note(doc: search_index.Doc, claim_rows: list[tuple[str, dict]],
+               about: set[str] | None = None, named: tuple[str, ...] = ()) -> PageNote | None:
     meta = doc.meta
-    claims = tuple(current_claims(claim_rows))
+    own: set[str] = set()
+    labels = [meta.get("name") or doc.ref, *(meta.get("aliases") or [])]
+    for label in labels:
+        own |= text_fold.subject_terms(str(label))
+    mine = {" ".join(text_fold.words(str(label))) for label in labels}
+    others = tuple(n for n in named if n and n not in mine)
+    claims = tuple(current_claims(claim_rows, about, own, others))
     summary = clip(str(meta.get("summary") or ""), SUMMARY_CHARS)
     if not claims and not summary:
         return None
@@ -337,7 +423,7 @@ def _open_question(reader: search_index.Reader, pages: list[PageNote], today: st
             if entry is not None:
                 fm = {**entry.frontmatter, **{k: v for k, v in fm.items() if v not in (None, "")}}
             fm = inbox_ask_gate.with_page_names(memory_path, fm)
-        if not inbox_ask_gate.relevant(fm, prompt, names)[0]:
+        if not inbox_ask_gate.relevant(fm, prompt, names, everyday=inbox_ask_gate.everyday(memory_path, fm))[0]:
             continue
         entity_id = str(item.meta.get("entity_id") or "")
         words = clip(str(item.meta.get("question") or ""), QUESTION_CHARS)
@@ -417,12 +503,13 @@ def prompt_context(memory_path: Path, prompt: str, *, recent: frozenset[str] = f
         rows = reader.name_candidates(terms, CANDIDATES, statuses=LIVE_STATUSES, skip_types=SKIP_TYPES,
                                        exclude_ref=owner)
         docs = reader.docs([d for d, _ in rows])
+        common = common_name_words(reader, memory_path)
         ranked: list[tuple[tuple, int, search_index.Doc]] = []
         for doc_id, bm25 in rows:
             doc = docs.get(doc_id)
             if doc is None or not _eligible(doc, owner):
                 continue
-            strength = mention_strength(words, positions, doc.meta)
+            strength = mention_strength(words, positions, doc.meta, common)
             if strength:
                 ranked.append((_rank_key(doc.meta, strength, bm25), strength, doc))
         if not ranked:
@@ -438,11 +525,13 @@ def prompt_context(memory_path: Path, prompt: str, *, recent: frozenset[str] = f
                 # loudly; they never add one it did not name.
                 fresh.sort(key=lambda r: (-r[0], ranks.get(r[1].ref, len(ranks))))
         notes: list[PageNote] = []
+        named = tuple(" ".join(text_fold.words(str(d.meta.get("name") or d.ref))) for _s, d in fresh[:MAX_PAGES * 2])
+        about = message_subject(prompt, named)
         for _strength, doc in fresh:
             claim_rows = _live_claim_rows(memory_path, doc.ref)
             if claim_rows is None:
                 continue
-            note = _page_note(doc, claim_rows)
+            note = _page_note(doc, claim_rows, about, named)
             if note is not None:
                 notes.append(note)
             if len(notes) == MAX_PAGES:
@@ -764,3 +853,8 @@ def reset() -> None:
     READING_SEEN.clear()
     with _MODELS_LOCK:
         _MODELS.clear()
+    with _COMMON_LOCK:
+        _COMMON.clear()
+    from api.services import everyday_names
+
+    everyday_names.reset()

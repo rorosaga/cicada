@@ -426,6 +426,18 @@ conversation. `apply` plans the edit again on the page as it is then — a page 
 admission, under the page lock and git's write lock. It is graded like every verdict (G113): `apply` agreed, `dismiss`
 overruled — the agent's reward signal. App-only: no agent ask path serves it and `cicada_resolve_inbox` refuses it.
 
+**A re-raised conflict joins the question already open (2026-10-27).** One open question per page and predicate
+(`find_open`); a re-raise merges its answers in (`inbox_generator.merge_options_into`). A description question is
+re-raised in new words most nights, and each night appended one more near-identical pair (`a, b, ax, bx, axx, bxx …`:
+"Still in the beta" / "Already in production", then "Final beta weeks" / "Already shipped to production"). Now, on a description
+question only, an incoming answer that says what an open answer on its side says (`near_duplicate`: the same subject
+words, or one holding all of the other's two or more; never when only one is negated, never on one shared word) is
+that answer; and when one side of a re-raised pair joined an open answer, its other side joins that answer's
+counterpart (the answer appended with it, `raised_with`, else the other side first seen the same day). Both only bump
+`last_referenced`; the label the person already saw stays. A pair matching nothing is appended as one pair, stamped
+`raised_with`. A claim conflict's answers are values: only the exact label joins. Open questions with near-duplicate
+answers already written stay as they are until answered (no rewrite of an open card).
+
 **G98 rule.** A multi-valued predicate never opens a conflict; an existing one is served
 `informational: true` — the card lists the values and offers `Got it`, which removes the item and
 touches no claim.

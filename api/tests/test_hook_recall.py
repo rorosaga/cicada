@@ -298,7 +298,8 @@ def five(tmp_path):
         (memory / sub).mkdir(parents=True)
     words = ["One", "Two", "Three", "Four", "Five"]
     for n, word in enumerate(words, 1):
-        _page(memory, f"alpha-{word.lower()}", f"Alpha {word}", "project", aliases=["Alpha"],
+        # Named "Item …" so "alpha" is each page's alias, not a word several page names share (a common noun, 2026-10-27).
+        _page(memory, f"alpha-{word.lower()}", f"Item {word}", "project", aliases=["Alpha"],
               confidence=1.0 - n / 10, summary=f"Marker k{n} lives here.")
     _page(memory, "zeta-page", "Zeta Page", "project", summary="Marker k5 k5 k5.")   # the vectors' favourite
     _index(memory)

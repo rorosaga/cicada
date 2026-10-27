@@ -4880,7 +4880,8 @@ def _relevant_inbox(memory_path: Path, query: str, *, raw_excerpts: bool = True,
         if str(fm.get("kind") or "") in inbox_ask_gate.NEVER_ASKED or not inbox_ask_gate.named_in(named, query):
             continue
         fm, cause, rec = _agent_question(memory_path, fm, today, ctx=ctx, verbatim_ok=raw_excerpts)
-        if not inbox_ask_gate.relevant({**fm, "aliases": named.get("aliases") or []}, query)[0]:
+        full = {**fm, "aliases": named.get("aliases") or []}
+        if not inbox_ask_gate.relevant(full, query, everyday=inbox_ask_gate.everyday(memory_path, full))[0]:
             continue
         blurbs.append(_format_inbox_blurb(
             fm, body, cause=cause, recommended_key=rec, raw_excerpts=raw_excerpts, can_answer=can_answer))
@@ -5162,7 +5163,8 @@ def ask_nudges(ctx: ToolContext, topic: str | None, entity_ids: list | None = No
         if not (inbox_ask_gate.named_in(named, topic) or str(fm.get("entity_id") or "") in wanted):
             continue
         fm, cause, rec = _agent_question(memory_path, fm, today, ctx=inbox_ctx, verbatim_ok=ctx.raw_excerpts)
-        ok, _reason = inbox_ask_gate.relevant({**fm, "aliases": named.get("aliases") or []}, topic, wanted)
+        full = {**fm, "aliases": named.get("aliases") or []}
+        ok, _reason = inbox_ask_gate.relevant(full, topic, wanted, everyday=inbox_ask_gate.everyday(memory_path, full))
         if ok:
             passed.append((-_float_or(fm.get("priority")), filepath.stem, fm, cause, rec))
     if not passed:

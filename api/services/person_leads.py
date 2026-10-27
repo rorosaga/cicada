@@ -130,10 +130,6 @@ def page_aliases(page: dict) -> list[str]:
     return [text for text in (str(v or "").strip() for v in values) if text]
 
 
-def _is_person(page: dict) -> bool:
-    return str((page.get("frontmatter") or {}).get("type") or "").lower() == "person"
-
-
 def page_name(page: dict) -> str:
     return str((page.get("frontmatter") or {}).get("name") or page.get("id") or "")
 
@@ -151,16 +147,35 @@ class Lead:
     key: str
 
 
-class PersonIndex:
-    """The bank's person pages, keyed for leads: by name, by alias and by profile handle. Built once per read."""
+#: The types one organisation, lab, project or tool is written under (2026-10-27): a lab Stage 1 called a company in one
+#: conversation and a project in another is still one thing, so an alias lead crosses these three — and only these.
+ORG_TYPES = frozenset({"company", "project", "tool"})
+PERSON_TYPES = frozenset({"person"})
 
-    def __init__(self, pages: list[dict]):
+
+def _page_type(page: dict) -> str:
+    return str((page.get("frontmatter") or {}).get("type") or "").lower()
+
+
+class PersonIndex:
+    """The bank's person pages, keyed for leads: by name, by alias and by profile handle. Built once per read.
+
+    ``types`` widens it to another family (2026-10-27, :data:`ORG_TYPES`): the same alias lead — a page lists, among
+    the names it goes by, a name another page of the family carries as its own — for organisations, labs, projects
+    and tools. A profile handle is a person's only. Never a lead on a shared WORD: the alias must be the other page's
+    whole name."""
+
+    def __init__(self, pages: list[dict], types: frozenset[str] = PERSON_TYPES):
+        self.types = frozenset(types)
         self.by_id: dict[str, dict] = {}
         self.by_name: dict[str, list[str]] = {}
         self.alias_holders: dict[str, list[str]] = {}
         self.handle_holders: dict[str, list[tuple[str, str]]] = {}
+        people = self.types == PERSON_TYPES
         for page in pages:
-            if not _is_person(page) or not page.get("id"):
+            if _page_type(page) not in self.types or not page.get("id"):
+                continue
+            if str((page.get("frontmatter") or {}).get("status") or "active") in ("dropped", "archived") and not people:
                 continue
             pid = str(page["id"])
             self.by_id[pid] = page
@@ -169,7 +184,7 @@ class PersonIndex:
                 holders = self.alias_holders.setdefault(handle_key(alias), [])
                 if pid not in holders:
                     holders.append(pid)
-            for url in page_urls(page):
+            for url in page_urls(page) if people else ():
                 found = profile_handle(url)
                 if found is None:
                     continue

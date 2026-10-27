@@ -36,9 +36,9 @@ HELD_MENTION_KEY = "held_mention"
 def endpoint_id(name: str, name_to_id: dict[str, str]) -> str | None:
     """The id Stage 2 resolved ``name`` to, or ``None`` — the edge rule, as one function.
 
-    Exact (lower-cased) first, then the first ``fuzz.ratio > 85`` over
-    ``name_to_id`` in insertion order, exactly as the relationship loop in
-    :func:`resolve` always did inline. G141 PJ-0 (R-PJ17) made it a function so
+    Exact (lower-cased) first, then the first fuzzy spelling (:func:`fuzzy_same`:
+    ``fuzz.ratio > 85`` and not :func:`distinct_names`) over ``name_to_id`` in
+    insertion order, as the relationship loop in :func:`resolve` always did inline. G141 PJ-0 (R-PJ17) made it a function so
     Sleep's claims key their subject and object through the SAME rule as the
     edge between them: a claim used to be keyed by ``sanitize_id(raw name)``,
     so a short name Stage 2 had matched ("Hana" → ``hana-example``) keyed a
@@ -51,7 +51,9 @@ def endpoint_id(name: str, name_to_id: dict[str, str]) -> str | None:
     if hit:
         return hit
     for known_name, known_id in name_to_id.items():
-        if known_id != HELD_ENDPOINT and fuzz.ratio(key, known_name) > 85:
+        # 2026-10-27: a fuzzy spelling only — a name with a word or a number the other lacks ("<agency> <city>" /
+        # "<city>") is another thing, and its edge resolves to nothing rather than to that page (`distinct_names`).
+        if known_id != HELD_ENDPOINT and fuzzy_same(key, known_name):
             return known_id
     return None
 
@@ -272,6 +274,9 @@ async def resolve(
     # G209: the person pages keyed for leads (an alias or a linked account another page carries), and the pending
     # lines the extractor parked as "handle (Full Name)", by their full name.
     person_index = person_leads.PersonIndex(existing)
+    # 2026-10-27: the same alias lead for organisations, labs, projects and tools (one lab on three pages, each listing
+    # another's name among its own) — asked, never merged.
+    org_index = person_leads.PersonIndex(existing, person_leads.ORG_TYPES)
     lead_pairs: set[tuple[str, str]] = set()
     named_handle_lines = _named_handle_lines(settings.memory_path)
     held_people: list[tuple[dict, list[dict]]] = []   # person names this batch held below the bar (W1, below)
@@ -465,14 +470,17 @@ async def resolve(
                 if _is_fallback(candidate):
                     _settle_fallback(change, project_birth.birth_of(entity, siblings))
                 _fold_named_handle_lines(change, name_lower, named_handle_lines, name_to_id, promoted_pending)
-                if candidate["source"] == "existing" and _candidate_type(candidate) == "person":
+                family = (person_index if _candidate_type(candidate) == "person"
+                          else org_index if _candidate_type(candidate) in person_leads.ORG_TYPES else None)
+                if candidate["source"] == "existing" and family is not None:
                     # G209: a page that matched by name still meets the page that carries that name as an alias or
-                    # a linked account — as a question, never a merge.
-                    for lead in person_index.leads_for(candidate["id"]):
+                    # a linked account — as a question, never a merge. 2026-10-27: an organisation, lab, project or
+                    # tool too, by alias only.
+                    for lead in family.leads_for(candidate["id"]):
                         if (lead.page, lead.holder) not in lead_pairs:
                             lead_pairs.add((lead.page, lead.holder))
                             pending_actions.append((_create_lead_clarification, (),
-                                                    {"clarifier": clarifier, "lead": lead, "index": person_index,
+                                                    {"clarifier": clarifier, "lead": lead, "index": family,
                                                      "entity": entity}))
                 continue
 
@@ -1894,7 +1902,9 @@ def _create_lead_clarification(clarifier: ClarificationManager, lead: "person_le
             entity_name=person_leads.page_name(page) if page is not None else str(entity.get("name") or lead.key),
             source_episode=entity.get("source_episode", ""),
             uncertainty_type=f"Possible duplicate of {holder_name}",
-            suggested_classification=f"person — could refer to the same person as {holder_name}",
+            suggested_classification=(f"person — could refer to the same person as {holder_name}"
+                                      if index.types == person_leads.PERSON_TYPES else
+                                      f"{_lead_type(page, holder)} — could refer to the same thing as {holder_name}"),
             suggested_confidence=float(entity.get("confidence", 0.0) or 0.0),
             source_context=person_leads.lead_reason(lead, holder_name),
             source_episode_timestamp=entity.get("source_episode_timestamp"),
@@ -1903,6 +1913,10 @@ def _create_lead_clarification(clarifier: ClarificationManager, lead: "person_le
             _mark_held_mention(clarifier, item)
     except Exception as e:
         logger.debug(f"Failed to create a lead question: {type(e).__name__}")
+
+
+def _lead_type(page: dict | None, holder: dict) -> str:
+    return str(((page or holder or {}).get("frontmatter") or {}).get("type") or "concept")
 
 
 def _mark_held_mention(clarifier: ClarificationManager, item: object) -> None:
@@ -1937,6 +1951,7 @@ def _find_direct_candidate_match(
     if existing_match is None:
         for existing_name, existing_data in existing_by_name.items():
             if (fuzz.ratio(new_name_lower, existing_name) > 85
+                    and (person or not distinct_names(new_name_lower, existing_name))
                     and not (person and (_near_person(new_name, existing_name)
                                          or _shared_name(new_name, existing_data, aliases)))):
                 return {
@@ -1950,6 +1965,7 @@ def _find_direct_candidate_match(
         if not candidate_name:
             continue
         if candidate_name == new_name_lower or (fuzz.ratio(new_name_lower, candidate_name) > 85
+                                                and (person or not distinct_names(new_name_lower, candidate_name))
                                                 and not (person and _near_person(new_name, candidate_name))):
             return {
                 "decision": "same",
@@ -2354,6 +2370,85 @@ def close_spelling(a: str, b: str) -> bool:
 @functools.lru_cache(maxsize=65536)
 def _spelling_key(name: str) -> str:
     return _spelling(name)
+
+
+#: The fuzzy join's threshold, as it always was: ``fuzz.ratio`` above this is "the same spelling" — when the two
+#: names also pass :func:`distinct_names`.
+FUZZY_SAME = 85
+
+
+def _variant_words(x: str, y: str) -> bool:
+    """Two words one spelling apart: one starts the other with 4 or more letters in common ("robot" / "robotic",
+    "algo" / "algorithm"), or both have 5 or more letters and differ by one edit (two at 8 or more) — "andrej" /
+    "andrew", or one is the other's plural ("hub" / "hubs", "lab" / "labs"). A short word must otherwise be the same
+    word: "ebs" and "eks" are two things."""
+    if x == y:
+        return True
+    if x.isdigit() or y.isdigit():
+        return False
+    short, long_ = sorted((x, y), key=len)
+    if long_ in (short + "s", short + "es"):
+        return True
+    if len(short) >= 4 and long_.startswith(short):
+        return True
+    if min(len(x), len(y)) < 5 or x[0] != y[0]:
+        return False
+    limit = 2 if min(len(x), len(y)) >= 8 else 1
+    return _edit_distance(x, y, limit) <= limit
+
+
+@functools.lru_cache(maxsize=65536)
+def distinct_names(a: str, b: str) -> bool:
+    """Two names a ``fuzz.ratio > 85`` would join that name two different things (2026-10-27, the hook-note trace):
+    a word on one side with no spelling of it on the other — "<agency> <city>" / "<city>", "Acme Chrome Extension" /
+    "Chrome Extension", "Amazon EBS" / "Amazon EKS", "Best-first search" / "Breadth-first search" — or a different
+    number ("Computer Programming 2" / "… 1", "Opus 5.5" / "Opus 4.6"). Spacing, case, accents and punctuation never
+    count ("OpenAI" / "Open AI"), and a word spelt two ways is one word (:func:`_variant_words`). The fuzzy join
+    used to take every such pair, so a city's page collected a company's claims and an edge landed on the wrong
+    page; such a pair is now no fuzzy match: an entity goes to the judge with the pages it shares a word with, and
+    an edge endpoint resolves to nothing rather than to the wrong page."""
+    if _spelling_key(a) == _spelling_key(b):
+        return False
+    wa, wb = text_fold.words(a), text_fold.words(b)
+    if sorted(w for w in wa if w.isdigit()) != sorted(w for w in wb if w.isdigit()):
+        return True
+    only_a = [w for w in wa if w not in wb and not w.isdigit()]
+    only_b = [w for w in wb if w not in wa and not w.isdigit()]
+    left_a: list[str] = []
+    for word in only_a:
+        partner = next((w for w in only_b if _variant_words(word, w)), None)
+        if partner is None:
+            left_a.append(word)
+        else:
+            only_b.remove(partner)
+    left_b = only_b
+    if left_a and left_b:
+        return True   # a word swapped for another: "best-first" / "breadth-first", "EBS" / "EKS"
+    # One name only adds words. A word hyphen-joined to a word both names share is part of that word's spelling
+    # ("browser-use harness" / "browser-harness", "MPI-parallel solver" / "parallel solver"), not another name; a
+    # separate word ("<agency> <city>") still is.
+    extra, name, other = (left_a, a, wb) if left_a else (left_b, b, wa)
+    return any(not _compound_part(w, name, other) for w in extra)
+
+
+_COMPOUND = re.compile(r"[^\W_]+(?:-[^\W_]+)+", re.UNICODE)
+
+
+def _compound_part(word: str, name: str, other_words: list[str]) -> bool:
+    """Is ``word`` one part of a hyphenated compound in ``name`` whose other part is a word of the other name (or a
+    spelling of one)?"""
+    for compound in _COMPOUND.findall(name or ""):
+        parts = text_fold.words(compound)
+        if word in parts and any(p != word and any(_variant_words(p, o) for o in other_words) for p in parts):
+            return True
+    return False
+
+
+def fuzzy_same(a: str, b: str) -> bool:
+    """The fuzzy join, as one rule: ``fuzz.ratio > 85`` on the lower-cased names, unless they are
+    :func:`distinct_names`."""
+    a, b = str(a or "").strip().lower(), str(b or "").strip().lower()
+    return fuzz.ratio(a, b) > FUZZY_SAME and not distinct_names(a, b)
 
 
 def _spelling_lead(new_entity: dict, page_name: str, page_aliases) -> dict:
@@ -2786,8 +2881,9 @@ def _existing_llm_candidates(
                 continue
             if not _share_content_token(new_name, _candidate_display_name(candidate)):
                 continue
-            if fuzz.ratio(new_name_lower, existing_name_lower) > 85:
-                continue
+            if fuzz.ratio(new_name_lower, existing_name_lower) > 85 and (
+                    person or not distinct_names(new_name_lower, existing_name_lower)):
+                continue   # the direct match's (a distinct name sharing a word is judged, 2026-10-27)
             token_sharing.append(candidate)
     return candidates + shared + token_sharing
 
@@ -2828,9 +2924,10 @@ def _created_llm_candidates(new_entity: dict, created_by_id: dict[str, dict],
         # The same leads as on disk (`_existing_llm_candidates`): a shared alias or a close spelling.
         lead = _spelling_lead(new_entity, existing_display, (create_change.get("entity") or {}).get("aliases"))
         if fuzz.ratio(new_name_lower, existing_display.lower()) > 85:
-            if not (person and _near_person(new_name, existing_display)):
-                continue
-            lead.setdefault("close", existing_display)
+            if person and _near_person(new_name, existing_display):
+                lead.setdefault("close", existing_display)
+            elif person or not distinct_names(new_name_lower, existing_display.lower()):
+                continue   # the direct match's; a distinct name sharing a word is judged (2026-10-27)
         if lead:
             if not _rejected_pair(rejected, new_name, candidate_id):
                 shared.append(_with_lead(candidate, new_entity, lead))
