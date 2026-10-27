@@ -5,7 +5,8 @@ conversation — "the lock", "this project", "la base" — is a reference, not a
 hundred other conversations, and since #249 every recorded alias brings its page to the Stage 2 judge.
 
 **The rule is deliberately narrow (fix round 1, 2026-10-08).** A reference is two or more words, ALL lowercase, no
-digit, the first an article or demonstrative (English or Spanish). Why each condition:
+digit, the first an article or demonstrative (English or Spanish) — or a single all-lowercase personal pronoun ("she",
+"her"; 2026-10-27). Why each condition:
 
 * *All lowercase, the first word too.* Titles and names are capitalised at least at the start — Spanish titles of works
   only there ("La casa de papel", "El señor de los anillos", "Un mundo feliz"), so "no capital after the article" threw
@@ -30,10 +31,22 @@ LEADS = frozenset({
 })
 
 
+#: Personal pronouns, lowercased (2026-10-27): "she", "her" were recorded as a person's aliases, and since a shared
+#: alias brings a page to the judge (``entity_resolver._spelling_lead``) one pronoun tied every page that held it. Only
+#: the all-lowercase word: "Ella" is a name, "ella" a pronoun.
+PRONOUNS = frozenset({
+    "i", "me", "you", "he", "him", "his", "she", "her", "hers", "it", "we", "us", "they", "them", "their",
+    "yo", "tú", "tu", "él", "ella", "ellos", "ellas", "nosotros", "nosotras", "usted", "ustedes",
+})
+
+
 def is_reference(alias) -> bool:
-    """True when ``alias`` is an all-lowercase, digit-free phrase led by an article or demonstrative."""
+    """True when ``alias`` is an all-lowercase, digit-free phrase led by an article or demonstrative, or one
+    all-lowercase personal pronoun."""
     text = str(alias or "")
     words = text.split()
+    if len(words) == 1 and words[0] in PRONOUNS:
+        return True
     if len(words) < 2 or words[0] not in LEADS:
         return False
     return not any(ch.isupper() or ch.isdigit() for ch in text)

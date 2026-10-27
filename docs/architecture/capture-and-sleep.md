@@ -1696,18 +1696,47 @@ open or was answered "different". It writes nothing. Proven on a scratch bank (p
 after, they make one page, because haiku judged the alias `same`. An agent-added X profile link plus two conversations
 naming that handle raised "Is <handle> the same as <person>?", which the inbox served after Sleep.
 
+**Spellings, shared aliases and co-occurring names (G209, 2026-10-27).** A live bank showed one person as three
+person pages, and a fourth page — another person's — listing her name and nickname among its aliases. Three
+mechanisms, each closed for every type, not only people:
+- **A new name's own aliases and close spellings bring pages to the judge.** Candidates were found by the new name
+  only (a page listing it, a page sharing a word with it); the extraction's own `aliases` were never looked up, and a
+  dictated misspelling shares no word with the real name and scores under the direct match's 85, so it met no page and
+  was born. Now `_existing_llm_candidates` / `_created_llm_candidates` also bring a same-type page that shares an alias
+  with the new name (its name or one of its aliases is one of the new name's aliases) or whose name or alias the new
+  name is a close spelling of (`close_spelling`: both ≥ 4 letters folded, same first letter, at most 1 edit apart, 2 when
+  both have ≥ 6 letters; under `fuzz.ratio` 85). The judge is told why (`_lead_note`). A page that is BOTH a close
+  spelling and a shared alias is never cleared by the judge alone (`_never_cleared`): `different` reads as `unsure`, so
+  the name is held and "Possible duplicate of …" asked; it joins only on `same`. A pair the person called different is
+  never brought by a lead. A pronoun or reference alias ("she") is no lead on either side. Measured on that bank: 69
+  same-type close-spelling pairs, 8 of them also sharing an alias.
+- **Two person names the direct match would join are the judge's unless they are one spelling.** `fuzz.ratio > 85`
+  joined "<name-a>" and "<name-a'>" (one letter apart) with no judge — a merge on a name's resemblance, which the
+  `role_people` rail forbids. For a person, the direct match now needs the names to be one spelling once case, accents,
+  spacing and punctuation are set aside (`_near_person`); any other near-spelling goes to the judge as a close spelling.
+  Other types keep the direct match. (Edges and claims still key a held name through `endpoint_id`'s fuzzy rule.)
+- **An alias is a name this page goes by, never co-occurrence.** Stage 1 gave one person the name and nickname of the
+  other person in the same conversation, and Stage 5 unions every new alias onto the page for good, where it brings that
+  page to every later judge call and lead question. Now Stage 2 drops, before anything keys a name, an alias that is the
+  name of another thing extracted from the same conversation (`_drop_conversation_names`, before the G209 handle split),
+  and, after the loop, a NEW alias that is the name or an alias of another same-type page on disk or born in this batch,
+  when the page being written does not hold it itself (`_drop_other_pages_names`). What a page already lists is
+  untouched; removing an existing wrong alias is the person's repair.
+
 **A reference is not recorded as a new alias (2026-10-08, narrowed in fix round 1).** An alias is another NAME for the
 thing; a phrase that only points at it inside one conversation ("the lock", "this project", "la base") is not.
 `alias_policy.is_reference` is deliberately narrow: two or more words, all lowercase, no digit, the first an article or
-demonstrative (English or Spanish). Titles and names keep a capital at least at the start ("La casa de papel", "The
+demonstrative (English or Spanish) — or, since 2026-10-27, one all-lowercase personal pronoun ("she", "her", "ella";
+"Ella" stays a name). Titles and names keep a capital at least at the start ("La casa de papel", "The
 Economist"), a number makes a name ("The 100", "El 47"), and a possessive ("my mom", "mi mamá") is how the person
 refers to one thing consistently, so none of those is a reference. It is used in ONE place: `apply_changes` drops
 references from the aliases Sleep adds (a create's, and only the new ones of an update); what a page already lists —
 a person's merge records the losing page's name there — stays, and the #249 alias index reads every alias as before. A
 real name typed all lowercase and article-led is the accepted false positive: it is only not recorded as a new alias,
 and a lowercase spelling of a page's own name already matches by name. The extraction prompt no longer shows `"the db"`
-as an example alias and says a part, product, dataset, format or version of a thing is not its alias. An alias that is
-another page's name is not removed by anything automatic: it may be the lead for a merge. For an existing bank,
+as an example alias and says a part, product, dataset, format or version of a thing is not its alias. An alias a page
+already lists that is another page's name is not removed by anything automatic: it may be the lead for a merge (a NEW
+one is not written, 2026-10-27, above). For an existing bank,
 `python -m api.scripts.repair_skills_aliases --bank <path>` (dry run; `--list` shows what would go; `--apply` for one
 `cicada` commit) removes a reference only when the page's git history PROVES Sleep wrote it: the commit that last added it is a Sleep
 cycle commit carrying Sleep's own `<page>: create (source: …` line. A Sleep commit runs `git add -A`, so an update
@@ -1856,6 +1885,15 @@ and ids (a portability bug). `api/services/role_people.py` is the one place that
 - **Stage 5.4 asks** (`ask_after_write`): after the pages are written, each unnamed person page the batch touched
   gets one inbox question, "What's the name of your partner?" (`features.md`), unless one is open or the person
   declined. It rides the cycle's commit like every question the cycle opens.
+- **Stage 5.4b asks about one relation held twice** (`ask_exclusive`, 2026-10-27): a relation one person holds at a time
+  (`EXCLUSIVE`: partner — partner, spouse, girlfriend, boyfriend, wife, husband, fiancé(e) and the Spanish words —,
+  mother, father, stepmother, stepfather) held by two or more live person pages (`exclusive_holders`: `owner_roles`, a
+  placeholder titled by it, or an open claim or edge between the page and the owner whose predicate names it exactly, as
+  the repair reads evidence; a partner word reads the same from either side) raises "Is <A> the same as <B>?" once per
+  pair when a page this batch touched is one of them (`ask_same`: subject and candidate by id, `fold_page`, so "merge"
+  folds one page into the other). Never a merge without the person's answer; a pair they called different is never
+  asked again. Nothing compared pages by the relation they hold before: one person under a name and under a nickname
+  both "the owner's girlfriend" raised nothing.
 - **The answer** names the page or folds it into the person of that name (`features.md`); after it, a later
   "<owner>'s partner" mention attaches to that named page, because the record says it holds the relation.
 - **Never a merge on a guess.** Two people are merged only on the person's answer or on evidence on the record.

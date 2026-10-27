@@ -69,6 +69,7 @@ import os
 import re
 import subprocess
 import tempfile
+import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date
@@ -1469,7 +1470,8 @@ def _question_prompt(memory_path: Path, fm: dict, lines: list[str], *,
         choices = {"merge": f"{name} is {other}", "different": f"{name} is not {other}"}
         how = "Options:\n" + "\n".join(f"- {k}: {v}" for k, v in choices.items())
     elif str(fm.get("asks") or "") == "name":
-        how = "Give only the person's name, exactly as they wrote it, in \"answer\"."
+        how = ("Give only the person's name, exactly as they wrote it, in \"answer\". A nickname, pet name or word "
+               "they only call the person by is not their name: then answered=false.")
     else:
         how = (f"Give the answer as a short phrase (at most {MAX_ANSWER_CHARS} characters) in their words, "
                "in \"answer\".")
@@ -1528,6 +1530,25 @@ _FOLLOWUP_WORDS = {
 }
 
 
+def written_as_name(answer, quote: str) -> bool:
+    """Did the person WRITE the answer as a name where they said it (2026-10-27)? A name question ("What's the name of
+    your partner?") is answered by a name, and a word the person only calls someone by in passing — a nickname, a pet
+    name, "send it to <nickname>" — is their word for the person but not the name the question asks. The rule, no
+    model: in the quote, the answer starts with a capital letter, unless the person wrote nothing in that quote with a
+    capital at all (someone who types everything lowercase). A name settle that fails it stays a question."""
+    def bare(s) -> str:   # accents off, case kept: "José" is written as "Jose" is
+        return "".join(c for c in unicodedata.normalize("NFD", str(s or "")) if not unicodedata.combining(c))
+
+    text = bare(quote)
+    if not any(ch.isupper() for ch in text):
+        return True
+    words = [w for w in bare(answer).split() if w]
+    if not words:
+        return False
+    pattern = r"(?<!\w)" + r"\s+".join(re.escape(w) for w in words) + r"(?!\w)"
+    return any(m.group(0)[:1].isupper() for m in re.finditer(pattern, text, flags=re.IGNORECASE))
+
+
 def answer_supported(memory_path: Path, fm: dict, request: dict, quote: str, *, label: str = "") -> bool:
     """Do the person's own words SAY the answer taken from them? Located words that say something else never settle
     a question (review of #393: a run in the morning never named anyone's sister). No model — folded whole words:
@@ -1549,7 +1570,7 @@ def answer_supported(memory_path: Path, fm: dict, request: dict, quote: str, *, 
         if not wanted:
             return False   # an answer of fillers alone ("the") says nothing
         if str(fm.get("asks") or "") == "name":
-            return _phrase_in(" ".join(wanted), said)
+            return _phrase_in(" ".join(wanted), said) and written_as_name(request.get("answer"), quote)
         return all(w in words for w in wanted)
     if action != "resolve":
         return True

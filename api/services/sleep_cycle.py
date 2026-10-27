@@ -2900,6 +2900,17 @@ async def _run_stages(
             logger.info(f"Stage 5.4: asked for {len(asked)} unnamed person name(s)")
     except Exception as e:
         logger.warning(f"Stage 5.4 name questions failed: {type(e).__name__}: {e}")
+    # Stage 5.4b: two person pages holding a relation one person holds at a time (partner, mother, father) — one of
+    # them touched by this batch — raise "Is <A> the same as <B>?" once per pair (`role_people.ask_exclusive`); never a
+    # merge without the person's answer.
+    try:
+        from api.services import role_people
+
+        same = await asyncio.to_thread(role_people.ask_exclusive, memory_path, changes, settings)
+        if same:
+            logger.info(f"Stage 5.4b: asked {len(same)} same-person question(s) about an exclusive relation")
+    except Exception as e:
+        logger.warning(f"Stage 5.4b exclusive relation questions failed: {type(e).__name__}")
 
     # Stage 5.5: Materialize entity-body wikilinks as `mentions` edges so the
     # graph stops ignoring them. Runs after relationships are written so the
