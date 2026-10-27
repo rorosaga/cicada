@@ -14,7 +14,7 @@ from tqdm import tqdm
 
 from api.config import Settings
 from api.services import (correspondents, decay_policy, engine_errors, entity_types, episode_time, evidence, fact_policy,
-                          project_birth, promotion, section_provenance, source_dates)
+                          participation, project_birth, promotion, section_provenance, source_dates)
 from api.services.json_parse import parse_json_object
 
 EXTRACTION_SYSTEM_PROMPT = """You are an entity extraction system for a personal knowledge graph.
@@ -102,6 +102,13 @@ KEY FACTS (## Key Facts) — facts about the thing worth remembering:
   written as the user's act: "registered", "booked", "applied", "sent", "paid" need the user's own
   words or such a record. A stated plan stays a plan ("planned to register"). When the user says they
   acted on a suggestion, write what they did; a suggestion nobody took up is not a fact about the thing.
+- TAKING PART NEEDS A ROLE IN THE TEXT. "competed in", "took part in", "won", "attended", "worked at", "interned
+  at", "studied at" and "graduated from" are written only when the text says that role in those words or plainly
+  equivalent ones ("we competed", "I was on the team", "my internship at"). A mention, "the <event> story", "a story
+  about <event>", "the topic of", "an essay on" or a thing someone else did (coached, helped, watched, organised) is
+  never taking part: write what the text says ("<user> coached <person> for <event>", "<user>'s application essay
+  was about <event>"), or "mentioned". An assistant's summary or memory note compresses: read it for what it states,
+  never for what its shorthand could imply.
 - An act the assistant did itself in the user's tools — filled in a form, drafted, booked, uploaded,
   sent — is the assistant's: write it with the assistant's name as the note before the conversation
   gives it ("[[<agent>]] filled in the [[<event>]] application form on <date>"), never as the
@@ -789,6 +796,7 @@ async def extract(
                 all_entities = []
                 all_relationships = []
                 all_values = []
+                held_participation = 0
                 for ci, chunk in enumerate(chunks):
                     note = _gap_note(gaps, *spans[ci])
                     parsed = await _extract_chunk(
@@ -809,6 +817,10 @@ async def extract(
                     for rel in chunk_rels:
                         evidence.attach_relationship_evidence(rel, ep_id, content, window=spans[ci], kind_override=episode.get("evidence_kind"),
                                                               gaps=gaps)
+                        # 2026-10-27: "competed in", "won", "worked at"… need the located words to say that role;
+                        # "a story about", a topic or a mention stays a mention (`participation`).
+                        if participation.hold(rel, content) is not None:
+                            held_participation += 1
                     all_relationships.extend(chunk_rels)
                     chunk_values = [v for v in (parsed.get("values", []) or []) if isinstance(v, dict)]
                     for value in chunk_values:
@@ -816,6 +828,9 @@ async def extract(
                                                               kind_override=episode.get("evidence_kind"), gaps=gaps)
                     all_values.extend(chunk_values)
 
+                if held_participation:
+                    logger.info(f"  {ep_id}: {held_participation} relationship(s) of taking part kept as a mention: "
+                                "the cited words state no such role")
                 # What the model was given counts as said: the conversation, the owner's name and the source note.
                 given = "\n".join(t for t in (masked, owner or "", source_note or "") if t)
                 if plan_ids and engine_identity.scrub_extraction(all_entities, all_relationships, all_values,

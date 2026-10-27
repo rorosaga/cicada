@@ -738,11 +738,22 @@ same way.
   never 2 (which erases a prompt), under a 0.9 s client timeout.
 - **The note.** `hook_recall` answers engine-free from the derived FTS index. SessionStart gets the primer. A
   prompt gets at most three pages it **names**: a whole name or alias, and one word only for a person, project,
-  company, tool or place. Each page comes with its summary and at most two current claims with their dates,
+  company, tool or place. Each page comes with its summary and at most two current claims with their dates —
+  only claims about what the message is about (2026-10-27, below) —
   plus at most one open inbox question — only one the message is ABOUT (the ask gate below), worded as a statement
   the agent can act on naturally ("if the message already answers it, it is recorded … and not asked"), with a
   pointer to `cicada_check_nudges(mode="list")`. A follow-up never rides a note. The note is ≤ 400 tokens or
   nothing, produced within a hard 300 ms.
+- **Lines about the message, or none (2026-10-27).** A trace showed a city named in a message about a job carrying
+  a line about a stranger's company and, in another trace, an unrelated 2025 line; the note took a
+  page's newest two claims whatever the message said. Now a claim rides only when it shares two subject words with
+  the message beyond its page's own name (`hook_recall._claim_fits`; one when the message has only one), or names
+  another page the message names ("<A> works on <B>"). The message's subject is its words minus the hook's stopwords
+  and the names it says (`message_subject`); a message that only names the page ("how is alpha going?") keeps the
+  newest claims. A page keeps its summary either way: no claim beats an unrelated one. **A common noun is no name:**
+  a one-word alias (after stopwords: "the hackathon") whose word is in three or more page names
+  (`common_name_words`, from the index, cached ten minutes) names nothing — "hackathon" no longer names one event's
+  page in every message about any hackathon.
 - **The vectors.** They only re-order pages already named, and only when the on-device embedder is already
   loaded. A hosted embedder is never sent a prompt.
 - **Repeats.** A per-session window keeps a page from being re-sent on consecutive turns.
@@ -930,6 +941,13 @@ recall's own inbox block was a body-text token match (a recall for "alpha projec
   options other than both/neither, its own words; `text_fold.subject_terms`, folded and lightly stemmed). An
   identity question (`clarification`, `merge_suggestion`) needs the name said. `decay` never comes up (a
   conversation about the page is its answer — the mention lifts decay) and `normalization` stays app-only.
+  **An everyday page needs two shared words (2026-10-27).** The owner's page, and any page whose own name (never an
+  alias) is said in at least a quarter of the person's latest 200 conversations (`everyday_names`: the derived FTS
+  index, at least 20 conversations, cached ten minutes; measured on the owner's bank: owner 36%, main project 34%,
+  the assistant's name 32%, then a gap down to 18%), puts nothing in scope by being named or recalled: the
+  conversation must share two subject words with the question (`EVERYDAY_TERMS`). A trace raised a question about the
+  main project on a message asking to keep a record of the conversation for that project — its only ties were the
+  project's name and one common word. Never a hardcoded name; an unready index means "not everyday".
 - **Three readers, one gate:** `cicada_check_nudges(mode="ask", topic=<the person's words>, entity_ids)` (at most
   2, highest priority first; no `topic`, no question), recall's proactive block (`_relevant_inbox`, the query as the
   conversation, the session's skips honoured) and the recall hook (`hook_recall._open_question`, the prompt as the

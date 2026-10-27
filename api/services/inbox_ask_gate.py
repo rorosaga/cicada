@@ -95,11 +95,19 @@ def subject_terms(fm: dict) -> set[str]:
     return about - own
 
 
-def relevant(fm: dict, conversation: str | None, entity_ids=()) -> tuple[bool, str]:
+#: Subject words an item on an everyday page must share with the conversation (`everyday_names`): its page's name is in
+#: a third of the person's conversations, so one shared word ("conversation", "session") is chance, not a topic.
+EVERYDAY_TERMS = 2
+
+
+def relevant(fm: dict, conversation: str | None, entity_ids=(), *, everyday: bool = False) -> tuple[bool, str]:
     """``(passes, reason)`` for one item against what the person is talking about now.
 
     ``conversation`` is the person's own words this turn (or what the conversation is about now);
-    ``entity_ids`` the pages recall returned for it. ``reason`` is an enum, for tests and counts."""
+    ``entity_ids`` the pages recall returned for it. ``everyday``: the item's page is one the person names in nearly
+    every conversation (the owner's own page, their main project; :func:`everyday`) — naming it, or recall handing it
+    over, puts nothing in scope, so the conversation must share :data:`EVERYDAY_TERMS` subject words with the question
+    (2026-10-27). ``reason`` is an enum, for tests and counts."""
     kind = str(fm.get("kind") or fm.get("type") or "")
     if kind in NEVER_ASKED:
         return False, f"never_asked:{kind}"
@@ -115,7 +123,21 @@ def relevant(fm: dict, conversation: str | None, entity_ids=()) -> tuple[bool, s
     if not about:
         # Nothing to compare: a question with no predicate, options or words of its own beyond its page's name.
         return False, "no_subject"
-    return ((True, "same_subject") if about & terms(conversation) else (False, "other_subject"))
+    shared = about & terms(conversation)
+    if everyday:
+        return (True, "same_subject") if len(shared) >= EVERYDAY_TERMS else (False, "everyday_page")
+    return ((True, "same_subject") if shared else (False, "other_subject"))
+
+
+def everyday(memory_path, fm: dict) -> bool:
+    """Is the item's page one the person names in nearly every conversation (`everyday_names`), from the bank alone?
+    Measured on the page's own name, never its aliases: one loose alias ("code" on an editor's page) would make any
+    page everyday."""
+    from api.services import everyday_names
+
+    entity_id = str(fm.get("entity_id") or "")
+    own = [" ".join(text_fold.words(str(fm.get("entity_name") or ""))) or entity_id.replace("-", " ")]
+    return everyday_names.is_everyday(memory_path, entity_id, own, owner_id=everyday_names.owner_id(memory_path))
 
 
 _WS = re.compile(r"\s+")

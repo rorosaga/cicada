@@ -1,13 +1,14 @@
 """Stage 5: Inbox Generation, Clarification Queue & Versioning."""
 
 import asyncio
+import re
 from datetime import date
 from pathlib import Path
 
 import yaml
 from loguru import logger
 
-from api.services import inbox_questions, markdown_parser, predicates
+from api.services import inbox_questions, markdown_parser, predicates, text_fold
 from api.services.conflict_resolver import apply_changes
 
 # Options with no claim behind them (the synthetic "both"/"neither" rows) always
@@ -236,6 +237,53 @@ def _admit_decay(
     return {id(n) for n in ranked}
 
 
+#: The field an option appended by one re-raise carries: the key of the first option that re-raise appended, so the
+#: two sides of one contradiction stay paired (`_counterpart`).
+RAISED_WITH = "raised_with"
+
+
+_NEGATION = re.compile(r"\b(?:no|not|never|none|without|lacks?|cannot)\b|n't\b", re.IGNORECASE)
+
+
+def near_duplicate(a: str, b: str) -> bool:
+    """Two answer labels that say the same thing in other words (2026-10-27): their subject words (folded, stemmed,
+    function words and numbers dropped, ``text_fold.subject_terms``) are the same — "Already in production" / "Already
+    shipped to production" — or one holds all of the other's two or more — "Lock in review" / "Lock review still open".
+    Never when only one of them is negated ("takes the lock" / "takes no lock"), and never two labels with no
+    subject word ("1,234" is not "2,000"). One shared word is not enough: "AI agent" is not "Agent harness"."""
+    x, y = text_fold.subject_terms(a), text_fold.subject_terms(b)
+    if not x or not y:
+        return False
+    if bool(_NEGATION.search(a or "")) != bool(_NEGATION.search(b or "")):
+        return False
+    if x == y:
+        return True
+    small, big = sorted((x, y), key=len)
+    return len(small) >= 2 and small <= big
+
+
+def _side(option: dict) -> str:
+    return str(option.get("key", ""))[:1]
+
+
+def _counterpart(existing: list[dict], option: dict) -> dict | None:
+    """The other side of the contradiction ``option`` was raised in: the option appended with it (``raised_with``), else
+    — an option written before that field — the one on the other side (``a``/``b``) first seen the same day, the one
+    with as many ``x`` in its key first ("ax" ↔ "bx"). ``None`` when there is no single one."""
+    real = [o for o in existing if str(o.get("key")) not in _SYNTHETIC_KEYS and o is not option]
+    group = option.get(RAISED_WITH)
+    if group:
+        same = [o for o in real if o.get(RAISED_WITH) == group]
+        return same[0] if len(same) == 1 else None
+    seen = str(option.get("observed_at") or "")
+    other = [o for o in real if _side(o) != _side(option) and not o.get(RAISED_WITH)
+             and str(o.get("observed_at") or "") == seen]
+    if len(other) > 1:
+        width = len(str(option.get("key", "")))
+        other = [o for o in other if len(str(o.get("key", ""))) == width]
+    return other[0] if len(other) == 1 else None
+
+
 def merge_options_into(path: Path, new_options: list[dict], today: str) -> bool:
     """Merge competing values into an already-open question (§2.2).
 
@@ -244,6 +292,14 @@ def merge_options_into(path: Path, new_options: list[dict], today: str) -> bool:
     present is appended with a fresh unique key, ahead of the synthetic
     ``both``/``neither`` rows. ``question`` and ``created_date`` are preserved;
     ``updated_date`` is set to ``today``. Returns whether anything changed.
+
+    A description question (its answers are prose, not claim values) is re-raised in new words most nights, and each
+    re-raise used to append one more near-identical pair (``a, b, ax, bx, axx, bxx …``, 2026-10-27). There, an
+    answer that says what an open one says (:func:`near_duplicate`) is that answer; and when one side of a re-raised
+    pair is an open answer, its other side is that answer's counterpart (:func:`_counterpart`) — "Final beta
+    weeks" beside "Already shipped to production" is the "Still in the beta" raised beside "Already in production". Both only bump
+    the open answer, whose label the person already saw stays. A claim conflict's answers are values ("MongoDB",
+    "Supahost"): only the exact label joins, because two values are two answers.
     """
     parsed = markdown_parser.parse(path)
     fm = parsed.frontmatter
@@ -251,12 +307,40 @@ def merge_options_into(path: Path, new_options: list[dict], today: str) -> bool:
     by_label = {str(o.get("label", "")).strip().lower(): o for o in existing}
     used_keys = {str(o.get("key", "")) for o in existing}
     changed = False
+    prose = str(fm.get("predicate") or "description") == "description"
 
-    for incoming in inbox_questions.normalize_options(new_options):
+    incoming_all = [o for o in inbox_questions.normalize_options(new_options) if str(o.get("label", "")).strip()]
+    joined: dict[int, dict] = {}   # id(incoming) -> the open answer it is
+    for incoming in incoming_all:
+        current = by_label.get(str(incoming["label"]).strip().lower())
+        if current is not None:
+            joined[id(incoming)] = current
+    if prose:
+        real = [o for o in existing if str(o.get("key")) not in _SYNTHETIC_KEYS]
+        for incoming in incoming_all:
+            if id(incoming) in joined or str(incoming.get("key")) in _SYNTHETIC_KEYS:
+                continue
+            near = [o for o in real if _side(o) == _side(incoming)
+                    and near_duplicate(incoming["label"], str(o.get("label", "")))
+                    and o not in joined.values()]
+            if near:
+                joined[id(incoming)] = near[0]
+        anchors = [(inc, joined[id(inc)]) for inc in incoming_all if id(inc) in joined]
+        for incoming in incoming_all:
+            if id(incoming) in joined or str(incoming.get("key")) in _SYNTHETIC_KEYS:
+                continue
+            for anchor_in, anchor_open in anchors:
+                if _side(anchor_in) == _side(incoming):
+                    continue
+                partner = _counterpart(existing, anchor_open)
+                if partner is not None and partner not in joined.values():
+                    joined[id(incoming)] = partner
+                    break
+
+    group = None
+    for incoming in incoming_all:
         label = str(incoming.get("label", "")).strip()
-        if not label:
-            continue
-        current = by_label.get(label.lower())
+        current = joined.get(id(incoming))
         if current is not None:
             bumped = incoming.get("last_referenced") or incoming.get("observed_at")
             if bumped and str(bumped) > str(current.get("last_referenced") or ""):
@@ -280,6 +364,9 @@ def merge_options_into(path: Path, new_options: list[dict], today: str) -> bool:
             key += "x"
         option["key"] = key
         used_keys.add(key)
+        if prose and key not in _SYNTHETIC_KEYS:
+            group = group or key
+            option[RAISED_WITH] = group
         existing.append(option)
         by_label[label.lower()] = option
         changed = True

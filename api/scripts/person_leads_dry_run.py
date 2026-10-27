@@ -1,6 +1,10 @@
 """List the person pages that may be one person, for a bank, without writing anything (G209; ``person_leads``).
 
-    api/.venv/bin/python -m api.scripts.person_leads_dry_run --bank <path> [--json]
+    api/.venv/bin/python -m api.scripts.person_leads_dry_run --bank <path> [--json] [--family person|org]
+
+``--family org`` (2026-10-27) lists the same alias leads among organisations, labs, projects and tools
+(``person_leads.ORG_TYPES``), grouped: every set of pages tied to one another by a lead is one line, the pages a
+"Possible duplicate" question would put side by side the next time one of them is mentioned.
 
 Prints one line per lead, each a pair of page ids and why they met: ``alias`` (the holder lists the other page's name
 among its aliases), ``profile:<site>`` (the holder links that account; the other side may be a page or a name still
@@ -21,10 +25,8 @@ import sys
 from pathlib import Path
 
 
-def survey(bank: Path) -> list[dict]:
-    from api.services import markdown_parser, merge_rejections, pending_store, person_leads
-    from api.services.id_utils import sanitize_id
-    from api.services.inbox_generator import find_open
+def _pages(bank: Path) -> list[dict]:
+    from api.services import markdown_parser
 
     pages = []
     for path in sorted((bank / "entities").glob("*.md")):
@@ -33,7 +35,47 @@ def survey(bank: Path) -> list[dict]:
         except Exception:
             continue
         pages.append({"id": path.stem, "frontmatter": parsed.frontmatter, "body": parsed.body})
-    index = person_leads.PersonIndex(pages)
+    return pages
+
+
+def org_groups(bank: Path) -> list[dict]:
+    """Every group of organisation, lab, project and tool pages joined by alias leads (connected components)."""
+    from api.services import merge_rejections, person_leads
+
+    index = person_leads.PersonIndex(_pages(bank), person_leads.ORG_TYPES)
+    parent: dict[str, str] = {}
+
+    def find(x: str) -> str:
+        while parent.setdefault(x, x) != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    leads = [lead for lead in index.all_leads() if not merge_rejections.is_rejected(bank, lead.page, lead.holder)]
+    for lead in leads:
+        parent[find(lead.page)] = find(lead.holder)
+    groups: dict[str, list[str]] = {}
+    for pid in parent:
+        groups.setdefault(find(pid), []).append(pid)
+    out = []
+    for members in groups.values():
+        if len(members) < 2:
+            continue
+        members.sort()
+        out.append({"pages": members,
+                    "names": [person_leads.page_name(index.by_id[m]) for m in members],
+                    "types": sorted({str(index.by_id[m]["frontmatter"].get("type")) for m in members}),
+                    "keys": sorted({lead.key for lead in leads if lead.page in members})})
+    out.sort(key=lambda g: (-len(g["pages"]), g["pages"]))
+    return out
+
+
+def survey(bank: Path) -> list[dict]:
+    from api.services import merge_rejections, pending_store, person_leads
+    from api.services.id_utils import sanitize_id
+    from api.services.inbox_generator import find_open
+
+    index = person_leads.PersonIndex(_pages(bank))
     rows: list[dict] = []
     for lead in index.all_leads():
         rows.append({
@@ -68,11 +110,22 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="person_leads_dry_run", description=__doc__.splitlines()[0])
     parser.add_argument("--bank", required=True, help="the bank directory (holds entities/)")
     parser.add_argument("--json", action="store_true", help="one JSON object instead of lines")
+    parser.add_argument("--family", choices=("person", "org"), default="person",
+                        help="person pages (default) or organisation/lab/project/tool pages, grouped")
     args = parser.parse_args(argv)
     bank = Path(args.bank).expanduser().resolve()
     if not (bank / "entities").is_dir():
         print(json.dumps({"error": "not a bank: no entities/ directory"}))
         return 2
+    if args.family == "org":
+        groups = org_groups(bank)
+        if args.json:
+            print(json.dumps({"groups": groups, "count": len(groups)}, ensure_ascii=False, sort_keys=True))
+            return 0
+        for group in groups:
+            print("\t".join(group["pages"]) + "\t(" + ", ".join(group["types"]) + ")")
+        print(f"{len(groups)} group(s), {sum(len(g['pages']) for g in groups)} page(s); nothing written")
+        return 0
     rows = survey(bank)
     if args.json:
         print(json.dumps({"leads": rows, "count": len(rows)}, ensure_ascii=False, sort_keys=True))

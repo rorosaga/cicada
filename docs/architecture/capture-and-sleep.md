@@ -1798,7 +1798,8 @@ mechanisms, each closed for every type, not only people:
   joined "<name-a>" and "<name-a'>" (one letter apart) with no judge — a merge on a name's resemblance, which the
   `role_people` rail forbids. For a person, the direct match now needs the names to be one spelling once case, accents,
   spacing and punctuation are set aside (`_near_person`); any other near-spelling goes to the judge as a close spelling.
-  Other types keep the direct match. (Edges and claims still key a held name through `endpoint_id`'s fuzzy rule.)
+  Other types keep the direct match, under the distinct-name rule below. (Edges and claims still key a held name
+  through `endpoint_id`'s fuzzy rule.)
 - **An alias is a name this page goes by, never co-occurrence.** Stage 1 gave one person the name and nickname of the
   other person in the same conversation, and Stage 5 unions every new alias onto the page for good, where it brings that
   page to every later judge call and lead question. Now Stage 2 drops, before anything keys a name, an alias that is the
@@ -1841,6 +1842,32 @@ mechanisms, each closed for every type, not only people:
   index built per run (`NameIndex`: name/alias key → pages; folded spelling bucketed by first letter and length), never
   by a scan over every alias of every page: 43 ms to build and 2.3 ms a name for candidates (0.4 ms the direct match) on
   a synthetic 2,500-page bank with ~20k aliases.
+
+**The misread trace (G118, G209, 2026-10-27).** One Claude Code session showed four Sleep-side classes; each is fixed
+for every case, measured on the owner's bank copy (numbers in the report, never here):
+- **Taking part needs a role in the text.** An agent's memory note called an application answer "the <event>
+  story"; the person had not taken part in that event. Stage 1's prompt now says it (TAKING PART NEEDS A ROLE
+  IN THE TEXT), and a deterministic guard holds it for any engine (`participation.hold`, right after the G118 span is
+  located): a relationship whose label STARTS with a claim of taking part — competed / took part / participated in,
+  won, attended, works / worked / interned at, studied at, enrolled in, graduated from — is kept only when its own
+  located words say a role of that family, not negated ("did not compete"), in English or Spanish. Otherwise it is
+  re-labelled `mentioned`: the link stays, the claim of taking part and its STARTS/ENDS/AT go. A relationship with no
+  located quote is held to the same bar. "competes with", "planned to attend", "works with" are not this rule's.
+- **A fuzzy join never takes a name with a word or number the other lacks.** `fuzz.ratio > 85` joined "<agency> <city>"
+  to the city's page, "Amazon EBS" to "Amazon EKS", "Course 2" to "Course 1", "ask" to "dask" — at the direct match
+  (an entity merged into the wrong page) and at `endpoint_id` (an edge or claim keyed to it). `distinct_names` now
+  refuses a pair when a word on one side has no spelling of it on the other, or the numbers differ; spacing, case,
+  accents and punctuation never count, a word spelt two ways is one word (`_variant_words`: a 4+ letter prefix, one
+  edit at 5+ letters, two at 8+, a plural), and a word hyphen-joined to a shared word is part of its spelling
+  ("browser-use harness" / "browser-harness"). The entity then goes to the judge with the pages it shares a word with
+  (`_existing_llm_candidates` no longer skips such a page as "the direct match's"); an edge endpoint resolves to
+  nothing, so its claim is held page-less, never landed on the wrong page (`fuzzy_same`).
+- **Organisations, labs, projects and tools get people's alias lead.** One lab lived on three pages (company, company,
+  project), each listing another's name among its aliases. `person_leads.PersonIndex(pages, ORG_TYPES)` keys the same
+  alias lead across `company`, `project` and `tool` (never a person, never a profile handle, never a shared word —
+  the alias must be the other page's whole name; archived and dropped pages are not indexed), and a mention that
+  matches such a page by name raises the same "Possible duplicate of …" question (`_create_lead_clarification`,
+  "could refer to the same thing as"), never a merge. `person_leads_dry_run --family org` lists the groups.
 
 **A reference is not recorded as a new alias (2026-10-08, narrowed in fix round 1).** An alias is another NAME for the
 thing; a phrase that only points at it inside one conversation ("the lock", "this project", "la base") is not.
