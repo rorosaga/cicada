@@ -200,7 +200,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **Capture never writes into a demo bank** (`demo_guard`, by `_bank.yaml`, never by name): every capture/sources
   POST/PUT answers 409; the Stop hook redirects to the real bank left most recently.
 - **Messages are read only for conversations the person ticked (G179)**: the app reads them, the backend refuses any
-  other; a texted agent's words are its `assistant:` turns and its claims `external:<name>`, never the person's own.
+  other; a texted agent's words are its `assistant:` turns and its claims `external:<name>`, never the person's own —
+  as are a harness session's or a chat export's assistant's (`external:<harness|app>`, 2026-10-27; relayed apps keep
+  their own rail); an explanation is never written as the person's act, and a claim carries its episode's session.
 
 ### Sleep
 
@@ -234,6 +236,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   place (owner 2026-10-23, `capture-and-sleep.md`). What is said about a
   name with no page yet is held (`pending_store`), never lost. A page only an import made is quiet — dimmed, never
   asked about — until the person mentions it, derived on read (`quiet_pages`).
+  **Ruling 42 (owner 2026-10-27):** one conversation is enough for a specific event, program or application the person
+  — or a harness agent, for them — acted on (applied, registered, filled its form), measured on the conversation; the
+  application lives on that page, the owner's keeps only the link (`application_page`, `capture-and-sleep.md`).
   A Stage-4 skill needs 2+ conversations too; one is held in its own store, `skill_hold` (G112, owner 2026-10-09).
   A speaker's self-reference ("the user", "me", "yo"…) is the owner's page, never a page of its own (G169).
   A person known only by a relation to the owner is titled by the relation, never the owner's name, and asked their

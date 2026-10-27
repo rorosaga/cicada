@@ -227,6 +227,11 @@ person's words also back stays `agent` (`capture-and-sleep.md`, Stage 1). The cl
 their own page — a `tool` for an agent, a `person` for a person, a new one always under `<id>-agent` / `<id>-person` —
 never on a same-name page of another type; below the promotion bar they are held on the pending line keyed by that id
 (`correspondents`; `capture-and-sleep.md`, *Entity promotion*). The observer stays `external:<name>`, the correspondent's name, whatever id the page has.
+**The same for any assistant (2026-10-27, `entity_extractor.assistant_observer`):** a claim whose located evidence lies
+only in a harness session's `assistant` turns is `external:<harness>` (`external:claude-code`), only in a chat export's
+assistant turns `external:chatgpt|claude|gemini`; a relayed episode (`evidence_kind`) keeps its own rail. Every
+Stage-1 claim read from an episode with a `session_id` carries it in `session_ids` (`capture-and-sleep.md`, *Facts keep
+their context*).
 `external:linkedin` (2026-10-16) is what LinkedIn listed — a connections export or one profile the person's agent read —
 on a page Cicada already had: `works-at`, `role`, `connected-on`, dated, `source_trust: external`, origin
 `linkedin/connections|profile`; `linkedin_people` keeps that slot one dated line per predicate, newest wins, and never

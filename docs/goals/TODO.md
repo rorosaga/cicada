@@ -1867,3 +1867,26 @@ A whole row moves to DONE only after its remaining implementation and required a
     index per run (`NameIndex`): 2.3 ms a name on a synthetic 2,500-page bank with ~20k aliases. **Revisit** if a
     nickname-titled page is renamed by the person to its nickname again, or a held common-nickname mention is later
     found to have been someone's only name.
+42. **An event, program or application the person acted on gets its own page from one conversation, and the
+    application lives there (owner, 2026-10-27; G194, G141; branch `fix/facts-keep-context`).** The owner's words: "I
+    think it will be useful to have them as pages, maybe for a specific event/program/etc, and in it info about the
+    application. Like seeing info about 'Rodrigo applied to this and this' on my page makes it so my page is huge, and
+    full of stale information. If smth goes stale it should be the specific event." **As built (`application_page`):**
+    a named exception to the 2-conversation promotion rule — one conversation is enough when Stage 1 marks a specific
+    event, program, hackathon, fellowship, course or opening with an `application` (status drafted / filled / sent /
+    registered / accepted / rejected / attended) AND the conversation shows the act: the person's own turn names it beside
+    a word for applying, registering, signing up, a form or a request to join, or — in a harness transcript only — the
+    agent's own line does (it filled in the form). Never a person, tool, skill, place or folder; never a bookmark, a
+    save, a mention, a plan or a texted agent explaining how to apply. The page holds the application: a dated fact
+    with who acted (the agent and the first 8 characters of its session, from the episode's own record), the open step
+    as an open question, and the status as a value claim a later status replaces (observed `external:<agent>` when the
+    agent acted, with the session). Stage 1 moves what the owner's extraction says about the thing (key facts, summary
+    sentences, history) onto it; the owner keeps the relationship claim — the link — and nothing else. A thing the model
+    typed a project without a D4 birth is written as the fallback `concept`, never a project. Decay and staleness are
+    the event page's own. **Dry run (owner bank copy, 2026-10-27):** 39 owner-page lines carry an act word; a reading
+    moves 12 to 6 event pages (2 of them also say something about the owner), the rest are plans, saves, an API key
+    request or no application at all; owner page 481,809 → 480,498 bytes — stale "applied to" lines are a small part of
+    its size (report `facts-keep-context.md`). The repair of existing pages waits for the owner's approval of that list. A "did you send
+    it?" nudge is a follow-up (it must go through the inbox and ask-gate rails). **Revisit** if a one-conversation
+    event page is archived unread by the person more often than not, or a real application is missed because the person's
+    words name it only by a pronoun.

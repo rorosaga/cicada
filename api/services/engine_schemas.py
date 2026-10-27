@@ -59,6 +59,10 @@ def extraction_schema(*, strict: bool) -> dict:
              else {"type": "string", "enum": decay_classes()})
     quote = {"type": ["string", "null"]} if strict else {"type": "string"}
     website = {"type": ["string", "null"]} if strict else {"type": "string"}   # G61 S3-b: company/tool/project only
+    # Ruling 42 (`application_page`): an event or program the person acted on; checked against the conversation.
+    application = _object({"status": text, "by": text}, ["status"], strict=strict)
+    if strict:
+        application = {**application, "type": ["object", "null"]}
     entity = _object({
         "name": text,
         "type": {"type": "string", "enum": entity_types()},
@@ -72,6 +76,7 @@ def extraction_schema(*, strict: bool) -> dict:
         "confidence": {"type": "number"},
         "decay_class": decay,
         "website": website,
+        "application": application,
     }, ["name", "type"], strict=strict)
     relationship = _object(
         {"source": text, "target": text, "label": text, "evidence_quote": quote},

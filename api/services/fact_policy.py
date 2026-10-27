@@ -105,9 +105,13 @@ def covered(item: str, kept) -> bool:
     return any(restates(item, other) for other in kept if other)
 
 
-def union(existing: list[str], incoming: list[str]) -> tuple[list[str], int]:
-    """``existing`` unchanged, then every incoming item not equal (:func:`normalized`) to
-    one already kept. Returns the items and how many incoming items were repeats."""
+def union(existing: list[str], incoming: list[str], *, extend_existing: bool = False) -> tuple[list[str], int]:
+    """``existing``, then every incoming item not equal (:func:`normalized`) to one already
+    kept, and none that another item says word for word and then more (:func:`extends`):
+    the shorter one folds into the longer, which takes its place. ``extend_existing``
+    folds ``existing`` items too (a machine page: an existing item may be extended, or fold
+    into a later one); without it every existing item stays exactly as it is. Returns the
+    items and how many items were repeats."""
     seen = {normalized(e) for e in existing}
     kept: list[str] = []
     folded = 0
@@ -121,7 +125,11 @@ def union(existing: list[str], incoming: list[str]) -> tuple[list[str], int]:
             continue
         seen.add(key)
         kept.append(text)
-    return list(existing) + kept, folded
+    if extend_existing:
+        items, _ = fold_extensions([], [str(e) for e in existing] + kept)
+    else:
+        items, _ = fold_extensions(existing, kept, extend_existing=False)
+    return items, folded + len(existing) + len(kept) - len(items)
 
 
 # --------------------------------------------------------------------------- sentences
@@ -198,3 +206,180 @@ def about_the_conversation(fact: str, names=()) -> bool:
     allowed = {fold(str(n)).strip() for n in names if n} | _PRONOUNS
     allowed |= {n[4:] for n in allowed if n.startswith("the ")}
     return subject in allowed
+
+
+# --------------------------------------------------------------------------- standing alone
+
+# A displaced orientation is split into Key Facts, and a Key Fact is read alone: on a page of thousands of bullets
+# (the owner's), a sentence that leaned on the one before it ("… is applying to [[Alpha Hackathon]]. As of 2026-10-21
+# he had the application form filled in …") joins whatever sits nearest. Engine-free and lossless: a sentence is only
+# ever kept together with the one it leans on, never dropped or reworded.
+_LEADING_TIME = re.compile(
+    r"^(?:as of|on|in|by|since|during|until|from|around|early in|late in|early|mid|late)\s+"
+    r"(?:(?:the\s+)?(?:\d{1,2}(?:st|nd|rd|th)?\s+)?[a-z]+\s+)?(?:\d{1,2},?\s+)?\d{4}(?:-\d{2}(?:-\d{2})?)?,?\s+",
+    re.IGNORECASE)
+_ANAPHORA = frozenset("he she it they this that these those his her its their there them him such both".split())
+_DETERMINERS = frozenset("this that these those its their his her".split())
+_CALENDAR = frozenset("""
+january february march april may june july august september october november december
+jan feb mar apr jun jul aug sep sept oct nov dec
+monday tuesday wednesday thursday friday saturday sunday i
+""".split())
+_WORD = re.compile(r"[\w][\w'’.@+-]*")
+
+
+def _plain(text: str) -> str:
+    return " ".join(_WIKILINK.sub(lambda m: m.group(3) or m.group(1), str(text or "")).split())
+
+
+def _undated(text: str) -> str:
+    return _LEADING_TIME.sub("", text, count=1)
+
+
+def names_of(text: str, names=()) -> set[str]:
+    """What ``text`` names other than the page itself (``names``: its name and aliases): its wikilink targets and
+    every capitalised word after the first (a month, a weekday and "I" aside), folded."""
+    own = {fold(str(n)).strip() for n in names if n}
+    own_words = {w for n in own for w in n.split()}
+    found = {fold(m.group(1)).strip() for m in _WIKILINK.finditer(str(text or ""))} - own
+    for word in _WORD.findall(_undated(_plain(text)))[1:]:
+        folded = fold(word).rstrip(".'’")
+        for suffix in ("'s", "’s"):
+            folded = folded.removesuffix(suffix)
+        if word[:1].isupper() and folded not in _CALENDAR and folded not in own_words and folded not in own:
+            found.add(folded)
+    return found
+
+
+def _opener(sentence: str) -> str:
+    words = _WORD.findall(_undated(_plain(sentence)))
+    return fold(words[0]) if words else ""
+
+
+def _opens_with_page(sentence: str, names=()) -> bool:
+    head = fold(_undated(_plain(sentence))).lstrip()
+    return any(n and head.startswith(n) for n in (fold(str(x)).strip() for x in names if x))
+
+
+def leans(sentence: str, names=(), previous: str = "") -> bool:
+    """A sentence that does not say by itself what it is about: it names nothing but the page itself ("As of
+    2026-10-21 he had the application form filled in"), or — after ``previous``, which is not about the page (it
+    does not open with the page's name or a pronoun) — it opens with a pronoun or a demonstrative ("It runs on …",
+    "This pass costs …"). A leading date phrase ("As of 2026-10-21", "In March 2026,") is read past."""
+    words = _WORD.findall(_undated(_plain(sentence)))
+    if not words:
+        return False
+    if not names_of(sentence, names):
+        return True
+    first = fold(words[0])
+    if first not in _ANAPHORA or (first in _DETERMINERS and len(words) > 1 and words[1][:1].isupper()):
+        return False  # "This Friday …", "Their Berlin office …" say what they are about
+    return not (_opens_with_page(previous, names) or _opener(previous) in _ANAPHORA)
+
+
+def standalone(text: str, names=()) -> list[str]:
+    """``text`` (one paragraph or several) as facts that each stand alone: its :func:`sentences`, except that a
+    sentence which :func:`leans` stays joined to the one before it, in its paragraph, when that one names something
+    other than the page (``names``: the page's name and aliases). Every word is kept, in order."""
+    out: list[str] = []
+    for paragraph in re.split(r"\n\s*\n", str(text or "")):
+        beyond = False  # the fact being built names something other than the page
+        previous = ""
+        for i, sentence in enumerate(sentences(paragraph)):
+            if i and beyond and leans(sentence, names, previous):
+                out[-1] = f"{out[-1]} {sentence}"
+            else:
+                out.append(sentence)
+                beyond = bool(names_of(sentence, names))
+            previous = sentence
+    return out
+
+
+# --------------------------------------------------------------------------- one fact said twice
+
+# The loss-free fold ruling 23 left open ("revisit the fold only with a measured loss-free paraphrase rule"): one item
+# folds into another only when every word of it is still there, in order, at the start of the other (after an optional
+# leading date phrase), and the other goes on past a clause boundary — "Rolling admissions" inside "Rolling admissions
+# with no deadline, …". Never inside a word or a number ("Acme" in "Acme's competitor", "200" in "200,000"), never past
+# "or", "but", "than", "until" or "to" (they change what the head says), never a dated item into an undated one.
+_CLAUSE = re.compile(r"^(?:[,;:.!?]\s|\s[-–—]\s|\s\(|\s(?:with|which|who|whose|where|including|via|through)\s)")
+
+
+@lru_cache(maxsize=65536)
+def _surface(text: str) -> str:
+    return " ".join(fold(_plain(text)).split()).rstrip(" .!?;:,")
+
+
+_KEY_WORDS = 3
+
+
+def _prefixes(text: str) -> set[tuple[str, ...]]:
+    """Up to the first three words of ``text`` and of ``text`` without its leading date phrase, as every prefix:
+    where an item that :func:`extends` ``text`` would be found in :func:`fold_extensions`' index."""
+    surface = _surface(text)
+    out = set()
+    for head in {surface, _undated(surface)}:
+        words = tuple(head.split()[:_KEY_WORDS])
+        out |= {words[:n] for n in range(1, len(words) + 1)}
+    return out
+
+
+def _key(text: str) -> tuple[str, ...]:
+    return tuple(_surface(text).split()[:_KEY_WORDS])
+
+
+def extends(longer: str, shorter: str) -> bool:
+    """True when ``longer`` says ``shorter`` word for word and then more, past a clause boundary."""
+    a, b = _surface(shorter), _surface(longer)
+    if not a or len(b) <= len(a):
+        return False
+    heads = [b]
+    if _undated(a) == a and _undated(b) != b:
+        heads.append(_undated(b))  # "In April 2026, X …" keeps everything an undated "X" said
+    return any(head.startswith(a) and _CLAUSE.match(head[len(a):]) for head in heads)
+
+
+def fold_extensions(existing: list[str], incoming: list[str], *, extend_existing: bool = True
+                    ) -> tuple[list[str], dict[str, str]]:
+    """``existing`` then ``incoming``, an item that another one :func:`extends` folded into it.
+
+    An incoming item a kept one already says word for word is left out; an incoming item that extends a kept one takes
+    its place (the kept one's words survive, verbatim, inside it). ``extend_existing=False`` (a page a person edited)
+    never changes an ``existing`` item: an incoming one that extends it is added beside it. Returns the items and
+    ``{folded text: the text that now holds it}``, so a caller moves a folded item's sources onto its holder."""
+    kept: list[str] = [str(e) for e in existing]
+    fixed = 0 if extend_existing else len(kept)
+    moved: dict[str, str] = {}
+    # Only items that share their first words can extend one another: the owner's page has thousands of bullets.
+    longer: dict[tuple, list[int]] = {}   # a prefix of a kept item's head -> the items (as the longer one)
+    shorter: dict[tuple, list[int]] = {}  # a kept item's first words -> the items (as the shorter one)
+
+    def _add(i: int) -> None:
+        for prefix in _prefixes(kept[i]):
+            longer.setdefault(prefix, []).append(i)
+        shorter.setdefault(_key(kept[i]), []).append(i)
+
+    for i in range(len(kept)):
+        _add(i)
+    for item in incoming:
+        text = str(item).strip()
+        if not text:
+            continue
+        holder = next((kept[i] for i in sorted(longer.get(_key(text), ()))
+                       if kept[i] and extends(kept[i], text)), None)
+        if holder is not None:
+            moved[text] = holder
+            continue
+        near = sorted({i for prefix in _prefixes(text) for i in shorter.get(prefix, ()) if kept[i]})
+        slots = [i for i in near if i >= fixed and extends(text, kept[i])]
+        for i in slots:
+            old, kept[i] = kept[i], ""
+            moved = {key: (text if value == old else value) for key, value in moved.items()}
+            moved[old] = text
+        if slots:
+            kept[slots[0]] = text
+            _add(slots[0])
+        else:
+            kept.append(text)
+            _add(len(kept) - 1)
+    return [k for k in kept if k], moved

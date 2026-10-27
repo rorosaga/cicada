@@ -3265,6 +3265,10 @@ def _get_unprocessed_episodes(
             # `Cicada-Session:` trailers.
             "session_id": str(fm.get("session_id") or "") or None,
             "source_id": str(fm.get("source_id") or "") or None,
+            # Who the `assistant:` lines are (the harness that captured the session): Stage 1 names the agent behind
+            # an act in the person's tools, and a claim resting only on its words is its own (`external:<harness>`).
+            "harness": str(fm.get("harness") or "") or None,
+            "capture_kind": str(fm.get("capture_kind") or "") or None,
             # R-F2 / R-LS7: whose words a folder file holds, for Stage-1 evidence.
             "evidence_kind": str(fm.get("evidence_kind") or "") or None,
             # G110 gate B2: the dropped-middle marker's range, from the episode's own record.

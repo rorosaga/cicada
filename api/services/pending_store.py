@@ -183,8 +183,9 @@ def _carry(prior: PendingEntity, entity: PendingEntity) -> None:
     entity.summary = entity.summary or prior.summary
     entity.description = entity.description or prior.description
     said = fact_policy.sentences(entity.summary or entity.description)
-    displaced = [s for t in displaced for s in fact_policy.sentences(t) if not fact_policy.covered(s, said)]
-    facts, _ = fact_policy.union(list(prior.key_facts), _texts(entity.key_facts, displaced))
+    names = [entity.name, *(entity.aliases or []), *(prior.aliases or [])]
+    displaced = [s for t in displaced for s in fact_policy.standalone(t, names) if not fact_policy.covered(s, said)]
+    facts, _ = fact_policy.union(list(prior.key_facts), _texts(entity.key_facts, displaced), extend_existing=True)
     entity.key_facts = _texts(facts)
     links, urls = [], set()
     for link in list(prior.links) + list(entity.links):

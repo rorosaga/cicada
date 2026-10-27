@@ -178,7 +178,7 @@ def _repair(fm: dict, body: str, result: Survey) -> str:
             sections.pop("History", None)
         for bullet in background:
             text = bullet[len(_BACKGROUND):].replace("\n  ", "\n")
-            added = entity_body.retain_orientation(sections, text)
+            added = entity_body.retain_orientation(sections, text, names=names)
             result.background_to_facts += added
             result.background_restated += int(added == 0)
 
