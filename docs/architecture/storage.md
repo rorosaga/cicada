@@ -229,7 +229,12 @@ never on a same-name page of another type; below the promotion bar they are held
 (`correspondents`; `capture-and-sleep.md`, *Entity promotion*). The observer stays `external:<name>`, the correspondent's name, whatever id the page has.
 **The same for any assistant (2026-10-27, `entity_extractor.assistant_observer`):** a claim whose located evidence lies
 only in a harness session's `assistant` turns is `external:<harness>` (`external:claude-code`), only in a chat export's
-assistant turns `external:chatgpt|claude|gemini`; a relayed episode (`evidence_kind`) keeps its own rail. Every
+assistant turns `external:chatgpt|claude|gemini`; a relayed episode (`evidence_kind`) keeps its own rail. Such an
+observer — `external:<the agent the claim's own origin names>` — **shares Cicada's own `agent` slot**
+(`claim_reconciler.slot_observer`, the reconciler's key `K`): it is the same extraction of the same conversation, so a
+newer value closes an older whichever wrote it, a restatement reinforces, and the bank's assistant-only claims written
+`agent` before 2026-10-27 stay in step without a repair. The trust table and the owner's-words rail still decide, so
+neither closes the person's own claim; a texted agent's or another person's `external:<name>` keeps its own slot. Every
 Stage-1 claim read from an episode with a `session_id` carries it in `session_ids` (`capture-and-sleep.md`, *Facts keep
 their context*).
 `external:linkedin` (2026-10-16) is what LinkedIn listed — a connections export or one profile the person's agent read —

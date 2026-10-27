@@ -11,13 +11,16 @@ Narrow on purpose. Three things must hold, each from the conversation itself, ne
 
 * Stage 1 marked the entity with an ``application`` (its status, and whether the user or the assistant acted), and
   its type is one a specific event, program or opening can carry (not a person, tool, skill, place or folder);
-* **the person's own turn** names it beside a word for applying, registering, signing up, a form or a request to
-  join (:data:`ACT_WORD`, a few languages) — or, in a harness session the hook captured (``capture_kind:
-  transcript``), **the agent's own line** does (it filled in the form, sent the request);
-* the name is located exactly in that turn (the same matching as `project_birth`), and the span is kept, never a copy.
+* **one sentence of the person's own turn** names it and says it was done — applied, registered, signed up,
+  submitted, filled in its form, requested to join (:data:`DONE`, a few languages) — with no question, plan, wish or
+  negation in it (:data:`NOT_DONE`; a sentence ending "?" never counts) — or, in a harness session the hook captured
+  (``capture_kind: transcript``), **one sentence of the agent's own line** does ("The X form is filled in");
+* the name is located exactly in that sentence (the same matching as `project_birth`), and the span is kept, never
+  a copy.
 
-A bookmark, a save, a watched video or a passing mention never qualifies: none has such a turn. A texted agent's
-explanation ("register soon") is not an act either: only a harness agent acts in the person's tools.
+A bookmark, a save, a watched video or a passing mention never qualifies, nor does "Should I register for X?", "I'm
+planning to apply to X" or a form in another sentence. A texted agent's explanation ("register soon") is not an act
+either: only a harness agent acts in the person's tools.
 
 The record (``application_birth`` on the extraction, never the model's to set) is
 ``{episode, day?, status, by: "user"|<agent name>, session?, span: {start, end, hash, kind}}``.
@@ -29,12 +32,22 @@ import re
 from api.services import evidence, promotion
 from api.services.project_birth import _name_pattern
 
-#: A word for acting on an application, in the languages the owner's conversations use: apply, register, sign up,
-#: RSVP, enrol, submit, a form, a request to join. A whole word, any case.
-ACT_WORD = re.compile(
-    r"(?<!\w)(?:appl(?:y|ies|ying|ied|ication|ications)|regist(?:er|ers|ering|ered|ration)|sign(?:s|ed|ing)?[ -]?up|"
-    r"rsvp(?:'?d)?|enrol(?:l|ls|led|ling|ment)?|submit(?:s|ted|ting)?|forms?|request(?:ed)? to join|"
-    r"inscri(?:b|p)\w*|solicit(?:ud|ar|é|e)\w*|postul\w*|formulario)(?!\w)", re.IGNORECASE)
+#: A completed act on an application, in the languages the owner's conversations use: applied, registered, signed
+#: up, RSVP'd, enrolled, submitted, sent the application / form / request, filled in (or out) its form, requested to
+#: join, drafted it, was accepted or rejected, attended. Whole words, any case. A bare "apply", "register" or "form"
+#: is a plan, a question or another thing entirely.
+DONE = re.compile(
+    r"(?<!\w)(?:applied|registered|signed[ -]?up|rsvp'?d|enrol(?:l)?ed|submitted|requested to join|drafted|"
+    r"sent (?:\w+ ){0,3}(?:application|form|request)s?|filled (?:in|out)|"
+    r"(?:got|was|been|were) (?:accepted|rejected|admitted)|attended|"
+    r"me (?:inscrib[ií]|apunt[eé]|registr[eé])|apliqu[eé]|postul[eé]|envi[eé] (?:la|el|mi) (?:solicitud|formulario|"
+    r"aplicaci[oó]n))(?!\w)", re.IGNORECASE)
+#: What makes a sentence with such a word not a completed act: a question, a plan, a wish or a negation.
+NOT_DONE = re.compile(
+    r"(?<!\w)(?:should (?:i|we)|shall (?:i|we)|planning to|plan to|plans to|going to|gonna|want(?:s|ed)? to|"
+    r"would like to|thinking (?:of|about)|consider(?:ing)?|might|maybe|whether|if i|haven'?t|hasn'?t|have not|"
+    r"has not|didn'?t|did not|not yet|never|will|won'?t|can'?t|cannot|debería|voy a|quiero|pienso)(?!\w)",
+    re.IGNORECASE)
 
 #: The statuses an application moves through, as the page records them.
 STATUSES = ("drafted", "filled", "sent", "registered", "accepted", "rejected", "attended")
@@ -57,9 +70,20 @@ def _marked(entity: dict) -> dict | None:
     return {"status": status, "by": by}
 
 
+def completed_act(sentence: str) -> bool:
+    """One sentence says an application was acted on: a completed act (:data:`DONE`), and no question, plan or
+    negation (:data:`NOT_DONE`) — "I applied to X", "The X form is filled in"; never "Should I register for X?", "I'm
+    planning to apply to X", "I haven't sent the X form"."""
+    sentence = " ".join(str(sentence or "").split())
+    return bool(DONE.search(sentence)) and not NOT_DONE.search(sentence) and not sentence.rstrip().endswith("?")
+
+
+_SENTENCE = re.compile(r"[^.!?\n]+[.!?]?")
+
+
 def _acted(entity: dict, text: str, *, roles: frozenset, override: str | None, gaps) -> evidence.Evidence | None:
-    """The first turn of one of ``roles`` that names the entity and holds an :data:`ACT_WORD`, as a span over the
-    sentence naming it (the turn when no sentence holds both)."""
+    """The first sentence, in a turn of one of ``roles``, that names the entity and says it was acted on
+    (:func:`completed_act`), as a span over the name."""
     pattern = _name_pattern(entity)
     if pattern is None or not text:
         return None
@@ -67,13 +91,15 @@ def _acted(entity: dict, text: str, *, roles: frozenset, override: str | None, g
         if turn.role not in roles:
             continue
         words = text[turn.content_start:turn.end]
-        name = pattern.search(words)
-        if name is None or not ACT_WORD.search(words):
-            continue
-        start, end = turn.content_start + name.start(), turn.content_start + name.end()
-        if evidence.touches_gap(start, end, gaps):
-            continue
-        return evidence.Evidence(episode="", start=start, end=end, kind=turn.role, hash=evidence.body_hash(text))
+        for s in _SENTENCE.finditer(words):
+            name = pattern.search(s.group(0))
+            if name is None or not completed_act(s.group(0)):
+                continue
+            start = turn.content_start + s.start() + name.start()
+            end = turn.content_start + s.start() + name.end()
+            if evidence.touches_gap(start, end, gaps):
+                continue
+            return evidence.Evidence(episode="", start=start, end=end, kind=turn.role, hash=evidence.body_hash(text))
     return None
 
 

@@ -221,10 +221,36 @@ def test_an_agent_filled_form_is_the_agents_act_with_its_session():
     assert TRANSCRIPT[birth["span"]["start"]:birth["span"]["end"]] == "Alpha Hackathon"
 
 
-def test_the_persons_own_words_are_enough():
+@pytest.mark.parametrize("said", [
+    "I applied to Alpha Hackathon this morning.",
+    "Today I registered for Alpha Hackathon as a participant.",
+    "I filled in the Alpha Hackathon form and sent it.",
+    "We requested to join Alpha Hackathon.",
+    "Me inscribí en Alpha Hackathon ayer.",
+])
+def test_the_persons_own_completed_act_is_enough(said):
+    text = f"user: {said}\nassistant: Good luck!\n"
     birth = application_page.at_extraction(_event(application={"status": "sent"}), episode_id=EP,
-                                           frontmatter={"origin": "chatgpt-export"}, text=TRANSCRIPT, day=None)
+                                           frontmatter={"origin": "chatgpt-export"}, text=text, day=None)
     assert birth["by"] == "user" and birth["span"]["kind"] == "user" and "session" not in birth
+
+
+@pytest.mark.parametrize("said", [
+    # The reviewer's three: a plan, a question, and a form in another sentence.
+    "I'm planning to apply to Alpha Hackathon next month, thoughts?",
+    "Should I register for Alpha Hackathon?",
+    "I saw Alpha Hackathon in a newsletter. Separately, help me with this tax form.",
+    # And their kin.
+    "I want to apply to Alpha Hackathon. Fill in the form with my details.",   # the TRANSCRIPT's own person turn
+    "I'm going to register for Alpha Hackathon.",
+    "Thinking of applying to Alpha Hackathon.",
+    "I haven't applied to Alpha Hackathon yet.",
+    "Did you know I registered for Alpha Hackathon?",
+])
+def test_a_plan_a_question_or_a_passing_mention_is_no_act(said):
+    text = f"user: {said}\nassistant: Sure.\n"
+    assert application_page.at_extraction(_event(application={"status": "sent"}), episode_id=EP,
+                                          frontmatter={"origin": "chatgpt-export"}, text=text, day=None) is None
 
 
 @pytest.mark.parametrize("entity, frontmatter, text", [
@@ -332,3 +358,89 @@ def test_a_plain_one_conversation_mention_still_waits(tmp_path, monkeypatch):
     out = asyncio.run(entity_resolver.resolve([{"episode_id": EP, "entities": [event], "relationships": []}], [],
                                               _settings(memory)))
     assert not [c for c in out["changes"] if c["action"] == "create"]
+
+
+# --- one slot for Cicada's reading and the conversation's own assistant (review of #486) -----------------------------
+
+def _status(cid, value, day, *, observer="agent", origin="claude-code", kind="user", subject="alpha-hackathon"):
+    from api.services.claims import Claim, Evidence, value_predicate
+
+    ep = f"ep_{day}_001"
+    return Claim(id=cid, text=f"{subject} application status: {value}", subject=subject,
+                 predicate=value_predicate("application status"), object=value, object_kind="literal",
+                 observer=observer, valid_from=day, source_trust="agent_extracted", origin=origin,
+                 source_episodes=[ep], evidence=[Evidence(episode=ep, start=0, end=5, kind=kind, hash="h" * 12)])
+
+
+def _reconcile(tmp_path, incoming, existing):
+    from api.services import predicates
+    from api.services.claim_reconciler import reconcile_stage3
+
+    predicates.install_predicate_map(tmp_path)
+    slots: dict = {}
+    for c in existing:
+        slots.setdefault(c.subject, []).append(c)
+    settings = SimpleNamespace(memory_path=tmp_path, litellm_model="test-model", archive_threshold=0.2,
+                               decay_nudge_threshold=0.4)
+    out, nudges, _ = reconcile_stage3(incoming, slots, settings, cardinality_fn=lambda _p: False,
+                                      now_date="2026-10-30", decay=False)
+    return {c.id: c for cs in out.values() for c in cs}, nudges
+
+
+def test_the_persons_later_status_closes_the_agents():
+    """Agent first ("filled", its own line, `external:claude-code`), the person later ("I sent it", `agent`)."""
+    import tempfile
+    from pathlib import Path
+
+    agent = _status("clm_a", "filled", "2026-10-21", observer="external:claude-code", kind="assistant")
+    person = _status("clm_p", "sent", "2026-10-23")
+    by_id, nudges = _reconcile(Path(tempfile.mkdtemp()), [person], [agent])
+    assert by_id["clm_a"].valid_to == "2026-10-23" and by_id["clm_a"].superseded_by == "clm_p"
+    assert by_id["clm_p"].valid_to is None and not nudges
+
+
+def test_the_agents_later_status_closes_cicadas_reading_but_never_the_persons_words(tmp_path):
+    """The reverse: an older status Cicada read from the assistant's words closes on the agent's newer one; an older
+    one resting on the person's own words is never closed by an agent-only status — the owner's-words rail asks."""
+    old = _status("clm_old", "filled", "2026-10-21", kind="assistant")          # agent, from the assistant's line
+    new = _status("clm_new", "sent", "2026-10-23", observer="external:claude-code", kind="assistant")
+    by_id, nudges = _reconcile(tmp_path, [new], [old])
+    assert by_id["clm_old"].superseded_by == "clm_new" and by_id["clm_new"].valid_to is None and not nudges
+
+    persons = _status("clm_person", "filled", "2026-10-21", kind="user")
+    later = _status("clm_agent", "sent", "2026-10-23", observer="external:claude-code", kind="assistant")
+    by_id, nudges = _reconcile(tmp_path / "b", [later], [persons])
+    assert by_id["clm_person"].valid_to is None and "clm_agent" not in by_id
+    assert len(nudges) == 1   # asked, never two open statuses
+
+
+def test_an_old_agent_value_and_a_new_external_one_share_a_slot_without_a_repair(tmp_path):
+    """The bank holds assistant-only claims written `agent` before the relabel: a newer `external:<origin>` value
+    closes the old one, and a restatement reinforces it instead of opening a second claim."""
+    old = _status("clm_old", "4", "2026-09-01", origin="chatgpt-export", kind="assistant", subject="alice-example")
+    newer = _status("clm_new", "5", "2026-10-01", observer="external:chatgpt", origin="chatgpt-export",
+                    kind="assistant", subject="alice-example")
+    by_id, _ = _reconcile(tmp_path, [newer], [old])
+    assert by_id["clm_old"].superseded_by == "clm_new" and by_id["clm_new"].valid_to is None
+
+    same = _status("clm_again", "4", "2026-10-01", observer="external:chatgpt", origin="chatgpt-export",
+                   kind="assistant", subject="alice-example")
+    by_id, _ = _reconcile(tmp_path / "b", [same], [_status("clm_old", "4", "2026-09-01", origin="chatgpt-export",
+                                                           kind="assistant", subject="alice-example")])
+    assert "clm_again" not in by_id and by_id["clm_old"].valid_to is None
+    assert "ep_2026-10-01_001" in by_id["clm_old"].source_episodes
+
+
+def test_a_texted_agent_and_another_origins_external_keep_their_own_slots():
+    from api.services.claim_reconciler import slot_observer
+
+    assert slot_observer(_status("a", "x", "2026-10-01", observer="external:claude-code")) == "agent"
+    assert slot_observer(_status("b", "x", "2026-10-01", observer="external:chatgpt", origin="chatgpt-export")) == "agent"
+    assert slot_observer(_status("c", "x", "2026-10-01", observer="external:instinct", origin="imessage")) \
+        == "external:instinct"
+    assert slot_observer(_status("d", "x", "2026-10-01", observer="external:chatgpt")) == "external:chatgpt"
+    assert slot_observer(_status("e", "x", "2026-10-01", observer="external:linkedin", origin="linkedin")) \
+        == "external:linkedin"
+    assert slot_observer(_status("f", "x", "2026-10-01", observer="external:linkedin", origin="linkedin-export")) \
+        == "external:linkedin"
+    assert entity_extractor.assistant_observer({"origin": "notion-export"}) is None

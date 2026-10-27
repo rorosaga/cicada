@@ -34,6 +34,15 @@ from api.services.transcript_extract import CLAUDE_HARNESS_TAGS, CODE_OMITTED, C
 
 TITLE_MAX = 72
 PRODUCT = {"claude-code": "Claude Code", "codex": "Codex", "cursor": "Cursor", "gemini-cli": "Gemini CLI"}
+#: A chat export's origin -> the app whose assistant lines it holds (`entity_extractor.assistant_observer`).
+CHAT_EXPORTS = {"chatgpt-export": "chatgpt", "claude-export": "claude", "gemini-export": "gemini"}
+
+
+def assistant_of(origin: str | None) -> str | None:
+    """The agent whose ``assistant:`` lines an episode or claim of this origin holds: a harness, or a chat export's
+    app. ``None`` for every other origin (a texted agent is named by its correspondent, a source by itself)."""
+    origin = str(origin or "").strip().lower()
+    return origin if origin in PRODUCT else CHAT_EXPORTS.get(origin)
 HARNESS_TAGS = CLAUDE_HARNESS_TAGS | CODEX_HARNESS_TAGS
 TRIGGER = "maintenance/episode-titles"
 

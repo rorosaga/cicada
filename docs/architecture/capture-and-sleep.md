@@ -1444,11 +1444,15 @@ summary and for every relationship); "an explicit link" was any relationship the
   fifth rung: a specific event, program, hackathon, fellowship, course or opening gets its page from one conversation
   when Stage 1 marked it with an `application` (status `drafted|filled|sent|registered|accepted|rejected|attended`,
   `by` user or assistant — the model's field, consumed at Stage 1 and never written) **and** the conversation shows the
-  act: a person's own turn (`promotion.PERSON_KINDS`) names it (exact, `project_birth`'s name matching) and holds an
-  act word (`application_page.ACT_WORD`: apply, register, sign up, RSVP, enrol, submit, a form, a request to join, a
-  few languages), or — only in a harness transcript (`capture_kind: transcript`, not relayed) — the agent's own line
-  does. Never a `person`, `tool`, `skill`, `location`, `directory`, `media` or `deadline`; never a save, a bookmark, a
-  mention, a plan, or a texted agent explaining how to apply (only a harness agent acts in the person's tools). The
+  act: one sentence of a person's own turn (`promotion.PERSON_KINDS`) names it (exact, `project_birth`'s name
+  matching) and says it was done (`application_page.DONE`: applied, registered, signed up, RSVP'd, enrolled,
+  submitted, sent the application/form/request, filled in or out, requested to join, drafted, was accepted/rejected,
+  attended; a few languages), with no question, plan, wish or negation in that sentence (`NOT_DONE`: should I,
+  planning to, going to, want to, thinking of, haven't, not yet…; a sentence ending "?" never counts), or — only in a
+  harness transcript (`capture_kind: transcript`, not relayed) — one sentence of the agent's own line does ("The X
+  form is filled in"). Never a `person`, `tool`, `skill`, `location`, `directory`, `media` or `deadline`; never a
+  save, a bookmark, a mention, a plan, a question, a form named in another sentence, or a texted agent explaining how
+  to apply (only a harness agent acts in the person's tools). The
   record (`application_birth`: episode, day, status, `by` = `user` or the agent's product name, the session when an
   agent acted, the name's span) rides on the extraction like `project_birth`. Stage 1 then writes the application on
   the thing (`record_facts`): a dated fact naming who acted ("As of <day>, Claude Code (session 1a2b3c4d) had filled in
@@ -2050,7 +2054,12 @@ is about, who did it, and never say one thing twice. Four mechanisms, each engin
   orientation) — only the opt-in synthesis call folds those (ruling 23).
 - **Who said it, who did it.** A claim resting only on the other side's words is theirs (`entity_extractor
   .assistant_observer`): a texted agent's (G179), and now a harness session's agent (`external:<harness>`) and a chat
-  export's assistant (`external:chatgpt|claude|gemini`); a relayed episode (`evidence_kind`) keeps its own rail. A
+  export's assistant (`external:chatgpt|claude|gemini`); a relayed episode (`evidence_kind`) keeps its own rail. Such
+  an observer shares Cicada's own `agent` slot in the reconciler (`claim_reconciler.slot_observer`: the same
+  extraction of the same conversation), so a newer value or application status closes an older one whichever wrote
+  it, a restatement reinforces, and the bank's assistant-only claims already written `agent` need no repair; the trust
+  table and the owner's-words rail keep either from closing the person's own claim (an agent-only status after the
+  person's own words is asked about). A
   harness transcript's chunks open with a note naming the agent (`agent_session_note`): what it says it did is its
   act, a step it left to the person is not done. The prompt's KEY FACTS: every fact stands alone and names its thing;
   WHO DID IT — the person's act only from their own lines or a record (a confirmation, a receipt); an explanation or a

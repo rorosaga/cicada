@@ -443,11 +443,10 @@ def _agent_name(episode: dict) -> str | None:
     relayed, its own rail) and anything else."""
     if isinstance(episode.get("correspondent"), dict) or episode.get("evidence_kind"):
         return None
+    from api.services.episode_title import assistant_of
+
     harness = str(episode.get("harness") or "").strip().lower()
-    if harness:
-        return harness
-    origin = str(episode.get("origin") or "").strip().lower()
-    return origin.removesuffix("-export") if origin.endswith("-export") else None
+    return assistant_of(harness) or assistant_of(episode.get("origin"))
 
 
 def agent_session_note(episode: dict) -> str | None:
