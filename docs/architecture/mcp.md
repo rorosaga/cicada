@@ -40,13 +40,14 @@ times — and Ask said "the assistant" where the episode recorded a Claude Code 
 - **A relevance floor** (`_above_floor`). A fused page is shown only when some leg ranks it among its first
   `RECALL_LEG_KEEP` (3) and close to that leg's best: within `RECALL_VECTOR_GAP` (0.05) of the best cosine, at least
   `RECALL_WORD_SHARE` (half) of the best word score, or simply ranked there (the claim leg). At most
-  `RECALL_PAGES_SHOWN` (5), never fewer than the fused top one. The hints block's `suggested_entities`, "Changed
+  `RECALL_PAGES_SHOWN` (5), never fewer than the fused top one. A page whose name or alias is the query, or appears
+  in it as a whole phrase (`_named_hits`, folded, three letters or more), is always shown, past the cap if it must. The hints block's `suggested_entities`, "Changed
   recently" and the provisional block follow the pages shown.
 - **A body budget.** The best page's body gets `RECALL_TOP_BODY` (1,800 characters), every other `RECALL_OTHER_BODY`
   (700) — skills and deadlines too. `summarize_for_recall(collapse=True)` folds a Key Facts, History or Open
   Questions bullet that only repeats what is already shown (`entity_body.collapse_repeats`: every anchor — a number, a
-  date, a link, a wikilink, a capitalised name — already shown, and 80% of its subject words), saying how many in one
-  line. A bullet carrying anything new is kept; the page is never edited.
+  date, a link, a wikilink, a capitalised name — already shown as a whole token, never inside a longer one: `40` is
+  not shown by `400`, nor `5` by `2025` — and 80% of its subject words), saying how many in one line. A bullet carrying anything new is kept; the page is never edited.
 - **The extras earn their place.** "Related (one hop out)" only when a single page passed the floor (160 characters a
   head); excerpts one passage per conversation, a passage that is mostly a link skipped, each naming who the person
   was talking to (`episode_actor`), and one line naming the read (`cicada_sources`, only for a caller holding it).
@@ -58,7 +59,9 @@ times — and Ask said "the assistant" where the episode recorded a Claude Code 
 **Every episode id reads (2026-10-27).** `cicada_sources(entity_id)` takes an episode id Cicada printed (`ep_<day>_<n>`
 from Ask, recall's excerpts, a page) and returns that conversation: a header (id, day, title), `With: <actor>`, a
 removed-from-source or not-yet-read note when true, then its words as stored — scrubbed at capture, the dropped-middle
-marker labelled (gate B2). The door is `cicada_sources` and not a new tool: it is the `sources` scope's own tool, so a
+marker labelled (gate B2). An index-only episode (ruling 30: a watched day, a month's summary, a saved-list item, a
+trace day — `history_index.kind`) answers one line saying what it is and that it is indexed for lookup, never its
+text. The door is `cicada_sources` and not a new tool: it is the `sources` scope's own tool, so a
 remote connection reads a conversation only with that scope, at R-R28's 1,000 characters, and every door fences it as
 a read; no schema, CLI row or `/v1` operation changed (a page id still reads as before, and a page that happens to be
 named like an episode id still wins). A stdio read returns up to `EPISODE_READ_MAX` (12,000 characters) and names
@@ -69,7 +72,9 @@ guessed: `a Claude Code session (id <session>, resumable, model <m>)` (resumable
 agent's saved note from a … session`, `Claude, relayed through the remote connector` (ruling 32), `<name> (an AI
 agent), over Messages` or `<name>, over Messages` (the episode's `correspondent`), `ChatGPT, from the person's
 exported conversations`; `None` — and no label — for the person's own capture. Ask's prompt labels an agent's turn
-`a Claude Code session — the assistant, not the person` (no id; a record that names nobody keeps the old words, so a
+`a Claude Code session — the assistant, not the person` (no id; a caller without the person's verbatim words — a remote
+connection without `sources` — gets the agent named and no session id in Ask's reply, since an id resumes the
+conversation's words; a record that names nobody keeps the old words, so a
 benchmark conversation's prompt is byte for byte what it was). Ask's reply adds `· with <actor>` to each "From
 conversations no page cites" line, a **Who spoke in the cited conversations** block (at most 4, agents before an
 export's app) and the `cicada_sources` read line.

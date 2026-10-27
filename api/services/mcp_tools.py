@@ -461,7 +461,10 @@ def _render_ask(result: dict, ctx: ToolContext | None = None) -> str:
     memory_path = ctx.memory_path() if ctx is not None else None
 
     def who(episode_id: str) -> str | None:
-        return episode_actor.actor_for(memory_path, episode_id) if memory_path is not None else None
+        # A session id only for a caller that may read the conversation's words (review of #488): the `sources`
+        # scope remotely, always on stdio.
+        return (episode_actor.actor_for(memory_path, episode_id, ids=bool(ctx.raw_excerpts))
+                if memory_path is not None else None)
 
     conversations = result.get("conversations", []) or []
     if conversations:
@@ -1931,7 +1934,8 @@ def _recall(ctx: ToolContext, query: str) -> str:
     seen_ids: set[str] = {h.get("entity_id") or h.get("id") for h in merged}
     # Lean reads (2026-10-27): only pages some leg ranks near its own best are shown — at most RECALL_PAGES_SHOWN,
     # never fewer than the top one (`_above_floor`).
-    shown_hits = _above_floor(merged, semantic, keyword, claim_subjects)
+    shown_hits = _above_floor(merged, semantic, keyword, claim_subjects,
+                              named=_named_hits(entities_dir, query, merged))
 
     # === Structured hints block (machine-parseable, emitted first) ===
     # A small model that ignores prose can json.loads this fenced block to get
@@ -2598,8 +2602,19 @@ def _episode_read(ctx: ToolContext, episode_id: str) -> str | Reply:
         _log_failure("cicada_sources", exc)
         return Reply(f"Could not read conversation '{episode_id}' ({type(exc).__name__}).", code="error")
     fm = parsed.frontmatter or {}
-    body = evidence.label_gaps(parsed.body, evidence.gap_ranges(fm, parsed.body)).strip()
     day = str(fm.get("timestamp") or "")[:10] or episode_id[3:13]
+    from api.services import history_index
+
+    kind = history_index.kind(fm)
+    if kind is not None:
+        # Ruling 30: a watched day, a month's summary, a saved-list item or a trace day is indexed, never read by a
+        # model by id — one line saying what it is and where to ask, as recall and Ask treat it (review of #488).
+        what = {"history": "a day of the person's watch history", "month": "a month's summary of the watch history",
+                "list": "a save from one of the person's saved lists", "traces": "an activity-trace day"}[kind]
+        ask = " Ask about what it holds with `cicada_ask`." if ctx.can("cicada_ask") and not ctx.is_cli else ""
+        return Reply(f"`{episode_id}` · {day} is {what}: indexed for lookup, not read by an agent by id.{ask}",
+                     data={"episode_id": episode_id, "index_only": kind})
+    body = evidence.label_gaps(parsed.body, evidence.gap_ranges(fm, parsed.body)).strip()
     who = episode_actor.actor(fm)
     title = " ".join(str(fm.get("title") or "").split())
     head = [f"**Conversation `{episode_id}`** · {day}" + (f" · {title}" if title else "")]
@@ -4067,7 +4082,34 @@ def _related_line(related: list, ranked_ids: frozenset, more_call: str | None) -
     return f"Related: {', '.join(shown)} … and {len(names) - len(shown):,} more{where}"
 
 
-def _above_floor(merged: list[dict], *legs: list[dict]) -> list[dict]:
+def _named_hits(entities_dir: Path, query: str, merged: list[dict]) -> set[str]:
+    """The fused pages whose name or an alias IS the query, or appears in it as a whole phrase (folded, three letters or
+    more) — kept by the floor and the cap whatever the legs say (review of #488: a page only the word leg ranked first
+    could drop out of five behind pages two legs ranked)."""
+    import re as _re
+
+    from api.services import text_fold
+
+    q = " ".join(text_fold.fold(query).split())
+    out: set[str] = set()
+    for h in merged:
+        eid = h.get("entity_id") or h.get("id")
+        if not eid:
+            continue
+        try:
+            fm, _ = parse_frontmatter((entities_dir / f"{eid}.md").read_text(encoding="utf-8"))
+        except OSError:
+            continue
+        aliases = fm.get("aliases") if isinstance(fm.get("aliases"), list) else []
+        for name in [fm.get("name") or "", *aliases]:
+            n = " ".join(text_fold.fold(str(name)).split())
+            if len(n) >= 3 and (n == q or _re.search(r"(?<!\w)" + _re.escape(n) + r"(?!\w)", q)):
+                out.add(str(eid))
+                break
+    return out
+
+
+def _above_floor(merged: list[dict], *legs: list[dict], named: set[str] | frozenset = frozenset()) -> list[dict]:
     """Recall's relevance floor (lean reads, 2026-10-27): the fused hits some leg ranks near its own best, in fused
     order, at most :data:`RECALL_PAGES_SHOWN`, and never fewer than the fused top one.
 
@@ -4099,7 +4141,16 @@ def _above_floor(merged: list[dict], *legs: list[dict]) -> list[dict]:
     shown = [h for h in merged if eid(h) and str(eid(h)) in passing]
     if merged and eid(merged[0]) and str(eid(merged[0])) not in passing:
         shown.insert(0, merged[0])
-    return shown[:RECALL_PAGES_SHOWN]
+    # A page the query names exactly is always shown, past the cap if it must; the rest fill what is left, in fused
+    # order.
+    kept = [h for h in merged if eid(h) and str(eid(h)) in named]
+    for h in shown:
+        if len(kept) >= RECALL_PAGES_SHOWN:
+            break
+        if h not in kept:
+            kept.append(h)
+    order = {id(h): i for i, h in enumerate(merged)}
+    return sorted(kept, key=lambda h: order.get(id(h), len(order)))
 
 
 def _mostly_links(text: str) -> bool:

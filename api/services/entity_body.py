@@ -951,6 +951,12 @@ def _anchors(text: str) -> set[str]:
             or m.group(0)[:1].isdigit() or m.group(0).startswith(("[[", "http"))}
 
 
+def _shown_whole(anchor: str, folded: str) -> bool:
+    """Is ``anchor`` in ``folded`` as a whole token — never inside a longer one (``40`` is not shown by ``400``, nor
+    ``5`` by ``2025``; review of #488)."""
+    return re.search(r"(?<![\w.,:/-])" + re.escape(anchor) + r"(?![\w]|[.,:/-]\w)", folded) is not None
+
+
 def collapse_repeats(lines: list[str], shown: str) -> tuple[list[str], int]:
     """``lines`` (a section's bullets) less those that only repeat ``shown`` or a bullet kept before them — render
     time only, the page is never edited (lean reads, 2026-10-27: one real page held 15 key facts saying about 4
@@ -973,7 +979,7 @@ def collapse_repeats(lines: list[str], shown: str) -> tuple[list[str], int]:
             continue
         terms = text_fold.subject_terms(line)
         anchors = _anchors(line)
-        new_anchor = any(a not in seen_anchors and a not in seen_folded for a in anchors)
+        new_anchor = any(a not in seen_anchors and not _shown_whole(a, seen_folded) for a in anchors)
         share = (len(terms & seen_terms) / len(terms)) if terms else 1.0
         if not new_anchor and share >= REPEAT_SHARE:
             folded += 1

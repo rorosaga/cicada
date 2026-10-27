@@ -296,3 +296,65 @@ def test_recall_excerpts_name_the_actor_and_how_to_read_the_conversation(bank, m
     assert reply.count("[ep_2026-10-21_004]") == 1   # one passage per conversation
     assert "[ep_2026-10-21_004] with a Claude Code session (id ses-form, resumable):" in reply
     assert 'cicada_sources(entity_id="<episode id>")' in reply
+
+
+# --------------------------------------------------------------------------- review of #488
+
+
+def test_collapse_compares_anchors_as_whole_tokens_never_inside_a_longer_one():
+    assert entity_body.collapse_repeats(["- Paid 40 dollars for rent."], "Paid 400 dollars for rent.") == \
+        (["- Paid 40 dollars for rent."], 0)
+    assert entity_body.collapse_repeats(["- Ran 5 km in March."], "Ran 3 km in March 2025.") == \
+        (["- Ran 5 km in March."], 0)
+    # The same number, shown whole, still folds.
+    assert entity_body.collapse_repeats(["- Paid 40 dollars for rent."], "Paid 40 dollars for rent.") == ([], 1)
+
+
+@pytest.mark.parametrize("fm", [
+    {"source": "watch-history", "source_id": "watch-history:2026-10-01"},
+    {"origin": "youtube-playlist", "title": "A saved video"},
+])
+def test_an_index_only_episode_reads_as_a_one_line_pointer_never_its_text(tmp_path, fm):
+    memory = _bank(tmp_path)
+    _episode(memory, "ep_2026-10-01_007", fm, body="SECRET-WORDS-OF-THE-ITEM\n")
+    stdio = mcp_tools.ToolContext(memory_path=lambda: memory, session_id="s", harness="claude-code")
+    text = str(mcp_tools.sources(stdio, "ep_2026-10-01_007"))
+    assert "SECRET-WORDS-OF-THE-ITEM" not in text and "A saved video" not in text
+    assert len(text.splitlines()) == 1 and "indexed for lookup, not read by an agent by id" in text
+    assert "cicada_ask" in text
+
+
+def test_a_remote_ask_without_sources_names_the_agent_but_never_its_session_id(tmp_path):
+    memory = _bank(tmp_path)
+    _episode(memory, "ep_2026-10-21_004", {"harness": "claude-code", "session_id": "ses-form", "source": "claude-code"})
+    result = {"answer": "x", "confidence": 0.5, "gaps": [],
+              "citations": [{"entity_name": "Alpha Project", "source_episodes": ["ep_2026-10-21_004"]}],
+              "conversations": [{"episode_id": "ep_2026-10-21_004", "title": "", "day": "2026-10-21"}]}
+
+    def remote(scopes):
+        return mcp_tools.ToolContext(memory_path=lambda: memory, session_id="s", harness="claude-web",
+                                     connector_id="ab12cd34", available=catalog.tool_names_for(scopes),
+                                     raw_excerpts="sources" in scopes)
+
+    without = mcp_tools._render_ask(result, remote({"ask"}))
+    assert "with a Claude Code session" in without and "ses-form" not in without
+    assert "ses-form" in mcp_tools._render_ask(result, remote({"ask", "sources"}))
+
+
+def test_a_page_the_query_names_exactly_survives_the_floor_and_the_cap(tmp_path):
+    memory = _bank(tmp_path)
+    _entity(memory, "zeta-tool", name="Zeta Tool", aliases=["zt-alias"])
+    # Six pages two legs rank, all above the floor; the named page only the word leg ranks — first.
+    pages = [f"two-leg-{i}" for i in range(6)]
+    semantic = [_v(p, 0.80) for p in pages]
+    claims = [{"entity_id": p, "source": "claim"} for p in pages[3:] + pages[:3]]
+    keyword = [_k("zeta-tool", 9.0)]
+    merged = mcp_tools._rrf_fuse(semantic, keyword, claims)
+    # Without the name the cap holds and the page drops, as the review reproduced.
+    plain = [h["entity_id"] for h in mcp_tools._above_floor(merged, semantic, keyword, claims)]
+    assert "zeta-tool" not in plain and len(plain) == mcp_tools.RECALL_PAGES_SHOWN
+    for query in ("Zeta Tool", "what is zeta tool for", "zt-alias"):
+        named = mcp_tools._named_hits(memory / "entities", query, merged)
+        shown = [h["entity_id"] for h in mcp_tools._above_floor(merged, semantic, keyword, claims, named=named)]
+        assert "zeta-tool" in shown and len(shown) == mcp_tools.RECALL_PAGES_SHOWN, query
+    assert mcp_tools._named_hits(memory / "entities", "zetas", merged) == set()   # never inside a longer word

@@ -91,8 +91,10 @@ def actor(fm: dict | None, *, ids: bool = True) -> str | None:
     return None
 
 
-def actor_for(memory_path: Path, episode_id: str) -> str | None:
-    """:func:`actor` of one stored episode, read through the bank index; ``None`` for a missing or unreadable one."""
+def actor_for(memory_path: Path, episode_id: str, *, ids: bool = True) -> str | None:
+    """:func:`actor` of one stored episode, read through the bank index; ``None`` for a missing or unreadable one.
+    ``ids=False`` for a caller without the person's verbatim words (a remote connection without ``sources``): the
+    agent is named, its session id is not — an id resumes the conversation's words."""
     from api.services import bank_index, episode_ids
 
     if not episode_ids.EPISODE_ID_RE.match(str(episode_id or "")):
@@ -101,4 +103,4 @@ def actor_for(memory_path: Path, episode_id: str) -> str | None:
         f = bank_index.file(memory_path, "episodes", f"{episode_id}.md")
     except Exception:  # noqa: BLE001 — a derived label never fails a read
         return None
-    return actor(f.frontmatter) if f is not None else None
+    return actor(f.frontmatter, ids=ids) if f is not None else None
