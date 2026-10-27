@@ -4175,6 +4175,13 @@ extension APIClient {
         try await post(Self.projectPath(project, "withdraw"), body: ["claimId": claimId])
     }
 
+    /// Projects v2 (ruling 45) — start a project, take or leave a suggestion, the header, a tie, an influence.
+    func sendProjectChange(_ change: ProjectChange) async throws -> ProjectOwnershipResponse {
+        let route = change.route
+        if route.method == "PATCH" { return try await patch(route.path, body: route.body) }
+        return try await post(route.path, body: route.body)
+    }
+
     /// The PATCH twin of `put` — `PATCH /projects/{id}/milestones/{slug}` is the one PATCH the app sends.
     private func patch<T: Decodable>(_ path: String, body: [String: Any]) async throws -> T {
         var request = makeRequest(path, method: "PATCH")

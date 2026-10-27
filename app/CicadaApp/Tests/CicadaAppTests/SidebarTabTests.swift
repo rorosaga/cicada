@@ -59,24 +59,25 @@ final class SidebarTabTests: XCTestCase {
     /// Projects is hidden behind its one switch, and Traces shows only once traces were ever on; the cells that stay
     /// keep their digits (DR-22) — ⌘8 simply opens nothing while Projects is away.
     func testHiddenPagesLeaveTheRailAndNoDigitMoves() {
-        XCTAssertFalse(PageSwitches.projectsPage, "owner 2026-10-26: hidden until the redesign")
-        XCTAssertEqual(AppTab.shown(tracesPage: false),
+        XCTAssertTrue(PageSwitches.projectsPage, "ruling 45 (2026-10-27): back on with the redesign")
+        XCTAssertEqual(AppTab.shown(tracesPage: false, projectsPage: false),
                        [.home, .graph, .clusters, .skills, .sleep, .inbox, .sources, .agents])
         XCTAssertEqual(AppTab.shown(tracesPage: true).last, .traces)
-        XCTAssertEqual(AppTab.shown(tracesPage: false, projectsPage: true),
+        XCTAssertEqual(AppTab.shown(tracesPage: false),
                        [.home, .graph, .clusters, .skills, .sleep, .inbox, .sources, .projects, .agents],
                        "the switch brings Projects back where it was")
-        XCTAssertEqual(AppTab.shown(tracesPage: false).map { RailItem.shortcut(for: $0) },
+        XCTAssertEqual(AppTab.shown(tracesPage: false, projectsPage: false).map { RailItem.shortcut(for: $0) },
                        ["⌘1", "⌘2", "⌘3", "⌘4", "⌘5", "⌘6", "⌘7", "⌘9"])
     }
 
     /// Every door to a hidden page lands where its content is now: a stored "Projects" selection, a ⌘K row, a hand-off.
     func testAHiddenPageLandsWhereItsContentIs() {
-        XCTAssertEqual(AppTab.projects.landing(tracesPage: true), .clusters)
+        XCTAssertEqual(AppTab.projects.landing(tracesPage: true, projectsPage: false), .clusters)
         XCTAssertEqual(AppTab.projects.landing(tracesPage: true, projectsPage: true), .projects)
         XCTAssertEqual(AppTab.traces.landing(tracesPage: false), .sources)
         XCTAssertEqual(AppTab.traces.landing(tracesPage: true), .traces)
-        XCTAssertEqual(AppTab.restored(from: "Projects").landing(tracesPage: false), .clusters)
+        XCTAssertEqual(AppTab.restored(from: "Projects").landing(tracesPage: false, projectsPage: false), .clusters)
+        XCTAssertEqual(AppTab.restored(from: "Projects").landing(tracesPage: false), .projects)
         XCTAssertEqual(AppTab.restored(from: "Traces").landing(tracesPage: false), .sources)
         for tab in AppTab.allCases where tab != .projects && tab != .traces {
             XCTAssertEqual(tab.landing(tracesPage: false), tab)
@@ -104,7 +105,7 @@ final class SidebarTabTests: XCTestCase {
         let titles = { (traces: Bool) in
             PaletteActions.docs(QuickIndexInputs(tracesPage: traces)).map(\.row.title).filter { $0.hasPrefix("Go to ") }
         }
-        XCTAssertFalse(titles(false).contains("Go to Projects"))
+        XCTAssertTrue(titles(false).contains("Go to Projects"), "ruling 45: the page is back")
         XCTAssertFalse(titles(false).contains("Go to Traces"))
         XCTAssertTrue(titles(true).contains("Go to Traces"))
         let agents = PaletteActions.docs(QuickIndexInputs()).first { $0.row.title == "Go to Agents" }

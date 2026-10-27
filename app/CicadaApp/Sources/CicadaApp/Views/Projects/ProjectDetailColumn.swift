@@ -52,6 +52,9 @@ struct ProjectDetailColumn: View {
     @State private var derived: ProjectDerived?
     /// R-PP26 — Resume's view model, one for the column now that Lately's rows are separate lazy children (R-FA3).
     @State private var conversations = ConversationsViewModel()
+    /// Ruling 45 (Q7) — the column's width decides whether the knowledge panel sits beside the card or under it.
+    @State private var columnWidth: CGFloat = 0
+    @State private var addingInfluence = false
 
     /// R-FA2 — the column re-derives exactly when the project, the viewer's day or the cached payload moved.
     private var deriveKey: ProjectDerived.Key {
@@ -101,9 +104,24 @@ struct ProjectDetailColumn: View {
                 Spacer(minLength: 0)
             }
         }
-        .frame(maxWidth: CicadaTheme.scaled(ProjectLayout.detailMaxWidth), maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: CicadaTheme.scaled(wide ? ProjectLayout.detailMaxWidth + ProjectKnowledgeLayout.panelWidth
+                                                    + ProjectKnowledgeLayout.gap : ProjectLayout.detailMaxWidth),
+               maxHeight: .infinity, alignment: .topLeading)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .padding(.horizontal, gutter)
+        .background {
+            GeometryReader { geo in
+                Color.clear
+                    .onAppear { columnWidth = geo.size.width - 2 * gutter }
+                    .onChange(of: geo.size.width) { _, w in columnWidth = w - 2 * gutter }
+            }
+        }
+        .sheet(isPresented: $addingInfluence) {
+            AddInfluenceSheet(candidates: influenceCandidates) { url, what, entity, how, note in
+                Task { await change(.addInfluence(id: projectId, url: url, what: what, entity: entity, how: how,
+                                                  note: note)) }
+            }
+        }
         // R-PP23 / DR-68 — L · M · D, the Inbox's O / L precedent (key presses on the focused column, never menu key
         // equivalents), and like its `field == nil`, never while a field of this column is being typed in. A key
         // never animates (DR-60).
@@ -124,6 +142,7 @@ struct ProjectDetailColumn: View {
         .task(id: projectId) {
             selection = nil
             await cache.refreshTimeline(projectId)
+            await cache.refreshConversations(projectId)
             // R-B19 — a folded Backlog section still says "n open": `section(_:…)` builds its body only when open,
             // so the section's own `.task` never runs while it is folded.
             await backlogCache.refreshList(projectId)
@@ -152,11 +171,13 @@ struct ProjectDetailColumn: View {
         let gap: (ProjectSection?) -> CGFloat = { previous in
             CicadaTheme.scaled(previous.map { folded.contains($0) } ?? false ? 6 : 26)
         }
-        header(name: t.project.name, oneLiner: t.project.oneLiner, parent: t.project.parent)
+        header(name: t.project.name, oneLiner: t.project.oneLiner, parent: t.project.parent, ref: t.project)
         summaryView(ProjectSummary.make(t, state: state, today: today), t)
         bandView(band, t)
         ScrollViewReader { proxy in
             ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .top, spacing: CicadaTheme.scaled(ProjectKnowledgeLayout.gap)) {
                 // R-FA3 — one lazy stack whose children are every section AND every Lately label and row, so a long
                 // story builds only what is on screen; the gaps the nested stacks gave ride on each child's padding.
                 LazyVStack(alignment: .leading, spacing: 0) {
@@ -222,11 +243,25 @@ struct ProjectDetailColumn: View {
                         .padding(.top, gap(.backlog))
                     }
                 }
-                .frame(maxWidth: CicadaTheme.scaled(ProjectLayout.textMaxWidth), alignment: .leading)
+                .frame(maxWidth: CicadaTheme.scaled(wide ? ProjectKnowledgeLayout.cardWidth : ProjectLayout.textMaxWidth),
+                       alignment: .leading)
                 .padding(.top, CicadaTheme.spacingSM)
-                .padding(.bottom, CicadaTheme.scaled(72))
+                .padding(.bottom, wide ? CicadaTheme.scaled(72) : CicadaTheme.spacingLG)
                 // Every chip below names its conversation's agent ("Claude Code replied") with no fetch per chip.
                 .environment(\.evidenceDocIndex, d.docIndex)
+                if wide {
+                    knowledgePanel(t)
+                        .frame(width: CicadaTheme.scaled(ProjectKnowledgeLayout.panelWidth))
+                        .padding(.top, CicadaTheme.spacingSM)
+                }
+                }
+                if !wide {
+                    // Q7: at narrow widths the panel folds under the card.
+                    knowledgePanel(t)
+                        .frame(maxWidth: CicadaTheme.scaled(ProjectLayout.textMaxWidth), alignment: .leading)
+                        .padding(.bottom, CicadaTheme.scaled(72))
+                }
+                }
             }
             .onChange(of: scrollToken) { _, _ in
                 let target = pendingScroll ?? selection?.id
@@ -347,6 +382,42 @@ struct ProjectDetailColumn: View {
         }
     }
 
+    // MARK: - Ruling 45: the knowledge panel and the person's other writes
+
+    private var wide: Bool { ProjectKnowledgeLayout.sideBySide(available: columnWidth) }
+
+    private func knowledgePanel(_ t: ProjectTimeline) -> some View {
+        ProjectKnowledgePanel(
+            timeline: t, conversations: cache.displayConversations(projectId), blocked: blocked,
+            openConversation: { row in provenance.open(ReaderTarget(episode: row.episodeId, focus: .mention(entityId: projectId), subjectId: projectId, knownTitle: row.title, knownHarness: row.harness)) },
+            untie: { row in Task { await change(.tie(id: projectId, episode: row.episodeId, remove: true)) } },
+            openEntity: openEntity, addInfluence: { addingInfluence = true },
+            undoInfluence: { row in
+                Task { await change(.withdrawInfluence(id: projectId, claimId: row.claimId, page: row.page,
+                                                       ref: row.claimId == nil ? row.ref : nil,
+                                                       predicate: row.predicate)) }
+            })
+    }
+
+    /// The pages "Add an influence" offers by name: every live page but this project.
+    private var influenceCandidates: [(id: String, name: String, type: String)] {
+        (store.graph.value?.nodes ?? []).filter { $0.id != projectId }
+            .map { (id: $0.id, name: $0.name, type: $0.type.rawValue) }
+    }
+
+    /// A `ProjectOwnershipWrite` through `Store.perform` (paint, send, roll back with a toast), then the caches ask
+    /// again for what the server now holds.
+    @discardableResult
+    private func change(_ c: ProjectChange) async -> ProjectOwnershipResponse? {
+        let w = ProjectOwnershipWrite(c, cache: cache)
+        let ok = await store.perform(w)
+        if ok { cache.confirmPaint(w.overlayId) }
+        await cache.refreshTimeline(projectId)
+        await cache.refreshConversations(projectId)
+        await cache.refreshList()
+        return ok ? w.result : nil
+    }
+
     // MARK: - Writes (R-PP19…R-PP23)
 
     /// R-PP19 — every write: a `ProjectWrite` through `Store.perform` (paint, send, roll back with a toast), then the
@@ -393,7 +464,7 @@ struct ProjectDetailColumn: View {
 
     // MARK: - Heading
 
-    private func header(name: String, oneLiner: String, parent: String?) -> some View {
+    private func header(name: String, oneLiner: String, parent: String?, ref: ProjectRef? = nil) -> some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
             HStack(spacing: CicadaTheme.spacingSM) {
                 if let n = hiddenListCount {
@@ -422,14 +493,25 @@ struct ProjectDetailColumn: View {
                 IconButton(systemName: "xmark", help: Copy.Projects.closeHelp, action: onClose)
             }
             // The page says it is a project; a Project tag beside the name said it twice.
-            Text(name)
-                .font(CicadaTheme.displayFont(size: 22))
-                .tracking(CicadaTheme.displayTracking(size: 22))
-                .foregroundStyle(CicadaTheme.textPrimary)
-                .lineLimit(1)
-                .accessibilityAddTraits(.isHeader)
-            if !oneLiner.isEmpty {
-                Text(oneLiner).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary).lineLimit(2)
+            if let ref {
+                // Ruling 45 (Q5): the person's own header, edited in place; Sleep's first line shows only when they
+                // wrote none.
+                ProjectHeaderEditor(ref: ref, blocked: blocked) { newName, newDescription in
+                    Task { await change(.header(id: projectId, name: newName, description: newDescription)) }
+                }
+                if ref.description == nil, !oneLiner.isEmpty {
+                    Text(oneLiner).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textTertiary).lineLimit(2)
+                }
+            } else {
+                Text(name)
+                    .font(CicadaTheme.displayFont(size: 22))
+                    .tracking(CicadaTheme.displayTracking(size: 22))
+                    .foregroundStyle(CicadaTheme.textPrimary)
+                    .lineLimit(1)
+                    .accessibilityAddTraits(.isHeader)
+                if !oneLiner.isEmpty {
+                    Text(oneLiner).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary).lineLimit(2)
+                }
             }
         }
         .padding(.top, CicadaTheme.spacingSM)

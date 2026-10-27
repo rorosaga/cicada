@@ -82,14 +82,13 @@ final class TourTests: XCTestCase {
         XCTAssertTrue(tour.spotlights(.commandBar))
         tour.back()
         XCTAssertEqual(tour.currentStop, .search, "Back stops at the first stop")
-        // Owner 2026-10-26: the Projects stop sits out while its page is hidden (`PageSwitches`), so five stops.
-        XCTAssertEqual(tour.count, 5)
-        for _ in 0..<4 { tour.next() }
+        XCTAssertEqual(tour.count, 6, "ruling 45: the Projects stop is back")
+        for _ in 0..<5 { tour.next() }
         XCTAssertEqual(tour.currentStop, .sleep)
         XCTAssertTrue(tour.isLast)
         XCTAssertFalse(tour.spotlights(.commandBar))
         tour.back()
-        XCTAssertEqual(tour.currentStop, .person)
+        XCTAssertEqual(tour.currentStop, .projects)
         tour.next(); tour.next()
         XCTAssertFalse(tour.isActive, "Done on the last stop ends it")
         XCTAssertTrue(TourMemory.isDone(defaults))
@@ -189,10 +188,8 @@ final class TourTests: XCTestCase {
     func testRoutingUsesTheRoutersHandOffsAndNothingElse() {
         let router = AppRouter()
         TourRouting.apply(.project(DemoShowcase.project), router: router)
-        // Owner 2026-10-26: with the Projects page hidden, a project opens as its own page on the graph.
-        XCTAssertEqual(router.pendingTab, .graph)
-        XCTAssertEqual(router.pendingRevealEntity, DemoShowcase.project)
-        XCTAssertNil(router.pendingProject)
+        XCTAssertEqual(router.pendingTab, .projects)
+        XCTAssertEqual(router.pendingProject, DemoShowcase.project)
         TourRouting.apply(.clustersEntity(DemoShowcase.person), router: router)
         XCTAssertEqual(router.pendingTab, .clusters)
         XCTAssertEqual(router.pendingClustersEntity, DemoShowcase.person)

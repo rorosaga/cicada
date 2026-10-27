@@ -31,7 +31,17 @@ struct ProjectsPage: View {
     /// R-PP17 / R-B21 — the third column's one slot besides the Reader: an entity's card or a backlog item.
     @State private var trailing: ProjectTrailing?
 
-    private var rows: [ProjectRow] { cache.list?.projects ?? [] }
+    /// Ruling 45 (Q1): the list is the person's own; the rest waits under Suggested (with every pending accept or
+    /// dismiss painted over what the server last said).
+    private var rows: [ProjectRow] { cache.displayList?.projects.filter(\.mine) ?? [] }
+    private var suggested: [SuggestedProject] { cache.displayList?.suggested ?? [] }
+    /// Ruling 45 — Suggested opens itself the first time and is remembered after (DR-39); dismissed ones stay hidden.
+    @AppStorage("cicada.projects.suggestedOpen") private var suggestedOpen = true
+    @State private var showDismissed = false
+    @State private var creating = false
+    @State private var naming: SuggestedProject?
+    /// R-PP20 — Sleep is writing: the list's writes wait, their reason in `.help`.
+    private var blocked: Bool { ProjectWriteGate.blocked(store.status.value) }
 
     /// Past's field is always there; Current finds only while ⌘F's row is open.
     private var activeQuery: String { tab == .past || findOpen ? query : "" }
@@ -70,6 +80,12 @@ struct ProjectsPage: View {
                     AdaptiveTextTabs(tabs: ProjectsModel.tabs(counts), selection: tabSelection,
                                      menuTitle: Copy.Projects.tabMenu)
                     PageFindButton(isOpen: $findOpen).padding(.leading, CicadaTheme.spacingSM)
+                    // DR-75 — the page adds through one labelled button: New project.
+                    PageAddButton(title: Copy.ProjectsMine.newProject, help: Copy.ProjectsMine.newProjectHelp) {
+                        creating = true
+                    }
+                    .disabled(blocked)
+                    .padding(.leading, CicadaTheme.spacingSM)
                 }
             }
             .help(cache.list?.partial == true ? Copy.Projects.stillIndexingHelp : "")
@@ -77,6 +93,7 @@ struct ProjectsPage: View {
             ProjectsListColumn(
                 entries: entries, style: plan.listStyle, today: today,
                 state: ProjectsListState.of(phase: cache.listPhase, hasList: cache.list != nil, rows: rows.count,
+                                            suggestions: suggested.count,
                                             lines: entries.count,
                                             finding: !activeQuery.trimmingCharacters(in: .whitespaces).isEmpty),
                 tab: tab, query: query, findOpen: $findOpen, findText: $query, openId: openId,
@@ -84,7 +101,27 @@ struct ProjectsPage: View {
                 showMore: { Instant.run { pastLimit += ProjectsModel.pageSize } },
                 move: { move($0) }, side: { side($0, in: lines) },
                 focusDetail: { focus = .detail }, escape: { escape() },
-                retry: { Task { await cache.refreshList() } })
+                retry: { Task { await cache.refreshList() } },
+                suggestedFold: {
+                    AnyView(Group {
+                        if tab == .current && !suggested.isEmpty && plan.listStyle != .titles
+                            && plan.listStyle != .hidden {
+                            ProjectsSuggestedSection(
+                                suggested: suggested, isOpen: suggestedOpen, showDismissed: $showDismissed,
+                                blocked: blocked,
+                                toggle: {
+                                    withAnimation(CicadaMotion.groupExpand(reduceMotion: reduceMotion)) {
+                                        suggestedOpen.toggle()
+                                    }
+                                },
+                                accept: { s in
+                                    if s.needsName { naming = s } else { Task { await change(.accept(id: s.id, name: nil)) } }
+                                },
+                                dismiss: { s in Task { await change(.dismiss(id: s.id)) } })
+                            .padding(.top, CicadaTheme.scaled(14))
+                        }
+                    })
+                })
                 .focused($focus, equals: .list)
                 .tourAnchor(.projects)
         } detail: { plan in
@@ -116,6 +153,23 @@ struct ProjectsPage: View {
             }
         }
         .background(CicadaTheme.bgBase)
+        .sheet(isPresented: $creating) {
+            ProjectNameSheet(title: Copy.ProjectsMine.newProject) { name, description in
+                Task {
+                    if let made = await change(.create(name: name, description: description)) {
+                        openProject(made.id)
+                    }
+                }
+            }
+        }
+        .sheet(item: $naming) { s in
+            ProjectNameSheet(title: Copy.ProjectsMine.nameItTitle, message: Copy.ProjectsMine.nameItMessage,
+                             asksDescription: false, confirm: Copy.ProjectsMine.addToMine) { name, _ in
+                Task {
+                    if let made = await change(.accept(id: s.id, name: name)) { openProject(made.id) }
+                }
+            }
+        }
         // DR-46 — ⌘F opens Current's find row; published from a leaf (Clusters' reason: an if/else on the page rebuilt
         // it). Past's field is always there and takes ⌘F itself.
         .background { Color.clear.publishesPageFind(enabled: !findOpen && tab == .current) { findOpen = true } }
@@ -155,6 +209,17 @@ struct ProjectsPage: View {
             pastLimit = ProjectsModel.pageSize
         }
         .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in today = ISODay.today() }
+    }
+
+    /// Ruling 45 — one of the person's list writes through `Store.perform` (paint, send, roll back with a toast), then
+    /// the list asks again.
+    @discardableResult
+    private func change(_ c: ProjectChange) async -> ProjectOwnershipResponse? {
+        let w = ProjectOwnershipWrite(c, cache: cache)
+        let ok = await store.perform(w)
+        if ok { cache.confirmPaint(w.overlayId) }
+        await cache.refreshList()
+        return ok ? w.result : nil
     }
 
     private func parentName(of id: String?) -> String? {

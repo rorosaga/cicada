@@ -28,6 +28,11 @@ final class ProjectsCache {
     private(set) var timelinePhases: [String: Phase] = [:]
     /// R-PP19 — writes painted over `timelines` until the server's answer holds them (Task 5).
     private(set) var overlays: [String: [ProjectOverlay]] = [:]
+    /// Ruling 45 — the tied conversations, per project (`GET /projects/{id}/conversations`), fetched on demand.
+    private(set) var conversations: [String: ProjectConversationsPage] = [:]
+    /// Ruling 45 — the person's ownership, header, tie and influence writes painted over the list, the timeline and
+    /// the conversations until an answer requested after the server confirmed them holds them.
+    private(set) var paints: [ProjectPaint] = []
 
     /// R-FA2 — changes whenever what `display(id)` returns may change (a fresh answer, a 404, an overlay added or
     /// removed), and only then, so the column re-derives off the main actor exactly when it must. One global
@@ -44,6 +49,9 @@ final class ProjectsCache {
     /// The generation that was newest for its project when each overlay was confirmed — an answer requested no later
     /// than that may predate the write, so it does not clear the paint.
     @ObservationIgnored private var confirmedAt: [UUID: Int] = [:]
+    @ObservationIgnored private var conversationETags: [String: String] = [:]
+    /// Ruling 45 — a clock for paints: a paint confirmed at tick `t` is settled by any answer requested after `t`.
+    @ObservationIgnored private var paintClock = 0
     private static let listKey = "\u{0}list"
 
     init(api: any ProjectsAPI = APIClient.shared) { self.api = api }
@@ -59,7 +67,15 @@ final class ProjectsCache {
 
     /// What the page draws for a project: the server's answer with every pending write painted over it (R-PP19).
     func display(_ id: String) -> ProjectTimeline? {
-        timelines[id].map { ProjectOverlay.apply(overlays[id] ?? [], to: $0) }
+        timelines[id].map { ProjectPaint.apply(paints, to: ProjectOverlay.apply(overlays[id] ?? [], to: $0)) }
+    }
+
+    /// The list with the person's pending ownership and header writes painted over it (ruling 45).
+    var displayList: ProjectsResponse? { list.map { ProjectPaint.apply(paints, to: $0) } }
+
+    /// The tied conversations with a pending untie painted out.
+    func displayConversations(_ id: String) -> ProjectConversationsPage? {
+        conversations[id].map { ProjectPaint.apply(paints, to: $0, project: id) }
     }
 
     /// Forget everything — a bank switch (`ContentView`, R-PU26's reason).
@@ -74,11 +90,15 @@ final class ProjectsCache {
         recent = []
         overlays = [:]
         confirmedAt = [:]
+        conversations = [:]
+        conversationETags = [:]
+        paints = []
         revisions = [:]   // `nextRevision` runs on: a revision from before the switch never matches one after it.
     }
 
     func refreshList() async {
         let started = epoch
+        let tick = paintClock
         let generation = generations.begin(Self.listKey)
         if list == nil { listPhase = .loading }
         do {
@@ -90,6 +110,7 @@ final class ProjectsCache {
                 list = value
                 listETag = answer.etag
             }
+            if answer.value != nil || answer.notModified { settlePaints(requestedAt: tick) }
             listPhase = .loaded
         } catch {
             guard started == epoch, generations.isLatest(Self.listKey, generation) else { return }
@@ -99,12 +120,14 @@ final class ProjectsCache {
 
     func refreshTimeline(_ id: String) async {
         let started = epoch
+        let tick = paintClock
         let generation = generations.begin(id)
         if timelines[id] == nil { timelinePhases[id] = .loading }
         do {
             let answer = try await api.fetchProjectTimeline(id: id, etag: timelines[id] == nil ? nil : timelineETags[id])
             guard started == epoch, generations.isLatest(id, generation) || timelines[id] == nil else { return }
             if let value = answer.value { store(value, etag: answer.etag, for: id) }
+            if answer.value != nil || answer.notModified { settlePaints(requestedAt: tick) }
             // Any answer — fresh or a 304 over what is cached — holds every write the server accepted before it was
             // REQUESTED, so it settles a paint confirmed before then.
             if answer.value != nil || answer.notModified {
@@ -122,6 +145,49 @@ final class ProjectsCache {
             guard started == epoch, generations.isLatest(id, generation) else { return }
             timelinePhases[id] = timelines[id] == nil ? .failed(Copy.Projects.loadFailed(error)) : .loaded
         }
+    }
+
+    /// Ruling 45 — the conversations tied to a project, revalidated with the server's ETag; never blank.
+    func refreshConversations(_ id: String) async {
+        let started = epoch
+        let tick = paintClock
+        do {
+            let answer = try await api.fetchProjectConversations(id: id, etag: conversations[id] == nil ? nil
+                                                                     : conversationETags[id])
+            guard started == epoch else { return }
+            if let value = answer.value {
+                conversations[id] = value
+                conversationETags[id] = answer.etag
+            }
+            if answer.value != nil || answer.notModified { settlePaints(requestedAt: tick) }
+        } catch {
+            // Last-known-good stays (DR-43); the panel says nothing new rather than blanking.
+        }
+    }
+
+    // MARK: - Ruling 45 paints
+
+    func paint(_ change: ProjectChange, id: UUID) {
+        paints.append(ProjectPaint(id: id, change: change))
+        if let project = change.projectId { bump(project) }
+    }
+
+    func unpaint(_ id: UUID) {
+        let gone = paints.filter { $0.id == id }
+        paints.removeAll { $0.id == id }
+        for p in gone { if let project = p.change.projectId { bump(project) } }
+    }
+
+    /// The server accepted it: the paint stays until an answer requested after now holds it.
+    func confirmPaint(_ id: UUID) {
+        paintClock &+= 1
+        if let i = paints.firstIndex(where: { $0.id == id }) { paints[i].confirmedAt = paintClock }
+    }
+
+    private func settlePaints(requestedAt tick: Int) {
+        let before = paints.count
+        paints.removeAll { ($0.confirmedAt ?? Int.max) <= tick }
+        if paints.count != before { for key in timelines.keys { bump(key) } }
     }
 
     private func store(_ value: ProjectTimeline, etag: String?, for id: String) {
@@ -222,5 +288,95 @@ struct ProjectOverlay: Identifiable, Equatable {
             }
         }
         return t
+    }
+}
+
+
+/// Ruling 45 — one of the person's ownership, header, tie or influence writes, painted over what the server last said
+/// until an answer requested after its confirmation holds it. Only what the answer cannot change: a project moved in
+/// or out of the list, the header's new words, a conversation untied, an influence taken back. A new project, an
+/// accepted grouping, a tie and a new influence wait for the server (their id or row comes from it).
+struct ProjectPaint: Identifiable, Equatable {
+    let id: UUID
+    let change: ProjectChange
+    var confirmedAt: Int?
+
+    init(id: UUID, change: ProjectChange) {
+        self.id = id
+        self.change = change
+    }
+
+    static func apply(_ paints: [ProjectPaint], to list: ProjectsResponse) -> ProjectsResponse {
+        var out = list
+        for p in paints {
+            switch p.change {
+            case .accept(let id, let name):
+                if let i = out.projects.firstIndex(where: { $0.id == id }) {
+                    out.projects[i].mine = true
+                    if let name, !name.isEmpty { out.projects[i].name = name }
+                }
+                out.suggested.removeAll { $0.id == id }
+            case .dismiss(let id):
+                if let i = out.projects.firstIndex(where: { $0.id == id }) { out.projects[i].mine = false }
+                if let i = out.suggested.firstIndex(where: { $0.id == id }), !out.suggested[i].dismissed {
+                    out.suggested[i].dismissed = true
+                    out.dismissed += 1
+                } else if let row = list.projects.first(where: { $0.id == id }),
+                          !out.suggested.contains(where: { $0.id == id }) {
+                    out.suggested.append(SuggestedProject(id: id, name: row.name, dismissed: true))
+                    out.dismissed += 1
+                }
+            case .header(let id, let name, let description):
+                if let i = out.projects.firstIndex(where: { $0.id == id }) {
+                    if let name, !name.isEmpty { out.projects[i].name = name }
+                    if let description {
+                        out.projects[i].description = description.isEmpty ? nil : description
+                        if !description.isEmpty { out.projects[i].oneLiner = description }
+                    }
+                }
+            default:
+                break
+            }
+        }
+        return out
+    }
+
+    static func apply(_ paints: [ProjectPaint], to timeline: ProjectTimeline) -> ProjectTimeline {
+        var t = timeline
+        for p in paints where p.change.projectId == timeline.project.id {
+            switch p.change {
+            case .header(_, let name, let description):
+                if let name, !name.isEmpty { t.project.name = name }
+                if let description {
+                    t.project.description = description.isEmpty ? nil : description
+                    t.project.descriptionBy = ProjectDescriptionBy(by: "user", day: nil)
+                }
+            case .accept(_, let name):
+                t.project.mine = true
+                if let name, !name.isEmpty { t.project.name = name }
+            case .dismiss:
+                t.project.mine = false
+            case .withdrawInfluence(_, let claimId, _, let ref, _):
+                t.influences.removeAll { ($0.claimId != nil && $0.claimId == claimId) || ($0.ref != nil && $0.ref == ref) }
+            case .tie(_, _, true):
+                t.conversationCount = max(0, t.conversationCount - 1)
+            default:
+                break
+            }
+        }
+        return t
+    }
+
+    static func apply(_ paints: [ProjectPaint], to page: ProjectConversationsPage, project: String)
+        -> ProjectConversationsPage {
+        var out = page
+        for p in paints {
+            if case .tie(let id, let episode, true) = p.change, id == project,
+               out.conversations.contains(where: { $0.episodeId == episode }) {
+                out.conversations.removeAll { $0.episodeId == episode }
+                out.total = max(0, out.total - 1)
+            }
+        }
+        return out
     }
 }

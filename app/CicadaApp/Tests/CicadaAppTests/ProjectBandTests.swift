@@ -158,7 +158,9 @@ final class ProjectBandTests: XCTestCase {
         XCTAssertEqual(ProjectSource.docIndex(t).meta("ep_2026-09-22_003")?.harness, "claude-code")
     }
 
-    /// R-PP12 / R-PJ22 — the band never says "Timeline": the card's Timeline tab can share the screen.
+    /// R-PP12 / R-PJ22 — the band never says "Timeline": the card's Timeline tab can share the screen. Ruling 45 (Q6,
+    /// owner 2026-10-27) names the project's dated list "Timeline" — that one label (`Copy.Projects.lately`) and no
+    /// other.
     func testNothingOnThePageSaysTimeline() throws {
         let literal = try NSRegularExpression(pattern: #""[^"\n]*Timeline[^"\n]*""#)
         var offenders: [String] = []
@@ -167,7 +169,7 @@ final class ProjectBandTests: XCTestCase {
         where file.path.contains("/Views/Projects/") || file.path.hasSuffix("/Theme/Copy+Projects.swift") {
             scanned += 1
             for (i, line) in try String(contentsOf: file, encoding: .utf8).components(separatedBy: .newlines).enumerated()
-            where !line.trimmingCharacters(in: .whitespaces).hasPrefix("//") {
+            where !line.trimmingCharacters(in: .whitespaces).hasPrefix("//") && !line.contains("static let lately") {
                 let ns = line as NSString
                 if literal.firstMatch(in: line, range: NSRange(location: 0, length: ns.length)) != nil {
                     offenders.append("\(file.lastPathComponent):\(i + 1)")

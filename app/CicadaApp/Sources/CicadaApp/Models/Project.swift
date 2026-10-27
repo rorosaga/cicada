@@ -397,8 +397,15 @@ struct ProjectRef: Decodable, Equatable, Sendable {
     var children: [String]
     var status: String
     var created: String?
+    /// g141-7 (ruling 45): in the person's list, how, and their own header line with who last set it.
+    var mine: Bool
+    var mineVia: String?
+    var description: String?
+    var descriptionBy: ProjectDescriptionBy?
 
-    enum CodingKeys: String, CodingKey { case id, name, oneLiner, parent, children, status, created }
+    enum CodingKeys: String, CodingKey {
+        case id, name, oneLiner, parent, children, status, created, mine, mineVia, description, descriptionBy
+    }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -409,6 +416,10 @@ struct ProjectRef: Decodable, Equatable, Sendable {
         children = c.lenient(.children, [])
         status = c.lenient(.status, "active")
         created = c.lenient(.created)
+        mine = c.lenient(.mine, false)
+        mineVia = c.lenient(.mineVia)
+        description = c.lenient(.description)
+        descriptionBy = c.lenient(.descriptionBy)
     }
 }
 
@@ -459,10 +470,13 @@ struct ProjectRow: Decodable, Equatable, Identifiable, Sendable {
     var progress: ProjectProgress
     var activity: [ProjectActivityDay]
     var followups: Int
+    /// g141-7 (ruling 45): the list draws only the person's own; the rest is Suggested.
+    var mine: Bool
+    var description: String?
 
     enum CodingKeys: String, CodingKey {
         case id, name, oneLiner, parent, children, status, created, planned, lastMomentDay, medianGapDays
-        case openThreads, milestones, progress, activity, followups
+        case openThreads, milestones, progress, activity, followups, mine, description
     }
 
     init(from decoder: Decoder) throws {
@@ -482,6 +496,9 @@ struct ProjectRow: Decodable, Equatable, Identifiable, Sendable {
         progress = c.lenient(.progress, ProjectProgress())
         activity = c.lenient(.activity, [])
         followups = c.lenient(.followups, 0)
+        // A server before g141-7 sends no `mine`: every project then reads as the person's, as the page always drew.
+        mine = c.lenient(.mine, !c.contains(.mine))
+        description = c.lenient(.description)
     }
 }
 
@@ -489,14 +506,19 @@ struct ProjectsResponse: Decodable, Equatable, Sendable {
     var projects: [ProjectRow]
     var tzName: String
     var partial: Bool
+    /// g141-7 (ruling 45): what Cicada noticed and the person has not claimed, strongest first, dismissed last.
+    var suggested: [SuggestedProject]
+    var dismissed: Int
 
-    enum CodingKeys: String, CodingKey { case projects, tzName, partial }
+    enum CodingKeys: String, CodingKey { case projects, tzName, partial, suggested, dismissed }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         projects = c.lenient(.projects, [])
         tzName = c.lenient(.tzName, "UTC")
         partial = c.lenient(.partial, false)
+        suggested = c.lenient(.suggested, [])
+        dismissed = c.lenient(.dismissed, 0)
     }
 }
 
@@ -515,10 +537,15 @@ struct ProjectTimeline: Decodable, Equatable, Sendable {
     var cluster: ProjectCluster
     var conversations: [ProjectConversation]
     var partial: Bool
+    /// g141-7 (ruling 45): the side panel's sources and influences, the tied conversations' count, and what a
+    /// provider project carried (instructions by span, documents by name).
+    var influences: [ProjectInfluence]
+    var conversationCount: Int
+    var knowledge: [ProjectKnowledge]
 
     enum CodingKeys: String, CodingKey {
         case project, tzName, now, pending, milestones, items, activity, momentDays, lastMomentDay, medianGapDays
-        case cluster, conversations, partial
+        case cluster, conversations, partial, influences, conversationCount, knowledge
     }
 
     init(from decoder: Decoder) throws {
@@ -536,6 +563,9 @@ struct ProjectTimeline: Decodable, Equatable, Sendable {
         cluster = c.lenient(.cluster, ProjectCluster())
         conversations = c.lenient(.conversations, [])
         partial = c.lenient(.partial, false)
+        influences = c.lenient(.influences, [])
+        conversationCount = c.lenient(.conversationCount, 0)
+        knowledge = c.lenient(.knowledge, [])
     }
 
     /// Whether a row's page (`thread.on`, `item.project`; nil = the project itself) is in this project's tree — the

@@ -95,8 +95,9 @@ extension AppTab {
 enum PageSwitches {
     /// Owner 2026-10-26: "The Projects page really doesn't convince me. Hide it for now — some detected projects
     /// aren't even mine." Off until the redesign (G141's row in docs/goals/memory-evolution.md). Turning it back on is
-    /// this one value: the rail, ⌘K, a project's ⌘K row, the tour and every hand-off read it.
-    static let projectsPage = false
+    /// this one value: the rail, ⌘K, a project's ⌘K row, the tour and every hand-off read it. Back on with the
+    /// redesign (ruling 45, 2026-10-27): the list is the person's own, everything detected is suggested.
+    static let projectsPage = true
 }
 
 extension AppTab {

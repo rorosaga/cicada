@@ -145,10 +145,9 @@ final class AppRouterTests: XCTestCase {
     func testABacklogLandingCarriesTheItemWithItsProject() {
         let router = AppRouter()
         router.routeToBacklogItem(project: "rover-arm-project", item: "RAP3")
-        // Owner 2026-10-26: the Projects page is hidden (`PageSwitches`), so the project's own page opens instead and no
-        // item waits for a column that is not on screen.
-        XCTAssertEqual(router.pendingTab, .graph)
-        XCTAssertEqual(router.consumeRevealEntity(), "rover-arm-project")
-        XCTAssertNil(router.consumeBacklogItem())
+        XCTAssertEqual(router.pendingTab, .projects)
+        XCTAssertEqual(router.consumeProject(), "rover-arm-project")
+        XCTAssertEqual(router.consumeBacklogItem(), "RAP3")
+        XCTAssertNil(router.consumeBacklogItem(), "read-then-clear")
     }
 }

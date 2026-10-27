@@ -284,6 +284,14 @@ final class FakeSyncAPI: SyncAPI {
     func withdrawProjectHappening(project: String, claimId: String) async throws -> ProjectWriteResponse {
         try await projectWrite("withdrawProjectHappening:\(project):\(claimId)")
     }
+    var projectChangeReply = ProjectOwnershipResponse(id: "new-project", action: "created")
+    var projectChanges: [ProjectChange] = []
+    func sendProjectChange(_ change: ProjectChange) async throws -> ProjectOwnershipResponse {
+        projectChanges.append(change)
+        try await record("sendProjectChange:\(change.projectId ?? "new")")
+        if let projectWriteError { throw projectWriteError }
+        return projectChangeReply
+    }
 
     // MARK: Entity pictures (C11)
 

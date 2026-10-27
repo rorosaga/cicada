@@ -2,14 +2,16 @@ import SwiftUI
 
 /// What the list column says before it has rows to draw, in precedence order (DR-43, DR-50).
 enum ProjectsListState: Equatable {
-    case loading, failed(String), empty, tabEmpty, noMatch, list
+    case loading, failed(String), empty, emptyMine, tabEmpty, noMatch, list
 
-    static func of(phase: ProjectsCache.Phase, hasList: Bool, rows: Int, lines: Int, finding: Bool) -> ProjectsListState {
+    /// `suggestions` (ruling 45): none of the person's own yet, but Cicada suggests some — say so above the fold.
+    static func of(phase: ProjectsCache.Phase, hasList: Bool, rows: Int, suggestions: Int = 0, lines: Int,
+                   finding: Bool) -> ProjectsListState {
         if !hasList {
             if case .failed(let message) = phase { return .failed(message) }
             return .loading
         }
-        if rows == 0 { return .empty }
+        if rows == 0 { return suggestions > 0 ? .emptyMine : .empty }
         if lines == 0 { return finding ? .noMatch : .tabEmpty }
         return .list
     }
@@ -38,6 +40,8 @@ struct ProjectsListColumn: View {
     let focusDetail: () -> Void
     let escape: () -> Void
     let retry: () -> Void
+    /// Ruling 45 — the Suggested fold, drawn after the rows (and after the empty words when none are the person's).
+    var suggestedFold: () -> AnyView = { AnyView(EmptyView()) }
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -62,14 +66,19 @@ struct ProjectsListColumn: View {
                         case .empty:
                             EmptyStateView(systemImage: "point.topleft.down.to.point.bottomright.curvepath",
                                            title: Copy.Projects.emptyTitle, message: Copy.Projects.emptyMessage)
+                        case .emptyMine:
+                            note(Copy.ProjectsMine.emptyMineMessage)
+                            suggestedFold()
                         case .tabEmpty:
                             note(tab == .past ? Copy.Projects.nonePast : Copy.Projects.noneCurrent)
+                            suggestedFold()
                         case .noMatch:
                             note(Copy.Projects.noMatch(query.trimmingCharacters(in: .whitespaces)))
                         case .list:
                             ForEach(entries) { entry in
                                 self.entry(entry).id(entry.id)
                             }
+                            suggestedFold()
                         }
                     }
                     .padding(ListInsets.of(style))
