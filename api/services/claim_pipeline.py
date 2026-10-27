@@ -56,7 +56,7 @@ from api.services.claim_reconciler import reconcile_stage3
 from api.services.claims import Claim, is_event, parse_claims, write_claims
 from api.services.entity_extractor import entities_to_claims
 from api.services.entity_resolver import HELD_ENDPOINT, endpoint_id
-from api.services.id_utils import sanitize_id
+from api.services.id_utils import bank_file, sanitize_id
 from api.services.pending_store import HoldOutcome, Release
 
 #: What Stage 1 writes for an endpoint that IS the person (G169: one closed,
@@ -219,6 +219,46 @@ def _credit_episodes(frontmatter: dict, episodes: list[str] | None) -> bool:
         return False
     frontmatter["source_episodes"] = have + missing
     return True
+
+
+def land_answered(memory_path: Path, release: Release) -> tuple[list[str], list[str]]:
+    """G209 held release (2026-10-27): put an answered line's claims onto their pages — the person's inbox answer said
+    the held name IS ``release.target`` (`pending_store.answered`). Each claim goes onto its subject's page (the target,
+    or for a claim held as the name's object, the other page that holds it), appended as the merge primitive carries a
+    folded page's claims (`entity_merge._carry_claims`): nothing reconciled or closed here, a claim already on the page
+    (same id) not written twice. The conversation each claim was heard in credits its page (R-HP8). A claim whose page
+    is missing, or whose page's fence cannot be read, stays held. Returns ``(memory-relative page paths written,
+    ids now on a page)`` — the caller drops exactly those ids from the line (`pending_store.drop_released`)."""
+    entities_dir = Path(memory_path) / "entities"
+    by_subject: dict[str, list[Claim]] = {}
+    for claim in release.claims:
+        by_subject.setdefault(str(claim.subject or ""), []).append(claim)
+    written: list[str] = []
+    landed: list[str] = []
+    for subject, claims in by_subject.items():
+        filepath = bank_file(entities_dir, subject) if subject else None
+        if filepath is None or not filepath.is_file():
+            continue
+        try:
+            parsed = markdown_parser.parse(filepath)
+            on_page = parse_claims(parsed.body, strict=True)
+        except Exception as e:  # noqa: BLE001 - an unreadable fence keeps its claims held, never overwritten
+            logger.warning(f"answered release skipped a page: {type(e).__name__}")
+            continue
+        have = {c.id for c in on_page}
+        new = [c for c in claims if c.id not in have]
+        episodes: list[str] = []
+        for claim in claims:
+            for ep in claim.source_episodes:
+                if ep and ep not in episodes:
+                    episodes.append(ep)
+        credited = _credit_episodes(parsed.frontmatter, episodes)
+        if new or credited:
+            body = write_claims(parsed.body, on_page + new) if new else parsed.body
+            markdown_parser.write(filepath, parsed.frontmatter, body)
+            written.append(f"entities/{filepath.name}")
+        landed.extend(c.id for c in claims)
+    return written, landed
 
 
 def _settle_store(

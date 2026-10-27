@@ -22,7 +22,9 @@ episode, never a copy of its text). Omitted when empty, so every line written
 before PJ-0b loads and saves byte for byte. A line that holds claims leaves the
 store ONLY through :func:`release`, called after Stage 5.56 wrote them onto the
 page (R-HP4): :func:`take` (promotion) keeps it, :func:`upsert` (a re-park)
-carries its hold, and nothing expires a line (R-HP9).
+carries its hold, and nothing expires a line (R-HP9). The one other way its claims
+leave: the person's inbox answer that the name IS a page (G209) lands them there
+(:func:`answered`) and only then takes exactly those off (:func:`drop_released`).
 """
 
 from __future__ import annotations
@@ -468,15 +470,69 @@ def ready(memory_path: Path, target_of: Callable[[str, str], str],
         page = bank_file(entities_dir, target)
         if page is None or not page.is_file():
             continue
-        for claim in claims:
-            if claim.subject != slug and claim.object == slug:
-                claim.object = target   # held for this name as another page's object: that page keeps the claim
-            else:
-                claim.subject = target
-        out.append(Release(line.name, target, claims))
+        out.append(Release(line.name, target, _repoint(claims, slug, target)))
     if unreadable:
         logger.warning(f"pending store: {unreadable} held claim(s) could not be read; they leave with their line")
     return out
+
+
+def _repoint(claims: list[Claim], slug: str, target: str) -> list[Claim]:
+    """A line's claims re-keyed onto ``target``: a claim held for this name as another page's OBJECT keeps its subject
+    (that page keeps the claim) and points its object at ``target``; every other claim takes ``target`` as subject."""
+    for claim in claims:
+        if claim.subject != slug and claim.object == slug:
+            claim.object = target
+        else:
+            claim.subject = target
+    return claims
+
+
+def answered(memory_path: Path, name: str, target: str) -> Release | None:
+    """Read-only: the line named ``name`` (case-insensitive) re-keyed onto ``target`` — the page the PERSON said this
+    name is (G209 held release, 2026-10-27: their inbox answer "same as <target>", through their own resolver). The
+    same re-pointing as :func:`ready`; ``held_against`` is not consulted, because the person's answer is the verdict
+    Stage 2 would otherwise wait for. ``None`` when no line holds claims under that name. Nothing is removed here:
+    that is :func:`drop_released`, after the claims are on their pages."""
+    key = (name or "").strip().lower()
+    if not key or not target:
+        return None
+    for line in load(memory_path):
+        if line.name.lower() != key or not line.held_claims:
+            continue
+        claims: list[Claim] = []
+        for data in line.held_claims:
+            try:
+                claims.append(Claim.from_dict(data))
+            except (TypeError, ValueError):
+                continue
+        if not claims:
+            return None
+        return Release(line.name, target, _repoint(claims, sanitize_id(line.name), target))
+    return None
+
+
+def drop_released(memory_path: Path, name: str, claim_ids: Iterable[str]) -> bool:
+    """After an answered release wrote its claims: take those claims off the line named ``name``. The line itself stays
+    (what else it heard is still a first mention; the resolver's :func:`take` retires a line with nothing held, as it
+    always has). A claim that could not land (its page is gone) stays held. True when the store changed. A claim
+    leaves the line at most once, so a later answer or Stage 2 finds nothing to release a second time."""
+    key = (name or "").strip().lower()
+    ids = {str(i) for i in claim_ids if i}
+    if not key or not ids:
+        return False
+    with _LOCK:
+        entries = load(memory_path)
+        changed = False
+        for e in entries:
+            if e.name.lower() != key:
+                continue
+            left = [d for d in e.held_claims if d.get("id") not in ids]
+            if len(left) != len(e.held_claims):
+                e.held_claims = left
+                changed = True
+        if changed:
+            save(memory_path, entries)
+        return changed
 
 
 def release(memory_path: Path, names: Iterable[str]) -> int:

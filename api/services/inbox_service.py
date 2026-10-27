@@ -2431,6 +2431,26 @@ def _answer_page_edit(path: Path, fm: dict, memory_path: Path, label: str, befor
     bank_index.invalidate(memory_path)
 
 
+def _release_answered(memory_path: Path, mention: str, target_id: str) -> list[str]:
+    """G209 (2026-10-27): the person answered that a held name IS ``target_id``. The claims Sleep held on that name's
+    pending line — as its subject, or as another page's claim with it as the object — land now, on the page they named
+    (`pending_store.answered`, `claim_pipeline.land_answered`), instead of waiting for the name to be mentioned again.
+    The landed claims leave the line in the same write, so they are released once. Returns the manifest lines for
+    every page written and for the store: they ride in the answer's own commit, so the answer's undo takes the claims
+    back off and puts them back on the line."""
+    from api.services import claim_pipeline, pending_store
+
+    if not mention or not target_id:
+        return []
+    release = pending_store.answered(memory_path, mention, target_id)
+    if release is None:
+        return []
+    written, landed = claim_pipeline.land_answered(memory_path, release)
+    if pending_store.drop_released(memory_path, release.name, landed):
+        written.append(pending_store.PENDING_STORE_FILE)
+    return [f"{rel}: updated (trigger: inbox/merge_suggestion/resolved:merge)" for rel in written]
+
+
 async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, bool, list[str]]:
     """Port of the clarifications.py logic (answer / dismiss / merge / reject / skip).
 
@@ -2685,11 +2705,13 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
                 if mention.lower() != own.lower() and all(a.lower() != mention.lower() for a in names):
                     target.frontmatter["aliases"] = [*names, mention]
             markdown_parser.write(target_path, target.frontmatter, new_body)
-            # Its pending line leaves the store; a line still holding claims stays until Stage 2 resolves the name to
-            # this page and Stage 5.56 writes them here (`pending_store.take`).
+            # G209: what Sleep held on the name's pending line lands on the page the person named, in this same write.
+            released = _release_answered(settings.memory_path, mention, target_path.stem)
+            # Its pending line leaves the store; a line still holding claims (one whose page is gone) stays until
+            # Stage 2 resolves the name and Stage 5.56 writes them (`pending_store.take`).
             taken = pageless and pending_store.take(settings.memory_path, mention)[1]
-            store_lines = ([f"{pending_store.PENDING_STORE_FILE}: updated (trigger: inbox/merge_suggestion/resolved:merge)"]
-                           if taken else [])
+            store_line = f"{pending_store.PENDING_STORE_FILE}: updated (trigger: inbox/merge_suggestion/resolved:merge)"
+            store_lines = [*released, *([store_line] if taken and store_line not in released else [])]
             # A question asked about a PAGE (a placeholder person named in the inbox, `role_people.answer_name`,
             # flagged `fold_page`) folds that page into the target through the one merge primitive — its claims,
             # sources and references follow. Any other item was asked about a mention: a page promoted under that
@@ -2705,8 +2727,9 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
                     raise HTTPException(
                         409, f"'{mention_path.stem}' has an unreadable claims block; repair it before merging ({exc})")
                 path.unlink()
-                return target_path.stem, False, _merge_manifest(merged["paths"],
-                                                                removed=f"entities/{mention_path.stem}.md")
+                return target_path.stem, False, [*_merge_manifest(merged["paths"],
+                                                                  removed=f"entities/{mention_path.stem}.md"),
+                                                 *store_lines]
             path.unlink()
             return target_path.stem, False, store_lines
         else:
@@ -2763,6 +2786,8 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
                 renamed = rename_references(settings.memory_path, old_id, old_name, survivor_path.stem, survivor)
                 merge_lines = _merge_manifest([f"entities/{old_id}.md", *renamed],
                                               removed=f"entities/{old_id}.md")
+                # G209: the page the person named now lives under the mention's own name; a held line lands there.
+                merge_lines += _release_answered(settings.memory_path, mention, survivor_path.stem)
 
             path.unlink()
             entity_id = survivor_slug
