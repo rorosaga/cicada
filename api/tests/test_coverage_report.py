@@ -63,12 +63,14 @@ def test_every_page_gets_one_rung_or_one_reason(bank):
     assert t["location"]["none"] == {"no_site": 1}
     assert t["person"]["rungs"] == {"profile:offered": 1}
     assert t["person"]["none"] == {"identifier_proposed": 1, "no_identifier": 1}
-    assert t["concept"]["none"] == {"type_has_no_rung": 1} and t["project"]["none"] == {"type_has_no_rung": 1}
+    assert t["concept"]["none"] == {"type_has_no_rung": 1}
+    # Owner 2026-10-28 (E): a project with a repository the person gave is offered its owner's mark.
+    assert t["project"]["rungs"] == {"logo:offered": 1}
     assert t["media"]["rungs"] == {"thumbnail:offered": 1}
     assert t["media"]["none"] == {"no_preview_declared": 1, "paper": 1, "walled": 1}
-    assert report["with_picture"] == sum(r["with_picture"] for r in t.values()) == 3
+    assert report["with_picture"] == sum(r["with_picture"] for r in t.values()) == 4
     assert sum(report["reasons"].values()) + report["with_picture"] == report["pages"]
-    assert report["opportunities"] == {"project_repo": 1}
+    assert report["opportunities"] == {}
     assert coverage_report.pictures(bank, include_archived=True)["pages"] == 16
 
 
@@ -82,7 +84,7 @@ def test_a_gate_turned_off_is_the_reason_not_a_picture(bank, monkeypatch):
     _pages(bank)
     monkeypatch.setenv("CICADA_ALLOW_LOGO_FETCH", "off")
     report = coverage_report.pictures(bank)
-    assert report["gates"]["logo"] is False and report["reasons"]["gate_off"] == 3   # logo, profile, thumbnail
+    assert report["gates"]["logo"] is False and report["reasons"]["gate_off"] == 4   # 2 logos, profile, thumbnail
     assert report["with_picture"] == 0
 
 

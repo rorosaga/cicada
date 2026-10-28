@@ -355,7 +355,7 @@ def test_the_dry_run_reports_what_the_step_leaves_alone_and_what_the_site_check_
                                                                                               capsys):
     from api.scripts import org_sites_dry_run
 
-    entry = {"ref": "https://northwind-univ.edu", "kind": "url", "predicate": "website", "added_by": "agent",
+    entry = {"ref": "https://northwind-univ.edu", "kind": "url", "predicate": "website", "added_by": "claude-code",
              "added_at": "2026-10-01"}
     memory = _uni_bank(tmp_path, sources=[entry])
     before = {p: p.read_bytes() for p in memory.rglob("*.md")}
@@ -400,9 +400,10 @@ def test_a_malformed_port_in_pasted_code_is_no_site_and_no_crash():
     assert org_sites.site_origin("https://northwind.edu:9000`/x") is None
 
 
-def test_a_proposal_stays_a_proposal_when_a_later_night_confirms_the_homepage(tmp_path):
-    # Review of #476: night 1 the homepage does not answer -> a proposal in the review; a later night it answers. The
-    # waiting entry must not be stamped behind the person (ruling 36 D5, ruling 40).
+def test_sleeps_own_proposal_is_trusted_when_a_later_night_finds_the_homepage_names_it(tmp_path):
+    # Owner 2026-10-28 (D, amends the review of #476): night 1 the homepage does not answer -> a proposal in the
+    # review; a later night it answers and names the page -> ruling 40 trusts the site Sleep itself first proposed, in
+    # place (evidence kept, the proposal flag gone), and the review no longer lists it.
     memory = _uni_bank(tmp_path)
     _run(memory, _uni_wikidata(), Pages({"https://northwind-univ.edu": PageIdentity("failed:http_503")}))
     [site] = _websites(_fm(memory))
@@ -410,19 +411,47 @@ def test_a_proposal_stays_a_proposal_when_a_later_night_confirms_the_homepage(tm
     later = date.today().replace(year=date.today().year + 1)
     _run(memory, _uni_wikidata(), Pages({"https://northwind-univ.edu": UNI_HOME}), today=later)
     [site] = _websites(_fm(memory))
-    assert fact_sources.is_proposed(site) and not fact_sources.trusted(site) and "verified" not in site
+    assert fact_sources.trusted(site) and not fact_sources.is_proposed(site) and "proposed" not in site
+    assert site["evidence"]["reason"] == "homepage_unconfirmed" and site["added_by"] == "cicada"
+    assert logo_service.domain_for(_fm(memory)) == "northwind-univ.edu"
 
 
-def test_another_writers_entry_for_the_same_site_is_never_upgraded_or_marked(tmp_path):
+def test_a_proposal_held_for_another_doubt_still_waits_for_the_person(tmp_path):
+    # D settles only the homepage's doubt: a proposal Sleep held because it matched only through an alias (or the
+    # record named another site, a namesake, a country conflict) is never trusted behind the person (ruling 36 D5).
+    for reason in ("matched_by_alias", "record_names_another_site", "country_conflict", "content_unconfirmed"):
+        entry = {"ref": "https://northwind.edu", "kind": "url", "predicate": "website", "added_by": "cicada",
+                 "added_at": "2026-10-01", "proposed": True, "evidence": {"page": True, "reason": reason}}
+        assert not org_sites.sleeps_own_site(entry), reason
+        fm = {"name": "Northwind Example University", "type": "company", "sources": [dict(entry)]}
+        finding = org_sites.Finding("northwind-example-university", "Northwind Example University", "company")
+        finding.site, finding.trusted, finding.basis, finding.why = "https://northwind.edu", True, "record", "x"
+        assert org_sites.apply(fm, finding, "2026-10-28") == 0 and fm["sources"] == [entry], reason
+
+
+def test_stage_ones_site_is_trusted_in_place_once_its_homepage_names_the_page(tmp_path):
+    # Owner 2026-10-28 (D): Stage 1's official site (`propose_site`, added_by agent) is a site Sleep itself first
+    # proposed; ruling 40 confirms it in place when the homepage names the page — and never on a homepage that does not.
     entry = {"ref": "https://northwind-univ.edu", "kind": "url", "predicate": "website", "added_by": "agent",
              "added_at": "2026-10-01"}
     memory = _uni_bank(tmp_path, sources=[dict(entry)])
     _run(memory, _uni_wikidata(), Pages({"https://northwind-univ.edu": UNI_HOME}))
-    assert _websites(_fm(memory)) == [entry], "an agent's (or Stage 1's) entry stays as that writer put it"
+    [site] = _websites(_fm(memory))
+    assert fact_sources.trusted(site) and site["added_by"] == "agent" and site["ref"] == entry["ref"]
     other = PageIdentity("ok", "https://northwind-univ.edu/", "Domain for sale", "", "", "For sale.")
     memory2 = _uni_bank(tmp_path / "b", sources=[dict(entry)])
     _run(memory2, _uni_wikidata(), Pages({"https://northwind-univ.edu": other}))
     assert _websites(_fm(memory2)) == [entry]
+
+
+def test_an_identified_agents_or_the_persons_entry_is_never_upgraded_or_marked(tmp_path):
+    for i, extra in enumerate(({"added_by": "claude-code"}, {"added_by": "agent", "access": "public"},
+                               {"added_by": "cicada", "origin": "remote/app"})):
+        entry = {"ref": "https://northwind-univ.edu", "kind": "url", "predicate": "website",
+                 "added_at": "2026-10-01", **extra}
+        memory = _uni_bank(tmp_path / str(i), sources=[dict(entry)])
+        _run(memory, _uni_wikidata(), Pages({"https://northwind-univ.edu": UNI_HOME}))
+        assert _websites(_fm(memory)) == [entry], "another writer's entry stays as that writer put it"
 
 
 def test_cicadas_own_unconfirmed_entry_is_upgraded_in_place(tmp_path):
@@ -498,9 +527,10 @@ def test_cicadas_own_unconfirmed_site_named_like_the_page_is_confirmed_from_the_
     assert wiki.calls == []
 
 
-def test_stage_ones_entry_and_a_named_agents_are_not_record_candidates(tmp_path):
-    for who in ("agent", "claude-code"):
+def test_stage_ones_entry_is_a_record_candidate_and_a_named_agents_is_not(tmp_path):
+    # Owner 2026-10-28 (D): Stage 1's site is Sleep's own proposal, "on the page itself"; an identified agent's is not.
+    for who, expected in (("agent", ["https://northwind.edu"]), ("claude-code", [])):
         entry = {"ref": "https://northwind.edu", "kind": "url", "predicate": "website", "added_by": who,
                  "added_at": "2026-10-01"}
         memory = _uni_bank(tmp_path / who, sources=[entry])
-        assert org_sites.record_candidates(None, _fm(memory), UNI_BODY) == [], who
+        assert [c.origin for c in org_sites.record_candidates(None, _fm(memory), UNI_BODY)] == expected, who

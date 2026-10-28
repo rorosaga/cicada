@@ -315,15 +315,93 @@ def _trusted_website_host(frontmatter: dict) -> str | None:
 
 
 #: Ruling 40 (2026-10-26): a public place (a campus, a museum) draws its own site's mark too — but only once it holds a
-#: trusted ``website`` source; a location never asks for a logo on its type alone.
-SITE_ONLY_TYPES = {"location"}
+#: trusted ``website`` source; a location never asks for a logo on its type alone. Owner 2026-10-28 (E): a project
+#: likewise — its trusted website's mark, else its repository's avatar when an ORGANISATION owns the repository
+#: (:func:`repo_owner`, :func:`fetch_org_avatar`); never a personal account's avatar.
+SITE_ONLY_TYPES = {"location", "project"}
+PROJECT_TYPE = "project"
+#: A logo target that is not a domain: the GitHub organisation owning a project's repository (E). Never a DNS name, so
+#: it can never collide with a domain in the cache's ``domain`` field.
+REPO_TARGET = "github-org:"
+GITHUB_OWNER_API = "https://api.github.com/users/{login}"
+_GITHUB_HOSTS = frozenset({"github.com", "www.github.com"})
+_ORG_AVATAR_HOSTS = frozenset({"api.github.com", "avatars.githubusercontent.com"})
+_LOGIN_RE = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}")
+
+
+def _repo_login(ref) -> str | None:
+    """The owner of a GitHub REPOSITORY URL (``https://github.com/<owner>/<repo>``, ``.git`` and a trailing slash
+    allowed) — None for a profile, a deeper page, another host or anything that is not a URL."""
+    if not isinstance(ref, str) or "://" not in ref:
+        return None
+    try:
+        parsed = urlparse(ref.strip())
+        host = (parsed.hostname or "").lower()
+    except ValueError:
+        return None
+    if parsed.scheme not in ("http", "https") or host not in _GITHUB_HOSTS:
+        return None
+    parts = [p for p in parsed.path.split("/") if p]
+    if len(parts) != 2 or not parts[1].removesuffix(".git"):
+        return None
+    from api.services import person_photo   # it imports this module
+
+    login = parts[0]
+    if login.lower() in person_photo._GITHUB_RESERVED or _LOGIN_RE.fullmatch(login) is None:
+        return None
+    return login
+
+
+def repo_owner(frontmatter: dict) -> str | None:
+    """A ``project`` page's repository owner (E): from a TRUSTED source whose role is ``repo`` (or whose kind is) — the
+    person's own, one they took, one Cicada's read confirmed; never a proposal in "Confirm N links" (ruling 36 D5) —
+    or from a GitHub URL the person declared in the page's ``repos:``. Whether it is an organisation is the fetch's to
+    say (:func:`fetch_org_avatar`); nothing here asks anything."""
+    from api.services import fact_sources
+
+    fm = frontmatter or {}
+    if str(fm.get("type") or "").strip().lower() != PROJECT_TYPE:
+        return None
+    sources = fm.get("sources") if isinstance(fm.get("sources"), list) else []
+    repos = fm.get("repos") if isinstance(fm.get("repos"), list) else []
+    if not any("github.com/" in str(s.get("ref") or "") for s in sources if isinstance(s, dict)) and \
+            not any("github.com/" in str(r) for r in repos):
+        return None   # the common case, decided without ranking (this runs per project on every `/graph` build)
+
+    def serves(source: dict, _predicate) -> bool:
+        repo_role = fact_sources.same_predicate(source.get("predicate"), fact_sources.KIND_REPO) or \
+            str(source.get("kind") or "").strip().lower() == fact_sources.KIND_REPO
+        return repo_role and fact_sources.trusted(source) and _repo_login(source.get("ref")) is not None
+
+    for source in fact_sources.rank(sources, None, match=serves):
+        return _repo_login(source.get("ref"))
+    for ref in repos:
+        login = _repo_login(ref)
+        if login:
+            return login
+    return None
 
 
 def draws_logo(frontmatter: dict) -> bool:
-    """A brand (``company``/``tool``), or a public place with a trusted site of its own. Never a person or media."""
+    """A brand (``company``/``tool``), a public place with a trusted site of its own, or a project with a trusted site
+    or a trusted repository (E). Never a person or media."""
     fm = frontmatter or {}
     kind = str(fm.get("type") or "").strip().lower()
-    return kind in GUESSABLE_TYPES or (kind in SITE_ONLY_TYPES and _trusted_website_host(fm) is not None)
+    if kind in GUESSABLE_TYPES:
+        return True
+    if kind not in SITE_ONLY_TYPES:
+        return False
+    return _trusted_website_host(fm) is not None or (kind == PROJECT_TYPE and repo_owner(fm) is not None)
+
+
+def target_for(frontmatter: dict, body: str = "") -> str | None:
+    """What a page's mark is drawn from: its domain (:func:`domain_for`), else — for a project only — its repository's
+    owner as ``github-org:<login>`` (E). None: the monogram."""
+    domain = domain_for(frontmatter, body)
+    if domain:
+        return domain
+    login = repo_owner(frontmatter)
+    return f"{REPO_TARGET}{login}" if login else None
 
 
 def domain_for(frontmatter: dict, body: str = "") -> str | None:
@@ -635,6 +713,59 @@ async def fetch_logo(
     return best
 
 
+def _pinned(fetcher: Fetcher, hosts: frozenset[str]) -> Fetcher:
+    """``fetcher`` restricted to ``https`` on ``hosts``: any other URL — a first request or a redirect hop — answers
+    nothing, so a hop off the provider is a miss, never a fetch."""
+    async def get(url: str) -> FetchResult:
+        try:
+            parsed = urlparse(url)
+            host = (parsed.hostname or "").lower()
+        except ValueError:
+            host, parsed = "", None
+        if parsed is None or parsed.scheme != "https" or host not in hosts or parsed.username or parsed.password \
+                or parsed.port not in (None, 443):
+            return FetchResult(status=0, body=b"", content_type="")
+        return await fetcher(url)
+
+    return get
+
+
+async def fetch_org_avatar(
+    login: str, *, fetcher: Fetcher | None = None, resolver: Resolver | None = None
+) -> tuple[bytes, str, str | None] | None:
+    """A project's repository-owner mark (owner 2026-10-28, E): GitHub's public account record says whether ``login``
+    is an ``Organization``; only then is its avatar asked — a personal account's never is. Two requests, each on the
+    ToS rail (4 s, ≤ 512 KB, no cookies, every hop SSRF-checked through `net_guard`'s address rule and pinned to
+    GitHub's own API and avatar hosts). Only the login is sent, which the repository's URL already names."""
+    if fetcher is None:
+        if not fetch_allowed():
+            return None
+        fetcher = _http_get
+    resolver = resolver or _resolve_host
+    if _LOGIN_RE.fullmatch(login or "") is None:
+        return None
+    pinned = _pinned(fetcher, _ORG_AVATAR_HOSTS)
+    record = await _get_safely(GITHUB_OWNER_API.format(login=login), fetcher=pinned, resolver=resolver)
+    if record is None or record.status != 200 or not record.body or len(record.body) > MAX_BYTES:
+        return None
+    try:
+        data = json.loads(record.body)
+    except ValueError:
+        return None
+    if not isinstance(data, dict) or data.get("type") != "Organization" \
+            or str(data.get("login") or "").lower() != login.lower():
+        return None
+    avatar = str(data.get("avatar_url") or "")
+    try:
+        if (urlparse(avatar).hostname or "").lower() != "avatars.githubusercontent.com":
+            return None
+    except ValueError:
+        return None
+    avatar += ("&" if "?" in avatar else "?") + "s=256"
+    result = await _get_safely(avatar, fetcher=pinned, resolver=resolver)
+    return _accept(result) if result is not None else None
+
+
 # --- cache ------------------------------------------------------------------
 
 
@@ -867,7 +998,8 @@ async def _ensure_logo_locked(
         # Unreadable page: keep serving whatever is already cached.
         return cached_path(bank, entity_id) if cached_ok else None
 
-    domain = domain_for(parsed.frontmatter or {}, parsed.body or "")
+    # A domain, or a project's repository owner (`github-org:<login>`, E) — the cache's `domain` field holds either.
+    domain = target_for(parsed.frontmatter or {}, parsed.body or "")
 
     # The page changed since the last fetch, but re-resolving may still land on
     # the SAME domain (Sleep bumping `last_referenced`/`version` every cycle,
@@ -904,7 +1036,10 @@ async def _ensure_logo_locked(
         # cost the user the logo they already have, so keep serving the cache.
         return cached_path(bank, entity_id) if cached_ok else None
 
-    result = await fetch_logo(domain, fetcher=fetcher)
+    if domain.startswith(REPO_TARGET):
+        result = await fetch_org_avatar(domain[len(REPO_TARGET):], fetcher=fetcher)
+    else:
+        result = await fetch_logo(domain, fetcher=fetcher)
     now = datetime.now(timezone.utc).isoformat()
     if small is not None and domain == entry.get("domain") and (result is None or _side(result[0]) <= small):
         # The new ladder found nothing larger: the mark we have stays, stamped so it is not asked again.

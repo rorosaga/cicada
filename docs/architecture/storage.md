@@ -935,8 +935,8 @@ Round 4 (C2–C4):
   network failure is `tries` up to three nights, then `checked: {outcome: unreachable}` and asked again in 30 days —
   never tombstoned. A platform host found in a `website` entry is removed without a request (reason `platform`).
   `fact_sources.trusted` (the person's, one they took, or verified) is the only trust; nothing else draws a picture (and
-  only a `company` or `tool` page draws one — and, since ruling 40, a `location` that holds a trusted site,
-  `logo_service.draws_logo`; a project's site is a source only). The
+  only a `company` or `tool` page draws one — and, since ruling 40, a `location` that holds a trusted site, and since
+  owner 2026-10-28 (E) a `project` that holds a trusted site or repository, `logo_service.draws_logo`). The
   Sleep tail step (`sleep_cycle._site_sources_safely`: propose, then verify, ≤ 25 fetches a night, one per site) runs
   behind `CICADA_ALLOW_CONNECTOR_FETCH`, in one path-scoped `cicada` commit `Site check <date>`, trigger
   `sleep/site-check`, no engine trailer, dirty pages skipped; the run's `Report` is built first and handed to both steps,
@@ -951,8 +951,10 @@ Round 4 (C2–C4):
   (no network): an origin whose site label is the page's name, an alias or its acronym — from a line of the person's own
   turn that names the page, or from the page itself (an alias that is a domain, `## Links`, a key-fact line about its
   site or domain, its current `website` claim, a link or domain anywhere in its prose, and — vision item 2, 2026-10-28 —
-  the `website` entry Cicada's own backfill put on it that no read has confirmed yet, `_own_unconfirmed`; Stage 1's
-  `agent` entry is not one, it stays with `verify`); a wikilink, camelCase or a code-like ending (`.id`, `.py`) is never a
+  a `website` entry Sleep itself first proposed that no read has confirmed yet, `sleeps_own_site` — owner 2026-10-28, D:
+  the backfill's unconfirmed entry, Stage 1's official site (`added_by: agent`, `propose_site`'s fields only) and
+  Sleep's own proposal held only for `homepage_unconfirmed` / `not_fetched`; an identified agent's entry is not one);
+  a wikilink, camelCase or a code-like ending (`.id`, `.py`) is never a
   domain; the site is the registrable domain (`careers.<org>.edu` → `<org>.edu`). **Then one structured public lookup**:
   Wikidata (`wbsearchentities` on the page's name, then at most two proper-looking aliases; `wbgetclaims` P31/P279/
   P856/P17/P625) — exactly ONE thing whose label or alias IS the page's name, whose class reaches the page type's roots
@@ -970,9 +972,10 @@ Round 4 (C2–C4):
   homepage_unconfirmed | content_unconfirmed | matched_by_alias | record_names_another_site`) that joins the one "Confirm N links" review —
   the tail re-syncs the review after the commit — and `verify` never stamps a proposal behind the person. An ambiguous
   match proposes only sites whose label is the page's name; a namesake found only through an alias proposes nothing. Only
-  Cicada's own unconfirmed entry for the same site is upgraded in place (never duplicated); a proposal waiting for the
-  person, or another writer's entry for that site (an agent's, Stage 1's), is never upgraded or re-marked — Stage 1's
-  keeps Cicada's nightly `verify`; a tombstone for the site (`sources_removed`,
+  an entry Sleep itself first proposed for the same site (`sleeps_own_site`) is upgraded in place (never duplicated;
+  its evidence kept, `proposed` dropped, so it leaves the review) — the person's, an identified agent's, a remote app's,
+  or a proposal held for any other doubt is never upgraded or re-marked, and an unproposed one keeps Cicada's nightly
+  `verify`; a tombstone for the site (`sources_removed`,
   whoever removed it) is never re-added; a page with a trusted site is never looked up. The why travels on
   `EntitySource.verified.why` ("Found by Cicada: official site listed on Wikidata (Q…), and its homepage names …"); the
   person undoes it by removing the source. Once trusted, `logo_service` draws the mark and `source_refresh` re-checks it
@@ -1097,7 +1100,14 @@ Round 4 (C2–C4):
   `person`/`tool` page → a person's public-profile photo → a brand's logo → a media page's preview → a ring monogram),
   resolved at read onto `/graph` nodes and the entity; the app's
   `EntityPictureResolver` is its twin over `api/tests/fixtures/entity_picture.json`. A person never gets a logo and no
-  service is sent a person's name (G159).
+  service is sent a private person's name (G159). **A project's mark** (owner 2026-10-28, E) is the `logo` rung: its
+  trusted website's logo through the ladder above, else — only from a TRUSTED repository source (role or kind `repo`;
+  never a "Confirm N links" proposal) or a GitHub URL in the page's `repos:` — the repository owner's avatar, asked
+  only when GitHub's public account record (`api.github.com/users/<login>`) says `type: Organization`
+  (`logo_service.fetch_org_avatar`; both requests pinned to `api.github.com` and `avatars.githubusercontent.com`, the
+  ToS rail, SSRF-checked every hop). A personal account's avatar is never asked: its record is a cached miss. The
+  cache entry's `domain` holds `github-org:<login>` for such a mark (`logo_service.target_for`), so the twin and the
+  fixture are unchanged — the `logo` input is decided server-side as before.
   **The photo a Messages chat shares** (owner, 2026-10-16; `messages_photos`) is the chat's page's picture
   everywhere — the graph, the card, every list — rung `messages`, after the Contacts photo and before the
   public-profile photo or a logo, on `person` and `tool` pages only (the types a correspondent can be). The app reads
@@ -1145,7 +1155,15 @@ Round 4 (C2–C4):
   is; a test pins it), and never a proposal still waiting for the person (`proposed: true`, "Where to check" below) —
   then, while `CICADA_ALLOW_PERSON_PHOTO_PROXY` is on (on by default since ruling 36 D5, 2026-10-22; off from
   2026-10-09), an X profile link, an Instagram profile link (D5) and a LinkedIn `/in/` link, asked through the avatar proxy within an
-  install-wide daily budget (`network.md`). Fetched once, on demand, by `GET /entities/{id}/photo` (never by
+  install-wide daily budget (`network.md`). **A public figure's encyclopedia portrait** (owner 2026-10-28, C) sits
+  between the GitHub avatar and the proxy: only for a page ruling 44's full public test called public — the memo outside
+  every bank (`$CICADA_HOME/web_context/<bank>.json`) now keeps the ONE matched Wikidata item with the verdict
+  (`web_context.public_items`; a match cached before the item was kept is asked once more) — the item's image (P18) is
+  asked of Wikidata by item (`org_sites.wikidata_get`) and the file of Commons by its own name
+  (`commons.wikimedia.org/wiki/Special:FilePath/<file>?width=256`, redirects only to `upload.wikimedia.org`, Wikimedia's
+  User-Agent with the project's contact). The local test runs once more just before the ask, in a thread (err
+  private); a page that fails the local test on a later verdict leaves the memo, so its identifier set changes and the
+  stored portrait goes. Never the owner's page or a demo bank. Fetched once, on demand, by `GET /entities/{id}/photo` (never by
   `/graph`, never by Sleep) and cached at `$CICADA_HOME/pictures/<bank>/people/<id>.<png|jpg>` with `meta.json`
   (`{key, fetched_at, miss, transient, ext, sha}`; `key` is a hash over the identifiers, so the email's hash is never
   stored and a changed or removed identifier re-resolves — a removed one drops the copy). A hit is kept; a miss is

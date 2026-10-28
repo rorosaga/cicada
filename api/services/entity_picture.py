@@ -15,10 +15,14 @@ both are held to `api/tests/fixtures/entity_picture.json`, so a rung added on on
    `/entities/{id}/picture?v=<sha>`. Below the person's choice and the Contacts photo, above everything else;
 2b. **a public profile photo**, `person` pages only (G159 amendment, owner 2026-10-09): `person_photo` asks the
    email's public photo, then the GitHub avatar, ONLY from an identifier already on the page or the person's own record
-   (the owner's own email on the owner's page; a GitHub profile link among the page's sources) — never from a name.
+   (the owner's own email on the owner's page; a GitHub profile link among the page's sources) — never from a name —
+   or, for a public figure only, the encyclopedia portrait (owner 2026-10-28, C: the Wikidata item ruling 44's full
+   public test matched, `person_photo.public_item`).
    Offered while not known to miss; `?v=<sha>` once a copy is stored outside the bank;
-3. **the domain logo** (G59's ladder), never for a `person` or a `media` page: eligible for `company`/`tool` or a page
-   whose own `logo:` names a domain, available when cached or not yet known to miss (R-PE9);
+3. **the domain logo** (G59's ladder), never for a `person` or a `media` page: eligible for `company`/`tool`, a place
+   or a project with a trusted site, or a page whose own `logo:` names a domain, available when cached or not yet known
+   to miss (R-PE9). A project with no trusted site draws its repository owner's avatar instead, only when an
+   organisation owns the repository (owner 2026-10-28, E; `logo_service.fetch_org_avatar`);
 4. **the media page's own preview**, `media` pages only: the saved page's `og:image`, a provider's thumbnail, a YouTube
    video's standard still or a saved PDF's first page (`media_preview.source_for`), fetched once by the backend and
    served from its store at `/entities/{id}/preview?v=<key>` — never a provider URL the app loads itself. A paper has
@@ -171,7 +175,8 @@ def media_picture(entity_id: str, fm: dict) -> str | None:
 
 def logo_eligible(fm: dict) -> bool:
     """R-PE9 — a brand (`company`/`tool`), a public place with a trusted site of its own (ruling 40,
-    `logo_service.draws_logo`), or any page whose own `logo:` names a domain; never a person or a media page (R-PE3)."""
+    `logo_service.draws_logo`), a project with a trusted site or repository (owner 2026-10-28, E), or any page whose
+    own `logo:` names a domain; never a person or a media page (R-PE3)."""
     kind = str((fm or {}).get("type") or "concept").strip().lower()
     if kind in ("person", "media"):
         return False
@@ -212,8 +217,9 @@ def logo_available(entity_id: str, fm: dict, body: str, *, cached: set[str], mis
     if not logo_eligible(fm):
         return False
     # G61 S3-b: a picture needs a source to be drawn from — a cached mark whose page no longer resolves a domain
-    # (the trusted site was removed, or a name guess put it there) is not offered.
-    if logo_service.domain_for(fm, body) is None:
+    # (the trusted site was removed, or a name guess put it there) is not offered. A project's repository owner is
+    # such a source too (E).
+    if logo_service.target_for(fm, body) is None:
         return False
     if entity_id in cached:
         return True
@@ -252,7 +258,8 @@ def resolve_page(memory_path, entity_id: str, fm: dict, body: str, *, page_mtime
         # A demo's owner page is synthetic: the real owner's email never draws it (one check — one owner page).
         owner = {} if fm.get("owner") is True and demo_guard.is_demo(Path(memory_path)) else None
         offered, sha, key = person_photo.available(
-            entity_id, fm, person_photo.read_meta(bank) if photos is None else photos, owner=owner, bank=bank)
+            entity_id, fm, person_photo.read_meta(bank) if photos is None else photos, owner=owner, bank=bank,
+            public=person_photo.public_item(memory_path, entity_id, fm))
         inputs = replace(inputs, profile=offered, profile_sha=sha, profile_key=key if offered else None)
     return resolve(entity_id, inputs), inputs
 

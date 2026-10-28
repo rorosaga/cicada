@@ -86,7 +86,18 @@ Three backend gates, and a separate app-side scenery gate below. They do **not**
   against that list and `net_guard`, at most three; 4 s a request (all its hops) and 10 s for the whole ladder, out of
   time being a transient miss; the body streamed and cut past 512 KB; kept only as a
   PNG or JPEG of 16–1024 px by its bytes (SVG refused whatever its header). `d=404` makes "no photo" a 404, so no
-  default image is cached as a photo.
+  default image is cached as a photo. **A public figure's portrait** (owner 2026-10-28, C; ruling 44's test): for a
+  person page the full public test matched to ONE Wikidata item, after the GitHub rung — first ruling 44's local test
+  once more, sending nothing; then `wbgetclaims` for that item's P18 (the item id only, on `org_sites.wikidata_get`'s
+  rail: 4 s, ≤ 512 KB, no cookies, `net_guard`, a block never retried); then
+  `https://commons.wikimedia.org/wiki/Special:FilePath/<file>?width=256` with the Commons file name P18 holds, every
+  hop pinned to `commons.wikimedia.org` / `upload.wikimedia.org` and `net_guard`, under Wikimedia's User-Agent policy
+  (`Cicada/1 (<repo URL>) httpx`, the project's contact). The person's name is not in any of these requests.
+- **A project's organisation avatar** (owner 2026-10-28, E; behind `CICADA_ALLOW_LOGO_FETCH`, asked by `/logo` and the
+  Sleep tail's logo warm-up like any logo): `https://api.github.com/users/<login>` with the owner login of a trusted
+  repository URL, then — only when it answers `type: Organization` for that login — its `avatar_url` on
+  `avatars.githubusercontent.com` at 256 px. Both pinned to those two hosts, SSRF-checked every hop, 4 s, ≤ 512 KB, no
+  cookies; a personal account's avatar is never requested.
 - **`CICADA_ALLOW_PERSON_PHOTO_PROXY`** (owner 2026-10-09; **on by default since ruling 36 D5, 2026-10-22** — the
   owner: "photo gate ON"; `off` still closes it) is the ToS rail's one exception: a
   person's photo through the unavatar.io avatar proxy, from an X, Instagram or LinkedIn profile link already in the

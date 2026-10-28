@@ -432,7 +432,8 @@ def test_page_list_and_graph_read_the_bank_with_the_backend_down(env, capsys):
 def test_coverage_reads_the_bank_and_names_no_page_unless_asked(env, capsys):
     code, out = _run(["coverage", "pictures"], capsys)
     assert code == 0 and out["data"]["pages"] >= 4 and "ids" not in out["data"]
-    assert out["data"]["by_type"]["project"]["none"] == {"type_has_no_rung": 2}
+    # Owner 2026-10-28 (E): a project with no trusted site or repository says so, like a brand.
+    assert out["data"]["by_type"]["project"]["none"] == {"no_site": 2}
     assert out["data"]["by_type"]["person"]["none"] == {"no_identifier": 1}
     code, out = _run(["coverage", "sources", "--ids"], capsys)
     assert code == 0 and "bob-example" in out["data"]["ids"]["none/person"]
