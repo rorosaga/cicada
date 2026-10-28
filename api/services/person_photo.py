@@ -31,9 +31,10 @@ from an identifier **already on that person's page or the person's own record**:
   public test called public: it passed the local test (a full name, no acquaintance on the record, no personal channel,
   a public cue) AND matched exactly ONE human on Wikidata with an encyclopedia article, the item kept in ruling 44's
   memo outside every bank (`web_context.public_items`). The item's image (P18) is asked of Wikidata by that item and
-  the file of Wikimedia Commons by its own name — never the person's name again. The local test is run once more just
-  before the ask (err private: an acquaintance since, and nothing is asked); a page that fails it later leaves the memo
-  on Sleep's next verdict, and its portrait with it.
+  the file of Wikimedia Commons by its own name — never the person's name as a query again (a Commons file
+  name may contain it). The local test is run once more just before the ask (err private: an acquaintance since, and
+  nothing is asked), and for every held match on each Sleep run (`web_context.recheck_public`); a match not passed in
+  `PUBLIC_FRESH_DAYS` draws nothing, and a page that fails leaves the memo, and its portrait with it.
 
 Never a name, an alias, a domain or a username guessed from either.
 
@@ -733,7 +734,8 @@ async def _ensure_locked(memory_path: Path, bank: str, entity_id: str, fetcher: 
             break
         if cand.provider == WIKIDATA:
             # Owner 2026-10-28 (C): the local public test once more (err private), then the item's image by item
-            # alone, then that file from Commons by its own name — the person's name is never sent again.
+            # alone, then that file from Commons by its own name — the person's name is never sent as a query again
+            # (the file name may contain it).
             if not await asyncio.to_thread(still_public, memory_path, entity_id):
                 continue
             if wikidata is None:

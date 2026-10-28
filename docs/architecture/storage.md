@@ -1162,8 +1162,10 @@ Round 4 (C2–C4):
   asked of Wikidata by item (`org_sites.wikidata_get`) and the file of Commons by its own name
   (`commons.wikimedia.org/wiki/Special:FilePath/<file>?width=256`, redirects only to `upload.wikimedia.org`, Wikimedia's
   User-Agent with the project's contact). The local test runs once more just before the ask, in a thread (err
-  private); a page that fails the local test on a later verdict leaves the memo, so its identifier set changes and the
-  stored portrait goes. Never the owner's page or a demo bank. Fetched once, on demand, by `GET /entities/{id}/photo` (never by
+  private), and every Sleep run re-runs it for each held match before any gate (`web_context.recheck_public`, sends
+  nothing; review of #510 — `plan` verdicts only due pages). A match not passed within `PUBLIC_FRESH_DAYS` (14) draws
+  nothing, and a page that fails leaves the memo, so its identifier set changes and the stored portrait goes. The
+  person's name is never sent as a query; the Commons file name P18 holds may contain it. Never the owner's page or a demo bank. Fetched once, on demand, by `GET /entities/{id}/photo` (never by
   `/graph`, never by Sleep) and cached at `$CICADA_HOME/pictures/<bank>/people/<id>.<png|jpg>` with `meta.json`
   (`{key, fetched_at, miss, transient, ext, sha}`; `key` is a hash over the identifiers, so the email's hash is never
   stored and a changed or removed identifier re-resolves — a removed one drops the copy). A hit is kept; a miss is

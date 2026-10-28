@@ -429,6 +429,25 @@ def test_a_proposal_held_for_another_doubt_still_waits_for_the_person(tmp_path):
         assert org_sites.apply(fm, finding, "2026-10-28") == 0 and fm["sources"] == [entry], reason
 
 
+def test_marking_cicadas_entry_proposed_records_the_doubt_so_a_later_night_cannot_trust_it(tmp_path):
+    # Review of #510: the branch that turns Cicada's own unconfirmed entry into a proposal wrote no reason, so
+    # `sleeps_own_site` read it as a homepage-only doubt and a later night could trust a site held for an alias.
+    entry = {"ref": "https://northwind.edu", "kind": "url", "predicate": "website", "added_by": "cicada",
+             "added_at": "2026-10-01", "evidence": {"page": True}}
+    fm = {"name": "Northwind Example University", "type": "company", "sources": [dict(entry)]}
+    held = org_sites.Finding("northwind-example-university", "Northwind Example University", "company")
+    held.proposals, held.basis, held.reason = ["https://northwind.edu"], "lookup", "matched_by_alias"
+    held.evidence = {"lookup": "wikidata", "item": "Q900001"}
+    assert org_sites.apply(fm, held, "2026-10-28") == 1
+    [site] = fm["sources"]
+    assert fact_sources.is_proposed(site) and site["evidence"]["reason"] == "matched_by_alias"
+    assert site["evidence"]["page"] is True, "the entry's own evidence is kept"
+    assert not org_sites.sleeps_own_site(site)
+    trusted = org_sites.Finding("northwind-example-university", "Northwind Example University", "company")
+    trusted.site, trusted.trusted, trusted.basis, trusted.why = "https://northwind.edu", True, "record", "x"
+    assert org_sites.apply(fm, trusted, "2026-10-29") == 0 and fact_sources.is_proposed(fm["sources"][0])
+
+
 def test_stage_ones_site_is_trusted_in_place_once_its_homepage_names_the_page(tmp_path):
     # Owner 2026-10-28 (D): Stage 1's official site (`propose_site`, added_by agent) is a site Sleep itself first
     # proposed; ruling 40 confirms it in place when the homepage names the page — and never on a homepage that does not.

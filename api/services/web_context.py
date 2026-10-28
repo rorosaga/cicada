@@ -531,7 +531,7 @@ async def verdict(memory_path: Path, page: Page, facts: web_settle.BankFacts, me
     return w
 
 
-_PUBLIC_ITEMS: dict[str, tuple[int, dict[str, str]]] = {}
+_PUBLIC_ITEMS: dict[str, tuple[int, dict[str, str], date]] = {}
 _QID = re.compile(r"Q[1-9][0-9]{0,11}")
 
 
@@ -552,12 +552,56 @@ def public_items(memory_path: Path) -> dict[str, str]:
     except OSError:
         return {}
     hit = _PUBLIC_ITEMS.get(str(path))
-    if hit is not None and hit[0] == mtime:
+    if hit is not None and hit[0] == mtime and hit[2] == date.today():
         return hit[1]
+    # Only a match the local test passed recently (review of #510): a page `plan` never verdicts again (fresh, fixed,
+    # long quiet) would otherwise keep its portrait after it turned private. `recheck_public` stamps `checked` every
+    # Sleep run; a run that has not happened for PUBLIC_FRESH_DAYS lets the portrait lapse — err private.
+    fresh = (date.today() - timedelta(days=PUBLIC_FRESH_DAYS)).isoformat()
     out = {eid: str(e["item"]) for eid, e in load_memo(memory_path)["wd"].items()
-           if isinstance(e, dict) and e.get("v") == "encyclopedia_match" and _QID.fullmatch(str(e.get("item") or ""))}
-    _PUBLIC_ITEMS[str(path)] = (mtime, out)
+           if isinstance(e, dict) and e.get("v") == "encyclopedia_match" and _QID.fullmatch(str(e.get("item") or ""))
+           and max(str(e.get("at") or ""), str(e.get("checked") or "")) >= fresh}
+    _PUBLIC_ITEMS[str(path)] = (mtime, out, date.today())
     return out
+
+
+#: How long a public figure's local test stays good for the portrait without being run again (owner 2026-10-28, C).
+PUBLIC_FRESH_DAYS = 14
+
+
+def recheck_public(memory_path: Path, memo: dict, facts: web_settle.BankFacts, *, today: date) -> int:
+    """Ruling 44's local test, again, for every page holding an encyclopedia match — sends nothing, so it runs on every
+    Sleep tail before any gate. A page that passes is stamped ``checked``; one that fails leaves the memo, and with it
+    its portrait (review of #510: `plan` verdicts only due pages). Returns how many left."""
+    gone = 0
+    for eid, entry in list(memo["wd"].items()):
+        if not isinstance(entry, dict) or entry.get("v") != "encyclopedia_match":
+            continue
+        try:
+            page = load_page(memory_path, eid, today=today)
+            still = page is not None and local_verdict(memory_path, page, facts).public is not False
+        except Exception as exc:  # noqa: BLE001 — a test that cannot run says private
+            logger.debug(f"public re-check failed: {type(exc).__name__}")
+            still = False
+        if still:
+            entry["checked"] = today.isoformat()
+        else:
+            memo["wd"].pop(eid, None)
+            gone += 1
+    return gone
+
+
+def _recheck_public_saved(memory_path: Path, today: date) -> None:
+    """:func:`recheck_public` over the saved memo, written back — only when a match is held (most banks: none, and
+    then neither the bank's facts nor any page is read). Never raises into Sleep."""
+    try:
+        memo = load_memo(memory_path)
+        if not any(isinstance(e, dict) and e.get("v") == "encyclopedia_match" for e in memo["wd"].values()):
+            return
+        recheck_public(memory_path, memo, web_settle.bank_facts(memory_path), today=today)
+        save_memo(memory_path, memo)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"public re-check skipped: {type(exc).__name__}")
 
 
 # ---------------------------------------------------------------------------------------------------- the schedule
@@ -1138,6 +1182,7 @@ async def run_tail(memory_path: Path, settings, *, user_triggered: bool, llm_fn:
     report = report if report is not None else Report()
     memory_path = Path(memory_path)
     today = today or date.today()
+    await asyncio.to_thread(_recheck_public_saved, memory_path, today)   # sends nothing: before every gate
     cap = int(getattr(settings, "web_context_per_run", DEFAULT_PER_RUN) or 0)
     if cap <= 0:
         report.reason = "off"
