@@ -16,7 +16,8 @@ Narrow on purpose. Three things must hold, each from the conversation itself, ne
   negation in it (:data:`NOT_DONE`; a sentence ending "?" never counts) — or, in a harness session the hook captured
   (``capture_kind: transcript``), **one sentence of the agent's own line** does ("The X form is filled in");
 * the name is located exactly in that sentence (the same matching as `project_birth`), and the span is kept, never
-  a copy.
+  a copy — and it is the act's object, not the place it is held or who runs it ("signed up for an <event> at the
+  <venue>" gives the venue nothing, `act_object`, 2026-10-28).
 
 A bookmark, a save, a watched video or a passing mention never qualifies, nor does "Should I register for X?", "I'm
 planning to apply to X" or a form in another sentence. A texted agent's explanation ("register soon") is not an act
@@ -84,6 +85,8 @@ _SENTENCE = re.compile(r"[^.!?\n]+[.!?]?")
 def _acted(entity: dict, text: str, *, roles: frozenset, override: str | None, gaps) -> evidence.Evidence | None:
     """The first sentence, in a turn of one of ``roles``, that names the entity and says it was acted on
     (:func:`completed_act`), as a span over the name."""
+    from api.services import act_object
+
     pattern = _name_pattern(entity)
     if pattern is None or not text:
         return None
@@ -95,6 +98,8 @@ def _acted(entity: dict, text: str, *, roles: frozenset, override: str | None, g
             name = pattern.search(s.group(0))
             if name is None or not completed_act(s.group(0)):
                 continue
+            if act_object.venue(s.group(0), name) is not None:
+                continue    # "signed up for an <event> at the <name>": the name is where, not what (2026-10-28)
             start = turn.content_start + s.start() + name.start()
             end = turn.content_start + s.start() + name.end()
             if evidence.touches_gap(start, end, gaps):

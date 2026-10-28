@@ -10,6 +10,13 @@
 
 ## Current state and evidence
 
+- **2026-10-28 — two #493 verification defects fixed (G194, G141; branch `fix/event-object-project-past`).** An act on
+  an event (signed up, registered, applied) is no longer pinned on its venue or organiser (`act_object`, Stage 1
+  prompt + a guard reading the located sentence; replay on haiku 5/5 → 0/5). A project heard from within its rhythm
+  is in motion even when Sleep's decay marked the page decaying or archived (`ProjectState`, both twins, one
+  fixture), and a conversation tied without a claim yet counts as activity (`_tied_days`); list p95 stays ≤ 58 ms on
+  the 2,500-page bench. The second amends DESIGN_RULES 2026-10-19 (1)'s "resting — a decaying or archived page" —
+  awaiting the owner's yes.
 - **2026-10-28 — ruling 47 recorded; two ways in for what the person consumes (G166, G206, G218, G223, G179, G29, G32,
   G94; branch `docs/ruling-47-ingestion-connectors`, docs only).** Tier 1, the default: their own browser and Mac,
   through the browser and macOS harnesses, G166/G206/G218 rails unchanged. Tier 2: an official API for a specific

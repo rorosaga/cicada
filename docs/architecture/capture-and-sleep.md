@@ -1570,6 +1570,22 @@ summary and for every relationship); "an explicit link" was any relationship the
   thing — key facts, summary sentences (each standing alone), history entries naming it — moves onto it
   (`move_from_owner`); the owner keeps its relationship claim (the link). A thing the model typed `project` with no D4
   birth is written as the fallback `concept` (ruling 36 D4 still holds). Its decay is the event page's own.
+- **The act's object is the event, never its venue or organiser (2026-10-28, `api/services/act_object.py`).** "I
+  signed up for an <event> at the <venue>" gave both "<person> signed up for <event>" and "<person> signed up for
+  <venue>", the second shown as the person's own words. After every chunk's spans are located, `act_object.hold`
+  reads each relationship whose label is exactly an act (`ACT_LABEL`: applied, registered, signed up, enrolled,
+  RSVP'd, submitted, requested to join, with at most to/for/in/into/at/on) against the sentence its span sits in: when
+  the act word comes first, another object follows it, and the target follows a venue or organiser word (`MARKER`:
+  at, in, held at, hosted/run/organised/put on/offered by, by, with, from, through, via; Spanish en, con), the target
+  is where or by whom. The relationship then becomes the event's link — "<event> at / run by / with <venue>", the
+  person's span kept — when the same extraction has the act on an object named between the act and the marker (in
+  this act's own clause: from the last act word before the target, so "I applied to <X> and registered my startup in
+  <place>" never links <X> to <place>), is dropped when that link is already there, and otherwise says what the sentence says ("<person> signed up for
+  something at <venue>"). A label that already names where ("signed up for workshop at" <venue>, `WHERE_LABEL`) is
+  true as written and kept, except beside the act on an event its own words name ("workshop") in its clause, where
+  it folds the same way. "Signed up for the <venue> workshop", "applied to <program>", a name before the act or no
+  located span are never judged (G118). `application_page` applies the same reading: a name in the act sentence that
+  is a venue gets no `application_birth`. The Stage 1 prompt says it too (APPLICATION). Measured in G194's row.
 Below the bar nothing is lost: the pending line now carries what was said — summary, key facts, links, open questions,
 aliases, their G118 item records and every conversation that named it (`heard_in`) — and a re-park unions instead of
 replacing. When a later conversation promotes the name, the line is folded into the create through the same seam a

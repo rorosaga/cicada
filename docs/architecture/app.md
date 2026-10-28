@@ -1673,7 +1673,10 @@ part is a spec and needs a Mac).** The wire is `api.md`'s g141-6. What the page 
 - **The list (v2):** text tabs **Current · Past** with counts (`ProjectsModel.tabs`; tapping the selected one keeps
   it). A project's group is `ProjectState`'s section (`ProjectsGroup`): in motion → Current; quiet → **Fading**, one
   folded disclosure at Current's foot, remembered on `cicada.projects.fadingOpen`; resting (decaying or archived, or
-  nothing heard for 90 days) → Past. `ProjectsModel.entries` is the whole column as `ProjectsEntry` values — rows,
+  nothing heard for 90 days) → Past. **Activity inside the rhythm wins over the decay status (2026-10-28):** a page
+  Sleep marked decaying or archived but heard from within its quiet threshold Q (progress logged, a claim's day, a
+  repository session, or a conversation tied by hand, by the provider's project id or by the relaying app's word —
+  `project_timeline._tied_days`, list and detail alike) is in motion; the status rests it only once it is quiet past Q. `ProjectsModel.entries` is the whole column as `ProjectsEntry` values — rows,
   the Fading head, Past's year labels and "Show 50 more" — pure, so a test pins it. A row (`ProjectRowView`, 56 pt)
   is the name over the one-liner and ONE signal (`ProjectsModel.standing`): the next milestone ("Next · First grasp,
   Oct 1", overdue in words; a milestone named after its own project only its day, "Next · Oct 5" —

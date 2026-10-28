@@ -13,8 +13,8 @@ from loguru import logger
 from tqdm import tqdm
 
 from api.config import Settings
-from api.services import (correspondents, decay_policy, engine_errors, entity_types, episode_time, evidence, fact_policy,
-                          participation, project_birth, promotion, section_provenance, source_dates)
+from api.services import (act_object, correspondents, decay_policy, engine_errors, entity_types, episode_time,
+                          evidence, fact_policy, participation, project_birth, promotion, section_provenance, source_dates)
 from api.services.json_parse import parse_json_object
 
 EXTRACTION_SYSTEM_PROMPT = """You are an entity extraction system for a personal knowledge graph.
@@ -162,7 +162,9 @@ opening the user acted on in this conversation: applied to it, registered or sig
 or the assistant did one of those for them in their tools ("by": "assistant").
 - status: where it stands at the end of the conversation — drafted, filled (form filled in, not sent), sent,
   registered, accepted, rejected, attended.
-- The entity is the event or program itself (its own name), never the user. Its facts — the form, the dates, the
+- The entity is the event or program itself (its own name), never the user, and never the place it is held or who
+  runs it: "I signed up for a <workshop> at the <venue>" is "<user> signed up for <workshop>" and "<workshop> held at
+  <venue>" — never "<user> signed up for <venue>". Its facts — the form, the dates, the
   status, what is left to do — go on it, not on the user's own entity; the user keeps only the relationship
   ("<user> applied to <event>").
 - Never for a bookmark, a link saved for later, a thing only mentioned or considered, or an assistant only
@@ -851,6 +853,11 @@ async def extract(
                                                               kind_override=episode.get("evidence_kind"), gaps=gaps)
                     all_values.extend(chunk_values)
 
+                # 2026-10-28 (ruling 42): "signed up for an <event> at the <venue>" is an act on the event; the
+                # venue or organiser gets the event's link, never the act (`act_object`).
+                moved_acts = act_object.hold(all_relationships, content)
+                if moved_acts:
+                    logger.info(f"  {ep_id}: {moved_acts} act(s) on an application moved off its venue or organiser")
                 if held_participation:
                     logger.info(f"  {ep_id}: {held_participation} relationship(s) of taking part kept as a mention: "
                                 "the cited words state no such role")
