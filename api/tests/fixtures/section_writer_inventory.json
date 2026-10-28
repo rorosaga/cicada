@@ -207,6 +207,18 @@
   ],
   "services/demo_bank.py": [
     {
+      "function": "_write_scenario_ownership",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "_write_scenario_ownership",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
       "function": "_write_entities",
       "method": "write",
       "frontmatter": "fm",
@@ -458,6 +470,12 @@
     },
     {
       "function": "_set_extras",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "_set_meta",
       "method": "write",
       "frontmatter": "fm",
       "disposition": "uninstrumented_guarded"
@@ -772,6 +790,18 @@
       "function": "backfill",
       "method": "write",
       "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "_read_for_reason",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "_read_for_reason",
+      "method": "write",
+      "frontmatter": "fm",
       "disposition": "preserve_frontmatter_guarded"
     }
   ],
@@ -1317,6 +1347,58 @@
       "method": "write",
       "frontmatter": "page.frontmatter",
       "disposition": "preserve_frontmatter_guarded"
+    }
+  ],
+  "services/inbox_catchup.py": [
+    {
+      "function": "propose_nicknames",
+      "method": "write",
+      "frontmatter": "{'kind': 'merge_suggestion', 'required_input': 'merge', 'status': 'pending', 'priority': 0.5, 'entity_id': asked, 'entity_name': name_a, 'title': f'Is {name_a} the same as {name_b}?', 'uncertainty_type': f'Possible duplicate of {name_b}', 'suggested_classification': 'person', 'suggested_confidence': 0.5, 'created_date': today.isoformat(), 'merge_target_hint': target, 'detected': 'spelling', **({'source_episode': episode} if episode else {})}",
+      "disposition": "fresh_frontmatter_untracked"
+    }
+  ],
+  "services/project_influences.py": [
+    {
+      "function": "withdraw_claim",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    }
+  ],
+  "services/project_ownership.py": [
+    {
+      "function": "create",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "fresh_frontmatter_untracked"
+    },
+    {
+      "function": "_rewrite",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "preserve_frontmatter_guarded"
+    }
+  ],
+  "services/provider_projects.py": [
+    {
+      "function": "adopt_claude",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "adopt_claude",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "preserve_frontmatter_guarded"
+    }
+  ],
+  "services/still_questions.py": [
+    {
+      "function": "propose",
+      "method": "write",
+      "frontmatter": "item_frontmatter(owner, owner_name, cand, today)",
+      "disposition": "fresh_frontmatter_untracked"
     }
   ]
 }
