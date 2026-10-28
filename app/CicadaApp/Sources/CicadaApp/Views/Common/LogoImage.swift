@@ -12,13 +12,14 @@ import AppKit
 ///
 /// **Entity mode** (`LogoImage(entityId:name:type:)`, G59) renders an entity's
 /// own logo: `GET /entities/{id}/logo` via `LogoStore` (memory + disk cached),
-/// falling back to a monogram on the entity-type color. Always a **circle**
-/// with a 1-pt hairline ring, so an entity reads the same in the detail card,
-/// the inbox, the cluster list and an Ask citation.
+/// a **circle** with a 1-pt hairline ring. With no logo it draws the real mark
+/// of the source it came from (`fallbackOrigin`, the harness or app) when one
+/// exists, else nothing in the same frame — never made-up initials on a hue
+/// (owner 2026-10-28, the #512 rule).
 struct LogoImage: View {
     enum Source: Equatable {
         case bundled(String)
-        case entity(id: String, name: String, type: EntityType)
+        case entity(id: String, name: String, type: EntityType, fallbackOrigin: String?)
     }
 
     let source: Source
@@ -32,8 +33,8 @@ struct LogoImage: View {
         self.size = size
     }
 
-    init(entityId: String, name: String, type: EntityType = .concept, size: CGFloat = 28) {
-        self.source = .entity(id: entityId, name: name, type: type)
+    init(entityId: String, name: String, type: EntityType = .concept, fallbackOrigin: String? = nil, size: CGFloat = 28) {
+        self.source = .entity(id: entityId, name: name, type: type, fallbackOrigin: fallbackOrigin)
         self.size = size
     }
 
@@ -42,8 +43,8 @@ struct LogoImage: View {
             switch source {
             case let .bundled(name):
                 bundledBody(name)
-            case let .entity(_, name, type):
-                entityBody(name: name, type: type)
+            case let .entity(_, name, _, fallbackOrigin):
+                entityBody(name: name, fallbackOrigin: fallbackOrigin)
             }
         }
         .frame(width: size, height: size)
@@ -58,7 +59,7 @@ struct LogoImage: View {
         // bare name repaints nothing — the `.task` never re-runs and the
         // previous theme's `NSImage` stays on screen.
         case let .bundled(name): "bundled:\(Self.resolvedName(for: name) ?? name)"
-        case let .entity(id, _, _): "entity:\(id):\(store.bank)"
+        case let .entity(id, _, _, _): "entity:\(id):\(store.bank)"
         }
     }
 
@@ -87,33 +88,36 @@ struct LogoImage: View {
     }
 
     @ViewBuilder
-    private func entityBody(name: String, type: EntityType) -> some View {
-        ZStack {
-            if let image {
-                Image(nsImage: image)
-                    .resizable()
-                    .interpolation(.high)
-                    .scaledToFill()
-            } else {
-                CicadaTheme.entityColor(for: type)
-                Text(Self.monogram(for: name))
-                    .font(CicadaTheme.font(size: size * 0.42, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.white)
-                    .minimumScaleFactor(0.6)
-                    .lineLimit(1)
+    private func entityBody(name: String, fallbackOrigin: String?) -> some View {
+        if let image {
+            Image(nsImage: image)
+                .resizable()
+                .interpolation(.high)
+                .scaledToFill()
+                .frame(width: size, height: size)
+                .clipShape(Circle())
+                .overlay(Circle().stroke(CicadaTheme.border, lineWidth: 1))
+                .accessibilityLabel(name)
+        } else {
+            switch Self.entityFallback(origin: fallbackOrigin) {
+            case .origin(let origin): OriginMark(origin: origin, size: size)
+            case .none: Color.clear.frame(width: size, height: size).accessibilityHidden(true)
             }
         }
-        .frame(width: size, height: size)
-        .clipShape(Circle())
-        .overlay(Circle().stroke(CicadaTheme.border, lineWidth: 1))
-        .accessibilityLabel(name)
+    }
+
+    /// With no logo of its own: the source's real mark, else nothing (owner 2026-10-28).
+    enum EntityFallback: Equatable { case origin(String), none }
+    static func entityFallback(origin: String?) -> EntityFallback {
+        guard let origin, OriginMark.hasRealMark(origin) else { return .none }
+        return .origin(origin)
     }
 
     private func load() async {
         switch source {
         case let .bundled(name):
             image = await Self.bundledImage(for: name)
-        case let .entity(id, _, _):
+        case let .entity(id, _, _, _):
             image = await LogoStore.shared.image(entityId: id, bank: store.bank)
         }
     }

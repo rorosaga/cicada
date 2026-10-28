@@ -16,6 +16,13 @@ struct OriginMark: View {
     let origin: String
     var size: CGFloat = 14
 
+    /// The service's own mark exists — its installed app's icon or a bundled logo, not the SF Symbol stand-in.
+    static func hasRealMark(_ origin: String) -> Bool {
+        if OriginIconography.appBundleId(for: origin) != nil { return true }
+        guard let name = OriginIconography.logoName(for: origin) else { return false }
+        return LogoImage.exists(name: name)
+    }
+
     var body: some View {
         Group {
             if let bundleId = OriginIconography.appBundleId(for: origin),
