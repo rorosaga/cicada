@@ -12,6 +12,9 @@ struct ProjectDetailColumn: View {
     let parentName: String?
     let today: ISODay
     let gutter: CGFloat
+    /// The column's width as the page's column plan gives it (`ColumnPlan.detail`): what the card and the panel fit in.
+    /// Read from the plan, never measured from this column's own frame, which grows with what it draws.
+    var available: CGFloat = 0
     let hiddenListCount: Int?
     let openCard: String?
     let openBacklogItem: String?
@@ -53,7 +56,6 @@ struct ProjectDetailColumn: View {
     /// R-PP26 — Resume's view model, one for the column now that Lately's rows are separate lazy children (R-FA3).
     @State private var conversations = ConversationsViewModel()
     /// Ruling 45 (Q7) — the column's width decides whether the knowledge panel sits beside the card or under it.
-    @State private var columnWidth: CGFloat = 0
     @State private var addingInfluence = false
 
     /// R-FA2 — the column re-derives exactly when the project, the viewer's day or the cached payload moved.
@@ -104,18 +106,9 @@ struct ProjectDetailColumn: View {
                 Spacer(minLength: 0)
             }
         }
-        .frame(maxWidth: CicadaTheme.scaled(wide ? ProjectLayout.detailMaxWidth + ProjectKnowledgeLayout.panelWidth
-                                                    + ProjectKnowledgeLayout.gap : ProjectLayout.detailMaxWidth),
-               maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: cap, maxHeight: .infinity, alignment: .topLeading)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .padding(.horizontal, gutter)
-        .background {
-            GeometryReader { geo in
-                Color.clear
-                    .onAppear { columnWidth = geo.size.width - 2 * gutter }
-                    .onChange(of: geo.size.width) { _, w in columnWidth = w - 2 * gutter }
-            }
-        }
         .sheet(isPresented: $addingInfluence) {
             AddInfluenceSheet(candidates: influenceCandidates) { url, what, entity, how, note in
                 Task { await change(.addInfluence(id: projectId, url: url, what: what, entity: entity, how: how,
@@ -178,6 +171,18 @@ struct ProjectDetailColumn: View {
                 // nothing slides under them and the band's labels are never clipped.
                 header(name: t.project.name, oneLiner: t.project.oneLiner, parent: t.project.parent, ref: t.project)
                 summaryView(ProjectSummary.make(t, state: state, today: today), t)
+                // The band's width is the column's, measured by a flexible zero-height probe: inside the scroll view the
+                // band's own frame grows with what it drew, so measuring the band itself never let it shrink when the
+                // Reader opened beside it (review of #493).
+                Color.clear
+                    .frame(maxWidth: .infinity, maxHeight: 0)
+                    .background {
+                        GeometryReader { geo in
+                            Color.clear
+                                .onAppear { bandWidth = geo.size.width }
+                                .onChange(of: geo.size.width) { _, w in bandWidth = w }
+                        }
+                    }
                 bandView(band, t)
                     .padding(.bottom, CicadaTheme.spacingMD)
                 HStack(alignment: .top, spacing: CicadaTheme.scaled(ProjectKnowledgeLayout.gap)) {
@@ -271,6 +276,9 @@ struct ProjectDetailColumn: View {
                         .padding(.bottom, CicadaTheme.scaled(72))
                 }
                 }
+                // The scroll's content is exactly the column's width: nothing it holds may widen it past the column
+                // (review of #493 — with the Reader open the page overflowed onto the list).
+                .frame(width: contentWidth > 0 ? min(contentWidth, cap) : nil, alignment: .leading)
             }
             .onChange(of: scrollToken) { _, _ in
                 let target = pendingScroll ?? selection?.id
@@ -321,13 +329,6 @@ struct ProjectDetailColumn: View {
     private func bandView(_ band: BandLayout, _ t: ProjectTimeline) -> some View {
         ProjectBandView(layout: band, selected: selection, isFocused: bandFocused) { pickMark($0, in: t) }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background {
-                GeometryReader { geo in
-                    Color.clear
-                        .onAppear { bandWidth = geo.size.width }
-                        .onChange(of: geo.size.width) { _, w in bandWidth = w }
-                }
-            }
             .padding(.top, CicadaTheme.scaled(6))
             .focusable()
             .focused($bandFocused)
@@ -393,12 +394,18 @@ struct ProjectDetailColumn: View {
 
     // MARK: - Ruling 45: the knowledge panel and the person's other writes
 
-    private var wide: Bool { ProjectKnowledgeLayout.sideBySide(available: columnWidth) }
+    private var contentWidth: CGFloat { available > 0 ? max(available - 2 * gutter, 0) : 0 }
+    private var wide: Bool { ProjectKnowledgeLayout.sideBySide(available: contentWidth) }
+    /// The column's own cap (DR-36's measure): the card alone, or the card and the panel side by side.
+    private var cap: CGFloat {
+        CicadaTheme.scaled(wide ? ProjectLayout.detailMaxWidth + ProjectKnowledgeLayout.panelWidth
+                                    + ProjectKnowledgeLayout.gap : ProjectLayout.detailMaxWidth)
+    }
 
     private func knowledgePanel(_ t: ProjectTimeline) -> some View {
         ProjectKnowledgePanel(
             timeline: t, conversations: cache.displayConversations(projectId), blocked: blocked,
-            openConversation: { row in provenance.open(ReaderTarget(episode: row.episodeId, focus: .mention(entityId: projectId), subjectId: projectId, knownTitle: row.title, knownHarness: row.harness, fromProject: projectId)) },
+            openConversation: { row in provenance.open(ReaderTarget(episode: row.episodeId, subjectId: projectId, knownTitle: row.title, knownHarness: row.harness, fromProject: projectId)) },
             untie: { row in Task { await change(.tie(id: projectId, episode: row.episodeId, remove: true)) } },
             openEntity: openEntity, addInfluence: { addingInfluence = true },
             undoInfluence: { row in

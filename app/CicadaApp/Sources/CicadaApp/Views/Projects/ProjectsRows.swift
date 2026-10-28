@@ -48,7 +48,8 @@ struct ProjectsListColumn: View {
             VStack(alignment: .leading, spacing: 0) {
                 // DR-46 — the find row sits above the scroll (Clusters' reason: a lazy row scrolled away is released).
                 // Past is the archive, so its field is always there; Current opens one on ⌘F.
-                if tab == .past {
+                // The titles column beside the Reader is too narrow for a field: it would spill onto the project.
+                if tab == .past && style != .titles && style != .hidden {
                     CicadaSearchField(text: $findText, prompt: Copy.Projects.findPast)
                         .padding(findInsets)
                 } else if findOpen {
@@ -89,6 +90,7 @@ struct ProjectsListColumn: View {
                 }
             }
         }
+        .clipped()   // nothing in the list column ever draws over the project beside it
         .listKeys(move: move, side: side, enter: {
             guard openId != nil else { return false }
             focusDetail()

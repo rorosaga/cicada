@@ -104,7 +104,7 @@ struct ProjectsPage: View {
                 retry: { Task { await cache.refreshList() } },
                 suggestedFold: {
                     AnyView(Group {
-                        if tab == .current && !suggested.isEmpty && plan.listStyle != .titles
+                        if !suggested.isEmpty && plan.listStyle != .titles
                             && plan.listStyle != .hidden {
                             ProjectsSuggestedSection(
                                 suggested: suggested, isOpen: suggestedOpen, showDismissed: $showDismissed,
@@ -130,6 +130,7 @@ struct ProjectsPage: View {
                 let row = rows.first { $0.id == id }
                 ProjectDetailColumn(
                     projectId: id, row: row, parentName: parentName(of: row?.parent), today: today, gutter: plan.gutter,
+                    available: plan.detail,
                     hiddenListCount: plan.listHidden ? lines.count : nil, openCard: trailing?.entityId,
                     openBacklogItem: trailing?.backlogItemId,
                     onShowList: { showList() }, onClose: { closeProject() }, onEscape: { escape() },
