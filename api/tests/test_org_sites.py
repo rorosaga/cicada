@@ -472,3 +472,35 @@ def test_writing_a_found_site_keeps_the_pages_section_provenance(tmp_path):
     assert after.body == before.body
     assert after.frontmatter[sp.FIELD] == before.frontmatter[sp.FIELD]
     assert sp.matched(after.frontmatter, after.body) == sp.matched(before.frontmatter, before.body)
+
+
+# ---------- vision item 2 (2026-10-28): what is "on the page itself" ----------
+
+
+def test_a_domain_in_the_pages_prose_is_on_the_page_itself(tmp_path):
+    body = UNI_BODY + "\n## Summary\nA private university; its admissions office answers at northwind.edu.\n"
+    memory = _uni_bank(tmp_path, body=body)
+    wiki = _uni_wikidata()
+    _run(memory, wiki, Pages({"https://northwind.edu": UNI_HOME}))
+    [site] = _websites(_fm(memory))
+    assert site["ref"] == "https://northwind.edu" and site["verified"]["how"] == "record+name"
+    assert wiki.calls == [], "the page's own words answered; nothing was sent"
+
+
+def test_cicadas_own_unconfirmed_site_named_like_the_page_is_confirmed_from_the_record(tmp_path):
+    entry = {"ref": "https://northwind.edu", "kind": "url", "predicate": "website", "added_by": "cicada",
+             "added_at": "2026-10-01", "checked": {"at": "2026-10-02", "outcome": "unconfirmed"}}
+    memory = _uni_bank(tmp_path, sources=[dict(entry)])
+    wiki = _uni_wikidata()
+    _run(memory, wiki, Pages({"https://northwind.edu": UNI_HOME}))
+    [site] = _websites(_fm(memory))
+    assert fact_sources.trusted(site) and site["verified"]["how"] == "record+name" and "checked" not in site
+    assert wiki.calls == []
+
+
+def test_stage_ones_entry_and_a_named_agents_are_not_record_candidates(tmp_path):
+    for who in ("agent", "claude-code"):
+        entry = {"ref": "https://northwind.edu", "kind": "url", "predicate": "website", "added_by": who,
+                 "added_at": "2026-10-01"}
+        memory = _uni_bank(tmp_path / who, sources=[entry])
+        assert org_sites.record_candidates(None, _fm(memory), UNI_BODY) == [], who

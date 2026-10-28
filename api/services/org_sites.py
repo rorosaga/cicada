@@ -290,23 +290,36 @@ def _own_line_hits(memory_path: Path, fm: dict, keys: set[str]) -> list[Candidat
 
 def _page_text_hits(fm: dict, body: str, keys: set[str]) -> list[Candidate]:
     """Origins the page itself carries — an alias that is a domain, a ``## Links`` entry, a key-fact line about its
-    site or domain, its current ``website`` claim — whose label is the page's name."""
+    site or domain, its current ``website`` claim, the ``website`` source Cicada's own backfill put on it that no read
+    has confirmed yet (:func:`_own_unconfirmed`), a link or domain anywhere in its prose — whose label is the page's
+    name (vision item 2, 2026-10-28: both are "on the page itself", ruling 40's own words)."""
     found: list[str] = [a for a in fm.get("aliases") or [] if isinstance(a, str) and _BARE_DOMAIN.fullmatch(a.strip())
                         and _real_tld(a.strip())]
     claim_site = site_sources._website_claim_origin(body)
     if claim_site:
         found.append(claim_site)
+    found += [str(s.get("ref") or "") for s in fact_sources.as_sources(fm.get("sources")) if _own_unconfirmed(s)]
     sections = entity_body.parse_sections(body or "")
     found += _urls_and_domains(sections.get("Links", ""))
     for line in str(sections.get("Key Facts", "")).splitlines():
         if _FACT_LINE.search(line):
             found += _urls_and_domains(line)
+    found += _urls_and_domains(site_sources._strip_claims(body or ""))
     out: list[Candidate] = []
     for raw in found:
         origin = site_origin(raw)
         if origin and label_matches(origin, keys):
             out.append(Candidate(origin, {"page": True}))
     return out
+
+
+def _own_unconfirmed(source: dict) -> bool:
+    """A ``website`` entry Cicada's own site backfill put on the page (``site_sources``, ``added_by: cicada``) that
+    nothing has confirmed or proposed yet — the one kind :func:`apply` may confirm in place. Stage 1's entry
+    (``added_by: agent``) is another writer's here and stays with the nightly content check (``site_sources``)."""
+    return (fact_sources.same_predicate(source.get("predicate"), fact_sources.WEBSITE)
+            and str(source.get("added_by") or "") == AUTHOR and not source.get("origin")
+            and not fact_sources.trusted(source) and not fact_sources.is_proposed(source))
 
 
 def record_candidates(memory_path: Path | None, fm: dict, body: str) -> list[Candidate]:

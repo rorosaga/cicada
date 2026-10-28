@@ -1,0 +1,37 @@
+# Is each bundled brand mark still the one its vendor serves? (vision item 4, 2026-10-28)
+#
+# A REPORT, never a change: `scripts/logo-freshness.py` asks each mark's own source URL once and prints which are the
+# same, which changed (pixels compared, so a re-encoded PNG is not a rebrand), which are pinned to an immutable
+# revision and which did not answer. The table lands in the job summary and the changed files in an artifact for a
+# person to look at. Nothing here commits, pushes or opens a pull request (read-only token, no write permission at all);
+# replacing a mark stays a reviewed commit through `scripts/fetch-logos.sh` (R-L2).
+name: Logo freshness
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"   # Mondays, 06:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Ask each vendor once and write the table
+        run: |
+          python3 -I scripts/logo-freshness.py --save-dir logo-freshness >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the changed files for review
+        if: hashFiles('logo-freshness/*') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: logo-freshness
+          path: logo-freshness/
+          retention-days: 14

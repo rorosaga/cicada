@@ -255,6 +255,11 @@ ROWS: tuple[Row, ...] = (
     _app(("graph",), "The graph at a glance: pages by type and status, and the links between them."),
     _app(("find",), "Find pages, beliefs, conversations, sources and questions, as the app's search does.",
          (_p("query"), _f("kind", "list"), _f("limit", "int"))),
+    # Coverage (vision items 1-2, 2026-10-28): counts and enums only; --ids adds a few page ids per bucket.
+    _app(("coverage", "pictures"), "How many pages show a picture, by type and rung, and why the rest do not.",
+         (_f("ids", "bool"), _f("archived", "bool"))),
+    _app(("coverage", "sources"), "Which write paths put the sources on pages, and which pages have none.",
+         (_f("ids", "bool"), _f("archived", "bool"))),
     # The inbox.
     _app(("inbox", "all"), "Every open inbox question, of every kind, with its choices.", (_f("kind", "list"),)),
     _app(("inbox", "answer"), "Answer an inbox question as the person: --option, --answer, --defer or --reject.",

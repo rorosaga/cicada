@@ -941,7 +941,9 @@ Round 4 (C2–C4):
   person's or a project's name, or a page its description calls the person's own (`skip_reason`). **The record first**
   (no network): an origin whose site label is the page's name, an alias or its acronym — from a line of the person's own
   turn that names the page, or from the page itself (an alias that is a domain, `## Links`, a key-fact line about its
-  site or domain, its current `website` claim); a wikilink, camelCase or a code-like ending (`.id`, `.py`) is never a
+  site or domain, its current `website` claim, a link or domain anywhere in its prose, and — vision item 2, 2026-10-28 —
+  the `website` entry Cicada's own backfill put on it that no read has confirmed yet, `_own_unconfirmed`; Stage 1's
+  `agent` entry is not one, it stays with `verify`); a wikilink, camelCase or a code-like ending (`.id`, `.py`) is never a
   domain; the site is the registrable domain (`careers.<org>.edu` → `<org>.edu`). **Then one structured public lookup**:
   Wikidata (`wbsearchentities` on the page's name, then at most two proper-looking aliases; `wbgetclaims` P31/P279/
   P856/P17/P625) — exactly ONE thing whose label or alias IS the page's name, whose class reaches the page type's roots
@@ -974,7 +976,16 @@ Round 4 (C2–C4):
   **never inside a bank** — a logo is a derived artifact of the outside world, not versioned memory. Since G61 S3-b a
   page's domain comes from a source and never a guess: `logo:` first, else the first TRUSTED `website` source
   (`logo_service.domain_for`); no `## Links` fallback, no saved link's site, no `website` claim, no `<name>.com` guess,
-  no platform or walled host, and never a `person` or `media` page (G146/G159). `LOGO_RULE = 2`: a bank's cache written
+  no platform or walled host, and never a `person` or `media` page (G146/G159). **The ladder keeps the largest mark**
+  (vision item 2, 2026-10-28, `fetch_logo`): the site's `/apple-touch-icon.png`; then the homepage's declared icons,
+  largest first (`declared_icons`, ≤ 3 asked, relative hrefs against the URL the homepage's redirects landed on); then,
+  only when nothing reached `GOOD_PIXELS` (64 px on the smaller side — the app's 26 pt mark is 52 px on Retina), the
+  homepage's `og:image` when it is a square-ish raster (aspect ≤ 1.25: a share banner never is); then the icon service.
+  The first mark ≥ 64 px stops; otherwise the largest found wins. Every candidate comes from the trusted domain's own
+  homepage, through `_get_safely`'s SSRF check, 4 s / ≤ 512 KB, raster only. A hit is stamped `ladder: 2`; a hit cached
+  by the older ladder whose mark is under 64 px is asked once more (kept when nothing larger answers, and stamped either
+  way), a good one is stamped on its next read — so a cached logo request reads nothing more than before (measured
+  p50 0.085 ms on dev and on the branch). A replaced mark in another format leaves no orphan file. `LOGO_RULE = 2`: a bank's cache written
   under the older rule is purged ONCE (`ensure_rule`, marker `logos/<bank>/.rule`; `sites/` is spared), and a page that
   no longer resolves a domain drops its cached mark and records a miss (an explicit `website` entry outranks a bare link the person typed). `GET /entities/{id}/sources/icon/{site}` serves
   the mark of a trusted site THIS page lists (icon service only, keyed on the site, never a ref; never for a `person` or `media` page).
@@ -1354,7 +1365,15 @@ means no palette, never a failed save.
 **The design index** (`design_index.py`) is derived and disposable **outside every bank**:
 `$CICADA_HOME/design-index/<bank-id>.sqlite`, one row per reference and kind (`image`: the screenshot's EmbeddingGemma 2
 vector; `note`: the note plus the look's words, same model's text encoder), each stamped with the model and the hash
-of what was embedded. A damaged file is rebuilt. Search fuses up to three legs by reciprocal rank (k = 60): words
+of what was embedded. **An image row's stamp also carries the preprocessing's fingerprint** (vision item 3,
+2026-10-28, `vision_embedder.fingerprint`): one built-in reference picture is decoded through the real decoder
+(`image_decode`, macOS's `sips`, whose resampling can change with an OS update) at its planned size and cut into the
+vision feed; the feed's bytes and the recipe's constants are hashed (12 hex, measured once per process, 29 ms). A row is
+current only while model AND fingerprint match (`<model>#pre-<fp>`), so a changed recipe or decoder re-embeds every
+picture once and nothing else ever does; a row stored before the stamp (the bare model id) stays current while the
+pipeline measures `LEGACY_FINGERPRINT` (pinned 2026-10-28 on this pipeline), so adding the stamp re-embedded nothing.
+`test_vision_fingerprint.py` pins the recipe with a fixed decoder and, where `sips` exists, the live decoder against the
+legacy pin. A damaged file is rebuilt. Search fuses up to three legs by reciprocal rank (k = 60): words
 (whole word 2, prefix 1, the exact phrase +3 — DigUp's exact-word boost, credited), the query against the screenshots
 (one shared text–image space) and against the notes; or an example picture against the screenshots. A meaning leg keeps only
 hits within 80 % of its best cosine (a relative floor: the text–image and text–text bands differ by model), and a text

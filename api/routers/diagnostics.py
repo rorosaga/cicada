@@ -7,8 +7,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, Query
-from fastapi.responses import PlainTextResponse
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import JSONResponse, PlainTextResponse
 from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
@@ -51,3 +51,17 @@ async def report(lines: int = Query(diagnostics.DEFAULT_LINES, ge=1, le=diagnost
                  settings: Settings = Depends(get_settings)) -> PlainTextResponse:
     text = await run_in_threadpool(_report, settings, lines)
     return PlainTextResponse(text, headers={"Cache-Control": "no-store"})
+
+
+@router.get("/diagnostics/coverage/{report}")
+async def coverage(report: str, ids: bool = Query(False), archived: bool = Query(False),
+                   settings: Settings = Depends(get_settings)) -> JSONResponse:
+    """Vision items 1-2 (2026-10-28): the picture or the sources coverage report for the active bank, ids and enums
+    only (``coverage_report``). Request/response like the report above: computed on each ask, never cached or sent."""
+    from api.services import coverage_report
+
+    builders = {"pictures": coverage_report.pictures, "sources": coverage_report.sources}
+    if report not in builders:
+        raise HTTPException(status_code=404, detail="No such report: pictures or sources.")
+    data = await run_in_threadpool(builders[report], settings.memory_path, include_archived=archived, ids=ids)
+    return JSONResponse(data, headers={"Cache-Control": "no-store"})

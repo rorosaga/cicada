@@ -192,3 +192,25 @@ def test_the_endpoint_serves_the_text_with_no_store(tmp_path, monkeypatch):
     # The bank's own page names are loaded once and withheld: `concise-summaries` is the synthetic bank's skill page.
     assert "Concise Summaries" not in resp.text and "api.services.z" in resp.text
     assert too_many.status_code == 422
+
+
+def test_the_coverage_reports_are_served_ids_and_enums_only(tmp_path, monkeypatch):
+    """Vision items 1-2 (2026-10-28): `GET /diagnostics/coverage/{pictures|sources}` for the active bank."""
+    from _synthetic_bank import _bank
+
+    memory = _bank(tmp_path, git=False)
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(memory))
+    monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home" / ".cicada"))
+    config.get_settings.cache_clear()
+    try:
+        with TestClient(main.app) as client:
+            pictures = client.get("/diagnostics/coverage/pictures")
+            sources = client.get("/diagnostics/coverage/sources", params={"ids": "true"})
+            unknown = client.get("/diagnostics/coverage/everything")
+    finally:
+        config.get_settings.cache_clear()
+    assert pictures.status_code == 200 and pictures.headers["cache-control"] == "no-store"
+    assert pictures.json()["by_type"]["person"]["none"] == {"no_identifier": 1}
+    assert "Bob Example" not in pictures.text and "ids" not in pictures.json()
+    assert sources.json()["ids"]["none/person"] == ["bob-example"]
+    assert unknown.status_code == 404
