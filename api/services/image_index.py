@@ -18,19 +18,19 @@ cosine.
   downloads a video or derives a stream (G162). A watched day's still is indexed, never read by a model that writes
   memory (ruling 30: watch history is "found through the lexical and vector indexes").
 
-**Derived and disposable.** Each row's ``hash`` is the picture's sha256 plus ``RECIPE`` (the preprocessing: the
+**Derived and disposable.** Each row's ``hash`` is the picture's sha256 plus :func:`recipe` (the preprocessing: the
 vision function's token budget and the sizing rule), so a changed picture, a new model or a new recipe re-embeds
 exactly that row; deleting the file costs a re-embed and never a picture. The query is never logged.
 
 **Scores (measured: ``benchmarks.perf.image_fusion`` on synthetic vectors, ``benchmarks.perf.image_index_build`` on
 the real encoder).** A text query's cosine to a matching picture is below its cosine to an unrelated passage (the
 modality gap), so a picture is scored against *its own kind*: its **lift**, ``cos − μ``, where μ is the query's exact
-mean cosine over every picture, read from the stored moments in one product (``q·mean``; :func:`moments` is written
-with the table, so no query scans it). A picture is a hit only at ``lift ≥ LIFT_MIN``, so "nothing found" is an
+mean cosine over every picture — exact, and one dot product with the kind's mean vector (``stats_images``, written
+with the table), so no query scans it. A picture is a hit only at ``lift ≥ LIFT_MIN``, so "nothing found" is an
 answer. Reciprocal rank (the text kinds' fusion) was rejected: it put a picture in the top five of every
 documents-only query. A z-score (lift over the query's own spread, DigUp's recipe) was rejected for the floor: on the
 real encoder a query about nothing pictured has a tiny spread, which lifts its best unrelated picture to the z of a
-right one; the undivided lift separates them. ``z`` rides along on each hit for diagnosis only.
+right one; the undivided lift separates them.
 
 **When it embeds.** Only :func:`refresh`, run by the background refresher (:func:`start_refresh`) — after the backend
 starts, after a Sleep run ends, after the image encoder is installed, and a little after a new picture is stored —
@@ -44,7 +44,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import math
 import os
 import sqlite3
 import threading
@@ -66,7 +65,6 @@ LIFT_MIN = 0.06
 STEP = 16
 #: A trigger after a picture is stored waits this long, so a burst of stored previews is one refresh.
 SETTLE_S = 30.0
-SOURCES = ("look", "capture", "preview", "still")
 STATS_TABLE = "stats_images"
 
 
@@ -75,36 +73,6 @@ def recipe() -> str:
     from api.services import vision_embedder
 
     return f"vision{vision_embedder.BUDGET}/side{vision_embedder.SIDE_STEP}/v1"
-
-
-# --------------------------------------------------------------------------- scoring
-
-
-def moments(vectors: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """``(mean, covariance)`` of a kind's unit vectors — all a query needs for that kind's exact mean and spread."""
-    x = np.asarray(vectors, dtype=np.float64)
-    mu = x.mean(axis=0)
-    centred = x - mu
-    cov = centred.T @ centred / max(1, x.shape[0])
-    return mu.astype(np.float32), cov.astype(np.float32)
-
-
-def query_moments(query: np.ndarray, mu: np.ndarray, cov: np.ndarray) -> tuple[float, float]:
-    """The mean and standard deviation of ``query``'s cosine over the kind: ``q·μ`` and ``√(qᵀΣq)``, exact for
-    unit vectors, with no scan of the table."""
-    q = np.asarray(query, dtype=np.float32).reshape(-1)
-    mean = float(q @ mu)
-    var = float(q @ (cov @ q))
-    return mean, math.sqrt(max(var, 1e-12))
-
-
-def query_moments_many(queries: np.ndarray, mu: np.ndarray, cov: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """:func:`query_moments` for a stack of queries ``[n, d]`` in two matrix products."""
-    q = np.asarray(queries, dtype=np.float32)
-    var = np.einsum("nd,nd->n", q @ cov, q)
-    return q @ mu, np.sqrt(np.maximum(var, 1e-12))
-
-
 
 
 # --------------------------------------------------------------------------- what is indexed
@@ -452,21 +420,22 @@ def _write_moments(conn: sqlite3.Connection, memory_path: Path) -> None:
     with _write_lock(_db(memory_path)):
         conn.execute(f"CREATE TABLE IF NOT EXISTS {STATS_TABLE} (name TEXT PRIMARY KEY, value BLOB)")
         if x.size:
-            mu, cov = moments(x)
+            # The mean is all a search needs (a query's lift is its cosine minus ``q · mean``). The spread a z-score
+            # would need is not stored: measured and rejected as a floor (module docstring).
+            mu = np.asarray(x, dtype=np.float64).mean(axis=0).astype(np.float32)
             conn.executemany(f"INSERT OR REPLACE INTO {STATS_TABLE}(name, value) VALUES (?, ?)",
-                             [("n", str(x.shape[0]).encode()), ("mean", mu.tobytes()),
-                              ("cov", cov.astype(np.float16).tobytes())])
+                             [("n", str(x.shape[0]).encode()), ("mean", mu.tobytes())])
         else:
             conn.execute(f"DELETE FROM {STATS_TABLE}")
         conn.commit()
     _MOMENTS.pop(str(_db(memory_path)), None)
 
 
-#: ``{db path: (mtime, n, mean, cov)}`` — the moments read once per write of the table, not once per query.
-_MOMENTS: dict[str, tuple[float, int, np.ndarray, np.ndarray]] = {}
+#: ``{db path: (mtime, n, mean)}`` — read once per write of the file, not once per query.
+_MOMENTS: dict[str, tuple[float, int, np.ndarray]] = {}
 
 
-def _read_moments(conn: sqlite3.Connection, memory_path: Path) -> tuple[int, np.ndarray, np.ndarray] | None:
+def _read_moments(conn: sqlite3.Connection, memory_path: Path) -> tuple[int, np.ndarray] | None:
     key = str(_db(memory_path))
     try:
         stamp = os.stat(key).st_mtime
@@ -477,26 +446,25 @@ def _read_moments(conn: sqlite3.Connection, memory_path: Path) -> tuple[int, np.
         return None
     hit = _MOMENTS.get(key)
     if hit is not None and hit[0] == stamp:
-        return hit[1], hit[2], hit[3]
+        return hit[1], hit[2]
     try:
         got = dict(conn.execute(f"SELECT name, value FROM {STATS_TABLE}").fetchall())
     except sqlite3.OperationalError:
         return None
-    if not {"n", "mean", "cov"} <= set(got):
+    if not {"n", "mean"} <= set(got):
         return None
     mu = np.frombuffer(got["mean"], dtype=np.float32)
-    cov = np.frombuffer(got["cov"], dtype=np.float16).astype(np.float32).reshape(mu.size, mu.size)
     n = int(got["n"].decode())
-    _MOMENTS[key] = (stamp, n, mu, cov)
-    return n, mu, cov
+    _MOMENTS[key] = (stamp, n, mu)
+    return n, mu
 
 
 # --------------------------------------------------------------------------- search
 
 
 def search(memory_path, query: str, *, top_k: int = 8, embed_fn=None) -> list[dict]:
-    """Pictures for ``query``, best first: ``[{"key", "score" (z), "cosine", "metadata"}]``, only those at
-    ``z ≥ floor(n)``. ``[]`` with no picture table, no stored moments, or no text model for its query — never an
+    """Pictures for ``query``, best first: ``[{"key", "score" (the lift), "cosine", "metadata"}]``, only those at
+    ``lift ≥ LIFT_MIN``. ``[]`` with no picture table, no stored mean, or no text model for its query — never an
     error, never the image encoder, never the query in a log."""
     memory_path = Path(memory_path)
     query = (query or "").strip()
@@ -513,7 +481,7 @@ def search(memory_path, query: str, *, top_k: int = 8, embed_fn=None) -> list[di
         stats = _read_moments(conn, memory_path)
         if stats is None:
             return []
-        n, mu, cov = stats
+        _n, mu = stats
         try:
             from api.services.vector_index import SqliteVecIndexer
 
@@ -525,7 +493,7 @@ def search(memory_path, query: str, *, top_k: int = 8, embed_fn=None) -> list[di
         if qvec.size != mu.size:
             return []
         qvec = qvec / max(float(np.linalg.norm(qvec)), 1e-12)
-        mean, sd = query_moments(qvec, mu, cov)
+        mean = float(qvec @ mu)
         from api.services.vector_index import _blob
 
         rows = conn.execute(
@@ -543,7 +511,7 @@ def search(memory_path, query: str, *, top_k: int = 8, embed_fn=None) -> list[di
         if lift < LIFT_MIN:
             break
         out.append({"key": key, "score": round(lift, 4), "cosine": round(cos, 4),
-                    "z": round(lift / max(sd, 1e-6), 2), "metadata": json.loads(meta) if meta else {}})
+                    "metadata": json.loads(meta) if meta else {}})
     return out
 
 

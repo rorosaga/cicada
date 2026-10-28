@@ -1737,7 +1737,7 @@ bank's MRR is unchanged.
 ### Pictures in the meaning index (vision item 3, 2026-10-28; G195's first image slice)
 `api/services/image_index.py`. The owner: video, images, articles, websites "in the same embedding space with the
 Gemma model … all running locally". Pictures are **one more kind of `vector_index.db`**: `vec_images` / `meta_images`
-beside the text kinds, plus `stats_images` (the kind's mean vector and covariance), stamped only with its own
+beside the text kinds, plus `stats_images` (the kind's mean vector and count), stamped only with its own
 `model:images` / `dim:images` / `recipe:images` — never the bank-wide `model`/`dim`, which name the text tables' build
 model — and left out of the text re-embed (`embedding_models.pending_switch` counts `REINDEX_ORDER` kinds only).
 EmbeddingGemma 2's image encoder puts a picture in the text model's 768-wide space, so a text query meets pictures by
@@ -1770,7 +1770,7 @@ kind's mean kept pictures out (≤ 0.3 %); on the real encoder (`benchmarks.perf
 coloured shapes) a query describing a picture lifts it 0.10–0.15, a near miss ≈ 0.08, the best picture for a query
 about nothing drawn ≤ 0.03 — 32/32 first pictures right, 0/30 shown for nothing. DigUp's z-score (G195) fails the
 floor there: an unrelated query's spread over pictures is a quarter of a related one's (σ 0.011 vs 0.047), so its
-best picture reaches a right one's z (2.6 vs 2.2–3.3). `z` rides on each hit for diagnosis only. The 0.06 floor was
+best picture reaches a right one's z (2.6 vs 2.2–3.3). The 0.06 floor was
 calibrated on synthetic shapes; real screenshots should re-check it (one constant).
 
 **When it embeds — never on a search and never by Sleep.** `image_index.start_refresh` runs one refresh per bank at
@@ -1786,8 +1786,10 @@ another. The design board's pictures (`design_index`) are made in the same child
 **Measured** (M-series Mac, the pinned EmbeddingGemma 2 + image encoder, 400 synthetic 640 × 400 JPEGs, cold): 59.9 s
 = 6.7 pictures/s (150 ms each, the child's start and both models' load included; sips decode in its own child per
 picture); the picture child peaked at 872 MB resident; the backend side grew 2 MB; the table is 4.5 MB for 400
-pictures; an unchanged refresh 147 ms. The search leg: p50 24 ms, p95 54 ms over 62 queries each embedding its own
-query (the text model in-process, as every hybrid search does).
+pictures; an unchanged refresh 147 ms; the same 400 built into a copy of the owner's 8,028-page bank, 47.6 s. The
+picture leg on that copy, its query vector already made by the entity leg (recall's and hybrid search's case): p50
+8.7 ms, p95 17.6 ms; with no picture table, 2.2 / 3.8 ms. Each query embedding its own words first: p50 24 ms, p95
+54 ms. Prefix search is unchanged (it never reaches the leg); the prompt hook never calls it.
 
 **Not yet:** files from folders the person picks (G195's app walk), documents, video frames from local files, audio
 (spike: the PR's report), the design board's own store retiring into this one (it keeps its words leg, its example-

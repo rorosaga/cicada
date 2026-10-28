@@ -155,15 +155,17 @@ def test_a_query_finds_the_pictures_it_describes_and_none_for_nothing_pictured(b
         "a query about nothing pictured is answered with nothing, not its nearest picture"
 
 
-def test_the_moments_give_the_exact_mean_and_spread(bank):
-    rng = np.random.default_rng(3)
-    x = rng.standard_normal((50, DIM)).astype(np.float32)
-    x /= np.linalg.norm(x, axis=1, keepdims=True)
-    q = _unit(rng.standard_normal(DIM))
-    mu, cov = image_index.moments(x)
-    mean, sd = image_index.query_moments(q, mu, cov)
-    assert mean == pytest.approx(float((x @ q).mean()), abs=1e-5)
-    assert sd == pytest.approx(float((x @ q).std()), abs=1e-4)
+def test_the_stored_mean_gives_a_querys_exact_mean_cosine(bank, tmp_path):
+    pics = _pictures(tmp_path / "pics", _board(tmp_path))
+    image_index.refresh(bank, EMBEDDER, pictures=pics)
+    conn = image_index._connect(bank)
+    try:
+        _n, mu = image_index._read_moments(conn, bank)
+        x = image_index._all_vectors(conn)
+    finally:
+        conn.close()
+    q = text_embed(["red"])[0]
+    assert float(q @ mu) == pytest.approx(float((x @ q).mean()), abs=1e-5)
 
 
 def test_search_never_loads_the_image_encoder(bank, tmp_path, monkeypatch):

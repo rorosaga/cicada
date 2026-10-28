@@ -19,7 +19,7 @@ with nothing in the corpus). Every method is scored on the one merged list a rea
 * ``cosine`` — raw cosine, both kinds together;
 * ``rrf`` — reciprocal rank (k = 60) of the two per-kind lists, Cicada's fusion everywhere else;
 * ``z_own`` — each kind's cosine minus that kind's mean for this query, over that kind's spread for this query
-  (both exact from ``image_index.moments``);
+  (both exact from each kind's mean and covariance, ``moments``);
 * ``z_shared`` — the same with one spread for both kinds (DigUp's recipe, G195);
 * ``lift`` — each kind's cosine minus that kind's mean for this query, not divided (``image_index``'s choice).
 
@@ -62,6 +62,20 @@ Z_MARGIN = 0.5
 #: The columns the decision reads (``--all`` prints every one).
 SHOWN = ("image.r1", "image.pictures_shown", "image.first_picture_right", "both.ndcg10", "text.picture_in_top5",
          "none.pictures_shown", "none.picture_in_top5")
+
+
+def moments(vectors: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """``(mean, covariance)`` of a kind's unit vectors: a query's exact mean cosine over the kind is ``q·mean`` and its
+    spread ``√(qᵀΣq)`` (``image_index`` stores only the mean: it scores by lift)."""
+    x = np.asarray(vectors, dtype=np.float64)
+    mu = x.mean(axis=0)
+    centred = x - mu
+    return mu.astype(np.float32), (centred.T @ centred / max(1, x.shape[0])).astype(np.float32)
+
+
+def query_moments_many(queries: np.ndarray, mu: np.ndarray, cov: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    q = np.asarray(queries, dtype=np.float32)
+    return q @ mu, np.sqrt(np.maximum(np.einsum("nd,nd->n", q @ cov, q), 1e-12))
 
 
 def zscores(sims, mean: float, sd: float) -> np.ndarray:
@@ -148,7 +162,7 @@ def _merged(method: str, ts: np.ndarray, is_: np.ndarray, tm, im, z_min: float |
 
 def run(seed: int, *, z_margin: float = Z_MARGIN, lift_min: float = image_index.LIFT_MIN, **geometry) -> dict:
     texts, text_topic, images, image_topic, qsets = corpus(seed, **geometry)
-    t_mom, i_mom = image_index.moments(texts), image_index.moments(images)
+    t_mom, i_mom = moments(texts), moments(images)
     methods = {"cosine": None, "rrf": None, "z_own": None, "z_shared": None, "z_own@z2": 2.0}
     n_images = int(images.shape[0])
     for margin in sorted({0.0, 0.5, 1.0, 1.5, z_margin}):
@@ -160,8 +174,8 @@ def run(seed: int, *, z_margin: float = Z_MARGIN, lift_min: float = image_index.
     prepared = {}
     for qset, qs in qsets.items():
         q = np.stack([v for v, _t in qs]).astype(np.float32)
-        prepared[qset] = (q @ texts.T, q @ images.T, image_index.query_moments_many(q, *t_mom),
-                          image_index.query_moments_many(q, *i_mom), [t for _v, t in qs])
+        prepared[qset] = (q @ texts.T, q @ images.T, query_moments_many(q, *t_mom),
+                          query_moments_many(q, *i_mom), [t for _v, t in qs])
     out: dict = {}
     for name, floor in methods.items():
         base = name.split("@")[0]
