@@ -41,6 +41,8 @@ with open(os.environ["STUB_RECORD"], "a") as fh:
 def out(obj):
     sys.stdout.write(json.dumps(obj) + "\n")
 
+if args[:1] == ["--help"]:
+    print(os.environ.get("STUB_HELP", "Cursor Agent - the Cursor CLI")); sys.exit(0)
 if args[:1] == ["status"]:
     if mode == "signed_out":
         print("Not logged in. Run `agent login`."); sys.exit(1)
@@ -53,6 +55,8 @@ if args[:1] == ["models"]:
         if mode != "no_plan":
             lines += ["github-copilot/gpt-5.5", "opencode-go/kimi-k3"]
         print("\n".join(lines)); sys.exit(0)
+    if name == "grok":
+        print("my-bedrock-proxy\ngrok-4.6\ngrok-4.6-mini"); sys.exit(0)
     print("Available models:\n  auto - Auto\n  sonnet-5 - Sonnet 5\n  grok-4.6"); sys.exit(0)
 
 if mode == "signed_out":
@@ -140,16 +144,19 @@ def _call(spec, **kw):
 
 @pytest.mark.parametrize("spec", [CURSOR, OPENCODE, GROK], ids=lambda s: s.mode)
 def test_success_reads_the_answer_without_tools_capture_or_keys(stubs, spec):
-    model = {"cursor": "auto", "opencode": "github-copilot/gpt-5.5", "grok": ""}[spec.mode]
+    model = {"cursor": "auto", "opencode": "github-copilot/gpt-5.5", "grok": "grok-4.6"}[spec.mode]
     parsed = _call(spec, model=model)
     assert json.loads(parsed.text) == {"entities": []}
-    (spawn,) = stubs.spawns()
+    spawn = [s for s in stubs.spawns() if s["argv"][:1] not in (["--help"], ["models"], ["status"])][-1]
     env, argv = spawn["env"], spawn["argv"]
     # Rail 4: the child's own hooks are silent on both switches.
     assert env["CICADA_CAPTURE"] == "off" and env["CICADA_RECALL"] == "off"
     # Rail 1: no key that would move the tool off the person's sign-in reaches the child.
-    for key in ("CURSOR_API_KEY", "XAI_API_KEY", "OPENCODE_CONFIG_CONTENT"):
+    for key in ("CURSOR_API_KEY", "XAI_API_KEY"):
         assert key not in env
+    # The person's own inline OpenCode config never reaches a child; OpenCode gets Cicada's (MCP off, tools denied).
+    assert "allow" not in env.get("OPENCODE_CONFIG_CONTENT", "")
+    assert ("OPENCODE_CONFIG_CONTENT" in env) is (spec is OPENCODE)
     # Rail 3: an empty scratch cwd under CICADA_HOME, deleted after the call; no approve-everything flag.
     assert spawn["cwd"].startswith(str(Path(os.environ["CICADA_HOME"]).resolve())) or \
         spawn["cwd"].startswith(os.environ["CICADA_HOME"])
@@ -160,9 +167,13 @@ def test_success_reads_the_answer_without_tools_capture_or_keys(stubs, spec):
     assert "Do not run commands" in (spawn.get("prompt") or argv[-1])
 
 
+def _call_spawn(stubs):
+    return [s for s in stubs.spawns() if s["argv"][:1] not in (["--help"], ["models"], ["status"])][-1]
+
+
 def test_cursor_runs_in_ask_mode_with_a_deny_all_project_file(stubs):
     _call(CURSOR, model="auto")
-    (spawn,) = stubs.spawns()
+    spawn = _call_spawn(stubs)
     argv = spawn["argv"]
     assert argv[:3] == ["-p", "--output-format", "json"]
     assert argv[argv.index("--mode") + 1] == "ask" and "--trust" in argv
@@ -174,7 +185,7 @@ def test_cursor_runs_in_ask_mode_with_a_deny_all_project_file(stubs):
 
 def test_opencode_denies_every_tool_and_loads_no_outside_config(stubs):
     _call(OPENCODE, model="github-copilot/gpt-5.5")
-    (spawn,) = stubs.spawns()
+    spawn = _call_spawn(stubs)
     env, argv = spawn["env"], spawn["argv"]
     assert json.loads(env["OPENCODE_PERMISSION"]) == {"*": "deny"}
     assert env["OPENCODE_DISABLE_CLAUDE_CODE"] == "1" and env["OPENCODE_DISABLE_PROJECT_CONFIG"] == "1"
@@ -185,7 +196,7 @@ def test_opencode_denies_every_tool_and_loads_no_outside_config(stubs):
 
 def test_grok_denies_every_tool_kind_and_no_web_agents_or_plan(stubs):
     _call(GROK)
-    (spawn,) = stubs.spawns()
+    spawn = _call_spawn(stubs)
     argv = spawn["argv"]
     assert argv[argv.index("--permission-mode") + 1] == "dontAsk"
     denied = {argv[i + 1] for i, a in enumerate(argv) if a == "--deny"}
@@ -193,12 +204,14 @@ def test_grok_denies_every_tool_kind_and_no_web_agents_or_plan(stubs):
     for flag in ("--disable-web-search", "--no-subagents", "--no-plan", "--no-auto-update"):
         assert flag in argv
     assert argv[argv.index("--disallowed-tools") + 1] == "Agent"
-    assert "-m" not in argv      # no model chosen: the tool's own default, never a guessed id
+    # No model chosen: never Grok's own config default (it could be key-backed) — the first built-in grok-… id it
+    # lists, skipping the custom provider model listed first.
+    assert argv[argv.index("-m") + 1] == "grok-4.6"
 
 
 def test_the_model_a_tool_reports_is_the_one_recorded(stubs):
-    shim = cli_engines.response_shim(_call(GROK), "")
-    assert shim["model"] == "grok-4.6"          # from modelUsage, not guessed
+    shim = cli_engines.response_shim(_call(GROK, model="grok-4.6-mini"), "grok-4.6-mini")
+    assert shim["model"] == "grok-4.6"          # from modelUsage: what served, not what was asked
     shim = cli_engines.response_shim(_call(OPENCODE, model="github-copilot/gpt-5.5"), "github-copilot/gpt-5.5")
     assert shim["model"] == "github-copilot/gpt-5.5"
     assert shim["usage"]["prompt_tokens"] == 45 and shim["usage"]["completion_tokens"] == 7
@@ -214,7 +227,7 @@ def test_the_model_a_tool_reports_is_the_one_recorded(stubs):
 @pytest.mark.parametrize("spec", [CURSOR, OPENCODE, GROK], ids=lambda s: s.mode)
 def test_signed_out_names_the_exact_sign_in_command(stubs, monkeypatch, spec):
     monkeypatch.setenv("STUB_MODE", "signed_out")
-    model = "github-copilot/gpt-5.5" if spec is OPENCODE else ""
+    model = {"opencode": "github-copilot/gpt-5.5", "grok": "grok-4.6"}.get(spec.mode, "")
     with pytest.raises(engine_errors.EngineUnavailable) as err:
         _call(spec, model=model)
     assert spec.sign_in in str(err.value)
@@ -223,7 +236,7 @@ def test_signed_out_names_the_exact_sign_in_command(stubs, monkeypatch, spec):
 @pytest.mark.parametrize("spec", [CURSOR, OPENCODE, GROK], ids=lambda s: s.mode)
 def test_a_plan_limit_is_a_throttle_so_sleep_pauses(stubs, monkeypatch, spec):
     monkeypatch.setenv("STUB_MODE", "limit")
-    model = "github-copilot/gpt-5.5" if spec is OPENCODE else ""
+    model = {"opencode": "github-copilot/gpt-5.5", "grok": "grok-4.6"}.get(spec.mode, "")
     with pytest.raises(engine_errors.EngineThrottled) as err:
         _call(spec, model=model)
     assert "Sleep paused" in str(err.value) and spec.plan_name in str(err.value)
@@ -232,7 +245,7 @@ def test_a_plan_limit_is_a_throttle_so_sleep_pauses(stubs, monkeypatch, spec):
 @pytest.mark.parametrize("spec", [CURSOR, OPENCODE, GROK], ids=lambda s: s.mode)
 def test_an_unknown_model_is_a_configuration_error(stubs, monkeypatch, spec):
     monkeypatch.setenv("STUB_MODE", "unknown_model")
-    model = "github-copilot/nope-1" if spec is OPENCODE else "nope-1"
+    model = {"opencode": "github-copilot/nope-1", "grok": "grok-0"}.get(spec.mode, "nope-1")
     with pytest.raises(engine_errors.EngineModelNotFound):
         _call(spec, model=model)
 
@@ -240,7 +253,7 @@ def test_an_unknown_model_is_a_configuration_error(stubs, monkeypatch, spec):
 def test_grok_on_an_api_key_stops_the_run(stubs, monkeypatch):
     monkeypatch.setenv("STUB_MODE", "metered")
     with pytest.raises(engine_errors.EngineOverage) as err:
-        _call(GROK)
+        _call(GROK, model="grok-4.6")
     assert "API key" in str(err.value)
 
 
@@ -258,7 +271,7 @@ def test_a_tripped_breaker_never_spawns(stubs):
     agent_engine.trip_breaker("Your Grok plan hit its usage limit", scope="sleep:test")
     try:
         with pytest.raises(engine_errors.EngineThrottled):
-            _call(GROK)
+            _call(GROK, model="grok-4.6")
     finally:
         agent_engine.reset_breaker(scope="sleep:test")
     assert stubs.spawns() == []
@@ -271,7 +284,7 @@ def test_a_missing_tool_says_how_to_install_it(tmp_path, monkeypatch):
     st = cli_engines.probe_now(GROK)
     assert not st.available and "grok login" in st.detail
     with pytest.raises(engine_errors.EngineUnavailable) as err:
-        _call(GROK)
+        _call(GROK, model="grok-4.6")
     assert "isn't installed" in str(err.value)
 
 
@@ -286,7 +299,7 @@ def test_status_lists_live_models_and_opencode_only_plan_ones(stubs):
     oc = cli_engines.probe_now(OPENCODE)
     assert oc.connected and oc.models == ["github-copilot/gpt-5.5", "opencode-go/kimi-k3"]
     grok = cli_engines.probe_now(GROK)
-    assert grok.connected
+    assert grok.connected and grok.models == ["grok-4.6", "grok-4.6-mini"], "only xAI's built-in ids"
 
 
 def test_opencode_with_only_api_keys_is_not_a_plan(stubs, monkeypatch):
@@ -337,7 +350,7 @@ def test_cicadas_hooks_stay_silent_in_a_spawned_childs_environment(stubs, tmp_pa
     from api.hooks import capture, cursor, recall
 
     _call(CURSOR, model="auto")
-    env = dict(stubs.spawns()[0]["env"])
+    env = dict(_call_spawn(stubs)["env"])
     env["CICADA_HOME"] = str(tmp_path / "hookhome")
 
     def never(*_a, **_kw):
@@ -367,7 +380,8 @@ def test_cicadas_hooks_stay_silent_in_a_spawned_childs_environment(stubs, tmp_pa
 def test_the_new_engines_are_plans_but_never_on_autos_ladder():
     for mode, label in (("cursor", "cursor-cli"), ("opencode", "opencode-cli"), ("grok", "grok-cli")):
         assert engine_select.ENGINE_LABELS[mode] == label
-        assert mode in engine_select.SUBSCRIPTION_MODES and mode in engine_select.SCHEDULE_PLAN_MODES
+        assert mode in engine_select.SUBSCRIPTION_MODES
+        assert (mode in engine_select.SCHEDULE_PLAN_MODES) is (mode != "grok"), "Grok reads only when you start one"
         assert mode in engine_select._VALID_PREF_MODES
         assert engine_select.PLAN_ENGINES[label][1] == "subscription"
         assert label not in engine_select.RESERVE_ENGINES
@@ -406,10 +420,15 @@ def test_a_chosen_cli_engine_resolves_with_its_models_and_ruling_4_on_schedules(
     assert cli_engines.model_for_stage(resolved, "disambiguation") == "grok-4.6-mini"
     assert engine_select.shown_model(resolved) == "grok-4.6" and engine_select.author_model(resolved) == "grok-4.6"
     assert why == "Sleep engine set to Grok plan in Settings"
-    # Scheduled: on by default through the person's switch (ruling 4b); off means no engine, never a key.
-    resolved, _ = _resolve(prefs, user_triggered=False)
-    assert resolved.llm_mode == "grok"
-    resolved, why = _resolve({**prefs, "sleep-run": {"scheduled_use_plan": False}}, user_triggered=False)
+    # Scheduled: Grok never (review of #494: user-started only until a live sign-in), said in words.
+    resolved, why = _resolve(prefs, user_triggered=False)
+    assert engine_select.no_engine(resolved) and why == engine_select.SCHEDULE_USER_ONLY
+    assert "only when you start a read" in resolved.no_engine_reason
+    # Cursor and OpenCode: through the person's switch (ruling 4b); off means no engine, never a key.
+    cursor = {"sleep-engine": {"mode": "cursor", "model": "auto"}}
+    resolved, _ = _resolve(cursor, user_triggered=False)
+    assert resolved.llm_mode == "cursor"
+    resolved, why = _resolve({**cursor, "sleep-run": {"scheduled_use_plan": False}}, user_triggered=False)
     assert engine_select.no_engine(resolved) and why == engine_select.SCHEDULE_DEGRADED
 
 
@@ -443,7 +462,8 @@ def test_the_seam_records_the_real_engine_model_and_plan(monkeypatch):
 
     events: list = []
     agent_engine.reset_models_used()
-    fn = providers.resolve_llm_fn(Settings(llm_mode="grok"), stage="extraction", runner=runner,
+    fn = providers.resolve_llm_fn(Settings(llm_mode="grok", cli_engine_model="grok-4.6-mini"), stage="extraction",
+                                  runner=runner,
                                   sink=events.append, is_async=False, scope="sleep:seam")
     resp = fn(messages=MESSAGES, response_format={"type": "json_object"})
     assert resp["choices"][0]["message"]["content"] == "{}"
@@ -452,4 +472,121 @@ def test_the_seam_records_the_real_engine_model_and_plan(monkeypatch):
         "grok-cli", "grok-plan", "subscription", "grok-4.6")
     assert event.cost_usd is None
     assert agent_engine.models_used() == ["grok-4.6"]
-    assert seen and seen[0][0] == "grok"
+    assert seen and seen[0][0] == "grok" and seen[0][seen[0].index("-m") + 1] == "grok-4.6-mini"
+
+
+# --------------------------------------------------------------------------- #
+# Review of #494 — MCP stays off, Grok only on built-in models, Cursor's own `agent`, status tokens, a fast picker
+# --------------------------------------------------------------------------- #
+
+
+def test_grok_never_loads_claude_or_cursor_mcp_servers_or_their_config(stubs):
+    _call(GROK, model="grok-4.6")
+    env = _call_spawn(stubs)["env"]
+    for vendor in ("CLAUDE", "CURSOR"):
+        for cell in ("MCPS", "HOOKS", "RULES", "SKILLS", "AGENTS"):
+            assert env[f"GROK_{vendor}_{cell}_ENABLED"] == "false"
+    assert env["GROK_MANAGED_MCPS_ENABLED"] == "false"
+    assert env["CICADA_ENGINE_SPAWN"] == "1"
+
+
+def test_opencode_turns_off_every_mcp_server_the_persons_config_names(stubs, tmp_path, monkeypatch):
+    cfg = tmp_path / "xdg" / "opencode"
+    cfg.mkdir(parents=True)
+    (cfg / "opencode.jsonc").write_text('{\n // mine\n "mcp": {"notes": {"type": "local", "command": ["x"]},\n'
+                                        ' "cicada": {"type": "local", "command": ["y"]},},\n}', encoding="utf-8")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    _call(OPENCODE, model="github-copilot/gpt-5.5")
+    env = _call_spawn(stubs)["env"]
+    content = json.loads(env["OPENCODE_CONFIG_CONTENT"])          # Cicada's own, set after the scrub
+    assert content["mcp"] == {"cicada": {"enabled": False}, "notes": {"enabled": False}}
+    assert content["permission"] == {"*": "deny"}
+    assert env["CICADA_ENGINE_SPAWN"] == "1"
+
+
+def test_cursor_never_approves_an_mcp_server_and_denies_every_mcp_call(stubs):
+    _call(CURSOR, model="auto")
+    spawn = _call_spawn(stubs)
+    assert "--approve-mcps" not in spawn["argv"]
+    assert "Mcp(*:*)" in spawn["cursor_deny"]["permissions"]["deny"]
+    assert spawn["env"]["CICADA_ENGINE_SPAWN"] == "1"
+
+
+def test_cicadas_own_mcp_server_offers_nothing_inside_an_engine_call(monkeypatch):
+    """Belt for every tool (Cursor has no run-wide MCP switch, Grok always loads its own config.toml's servers):
+    a Cicada server started under the spawn marker answers with no instructions, no tools and no seen row."""
+    import importlib.util
+
+    root = Path(__file__).resolve().parents[2]
+    spec = importlib.util.spec_from_file_location("cicada_mcp_server_engine_spawn", root / "mcp" / "server.py")
+    server = importlib.util.module_from_spec(spec)
+    sys.modules["cicada_mcp_server_engine_spawn"] = server
+    spec.loader.exec_module(server)
+    stamped: list = []
+    monkeypatch.setattr(server, "_stamp_seen", lambda *a, **k: stamped.append(a))
+    monkeypatch.setenv("CICADA_ENGINE_SPAWN", "1")
+    result = server.initialize_result({"clientInfo": {"name": "grok-build"}})
+    assert "instructions" not in result and stamped == []
+    monkeypatch.delenv("CICADA_ENGINE_SPAWN")
+    assert server.in_engine_spawn() is False
+
+
+def test_a_grok_model_that_is_not_xais_own_is_never_offered_or_called(stubs):
+    with pytest.raises(engine_errors.EngineUnavailable) as err:
+        _call(GROK, model="my-bedrock-proxy")
+    assert "Nothing was read" in str(err.value)
+    assert [s for s in stubs.spawns() if s["argv"][:1] not in (["models"],)] == []
+    assert cli_engines.model_choices(GROK, cli_engines.probe_now(GROK), None) == ["grok-4.6", "grok-4.6-mini"]
+
+
+def test_an_agent_binary_that_is_not_cursors_is_never_called(stubs, monkeypatch):
+    monkeypatch.setenv("STUB_HELP", "agent — some other tool")
+    cli_engines._CURSOR_CHECKED.clear()
+    try:
+        assert cli_engines.resolve_binary(CURSOR) is None
+        with pytest.raises(engine_errors.EngineUnavailable):
+            _call(CURSOR, model="auto")
+        assert all(s["argv"] == ["--help"] for s in stubs.spawns())
+    finally:
+        cli_engines._CURSOR_CHECKED.clear()
+
+
+@pytest.mark.parametrize("stderr,expected", [
+    ("connection reset (request id req_4291f, trace 401af)", engine_errors.EngineConnectionLost),
+    ("HTTP 429: slow down", engine_errors.EngineThrottled),
+    ("status=401", engine_errors.EngineUnavailable),
+])
+def test_a_status_code_counts_only_as_its_own_token(stderr, expected):
+    result = base.CliResult(1, "", stderr)
+    with pytest.raises(expected):
+        cli_engines.check(CURSOR, result, cli_engines.ExecResult())
+
+
+def test_the_picker_serves_the_last_known_state_while_a_refresh_runs(monkeypatch):
+    import threading
+    import time as _time
+
+    calls: list = []
+    release = threading.Event()
+
+    def slow_probe(spec, runner=None, timeout=0):
+        calls.append(spec.mode)
+        release.wait(5)
+        return cli_engines.Status(True, True, "fresh", ["auto"], _time.time())
+
+    cli_engines.invalidate()
+    monkeypatch.setattr(cli_engines, "probe_now", slow_probe)
+    old = cli_engines.Status(True, False, "old", [], _time.time() - 999)
+    with cli_engines._CACHE_LOCK:
+        cli_engines._CACHE["cursor"] = old
+    started = _time.monotonic()
+    assert cli_engines.status(CURSOR, stale_ok=True) is old          # served at once
+    assert cli_engines.status(CURSOR, stale_ok=True) is old          # one refresh, not two
+    assert _time.monotonic() - started < 1.0
+    release.set()
+    for _ in range(50):
+        if cli_engines._CACHE["cursor"].detail == "fresh":
+            break
+        _time.sleep(0.05)
+    assert cli_engines._CACHE["cursor"].detail == "fresh" and calls == ["cursor"]
+    cli_engines.invalidate()

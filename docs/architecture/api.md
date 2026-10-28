@@ -469,7 +469,8 @@ subscription provider answers 422 with the sentence (rail 2). Each candidate gai
 saved model the tool no longer lists) and `signIn` (the command the person runs). The three tool cards follow the
 ChatGPT plan's, so the order is Auto, Claude plan, ChatGPT plan, Cursor, OpenCode, Grok, OpenRouter, Ollama, API key; a
 client that reads by id is unaffected. Their status is probed by `cli_engines.status` (30 s cache, never a call that
-spends). Previews name `cursor-cli` / `opencode-cli` / `grok-cli` with `billing: plan`; the field is named
+spends, 8 s per command, Cursor's two side by side); the GET serves the last known state while a refresh runs, so a hung
+tool never holds the Sleep page. A scheduled preview of a chosen Grok is `none` (it reads only when you start one). Previews name `cursor-cli` / `opencode-cli` / `grok-cli` with `billing: plan`; the field is named
 `billingNote`, never a cost or price, because prices ride only `usage`/`modelPrices` (ruling 12).
 
 **A request runs in one bank, and a write only in the bank it was made in (`bank_binding`, G183(d)).** One

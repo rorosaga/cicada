@@ -465,7 +465,7 @@ def test_the_signed_in_cli_engines_are_cards_after_the_plans_never_on_auto(clien
     live models, and the exact sign-in command when signed out. Auto's line still names only the two plans."""
     from api.services import cli_engines
 
-    def fake_status(spec, *, fresh=False, runner=None):
+    def fake_status(spec, *, fresh=False, runner=None, stale_ok=False):
         if spec is cli_engines.GROK:
             return cli_engines.Status(True, False, "Grok is signed out — run `grok login`.")
         return cli_engines.Status(True, True, "Signed in.", ["auto", "sonnet-5"] if spec is cli_engines.CURSOR

@@ -134,6 +134,10 @@ def no_engine(settings) -> bool:
 def no_engine_sentence(why: str | None) -> str:
     """What a run with no engine says, in words, with the fix — naming the scheduled-plan switch when it is the
     reason (ruling 4b). Provider-neutral."""
+    if why == SCHEDULE_USER_ONLY:
+        return ("Scheduled runs don't use the engine you chose: it reads only when you start a read yourself. Start a "
+                "read, or choose another engine for scheduled runs in Settings → Intelligence. What was waiting is "
+                "still waiting.")
     if why == SCHEDULE_DEGRADED:
         return ("Scheduled runs have no engine they may use: your plan is off for scheduled runs (“Scheduled runs may "
                 "use my plan” in Settings → Sleep; on a server, `cicada sleep schedule --use-plan on`), no local model "
@@ -211,9 +215,13 @@ SUBSCRIPTION_MODES = ("agent", "codex", *CLI_ENGINE_MODES)
 #: (2026-10-19) — may open on a schedule:
 #: both plans, each only when it is the engine the person's own choice resolves to and it is signed in. The switch is
 #: the guard's only door besides an explicit ``CICADA_LLM_MODE``.
-#: G49/G50 (2026-10-28): the Cursor, OpenCode and Grok plans open on a schedule only through the same switch, and only
-#: when chosen — none of them is ever a rung on Auto's ladder.
-SCHEDULE_PLAN_MODES = ("agent", "codex", *CLI_ENGINE_MODES)
+#: G49/G50 (2026-10-28): the Cursor and OpenCode plans open on a schedule only through the same switch, and only when
+#: chosen — none of the new engines is ever a rung on Auto's ladder. Grok is user-started only (review of #494) until a
+#: live sign-in shows what a subscription call reports: a key override on a built-in model cannot be told apart
+#: before the call.
+SCHEDULE_PLAN_MODES = ("agent", "codex", "cursor", "opencode")
+#: Why a scheduled run has no engine: the chosen plan reads only when the person starts a read.
+SCHEDULE_USER_ONLY = "scheduled cycle — this Sleep engine reads only when you start a read"
 
 #: Why a scheduled run resolved to the metered engine: ruling 4 kept it off a plan because the person's switch is
 #: off. ``sleep_cycle`` reads it to name the switch as a fix when that engine then refuses every call.
@@ -560,6 +568,8 @@ async def resolve_llm_mode(
         # CICADA_LLM_MODE=agent|codex is deliberate configuration and is
         # untouched by trigger source (unchanged from before G122).
         if configured in SUBSCRIPTION_MODES and not env_explicit and not user_triggered:
+            if configured not in SCHEDULE_PLAN_MODES:
+                return "auto", SCHEDULE_USER_ONLY
             if not _schedule_may_use(configured, registry):
                 # Ruling 2026-10-19: the person chose a plan, not a key — a schedule the plan is closed to has no
                 # engine, never the metered key by itself.

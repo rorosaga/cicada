@@ -1179,6 +1179,14 @@ def _annotate_reads(tools: list[dict]) -> None:
 _annotate_reads(TOOLS)
 
 
+def in_engine_spawn() -> bool:
+    """Review of #494: this server was started by a harness that Cicada itself spawned as a Sleep engine (Cursor,
+    OpenCode, Grok …, under ``connections.base.scrubbed_env``'s marker). It then offers nothing — no instructions (the
+    handshake would ride the extraction prompt with the wrong provenance), no tools and no "agent reached Cicada"
+    row — whatever the harness's own config loaded."""
+    return os.environ.get("CICADA_ENGINE_SPAWN", "").strip() == "1"
+
+
 def initialize_result(params: dict) -> dict:
     """The MCP `initialize` result — G48's inbound capture plus G75's outbound primer.
 
@@ -1204,6 +1212,8 @@ def initialize_result(params: dict) -> dict:
         "capabilities": {"tools": {}},
         "serverInfo": {"name": "cicada-bookworm", "version": __version__},
     }
+    if in_engine_spawn():
+        return result
     try:
         result["instructions"] = _handshake_text(delivery="initialize")
     except Exception as exc:  # never fail a connect over a primer
@@ -1309,7 +1319,7 @@ def main():
                 respond(req_id, {})
 
         elif method == "tools/list":
-            respond(req_id, {"tools": TOOLS})
+            respond(req_id, {"tools": [] if in_engine_spawn() else TOOLS})
 
         elif method == "tools/call":
             tool_name = params.get("name", "") if isinstance(params, dict) else ""
@@ -1319,6 +1329,9 @@ def main():
                 respond_error(req_id, -32602, "Invalid params: tools/call needs a tool `name`")
                 continue
 
+            if in_engine_spawn():
+                respond_error(req_id, -32601, "Cicada offers no tools inside its own engine call")
+                continue
             respond(req_id, call_tool(tool_name, arguments))
 
         elif req_id is not None:

@@ -63,6 +63,8 @@ class EngineSpec:
     default_models: tuple[str, ...] = ()
     billing_note: str = ""    # how a metered path could arise, in words, for the picker
     flag_model: str = "--model"
+    #: Always pass an explicit model (review of #494): a tool's own config default could be a key-backed model.
+    explicit_model: bool = False
 
 
 CURSOR = EngineSpec(
@@ -82,16 +84,17 @@ OPENCODE = EngineSpec(
     sign_in="opencode auth login",
     billing_note=("Only a subscription you signed in to through OpenCode (GitHub Copilot or OpenCode Go). "
                   "A model on an API key is never used here — choose an API key as the engine for that."),
-    flag_model="-m",
+    flag_model="-m", explicit_model=True,
 )
 GROK = EngineSpec(
     mode="grok", label="grok-cli", connection="grok-plan", name="Grok", plan_name="Grok plan",
     binaries=("grok",),
     install="Install Grok Build (see docs.x.ai/build/cli), then run `grok login`.",
     sign_in="grok login",
-    billing_note=("Runs on your signed-in Grok subscription. If Grok reports a charged cost (an API key set in "
-                  "its own config), Sleep stops."),
-    flag_model="-m",
+    billing_note=("Runs on your signed-in Grok subscription, only on xAI's own Grok models, and only when you "
+                  "start a read. A key you set in Grok's own settings for one of those models would still bill "
+                  "that key; if Grok reports a charged cost, Sleep stops."),
+    flag_model="-m", explicit_model=True,
 )
 SPECS: dict[str, EngineSpec] = {s.mode: s for s in (CURSOR, OPENCODE, GROK)}
 BY_LABEL: dict[str, EngineSpec] = {s.label: s for s in SPECS.values()}
@@ -111,10 +114,13 @@ NO_TOOLS_LINE = "Do not run commands, read or write files, browse, or use any to
 _ARG_LIMIT = 120_000 if sys.platform.startswith("linux") else 900_000
 
 _SIGNED_OUT = ("not logged in", "not authenticated", "authentication required", "login required", "please log in",
-               "please login", "log in first", "sign in", "unauthorized", "401", "no credentials",
+               "please login", "log in first", "sign in", "unauthorized", "no credentials",
                "run `grok login`", "run grok login", "set xai_api_key", "agent login", "auth login")
-_LIMIT = ("usage limit", "rate limit", "rate_limit", "ratelimit", "too many requests", "429", "limit reached",
+_LIMIT = ("usage limit", "rate limit", "rate_limit", "ratelimit", "too many requests", "limit reached",
           "quota", "resource_exhausted", "weekly limit", "out of credits", "usage pool", "hit your limit")
+#: A bare HTTP status only as its own token (review of #494): never inside a request id, a hash or a longer number.
+_STATUS_401 = re.compile(r"(?<![\w.-])401(?![\w.-])")
+_STATUS_429 = re.compile(r"(?<![\w.-])429(?![\w.-])")
 _NOT_FOUND = ("model not found", "model_not_found", "unknown model", "invalid model", "unsupported model",
               "model is not available", "not a valid model", "no such model", "providermodelnotfound")
 
@@ -152,12 +158,36 @@ def opencode_is_plan_model(model: str) -> bool:
     return "/" in (model or "") and provider in OPENCODE_PLAN_PROVIDERS
 
 
+#: xAI's own built-in models (docs: custom models — "By default, Grok uses models hosted by SpaceXAI"). A
+#: `config.toml` model with its own `base_url`/`api_key` (OpenAI, Anthropic, Bedrock …) outranks the sign-in, so
+#: only these ids are ever offered or passed; Cicada never reads `config.toml` to tell them apart.
+_GROK_BUILTIN = re.compile(r"^grok-[a-z0-9][a-z0-9.-]*$")
+
+
+def grok_is_builtin(model: str) -> bool:
+    return bool(_GROK_BUILTIN.match((model or "").strip()))
+
+
+def plan_model(spec: EngineSpec, model: str) -> bool:
+    """A model this tool runs on the person's plan: OpenCode's subscription providers, Grok's built-in ids, any
+    Cursor model (Cursor's own plan)."""
+    if spec is OPENCODE:
+        return opencode_is_plan_model(model)
+    if spec is GROK:
+        return grok_is_builtin(model)
+    return bool(model)
+
+
 def metered_refusal(spec: EngineSpec, model: str) -> str | None:
     """Why a model is refused before any call because it would bill an API key (rail 2), else ``None``."""
     if spec is OPENCODE and model and not opencode_is_plan_model(model):
         return (f"OpenCode would run {model} on an API key or paid credit, not a subscription — Sleep runs OpenCode "
                 f"only on GitHub Copilot or OpenCode Go. Choose one of those models, or choose an API key as "
                 f"Sleep's engine in Settings → Intelligence. Nothing was read.")
+    if spec is GROK and model and not grok_is_builtin(model):
+        return (f"{model} isn't one of xAI's own Grok models, so Grok would run it through a key or another "
+                f"provider set in its own settings, not your subscription — Sleep runs Grok only on its grok-… "
+                f"models. Choose one of those. Nothing was read.")
     return None
 
 
@@ -182,6 +212,49 @@ OPENCODE_ENV = {
 }
 #: Grok's tool kinds (docs: headless mode, permissions and safety): each denied, deny wins over every other rule.
 GROK_DENY = ("Bash", "Edit", "Write", "Read", "Grep", "WebFetch", "MCPTool")
+#: Review of #494, blocker 1: Grok scans Claude Code's and Cursor's config by default — their MCP servers (Cicada's
+#: own among them: its handshake would ride the extraction prompt), hooks, rules, skills and instruction files. Every
+#: compatibility cell off (docs: configuration → harness compatibility, config reference `compat.*`; env beats
+#: config.toml), and no organisation-managed MCP fetch. `--deny MCPTool` alone blocks calls, never a server's start.
+GROK_ENV = {
+    **{f"GROK_{vendor}_{cell}_ENABLED": "false"
+       for vendor in ("CLAUDE", "CURSOR") for cell in ("MCPS", "HOOKS", "RULES", "SKILLS", "AGENTS")},
+    "GROK_MANAGED_MCPS_ENABLED": "false",
+}
+
+
+def _opencode_config_dir() -> Path:
+    base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
+    return Path(base) / "opencode"
+
+
+def opencode_mcp_names() -> list[str]:
+    """The MCP server names in the person's own global OpenCode config (``opencode.json[c]``) — names only, never a
+    value; it is configuration, not a credential (those live in OpenCode's ``auth.json``, never read). ``cicada`` is
+    always among them: Cicada wires itself in under that name (``agent_wiring``)."""
+    from api.services import agent_wiring
+
+    names = {"cicada"}
+    for filename in ("opencode.json", "opencode.jsonc"):
+        path = _opencode_config_dir() / filename
+        try:
+            data = agent_wiring._loads_jsonc(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            continue
+        mcp = data.get("mcp") if isinstance(data, dict) else None
+        if isinstance(mcp, dict):
+            names.update(str(k) for k in mcp if isinstance(k, str) and k)
+    return sorted(names)
+
+
+def opencode_env() -> dict[str, str]:
+    """OpenCode's per-call environment: every tool denied, and — review of #494, blocker 1 — every MCP server the
+    person's config names turned off through Cicada's own ``OPENCODE_CONFIG_CONTENT`` (the highest config layer, set
+    after the scrub strips any the person exported), so no server starts and none of their instructions loads."""
+    content = {"$schema": "https://opencode.ai/config.json",
+               "mcp": {name: {"enabled": False} for name in opencode_mcp_names()},
+               "permission": {"*": "deny"}}
+    return {**OPENCODE_ENV, "OPENCODE_CONFIG_CONTENT": json.dumps(content, separators=(",", ":"))}
 
 
 def full_prompt(messages: list[dict], *, want_json: bool) -> str:
@@ -222,7 +295,7 @@ def build_call(spec: EngineSpec, *, model: str, prompt: str, cwd: Path, binary: 
         if model:
             argv += [spec.flag_model, model]
         argv += ["--file", str(prompt_path), "Answer the request in the attached file, following its instructions."]
-        return argv, dict(OPENCODE_ENV), None
+        return argv, opencode_env(), None
     # Grok
     prompt_path = cwd / "request.md"
     prompt_path.write_text(prompt, encoding="utf-8")
@@ -233,7 +306,7 @@ def build_call(spec: EngineSpec, *, model: str, prompt: str, cwd: Path, binary: 
         argv += ["--deny", kind]
     if model:
         argv += [spec.flag_model, model]
-    return argv, {}, None
+    return argv, dict(GROK_ENV), None
 
 
 # --------------------------------------------------------------------------- #
@@ -358,10 +431,10 @@ def check(spec: EngineSpec, result: CliResult, parsed: ExecResult) -> None:
     reason = parsed.failure or ""
     blob = f"{reason} {result.stderr or ''} {result.stdout if parsed.events == 0 else ''}".lower()
     logger.warning(f"{spec.label} engine failure (rc {result.rc}): {reason[:300] or (result.stderr or '')[:300]}")
-    if any(m in blob for m in _LIMIT):
+    if any(m in blob for m in _LIMIT) or _STATUS_429.search(blob):
         raise engine_errors.EngineThrottled(f"Your {spec.plan_name} hit its usage limit — Sleep paused. "
                                             f"({(reason or result.stderr or '').strip()[:160]})")
-    if any(m in blob for m in _SIGNED_OUT):
+    if any(m in blob for m in _SIGNED_OUT) or _STATUS_401.search(blob):
         raise engine_errors.EngineUnavailable(f"{spec.name} is signed out — run `{spec.sign_in}`, then Sleep again.")
     if any(m in blob for m in _NOT_FOUND):
         raise engine_errors.EngineModelNotFound(f"{spec.name} rejected the model: {reason[:200] or blob.strip()[:200]}")
@@ -391,9 +464,30 @@ def resolve_binary(spec: EngineSpec) -> str | None:
     from api.services.connections import base
 
     for name in spec.binaries:
-        if base.resolve_binary(name):
-            return name
+        path = base.resolve_binary(name)
+        if not path:
+            continue
+        if spec is CURSOR and name == "agent" and not _is_cursor_agent(path):
+            continue   # some other tool's `agent` on PATH: never called with a prompt
+        return name
     return None
+
+
+_CURSOR_CHECKED: dict[str, bool] = {}
+
+
+def _is_cursor_agent(path: str) -> bool:
+    """Review of #494: a binary named only ``agent`` is used only once its own help names Cursor (cached per path).
+    ``--help`` prints and exits; nothing is sent anywhere."""
+    if path in _CURSOR_CHECKED:
+        return _CURSOR_CHECKED[path]
+    try:
+        result = agent_engine._default_runner()([path, "--help"], stdin=None, timeout=5.0, cwd=None)
+        ok = result.rc == 0 and "cursor" in f"{result.stdout}\n{result.stderr}".lower()
+    except Exception:  # noqa: BLE001 — unreadable reads as not Cursor's
+        ok = False
+    _CURSOR_CHECKED[path] = ok
+    return ok
 
 
 def complete(spec: EngineSpec, *, messages: list[dict], model: str, stage: str | None = None,
@@ -406,6 +500,15 @@ def complete(spec: EngineSpec, *, messages: list[dict], model: str, stage: str |
         exc = engine_errors.EngineThrottled(tripped)
         exc.spawned = False
         raise exc
+    if spec.explicit_model and not model:
+        # Never the tool's own config default (it could be key-backed): the first plan model it lists, else refuse.
+        model = next(iter(status(spec).models), "")
+        if not model:
+            exc = engine_errors.EngineUnavailable(
+                f"{spec.name} lists no model Sleep may read with on your plan — choose one in Settings → "
+                f"Intelligence. Nothing was read.")
+            exc.spawned = False
+            raise exc
     refused = metered_refusal(spec, model)
     if refused:
         exc = engine_errors.EngineUnavailable(refused)
@@ -426,6 +529,8 @@ def complete(spec: EngineSpec, *, messages: list[dict], model: str, stage: str |
         _remove_tree(cwd)
     parsed = PARSERS[spec.mode](result.stdout)
     check(spec, result, parsed)
+    # The model this call was made with, when the tool reported none: an explicit `-m` is what ran.
+    parsed.model = parsed.model or model or None
     return parsed
 
 
@@ -498,24 +603,34 @@ def _signed_out(text: str) -> bool:
                                   "no authenticated"))
 
 
-def probe_now(spec: EngineSpec, *, runner=None, timeout: float = 15.0) -> Status:
-    """One status read: is the tool installed, signed in (on a plan, for OpenCode), and which models it offers.
-    Cursor: ``agent status`` then ``agent models``. OpenCode: ``opencode models`` — signed in to a plan when it lists
-    a model on a plan provider. Grok: ``grok models`` (it refuses without a sign-in, with ``XAI_API_KEY`` stripped)."""
+#: Review of #494: each status command gets a short budget, so a hung tool costs the picker seconds, never half a
+#: minute; the picker itself serves the last known state while a refresh runs (`astatus(stale_ok=True)`).
+PROBE_TIMEOUT_S = 8.0
+
+
+def probe_now(spec: EngineSpec, *, runner=None, timeout: float = PROBE_TIMEOUT_S) -> Status:
+    """One status read: is the tool installed, signed in (on a plan), and which plan models it offers.
+    Cursor: ``agent status`` and ``agent models``, side by side. OpenCode: ``opencode models`` — signed in to a plan
+    when it lists a model on a plan provider. Grok: ``grok models`` (it refuses without a sign-in, with
+    ``XAI_API_KEY`` stripped), only xAI's built-in ``grok-…`` ids kept."""
     run = runner or agent_engine._default_runner()
     binary = resolve_binary(spec)
     if binary is None:
         return Status(False, False, f"{spec.name} isn't installed. {spec.install}", as_of=time.time())
     if spec is CURSOR:
-        status = run([binary, "status"], stdin=None, timeout=timeout, cwd=None)
-        text = f"{status.stdout}\n{status.stderr}"
-        if status.rc != 0 or _signed_out(text):
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            status_f = pool.submit(run, [binary, "status"], stdin=None, timeout=timeout, cwd=None)
+            models_f = pool.submit(run, [binary, "models"], stdin=None, timeout=timeout, cwd=None)
+            status_r, listing = status_f.result(), models_f.result()
+        text = f"{status_r.stdout}\n{status_r.stderr}"
+        if status_r.rc != 0 or _signed_out(text):
             return Status(True, False, f"Cursor is signed out — run `{spec.sign_in}`.", as_of=time.time())
-        listing = run([binary, "models"], stdin=None, timeout=timeout, cwd=None)
         models = parse_model_lines(listing.stdout) if listing.rc == 0 else []
         return Status(True, True, "Signed in to Cursor.", models, time.time())
     listing = run([binary, "models"], stdin=None, timeout=timeout, cwd=None,
-                  env_overrides=dict(OPENCODE_ENV) if spec is OPENCODE else None)
+                  env_overrides=opencode_env() if spec is OPENCODE else dict(GROK_ENV))
     text = f"{listing.stdout}\n{listing.stderr}"
     if spec is OPENCODE:
         models = [m for m in parse_model_lines(listing.stdout) if "/" in m] if listing.rc == 0 else []
@@ -526,15 +641,35 @@ def probe_now(spec: EngineSpec, *, runner=None, timeout: float = 15.0) -> Status
         return Status(True, True, "Signed in to a subscription in OpenCode.", plan, time.time())
     if listing.rc != 0 or _signed_out(text):
         return Status(True, False, f"Grok is signed out — run `{spec.sign_in}`.", as_of=time.time())
-    return Status(True, True, "Signed in to Grok.", parse_model_lines(listing.stdout), time.time())
+    builtin = [m for m in parse_model_lines(listing.stdout) if grok_is_builtin(m)]
+    if not builtin:
+        return Status(True, False, "Grok lists none of xAI's own grok-… models — run `grok login` with your Grok "
+                                   "subscription.", as_of=time.time())
+    return Status(True, True, "Signed in to Grok.", builtin, time.time())
 
 
-def status(spec: EngineSpec, *, fresh: bool = False, runner=None) -> Status:
-    """``probe_now`` behind a 30 s cache (the picker and a cycle's pre-flight read the same answer)."""
+_REFRESHING: set[str] = set()
+
+
+def status(spec: EngineSpec, *, fresh: bool = False, runner=None, stale_ok: bool = False) -> Status:
+    """``probe_now`` behind a 30 s cache (the picker and a cycle's pre-flight read the same answer). ``stale_ok``
+    (the picker): an expired answer is served at once while one background refresh runs; only a tool never read
+    before is waited on, at ``PROBE_TIMEOUT_S`` per command."""
     with _CACHE_LOCK:
         cached = _CACHE.get(spec.mode)
     if cached is not None and not fresh and time.time() - cached.as_of < CACHE_TTL_S:
         return cached
+    if cached is not None and stale_ok and not fresh:
+        with _CACHE_LOCK:
+            start = spec.mode not in _REFRESHING
+            _REFRESHING.add(spec.mode)
+        if start:
+            threading.Thread(target=_refresh, args=(spec, runner), daemon=True).start()
+        return cached
+    return _refresh(spec, runner)
+
+
+def _refresh(spec: EngineSpec, runner=None) -> Status:
     try:
         st = probe_now(spec, runner=runner)
     except Exception as exc:  # noqa: BLE001 — a probe never fails its caller
@@ -542,6 +677,7 @@ def status(spec: EngineSpec, *, fresh: bool = False, runner=None) -> Status:
         st = Status(True, False, f"Couldn't read {spec.name}'s status right now.", as_of=time.time())
     with _CACHE_LOCK:
         _CACHE[spec.mode] = st
+        _REFRESHING.discard(spec.mode)
     return st
 
 
@@ -550,14 +686,15 @@ def invalidate() -> None:
         _CACHE.clear()
 
 
-async def astatus(spec: EngineSpec, *, fresh: bool = False) -> Status:
-    return await asyncio.to_thread(status, spec, fresh=fresh)
+async def astatus(spec: EngineSpec, *, fresh: bool = False, stale_ok: bool = False) -> Status:
+    return await asyncio.to_thread(status, spec, fresh=fresh, stale_ok=stale_ok)
 
 
 def model_choices(spec: EngineSpec, st: Status | None, saved: str | None) -> list[str]:
     """The picker's list: the tool's live list (else the documented defaults), plus the saved model, which never
     disappears from the list."""
     models = list(st.models) if st and st.models else list(spec.default_models)
+    models = [m for m in models if plan_model(spec, m)]
     if saved and saved not in models:
         models.append(saved)
     return models
@@ -573,8 +710,8 @@ def stale_model_sentence(spec: EngineSpec, st: Status | None, saved: str | None)
 
 async def preflight(spec: EngineSpec, settings) -> tuple[bool, str, str | None]:
     """Before a cycle's first spawn: installed? signed in? the saved model still offered and a plan model?
-    Returns ``(ok, sentence, model to fill in)`` — OpenCode needs a model, so an unpicked one becomes the first plan
-    model it lists (said in the sentence); the other tools run their own default with no flag."""
+    Returns ``(ok, sentence, model to fill in)`` — OpenCode and Grok always get an explicit model, so an unpicked one
+    becomes the first plan model the tool lists (said in the sentence); Cursor runs its own default with no flag."""
     st = await astatus(spec, fresh=True)
     if not st.connected:
         return False, st.detail, None
@@ -586,10 +723,10 @@ async def preflight(spec: EngineSpec, settings) -> tuple[bool, str, str | None]:
         stale = stale_model_sentence(spec, st, model)
         if stale:
             return False, stale, None
-    if spec is OPENCODE and not saved:
+    if spec.explicit_model and not saved:
         first = st.models[0] if st.models else None
         if first is None:
-            return False, "OpenCode lists no subscription model to read with. Nothing was read.", None
+            return False, f"{spec.name} lists no model Sleep may read with on your plan. Nothing was read.", None
         return True, f"{st.detail} Reading with {first}, the first model it lists.", first
     return True, st.detail, None
 

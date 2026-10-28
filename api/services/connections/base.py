@@ -67,6 +67,10 @@ SCRUBBED_ENV_KEYS = (MANAGED_KEY_ENV + CLAUDE_PLAN_OVERRIDE_ENV + CODEX_PLAN_OVE
                      + _ALSO_STRIPPED)
 
 
+#: Set on every child Cicada spawns; Cicada's own MCP server reads it and stays silent (see ``scrubbed_env``).
+ENGINE_SPAWN_ENV = "CICADA_ENGINE_SPAWN"
+
+
 @dataclass
 class CliResult:
     rc: int
@@ -180,6 +184,10 @@ def scrubbed_env(name: str | None = None) -> dict[str, str]:
     env = {k: v for k, v in os.environ.items() if k not in SCRUBBED_ENV_KEYS}
     env["CICADA_CAPTURE"] = "off"
     env["CICADA_RECALL"] = "off"
+    # Review of #494: a harness Cicada spawns may still start the person's MCP servers (Cursor has no run-wide switch;
+    # Grok always loads its own config.toml's). Cicada's own server, started under this marker, answers with no
+    # instructions, no tools and no "agent reached Cicada" row (`mcp/server.py`).
+    env[ENGINE_SPAWN_ENV] = "1"
     if name and os.path.basename(name) == "codex":
         env["CODEX_HOME"] = str(codex_home())
     return env

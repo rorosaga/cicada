@@ -228,7 +228,8 @@ async def _candidates(settings: Settings, reg, *, mode: str, model: str | None) 
                        "byok": "litellm"}.get(card.id)
     # G49/G50: the person's own signed-in Cursor, OpenCode and Grok, after the two plans — choosable, never on Auto's
     # ladder (ruling 31 / 36 D1: changing the ladder is the owner's call). Each probe is cached for 30 s.
-    statuses_cli = await asyncio.gather(*(cli_engines.astatus(spec) for spec in cli_engines.SPECS.values()))
+    statuses_cli = await asyncio.gather(*(cli_engines.astatus(spec, stale_ok=True)
+                                          for spec in cli_engines.SPECS.values()))
     at = next(i for i, c in enumerate(cards) if c.id == "codex") + 1
     for offset, (spec, st) in enumerate(zip(cli_engines.SPECS.values(), statuses_cli)):
         saved = (model if mode == spec.mode else None) or None
