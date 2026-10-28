@@ -888,7 +888,8 @@ Round 4 (C2–C4):
   substring-gated pass over `media-*.md` a run). The saved URL as it is on the record, filed under no predicate (where
   to check the page as a whole), `entity:` the saved-link page, its evidence the person's reason when they gave one
   (`saved_why.reason_span`: `{episode, start, end}`, read "in your own words") else `{episode, kind: "save"}` ("a
-  link you saved"). Never on a person page, never a link `reading_hosts.classify` refuses or calls walled (a private
+  link you saved"). Its `entity:` draws no graph edge while it waits (`graph_builder` skips every proposal, ruling 36
+  D5). Never on a person page, never a link `reading_hosts.classify` refuses or calls walled (a private
   workspace, a secret-bearing link, a video, a paper, an AI app's page), never a search engine's results page. Never a URL from a name,
   never a handle off a saved post's path. Skipped when the ref (in any spelling of the same profile) is already a source
   or in `sources_removed` under any fact, or past a cap; ≤ 4 a page a run; pages dirty before the run are skipped; one
