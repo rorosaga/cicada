@@ -9,7 +9,7 @@ from pathlib import Path
 from loguru import logger
 
 from api.config import Settings
-from api.services import bank_index, episode_ids, evidence, git_service, markdown_parser, sleep_drain, sleep_reserve
+from api.services import authorship, bank_index, episode_ids, evidence, git_service, markdown_parser, sleep_drain, sleep_reserve
 
 
 @dataclass
@@ -3396,6 +3396,8 @@ def _get_unprocessed_episodes(
             "capture_kind": str(fm.get("capture_kind") or "") or None,
             # R-F2 / R-LS7: whose words a folder file holds, for Stage-1 evidence.
             "evidence_kind": str(fm.get("evidence_kind") or "") or None,
+            # 2026-10-29: whose words every span is read as — the declared kind, or a saved item's (`authorship`).
+            authorship.KEY: authorship.of(fm),
             # G110 gate B2: the dropped-middle marker's range, from the episode's own record.
             "gaps": evidence.gap_ranges(fm, content) if with_body else (),
             # G179: who the other side of a message conversation is (an agent's turns are never the person's).

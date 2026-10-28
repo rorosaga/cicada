@@ -13,7 +13,7 @@ from loguru import logger
 from thefuzz import fuzz
 
 from api.config import Settings
-from api.services import (agent_engine, alias_policy, application_page, contacts_local, correspondents, engine_errors,
+from api.services import (agent_engine, alias_policy, application_page, authorship, contacts_local, correspondents, engine_errors,
                           entity_body, entity_types, fact_policy, json_parse, owner_identity, people_directory, person_leads,
                           project_birth, promotion, quiet_pages, role_people, section_provenance, text_fold)
 from api.services.clarification_manager import (
@@ -984,7 +984,7 @@ def _said_in_person_turn(memory_path: Path | None, episode_id: str, card: dict) 
     except Exception:
         return False
     keys = contacts_local.name_keys(card.get("given_name"), card.get("family_name"))
-    for turn in evidence.turns(text, override=fm.get("evidence_kind")):
+    for turn in evidence.turns(text, override=authorship.of(fm)):
         if turn.marker is None or turn.role not in promotion.PERSON_KINDS:
             continue
         said = f" {people_directory.fold(text[turn.content_start:turn.end])} "

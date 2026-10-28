@@ -538,7 +538,15 @@ one of six: `user` | `assistant` | `page` | `speaker` (a meeting participant who
 G134) | `media` (what a video said — a watch record's timed `video [m:ss]:` line, G140; its position
 in the video is derived at read, never stored) | `reasoning` (the contributor's own inference:
 `start == end == -1`, never a faked span); an episode's `evidence_kind: user|assistant` (a folder's
-authorship rule, R-F2; a Claude memory export is always `assistant`, its lines being `system:`) overrides the line markers. One marker grammar, `evidence._marker`, reads
+authorship rule, R-F2; a Claude memory export is always `assistant`, its lines being `system:`) overrides the line markers.
+**A saved item's words are the page's (2026-10-29).** A bookmark, saved link, saved-list post, feed item, watched
+day, tab group or calendar entry — known by its own record (`media_entity_id`, `url`, or a saving door's
+origin/source: `authorship.is_saved`, never by what a line says) — reads as `page` everywhere except its
+`## Why it was saved`, `## Saved because` and `## User note` sections (`evidence.PERSON_SECTIONS`), which are `user`;
+a turn marker inside it (an agent's `assistant:` note) still reads as a marker. It is never stored: `authorship.of(fm)`
+returns the declared `evidence_kind`, else `evidence.SAVE_KIND`, and every reader passes that as `override` (Stage 1,
+promotion, project birth, ruling 42, the card rule, the Reader, search hits, the inbox tend). Spans already stored keep
+their kind; the repair is a dry run awaiting the owner. One marker grammar, `evidence._marker`, reads
 both line families, plus the chat importer's `attachment [<file name>]:` turn — the text Claude extracted from an
 upload, every line quoted (`> `) so it can open no turn — which is `page`, never the person's words. One module, `api/services/evidence.py`, does the work for every writer: locate
 is exact → whitespace-normalised → case-insensitive and **never fuzzy**; an unlocatable quote

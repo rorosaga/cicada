@@ -56,7 +56,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from api.services import (bank_index, bank_registry, episode_ids, evidence, fact_sources, history_index,
+from api.services import (authorship, bank_index, bank_registry, episode_ids, evidence, fact_sources, history_index,
                           inbox_questions, markdown_parser)
 from api.services.claims import is_event, is_record, parse_claims, strip_claims_block
 from api.services.graph_builder import summarize
@@ -74,7 +74,9 @@ DB_FILE = "search_index.db"
 # rebuilds every index once (TODO ruling 3).
 # "7": a saved link's episode records its site key in `docs.meta` (`site`, review of #372), so the ⌘K palette draws
 # a bookmark's conversation row with the site's own mark, never the browser's; the bump rebuilds every index once.
-SCHEMA_VERSION = "7"
+# "8": a saved item's `docs.meta` carries `evidence_kind: save` (`authorship.of`), so a hit in a bookmark's fetched
+# description is the page's words, never the person's; the bump rebuilds every index once.
+SCHEMA_VERSION = "8"
 TOKENIZER = "unicode61 remove_diacritics 2"
 # Prefix indexes for 2-, 3- and 4-character prefixes: type-as-you-go queries
 # are mostly that short, and a prefix with no index is a range scan over
@@ -544,9 +546,9 @@ def _index_episode(conn, doc_key: str, f, fm: dict, body: str) -> None:
         ),
         "timestamp": str(fm.get("timestamp") or ""),
         "hash": evidence.body_hash(body),
-        # R-LS7: a folder file's declared authorship, so a hit's kind is the
+        # R-LS7: a folder file's declared authorship (or a saved item's, `authorship.of`), so a hit's kind is the
         # same `evidence.kind_for` answer a stored span carries.
-        "evidence_kind": str(fm.get("evidence_kind") or "").strip(),
+        "evidence_kind": authorship.of(fm) or "",
     }
     if history_index.is_index_only(fm):
         meta["index_only"] = True   # ruling 30: a record to look up — Ask's search leg neither counts nor shows it

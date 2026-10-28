@@ -13,7 +13,7 @@ from loguru import logger
 from tqdm import tqdm
 
 from api.config import Settings
-from api.services import (act_object, correspondents, decay_policy, engine_errors, entity_types, episode_time,
+from api.services import (act_object, authorship, correspondents, decay_policy, engine_errors, entity_types, episode_time,
                           evidence, fact_policy, participation, project_birth, promotion, section_provenance, source_dates)
 from api.services.json_parse import parse_json_object
 
@@ -531,7 +531,7 @@ def _application_pages(entities: list, episode: dict, episode_id: str, content: 
         birth = None
         if not _is_owner(entity, owner):
             birth = application_page.at_extraction(entity, episode_id=episode_id, frontmatter=episode, text=content,
-                                                   day=day, override=episode.get("evidence_kind"), gaps=gaps)
+                                                   day=day, override=authorship.of_episode(episode), gaps=gaps)
         entity.pop("application", None)
         if birth is not None:
             entity[application_page.KEY] = birth
@@ -840,7 +840,7 @@ async def extract(
                     # chunk came from, preferring the chunk window (R11). The
                     # quote is consumed here — nothing downstream sees it.
                     for rel in chunk_rels:
-                        evidence.attach_relationship_evidence(rel, ep_id, content, window=spans[ci], kind_override=episode.get("evidence_kind"),
+                        evidence.attach_relationship_evidence(rel, ep_id, content, window=spans[ci], kind_override=authorship.of_episode(episode),
                                                               gaps=gaps)
                         # 2026-10-27: "competed in", "won", "worked at"… need the located words to say that role;
                         # "a story about", a topic or a mention stays a mention (`participation`).
@@ -850,7 +850,7 @@ async def extract(
                     chunk_values = [v for v in (parsed.get("values", []) or []) if isinstance(v, dict)]
                     for value in chunk_values:
                         evidence.attach_relationship_evidence(value, ep_id, content, window=spans[ci],
-                                                              kind_override=episode.get("evidence_kind"), gaps=gaps)
+                                                              kind_override=authorship.of_episode(episode), gaps=gaps)
                     all_values.extend(chunk_values)
 
                 # 2026-10-28 (ruling 42): "signed up for an <event> at the <venue>" is an act on the event; the
@@ -870,7 +870,7 @@ async def extract(
                 ep_origin = episode.get("origin", "unknown")
                 # The promotion rule's "more than 3 exchanges" and "the person's own words", counted on the
                 # conversation itself (`promotion`), never guessed from what the model wrote about it.
-                units = promotion.exchanges(content, override=episode.get("evidence_kind"), gaps=gaps)
+                units = promotion.exchanges(content, override=authorship.of_episode(episode), gaps=gaps)
                 # Ruling 42: a specific event, program or application the person (or an agent, for them) acted on
                 # gets its page from this one conversation, and the application lives there, not on the owner's.
                 app_values = _application_pages(all_entities, episode, ep_id, content, owner=owner,
@@ -893,7 +893,7 @@ async def extract(
                         born = project_birth.at_extraction(
                             entity, episode_id=ep_id, frontmatter=episode, text=content,
                             day=ep_day.isoformat() if ep_day and not untimed else None,
-                            override=episode.get("evidence_kind"), gaps=gaps)
+                            override=authorship.of_episode(episode), gaps=gaps)
                         if born is not None:
                             entity["project_birth"] = born
                     section_provenance.attach(entity, ep_id, content)

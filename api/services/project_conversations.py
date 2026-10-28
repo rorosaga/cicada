@@ -30,7 +30,7 @@ import sqlite3
 from datetime import date, timedelta
 from pathlib import Path
 
-from api.services import evidence, project_birth, project_ownership, promotion, search_index
+from api.services import authorship, evidence, project_birth, project_ownership, promotion, search_index
 from api.services.project_timeline import ACTIVITY_DAYS, _Bank, _claim_episodes, _conv_key, _conversation, _ep_day, _sort_ts, _tree
 
 SIGNALS = ("repo", "named", "claims", "added", "provider", "relay")
@@ -72,7 +72,7 @@ def _fts_candidates(memory_path: Path, names: list[str]) -> set[str] | None:
 def person_named(text: str, pattern: re.Pattern, fm: dict) -> bool:
     """The person's own turn holds the name as a whole word (exact, any case; never fuzzy, never an agent's turn)."""
     gaps = evidence.gap_ranges(fm, text)
-    for turn in evidence.turns(text, override=fm.get("evidence_kind"), gaps=gaps):
+    for turn in evidence.turns(text, override=authorship.of(fm), gaps=gaps):
         if turn.role not in promotion.PERSON_KINDS:
             continue
         for m in pattern.finditer(text, turn.content_start, turn.end):

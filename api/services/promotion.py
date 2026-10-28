@@ -77,8 +77,11 @@ def exchanges(text: str, *, override: str | None = None, gaps=()) -> list[tuple[
 
     An exchange opens at every turn that is a person's (the owner's, or another
     speaker's in a meeting) and runs through the replies after it. A document
-    with no turn markers (a note, a saved text) is the person's own writing:
-    each paragraph is one exchange."""
+    with no turn markers (a note, a shared text) is the person's own writing:
+    each paragraph is one exchange. A saved item is not (``override`` is
+    ``evidence.SAVE_KIND``, from ``authorship.of``): its title, site and
+    fetched description are the page's, and only its reason or note sections
+    are an exchange of the person's."""
     turns = evidence.turns(text or "", override=override, gaps=gaps)
     if not turns:
         return []
