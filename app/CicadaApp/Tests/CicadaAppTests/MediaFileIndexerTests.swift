@@ -169,6 +169,22 @@ final class MediaFileIndexerTests: XCTestCase {
         XCTAssertEqual(handed, [], "a recording under a refused root is never read")
     }
 
+    /// The cold cost of a video's frames on this Mac — skipped unless `MEDIA_BENCH_FILE` names a video (a synthetic
+    /// one; `benchmarks/perf/README.md`, "media"). Prints the samples, the frames kept and the seconds per hour.
+    func testBenchFrameSampling() async throws {
+        guard let path = ProcessInfo.processInfo.environment["MEDIA_BENCH_FILE"] else {
+            throw XCTSkip("set MEDIA_BENCH_FILE to a video to measure")
+        }
+        let started = Date()
+        let out = await SystemFrameSampler().frames(URL(fileURLWithPath: path))
+        let took = Date().timeIntervalSince(started)
+        let hours = (out.length ?? 0) / 3600
+        let bytes = out.frames.reduce(0) { $0 + $1.jpeg.count }
+        print("MEDIA_BENCH length \(Int(out.length ?? 0)) s, samples \(MediaFrames.times(seconds: out.length ?? 0).count), "
+              + "kept \(out.frames.count), \(String(format: "%.1f", took)) s, "
+              + "\(String(format: "%.1f", hours > 0 ? took / hours : 0)) s per hour, mean frame \(bytes / max(1, out.frames.count)) B")
+    }
+
     func testTheInfoPlistSaysWhySpeechIsAskedFor() throws {
         let script = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().appendingPathComponent("bundle.sh")

@@ -1400,8 +1400,12 @@ when drawn) and `GET /design/{id}/type/{n}` the PNG from the bank. Pixels come f
 request names), returning an uncompressed BMP parsed with numpy — no image library in the server; a decode failure
 means no palette, never a failed save.
 
-**The design index** (`design_index.py`) is derived and disposable **outside every bank**:
-`$CICADA_HOME/design-index/<bank-id>.sqlite`, one row per reference and kind (`image`: the screenshot's EmbeddingGemma 2
+**The design index** (`design_index.py`) is derived and disposable, **a table of the one meaning index** (meaning
+index 2, 2026-10-28): `look_vectors` in the bank's `vector_index.db` — git-ignored, skipped by a bank copy and an
+export (`bank_registry.DERIVED_ARTIFACTS`), written only in one short transaction under the file's one write lock
+after everything is embedded, never across an embed. The board's old file (`$CICADA_HOME/design-index/<bank-id>.sqlite`)
+is folded in on first use — its rows with their stamps, so nothing re-embeds — and deleted (`design_index._migrate`).
+One row per reference and kind (`image`: the screenshot's EmbeddingGemma 2
 vector; `note`: the note plus the look's words, same model's text encoder), each stamped with the model and the hash
 of what was embedded. **An image row's stamp also carries the preprocessing's fingerprint** (vision item 3,
 2026-10-28, `vision_embedder.fingerprint`): one built-in reference picture is decoded through the real decoder
@@ -1874,10 +1878,60 @@ picture leg on that copy, its query vector already made by the entity leg (recal
 8.7 ms, p95 17.6 ms; with no picture table, 2.2 / 3.8 ms. Each query embedding its own words first: p50 24 ms, p95
 54 ms. Prefix search is unchanged (it never reaches the leg); the prompt hook never calls it.
 
-**Not yet:** files from folders the person picks (G195's app walk), documents, video frames from local files, audio
-(spike: the PR's report), the design board's own store retiring into this one (it keeps its words leg, its example-
-picture search and its tiered order; its picture vectors could be read from here instead — a read-path swap, then the
-separate file goes), and a picture group in the app's find palette (a design-direction-D decision).
+**One store for looks (meaning index 2).** A look's picture vector the design board already holds — same bytes, a
+stamp current for EmbeddingGemma 2 and this fingerprint — is copied into the `images` kind instead of embedded again
+(`image_index._look_vectors`); the board keeps its own words leg, example-picture search and tiered order.
+
+**Not yet:** files from folders the person picks (G195's app walk) and documents; a picture or recording group in the
+app's find palette (a design-direction-D decision).
+
+### Recordings and videos the person adds (meaning index 2, 2026-10-28; G195 stage 2)
+`api/services/media_files.py`, `api/routers/files.py`, the app's `MediaFileIndexer`. **Decided:** the owner told the
+coordinator to go with the recommendation (2026-10-28) — speech is transcribed on the Mac by Apple's own recogniser and
+the words embedded in the same space (no 561 MB audio model); a video's frames are sampled from the local file the
+person picks, into the picture kind.
+
+**The app reads, the backend parses bytes.** A recording or video the person drops on the window (the intake's one
+door, `IntakeRouter.accept`, after the refused-roots guard) goes to `MediaFileIndexer`, never to the import. On the Mac
+it transcribes the speech (`SpeechAnalyzer` + `SpeechTranscriber`, macOS 26+, only for a locale macOS already has a
+speech model for — Cicada never asks for or downloads one, it says how to add one) and, for a video, samples a frame
+every 3 s (≤ 1,200) and keeps one per shot (an 8 × 8 average hash that moved > 4 bits from the last kept), each a
+≤ 640 × 400, ≤ 200 KB JPEG with its time. It posts only those derivatives: `POST /files/media` (name, kind, sha256,
+size, length, language, segments with start/end) and `POST /files/<id>/frames` (≤ 64 a call). The backend never sees
+the path or the bytes, never downloads, never derives a stream (G162).
+
+**Speech permission.** `SFSpeechRecognizer`'s header documents a Speech Recognition prompt;
+`SpeechAnalyzer`'s interface declares no authorization API, and whether the same TCC service gates it was not tested
+(a test would raise the prompt). The app treats it as gated: `authorizationStatus()` (never prompts) is read, the
+request is made only inside the person's own drop, and a denial keeps the file without its words, said in words.
+`NSSpeechRecognitionUsageDescription` is in the bundle. Checked with fixtures only (`MediaFileIndexerTests`).
+
+**Stored outside every bank:** `$CICADA_HOME/files/<bank>/<file-id>/` (`meta.json`, `transcript.json` scrubbed like
+every writer, `frames/<ms>.jpg` + `frames.json`); a demo bank refuses (409). `DELETE /files/<id>` removes it; its
+vectors leave at the next refresh, which the delete starts at once.
+
+**Whose words.** A transcript is **the recording's words** (`words_by: the recording`): never an episode, never the
+person's own for promotion, never read by Sleep (G195), and every hit says so ("the recording's words, at 12:34"). A
+file becomes memory only when the person or an agent uses it in a conversation; then that conversation is the evidence.
+
+**In the one index.** The words are the `files` text kind (passages of ~1,600 characters that keep whole segments and
+their start and end, embedded by the bank's text model through `vector_index`'s own diffing sync, so a model switch
+rebuilds in one transaction; `stats_files` holds the kind's mean); the frames are `images` rows with `source: frame`,
+their file and time. Only the background refresher embeds them (`image_index.start_refresh`, which now also runs for
+a bank with added files and no image encoder), outside Sleep, never on a search. `/search?kinds=file` (opt-in, never
+in `KINDS`) and recall's "From recordings and videos you added" (local doors only) score a passage by its lift over
+the query's mean across every passage, shown at `media_files.TEXT_LIFT_MIN` (0.12): on the real text model a topic said
+in a synthetic hour lifts its best passage 0.18–0.2, a topic never said ≤ 0.04 (`benchmarks.perf.media_index_build`).
+
+**Measured** (this Mac under other sessions' load; the pinned EmbeddingGemma 2; synthetic media only): the words of
+one hour of speech (9,000 words, 33 passages) embed cold in 7.6 s; the `files` leg answers in p50 10 ms, p95 15 ms.
+Transcription itself runs in the app at the recogniser's speed (not run here: it would ask for Speech Recognition;
+published figure for the same API ≈ 45× real time, so ≈ 80 s an hour). A video's frames, sampled in the app
+(`testBenchFrameSampling`, synthetic 10-minute 1280 × 720 videos): ≈ 37–39 s of sampling per hour; a slide-like video
+kept 79 frames in 10 minutes (≈ 470 an hour, ≈ 31 KB each), a mostly still one 1; at the measured ≈ 150 ms a picture
+those embed in ≈ 70 s an hour (the worst case, a frame kept at every sample, 1,200 × 150 ms ≈ 3 min). On a copy of the
+owner's 8,028-page bank with one hour added, interleaved: recall p50 269 → 278 ms, p95 1,629 → 1,568 ms (noise); the
+`files` leg 2.1 / 3.5 ms with no table … 3.4 / 6.2 ms with the hour.
 
 ### The quick read's provisional records (G207, 2026-10-22)
 `<bank>/.awake/<episode>.json`, one per conversation a quick read covered (`awake_read`, its only writer). It holds

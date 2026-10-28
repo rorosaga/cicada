@@ -694,8 +694,17 @@ skill_folder`). Nothing is written into a bank: agent folders, and `$CICADA_HOME
   asked for by name (`kinds=image`, or `images` / `pictures`) and never in the default or in "every kind" (`search_service.OPT_IN_KINDS`, outside `KINDS`, so `cicada find` with no `--kind` is unchanged): hybrid only (prefix returns
   none and never reaches the picture index), ranked by their lift over the query's mean across every picture and
   never counted (no `totals` entry); each hit is `kind: image`, `type: image`, with the additive `thumbnail` (the API
-  path that serves it) and `imageSource` (`look | capture | preview | still`), `subjectId` its page and `episodeId`
-  a watched day. No ETag: it is never a Store domain. Its query string (and
+  path that serves it) and `imageSource` (`look | capture | preview | still | frame`), `subjectId` its page and
+  `episodeId` a watched day; a `frame` adds `fileId` and `atSeconds`. **Recordings** (meaning index 2) are the opt-in
+  `kinds=file` (or `files`, `recordings`, `audio`, `video`): `kind: file`, `type` audio or video, `snippet` the
+  recording's words with `subtitle` "the recording's words, at m:ss", additive `fileId`, `atSeconds`, `endSeconds`.
+  No ETag: it is never a Store domain.
+- **`/files`** (meaning index 2, `routers/files.py`): `POST /files/media` (an added recording's description and its
+  transcribed segments; the same sha256 again replaces its words; 422 for anything out of shape, nothing written; 409
+  in a demo bank), `POST /files/{id}/frames` (≤ 64 base64 JPEGs a call, ≤ 640 × 400 and ≤ 200 KB each, ≤ 1,200 a file),
+  `GET /files` (descriptions, never the words or the sha256), `GET /files/{id}/frames/{ms}` (only a frame the file's own
+  list names), `DELETE /files/{id}`. No route embeds: each starts the background refresher (30 s later; a delete at
+  once). The app posts derivatives only — never a path or a file's bytes. Its query string (and
   `/conversations/recent`'s) is stripped from uvicorn's access log; a new query-bearing GET joins
   `_QUERY_PATHS` in `api/main.py`. An OAuth callback's query (`/sources/connectors/<id>/callback`,
   `/connections/<id>/callback/<nonce>`) is stripped too: its `code` is a credential (2026-10-16).

@@ -59,7 +59,13 @@ times — and Ask said "the assistant" where the episode recorded a Claude Code 
   `image_index.LIFT_MIN`, so most recalls carry none. It embeds only the query's words with the table's text model —
   the vector the entity leg already made — and never the image encoder. **The remote connector never sees it:** no
   G135 scope covers pictures (`sources` covers the person's verbatim words), so `ctx.is_remote` skips the section
-  (the owner's call whether a scope should; the PR's "Needs the owner").
+  (decided 2026-10-28: no picture hits on remote doors). A frame of a video the person added names its time.
+- **From recordings and videos you added (meaning index 2, 2026-10-28).** On the same local doors only, at most
+  `RECALL_FILE_LINES` (3) passages of the words of a recording or video the person added (`media_files`), each its
+  file's name, kind, where in it ("at 12:34") and a short excerpt, under a header that says they are **the
+  recording's words, not the person's**. Hits only (G195: the whole file only on the person's ask); a passage shows only
+  above `media_files.TEXT_LIFT_MIN`. The remote connector never sees it (G195: "the remote connector never sees file
+  search").
 - **Measured** on a 7,962-page bank copy with its own search model, 25 questions (people, events, projects, "who did
   X", "did I send Y"): 457,788 → 150,672 characters in all (median 18,713 → 6,038, largest 22,453 → 8,625), the answer-bearing fact in 23
   of 25 replies before and after. The two misses are the same before and after: both facts sit only on the 482 KB

@@ -40,6 +40,16 @@
   harness door's catch-up carries the same page context and asks for a conversation (skill, prompt). Speed and what is
   next for `load_inbox` in the PR body.
 
+- **2026-10-29 — meaning index 2: recordings, video frames and the design board in the one index (G195 stage 2;
+  branch `feat/meaning-index-2`).** Audio and video were decided by the owner, through the coordinator: **"owner said go
+  with the recommendation, 2026-10-28"**. That means speech is transcribed on the Mac by Apple's on-device recogniser
+  and then embedded (no 561 MB audio model), and a picked video's frames go into the picture kind. A dropped recording
+  or video is read by the app (`MediaFileIndexer`), which posts only its words and kept frames to `/files`. They are
+  stored outside every bank as the recording's words, never the person's. Words: the `files` kind; frames: `source:
+  frame` pictures. Both are opt-in in `/search` and appear in recall on local doors only. The design board's store is
+  now the `look_vectors` table of `vector_index.db`; its old file is folded in once and deleted. A rebuild now removes
+  deleted pictures from the generation being served at once, and swaps when nothing is left to embed (follow-up to
+  #506's review). An hour of speech embeds cold in 7.6 s.
 - **2026-10-28 — ruling 48 recorded; the redesign accepted (docs only; branch `docs/redesign-rulings-2026-10-28`).**
   The owner answered the redesign's decisions: entity pages read as articles that carry their beliefs (citation
   markers, References, no beliefs list), Home leads its questions with their pages and Catch me up stands apart as a
