@@ -57,7 +57,7 @@ MAX_FRAME_BYTES = 200 * 1024
 FRAME_W, FRAME_H = 640, 400
 PASSAGE_CHARS = 1_600               # vector_index.EPISODE_CHUNK_CHARS: what the search models read
 #: A passage is a hit only this far above the query's mean cosine over every passage. Calibrated on the real text
-#: model (``benchmarks.perf.media_index_build``): an on-topic passage lifts ≥ 0.17, an off-topic best ≤ 0.07.
+#: model (``benchmarks.perf.media_index_build``): a topic said lifts its best passage ≥ 0.18, a topic never said ≤ 0.04.
 TEXT_LIFT_MIN = 0.12
 SCRUB_WRITER = "media-files"
 

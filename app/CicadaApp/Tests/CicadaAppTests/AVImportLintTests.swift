@@ -19,6 +19,10 @@ final class AVImportLintTests: XCTestCase {
     private static let allowed = [
         "Views/Common/AVPlaybackController.swift",
         "Views/Capture/Sheets/WalkthroughPanel.swift",
+        // Meaning index 2 (2026-10-28): the one reader of a recording or video the person adds (transcription and
+        // frame sampling). Not a media surface; every AVFoundation call sits behind `Transcribing`/`FrameSampling`,
+        // which its tests fake, so the rest of the app stays testable without it.
+        "Support/MediaFileIndexer.swift",
     ]
 
     private static let needles = ["import AVKit", "import AVFoundation"]
