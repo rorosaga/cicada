@@ -16,13 +16,18 @@ struct ClustersCardColumn: View {
     let onEscape: () -> Void
 
     @Environment(GraphViewModel.self) private var graphVM
+    @Environment(Store.self) private var store
     @State private var fullEntity: Entity?
     @State private var nav = TopicDetailNavigation<Entity>()
     /// The one in-flight full-body fetch; cancelled on every new `navigate`/`goBackEntity`. `nav`'s token is the
     /// backstop for a cancellation that arrives too late to stop the response (PR #29 round 2).
     @State private var navTask: Task<Void, Never>?
 
-    private var displayEntity: Entity { nav.pushed ?? fullEntity ?? entity }
+    /// The pushed page, else this page as the graph last read it in full (a write on the page re-reads it there,
+    /// `GraphViewModel.reloadEntity`), else the body this column read, else the list's stub.
+    private var displayEntity: Entity {
+        nav.pushed ?? graphVM.entities.first(where: { $0.id == entity.id && !$0.isStub }) ?? fullEntity ?? entity
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
@@ -46,7 +51,8 @@ struct ClustersCardColumn: View {
         .focusEffectDisabled()
         .onExitCommand { onEscape() }
         .task(id: entity.id) {
-            fullEntity = try? await APIClient.shared.fetchEntity(id: entity.id)
+            // Through the Store's memo, which the card reads too: one request when the column opens, not two.
+            fullEntity = await store.entity(entity.id)
         }
     }
 
@@ -55,7 +61,7 @@ struct ClustersCardColumn: View {
         // An instant placeholder from the graph's stub, then the full body.
         let token = nav.navigate(from: displayEntity, toStub: graphVM.entities.first(where: { $0.id == id }))
         navTask = Task {
-            guard let full = try? await APIClient.shared.fetchEntity(id: id) else { return }
+            guard let full = await store.entity(id) else { return }
             nav.apply(full, token: token)
         }
     }

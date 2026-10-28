@@ -19,7 +19,7 @@ final class PageBlocksTests: XCTestCase {
 
     func testTheBackendsBlocksDecodeWhole() throws {
         let b = try JSONDecoder().decode(PageBlocks.self, from: Self.fixtureData())
-        XCTAssertEqual(b.order, ["relevance", "sources", "coordinates", "looks", "ongoing", "history"])
+        XCTAssertEqual(b.order, ["relevance", "sources", "coordinates", "looks", "ongoing", "citations", "history"])
         XCTAssertEqual(b.relevance?.tense, "is")
         XCTAssertEqual(b.coordinates?.lat, 40.4168)
         XCTAssertEqual(b.coordinates?.label, "Alpha Place")
@@ -30,6 +30,14 @@ final class PageBlocksTests: XCTestCase {
         XCTAssertEqual(Set(b.sources?.items?.map(\.state) ?? []), ["unchecked", "proposed", "checked", "stale"])
         XCTAssertEqual(b.history?.bySleep, 2)
         XCTAssertEqual(b.history?.contributors?.first?.author, "claude-haiku-4-5")
+        // Ruling 48 (16) — the article's markers, numbered sources and References' counts.
+        let c = try XCTUnwrap(b.citations)
+        XCTAssertEqual(c.markers.map(\.refs), [[1], [2], [2], [3]])
+        XCTAssertEqual(c.refs.map(\.kind), ["conversation", "conversation", "web"])
+        XCTAssertEqual(c.refs.first?.title, "Studio plan")
+        XCTAssertEqual(c.refs[1].correspondent, "Bob Example")
+        XCTAssertEqual([c.total, c.conversations, c.web, c.pages], [3, 2, 1, 0])
+        XCTAssertTrue(c.beliefs.isEmpty)
     }
 
     func testAMissingOrUnknownBlockNeverFailsTheCard() throws {
