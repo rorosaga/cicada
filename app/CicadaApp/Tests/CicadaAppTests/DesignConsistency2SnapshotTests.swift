@@ -30,7 +30,6 @@ final class DesignConsistency2SnapshotTests: XCTestCase {
             AnyView(Image(nsImage: images[ref.id]!).resizable().scaledToFill())
         }
 
-        let cluster = try JSONDecoder().decode(ProjectCluster.self, from: Data(Self.cluster.utf8))
         let channels = ChannelItemsCache(api: Snapshot2HangingItemsAPI())
 
         for mode in [AppColorScheme.light, .dark] {
@@ -50,14 +49,6 @@ final class DesignConsistency2SnapshotTests: XCTestCase {
             try snapshot(pageLooks, size: CGSize(width: 720, height: 420), mode: mode,
                          to: out.appendingPathComponent("page-looks-\(name).png"))
 
-            let around = ProjectAroundSection(cluster: cluster, today: ISODay(year: 2026, month: 10, day: 20),
-                                              partial: false, openCard: nil, openEntity: { _ in },
-                                              openProject: { _ in }, openSource: { _ in })
-                .padding(24)
-                .frame(width: 560, alignment: .topLeading)
-            try snapshot(around, size: CGSize(width: 560, height: 220), mode: mode,
-                         to: out.appendingPathComponent("projects-around-\(name).png"))
-
             let captured = VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
                 DetailHeader(title: "Notes", closeHelp: "Close", onClose: {})
                 CapturedItemsList(channel: "notes", style: .open)
@@ -69,18 +60,6 @@ final class DesignConsistency2SnapshotTests: XCTestCase {
         }
     }
 
-    static let cluster = """
-    {"groups": [
-      {"label": "Tools", "more": 0, "members": [
-        {"id": "tool-alpha", "type": "tool", "name": "alpha-tool", "rolePhrase": "builds it", "fact": "",
-         "lastSeen": "2026-10-18", "count": 4, "pending": false},
-        {"id": "tool-beta", "type": "tool", "name": "beta-tool", "rolePhrase": "", "fact": "runs the tests",
-         "lastSeen": "2026-10-02", "count": 2, "pending": false}]},
-      {"label": "People", "more": 0, "members": [
-        {"id": "person-bob", "type": "person", "name": "bob-example", "rolePhrase": "reviews", "fact": "",
-         "lastSeen": "2026-10-11", "count": 3, "pending": false}]}
-    ]}
-    """
 
     private func snapshot<V: View>(_ view: V, size: CGSize, mode: AppColorScheme, channels: ChannelItemsCache? = nil,
                                    to url: URL) throws {

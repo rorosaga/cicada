@@ -1,11 +1,14 @@
 import SwiftUI
 
-/// §5.3 STATE 1 — one project beside the list, top to bottom (Projects v2, owner 2026-10-19): the heading (DR-16's H1
-/// role) with what it is in one line, then where it stands, what happened last and what's next — once each
-/// (`ProjectSummary`) — the band, the Log field, and the story's depth as folded sections: In progress, What happened,
-/// Plan, Backlog (G150), Around this project (R-PP13), each opened on a click and remembered per viewer (DR-39). One selection (R-PP11) rings the band's mark and
-/// marks the section row; a pick from the band scrolls its row into view (DR-30). It reads `ProjectsCache` (R-PP3): a
-/// skeleton on a first open, words when the project is gone, the error card with Retry — never a blank (DR-43).
+/// §5.3 STATE 1 — one project beside the list, top to bottom (Projects v3, decisions 9, 10 and 17, owner 2026-10-28):
+/// the heading (DR-16's H1 role) with the person's line, ONE line of where it stands and what's next, the band, the Log
+/// field, then the open sections in the order the person needs them — Pulse, In motion, Coming up, Timeline — and the
+/// knowledge panel beside them: Pages in this project, Conversations, Sources & influences. **No folds** (DR-81 as
+/// proposed): a section with nothing in it is not drawn; a section with more than `ProjectOpen.cap` rows ends in
+/// "All N", which swaps the card's column to that full list (Esc back) — never an in-place expansion. One selection
+/// (R-PP11) rings the band's mark and marks the row; a pick whose row the capped section does not show opens its full
+/// list. It reads `ProjectsCache` (R-PP3): a skeleton on a first open, words when the project is gone, the error card
+/// with Retry — never a blank (DR-43).
 struct ProjectDetailColumn: View {
     let projectId: String
     let row: ProjectRow?
@@ -30,33 +33,31 @@ struct ProjectDetailColumn: View {
     @Environment(Store.self) private var store
     @Environment(AppRouter.self) private var router
     @Environment(BacklogCache.self) private var backlogCache
-    /// DR-39 — which sections this viewer opened, remembered (a convenience, so `UserDefaults`). Projects v2: every
-    /// section starts folded — the summary answers first, the sections are its depth.
-    @AppStorage("cicada.projects.opened") private var openedRaw = ""
     @State private var selection: ProjectKey?
     @State private var scrollToken = 0
     @State private var bandWidth: CGFloat = 0
     @FocusState private var bandFocused: Bool
     /// R-PP21 — the Log field; L focuses it.
     @FocusState private var logFocused: Bool
-    /// Set by M, the menu and "No plan yet — Add a milestone" to open the Plan's add field; the Plan clears it once
-    /// the field is open. A flag, not a counter: the story is a lazy stack (R-FA3), so a Plan below a long Lately is
-    /// often built only after the request, with the request already in its initial value, and a counter's
-    /// `.onChange` never fires then — the section reads the flag on appear too (final review, finding 1).
+    /// Set by M, the menu and the header's "Add a milestone" to open Coming up's add field; the section clears it once
+    /// the field is open. A flag, not a counter (final review of PJ-5, finding 1): the section reads it on appear too,
+    /// and it draws Coming up even while the project plans nothing yet.
     @State private var addPending = false
-    /// A scroll target that is not a selection (the Plan's section, for M).
+    /// A scroll target that is not a selection (Coming up, for M).
     @State private var pendingScroll: String?
-    /// R-PP23 — the Plan's Rename or Add field is open, so a letter is typing, not a key.
+    /// R-PP23 — Coming up's Rename or Add field is open, so a letter is typing, not a key.
     @State private var planEditing = false
     /// G150 — the backlog's add fields are open, so a letter is typing, not a key.
     @State private var backlogEditing = false
     /// R-FA2 — the story's derivation, built off the main actor. The last value for the same project keeps painting
     /// while a newer one builds (never blank); the skeleton shows only before the first one.
     @State private var derived: ProjectDerived?
-    /// R-PP26 — Resume's view model, one for the column now that Lately's rows are separate lazy children (R-FA3).
+    /// R-PP26 — Resume's view model, one for the column.
     @State private var conversations = ConversationsViewModel()
-    /// Ruling 45 (Q7) — the column's width decides whether the knowledge panel sits beside the card or under it.
     @State private var addingInfluence = false
+    @State private var addingPage = false
+    /// Decision 17 — the full list an "All N" opened in place of the sections; Esc or Back returns.
+    @State private var full: ProjectOpen.Full?
 
     /// R-FA2 — the column re-derives exactly when the project, the viewer's day or the cached payload moved.
     private var deriveKey: ProjectDerived.Key {
@@ -67,17 +68,6 @@ struct ProjectDetailColumn: View {
     private var blocked: Bool { ProjectWriteGate.blocked(store.status.value) }
     /// R-PP23 — a field of this column is being typed in; L · M · D stand aside.
     private var typing: Bool { logFocused || planEditing || backlogEditing }
-
-    private var collapsed: Set<ProjectSection> {
-        Set(ProjectSection.allCases).subtracting(
-            openedRaw.split(separator: ",").compactMap { ProjectSection(rawValue: String($0)) })
-    }
-
-    private func setOpen(_ section: ProjectSection, _ open: Bool) {
-        var opened = Set(ProjectSection.allCases).subtracting(collapsed)
-        if open { opened.insert(section) } else { opened.remove(section) }
-        openedRaw = opened.map(\.rawValue).sorted().joined(separator: ",")
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -110,9 +100,16 @@ struct ProjectDetailColumn: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .padding(.horizontal, gutter)
         .sheet(isPresented: $addingInfluence) {
-            AddInfluenceSheet(candidates: influenceCandidates) { url, what, entity, how, note in
+            AddInfluenceSheet(candidates: pageCandidates) { url, what, entity, how, note in
                 Task { await change(.addInfluence(id: projectId, url: url, what: what, entity: entity, how: how,
                                                   note: note)) }
+            }
+        }
+        .sheet(isPresented: $addingPage) {
+            AddProjectPageSheet(candidates: pageCandidates.filter { c in
+                !(cache.display(projectId)?.pages.contains { $0.id == c.id && !$0.isProposed } ?? false)
+            }) { id, name, type in
+                Task { await change(.tiePage(id: projectId, entity: id, name: name, type: type, remove: false)) }
             }
         }
         // R-PP23 / DR-68 — L · M · D, the Inbox's O / L precedent (key presses on the focused column, never menu key
@@ -131,13 +128,16 @@ struct ProjectDetailColumn: View {
         .onKeyPress(KeyEquivalent("d")) { markSelectedDone() ? .handled : .ignored }
         .focusable()
         .focusEffectDisabled()
-        .onExitCommand { onEscape() }
+        // DR-28 — Esc closes the rightmost thing: a full list first (decision 17's "Esc back"), then the page's rule.
+        .onExitCommand {
+            if full != nil { Instant.run { full = nil } } else { onEscape() }
+        }
         .task(id: projectId) {
             selection = nil
+            full = nil
             await cache.refreshTimeline(projectId)
             await cache.refreshConversations(projectId)
-            // R-B19 — a folded Backlog section still says "n open": `section(_:…)` builds its body only when open,
-            // so the section's own `.task` never runs while it is folded.
+            // G150 — Coming up reads the open backlog.
             await backlogCache.refreshList(projectId)
         }
         // R-FA2 — derive off the main actor, only when the project, the day or the cached payload moved.
@@ -157,23 +157,13 @@ struct ProjectDetailColumn: View {
         // participants, so it stays here rather than re-deriving off-main on every resize.
         let band = BandLayout.make(t, state: state, width: max(bandWidth - 2 * CicadaTheme.scaled(BandLayout.inset), 1),
                                    today: today)
-        let names = store.entityNames
-        let readerEpisode = provenance.isPresented ? provenance.current?.episode : nil
-        // Folded sections sit close, a list of headings; an open one gets room above what follows (DR-39).
-        let folded = collapsed
-        let gap: (ProjectSection?) -> CGFloat = { previous in
-            CicadaTheme.scaled(previous.map { folded.contains($0) } ?? false ? 6 : 26)
-        }
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                // The page scrolls as one (review of #493): the header, the summary and the band ride with the story, so
-                // nothing slides under them and the band's labels are never clipped.
+                // The page scrolls as one (review of #493): the header, the line and the band ride with the story.
                 header(name: t.project.name, oneLiner: t.project.oneLiner, parent: t.project.parent, ref: t.project)
-                summaryView(ProjectSummary.make(t, state: state, today: today), t)
-                // The band's width is the column's, measured by a flexible zero-height probe: inside the scroll view the
-                // band's own frame grows with what it drew, so measuring the band itself never let it shrink when the
-                // Reader opened beside it (review of #493).
+                standingLine(ProjectSummary.make(t, state: state, today: today), t)
+                // The band's width is the column's, measured by a flexible zero-height probe (review of #493).
                 Color.clear
                     .frame(maxWidth: .infinity, maxHeight: 0)
                     .background {
@@ -186,75 +176,11 @@ struct ProjectDetailColumn: View {
                 bandView(band, t)
                     .padding(.bottom, CicadaTheme.spacingMD)
                 HStack(alignment: .top, spacing: CicadaTheme.scaled(ProjectKnowledgeLayout.gap)) {
-                // R-FA3 — one lazy stack whose children are every section AND every Lately label and row, so a long
-                // story builds only what is on screen; the gaps the nested stacks gave ride on each child's padding.
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    ProjectLogField(projectName: t.project.name, today: today, blocked: blocked, focus: $logFocused,
-                                    save: { text, status, when in await write(.log(text: text, status: status, when: when)) },
-                                    undo: { claimId in _ = await write(.withdraw(claimId: claimId)) })
-                        .frame(maxWidth: CicadaTheme.scaled(ColumnLayout.questionMaxWidth))
-                    section(.now, title: Copy.Projects.now, meta: UsageFormat.count(t.now.threads.count)) {
-                        ProjectNowSection(timeline: t, state: state, today: today, selection: selection,
-                                          followups: ProjectStory.followups(store.visibleInbox),
-                                          pick: { pickRow($0, in: t) }, openEntity: openEntity,
-                                          showSource: { show($0, in: t) },
-                                          openInbox: { router.routeToInboxItem($0) },
-                                          settle: { id, status in Task { await write(.settle(claimId: id, status: status)) } },
-                                          writesBlocked: blocked)
-                    }
-                    .padding(.top, gap(nil))
-                    // Ruling 45 (proposal §2.5): In progress · Done · Timeline.
-                    let done = ProjectDone.entries(t, backlog: backlogCache.list(projectId))
-                    section(.done, title: Copy.ProjectsMine.done, meta: UsageFormat.count(done.count)) {
-                        ProjectDoneSection(entries: done)
-                    }
-                    .padding(.top, gap(.now))
-                    let latelyOpen = !collapsed.contains(.lately)
-                    ProjectSectionHeader(title: Copy.Projects.lately, meta: UsageFormat.count(d.happenings),
-                                         isOpen: latelyOpen) { setOpen(.lately, !latelyOpen) }
-                        .padding(.top, gap(.done))
-                    if latelyOpen {
-                        ForEach(ProjectStory.latelyEntries(d.groups)) { entry in
-                            latelyEntry(entry, t: t, state: state, names: names, readerEpisode: readerEpisode)
-                                .padding(.top, entry.topPadding)
-                        }
-                        if let foot = ProjectStory.createdLine(t.items, today: today) {
-                            ProjectLatelyFoot(text: foot).padding(.top, CicadaTheme.spacingMD)
-                        }
-                    }
-                    // Where the plan stands is the summary's; folded, the section says only what it holds.
-                    section(.plan, title: Copy.Projects.plan, meta: ProjectSummary.planMeta(state)) {
-                        ProjectPlanSection(timeline: t, today: today, selection: selection, names: names,
-                                           pick: { pickRow($0, in: t) }, showSource: { show($0, in: t) },
-                                           markDone: { slug in
-                                               Task { await write(.changeMilestone(slug: slug, change: MilestoneChange(status: "done"))) }
-                                           },
-                                           rename: { slug, name in
-                                               Task { await write(.changeMilestone(slug: slug, change: MilestoneChange(name: name))) }
-                                           },
-                                           add: { name, target in Task { await write(.addMilestone(name: name, target: target)) } },
-                                           addPending: $addPending, writesBlocked: blocked,
-                                           onEditingChange: { planEditing = $0 })
-                    }
-                    .padding(.top, gap(.lately))
-                    .id(ProjectScroll.planSection)
-                    // G150 (R-B19) — after Plan: the plan is what is dated, the backlog what is kept for later.
-                    section(.backlog, title: Copy.Projects.Backlog.title,
-                            meta: backlogCache.list(projectId)
-                                .map { UsageFormat.count(BacklogModel.openCount($0)) } ?? "") {
-                        ProjectBacklogSection(projectId: projectId, today: today, openItem: openBacklogItem,
-                                              writesBlocked: blocked, open: openItem,
-                                              onEditingChange: { backlogEditing = $0 })
-                    }
-                    .padding(.top, gap(.plan))
-                    .id("section.backlog")
-                    if !t.cluster.groups.isEmpty || !t.cluster.alsoUses.isEmpty {
-                        section(.around, title: Copy.Projects.around, meta: "") {
-                            ProjectAroundSection(cluster: t.cluster, today: today, partial: t.partial, openCard: openCard,
-                                                 openEntity: openEntity, openProject: openProject,
-                                                 openSource: { provenance.open($0) })
-                        }
-                        .padding(.top, gap(.backlog))
+                    if let full {
+                        fullList(full, t: t, state: state, d: d)
+                    } else {
+                        sections(t, state: state, d: d)
                     }
                 }
                 .frame(maxWidth: CicadaTheme.scaled(wide ? ProjectKnowledgeLayout.cardWidth : ProjectLayout.textMaxWidth),
@@ -270,14 +196,13 @@ struct ProjectDetailColumn: View {
                 }
                 }
                 if !wide {
-                    // Q7: at narrow widths the panel folds under the card.
+                    // Q7: at narrow widths the panel sits under the card.
                     knowledgePanel(t)
                         .frame(maxWidth: CicadaTheme.scaled(ProjectLayout.textMaxWidth), alignment: .leading)
                         .padding(.bottom, CicadaTheme.scaled(72))
                 }
                 }
-                // The scroll's content is exactly the column's width: nothing it holds may widen it past the column
-                // (review of #493 — with the Reader open the page overflowed onto the list).
+                // The scroll's content is exactly the column's width (review of #493).
                 .frame(width: contentWidth > 0 ? min(contentWidth, cap) : nil, alignment: .leading)
             }
             .onChange(of: scrollToken) { _, _ in
@@ -289,7 +214,6 @@ struct ProjectDetailColumn: View {
                     Instant.run { proxy.scrollTo(target, anchor: .center) }
                     return
                 }
-                // A milestone: land the Plan first so the lazy stack builds it, then centre the row a turn later.
                 Instant.run { proxy.scrollTo(steps[0], anchor: .top) }
                 Task { @MainActor in
                     await Task.yield()
@@ -299,31 +223,151 @@ struct ProjectDetailColumn: View {
         }
     }
 
-    /// R-FA3 — one Lately entry: a day label, or a row whose id IS its scroll id (`ProjectKey.item`), so a band pick
-    /// lands on a row the lazy stack has not built yet.
+    // MARK: - The open sections (decision 9)
+
     @ViewBuilder
-    private func latelyEntry(_ entry: ProjectStory.LatelyEntry, t: ProjectTimeline, state: ProjectState.Output,
-                             names: EntityNames, readerEpisode: String?) -> some View {
+    private func sections(_ t: ProjectTimeline, state: ProjectState.Output, d: ProjectDerived) -> some View {
+        let gap = CicadaTheme.scaled(26)
+        ProjectLogField(projectName: t.project.name, today: today, blocked: blocked, focus: $logFocused,
+                        save: { text, status, when in await write(.log(text: text, status: status, when: when)) },
+                        undo: { claimId in _ = await write(.withdraw(claimId: claimId)) })
+            .frame(maxWidth: CicadaTheme.scaled(ColumnLayout.questionMaxWidth))
+        let pulse = ProjectPulse.pulse(ProjectPulse.Input(t), today: today)
+        if !pulse.empty {
+            ProjectPulseView(pulse: pulse, today: today, pick: { reveal($0, in: t, state: state) })
+                .padding(.top, gap)
+        }
+        let threads = t.now.threads.count
+        let pending = ProjectStory.pendingLine(t.pending, today: today)
+        if threads > 0 || pending != nil {
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                ProjectOpenLabel(title: Copy.ProjectsOpen.inMotion, count: threads) { open(.inMotion) }
+                nowSection(t, state: state, limit: ProjectOpen.cap)
+            }
+            .padding(.top, gap)
+        }
+        let coming = ProjectOpen.comingUp(t, backlog: backlogCache.list(projectId), today: today)
+        if !coming.isEmpty || planEditing || addPending {
+            let shown = coming.capped()
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                ProjectOpenLabel(title: Copy.ProjectsOpen.comingUp, count: coming.count) { open(.comingUp) }
+                planSection(t, rows: shown.milestones, showsAddButton: false)
+                ForEach(shown.backlog) { item in
+                    ProjectBacklogLine(item: item, selected: openBacklogItem == item.id, open: openItem)
+                }
+            }
+            .padding(.top, gap)
+            .id(ProjectScroll.planSection)
+        }
+        let entries = ProjectOpen.timeline(t)
+        if !entries.isEmpty {
+            ProjectOpenLabel(title: Copy.ProjectsOpen.timeline, count: entries.count) { open(.timeline) }
+                .padding(.top, gap)
+                .padding(.bottom, CicadaTheme.spacingSM)
+            ForEach(entries.prefix(ProjectOpen.cap)) { entry in
+                timelineRow(entry, t: t, state: state).padding(.top, CicadaTheme.spacingXS)
+            }
+        }
+    }
+
+    /// The full list an "All N" opened: its head (Back · title · count) and every row; Coming up's also carries the
+    /// whole backlog with its tabs and its add fields (G150).
+    @ViewBuilder
+    private func fullList(_ kind: ProjectOpen.Full, t: ProjectTimeline, state: ProjectState.Output,
+                          d: ProjectDerived) -> some View {
+        let back = { Instant.run { full = nil } }
+        switch kind {
+        case .inMotion:
+            ProjectFullHead(title: Copy.ProjectsOpen.inMotion, count: t.now.threads.count, back: back)
+            nowSection(t, state: state, limit: nil).padding(.top, CicadaTheme.spacingSM)
+        case .comingUp:
+            let coming = ProjectOpen.comingUp(t, backlog: backlogCache.list(projectId), today: today)
+            ProjectFullHead(title: Copy.ProjectsOpen.comingUp, count: coming.count, back: back)
+            planSection(t, rows: coming.milestones, showsAddButton: true)
+                .padding(.top, CicadaTheme.spacingSM)
+                .id(ProjectScroll.planSection)
+            SectionLabel(Copy.ProjectsOpen.backlog)
+                .padding(.horizontal, CicadaTheme.spacingMD)
+                .padding(.top, CicadaTheme.scaled(26))
+                .padding(.bottom, CicadaTheme.spacingSM)
+            ProjectBacklogSection(projectId: projectId, today: today, openItem: openBacklogItem,
+                                  writesBlocked: blocked, open: openItem, onEditingChange: { backlogEditing = $0 })
+        case .timeline:
+            let entries = ProjectOpen.timeline(t)
+            ProjectFullHead(title: Copy.ProjectsOpen.timeline, count: entries.count, back: back)
+                .padding(.bottom, CicadaTheme.spacingSM)
+            ForEach(entries) { entry in
+                timelineRow(entry, t: t, state: state).padding(.top, CicadaTheme.spacingXS)
+            }
+            if let foot = ProjectStory.createdLine(t.items, today: today) {
+                ProjectLatelyFoot(text: foot).padding(.top, CicadaTheme.spacingMD)
+            }
+        case .pages:
+            ProjectFullHead(title: Copy.ProjectsOpen.pagesTitle, count: t.pagesTotal, back: back)
+                .padding(.bottom, CicadaTheme.spacingSM)
+            pagesBlock(t, limit: nil)
+        case .conversations:
+            let page = cache.displayConversations(projectId)
+            ProjectFullHead(title: Copy.ProjectsOpen.conversationsTitle,
+                            count: page?.total ?? t.conversationCount, back: back)
+                .padding(.bottom, CicadaTheme.spacingSM)
+            knowledge(t).conversationsBlock(limit: nil)
+        case .influences:
+            ProjectFullHead(title: Copy.ProjectsOpen.influencesTitle, count: t.influences.count, back: back)
+                .padding(.bottom, CicadaTheme.spacingSM)
+            knowledge(t).influencesBlock(limit: nil)
+        }
+    }
+
+    private func nowSection(_ t: ProjectTimeline, state: ProjectState.Output, limit: Int?) -> some View {
+        ProjectNowSection(timeline: t, state: state, today: today, selection: selection,
+                          followups: ProjectStory.followups(store.visibleInbox),
+                          pick: { pickRow($0, in: t) }, openEntity: openEntity,
+                          showSource: { show($0, in: t) },
+                          openInbox: { router.routeToInboxItem($0) },
+                          settle: { id, status in Task { await write(.settle(claimId: id, status: status)) } },
+                          writesBlocked: blocked, limit: limit)
+    }
+
+    private func planSection(_ t: ProjectTimeline, rows: [ProjectPlan.Row], showsAddButton: Bool) -> some View {
+        ProjectPlanSection(timeline: t, rows: rows, today: today, selection: selection, names: store.entityNames,
+                           pick: { pickRow($0, in: t) }, showSource: { show($0, in: t) },
+                           showsAddButton: showsAddButton,
+                           markDone: { slug in
+                               Task { await write(.changeMilestone(slug: slug, change: MilestoneChange(status: "done"))) }
+                           },
+                           rename: { slug, name in
+                               Task { await write(.changeMilestone(slug: slug, change: MilestoneChange(name: name))) }
+                           },
+                           add: { name, target in Task { await write(.addMilestone(name: name, target: target)) } },
+                           addPending: $addPending, writesBlocked: blocked,
+                           onEditingChange: { planEditing = $0 })
+    }
+
+    /// A Timeline row: the story's own row (its sentence, chips, status and day; selected, its words and Resume), or a
+    /// milestone marked done as a filled diamond with its Tag. Its id IS its scroll id (R-FA3).
+    @ViewBuilder
+    private func timelineRow(_ entry: ProjectOpen.TimelineEntry, t: ProjectTimeline,
+                             state: ProjectState.Output) -> some View {
         switch entry {
-        case .label(let group, _):
-            ProjectLatelyLabel(group: group)
         case .item(let item):
+            let readerEpisode = provenance.isPresented ? provenance.current?.episode : nil
             ProjectLatelyRow(item: item, timeline: t, state: state, today: today, selection: selection,
-                             readerEpisode: readerEpisode, names: names, pick: { pickRow($0, in: t) },
+                             readerEpisode: readerEpisode, names: store.entityNames, pick: { pickRow($0, in: t) },
                              openEntity: openEntity, showSource: { show($0, in: t) },
                              closeReader: { provenance.close() },
                              withdraw: { id in Task { await write(.withdraw(claimId: id)) } },
                              writesBlocked: blocked, conversations: conversations)
+                .id(entry.id)
+        case .milestone(let m):
+            ProjectMilestoneDoneRow(milestone: m, today: today, selected: selection == .milestone(m.slug),
+                                    pick: { pickRow($0, in: t) })
+                .id(entry.id)
         }
     }
 
-    private func section<Body: View>(_ s: ProjectSection, title: String, meta: String,
-                                     @ViewBuilder body: () -> Body) -> some View {
-        let open = !collapsed.contains(s)
-        return VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            ProjectSectionHeader(title: title, meta: meta, isOpen: open) { setOpen(s, !open) }
-            if open { body() }
-        }
+    private func open(_ kind: ProjectOpen.Full) {
+        Instant.run { full = kind }
     }
 
     private func bandView(_ band: BandLayout, _ t: ProjectTimeline) -> some View {
@@ -350,20 +394,25 @@ struct ProjectDetailColumn: View {
 
     // MARK: - Selection (R-PP11)
 
-    /// A mark on the band: select it, open its section if folded, bring its row into view. The band takes the keys
-    /// (R-PP23), so ←/→ walk on from the clicked mark and ⏎ opens its words — a mark's `Button` does not take focus
-    /// on a click by itself.
+    /// A mark on the band: select it, bring its row into view — opening its section's full list when the capped
+    /// section does not show it (decision 17: never an in-place expansion).
     private func pickMark(_ key: ProjectKey, in t: ProjectTimeline) {
         pickRow(key, in: t)
         bandFocused = true
         guard selection == key else { return }
-        if collapsed.contains(key.section) { setOpen(key.section, true) }
-        scrollToken &+= 1
+        bringIntoView(key, in: t)
     }
 
     private func step(_ band: BandLayout, _ delta: Int) {
         Instant.run { selection = band.step(from: selection, delta: delta) }
-        if let key = selection, collapsed.contains(key.section) { setOpen(key.section, true) }
+        if let key = selection, let t = cache.display(projectId) { bringIntoView(key, in: t) } else { scrollToken &+= 1 }
+    }
+
+    private func bringIntoView(_ key: ProjectKey, in t: ProjectTimeline) {
+        if let d = derived, full == nil,
+           !ProjectOpen.isShown(key, in: t, state: d.state, backlog: backlogCache.list(projectId), today: today) {
+            Instant.run { full = ProjectOpen.full(for: key, in: t) }
+        }
         scrollToken &+= 1
     }
 
@@ -392,7 +441,7 @@ struct ProjectDetailColumn: View {
         }
     }
 
-    // MARK: - Ruling 45: the knowledge panel and the person's other writes
+    // MARK: - The knowledge panel (Q7) and the person's other writes
 
     private var contentWidth: CGFloat { available > 0 ? max(available - 2 * gutter, 0) : 0 }
     private var wide: Bool { ProjectKnowledgeLayout.sideBySide(available: contentWidth) }
@@ -402,7 +451,7 @@ struct ProjectDetailColumn: View {
                                     + ProjectKnowledgeLayout.gap : ProjectLayout.detailMaxWidth)
     }
 
-    private func knowledgePanel(_ t: ProjectTimeline) -> some View {
+    private func knowledge(_ t: ProjectTimeline) -> ProjectKnowledgePanel {
         ProjectKnowledgePanel(
             timeline: t, conversations: cache.displayConversations(projectId), blocked: blocked,
             openConversation: { row in provenance.open(ReaderTarget(episode: row.episodeId, subjectId: projectId, knownTitle: row.title, knownHarness: row.harness, fromProject: projectId)) },
@@ -412,11 +461,30 @@ struct ProjectDetailColumn: View {
                 Task { await change(.withdrawInfluence(id: projectId, claimId: row.claimId, page: row.page,
                                                        ref: row.claimId == nil ? row.ref : nil,
                                                        predicate: row.predicate)) }
-            })
+            },
+            allConversations: { open(.conversations) }, allInfluences: { open(.influences) })
     }
 
-    /// The pages "Add an influence" offers by name: every live page but this project.
-    private var influenceCandidates: [(id: String, name: String, type: String)] {
+    private func pagesBlock(_ t: ProjectTimeline, limit: Int?) -> some View {
+        ProjectPagesBlock(
+            timeline: t, blocked: blocked, limit: limit, openEntity: openEntity, add: { addingPage = true },
+            take: { p in Task { await change(.tiePage(id: projectId, entity: p.id, name: p.name, type: p.type,
+                                                      remove: false)) } },
+            remove: { p in Task { await change(.tiePage(id: projectId, entity: p.id, name: p.name, type: p.type,
+                                                        remove: true)) } },
+            all: limit == nil ? nil : { open(.pages) })
+    }
+
+    /// Pages in this project first (decision 10), then Conversations and Sources & influences, each open and capped.
+    private func knowledgePanel(_ t: ProjectTimeline) -> some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
+            ProjectKnowledgePanel.block { pagesBlock(t, limit: ProjectOpen.cap) }
+            knowledge(t)
+        }
+    }
+
+    /// The pages "Add an influence" and "Add a page" offer by name: every live page but this project.
+    private var pageCandidates: [(id: String, name: String, type: String)] {
         (store.graph.value?.nodes ?? []).filter { $0.id != projectId }
             .map { (id: $0.id, name: $0.name, type: $0.type.rawValue) }
     }
@@ -448,18 +516,15 @@ struct ProjectDetailColumn: View {
         return ok ? w.result : nil
     }
 
-    /// M, the menu and "No plan yet — Add a milestone": open the Plan and its field, and bring it into view.
-    /// Whether the Plan is collapsed, already built, or not yet built by the lazy stack, it opens the field from
-    /// `addPending` on appear or on change, so no next-turn special case is needed.
+    /// M, the menu and the header's "Add a milestone": draw Coming up with its add field open, and bring it into view.
     private func requestAdd() {
-        setOpen(.plan, true)
+        if full != nil && full != .comingUp { full = nil }
         addPending = true
         pendingScroll = ProjectScroll.planSection
         scrollToken &+= 1
     }
 
-    /// DR-68 (R-PP23) — D marks the selected thread or milestone done, dated today; never while typing, so a "d" in
-    /// the Log or a milestone's name stays a letter.
+    /// DR-68 (R-PP23) — D marks the selected thread or milestone done, dated today; never while typing.
     private func markSelectedDone() -> Bool {
         guard !blocked, !typing, let key = selection, let t = cache.display(projectId) else { return false }
         switch key {
@@ -492,9 +557,11 @@ struct ProjectDetailColumn: View {
                 }
                 Spacer(minLength: 0)
                 Menu {
-                    // Both need a project on screen: the header also draws while it is still loading (no dead control).
+                    // Every item needs a project on screen: the header also draws while it is still loading.
                     Button(Copy.Projects.addMilestone) { requestAdd() }
                         .disabled(blocked || cache.display(projectId) == nil)
+                    Button(Copy.ProjectsOpen.addToBacklog) { open(.comingUp) }
+                        .disabled(cache.display(projectId) == nil)
                     Button(Copy.Projects.logLabel(name)) { logFocused = true }
                         .disabled(blocked || cache.display(projectId) == nil)
                     Button(Copy.Projects.openCard) { openEntity(projectId) }
@@ -508,10 +575,10 @@ struct ProjectDetailColumn: View {
                 .accessibilityLabel(Copy.Projects.moreHelp)
                 IconButton(systemName: "xmark", help: Copy.Projects.closeHelp, action: onClose)
             }
-            // The page says it is a project; a Project tag beside the name said it twice.
             if let ref {
                 // Ruling 45 (Q5): the person's own header, edited in place; Sleep's first line shows only when they
-                // wrote none.
+                // wrote none. How it came to be theirs and who last edited it ride in the header's `.help` (owner
+                // 2026-10-28: the meta line made the head too dense).
                 ProjectHeaderEditor(ref: ref, blocked: blocked) { newName, newDescription in
                     Task { await change(.header(id: projectId, name: newName, description: newDescription)) }
                 }
@@ -533,76 +600,41 @@ struct ProjectDetailColumn: View {
         .padding(.top, CicadaTheme.spacingSM)
     }
 
-    /// Projects v2 — where it stands, what happened last, what's next: three label–value rows, each said once. Last
-    /// and Next are buttons onto their row: selected on the band, its section unfolded and brought into view.
-    private func summaryView(_ summary: ProjectSummary, _ t: ProjectTimeline) -> some View {
-        Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: CicadaTheme.spacingMD,
-             verticalSpacing: CicadaTheme.scaled(6)) {
-            GridRow {
-                summaryLabel(Copy.Projects.standsLabel)
-                Text(summary.stands)
-                    .font(CicadaTheme.bodyFont)
-                    .monospacedDigit()
-                    .foregroundStyle(CicadaTheme.textPrimary)
-                    .lineLimit(2)
-            }
-            GridRow {
-                summaryLabel(Copy.Projects.lastLabel)
-                summaryValue(summary.last, empty: Copy.Projects.nothingYet, t)
-            }
-            GridRow {
-                summaryLabel(Copy.Projects.nextLabel)
-                if summary.next == nil {
-                    HStack(spacing: CicadaTheme.spacingSM) {
-                        Text(Copy.Projects.nothingPlanned)
-                            .font(CicadaTheme.bodyFont)
-                            .foregroundStyle(CicadaTheme.textTertiary)
-                        TextButton(title: Copy.Projects.addMilestone, keyHint: "M", help: Copy.Projects.addMilestoneHelp,
-                                   inline: true) { requestAdd() }
-                            .disabled(blocked)
-                    }
-                } else {
-                    summaryValue(summary.next, empty: Copy.Projects.nothingPlanned, t)
+    /// Projects v3 (owner 2026-10-28: "the header block is still too dense") — where it stands and what's next as ONE
+    /// line under the description: "In motion · 3 of 6 milestones done · Next: Fibreglass the hull, Nov 8". What happened
+    /// last is the Timeline's first row and the band's newest mark, so it is not said here too (DR-38). Next is a
+    /// button onto its row; with nothing planned, "Add a milestone" (M) takes its place.
+    private func standingLine(_ summary: ProjectSummary, _ t: ProjectTimeline) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingXS) {
+            Text(summary.stands)
+                .foregroundStyle(CicadaTheme.textSecondary)
+                .lineLimit(1)
+            if let next = summary.next, let key = next.key {
+                Text("·").foregroundStyle(CicadaTheme.textTertiary)
+                Button { reveal(key, in: t, state: derived?.state) } label: {
+                    Text(Copy.ProjectsOpen.nextInline(next.text))
+                        .foregroundStyle(selection == key ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
+                        .lineLimit(1)
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(.cicadaPlain)
+                .help(Copy.Projects.summaryHelp)
+            } else if summary.next == nil {
+                Text("·").foregroundStyle(CicadaTheme.textTertiary)
+                TextButton(title: Copy.Projects.addMilestone, keyHint: "M", help: Copy.Projects.addMilestoneHelp,
+                           inline: true) { requestAdd() }
+                    .disabled(blocked)
             }
         }
+        .font(CicadaTheme.bodyFont)
+        .monospacedDigit()
         .frame(maxWidth: CicadaTheme.scaled(ProjectLayout.textMaxWidth), alignment: .leading)
-        .padding(.top, CicadaTheme.spacingMD)
+        .padding(.top, CicadaTheme.spacingSM)
     }
 
-    private func summaryLabel(_ text: String) -> some View {
-        Text(text)
-            .font(CicadaTheme.metaFont)
-            .foregroundStyle(CicadaTheme.textTertiary)
-            .gridColumnAlignment(.leading)
-    }
-
-    @ViewBuilder
-    private func summaryValue(_ line: ProjectSummary.Line?, empty: String, _ t: ProjectTimeline) -> some View {
-        if let line, let key = line.key {
-            Button { reveal(key, in: t) } label: {
-                Text(line.text)
-                    .font(CicadaTheme.bodyFont)
-                    .monospacedDigit()
-                    .foregroundStyle(selection == key ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.cicadaPlain)
-            .help(Copy.Projects.summaryHelp)
-        } else {
-            Text(line?.text ?? empty)
-                .font(CicadaTheme.bodyFont)
-                .foregroundStyle(line == nil ? CicadaTheme.textTertiary : CicadaTheme.textSecondary)
-                .lineLimit(2)
-        }
-    }
-
-    /// A summary line's click: its row selected (the band rings its mark), its section unfolded and scrolled to.
-    private func reveal(_ key: ProjectKey, in t: ProjectTimeline) {
+    /// A click on Next or a pulse fact: its row selected (the band rings its mark) and brought into view.
+    private func reveal(_ key: ProjectKey, in t: ProjectTimeline, state: ProjectState.Output?) {
         Instant.run { selection = key }
-        if collapsed.contains(key.section) { setOpen(key.section, true) }
-        scrollToken &+= 1
+        bringIntoView(key, in: t)
     }
 }

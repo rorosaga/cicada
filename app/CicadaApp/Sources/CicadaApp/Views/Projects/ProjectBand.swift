@@ -13,17 +13,19 @@ enum ProjectKey: Hashable, Sendable {
         }
     }
 
-    /// Which section draws the key's row (a thread in Now, a milestone in Plan, anything else in Lately).
+    /// Which section draws the key's row (a thread in In motion, a milestone in Coming up — a done one in the Timeline,
+    /// `ProjectOpen.full(for:in:)` — anything else in the Timeline).
     var section: ProjectSection {
         switch self {
         case .thread: .now
-        case .milestone: .plan
-        case .item: .lately
+        case .milestone: .comingUp
+        case .item: .timeline
         }
     }
 }
 
-enum ProjectSection: String, CaseIterable, Sendable { case now, done, lately, plan, backlog, around }
+/// Projects v3 (decision 9): the card's open sections, in their order. Pulse has no rows to select.
+enum ProjectSection: String, CaseIterable, Sendable { case now, comingUp, timeline }
 
 /// R-FA3 × R-PP11 (R4 Task 1, review round 1) — how the column brings a picked key into view. Lately's rows are direct
 /// children of the lazy stack, so `scrollTo` finds one that is not built yet; a Plan milestone's id sits INSIDE the Plan
@@ -31,7 +33,7 @@ enum ProjectSection: String, CaseIterable, Sendable { case now, done, lately, pl
 /// clicked. So a milestone scrolls in two steps: first to the Plan section (a direct child, always findable), then —
 /// on the next main-actor turn, once the section is built — to the row itself.
 enum ProjectScroll {
-    static let planSection = "section.plan"
+    static let planSection = "section.comingUp"
 
     /// The ids to scroll to, in order, one main-actor turn apart.
     static func steps(to target: String) -> [String] {

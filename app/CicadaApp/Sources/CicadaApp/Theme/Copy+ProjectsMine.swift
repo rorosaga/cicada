@@ -16,13 +16,9 @@ extension Copy {
         static let cancel = "Cancel"
         static let suggested = "Suggested"
         static let suggestedHelp = "Projects Cicada noticed that you haven't added. Nothing here is deleted."
-        static let suggestedIntro = "Cicada noticed these. Add the ones that are yours."
         static let addToMine = "Add to my projects"
         static let notMine = "Not mine"
         static let notMineHelp = "Leave it out of your projects. It stays in memory, and you can add it later."
-        static func dismissedCount(_ n: Int) -> String { "\(UsageFormat.count(n)) dismissed" }
-        static let show = "Show"
-        static let hide = "Hide"
         static let nameItTitle = "Name this project"
         static let nameItMessage = "It's a group of your conversations with no name of its own."
         static let emptyMineTitle = "No projects of yours yet"
@@ -69,11 +65,7 @@ extension Copy {
         }
 
         // MARK: Sections
-        static let inProgress = "In progress"
         static let done = "Done"
-        static let nothingDone = "Nothing marked done yet."
-        static func showAll(_ n: Int) -> String { "Show all \(UsageFormat.count(n))" }
-        static let showFewer = "Show fewer"
         static let timeline = "Timeline"
 
         // MARK: The knowledge panel

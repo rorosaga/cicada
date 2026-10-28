@@ -32,7 +32,8 @@ struct ProgressSpan: Equatable {
 }
 
 /// Projects v2 (owner 2026-10-19, DESIGN_RULES §9) — the page's two tabs: what the person is doing now, and what they
-/// did. Current holds the projects in motion and, folded under them, the ones fading; Past holds the rest, paged.
+/// did. Current holds the projects in motion and, under a static "Gone quiet" label, the ones fading (Projects v3,
+/// decision 17: never a fold); Past holds the rest, paged.
 enum ProjectsTab: Hashable, Sendable { case current, past }
 
 /// Where a project's derived section (`ProjectState`, the agent's own rule) puts it on the page: in motion → Current,
@@ -51,29 +52,29 @@ enum ProjectsGroup: Hashable, Sendable {
     var tab: ProjectsTab { self == .past ? .past : .current }
 }
 
-/// One list row: the project, its derived state on the viewer's today, its depth under a shown parent, and — when it
-/// has sub-projects in its group — how many and whether they are unfolded.
+/// One list row: the project, its derived state on the viewer's today, its depth under its parent, and how many
+/// sub-projects sit under it in its group — always shown, indented, never folded (Projects v3, decision 9).
 struct ProjectLine: Identifiable, Equatable {
     let row: ProjectRow
     let state: ProjectState.Output
     let depth: Int
     var children: Int = 0
-    var expanded = false
     var id: String { row.id }
     var group: ProjectsGroup { ProjectsGroup(state.section) }
 }
 
-/// What the list column draws, top to bottom: rows, the Fading disclosure, Past's year labels and its "Show more".
+/// What the list column draws, top to bottom: rows, the static "Gone quiet" label, Past's year labels and its
+/// "Show more".
 enum ProjectsEntry: Identifiable, Equatable {
     case line(ProjectLine)
-    case fading(count: Int, open: Bool)
+    case quiet(count: Int)
     case year(String)
     case more(Int)
 
     var id: String {
         switch self {
         case .line(let line): line.id
-        case .fading: "projects.fading"
+        case .quiet: "projects.quiet"
         case .year(let label): "projects.year.\(label)"
         case .more: "projects.more"
         }
@@ -82,10 +83,8 @@ enum ProjectsEntry: Identifiable, Equatable {
     var line: ProjectLine? { if case .line(let line) = self { line } else { nil } }
 }
 
-/// The viewer's folds on the list: which parents show their parts, whether Fading is open, how much of Past is drawn.
+/// How much of Past the list draws (the only thing the viewer grows; nothing on the list folds — decision 17).
 struct ProjectsListOptions: Equatable {
-    var expanded: Set<String> = []
-    var fadingOpen = false
     var pastLimit = ProjectsModel.pageSize
 }
 
@@ -114,11 +113,9 @@ enum ProjectsModel {
         Dictionary(rows.map { ($0.id, state($0, today: today)) }, uniquingKeysWith: { first, _ in first })
     }
 
-    /// The rows of one group in the given order, each parent followed by its sub-projects in the same group only when
-    /// unfolded (`expanded`, or every parent while a find runs). A child whose parent is elsewhere sits flat; a cycle
-    /// never hides a row.
-    static func nest(_ rows: [ProjectRow], states: [String: ProjectState.Output], expanded: Set<String>,
-                     openAll: Bool) -> [ProjectLine] {
+    /// The rows of one group in the given order, each parent followed by its sub-projects in the same group, indented
+    /// and always shown (decision 9). A child whose parent is elsewhere sits flat; a cycle never hides a row.
+    static func nest(_ rows: [ProjectRow], states: [String: ProjectState.Output]) -> [ProjectLine] {
         let ids = Set(rows.map(\.id))
         var kids: [String: [ProjectRow]] = [:]
         for row in rows {
@@ -137,36 +134,32 @@ enum ProjectsModel {
         func append(_ row: ProjectRow, depth: Int) {
             guard placed.insert(row.id).inserted else { return }
             let children = (kids[row.id] ?? []).filter { !placed.contains($0.id) }
-            let open = !children.isEmpty && (openAll || expanded.contains(row.id))
             out.append(ProjectLine(row: row, state: states[row.id] ?? state(row, today: .today()), depth: depth,
-                                   children: children.count, expanded: open))
-            if open { for child in children { append(child, depth: depth + 1) } }
+                                   children: children.count))
+            for child in children { append(child, depth: depth + 1) }
         }
         for row in roots { append(row, depth: 0) }
         for row in rows where !reached.contains(row.id) { append(row, depth: 0) }
         return out
     }
 
-    /// The list, top to bottom. Current: the projects in motion, then "Fading · n", folded unless the viewer opened it,
-    /// a find runs, or nothing is in motion (a lone folded head would hide the whole tab). Past: newest heard first, under year labels, `pastLimit` rows and a "Show more" for the rest.
+    /// The list, top to bottom. Current: the projects in motion, then a static "Gone quiet" label over the ones fading
+    /// (never a fold, decision 17). Past: newest heard first, under year labels, `pastLimit` rows and a "Show more" for
+    /// the rest.
     static func entries(_ rows: [ProjectRow], tab: ProjectsTab, query: String, today: ISODay,
                         options: ProjectsListOptions = ProjectsListOptions()) -> [ProjectsEntry] {
-        let searching = !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let states = states(rows, today: today)
         func members(_ g: ProjectsGroup) -> [ProjectRow] {
             rows.filter { row in states[row.id].map { ProjectsGroup($0.section) } == g && matches(row, query: query) }
         }
-        func lines(_ rows: [ProjectRow]) -> [ProjectLine] {
-            nest(rows, states: states, expanded: options.expanded, openAll: searching)
-        }
+        func lines(_ rows: [ProjectRow]) -> [ProjectLine] { nest(rows, states: states) }
         switch tab {
         case .current:
             var out = lines(members(.current)).map(ProjectsEntry.line)
             let fading = members(.fading)
             if !fading.isEmpty {
-                let open = options.fadingOpen || searching || out.isEmpty
-                out.append(.fading(count: fading.count, open: open))
-                if open { out += lines(fading).map(ProjectsEntry.line) }
+                out.append(.quiet(count: fading.count))
+                out += lines(fading).map(ProjectsEntry.line)
             }
             return out
         case .past:
@@ -264,8 +257,7 @@ enum ProjectsModel {
         case .wide: return oneLine(line.row)
         case .triage:
             guard !selected else { return nil }
-            let parts = line.children > 0 && !line.expanded ? Copy.Projects.parts(line.children) : ""
-            let text = Eyebrow.text(parts, standing(line, today: today, locale: locale))
+            let text = standing(line, today: today, locale: locale)
             return text.isEmpty ? nil : text
         case .titles, .hidden: return nil
         }
@@ -280,13 +272,13 @@ enum ProjectsModel {
     static func accessibilityLabel(_ line: ProjectLine, today: ISODay, locale: Locale = .autoupdatingCurrent) -> String {
         let standing = standing(line, today: today, locale: locale)
         return Copy.Projects.rowLabel(line.row.name, standing: standing.isEmpty ? Copy.Projects.nothingHeard : standing,
-                                      parts: line.children, expanded: line.expanded)
+                                      parts: line.children)
     }
 
     // MARK: - Keys (DR-68; every key path runs in `Instant.run`, DR-60)
 
-    /// ↑/↓ from the open row. Past the last current row ↓ opens Fading and lands on its first row; past Past's last
-    /// drawn row it draws the next page and moves on — so every project is reachable by keyboard.
+    /// ↑/↓ from the open row; past Past's last drawn row it draws the next page and moves on — so every project is
+    /// reachable by keyboard.
     static func step(_ delta: Int, openId: String?, rows: [ProjectRow], tab: ProjectsTab, query: String,
                      today: ISODay, options: ProjectsListOptions) -> (open: String?, options: ProjectsListOptions) {
         var options = options
@@ -296,38 +288,24 @@ enum ProjectsModel {
             return (delta >= 0 ? ids.first : ids.last, options)
         }
         if delta > 0, i == ids.count - 1 {
-            if tab == .current, !options.fadingOpen { options.fadingOpen = true }
-            else if tab == .past { options.pastLimit += pageSize }
+            if tab == .past { options.pastLimit += pageSize }
             ids = entries(rows, tab: tab, query: query, today: today, options: options).compactMap(\.line).map(\.id)
         }
         return (ids[min(max(i + delta, 0), ids.count - 1)], options)
     }
 
-    enum Side: Equatable { case expand(Bool), open(String), none }
+    enum Side: Equatable { case open(String), none }
 
-    /// →/← on the open row: → unfolds a parent's parts; ← folds them, or on a part goes to its parent.
+    /// ← on a sub-project goes to its parent; nothing folds, so → has nothing to do (decision 9).
     static func side(_ delta: Int, line: ProjectLine?) -> Side {
-        guard let line else { return .none }
-        if delta > 0 { return line.children > 0 && !line.expanded ? .expand(true) : .none }
-        if line.expanded { return .expand(false) }
-        if line.depth > 0, let parent = line.row.parent { return .open(parent) }
-        return .none
+        guard let line, delta < 0, line.depth > 0, let parent = line.row.parent else { return .none }
+        return .open(parent)
     }
 
-    /// What a click on a row does. A plain row opens. A parent opens and unfolds its parts; clicked again while open,
-    /// it folds or unfolds them (owner: "a dropdown that moves if I press again"). `expand` nil leaves the fold.
-    static func tap(_ line: ProjectLine, openId: String?) -> (open: Bool, expand: Bool?) {
-        guard line.children > 0 else { return (true, nil) }
-        if openId == line.id { return (false, !line.expanded) }
-        return (true, true)
-    }
-
-    /// How to show a project the list hides (a ⌘K landing): its tab, Fading opened, its parents in the group
-    /// unfolded, and enough of Past drawn to reach it. Nil when the project is not in the list.
+    /// How to show a project the list hides (a ⌘K landing): its tab, and enough of Past drawn to reach it. Nil when
+    /// the project is not in the list.
     struct Reveal: Equatable {
         let tab: ProjectsTab
-        let openFading: Bool
-        let expand: [String]
         let pastLimit: Int?
     }
 
@@ -335,24 +313,15 @@ enum ProjectsModel {
         guard let row = rows.first(where: { $0.id == id }) else { return nil }
         let states = states(rows, today: today)
         let g = group(row, today: today)
-        let byId = Dictionary(rows.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        var ancestors: [String] = []
-        var seen: Set<String> = [id]
-        var cursor = row.parent
-        while let parent = cursor, seen.insert(parent).inserted, let p = byId[parent],
-              states[parent].map({ ProjectsGroup($0.section) }) == g {
-            ancestors.append(parent)
-            cursor = p.parent
-        }
         var limit: Int?
         if g == .past {
             let members = rows.filter { states[$0.id].map { ProjectsGroup($0.section) } == .past }
-            let lines = nest(pastOrder(members), states: states, expanded: Set(ancestors), openAll: false)
+            let lines = nest(pastOrder(members), states: states)
             if let index = lines.firstIndex(where: { $0.id == id }), index >= pastLimit {
                 limit = (index / pageSize + 1) * pageSize
             }
         }
-        return Reveal(tab: g.tab, openFading: g == .fading, expand: ancestors, pastLimit: limit)
+        return Reveal(tab: g.tab, pastLimit: limit)
     }
 
     /// The same span over the detail's fuller data — the band's (R-PP9).

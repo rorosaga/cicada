@@ -76,11 +76,10 @@ extension Copy {
             "\(UsageFormat.count(p.done)) of \(UsageFormat.count(p.total)) milestones done"
         }
         static func parts(_ n: Int) -> String { n == 1 ? "1 part" : "\(UsageFormat.count(n)) parts" }
-        static func showParts(_ n: Int) -> String { n == 1 ? "Show its part" : "Show its \(UsageFormat.count(n)) parts" }
-        static let hideParts = "Hide its parts"
-        static func rowLabel(_ name: String, standing: String, parts n: Int, expanded: Bool) -> String {
+        /// Projects v3: parts are always shown under their parent, so a row says how many, never a fold state.
+        static func rowLabel(_ name: String, standing: String, parts n: Int) -> String {
             guard n > 0 else { return "\(name), \(standing)" }
-            return "\(name), \(standing), \(parts(n)), \(expanded ? Copy.Lists.expanded : Copy.Lists.collapsed)"
+            return "\(name), \(standing), \(parts(n))"
         }
 
         // MARK: The summary (Projects v2: what it is, where it stands, what happened last, what's next — once each)
@@ -120,13 +119,9 @@ extension Copy {
         static func ongoingUntil(_ day: String) -> String { "ongoing until \(day)" }
 
         // MARK: The sections (R-PP13…R-PP18)
-        static let now = "In progress"
         /// Ruling 45, Q6 (owner 2026-10-27): the dated list is "Timeline", the owner's own word; the band keeps no label.
         static let lately = "Timeline"
         static let plan = "Plan"
-        static let around = "Around this project"
-        static let collapse = "Collapse"
-        static let expand = "Expand"
         static func nothingInMotion(lastHeard day: String?, distance: String?) -> String {
             guard let day, let distance else { return "Nothing in motion right now" }
             return "Nothing in motion right now · last heard \(day) (\(distance))"
@@ -197,16 +192,9 @@ extension Copy {
         static let noPlan = "No plan yet. Nothing here is late or missing — it just hasn't been dated."
         static let documentsAndLinks = "Documents & links"
         static let partsOfThisProject = "Parts of this project"
-        static let notAPageYet = "mentioned once, not a page yet"
-        static let notAPageYetHelp = "Mentioned once — it becomes a page when it comes up in a second conversation"
         static func lastSeen(_ day: String) -> String { "last \(day)" }
         static func lastMentioned(_ day: String) -> String { "Last mentioned \(day)" }
-        static func moreMembers(_ n: Int) -> String { "+\(UsageFormat.count(n)) more" }
         static func alsoUses(_ names: [String]) -> String { "Also uses: \(names.joined(separator: " · "))" }
-        static func showSpecs(_ name: String) -> String { "Show what Cicada knows about \(name)" }
-        static func hideSpecs(_ name: String) -> String { "Hide what Cicada knows about \(name)" }
-        static let noSpecs = "Nothing recorded about it yet."
-        static let aroundIndexing = "Still indexing — more may appear here in a moment."
         static let openProject = "Open project ›"
 
         // MARK: Writes (R-PP19…R-PP22, R-PP25)

@@ -19,8 +19,8 @@ enum ProjectsListState: Equatable {
 
 /// Projects v2 (2026-10-19) / §5.3 — the list in its three styles: two lines at rest (name over what it is, where it
 /// stands at the end), two lines beside a project (name over where it stands), titles beside a project and the Reader.
-/// Current ends in one quiet *Fading* disclosure; Past carries year labels, a find field and "Show more". Selection is
-/// `bgSelected`, never the accent (DR-22, `SelectionTintLintTests`).
+/// Current ends with a static *Gone quiet* label over its rows (Projects v3: no folds, decision 17); Past carries year
+/// labels, a find field and "Show more". Selection is `bgSelected`, never the accent (DR-22, `SelectionTintLintTests`).
 struct ProjectsListColumn: View {
     let entries: [ProjectsEntry]
     let style: ColumnPlan.ListStyle
@@ -32,15 +32,14 @@ struct ProjectsListColumn: View {
     @Binding var findText: String
     let openId: String?
     let tap: (ProjectLine) -> Void
-    let toggleParts: (ProjectLine) -> Void
-    let toggleFading: () -> Void
     let showMore: () -> Void
     let move: (Int) -> Void
     var side: (Int) -> Void = { _ in }
     let focusDetail: () -> Void
     let escape: () -> Void
     let retry: () -> Void
-    /// Ruling 45 — the Suggested fold, drawn after the rows (and after the empty words when none are the person's).
+    /// Ruling 45 / decision 9 — Suggested as one line, drawn after the rows (and after the empty words when none are
+    /// the person's).
     var suggestedFold: () -> AnyView = { AnyView(EmptyView()) }
 
     var body: some View {
@@ -108,11 +107,13 @@ struct ProjectsListColumn: View {
         switch entry {
         case .line(let line):
             ProjectRowView(line: line, style: style, today: today, selected: line.id == openId,
-                           action: { tap(line) }, toggle: { toggleParts(line) })
-        case .fading(let count, let open):
-            ProjectsDisclosure(title: Copy.Projects.fading, count: count, isOpen: open, help: Copy.Projects.fadingHelp,
-                               action: toggleFading)
+                           action: { tap(line) })
+        case .quiet:
+            SectionLabel(Copy.ProjectsOpen.goneQuiet)
+                .padding(.horizontal, CicadaTheme.scaled(10))
                 .padding(.top, CicadaTheme.scaled(14))
+                .padding(.bottom, CicadaTheme.scaled(2))
+                .help(Copy.Projects.fadingHelp)
         case .year(let label):
             SectionLabel(label)
                 .padding(.horizontal, CicadaTheme.scaled(10))
@@ -133,65 +134,28 @@ struct ProjectsListColumn: View {
     }
 }
 
-/// One quiet, labelled disclosure (DR-39): a chevron, the label and its count. Fading uses it.
-struct ProjectsDisclosure: View {
-    let title: String
-    let count: Int
-    let isOpen: Bool
-    let help: String
-    let action: () -> Void
-
-    var body: some View {
-        DisclosureHeader(title: title, summary: UsageFormat.count(count), summaryWhenOpen: true, isOpen: isOpen,
-                         help: help, toggle: action)
-            .padding(.horizontal, CicadaTheme.scaled(10))
-    }
-}
-
-/// One project: the name, what it is in one line, where it stands as one signal (owner 2026-10-19). A parent wears a
-/// disclosure chevron that folds its parts — its own target beside the row's button (a button nested in a button is
-/// two targets for one click), and the row's own click on the open parent folds them too (`ProjectsModel.tap`).
+/// One project: the name, what it is in one line, where it stands as one signal (owner 2026-10-19). A sub-project sits
+/// indented under its parent, always shown — no chevron, nothing to fold (Projects v3, decision 9; amends 2026-10-19's
+/// "dropdown that moves if I press again", with the owner's newer preference).
 struct ProjectRowView: View {
     let line: ProjectLine
     let style: ColumnPlan.ListStyle
     let today: ISODay
     let selected: Bool
     let action: () -> Void
-    let toggle: () -> Void
 
-    private var indent: CGFloat { CicadaTheme.scaled(CGFloat(min(line.depth, 2)) * 18) }
+    private var indent: CGFloat { CicadaTheme.scaled(CGFloat(min(line.depth, 2)) * 14) }
     private var tertiary: Color { selected ? CicadaTheme.textTertiaryOnFill : CicadaTheme.textTertiary }
 
     var body: some View {
-        HStack(spacing: CicadaTheme.scaled(4)) {
-            chevron
-            Button(action: action) {
-                content.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading).contentShape(Rectangle())
-            }
-            .buttonStyle(.cicadaPlain)
-            .accessibilityLabel(ProjectsModel.accessibilityLabel(line, today: today))
-            .accessibilityAddTraits(selected ? [.isSelected] : [])
+        Button(action: action) {
+            content.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading).contentShape(Rectangle())
         }
+        .buttonStyle(.cicadaPlain)
+        .accessibilityLabel(ProjectsModel.accessibilityLabel(line, today: today))
+        .accessibilityAddTraits(selected ? [.isSelected] : [])
         .padding(.leading, indent)
         .listRowSurface(height: ListRowSurface.height(style, twoLineAtRest: true), selected: selected)
-    }
-
-    /// The disclosure, or the room it would take, so names line up.
-    @ViewBuilder
-    private var chevron: some View {
-        let side = CicadaTheme.scaled(16)
-        if line.children > 0 {
-            Button(action: toggle) {
-                DisclosureChevron(isOpen: line.expanded, color: tertiary)
-                    .frame(width: side, height: side)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.cicadaPlain)
-            .help(line.expanded ? Copy.Projects.hideParts : Copy.Projects.showParts(line.children))
-            .accessibilityLabel(line.expanded ? Copy.Projects.hideParts : Copy.Projects.showParts(line.children))
-        } else {
-            Color.clear.frame(width: side, height: side)
-        }
     }
 
     private var name: some View {
@@ -207,7 +171,6 @@ struct ProjectRowView: View {
         let second = ProjectsModel.secondLine(line, style: style, selected: selected, today: today)
         switch style {
         case .wide:
-            let parts = line.children > 0 && !line.expanded ? Copy.Projects.parts(line.children) : ""
             HStack(spacing: CicadaTheme.spacingMD) {
                 VStack(alignment: .leading, spacing: CicadaTheme.scaled(3)) {
                     name
@@ -216,7 +179,7 @@ struct ProjectRowView: View {
                     }
                 }
                 Spacer(minLength: CicadaTheme.spacingMD)
-                Text(Eyebrow.text(parts, ProjectsModel.standing(line, today: today)))
+                Text(ProjectsModel.standing(line, today: today))
                     .font(CicadaTheme.metaFont)
                     .monospacedDigit()
                     .foregroundStyle(CicadaTheme.textSecondary)
