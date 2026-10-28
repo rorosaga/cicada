@@ -43,6 +43,8 @@ def out(obj):
 
 if args[:1] == ["--help"]:
     print(os.environ.get("STUB_HELP", "Cursor Agent - the Cursor CLI")); sys.exit(0)
+if os.environ.get("STUB_HANG") == name and args[:1] in (["status"], ["models"]):
+    import time; time.sleep(30)
 if args[:1] == ["status"]:
     if mode == "signed_out":
         print("Not logged in. Run `agent login`."); sys.exit(1)
@@ -373,11 +375,11 @@ def test_cicadas_hooks_stay_silent_in_a_spawned_childs_environment(stubs, tmp_pa
 
 
 # --------------------------------------------------------------------------- #
-# Engine selection: plans under ruling 4, never on Auto's ladder
+# Engine selection: plans under ruling 4; Cursor and OpenCode Auto's last rungs (ruling 46), Grok never
 # --------------------------------------------------------------------------- #
 
 
-def test_the_new_engines_are_plans_but_never_on_autos_ladder():
+def test_the_new_engines_are_plans_and_cursor_then_opencode_close_autos_ladder():
     for mode, label in (("cursor", "cursor-cli"), ("opencode", "opencode-cli"), ("grok", "grok-cli")):
         assert engine_select.ENGINE_LABELS[mode] == label
         assert mode in engine_select.SUBSCRIPTION_MODES
@@ -385,7 +387,9 @@ def test_the_new_engines_are_plans_but_never_on_autos_ladder():
         assert mode in engine_select._VALID_PREF_MODES
         assert engine_select.PLAN_ENGINES[label][1] == "subscription"
         assert label not in engine_select.RESERVE_ENGINES
-    assert engine_select._AUTO_LADDER == (engine_select.CLAUDE_CONNECTION_ID, engine_select.CODEX_CONNECTION_ID)
+    assert engine_select._AUTO_LADDER == (engine_select.CLAUDE_CONNECTION_ID, engine_select.CODEX_CONNECTION_ID,
+                                          CURSOR.connection, OPENCODE.connection)
+    assert GROK.connection not in engine_select._AUTO_LADDER
 
 
 class _Registry:
@@ -402,13 +406,13 @@ class _Registry:
                                 available=True, connected=connection_id in self._connected)
 
 
-def _resolve(prefs, *, user_triggered=True, connected=()):
+def _resolve(prefs, *, user_triggered=True, connected=(), cli_wait=None):
     import asyncio
 
     from api.config import Settings
 
     return asyncio.run(engine_select.resolve_settings(Settings(), _Registry(prefs, connected),
-                                                      user_triggered=user_triggered))
+                                                      user_triggered=user_triggered, cli_wait=cli_wait))
 
 
 @pytest.mark.shipped_engine_default
@@ -432,10 +436,144 @@ def test_a_chosen_cli_engine_resolves_with_its_models_and_ruling_4_on_schedules(
     assert engine_select.no_engine(resolved) and why == engine_select.SCHEDULE_DEGRADED
 
 
+@pytest.fixture
+def ladder(stubs, monkeypatch):
+    """Auto's tool rungs put back (the suite empties them, conftest) over the stubs. ``only(*names)`` leaves just
+    those stub tools installed."""
+    monkeypatch.setattr(cli_engines, "AUTO_SPECS", (CURSOR, OPENCODE))
+
+    def only(*names):
+        for path in stubs.bindir.iterdir():
+            if path.name not in names:
+                path.unlink()
+        cli_engines.invalidate()
+
+    stubs.only = only
+    return stubs
+
+
+def _status_spawns(stubs):
+    return [s["argv"][:1] for s in stubs.spawns() if s["argv"][:1] in (["status"], ["models"])]
+
+
 @pytest.mark.shipped_engine_default
-def test_auto_never_reaches_a_cli_engine():
-    resolved, _ = _resolve({}, connected={"cursor-plan", "opencode-plan", "grok-plan"})
+def test_auto_lands_on_cursor_when_it_is_the_only_one_signed_in_and_says_how_it_bills(ladder):
+    ladder.only("agent")
+    resolved, why = _resolve({})
+    assert resolved.llm_mode == "cursor" and engine_select.engine_label(resolved) == "cursor-cli"
+    assert not engine_select.no_engine(resolved)
+    assert "Cursor plan" in why and cli_engines.CURSOR_USAGE_NOTE in why
+    # The run detail keeps that sentence beside the pre-flight's own line.
+    detail = engine_select.run_detail(why, "Signed in to Cursor.")
+    assert detail.startswith("Cursor signed in") and "usage-based pricing" in detail and detail.endswith("Cursor.")
+
+
+@pytest.mark.shipped_engine_default
+def test_the_plans_outrank_cursor_and_no_tool_is_read(ladder):
+    ladder.only("agent")
+    resolved, _ = _resolve({}, connected={engine_select.CLAUDE_CONNECTION_ID})
+    assert resolved.llm_mode == "agent"
+    resolved, _ = _resolve({}, connected={engine_select.CODEX_CONNECTION_ID})
+    assert resolved.llm_mode == "codex"
+    assert _status_spawns(ladder) == [], "a plan above the tools answers before any tool is asked"
+
+
+@pytest.mark.shipped_engine_default
+def test_cursor_outranks_opencode(ladder):
+    resolved, _ = _resolve({})
+    assert resolved.llm_mode == "cursor"
+
+
+@pytest.mark.shipped_engine_default
+def test_auto_lands_on_opencode_with_a_subscription_model(ladder):
+    ladder.only("opencode")
+    resolved, why = _resolve({})
+    assert resolved.llm_mode == "opencode" and "OpenCode plan" in why
+    assert not engine_select.no_engine(resolved)
+
+
+@pytest.mark.shipped_engine_default
+def test_opencode_with_only_key_backed_models_is_no_engine_said_in_words(ladder, monkeypatch):
+    ladder.only("opencode")
+    monkeypatch.setenv("STUB_MODE", "no_plan")
+    resolved, why = _resolve({})
+    assert engine_select.no_engine(resolved) and why.startswith(engine_select.NO_ENGINE)
+    assert resolved.llm_mode == "auto", "never a key"
+    assert "OpenCode has no subscription signed in" in resolved.no_engine_reason
+    assert "opencode auth login" in resolved.no_engine_reason
+
+
+@pytest.mark.shipped_engine_default
+def test_grok_alone_is_never_autos_engine_and_is_never_asked(ladder):
+    ladder.only("grok")
+    resolved, why = _resolve({})
+    assert engine_select.no_engine(resolved) and why == engine_select.NO_ENGINE
+    assert ladder.spawns() == []
+    # The named-engine cache read never counts it either.
+    cli_engines._CACHE["grok"] = cli_engines.Status(True, True, "Signed in to Grok.", ["grok-4.6"], 9e12)
+    assert cli_engines.cached_connected() == set()
+
+
+@pytest.mark.shipped_engine_default
+def test_a_scheduled_run_reaches_cursor_only_through_the_switch(ladder):
+    ladder.only("agent")
+    resolved, why = _resolve({}, user_triggered=False)
+    assert resolved.llm_mode == "cursor" and "Cursor plan" in why
+    cli_engines.invalidate()
+    before = len(ladder.spawns())
+    resolved, why = _resolve({"sleep-run": {"scheduled_use_plan": False}}, user_triggered=False)
+    assert engine_select.no_engine(resolved) and why == engine_select.SCHEDULE_DEGRADED
+    assert len(ladder.spawns()) == before, "a closed switch never asks the tool"
+    # Grok stays out of scheduled runs whatever the switch says (unchanged from #494).
+    assert "grok" not in engine_select.SCHEDULE_PLAN_MODES
+
+
+@pytest.mark.shipped_engine_default
+def test_a_hung_tool_is_skipped_in_words_and_the_next_rung_reads(ladder, monkeypatch):
+    import time as _time
+
+    monkeypatch.setattr(cli_engines, "PROBE_TIMEOUT_S", 0.5)
+    monkeypatch.setattr(cli_engines, "LADDER_WAIT_S", 5.0)
+    monkeypatch.setenv("STUB_HANG", "agent")
+    started = _time.monotonic()
+    resolved, _ = _resolve({})
+    assert _time.monotonic() - started < 4.0
+    assert resolved.llm_mode == "opencode"
+    # Alone, the hung tool leaves no engine, with the reason.
+    ladder.only("agent")
+    resolved, _ = _resolve({})
     assert engine_select.no_engine(resolved)
+    assert "Cursor didn't answer within 0.5 s. Auto skipped it for this run." in resolved.no_engine_reason
+
+
+@pytest.mark.shipped_engine_default
+def test_the_page_never_waits_and_an_unknown_tool_is_skipped(ladder, monkeypatch):
+    import time as _time
+
+    ladder.only("agent")
+    monkeypatch.setattr(cli_engines, "PROBE_TIMEOUT_S", 3.0)
+    monkeypatch.setenv("STUB_HANG", "agent")
+    started = _time.monotonic()
+    resolved, _ = _resolve({}, cli_wait=0)   # the Sleep page: never waits
+    assert _time.monotonic() - started < 1.0
+    assert engine_select.no_engine(resolved)
+    assert "Cursor's status isn't known yet, so Auto skipped it for this run." in resolved.no_engine_reason
+
+
+@pytest.mark.shipped_engine_default
+def test_the_named_engine_reads_the_tools_cache_and_never_probes(ladder):
+    from api.config import Settings
+
+    ladder.only("agent")
+    _, expected = engine_select.expected_settings(Settings(), _Registry(), [])
+    assert expected.llm_mode == "auto" and ladder.spawns() == []
+    cli_engines._CACHE["cursor"] = cli_engines.Status(True, True, "Signed in to Cursor.", ["auto"], 9e12)
+    _, expected = engine_select.expected_settings(Settings(), _Registry(), [])
+    assert expected.llm_mode == "cursor"
+    _, expected = engine_select.expected_settings(Settings(), _Registry(), [engine_select.CODEX_CONNECTION_ID])
+    assert expected.llm_mode == "codex"
+    assert engine_select.powered_connection_id(Settings(), _Registry(), []) == CURSOR.connection
+    assert ladder.spawns() == []
 
 
 @pytest.mark.shipped_engine_default

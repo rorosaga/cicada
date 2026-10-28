@@ -193,7 +193,9 @@ async def _candidates(settings: Settings, reg, *, mode: str, model: str | None) 
     cards = [
         SleepEngineCandidate(
             id="auto", label="Auto", available=True,
-            detail="Your Claude plan if you're signed in, else your ChatGPT plan. Never an API key unless you choose it.",
+            # Ruling 46 (2026-10-28): the ladder in the order `engine_select._AUTO_LADDER` walks it.
+            detail=("Your Claude plan if you're signed in, else your ChatGPT plan, else Cursor, else OpenCode on a "
+                    "subscription. Never an API key unless you choose it."),
         ),
         SleepEngineCandidate(
             id="agent", label="Claude plan",
@@ -226,8 +228,9 @@ async def _candidates(settings: Settings, reg, *, mode: str, model: str | None) 
         card.kind = {"auto": "auto", "agent": "plan", "codex": "plan", "local": "local"}.get(card.id, "key")
         card.engine = {"agent": "claude-cli", "codex": "codex-cli", "local": "ollama", "openrouter": "litellm",
                        "byok": "litellm"}.get(card.id)
-    # G49/G50: the person's own signed-in Cursor, OpenCode and Grok, after the two plans — choosable, never on Auto's
-    # ladder (ruling 31 / 36 D1: changing the ladder is the owner's call). Each probe is cached for 30 s.
+    # G49/G50: the person's own signed-in Cursor, OpenCode and Grok, after the two plans — all choosable; Cursor and
+    # OpenCode are also Auto's last two rungs (ruling 46), Grok never. Each probe is cached for 30 s, and this read
+    # warms the cache the previews below resolve Auto against.
     statuses_cli = await asyncio.gather(*(cli_engines.astatus(spec, stale_ok=True)
                                           for spec in cli_engines.SPECS.values()))
     at = next(i for i, c in enumerate(cards) if c.id == "codex") + 1
@@ -370,9 +373,11 @@ async def build_response(settings: Settings, reg) -> SleepEngineResponse:
     # status cache their cheap probes read (a cold cache falls back to a CLI spawn).
     candidates = await _candidates(settings, reg, mode=mode, model=model)
 
-    manual_settings, manual_why = await engine_select.resolve_settings(settings, reg, user_triggered=True)
+    # Ruling 46: the page never waits on a tool's status (`cli_wait=0`) — the read above already warmed it, and a
+    # refresh still running reads as the last known answer.
+    manual_settings, manual_why = await engine_select.resolve_settings(settings, reg, user_triggered=True, cli_wait=0)
     scheduled_settings, scheduled_why = await engine_select.resolve_settings(
-        settings, reg, user_triggered=False
+        settings, reg, user_triggered=False, cli_wait=0
     )
     preview = SleepEnginePreviews(
         manual=_preview(manual_settings, manual_why),

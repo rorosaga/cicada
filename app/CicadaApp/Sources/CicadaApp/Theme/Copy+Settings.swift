@@ -453,9 +453,9 @@ extension Copy {
         static func usingLocal(_ label: String) -> String { "Using \(label) on this Mac — no plan is signed in." }
         static let usingKey = "Using your API key."
         static let nothingYet = "Nothing to read with yet. Sign in to a plan and Auto uses it."
-        /// Ruling 36 D1 (2026-10-22): Auto has no local rung.
-        static let rule = "Auto uses your Claude plan if you're signed in, else your ChatGPT plan. "
-            + "It never uses an API key you didn't choose."
+        /// Ruling 36 D1 (2026-10-22): Auto has no local rung. Ruling 46 (2026-10-28): Cursor, then OpenCode, last.
+        static let rule = "Auto uses your Claude plan if you're signed in, else your ChatGPT plan, else Cursor, "
+            + "else OpenCode on a subscription. It never uses an API key you didn't choose."
         static let chosen = "You chose this engine instead of Auto."
         static let backToAuto = "Back to Auto"
         static let backToAutoHelp = "Let Cicada pick your signed-in plan"

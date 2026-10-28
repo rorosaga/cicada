@@ -1379,8 +1379,17 @@ ledger connections `cursor-plan` / `opencode-plan` / `grok-plan` (no Plans & key
 LLM call on the CLI the person installed and signed into (`cli_engines`, one `EngineSpec` per tool). All three are in
 `SUBSCRIPTION_MODES`; Cursor and OpenCode are in `SCHEDULE_PLAN_MODES` (a scheduled run reaches them only through the
 switch above), **Grok reads only when the person starts a read** (`SCHEDULE_USER_ONLY`, said in words) until a live
-sign-in shows what a subscription call reports; none is **ever on Auto's ladder** (ruling 31 / 36 D1; the ladder is the
-owner's call). **No MCP context (review of #494):** Grok runs with every Claude/Cursor compatibility cell off
+sign-in shows what a subscription call reports. **Ruling 46 (owner, 2026-10-28): Cursor, then OpenCode, close Auto's
+ladder** after the two plans (`engine_select._AUTO_LADDER`, `cli_engines.AUTO_SPECS`); **Grok is never a rung**, nor a
+scheduled engine, until that live sign-in. A tool is a rung only installed and signed in — OpenCode only with a GitHub
+Copilot or OpenCode Go model listed — else skipped, never an error and never a key; an installed tool skipped (signed
+out, only key-backed models, no answer) is named in the no-engine sentence, an absent one is not. The rungs read #494's
+cached status (`cli_engines.ladder_status`): a fresh answer at once, else one background refresh for both tools at once,
+waited on at most `LADDER_WAIT_S` (9 s) by a cycle and never by the Sleep page (`cli_wait=0`; its cards warm the cache);
+an unknown or hung tool (`Status.timed_out`) is skipped for that run in words. The handshake's Now line and the cards'
+POWERS read the cache only (`cached_connected`). A landing says what runs — Cursor's with its billing note
+(`CURSOR_USAGE_NOTE`) — on the Sleep page's line and in the run's detail (`engine_select.run_detail`, the landing
+sentence before the pre-flight's line). **No MCP context (review of #494):** Grok runs with every Claude/Cursor compatibility cell off
 (`GROK_{CLAUDE,CURSOR}_{MCPS,HOOKS,RULES,SKILLS,AGENTS}_ENABLED=false`, `GROK_MANAGED_MCPS_ENABLED=false`); OpenCode gets
 Cicada's own `OPENCODE_CONFIG_CONTENT` (set after the scrub) turning off every MCP server its global config names, Cicada
 included; Cursor has no documented run-wide switch, so it never gets `--approve-mcps` and its `Mcp(*:*)` calls are

@@ -10,6 +10,11 @@
 
 ## Current state and evidence
 
+- **2026-10-28 — ruling 46 recorded; Auto reaches Cursor and OpenCode after the two plans (G49, G50; branch
+  `feat/auto-ladder-46`).** Auto: Claude plan → ChatGPT plan → Cursor → OpenCode on a subscription model; Grok is in
+  neither Auto nor scheduled runs until a live sign-in shows what a subscription call reports. Read from #494's cached
+  tool status, a cycle waits at most 9 s and the Sleep page never; an unknown or hung tool is skipped, said in words.
+  Tested with stub tools only (no live call); the app's one-line Auto rule updated (`Copy.EngineHeadline.rule`).
 - **2026-10-27 — ruling 43 recorded; an agent's own memory notes are captured (G105, G110; branch
   `feat/agent-memory-notes`).** The Claude Code hook reads `projects/*/memory/*.md` where they live and posts their
   bytes; one agent-worded episode per note (edit in place, delete tombstoned, scrubbed, demo 409, dated by the note,
@@ -2008,3 +2013,24 @@ A whole row moves to DONE only after its remaining implementation and required a
     conversations read p95 13 ms, the detail with its count 39 ms (budget 150 ms), the list 45 ms
     (budget 80 ms), on an idle Mac (`make test-bench`). **Revisit** if the person dismisses
     most of what a trusted agent creates (Q3), or accepts most words births as they come (Q4).
+46. **Auto's ladder reaches Cursor and OpenCode after the two plans; Grok stays out (owner, 2026-10-28; G49, G50;
+    amends rulings 31 and 36 D1; branch `feat/auto-ladder-46`).** #494 added Cursor, OpenCode and Grok as engines on
+    the person's own sign-in, choosable but not on Auto, and asked the owner two questions: should Auto reach them, and
+    should scheduled runs? The owner answered **yes** to both. The acting owner's guard, accepted with that answer:
+    **Grok stays out of Auto and out of scheduled runs** until a live sign-in shows what a subscription call reports
+    (a key set in Grok's own settings for a built-in model cannot be told apart before the call). So Auto is the Claude
+    plan → the ChatGPT plan → Cursor → OpenCode (`engine_select._AUTO_LADDER`, `cli_engines.AUTO_SPECS`). A tool is a
+    rung only when installed and signed in, and OpenCode only with a GitHub Copilot or OpenCode Go model listed;
+    otherwise Auto skips it, never errors on it and never falls to a key. A tool that is not installed is passed over
+    silently; one installed but unusable (signed out, only key-backed models, no answer in time) is named in the
+    no-engine sentence. Scheduled runs reach Cursor and OpenCode through ruling 4b's "Scheduled runs may use my plan"
+    switch, which already covered them when chosen (`SCHEDULE_PLAN_MODES`). **Said in words:** a landing names what
+    runs on the Sleep page's line and in the run's detail (`engine_select.run_detail`), and Cursor's comes with its
+    billing note (usage past the included amount bills only if the person turned that on in their Cursor account).
+    **Never a stall:** the ladder reads #494's cached tool status (8 s per command, background refresh); a cycle waits
+    at most `cli_engines.LADDER_WAIT_S` (9 s) for a status that is not fresh, both tools at once, and the Sleep page
+    never waits (`cli_wait=0`, its cards warm the cache first); an unknown or hung tool is skipped for that run, said
+    in words. The handshake's Now line and the cards' POWERS read the cache only (`cli_engines.cached_connected`).
+    Measured on stub tools on a scratch PATH: each ladder position, the switch on and off, a hung tool (skipped in
+    under 4 s with a 0.5 s budget, the next rung reading), and the page returning in under 1 s with a tool hung.
+    **Revisit** Grok's exclusion only when a live Grok sign-in shows how a subscription call reports cost.

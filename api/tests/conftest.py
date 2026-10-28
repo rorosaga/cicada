@@ -198,6 +198,19 @@ def _no_real_plan_account(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_real_auto_tool_rungs(monkeypatch):
+    """Ruling 46: Auto's last rungs read the person's own Cursor and OpenCode. No test may find the developer's own
+    install of either: the rungs are empty unless a test puts them back (with stub tools on a scratch PATH), and the
+    tools' status cache is cleared around every test."""
+    from api.services import cli_engines
+
+    monkeypatch.setattr(cli_engines, "AUTO_SPECS", ())
+    cli_engines.invalidate()
+    yield
+    cli_engines.invalidate()
+
+
+@pytest.fixture(autouse=True)
 def _no_live_sleep_probe(monkeypatch):
     """G135 final review: a stdio `cicada_write_claim` asks the backend's
     `GET /sleep/status` before committing. Unpinned, every such test would hit

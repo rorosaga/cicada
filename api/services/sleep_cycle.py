@@ -2679,7 +2679,9 @@ async def _run_stages(
 
         spec = cli_engines.BY_LABEL[_state.last_engine]
         ok, detail, fill_model = await cli_engines.preflight(spec, settings)
-        _state.engine_detail = detail
+        # Ruling 46: a run keeps the sentence that names what ran (Auto's landing, Cursor's billing note) before the
+        # pre-flight's own line; a refusal says only what fixes it.
+        _state.engine_detail = engine_select.run_detail(engine_why, detail) if ok else detail
         if not ok:
             logger.error(f"Sleep cycle {cycle_id} aborted before Stage 1 — {detail}")
             _state.error = detail
