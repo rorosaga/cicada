@@ -27,12 +27,19 @@ from an identifier **already on that person's page or the person's own record**:
   :data:`PROXY_DAILY_BUDGET` lookups a UTC day across the install (the proxy's anonymous allowance), counted in
   `$CICADA_HOME/pictures/proxy_budget.json`, outside every bank; over budget is a transient miss, asked again the
   next day.
+- **a public figure's encyclopedia portrait** (owner 2026-10-28, C; ruling 44's public test) — only for a page the full
+  public test called public: it passed the local test (a full name, no acquaintance on the record, no personal channel,
+  a public cue) AND matched exactly ONE human on Wikidata with an encyclopedia article, the item kept in ruling 44's
+  memo outside every bank (`web_context.public_items`). The item's image (P18) is asked of Wikidata by that item and
+  the file of Wikimedia Commons by its own name — never the person's name again. The local test is run once more just
+  before the ask (err private: an acquaintance since, and nothing is asked); a page that fails it later leaves the memo
+  on Sleep's next verdict, and its portrait with it.
 
 Never a name, an alias, a domain or a username guessed from either.
 
 **The ladder** (the owner's model, adapted): the person's own choice → the Contacts photo → the email's public photo
 (asked with ``d=404``, so a "no photo" answer is a 404, never a default image cached as a photo) → the GitHub avatar →
-the X photo → the Instagram photo → the LinkedIn photo (each with ``fallback=false``, unavatar's documented "404 on a miss") → the monogram. `entity_picture.resolve` holds the precedence; this module answers its `profile` rung's availability
+the encyclopedia portrait (no proxy budget, and it tells no one anything the public test did not already ask) → the X photo → the Instagram photo → the LinkedIn photo (each with ``fallback=false``, unavatar's documented "404 on a miss") → the monogram. `entity_picture.resolve` holds the precedence; this module answers its `profile` rung's availability
 (read-only, from the cache index) and does the one fetch, on demand, when the app asks `GET /entities/{id}/photo`.
 
 **The fetch** — fixed URL shapes, `https` only, every hop (redirects followed by hand, at most 3) checked against
@@ -63,7 +70,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Awaitable, Callable
-from urllib.parse import urljoin, urlparse
+from urllib.parse import quote, urljoin, urlparse
 
 from loguru import logger
 
@@ -94,6 +101,8 @@ GITHUB = "github"
 X = "x"
 LINKEDIN = "linkedin"
 INSTAGRAM = "instagram"
+#: A public figure's encyclopedia portrait: the value is the Wikidata item, never a name (owner 2026-10-28, C).
+WIKIDATA = "wikidata"
 PROXIED = frozenset({X, INSTAGRAM, LINKEDIN})
 _URLS = {
     GRAVATAR: "https://gravatar.com/avatar/{value}?s=" + str(SIZE) + "&d=404",
@@ -101,7 +110,13 @@ _URLS = {
     X: "https://unavatar.io/x/{value}?fallback=false",
     LINKEDIN: "https://unavatar.io/linkedin/user:{value}?fallback=false",
     INSTAGRAM: "https://unavatar.io/instagram/{value}?fallback=false",
+    # Commons' own redirect to a SIZE-px raster of the file (an SVG or a TIFF is drawn to PNG/JPEG by Commons itself).
+    WIKIDATA: "https://commons.wikimedia.org/wiki/Special:FilePath/{value}?width=" + str(SIZE),
 }
+_QID_RE = re.compile(r"Q[1-9][0-9]{0,11}")
+#: A Commons file name as P18 holds it: no path, no scheme, an image extension Commons renders as a raster thumbnail.
+_COMMONS_FILE_RE = re.compile(r"[^/\\#?<>\[\]{}|\x00-\x1f]{1,236}\.(?:jpe?g|png|gif|tiff?|webp|svg)", re.IGNORECASE)
+_WIKIMEDIA_HOSTS = frozenset({"commons.wikimedia.org", "upload.wikimedia.org"})
 _X_HANDLE_RE = re.compile(r"[A-Za-z0-9_]{1,15}")
 _X_RESERVED = frozenset({
     "home", "explore", "notifications", "messages", "i", "settings", "search", "intent", "share", "hashtag", "compose",
@@ -266,11 +281,14 @@ def _matcher(provider: str):
     return serves
 
 
-def candidates(fm: dict, *, owner: dict | None = None, proxy: bool | None = None) -> list[Candidate]:
+def candidates(fm: dict, *, owner: dict | None = None, proxy: bool | None = None,
+               public: str | None = None) -> list[Candidate]:
     """The identifiers a `person` page offers, in the order they are asked: the owner's email (only on the page marked
-    `owner: true`), then the best-ranked GitHub, X and LinkedIn profile links among its sources — the last two only
-    while the proxy gate is on (``proxy``, default :func:`proxy_allowed`), so turning it on changes the identifier set
-    and re-asks. Nothing derived from a name. `owner` is `owner.json`'s content; read only on the owner's page."""
+    `owner: true`), then the best-ranked GitHub profile link among its sources, then the public figure's Wikidata item
+    (``public``: the item ruling 44's full public test matched, :func:`public_item` — never on the owner's page), then
+    the X, Instagram and LinkedIn links — those only while the proxy gate is on (``proxy``, default
+    :func:`proxy_allowed`), so turning it on changes the identifier set and re-asks. Nothing derived from a name.
+    `owner` is `owner.json`'s content; read only on the owner's page."""
     fm = fm or {}
     if str(fm.get("type") or "").strip().lower() != "person":
         return []
@@ -285,12 +303,28 @@ def candidates(fm: dict, *, owner: dict | None = None, proxy: bool | None = None
             out.append(Candidate(GRAVATAR, digest))
     from api.services import fact_sources
 
-    providers = [GITHUB] + ([X, INSTAGRAM, LINKEDIN] if (proxy_allowed() if proxy is None else proxy) else [])
+    providers = [GITHUB, WIKIDATA] + ([X, INSTAGRAM, LINKEDIN] if (proxy_allowed() if proxy is None else proxy) else [])
     for provider in providers:
+        if provider == WIKIDATA:
+            if public and fm.get("owner") is not True and _QID_RE.fullmatch(str(public)):
+                out.append(Candidate(WIKIDATA, str(public)))
+            continue
         for source in fact_sources.rank(fm.get("sources"), None, match=_matcher(provider)):
             out.append(Candidate(provider, _PARSERS[provider](source["ref"])))
             break
     return out
+
+
+def public_item(memory_path, entity_id: str, fm: dict) -> str | None:
+    """The Wikidata item of a person ruling 44's full public test called a public figure (`web_context.public_items`,
+    the memo outside every bank), else None — never for the owner's page, a demo bank or a page that is not a person.
+    No network."""
+    from api.services import demo_guard, web_context
+
+    if str((fm or {}).get("type") or "").strip().lower() != "person" or (fm or {}).get("owner") is True:
+        return None
+    item = web_context.public_items(Path(memory_path)).get(entity_id)   # one stat when nothing is public
+    return None if item is None or demo_guard.is_demo(Path(memory_path)) else item
 
 
 def identity_key(cands: list[Candidate]) -> str | None:
@@ -303,7 +337,35 @@ def identity_key(cands: list[Candidate]) -> str | None:
 
 
 def provider_url(cand: Candidate) -> str:
+    """The one URL a candidate is asked at. A Wikidata candidate's value is the Commons FILE name by then
+    (:func:`_portrait_file`), never the item or a person's name."""
+    if cand.provider == WIKIDATA:
+        return _URLS[WIKIDATA].format(value=quote(cand.value.replace(" ", "_"), safe=""))
     return _URLS[cand.provider].format(value=cand.value)
+
+
+WikidataGet = Callable[[dict], Awaitable[dict | None]]
+
+
+async def _portrait_file(item: str, get: WikidataGet) -> tuple[str | None, bool]:
+    """``(Commons file name, transient)`` of the item's image (P18), asked of Wikidata by item alone on ruling 44's
+    rail (`org_sites.wikidata_get`: 4 s, ≤ 512 KB, no cookies, `net_guard`, a block never retried). A failed request
+    is transient; an item with no image, or a value that is not one plain image file name, is a plain miss."""
+    from api.services import org_sites
+
+    if not _QID_RE.fullmatch(item or ""):
+        return None, False
+    try:
+        data = await get({"action": "wbgetclaims", "entity": item, "property": "P18"})
+    except Exception as exc:  # noqa: BLE001 — a failed lookup is no answer
+        logger.debug(f"portrait lookup failed: {type(exc).__name__}")
+        return None, True
+    if data is None or "claims" not in data:
+        return None, True
+    for name in org_sites._claim_values(data, "P18"):
+        if isinstance(name, str) and _COMMONS_FILE_RE.fullmatch(name.strip()):
+            return name.strip(), False
+    return None, False
 
 
 # --- gates and the fetch ----------------------------------------------------------------------------------------
@@ -360,7 +422,18 @@ def _provider_host(url: str) -> bool:
     if parsed.scheme != "https" or parsed.username or parsed.password or parsed.port not in (None, 443):
         return False
     return (host == "gravatar.com" or host.endswith(".gravatar.com") or host == "github.com"
-            or host == "avatars.githubusercontent.com" or host == "unavatar.io")
+            or host == "avatars.githubusercontent.com" or host == "unavatar.io" or host in _WIKIMEDIA_HOSTS)
+
+
+def _user_agent(url: str) -> str:
+    """Wikimedia's User-Agent policy asks for a contact (the project's own page, never a person's identifier)."""
+    from api.services import org_sites
+
+    try:
+        host = (urlparse(url).hostname or "").lower()
+    except ValueError:
+        host = ""
+    return org_sites.USER_AGENT if host in _WIKIMEDIA_HOSTS else logo_service.USER_AGENT
 
 
 async def _http_get(url: str) -> FetchResult:
@@ -369,7 +442,7 @@ async def _http_get(url: str) -> FetchResult:
     import httpx
 
     async with httpx.AsyncClient(follow_redirects=False, timeout=TIMEOUT_SECONDS) as client:
-        async with client.stream("GET", url, headers={"User-Agent": logo_service.USER_AGENT,
+        async with client.stream("GET", url, headers={"User-Agent": _user_agent(url),
                                                       "Accept": "image/png,image/jpeg"}) as resp:
             body = bytearray()
             async for chunk in resp.aiter_bytes():
@@ -532,12 +605,13 @@ def _hit_file(bank: str, entity_id: str, entry: dict) -> Path | None:
 
 
 def available(entity_id: str, fm: dict, meta: dict, *, owner: dict | None = None,
-              bank: str | None = None) -> tuple[bool, str | None, str | None]:
+              bank: str | None = None, public: str | None = None) -> tuple[bool, str | None, str | None]:
     """The `profile` rung's inputs for `/graph` and the card: ``(offered, sha, key)``. Offered while the page has an
     identifier and is not known to miss under it; ``sha`` once a photo for THIS identifier is stored (checked on disk
     when ``bank`` is given); ``key`` the identifiers' hash, which names the URL until a copy is stored (review B1: a
-    changed identifier is a new URL, so the app's disk cache can never pin a stale photo). No network, ever."""
-    key = identity_key(candidates(fm, owner=owner))
+    changed identifier is a new URL, so the app's disk cache can never pin a stale photo). ``public`` is the page's
+    :func:`public_item`. No network, ever."""
+    key = identity_key(candidates(fm, owner=owner, public=public))
     if key is None:
         return False, None, None
     entry = (meta or {}).get(entity_id)
@@ -580,9 +654,11 @@ def stamp(bank: str) -> str:
 # --- on demand --------------------------------------------------------------------------------------------------
 
 
-async def ensure_photo(memory_path, entity_id: str, *, fetcher: Fetcher | None = None) -> Path | None:
+async def ensure_photo(memory_path, entity_id: str, *, fetcher: Fetcher | None = None,
+                       wikidata: WikidataGet | None = None, still_public=None) -> Path | None:
     """Resolve → cache → (once) fetch → store. Only for a `person` page whose picture would be this rung: the person's
-    own choice or a Contacts photo means nothing is asked. Returns the stored file, or None."""
+    own choice or a Contacts photo means nothing is asked. Returns the stored file, or None. ``wikidata`` (default
+    `org_sites.wikidata_get`) and ``still_public`` (default :func:`_still_public`) are for tests."""
     from api.services import demo_guard
 
     memory_path = Path(memory_path)
@@ -590,10 +666,27 @@ async def ensure_photo(memory_path, entity_id: str, *, fetcher: Fetcher | None =
         return None   # a demo is synthetic: nothing about it is asked of the network
     bank = logo_service.bank_name(memory_path)
     async with logo_service._lock(f"person:{bank}/{entity_id}"):
-        return await _ensure_locked(memory_path, bank, entity_id, fetcher or _http_get)
+        return await _ensure_locked(memory_path, bank, entity_id, fetcher or _http_get, wikidata=wikidata,
+                                    still_public=still_public or _still_public)
 
 
-async def _ensure_locked(memory_path: Path, bank: str, entity_id: str, fetcher: Fetcher) -> Path | None:
+def _still_public(memory_path: Path, entity_id: str) -> bool:
+    """Ruling 44's local test, run again just before a portrait is asked (err private): the memo's match can be weeks
+    old, and an acquaintance on the record since makes the page private. No network."""
+    from api.services import web_context, web_settle
+
+    try:
+        page = web_context.load_page(memory_path, entity_id)
+        if page is None:
+            return False
+        return web_context.local_verdict(memory_path, page, web_settle.bank_facts(memory_path)).public is None
+    except Exception as exc:  # noqa: BLE001 — a test that cannot run says private
+        logger.debug(f"public test failed: {type(exc).__name__}")
+        return False
+
+
+async def _ensure_locked(memory_path: Path, bank: str, entity_id: str, fetcher: Fetcher, *,
+                         wikidata: WikidataGet | None = None, still_public=_still_public) -> Path | None:
     from api.services import entity_picture
 
     page = memory_path / "entities" / f"{entity_id}.md"
@@ -608,7 +701,7 @@ async def _ensure_locked(memory_path: Path, bank: str, entity_id: str, fetcher: 
     if inputs.type != "person" or inputs.choice is not None or inputs.contacts_sha is not None \
             or inputs.messages_sha is not None:
         return None
-    cands = candidates(fm)
+    cands = candidates(fm, public=public_item(memory_path, entity_id, fm))
     key = identity_key(cands)
     entry = read_meta(bank).get(entity_id)
     if key is None:
@@ -638,6 +731,28 @@ async def _ensure_locked(memory_path: Path, bank: str, entity_id: str, fetcher: 
         if remaining <= 0:
             transient = True   # out of time: asked again soon, never a cached miss
             break
+        if cand.provider == WIKIDATA:
+            # Owner 2026-10-28 (C): the local public test once more (err private), then the item's image by item
+            # alone, then that file from Commons by its own name — the person's name is never sent again.
+            if not await asyncio.to_thread(still_public, memory_path, entity_id):
+                continue
+            if wikidata is None:
+                from api.services import org_sites
+
+                wikidata = org_sites.wikidata_get
+            try:
+                name, failed = await asyncio.wait_for(_portrait_file(cand.value, wikidata),
+                                                      timeout=max(0.1, deadline - loop.time()))
+            except asyncio.TimeoutError:
+                name, failed = None, True
+            transient = transient or failed
+            if name is None:
+                continue
+            cand = Candidate(WIKIDATA, name)
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                transient = True
+                break
         # Over today's proxy allowance is transient too: asked again tomorrow.
         result, failed = await _get(provider_url(cand), fetcher, timeout=min(TIMEOUT_SECONDS, remaining),
                                     spend=spend if cand.provider in PROXIED else None)

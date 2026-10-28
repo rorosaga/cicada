@@ -10,6 +10,15 @@
 
 ## Current state and evidence
 
+- **2026-10-28 — pictures v2: public figures, Sleep's own sites, projects (G159, G146, G61; rulings 40 and 44 amended,
+  owner C/D/E; branch `feat/pictures-v2`).** A public figure the full ruling-44 test called public gets the matched
+  item's encyclopedia portrait, asked by item and file name only; ruling 40 trusts a site Sleep itself first proposed
+  once its homepage names the page; a project draws its trusted site's mark or, when an organisation owns its
+  repository, that organisation's avatar. On a copy of the owner's bank: 3,690 → 3,729 of 5,684 live pages can show a
+  picture (people 2 → 7, brands +23, projects 0 → 11). The biggest face lever left needs no ruling: the Contacts rung
+  — 87 of the 132 face-less people carry a full name a card could match, 0 can be counted until the app has synced
+  Contacts for this bank; the one ticked Messages chat is a texted agent's. Card-open and logo-serve p95 unchanged
+  within noise.
 - **2026-10-28 — ruling 48 recorded; the redesign accepted (docs only; branch `docs/redesign-rulings-2026-10-28`).**
   The owner answered the redesign's decisions: entity pages read as articles that carry their beliefs (citation
   markers, References, no beliefs list), Home leads its questions with their pages and Catch me up stands apart as a
@@ -1911,6 +1920,22 @@ A whole row moves to DONE only after its remaining implementation and required a
     narrowed to curated text and alias-only matches made proposals, and the second pass trusts none of the three.
     **Revisit** if a trusted auto-site is removed by the person (count `sources_removed` rows by `user` on entries with
     `verified.how` `wikidata+name` / `record*`), or if a fetched logo is ever shown on the wrong organisation.
+    **Amended (owner, 2026-10-28, D and E; vision item 2, branch `feat/pictures-v2`; G146, G159, G61).** **D — a site
+    Sleep itself first proposed is trusted once its homepage names the page:** Stage 1's official site
+    (`propose_site`, `added_by: agent`), the backfill's unconfirmed entry, and Sleep's own "Confirm N links" proposal held
+    only because the homepage had not answered or not named it are "on the page itself"; ruling 40 confirms one in place
+    (evidence kept, the proposal flag gone) on exactly its usual bar — the site's label is the page's name, alias or
+    acronym AND its homepage names the entity (`org_sites.sleeps_own_site`). Amends D5's "never trusted until the
+    person takes it" for these three kinds only: the person's entry, an identified agent's, a remote app's, and a
+    proposal held for any other doubt (only an alias matched, the record names another site, a country conflict, a
+    namesake, content that did not agree) still wait for the person. **E — a project gets a mark:** its trusted
+    website's logo, else its repository owner's avatar only when GitHub's public account record says an
+    `Organization` owns the repository (`logo_service.fetch_org_avatar`); a personal account's avatar is never asked, a
+    repository proposal is never drawn (D5), and ruling 40 still never looks a project up. **Measured** on a copy of
+    the owner's bank (record only, homepages fetched, Wikidata not asked): ruling 40 trusts 24 sites instead of 11, and
+    picture coverage moves from 3,690 to 3,729 of 5,684 live pages (brands +23, projects +11 from a trusted site, 0 from
+    a repository: all 19 repository links are proposals). **Revisit** with D's own trigger above, or if a project ever
+    shows a personal account's face.
 41. **Nicknames count as nicknames, unless there is no name — then a nickname is the name until a name is found
     (owner, 2026-10-27; G209; branch `fix/people-duplicates`).** The owner's words: "Nicknames should count as nicknames
     unless there is no name, then it's a name until a name is found", and it "should work at scale with many many
@@ -2016,6 +2041,16 @@ A whole row moves to DONE only after its remaining implementation and required a
     the telemetry ledger's reads, though the brief asked for them — CLAUDE.md says nothing learned from the ledger is
     auto-applied; the owner decides. **Revisit** if the person undoes a context lookup on a page the test called public
     (count `context_undo` rows), or a person the test called public turns out to be someone they know.
+    **Amended (owner, 2026-10-28, C; vision item 2, branch `feat/pictures-v2`; G159, G146).** **A public figure's face
+    is their encyclopedia portrait:** a person the full public test called public (the local test, then exactly ONE
+    human with an encyclopedia article) gets that item's image (Wikidata P18), drawn from Wikimedia Commons. The memo
+    outside every bank now keeps the matched item, so the portrait is asked by item and file name only — the person's
+    name is never sent again, and a private person's never at all (the local test still sends nothing). The local test
+    runs once more just before the ask (err private); a page that fails it on a later verdict leaves the memo and its
+    portrait with it. In the people ladder after the GitHub avatar and before the proxy (no proxy budget, nothing the
+    test did not already ask); never the owner's page or a demo bank; behind `CICADA_ALLOW_LOGO_FETCH` and the people
+    gate, on the ToS rail (`person_photo`). **Measured** on the copy: of 132 people with no picture, 22 pass the local
+    test, 5 match one encyclopedia item, all 5 have a portrait (people with a picture: 2 → 7 of 134).
 45. **The Projects list is the person's; everything detected is suggested, never archived (owner, 2026-10-27; G141,
     G222; amends ruling 36 D4; branch `feat/projects-v2`).** The owner's words (2026-10-26): "some projects there are
     detected and are not even mine." **Q1 (yes):** the list shows only the person's own projects — created in the app

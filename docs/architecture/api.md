@@ -271,7 +271,8 @@ name a `cicada_…` tool; `llms.txt` maps each to its operation), `data`'s shape
   each live page's ONE rung from `entity_picture.resolve_page` (`<rung>:stored` with bytes on disk, `<rung>:offered`
   when the app will ask for it) or ONE reason (`coverage_report.REASONS`: `type_has_no_rung`, `gate_off`,
   `fetch_missed`, `no_identifier`, `identifier_proposed`, `identifier_needs_proxy`, `no_site`, `site_proposed`,
-  `site_unconfirmed`, `site_platform`, `paper`, `no_url`, `walled`, `no_preview_declared` — `media_preview.missing_reason`
+  `site_unconfirmed`, `site_platform`, `repo_proposed` (a project whose only repository link waits in "Confirm N
+  links", owner 2026-10-28 E), `paper`, `no_url`, `walled`, `no_preview_declared` — `media_preview.missing_reason`
   for the last four), by type; cached logos bucketed by their smaller side; `opportunities` counts what rungs awaiting a
   ruling could draw from. **Sources:** each entry's write path (`coverage_report.writer_of`, inferred from the fields
   each writer stamps — `WRITERS`) × trusted/proposed/unconfirmed, roles, ruling-26 re-check state, pages with none by

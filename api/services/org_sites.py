@@ -290,15 +290,15 @@ def _own_line_hits(memory_path: Path, fm: dict, keys: set[str]) -> list[Candidat
 
 def _page_text_hits(fm: dict, body: str, keys: set[str]) -> list[Candidate]:
     """Origins the page itself carries — an alias that is a domain, a ``## Links`` entry, a key-fact line about its
-    site or domain, its current ``website`` claim, the ``website`` source Cicada's own backfill put on it that no read
-    has confirmed yet (:func:`_own_unconfirmed`), a link or domain anywhere in its prose — whose label is the page's
-    name (vision item 2, 2026-10-28: both are "on the page itself", ruling 40's own words)."""
+    site or domain, its current ``website`` claim, a ``website`` source Sleep itself first proposed that no read has
+    confirmed yet (:func:`sleeps_own_site`), a link or domain anywhere in its prose — whose label is the page's name
+    (vision item 2, 2026-10-28: both are "on the page itself", ruling 40's own words)."""
     found: list[str] = [a for a in fm.get("aliases") or [] if isinstance(a, str) and _BARE_DOMAIN.fullmatch(a.strip())
                         and _real_tld(a.strip())]
     claim_site = site_sources._website_claim_origin(body)
     if claim_site:
         found.append(claim_site)
-    found += [str(s.get("ref") or "") for s in fact_sources.as_sources(fm.get("sources")) if _own_unconfirmed(s)]
+    found += [str(s.get("ref") or "") for s in fact_sources.as_sources(fm.get("sources")) if sleeps_own_site(s)]
     sections = entity_body.parse_sections(body or "")
     found += _urls_and_domains(sections.get("Links", ""))
     for line in str(sections.get("Key Facts", "")).splitlines():
@@ -313,13 +313,36 @@ def _page_text_hits(fm: dict, body: str, keys: set[str]) -> list[Candidate]:
     return out
 
 
-def _own_unconfirmed(source: dict) -> bool:
-    """A ``website`` entry Cicada's own site backfill put on the page (``site_sources``, ``added_by: cicada``) that
-    nothing has confirmed or proposed yet — the one kind :func:`apply` may confirm in place. Stage 1's entry
-    (``added_by: agent``) is another writer's here and stays with the nightly content check (``site_sources``)."""
-    return (fact_sources.same_predicate(source.get("predicate"), fact_sources.WEBSITE)
-            and str(source.get("added_by") or "") == AUTHOR and not source.get("origin")
-            and not fact_sources.trusted(source) and not fact_sources.is_proposed(source))
+#: The doubts about a proposal of Sleep's own that the homepage naming the page settles: it had not answered, or had
+#: not named it. A proposal held for any other doubt (found only through an alias, the record naming another site, a
+#: country conflict, a namesake, content that did not agree) still waits for the person.
+HOMEPAGE_DOUBTS = frozenset({"homepage_unconfirmed", "not_fetched"})
+#: Stage 1's official site (`fact_sources.propose_site(added_by="agent")`, the shape `coverage_report.writer_of`
+#: reads as Stage 1's): these fields only (plus the nightly check's own), no proposal flag, no confirmation, no origin.
+_STAGE1_FIELDS = frozenset({"ref", "kind", "predicate", "added_by", "added_at", "checked", "tries"})
+
+
+def sleeps_own_site(source: dict) -> bool:
+    """A ``website`` entry Sleep itself first proposed that nothing has confirmed yet — the kinds :func:`apply` may
+    confirm in place once the homepage names the page (owner 2026-10-28, D; amends rulings 36 D5 and 40):
+
+    - the engine-free backfill's entry (``site_sources``, ``added_by: cicada``, no proposal flag);
+    - Stage 1's official site at page creation (``added_by: agent`` in :data:`_STAGE1_FIELDS`' shape);
+    - Sleep's own proposal in "Confirm N links" (``added_by: cicada``, ``proposed``) held only because the homepage
+      had not answered or not named it (:data:`HOMEPAGE_DOUBTS`; a proposal with no recorded doubt is the record's).
+
+    Never the person's entry, one they took or removed, an identified agent's or a remote app's, nor a proposal held
+    for any other doubt."""
+    if not fact_sources.same_predicate(source.get("predicate"), fact_sources.WEBSITE) or source.get("origin") \
+            or fact_sources.trusted(source):
+        return False
+    who = str(source.get("added_by") or "")
+    if who == AUTHOR:
+        if not fact_sources.is_proposed(source):
+            return True
+        evidence = source.get("evidence") if isinstance(source.get("evidence"), dict) else {}
+        return evidence.get("reason") in HOMEPAGE_DOUBTS or not evidence.get("reason")
+    return who == "agent" and not source.get(fact_sources.PROPOSED) and set(source) <= _STAGE1_FIELDS
 
 
 def record_candidates(memory_path: Path | None, fm: dict, body: str) -> list[Candidate]:
@@ -749,11 +772,12 @@ def trusted_entry(finding: Finding, today: str) -> dict:
 
 
 def apply(fm: dict, finding: Finding, today: str) -> int:
-    """Put the finding on ``fm`` (pure over the dict; the caller writes). A trusted site upgrades Cicada's own
-    unconfirmed, unproposed entry for the same site in place, else is added — never over a proposal waiting for the
-    person or another writer's entry for that site; proposals are added as ``proposed`` entries the review lists, or
-    mark Cicada's own unconfirmed entry for the same site as proposed. Never over a tombstone, a trusted site or a cap.
-    Returns how many entries were added or changed."""
+    """Put the finding on ``fm`` (pure over the dict; the caller writes). A trusted site upgrades an entry Sleep itself
+    first proposed for the same site in place (:func:`sleeps_own_site` — owner 2026-10-28, D), else is added — never
+    over the person's entry, an identified agent's, or a proposal held for a doubt the homepage does not settle;
+    proposals are added as ``proposed`` entries the review lists, or mark Cicada's own unconfirmed entry for the same
+    site as proposed. Never over a tombstone, a trusted site or a cap. Returns how many entries were added or
+    changed."""
     existing = [s for s in (fm.get("sources") or []) if isinstance(s, dict)]
     if has_trusted_site(fm):
         return 0
@@ -765,12 +789,13 @@ def apply(fm: dict, finding: Finding, today: str) -> int:
         for s in existing:
             if fact_sources.same_predicate(s.get("predicate"), fact_sources.WEBSITE) and \
                     reading_hosts.site_of(str(s.get("ref") or "")) == reading_hosts.site_of(finding.site):
-                if fact_sources.is_proposed(s) or str(s.get("added_by") or fact_sources.USER) != AUTHOR:
-                    # A proposal waits for the person (ruling 36 D5), and another writer's entry is theirs: neither is
-                    # upgraded behind them. Another writer's unproposed site still has Cicada's own nightly check.
+                if not sleeps_own_site(s):
+                    # The person's entry, an identified agent's, or a proposal held for a doubt the homepage does not
+                    # settle: never upgraded behind them (ruling 36 D5). An unproposed one keeps the nightly check.
                     return 0
                 s.pop("checked", None)
                 s.pop("tries", None)
+                s.pop(fact_sources.PROPOSED, None)
                 s["verified"] = new["verified"]
                 s["access"] = fact_sources.ACCESS_PUBLIC
                 fm["sources"] = existing

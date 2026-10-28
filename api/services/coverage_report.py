@@ -40,6 +40,8 @@ REASONS = (
     "site_proposed",         # a website waits for the person (ruling 36 D5)
     "site_unconfirmed",      # a website Cicada or an agent added that no read confirmed yet
     "site_platform",         # the only trusted site is a platform or walled host (never a mark)
+    # a project (owner 2026-10-28, E)
+    "repo_proposed",         # no trusted site, and its repository link waits in "Confirm N links" (ruling 36 D5)
     # a media page
     "paper",                 # a paper: its picture is the person's own PDF (G133)
     "no_url",                # nothing to draw a preview from
@@ -128,7 +130,14 @@ def _person_reason(fm: dict, *, owner: dict | None, proxy: bool) -> str:
 
 
 def _brand_reason(fm: dict) -> str:
+    from api.services import fact_sources
+
     state = _website_state(fm)
+    if state is None and _kind(fm) == "project" and any(
+            fact_sources.is_proposed(s) and (fact_sources.same_predicate(s.get("predicate"), fact_sources.KIND_REPO)
+                                             or str(s.get("kind") or "") == fact_sources.KIND_REPO)
+            for s in fact_sources.as_sources(fm.get("sources"))):
+        return "repo_proposed"
     return {"platform": "site_platform", "proposed": "site_proposed", "unconfirmed": "site_unconfirmed"}.get(
         state or "", "no_site")
 
@@ -146,12 +155,6 @@ def _opportunities(kind: str, fm: dict) -> list[str]:
         if any(str(s.get("ref") or "").startswith(contacts_local.REF_SCHEME)
                and fact_sources.same_predicate(s.get("predicate"), "email") for s in sources):
             out.append("person_contacts_email")
-    elif kind == "project":
-        if any(str(s.get("kind") or "") == fact_sources.KIND_REPO or "github.com/" in str(s.get("ref") or "")
-               for s in sources):
-            out.append("project_repo")
-        if _website_state(fm) == "trusted":
-            out.append("project_website")
     return out
 
 
@@ -237,7 +240,8 @@ def pictures(memory_path, *, include_archived: bool = False, ids: bool = False) 
             if kind == "person":
                 entry = photos.get(eid) if isinstance(photos, dict) else None
                 if isinstance(entry, dict) and entry.get("miss") and person_photo.candidates(
-                        fm, owner=owner_fm if owner_fm is not None else owner):
+                        fm, owner=owner_fm if owner_fm is not None else owner,
+                        public=person_photo.public_item(memory_path, eid, fm)):
                     reason = "fetch_missed"
                 else:
                     reason = _person_reason(fm, owner=owner_fm if owner_fm is not None else owner,
@@ -249,7 +253,7 @@ def pictures(memory_path, *, include_archived: bool = False, ids: bool = False) 
                 else:
                     reason = media_preview.missing_reason(fm) or "no_preview_declared"
             elif entity_picture.logo_eligible(fm) or kind in logo_service.SITE_ONLY_TYPES:
-                if logo_service.domain_for(fm) is not None and eid in missed:
+                if logo_service.target_for(fm) is not None and eid in missed:
                     reason = "fetch_missed"
                 else:
                     reason = _brand_reason(fm)

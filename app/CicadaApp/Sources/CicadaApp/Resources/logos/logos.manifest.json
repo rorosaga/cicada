@@ -165,10 +165,10 @@
       "origin": "set",
       "restrictions": "Trademark of Fireworks AI; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
       "setFile": "app/assets/logo-set/fireworks.svg",
-      "sha256": "86b236f426f54c0d3ef3a100962e3132975fb171e8b498b3f0a030a05f91339b",
+      "sha256": "d562fbbcd199bdafd47dbf8dcba47e0c7d5d0fd48ab554f18b720eaca4c4110a",
       "sourceTier": "official site",
       "sourceUrl": "https://fireworks.ai/icon0.svg",
-      "svgSha256": "86b7f4b33ca48c5617f10e2cef5aaa7096c5e798090ceb2d0c21b01273660c76",
+      "svgSha256": "d88cab178a47518c6739e33b68bc4ab3670533268e64906aafa6f2c252b1ce03",
       "umbrella": "Fireworks"
     },
     {
@@ -411,10 +411,10 @@
       "origin": "set",
       "restrictions": "Trademark of OpenClaw; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
       "setFile": "app/assets/logo-set/openclaw.svg",
-      "sha256": "432c356c167462052e922456c252d16c6b65c0267e5b448145208e77f3414340",
+      "sha256": "c112c19b91e6bd101ae10d9405381d14678cd5f264d7345943bd4a3e19f41b0a",
       "sourceTier": "official site",
       "sourceUrl": "https://openclaw.ai/favicon.svg",
-      "svgSha256": "fa7e2ec07ebfa696bcc8c27d7e36425cbb7b1772f6f7f04ce390cf5f1c35cf0e",
+      "svgSha256": "87d87ee7bb4e6fb868bf5ac1a873fb3669dc5c14cdf71ec8ded97f1869a12ce3",
       "umbrella": "OpenClaw"
     },
     {

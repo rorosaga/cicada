@@ -359,6 +359,9 @@ def load_page(memory_path: Path, entity_id: str, *, today: date | None = None) -
 class Verdict:
     public: bool | None          # None: passed the local test, Wikidata still to ask
     reason: str
+    #: The ONE Wikidata item an ``encyclopedia_match`` names, kept in the memo so a public figure's portrait (P18) is
+    #: asked by item and never by name again (owner 2026-10-28, C).
+    item: str | None = field(default=None, compare=False)
 
 
 def _prose(body: str) -> str:
@@ -499,7 +502,7 @@ async def wikidata_verdict(page: Page, get: JsonGet) -> Verdict:
     entity = ((ent or {}).get("entities") or {}).get(kind[0]) or {}
     if not _has_article(entity):
         return Verdict(False, "no_article")
-    return Verdict(True, "encyclopedia_match")
+    return Verdict(True, "encyclopedia_match", kind[0])
 
 
 async def verdict(memory_path: Path, page: Page, facts: web_settle.BankFacts, memo: dict, *, get: JsonGet | None,
@@ -508,18 +511,53 @@ async def verdict(memory_path: Path, page: Page, facts: web_settle.BankFacts, me
     network) or a spent ``budget`` leaves a page that still needs Wikidata private for now (``wikidata_pending``)."""
     v = local_verdict(memory_path, page, facts)
     if v.public is not None:
+        if v.public is False:
+            # Err private: a page that fails the local test now (an acquaintance on the record since, a personal
+            # channel) loses its cached match, and with it the public figure's portrait (owner 2026-10-28, C).
+            memo["wd"].pop(page.entity_id, None)
         return v
     cached = memo["wd"].get(page.entity_id) or {}
-    if cached.get("at", "") >= (today - timedelta(days=WIKIDATA_RETRY_DAYS)).isoformat() and cached.get("v"):
-        return Verdict(cached["v"] == "encyclopedia_match", str(cached["v"]))
+    # A person's match cached before the item was kept is asked once more, so the portrait rung learns its item.
+    if cached.get("at", "") >= (today - timedelta(days=WIKIDATA_RETRY_DAYS)).isoformat() and cached.get("v") \
+            and (cached["v"] != "encyclopedia_match" or cached.get("item") or page.type != "person"):
+        return Verdict(cached["v"] == "encyclopedia_match", str(cached["v"]), cached.get("item"))
     if get is None or (budget is not None and budget[0] <= 0):
         return Verdict(False, "wikidata_pending")
     if budget is not None:
         budget[0] -= 1
     w = await wikidata_verdict(page, get)
     if w.reason != "lookup_failed":
-        memo["wd"][page.entity_id] = {"v": w.reason, "at": today.isoformat()}
+        memo["wd"][page.entity_id] = {"v": w.reason, "at": today.isoformat(), **({"item": w.item} if w.item else {})}
     return w
+
+
+_PUBLIC_ITEMS: dict[str, tuple[int, dict[str, str]]] = {}
+_QID = re.compile(r"Q[1-9][0-9]{0,11}")
+
+
+def public_items(memory_path: Path) -> dict[str, str]:
+    """``{page id: Wikidata item}`` for every page the full public test (ruling 44) last called public by an
+    encyclopedia match — read from the memo outside every bank, no network, memoized on the memo's mtime. The
+    public-figure portrait's one input (`person_photo`, owner 2026-10-28, C): such a person passed the local test AND
+    matched exactly one human with an encyclopedia article; one that later fails the local test leaves it
+    (:func:`verdict`). The caller still checks the page is a person."""
+    import os
+
+    # `_memo_path`'s file, without `cicada_home`'s mkdir: this runs per person page on every card and `/graph` build,
+    # and a read must not conjure a folder (`logo_service.meta_path`'s rule).
+    home = Path(os.environ.get("CICADA_HOME") or str(Path.home() / ".cicada")).expanduser()
+    path = home / "web_context" / f"{Path(memory_path).name}.json"
+    try:
+        mtime = path.stat().st_mtime_ns
+    except OSError:
+        return {}
+    hit = _PUBLIC_ITEMS.get(str(path))
+    if hit is not None and hit[0] == mtime:
+        return hit[1]
+    out = {eid: str(e["item"]) for eid, e in load_memo(memory_path)["wd"].items()
+           if isinstance(e, dict) and e.get("v") == "encyclopedia_match" and _QID.fullmatch(str(e.get("item") or ""))}
+    _PUBLIC_ITEMS[str(path)] = (mtime, out)
+    return out
 
 
 # ---------------------------------------------------------------------------------------------------- the schedule
