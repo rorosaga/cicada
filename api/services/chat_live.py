@@ -3,7 +3,7 @@
 The owner, 2026-10-28: "I want a live tracking like we do with messages plus a historical if I want", group chats
 included, "who said what to who, believes what", and one person one page across sources. Messages (`messages_source`)
 was built for one source: its keys, settings file and titles are its own. This module is the same discipline, made
-source-agnostic, for every chat source added after it: a source module (`whatsapp_source`; Telegram next) turns
+source-agnostic, for every chat source added after it: a source module (`whatsapp_source`, `telegram_source`) turns
 what its reader produced into :class:`ChatMessage` / :class:`ChatReaction` and hands them here with its
 :class:`ChatSpec`; everything below is shared.
 
@@ -52,7 +52,7 @@ from api.services.episode_staging import EpisodeDraft, Turn
 from api.services.id_utils import sanitize_id
 
 #: Every chat source's origin — Messages first. What "a texted conversation" means to every reader that asks.
-CHAT_ORIGINS = frozenset({"imessage", "whatsapp"})
+CHAT_ORIGINS = frozenset({"imessage", "whatsapp", "telegram-chats"})
 ID_RE = re.compile(r"^[0-9a-f]{16,64}$")
 MAX_MESSAGES_PER_REQUEST = 2000
 MAX_MEMBERS = 256

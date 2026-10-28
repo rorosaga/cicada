@@ -228,6 +228,7 @@ def test_a_person_mark_names_the_correspondent_for_stage_two(bank):
 
 def test_the_inbox_reads_whatsapp_as_a_texted_conversation():
     assert inbox_tend._from_messages({"origin": "whatsapp"})
+    assert inbox_tend._from_messages({"origin": "telegram-chats"})
     assert not inbox_tend._from_messages({"origin": "claude-code"})
 
 
@@ -236,8 +237,8 @@ def test_the_sources_page_lists_whatsapp_once_ticked(bank):
     assert "whatsapp" not in ids
     tick(bank)
     rows = {r["id"]: r for r in channel_registry.build_channels(bank, telegram_enabled=False)}
-    assert rows["whatsapp"]["label"] == "WhatsApp"   # connected after a first sync
-    assert "whatsapp" in {s.id for s in source_overview.CATALOG}
+    assert rows["whatsapp"]["label"] == "WhatsApp" and "telegram-chats" not in rows   # connected after a first sync
+    assert {"whatsapp", "telegram-chats"} <= {s.id for s in source_overview.CATALOG}
 
 
 def test_routes_tick_sync_and_refuse(client, bank):

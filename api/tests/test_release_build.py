@@ -108,5 +108,8 @@ def test_every_data_file_the_code_reads_is_tracked():
         named |= set(re.findall(r'"data"\s*/\s*"([\w.-]+)"', text))
         named |= set(re.findall(r"api/data/([\w-]+(?:\.[\w-]+)+)", text))
     assert {"predicates-seed.yaml", "embeddinggemma-2.lock.json"} <= named, "the scan still finds the readers"
-    missing = sorted(f"api/data/{n}" for n in named if f"api/data/{n}" not in tracked)
+    # Written into the bundle by bundle.sh at release time from CI's variable and secret, never tracked (ruling 47a:
+    # Cicada's own Telegram app id; the repo is public). The reader treats its absence as "no app id".
+    release_written = {"telegram_app.json"}
+    missing = sorted(f"api/data/{n}" for n in named - release_written if f"api/data/{n}" not in tracked)
     assert not missing, f"read at runtime but not tracked (re-include in .gitignore): {missing}"

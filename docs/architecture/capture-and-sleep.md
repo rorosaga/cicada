@@ -601,6 +601,21 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   conversation" means to every reader that asks (`inbox_tend`). Measured on fixtures (2026-10-28): file change → posted,
   the app's read of a 20,000-row store plus the post, p95 9 ms over 20 (`WhatsAppReaderTests`); the backend's stage
   into a chat of 40 sittings, p95 11 ms over 30 (`test_chat_live`) — the 3 s debounce dominates.
+- **Telegram chats the person ticks (ruling 47a and its amendment, 2026-10-28).** The backend's own client
+  (`telegram_account`, `telegram_port`, network.md) listens while the person is connected; events wait in memory for
+  1 s and are then staged per chat in the active bank (never the demo bank), under write admission, one `capture`
+  commit per flush — only a one-to-one chat that is ticked in the bank AND has the person's dated consent
+  confirmation (`consents.json`); anything else is dropped in memory. `telegram_source` → `chat_live`: a
+  conversation id is `hash("telegram", peer id)`, a message key `hash(conversation, message id)` — no Telegram id in
+  the bank. Telegram states whether an account is a bot: a bot's lines are `assistant:` (`correspondent.kind: agent`,
+  `decided_by: source`), anyone else's `speaker:<name>:` (`person`, `source`). Edits replace words in place; deletes
+  keep the place (a private chat's delete names only ids — the ticked chat holding them is found by key); a reaction
+  change is Telegram's whole current set, one per listed reactor (Telegram names reactors only in small chats);
+  forwards keep `forwarded_from`; service messages are skipped; media is named, a location or contact card never kept.
+  Live from the tick (`reads_from`); history on ask reads the chat oldest first, 500 a batch, at most 20,000; a
+  per-chat cursor (the newest message id, beside the session) catches up what arrived while the backend was down.
+  Measured on a fake client (2026-10-28): update → staged and committed, p95 12 ms over 30 into a chat of 41 sittings
+  (`test_telegram_chats`), the 1 s flush wait aside.
 - **Capture never writes into a demo bank** (G117's synthetic bank; G141 capture-side track). A bank
   is the demo when `<bank>/_bank.yaml` says `kind: demo` — written first by `demo_bank.populate` and
   committed as `cicada` — or, for a demo made before that file, when its `.git/config` carries the

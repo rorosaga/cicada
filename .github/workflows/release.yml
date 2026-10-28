@@ -113,6 +113,9 @@ jobs:
           CICADA_SIGN_IDENTITY: "-"
           # Report a problem's private address; a repository variable, empty until the owner sets it (RELEASING.md).
           CICADA_REPORT_EMAIL: ${{ vars.CICADA_REPORT_EMAIL }}
+          # Cicada's own Telegram app id (ruling 47a): a variable and a secret, empty until the owner sets them.
+          CICADA_TELEGRAM_API_ID: ${{ vars.CICADA_TELEGRAM_API_ID }}
+          CICADA_TELEGRAM_API_HASH: ${{ secrets.CICADA_TELEGRAM_API_HASH }}
         run: cd app/CicadaApp && ./bundle.sh --release --with-backend
 
       - name: The app's version agrees

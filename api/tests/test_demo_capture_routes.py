@@ -57,10 +57,14 @@ GATED = {
     ("POST", "/sources/messages/conversations"): "/sources/messages/conversations",
     # 2026-10-16: a ticked chat's shared photo — outside the bank, but a demo bank ticks no chat.
     ("PUT", "/sources/messages/photos"): "/sources/messages/photos",
-    # G179 (2026-10-28): WhatsApp's ticked chats — rows, ticks and the list.
+    # G179 (2026-10-28): WhatsApp's ticked chats and Telegram's (ruling 47a) — rows, ticks and the sign-in itself.
     ("POST", "/sources/whatsapp/sync"): "/sources/whatsapp/sync",
     ("PUT", "/sources/whatsapp/settings"): "/sources/whatsapp/settings",
     ("POST", "/sources/whatsapp/conversations"): "/sources/whatsapp/conversations",
+    ("PUT", "/sources/telegram/settings"): "/sources/telegram/settings",
+    ("POST", "/sources/telegram/connect"): "/sources/telegram/connect",
+    ("POST", "/sources/telegram/code"): "/sources/telegram/code",
+    ("POST", "/sources/telegram/password"): "/sources/telegram/password",
     # A connector id no adapter has: were the gate missing, the handler 404s
     # before any adapter could reach the network (sync_now passes allow_fetch=True).
     ("POST", "/sources/connectors/{connector_id}/sync"): "/sources/connectors/no-such-connector/sync",
@@ -93,6 +97,8 @@ HANDLED_ELSEWHERE = {
     ("PUT", "/sources/connectors/{connector_id}/credentials"):
         "stores the secret in ~/.cicada/secrets.env; only restamps the bank's sync_state.json, no content",
     ("POST", "/sources/connectors/{connector_id}/authorize"): "returns a sign-in link, takes nothing in",
+    ("POST", "/sources/telegram/disconnect"):
+        "ruling 47a: logs the Telegram session out and deletes its file outside every bank; takes nothing in",
     ("PUT", "/reading/settings"): "a machine-wide setting (~/.cicada/reading.json); writes no bank",
     ("POST", "/sources/saved-why/suggest"):
         "G191 v7: scores the reason bank against a link with the installed search model; reads no bank, writes nothing",

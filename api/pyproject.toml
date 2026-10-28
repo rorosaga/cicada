@@ -27,6 +27,9 @@ dependencies = [
     "rich>=13.7",
     "sentence-transformers>=5.0.0",
     "sqlite-vec>=0.1.9",
+    # Telegram chats on the person's own account (ruling 47a, G179): MTProto in pure Python, MIT; imported only once
+    # the person connects (api/services/telegram_port.py).
+    "telethon>=1.45,<2",
     "thefuzz[speedup]>=0.22.1",
     "tokenizers>=0.22.2",
     "tqdm>=4.66.0",

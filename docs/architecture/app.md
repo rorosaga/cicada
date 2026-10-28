@@ -852,6 +852,14 @@ again*; "History read" after) and the tick. No new visual pattern. `WhatsAppWatc
 `bankChanged` on a switch) owns the list, the per-memory `Z_PK` cursors (`cicada.whatsapp.cursor.<bank>.<id>`), the
 FSEvents watch on the group container and every read off the main actor; `WhatsAppReader` is the one SQL reader.
 
+**Telegram chats (ruling 47a, 2026-10-28).** The same row and sheet (`TelegramSourceRow`, `TelegramPanel`;
+`TelegramChats` holds the state, the backend the client). Not connected: the backend's consent sentence word for word,
+then the steps in native rounded fields (DR-76: setup sheets keep the native field) — phone number → the code Telegram
+sends → the two-step password when the account has one. Connected: the one-to-one chats only (no group, no channel),
+each with *Read history* and the tick; ticking opens a system alert (*Did they agree?*) carrying the backend's
+per-chat sentence with the chat's name — *They agreed* ticks, Cancel doesn't — and unticking withdraws it; *Disconnect*
+ends the session at Telegram.
+
 **Ask why (G191).** When the bookmark watch's own file event starts a sync (`BookmarkSyncSignal.live`, a task-local
 the watcher sets; a catch-up, Sync now, Turn on or folder import is never live) and the result has exactly one fresh
 bookmark, `SaveWhyPolicy` asks "What made you save this?" — unless the switch is off, the channel's sync was a first

@@ -198,7 +198,8 @@ struct IntegrationsView: View {
                               channel.id != CalendarRow.channelId,
                               channel.id != ContactsReader.channel,
                               channel.id != MessagesWatcher.channel,
-                              channel.id != WhatsAppWatcher.channel {
+                              channel.id != WhatsAppWatcher.channel,
+                              channel.id != TelegramChats.channel {
                         // Wispr Flow, the Calendar app and Contacts each have a row the app owns (below).
                         IntegrationChannelRow(channel: channel)
                     }
@@ -214,6 +215,7 @@ struct IntegrationsView: View {
                 if category == .messaging {
                     MessagesRow(channel: rows.first { $0.id == MessagesWatcher.channel })
                     WhatsAppSourceRow(channel: rows.first { $0.id == WhatsAppWatcher.channel })
+                    TelegramSourceRow(channel: rows.first { $0.id == TelegramChats.channel })
                 }
                 if category == .voiceAndMeetings, showsWispr(rows) {
                     WisprFlowRow(channel: rows.first { $0.id == LocalSourceWatcher.wisprChannel })
