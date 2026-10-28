@@ -16,9 +16,13 @@ struct OriginMark: View {
     let origin: String
     var size: CGFloat = 14
 
-    /// The service's own mark exists — its installed app's icon or a bundled logo, not the SF Symbol stand-in.
-    static func hasRealMark(_ origin: String) -> Bool {
-        if OriginIconography.appBundleId(for: origin) != nil { return true }
+    /// The service's own mark exists — its app is actually installed here (Launch Services hands back an icon) or a
+    /// logo is bundled — never the SF Symbol stand-in. A known bundle id alone is not enough: Brave, Dia, Obsidian or
+    /// Wispr Flow may be absent. `appIcon` is the installed-icon lookup, injectable for tests.
+    @MainActor
+    static func hasRealMark(_ origin: String,
+                            appIcon: @MainActor (String) -> Bool = { InstalledAppIcon.image(bundleId: $0, size: 16) != nil }) -> Bool {
+        if let bundleId = OriginIconography.appBundleId(for: origin), appIcon(bundleId) { return true }
         guard let name = OriginIconography.logoName(for: origin) else { return false }
         return LogoImage.exists(name: name)
     }

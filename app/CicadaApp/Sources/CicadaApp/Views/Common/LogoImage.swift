@@ -108,6 +108,7 @@ struct LogoImage: View {
 
     /// With no logo of its own: the source's real mark, else nothing (owner 2026-10-28).
     enum EntityFallback: Equatable { case origin(String), none }
+    @MainActor
     static func entityFallback(origin: String?) -> EntityFallback {
         guard let origin, OriginMark.hasRealMark(origin) else { return .none }
         return .origin(origin)
