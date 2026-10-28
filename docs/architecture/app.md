@@ -1696,7 +1696,7 @@ part is a spec and needs a Mac).** The wire is `api.md`'s g141-6. What the page 
 - **Swift work:** decode `origin`, `sections`, `people` leniently into `ProjectOrigin`/`ProjectSection`/`ProjectPerson`
   (`ProjectsCache` unchanged — the ETag shape moved, so caches refetch once), re-pin `projects-demo.json`'s decode test,
   add `Copy+Projects` strings (provider-neutral, DR-59), and a `ProjectDetailSectionsTests` over the fixture.
-- **Projects v3 (2026-10-28, decisions 9, 10 and 17; DR-81 as proposed in the redesign, DR-38, DR-44, DR-45, DR-74,
+- **Projects v3 (2026-10-28, ruling 48: DESIGN_RULES §9 2026-10-28 (9), (10), (17); DR-81, DR-38, DR-44, DR-45, DR-74,
   §3.8) — the page has no folds.** A section with nothing in it is not drawn; a section with something is open and
   holds at most five rows (`ProjectOpen.cap`); more is a plain "All N" on the section's label that swaps the card's
   column to that full list (`ProjectOpen.Full`, `ProjectFullHead`: ‹ Back · title · count; Esc returns), never an

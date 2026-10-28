@@ -1,6 +1,6 @@
 import SwiftUI
 
-// Projects v3 (decisions 9, 10 and 17, owner 2026-10-28; DR-81 as proposed in the redesign, DR-38, DR-45, DR-74,
+// Projects v3 (ruling 48: DESIGN_RULES §9 2026-10-28 (9), (10), (17); DR-81, DR-38, DR-45, DR-74,
 // §3.8) — the project page with no folds. A section with nothing in it is not drawn; a section with something is open
 // and holds at most `ProjectOpen.cap` rows; more is a plain "All N" that swaps the column to the full list (Esc back),
 // never an in-place expansion. The pulse's bars are neutral ink: the band's green stays its one hue (§3.8).

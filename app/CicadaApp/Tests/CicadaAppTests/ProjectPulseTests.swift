@@ -3,7 +3,7 @@ import XCTest
 
 /// Decision 9 (owner 2026-10-28) — `ProjectPulse` and `project_pulse.pulse` run ONE table,
 /// `api/tests/fixtures/project_pulse.json`: add a rule on one side only and the other goes red. And the Projects page
-/// draws no fold (decision 17, DR-81 as proposed): a source lint over `Views/Projects`.
+/// draws no fold (DESIGN_RULES §9 2026-10-28 (17), DR-81): a source lint over `Views/Projects`.
 final class ProjectPulseTests: XCTestCase {
     private struct Case: Decodable {
         let name: String
