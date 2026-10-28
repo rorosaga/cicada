@@ -100,6 +100,19 @@ class TelegramPort(Protocol):
 PortFactory = Callable[[int, str, str], TelegramPort]
 
 
+def load_telethon():
+    """Import Telethon, first giving it ``pyaes`` from ``api.vendor`` when no installed one exists — PyPI ships pyaes
+    as an sdist only and the release installs wheels only (#504 review B5). ``cryptg`` (a wheel) does the AES when
+    installed; pyaes is then only imported, never used."""
+    import importlib
+    import importlib.util
+    import sys
+
+    if "pyaes" not in sys.modules and importlib.util.find_spec("pyaes") is None:
+        sys.modules["pyaes"] = importlib.import_module("api.vendor.pyaes")
+    return importlib.import_module("telethon")
+
+
 def _media(message) -> dict | None:
     """A message's attachment as a name and a size — never its bytes, never a path."""
     file = getattr(message, "file", None)
@@ -136,6 +149,7 @@ def _reactions(message, me: int | None) -> list[dict] | None:
 
 class TelethonPort:  # pragma: no cover — the real network adapter; every caller is tested against a fake
     def __init__(self, api_id: int, api_hash: str, session: str = ""):
+        load_telethon()
         from telethon import TelegramClient
         from telethon.sessions import StringSession
 

@@ -172,6 +172,12 @@ CICADA_HOME="$CHECK_HOME/home" CICADA_MEMORY_PATH="$CHECK_HOME/bank" CICADA_CAPT
 import api.main, sqlite_vec, onnxruntime, tokenizers, certifi, pypdfium2, resvg_py  # noqa: F401
 from api.version import __version__
 print(f"    imports ok · version {__version__}")
+# Telegram's client loads with its AES as the release carries it: cryptg's wheel, pyaes as source (#504 review B5).
+from api.services import telegram_port
+telegram_port.load_telethon()
+import telethon.crypto.aes as _tg_aes
+assert _tg_aes.cryptg is not None, "cryptg is not in the bundle"
+print("    telegram client ok")
 # One real SVG icon drawn the way the backend draws it: a child of THIS Python, `-I`, empty environment, no new file
 # descriptor (api/services/svg_raster.py) — so a bundle whose renderer cannot load in that child fails here, not later.
 import asyncio

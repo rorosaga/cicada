@@ -435,7 +435,15 @@ after Telegram. An adapter is a module in `ADAPTERS` with `TIER = 2`, so its Sou
 (MIT, pure Python, one hashed wheel for the Mac and a server, the whole login one `StringSession` string, no message
 database of its own) over TDLib (Boost, faster at a full sync, but a native `libtdjson` to sign per platform and its
 own encrypted message store — a second copy of the chats outside the bank). It is imported only when the person
-connects. `telegram_account` keeps the session at `$CICADA_HOME/telegram/session` — 0600 in a 0700 folder, beside
+connects. Its AES runs on `cryptg` (CC0, a hashed wheel); Telethon also imports `pyaes` unconditionally, which PyPI
+ships as an sdist only while the release installs wheels only, so pyaes 1.6.1 (MIT) is carried as source in
+`api/vendor/pyaes` (byte for byte from PyPI's sdist, its sha256 in `api/vendor/__init__.py`), loaded under its own
+name by `telegram_port.load_telethon` when no installed one exists; the release lock is compiled `--only-binary :all:`
+with pyaes left out, `test_release_build` fails any locked package with no wheel for the target, and the build's
+import check loads the client (#504 review B5). **One-to-one is Telegram's peer, never a flag** (#504 review B4): a
+user's marked peer id is positive, a group's negative, a channel's `-100…`; the tick route accepts only a chat
+Telegram itself lists as one-to-one with a user, the flush drops any non-user peer's update, and the ingest refuses a
+batch whose peer is not a user or does not match the conversation. `telegram_account` keeps the session at `$CICADA_HOME/telegram/session` — 0600 in a 0700 folder, beside
 `secrets.env` but not in it, because `secrets.env` is projected into the environment every spawned `claude -p` and hook
 inherits; a file anyone else can read is refused. The number goes to Telegram once and is never kept; codes and
 passwords never. Disconnect logs the session out at Telegram, then deletes the file (a failed log-out still deletes

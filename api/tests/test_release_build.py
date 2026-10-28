@@ -56,6 +56,38 @@ def test_the_lock_keeps_the_developer_locks_versions():
     assert not drift, f"re-run scripts/release/lock-requirements.sh: {drift}"
 
 
+def _fits_the_release(filename: str) -> bool:
+    """A wheel the release target (CPython 3.12, macOS arm64) can install."""
+    tags = filename[:-4].split("-")[-3:] if filename.endswith(".whl") else []
+    if len(tags) != 3:
+        return False
+    py, abi, plat = tags
+    py_ok = any(p in ("py3", "py2.py3", "cp312") or (abi == "abi3" and p.startswith("cp3")) for p in py.split("."))
+    plat_ok = plat == "any" or any("macosx" in p and ("arm64" in p or "universal2" in p) for p in plat.split("."))
+    return py_ok and plat_ok
+
+
+def test_every_locked_dependency_has_a_wheel_for_the_release():
+    """#504 review B5: build-backend.sh installs `--only-binary :all:`, so a dependency PyPI ships as an sdist only
+    (pyaes, Telethon's) broke the release build. Read offline from the developer lock, which lists each package's
+    files: every package the release lock pins has a wheel the target can install. One reached only as source is
+    carried in api/vendor/<name>, compiled `--no-binary <name>` and never emitted."""
+    lock = (RELEASE / "requirements.lock").read_text(encoding="utf-8")
+    pins = {n.lower().replace("_", "-") for n in re.findall(r"^([A-Za-z0-9_.-]+)==", lock, re.M)}
+    uv = tomllib.loads((ROOT / "api" / "uv.lock").read_text(encoding="utf-8"))
+    files: dict[str, set[str]] = {}
+    for p in uv["package"]:
+        name = p["name"].lower().replace("_", "-")
+        files.setdefault(name, set()).update(w["url"].rsplit("/", 1)[-1] for w in p.get("wheels", []))
+    no_wheel = sorted(n for n in pins if n in files and not any(_fits_the_release(f) for f in files[n]))
+    assert not no_wheel, f"no wheel for CPython 3.12 macOS arm64 — vendor it (api/vendor) or drop it: {no_wheel}"
+    script = (RELEASE / "lock-requirements.sh").read_text(encoding="utf-8")
+    assert "--only-binary :all:" in script, "the lock is compiled wheels-only, so a no-wheel dependency fails there"
+    for source_only in re.findall(r"--no-binary ([a-z0-9_-]+)", script):
+        assert f"--no-emit-package {source_only}" in script and source_only not in pins
+        assert (ROOT / "api" / "vendor" / source_only / "__init__.py").is_file(), f"{source_only} is carried as source"
+
+
 def test_build_backend_never_bundles_untracked_files_or_torch():
     script = (RELEASE / "build-backend.sh").read_text(encoding="utf-8")
     assert "git ls-files" in script and "^api/\\.env" in script, "a person's api/.env can never ride along"

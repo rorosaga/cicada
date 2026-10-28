@@ -256,7 +256,17 @@ def test_the_ingest_itself_refuses_a_group_and_a_chat_without_consent(home, bank
     assert list((bank / "episodes").glob("*.md")) == []
 
 
-def test_consent_is_kept_dated_outside_the_bank_and_unticking_withdraws_it(home, bank):
+@pytest.fixture
+def live_account(made, monkeypatch):
+    """The module's ACCOUNT, connected to the fake client, for the routes."""
+    _, factory = made
+    account = telegram_account.Account(factory)
+    account.port, account.state = factory(1, "h", ""), "connected"
+    monkeypatch.setattr(telegram_account, "ACCOUNT", account)
+    return account
+
+
+def test_consent_is_kept_dated_outside_the_bank_and_unticking_withdraws_it(home, bank, live_account):
     client = TestClient(main.app)
     cid = telegram_source.conversation_id(FRIEND)
     r = client.put("/sources/telegram/settings", json={"conversation": {"id": cid, "ticked": True}})
@@ -274,6 +284,45 @@ def test_consent_is_kept_dated_outside_the_bank_and_unticking_withdraws_it(home,
     r = client.put("/sources/telegram/settings", json={"conversation": {"id": cid, "ticked": False}})
     assert r.status_code == 200 and json.loads(path.read_text()) == {}
     assert telegram_account.CONSENT_ASK.count("{name}") == 1 and "can't check" in telegram_account.CONSENT_ASK
+
+
+# --- #504 review B4: one-to-one is decided from Telegram's own peer, never the client's `group` flag -----------------
+
+def test_the_route_refuses_a_groups_id_even_flagged_one_to_one(home, bank, live_account):
+    client = TestClient(main.app)
+    group = telegram_source.conversation_id(GROUP)
+    r = client.put("/sources/telegram/settings", json={"conversation": {"id": group, "group": False, "ticked": True,
+                                                                         "consent": True}})
+    assert r.status_code == 422 and "one-to-one" in r.json()["detail"]
+    assert group not in telegram_account.consents()
+    assert not chat_live.ticked_ids(bank, telegram_source.SPEC)
+    r = client.put("/sources/telegram/settings", json={"conversation": {"id": "cd" * 12, "ticked": True,
+                                                                         "consent": True}})
+    assert r.status_code == 422, "an id Telegram does not list is refused too"
+
+
+def test_the_flush_never_stages_a_groups_update_whatever_the_files_say(home, bank, made):
+    lie = tick(bank, GROUP, group=False)                 # the bank says one-to-one, consent kept: both lies
+
+    async def go():
+        account, _ = await connected(made)
+        out = await account.flush({GROUP: [TgEvent("new", GROUP, msg(1, GROUP, "group words", sender=DAVE))]})
+        await account.stop()
+        return out
+    assert run(go()) == {}
+    assert list((bank / "episodes").glob("*.md")) == [] and lie
+
+
+def test_the_ingest_decides_from_the_peer(home, bank):
+    group = tick(bank, GROUP, group=False)
+    with pytest.raises(telegram_source.NotOneToOne):
+        telegram_source.ingest(bank, {"id": group, "chat": GROUP, "group": False}, [msg(1, GROUP, "x", sender=DAVE)])
+    friend = tick(bank, FRIEND)
+    with pytest.raises(telegram_source.NotOneToOne):     # a user's id dressed as another chat's conversation
+        telegram_source.ingest(bank, {"id": friend, "chat": OTHER}, [msg(1, OTHER, "x", sender=OTHER)])
+    with pytest.raises(telegram_source.NotOneToOne):     # a group's message slipped into a one-to-one batch
+        telegram_source.ingest(bank, {"id": friend, "chat": FRIEND}, [msg(1, GROUP, "x", sender=DAVE)])
+    assert list((bank / "episodes").glob("*.md")) == []
 
 
 def test_deletes_by_id_alone_and_reaction_sets_replace(home, bank, made):
@@ -356,7 +405,7 @@ def test_routes_say_the_consent_and_refuse_without_a_connection(bank, home):
     assert "Active sessions" in status["consent"] and "one click" in status["consent"]
     assert client.get("/sources/telegram/chats").status_code == 409
     r = client.put("/sources/telegram/settings", json={"conversation": {"id": "ab" * 12, "history": True}})
-    assert r.status_code == 409
+    assert r.status_code == 422   # not connected: Telegram lists nothing, so nothing is one-to-one
 
 
 def test_live_update_cost_p95(home, bank, made):

@@ -350,6 +350,14 @@ class Account:
                 out.append(row)
         return out
 
+    async def one_to_one(self, cid: str) -> bool:
+        """Whether Telegram itself lists ``cid`` as a one-to-one chat with a user (the listed dialogs hold only those,
+        `telegram_source.listed`) — what the tick route checks, never the client's flag (#504 review B4)."""
+        if self.state != "connected" or self.port is None:
+            return False
+        dialog = await self._dialog(cid)
+        return dialog is not None and telegram_source.is_user_peer(dialog.chat) and not dialog.group
+
     async def _dialog(self, cid: str) -> TgDialog | None:
         if cid not in self._dialogs and self.port is not None:
             await self.chats()
@@ -410,6 +418,8 @@ class Account:
             if chat is None:
                 orphans += [i for e in events for i in e.ids]
                 continue
+            if not telegram_source.is_user_peer(chat):
+                continue          # a group's or a channel's update: never read, whatever any file says (B4)
             cid = telegram_source.conversation_id(chat)
             if cid not in ticked:
                 continue

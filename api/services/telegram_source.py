@@ -57,9 +57,19 @@ class NoConsent(PermissionError):
     """A one-to-one chat with no kept confirmation that the other person agreed."""
 
 
+def is_user_peer(chat) -> bool:
+    """Telegram's own answer to "one-to-one?": a chat's marked peer id is a user's (positive) — a basic group's is
+    negative and a channel's or supergroup's is ``-100…``. Decided from the peer, never from a flag a client sent
+    (#504 review B4)."""
+    try:
+        return int(chat) > 0
+    except (TypeError, ValueError):
+        return False
+
+
 def listed(dialog: TgDialog) -> dict | None:
     """A dialog as the tick list shows it — ``None`` for a group or a channel: never offered (ruling 47a amendment)."""
-    if dialog.broadcast or dialog.group:
+    if dialog.broadcast or dialog.group or not is_user_peer(dialog.chat):
         return None
     return {"id": conversation_id(dialog.chat), "name": chat_live.messages_source._clean_name(dialog.name),
             "group": bool(dialog.group), "bot": dialog.bot, "last": chat_live.utc_from_unix(dialog.last)}
@@ -150,9 +160,14 @@ def ingest(memory_path, dialog: dict, messages: list[TgMessage], *, deleted: lis
     (``reacted``: message id -> Telegram's whole current set). ``dialog``: ``{id, chat, name, group, bot?}``."""
     from api.services import telegram_account
 
-    if dialog.get("group"):
+    # One-to-one is the PEER's, and every message's peer must be the same user (#504 review B4) — the `group` flag is
+    # not trusted either way.
+    if (dialog.get("group") or not is_user_peer(dialog.get("chat"))
+            or any(not is_user_peer(m.chat) or int(m.chat) != int(dialog["chat"]) for m in messages)):
         raise NotOneToOne("Telegram group chats aren't read: Telegram's terms need every member's consent.")
     cid = str(dialog["id"])
+    if cid != conversation_id(int(dialog["chat"])):
+        raise NotOneToOne("This conversation isn't the one-to-one chat Telegram names.")
     if cid not in telegram_account.consents():
         raise NoConsent("This chat has no confirmation that the other person agreed, so nothing was saved.")
     group = False

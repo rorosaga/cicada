@@ -354,6 +354,11 @@ async def put_telegram_settings(req: ChatSettingsUpdate, background: BackgroundT
     c = req.conversation
     if c.group:
         raise HTTPException(422, "Telegram group chats aren't read: Telegram's terms need every member's consent.")
+    if (c.ticked is True or c.history) and not await telegram_account.ACCOUNT.one_to_one(c.id):
+        # Decided from Telegram's own peer, never the client's flag (#504 review B4): only a one-to-one chat with a
+        # user that Telegram lists to this account can be ticked or read.
+        raise HTTPException(422, "Only a one-to-one Telegram chat with a person can be read — Telegram doesn't list "
+                                 "this one as that (connect first if Telegram isn't connected).")
     if c.ticked is True and c.consent is not True:
         raise HTTPException(409, "Confirm that the other person agreed before ticking this chat.")
     if c.history and c.id not in telegram_account.consents():
