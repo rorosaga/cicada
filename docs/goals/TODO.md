@@ -25,7 +25,7 @@
   fixture), and a conversation tied without a claim yet counts as activity (`_tied_days`); list p95 stays ≤ 58 ms on
   the 2,500-page bench. The second amends DESIGN_RULES 2026-10-19 (1)'s "resting — a decaying or archived page" —
   awaiting the owner's yes.
-- **2026-10-28 — traces redesign (G218; branch `feat/traces-v2`).** "Learn from my day" is one switch, off, with the exact counted digest previewed (no title, address or screenshot text; project time only through the person's own projects' folders, repositories and tied addresses) and "Remove from memory" as one undoable commit; "What you watch and read" on any site replaces the YouTube-only switch (index-only reading days); the Traces page manages days as cards (each item or day deletable); screenshots cover every connected screen behind consent sheet 2, at 5 min on change / 15 min steady. The 39b amendment text waits for the owner (traces-v2 report).
+- **2026-10-28 — traces redesign (G218; branch `feat/traces-v2`).** "Learn from my day" is one switch, off, with the exact counted digest previewed (no title, address or screenshot text; project time only through the person's own projects' folders, repositories and tied addresses) and "Remove from memory" as one undoable commit; "What you watch and read" on any site replaces the YouTube-only switch (index-only reading days); the Traces page manages days as cards (each item or day deletable); screenshots cover every connected screen behind consent sheet 2, at 5 min on change / 15 min steady. Ruling 39b amended the same day (owner): on by default when traces are on, any site; H accepted.
 - **2026-10-28 — pictures in the one meaning index (vision item 3, G195, G162, ruling 30; branch
   `feat/vision-meaning-index`).** Looks, the newest capture thumbnail per saved site, saved links' previews and saved
   or watched YouTube stills already on this Mac are a fifth kind of `vector_index.db` (`image_index`), embedded in the
@@ -1872,6 +1872,17 @@ A whole row moves to DONE only after its remaining implementation and required a
     treating what a feed published as no mention by the person, answers both. **Revisit** (a)'s feed rule only if a
     feed proves to carry the person's own words (a feed of their own posts), and its surface threshold on the owner's
     word; (b) through the G218 row's triggers.
+    **39b amended (owner, 2026-10-28; ruling 48's direction): what you watch and read, on any site.** With activity
+    traces on, one switch, **"What you watch and read"**, on by default as 39b was. A video page of a platform Cicada's
+    watch history knows joins the watch history (`via: traces`, with dwell); any other page an allowed browser had in
+    front for 30 seconds or more that day joins that day's reading record (`reading-history:<day>`): its cleaned
+    address (no query but content keys), its title where kept, its site, when first seen and for how long. Both are
+    index-only (ruling 30): looked up, never read by a model, never a mention. Excluded sites and private windows never
+    reach them. A model reads traces only through "Learn from my day" (off by default). **Revisit** if a reading day
+    carries something the person considers private despite the exclusions, or on the owner's word. **With it
+    (2026-10-28, branch `feat/traces-v2`):** the redesign's H is accepted as recommended — `daily_summary` and
+    `learn_from_summary` become the one "Learn from my day" switch (off by default; the old keys stay read aliases);
+    and, per ruling 45, a repository-born project counts for time attribution only once the person has claimed it.
     **Dated line (owner, 2026-10-26; G71, G206; branch `feat/sources-defaults-calendar`) — saved lists on by default,
     as item (b) says of agents checking the person's accounts.** Owner: "By default the user should have them all on.
     Re-reading my saved stuff should be the default. Maybe when first onboarding you ask the user 'Do you want an agent

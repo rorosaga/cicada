@@ -1521,7 +1521,7 @@ traces/shots/<YYYY-MM-DD>/<id>.enc   the screenshot itself (downscaled JPEG), se
   What was already promoted into the bank (a watched day, a day summary) stays; the sheet says so.
 - **What crosses into the bank** (`trace_memory`, only what the person's switches allow, nothing for a demo bank, one
   `user` commit per sync, trigger `capture/traces`). **Redesigned 2026-10-28** (owner's answers to the redesign, Q12;
-  ruling 48's direction for 39b — the exact amendment text waits for the owner, see G218):
+  ruling 39b amended by the owner the same day, TODO ruling 39):
   - **What you watch and read** (`watch_and_read`, on with traces; reads `youtube_to_watch_history` as its alias):
     ruling 39b generalised from YouTube to every site. A *video page* of a platform the watch history knows
     (`watch_history.watch_url`: YouTube, TikTok) in front ≥ 20 s becomes a watch in the existing watch-history writer
