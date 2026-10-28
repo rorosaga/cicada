@@ -31,17 +31,41 @@ final class SleepEngineViewModel {
     /// The last write failed and nothing changed — said in words, never a silent revert.
     private(set) var writeFailed = false
 
+    typealias Refresh = (_ cardId: String) async throws -> SleepEngineResponse
+
+    /// Engine picker v2 — the card whose list a Refresh is re-reading (its line says so), nil when none is.
+    private(set) var refreshing: String?
+    /// The last Refresh failed: the list stays as it was, and the line says it couldn't be read.
+    private(set) var refreshFailed: String?
+
     private let fetch: Fetch
     private let update: Update
+    private let refresh: Refresh
 
     init(fetch: @escaping Fetch = { try await APIClient.shared.fetchSleepEngine() },
          update: @escaping Update = { mode, model, disambiguation, overage in
              try await APIClient.shared.updateSleepEngine(mode: mode, model: model,
                                                            disambiguationModel: disambiguation,
                                                            allowOverage: overage)
-         }) {
+         },
+         refresh: @escaping Refresh = { try await APIClient.shared.refreshSleepEngineModels(cardId: $0) }) {
         self.fetch = fetch
         self.update = update
+        self.refresh = refresh
+    }
+
+    /// The person's Refresh on one card (ruling 48 part 11): the harness is re-read on this click only — the page
+    /// never probes on its own (ruling 46). A failure keeps the list and says so.
+    func refreshModels(_ cardId: String) async {
+        guard refreshing == nil else { return }
+        refreshing = cardId
+        defer { refreshing = nil }
+        do {
+            response = try await refresh(cardId)
+            refreshFailed = nil
+        } catch {
+            refreshFailed = cardId
+        }
     }
 
     func load() async {

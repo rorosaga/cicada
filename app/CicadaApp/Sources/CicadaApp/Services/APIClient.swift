@@ -3138,6 +3138,12 @@ actor APIClient {
         return try await get("/sleep/engine")
     }
 
+    /// Engine picker v2 — the person's Refresh: `POST /sleep/engine/models/refresh` re-reads one card's model list from
+    /// its own harness and answers what `GET /sleep/engine` would. Only ever from a click.
+    func refreshSleepEngineModels(cardId: String) async throws -> SleepEngineResponse {
+        return try await post("/sleep/engine/models/refresh", body: ["id": cardId])
+    }
+
     /// `PUT /sleep/engine`. Hand-builds the body (same reasoning as
     /// `updateSchedule`'s own doc comment: the `put<T>` helper takes
     /// `[String: Any]`, not `Encodable`) and — unlike `updateSchedule`,

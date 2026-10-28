@@ -255,6 +255,24 @@ async def _candidates(settings: Settings, reg, *, mode: str, model: str | None) 
     return cards
 
 
+async def refresh_models(settings: Settings, card_id: str) -> bool:
+    """The person's Refresh on one card: re-read its model list from its own harness now, through the same cached
+    probe the page reads (so the GET that follows serves the new answer). ``False`` for a card with no list to read
+    (Auto, the key cards). A probe that fails keeps the last answer — never an empty list."""
+    if card_id == "agent":
+        await asyncio.to_thread(model_catalogue.refresh_claude)
+        return True
+    if card_id == "codex":
+        await codex_app_server.snapshot(fresh=True)
+        return True
+    if card_id in cli_engines.SPECS:
+        await asyncio.to_thread(cli_engines.status, cli_engines.SPECS[card_id], fresh=True)
+        return True
+    if card_id == "local":
+        return True   # Ollama's tags are read live on every GET already
+    return False
+
+
 def _attach_catalogues(cards, *, agent_catalogue: dict, snap, configured_codex: str, ollama_models: list[str],
                        cli_statuses: dict, mode: str, model: str | None) -> None:
     """Vision item 4: each card's ``models`` described — where each came from and when — from the reads this request
@@ -284,10 +302,16 @@ def _attach_catalogues(cards, *, agent_catalogue: dict, snap, configured_codex: 
         listed = set(st.models or ())
         rows = [(m, "harness" if m in listed else ("default" if m in spec.default_models else "saved"))
                 for m in c.models]
-        c.catalogue = ModelCatalogue(**model_catalogue.catalogue(
+        cat = model_catalogue.catalogue(
             spec.label, [r for r in rows if r[1] != "saved"], as_of=st.as_of or None,
-            source=f"{spec.binaries[0]} models", drift=st.drift,
-            saved=next((m for m, how in rows if how == "saved"), None)))
+            source=f"{spec.binaries[0]} models", drift=st.drift, tool=spec.name,
+            saved=next((m for m, how in rows if how == "saved"), None))
+        if spec is cli_engines.CURSOR:
+            # Ruling 46a: a third-party model in Cursor says how it is billed before it is chosen.
+            for row in cat["models"]:
+                if not cli_engines.cursor_own_model(row["id"]):
+                    row["billingNote"] = cli_engines.CURSOR_SEPARATE_BILLING
+        c.catalogue = ModelCatalogue(**cat)
 
 
 def _plan_window_usage(snap) -> SleepEngineUsage | None:

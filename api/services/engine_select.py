@@ -144,6 +144,10 @@ def no_engine_sentence(why: str | None) -> str:
                 "use my plan” in Settings → Sleep; on a server, `cicada sleep schedule --use-plan on`), no local model "
                 "is running, and an API key is used only when you choose it as Sleep's engine. What was waiting is "
                 "still waiting.")
+    if why == SCHEDULE_CURSOR_THIRD_PARTY:
+        return ("Scheduled runs use Cursor only with its own models, and the model you chose there is billed "
+                "separately at list price. Start a read yourself, or choose one of Cursor's own models in Settings → "
+                "Intelligence. What was waiting is still waiting.")
     # Ruling 46: an installed tool Auto skipped says why, after the sentence (``_cli_rungs``' notes ride ``NO_ENGINE``).
     notes = why[len(NO_ENGINE):].strip() if why and why.startswith(NO_ENGINE) else ""
     return ("No engine to read with: no plan is signed in, the local model isn't running, and an API key is used only "
@@ -683,7 +687,9 @@ def _cli_landed_why(spec) -> str:
     from api.services import cli_engines
 
     if spec is cli_engines.CURSOR:
-        return f"Cursor signed in — running Sleep on your Cursor plan. {cli_engines.CURSOR_USAGE_NOTE}"
+        # Ruling 46a: Auto runs Cursor only with its own models (`_cursor_own_models_only`).
+        return (f"Cursor signed in — running Sleep on your Cursor plan, with Cursor's own models. "
+                f"{cli_engines.CURSOR_USAGE_NOTE}")
     return "OpenCode signed in to a subscription — running Sleep on your OpenCode plan"
 
 
@@ -856,6 +862,43 @@ async def resolve_settings(
         updates.update(_model_overrides(registry, mode))
         if _prefs_allow_overage(registry):
             updates["agent_allow_overage"] = True
+    if mode == "cursor":
+        # Ruling 46a holds whatever set the mode — the app's choice or a `CICADA_LLM_MODE` pin (a headless server's
+        # .env): Cursor counts as chosen only when the operator pinned `cursor` itself, or the person picked it.
+        chosen = configured == "cursor" if env_explicit else _prefs_mode(registry) == "cursor"
+        refusal = _cursor_own_models_only(settings, updates, chosen=chosen, user_triggered=user_triggered)
+        if refusal is not None:
+            why = refusal
+            updates = {"llm_mode": "auto", "no_engine_reason": no_engine_sentence(refusal)}
     if not updates:
         return settings, why
     return settings.model_copy(update=updates), why
+
+
+#: Ruling 46a — why a scheduled run has no engine: the person's Cursor choice is a model Cursor bills separately.
+SCHEDULE_CURSOR_THIRD_PARTY = "scheduled cycle — Cursor reads on a schedule only with its own models"
+
+
+def _cursor_own_models_only(settings, updates: dict, *, chosen: bool, user_triggered: bool) -> str | None:
+    """Ruling 46a (owner, 2026-10-28): Auto and a scheduled run use Cursor only with Cursor's own models (the Grok line,
+    Composer, its own `auto`). ``chosen``: Cursor itself was picked (the person in the app, or the operator's
+    ``CICADA_LLM_MODE=cursor``) rather than reached by Auto.
+
+    - Auto landed on Cursor (any trigger): the model is Cursor's own `auto` unless the stored one is already Cursor's
+      own — never the tool's config default, which may be a third-party model.
+    - Cursor chosen, a run the person starts: their model is kept, any model — the app labelled a third-party one
+      "billed separately" before they chose it, and an operator's env pin is the operator's explicit choice.
+    - Cursor chosen, a scheduled run, a third-party model (from the app or the env): never swapped onto another model —
+      no engine, said in words (the reason returned). An unset model there runs Cursor's own `auto`."""
+    from api.services import cli_engines
+
+    if chosen and user_triggered:
+        return None
+    fields = ("cli_engine_model", "cli_engine_disambiguation_model")
+    current = {f: updates.get(f, getattr(settings, f, "") or "") for f in fields}
+    if chosen and any(v and not cli_engines.cursor_own_model(v) for v in current.values()):
+        return SCHEDULE_CURSOR_THIRD_PARTY
+    for f, value in current.items():
+        if not value or not cli_engines.cursor_own_model(value):
+            updates[f] = cli_engines.CURSOR_OWN_MODEL
+    return None

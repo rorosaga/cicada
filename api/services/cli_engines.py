@@ -77,7 +77,8 @@ CURSOR = EngineSpec(
     sign_in="agent login",
     # Cursor's own Auto model is part of every plan; the live `agent models` list adds the rest.
     default_models=("auto",),
-    billing_note=f"Runs on your Cursor plan. {CURSOR_USAGE_NOTE}",
+    billing_note=(f"Runs on your Cursor plan. {CURSOR_USAGE_NOTE} Auto and scheduled runs use only Cursor's own "
+                  "models; another model you pick here is billed separately at list price."),
 )
 OPENCODE = EngineSpec(
     mode="opencode", label="opencode-cli", connection="opencode-plan", name="OpenCode", plan_name="OpenCode plan",
@@ -101,6 +102,20 @@ GROK = EngineSpec(
 SPECS: dict[str, EngineSpec] = {s.mode: s for s in (CURSOR, OPENCODE, GROK)}
 BY_LABEL: dict[str, EngineSpec] = {s.label: s for s in SPECS.values()}
 MODES: tuple[str, ...] = tuple(SPECS)
+
+#: Ruling 46a (owner, 2026-10-28): Cursor's own models — the Grok line, Composer and its own `auto` router — draw the
+#: X Subscription's weekly pool; a third-party model in Cursor (Claude, GPT, Gemini …) is billed separately at API list
+#: prices from top-ups (cursor.com/docs/models-and-pricing, read 2026-10-28). Auto and a scheduled run use only these.
+CURSOR_OWN_PREFIXES = ("grok", "composer", "cursor")
+CURSOR_OWN_MODEL = "auto"
+CURSOR_SEPARATE_BILLING = "Billed separately at list price, outside your plan's included usage."
+
+
+def cursor_own_model(model: str | None) -> bool:
+    """One of Cursor's own models (ruling 46a) — never a third-party model it routes to at list price."""
+    bare = (model or "").strip().split("/")[-1].lower()
+    return bare == CURSOR_OWN_MODEL or bare.startswith(CURSOR_OWN_PREFIXES)
+
 
 #: OpenCode providers that are a subscription sign-in (opencode.ai/docs/providers): GitHub Copilot and OpenCode Go.
 #: Every other provider OpenCode routes to bills an API key or pay-as-you-go credit (rail 2), and the ChatGPT and

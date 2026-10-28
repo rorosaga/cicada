@@ -19,6 +19,11 @@
   — 87 of the 132 face-less people carry a full name a card could match, 0 can be counted until the app has synced
   Contacts for this bank; the one ticked Messages chat is a texted agent's. Card-open and logo-serve p95 unchanged
   within noise.
+- **2026-10-28 — engine picker v2 (ruling 48 part 11; G122, G49; branch `feat/engine-picker-v2`, stacked on #505).**
+  The quick menu lists a card's models as a filterable second column (families, newest first, *Show N older*, New,
+  freshness with a click-only Refresh). Research on "Grok and Cursor are now one": one subscription since 2026-10-12,
+  still two tools and sign-ins; Cursor's third-party models bill at list price from top-ups. Ruled the same day
+  (ruling 46a): Auto and schedules run Cursor only on Cursor's own models, also when the mode is pinned in the env.
 - **2026-10-28 — ruling 48 recorded; the redesign accepted (docs only; branch `docs/redesign-rulings-2026-10-28`).**
   The owner answered the redesign's decisions: entity pages read as articles that carry their beliefs (citation
   markers, References, no beliefs list), Home leads its questions with their pages and Catch me up stands apart as a
@@ -2122,6 +2127,25 @@ A whole row moves to DONE only after its remaining implementation and required a
     Measured on stub tools on a scratch PATH: each ladder position, the switch on and off, a hung tool (skipped in
     under 4 s with a 0.5 s budget, the next rung reading), and the page returning in under 1 s with a tool hung.
     **Revisit** Grok's exclusion only when a live Grok sign-in shows how a subscription call reports cost.
+46a. **Cursor on Auto and on a schedule runs only Cursor's own models (owner, 2026-10-28: "Yes, own models only";
+    amends ruling 46; G49, G122; PR #507).** The research for the engine picker (report `engine-picker-v2`, sources on
+    G49) found that since 2026-10-12 *The X Subscription* sells Grok, Cursor and X Premium as one plan, with one
+    weekly pool for Cursor's own models (the Grok line, Composer and Cursor's own `auto` router), shared by Cursor's
+    editor, its CLI and the Grok apps, while a third-party model in Cursor (Claude, GPT, Gemini) is billed separately
+    at API list prices from top-ups. Auto or a schedule landing on Cursor with such a model would have spent credit
+    nobody chose (rail 2). **Ruled:** (1) Auto and scheduled runs use Cursor only with Cursor's own models
+    (`cli_engines.cursor_own_model`): Auto landing on Cursor runs `auto` unless the stored model is already Cursor's
+    own, never the tool's own config default (`engine_select._cursor_own_models_only`). (2) A third-party model
+    chosen inside Cursor is labelled "billed separately at list price" before it is chosen (`billingNote` on the
+    catalogue row, the picker's row, and the Cursor card's note), and is never picked by Auto or a schedule: a run the
+    person starts on it reads; a scheduled run on it is never swapped onto another model — it has no engine, said in
+    words (`SCHEDULE_CURSOR_THIRD_PARTY`). (3) The Grok CLI stays off Auto (ruling 46's guard stands). (4) The Grok and
+    Cursor cards stay separate, each with its own mark: they share a subscription, not a tool or a sign-in. **It holds
+    whatever set the mode** (review of #507): a `CICADA_LLM_MODE` pin in the environment (a headless server's .env) is
+    read the same way — `auto` pinned is Auto (Cursor runs its own `auto`), `cursor` pinned is the operator's explicit
+    choice (a run the person starts keeps the pinned model; a scheduled run on a third-party one has no engine).
+    **Revisit** when Cursor's model listing marks which models its plan covers (then read that, not the prefixes), or
+    when a live Grok sign-in shows what a subscription call reports.
 47. **Two ways in for what the person consumes: their own browser and Mac by default, an official API for specific
     high-value sources (owner, 2026-10-28; G166, G206, G218, G223, G179, G29, G32, G94; amends "Cicada never signs in"
     for tier 2 only, and "exports only for walled services").** The owner's words: "change the philosophy too, that

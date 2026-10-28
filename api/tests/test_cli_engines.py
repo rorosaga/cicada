@@ -728,3 +728,110 @@ def test_the_picker_serves_the_last_known_state_while_a_refresh_runs(monkeypatch
         _time.sleep(0.05)
     assert cli_engines._CACHE["cursor"].detail == "fresh" and calls == ["cursor"]
     cli_engines.invalidate()
+
+
+# --------------------------------------------------------------------------- #
+# Ruling 46a (owner 2026-10-28): Auto and schedules use Cursor only with Cursor's own models
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize("model, own", [
+    ("auto", True), ("composer-2", True), ("grok-4.7", True), ("grok-4.6-fast", True), ("cursor-small", True),
+    ("sonnet-5", False), ("claude-opus-5-5", False), ("gpt-6", False), ("gemini-3-pro", False), ("", False),
+])
+def test_cursors_own_models(model, own):
+    assert cli_engines.cursor_own_model(model) is own
+
+
+@pytest.mark.shipped_engine_default
+def test_auto_on_cursor_runs_its_own_auto_never_the_tools_config_default(ladder):
+    ladder.only("agent")
+    resolved, why = _resolve({})
+    assert resolved.llm_mode == "cursor"
+    assert cli_engines.model_for_stage(resolved, None) == "auto", "never the tool's own config default"
+    assert cli_engines.model_for_stage(resolved, "disambiguation") == "auto"
+    assert "Cursor's own models" in why
+
+
+@pytest.mark.shipped_engine_default
+def test_auto_never_carries_a_third_party_model_onto_cursor(ladder, monkeypatch):
+    ladder.only("agent")
+    from api.config import Settings
+
+    monkeypatch.setattr(Settings, "model_copy", Settings.model_copy)
+    import asyncio
+
+    base = Settings().model_copy(update={"cli_engine_model": "sonnet-5"})
+    resolved, _ = asyncio.run(engine_select.resolve_settings(base, _Registry({}, ())))
+    assert resolved.llm_mode == "cursor" and cli_engines.model_for_stage(resolved, None) == "auto"
+
+
+def test_a_person_who_chose_cursor_keeps_any_model_they_start_a_read_with():
+    prefs = {"sleep-engine": {"mode": "cursor", "model": "sonnet-5"}}
+    resolved, _ = _resolve(prefs)
+    assert resolved.llm_mode == "cursor" and cli_engines.model_for_stage(resolved, None) == "sonnet-5"
+
+
+def test_a_schedule_never_reads_cursor_on_a_third_party_model_and_says_so():
+    prefs = {"sleep-engine": {"mode": "cursor", "model": "sonnet-5"}}
+    resolved, why = _resolve(prefs, user_triggered=False)
+    assert engine_select.no_engine(resolved), "never swapped onto another model either"
+    assert why == engine_select.SCHEDULE_CURSOR_THIRD_PARTY
+    assert "billed separately at list price" in resolved.no_engine_reason
+
+
+def test_a_schedule_on_cursors_own_model_reads():
+    for model in ("grok-4.7", "composer-2", None):
+        prefs = {"sleep-engine": {"mode": "cursor", "model": model}}
+        resolved, _ = _resolve(prefs, user_triggered=False)
+        assert resolved.llm_mode == "cursor"
+        assert cli_engines.model_for_stage(resolved, None) == (model or "auto")
+
+
+def _resolve_pinned(fields: dict, *, user_triggered: bool):
+    """`CICADA_LLM_MODE` (and its model) set in the environment — a headless server's .env: explicit fields."""
+    import asyncio
+
+    from api.config import Settings
+
+    return asyncio.run(engine_select.resolve_settings(Settings(**fields), _Registry({}, ()),
+                                                      user_triggered=user_triggered))
+
+
+@pytest.mark.shipped_engine_default
+@pytest.mark.parametrize("user_triggered", [True, False])
+@pytest.mark.parametrize("model", ["sonnet-5", ""])
+def test_a_pinned_auto_landing_on_cursor_still_runs_its_own_models(ladder, user_triggered, model):
+    """Review of #507: ruling 46a holds when the mode is pinned in the environment, not only when chosen in the app."""
+    ladder.only("agent")
+    resolved, _ = _resolve_pinned({"llm_mode": "auto", "cli_engine_model": model}, user_triggered=user_triggered)
+    assert resolved.llm_mode == "cursor"
+    assert cli_engines.model_for_stage(resolved, None) == "auto"
+    assert cli_engines.model_for_stage(resolved, "disambiguation") == "auto"
+
+
+def test_a_pinned_cursor_on_a_third_party_model_reads_when_started_and_never_on_a_schedule():
+    """The operator's `CICADA_LLM_MODE=cursor` is an explicit choice: a run the person starts keeps the pinned model;
+    a scheduled run on a third-party one has no engine and says why — never swapped."""
+    pinned = {"llm_mode": "cursor", "cli_engine_model": "sonnet-5"}
+    started, _ = _resolve_pinned(pinned, user_triggered=True)
+    assert started.llm_mode == "cursor" and cli_engines.model_for_stage(started, None) == "sonnet-5"
+    scheduled, why = _resolve_pinned(pinned, user_triggered=False)
+    assert engine_select.no_engine(scheduled) and why == engine_select.SCHEDULE_CURSOR_THIRD_PARTY
+    assert "billed separately at list price" in scheduled.no_engine_reason
+
+
+def test_a_pinned_cursor_with_no_model_or_its_own_runs_on_a_schedule():
+    for model, runs in (("", "auto"), ("grok-4.7", "grok-4.7")):
+        resolved, _ = _resolve_pinned({"llm_mode": "cursor", "cli_engine_model": model}, user_triggered=False)
+        assert resolved.llm_mode == "cursor" and cli_engines.model_for_stage(resolved, None) == runs
+
+
+def test_grok_stays_off_auto():
+    """Ruling 46a keeps ruling 46's exclusion: the shipped ladder (read from the source — the suite empties it) and
+    the connection ladder name Cursor and OpenCode, never Grok."""
+    import inspect
+
+    source = inspect.getsource(cli_engines)
+    assert "AUTO_SPECS: tuple[EngineSpec, ...] = (CURSOR, OPENCODE)" in source
+    assert "grok-plan" not in engine_select._AUTO_LADDER

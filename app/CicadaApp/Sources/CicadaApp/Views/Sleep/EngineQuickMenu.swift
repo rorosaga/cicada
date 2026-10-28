@@ -60,6 +60,9 @@ struct EngineQuickMenuModel: Equatable {
     var reserve: Reserve? = nil
     /// How a scheduled run spends (ruling 16), in words from `preview.scheduled.billing`; never a provider's name.
     var scheduledSpend: String? = nil
+    /// Engine picker v2 (ruling 48 part 11) — the chosen card when it has models to pick: the menu draws its list
+    /// (`EngineModelList`) beside the engines, the mock's second column, instead of a native `Picker`.
+    var listCard: SleepEngineCandidate? = nil
 
     /// The reserve row (ruling 12's home for its figure): the line, its choices, and — only for a window the engine
     /// said it does not report — why that window cannot be kept free. A window nothing has reported yet says nothing.
@@ -153,7 +156,8 @@ struct EngineQuickMenuModel: Equatable {
             lastCycleLine: last?.line,
             lastCycleHelp: last?.help,
             reserve: Reserve.from(response.reserve, billing: response.preview?.manual.billing),
-            scheduledSpend: Copy.SleepV5.scheduledSpend(response.preview?.scheduled.billing))
+            scheduledSpend: Copy.SleepV5.scheduledSpend(response.preview?.scheduled.billing),
+            listCard: pickable && !(chosen?.models ?? []).isEmpty ? chosen : nil)
     }
 }
 
@@ -219,11 +223,15 @@ struct EngineQuickMenuButton: View {
             .popover(isPresented: $open, arrowEdge: .bottom) {
                 // The fixed width lives HERE, not in the menu, so `EngineQuickMenuTests`
                 // can measure the menu unframed and catch a rigid child (DR-70).
-                EngineQuickMenu(model: .from(response), isSaving: engineVM.isSaving,
+                let menu = EngineQuickMenuModel.from(response)
+                EngineQuickMenu(model: menu, isSaving: engineVM.isSaving,
                                 writeFailed: engineVM.writeFailed,
                                 choose: choose, pickModel: pickModel, openSettings: openSettings,
-                                setReserve: setReserve)
-                    .frame(width: CicadaTheme.scaled(EngineQuickMenu.width), alignment: .leading)
+                                setReserve: setReserve,
+                                refreshModels: { id in Task { await engineVM.refreshModels(id) } },
+                                refreshing: engineVM.refreshing != nil,
+                                refreshFailed: engineVM.refreshFailed != nil)
+                    .frame(width: CicadaTheme.scaled(EngineQuickMenu.width(for: menu)), alignment: .leading)
             }
         }
     }
@@ -271,7 +279,14 @@ struct EngineQuickMenuButton: View {
 /// fills the width it is offered; the popover offers `width` (`EngineQuickMenuButton`).
 struct EngineQuickMenu: View {
     static let width: CGFloat = 360
+    /// Engine picker v2: the model list's column beside the engines (the `10-engine-picker` mock).
+    static let listWidth: CGFloat = 340
     static let buttonMaxWidth: CGFloat = 300
+
+    /// The popover's width for this menu: one column, or two while a card's models are listed.
+    static func width(for model: EngineQuickMenuModel) -> CGFloat {
+        model.listCard == nil ? width : width + listWidth
+    }
 
     let model: EngineQuickMenuModel
     var isSaving = false
@@ -280,8 +295,45 @@ struct EngineQuickMenu: View {
     let pickModel: (String) -> Void
     let openSettings: (SettingsSection, SettingsRowID?) -> Void
     var setReserve: (Int?) -> Void = { _ in }
+    /// The person's Refresh on the listed card, and its state (`SleepEngineViewModel.refreshModels`).
+    var refreshModels: (String) -> Void = { _ in }
+    var refreshing = false
+    var refreshFailed = false
 
     var body: some View {
+        if let card = model.listCard {
+            HStack(alignment: .top, spacing: 0) {
+                engines.frame(width: CicadaTheme.scaled(Self.width), alignment: .topLeading)
+                modelColumn(card)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                    .padding(CicadaTheme.spacingSM)
+                    .background(CicadaTheme.bgFocus)
+            }
+            .background(CicadaTheme.bgMenu)
+        } else {
+            engines
+        }
+    }
+
+    /// The model column: the list, then the notes that belong to it (a saved model no list names, the prices' basis).
+    private func modelColumn(_ card: SleepEngineCandidate) -> some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+            EngineModelList(card: card, selected: model.selectedModel, prices: model.modelPrices, isSaving: isSaving,
+                            refreshing: refreshing, refreshFailed: refreshFailed, pick: pickModel,
+                            refresh: { refreshModels(card.id) })
+            ForEach([model.note, model.pricesNote].compactMap { $0 }, id: \.self) { note in
+                Text(note)
+                    .font(CicadaTheme.metaFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if let command = model.command {
+                CommandBox(command: command)
+            }
+        }
+    }
+
+    private var engines: some View {
         VStack(alignment: .leading, spacing: 0) {
             SectionLabel(Copy.EngineMenu.title)
                 .padding(.horizontal, CicadaTheme.spacingSM)
@@ -320,27 +372,14 @@ struct EngineQuickMenu: View {
         .background(CicadaTheme.bgMenu)
     }
 
+    /// The chosen card's model words while no list is drawn (Auto's and the key card's own sentence, an Ollama
+    /// command). A card with models draws them in the second column instead (`modelColumn`; ruling 48 part 11 retired
+    /// the native `Picker` R-HS10 chose — no drop-down stacked on the reserve's, DR-81).
     @ViewBuilder
     private var modelSection: some View {
-        if !model.models.isEmpty || model.note != nil || model.command != nil {
+        if model.listCard == nil && (model.note != nil || model.command != nil) {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                HStack(spacing: CicadaTheme.spacingSM) {
-                    SectionLabel(model.modelLabel)
-                    Spacer(minLength: CicadaTheme.spacingSM)
-                    if !model.models.isEmpty {
-                        // R-HS10 — a native menu picker: rosters are the plan's own list, any length.
-                        Picker(model.modelLabel, selection: Binding(get: { model.selectedModel },
-                                                                    set: { pickModel($0) })) {
-                            ForEach(model.models, id: \.self) { Text(model.pickerLabel($0)).tag($0) }
-                        }
-                        .labelsHidden()
-                        .pickerStyle(.menu)
-                        // If the fit test shows the pop-up keeping its intrinsic width for a long
-                        // tag, pin it with `.frame(width:)` at the same 220 — never widen the menu.
-                        .frame(maxWidth: CicadaTheme.scaled(220), alignment: .trailing)
-                        .disabled(isSaving)
-                    }
-                }
+                SectionLabel(model.modelLabel)
                 if let note = model.pricesNote {
                     Text(note)
                         .font(CicadaTheme.metaFont)

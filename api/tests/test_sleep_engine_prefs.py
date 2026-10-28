@@ -539,3 +539,46 @@ def test_put_refuses_an_opencode_model_on_an_api_key(client):
     resp = client.put("/sleep/engine", json={"mode": "opencode", "model": "anthropic/claude-sonnet-5"})
     assert resp.status_code == 422 and "API key" in resp.text
     assert client.put("/sleep/engine", json={"mode": "grok", "model": "-oops"}).status_code == 422
+
+
+# ---- engine picker v2 (ruling 48 part 11): the catalogue on the wire, Refresh on the person's click only ----------
+
+
+def test_every_listing_card_carries_its_catalogue(client):
+    body = client.get("/sleep/engine").json()
+    agent = next(c for c in body["candidates"] if c["id"] == "agent")
+    assert agent["models"][0] == "sonnet", "a tap writes the card's first model (R-HS7)"
+    assert agent["catalogue"]["engine"] == "claude-cli"
+    assert all(m["familyLabel"] == "Claude" for m in agent["catalogue"]["models"])
+
+
+def test_a_third_party_model_in_cursor_is_labelled_before_it_is_chosen(client, monkeypatch):
+    """Ruling 46a (owner 2026-10-28): Cursor's own models carry no note; a third-party one says it is billed
+    separately at list price, on the wire the picker reads."""
+    from api.services import cli_engines
+
+    status = cli_engines.Status(True, True, "Signed in to Cursor.", ["auto", "composer-2", "grok-4.7", "sonnet-5"],
+                                1.0)
+
+    async def fake_astatus(spec, **kw):
+        return status if spec is cli_engines.CURSOR else cli_engines.Status(False, False, "not installed")
+
+    monkeypatch.setattr(cli_engines, "astatus", fake_astatus)
+    card = next(c for c in client.get("/sleep/engine").json()["candidates"] if c["id"] == "cursor")
+    notes = {m["id"]: m.get("billingNote") for m in card["catalogue"]["models"]}
+    assert notes["sonnet-5"] == cli_engines.CURSOR_SEPARATE_BILLING
+    assert notes["auto"] is None and notes["composer-2"] is None and notes["grok-4.7"] is None
+    assert "Auto and scheduled runs use only Cursor's own models" in card["billingNote"]
+
+
+def test_refresh_reads_one_cards_harness_and_answers_like_a_get(client, monkeypatch):
+    from api.services import model_catalogue
+
+    seen = []
+    monkeypatch.setattr(model_catalogue, "refresh_claude", lambda **kw: seen.append("claude") or {})
+    resp = client.post("/sleep/engine/models/refresh", json={"id": "agent"})
+    assert resp.status_code == 200 and seen == ["claude"]
+    ids = {c["id"] for c in client.get("/sleep/engine").json()["candidates"]}
+    assert {c["id"] for c in resp.json()["candidates"]} == ids
+    assert client.post("/sleep/engine/models/refresh", json={"id": "auto"}).status_code == 422
+    assert client.post("/sleep/engine/models/refresh", json={"id": ""}).status_code == 422
