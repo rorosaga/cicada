@@ -331,6 +331,65 @@ read once per visit by the agent's browser from the page's own origin without co
 by Cicada; unread means no further page. Private workspaces and walled sites the person has not turned on are never
 offered, and any site can be set to **Never explore**. Cicada's own "may have changed" probe (D6) is slice 3.
 
+**Two ways in for what the person consumes (TODO ruling 47, owner 2026-10-28).** The owner's words: "connecting to
+outside sources through api or third parties is good if mainly for ingestion, you know? Like a direct access to the
+info we are consuming", then: "for a lot of stuff we can accept consumption over browser and macOS harness, that's what
+I think. But for some specific things if we can do api integration that is awesome."
+
+- **Tier 1, the default — the person's own browser and Mac.** What they read, watch and use is captured as they
+  consume it, through the browser harness and the macOS harness: reading with the person's own agent (G166, above),
+  the saved-list reads (G206), activity traces (G218, ruling 38, off by default; trace consolidation belongs to this
+  tier) and the app's Mac readers. Every rail above is unchanged: the person's own signed-in session, Cicada never signs
+  in on their behalf there, ticked or allowed sites only, the read limits, no backend scraping.
+- **Tier 2 — an official API for a specific high-value source where one exists.** Telegram first (47a); candidates
+  Spotify, Notion, Readwise, Google, YouTube, Letterboxd. "Cicada never signs in" is amended for this tier only: a
+  connection is an API client the person authorised, never a browser session, cookie or profile, and the backend still
+  never fetches a login-walled page. The existing Reddit, X and Pinterest connectors (`api/services/connectors/`) are
+  of this kind.
+
+**The choosing rule.** Each source's path is picked on purpose: an API when it gives clean, complete, structured data
+the harness cannot (history, metadata, reliability); otherwise harness consumption. An export stays a way in either
+way. As applied on 2026-10-28:
+
+| Source | Path | Why |
+|---|---|---|
+| Telegram | API (47a) | full chat history and live updates; no harness sees them |
+| Spotify | API, plus the extended-history export for earlier years | listening history and track metadata; the harness sees only what is playing |
+| Notion | API | a workspace's pages as structured blocks; a harness sees one page at a time |
+| Readwise | API | highlights with their sources, complete |
+| Google | Calendar on the Mac reader; API only for what the Mac cannot read (Drive, Docs), on ask | the Mac already reads Calendar |
+| YouTube | harness (G71 browser history, Watch later through the agent) | the official API does not return watch history |
+| Letterboxd | harness, plus its public per-diary RSS through the feed gate | its API is granted by request; adopt it only if granted |
+| WhatsApp | local database, read by the app | no sanctioned personal-account API; an unofficial client risks a ban |
+| Pocket | export only | the service closed in 2025 |
+
+What every tier-2 connection keeps:
+
+- **The ToS rail below stands.** Official APIs or sanctioned connectors only. Never scraping behind a login, never an
+  unofficial client that breaks a service's terms or risks the person's account being restricted — which is why
+  WhatsApp stays on its local database, read by the app (no sanctioned personal-account API exists).
+- **The person connects each one.** Off by default; the connect step says in plain words what it reads; disconnect and
+  revoke are one click each, and disconnecting forgets the credential (`base.forget()`).
+- **Read-only scopes wherever the service offers them.** Writing back to a service is a separate, explicit ask, never
+  bundled into the connect.
+- **Credentials** in `~/.cicada/secrets.env` (0600), or the keychain where the app holds them — never in a bank, a log or
+  the repo (the rail below).
+- **The normal capture path.** No model at capture; staged through `episode_staging`, scrubbed, with provenance; other
+  people's words stay theirs (`external:<name>`, G179's rail); a demo bank refuses it like any capture.
+- **Ruling 44's guard.** A private person's name is never sent to a service for a lookup. Ingesting the person's own
+  account data is fine; looking people up through a connection is not.
+- **Spend.** Rulings 4, 31 and 36 still apply: a connection that bills per call says so with its basis (as X's owned
+  reads do), and none runs on a metered key nobody chose.
+- **Gates.** A sync the person started is their click; a scheduled sync is a fetch Sleep or a timer starts on its own and
+  sits behind `CICADA_ALLOW_CONNECTOR_FETCH`, like the connectors already are.
+
+**47a — Telegram live sync, the first tier-2 case (owner yes, 2026-10-28).** Telegram's own client API (MTProto, through an
+official client library) with the person's own login, so the chats they tick sync live like Messages, plus their history
+when they ask. The session secret lives in `~/.cicada/secrets.env` (0600) or a 0600 file beside it in `~/.cicada` — never
+in a bank. The connect step says in plain words that Cicada keeps a signed-in session to their account and how to end it
+(Disconnect in Cicada, or Telegram's own Settings → Devices). Off until connected; only ticked chats are read (G179); the
+bot channel (G29, `CICADA_TELEGRAM_BOT_TOKEN`) is unchanged. Built on `feat/chats-live-whatsapp-telegram`.
+
 **The ToS rail — this one is not negotiable.** A fetched page is 4 s / ≤ 512 KB / no cookies / never
 behind auth. Consent interstitials and login walls are classified and retired as `junk` **without a
 byte fetched**. **A block is never retried with different headers.** No scraping behind

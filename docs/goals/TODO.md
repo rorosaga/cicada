@@ -10,6 +10,13 @@
 
 ## Current state and evidence
 
+- **2026-10-28 — ruling 47 recorded; two ways in for what the person consumes (G166, G206, G218, G223, G179, G29, G32,
+  G94; branch `docs/ruling-47-ingestion-connectors`, docs only).** Tier 1, the default: their own browser and Mac,
+  through the browser and macOS harnesses, G166/G206/G218 rails unchanged. Tier 2: an official API for a specific
+  high-value source where it gives what the harness cannot (history, metadata, reliability) — the person connects
+  each one, off by default, read-only, credentials 0600, the normal capture path. "Cicada never signs in" is amended
+  for tier 2 only. Paths chosen: Telegram (47a), Spotify, Notion, Readwise → API; YouTube, Letterboxd → harness (plus
+  Letterboxd's RSS); WhatsApp → local database; Google Calendar → Mac reader (`network.md`).
 - **2026-10-28 — ruling 46 recorded; Auto reaches Cursor and OpenCode after the two plans (G49, G50; branch
   `feat/auto-ladder-46`).** Auto: Claude plan → ChatGPT plan → Cursor → OpenCode on a subscription model; Grok is in
   neither Auto nor scheduled runs until a live sign-in shows what a subscription call reports. Read from #494's cached
@@ -2034,3 +2041,49 @@ A whole row moves to DONE only after its remaining implementation and required a
     Measured on stub tools on a scratch PATH: each ladder position, the switch on and off, a hung tool (skipped in
     under 4 s with a 0.5 s budget, the next rung reading), and the page returning in under 1 s with a tool hung.
     **Revisit** Grok's exclusion only when a live Grok sign-in shows how a subscription call reports cost.
+47. **Two ways in for what the person consumes: their own browser and Mac by default, an official API for specific
+    high-value sources (owner, 2026-10-28; G166, G206, G218, G223, G179, G29, G32, G94; amends "Cicada never signs in"
+    for tier 2 only, and "exports only for walled services").** The owner's words: "change the philosophy too, that
+    connecting to outside sources through api or third parties is good if mainly for ingestion, you know? Like a direct
+    access to the info we are consuming", then, clarifying: "Yeah I mean for a lot of stuff we can accept consumption
+    over browser and macOS harness, that's what I think. But for some specific things if we can do api integration that
+    is awesome." **Tier 1, the broad default — consumption through the person's own browser and Mac.** What they read,
+    watch and use is captured as they consume it, seen by the browser harness and the macOS harness: reading with the
+    person's own agent (G166), the saved-list reads (G206), activity traces (G218, ruling 38, off by default — trace
+    consolidation is part of this same story, the vision map's item 7) and the app's Mac readers (browsers, Notes,
+    Calendar, Contacts, Messages, watched folders). Their rails are unchanged: the person's own signed-in session,
+    Cicada never signs in on their behalf there, ticked or allowed sites only, the read limits, no backend scraping.
+    **Tier 2 — an official API integration for a specific high-value source where one exists.** The first is Telegram
+    (47a); candidates Spotify, Notion, Readwise, Google, YouTube, Letterboxd. **The choosing rule:** pick each source's
+    path on purpose — an API when it gives clean, complete, structured data the harness cannot (history, metadata,
+    reliability); otherwise harness consumption is the default. An export stays a way in either way. **Applied to the
+    candidates (2026-10-28):** Telegram → API (47a: the full chat history and live updates, which no harness sees);
+    Spotify → API (listening history and track metadata; the harness sees only what is playing), its extended-history
+    export for the years before; Notion → API (a workspace's pages as structured blocks; a harness sees one page at a
+    time); Readwise → API (highlights with their sources, complete); Google → Calendar stays on the Mac reader, an API
+    only for a Google source the person asks for that the Mac cannot read (Drive, Docs); YouTube → harness (watch
+    history comes from the browser's history, G71, and Watch later through the person's agent; the official API does
+    not return watch history), an API only if a list the person wants is out of the harness's reach; Letterboxd →
+    harness and its public per-diary RSS through the feed gate (its API is granted by request; adopt it only if
+    granted); WhatsApp → its local database through the Mac app (no sanctioned personal-account API — an unofficial
+    client risks a ban); Pocket → export only (the service closed in 2025). **Tier 2's guardrails:** (1) **the ToS rail
+    stands** — official APIs or a service's own sanctioned connector only; never scraping behind a login, never an
+    unofficial client that breaks terms or risks the person's account; (2) **the person connects each one** — off by
+    default, what it reads said in plain words, disconnect and revoke one click each, disconnect forgets the credential
+    (`base.forget()`); (3) **read-only scopes wherever offered**, writing back a separate, explicit ask; (4)
+    **credentials** in `~/.cicada/secrets.env` (0600) or the keychain where the app holds them — never in a bank, a log
+    or the repo; (5) **the normal capture path** — no model at capture, staged through `episode_staging`, scrubbed,
+    with provenance, other people's words stay theirs (`external:<name>`, G179); (6) **ruling 44's guard** — a private
+    person's name is never sent to a service for a lookup; ingesting the person's own account data is fine, looking
+    people up is not; (7) **rulings 4, 31 and 36 on spend** apply — a per-call bill is said with its basis, never on a
+    metered key nobody chose; a scheduled sync sits behind `CICADA_ALLOW_CONNECTOR_FETCH`.
+    **47a — Telegram live sync, the first tier-2 case (owner yes, 2026-10-28).** Telegram's own client API (MTProto,
+    an official client library) with the person's own login, so the chats they tick sync live like Messages, plus
+    their history when they ask. The session secret lives in `~/.cicada/secrets.env` (0600) or a 0600 file beside it in
+    `~/.cicada`, never in a bank; the connect step says in plain words that Cicada keeps a signed-in session to their
+    account and how to end it (Disconnect in Cicada, or Telegram's own Settings → Devices); off until connected; only
+    ticked chats are read (G179's rail); the bot channel (G29) is unchanged. Built on
+    `feat/chats-live-whatsapp-telegram`, which cites 47a. **Revisit** a candidate's path when the harness proves unable
+    to read it reliably (tier 1 → 2) or its API's terms or access change (tier 2 → 1); the ruling itself if a
+    connection is ever wanted for anything but ingestion, or a person's account is restricted for a connection Cicada
+    made.

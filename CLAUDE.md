@@ -172,6 +172,10 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   read only after the person turned it on. An unreadable file shows the exact fix in the app. Chrome's history is read
   from a copy, YouTube video pages only; watch history is one episode per day, never a save (G71, `capture-and-sleep.md`);
   it and saves from a platform's saved list are indexed, never read by a model (ruling 30).
+- **Two ways in for what the person consumes (ruling 47, owner 2026-10-28):** by default their own browser and Mac,
+  through the browser and macOS harnesses (G166, G206, G218 rails unchanged); an official API only for a specific source
+  where it gives what the harness cannot (history, metadata, reliability) — the person connects each one (off by default,
+  said in words, one-click revoke), read-only, the normal capture path, no private name sent. 47a: Telegram (`network.md`).
 - **Capture never depends on a model calling a tool (G105).** Claude Code and Codex sessions are captured by the
   harness's own Stop hook; the backend reads a transcript only when it resolves under the harness root as
   `<session_id>.jsonl` within the size cap. Only the person's turns and the agent's final reply are kept, plus each agent
@@ -365,7 +369,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   Apps sign in through the listener's own OAuth 2.1 server (ruling 32): consent only in the app, by typing the code the
   person's own page shows, never a click or the public page; PKCE S256, single-use codes, rotating refresh tokens, all
   hashed and mapped to connector rows; a self-registered app is never named by its claim (`network.md`).
-- **Reading with the person's own agent (G166):** Cicada never spawns a browser and never signs in; it only asks. Only a
+- **Reading with the person's own agent (G166):** Cicada never spawns a browser and never signs in to a site; it only asks
+  (only ruling 47's tier 2 — an official API the person connects — signs in, never as a browser session, `network.md`). Only a
   link the person asked about, or a wall page of a site they allowed, can be recorded — and (owner 2026-10-16, G71) the
   person's YouTube Watch later or history page, a standing ask once they turn that list on, stdio only; their saved list on X, Instagram or LinkedIn the same way, one site at a time, ≤ 10 reads a day, each item an
   indexed save (G206, 2026-10-22, `mcp.md`); one person's
@@ -425,7 +430,10 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   different headers.** No scraping behind authentication, ever. **One dated exception (owner, 2026-10-09):** a person's
   photo through unavatar.io from an X, Instagram or LinkedIn link already on their page, behind its own gate — **on by
   default since ruling 36 D5 (2026-10-22)**, shipped with sources on people (G61); `off` still closes it.
-- **Credentials** live in `~/.cicada/secrets.env` (0600) — never in a bank, never logged.
+  **Ruling 47 tier 2 (2026-10-28):** an official API or sanctioned connector the person connected, for ingestion, is not
+  scraping; an unofficial client that breaks a service's terms or risks a ban never is (WhatsApp stays local, `network.md`).
+- **Credentials** live in `~/.cicada/secrets.env` (0600), or the keychain where the app holds them (a connection's
+  session too, ruling 47) — never in a bank, a log or the repo.
 - **Headless (G181):** a server is its bank's one writer and binds 127.0.0.1 only; reach from another machine is an
   overlay the person runs (never a public port, never funnel — only the G135 listener may be, by the person, ruling 32), and no installer creates or copies a credential (`headless.md`).
   Another machine is a client (`CICADA_API_BASE`, or the app's `api_base` file, ruling 28) with its own revocable device
