@@ -301,19 +301,23 @@ struct ProjectOpenThread: Decodable, Equatable, Identifiable, Sendable {
     var lastHeard: String
     var on: String?
     var verbatim: Bool
+    /// g141-8 (decision 9): who the thread waits on — its `from` participant, a structural fact (the pulse).
+    var waitingOn: String?
 
     var id: String { claimId }
 
-    init(claimId: String, text: String, since: String, lastHeard: String, on: String? = nil) {
+    init(claimId: String, text: String, since: String, lastHeard: String, on: String? = nil,
+         waitingOn: String? = nil) {
         self.claimId = claimId
         self.text = text
         self.since = since
         self.lastHeard = lastHeard
         self.on = on
         self.verbatim = false
+        self.waitingOn = waitingOn
     }
 
-    enum CodingKeys: String, CodingKey { case claimId, text, since, lastHeard, on, verbatim }
+    enum CodingKeys: String, CodingKey { case claimId, text, since, lastHeard, on, verbatim, waitingOn }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -323,6 +327,7 @@ struct ProjectOpenThread: Decodable, Equatable, Identifiable, Sendable {
         lastHeard = c.lenient(.lastHeard, since)
         on = c.lenient(.on)
         verbatim = c.lenient(.verbatim, false)
+        waitingOn = c.lenient(.waitingOn)
     }
 }
 
@@ -542,10 +547,17 @@ struct ProjectTimeline: Decodable, Equatable, Sendable {
     var influences: [ProjectInfluence]
     var conversationCount: Int
     var knowledge: [ProjectKnowledge]
+    /// g141-8 (decisions 9 and 10, 2026-10-28): the tied conversations per day, each once on its newest day (the
+    /// pulse's weekly bars), and Pages in this project — automatic, tied by hand, or proposed by an agent.
+    var conversationDays: [ProjectActivityDay]
+    var pages: [ProjectPageRow]
+    var pagesTotal: Int
+    var pageCounts: [String: Int]
 
     enum CodingKeys: String, CodingKey {
         case project, tzName, now, pending, milestones, items, activity, momentDays, lastMomentDay, medianGapDays
         case cluster, conversations, partial, influences, conversationCount, knowledge
+        case conversationDays, pages, pagesTotal, pageCounts
     }
 
     init(from decoder: Decoder) throws {
@@ -566,6 +578,10 @@ struct ProjectTimeline: Decodable, Equatable, Sendable {
         influences = c.lenient(.influences, [])
         conversationCount = c.lenient(.conversationCount, 0)
         knowledge = c.lenient(.knowledge, [])
+        conversationDays = c.lenient(.conversationDays, [])
+        pages = c.lenient(.pages, [])
+        pagesTotal = c.lenient(.pagesTotal, pages.count)
+        pageCounts = c.lenient(.pageCounts, [:])
     }
 
     /// Whether a row's page (`thread.on`, `item.project`; nil = the project itself) is in this project's tree — the

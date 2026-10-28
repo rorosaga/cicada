@@ -456,6 +456,15 @@ REMOTE_TOOLS: dict[str, dict] = {t["name"]: t for t in (
            "remove": {"type": "boolean", "description": "Untie one this app tied."},
            "reason": {"type": "string", "maxLength": 300, "description": "Why, in one sentence."}},
           ("project", "reason"), read_only=False, idempotent=True),
+    _tool("cicada_link_entity",
+          "Propose a page (a person, a tool, a place, a document already in memory) as part of one of the person's "
+          "projects when they say it is, or take back one this app proposed (`remove`). It waits on the project's page "
+          "until the person adds it. Give a one-sentence reason; a page the person said is not part of it stays out.",
+          {"project": {"type": "string", "description": "The project page (id or name)."},
+           "entity": {"type": "string", "description": "The page to tie (id or name)."},
+           "remove": {"type": "boolean", "description": "Take back one this app proposed."},
+           "reason": {"type": "string", "maxLength": 300, "description": "Why, in one sentence."}},
+          ("project", "entity", "reason"), read_only=False, idempotent=True),
     _tool("cicada_add_influence",
           "Record something that fed one of the person's projects — a film, a book, a paper, a tool, a person, a "
           "link — when they say it did. `url` for a link, else `what` (a name; plain text when no page matches). "

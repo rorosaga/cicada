@@ -63,7 +63,9 @@ from api.services.transclusion_resolver import claim_to_model
 # observation); its days count as activity in `momentDays`, and a moment needs the project discussed in substance.
 # g141-7 (2026-10-27, ruling 45): a row and the detail say `mine` / `mineVia` and the person's `description` (+ who set
 # it); the list adds `suggested` and `dismissed`; the detail adds `influences`, `conversationCount` and `knowledge`.
-PROJECT_SHAPE = "g141-7"
+# g141-8 (2026-10-28, decisions 9 and 10): an open thread says `waitingOn`; the detail adds `conversationDays` (the
+# pulse) and `pages` / `pagesTotal` / `pageCounts` (Pages in this project, tied by hand).
+PROJECT_SHAPE = "g141-8"
 TREE_DEPTH = 2
 MAX_SCAN_PAGES = 200          # §6.6: raw scans are capped; hitting the cap sets `partial`
 COMMONS_DEGREE = 12           # R-PJ20
@@ -1236,7 +1238,22 @@ def _threads(bank: _Bank, root: str, events: list[tuple[Claim, str]], *,
     return [OpenThread(claim_id=c.id, text=c.text or "", since=_day(c.valid_from),
                        last_heard=(_last_heard(bank, c) if heard else "") or _day(c.valid_from),
                        on=page if page != root else None,
-                       verbatim=is_persons_words(c)) for c, page in rows]
+                       verbatim=is_persons_words(c), waiting_on=_waiting_on(bank, c)) for c, page in rows]
+
+
+def _waiting_on(bank: _Bank, c: Claim) -> str | None:
+    """Who an open thread waits on (decision 9's pulse): its first `from` participant that is not the owner — the
+    role the one event writer recorded, never a reading of the thread's words."""
+    for p in c.participants:
+        if str(p.get("role") or "") != "from":
+            continue
+        eid, _ = _linked(bank, p)
+        if eid is not None and eid == bank.owner():
+            continue
+        name = bank.name(eid) if eid else " ".join(str(p.get("surface") or "").split())
+        if name:
+            return name
+    return None
 
 
 def _event_members(bank: _Bank, tree: list[str], owner: str | None,
@@ -1588,7 +1605,12 @@ def build(memory_path: Path, project_id: str, *, tz_name: str | None, since: str
                      status=str(fm.get("status") or "active"), created=created, **_header(bank, root))
     from api.services import project_conversations, project_influences
 
-    tied_count = project_conversations.count(memory_path, root, tz_name=tz_name, bank=bank)
+    from api.services import project_pages
+
+    reasons, _ = project_conversations.tie_reasons(memory_path, root, tz_name=tz_name, bank=bank)
+    tied_count = project_conversations.count(memory_path, root, tz_name=tz_name, bank=bank, reasons=reasons)
+    pages, pages_total, page_counts = project_pages.build(bank, root, tree, around, _commons(bank, around), owner,
+                                                          _member_fact)
     return ProjectTimeline(
         project=ref, tz_name=bank.tz_name,
         window=TimelineWindow(start=min([x for x in (created, *days) if x], default=None),
@@ -1612,7 +1634,10 @@ def build(memory_path: Path, project_id: str, *, tz_name: str | None, since: str
         people=persons,
         # Ruling 45: the side panel.
         influences=project_influences.build(bank, root, reverse), conversation_count=tied_count,
-        knowledge=_knowledge(memory_path, fm))
+        knowledge=_knowledge(memory_path, fm),
+        # Decisions 9 and 10 (2026-10-28): the pulse's weekly bars and Pages in this project.
+        conversation_days=project_conversations.days(bank, reasons), pages=pages, pages_total=pages_total,
+        page_counts=page_counts)
 
 
 def now_next(memory_path: Path, project_id: str) -> tuple[dict | None, dict | None]:

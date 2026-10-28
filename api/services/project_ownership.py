@@ -21,10 +21,18 @@ carries them through every rewrite (``conflict_resolver`` updates the page's own
 ``not_mine: {day}``                         a dismissed suggestion
 ``description`` / ``description_by``        the person's header line and who last set it (Sleep never writes it)
 ``conversations_added`` / ``conversations_removed``   conversations tied or untied by hand (``project_conversations``)
+``entities_added`` / ``entities_removed``   pages tied to the project by hand, or "Not part of it" (``project_pages``)
 ``provider_projects: [{provider, id, name?, episode?, docs?}]``   the project's own id in Claude or ChatGPT
 
 ``born`` keeps its D4 meaning (where the page came from); ``mine`` is whose list it is in. The two are independent.
-This module is the one writer of ``mine``, ``not_mine`` and the two conversation lists.
+This module is the one writer of ``mine``, ``not_mine``, the two conversation lists and the two page lists.
+
+**Why the page lists are frontmatter, not claims** (2026-10-28, decision 10): "Not part of it" is a negative that must
+win over every automatic tie, and a claim cannot say "no edge here" without a new predicate and closure rules; a
+``part-of`` claim is already what makes a sub-project (``project_timeline._tree``), so a hand tie written as one would
+silently re-parent pages; and membership is the person's curation of their own project, not a belief about the world
+with evidence, decay and supersession. The conversation lists set the precedent: one writer, carried on a merge, kept
+by Sleep, travelling with the bank.
 """
 from __future__ import annotations
 
@@ -44,8 +52,11 @@ DESCRIPTION_BY_KEY = "description_by"
 ADDED_KEY = "conversations_added"
 REMOVED_KEY = "conversations_removed"
 PROVIDER_KEY = "provider_projects"
+PAGES_ADDED_KEY = "entities_added"
+PAGES_REMOVED_KEY = "entities_removed"
 #: Every key the person's doors write and Sleep must never drop (carried on a merge, never moved by a split).
-PERSON_KEYS = (MINE_KEY, NOT_MINE_KEY, DESCRIPTION_KEY, DESCRIPTION_BY_KEY, ADDED_KEY, REMOVED_KEY, PROVIDER_KEY)
+PERSON_KEYS = (MINE_KEY, NOT_MINE_KEY, DESCRIPTION_KEY, DESCRIPTION_BY_KEY, ADDED_KEY, REMOVED_KEY, PROVIDER_KEY,
+               PAGES_ADDED_KEY, PAGES_REMOVED_KEY)
 
 #: How a project came to be the person's (``mine.via``).
 VIA_APP, VIA_CLI, VIA_AGENT, VIA_ACCEPTED, VIA_FOLDER, VIA_IMPORT, VIA_PROGRESS = (
@@ -476,6 +487,109 @@ def tie(memory_path: Path, stem: str, episode: str, *, remove: bool = False, by:
     return _rewrite(memory_path, stem, change)
 
 
+# --- pages tied by hand (decision 10, 2026-10-28) ----------------------------------------------------------------------
+
+
+def _entry_page(x) -> str | None:
+    if isinstance(x, str) and x.strip():
+        return x.strip()
+    if isinstance(x, dict) and isinstance(x.get("entity"), str) and x["entity"].strip():
+        return x["entity"].strip()
+    return None
+
+
+def page_entries(fm: dict | None, key: str) -> list:
+    """The raw rows of ``entities_added`` / ``entities_removed``: a bare page id (the person's) or ``{entity, by,
+    session?, proposed?}`` (an agent's — ``proposed`` when that agent is not on the person's trust list)."""
+    raw = (fm or {}).get(key)
+    return [x for x in raw if _entry_page(x)] if isinstance(raw, list) else []
+
+
+def pages(fm: dict | None, key: str) -> list[str]:
+    return list(dict.fromkeys(e for e in (_entry_page(x) for x in page_entries(fm, key)) if e))
+
+
+def page_tie(fm: dict | None, entity: str) -> dict | None:
+    """How ``entity`` was tied by hand: ``{by: user}`` for the person's, else the agent's row (``proposed`` kept)."""
+    for x in page_entries(fm, PAGES_ADDED_KEY):
+        if _entry_page(x) == entity:
+            return {"by": "user"} if isinstance(x, str) else dict(x)
+    return None
+
+
+@page_lock.locked
+def tie_page(memory_path: Path, stem: str, entity: str, *, remove: bool = False, by: str = "user",
+             session: str | None = None, trusted: bool = True) -> list[str]:
+    """Tie a page to the project by hand ("Add"), or say it is "Not part of it".
+
+    The person's word is final both ways: their "Not part of it" wins over every automatic tie (a claim, an event's
+    participant) and no agent re-adds it; their Add lifts it, and turns an agent's proposal into their own tie. An
+    agent on the person's trust list (G198, ``page_editors``) ties at once; any other agent's tie is recorded as a
+    PROPOSAL (``proposed: true``) the person takes or turns down on the panel — never drawn as part of the project
+    until then. An agent removes only what it tied or proposed (the withdraw-only-what-it-wrote rail) and never marks a
+    page "Not part of it". Every check runs before anything is written: a refusal writes nothing."""
+    from api.services.id_utils import resolve_entity_file
+
+    page = resolve_entity_file(memory_path, str(entity or "").strip())
+    if page is None:
+        raise OwnershipError(f"No page {entity!r}.")
+    target = page.stem
+    if target == stem:
+        raise OwnershipError("A project is not a page of itself.")
+    tfm = markdown_parser.parse(page, ledger=False).frontmatter or {}
+    if str(tfm.get("status") or "active") == "dropped":
+        raise OwnershipError(f"{target!r} was dropped from memory.")
+    if tfm.get("owner") is True:
+        raise OwnershipError("The person's own page is part of every project; it is never tied by hand.")
+    person = by == "user"
+
+    def change(fm: dict):
+        if not is_project_like(fm):
+            raise OwnershipError(f"{stem!r} is not a project.")
+        added = page_entries(fm, PAGES_ADDED_KEY)
+        removed = page_entries(fm, PAGES_REMOVED_KEY)
+        untied = target in {_entry_page(x) for x in removed}
+        mine = [x for x in added if _entry_page(x) == target]
+        if remove:
+            if person:
+                if untied and not mine:
+                    return False
+                added = [x for x in added if _entry_page(x) != target]
+                if not untied:
+                    removed.append(target)
+            else:
+                own = [x for x in mine if isinstance(x, dict) and x.get("by") == by]
+                if not own:
+                    raise OwnershipError("You can take back only a page you tied; the person decides the rest in the "
+                                         "app.")
+                added = [x for x in added if not any(x is o for o in own)]
+        else:
+            if untied and not person:
+                raise OwnershipError("The person said that page is not part of this project; it stays out.")
+            if person:
+                if any(isinstance(x, str) for x in mine) and not untied:
+                    return False
+                added = [x for x in added if _entry_page(x) != target] + [target]
+                removed = [x for x in removed if _entry_page(x) != target]
+            else:
+                if mine:
+                    return False
+                row = {"entity": target, "by": by}
+                if session:
+                    row["session"] = session
+                if not trusted:
+                    row["proposed"] = True
+                added.append(row)
+        for key, rows in ((PAGES_ADDED_KEY, added), (PAGES_REMOVED_KEY, removed)):
+            if rows:
+                fm[key] = rows[-MAX_TIED:]
+            else:
+                fm.pop(key, None)
+        return None
+
+    return _rewrite(memory_path, stem, change)
+
+
 def add_provider(fm: dict, entry: dict) -> bool:
     """Record a provider's own project id on the page (Claude export, a ChatGPT grouping the person named)."""
     rows = provider_projects(fm)
@@ -513,6 +627,16 @@ def carry_on_merge(winner_fm: dict, loser_fm: dict) -> None:
             winner_fm[key] = rows[-MAX_TIED:]
     for row in provider_projects(loser_fm):
         add_provider(winner_fm, row)
+    gone = list(dict.fromkeys(pages(winner_fm, PAGES_REMOVED_KEY) + pages(loser_fm, PAGES_REMOVED_KEY)))
+    kept, seen = [], set()
+    for x in page_entries(winner_fm, PAGES_ADDED_KEY) + page_entries(loser_fm, PAGES_ADDED_KEY):
+        e = _entry_page(x)
+        if e and e not in seen and e not in gone:
+            seen.add(e)
+            kept.append(x)
+    for key, rows in ((PAGES_ADDED_KEY, kept), (PAGES_REMOVED_KEY, gone)):
+        if rows:
+            winner_fm[key] = rows[-MAX_TIED:]
 
 
 # --- page-less suggestions (a ChatGPT project with no name) -----------------------------------------------------------

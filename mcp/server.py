@@ -928,6 +928,17 @@ TOOLS = [
             "reason": {"type": "string", "maxLength": 300, "description": "Why, in one sentence."}}},
     },
     {
+        # Decision 10 (owner 2026-10-28): Pages in this project, tied by hand. A harness on the person's trust list
+        # ties at once; any other proposes.
+        "name": "cicada_link_entity",
+        "description": "Tie a page already in memory (a person, a tool, a place, a document) to one of the person's projects when it is part of that project and nothing ties it yet, or take back one you tied (`remove`). Give a one-sentence `reason`. If the person listed your app as one that may edit their memory directly it is tied at once; otherwise it waits on the project's page as your proposal. A page the person said is not part of the project stays out.",
+        "inputSchema": {"type": "object", "required": ["project", "entity", "reason"], "properties": {
+            "project": {"type": "string", "description": "The project page (id or name)."},
+            "entity": {"type": "string", "description": "The page to tie (id or name)."},
+            "remove": {"type": "boolean", "description": "Take back a page you tied."},
+            "reason": {"type": "string", "maxLength": 300, "description": "Why, in one sentence."}}},
+    },
+    {
         "name": "cicada_add_influence",
         "description": "Record something that fed one of the person's projects — a film, a book, a paper, a tool, a person, a link — when they say it influenced it. Give `url` for a link, else `what` (a name; an existing page is used when it matches, otherwise it stays plain text). `how` says the kind: inspired, reference, uses or person. It is recorded as yours, never as the person's own words; quote them in `evidence`.",
         "inputSchema": {"type": "object", "required": ["project"], "properties": {
@@ -1739,6 +1750,9 @@ def _handle_local_tool(name: str, arguments: dict) -> str:
         return mcp_tools.link_conversation(_ctx(), arguments.get("project", ""), arguments.get("episode"),
                                            arguments.get("session"), bool(arguments.get("remove", False)),
                                            arguments.get("reason"))
+    elif name == "cicada_link_entity":
+        return mcp_tools.link_entity(_ctx(), arguments.get("project", ""), arguments.get("entity", ""),
+                                     bool(arguments.get("remove", False)), arguments.get("reason"))
     elif name == "cicada_add_influence":
         return mcp_tools.add_influence(_ctx(), arguments.get("project", ""), arguments.get("what"),
                                        arguments.get("url"), arguments.get("how"), arguments.get("evidence"))

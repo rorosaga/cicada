@@ -161,6 +161,8 @@ ROWS: tuple[Row, ...] = (
         (_p("project"), _f("description"), _f("evidence", "json"), _f("repo")), mutates=True),
     Row(("projects", "link"), "cicada_link_conversation", "Tie a conversation to a project, or untie one you tied.",
         (_p("project"), _p("reason"), _f("episode"), _f("session"), _f("remove", "bool")), mutates=True),
+    Row(("projects", "tie-page"), "cicada_link_entity", "Tie a page to a project, or take back a tie you made.",
+        (_p("project"), _p("entity"), _p("reason"), _f("remove", "bool")), mutates=True),
     Row(("projects", "influence"), "cicada_add_influence", "Record something that fed a project: a link or a thing.",
         (_p("project"), _f("what"), _f("url"), _f("how"), _f("evidence", "json")), mutates=True),
     Row(("backlog", "list"), "cicada_backlog", "A project's backlog.",

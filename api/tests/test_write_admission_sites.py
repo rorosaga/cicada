@@ -401,6 +401,7 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /projects/{project_id}/dismiss": (ADMITTED, None),
     "PATCH /projects/{project_id}": (ADMITTED, None),
     "POST /projects/{project_id}/conversations": (ADMITTED, None),
+    "POST /projects/{project_id}/pages": (ADMITTED, None),
     "POST /projects/{project_id}/influences": (ADMITTED, None),
     "POST /projects/{project_id}/influences/withdraw": (ADMITTED, None),
     "POST /projects/{project_id}/backlog": (ADMITTED, None),
@@ -580,6 +581,7 @@ TOOLS: dict[str, tuple[str, str | None]] = {
     "cicada_add_backlog_item": (ADMITTED, "add_backlog_item"),
     "cicada_create_project": (ADMITTED, "create_project"),          # ruling 45: the page, committed alone
     "cicada_link_conversation": (ADMITTED, "link_conversation"),
+    "cicada_link_entity": (ADMITTED, "link_entity"),
     "cicada_add_influence": (ADMITTED, "add_influence"),
     "cicada_add_backlog_note": (ADMITTED, "add_backlog_note"),
     "cicada_save_design": (ADMITTED, "save_design"),

@@ -260,6 +260,7 @@ WRITES = {
     "cicada_create_project": lambda ctx: mcp_tools.create_project(ctx, "Beta Project Example", "A synthetic one."),
     "cicada_link_conversation": lambda ctx: mcp_tools.link_conversation(ctx, "alpha-project", "ep_2026-01-01_001",
                                                                          reason="It is about it."),
+    "cicada_link_entity": lambda ctx: mcp_tools.link_entity(ctx, "alpha-project", "bob-example", reason="On it."),
     "cicada_add_influence": lambda ctx: mcp_tools.add_influence(ctx, "alpha-project", what="A Synthetic Book"),
     # G162: writes only the person's queue file (outside every bank), yet a demo bank's queue is a
     # picture of the flow — no agent can work it.

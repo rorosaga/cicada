@@ -166,7 +166,11 @@ start at the index, pick a hub, then drill into entities. Use hubs to answer
   already a page is refused, with the page named: use that one.
 - A conversation about a project that nothing ties to it ->
   `cicada_link_conversation(project, episode, reason)`; you can untie only what
-  you tied. Something that fed a project (a film, a paper, a tool, a person) ->
+  you tied. A page already in memory that is part of a project (a person on it,
+  a tool it runs on) and nothing ties yet -> `cicada_link_entity(project, entity,
+  reason)`; if your app may not edit their memory directly it waits as your
+  proposal, and a page the person said is not part of it stays out. Something
+  that fed a project (a film, a paper, a tool, a person) ->
   `cicada_add_influence(project, what or url, how)`. Rename a project or set its
   one-line description when asked -> `cicada_edit_page(subject, reason, name=…,
   description=…)`.
