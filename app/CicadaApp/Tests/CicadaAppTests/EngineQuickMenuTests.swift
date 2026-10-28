@@ -262,7 +262,7 @@ final class EngineQuickMenuTests: XCTestCase {
             CicadaTheme.mode = mode
             for scale in [0.8, 1.0, 1.4] {
                 CicadaTheme.uiScale = scale
-                let width = EngineQuickMenu.width * CGFloat(scale)
+                let width = EngineQuickMenu.width(for: .from(r)) * CGFloat(scale)
                 let renderer = ImageRenderer(content: EngineQuickMenu(model: .from(r), choose: { _ in },
                                                                       pickModel: { _ in }, openSettings: { _, _ in })
                     .environment(store))

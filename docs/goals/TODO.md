@@ -19,6 +19,11 @@
   — 87 of the 132 face-less people carry a full name a card could match, 0 can be counted until the app has synced
   Contacts for this bank; the one ticked Messages chat is a texted agent's. Card-open and logo-serve p95 unchanged
   within noise.
+- **2026-10-28 — engine picker v2 (ruling 48 part 11; G122, G49; branch `feat/engine-picker-v2`, stacked on #505).**
+  The quick menu lists a card's models as a filterable second column (families, newest first, *Show N older*, New,
+  freshness with a click-only Refresh). Research on "Grok and Cursor are now one": one subscription since 2026-10-12,
+  still two tools and sign-ins; Cursor's third-party models bill at list price from top-ups. Ruled the same day
+  (ruling 46a): Auto and schedules run Cursor only on Cursor's own models, also when the mode is pinned in the env.
 - **2026-10-28 — ruling 48 recorded; the redesign accepted (docs only; branch `docs/redesign-rulings-2026-10-28`).**
   The owner answered the redesign's decisions: entity pages read as articles that carry their beliefs (citation
   markers, References, no beliefs list), Home leads its questions with their pages and Catch me up stands apart as a

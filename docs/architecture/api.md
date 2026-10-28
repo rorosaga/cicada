@@ -529,7 +529,13 @@ first sight within 14 days. **Drift fails loudly:** a listing that answered with
 a help text whose `--model` option or quoted aliases moved (`FormatDrift`) sets `drift` to a sentence and logs a
 warning; OpenCode and Grok then read as not connected (they always pass an explicit model and cannot pick one blind),
 Cursor keeps its own `auto`, the Claude plan keeps its last good list. One fixture per harness pins each parser
-(`api/tests/fixtures/model_lists/`, `test_model_catalogue.py`). Measured: `GET /sleep/engine` p95 17.6–18.1 →
+(`api/tests/fixtures/model_lists/`, `test_model_catalogue.py`). **Engine picker v2 (ruling 48 part 11):** each row also
+carries `familyLabel` — the model line it belongs to (`Claude`, `GPT`, `Gemini`, `Grok`, a tool's own as `"<tool>'s
+own"`, else its first word) — and the rows come grouped, families in the order the harness first lists them, newest
+first inside each by the id's own version (`model_catalogue.ordered`; no harness lists release dates); the card's
+`models` keep the harness's order (R-HS7). `POST /sleep/engine/models/refresh` `{id}` re-reads ONE card's list from
+its harness now (`claude --help`, the tool's `models`, `model/list`) and answers what a GET would; 422 for a card with
+no list. It is the person's Refresh only: the page never probes (ruling 46). Measured: `GET /sleep/engine` p95 17.6–18.1 →
 18.4–19.3 ms in process on an owner-scale bank copy, no plan CLI on the path (30 reads, alternated runs; the cache
 file is parsed once per stamp).
 

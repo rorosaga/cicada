@@ -539,3 +539,27 @@ def test_put_refuses_an_opencode_model_on_an_api_key(client):
     resp = client.put("/sleep/engine", json={"mode": "opencode", "model": "anthropic/claude-sonnet-5"})
     assert resp.status_code == 422 and "API key" in resp.text
     assert client.put("/sleep/engine", json={"mode": "grok", "model": "-oops"}).status_code == 422
+
+
+# ---- engine picker v2 (ruling 48 part 11): the catalogue on the wire, Refresh on the person's click only ----------
+
+
+def test_every_listing_card_carries_its_catalogue(client):
+    body = client.get("/sleep/engine").json()
+    agent = next(c for c in body["candidates"] if c["id"] == "agent")
+    assert agent["models"][0] == "sonnet", "a tap writes the card's first model (R-HS7)"
+    assert agent["catalogue"]["engine"] == "claude-cli"
+    assert all(m["familyLabel"] == "Claude" for m in agent["catalogue"]["models"])
+
+
+def test_refresh_reads_one_cards_harness_and_answers_like_a_get(client, monkeypatch):
+    from api.services import model_catalogue
+
+    seen = []
+    monkeypatch.setattr(model_catalogue, "refresh_claude", lambda **kw: seen.append("claude") or {})
+    resp = client.post("/sleep/engine/models/refresh", json={"id": "agent"})
+    assert resp.status_code == 200 and seen == ["claude"]
+    ids = {c["id"] for c in client.get("/sleep/engine").json()["candidates"]}
+    assert {c["id"] for c in resp.json()["candidates"]} == ids
+    assert client.post("/sleep/engine/models/refresh", json={"id": "auto"}).status_code == 422
+    assert client.post("/sleep/engine/models/refresh", json={"id": ""}).status_code == 422

@@ -168,13 +168,38 @@ def test_first_seen_marks_only_models_that_arrive_later():
     aged = model_catalogue.catalogue("cursor-cli", [("sonnet-5", "harness")], as_of=3.0, source="agent models",
                                      today=date(2026, 11, 20))
     assert not aged["models"][0]["new"]
-    assert row["sonnet-5"]["family"] == "sonnet"
+    assert row["sonnet-5"]["family"] == "claude" and row["sonnet-5"]["familyLabel"] == "Claude"
 
 
-@pytest.mark.parametrize("model_id, fam", [("github-copilot/gpt-5.5", "gpt"), ("claude-opus-5-5", "opus"),
-                                           ("grok-4.6-mini", "grok"), ("auto", "auto"), ("kimi-k3", "kimi")])
+@pytest.mark.parametrize("model_id, fam", [
+    ("github-copilot/gpt-5.5", "gpt"), ("claude-opus-5-5", "claude"), ("sonnet-5", "claude"), ("fable", "claude"),
+    ("o4-mini", "gpt"), ("gpt-5.3-codex", "gpt"), ("grok-4.6-mini", "grok"), ("gemini-3-pro", "gemini"),
+    ("auto", "own"), ("composer-2", "own"), ("kimi-k3", "kimi"), ("opencode-go/kimi-k3", "kimi"),
+])
 def test_family(model_id, fam):
     assert model_catalogue.family(model_id) == fam
+
+
+def test_the_picker_rows_group_by_family_newest_first_and_the_card_keeps_its_order():
+    """Ruling 48 part 11: families from the catalogue, newest first; the card's own `models` order is untouched
+    (a tap writes its first model, R-HS7)."""
+    roster = ["auto", "composer-1.5", "composer-2", "sonnet-4.6", "sonnet-5", "opus-5.5", "gpt-5.5-mini", "gpt-6",
+              "gpt-5.5", "gemini-3-pro"]
+    cat = model_catalogue.catalogue("cursor-cli", [(m, "harness") for m in roster], as_of=1.0, source="agent models",
+                                    tool="Cursor", saved="old-model-1")
+    got = [(m["familyLabel"], m["id"]) for m in cat["models"]]
+    assert got == [("Cursor's own", "composer-2"), ("Cursor's own", "composer-1.5"), ("Cursor's own", "auto"),
+                   ("Claude", "opus-5.5"), ("Claude", "sonnet-5"), ("Claude", "sonnet-4.6"),
+                   ("GPT", "gpt-6"), ("GPT", "gpt-5.5"), ("GPT", "gpt-5.5-mini"), ("Gemini", "gemini-3-pro"),
+                   ("Old", "old-model-1")]
+
+
+def test_the_claude_plan_aliases_keep_their_order_inside_their_family(claude):
+    runner, _ = claude
+    model_catalogue.refresh_claude(runner=runner(_text("claude_help.txt")))
+    ids, cat = model_catalogue.claude_plan()
+    assert [m["id"] for m in cat["models"]] == ids == ["sonnet", "haiku", "opus", "fable"]
+    assert {m["familyLabel"] for m in cat["models"]} == {"Claude"}
 
 
 def test_the_view_never_waits_and_a_hook_never_refreshes(monkeypatch, claude):

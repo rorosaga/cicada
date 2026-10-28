@@ -15,6 +15,7 @@ from api.models.schemas import (
     SleepDrain,
     SleepEndRunResponse,
     SleepEngineChoice,
+    SleepEngineModelsRefresh,
     SleepEngineResponse,
     SleepHistoryEntry,
     SleepPaused,
@@ -568,6 +569,17 @@ async def get_sleep_engine(settings: Settings = Depends(get_settings)):
     now, every candidate's live state, and both trigger-source previews
     (ruling 4 made visible, not hidden — see `SleepEnginePreviews`)."""
     return await sleep_engine_prefs.build_response(settings, get_registry(settings))
+
+
+@router.post("/sleep/engine/models/refresh", response_model=SleepEngineResponse)
+async def refresh_sleep_engine_models(body: SleepEngineModelsRefresh, settings: Settings = Depends(get_settings)):
+    """Engine picker v2 (ruling 48 part 11): the person's Refresh — re-read ONE card's model list from its own harness
+    now (`claude --help`, the tool's `models`, the ChatGPT plan's `model/list`, Ollama's tags), then answer what a GET
+    would. Only ever on the person's click: the page itself never probes (ruling 46), and nothing here spends."""
+    reg = get_registry(settings)
+    if not await sleep_engine_prefs.refresh_models(settings, body.id):
+        raise HTTPException(status_code=422, detail="That engine has no model list to refresh.")
+    return await sleep_engine_prefs.build_response(settings, reg)
 
 
 @router.put("/sleep/engine", response_model=SleepEngineResponse)

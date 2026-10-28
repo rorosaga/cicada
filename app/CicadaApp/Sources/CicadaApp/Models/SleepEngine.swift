@@ -38,6 +38,70 @@ struct SleepEngineCandidate: Codable, Identifiable, Hashable {
     var modelNote: String? = nil
     /// The exact command the person runs to sign in to the tool.
     var signIn: String? = nil
+    /// Engine picker v2 (ruling 48 part 11) — `models` described by the backend's catalogue (`model_catalogue`): each
+    /// model's family, newest first, its source and age, "New". Absent on an older backend: the list is then `models`.
+    var catalogue: ModelCatalogue? = nil
+}
+
+/// Wire mirror of `api.models.schemas.ModelCatalogue`: one card's model list as its own harness reported it.
+struct ModelCatalogue: Codable, Hashable {
+    struct Model: Codable, Hashable {
+        let id: String
+        let source: String
+        var asOf: String? = nil
+        var family: String = ""
+        var familyLabel: String = ""
+        var firstSeen: String? = nil
+        var new: Bool = false
+        var resolvesTo: String? = nil
+
+        init(id: String, source: String, asOf: String? = nil, family: String = "", familyLabel: String = "",
+             firstSeen: String? = nil, new: Bool = false, resolvesTo: String? = nil) {
+            self.id = id
+            self.source = source
+            self.asOf = asOf
+            self.family = family
+            self.familyLabel = familyLabel
+            self.firstSeen = firstSeen
+            self.new = new
+            self.resolvesTo = resolvesTo
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            id = try c.decode(String.self, forKey: .id)
+            source = (try? c.decodeIfPresent(String.self, forKey: .source)) ?? "harness"
+            asOf = (try? c.decodeIfPresent(String.self, forKey: .asOf)) ?? nil
+            family = (try? c.decodeIfPresent(String.self, forKey: .family)) ?? ""
+            familyLabel = (try? c.decodeIfPresent(String.self, forKey: .familyLabel)) ?? ""
+            firstSeen = (try? c.decodeIfPresent(String.self, forKey: .firstSeen)) ?? nil
+            new = (try? c.decodeIfPresent(Bool.self, forKey: .new)) ?? false
+            resolvesTo = (try? c.decodeIfPresent(String.self, forKey: .resolvesTo)) ?? nil
+        }
+    }
+
+    let engine: String
+    var asOf: String? = nil
+    let source: String
+    var drift: String? = nil
+    var models: [Model] = []
+
+    init(engine: String, asOf: String? = nil, source: String, drift: String? = nil, models: [Model] = []) {
+        self.engine = engine
+        self.asOf = asOf
+        self.source = source
+        self.drift = drift
+        self.models = models
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        engine = (try? c.decodeIfPresent(String.self, forKey: .engine)) ?? ""
+        asOf = (try? c.decodeIfPresent(String.self, forKey: .asOf)) ?? nil
+        source = (try? c.decodeIfPresent(String.self, forKey: .source)) ?? ""
+        drift = (try? c.decodeIfPresent(String.self, forKey: .drift)) ?? nil
+        models = (try? c.decodeIfPresent([Model].self, forKey: .models)) ?? []
+    }
 }
 
 extension SleepEngineCandidate {
@@ -58,6 +122,7 @@ extension SleepEngineCandidate {
         billingNote = (try? c.decodeIfPresent(String.self, forKey: .billingNote)) ?? nil
         modelNote = (try? c.decodeIfPresent(String.self, forKey: .modelNote)) ?? nil
         signIn = (try? c.decodeIfPresent(String.self, forKey: .signIn)) ?? nil
+        catalogue = (try? c.decodeIfPresent(ModelCatalogue.self, forKey: .catalogue)) ?? nil
     }
 }
 

@@ -47,7 +47,15 @@ Agents page, ⌘9, `AppTab.agents`, appended so no shortcut moved — DR-22).
   new engine renders, selects and names its runs without an id table; a body without them (an older backend) answers
   as before. The quick menu lists an own tool's models (live, else its documented defaults, plus a saved one) and says
   a stale one; onboarding keeps its four engines (`compactCandidates`); `EngineMark` wears the tool's mark for a
-  `<tool>-cli` run.
+  `<tool>-cli` run. **Engine picker v2 (ruling 48 part 11, `10-engine-picker`, 2026-10-28):** the quick menu's model
+  `Picker` is gone (amends R-HS10). A card with models opens a second column, `EngineModelList`
+  (`EngineModelListModel` holds every decision): the filter focused on open (`CicadaSearchField`, ↑/↓ and ⏎ choose,
+  no animation, DR-60), the catalogue's families as `SectionLabel`s with their counts (DR-47), newest three per family
+  and *Show N older*, "New" a `Tag` (DR-44) for 14 days, a model's list price only where the wire gives one (ruling
+  12), and "<card>'s own list, as of N min ago · Refresh" — Refresh is `POST /sleep/engine/models/refresh` on the
+  click only (`SleepEngineViewModel.refreshModels`; a failure keeps the list and says so). The only drop-down left in
+  the menu is the reserve's (DR-81). Every engine card keeps its own bundled mark (all `same` in the 2026-10-28
+  freshness check); Cursor and Grok are not merged under a parent mark — they stay two tools with two sign-ins.
 - **You:** the name and photo (`EntityPicture`, editable), the email the photo ladder hashes, and *Your profiles* — any
   profile link pasted as-is, stored as the owner page's sources (`/entities/{owner}/sources`, G61); a pre-D6 GitHub
   handle shows as its profile link. *Connect* only for a service read through a connection (X, Reddit, Pinterest),

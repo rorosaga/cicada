@@ -78,13 +78,70 @@ def parse_claude_help(text: str) -> list[str]:
     return aliases
 
 
+#: Model lines that share one family heading in the picker (ruling 48 part 11: "families from the catalogue"). A
+#: line not listed here is its own family, named by its first word. The words are the models' own names — what the
+#: person picks — never a claim about who runs the read (provider-neutral copy, owner 2026-09-30).
+_FAMILIES = (
+    ("claude", "Claude", ("claude", "sonnet", "opus", "haiku", "fable")),
+    ("gpt", "GPT", ("gpt", "chatgpt", "codex", "o1", "o3", "o4")),
+    ("gemini", "Gemini", ("gemini", "gemma")),
+    ("grok", "Grok", ("grok",)),
+)
+#: A tool's own models (Cursor's Composer and its own Auto): one heading, "<tool>'s own" (the card's own name).
+_OWN = ("composer", "auto", "cursor")
+_VARIANT = re.compile(r"(?:^|[-_.])(?:mini|nano|flash|fast|lite|small|tiny)(?:$|[-_.])")
+
+
+def _bare(model_id: str) -> str:
+    return (model_id or "").strip().split("/")[-1].lower()
+
+
 def family(model_id: str) -> str:
-    """A model's family for grouping: its first word, with a vendor prefix and a ``claude-`` lead dropped
-    (``github-copilot/gpt-5.5`` → ``gpt``, ``claude-opus-5-5`` → ``opus``, ``grok-4.6-mini`` → ``grok``)."""
-    bare = (model_id or "").strip().split("/")[-1].lower()
-    bare = bare[len("claude-"):] if bare.startswith("claude-") else bare
-    m = re.match(r"[a-z]+", bare)
-    return m.group(0) if m else bare
+    """A model's family for grouping: the line it belongs to (``claude``, ``gpt``, ``gemini``, ``grok``), ``own`` for a
+    tool's own models, else its first word (``github-copilot/kimi-k3`` → ``kimi``)."""
+    bare = _bare(model_id)
+    words = re.findall(r"[a-z]+|\d+", bare)
+    first = next((w for w in words if w.isalpha()), bare)
+    if re.match(r"o\d", bare):   # o3, o4-mini: the reasoning line of GPT
+        return "gpt"
+    for key, _label, members in _FAMILIES:
+        if first in members or (key == "claude" and any(w in members for w in words)):
+            return key
+    if first in _OWN:
+        return "own"
+    return first
+
+
+def family_label(key: str, *, tool: str = "") -> str:
+    """The family's heading: its line's name, ``"<tool>'s own"`` for a tool's own models, else the word capitalised."""
+    for k, label, _members in _FAMILIES:
+        if k == key:
+            return label
+    if key == "own":
+        return f"{tool}'s own" if tool else "The tool's own"
+    return key[:1].upper() + key[1:]
+
+
+def version_key(model_id: str) -> tuple:
+    """Newest first within a family: the numbers in the id, largest first; a smaller variant (mini, flash…) after its
+    full model; an id with no number keeps its place after the numbered ones. Harnesses list no release dates, so the
+    id's own version is the only order on the record."""
+    nums = [int(n) for n in re.findall(r"\d+", _bare(model_id))[:3]]
+    padded = tuple(-n for n in nums + [0] * (3 - len(nums)))   # 5.5 is newer than 5
+    return (0 if nums else 1, padded, 1 if _VARIANT.search(_bare(model_id)) else 0)
+
+
+def ordered(rows: list[dict], *, tool: str = "") -> list[dict]:
+    """The catalogue's rows for the picker: families in the order the harness first lists them, newest first inside
+    each, every row carrying its ``familyLabel``. The card's ``models`` keep the harness's own order (a tap on a card
+    writes its first model, R-HS7); only these rows are reordered."""
+    first_seen_at: dict[str, int] = {}
+    for i, row in enumerate(rows):
+        first_seen_at.setdefault(row["family"], i)
+    indexed = sorted(enumerate(rows), key=lambda p: (first_seen_at[p[1]["family"]],
+                                                     version_key(p[1]["id"]) if p[1]["source"] != "saved" else (2,),
+                                                     p[0]))
+    return [dict(row, familyLabel=family_label(row["family"], tool=tool)) for _, row in indexed]
 
 
 # ---- the cache file ----------------------------------------------------------------------------------------------
@@ -95,22 +152,31 @@ def _path() -> Path:
     return Path(raw).expanduser() / FILE_NAME
 
 
-_MEMO: dict[str, tuple[tuple[int, int], str]] = {}
+_MEMO: dict[str, tuple[tuple[int, int], dict]] = {}
 
 
-def _load() -> dict:
-    """The cache file, parsed — re-read only when its stamp moves (a picker read asks once per card)."""
+def _read(*, fresh: bool = False) -> dict:
+    """The cache file, parsed once per stamp (a picker read asks once per card). The memo's dict is shared: callers
+    only read it; a writer asks ``fresh`` for its own copy."""
     path = _path()
     try:
         st = os.stat(path)
         stamp = (st.st_mtime_ns, st.st_size)
         hit = _MEMO.get(str(path))
-        text = hit[1] if hit is not None and hit[0] == stamp else path.read_text(encoding="utf-8")
-        _MEMO[str(path)] = (stamp, text)
-        data = json.loads(text)
+        if hit is not None and hit[0] == stamp and not fresh:
+            return hit[1]
+        data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
-    return data if isinstance(data, dict) else {}
+    data = data if isinstance(data, dict) else {}
+    if not fresh:
+        _MEMO[str(path)] = (stamp, data)
+    return data
+
+
+def _load() -> dict:
+    """A copy of the cache file to change and :func:`_save`."""
+    return _read(fresh=True)
 
 
 def _save(data: dict) -> None:
@@ -171,7 +237,7 @@ def _claude_entry(*, wait: bool = False) -> dict:
     """The stored entry; a day-old or missing one starts one background refresh (``wait``: run it here instead —
     only an explicit refresh asks)."""
     with _LOCK:
-        entry = dict(_load().get("claude") or {})
+        entry = dict(_read().get("claude") or {})
     stale = time.time() - float(entry.get("at") or 0) > CLAUDE_HELP_TTL_S
     if wait and stale:
         return refresh_claude()
@@ -196,10 +262,10 @@ def note_resolved(engine: str, requested: str | None, served: str | None) -> Non
         return
     try:
         with _LOCK:
+            if (((_read().get("resolved") or {}).get(engine) or {}).get(requested) or {}).get("id") == served:
+                return   # the common case on every run: nothing new, nothing read twice, nothing written
             data = _load()
             resolved = data.setdefault("resolved", {}).setdefault(engine, {})
-            if (resolved.get(requested) or {}).get("id") == served:
-                return
             resolved[requested] = {"id": served, "at": time.time()}
             _save(data)
     except Exception as exc:  # noqa: BLE001 — never fails a run
@@ -223,22 +289,28 @@ def _first_seen(data: dict, engine: str, ids: list[str], today: str) -> dict[str
 
 
 def catalogue(engine: str, models: list[tuple[str, str]], *, as_of: float | str | None, source: str,
-              drift: bool = False, saved: str | None = None, today: date | None = None) -> dict:
-    """One card's catalogue: ``models`` is ``[(id, source)]`` in the card's order. ``saved`` is listed (``source:
-    saved``) when no list names it. Records first-seen days in the cache file when a new id appears."""
+              drift: bool = False, saved: str | None = None, today: date | None = None, tool: str = "") -> dict:
+    """One card's catalogue: ``models`` is ``[(id, source)]`` in the card's order; the rows come back grouped by family,
+    newest first (:func:`ordered`; ``tool`` names a tool's own family). ``saved`` is listed (``source: saved``) when no
+    list names it. Records first-seen days in the cache file when a new id appears."""
     today_s = (today or date.today()).isoformat()
     rows = list(dict.fromkeys(models))
     ids = [m for m, _ in rows]
     if saved and saved not in ids:
         rows.append((saved, "saved"))
         ids.append(saved)
+    listed = [m for m, s in rows if s != "saved"]
     with _LOCK:
-        data = _load()
-        before = json.dumps(data.get("seen", {}), sort_keys=True)
-        first = _first_seen(data, engine, [m for m, s in rows if s != "saved"], today_s)
-        resolved = (data.get("resolved") or {}).get(engine) or {}
-        if json.dumps(data.get("seen", {}), sort_keys=True) != before:
+        data = _read()
+        known = (data.get("seen") or {}).get(engine)
+        if known is None or any(m not in known for m in listed):
+            # A new id (or a first catalogue of this engine): write it down, on a copy of the file.
+            data = _load()
+            first = _first_seen(data, engine, listed, today_s)
             _save(data)
+        else:
+            first = {m: known.get(m) for m in listed}
+        resolved = (data.get("resolved") or {}).get(engine) or {}
     stamp = as_of if isinstance(as_of, str) else _iso(as_of)
     out = []
     for model_id, how in rows:
@@ -251,7 +323,7 @@ def catalogue(engine: str, models: list[tuple[str, str]], *, as_of: float | str 
             row["resolvedAt"] = _iso(r.get("at"))
         out.append(row)
     return {"engine": engine, "asOf": stamp, "source": source, "drift": DRIFT_SENTENCE if drift else None,
-            "models": out}
+            "models": ordered(out, tool=tool)}
 
 
 def claude_plan(saved: str | None = None, *, wait: bool = False) -> tuple[list[str], dict]:
@@ -264,4 +336,5 @@ def claude_plan(saved: str | None = None, *, wait: bool = False) -> tuple[list[s
     rows += [(a, "harness") for a in reported if a not in DOCUMENTED_CLAUDE_ALIASES]
     cat = catalogue("claude-cli", rows, as_of=entry.get("at"), source="claude --help" if reported else "documented",
                     drift=bool(entry.get("drift")), saved=saved)
-    return [m["id"] for m in cat["models"]], cat
+    ids = [m for m, _ in rows]
+    return ids + ([saved] if saved and saved not in ids else []), cat

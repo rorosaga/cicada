@@ -3631,6 +3631,12 @@ class SleepEngineCandidate(CamelModel):
     catalogue: Optional["ModelCatalogue"] = None
 
 
+class SleepEngineModelsRefresh(CamelModel):
+    """``POST /sleep/engine/models/refresh``: the card (``SleepEngineCandidate.id``) whose model list to re-read."""
+
+    id: str = Field(min_length=1, max_length=40)
+
+
 class CatalogueModel(CamelModel):
     """One model on a card. ``source``: ``harness`` (the person's own tool listed it), ``documented`` (the harness
     accepts it but did not list it), ``run`` (only a run reported it), ``default`` (the card's built-in default) or
@@ -3640,6 +3646,7 @@ class CatalogueModel(CamelModel):
     source: str
     as_of: Optional[str] = None
     family: str = ""
+    family_label: str = ""
     first_seen: Optional[str] = None
     new: bool = False
     resolves_to: Optional[str] = None
