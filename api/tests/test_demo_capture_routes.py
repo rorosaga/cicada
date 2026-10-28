@@ -57,6 +57,10 @@ GATED = {
     ("POST", "/sources/messages/conversations"): "/sources/messages/conversations",
     # 2026-10-16: a ticked chat's shared photo — outside the bank, but a demo bank ticks no chat.
     ("PUT", "/sources/messages/photos"): "/sources/messages/photos",
+    # G179 (2026-10-28): WhatsApp's ticked chats — rows, ticks and the list.
+    ("POST", "/sources/whatsapp/sync"): "/sources/whatsapp/sync",
+    ("PUT", "/sources/whatsapp/settings"): "/sources/whatsapp/settings",
+    ("POST", "/sources/whatsapp/conversations"): "/sources/whatsapp/conversations",
     # A connector id no adapter has: were the gate missing, the handler 404s
     # before any adapter could reach the network (sync_now passes allow_fetch=True).
     ("POST", "/sources/connectors/{connector_id}/sync"): "/sources/connectors/no-such-connector/sync",

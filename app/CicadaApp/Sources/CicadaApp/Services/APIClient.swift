@@ -2917,6 +2917,35 @@ actor APIClient {
         try await putData("/sources/messages/photos", json: try JSONEncoder().encode(["photos": photos]))
     }
 
+    // MARK: WhatsApp chats (G179, 2026-10-28)
+
+    /// `GET /sources/whatsapp/settings` — the ticks of this memory.
+    func fetchChatTicks(source: String) async throws -> ChatTickAnswer {
+        try await get("/sources/\(source)/settings")
+    }
+
+    /// `POST /sources/whatsapp/conversations` — the person's tick for each listed chat; the backend stores nothing.
+    func describeChats(source: String, ids: [(id: String, group: Bool)]) async throws -> ChatTickAnswer {
+        try await post("/sources/\(source)/conversations",
+                       body: ["conversations": ids.map { ["id": $0.id, "group": $0.group] }])
+    }
+
+    /// `PUT /sources/whatsapp/settings` — tick or untick one chat (live from now), or ask for its history.
+    func updateChat(source: String, id: String, name: String?, group: Bool?, ticked: Bool?, history: Bool?) async throws
+        -> ChatTickAnswer {
+        var conversation: [String: Any] = ["id": id]
+        if let name, !name.isEmpty { conversation["name"] = name }
+        if let group { conversation["group"] = group }
+        if let ticked { conversation["ticked"] = ticked }
+        if let history { conversation["history"] = history }
+        return try await put("/sources/\(source)/settings", body: ["conversation": conversation])
+    }
+
+    /// `POST /sources/whatsapp/sync` — one ticked chat's rows, read on this Mac.
+    func postWhatsApp(_ json: Data) async throws -> ChatSyncAnswer {
+        try await postData("/sources/whatsapp/sync", json: json)
+    }
+
     /// `GET /entities/{id}/paper` — the paper card's two tiers (G133 / G121).
     func fetchPaperDetail(id: String) async throws -> PaperDetail {
         try await get("/entities/\(encodedID(id))/paper")

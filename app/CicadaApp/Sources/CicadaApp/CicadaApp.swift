@@ -119,6 +119,9 @@ struct CicadaApp: App {
     /// G179: the Messages conversations the person ticked, read by the app from `chat.db` (Full Disk Access) and posted
     /// per memory; nothing is read before a tick.
     @State private var messages: MessagesWatcher
+    /// G179 (2026-10-28): the WhatsApp chats the person ticked, read by the app from WhatsApp Desktop's store (a copy)
+    /// and posted per memory; nothing is read before a tick, and a tick is live from then.
+    @State private var whatsApp: WhatsAppWatcher
     /// G218 — activity traces: off until the person agrees to the consent sheet; then the app captures and This Mac's
     /// backend keeps them sealed outside every bank. Never on a server connection.
     @State private var traceRecorder = TraceRecorder.live()
@@ -226,6 +229,7 @@ struct CicadaApp: App {
                                                                 bank: { [store] in store.bank }))
         _contactsReader = State(initialValue: ContactsReader(activity: activity, bank: { [store] in store.bank }))
         _messages = State(initialValue: MessagesWatcher(lights: lights, activity: activity, bank: { [store] in store.bank }))
+        _whatsApp = State(initialValue: WhatsAppWatcher(lights: lights, activity: activity, bank: { [store] in store.bank }))
         _inventory = State(initialValue: LocalInventory(probes: LocalInventory.live(watcher: lights)))
         _graphVM = State(initialValue: GraphViewModel(store: store))
         _inboxVM = State(initialValue: InboxViewModel(store: store))
@@ -352,6 +356,7 @@ struct CicadaApp: App {
             Task { await contactsReader.bankChanged() }
             // G179 — the new memory's ticked conversations, past their own cursors.
             Task { await messages.bankChanged() }
+            Task { await whatsApp.bankChanged() }
             // Owner decision 5 (2026-10-16) — the new memory's bookmarks, past its own "what was synced".
             Task { await browserWatcher.bankChanged() }
         }
@@ -394,6 +399,7 @@ struct CicadaApp: App {
             .environment(watchHistory)
             .environment(contactsReader)
             .environment(messages)
+            .environment(whatsApp)
             .environment(traceRecorder)
             .environment(loginItems)
             .environment(backendAgent)
@@ -492,6 +498,8 @@ struct CicadaApp: App {
         contactsReader.start()
         // G179 — reads only the conversations this memory has ticked.
         messages.start()
+        // G179 (2026-10-28) — reads only the WhatsApp chats this memory has ticked.
+        whatsApp.start()
         // G218 — records only if the person turned traces on (the backend holds that choice; no answer, no recording).
         Task { await traceRecorder.start() }
         // R-IB22 — the export someone was waiting for arrived (a sniff

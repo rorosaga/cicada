@@ -114,6 +114,8 @@ CATALOG: tuple[SourceSpec, ...] = (
     SourceSpec("telegram", "Telegram", "messaging", "telegram", ("telegram",), "telegram"),
     # G179: the Messages conversations the person ticked — one episode per sitting.
     SourceSpec("imessage", "Messages", "messaging", "imessage", ("imessage",), "imessage"),
+    # G179 (2026-10-28): WhatsApp read live from its Mac store, the Messages way.
+    SourceSpec("whatsapp", "WhatsApp", "messaging", "whatsapp", ("whatsapp",), "whatsapp"),
     SourceSpec("wispr-flow", "Wispr Flow", "voice", "wispr-flow", ("wispr-flow",), "wispr-flow"),
     SourceSpec("notes", "Apple Notes", "import", "apple-notes", ("apple-notes",), "notes"),
     # G219: Apple Reminders (the person's own lists, read by the app) and a Notion export — the person's own words,
@@ -146,8 +148,8 @@ INTENTS = ("saved", "captured")
 #: Folded into `/sources/overview`'s ETag: bump it when the body changes for the same bank files (v3: `intent`;
 #: v4: `waiting`, `faces`/`faces_more`, and check records left out; v5: a nil-origin save on Files & links, the Phone
 #: and device-notes rows; v6: the device-files row; v7: Apple Reminders and Notion, G219;
-#: v8: Readwise and Notion live, ruling 47 tier 2).
-SHAPE = "overview-v8"
+#: v8: Readwise and Notion live, ruling 47 tier 2; v9: WhatsApp, G179).
+SHAPE = "overview-v9"
 
 #: Sources v4 (owner 2026-10-19: "I don't understand how Sleep is also a source on the page"). A check record is the
 #: episode Cicada writes as the citation for a question a check settled — `web_settle` (a web lookup Sleep or an agent
@@ -159,7 +161,7 @@ CHECK_RECORD_SOURCES = frozenset({"web-check", "source-check"})
 #: Sources v4 (owner 2026-10-19: "the first three and then a fourth circle in the back that says '+N more'") — how many
 #: faces a row carries: the chats that fed Messages, the sites a saved source's things came from.
 MAX_FACES = 3
-FACE_CHAT_SOURCES = frozenset({"imessage"})
+FACE_CHAT_SOURCES = frozenset({"imessage", "whatsapp"})
 
 
 def is_check_record(fm: dict) -> bool:

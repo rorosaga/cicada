@@ -43,6 +43,7 @@ WRITERS = frozenset({
     "file",  # G91: a photo or file a paired device sent (`/capture/file`) — its caption and name, a text file's words
     "saved-why",  # G191: the person's answer to "what made you save this?"
     "imessage",  # G179: a ticked Messages conversation's words, both sides
+    "whatsapp",  # G179 (2026-10-28): a ticked WhatsApp chat's words, every speaker
     "watch-history",  # G71 (2026-10-16): a watched video's title and channel, one day's episode
     "linkedin-connections",  # 2026-10-16: a connection's name, company and position; a profile read's quotes
     "reminders",  # G219: a reminder's title and notes, from the lists the person ticked

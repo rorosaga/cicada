@@ -842,6 +842,16 @@ in memory whenever the status's unprocessed count moves. **Who is who in the Rea
 names a message conversation's `assistant` turns ("Instinct", through `ModelNames.agentLine`) and its `speaker`
 turns; `ProvenanceConversation.correspondent` makes an evidence chip read "Instinct replied".
 
+**WhatsApp (G179, 2026-10-28).** Integrations → Messaging and the Sources detail carry an app-owned **WhatsApp** row
+(`WhatsAppSourceRow`), drawn exactly as Messages' (DR-38 head not repeated under a detail, DR-40 `NeutralButton`s
+*Refresh* and *Choose…*, `FullDiskAccessHint` on a refused read, *What came in*). *Choose…* is a `SettingsSheet`
+(`WhatsAppPanel`, R-HS16): one sentence on what is read and when, then each chat (`ChatTickRow`) — the Contacts photo
+for a one-to-one chat's number (else a monogram), the name (Contacts, else WhatsApp's own; the number only in the app),
+a *Group* `Tag` (DR-44), last activity, *Read history* once ticked (a small `.bordered` button, as Messages' *Read
+again*; "History read" after) and the tick. No new visual pattern. `WhatsAppWatcher` (environment, started on launch,
+`bankChanged` on a switch) owns the list, the per-memory `Z_PK` cursors (`cicada.whatsapp.cursor.<bank>.<id>`), the
+FSEvents watch on the group container and every read off the main actor; `WhatsAppReader` is the one SQL reader.
+
 **Ask why (G191).** When the bookmark watch's own file event starts a sync (`BookmarkSyncSignal.live`, a task-local
 the watcher sets; a catch-up, Sync now, Turn on or folder import is never live) and the result has exactly one fresh
 bookmark, `SaveWhyPolicy` asks "What made you save this?" — unless the switch is off, the channel's sync was a first

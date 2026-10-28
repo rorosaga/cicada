@@ -561,6 +561,38 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   (the rule Stage 2 resolves it by), `null` while undecided or held below the promotion bar. Through Sleep, the decided
   `correspondent` is its own page — a `tool` for an agent, a `person` for a person — never a same-name page of
   another type (*Entity promotion*, "A message conversation's correspondent").
+- **WhatsApp chats the person ticks (G179, 2026-10-28).** The owner, 2026-10-28: live tracking "like we do with
+  messages plus a historical if I want", group chats included. WhatsApp has no personal-account API and an unofficial
+  client breaks its terms (ruling 47's table), so it is the Messages model: the app reads WhatsApp Desktop's own store,
+  `~/Library/Group Containers/group.net.whatsapp.WhatsApp.shared/ChatStorage.sqlite` (plain SQLite, the iOS app's Core
+  Data schema — `ZWACHATSESSION`, `ZWAMESSAGE`, `ZWAMEDIAITEM`, `ZWAGROUPMEMBER`; public forensic write-ups and
+  KnugiHK's WhatsApp-Chat-Exporter; Full Disk Access covers another app's group container), from an APFS **clone** of
+  the store and its `-wal` in a 0700 temp folder, every column only where the copy has it (`WhatsAppReader`). The list
+  leaves status updates and channels out (`status@broadcast`, `@newsletter`); a chat's id is a hash of its JID and a
+  group member's participant key a hash of the chat's and the member's JID, so no number reaches the bank. A ticked
+  chat's rows carry the stanza id, time, direction, words, `ZMESSAGETYPE`, the member's key, `ZMETADATA` as base64 and
+  the media item's title, file **name** and size — never `ZMEDIALOCALPATH`'s folders, a file's bytes, a vCard or
+  coordinates. **Live from the tick:** ticking sets the chat's cursor to its newest row and the backend records
+  `reads_from` and drops anything older (`before_start`); **Read history** is the person's ask — `history: true` opens
+  the chat back to its first message on both sides. Each pass reads past the `Z_PK` cursor plus the last 48 h again (a
+  delete for everyone rewrites its row in place; an unchanged row is a stager skip). FSEvents on the container, 3 s
+  debounce, 15 s floor; every read is `Task.detached`. The backend (`whatsapp_source` → `chat_live`): type 6 is a group
+  event (skipped), 14 a delete for everyone (its place kept in `unsent_turns`, its words never), 4 and 5 a contact card
+  and a location (named only), a media row an attachment named and described; a quoted reply is `ZMETADATA`'s
+  top-level protobuf field 5 (a message key hashes the stanza id's first 16 characters, because the quoted id is stored
+  truncated). Reactions and edits are accepted when posted (`reactions: [{target, member?, from_me, emoji, date}]`, a
+  row's `edited`) but the reader does not post them yet: the desktop store's columns for them are not publicly
+  documented, and the owner's container is never opened to find out. **`chat_live`** is the sitting engine every chat
+  source after Messages shares — Messages' algorithm keyed by a `ChatSpec` (one episode per 3 h sitting,
+  `<origin>:<conversation>:<first message>`, rebuilt from the episode itself), ticks in `sources/<source>.json`, the
+  scrub under the source's writer, no model. Who is who: `user:` the person; a one-to-one chat's other side
+  `speaker:<name>:` with a `correspondent` record (unknown until the person marks it, as Messages; the mark is
+  `actor` on the settings PUT), so Stage 2 lands them on the same page whichever app they texted through; a group
+  records `group: true` and `participants: [{key, marker, name?, kind}]` — the Messages group slice's shape (#499) —
+  each member under their own `speaker:<label>:`, at most one `assistant`. `chat_live.CHAT_ORIGINS` is what "a texted
+  conversation" means to every reader that asks (`inbox_tend`). Measured on fixtures (2026-10-28): file change → posted,
+  the app's read of a 20,000-row store plus the post, p95 9 ms over 20 (`WhatsAppReaderTests`); the backend's stage
+  into a chat of 40 sittings, p95 11 ms over 30 (`test_chat_live`) — the 3 s debounce dominates.
 - **Capture never writes into a demo bank** (G117's synthetic bank; G141 capture-side track). A bank
   is the demo when `<bank>/_bank.yaml` says `kind: demo` — written first by `demo_bank.populate` and
   committed as `cicada` — or, for a demo made before that file, when its `.git/config` carries the

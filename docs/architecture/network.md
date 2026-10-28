@@ -371,7 +371,7 @@ way. As applied on 2026-10-28:
 | Google | Calendar on the Mac reader; API only for what the Mac cannot read (Drive, Docs), on ask | the Mac already reads Calendar |
 | YouTube | harness (G71 browser history, Watch later through the agent) | the official API does not return watch history |
 | Letterboxd | harness, plus its public per-diary RSS through the feed gate | its API is granted by request; adopt it only if granted |
-| WhatsApp | local database, read by the app | no sanctioned personal-account API; an unofficial client risks a ban |
+| WhatsApp | local database, read by the app (built 2026-10-28, `whatsapp_source`; no network at all) | no sanctioned personal-account API; an unofficial client risks a ban |
 | Pocket | export only | the service closed in 2025 |
 
 What every tier-2 connection keeps:
@@ -399,7 +399,7 @@ official client library) with the person's own login, so the chats they tick syn
 when they ask. The session secret lives in `~/.cicada/secrets.env` (0600) or a 0600 file beside it in `~/.cicada` — never
 in a bank. The connect step says in plain words that Cicada keeps a signed-in session to their account and how to end it
 (Disconnect in Cicada, or Telegram's own Settings → Devices). Off until connected; only ticked chats are read (G179); the
-bot channel (G29, `CICADA_TELEGRAM_BOT_TOKEN`) is unchanged. Built on `feat/chats-live-whatsapp-telegram`.
+bot channel (G29, `CICADA_TELEGRAM_BOT_TOKEN`) is unchanged. Built on `feat/telegram-live` (its own PR).
 
 **The tier-2 framework (`api/services/connectors/tier2.py`, 2026-10-29).** One module behind every token connector
 after Telegram. An adapter is a module in `ADAPTERS` with `TIER = 2`, so its Sources row, `GET/PUT/DELETE

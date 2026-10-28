@@ -118,6 +118,10 @@ enum SourceCatalog {
                            verb: .connect(Copy.Catalog.connectReminders)),
         SourceCatalogEntry(id: "imessage", group: .thisMac, title: "Messages", origin: "imessage",
                            channels: [MessagesWatcher.channel], verb: .connect(Copy.Catalog.chooseChats)),
+        // G179 (2026-10-28): WhatsApp read live from its Mac store, the Messages way (`WhatsAppWatcher`).
+        SourceCatalogEntry(id: WhatsAppWatcher.channel, group: .thisMac, title: Copy.Chats.whatsAppTitle,
+                           origin: "whatsapp", channels: [WhatsAppWatcher.channel],
+                           verb: .connect(Copy.Catalog.chooseChats)),
         // G218 — activity traces: no backend channel; its status is the recorder's (`localReaders[tracesId]`).
         SourceCatalogEntry(id: tracesId, group: .thisMac, title: Copy.Traces.title, origin: tracesId, channels: [],
                            verb: .connect(Copy.Traces.turnOn)),
