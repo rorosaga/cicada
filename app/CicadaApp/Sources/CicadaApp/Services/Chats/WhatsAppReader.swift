@@ -41,15 +41,24 @@ struct WhatsAppPass: Sendable {
 /// JID), the quoted-reply metadata blob (base64), and its media item's title, file NAME and size — never
 /// `ZMEDIALOCALPATH`'s folders, never a file's bytes, never a vCard or coordinates.
 ///
-/// **Cursor.** Past the chat's highest `ZWAMESSAGE.Z_PK` posted, plus every row of the last `recheckWindow` (a delete
-/// for everyone or an edit rewrites its row in place): re-posting an unchanged row is free — the backend's stager
-/// skips it.
+/// **Cursor.** Two reads, so new messages are always reached (#502 review B1): every batch is the rows past the chat's
+/// highest `ZWAMESSAGE.Z_PK` posted, oldest first; the FIRST batch of a pass also re-reads the already-posted rows of
+/// the last `recheckWindow`, newest first and at most `recheckLimit` (a delete for everyone or an edit rewrites its
+/// row in place) — a separate, bounded read, so a busy chat's window can never crowd new rows out of a batch.
+/// Re-posting an unchanged row is free: the backend's stager skips it. The cursor moves past every row a batch saw,
+/// readable or not, so a run of rows with no stanza id cannot stall it.
+///
+/// **Mentions.** WhatsApp stores a group @mention as the member's number in the words; it is replaced here with the
+/// member's name when WhatsApp or Contacts knows it, else "@someone", so no number is posted (the backend's scrub has
+/// its own phone rule as a second line).
 struct WhatsAppReader: Sendable {
     let store: URL
     var scratchRoot: URL = FileManager.default.temporaryDirectory
     var batchLimit = 500
     var listLimit = 300
     var recheckWindow: TimeInterval = 48 * 3600
+    /// At most this many already-posted rows are re-read per pass (the newest first).
+    var recheckLimit = 500
     var now: @Sendable () -> Date = { Date() }
 
     static var container: URL {
@@ -152,9 +161,9 @@ struct WhatsAppReader: Sendable {
 
     // MARK: A ticked chat
 
-    /// One batch of a ticked chat past `cursor` (plus the recheck window). `start` bounds a first live read: a chat
-    /// just ticked starts at its newest row unless the person asked for its history (`cursor` 0 and `start` nil).
-    func read(_ chat: WhatsAppChat, name: String, memberNames: [String: String], since cursor: Int64) throws -> WhatsAppPass {
+    /// One batch of a ticked chat past `cursor`, plus — when `recheck` — the bounded re-read of the recheck window.
+    func read(_ chat: WhatsAppChat, name: String, memberNames: [String: String], since cursor: Int64,
+              recheck: Bool = true) throws -> WhatsAppPass {
         try withCopy { db in
             let msg = try Self.columns("ZWAMESSAGE", db)
             let media = try Self.columns("ZWAMEDIAITEM", db)
@@ -163,7 +172,7 @@ struct WhatsAppReader: Sendable {
             let joinMedia = media.contains("ZMESSAGE")
             let joinMember = msg.contains("ZGROUPMEMBER") && member.contains("ZMEMBERJID")
             let threshold = now().timeIntervalSinceReferenceDate - recheckWindow
-            let sql = """
+            let select = """
                 SELECT m.Z_PK AS pk, \(Self.pick("ZSTANZAID", from: "m", in: msg, as: "stanza")), m.ZMESSAGEDATE AS date,
                        \(Self.pick("ZISFROMME", from: "m", in: msg, as: "from_me")),
                        \(Self.pick("ZTEXT", from: "m", in: msg, as: "text")),
@@ -177,23 +186,28 @@ struct WhatsAppReader: Sendable {
                 FROM ZWAMESSAGE m
                 \(joinMedia ? "LEFT JOIN ZWAMEDIAITEM i ON i.ZMESSAGE = m.Z_PK" : "")
                 \(joinMember ? "LEFT JOIN ZWAGROUPMEMBER g ON g.Z_PK = m.ZGROUPMEMBER" : "")
-                WHERE m.ZCHATSESSION = ?1 AND (m.Z_PK > ?2 OR m.ZMESSAGEDATE >= ?3)
-                ORDER BY m.Z_PK
-                LIMIT \(batchLimit)
                 """
-            let rows = try db.query(sql, binds: [.int(chat.sessionPk), .int(cursor), .real(threshold)],
-                                    base64Blobs: ["metadata"])
-            var next = cursor
+            let fresh = try db.query(select + " WHERE m.ZCHATSESSION = ?1 AND m.Z_PK > ?2 ORDER BY m.Z_PK LIMIT \(batchLimit)",
+                                     binds: [.int(chat.sessionPk), .int(cursor)], base64Blobs: ["metadata"])
+            let again = recheck && cursor > 0
+                ? try db.query(select + " WHERE m.ZCHATSESSION = ?1 AND m.Z_PK <= ?2 AND m.ZMESSAGEDATE >= ?3"
+                               + " ORDER BY m.Z_PK DESC LIMIT \(recheckLimit)",
+                               binds: [.int(chat.sessionPk), .int(cursor), .real(threshold)], base64Blobs: ["metadata"])
+                : []
+            let rows = again.reversed() + fresh
+            // The cursor moves past every fresh row seen, readable or not, so it can never stall on one.
+            let next = fresh.compactMap { Self.int($0["pk"]) }.max().map { max($0, cursor) } ?? cursor
             var messages: [[String: Any]] = []
             var members: [String: String] = [:]
             for row in rows {
                 guard let pk = Self.int(row["pk"]), let stanza = row["stanza"] as? String, !stanza.isEmpty,
                       let date = row["date"] as? NSNumber else { continue }
-                next = max(next, pk)
                 var message: [String: Any] = ["rowid": pk, "stanza": stanza, "date": date.doubleValue,
                                               "fromMe": (Self.int(row["from_me"]) ?? 0) != 0,
                                               "type": Self.int(row["type"]) ?? 0]
-                if let text = row["text"] as? String { message["text"] = text }
+                if let text = row["text"] as? String {
+                    message["text"] = chat.group ? Self.namingMentions(text, names: memberNames) : text
+                }
                 if let jid = row["member_jid"] as? String, !jid.isEmpty, chat.group {
                     let key = Self.memberKey(chatJid: chat.jid, memberJid: jid)
                     message["member"] = key
@@ -217,9 +231,8 @@ struct WhatsAppReader: Sendable {
                 conversation["members"] = members.sorted { $0.key < $1.key }.map { ["key": $0.key, "name": $0.value] }
             }
             let body: [String: Any] = ["conversation": conversation, "messages": messages]
-            let fresh = rows.filter { (Self.int($0["pk"]) ?? 0) > cursor }.count
             return WhatsAppPass(json: try JSONSerialization.data(withJSONObject: body), cursor: next,
-                                count: messages.count, hasMore: fresh >= batchLimit || rows.count >= batchLimit)
+                                count: messages.count, hasMore: fresh.count >= batchLimit)
         }
     }
 
@@ -246,6 +259,21 @@ struct WhatsAppReader: Sendable {
         }
     }
 
+    private static let mention = try! NSRegularExpression(pattern: "(?<![\\w@])@\\+?(\\d{6,15})(?!\\w)")
+
+    /// A group @mention (`@<number>`) as the member's name where WhatsApp or Contacts knows it, else "@someone".
+    static func namingMentions(_ text: String, names: [String: String]) -> String {
+        let ns = text as NSString
+        var out = text
+        for match in mention.matches(in: text, range: NSRange(location: 0, length: ns.length)).reversed() {
+            let digits = ns.substring(with: match.range(at: 1))
+            let name = names["\(digits)@s.whatsapp.net"].flatMap { $0.isEmpty ? nil : $0 }
+            let replaced = (out as NSString).replacingCharacters(in: match.range, with: "@" + (name ?? "someone"))
+            out = replaced
+        }
+        return out
+    }
+
     static func int(_ value: Any?) -> Int64? {
         switch value {
         case let n as NSNumber: n.int64Value
@@ -257,5 +285,12 @@ struct WhatsAppReader: Sendable {
 
 enum WhatsAppReadError: Error, LocalizedError, Equatable {
     case unreadable
-    var errorDescription: String? { Copy.Chats.whatsAppUnreadable }
+    /// A full batch that left the cursor where it was — reported, never retried in a loop.
+    case stalled
+    var errorDescription: String? {
+        switch self {
+        case .unreadable: Copy.Chats.whatsAppUnreadable
+        case .stalled: Copy.Chats.whatsAppStalled
+        }
+    }
 }

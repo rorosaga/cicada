@@ -211,18 +211,19 @@ final class WhatsAppWatcher {
                 names = try await Task.detached(priority: .utility) { try reader.memberNames(chat) }.value
             }
             var cursor = self.cursor(bank: bank, id: chat.id) ?? 0
-            for _ in 0..<20 {   // bounded catch-up: at most 20 batches per pass
+            for batch in 0..<20 {   // bounded catch-up: at most 20 batches per pass; the window is re-read once
                 let since = cursor
                 let pass = try await Task.detached(priority: .utility) {
-                    try reader.read(chat, name: name, memberNames: names, since: since)
+                    try reader.read(chat, name: name, memberNames: names, since: since, recheck: batch == 0)
                 }.value
                 try Task.checkCancellation()
-                if pass.count == 0 { break }
-                _ = try await api.postWhatsApp(pass.json)
+                if pass.count > 0 { _ = try await api.postWhatsApp(pass.json) }
                 cursor = pass.cursor
                 save(cursor, bank: bank, id: chat.id)
                 posted += pass.count
-                if !pass.hasMore || pass.cursor == since { break }
+                guard pass.hasMore else { break }
+                // A full batch that did not move the cursor would read the same rows forever: say so, never spin.
+                if pass.cursor <= since { throw WhatsAppReadError.stalled }
             }
         }
         return posted > 0 ? Copy.Chats.synced(posted) : Copy.Chats.upToDate
@@ -268,7 +269,7 @@ final class WhatsAppWatcher {
     }
 
     static func failureMessage(_ error: Error) -> String {
-        if error is WhatsAppReadError { return Copy.Chats.whatsAppUnreadable }
+        if let read = error as? WhatsAppReadError { return read.errorDescription ?? Copy.Chats.whatsAppUnreadable }
         if error is URLError { return Copy.sourceBackendDown }
         guard let api = error as? APIError else { return Copy.Chats.syncFailed }
         switch api {

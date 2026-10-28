@@ -195,6 +195,35 @@ final class WhatsAppReaderTests: XCTestCase {
         XCTAssertTrue(all.contains("H1"), "history read on the person's ask")
     }
 
+    /// #502 review B1: a busy chat — more already-posted rows in the recheck window than a batch holds — still reaches
+    /// its new row on the next pass.
+    @MainActor
+    func testABusyChatsNewRowIsAlwaysReached() async throws {
+        let friend = store.session(friendJid, name: "Bob Example")
+        store.exec("BEGIN")
+        for i in 0..<600 { store.message(friend, "W\(i)", at: now.timeIntervalSinceReferenceDate - 3600 + Double(i), text: "w \(i)") }
+        store.exec("COMMIT")
+        let api = FakeChatSourcesAPI()
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "whatsapp-test-\(UUID().uuidString)"))
+        let watcher = WhatsAppWatcher(api: api, reader: reader(), defaults: defaults, folder: store.dir,
+                                      makeWatch: { _, _ in nil }, lookUpCards: { _ in [:] })
+        await watcher.loadList()
+        try await watcher.setTicked(try XCTUnwrap(watcher.chats.first), true)   // cursor at the newest of the 600
+        store.message(friend, "NEW", at: now.timeIntervalSinceReferenceDate - 1, text: "the new one")
+        _ = try await watcher.syncNow()
+        let last = ((api.posts.last?["messages"] as? [[String: Any]]) ?? []).compactMap { $0["stanza"] as? String }
+        XCTAssertTrue(last.contains("NEW"))
+        XCTAssertLessThanOrEqual(last.count, 501, "the window re-read is bounded")
+        XCTAssertEqual(watcher.status, .watching)
+    }
+
+    func testAGroupMentionNamesTheMemberAndNeverPostsTheNumber() {
+        let names = ["15550000003@s.whatsapp.net": "Carol Example"]
+        XCTAssertEqual(WhatsAppReader.namingMentions("@15550000003 and @15550009999 bring slides", names: names),
+                       "@Carol Example and @someone bring slides")
+        XCTAssertEqual(WhatsAppReader.namingMentions("email me@example.com, 2026", names: names), "email me@example.com, 2026")
+    }
+
     /// File change → posted (the app's half; the backend's is `test_chat_live.test_live_update_cost_p95`): one new
     /// message in a ticked chat of a 20,000-row store, read from an APFS clone.
     @MainActor

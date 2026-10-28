@@ -131,8 +131,64 @@ def record(writer: str, count: int, *, bank: str | None = None) -> None:
         pass
 
 
-def scrub_body(text: str, *, writer: str, bank: str | None = None) -> str:
-    """:func:`scrub` + :func:`record`, for a writer that holds one body."""
+#: The writers whose words are a texted conversation — where a phone number is a person's contact detail, never content
+#: to keep (2026-10-28, #502 review B2: a WhatsApp group's @mention is the member's number). Every chat source.
+PHONE_WRITERS = frozenset({"imessage", "whatsapp", "telegram-chats"})
+
+# What counts as a phone number, chosen to leave years, prices, dates, times, versions, ids and IP addresses alone:
+#  1. ``+`` then 7–15 digits with optional space, hyphen, dot or bracket separators — the international form (E.164 is
+#     at most 15 digits); a ``+`` before a digit run is not how a price, a year or an id is written.
+#  2. ``@`` then 6–15 digits — a WhatsApp mention, which stores the member's number in the words.
+#  3. ``tel:`` / ``wa.me/`` then digits — a link that IS a number.
+#  4. A grouped national number: 2–4 digit groups joined by spaces or hyphens (an optional bracketed area code first),
+#     9–15 digits in all — "555 010 1234", "(555) 010-1234", "06 12 34 56 78". Dates (2026-10-28: 8 digits), times,
+#     prices (1 299, 12,50), versions and IPs (dots) stay below the count or outside the shape.
+#  5. The North American dotted form, exactly 3.3.4 — "555.010.1234" (an IP's 3.3.1.3 is not it).
+# A bare unseparated run of digits is never treated as a number: in a chat it is as often an order id, a tracking
+# code or a timestamp (1788000000 is ten digits), and redacting those would lose real content. So a phone written as a
+# bare run with no "+" or separators is the one form this misses, by choice.
+_PHONE_RES: tuple[re.Pattern[str], ...] = (
+    re.compile(r"(?<![\w+])\+\(?\d[\d ().\-]{5,22}\d(?!\w)"),
+    re.compile(r"(?<![\w@])@\d{6,15}(?!\w)"),
+    re.compile(r"(?i)\b(?:tel:|wa\.me/)\+?\d[\d\-]{5,17}\d\b"),
+    re.compile(r"(?<![\w+@.\-])(?:\(\d{2,4}\)[ \-]?\d{2,4}(?:[ \-]\d{2,4}){1,4}|\d{2,4}(?:[ \-]\d{2,4}){2,5})"
+               r"(?![\w.\-])"),
+    re.compile(r"(?<![\w.])\d{3}\.\d{3}\.\d{4}(?![\w.])"),
+)
+
+
+def _phone(m: re.Match[str]) -> str:
+    digits = sum(c.isdigit() for c in m.group(0))
+    keep_at = m.group(0).startswith("@")
+    if not 7 <= digits <= 15 or (not keep_at and not m.group(0).startswith(("+", "tel", "TEL", "wa.")) and digits < 9):
+        return m.group(0)
+    return "@someone" if keep_at else REDACTED
+
+
+def scrub_phones(text: str) -> tuple[str, int]:
+    """Phone numbers out of a chat's words (:data:`PHONE_WRITERS`); ``(text, replacements)``. A mention keeps its
+    ``@`` and reads "@someone"."""
+    count = 0
+    for rx in _PHONE_RES:
+        out = rx.sub(_phone, text)
+        if out != text:
+            count += sum(1 for m in rx.finditer(text) if _phone(m) != m.group(0))
+        text = out
+    return text, count
+
+
+def scrub_for(text: str, writer: str | None) -> tuple[str, int]:
+    """:func:`scrub`, plus :func:`scrub_phones` for a chat source's words — the one call the stager makes per text, so
+    every render of a draft scrubs it the same way."""
     cleaned, n = scrub(text)
+    if writer in PHONE_WRITERS:
+        cleaned, m = scrub_phones(cleaned)
+        n += m
+    return cleaned, n
+
+
+def scrub_body(text: str, *, writer: str, bank: str | None = None) -> str:
+    """:func:`scrub_for` + :func:`record`, for a writer that holds one body."""
+    cleaned, n = scrub_for(text, writer)
     record(writer, n, bank=bank)
     return cleaned

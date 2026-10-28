@@ -48,3 +48,36 @@ def test_scrub_body_records_a_count_and_a_writer_never_the_text(monkeypatch):
     seen.clear()
     episode_scrub.scrub_body("nothing to hide", writer="calendar")
     assert seen == []
+
+
+# --- Phone numbers in a chat source's words (2026-10-28, #502 review B2) --------------------------------------------
+
+@pytest.mark.parametrize("text, expected", [
+    ("call me +1 555 010 1234 ok", "call me [redacted] ok"),
+    ("+34 600 000 000", "[redacted]"),
+    ("@15550001234 can you bring the slides?", "@someone can you bring the slides?"),
+    ("(555) 010-1234", "[redacted]"),
+    ("555.010.1234", "[redacted]"),
+    ("06 12 34 56 78", "[redacted]"),
+    ("tel:+15550001234", "tel:[redacted]"),
+    ("wa.me/15550001234", "[redacted]"),
+])
+def test_a_phone_number_in_a_chat_is_redacted(text, expected):
+    assert episode_scrub.scrub_phones(text)[0] == expected
+
+
+@pytest.mark.parametrize("text", [
+    "in 2026 it cost $1,299.00", "meet 2026-10-28 at 10:30", "order 1788000000 shipped", "ip 192.168.1.100",
+    "version 1.45.0", "12 345 678", "room 4 at 5", "price 1 299 000", "score 3-2 then 4-1",
+    "ISBN 978-0-13-468599-1", "+5 points", "@alice-example said hi",
+])
+def test_ordinary_numbers_are_left_alone(text):
+    assert episode_scrub.scrub_phones(text) == (text, 0)
+
+
+def test_only_chat_writers_scrub_phones():
+    line = "ring +1 555 010 1234"
+    for writer in episode_scrub.PHONE_WRITERS:
+        assert episode_scrub.scrub_for(line, writer) == ("ring [redacted]", 1)
+    assert episode_scrub.scrub_for(line, "import") == (line, 0)
+    assert {"imessage", "whatsapp"} <= episode_scrub.PHONE_WRITERS

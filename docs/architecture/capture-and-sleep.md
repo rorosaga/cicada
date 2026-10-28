@@ -574,9 +574,16 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   the media item's title, file **name** and size — never `ZMEDIALOCALPATH`'s folders, a file's bytes, a vCard or
   coordinates. **Live from the tick:** ticking sets the chat's cursor to its newest row and the backend records
   `reads_from` and drops anything older (`before_start`); **Read history** is the person's ask — `history: true` opens
-  the chat back to its first message on both sides. Each pass reads past the `Z_PK` cursor plus the last 48 h again (a
-  delete for everyone rewrites its row in place; an unchanged row is a stager skip). FSEvents on the container, 3 s
-  debounce, 15 s floor; every read is `Task.detached`. The backend (`whatsapp_source` → `chat_live`): type 6 is a group
+  the chat back to its first message on both sides. Every batch reads the rows past the `Z_PK` cursor; the first batch
+  of a pass also re-reads, as a separate bounded read (newest first, at most 500), the already-posted rows of the last
+  48 h (a delete for everyone rewrites its row in place; an unchanged row is a stager skip) — so a busy chat's window
+  never crowds its new rows out (#502 review B1); the cursor moves past every row seen, and a full batch that left it
+  where it was stops with "its newest messages couldn't be reached" rather than spinning. A group @mention (stored as
+  the member's number) is posted as the member's name, else "@someone"; the backend neutralises any left, and every
+  chat writer's words (`episode_scrub.PHONE_WRITERS`: Messages, WhatsApp, Telegram) pass a phone rule — `+`-prefixed,
+  `@`-mention, `tel:`/`wa.me/`, grouped national (9–15 digits in 2–4 digit groups) and North American dotted forms;
+  a bare unseparated digit run is left alone (ids, timestamps), by choice. FSEvents on the container, 3 s debounce,
+  15 s floor; every read is `Task.detached`. The backend (`whatsapp_source` → `chat_live`): type 6 is a group
   event (skipped), 14 a delete for everyone (its place kept in `unsent_turns`, its words never), 4 and 5 a contact card
   and a location (named only), a media row an attachment named and described; a quoted reply is `ZMETADATA`'s
   top-level protobuf field 5 (a message key hashes the stanza id's first 16 characters, because the quoted id is stored

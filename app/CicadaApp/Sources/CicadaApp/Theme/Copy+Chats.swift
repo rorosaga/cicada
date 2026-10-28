@@ -19,6 +19,8 @@ extension Copy {
         static let noneFound = "No chats found."
         static let whatsAppMissing = "WhatsApp for Mac isn't on this Mac, or hasn't kept any chats yet."
         static let whatsAppUnreadable = "Cicada couldn't read WhatsApp's chats on this Mac."
+        static let whatsAppStalled = "Cicada stopped reading a WhatsApp chat: its newest messages couldn't be reached. "
+            + "Refresh to try again."
         static let syncFailed = "Couldn't send the chat to Cicada."
         static let tickFirst = "Tick a chat first."
         static let reading = "Reading chats…"

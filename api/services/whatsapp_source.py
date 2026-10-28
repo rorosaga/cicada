@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import re
 
 from api.services import chat_live, messages_source, turn_extras
 from api.services.chat_live import ChatMessage, ChatReaction, ChatSpec
@@ -47,6 +48,10 @@ CONTACT_TYPE = 4
 LOCATION_TYPE = 5
 _MEDIA_KIND = {1: "image", 2: "video", 3: "audio", STICKER_TYPE: "sticker"}
 STANZA_KEY_CHARS = 16
+#: A group @mention as WhatsApp stores it — the member's number in the words. The app replaces each with the member's
+#: name where it knows them; one left (an older app, a number nobody named) reads "@someone" here, before the scrub's
+#: own phone rule (``episode_scrub.PHONE_WRITERS``) would catch it anyway.
+_MENTION_RE = re.compile(r"(?<![\w@])@\+?\d{6,15}(?!\w)")
 
 
 def message_key(cid: str, stanza: str) -> str:
@@ -141,7 +146,7 @@ def parse_rows(cid: str, rows: list, counts: chat_live.Counts, *, group: bool) -
         if kind == DELETED_TYPE:
             out.append(ChatMessage(key=key, ts=ts, from_me=from_me, text="", unsent=True, order=order, sender=sender))
             continue
-        words = chat_live.fold_text(row.get("text") or "")
+        words = chat_live.fold_text(_MENTION_RE.sub("@someone", str(row.get("text") or "")))
         media = row.get("media") if isinstance(row.get("media"), dict) else None
         files: list[dict] = []
         named: list[str] = []

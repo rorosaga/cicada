@@ -198,6 +198,18 @@ def test_reactions_are_one_per_reactor_and_an_edit_replaces_words_in_place(bank)
     assert extras["edited"] is True and len(extras["reactions"]) == 2
 
 
+def test_a_group_mentions_number_never_reaches_the_bank(bank):
+    """#502 review B2: WhatsApp stores a mention as the member's number; an older app posting it raw still stores none,
+    and a number typed in the words is scrubbed too (the chat writers' phone rule)."""
+    tick(bank, GROUP, group=True)
+    ingest(bank, [row("M1", T0, "@15550001234 can you bring the slides? or ring +1 555 010 1234", member=MEMBER_A)],
+           cid=GROUP, group=True, members=[{"key": MEMBER_A, "name": "Carol Example"}])
+    text = next((bank / "episodes").glob("*.md")).read_text(encoding="utf-8")
+    assert "1555" not in text and "555 010" not in text
+    (ep,) = episodes(bank).values()
+    assert ep.body == "speaker:carol-example: @someone can you bring the slides? or ring [redacted]"
+
+
 def test_a_secret_in_a_message_is_scrubbed(bank):
     tick(bank)
     ingest(bank, [row("S1", T0, "my key is sk-ant-abcdefghijklmnopqrstuvwxyz0123456789", me=True)])

@@ -269,12 +269,12 @@ def render(draft: EpisodeDraft) -> tuple[str, list[dict], int]:
     """``(body, turns sidecar, replacements)``. Each turn is scrubbed BEFORE
     its offset is taken, so every offset points into the text that is stored."""
     if draft.body is not None:
-        body, n = episode_scrub.scrub(draft.body)
+        body, n = episode_scrub.scrub_for(draft.body, draft.writer)
         return body, [], n
     texts: list[str] = []
     total = 0
     for turn in draft.turns:
-        text, n = episode_scrub.scrub(turn.text)
+        text, n = episode_scrub.scrub_for(turn.text, draft.writer)
         total += n
         texts.append(text)
     body = "\n".join(_line(t, x) for t, x in zip(draft.turns, texts))
@@ -289,7 +289,7 @@ def stamps_for(draft: EpisodeDraft, body: str) -> list[dict]:
     whose ``role: text`` body is this module's line shape byte for byte."""
     if draft.body is not None:
         return []
-    for texts in ([episode_scrub.scrub(t.text)[0] for t in draft.turns], [t.text for t in draft.turns]):
+    for texts in ([episode_scrub.scrub_for(t.text, draft.writer)[0] for t in draft.turns], [t.text for t in draft.turns]):
         if "\n".join(_line(t, x) for t, x in zip(draft.turns, texts)) == body:
             return _stamps(draft.turns, texts)
     return []
@@ -301,7 +301,7 @@ def render_extras(draft: EpisodeDraft, *, raw: bool = False) -> dict:
     pre-rendered body or a draft with no extras (no scrub is run then)."""
     if draft.body is not None or not turn_extras.has_any(draft.turns, draft.unsent):
         return {}
-    texts = [t.text if raw else episode_scrub.scrub(t.text)[0] for t in draft.turns]
+    texts = [t.text if raw else episode_scrub.scrub_for(t.text, draft.writer)[0] for t in draft.turns]
     lengths = [len(_line(t, x)) for t, x in zip(draft.turns, texts)]
     body_length = sum(lengths) + max(len(lengths) - 1, 0)
     return turn_extras.render(draft.turns, lengths, draft.unsent, body_length)
@@ -313,7 +313,7 @@ def _extras_matching(draft: EpisodeDraft, body: str) -> dict:
     if draft.body is not None or not turn_extras.has_any(draft.turns, draft.unsent):
         return {}
     for raw in (False, True):
-        texts = [t.text if raw else episode_scrub.scrub(t.text)[0] for t in draft.turns]
+        texts = [t.text if raw else episode_scrub.scrub_for(t.text, draft.writer)[0] for t in draft.turns]
         if "\n".join(_line(t, x) for t, x in zip(draft.turns, texts)) == body:
             return render_extras(draft, raw=raw)
     return {}
