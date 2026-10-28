@@ -2387,6 +2387,12 @@ class SearchHit(CamelModel):
     # cosine across every picture (``image_index``), comparable between image hits only.
     thumbnail: str | None = None
     image_source: str | None = None
+    # Meaning index 2 (2026-10-28) — a ``file`` hit (``kinds=file``: the words of a recording or video the person
+    # added) and an ``image`` hit of ``image_source: frame`` carry the added file's id and where in it: ``at_seconds``
+    # (and, for words, ``end_seconds``). A ``file`` hit's ``snippet`` is the recording's words, never the person's.
+    file_id: str | None = None
+    at_seconds: float | None = None
+    end_seconds: float | None = None
 
 
 class SearchResponse(CamelModel):

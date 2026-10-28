@@ -91,7 +91,7 @@ def recipe() -> str | None:
 class Picture:
     """One picture Cicada holds, and where it came from (all ids, never a path, on the wire)."""
     key: str                       # "<source>:<id>", the row's stable key
-    source: str                    # look | capture | preview | still
+    source: str                    # look | capture | preview | still | frame
     path: Path
     title: str = ""
     entity_id: str | None = None
@@ -102,13 +102,17 @@ class Picture:
     day: str | None = None
     thumb: str = ""                # the API path the app (or a local agent) loads it from
     sha: str | None = None         # the content hash when the source already recorded one
+    file_id: str | None = None     # a frame: the added video it was kept from (``media_files``)
+    at: float | None = None        # a frame: its time in that video, seconds
 
     def meta(self) -> dict:
         out = {"source": self.source, "title": self.title, "thumb": self.thumb}
-        for name in ("entity_id", "episode_id", "video_id", "capture_id", "look_id", "day"):
+        for name in ("entity_id", "episode_id", "video_id", "capture_id", "look_id", "day", "file_id"):
             value = getattr(self, name)
             if value:
                 out[name] = value
+        if self.at is not None:
+            out["at"] = self.at
         return out
 
 
@@ -218,6 +222,9 @@ def sources(memory_path) -> list[Picture]:
     media, names = _media(memory_path)
     pictures = [*_looks(memory_path), *_captures(memory_path, names), *media]
     pictures += _watched(memory_path, {p.key for p in pictures})
+    from api.services import media_files
+
+    pictures += media_files.pictures(memory_path)   # frames kept from videos the person added (meaning index 2)
     seen: dict[str, Picture] = {}
     for p in pictures:
         seen.setdefault(p.key, p)
@@ -688,14 +695,17 @@ def _sleep_running() -> bool:
     return sleep_cycle.get_sleep_state().status == "running"
 
 
-def start_refresh(memory_path, *, delay_s: float = 0.0) -> bool:
-    """Refresh the picture index in the background: one run per bank at a time (a trigger during a run runs once
-    more after it), never while Sleep runs (the end of the run triggers it again), and only where the image
-    encoder is installed. ``delay_s`` waits first, folding a burst of triggers into one run. Never raises."""
+def start_refresh(memory_path, *, delay_s: float = 0.0, even_empty: bool = False) -> bool:
+    """Refresh the meaning index's pictures — and the words of added recordings (``media_files``) — in the
+    background: one run per bank at a time (a trigger during a run runs once more after it), never while Sleep runs
+    (the end of the run triggers it again), and only where there is something to do here: the image encoder is
+    installed, or the person added a recording. ``delay_s`` waits first, folding a burst of triggers into one run.
+    Never raises."""
     try:
-        from api.services import vision_embedder
+        from api.services import media_files, vision_embedder
 
-        if vision_embedder.folder() is None:
+        # ``even_empty``: the last added file was just deleted — its vectors still need to leave.
+        if not even_empty and vision_embedder.folder() is None and not media_files.any_files(memory_path):
             return False
     except Exception:  # noqa: BLE001
         return False
@@ -725,11 +735,21 @@ def _run(memory_path: Path, runner: _Runner) -> None:
     while True:
         runner.again = False
         try:
+            from api.services import media_files
+            from api.services.vector_index import IndexSyncStopped
+
             runner.last = refresh(memory_path, should_stop=_sleep_running)
             if runner.last.get("embedded") or runner.last.get("removed"):
                 logger.info(f"image_index: {runner.last['embedded']} picture(s) embedded, "
                             f"{runner.last['removed']} removed, {runner.last['total']} in all "
                             f"({time.monotonic() - started:.0f}s)")
+            try:
+                words = media_files.refresh_text(memory_path, should_stop=_sleep_running)
+            except IndexSyncStopped:
+                raise RefreshStopped("Sleep started") from None
+            if words.get("embedded") or words.get("removed"):
+                logger.info(f"image_index: {words['embedded']} passage(s) of added recordings embedded, "
+                            f"{words['removed']} removed")
         except RefreshStopped:
             logger.info("image_index: gave way to Sleep; it goes on when the run ends")
             return

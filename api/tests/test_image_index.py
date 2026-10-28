@@ -466,3 +466,23 @@ def test_the_prompt_hook_never_reaches_the_picture_index(tmp_path, monkeypatch):
     from api.services import hook_recall
 
     assert "image_index" not in inspect.getsource(hook_recall)
+    assert "media_files" not in inspect.getsource(hook_recall)
+
+
+def test_a_look_the_design_board_already_embedded_is_reused_not_embedded_twice(bank, tmp_path, monkeypatch):
+    """Meaning index 2: one store for looks — the board's current picture vector is the picture index's too."""
+    from api.services import design_index, onnx_embedder, vision_embedder
+
+    path = tmp_path / "look.png"
+    path.write_bytes(b"red:look")
+    sha = "f" * 64
+    pic = image_index.Picture("look:look-1", "look", path, title="A look", look_id="look-1", sha=sha)
+    vec = picture_vec(b"red:look")
+    stamp = vision_embedder.stamp_for(onnx_embedder.PREFERRED_BASE, "fp-test")
+    monkeypatch.setattr(design_index, "read_rows", lambda mp: {("look-1", "image"): (sha, stamp, vec)})
+    got = image_index.refresh(bank, (picture_embed, onnx_embedder.PREFERRED_ID), pictures=[pic])
+    assert got["embedded"] == 1 and got["reused_looks"] == 1 and CALLS == [], "nothing was embedded again"
+    monkeypatch.setattr(design_index, "read_rows", lambda mp: {("look-1", "image"): (sha, "old-stamp", vec)})
+    pic.sha = "e" * 64
+    image_index.refresh(bank, (picture_embed, onnx_embedder.PREFERRED_ID), pictures=[pic])
+    assert CALLS == [1], "a stale stamp or other bytes embed as usual"

@@ -43,8 +43,9 @@ from api.services.claims import EVENT_PREDICATES, is_current, is_record, parse_c
 
 KINDS = ("entity", "claim", "episode", "media", "inbox", "backlog")
 #: Kinds served only when asked for by name, never part of "every kind" (`KINDS`, which `cicada find` and other
-#: callers use as their default): pictures (vision item 3) — ranked by meaning, never counted, hybrid only.
-OPT_IN_KINDS = ("image",)
+#: callers use as their default): pictures (vision item 3) and the words of added recordings (meaning index 2) —
+#: ranked by meaning, never counted, hybrid only.
+OPT_IN_KINDS = ("image", "file")
 _ORDER = KINDS + OPT_IN_KINDS
 _KIND_ALIASES = {
     "entity": "entity", "entities": "entity",
@@ -54,6 +55,7 @@ _KIND_ALIASES = {
     "inbox": "inbox",
     "backlog": "backlog", "task": "backlog", "tasks": "backlog",
     "image": "image", "images": "image", "picture": "image", "pictures": "image",
+    "file": "file", "files": "file", "recording": "file", "recordings": "file", "audio": "file", "video": "file",
 }
 MODES = ("prefix", "hybrid")
 MAX_PER_KIND = 20
@@ -872,7 +874,10 @@ def search(
         grouped, totals = _search_fallback(ctx)
     if "image" in ctx.kinds:
         grouped["image"] = _image_kind(ctx, embed_fn) if semantic else []
-    ran = ctx.mode if ctx.mode == "prefix" or ctx.legs is not None or grouped.get("image") else "lexical"
+    if "file" in ctx.kinds:
+        grouped["file"] = _file_kind(ctx, embed_fn) if semantic else []
+    meaning_ran = ctx.legs is not None or grouped.get("image") or grouped.get("file")
+    ran = ctx.mode if ctx.mode == "prefix" or meaning_ran else "lexical"
     results = [hit for kind in ctx.kinds for hit in grouped.get(kind, [])]
     return SearchResponse(results=results, totals=totals, mode=ran, index_state=state)
 
@@ -892,7 +897,28 @@ def _image_kind(ctx: _Ctx, embed_fn) -> list[SearchHit]:
             score=float(row["score"]), kind="image", matched_field="semantic",
             subject_id=meta.get("entity_id") or None, episode_id=meta.get("episode_id") or None,
             timestamp=meta.get("day") or None, thumbnail=meta.get("thumb") or None,
-            image_source=meta.get("source") or None,
+            image_source=meta.get("source") or None, file_id=meta.get("file_id") or None, at_seconds=meta.get("at"),
+        ))
+    return hits
+
+
+def _file_kind(ctx: _Ctx, embed_fn) -> list[SearchHit]:
+    """Recordings and videos the person added (meaning index 2): passages of their words by meaning, only those well
+    above the query's mean (``media_files.TEXT_LIFT_MIN``). The snippet is the recording's words — never the
+    person's own (``subtitle`` says so). Hybrid only, ranked, never counted."""
+    from api.services import media_files
+
+    hits = []
+    for row in media_files.search_text(ctx.memory_path, ctx.q, top_k=ctx.per_kind, embed_fn=embed_fn):
+        meta = row.get("metadata") or {}
+        start = meta.get("start")
+        snippet, offsets = snippet_window(row.get("text") or "", ctx.tokens)
+        hits.append(SearchHit(
+            id=f"{meta.get('file_id')}@{int(float(start or 0))}", name=str(meta.get("name") or "A recording"),
+            type=str(meta.get("kind") or "audio"), status="active", confidence=0.0, score=float(row["score"]),
+            snippet=snippet, snippet_offsets=offsets, kind="file", matched_field="semantic",
+            subtitle=f"the recording's words, at {media_files.clock(start)}", file_id=meta.get("file_id") or None,
+            at_seconds=start, end_seconds=meta.get("end"),
         ))
     return hits
 

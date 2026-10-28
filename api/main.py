@@ -36,6 +36,7 @@ from api.routers import (
     diagnostics,
     embeddings,
     explore,
+    files,
     entities,
     episodes,
     graph,
@@ -313,6 +314,7 @@ app.include_router(claims.router, tags=["claims"])
 app.include_router(projects.router, tags=["projects"])
 app.include_router(backlog.router, tags=["backlog"])
 app.include_router(design.router, tags=["design"])
+app.include_router(files.router, tags=["files"])
 app.include_router(episodes.router, tags=["episodes"])
 app.include_router(contributors.router, tags=["contributors"])
 app.include_router(origins.router, tags=["origins"])
