@@ -41,7 +41,11 @@ from api.models.schemas import SearchHit, SearchResponse
 from api.services import bank_index, evidence, inbox_questions, inbox_service, markdown_parser, search_index, text_fold
 from api.services.claims import EVENT_PREDICATES, is_current, is_record, parse_claims, read_valid_to
 
-KINDS = ("entity", "claim", "episode", "media", "inbox", "backlog", "image")
+KINDS = ("entity", "claim", "episode", "media", "inbox", "backlog")
+#: Kinds served only when asked for by name, never part of "every kind" (`KINDS`, which `cicada find` and other
+#: callers use as their default): pictures (vision item 3) — ranked by meaning, never counted, hybrid only.
+OPT_IN_KINDS = ("image",)
+_ORDER = KINDS + OPT_IN_KINDS
 _KIND_ALIASES = {
     "entity": "entity", "entities": "entity",
     "claim": "claim", "claims": "claim", "belief": "claim", "beliefs": "claim",
@@ -80,7 +84,7 @@ def parse_kinds(kinds: str | None, indexes: str | None = None) -> list[str]:
     """
     raw = kinds if kinds is not None and kinds.strip() else (indexes or "")
     wanted = {_KIND_ALIASES.get(part.strip().lower()) for part in raw.split(",")}
-    return [k for k in KINDS if k in wanted] or ["entity"]
+    return [k for k in _ORDER if k in wanted] or ["entity"]
 
 
 def rrf_scores(*ranked_lists: list[dict], k: int = RRF_K, key: Callable[[dict], str | None] | None = None):
@@ -842,7 +846,7 @@ def search(
         reader=None,
         q=q or "",
         tokens=text_fold.query_tokens(q),
-        kinds=[k for k in KINDS if k in wanted] or ["entity"],
+        kinds=[k for k in _ORDER if k in wanted] or ["entity"],
         per_kind=max(1, min(int(per_kind or 1), MAX_PER_KIND)),
         mode=mode if mode in MODES else "hybrid",
     )

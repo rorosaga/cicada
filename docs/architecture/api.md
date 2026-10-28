@@ -637,7 +637,7 @@ skill_folder`). Nothing is written into a bank: agent folders, and `$CICADA_HOME
   `mode: lexical` when no vector index answered. `totals` are exact **lexical** counts — semantic
   neighbours are ranked, never counted. An `indexState` other than `ready`/`stale` means entities and
   media only, from the frontmatter cache. **Pictures** (vision item 3, 2026-10-28) are a kind of their own,
-  asked for by name (`kinds=image`, or `images` / `pictures`) and never in the default: hybrid only (prefix returns
+  asked for by name (`kinds=image`, or `images` / `pictures`) and never in the default or in "every kind" (`search_service.OPT_IN_KINDS`, outside `KINDS`, so `cicada find` with no `--kind` is unchanged): hybrid only (prefix returns
   none and never reaches the picture index), ranked by their lift over the query's mean across every picture and
   never counted (no `totals` entry); each hit is `kind: image`, `type: image`, with the additive `thumbnail` (the API
   path that serves it) and `imageSource` (`look | capture | preview | still`), `subjectId` its page and `episodeId`

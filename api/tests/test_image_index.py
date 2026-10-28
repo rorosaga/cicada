@@ -72,11 +72,27 @@ def _pictures(folder: Path, spec: dict[str, bytes]) -> list[image_index.Picture]
 
 
 @pytest.fixture
-def bank(tmp_path):
+def bank(tmp_path, monkeypatch):
     b = tmp_path / "bank"
     (b / "entities").mkdir(parents=True)
     CALLS.clear()
+    # The one picture stamp is `vision_embedder.fingerprint` (the real decoder on a reference picture); held fixed
+    # here so the tests read the diff, not `sips`. `test_the_stamp_is_the_vision_fingerprint` checks the wiring.
+    monkeypatch.setattr(image_index, "recipe", lambda: "fp-test")
     return b
+
+
+def test_the_stamp_is_the_vision_fingerprint(monkeypatch):
+    from api.services import vision_embedder
+
+    monkeypatch.setattr(vision_embedder, "fingerprint", lambda *a, **k: "abc123abc123")
+    assert image_index.recipe() == "abc123abc123", "one stamp for both picture stores"
+
+    def broken(*a, **k):
+        raise RuntimeError("no decoder")
+
+    monkeypatch.setattr(vision_embedder, "fingerprint", broken)
+    assert image_index.recipe() is None
 
 
 def _board(tmp_path) -> dict[str, bytes]:
@@ -107,15 +123,59 @@ def test_the_picture_table_writes_only_its_own_stamps(bank, tmp_path):
     image_index.refresh(bank, EMBEDDER, pictures=_pictures(tmp_path / "pics", _board(tmp_path)))
     stamps = dict(sqlite3.connect(bank / "vector_index.db").execute("SELECT key, value FROM index_meta").fetchall())
     assert stamps["model"] == "text-model" and stamps["dim"] == "384", "the text tables' build model is untouched"
-    assert stamps["model:images"] == "test/pictures:16" and stamps["recipe:images"] == image_index.recipe()
+    assert stamps["model:images"] == "test/pictures:16" and stamps["recipe:images"] == "fp-test"
 
 
 def test_a_new_recipe_or_model_rebuilds_the_table(bank, tmp_path, monkeypatch):
     pics = _pictures(tmp_path / "pics", _board(tmp_path))
     image_index.refresh(bank, EMBEDDER, pictures=pics)
-    monkeypatch.setattr(image_index, "recipe", lambda: "vision140/side48/v1")
-    assert image_index.refresh(bank, EMBEDDER, pictures=pics)["embedded"] == 12
-    assert image_index.refresh(bank, (picture_embed, "other:16"), pictures=pics)["embedded"] == 12
+    monkeypatch.setattr(image_index, "recipe", lambda: "fp-other")
+    got = image_index.refresh(bank, EMBEDDER, pictures=pics)
+    assert got["embedded"] == 12 and got["rebuilding"] == 0 and got["total"] == 12
+    got = image_index.refresh(bank, (picture_embed, "other:16"), pictures=pics)
+    assert got["embedded"] == 12 and image_index.status(bank)["model"] == "other:16"
+    tables = {r[0] for r in sqlite3.connect(bank / "vector_index.db").execute(
+        "SELECT name FROM sqlite_master WHERE name LIKE 'meta_images%'")}
+    assert len(tables) == 1, "the finished generation replaced the old one"
+
+
+def test_search_keeps_the_old_pictures_until_the_rebuild_commits(bank, tmp_path, monkeypatch):
+    """Review of #506: a new model or preprocessing never empties picture search — the old generation answers until
+    the new one holds every picture, even across a stop for Sleep."""
+    monkeypatch.setattr(image_index, "STEP", 4)
+    pics = _pictures(tmp_path / "pics", _board(tmp_path))
+    image_index.refresh(bank, EMBEDDER, pictures=pics)
+    before = [h["key"] for h in image_index.search(bank, "red", top_k=5, embed_fn=text_embed)]
+    assert len(before) == 3
+    monkeypatch.setattr(image_index, "recipe", lambda: "fp-new")
+    asked = iter([False, True])
+    with pytest.raises(image_index.RefreshStopped):
+        image_index.refresh(bank, EMBEDDER, pictures=pics, should_stop=lambda: next(asked))
+    during = [h["key"] for h in image_index.search(bank, "red", top_k=5, embed_fn=text_embed)]
+    assert during == before and image_index.status(bank)["pictures"] == 12, "search still reads the old pictures"
+    got = image_index.refresh(bank, EMBEDDER, pictures=pics)
+    assert got["embedded"] == 8, "the stopped build resumed: only what it hadn't written"
+    stamps = dict(sqlite3.connect(bank / "vector_index.db").execute("SELECT key, value FROM index_meta").fetchall())
+    serving = stamps["serving:images"]
+    assert stamps[f"recipe:{serving}"] == "fp-new"
+    assert [h["key"] for h in image_index.search(bank, "red", top_k=5, embed_fn=text_embed)] == before
+
+
+def test_a_limited_rebuild_never_swaps_in_half_a_table(bank, tmp_path, monkeypatch):
+    pics = _pictures(tmp_path / "pics", _board(tmp_path))
+    image_index.refresh(bank, EMBEDDER, pictures=pics)
+    monkeypatch.setattr(image_index, "recipe", lambda: "fp-new")
+    got = image_index.refresh(bank, EMBEDDER, pictures=pics, limit=5)
+    assert got["rebuilding"] == 1 and got["total"] == 12
+    assert len(image_index.search(bank, "blue", top_k=5, embed_fn=text_embed)) == 3
+
+
+def test_with_no_decoder_nothing_is_embedded_and_nothing_is_dropped_for_it(bank, tmp_path, monkeypatch):
+    pics = _pictures(tmp_path / "pics", _board(tmp_path))
+    image_index.refresh(bank, EMBEDDER, pictures=pics)
+    monkeypatch.setattr(image_index, "recipe", lambda: None)
+    got = image_index.refresh(bank, EMBEDDER, pictures=pics)
+    assert (got["embedded"], got["rebuilding"], got["total"]) == (0, 0, 12)
 
 
 def test_a_picture_that_fails_is_counted_and_never_stops_the_rest(bank, tmp_path):

@@ -1755,11 +1755,18 @@ read by a model that writes memory (ruling 30). Each row's metadata says where i
 day's episode, capture, title, day) and the API path that serves it; vectors of pictures that live outside the bank
 sit in this derived file inside it, like every other vector (git-ignored, never exported).
 
-**Diffing.** A row's hash is the picture's sha256 plus `image_index.recipe()` (the vision function's token budget and
-sizing rule): a changed picture re-embeds that row, a new model or recipe rebuilds the table, a picture gone drops its
-row, a renamed page refreshes metadata with no embed, the same bytes under two keys embed once. A picture that fails
-is counted and never stops the rest. Without the image encoder a refresh only drops what is gone; search keeps
-working from the stored vectors (queries are words).
+**Diffing.** A row's hash is the picture's sha256; the table is stamped with the model and **the same preprocessing
+fingerprint the design board uses** (`recipe:images` = `vision_embedder.fingerprint()`: the recipe plus a reference
+picture through the real decoder, so a `sips` change re-embeds too — one stamp for both picture stores). A changed
+picture re-embeds that row, a picture gone drops its row, a renamed page refreshes metadata with no embed, the same
+bytes under two keys embed once. A picture that fails is counted and never stops the rest. Without the image encoder
+(or a decoder that cannot run) a refresh only drops what is gone; search keeps working from the stored vectors.
+
+**A new model or fingerprint never empties search (review of #506).** The table has two generations (`images`,
+`images_alt`); `serving:images` names the one search reads. A stamp change builds the other generation — resumed
+across Sleep's stops while its own stamps match, never swapped in while a `limit` left pictures out — and when it holds
+every picture that can be embedded, the pointer moves and the old generation is dropped in one transaction. Until
+then search answers from the old pictures (the vector rail: the old table serves until the new one commits).
 
 **Scores.** Raw cosines are not comparable across kinds (a text query sits nearer every passage than any picture),
 so a picture is scored by its **lift**, `cos − μ`, where μ is the query's exact mean cosine over every picture

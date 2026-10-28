@@ -144,9 +144,8 @@ def test_kinds_are_honoured_and_totals_are_per_kind(tmp_path):
     assert [h.id for h in _by_kind(resp, "inbox")] == ["inbox-001"], "deferred and subject-gone items are not served"
     assert _by_kind(resp, "inbox")[0].name == "Still tracking Alpha Project?"
     assert resp.totals["inbox"] == 1
-    # Pictures (vision item 3) are ranked by meaning, never counted, and the prefix pass never reaches them.
-    assert set(resp.totals) == set(search_service.KINDS) - {"image"}
-    assert "image" not in kinds
+    assert set(resp.totals) == set(search_service.KINDS)
+    assert "image" not in search_service.KINDS, "pictures are asked for by name, never part of every kind"
 
 
 def test_aliases_and_diacritics_find_the_page_and_say_why(tmp_path):

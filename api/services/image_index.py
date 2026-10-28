@@ -65,14 +65,23 @@ LIFT_MIN = 0.06
 STEP = 16
 #: A trigger after a picture is stored waits this long, so a burst of stored previews is one refresh.
 SETTLE_S = 30.0
-STATS_TABLE = "stats_images"
+#: The two generations of the picture table. Search reads the one ``serving:images`` names; a model or preprocessing
+#: change builds the other and swaps the pointer in one transaction, so search keeps the old pictures until the new
+#: set is complete (the vector rail: "recall keeps the old table until the new one commits").
+GENERATIONS = (KIND, f"{KIND}_alt")
+SERVING_KEY = f"serving:{KIND}"
 
 
-def recipe() -> str:
-    """The preprocessing a picture's vector depends on besides its bytes and the model: a change re-embeds."""
+def recipe() -> str | None:
+    """The preprocessing a picture's vector depends on besides its bytes and the model — the ONE stamp both picture
+    stores use (``vision_embedder.fingerprint``: the recipe plus a reference picture through the real decoder, so a
+    decoder change re-embeds too). None where the decoder cannot run here (then no picture is embedded either)."""
     from api.services import vision_embedder
 
-    return f"vision{vision_embedder.BUDGET}/side{vision_embedder.SIDE_STEP}/v1"
+    try:
+        return vision_embedder.fingerprint()
+    except Exception:  # noqa: BLE001 — no decoder, no picture vectors; what is stored stays
+        return None
 
 
 # --------------------------------------------------------------------------- what is indexed
@@ -237,14 +246,31 @@ def _stamps(conn: sqlite3.Connection) -> dict[str, str]:
         return {}
 
 
-def _has_table(conn: sqlite3.Connection) -> bool:
-    return conn.execute("SELECT 1 FROM sqlite_master WHERE name = ?", (f"meta_{KIND}",)).fetchone() is not None
+def _has_table(conn: sqlite3.Connection, gen: str = KIND) -> bool:
+    return conn.execute("SELECT 1 FROM sqlite_master WHERE name = ?", (f"meta_{gen}",)).fetchone() is not None
 
 
-def _rows(conn: sqlite3.Connection) -> dict[str, tuple[int, str]]:
-    if not _has_table(conn):
+def _serving(conn: sqlite3.Connection, stamps: dict[str, str] | None = None) -> str:
+    """The generation search reads: the one ``serving:images`` names, else the first (a table written before
+    generations, or none yet)."""
+    gen = (stamps if stamps is not None else _stamps(conn)).get(SERVING_KEY) or KIND
+    return gen if gen in GENERATIONS else KIND
+
+
+def _rows(conn: sqlite3.Connection, gen: str = KIND) -> dict[str, tuple[int, str]]:
+    if not _has_table(conn, gen):
         return {}
-    return {key: (rowid, h) for rowid, key, h in conn.execute(f"SELECT rowid, key, hash FROM meta_{KIND}")}
+    return {key: (rowid, h) for rowid, key, h in conn.execute(f"SELECT rowid, key, hash FROM meta_{gen}")}
+
+
+def _drop(conn: sqlite3.Connection, gen: str) -> None:
+    for table in (f"vec_{gen}", f"meta_{gen}", f"stats_{gen}"):
+        conn.execute(f"DROP TABLE IF EXISTS {table}")
+    try:
+        conn.executemany("DELETE FROM index_meta WHERE key = ?",
+                         [(f"model:{gen}",), (f"dim:{gen}",), (f"recipe:{gen}",)])
+    except sqlite3.OperationalError:
+        pass
 
 
 def _sha(path: Path) -> str | None:
@@ -291,35 +317,48 @@ class RefreshStopped(RuntimeError):
 def refresh(memory_path, embedder: tuple[Callable[[list[bytes]], np.ndarray], str] | None | str = "default", *,
             should_stop: Callable[[], bool] | None = None, limit: int | None = None,
             pictures: list[Picture] | None = None) -> dict:
-    """Bring the ``images`` table up to the pictures on this Mac: embed what is new or changed (at most ``limit``),
-    drop rows whose picture is gone, rewrite the kind's moments. ``{"embedded", "reused", "removed", "failed",
-    "total"}``. A different model or recipe in the table rebuilds it. Never raises for a picture; raises
-    :class:`RefreshStopped` when ``should_stop`` says so between steps (what was written stays)."""
-    from api.services.vector_index import _blob, _write_lock
+    """Bring the picture table up to the pictures on this Mac: embed what is new or changed (at most ``limit``),
+    drop rows whose picture is gone, rewrite the kind's mean. ``{"embedded", "reused", "removed", "failed", "total",
+    "rebuilding"}``. Never raises for a picture; raises :class:`RefreshStopped` when ``should_stop`` says so between
+    steps (what was written stays).
+
+    **A new model or preprocessing never empties search.** The serving generation is diffed in place only while its
+    stamps match; otherwise the other generation is built (resumed across stops when its stamps match) and, once it
+    holds every picture, the ``serving:images`` pointer moves to it and the old one is dropped in one transaction.
+    Until then search answers from the old generation (``rebuilding: 1`` says a build is under way)."""
+    from api.services.vector_index import _write_lock
 
     memory_path = Path(memory_path)
     if embedder == "default":
         embedder = default_embedder()
-    counts = {"embedded": 0, "reused": 0, "removed": 0, "failed": 0, "total": 0}
+    tag = recipe()
+    if tag is None:
+        embedder = None   # no decoder here: nothing can be embedded; keep what is stored
+    counts = {"embedded": 0, "reused": 0, "removed": 0, "failed": 0, "total": 0, "rebuilding": 0}
     pics = sources(memory_path) if pictures is None else pictures
     wanted: dict[str, tuple[Picture, str]] = {}
-    tag = recipe()
     for p in pics:
         sha = p.sha or _sha(p.path)
         if sha:
-            wanted[p.key] = (p, f"{sha[:32]}:{tag}")
+            wanted[p.key] = (p, sha[:32])
     conn = _connect(memory_path)
     try:
         stamps = _stamps(conn)
-        have = _rows(conn)
-        model = embedder[1] if embedder else stamps.get(f"model:{KIND}")
-        if embedder and have and (stamps.get(f"model:{KIND}") != model or stamps.get(f"recipe:{KIND}") != tag):
-            have = {}
-            with _write_lock(_db(memory_path)):
-                conn.execute(f"DROP TABLE IF EXISTS vec_{KIND}")
-                conn.execute(f"DROP TABLE IF EXISTS meta_{KIND}")
-                conn.execute(f"DROP TABLE IF EXISTS {STATS_TABLE}")
-                conn.commit()
+        serving = _serving(conn, stamps)
+        model = embedder[1] if embedder else None
+
+        def matches(gen: str) -> bool:
+            return stamps.get(f"model:{gen}") == model and stamps.get(f"recipe:{gen}") == tag
+
+        target = serving
+        if embedder and _has_table(conn, serving) and not matches(serving):
+            target = next(g for g in GENERATIONS if g != serving)
+            counts["rebuilding"] = 1
+            if _has_table(conn, target) and not matches(target):
+                with _write_lock(_db(memory_path)):
+                    _drop(conn, target)   # a build for an older model: start over
+                    conn.commit()
+        have = _rows(conn, target)
         gone = [k for k in have if k not in wanted]
         todo = [k for k, (_p, h) in wanted.items() if k not in have or have[k][1] != h]
         counts["reused"] = len(wanted) - len(todo)
@@ -327,135 +366,176 @@ def refresh(memory_path, embedder: tuple[Callable[[list[bytes]], np.ndarray], st
             todo = todo[: max(0, int(limit))]
         if not embedder:
             todo = []   # no encoder here: keep what is stored, only drop what is gone
-        # Pictures with the same bytes under two keys (a still saved and watched) are embedded once.
-        by_hash: dict[str, np.ndarray] = {}
-        for start in range(0, len(todo), STEP):
-            if should_stop is not None and should_stop():
-                raise RefreshStopped("Sleep started")
-            chunk = todo[start : start + STEP]
-            fresh = [k for k in chunk if wanted[k][1] not in by_hash]
-            blobs, ok_keys = [], []
-            for k in fresh:
-                try:
-                    blobs.append(wanted[k][0].path.read_bytes())
-                    ok_keys.append(k)
-                except OSError:
-                    counts["failed"] += 1
-            if blobs:
-                try:
-                    vecs = np.asarray(embedder[0](blobs), dtype=np.float32)
-                except Exception as exc:  # noqa: BLE001 — the step waits for the next refresh
-                    logger.debug(f"image_index: a step didn't embed ({type(exc).__name__})")
-                    counts["failed"] += len(blobs)
-                    continue
-                for k, v in zip(ok_keys, vecs):
-                    if v.size < 2 or not np.all(np.isfinite(v)):
-                        counts["failed"] += 1
-                        continue
-                    by_hash[wanted[k][1]] = v / max(float(np.linalg.norm(v)), 1e-12)
-            rows = [(k, by_hash[wanted[k][1]]) for k in chunk if wanted[k][1] in by_hash]
-            if rows:
-                _write(conn, memory_path, rows, wanted, have, model, tag, _blob)
-                counts["embedded"] += len(rows)
-        if gone:
-            with _write_lock(_db(memory_path)):
-                for k in gone:
-                    rowid = have[k][0]
-                    conn.execute(f"DELETE FROM vec_{KIND} WHERE rowid = ?", (rowid,))
-                    conn.execute(f"DELETE FROM meta_{KIND} WHERE rowid = ?", (rowid,))
-                conn.commit()
+        _embed_into(conn, memory_path, target, todo, wanted, have, embedder, model, tag, counts, should_stop)
+        with _write_lock(_db(memory_path)):
+            for k in gone:
+                rowid = have[k][0]
+                conn.execute(f"DELETE FROM vec_{target} WHERE rowid = ?", (rowid,))
+                conn.execute(f"DELETE FROM meta_{target} WHERE rowid = ?", (rowid,))
             counts["removed"] = len(gone)
-        # Metadata moves without its picture moving (a page renamed): refreshed in place, no embed.
-        if _has_table(conn):
-            with _write_lock(_db(memory_path)):
+            # Metadata moves without its picture moving (a page renamed): refreshed in place, no embed.
+            if _has_table(conn, target):
                 for k, (p, h) in wanted.items():
                     if k in have and have[k][1] == h:
-                        conn.execute(f"UPDATE meta_{KIND} SET metadata = ?, text = ? WHERE key = ?",
+                        conn.execute(f"UPDATE meta_{target} SET metadata = ?, text = ? WHERE key = ?",
                                      (json.dumps(p.meta()), p.title, k))
-                conn.commit()
-            if counts["embedded"] or counts["removed"]:
-                _write_moments(conn, memory_path)
-            counts["total"] = int(conn.execute(f"SELECT count(*) FROM meta_{KIND}").fetchone()[0])
+            conn.commit()
+        if target != serving:
+            # Complete = every picture that can be embedded is in the new generation (one that failed is not waited
+            # for; one a ``limit`` left out is).
+            needed = set(wanted) - set(counts.get("_failed_keys", []))
+            if _has_table(conn, target) and set(_rows(conn, target)) >= needed:
+                _swap(conn, memory_path, serving, target)
+                counts["rebuilding"] = 0
+        elif _has_table(conn, target) and (counts["embedded"] or counts["removed"]):
+            _write_moments(conn, memory_path, target)
+        live = _serving(conn)
+        if _has_table(conn, live):
+            counts["total"] = int(conn.execute(f"SELECT count(*) FROM meta_{live}").fetchone()[0])
     finally:
         conn.close()
+    counts.pop("_failed_keys", None)
     return counts
 
 
-def _write(conn, memory_path: Path, rows, wanted, have, model: str, tag: str, blob) -> None:
+def _embed_into(conn, memory_path: Path, gen: str, todo: list[str], wanted, have, embedder, model, tag, counts,
+                should_stop) -> None:
+    from api.services.vector_index import _blob
+
+    failed: list[str] = counts.setdefault("_failed_keys", [])
+    # Pictures with the same bytes under two keys (a still saved and watched) are embedded once.
+    by_hash: dict[str, np.ndarray] = {}
+    for start in range(0, len(todo), STEP):
+        if should_stop is not None and should_stop():
+            raise RefreshStopped("Sleep started")
+        chunk = todo[start : start + STEP]
+        fresh = [k for k in chunk if wanted[k][1] not in by_hash]
+        blobs, ok_keys = [], []
+        for k in fresh:
+            try:
+                blobs.append(wanted[k][0].path.read_bytes())
+                ok_keys.append(k)
+            except OSError:
+                counts["failed"] += 1
+                failed.append(k)
+        if blobs:
+            try:
+                vecs = np.asarray(embedder[0](blobs), dtype=np.float32)
+            except Exception as exc:  # noqa: BLE001 — the step waits for the next refresh
+                logger.debug(f"image_index: a step didn't embed ({type(exc).__name__})")
+                counts["failed"] += len(blobs)
+                failed.extend(ok_keys)
+                continue
+            for k, v in zip(ok_keys, vecs):
+                if v.size < 2 or not np.all(np.isfinite(v)):
+                    counts["failed"] += 1
+                    failed.append(k)
+                    continue
+                by_hash[wanted[k][1]] = v / max(float(np.linalg.norm(v)), 1e-12)
+        rows = [(k, by_hash[wanted[k][1]]) for k in chunk if wanted[k][1] in by_hash]
+        if rows:
+            _write(conn, memory_path, gen, rows, wanted, have, model, tag, _blob)
+            counts["embedded"] += len(rows)
+
+
+def _write(conn, memory_path: Path, gen: str, rows, wanted, have, model: str, tag: str, blob) -> None:
     from api.services.vector_index import _write_lock
 
     dim = int(rows[0][1].size)
     with _write_lock(_db(memory_path)):
-        if not _has_table(conn):
-            conn.execute(f"CREATE VIRTUAL TABLE vec_{KIND} USING vec0(embedding float[{dim}] distance_metric=cosine)")
-            conn.execute(f"CREATE TABLE meta_{KIND} (rowid INTEGER PRIMARY KEY, text TEXT, metadata TEXT, key TEXT, "
+        if not _has_table(conn, gen):
+            conn.execute(f"CREATE VIRTUAL TABLE vec_{gen} USING vec0(embedding float[{dim}] distance_metric=cosine)")
+            conn.execute(f"CREATE TABLE meta_{gen} (rowid INTEGER PRIMARY KEY, text TEXT, metadata TEXT, key TEXT, "
                          f"hash TEXT)")
             conn.execute("CREATE TABLE IF NOT EXISTS index_meta (key TEXT PRIMARY KEY, value TEXT)")
         for key, vec in rows:
             pic, h = wanted[key]
             old = have.pop(key, None)
             if old is not None:
-                conn.execute(f"DELETE FROM vec_{KIND} WHERE rowid = ?", (old[0],))
-                conn.execute(f"DELETE FROM meta_{KIND} WHERE rowid = ?", (old[0],))
-            cur = conn.execute(f"INSERT INTO meta_{KIND}(text, metadata, key, hash) VALUES (?, ?, ?, ?)",
+                conn.execute(f"DELETE FROM vec_{gen} WHERE rowid = ?", (old[0],))
+                conn.execute(f"DELETE FROM meta_{gen} WHERE rowid = ?", (old[0],))
+            cur = conn.execute(f"INSERT INTO meta_{gen}(text, metadata, key, hash) VALUES (?, ?, ?, ?)",
                                (pic.title, json.dumps(pic.meta()), key, h))
-            conn.execute(f"INSERT INTO vec_{KIND}(rowid, embedding) VALUES (?, ?)", (cur.lastrowid, blob(vec)))
+            conn.execute(f"INSERT INTO vec_{gen}(rowid, embedding) VALUES (?, ?)", (cur.lastrowid, blob(vec)))
         # Only this kind's own stamps: the bank-wide ``model`` / ``dim`` name the text tables' build model.
         conn.executemany("INSERT OR REPLACE INTO index_meta(key, value) VALUES (?, ?)",
-                         [(f"model:{KIND}", model), (f"dim:{KIND}", str(dim)), (f"recipe:{KIND}", tag)])
+                         [(f"model:{gen}", model), (f"dim:{gen}", str(dim)), (f"recipe:{gen}", tag)])
+        if _stamps(conn).get(SERVING_KEY) is None:
+            conn.execute("INSERT OR REPLACE INTO index_meta(key, value) VALUES (?, ?)", (SERVING_KEY, gen))
         conn.commit()
 
 
-def _all_vectors(conn: sqlite3.Connection) -> np.ndarray:
-    blobs = [b for (b,) in conn.execute(f"SELECT embedding FROM vec_{KIND}")]
+def _swap(conn, memory_path: Path, old: str, new: str) -> None:
+    """The finished generation becomes the one search reads, and the old one goes — one transaction."""
+    from api.services.vector_index import _write_lock
+
+    x = _all_vectors(conn, new)
+    with _write_lock(_db(memory_path)):
+        conn.execute("BEGIN IMMEDIATE")
+        _put_mean(conn, new, x)
+        conn.execute("INSERT OR REPLACE INTO index_meta(key, value) VALUES (?, ?)", (SERVING_KEY, new))
+        _drop(conn, old)
+        conn.commit()
+    _MOMENTS.clear()
+
+
+def _all_vectors(conn: sqlite3.Connection, gen: str = KIND) -> np.ndarray:
+    if not _has_table(conn, gen):
+        return np.zeros((0, 0), dtype=np.float32)
+    blobs = [b for (b,) in conn.execute(f"SELECT embedding FROM vec_{gen}")]
     if not blobs:
         return np.zeros((0, 0), dtype=np.float32)
     return np.stack([np.frombuffer(b, dtype=np.float32) for b in blobs])
 
 
-def _write_moments(conn: sqlite3.Connection, memory_path: Path) -> None:
+def _put_mean(conn: sqlite3.Connection, gen: str, x: np.ndarray) -> None:
+    conn.execute(f"CREATE TABLE IF NOT EXISTS stats_{gen} (name TEXT PRIMARY KEY, value BLOB)")
+    if x.size:
+        # The mean is all a search needs (a query's lift is its cosine minus ``q · mean``). The spread a z-score
+        # would need is not stored: measured and rejected as a floor (module docstring).
+        mu = np.asarray(x, dtype=np.float64).mean(axis=0).astype(np.float32)
+        conn.executemany(f"INSERT OR REPLACE INTO stats_{gen}(name, value) VALUES (?, ?)",
+                         [("n", str(x.shape[0]).encode()), ("mean", mu.tobytes())])
+    else:
+        conn.execute(f"DELETE FROM stats_{gen}")
+
+
+def _write_moments(conn: sqlite3.Connection, memory_path: Path, gen: str = KIND) -> None:
     from api.services.vector_index import _write_lock
 
-    x = _all_vectors(conn)
+    x = _all_vectors(conn, gen)
     with _write_lock(_db(memory_path)):
-        conn.execute(f"CREATE TABLE IF NOT EXISTS {STATS_TABLE} (name TEXT PRIMARY KEY, value BLOB)")
-        if x.size:
-            # The mean is all a search needs (a query's lift is its cosine minus ``q · mean``). The spread a z-score
-            # would need is not stored: measured and rejected as a floor (module docstring).
-            mu = np.asarray(x, dtype=np.float64).mean(axis=0).astype(np.float32)
-            conn.executemany(f"INSERT OR REPLACE INTO {STATS_TABLE}(name, value) VALUES (?, ?)",
-                             [("n", str(x.shape[0]).encode()), ("mean", mu.tobytes())])
-        else:
-            conn.execute(f"DELETE FROM {STATS_TABLE}")
+        _put_mean(conn, gen, x)
         conn.commit()
-    _MOMENTS.pop(str(_db(memory_path)), None)
+    _MOMENTS.clear()
 
 
-#: ``{db path: (mtime, n, mean)}`` — read once per write of the file, not once per query.
-_MOMENTS: dict[str, tuple[float, int, np.ndarray]] = {}
+#: ``{(db path, generation): (mtime, n, mean)}`` — read once per write of the file, not once per query.
+_MOMENTS: dict[tuple[str, str], tuple[float, int, np.ndarray]] = {}
 
 
-def _read_moments(conn: sqlite3.Connection, memory_path: Path) -> tuple[int, np.ndarray] | None:
-    key = str(_db(memory_path))
+def _read_moments(conn: sqlite3.Connection, memory_path: Path, gen: str | None = None) -> tuple[int, np.ndarray] | None:
+    gen = gen or _serving(conn)
+    path = str(_db(memory_path))
     try:
-        stamp = os.stat(key).st_mtime
-        wal = Path(key + "-wal")
+        stamp = os.stat(path).st_mtime
+        wal = Path(path + "-wal")
         if wal.exists():
             stamp = max(stamp, wal.stat().st_mtime)
     except OSError:
         return None
-    hit = _MOMENTS.get(key)
+    hit = _MOMENTS.get((path, gen))
     if hit is not None and hit[0] == stamp:
         return hit[1], hit[2]
     try:
-        got = dict(conn.execute(f"SELECT name, value FROM {STATS_TABLE}").fetchall())
+        got = dict(conn.execute(f"SELECT name, value FROM stats_{gen}").fetchall())
     except sqlite3.OperationalError:
         return None
     if not {"n", "mean"} <= set(got):
         return None
     mu = np.frombuffer(got["mean"], dtype=np.float32)
     n = int(got["n"].decode())
-    _MOMENTS[key] = (stamp, n, mu)
+    _MOMENTS[(path, gen)] = (stamp, n, mu)
     return n, mu
 
 
@@ -464,8 +544,8 @@ def _read_moments(conn: sqlite3.Connection, memory_path: Path) -> tuple[int, np.
 
 def search(memory_path, query: str, *, top_k: int = 8, embed_fn=None) -> list[dict]:
     """Pictures for ``query``, best first: ``[{"key", "score" (the lift), "cosine", "metadata"}]``, only those at
-    ``lift ≥ LIFT_MIN``. ``[]`` with no picture table, no stored mean, or no text model for its query — never an
-    error, never the image encoder, never the query in a log."""
+    ``lift ≥ LIFT_MIN``, from the serving generation. ``[]`` with no picture table, no stored mean, or no text model
+    for its query — never an error, never the image encoder, never the query in a log."""
     memory_path = Path(memory_path)
     query = (query or "").strip()
     if not query or not _db(memory_path).exists():
@@ -476,17 +556,29 @@ def search(memory_path, query: str, *, top_k: int = 8, embed_fn=None) -> list[di
         logger.debug(f"image_index: no index ({type(exc).__name__})")
         return []
     try:
-        if not _has_table(conn):
+        stamps = _stamps(conn)
+        gen = _serving(conn, stamps)
+        if not _has_table(conn, gen):
             return []
-        stats = _read_moments(conn, memory_path)
+        stats = _read_moments(conn, memory_path, gen)
         if stats is None:
             return []
         _n, mu = stats
+        model = stamps.get(f"model:{gen}")
         try:
-            from api.services.vector_index import SqliteVecIndexer
+            from api.services.vector_index import _cached_query_vector, _named
 
-            indexer = SqliteVecIndexer(memory_path, embed_fn=embed_fn) if embed_fn else SqliteVecIndexer(memory_path)
-            qvec = np.asarray(indexer._query_vector(query, KIND), dtype=np.float32).reshape(-1)
+            if embed_fn is not None:
+                qvec = np.asarray(embed_fn([query], is_query=True), dtype=np.float32)[0]
+            elif _named(model):
+                from api.services.providers import resolve_embed_fn_for_model
+
+                fn, _m = resolve_embed_fn_for_model(model)
+                qvec = _cached_query_vector(model, stamps.get(f"dim:{gen}"), query,
+                                            lambda: np.asarray(fn([query], is_query=True), dtype=np.float32)[0])
+            else:
+                return []
+            qvec = np.asarray(qvec, dtype=np.float32).reshape(-1)
         except Exception as exc:  # noqa: BLE001 — the class only (K9)
             logger.debug(f"image_index: the query didn't embed ({type(exc).__name__})")
             return []
@@ -497,7 +589,7 @@ def search(memory_path, query: str, *, top_k: int = 8, embed_fn=None) -> list[di
         from api.services.vector_index import _blob
 
         rows = conn.execute(
-            f"SELECT v.distance, m.key, m.metadata FROM vec_{KIND} v JOIN meta_{KIND} m ON m.rowid = v.rowid "
+            f"SELECT v.distance, m.key, m.metadata FROM vec_{gen} v JOIN meta_{gen} m ON m.rowid = v.rowid "
             f"WHERE v.embedding MATCH ? AND k = ? ORDER BY v.distance", (_blob(qvec), int(max(1, top_k)))).fetchall()
     except sqlite3.DatabaseError as exc:
         logger.debug(f"image_index: search failed ({type(exc).__name__})")
@@ -516,17 +608,19 @@ def search(memory_path, query: str, *, top_k: int = 8, embed_fn=None) -> list[di
 
 
 def status(memory_path) -> dict:
-    """``{"pictures": n, "model": ...}`` — how many pictures the index holds (0 with no table)."""
+    """``{"pictures": n, "model": ...}`` — how many pictures search reads now (0 with no table)."""
     db = _db(memory_path)
     if not db.exists():
         return {"pictures": 0}
     try:
         conn = _connect(memory_path)
         try:
-            if not _has_table(conn):
+            stamps = _stamps(conn)
+            gen = _serving(conn, stamps)
+            if not _has_table(conn, gen):
                 return {"pictures": 0}
-            n = int(conn.execute(f"SELECT count(*) FROM meta_{KIND}").fetchone()[0])
-            return {"pictures": n, "model": _stamps(conn).get(f"model:{KIND}")}
+            n = int(conn.execute(f"SELECT count(*) FROM meta_{gen}").fetchone()[0])
+            return {"pictures": n, "model": stamps.get(f"model:{gen}")}
         finally:
             conn.close()
     except Exception:  # noqa: BLE001
