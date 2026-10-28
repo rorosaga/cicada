@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// G141 PJ-5, v2 (owner 2026-10-19; DESIGN_RULES §9, §10) — the Projects page: a list page in progressive columns
-/// (§5.3). STATE 0 is Current — the projects in motion as calm two-line rows, then a folded *Fading* group — or Past,
+/// (§5.3). STATE 0 is Current — the projects in motion as calm two-line rows, sub-projects indented under them, then
+/// *Gone quiet* under a static label, and Suggested as one line (Projects v3: no folds, decision 17) — or Past,
 /// searchable and paged; a click narrows the list to the triage column and opens the project beside it; its evidence
 /// opens the Reader as the third column, which this page hosts itself (`AppTab.hostsOwnReader`, R-DL7). Projects
 /// clicked again in the rail comes back here (`AppRouter.reselect`). Its data is `ProjectsCache` — not a Store
@@ -19,10 +20,8 @@ struct ProjectsPage: View {
     @State private var tab: ProjectsTab = .current
     /// Until the viewer picks a tab, the page follows `defaultTab` as the list arrives.
     @State private var tabChosen = false
-    /// Which parents show their parts, and how much of Past is drawn; Fading's fold is remembered (DR-39).
-    @State private var expanded: Set<String> = []
+    /// How much of Past is drawn.
     @State private var pastLimit = ProjectsModel.pageSize
-    @AppStorage("cicada.projects.fadingOpen") private var fadingOpen = false
     @State private var query = ""
     @State private var findOpen = false
     /// R-PP5 — the viewer's today; `.NSCalendarDayChanged` moves it and every word re-derives with no network.
@@ -35,9 +34,8 @@ struct ProjectsPage: View {
     /// dismiss painted over what the server last said).
     private var rows: [ProjectRow] { cache.displayList?.projects.filter(\.mine) ?? [] }
     private var suggested: [SuggestedProject] { cache.displayList?.suggested ?? [] }
-    /// Ruling 45 — Suggested opens itself the first time and is remembered after (DR-39); dismissed ones stay hidden.
-    @AppStorage("cicada.projects.suggestedOpen") private var suggestedOpen = true
-    @State private var showDismissed = false
+    /// Decision 17 — the open project's "All N" full list (Esc closes it before the project).
+    @State private var detailFull: ProjectOpen.Full?
     @State private var creating = false
     @State private var naming: SuggestedProject?
     /// R-PP20 — Sleep is writing: the list's writes wait, their reason in `.help`.
@@ -46,9 +44,11 @@ struct ProjectsPage: View {
     /// Past's field is always there; Current finds only while ⌘F's row is open.
     private var activeQuery: String { tab == .past || findOpen ? query : "" }
 
-    private var options: ProjectsListOptions {
-        ProjectsListOptions(expanded: expanded, fadingOpen: fadingOpen, pastLimit: pastLimit)
-    }
+    private var options: ProjectsListOptions { ProjectsListOptions(pastLimit: pastLimit) }
+
+    /// Decision 9 — "N suggested by Cicada · Review" opens the suggestions in the detail slot under this id, which no
+    /// page can have (a slug never starts with a space).
+    static let suggestedColumn = " suggested"
 
     /// DR-45 — a tab switch is instant; a project the new tab does not hold closes (R-DL6: a tab is navigation).
     /// Tapping the selected tab keeps it: there is no All to fall back to.
@@ -97,36 +97,36 @@ struct ProjectsPage: View {
                                             lines: entries.count,
                                             finding: !activeQuery.trimmingCharacters(in: .whitespaces).isEmpty),
                 tab: tab, query: query, findOpen: $findOpen, findText: $query, openId: openId,
-                tap: { tap($0) }, toggleParts: { toggleParts($0) }, toggleFading: { toggleFading() },
+                tap: { openProject($0.id) },
                 showMore: { Instant.run { pastLimit += ProjectsModel.pageSize } },
                 move: { move($0) }, side: { side($0, in: lines) },
                 focusDetail: { focus = .detail }, escape: { escape() },
                 retry: { Task { await cache.refreshList() } },
                 suggestedFold: {
                     AnyView(Group {
-                        if !suggested.isEmpty && plan.listStyle != .titles
-                            && plan.listStyle != .hidden {
-                            ProjectsSuggestedSection(
-                                suggested: suggested, isOpen: suggestedOpen, showDismissed: $showDismissed,
-                                blocked: blocked,
-                                toggle: {
-                                    withAnimation(CicadaMotion.groupExpand(reduceMotion: reduceMotion)) {
-                                        suggestedOpen.toggle()
-                                    }
-                                },
-                                accept: { s in
-                                    if s.needsName { naming = s } else { Task { await change(.accept(id: s.id, name: nil)) } }
-                                },
-                                dismiss: { s in Task { await change(.dismiss(id: s.id)) } },
-                                compact: plan.listStyle != .wide)
-                            .padding(.top, CicadaTheme.scaled(14))
+                        let live = suggested.filter { !$0.dismissed }.count
+                        if live > 0 && plan.listStyle != .titles && plan.listStyle != .hidden {
+                            ProjectsSuggestedLine(count: live, selected: openId == Self.suggestedColumn,
+                                                  review: { openProject(Self.suggestedColumn) })
+                                .padding(.top, CicadaTheme.scaled(14))
                         }
                     })
                 })
                 .focused($focus, equals: .list)
                 .tourAnchor(.projects)
         } detail: { plan in
-            if let id = openId {
+            if openId == Self.suggestedColumn {
+                ProjectsSuggestedColumn(
+                    suggested: suggested, blocked: blocked, gutter: plan.gutter,
+                    hiddenListCount: plan.listHidden ? lines.count : nil, onShowList: { showList() },
+                    onClose: { closeProject() },
+                    accept: { s in
+                        if s.needsName { naming = s } else { Task { await change(.accept(id: s.id, name: nil)) } }
+                    },
+                    dismiss: { s in Task { await change(.dismiss(id: s.id)) } })
+                    .focused($focus, equals: .detail)
+                    .onExitCommand { escape() }
+            } else if let id = openId {
                 let row = rows.first { $0.id == id }
                 ProjectDetailColumn(
                     projectId: id, row: row, parentName: parentName(of: row?.parent), today: today, gutter: plan.gutter,
@@ -134,7 +134,8 @@ struct ProjectsPage: View {
                     hiddenListCount: plan.listHidden ? lines.count : nil, openCard: trailing?.entityId,
                     openBacklogItem: trailing?.backlogItemId,
                     onShowList: { showList() }, onClose: { closeProject() }, onEscape: { escape() },
-                    openProject: { openProject($0) }, openEntity: { openCard($0) }, openItem: { openItem($0) })
+                    openProject: { openProject($0) }, openEntity: { openCard($0) }, openItem: { openItem($0) },
+                    full: $detailFull)
                     .id(id)
                     .focused($focus, equals: .detail)
                     .tourAnchor(.projectDetail)
@@ -183,9 +184,8 @@ struct ProjectsPage: View {
         .onChange(of: router.pendingProject) { _, _ in openPendingProject() }
         .onChange(of: cache.list?.projects.map(\.id)) { _, ids in
             guard let ids else { return }
-            columns.reconcile(present: Set(ids))
+            columns.reconcile(present: Set(ids).union([Self.suggestedColumn]))
             if !tabChosen { tab = ProjectsModel.defaultTab(ProjectsModel.counts(rows, today: today)) }
-            expanded.formIntersection(ids)
         }
         // R-PP3 / R-B18 — a sync version event that moved what an ETag folds asks again (a 304 costs nothing).
         .onChange(of: store.version) { old, new in
@@ -207,7 +207,6 @@ struct ProjectsPage: View {
         .onChange(of: store.bank) { _, _ in
             trailing = nil
             columns.close()
-            expanded = []
             pastLimit = ProjectsModel.pageSize
         }
         .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in today = ISODay.today() }
@@ -230,28 +229,6 @@ struct ProjectsPage: View {
     }
 
     // MARK: - Paths (a pointer path may animate, a keyboard path never does — DR-60)
-
-    /// A row's click: open it, and for a parent unfold its parts; the open parent clicked again folds or unfolds them.
-    private func tap(_ line: ProjectLine) {
-        let (opens, expand) = ProjectsModel.tap(line, openId: columns.openId)
-        if let expand {
-            withAnimation(CicadaMotion.groupExpand(reduceMotion: reduceMotion)) { setExpanded(line.id, expand) }
-        }
-        if opens { openProject(line.id) }
-    }
-
-    /// The chevron: fold or unfold a parent's parts without opening it.
-    private func toggleParts(_ line: ProjectLine) {
-        withAnimation(CicadaMotion.groupExpand(reduceMotion: reduceMotion)) { setExpanded(line.id, !line.expanded) }
-    }
-
-    private func setExpanded(_ id: String, _ open: Bool) {
-        if open { expanded.insert(id) } else { expanded.remove(id) }
-    }
-
-    private func toggleFading() {
-        withAnimation(CicadaMotion.groupExpand(reduceMotion: reduceMotion)) { fadingOpen.toggle() }
-    }
 
     /// Projects clicked again in the rail: the Reader, the card or item and the project close together, the find
     /// clears, and the page shows its first screen. A pointer click closes on the columns' curve; ⌘8 never animates.
@@ -286,13 +263,12 @@ struct ProjectsPage: View {
         focus = .list
     }
 
-    /// ↑/↓ — the neighbour opens in place; past the end of Current it opens Fading, past Past's page it draws the
-    /// next (`ProjectsModel.step`). Never animated (DR-60).
+    /// ↑/↓ — the neighbour opens in place; past Past's page it draws the next (`ProjectsModel.step`). Never animated
+    /// (DR-60).
     private func move(_ delta: Int) {
         Instant.run {
             let step = ProjectsModel.step(delta, openId: columns.openId, rows: rows, tab: tab, query: activeQuery,
                                           today: today, options: options)
-            fadingOpen = step.options.fadingOpen
             pastLimit = step.options.pastLimit
             guard let next = step.open, next != columns.openId else { return }
             columns.open(next)
@@ -301,12 +277,11 @@ struct ProjectsPage: View {
         }
     }
 
-    /// →/← — unfold or fold the open parent's parts, or from a part go to its parent. Never animated (DR-60).
+    /// ← — from a sub-project, go to its parent. Never animated (DR-60).
     private func side(_ delta: Int, in lines: [ProjectLine]) {
         let line = columns.openId.flatMap { id in lines.first { $0.id == id } }
         Instant.run {
             switch ProjectsModel.side(delta, line: line) {
-            case .expand(let open): if let line { setExpanded(line.id, open) }
             case .open(let parent):
                 columns.open(parent)
                 trailing = nil
@@ -319,6 +294,10 @@ struct ProjectsPage: View {
     /// DR-28 — Esc closes the rightmost open thing: the Reader, then the item or card, then the project.
     private func escape() {
         Instant.run {
+            if detailFull != nil && !provenance.isPresented && trailing == nil {
+                detailFull = nil
+                return
+            }
             switch ProjectTrailing.escape(readerOpen: provenance.isPresented, trailing: trailing,
                                           projectOpen: columns.openId != nil) {
             case .reader: provenance.close()
@@ -363,8 +342,8 @@ struct ProjectsPage: View {
         }
     }
 
-    /// R-PP24 — a ⌘K project row lands here. Read-then-clear; the row is drawn first (R-DL12's reason): its tab,
-    /// Fading opened, its parents unfolded and enough of Past drawn to reach it.
+    /// R-PP24 — a ⌘K project row lands here. Read-then-clear; the row is drawn first (R-DL12's reason): its tab and
+    /// enough of Past drawn to reach it.
     private func openPendingProject() {
         guard let id = router.consumeProject() else { return }
         Instant.run {
@@ -375,8 +354,6 @@ struct ProjectsPage: View {
                     tab = reveal.tab
                     tabChosen = true
                 }
-                if reveal.openFading { fadingOpen = true }
-                expanded.formUnion(reveal.expand)
                 if let limit = reveal.pastLimit { pastLimit = limit }
             }
             columns.open(id)

@@ -55,6 +55,7 @@ TOOL_SCOPE: dict[str, str | None] = {
     # are the app's own, withdrawable only by it.
     "cicada_create_project": "record",
     "cicada_link_conversation": "record",
+    "cicada_link_entity": "record",   # decision 10: a remote app's tie is always a proposal (never on the trust list)
     "cicada_add_influence": "record",
     # Ruling 32 (owner 2026-10-19): a hookless app (claude.ai, ChatGPT, their phone apps) relays each turn.
     # Remote only: a stdio harness is captured by its own hook (G105), never by a model's call.
@@ -96,7 +97,7 @@ WRITE_TOOLS = frozenset({"cicada_save_episode", "cicada_capture_turns", "cicada_
                          "cicada_change_source",
                          "cicada_note_progress", "cicada_add_backlog_item", "cicada_add_backlog_note",
                          "cicada_video_claim", "cicada_create_project", "cicada_link_conversation",
-                         "cicada_add_influence"})
+                         "cicada_link_entity", "cicada_add_influence"})
 READ_TOOLS = frozenset({"cicada_recall", "cicada_open_hub", "cicada_recall_detail", "cicada_get_perspective",
                         "cicada_check_nudges", "cicada_timeline", "cicada_project", "cicada_sources",
                         "cicada_ask", "cicada_backlog", "cicada_reading_queue", "cicada_video_queue"})

@@ -27,10 +27,11 @@ from __future__ import annotations
 
 import re
 import sqlite3
+from datetime import date, timedelta
 from pathlib import Path
 
 from api.services import evidence, project_birth, project_ownership, promotion, search_index
-from api.services.project_timeline import _Bank, _claim_episodes, _conv_key, _conversation, _ep_day, _sort_ts, _tree
+from api.services.project_timeline import ACTIVITY_DAYS, _Bank, _claim_episodes, _conv_key, _conversation, _ep_day, _sort_ts, _tree
 
 SIGNALS = ("repo", "named", "claims", "added", "provider", "relay")
 MAX_RAW_SCAN = 400
@@ -202,7 +203,31 @@ def build(memory_path: Path, stem: str, *, tz_name: str | None, offset: int = 0,
                                 offset=offset, partial=partial or bank.partial)
 
 
-def count(memory_path: Path, stem: str, *, tz_name: str | None, bank: _Bank | None = None) -> int:
+def count(memory_path: Path, stem: str, *, tz_name: str | None, bank: _Bank | None = None,
+          reasons: dict[str, set[str]] | None = None) -> int:
     bank = bank or _Bank(memory_path, tz_name)
-    reasons, _ = tie_reasons(memory_path, stem, tz_name=tz_name, bank=bank)
+    if reasons is None:
+        reasons, _ = tie_reasons(memory_path, stem, tz_name=tz_name, bank=bank)
     return len({_conv_key(bank, ep) for ep in reasons})
+
+
+def days(bank: _Bank, reasons: dict[str, set[str]]):
+    """The tied conversations per local day, each counted ONCE, on its newest episode's day — so a sum over any window
+    is a count of distinct conversations (the pulse's "7 conversations"). Only the `ACTIVITY_DAYS` ending at the newest
+    day are sent: anchored to the data, never to today (R-PJB6), so the ETag holds across midnight."""
+    from api.models.schemas import ActivityDay
+
+    newest: dict[str, str] = {}
+    for ep in reasons:
+        key = _conv_key(bank, ep)
+        cur = newest.get(key)
+        if cur is None or _sort_ts(bank, ep) > _sort_ts(bank, cur):
+            newest[key] = ep
+    per_day: dict[str, int] = {}
+    for ep in newest.values():
+        if (day := _ep_day(bank, ep)):
+            per_day[day] = per_day.get(day, 0) + 1
+    if not per_day:
+        return []
+    floor = (date.fromisoformat(max(per_day)) - timedelta(days=ACTIVITY_DAYS - 1)).isoformat()
+    return [ActivityDay(day=d, n=n) for d, n in sorted(per_day.items()) if d >= floor]

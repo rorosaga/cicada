@@ -347,7 +347,9 @@ def test_new_operations_take_the_cli_command_spelled_with_underscores():
                         "video_queue", "video_claim", "read_queue", "read_record", "inbox_record_check",
                         "source_list", "progress_add", "backlog_list", "backlog_add", "backlog_note",
                         # Ruling 45 (2026-10-27): named by their `cli_map` rows.
-                        "projects_create", "projects_link", "projects_influence"}
+                        "projects_create", "projects_link", "projects_influence",
+                        # Decision 10 (2026-10-28): pages tied by hand.
+                        "projects_tie_page"}
 
 
 def test_each_operation_needs_exactly_its_tool_s_scope():

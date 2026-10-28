@@ -1231,7 +1231,16 @@ Round 4 (C2–C4):
   (derived on read, Q2). `not_mine: {day}` — a dismissed suggestion; the page is never archived, deleted or retyped for
   it. `description` + `description_by: {by, day, session?}` — the person's header line (Q5); Sleep's article stays the
   Overview. `conversations_added` (an id = the person's tie; `{episode, by, session?}` = an agent's, which only it may
-  untie) and `conversations_removed` (the person's untie, which every automatic signal respects). `provider_projects:
+  untie) and `conversations_removed` (the person's untie, which every automatic signal respects).
+  `entities_added` / `entities_removed` (decision 10, 2026-10-28; `project_ownership.tie_page`, their one writer) —
+  "Pages in this project" tied by hand: an id = the person's tie; `{entity, by, session?}` = a trusted agent's;
+  `{entity, by, session?, proposed: true}` = another agent's proposal, shown for the person to take and never counted
+  as part of the project until they do. `entities_removed` is the person's "Not part of it", which wins over every
+  automatic tie (a claim or an event participant, `project_pages`) and that no agent re-ties; an agent removes only
+  what it tied. **Frontmatter, not a claim:** a negative must beat the automatic layer, a `part-of` claim already
+  makes a sub-project (`project_timeline._tree`), and membership is the person's curation, not a belief with evidence
+  and decay — the conversation lists' precedent. Both carry on a merge (`carry_on_merge`, an untie on either side
+  wins). `provider_projects:
   [{provider, id, name?, episode?, docs?, instructions?: {start, end, hash}}]` — the project's own id in Claude (from an
   export) or ChatGPT (a `g-p-` grouping the person named on accept); `instructions` is a span into the imported
   knowledge episode, read back only while `evidence.span_status` holds (`project_timeline._knowledge`), and `docs` are

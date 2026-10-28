@@ -288,3 +288,48 @@ struct ProjectOwnershipResponse: Decodable, Equatable, Sendable {
         page = c.lenient(.page)
     }
 }
+
+/// One page in "Pages in this project" (decision 10, wire g141-8). `tie`: `said` (a claim or an event ties it),
+/// `user` (the person tied it by hand), `agent` (a trusted agent did, `by` its name) or `proposed` (an agent not on the
+/// trust list proposed it — shown for the person to take, not yet part of the project).
+struct ProjectPageRow: Decodable, Equatable, Identifiable, Sendable {
+    var id: String
+    var name: String
+    var type: String?
+    var rolePhrase: String
+    var fact: String
+    var count: Int
+    var lastSeen: String?
+    var tie: String
+    var by: String?
+
+    init(id: String, name: String, type: String? = nil, rolePhrase: String = "", fact: String = "", count: Int = 0,
+         lastSeen: String? = nil, tie: String = "said", by: String? = nil) {
+        self.id = id
+        self.name = name
+        self.type = type
+        self.rolePhrase = rolePhrase
+        self.fact = fact
+        self.count = count
+        self.lastSeen = lastSeen
+        self.tie = tie
+        self.by = by
+    }
+
+    enum CodingKeys: String, CodingKey { case id, name, type, rolePhrase, fact, count, lastSeen, tie, by }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = c.lenient(.id, "")
+        name = c.lenient(.name, "")
+        type = c.lenient(.type)
+        rolePhrase = c.lenient(.rolePhrase, "")
+        fact = c.lenient(.fact, "")
+        count = c.lenient(.count, 0)
+        lastSeen = c.lenient(.lastSeen)
+        tie = c.lenient(.tie, "said")
+        by = c.lenient(.by)
+    }
+
+    var isProposed: Bool { tie == "proposed" }
+}

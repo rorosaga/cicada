@@ -2,62 +2,11 @@ import SwiftUI
 
 // Projects v2 (TODO ruling 45) — the person's own list and what Cicada suggests, the editable header, and the
 // "project knowledge" side panel (Q7, DESIGN_RULES §9 2026-10-27). Direction D: SF only, depth is a ring (DR-9),
-// grouped blocks on `bgOption`, both suggestion buttons neutral (DR-40), folds remembered (DR-39), one text field
-// (DR-76), one labelled add button (DR-75), one primary action per sheet (DR-40).
+// grouped blocks on `bgOption`, both suggestion buttons neutral (DR-40), one text field (DR-76), one labelled add
+// button (DR-75), one primary action per sheet (DR-40). Projects v3 (2026-10-28): no folds — Suggested is one line
+// and a column, the panel's blocks are open and capped with "All N" (decision 17).
 
 // MARK: - Suggested
-
-/// The list's Suggested fold, under Fading: each suggestion with where it came from, "Add to my projects" and "Not
-/// mine" (both neutral, DR-40); dismissed ones behind "N dismissed · Show". Nothing here deletes anything.
-struct ProjectsSuggestedSection: View {
-    let suggested: [SuggestedProject]
-    let isOpen: Bool
-    @Binding var showDismissed: Bool
-    let blocked: Bool
-    let toggle: () -> Void
-    let accept: (SuggestedProject) -> Void
-    let dismiss: (SuggestedProject) -> Void
-    /// The narrow triage column: every row stacks its buttons under its words (never a truncated label).
-    var compact = false
-
-    private var live: [SuggestedProject] { suggested.filter { !$0.dismissed } }
-    private var gone: [SuggestedProject] { suggested.filter(\.dismissed) }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.scaled(6)) {
-            DisclosureHeader(title: Copy.ProjectsMine.suggested, summary: UsageFormat.count(live.count),
-                             summaryWhenOpen: true, isOpen: isOpen, help: Copy.ProjectsMine.suggestedHelp,
-                             fillsWidth: true, toggle: toggle)
-                .padding(.horizontal, CicadaTheme.scaled(10))
-            if isOpen {
-                Text(Copy.ProjectsMine.suggestedIntro)
-                    .font(CicadaTheme.metaFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                    .padding(.horizontal, CicadaTheme.scaled(10))
-                ForEach(live) { s in
-                    SuggestedProjectRow(suggestion: s, blocked: blocked, accept: { accept(s) },
-                                        dismiss: { dismiss(s) }, compact: compact)
-                }
-                if !gone.isEmpty {
-                    HStack(spacing: CicadaTheme.spacingXS) {
-                        Text(Copy.ProjectsMine.dismissedCount(gone.count))
-                            .font(CicadaTheme.metaFont)
-                            .foregroundStyle(CicadaTheme.textTertiary)
-                        TextButton(title: showDismissed ? Copy.ProjectsMine.hide : Copy.ProjectsMine.show,
-                                   action: { showDismissed.toggle() })
-                    }
-                    .padding(.horizontal, CicadaTheme.scaled(10))
-                    if showDismissed {
-                        ForEach(gone) { s in
-                            SuggestedProjectRow(suggestion: s, blocked: blocked, accept: { accept(s) }, dismiss: nil,
-                                                compact: compact)
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
 
 /// One suggestion: its name, the reason with its glyph (a repository, the person's located sentence, an agent's
 /// proposal, a provider's project, a fallback page), and the two neutral buttons.
@@ -208,8 +157,8 @@ struct ProjectNameSheet: View {
 // MARK: - The header
 
 /// The project's head (DR-74's focus-card head line): the name as the 22 pt H1 and the person's description as body
-/// prose, both edited in place on a click (⏎ saves, Esc cancels), then one meta line: how it came to be theirs and who
-/// last set the description, with that agent's mark (DR-52).
+/// prose, both edited in place on a click (⏎ saves, Esc cancels). How it came to be theirs and who last set the
+/// description are in the head's `.help`, never a drawn line (Projects v3, owner 2026-10-28: the head was too dense).
 struct ProjectHeaderEditor: View {
     let ref: ProjectRef
     let blocked: Bool
@@ -221,7 +170,15 @@ struct ProjectHeaderEditor: View {
 
     enum Field { case name, description }
 
+    /// The words the meta line used to draw: how the project is the person's, and who last edited its description.
+    static func provenance(_ ref: ProjectRef) -> String {
+        let started = Copy.ProjectsMine.startedLine(ref.mine ? ref.mineVia : nil, day: ref.created)
+        let edited = ref.description == nil ? nil : ref.descriptionBy.map { Copy.ProjectsMine.editedBy($0.by, day: $0.day) }
+        return Copy.ProjectsOpen.headerHelp(started, edited)
+    }
+
     var body: some View {
+        let about = Self.provenance(ref)
         VStack(alignment: .leading, spacing: CicadaTheme.scaled(6)) {
             if editing == .name {
                 field(prompt: Copy.ProjectsMine.namePlaceholder, font: CicadaTheme.rowFont)
@@ -231,8 +188,9 @@ struct ProjectHeaderEditor: View {
                     .tracking(CicadaTheme.displayTracking(size: 22))
                     .foregroundStyle(CicadaTheme.textPrimary)
                     .onTapGesture { begin(.name, ref.name) }
-                    .help(blocked ? Copy.Projects.sleepBusy : Copy.ProjectsMine.editNameHelp)
+                    .help(blocked ? Copy.Projects.sleepBusy : about + "\n" + Copy.ProjectsMine.editNameHelp)
                     .accessibilityAddTraits(.isHeader)
+                    .accessibilityHint(about)
             }
             if editing == .description {
                 field(prompt: Copy.ProjectsMine.descriptionPlaceholder, font: CicadaTheme.detailBodyFont)
@@ -242,22 +200,21 @@ struct ProjectHeaderEditor: View {
                     .foregroundStyle(CicadaTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .onTapGesture { begin(.description, text) }
-                    .help(blocked ? Copy.Projects.sleepBusy : Copy.ProjectsMine.editDescriptionHelp)
+                    .help(blocked ? Copy.Projects.sleepBusy : about + "\n" + Copy.ProjectsMine.editDescriptionHelp)
+            } else if !ref.oneLiner.isEmpty {
+                // Sleep's first line stands in until the person writes theirs; a click starts their own (Projects v3:
+                // one line here, never the line plus an "Add a description" button).
+                Text(ref.oneLiner)
+                    .font(CicadaTheme.detailBodyFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .lineLimit(2)
+                    .onTapGesture { begin(.description, "") }
+                    .help(blocked ? Copy.Projects.sleepBusy : about + "\n" + Copy.ProjectsMine.addDescription)
             } else {
-                TextButton(title: Copy.ProjectsMine.addDescription, action: { begin(.description, "") })
+                TextButton(title: Copy.ProjectsMine.addDescription, flushLeading: true,
+                           action: { begin(.description, "") })
                     .disabled(blocked)
             }
-            HStack(spacing: CicadaTheme.spacingXS) {
-                Text(Copy.ProjectsMine.startedLine(ref.mine ? ref.mineVia : nil, day: ref.created))
-                if let by = ref.descriptionBy, ref.description != nil {
-                    Text("·")
-                    if !by.isPerson { OriginMark(origin: by.by, size: 12) }
-                    Text(Copy.ProjectsMine.editedBy(by.by, day: by.day))
-                }
-            }
-            .font(CicadaTheme.metaFont)
-            .foregroundStyle(CicadaTheme.textTertiary)
-            .lineLimit(1)
         }
         // Review of #493: a draft is never lost — clicking elsewhere (another project, which rebuilds this column)
         // saves it to THIS project, as ⏎ would; only Esc drops it.
@@ -292,9 +249,11 @@ struct ProjectHeaderEditor: View {
 
 // MARK: - The knowledge panel
 
-/// The "project knowledge" column (Q7, Claude-desktop style): what fed the project beside what happened. Conversations
-/// with why each is tied (the line under the list says it in words, so hover is never the only explanation — P-h),
-/// Sources & influences grouped by kind with Add an influence, and what a provider project carried.
+/// The "project knowledge" column (Q7, Claude-desktop style): what fed the project beside what happened. Pages in this
+/// project lead it (the column draws that block, `ProjectPagesBlock`); then Conversations with why each is tied (the
+/// line under the list says it in words, so hover is never the only explanation — P-h), Sources & influences grouped by
+/// kind with Add, and what a provider project carried. Every block is open and holds at most `ProjectOpen.cap` rows;
+/// more is "All N", which opens the full list in the card's column (decision 17) — never a fold.
 struct ProjectKnowledgePanel: View {
     let timeline: ProjectTimeline
     let conversations: ProjectConversationsPage?
@@ -304,41 +263,15 @@ struct ProjectKnowledgePanel: View {
     let openEntity: (String) -> Void
     let addInfluence: () -> Void
     let undoInfluence: (ProjectInfluence) -> Void
+    var allConversations: (() -> Void)? = nil
+    var allInfluences: (() -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-            block {
-                header(Copy.ProjectsMine.conversations(conversations?.total ?? timeline.conversationCount))
-                if let page = conversations, !page.conversations.isEmpty {
-                    ForEach(page.conversations.prefix(30)) { row in conversationRow(row) }
-                    let why = Copy.ProjectsMine.whyLine(page.counts)
-                    if !why.isEmpty {
-                        Text(why).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
-                            .help(Copy.ProjectsMine.tieHelp)
-                    }
-                } else {
-                    Text(Copy.ProjectsMine.noConversations)
-                        .font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
-                }
-            }
-            block {
-                HStack {
-                    header(Copy.ProjectsMine.influences(timeline.influences.count))
-                    Spacer()
-                    TextButton(title: Copy.ProjectsMine.addInfluence, action: addInfluence).disabled(blocked)
-                }
-                if timeline.influences.isEmpty {
-                    Text(Copy.ProjectsMine.noInfluences)
-                        .font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
-                }
-                ForEach(groups, id: \.0) { tag, rows in
-                    // A kind the record knows labels its group; the rest sit under no label (never "Thing").
-                    if !tag.isEmpty { SectionLabel(tag).padding(.top, CicadaTheme.scaled(2)) }
-                    ForEach(rows) { influenceRow($0) }
-                }
-            }
+            Self.block { conversationsBlock(limit: ProjectOpen.cap) }
+            Self.block { influencesBlock(limit: ProjectOpen.cap) }
             ForEach(timeline.knowledge, id: \.projectId) { k in
-                block {
+                Self.block {
                     header(Copy.ProjectsMine.fromProvider(k.provider))
                     if let text = k.instructions, !text.isEmpty {
                         Text(Copy.ProjectsMine.instructions).font(CicadaTheme.metaFont)
@@ -358,10 +291,68 @@ struct ProjectKnowledgePanel: View {
         }
     }
 
-    private var groups: [(String, [ProjectInfluence])] {
+    /// Conversations: the newest `limit` (all with nil), the why line, and "All N" when it holds more.
+    @ViewBuilder
+    func conversationsBlock(limit: Int?) -> some View {
+        let total = conversations?.total ?? timeline.conversationCount
+        VStack(alignment: .leading, spacing: CicadaTheme.scaled(6)) {
+            if limit != nil { header(Copy.ProjectsMine.conversations(total)) }
+            if let page = conversations, !page.conversations.isEmpty {
+                let rows = limit.map { Array(page.conversations.prefix($0)) } ?? page.conversations
+                ForEach(rows) { row in conversationRow(row) }
+                let why = Copy.ProjectsMine.whyLine(page.counts)
+                if !why.isEmpty || (limit != nil && total > rows.count) {
+                    HStack {
+                        Text(why).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
+                            .help(Copy.ProjectsMine.tieHelp)
+                        Spacer()
+                        if limit != nil, total > rows.count, let allConversations {
+                            TextButton(title: Copy.ProjectsOpen.all(total), inline: true, action: allConversations)
+                        }
+                    }
+                }
+            } else {
+                Text(Copy.ProjectsMine.noConversations)
+                    .font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
+            }
+        }
+    }
+
+    /// Sources & influences: grouped by kind, the newest `limit` (all with nil), Add, and "All N" when it holds more.
+    @ViewBuilder
+    func influencesBlock(limit: Int?) -> some View {
+        let rows = limit.map { Array(timeline.influences.prefix($0)) } ?? timeline.influences
+        VStack(alignment: .leading, spacing: CicadaTheme.scaled(6)) {
+            HStack {
+                if limit != nil { header(Copy.ProjectsMine.influences(timeline.influences.count)) }
+                Spacer()
+                TextButton(title: limit == nil ? Copy.ProjectsMine.addInfluence : Copy.ProjectsOpen.add,
+                           help: Copy.ProjectsMine.addInfluence, inline: true, action: addInfluence)
+                    .disabled(blocked)
+            }
+            if timeline.influences.isEmpty {
+                Text(Copy.ProjectsMine.noInfluences)
+                    .font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
+            }
+            ForEach(Self.groups(rows), id: \.0) { tag, group in
+                // A kind the record knows labels its group; the rest sit under no label (never "Thing").
+                if !tag.isEmpty { SectionLabel(tag).padding(.top, CicadaTheme.scaled(2)) }
+                ForEach(group) { influenceRow($0) }
+            }
+            if limit != nil, timeline.influences.count > rows.count, let allInfluences {
+                HStack {
+                    Spacer()
+                    TextButton(title: Copy.ProjectsOpen.all(timeline.influences.count), inline: true,
+                               action: allInfluences)
+                }
+            }
+        }
+    }
+
+    static func groups(_ influences: [ProjectInfluence]) -> [(String, [ProjectInfluence])] {
         var order: [String] = []
         var by: [String: [ProjectInfluence]] = [:]
-        for row in timeline.influences {
+        for row in influences {
             let tag = ProjectInfluence.knownTags.contains(row.tag) ? row.tag : ""
             if by[tag] == nil { order.append(tag) }
             by[tag, default: []].append(row)
@@ -370,7 +361,8 @@ struct ProjectKnowledgePanel: View {
         return order.filter { !$0.isEmpty }.map { ($0, by[$0] ?? []) } + (by[""].map { [("", $0)] } ?? [])
     }
 
-    private func block<C: View>(@ViewBuilder _ content: () -> C) -> some View {
+    /// One of the panel's grouped blocks (DR-9: a ring, never a shadow).
+    static func block<C: View>(@ViewBuilder _ content: () -> C) -> some View {
         VStack(alignment: .leading, spacing: CicadaTheme.scaled(6)) { content() }
             .padding(CicadaTheme.spacingMD)
             .frame(maxWidth: .infinity, alignment: .leading)

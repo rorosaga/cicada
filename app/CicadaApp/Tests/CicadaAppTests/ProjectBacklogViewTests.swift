@@ -21,8 +21,10 @@ final class ProjectBacklogViewTests: XCTestCase {
         XCTAssertNil(ProjectTrailing.entity("hana-example").backlogItemId)
     }
 
-    func testTheBacklogSitsAfterThePlanAndItsFoldIsRemembered() {
-        XCTAssertEqual(ProjectSection.allCases, [.now, .done, .lately, .plan, .backlog, .around], "ruling 45: In progress · Done · Timeline")
-        XCTAssertEqual(ProjectSection(rawValue: "backlog"), .backlog)
+    /// Projects v3 (decision 9): the card's open sections, in their order; the backlog's open items read under Coming up.
+    func testTheOpenSectionsComeInTheOrderThePersonNeedsThem() {
+        XCTAssertEqual(ProjectSection.allCases, [.now, .comingUp, .timeline])
+        XCTAssertEqual(ProjectKey.milestone("m").section, .comingUp)
+        XCTAssertEqual(ProjectKey.item("i").section, .timeline)
     }
 }

@@ -230,6 +230,8 @@ _DISPATCH: dict[str, Callable[[mcp_tools.ToolContext, dict], str]] = {
     "cicada_link_conversation": lambda c, a: mcp_tools.link_conversation(
         c, str(a.get("project") or ""), a.get("episode"), a.get("session"), bool(a.get("remove", False)),
         a.get("reason")),
+    "cicada_link_entity": lambda c, a: mcp_tools.link_entity(
+        c, str(a.get("project") or ""), str(a.get("entity") or ""), bool(a.get("remove", False)), a.get("reason")),
     "cicada_add_influence": lambda c, a: mcp_tools.add_influence(
         c, str(a.get("project") or ""), a.get("what"), a.get("url"), a.get("how"), a.get("evidence")),
     "cicada_record_watch": lambda c, a: mcp_tools.record_watch(

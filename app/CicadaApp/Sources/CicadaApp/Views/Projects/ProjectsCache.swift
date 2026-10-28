@@ -318,7 +318,7 @@ struct ProjectPaint: Identifiable, Equatable {
         switch change {
         case .accept(let id, _), .dismiss(let id), .header(let id, _, _): return [list, "t:\(id)"]
         case .tie(let id, _, true): return ["t:\(id)", "c:\(id)"]
-        case .withdrawInfluence(let id, _, _, _, _): return ["t:\(id)"]
+        case .withdrawInfluence(let id, _, _, _, _), .tiePage(let id, _, _, _, _): return ["t:\(id)"]
         case .create, .tie, .addInfluence: return []
         }
     }
@@ -382,6 +382,8 @@ struct ProjectPaint: Identifiable, Equatable {
                 t.influences.removeAll { ($0.claimId != nil && $0.claimId == claimId) || ($0.ref != nil && $0.ref == ref) }
             case .tie(_, _, true):
                 t.conversationCount = max(0, t.conversationCount - 1)
+            case .tiePage(_, let entity, let name, let type, let remove):
+                t = ProjectPagesPaint.apply(t, entity: entity, name: name, type: type, remove: remove)
             default:
                 break
             }

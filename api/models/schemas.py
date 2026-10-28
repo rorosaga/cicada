@@ -1769,6 +1769,9 @@ class OpenThread(CamelModel):
     last_heard: str
     on: Optional[str] = None
     verbatim: bool = False
+    # g141-8 (decision 9): who the thread waits on — its `from` participant's name, a structural fact on the claim
+    # (`progress` writes the roles), never read from its words. The pulse's "Waiting on".
+    waiting_on: Optional[str] = None
 
 
 class ActivityDay(CamelModel):
@@ -1950,6 +1953,29 @@ class ProjectTimeline(CamelModel):
     influences: list["ProjectInfluence"] = []
     conversation_count: int = 0
     knowledge: list["ProjectKnowledge"] = []
+    # g141-8 (decisions 9 and 10, owner 2026-10-28): the tied conversations per local day, each counted once on its
+    # newest day (the pulse's weekly bars; absolute days, read at the viewer's today), and "Pages in this project" —
+    # the pages around it plus the ones tied by hand, less the ones the person said are not part of it.
+    conversation_days: list[ActivityDay] = []
+    pages: list["ProjectPageRow"] = []
+    pages_total: int = 0
+    page_counts: dict[str, int] = {}
+
+
+class ProjectPageRow(CamelModel):
+    """One page in "Pages in this project". ``tie`` says why it is listed: ``said`` (a claim or an event ties it — the
+    automatic layer), ``user`` (the person tied it by hand), ``agent`` (a trusted agent tied it, ``by`` its name) or
+    ``proposed`` (an agent not on the trust list proposed it: shown for the person to take, never as part of the
+    project until they do)."""
+    id: str
+    name: str = ""
+    type: Optional[str] = None
+    role_phrase: str = ""
+    fact: str = ""
+    count: int = 0
+    last_seen: Optional[str] = None
+    tie: str = "said"
+    by: Optional[str] = None
 
 
 class ProjectInfluence(CamelModel):
@@ -2017,6 +2043,12 @@ class ProjectPatch(CamelModel):
 
 class ConversationTie(CamelModel):
     episode: str
+    remove: bool = False
+
+
+class PageTie(CamelModel):
+    """"Add" (a page id) or "Not part of it" (``remove``) on "Pages in this project"."""
+    entity: str
     remove: bool = False
 
 

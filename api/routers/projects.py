@@ -37,7 +37,7 @@ from starlette.concurrency import run_in_threadpool
 from api.config import Settings, get_settings
 from api.models.schemas import (ConversationTie, HappeningCreate, InfluenceCreate, InfluenceWithdraw,
                                 MilestoneCreate, MilestonePatch, ProjectAccept, ProjectConversations, ProjectCreate,
-                                ProjectOwnershipResponse, ProjectPatch, ProjectsResponse, ProjectTimeline,
+                                PageTie, ProjectOwnershipResponse, ProjectPatch, ProjectsResponse, ProjectTimeline,
                                 ProjectWriteResponse, ThreadSettle, WithdrawRequest)
 from api.services import (bank_index, episode_scrub, git_service, handshake, markdown_parser, owner_identity,
                           progress, project_timeline, search_index, sync_service, telemetry,
@@ -598,6 +598,26 @@ async def tie_conversation(project_id: str, body: ConversationTie, settings: Set
             await _commit_as(mp, f"Project conversation {'untied' if body.remove else 'tied'} {stem}", paths)
     return ProjectOwnershipResponse(id=stem, action=("untied" if body.remove else "tied") if paths else "unchanged",
                                     mine=True, episode_id=body.episode)
+
+
+@router.post("/projects/{project_id}/pages", response_model=ProjectOwnershipResponse)
+@_admitted
+async def tie_page(project_id: str, body: PageTie, settings: Settings = Depends(get_settings)):
+    """"Pages in this project": Add a page by hand, or "Not part of it" — the person's word, which wins over every
+    automatic tie and that no agent undoes (decision 10). Adding a page an agent proposed makes it the person's tie."""
+    from api.services import project_ownership
+
+    mp = settings.memory_path
+    async with _write_lock:
+        stem = _project_stem(mp, project_id)
+        try:
+            paths = await run_in_threadpool(project_ownership.tie_page, mp, stem, body.entity, remove=body.remove)
+        except project_ownership.OwnershipError as exc:
+            raise _refuse(exc)
+        if paths:
+            await _commit_as(mp, f"Project page {'not part of it' if body.remove else 'added'} {stem}", paths)
+    return ProjectOwnershipResponse(id=stem, action=("removed" if body.remove else "added") if paths else "unchanged",
+                                    mine=True, page=body.entity)
 
 
 @router.post("/projects/{project_id}/influences", response_model=ProjectOwnershipResponse)

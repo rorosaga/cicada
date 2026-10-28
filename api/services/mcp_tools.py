@@ -2832,12 +2832,30 @@ def project(ctx: ToolContext, project: str, since=None, tz: str | None = None) -
                  "Not in the person's projects yet: it waits under Suggested on their Projects page.")
     extra.append(f"Conversations tied: {timeline.conversation_count} · sources and influences: "
                  f"{len(timeline.influences)}.")
+    # Decisions 9 and 10 (2026-10-28): the pulse the person sees, counted at the caller's today, and the pages in it.
+    from api.services import project_pulse
+
+    pulse = project_pulse.pulse(project_pulse.input_from_timeline(timeline), today)
+    extra += project_pulse.lines(pulse, hidden=set() if ctx.raw_excerpts else
+                                 {t.claim_id for t in timeline.now.threads if t.verbatim})
+    tied = [p for p in timeline.pages if p.tie != "proposed"]
+    if tied:
+        shown = ", ".join(f"{p.name} ({p.id})" for p in tied[:8])
+        more = len(tied) - 8
+        extra.append(f"Pages in this project: {shown}" + (f", and {more} more." if more > 0 else "."))
+    proposed = [p for p in timeline.pages if p.tie == "proposed"]
+    if proposed:
+        extra.append("Proposed by an agent, waiting for the person: " +
+                     ", ".join(f"{p.name} ({p.id})" for p in proposed[:5]) + ".")
     head, _, rest = text.partition("\n")
     text = "\n".join([head, *extra, *([rest] if rest else [])])
     return Reply(text, data={"project_id": timeline.project.id, "name": timeline.project.name,
                              "open_backlog": [getattr(i, "id", None) for i in open_items],
                              "mine": ref_.mine, "description": ref_.description if ctx.raw_excerpts else None,
-                             "conversations": timeline.conversation_count, "influences": len(timeline.influences)})
+                             "conversations": timeline.conversation_count, "influences": len(timeline.influences),
+                             "pulse": {k: pulse[k] for k in ("weeks", "conversations", "done", "waitingTotal",
+                                                             "quietTotal")},
+                             "pages": [p.id for p in tied]})
 
 
 def _now_in(tz_name: str | None) -> datetime:
@@ -3977,6 +3995,47 @@ def link_conversation(ctx: ToolContext, project: str, episode: str | None = None
     what = "the conversation" + (f" ({n} episodes)" if n > 1 else "")
     return (f"Untied {what} you had tied from {stem}." if remove else
             f"Tied {what} to {stem}; the person sees it on the project's page as added by you.")
+
+
+@_holding_pages
+def link_entity(ctx: ToolContext, project: str, entity: str, remove: bool = False, reason: str | None = None) -> str:
+    """``cicada_link_entity`` (decision 10, owner 2026-10-28): tie a page to a project ("Pages in this project"), or take
+    back a tie this agent made. A harness on the person's trust list (G198, ``page_editors``) ties at once; any other —
+    a remote app included — proposes, and the person takes or turns the proposal down on the page. The person's "Not
+    part of it" is final: no agent re-ties that page. Never ties by co-occurrence: the agent says why."""
+    from api.services import page_editors, project_ownership
+
+    memory_path = ctx.memory_path()
+    if (refusal := _demo_refusal(memory_path)) is not None:
+        return refusal
+    if not str(reason or "").strip():
+        return Reply("Say why in `reason` (one sentence). Nothing changed.", code="invalid_arguments")
+    if not str(entity or "").strip():
+        return Reply("Name the page as `entity` (its id or name).", code="invalid_arguments")
+    if ctx.sleep_running():
+        return Reply(PROJECT_SLEEPING, code="sleep_writing")
+    stem, miss = _project_page(memory_path, project)
+    if miss is not None:
+        return miss
+    trusted = page_editors.is_trusted(ctx.author, remote=ctx.is_remote)
+    try:
+        paths = project_ownership.tie_page(memory_path, stem, str(entity), remove=bool(remove), by=ctx.author,
+                                           session=ctx.session_id or None, trusted=trusted)
+    except project_ownership.OwnershipError as exc:
+        return Reply(f"Nothing changed — {exc}", code="refused")
+    if not paths:
+        return f"Nothing to change: {'not tied by you' if remove else 'already tied'}."
+    _source_event(ctx, memory_path, stem, "page_untied" if remove else ("page_tied" if trusted else "page_proposed"))
+    clean = " ".join(str(reason).split())[:300]
+    agent_commits.commit_write(memory_path, subject=ctx.commit_subject,
+                               lines=[f"{p}: updated (trigger: {ctx.trigger})" for p in paths] + ["", f"Reason: {clean}"],
+                               paths=paths, author=ctx.author, session=ctx.session_id)
+    if remove:
+        return f"Took back your tie of {entity} to {stem}."
+    if trusted:
+        return f"Tied {entity} to {stem}; the person sees it in Pages in this project as added by you."
+    return (f"Proposed {entity} as part of {stem}: it waits on the project's page, as your proposal, until the person "
+            "adds it.")
 
 
 def _session_episodes(memory_path: Path, sid: str) -> list[str]:

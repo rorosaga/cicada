@@ -1696,6 +1696,37 @@ part is a spec and needs a Mac).** The wire is `api.md`'s g141-6. What the page 
 - **Swift work:** decode `origin`, `sections`, `people` leniently into `ProjectOrigin`/`ProjectSection`/`ProjectPerson`
   (`ProjectsCache` unchanged — the ETag shape moved, so caches refetch once), re-pin `projects-demo.json`'s decode test,
   add `Copy+Projects` strings (provider-neutral, DR-59), and a `ProjectDetailSectionsTests` over the fixture.
+- **Projects v3 (2026-10-28, ruling 48: DESIGN_RULES §9 2026-10-28 (9), (10), (17); DR-81, DR-38, DR-44, DR-45, DR-74,
+  §3.8) — the page has no folds.** A section with nothing in it is not drawn; a section with something is open and
+  holds at most five rows (`ProjectOpen.cap`); more is a plain "All N" on the section's label that swaps the card's
+  column to that full list (`ProjectOpen.Full`, `ProjectFullHead`: ‹ Back · title · count; Esc returns), never an
+  in-place expansion. A source lint (`ProjectPulseTests.testTheProjectsPageHasNoFolds`) fails any `Disclosure*` under
+  `Views/Projects`. **The head** is the name, the person's line and ONE standing line ("In motion · 3 of 6 milestones
+  done · Next: Fibreglass the hull, Nov 8", Next a button onto its row; with nothing planned, "Add a milestone" M):
+  the meta line ("You added this project · … · description last edited by …") moved into the head's `.help`
+  (`ProjectHeaderEditor.provenance`), and *Last* left — the Timeline's first row and the band's newest mark say it
+  (DR-38). **Under the band and Log progress:** *Pulse* (`ProjectPulseView`, read at the viewer's today by
+  `ProjectPulse`, the twin of `project_pulse.py` on one fixture): the last 4 weeks as words over four neutral weekly
+  bars (text ink, never a hue — the band's green stays the page's one colour), what it is *waiting on* (an open
+  thread's `from` participant, `waitingOn`), what has *gone quiet* (an open thread silent past Q); each fact is drawn
+  only when it has something to say. *In motion* (the open threads, `ProjectNowSection(limit:)`, and the Sleep queue's
+  line). *Coming up* (`ProjectOpen.comingUp`: planned milestones by target, then the backlog's open and doing items,
+  each opening as the third column; its full list adds the whole backlog with its tabs and its add fields; the ⋯ menu's
+  *Add to the backlog* opens it). *Timeline* (`ProjectOpen.timeline`: every story row plus every milestone marked done
+  as a filled diamond with a "Milestone done" Tag, newest first; the full list ends with "Cicada started tracking
+  this"). Done, Plan, Backlog and Around this project are gone as sections. A pick on the band (or Next, or a pulse
+  fact) whose row the capped section does not show opens that section's full list and scrolls to it
+  (`ProjectOpen.isShown`). **The knowledge panel** leads with *Pages in this project* (`ProjectPagesBlock`: the
+  pages a claim or an event ties, the ones tied by hand with a "You tied it" / "<agent> tied it" Tag, and an agent's
+  proposal first with Add and Not part of it; on hover a row offers *Not part of it*, also in its menu; Add opens
+  `AddProjectPageSheet` over the pages already in memory, never making one), then Conversations and Sources &
+  influences, each capped with its own "All N". Writes are `ProjectChange.tiePage` through `Store.perform`, painted at
+  once (`ProjectPagesPaint`). **The list:** sub-projects sit indented under their parent, always shown (no chevron —
+  amends 2026-10-19's "dropdown that moves if I press again", the owner's newer preference); the quiet projects sit
+  under a static *Gone quiet* label (`ProjectsEntry.quiet`), never a fold; Suggested is one line, "N suggested by
+  Cicada · Review" (`ProjectsSuggestedLine`), which opens the suggestions as the detail column
+  (`ProjectsSuggestedColumn`: DR-74's head, text tabs Suggested · Not mine). ← on a sub-project opens its parent; →
+  has nothing left to unfold. The bullets below describe v2; where they name a fold, v3's open section replaces it.
 - **The list (v2):** text tabs **Current · Past** with counts (`ProjectsModel.tabs`; tapping the selected one keeps
   it). A project's group is `ProjectState`'s section (`ProjectsGroup`): in motion → Current; quiet → **Fading**, one
   folded disclosure at Current's foot, remembered on `cicada.projects.fadingOpen`; resting (decaying or archived, or

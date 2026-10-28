@@ -190,8 +190,13 @@ named. `cicada_link_conversation(project, reason, episode? | session?, remove?)`
 agent's name); an agent unties only what it tied, and the person's untie is final. `cicada_add_influence(project, what? |
 url?, how?, evidence?)` records what fed a project — a link as the agent's source, a name as a claim with the agent as
 observer (`inspired-by`, `references`, `uses`; a person as `works-on` on their page), plain text when no page matches,
-never a page made. All three are `record` remotely, one `cli_map` row each (`projects create|link|influence`, proposed
-spellings; `/v1` `projects_create`, `projects_link`, `projects_influence`), admitted, committed alone under the harness.
+never a page made. `cicada_link_entity(project, entity, reason, remove?)` (decision 10, 2026-10-28) ties a page
+already in memory to a project ("Pages in this project"): a harness on the trust list ties at once, any other — a remote
+app always — records a proposal the person takes or turns down on the page; the person's "Not part of it" is final, and
+an agent takes back only its own tie. All four are `record` remotely, one `cli_map` row each (`projects
+create|link|tie-page|influence`, proposed spellings; `/v1` `projects_create`, `projects_link`, `projects_tie_page`,
+`projects_influence`), admitted, committed alone under the harness. `cicada_project` adds the pulse in words (the last 4
+weeks, what it waits on; Gone quiet is its own "Quiet:" lines) and the pages in the project, proposals apart.
 `cicada_edit_page` takes `name` and `description` for a project (the header, `description_by` the harness; the old name
 stays an alias; untrusted → an inbox proposal). `cicada_project`'s reply says whether the project is in the person's
 list, their description (remote: only with `sources`), and how many conversations and influences are tied. Handshake

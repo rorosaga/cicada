@@ -11,12 +11,15 @@ enum ProjectChange: Equatable, Sendable {
     case tie(id: String, episode: String, remove: Bool)
     case addInfluence(id: String, url: String?, what: String?, entity: String?, how: String?, note: String?)
     case withdrawInfluence(id: String, claimId: String?, page: String?, ref: String?, predicate: String?)
+    /// Decision 10 (2026-10-28): Pages in this project — Add a page (`name` paints the row at once) or "Not part of it".
+    case tiePage(id: String, entity: String, name: String?, type: String?, remove: Bool)
 
     var projectId: String? {
         switch self {
         case .create: return nil
         case .accept(let id, _), .dismiss(let id), .header(let id, _, _), .tie(let id, _, _),
-             .addInfluence(let id, _, _, _, _, _), .withdrawInfluence(let id, _, _, _, _):
+             .addInfluence(let id, _, _, _, _, _), .withdrawInfluence(let id, _, _, _, _),
+             .tiePage(let id, _, _, _, _):
             return id
         }
     }
@@ -57,6 +60,8 @@ enum ProjectChange: Equatable, Sendable {
             set(&body, "ref", ref)
             set(&body, "predicate", predicate)
             return ("POST", APIClient.projectPath(id, "influences", "withdraw"), body)
+        case .tiePage(let id, let entity, _, _, let remove):
+            return ("POST", APIClient.projectPath(id, "pages"), ["entity": entity, "remove": remove])
         }
     }
 }

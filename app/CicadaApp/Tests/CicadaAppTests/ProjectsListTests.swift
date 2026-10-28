@@ -34,61 +34,35 @@ final class ProjectsListTests: XCTestCase {
         XCTAssertEqual(ProjectsGroup(.resting).tab, .past)
     }
 
-    /// The owner: "if the projects have subsections, then it should actually be a dropdown that moves if I press
-    /// again" — parts are folded under their parent until unfolded.
-    func testPartsFoldUnderTheirParent() throws {
+    /// Projects v3 (decision 9, amends 2026-10-19's "dropdown that moves if I press again"): a sub-project sits
+    /// indented under its parent, always shown — nothing on the list folds.
+    func testPartsAreAlwaysShownUnderTheirParent() throws {
         let rows = try rows()
-        let folded = ProjectsModel.entries(rows, tab: .current, query: "", today: today)
-        XCTAssertEqual(ids(folded), ["rover-arm-project", "alpha-project", "gamma-project", "garden-sensor-project"])
-        XCTAssertEqual(folded.compactMap(\.line).map(\.children), [1, 1, 0, 0])
-        XCTAssertEqual(folded.compactMap(\.line).map(\.expanded), [false, false, false, false])
-
-        let open = ProjectsModel.entries(rows, tab: .current, query: "", today: today,
-                                         options: ProjectsListOptions(expanded: ["rover-arm-project"]))
-        XCTAssertEqual(ids(open), ["rover-arm-project", "pick-and-place-demo", "alpha-project", "gamma-project",
-                                   "garden-sensor-project"])
-        XCTAssertEqual(open.compactMap(\.line).map(\.depth), [0, 1, 0, 0, 0])
-        XCTAssertEqual(open.first?.line?.expanded, true)
+        let entries = ProjectsModel.entries(rows, tab: .current, query: "", today: today)
+        XCTAssertEqual(ids(entries), ["rover-arm-project", "pick-and-place-demo", "alpha-project", "beta-project",
+                                      "gamma-project", "garden-sensor-project"])
+        XCTAssertEqual(entries.compactMap(\.line).map(\.depth), [0, 1, 0, 1, 0, 0])
+        XCTAssertEqual(entries.compactMap(\.line).map(\.children), [1, 0, 1, 0, 0, 0])
 
         let found = ProjectsModel.entries(rows, tab: .current, query: "Beta", today: today)
         XCTAssertEqual(ids(found), ["beta-project"])
         XCTAssertEqual(found.first?.line?.depth, 0, "a part whose parent is not shown sits flat")
     }
 
-    func testAClickOpensAndTheSecondFolds() throws {
-        let lines = ProjectsModel.entries(try rows(), tab: .current, query: "", today: today,
-                                          options: ProjectsListOptions(expanded: ["rover-arm-project"])).compactMap(\.line)
-        let rover = try XCTUnwrap(lines.first { $0.id == "rover-arm-project" })
-        let garden = try XCTUnwrap(lines.first { $0.id == "garden-sensor-project" })
-        let closedRover = ProjectLine(row: rover.row, state: rover.state, depth: 0, children: 1, expanded: false)
-        XCTAssertTrue(ProjectsModel.tap(closedRover, openId: nil) == (true, true), "a parent opens and unfolds")
-        XCTAssertTrue(ProjectsModel.tap(rover, openId: "rover-arm-project") == (false, false), "pressed again, it folds")
-        XCTAssertTrue(ProjectsModel.tap(closedRover, openId: "rover-arm-project") == (false, true), "and again, unfolds")
-        XCTAssertTrue(ProjectsModel.tap(garden, openId: nil) == (true, nil), "a plain project only opens")
-        XCTAssertTrue(ProjectsModel.tap(garden, openId: "garden-sensor-project") == (true, nil))
-    }
-
-    /// A month on, the quiet projects fold into one *Fading* group under Current, closed unless opened or found.
-    func testFadingIsOneFoldedGroup() throws {
+    /// A month on, the quiet projects sit under a static "Gone quiet" label under Current — open, never a fold.
+    func testGoneQuietIsAStaticLabelOverItsRows() throws {
         let rows = try rows()
         let later = today.adding(30)
         let counts = ProjectsModel.counts(rows, today: later)
         let fading = try XCTUnwrap(counts[.fading])
         XCTAssertGreaterThan(fading, 0)
-        let closed = ProjectsModel.entries(rows, tab: .current, query: "", today: later)
-        XCTAssertEqual(closed.last, .fading(count: fading, open: false))
-        XCTAssertEqual(closed.compactMap(\.line).count, counts[.current])
-        let open = ProjectsModel.entries(rows, tab: .current, query: "", today: later,
-                                         options: ProjectsListOptions(fadingOpen: true))
-        XCTAssertTrue(open.contains(.fading(count: fading, open: true)))
-        let after = open.drop { $0.id != "projects.fading" }.dropFirst().compactMap(\.line)
-        XCTAssertFalse(after.isEmpty)
+        let entries = ProjectsModel.entries(rows, tab: .current, query: "", today: later)
+        XCTAssertTrue(entries.contains(.quiet(count: fading)))
+        let after = entries.drop { $0.id != "projects.quiet" }.dropFirst().compactMap(\.line)
+        XCTAssertEqual(after.count, fading)
         XCTAssertTrue(after.allSatisfy { $0.group == .fading })
         XCTAssertEqual(ProjectsModel.standing(try XCTUnwrap(after.first { $0.id == "rover-arm-project" }), today: later),
                        "Quiet 30 days")
-        let onlyFading = rows.filter { ProjectsModel.group($0, today: later) == .fading }
-        XCTAssertEqual(ProjectsModel.entries(onlyFading, tab: .current, query: "", today: later).first,
-                       .fading(count: fading, open: true), "nothing in motion: Fading shows itself")
     }
 
     /// "Never 600 rows at once": Past draws a page at a time, newest first, under year labels.
@@ -120,10 +94,10 @@ final class ProjectsListTests: XCTestCase {
         XCTAssertEqual(ProjectsModel.standing(rover, today: today, locale: us), "Next · First grasp, Oct 1")
         XCTAssertEqual(ProjectsModel.oneLine(rover.row), "A small arm that picks parts off a tray.")
         XCTAssertEqual(ProjectsModel.accessibilityLabel(rover, today: today, locale: us),
-                       "Rover Arm Project, Next · First grasp, Oct 1, 1 part, Collapsed")
+                       "Rover Arm Project, Next · First grasp, Oct 1, 1 part")
         // VoiceOver hears the row in the same locale it shows: a Mac in Spain (here en_GB) reads "1 Oct".
         XCTAssertEqual(ProjectsModel.accessibilityLabel(rover, today: today, locale: Locale(identifier: "en_GB")),
-                       "Rover Arm Project, Next · First grasp, 1 Oct, 1 part, Collapsed")
+                       "Rover Arm Project, Next · First grasp, 1 Oct, 1 part")
         let garden = try XCTUnwrap(lines.first { $0.id == "garden-sensor-project" })
         XCTAssertEqual(ProjectsModel.standing(garden, today: today, locale: us), "Heard 9 days ago")
         XCTAssertEqual(ProjectsModel.accessibilityLabel(garden, today: today, locale: us),
@@ -146,11 +120,11 @@ final class ProjectsListTests: XCTestCase {
     func testRevealDrawsAHiddenProject() throws {
         let rows = try rows()
         XCTAssertEqual(ProjectsModel.reveal("pick-and-place-demo", rows: rows, today: today, pastLimit: 50),
-                       .init(tab: .current, openFading: false, expand: ["rover-arm-project"], pastLimit: nil))
+                       .init(tab: .current, pastLimit: nil))
         XCTAssertEqual(ProjectsModel.reveal("delta-project", rows: rows, today: today, pastLimit: 50),
-                       .init(tab: .past, openFading: false, expand: [], pastLimit: nil))
-        XCTAssertEqual(ProjectsModel.reveal("rover-arm-project", rows: rows, today: today.adding(30), pastLimit: 50)?.openFading,
-                       true)
+                       .init(tab: .past, pastLimit: nil))
+        XCTAssertEqual(ProjectsModel.reveal("rover-arm-project", rows: rows, today: today.adding(30), pastLimit: 50)?.tab,
+                       .current)
         XCTAssertNil(ProjectsModel.reveal("nope", rows: rows, today: today, pastLimit: 50))
         let past = try pastRows(120, from: ISODay(year: 2026, month: 3, day: 1))
         XCTAssertEqual(ProjectsModel.reveal("past-75", rows: past, today: today, pastLimit: 50)?.pastLimit, 100)
@@ -163,20 +137,17 @@ final class ProjectsListTests: XCTestCase {
         XCTAssertEqual(ProjectsModel.eyebrow(partial: true), "Projects · still indexing")
     }
 
-    /// DR-68 — every project is reachable by keyboard: ↓ past Current opens Fading, ↓ past Past's page draws the next,
-    /// → / ← unfold and fold a parent's parts, ← on a part goes to its parent.
+    /// DR-68 — every project is reachable by keyboard: ↓ walks Current into Gone quiet (both open), ↓ past Past's
+    /// page draws the next, ← on a part goes to its parent.
     func testEveryProjectIsReachableByKeyboard() throws {
         let rows = try rows()
         let later = today.adding(30)
-        let current = ProjectsModel.entries(rows, tab: .current, query: "", today: later).compactMap(\.line)
-        let lastCurrent = try XCTUnwrap(current.last?.id)
-        let down = ProjectsModel.step(1, openId: lastCurrent, rows: rows, tab: .current, query: "", today: later,
-                                      options: ProjectsListOptions())
-        XCTAssertTrue(down.options.fadingOpen, "↓ past the last current row opens Fading")
-        let landed = try XCTUnwrap(rows.first { $0.id == down.open })
-        XCTAssertEqual(ProjectsModel.group(landed, today: later), .fading, "and lands on its first row")
-        XCTAssertEqual(ProjectsModel.step(-1, openId: lastCurrent, rows: rows, tab: .current, query: "", today: later,
-                                          options: ProjectsListOptions()).options.fadingOpen, false)
+        let lines = ProjectsModel.entries(rows, tab: .current, query: "", today: later).compactMap(\.line)
+        if let firstQuiet = lines.firstIndex(where: { $0.group == .fading }), firstQuiet > 0 {
+            let down = ProjectsModel.step(1, openId: lines[firstQuiet - 1].id, rows: rows, tab: .current, query: "",
+                                          today: later, options: ProjectsListOptions())
+            XCTAssertEqual(down.open, lines[firstQuiet].id, "↓ walks on into Gone quiet")
+        }
         XCTAssertEqual(ProjectsModel.step(1, openId: nil, rows: rows, tab: .current, query: "", today: today,
                                           options: ProjectsListOptions()).open, "rover-arm-project")
 
@@ -189,14 +160,11 @@ final class ProjectsListTests: XCTestCase {
                                      options: ProjectsListOptions(pastLimit: 150))
         XCTAssertEqual(end.open, "past-119", "the last project stays put")
 
-        let lines = ProjectsModel.entries(rows, tab: .current, query: "", today: today,
-                                          options: ProjectsListOptions(expanded: ["rover-arm-project"])).compactMap(\.line)
-        let rover = try XCTUnwrap(lines.first { $0.id == "rover-arm-project" })
-        let pick = try XCTUnwrap(lines.first { $0.id == "pick-and-place-demo" })
-        let folded = ProjectLine(row: rover.row, state: rover.state, depth: 0, children: 1, expanded: false)
-        XCTAssertEqual(ProjectsModel.side(1, line: folded), .expand(true))
+        let now = ProjectsModel.entries(rows, tab: .current, query: "", today: today).compactMap(\.line)
+        let rover = try XCTUnwrap(now.first { $0.id == "rover-arm-project" })
+        let pick = try XCTUnwrap(now.first { $0.id == "pick-and-place-demo" })
         XCTAssertEqual(ProjectsModel.side(1, line: rover), .none)
-        XCTAssertEqual(ProjectsModel.side(-1, line: rover), .expand(false))
+        XCTAssertEqual(ProjectsModel.side(-1, line: rover), .none)
         XCTAssertEqual(ProjectsModel.side(-1, line: pick), .open("rover-arm-project"))
         XCTAssertEqual(ProjectsModel.side(-1, line: nil), .none)
     }
