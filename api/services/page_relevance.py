@@ -195,11 +195,8 @@ def _text(claim, names: dict[str, str]) -> str:
 
 
 def _cites_person(claim) -> bool:
-    for ev in getattr(claim, "evidence", None) or []:
-        start = getattr(ev, "start", None)
-        if getattr(ev, "kind", None) in promotion.PERSON_KINDS and isinstance(start, int) and start >= 0:
-            return True
-    return False
+    # Never a claim Stage 1 gave to someone else: a group member's line is not the person's (#499 review).
+    return promotion.claim_cites_person(claim)
 
 
 def relations(memory_path: Path, entity_id: str, page_claims: list, *, today: date | None = None,

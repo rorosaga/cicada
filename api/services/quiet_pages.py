@@ -106,9 +106,12 @@ def is_quiet(fm: dict, claims: Iterable, kind_of: Callable[[str], str | None]) -
     if not _imported_and_unmentioned(fm, kind_of):
         return False
     for claim in claims or []:
+        # A person's own words wake it — never someone else's claim (`external:`, a group member's, #499 review).
+        if promotion.claim_cites_person(claim, located=False):
+            return False
+        if str(getattr(claim, "observer", "") or "").startswith("external:"):
+            continue
         for ev in getattr(claim, "evidence", None) or []:
-            if getattr(ev, "kind", None) in promotion.PERSON_KINDS:
-                return False
             if any(kind_of(e) == CONVERSATION for e in _episode_ids([getattr(ev, "episode", "")])):
                 return False
     return True

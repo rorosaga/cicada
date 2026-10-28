@@ -824,7 +824,7 @@ def passing_rule(memory_path: Path, item_id: str, fm: dict) -> tuple[Decision | 
     saved = _saved_item(ep_fm, spans)    # a saved page's title, link or byline is no one's own words
     turns: list[tuple[bool, str]] = []   # (the person's own turn, its words), in order
     for t in spans:
-        mine = t.role in promotion.PERSON_KINDS and not _agent_note(ep_fm.get("source"), t) and not saved
+        mine = t.role in promotion.person_kinds(ep_fm) and not _agent_note(ep_fm.get("source"), t) and not saved
         turns.append((mine, text[t.content_start:t.end]))
     named = [i for i, (_mine, words) in enumerate(turns) if inbox_ask_gate.named_in(full, words)]
     code = code_identifier(name) and typ not in _PERSON_LIKE

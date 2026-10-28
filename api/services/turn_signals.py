@@ -32,8 +32,10 @@ Edits are not noted (the body already holds the final wording) and attachments a
 consumed here: the quote is then located inside the tagged turn first — the reply line, or the reacted turn — so a
 short "yes" or "ok" lands on the right line, exact → whitespace → case-insensitive, never fuzzy (G118). A reaction's
 evidence is that span on the reacted turn: the turn's offset is the reaction's own key in ``turn_extras``, so the
-span names the reaction exactly. A claim resting on the PERSON's reaction is the person's signal, so it is never
-handed to the other side as ``external:`` (:func:`person_signal`). No LLM here; nothing is written.
+span names the reaction exactly. The tag only steers where a quote is looked for; it grants nothing by itself. The
+PERSON's own reaction on the turn a claim's located spans sit in (:func:`person_stance`) adjusts that claim's
+confidence and is recorded on it — it never changes whose claim it is: a texted agent's stays ``external:<agent>``
+(#499 review; a 👍 often only means "got it"). No LLM here; nothing is written.
 """
 
 from __future__ import annotations
@@ -191,7 +193,8 @@ def anchor(item: dict, items: list[Signal], body: str, default: tuple[int, int] 
     lo, hi = signal.window
     if quote and evidence.locate(body[lo:hi], quote) is not None:
         return signal.window, signal
-    return default, signal
+    # The tag alone grants nothing (#499 review): a quote that is not in the tagged turn rests on no signal.
+    return default, None
 
 
 #: What a reaction says, deterministically: agreement or doubt. Laughter and an emoji outside these say neither.
@@ -210,26 +213,26 @@ def stance(kind: str, emoji: str | None = None) -> str | None:
     return None
 
 
-def person_stance(frontmatter: dict | None, body: str, item: dict) -> str | None:
-    """The PERSON's own reaction on the turn every located span of ``item`` sits in: ``agree``, ``doubt`` or
-    ``None`` (no reaction of theirs there, the spans in several turns, or a reaction that says neither). Read from the
-    stored extras by the turn's offset — the reaction's own key — never from the model's word."""
+def person_stance(frontmatter: dict | None, body: str, item: dict) -> dict | None:
+    """The PERSON's own reaction on the turn every located span of ``item`` sits in, as ``{by, stance, kind, turn}``
+    (``stance`` agree | doubt; ``turn`` the reacted turn's offset, the reaction's own key in ``turn_extras``), or
+    ``None`` — no reaction of theirs there, the spans in several turns, or one that says neither. Read from the stored
+    extras by located spans only, never from the model's word or tag."""
     spans = [e for e in item.get("evidence") or [] if isinstance(e, dict) and e.get("kind") != "reasoning"]
     if not spans or not body:
         return None
     starts = {t.start for t in evidence.turns(body) if t.marker is not None}
     owners = {max((s for s in starts if s <= int(e.get("start", -1))), default=-1) for e in spans}
-    if len(owners) != 1:
+    if len(owners) != 1 or -1 in owners:
         return None
-    extras = turn_extras.by_offset(frontmatter).get(next(iter(owners))) or {}
-    found = {stance(r.get("kind"), r.get("emoji")) for r in extras.get("reactions") or []
-             if isinstance(r, dict) and r.get("by") == "user"} - {None}
-    return next(iter(found)) if len(found) == 1 else None
-
-
-def person_signal(signal: Signal | None) -> bool:
-    """A claim tagged with the PERSON's own reaction rests on the person's signal (G179: never the other side's)."""
-    return bool(signal is not None and signal.kind == "reaction" and signal.by == "user")
+    turn = next(iter(owners))
+    extras = turn_extras.by_offset(frontmatter).get(turn) or {}
+    found = [(stance(r.get("kind"), r.get("emoji")), r.get("kind")) for r in extras.get("reactions") or []
+             if isinstance(r, dict) and r.get("by") == "user"]
+    found = [f for f in found if f[0]]
+    if len({s for s, _ in found}) != 1:
+        return None
+    return {"by": "user", "stance": found[0][0], "kind": str(found[0][1]), "turn": turn}
 
 
 # --- Cross-sitting lookup (the Sleep loader) --------------------------------------------------------------------------

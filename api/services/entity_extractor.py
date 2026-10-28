@@ -549,28 +549,31 @@ def _application_pages(entities: list, episode: dict, episode_id: str, content: 
     return values
 
 
-#: Transient: the item rests on the person's own reaction (`turn_signals.person_signal`) — popped before it leaves.
-_PERSON_SIGNAL = "_person_signal"
-
-
-#: How much a person's doubting reaction (❓, 👎) on the turn a claim rests on lowers it.
+#: How the person's own reaction on the turn a claim rests on moves its confidence: agreement a little up (a 👍 often
+#: only means "got it"), doubt (❓, 👎) by half.
+AGREE_BONUS = 0.1
+AGREE_CAP = 0.95
 DOUBT_FACTOR = 0.5
 
 
-def _weigh_reaction(item: dict, episode: dict, content: str) -> None:
-    """The person's own reaction on the one turn a claim rests on, read from the stored extras (`turn_signals`):
-    agreement (❤️, 👍, ‼️) makes it rest on the person's signal too, so it is never handed to the other side alone
-    (G179: the person's reaction is the person's); doubt (❓, 👎) halves its confidence. The model's tag is not needed
-    and never decides it. Neither is ever a claim by itself."""
-    stance = turn_signals.person_stance(episode, content, item)
-    if stance == "agree":
-        item[_PERSON_SIGNAL] = True
-    elif stance == "doubt":
-        try:
-            confidence = float(item.get("confidence", 0.6) or 0.6)
-        except (TypeError, ValueError):
-            confidence = 0.6
+def _weigh_reaction(item: dict, episode: dict, content: str, episode_id: str) -> None:
+    """The person's own reaction on the one turn a claim rests on, read from the stored extras (`turn_signals`), never
+    from the model's word: it adjusts confidence and is recorded on the claim (``reactions``: who, stance, kind, and the
+    reacted turn's offset in the episode — the reaction's own key in ``turn_extras``, so its evidence by turn id). It
+    never changes the observer (#499 review): a texted agent's claim stays ``external:<agent>`` whatever the person
+    tapped. Never a claim by itself."""
+    found = turn_signals.person_stance(episode, content, item)
+    if found is None:
+        return
+    try:
+        confidence = float(item.get("confidence", 0.6) or 0.6)
+    except (TypeError, ValueError):
+        confidence = 0.6
+    if found["stance"] == "agree":
+        item["confidence"] = round(min(AGREE_CAP, max(confidence, confidence + AGREE_BONUS)), 2)
+    else:
         item["confidence"] = round(confidence * DOUBT_FACTOR, 2)
+    item["reactions"] = [{**found, "episode": episode_id}]
 
 
 def group_members(episode: dict) -> list[dict]:
@@ -607,11 +610,9 @@ def _member_of(content: str, start: int) -> str | None:
 
 
 def _observer_for(item: dict, their_observer: str | None, members: list[dict], content: str) -> str | None:
-    """Who a claim is ``external:`` to, or ``None`` for the default reading. A claim tagged with the person's own
-    reaction is the person's signal (G179); in a group, a claim resting only on one member's lines is that member's;
-    otherwise the other side's when only their words carry it."""
-    if item.pop(_PERSON_SIGNAL, False):
-        return None
+    """Who a claim is ``external:`` to, or ``None`` for the default reading. In a group, a claim resting only on one
+    member's lines is that member's; otherwise the other side's when only their words carry it. A reaction never
+    changes it (`_weigh_reaction`)."""
     if members:
         spans = [e for e in item.get("evidence") or [] if isinstance(e, dict) and e.get("kind") != "reasoning"]
         if not spans or any(e.get("kind") not in ("assistant", "speaker") for e in spans):
@@ -931,9 +932,7 @@ async def extract(
                     # quote is consumed here — nothing downstream sees it.
                     for rel in chunk_rels:
                         # A relationship tagged with a reply or a reaction is located in that turn first (`turn_signals`).
-                        window, signal = turn_signals.anchor(rel, signals, content, spans[ci])
-                        if turn_signals.person_signal(signal):
-                            rel[_PERSON_SIGNAL] = True
+                        window, _ = turn_signals.anchor(rel, signals, content, spans[ci])
                         evidence.attach_relationship_evidence(rel, ep_id, content, window=window, kind_override=authorship.of_episode(episode),
                                                               gaps=gaps)
                         # 2026-10-27: "competed in", "won", "worked at"… need the located words to say that role;
@@ -943,9 +942,7 @@ async def extract(
                     all_relationships.extend(chunk_rels)
                     chunk_values = [v for v in (parsed.get("values", []) or []) if isinstance(v, dict)]
                     for value in chunk_values:
-                        window, signal = turn_signals.anchor(value, signals, content, spans[ci])
-                        if turn_signals.person_signal(signal):
-                            value[_PERSON_SIGNAL] = True
+                        window, _ = turn_signals.anchor(value, signals, content, spans[ci])
                         evidence.attach_relationship_evidence(value, ep_id, content, window=window,
                                                               kind_override=authorship.of_episode(episode), gaps=gaps)
                     all_values.extend(chunk_values)
@@ -1018,7 +1015,7 @@ async def extract(
                     # a texted agent's, a harness session's agent's or a chat export's assistant's alike.
                     rel.pop("observer", None)
                     if signals:
-                        _weigh_reaction(rel, episode, content)
+                        _weigh_reaction(rel, episode, content, ep_id)
                     if (observer := _observer_for(rel, their_observer, members, content)) is not None:
                         rel["observer"] = observer
                 for value in all_values:
@@ -1027,7 +1024,7 @@ async def extract(
                     value["origin"] = ep_origin
                     value.pop("observer", None)
                     if signals:
-                        _weigh_reaction(value, episode, content)
+                        _weigh_reaction(value, episode, content, ep_id)
                     if (observer := _observer_for(value, their_observer, members, content)) is not None:
                         value["observer"] = observer
                 for value, by_agent in app_values:
@@ -1193,7 +1190,7 @@ def entities_to_claims(
     id is ``sanitize_id(name)`` — the pre-PJ-0 key every hermetic caller keeps.
     """
     from api.services import predicates
-    from api.services.claims import Claim, Evidence
+    from api.services.claims import Claim, Evidence, clean_reactions
     from api.services.id_utils import sanitize_id
 
     to_id = resolve_id or sanitize_id
@@ -1255,6 +1252,7 @@ def entities_to_claims(
                 for ev in rel_evidence:
                     if ev not in first.evidence:
                         first.evidence.append(ev)
+                first.reactions = clean_reactions(first.reactions + list(rel.get("reactions") or []))
                 if first.observer != observer:
                     # G179: the person's own words (or Cicada's reading) back it too — no longer only theirs.
                     first.observer = "agent"
@@ -1278,6 +1276,7 @@ def entities_to_claims(
                 evidence=rel_evidence,
                 expected_end=expected_end,
                 session_ids=list(sessions),
+                reactions=clean_reactions(rel.get("reactions")),
             )
             # The pre-normalization label (for the Stage-3 normalization audit).
             setattr(claim, "predicate_raw", raw_label)
@@ -1308,7 +1307,7 @@ def _value_claim(value: dict, episode_id: str, origin: str, to_id: Callable[[str
     ``claims.value_predicate(attribute)``, object the value as stated. A value predicate is single-valued
     (``claims.is_value_claim``), so a later value of the same thing supersedes the earlier one in Stage 3 instead of
     sitting beside it in prose — the LongMemEval knowledge-update misses of 2026-10-17 had no claim to supersede."""
-    from api.services.claims import Claim, Evidence, value_predicate
+    from api.services.claims import Claim, Evidence, clean_reactions, value_predicate
 
     entity = str(value.get("entity", "") or "").strip()
     attribute = str(value.get("attribute", "") or "").strip()
@@ -1330,6 +1329,7 @@ def _value_claim(value: dict, episode_id: str, origin: str, to_id: Callable[[str
         context="general", epistemic="explicit", source_trust="agent_extracted", confidence=0.6,
         valid_from=valid_from or None, source_episodes=[ep] if ep else [], origin=origin,
         evidence=[Evidence.from_dict(e) for e in (value.get("evidence") or []) if isinstance(e, dict)],
+        reactions=clean_reactions(value.get("reactions")),
     )
 
 

@@ -11,6 +11,7 @@ import pytest
 from _imessage_fixtures import apple_ns, utc
 from api.config import Settings
 from api.models.schemas import MessagesSyncRequest
+from api.services import claims as claims_mod
 from api.services import (bank_index, entity_extractor, evidence, markdown_parser, messages_source, promotion,
                           sleep_cycle, turn_signals)
 
@@ -161,12 +162,16 @@ def test_stage_one_is_told_the_signals_and_a_reaction_claim_is_the_persons(bank,
     (prompt,) = prompts
     assert prompt.index(turn_signals.NOTE_PREFIX) < prompt.index("assistant: Also the hotel")
     departs, chosen, booked = out["relationships"]
-    assert "observer" not in departs                             # the person's 👍: never handed to the agent
+    # The person's 👍 moves the confidence and is recorded; whose claim it is never moves (#499 review).
+    assert departs["observer"] == "external:agent-example"
+    assert departs["reactions"][0]["stance"] == "agree" and departs["reactions"][0]["kind"] == "like"
+    assert later["content"][departs["reactions"][0]["turn"]:].startswith("assistant: Plan: leave Friday")
     assert booked["observer"] == "external:agent-example"        # the agent's words alone are the agent's
+    assert "reactions" not in booked
     body = later["content"]
     (ev,) = chosen["evidence"]
     assert body[ev["start"]:ev["end"]] == "yes" and ev["kind"] == "user"
-    assert all("signal" not in r and "_person_signal" not in r for r in out["relationships"])
+    assert all("signal" not in r for r in out["relationships"])
 
 
 # --- group chats -------------------------------------------------------------------------------------------------------
@@ -274,7 +279,7 @@ def test_an_agents_routine_tapback_is_not_noted_but_its_doubt_is():
     assert s.line == 's1: assistant questioned user "we leave at 9"'
 
 
-def test_the_persons_doubt_lowers_a_claim_and_their_agreement_makes_it_theirs():
+def test_the_persons_reaction_moves_confidence_never_the_observer():
     body = "assistant: Plan: ship alpha-project on Monday\nassistant: Or wait for beta-review"
     second = body.index("assistant: Or")
     fm = {"turn_extras": [{"offset": 0, "reactions": [{"by": "user", "kind": "like"}]},
@@ -282,14 +287,88 @@ def test_the_persons_doubt_lowers_a_claim_and_their_agreement_makes_it_theirs():
     plan = {"evidence": [{"kind": "assistant", "start": 11, "end": 20}], "confidence": 0.8}
     wait = {"evidence": [{"kind": "assistant", "start": second + 14, "end": second + 20}], "confidence": 0.8}
     episode = dict(fm, signals=turn_signals.signals(fm, body))
-    entity_extractor._weigh_reaction(plan, episode, body)
-    entity_extractor._weigh_reaction(wait, episode, body)
-    assert entity_extractor._observer_for(plan, "external:helper", [], body) is None
-    assert wait["confidence"] == 0.4
+    entity_extractor._weigh_reaction(plan, episode, body, "ep_2026-09-04_001")
+    entity_extractor._weigh_reaction(wait, episode, body, "ep_2026-09-04_001")
+    assert plan["confidence"] == 0.9 and wait["confidence"] == 0.4
+    assert plan["reactions"] == [{"by": "user", "stance": "agree", "kind": "like", "turn": 0,
+                                  "episode": "ep_2026-09-04_001"}]
+    assert wait["reactions"][0]["stance"] == "doubt" and wait["reactions"][0]["turn"] == second
+    assert entity_extractor._observer_for(plan, "external:helper", [], body) == "external:helper"
     assert entity_extractor._observer_for(wait, "external:helper", [], body) == "external:helper"
+    # The reaction rides onto the stored claim, and survives a round trip.
+    extracted = [{"episode_id": "ep_2026-09-04_001", "origin": "imessage", "relationships": [
+        dict(plan, source="alpha-project", target="monday", label="ships on", observer="external:helper",
+             source_episode="ep_2026-09-04_001")]}]
+    (claim,) = entity_extractor.entities_to_claims(extracted, None)
+    assert claim.observer == "external:helper" and claim.reactions == plan["reactions"]
+    assert claims_mod.Claim.from_dict(claim.to_dict()).reactions == plan["reactions"]
+    assert "reactions" not in claims_mod.Claim(id="x", text="y").to_dict()
     # A reaction by anyone else is never the person's stance.
     other = {"turn_extras": [{"offset": 0, "reactions": [{"by": "speaker:bob-example", "kind": "like"}]}]}
     assert turn_signals.person_stance(other, body, {"evidence": [{"kind": "assistant", "start": 11, "end": 20}]}) is None
+
+
+def test_a_tag_alone_grants_no_signal():
+    # #499 review: the person's 👍 is on plan A; a claim quoting plan B, tagged with that reaction, rests on nothing.
+    body = "user: should we pick plan A or B?\nassistant: plan A is cheaper\nassistant: plan B ships Friday"
+    fm = {"turn_extras": [{"offset": body.index("assistant: plan A"), "reactions": [{"by": "user", "kind": "like"}]}]}
+    items = turn_signals.signals(fm, body)
+    (s1,) = items
+    rel = {"evidence_quote": "plan B ships Friday", "signal": s1.label, "confidence": 0.7}
+    window, signal = turn_signals.anchor(rel, items, body, (0, len(body)))
+    assert window == (0, len(body)) and signal is None
+    rel["evidence"] = [evidence.verify(None, "ep_2026-09-04_001", rel.pop("evidence_quote"), text=body).to_dict()]
+    entity_extractor._weigh_reaction(rel, dict(fm, signals=items), body, "ep_2026-09-04_001")
+    assert rel["confidence"] == 0.7 and "reactions" not in rel
+    assert entity_extractor._observer_for(rel, "external:helper", [], body) == "external:helper"
+
+
+GROUP_BODY = "speaker:bob-example: Carol Example is coming\nuser: great"
+
+
+def _group_episode(bank, body=GROUP_BODY):
+    path = bank / "episodes" / "ep_2026-09-05_001.md"
+    markdown_parser.write(path, {"id": "ep_2026-09-05_001", "origin": "imessage", "source": "imessage", "group": True,
+                                 "participants": [{"key": B, "marker": "speaker:bob-example", "name": "Bob Example",
+                                                   "kind": "person"}]}, body)
+    bank_index.invalidate()
+    return path
+
+
+def test_a_members_line_never_promotes_a_waiting_contacts_card(bank):
+    from api.services import entity_resolver
+
+    _group_episode(bank)
+    card = {"given_name": "Carol", "family_name": "Example"}
+    assert entity_resolver._said_in_person_turn(bank, "ep_2026-09-05_001", card) is False
+    _group_episode(bank, "speaker:bob-example: hi\nuser: Carol Example is coming")
+    assert entity_resolver._said_in_person_turn(bank, "ep_2026-09-05_001", card) is True
+
+
+def test_a_members_line_never_ties_a_project_conversation():
+    import re
+
+    from api.services import project_conversations
+
+    pattern = re.compile(r"\balpha-project\b", re.I)
+    text = "speaker:bob-example: alpha-project ships soon\nuser: ok"
+    assert project_conversations.person_named(text, pattern, {"group": True}) is False
+    assert project_conversations.person_named(text, pattern, {}) is True          # a meeting's speaker still counts
+
+
+def test_someone_elses_claim_is_never_the_persons_words_on_a_page():
+    from api.services import page_relevance, quiet_pages, web_context
+
+    span = claims_mod.Evidence(episode="ep_2026-09-05_001", start=0, end=10, kind="speaker", hash="0" * 12)
+    member = claims_mod.Claim(id="c1", text="Carol is coming", observer="external:bob-example", evidence=[span])
+    meeting = claims_mod.Claim(id="c2", text="Carol is coming", observer="agent", evidence=[span])
+    assert not promotion.claim_cites_person(member) and promotion.claim_cites_person(meeting)
+    assert not web_context._cites_the_person(member) and web_context._cites_the_person(meeting)
+    assert not page_relevance._cites_person(member) and page_relevance._cites_person(meeting)
+    kind_of = lambda e: quiet_pages.IMPORT  # noqa: E731 - every episode an import's
+    fm = {"source_episodes": ["ep_2026-09-01_001"]}
+    assert quiet_pages.is_quiet(fm, [member], kind_of) is True
+    assert quiet_pages.is_quiet(fm, [meeting], kind_of) is False
 
 
 def test_a_meeting_still_counts_every_speaker():

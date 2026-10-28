@@ -1207,8 +1207,11 @@ said and what day it is now (`api/services/source_dates.py`).
   that a member's words and "I" are theirs. A claim resting only on ONE member's lines has observer
   `external:<member>`; one resting on several members' lines keeps the default reading; and in a group only the
   person's own `user:` lines count as "the person's own words" for promotion, project birth and an application
-  (`promotion.person_kinds`) — a meeting still counts every speaker. `promotion.person_said` never counts a claim
-  Stage 1 gave to someone else (`external:`).
+  (`promotion.person_kinds`) — a meeting still counts every speaker; the same rule holds for a waiting Contacts card
+  (`entity_resolver._said_in_person_turn`), a project's conversations (`project_conversations.person_named`) and the
+  inbox tend. `promotion.person_said` and `promotion.claim_cites_person` never count a claim Stage 1 gave to someone
+  else (`external:`), so a member's line never reads as the person's words to `page_relevance`, `web_context`'s
+  protected claims or `quiet_pages`.
   **Interaction signals (owner 2026-10-28, `turn_signals`).** The extras every chat writer stores beside the words
   (`turn_extras`: `reply_to`, `reactions`, `forwarded_from`; `unsent_turns`) reach Stage 1 as one note per chunk,
   after the source note and before the conversation (the model sees it; evidence is verified against the stored body,
@@ -1220,11 +1223,14 @@ said and what day it is now (`api/services/source_dates.py`).
   `f<n>` says a forwarded line's words are the original sender's; `u<n>` that something unsent was there, never what.
   Edits and attachments need no note (the body holds the final words and the attachment's name). The model may tag a
   relationship or value with the label it rests on (`"signal": "r2"`): the tag is consumed and the quote located inside
-  that turn first, so a short "yes" lands on its own line (exact → whitespace → case-insensitive, never fuzzy). The
-  person's own reaction on the one turn a claim rests on is read from the stored extras, never the model's word
-  (`turn_signals.person_stance`): agreement (❤️ 👍 ‼️) makes it rest on the person's signal too — never handed to
-  the other side alone — and doubt (❓ 👎) halves its confidence; the span on the reacted turn is the reaction's
-  evidence (its offset is the reaction's key). Measured on the owner's bank 2026-10-28 (76 sittings of one chat,
+  that turn first, so a short "yes" lands on its own line (exact → whitespace → case-insensitive, never fuzzy); the
+  tag grants nothing by itself — a quote outside the tagged turn rests on no signal. The person's own reaction on the
+  one turn a claim's located spans sit in is read from the stored extras, never the model's word or tag
+  (`turn_signals.person_stance`): agreement (❤️ 👍 ‼️) lifts its confidence by 0.1 (capped at 0.95; a 👍 often only
+  means "got it"), doubt (❓ 👎) halves it, and the claim records it (`reactions: [{by: user, stance, kind, episode,
+  turn}]` — `turn` the reacted turn's offset, the reaction's own key in `turn_extras`, so the reaction is its evidence
+  by turn id). **A reaction never changes the observer** (#499 review): a texted agent's claim stays
+  `external:<agent>` whatever the person tapped. Measured on the owner's bank 2026-10-28 (76 sittings of one chat,
   read-only, counts only): 828 replies (741 in the same sitting, 87 in an earlier one, none unfound), 195 reactions
   (all the agent's like or emoji), 4 edits, 0 unsends; after the skips, 308 noted signals, ~194 tokens per sitting
   (median 138), ~14.7k in all — about +3.5 % on a call whose system prompt is ~4,750 tokens.

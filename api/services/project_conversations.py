@@ -73,7 +73,7 @@ def person_named(text: str, pattern: re.Pattern, fm: dict) -> bool:
     """The person's own turn holds the name as a whole word (exact, any case; never fuzzy, never an agent's turn)."""
     gaps = evidence.gap_ranges(fm, text)
     for turn in evidence.turns(text, override=authorship.of(fm), gaps=gaps):
-        if turn.role not in promotion.PERSON_KINDS:
+        if turn.role not in promotion.person_kinds(fm):   # a group member's line is not the person's
             continue
         for m in pattern.finditer(text, turn.content_start, turn.end):
             if not evidence.touches_gap(m.start(), m.end(), gaps):

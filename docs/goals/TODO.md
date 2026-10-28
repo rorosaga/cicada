@@ -12,7 +12,8 @@
 
 - **2026-10-28 — Messages interactions reach Sleep; group chats are read (G179, G29, G113; branch
   `feat/messages-replies-groups`, PR #499).** Replies, reactions, forwards and unsends stored in `turn_extras` reach
-  Stage 1 as one note per chunk (`turn_signals`), source-agnostic; the person's own reaction weighs the claim on that
+  Stage 1 as one note per chunk (`turn_signals`), source-agnostic; the person's own reaction moves that claim's
+  confidence, never its observer, on that
   turn. Group chats (`chat.style` 43) are ticked and read: one participant key per member, never a handle; a member's
   claims are theirs; only the person's lines promote in a group. Owner's bank, read-only counts: 828 reply turns
   (87 into an earlier sitting, 0 unfound), 195 reactions; ~194 note tokens per sitting (~+3.5 % per call). WhatsApp

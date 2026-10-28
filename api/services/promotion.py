@@ -140,6 +140,19 @@ def person_said(rel: dict) -> bool:
                for ev in rel.get("evidence") or [])
 
 
+def claim_cites_person(claim, *, located: bool = True) -> bool:
+    """A stored claim (``claims.Claim``) whose evidence sits in a person's own words — never one whose observer is
+    someone else (``external:<name>``: a texted agent's, a group member's, a one-to-one correspondent's), so another
+    person's line in a group never reads as the person's (#499 review). ``located`` also asks for a real offset."""
+    if str(getattr(claim, "observer", "") or "").startswith("external:"):
+        return False
+    for ev in getattr(claim, "evidence", None) or []:
+        start = getattr(ev, "start", None)
+        if getattr(ev, "kind", None) in PERSON_KINDS and (not located or (isinstance(start, int) and start >= 0)):
+            return True
+    return False
+
+
 #: Ruling 43: an agent's own memory note (`agent_memory_notes`) is no conversation of its own for the 2+ rung.
 AGENT_MEMORY_SOURCE = "agent-memory"
 
