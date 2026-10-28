@@ -22,7 +22,9 @@ between the act and the marker), it becomes "<event> at / run by / with <venue>"
 venue, with the person's span — or is dropped as a duplicate of one already there; otherwise it says what the sentence
 says: "<person> signed up for something at <venue>". A label that already names where ("signed up for workshop at"
 <venue>, :data:`WHERE_LABEL`, the variant a 2026-10-28 replay wrote 3 times in 5) is true as written and is kept,
-except beside the act on the event it names, where it folds the same way. Pure: no I/O, no model.
+except beside the act on an event its own words name ("workshop"), where it folds the same way. The event is only ever
+looked for in this act's own clause — from the last act word before the target — so "I applied to <X> and registered
+my startup in <place>" never becomes "<X> at <place>". Pure: no I/O, no model.
 """
 from __future__ import annotations
 
@@ -44,6 +46,9 @@ WHERE_LABEL = re.compile(
     r"^\s*(?:applied|registered|signed up|rsvp'?d|enrol(?:l)?ed|submitted|requested to join)\b.*?\s"
     r"(?P<m>held at|hosted (?:at|by)|run by|organi[sz]ed by|put on by|offered by|at|in|by|with|from|through|via)\s*$",
     re.IGNORECASE)
+#: The act at a label's start.
+ACT_WORDS = re.compile(r"^\s*(?:applied|registered|signed up|rsvp'?d|enrol(?:l)?ed|submitted|requested to join)",
+                       re.IGNORECASE)
 #: A venue or organiser word right before the name (an article allowed): the name is where, or by whom, never what.
 MARKER = re.compile(
     r"(?<!\w)(?P<m>held at|hosted (?:at|by)|run by|organi[sz]ed by|put on by|offered by|at|in|by|with|from|through|via|"
@@ -90,46 +95,70 @@ def _sentence_at(body: str, start: int) -> tuple[int, str]:
     return start, ""
 
 
-def placed(rel: dict, body: str) -> tuple[str, str, bool] | None:
-    """``(marker, words before the target, labelled)`` when ``rel`` claims an act on its target and every located
-    span's sentence names the target as a venue or organiser, or its label already says so (``labelled``), else
-    ``None``."""
-    where = WHERE_LABEL.match(_words(rel.get("label")))
-    if where is not None:
-        before = _words(rel.get("label"))
-        for ev in rel.get("evidence") or []:
-            if isinstance(ev, dict) and isinstance(ev.get("start"), int) and ev.get("kind") != "reasoning":
-                before += " " + _sentence_at(body, ev["start"])[1]
-        return " ".join(where.group("m").lower().split()), before, True
-    if not is_act(rel.get("label")):
-        return None
-    pattern = _name_pattern({"name": str(rel.get("target") or ""), "aliases": []})
-    if pattern is None:
-        return None
-    found = None
+#: Words a label's middle never names an event by.
+_STOP = frozenset({"the", "a", "an", "my", "our", "his", "her", "their", "for", "to", "in", "into", "on", "up", "and",
+                   "of", "at", "with", "by", "from"})
+
+
+def _content(text: str) -> set[str]:
+    return {w for w in re.findall(r"\w+", str(text or "").lower()) if len(w) >= 3 and w not in _STOP}
+
+
+def _clause(sentence: str, name: re.Match) -> str:
+    """The words from the last act before ``name`` up to it: the only place the act's own object can be. Another
+    act earlier in the sentence ("I applied to <X> and registered my startup in <place>") is a different clause."""
+    before = sentence[:name.start()]
+    acts = list(application_page.DONE.finditer(before))
+    return before[acts[-1].start():] if acts else ""
+
+
+def _located(rel: dict, body: str, pattern: re.Pattern) -> list[tuple[str, re.Match]] | None:
+    """``[(sentence, target match)]`` for every located span, or ``None`` when a span never names the target."""
+    out = []
     for ev in rel.get("evidence") or []:
         if not isinstance(ev, dict) or ev.get("kind") == "reasoning":
             continue
         start, end = ev.get("start"), ev.get("end")
         if not (isinstance(start, int) and isinstance(end, int) and 0 <= start < end <= len(body)):
             continue
-        lo, hi = start, end
-        hit = None
-        while lo < hi and hit is None:
+        lo, hit = start, None
+        while lo < end and hit is None:
             s0, sentence = _sentence_at(body, lo)
             if not sentence:
                 break
             name = pattern.search(sentence)
             if name is not None:
-                hit = (s0, sentence, name)
+                hit = (sentence, name)
             lo = s0 + len(sentence)
         if hit is None:
-            return None             # the span never names the target: not this rule's to judge
-        s0, sentence, name = hit
+            return None
+        out.append(hit)
+    return out
+
+
+def placed(rel: dict, body: str) -> tuple[str, str, bool, set[str]] | None:
+    """``(marker, the act's clause up to the target, labelled, label words)`` when ``rel`` claims an act on its
+    target and every located span's sentence names the target as a venue or organiser, or its label already says so
+    (``labelled``, with the content words the label names the event by), else ``None``."""
+    label = _words(rel.get("label"))
+    pattern = _name_pattern({"name": str(rel.get("target") or ""), "aliases": []})
+    where = WHERE_LABEL.match(label)
+    if where is not None:
+        middle = _content(label[:where.start("m")]) - _content(ACT_WORDS.search(label).group(0))
+        spans = _located(rel, body, pattern) if pattern is not None else None
+        clause = _clause(*spans[0]) if spans else ""
+        return " ".join(where.group("m").lower().split()), clause, True, middle
+    if not is_act(label) or pattern is None:
+        return None
+    spans = _located(rel, body, pattern)
+    if not spans:
+        return None                 # the span never names the target, or none is located: not judged
+    found = None
+    for sentence, name in spans:
         marker = venue(sentence, name)
         if marker is None:
             return None             # one span where the target is the object keeps it
-        found = (marker, sentence[:name.start()], False)
+        found = (marker, _clause(sentence, name), False, set())
     return found
 
 
@@ -142,13 +171,16 @@ def hold(relationships: list[dict], body: str) -> int:
         if where is None:
             keep.append(rel)
             continue
-        marker, before, labelled = where
+        marker, clause, labelled, middle = where
         source = _words(rel.get("source")).lower()
+        # The event is another act of the same person on a thing named in THIS act's clause, before the target; a
+        # label that already says where must name that thing itself ("workshop" in "signed up for workshop at").
         event = next((r for r in relationships
                       if r is not rel and isinstance(r, dict) and is_act(r.get("label"))
                       and _words(r.get("source")).lower() == source
                       and (p := _name_pattern({"name": str(r.get("target") or ""), "aliases": []})) is not None
-                      and p.search(before)), None)
+                      and p.search(clause)
+                      and (not labelled or middle & _content(r.get("target")))), None)
         if event is None:
             if not labelled:            # a label that already says where is true as written
                 rel["label"] = f"{_words(rel.get('label'))} something {marker}"

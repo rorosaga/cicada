@@ -1578,10 +1578,12 @@ summary and for every relationship); "an explicit link" was any relationship the
   the act word comes first, another object follows it, and the target follows a venue or organiser word (`MARKER`:
   at, in, held at, hosted/run/organised/put on/offered by, by, with, from, through, via; Spanish en, con), the target
   is where or by whom. The relationship then becomes the event's link — "<event> at / run by / with <venue>", the
-  person's span kept — when the same extraction has the act on an object named between the act and the marker, is
-  dropped when that link is already there, and otherwise says what the sentence says ("<person> signed up for
+  person's span kept — when the same extraction has the act on an object named between the act and the marker (in
+  this act's own clause: from the last act word before the target, so "I applied to <X> and registered my startup in
+  <place>" never links <X> to <place>), is dropped when that link is already there, and otherwise says what the sentence says ("<person> signed up for
   something at <venue>"). A label that already names where ("signed up for workshop at" <venue>, `WHERE_LABEL`) is
-  true as written and kept, except beside the act on the event named in it, where it folds the same way. "Signed up for the <venue> workshop", "applied to <program>", a name before the act or no
+  true as written and kept, except beside the act on an event its own words name ("workshop") in its clause, where
+  it folds the same way. "Signed up for the <venue> workshop", "applied to <program>", a name before the act or no
   located span are never judged (G118). `application_page` applies the same reading: a name in the act sentence that
   is a venue gets no `application_birth`. The Stage 1 prompt says it too (APPLICATION). Measured in G194's row.
 Below the bar nothing is lost: the pending line now carries what was said — summary, key facts, links, open questions,

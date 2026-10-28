@@ -66,6 +66,30 @@ def test_a_label_that_already_says_where_folds_into_the_events_link():
         "with no act on the event, a label that says where is true as written"
 
 
+@pytest.mark.parametrize("sentence,event,act,place_label,place", [
+    # review of #497: a label that merely ends in a place word, beside an act on something else in the sentence
+    ("I signed up for the Berlin Marathon and enrolled my son in Riverside School.",
+     ("signed up for", "Berlin Marathon"), "enrolled son in", None, "Riverside School"),
+    ("I applied to the Acme Fellowship and registered my startup in Delaware.",
+     ("applied to", "Acme Fellowship"), "registered startup in", None, "Delaware"),
+    ("I applied to the Marathon and submitted my paper with Ana.",
+     ("applied to", "Marathon"), "submitted paper with", None, "Ana"),
+    # the strict branch: the event is in an earlier clause, not this act's
+    ("I applied to the Acme Fellowship and signed up for a class at Delaware Hall.",
+     ("applied to", "Acme Fellowship"), "signed up for", "signed up for something at", "Delaware Hall"),
+])
+def test_an_act_in_another_clause_is_never_the_event(sentence, event, act, place_label, place):
+    body = f"user: {sentence}\n"
+    rels = [{"source": "Me", "target": event[1], "label": event[0], "evidence_quote": sentence},
+            {"source": "Me", "target": place, "label": act, "evidence_quote": sentence}]
+    for r in rels:
+        evidence.attach_relationship_evidence(r, "ep_2026-09-30_001", body)
+    assert all(r["evidence"][0]["kind"] == "user" for r in rels)
+    act_object.hold(rels, body)
+    assert [(r["source"], r["label"], r["target"]) for r in rels] == [
+        ("Me", event[0], event[1]), ("Me", place_label or act, place)], "no event→place link is invented"
+
+
 def test_with_no_event_extracted_it_says_what_the_sentence_says():
     rels = [_rel("Example Makerspace", label="signed_up_for")]
     assert act_object.hold(rels, BODY) == 1
