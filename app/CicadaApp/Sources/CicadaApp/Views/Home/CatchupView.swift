@@ -182,9 +182,10 @@ struct CatchupView: View {
                     if let itemId, let item = store.inbox.value?.first(where: { $0.id == itemId }),
                        !item.entityId.isEmpty {
                         HStack(spacing: CicadaTheme.scaled(6)) {
+                            // A lone picture beside the page's name: nothing when it has none (#512).
                             EntityPicture(id: item.entityId, name: item.displayName,
-                                          type: item.entityType.flatMap(EntityType.init(rawValue:)) ?? .concept,
-                                          size: 18)
+                                          type: item.entityType.flatMap(EntityType.init(rawValue:)) ?? .unknown,
+                                          size: 18, collapsesWhenEmpty: true)
                             InlineLink(title: item.displayName, help: Copy.Catchup.openPage(item.displayName)) {
                                 openPage(item.entityId)
                             }

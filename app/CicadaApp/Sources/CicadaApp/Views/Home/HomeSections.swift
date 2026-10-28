@@ -289,8 +289,10 @@ struct NeedsYouSection: View {
                             .foregroundStyle(CicadaTheme.textSecondary)
                     }
                 } else {
+                    // #512's slot rule: the picture column stays only while some row draws a picture.
+                    let reserves = HomeQuestions.reservesPicture(figures.rows, store: store)
                     ForEach(figures.rows) { row in
-                        HomeQuestionRow(row: row, openPage: openPage) {
+                        HomeQuestionRow(row: row, reservesPicture: reserves, openPage: openPage) {
                             router.pendingInboxItem = row.id
                             selectedTab = .inbox
                         }
@@ -342,6 +344,8 @@ struct CatchupBlock: View {
 /// page as a link, and the question's age. The row opens the question in the full list; the link opens the page.
 struct HomeQuestionRow: View {
     let row: HomeQuestions.Row
+    /// Some row in the list draws a picture, so every row keeps the column (`EntityPictureLayout.anyDrawn`, #512).
+    var reservesPicture = true
     let openPage: (String) -> Void
     let open: () -> Void
 
@@ -409,15 +413,19 @@ struct HomeQuestionRow: View {
         .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
     }
 
-    /// DR-48 — a picture or a glyph, never both: the page's own face, logo or type glyph; a question with no page
-    /// carries its kind's glyph.
+    /// DR-48 — a picture, never a type glyph standing in for one (#512): the page's own face or logo, a person's
+    /// initials, or no slot at all when no row in the list draws anything. A question with no page keeps its kind's
+    /// glyph only while the column is there.
     @ViewBuilder
     private var picture: some View {
         if row.entityId.isEmpty {
-            KindGlyph(kind: row.kind)
-                .frame(width: CicadaTheme.scaled(28), height: CicadaTheme.scaled(28))
+            if reservesPicture {
+                KindGlyph(kind: row.kind)
+                    .frame(width: CicadaTheme.scaled(28), height: CicadaTheme.scaled(28))
+            }
         } else {
-            EntityPicture(id: row.entityId, name: row.entityName, type: row.entityType ?? .concept, size: 28)
+            EntityPicture(id: row.entityId, name: row.entityName, type: row.entityType ?? .unknown, size: 28,
+                          collapsesWhenEmpty: !reservesPicture)
         }
     }
 }

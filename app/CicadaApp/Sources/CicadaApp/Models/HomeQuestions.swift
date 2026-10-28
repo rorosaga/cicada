@@ -69,6 +69,14 @@ enum HomeQuestions {
         return Figures(rows: rows, total: items.count, catchUp: asked.map(\.id), catchUpPages: perPage.count)
     }
 
+    /// #512's list rule over Home's rows: keep the picture column only while some row's page draws a picture.
+    @MainActor
+    static func reservesPicture(_ rows: [Row], store: Store) -> Bool {
+        EntityPictureLayout.anyDrawn(rows.filter { !$0.entityId.isEmpty }.map {
+            (type: $0.entityType ?? .unknown, picture: store.picture(for: $0.entityId))
+        })
+    }
+
     /// A page's questions are one group whatever side of a pair they sit on; a question with no page is its own.
     static func pageKey(_ item: InboxItem) -> String {
         item.entityId.isEmpty ? "item:\(item.id)" : "page:\(item.entityId)"
