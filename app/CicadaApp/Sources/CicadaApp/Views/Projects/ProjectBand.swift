@@ -84,7 +84,45 @@ struct BandLayout: Equatable {
     let threads: [Thread]
     let brackets: [Bracket]
     let next: Tick?
+    /// The next milestone's name alone — the shorter words its label falls back to beside "You, today".
+    var nextName: String? = nil
     let accessibility: String
+
+    /// Where a label over the track sits: its words and the x its centre is drawn at.
+    struct LabelSpan: Equatable {
+        let text: String
+        let center: CGFloat
+    }
+
+    /// The next milestone's label beside "You, today", which share one row over the track: never colliding (owner
+    /// 2026-10-28, "You, todayFibreglass the hull"). In order: the full words centred on the diamond; the full words
+    /// pushed away from today, still reaching their diamond; the same two for the name alone; else no label (the diamond
+    /// keeps its hover words, DR-69). Every candidate stays inside the band. `measure` is the drawn width of a string
+    /// (the view measures the real font; a test passes its own), so this stays pure.
+    static func nextLabel(todayX: CGFloat, next: Tick?, name: String?, width: CGFloat, gap: CGFloat,
+                          measure: (String) -> CGFloat) -> LabelSpan? {
+        guard let next, width > 0 else { return nil }
+        let half = measure(Copy.Projects.youToday) / 2
+        let today = (todayX - half - gap)...(todayX + half + gap)
+        var texts = [next.label]
+        if let name, !name.isEmpty, name != next.label { texts.append(name) }
+        for text in texts {
+            let w = measure(text)
+            guard w <= width else { continue }
+            func fits(_ c: CGFloat) -> Bool {
+                let lo = c - w / 2, hi = c + w / 2
+                return lo >= 0 && hi <= width && (hi < today.lowerBound || lo > today.upperBound)
+            }
+            let centred = min(max(next.x, w / 2), width - w / 2)
+            if fits(centred) { return LabelSpan(text: text, center: centred) }
+            // Pushed clear of today on the diamond's side, as long as the words still reach over their diamond.
+            let pushed = next.x >= todayX ? today.upperBound + w / 2 + 0.5 : today.lowerBound - w / 2 - 0.5
+            if fits(pushed), pushed - w / 2 <= next.x, pushed + w / 2 >= next.x {
+                return LabelSpan(text: text, center: pushed)
+            }
+        }
+        return nil
+    }
 
     func x(_ day: ISODay) -> CGFloat { CGFloat(span.fraction(day)) * width }
     var todayX: CGFloat { x(span.today) }
@@ -263,13 +301,14 @@ struct BandLayout: Equatable {
             let px = x(day)
             return px > width * 0.08 && px < width * 0.94 ? Tick(x: px, label: w.text) : nil
         }
-        let next = state.next.flatMap { slug in milestones.first { $0.slug == slug } }.flatMap { m in
+        let nextMilestone = state.next.flatMap { slug in milestones.first { $0.slug == slug } }
+        let next = nextMilestone.flatMap { m in
             ISODay(m.target).map { Tick(x: x($0), label: Copy.Projects.nextMark(m.name, RelativeDay.distance($0, today: today))) }
         }
 
         return BandLayout(
             span: span, width: width, months: months, words: words, nodes: placed, threads: threads, brackets: brackets,
-            next: next,
+            next: next, nextName: nextMilestone?.name,
             accessibility: Copy.Projects.bandLabel(t.project.name, planned: state.planned, progress: state.progress,
                                                    today: RelativeDay.spoken(today, locale: locale)))
     }
@@ -356,12 +395,26 @@ struct ProjectBandView: View {
                 .foregroundStyle(CicadaTheme.textPrimary)
                 .fixedSize()
                 .position(x: layout.todayX, y: s(BandLayout.labelTop + 7))
-            // The next milestone's words sit over its diamond — hidden when they would run into "You, today".
-            if let next = layout.next, abs(next.x - layout.todayX) > s(72) {
-                edgeLabel(next.label, x: next.x, y: s(BandLayout.labelTop))
+            // The next milestone's words sit over its diamond, never into "You, today": pushed clear, shortened to the
+            // name, or left to the diamond's hover words (`BandLayout.nextLabel`, measured in the drawn fonts).
+            if let label = BandLayout.nextLabel(todayX: layout.todayX, next: layout.next, name: layout.nextName,
+                                                width: layout.width, gap: s(8), measure: measure) {
+                Text(label.text)
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .fixedSize()
+                    .position(x: label.center, y: s(BandLayout.labelTop + 7))
             }
         }
         .accessibilityHidden(true)
+    }
+
+    /// A string's drawn width in the band's label fonts: "You, today" in 11 medium, everything else 11 regular
+    /// (`captionFont`), both scaled with the page (DR-70).
+    private func measure(_ text: String) -> CGFloat {
+        let weight: NSFont.Weight = text == Copy.Projects.youToday ? .medium : .regular
+        let font = NSFont.systemFont(ofSize: s(11), weight: weight)
+        return ceil((text as NSString).size(withAttributes: [.font: font]).width)
     }
 
     /// A label centred on `x`, pulled inside the band at either end so it is never clipped.
