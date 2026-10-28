@@ -470,6 +470,26 @@ def test_find_and_timeline_read_the_bank(env, capsys):
     assert code == 0 and out["command"] == "timeline"
 
 
+def test_find_with_no_kind_never_asks_for_pictures(env, monkeypatch, capsys):
+    """Hyrum (review of #506): `cicada find` with no `--kind` is every kind it was before pictures existed; pictures
+    come only when named (`--kind image`), as `GET /search` serves them."""
+    from api.services import image_index, search_service
+
+    asked: list[list[str]] = []
+    real = search_service.search
+
+    def spy(memory_path, q, **kw):
+        asked.append(list(kw.get("kinds") or []))
+        return real(memory_path, q, **kw)
+
+    monkeypatch.setattr(search_service, "search", spy)
+    monkeypatch.setattr(image_index, "search", lambda *a, **k: [])
+    code, _out = _run(["find", "alpha"], capsys)
+    assert code == 0 and asked[-1] == list(search_service.KINDS) and "image" not in asked[-1]
+    code, _out = _run(["find", "alpha", "--kind", "image"], capsys)
+    assert code == 0 and asked[-1] == ["image"]
+
+
 def test_bank_reads_never_call_the_backend(env, monkeypatch, capsys):
     with _backend(env, monkeypatch) as server:
         for argv in (["page", "list"], ["graph"], ["inbox", "all"], ["bank", "list"], ["feed", "list"],

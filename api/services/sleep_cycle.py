@@ -1849,6 +1849,13 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True,
                 embedding_models.start_reindex_if_needed(memory_path, settings)
             except Exception as e:  # noqa: BLE001 — never a reason for a run to fail
                 logger.debug(f"re-embed check skipped: {type(e).__name__}")
+            # The picture index gave way to this run (or a picture arrived during it): it goes on now.
+            try:
+                from api.services import image_index
+
+                image_index.start_refresh(memory_path, delay_s=image_index.SETTLE_S)
+            except Exception as e:  # noqa: BLE001 — never a reason for a run to fail
+                logger.debug(f"picture refresh skipped: {type(e).__name__}")
 
 
 def _reset_batch_counters() -> None:

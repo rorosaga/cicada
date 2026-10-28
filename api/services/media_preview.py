@@ -469,6 +469,7 @@ async def ensure_preview(memory_path, entity_id: str, *, fetcher: Fetcher | None
                     pass
         await asyncio.to_thread(_write_meta, bank, entity_id,
                                 {"hit": {"key": source.key, "ext": ext, "at": at, "kind": source.kind}})
+        _picture_stored(memory_path)
         return target
 
 
@@ -555,4 +556,16 @@ async def ensure_video_still(memory_path, video_id: str, *, fetcher: Fetcher | N
         except OSError as exc:
             logger.warning(f"watched still not stored: {type(exc).__name__}")
             return None
+        _picture_stored(Path(memory_path))
         return target
+
+
+def _picture_stored(memory_path: Path) -> None:
+    """A new picture is on this Mac: the meaning index picks it up a little later, in the background
+    (``image_index.start_refresh`` folds a burst of these into one run and does nothing without the image encoder)."""
+    try:
+        from api.services import image_index
+
+        image_index.start_refresh(memory_path, delay_s=image_index.SETTLE_S)
+    except Exception as exc:  # noqa: BLE001 — never a reason for a picture not to be served
+        logger.debug(f"preview: no picture refresh ({type(exc).__name__})")

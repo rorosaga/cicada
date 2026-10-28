@@ -332,7 +332,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **`_state.md` is a cursor, never a copy**; it commits ALONE, the read path too (the G85-class smear). **The handshake is
   ≤ 1,800 tokens, and R12 holds: every argument a primer names exists in the tool schema.**
 - **Derived indexes are disposable** (vectors, FTS): rebuilt, never an error; never tracked by git; **the query is never
-  logged**. The caller always passes the active bank (the split-brain rule).
+  logged**. The caller always passes the active bank (the split-brain rule). **Pictures are a kind of the same index
+  (2026-10-28):** only pictures already on this Mac, embedded outside Sleep in the picture child, never on a search;
+  a search embeds words only; the remote connector never sees picture hits (`image_index`, `storage.md`).
 - **The telemetry ledger is ids and enums only, never text, never in a bank or git.** Nothing learned from it is
   auto-applied.
 - **Git:** every Sleep commit is machine-parseable, with three trailer families (`Cicada-Author`, `Cicada-Engine` — omitted

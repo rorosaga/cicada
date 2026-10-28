@@ -1734,6 +1734,75 @@ vector no longer carries a confidence. The first sync after the change re-embeds
 vector and MRR 0.629 → 0.625, inside one decay night's own movement under the old text (0.629 → 0.635); the newuser
 bank's MRR is unchanged.
 
+### Pictures in the meaning index (vision item 3, 2026-10-28; G195's first image slice)
+`api/services/image_index.py`. The owner: video, images, articles, websites "in the same embedding space with the
+Gemma model … all running locally". Pictures are **one more kind of `vector_index.db`**: `vec_images` / `meta_images`
+beside the text kinds, plus `stats_images` (the kind's mean vector and count), stamped only with its own
+`model:images` / `dim:images` / `recipe:images` — never the bank-wide `model`/`dim`, which name the text tables' build
+model — and left out of the text re-embed (`embedding_models.pending_switch` counts `REINDEX_ORDER` kinds only).
+EmbeddingGemma 2's image encoder puts a picture in the text model's 768-wide space, so a text query meets pictures by
+one cosine; a search embeds only the query's words with the text model the table records (`model:images`, the same id
+as the text tables on an EmbeddingGemma 2 bank, so recall's cached query vector is reused) and **never loads the
+image encoder**.
+
+**What is indexed** (`image_index.sources`, only what is already on this Mac — nothing is fetched for it): `look` (a
+saved look's screenshot, in the bank), `capture` (the newest in-bank thumbnail of each saved site's captures; one that
+showed the person's account stays outside the bank and is not indexed), `preview` (a media page's stored preview,
+`$CICADA_HOME/previews/<bank>/`), `still` (a saved YouTube video's still, or a watched day's — stored only once the
+person opened that day — one row per video at its latest day). A still is YouTube's own picture for the id, never a
+frame: no video is downloaded and no stream derived (G162). A watched day's still is indexed like its words and never
+read by a model that writes memory (ruling 30). Each row's metadata says where it came from (source, page, watched
+day's episode, capture, title, day) and the API path that serves it; vectors of pictures that live outside the bank
+sit in this derived file inside it, like every other vector (git-ignored, never exported).
+
+**Diffing.** A row's hash is the picture's sha256; the table is stamped with the model and **the same preprocessing
+fingerprint the design board uses** (`recipe:images` = `vision_embedder.fingerprint()`: the recipe plus a reference
+picture through the real decoder, so a `sips` change re-embeds too — one stamp for both picture stores). A changed
+picture re-embeds that row, a picture gone drops its row, a renamed page refreshes metadata with no embed, the same
+bytes under two keys embed once. A picture that fails is counted and never stops the rest. Without the image encoder
+(or a decoder that cannot run) a refresh only drops what is gone; search keeps working from the stored vectors.
+
+**A new model or fingerprint never empties search (review of #506).** The table has two generations (`images`,
+`images_alt`); `serving:images` names the one search reads. A stamp change builds the other generation — resumed
+across Sleep's stops while its own stamps match, never swapped in while a `limit` left pictures out — and when it holds
+every picture that can be embedded, the pointer moves and the old generation is dropped in one transaction. Until
+then search answers from the old pictures (the vector rail: the old table serves until the new one commits).
+
+**Scores.** Raw cosines are not comparable across kinds (a text query sits nearer every passage than any picture),
+so a picture is scored by its **lift**, `cos − μ`, where μ is the query's exact mean cosine over every picture
+(`q · mean`, from `stats_images`, no scan), and shown only at `lift ≥ LIFT_MIN` (0.06) — "nothing found" is an answer.
+Measured: on synthetic vectors with a modality gap (`benchmarks.perf.image_fusion`, 4 geometries × 3 seeds) RRF put a
+picture in the merged top 5 of 100 % of documents-only queries and raw cosine never showed one, while subtracting the
+kind's mean kept pictures out (≤ 0.3 %); on the real encoder (`benchmarks.perf.image_index_build`, 400 synthetic
+coloured shapes) a query describing a picture lifts it 0.10–0.15, a near miss ≈ 0.08, the best picture for a query
+about nothing drawn ≤ 0.03 — 32/32 first pictures right, 0/30 shown for nothing. DigUp's z-score (G195) fails the
+floor there: an unrelated query's spread over pictures is a quarter of a related one's (σ 0.011 vs 0.047), so its
+best picture reaches a right one's z (2.6 vs 2.2–3.3). The 0.06 floor was
+calibrated on synthetic shapes; real screenshots should re-check it (one constant).
+
+**When it embeds — never on a search and never by Sleep.** `image_index.start_refresh` runs one refresh per bank at
+a time (a trigger during a run runs it once more), only where the person's click installed the image encoder, never
+while Sleep runs (it gives way between steps of 16, `RefreshStopped`, keeping what it wrote). Triggers: 30 s after the
+backend starts, after a Sleep run ends, when the image encoder finishes installing, and 30 s after a preview or still
+is stored, a capture records a new look or a look is saved (a burst folds into one run). The vectors are made in the
+**picture child** (`embed_worker.images`; the text child is under "sqlite-vec" above): nice 10, its math libraries
+held to 4 threads, and a memory ceiling of 2,048 MB checked by the child after each request (`ru_maxrss`; macOS lets a
+process set no address-space limit on itself) — over it, the child answers and exits and the next request starts
+another. The design board's pictures (`design_index`) are made in the same child now.
+
+**Measured** (M-series Mac, the pinned EmbeddingGemma 2 + image encoder, 400 synthetic 640 × 400 JPEGs, cold): 59.9 s
+= 6.7 pictures/s (150 ms each, the child's start and both models' load included; sips decode in its own child per
+picture); the picture child peaked at 872 MB resident; the backend side grew 2 MB; the table is 4.5 MB for 400
+pictures; an unchanged refresh 147 ms; the same 400 built into a copy of the owner's 8,028-page bank, 47.6 s. The
+picture leg on that copy, its query vector already made by the entity leg (recall's and hybrid search's case): p50
+8.7 ms, p95 17.6 ms; with no picture table, 2.2 / 3.8 ms. Each query embedding its own words first: p50 24 ms, p95
+54 ms. Prefix search is unchanged (it never reaches the leg); the prompt hook never calls it.
+
+**Not yet:** files from folders the person picks (G195's app walk), documents, video frames from local files, audio
+(spike: the PR's report), the design board's own store retiring into this one (it keeps its words leg, its example-
+picture search and its tiered order; its picture vectors could be read from here instead — a read-path swap, then the
+separate file goes), and a picture group in the app's find palette (a design-direction-D decision).
+
 ### The quick read's provisional records (G207, 2026-10-22)
 `<bank>/.awake/<episode>.json`, one per conversation a quick read covered (`awake_read`, its only writer). It holds
 the body revision, the read time, the engine and model, the provisional claims (each `Claim.to_dict()`, G118 spans

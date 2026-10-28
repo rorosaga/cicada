@@ -42,6 +42,10 @@ from api.services import bank_index, evidence, inbox_questions, inbox_service, m
 from api.services.claims import EVENT_PREDICATES, is_current, is_record, parse_claims, read_valid_to
 
 KINDS = ("entity", "claim", "episode", "media", "inbox", "backlog")
+#: Kinds served only when asked for by name, never part of "every kind" (`KINDS`, which `cicada find` and other
+#: callers use as their default): pictures (vision item 3) — ranked by meaning, never counted, hybrid only.
+OPT_IN_KINDS = ("image",)
+_ORDER = KINDS + OPT_IN_KINDS
 _KIND_ALIASES = {
     "entity": "entity", "entities": "entity",
     "claim": "claim", "claims": "claim", "belief": "claim", "beliefs": "claim",
@@ -49,6 +53,7 @@ _KIND_ALIASES = {
     "media": "media", "source": "media", "sources": "media", "paper": "media", "papers": "media",
     "inbox": "inbox",
     "backlog": "backlog", "task": "backlog", "tasks": "backlog",
+    "image": "image", "images": "image", "picture": "image", "pictures": "image",
 }
 MODES = ("prefix", "hybrid")
 MAX_PER_KIND = 20
@@ -79,7 +84,7 @@ def parse_kinds(kinds: str | None, indexes: str | None = None) -> list[str]:
     """
     raw = kinds if kinds is not None and kinds.strip() else (indexes or "")
     wanted = {_KIND_ALIASES.get(part.strip().lower()) for part in raw.split(",")}
-    return [k for k in KINDS if k in wanted] or ["entity"]
+    return [k for k in _ORDER if k in wanted] or ["entity"]
 
 
 def rrf_scores(*ranked_lists: list[dict], k: int = RRF_K, key: Callable[[dict], str | None] | None = None):
@@ -841,7 +846,7 @@ def search(
         reader=None,
         q=q or "",
         tokens=text_fold.query_tokens(q),
-        kinds=[k for k in KINDS if k in wanted] or ["entity"],
+        kinds=[k for k in _ORDER if k in wanted] or ["entity"],
         per_kind=max(1, min(int(per_kind or 1), MAX_PER_KIND)),
         mode=mode if mode in MODES else "hybrid",
     )
@@ -865,9 +870,31 @@ def search(
             ctx.reader = None
     if grouped is None:
         grouped, totals = _search_fallback(ctx)
-    ran = ctx.mode if ctx.mode == "prefix" or ctx.legs is not None else "lexical"
+    if "image" in ctx.kinds:
+        grouped["image"] = _image_kind(ctx, embed_fn) if semantic else []
+    ran = ctx.mode if ctx.mode == "prefix" or ctx.legs is not None or grouped.get("image") else "lexical"
     results = [hit for kind in ctx.kinds for hit in grouped.get(kind, [])]
     return SearchResponse(results=results, totals=totals, mode=ran, index_state=state)
+
+
+def _image_kind(ctx: _Ctx, embed_fn) -> list[SearchHit]:
+    """Pictures by meaning (vision item 3): the one index's ``images`` kind, only those well above the query's mean
+    over every picture (``image_index.LIFT_MIN``) — so a query about nothing pictured returns no group, not its
+    nearest picture. Hybrid only: it embeds the query's words (never the image encoder); prefix never reaches it.
+    Ranked, not counted (no total)."""
+    from api.services import image_index
+
+    hits = []
+    for row in image_index.search(ctx.memory_path, ctx.q, top_k=ctx.per_kind, embed_fn=embed_fn):
+        meta = row.get("metadata") or {}
+        hits.append(SearchHit(
+            id=row["key"], name=str(meta.get("title") or "A picture"), type="image", status="active", confidence=0.0,
+            score=float(row["score"]), kind="image", matched_field="semantic",
+            subject_id=meta.get("entity_id") or None, episode_id=meta.get("episode_id") or None,
+            timestamp=meta.get("day") or None, thumbnail=meta.get("thumb") or None,
+            image_source=meta.get("source") or None,
+        ))
+    return hits
 
 
 def lexical_entity_hits(memory_path: Path, query: str, top_k: int = 8) -> list[dict]:

@@ -22,6 +22,15 @@ embed in-process (the suite runs with it off; its own tests turn it on).
 **Lifetime.** One child per model, started on first use and reused; it exits on its own after ``IDLE_S`` without
 work, and at once when the backend goes away (its stdin closes). A child that died is replaced once per call; a
 second death is an error the caller handles like any failed embed (the old tables stay as they were).
+
+**Pictures too (vision item 3, 2026-10-28).** ``coremltools`` holds the GIL for an image predict exactly as for a text
+one, and the image encoder loads ~300 MB beside the text model, so every picture vector — the meaning index's
+background refresh (``image_index``) and the design board's (``design_index``) — is made in a child of its own
+(:func:`images`, ``VISION_FACTORY``), never in the backend. That child runs at a lower priority (``NICE``) with its
+math libraries held to ``THREADS`` cores, and has a **memory ceiling** (``VISION_MEMORY_MB``): after any request that
+leaves its peak resident size above it, it answers and exits, and the next request starts a fresh one. macOS
+enforces no address-space limit a process can set on itself, so the ceiling is the child's own check, not the
+kernel's. A picture that fails comes back as a row of NaN — one bad file never fails the batch.
 """
 from __future__ import annotations
 
@@ -46,6 +55,15 @@ IDLE_S = 90.0
 #: How the child builds its embedder: ``"module:attr"``, called with the model id, returning an embed function.
 #: The default is the backend's own resolution; the tests point it at a stand-in.
 FACTORY = "api.services.embed_worker:_resolve"
+#: How a picture child builds its embedder: called with the model id, returning ``fn(list[bytes]) -> [n, d]``.
+VISION_FACTORY = "api.services.embed_worker:_resolve_vision"
+#: Pictures per request: a preview is at most 512 KB, a capture thumbnail far less, so one message stays a few MB.
+IMAGE_BATCH = 16
+#: A picture child that has peaked above this many MB answers and exits; the next request starts another.
+VISION_MEMORY_MB = 2048
+#: A picture child's priority and its math libraries' threads (the owner's ≤ 4 cores for background embedding).
+NICE = 10
+THREADS = 4
 
 
 class WorkerStopped(RuntimeError):
@@ -78,18 +96,31 @@ def documents(model_id: str, fallback):
     return embed
 
 
+def images(model_id: str):
+    """An embed function for pictures with ``model_id``'s image encoder, in the picture child: ``fn(list[bytes]) ->
+    float32 [n, d]``, a NaN row for a picture that could not be read or embedded."""
+    def embed(blobs: list[bytes]) -> np.ndarray:
+        worker = _worker(model_id, VISION_FACTORY)
+        parts = [worker.request("images", list(blobs[i : i + IMAGE_BATCH]))
+                 for i in range(0, len(blobs), IMAGE_BATCH)]
+        return np.concatenate(parts, axis=0) if parts else np.zeros((0, 0), dtype=np.float32)
+
+    return embed
+
+
 # --------------------------------------------------------------------------- the parent's side
 
 _WORKERS: dict[tuple[str, str], _Worker] = {}
 _WORKERS_GUARD = threading.Lock()
 
 
-def _worker(model_id: str) -> _Worker:
-    key = (FACTORY, model_id)
+def _worker(model_id: str, factory: str | None = None) -> _Worker:
+    factory = factory or FACTORY
+    key = (factory, model_id)
     with _WORKERS_GUARD:
         worker = _WORKERS.get(key)
         if worker is None:
-            worker = _WORKERS[key] = _Worker(model_id, FACTORY)
+            worker = _WORKERS[key] = _Worker(model_id, factory)
         return worker
 
 
@@ -118,8 +149,13 @@ class _Worker:
         # `api` resolves in the child exactly as here: this checkout (or the release's bundle) first.
         root = str(Path(__file__).resolve().parents[2])
         env["PYTHONPATH"] = os.pathsep.join(p for p in (root, env.get("PYTHONPATH", "")) if p)
+        argv = [sys.executable, "-m", "api.services.embed_worker", self.model_id, self.factory]
+        if self.factory == VISION_FACTORY:
+            for name in ("OMP_NUM_THREADS", "VECLIB_MAXIMUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
+                env[name] = str(THREADS)
+            argv += ["--nice", str(NICE), "--ceiling-mb", str(VISION_MEMORY_MB)]
         proc = subprocess.Popen(
-            [sys.executable, "-m", "api.services.embed_worker", self.model_id, self.factory],
+            argv,
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, env=env, close_fds=True)
         logger.debug(f"embed_worker: started a child for {self.model_id} (pid {proc.pid})")
         return proc
@@ -144,13 +180,17 @@ class _Worker:
             proc.wait()
 
     def embed(self, texts: list[str]) -> np.ndarray:
+        return self.request("embed", texts)
+
+    def request(self, kind: str, items: list) -> np.ndarray:
+        """One request of ``kind`` (``embed`` — texts; ``images`` — picture bytes) and its ``[len(items), d]``."""
         with self._lock:
             for attempt in (1, 2):
                 if self._proc is None or self._proc.poll() is not None:
                     self._kill()
                     self._proc = self._start()
                 try:
-                    pickle.dump(("embed", texts), self._proc.stdin, protocol=pickle.HIGHEST_PROTOCOL)
+                    pickle.dump((kind, items), self._proc.stdin, protocol=pickle.HIGHEST_PROTOCOL)
                     self._proc.stdin.flush()
                     status, payload = pickle.load(self._proc.stdout)
                 except (BrokenPipeError, EOFError, OSError, pickle.UnpicklingError):
@@ -161,8 +201,8 @@ class _Worker:
                     continue
                 if status == "ok":
                     vectors = np.asarray(payload, dtype=np.float32)
-                    if vectors.ndim != 2 or vectors.shape[0] != len(texts):
-                        raise ValueError(f"embed worker returned shape {vectors.shape} for {len(texts)} texts")
+                    if vectors.ndim != 2 or vectors.shape[0] != len(items):
+                        raise ValueError(f"embed worker returned shape {vectors.shape} for {len(items)} items")
                     return vectors
                 raise payload
         raise WorkerStopped("the search model's worker stopped")   # pragma: no cover — the loop always returns
@@ -175,6 +215,43 @@ def _resolve(model_id: str):
 
     embed_fn, _model = providers.cached_embed_fn_for_model(model_id)
     return embed_fn
+
+
+def _resolve_vision(model_id: str):
+    """The picture child's embedder: EmbeddingGemma 2's image encoder where it is installed (``vision_embedder``),
+    one picture at a time, a NaN row for one that fails. ``model_id`` is the text model the table records; the image
+    encoder sits beside exactly that one."""
+    from api.services import vision_embedder
+
+    vision = vision_embedder.get()
+    if vision is None:
+        raise RuntimeError("the image model isn't installed here")
+    return picture_rows(vision.embed)
+
+
+def picture_rows(embed_one):
+    """``fn(list[bytes]) -> [n, d]`` from a one-picture embedder: a NaN row for a picture that raises."""
+    def embed(blobs: list[bytes]) -> np.ndarray:
+        rows = []
+        for data in blobs:
+            try:
+                rows.append(np.asarray(embed_one(bytes(data)), dtype=np.float32).reshape(-1))
+            except Exception:  # noqa: BLE001 — one bad picture is one NaN row, never the batch
+                rows.append(None)
+        width = next((r.size for r in rows if r is not None), 0)
+        if not width:
+            return np.full((len(blobs), 1), np.nan, dtype=np.float32)
+        return np.stack([r if r is not None else np.full(width, np.nan, dtype=np.float32) for r in rows])
+
+    return embed
+
+
+def peak_mb() -> float:
+    """This process's peak resident size in MB (``ru_maxrss`` is bytes on macOS, KB on Linux)."""
+    import resource
+
+    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    return peak / (1024 * 1024) if sys.platform == "darwin" else peak / 1024
 
 
 def _load(factory: str):
@@ -193,24 +270,28 @@ def _portable(exc: BaseException) -> BaseException:
         return RuntimeError(f"the embedder failed: {type(exc).__name__}")
 
 
-def serve(model_id: str, factory: str, inp, out, idle_s: float = IDLE_S) -> int:
+def serve(model_id: str, factory: str, inp, out, idle_s: float = IDLE_S, ceiling_mb: float | None = None) -> int:
     embed_fn = None
     while True:
         ready, _, _ = select.select([inp], [], [], idle_s)
         if not ready:
             return 0          # idle: the parent starts another when it needs one
         try:
-            _kind, texts = pickle.load(inp)
+            kind, items = pickle.load(inp)
         except EOFError:
             return 0          # the backend went away
         try:
             if embed_fn is None:
                 embed_fn = _load(factory)(model_id)
-            reply = ("ok", np.asarray(embed_fn(texts, is_query=False), dtype=np.float32))
+            raw = embed_fn(items) if kind == "images" else embed_fn(items, is_query=False)
+            reply = ("ok", np.asarray(raw, dtype=np.float32))
         except Exception as exc:  # noqa: BLE001 — every failure goes back to the caller as itself
             reply = ("error", _portable(exc))
         pickle.dump(reply, out, protocol=pickle.HIGHEST_PROTOCOL)
         out.flush()
+        if ceiling_mb is not None and peak_mb() > ceiling_mb:
+            logger.info(f"embed_worker: a picture child passed its {ceiling_mb:.0f} MB ceiling and exits")
+            return 0          # the memory ceiling: the next request starts a fresh child
 
 
 def warm_in_child(folder: Path, timeout_s: float = 30 * 60) -> None:
@@ -242,11 +323,23 @@ def main(argv: list[str]) -> int:
     if argv[1:2] == ["--warm"]:
         return _warm(argv[2])
     model_id, factory = argv[1], argv[2]
+    rest = argv[3:]
+    ceiling = None
+    if "--nice" in rest:
+        try:
+            os.nice(int(rest[rest.index("--nice") + 1]))
+        except (OSError, ValueError, IndexError):
+            pass
+    if "--ceiling-mb" in rest:
+        try:
+            ceiling = float(rest[rest.index("--ceiling-mb") + 1])
+        except (ValueError, IndexError):
+            ceiling = None
     # The protocol owns fd 1; anything a library prints goes to stderr (the backend's log) instead.
     out = os.fdopen(os.dup(1), "wb")
     os.dup2(2, 1)
     sys.stdout = sys.stderr
-    return serve(model_id, factory, sys.stdin.buffer, out)
+    return serve(model_id, factory, sys.stdin.buffer, out, ceiling_mb=ceiling)
 
 
 if __name__ == "__main__":

@@ -694,6 +694,13 @@ def record(memory_path, *, entity_id: str, url: str, lease_token: str, outcome: 
     except FileExistsError:
         return {"action": "duplicate", "id": cid, "capture": get_capture(memory_path, entity_id, cid), "paths": []}
     fm["path"] = rel
+    if thumb_paths:   # a new look: the meaning index picks its thumbnail up later, in the background
+        try:
+            from api.services import image_index
+
+            image_index.start_refresh(memory_path, delay_s=image_index.SETTLE_S)
+        except Exception as exc:  # noqa: BLE001 — never a reason for a capture not to be recorded
+            logger.debug(f"site_captures: no picture refresh ({type(exc).__name__})")
     return {"action": "added", "id": cid, "capture": fm, "paths": [rel, *thumb_paths]}
 
 
