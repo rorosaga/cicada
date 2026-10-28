@@ -862,11 +862,14 @@ async def resolve_settings(
         updates.update(_model_overrides(registry, mode))
         if _prefs_allow_overage(registry):
             updates["agent_allow_overage"] = True
-        if mode == "cursor":
-            refusal = _cursor_own_models_only(settings, registry, updates, user_triggered=user_triggered)
-            if refusal is not None:
-                why = refusal
-                updates = {"llm_mode": "auto", "no_engine_reason": no_engine_sentence(refusal)}
+    if mode == "cursor":
+        # Ruling 46a holds whatever set the mode — the app's choice or a `CICADA_LLM_MODE` pin (a headless server's
+        # .env): Cursor counts as chosen only when the operator pinned `cursor` itself, or the person picked it.
+        chosen = configured == "cursor" if env_explicit else _prefs_mode(registry) == "cursor"
+        refusal = _cursor_own_models_only(settings, updates, chosen=chosen, user_triggered=user_triggered)
+        if refusal is not None:
+            why = refusal
+            updates = {"llm_mode": "auto", "no_engine_reason": no_engine_sentence(refusal)}
     if not updates:
         return settings, why
     return settings.model_copy(update=updates), why
@@ -876,16 +879,19 @@ async def resolve_settings(
 SCHEDULE_CURSOR_THIRD_PARTY = "scheduled cycle — Cursor reads on a schedule only with its own models"
 
 
-def _cursor_own_models_only(settings, registry, updates: dict, *, user_triggered: bool) -> str | None:
+def _cursor_own_models_only(settings, updates: dict, *, chosen: bool, user_triggered: bool) -> str | None:
     """Ruling 46a (owner, 2026-10-28): Auto and a scheduled run use Cursor only with Cursor's own models (the Grok line,
-    Composer, its own `auto`). When Auto lands on Cursor, its model is set to Cursor's own `auto` unless the stored one
-    is already Cursor's own — never the tool's config default, which may be a third-party model. A run the person starts
-    on Cursor they chose keeps any model they picked (it was labelled "billed separately" before they chose it). A
-    scheduled run on a chosen third-party model is never swapped onto another model: it has no engine, said in words
-    (the reason returned)."""
+    Composer, its own `auto`). ``chosen``: Cursor itself was picked (the person in the app, or the operator's
+    ``CICADA_LLM_MODE=cursor``) rather than reached by Auto.
+
+    - Auto landed on Cursor (any trigger): the model is Cursor's own `auto` unless the stored one is already Cursor's
+      own — never the tool's config default, which may be a third-party model.
+    - Cursor chosen, a run the person starts: their model is kept, any model — the app labelled a third-party one
+      "billed separately" before they chose it, and an operator's env pin is the operator's explicit choice.
+    - Cursor chosen, a scheduled run, a third-party model (from the app or the env): never swapped onto another model —
+      no engine, said in words (the reason returned). An unset model there runs Cursor's own `auto`."""
     from api.services import cli_engines
 
-    chosen = _prefs_mode(registry) == "cursor"
     if chosen and user_triggered:
         return None
     fields = ("cli_engine_model", "cli_engine_disambiguation_model")

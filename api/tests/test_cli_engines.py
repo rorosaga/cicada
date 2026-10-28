@@ -788,6 +788,45 @@ def test_a_schedule_on_cursors_own_model_reads():
         assert cli_engines.model_for_stage(resolved, None) == (model or "auto")
 
 
+def _resolve_pinned(fields: dict, *, user_triggered: bool):
+    """`CICADA_LLM_MODE` (and its model) set in the environment — a headless server's .env: explicit fields."""
+    import asyncio
+
+    from api.config import Settings
+
+    return asyncio.run(engine_select.resolve_settings(Settings(**fields), _Registry({}, ()),
+                                                      user_triggered=user_triggered))
+
+
+@pytest.mark.shipped_engine_default
+@pytest.mark.parametrize("user_triggered", [True, False])
+@pytest.mark.parametrize("model", ["sonnet-5", ""])
+def test_a_pinned_auto_landing_on_cursor_still_runs_its_own_models(ladder, user_triggered, model):
+    """Review of #507: ruling 46a holds when the mode is pinned in the environment, not only when chosen in the app."""
+    ladder.only("agent")
+    resolved, _ = _resolve_pinned({"llm_mode": "auto", "cli_engine_model": model}, user_triggered=user_triggered)
+    assert resolved.llm_mode == "cursor"
+    assert cli_engines.model_for_stage(resolved, None) == "auto"
+    assert cli_engines.model_for_stage(resolved, "disambiguation") == "auto"
+
+
+def test_a_pinned_cursor_on_a_third_party_model_reads_when_started_and_never_on_a_schedule():
+    """The operator's `CICADA_LLM_MODE=cursor` is an explicit choice: a run the person starts keeps the pinned model;
+    a scheduled run on a third-party one has no engine and says why — never swapped."""
+    pinned = {"llm_mode": "cursor", "cli_engine_model": "sonnet-5"}
+    started, _ = _resolve_pinned(pinned, user_triggered=True)
+    assert started.llm_mode == "cursor" and cli_engines.model_for_stage(started, None) == "sonnet-5"
+    scheduled, why = _resolve_pinned(pinned, user_triggered=False)
+    assert engine_select.no_engine(scheduled) and why == engine_select.SCHEDULE_CURSOR_THIRD_PARTY
+    assert "billed separately at list price" in scheduled.no_engine_reason
+
+
+def test_a_pinned_cursor_with_no_model_or_its_own_runs_on_a_schedule():
+    for model, runs in (("", "auto"), ("grok-4.7", "grok-4.7")):
+        resolved, _ = _resolve_pinned({"llm_mode": "cursor", "cli_engine_model": model}, user_triggered=False)
+        assert resolved.llm_mode == "cursor" and cli_engines.model_for_stage(resolved, None) == runs
+
+
 def test_grok_stays_off_auto():
     """Ruling 46a keeps ruling 46's exclusion: the shipped ladder (read from the source — the suite empties it) and
     the connection ladder name Cursor and OpenCode, never Grok."""

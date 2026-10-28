@@ -2140,7 +2140,10 @@ A whole row moves to DONE only after its remaining implementation and required a
     catalogue row, the picker's row, and the Cursor card's note), and is never picked by Auto or a schedule: a run the
     person starts on it reads; a scheduled run on it is never swapped onto another model — it has no engine, said in
     words (`SCHEDULE_CURSOR_THIRD_PARTY`). (3) The Grok CLI stays off Auto (ruling 46's guard stands). (4) The Grok and
-    Cursor cards stay separate, each with its own mark: they share a subscription, not a tool or a sign-in.
+    Cursor cards stay separate, each with its own mark: they share a subscription, not a tool or a sign-in. **It holds
+    whatever set the mode** (review of #507): a `CICADA_LLM_MODE` pin in the environment (a headless server's .env) is
+    read the same way — `auto` pinned is Auto (Cursor runs its own `auto`), `cursor` pinned is the operator's explicit
+    choice (a run the person starts keeps the pinned model; a scheduled run on a third-party one has no engine).
     **Revisit** when Cursor's model listing marks which models its plan covers (then read that, not the prefixes), or
     when a live Grok sign-in shows what a subscription call reports.
 47. **Two ways in for what the person consumes: their own browser and Mac by default, an official API for specific

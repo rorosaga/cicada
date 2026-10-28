@@ -1416,7 +1416,8 @@ with Cursor's own models (`cli_engines.cursor_own_model`: the Grok line, Compose
 Cursor runs `auto` unless the stored model is already Cursor's own, never the tool's config default; a scheduled run on a
 person-chosen third-party model (billed separately at list price under The X Subscription) has no engine, said in words
 (`SCHEDULE_CURSOR_THIRD_PARTY`), never swapped; a run the person starts keeps any model they chose, which the picker
-labelled before they chose it. A tool is a rung only installed and signed in — OpenCode only with a GitHub
+labelled before they chose it. The guard runs whatever set the mode: a `CICADA_LLM_MODE` pin counts as Auto when it is
+`auto` and as the operator's explicit choice when it is `cursor`. A tool is a rung only installed and signed in — OpenCode only with a GitHub
 Copilot or OpenCode Go model listed — else skipped, never an error and never a key; an installed tool skipped (signed
 out, only key-backed models, no answer) is named in the no-engine sentence, an absent one is not. The rungs read #494's
 cached status (`cli_engines.ladder_status`): a fresh answer at once, else one background refresh for both tools at once,
