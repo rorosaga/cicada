@@ -28,6 +28,9 @@ final class TracesBrowserModel {
     private(set) var images: [String: Data] = [:]
     private(set) var texts: [String: String] = [:]
     var selectedFrame: String?
+    /// The Traces page's days as cards (2026-10-28), newest first; the day open on the page, nil for the cards.
+    private(set) var cards: [TraceDayCard] = []
+    private(set) var openDay: ISODay?
 
     @ObservationIgnored private let backend: any TraceBackend
     @ObservationIgnored private let authenticator: any TraceAuthenticator
@@ -132,14 +135,73 @@ final class TracesBrowserModel {
         selectedFrame = nil
     }
 
-    /// The rail's second click (2026-10-19 "Say it once", (5)): back to the page's root — the newest day, no search, no
-    /// screenshot open. The screenshots' unlock is left as it is: going home is not hiding them, and their own five
-    /// minutes still run.
+    /// The rail's second click (2026-10-19 "Say it once", (5)): back to the page's root — the days' cards, the newest
+    /// day read, no search, no screenshot open. The screenshots' unlock is left as it is: going home is not hiding
+    /// them, and their own five minutes still run.
     func returnToRoot() async {
         query = ""
         hits = nil
         selectedFrame = nil
+        openDay = nil
         await select(days.first ?? today)
+        await loadCards()
+    }
+
+    // MARK: - The page's days (owner 2026-10-28: "manage traces by day, one screenshot per day, kind of like BeReal")
+
+    func loadCards() async {
+        do {
+            cards = try await backend.traceDayCards()
+            problem = nil
+        } catch {
+            problem = TraceRecorder.describe(error)
+        }
+    }
+
+    /// Open one day: exactly what was captured, each item deletable.
+    func open(_ next: ISODay) async {
+        openDay = next
+        hits = nil
+        if next != day {
+            day = next
+            selectedFrame = nil
+        }
+        await load()
+    }
+
+    func backToDays() async {
+        openDay = nil
+        selectedFrame = nil
+        await loadCards()
+    }
+
+    /// Delete what the person picked from the open day (a span takes its screenshots with it), then read it again.
+    func delete(spans: [String] = [], frames: [String] = []) async {
+        guard let openDay, !(spans.isEmpty && frames.isEmpty) else { return }
+        do {
+            _ = try await backend.traceDelete(day: openDay.description, spans: spans, frames: frames, all: false)
+            for id in frames { images[id] = nil; texts[id] = nil }
+            if let selected = selectedFrame, frames.contains(selected) { selectedFrame = nil }
+            problem = nil
+        } catch {
+            problem = TraceRecorder.describe(error)
+        }
+        await load()
+        await loadCards()
+    }
+
+    /// The whole open day, at once; back to the cards.
+    func deleteDay() async {
+        guard let openDay else { return }
+        do {
+            _ = try await backend.traceDelete(day: openDay.description, spans: [], frames: [], all: true)
+            problem = nil
+        } catch {
+            problem = TraceRecorder.describe(error)
+            return
+        }
+        images = images.filter { id, _ in !(timeline?.frames.contains { $0.id == id } ?? false) }
+        await backToDays()
     }
 
     /// The sheet closed: nothing of a screenshot stays.

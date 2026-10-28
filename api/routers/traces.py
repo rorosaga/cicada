@@ -2,8 +2,10 @@
 
 The app is the only capturer (Screen Recording, Accessibility and Automation are the app's, never the backend's). It
 posts focus spans and screenshots here; :mod:`trace_store` re-applies the policy, seals and keeps them; :mod:`trace_memory`
-promotes only what the person's switches allow into the active bank (YouTube views into the watch history, a counted
-day summary) in one ``user`` commit per sync (trigger ``capture/traces``).
+promotes only what the person's switches allow into the active bank (what they watched and read on any site, the
+counted day digest) in one ``user`` commit per sync (trigger ``capture/traces``). The page reads its days as cards,
+deletes what the person picks, previews the digest Sleep would read, and takes back what traces added (one commit,
+with Undo) — every route here, nothing on another door.
 
 **This Mac only.** Every route refuses a device token (403): a client machine's traces stay on it and a server never
 serves them (G181). The remote listener (G135) serves only ``/mcp`` and ``/v1``, so none of these is reachable there.
@@ -16,7 +18,7 @@ from __future__ import annotations
 
 import base64
 import binascii
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from loguru import logger
@@ -24,7 +26,7 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
-from api.services import auth, folder_source, trace_keys, trace_memory, trace_policy, trace_store
+from api.services import auth, folder_source, trace_keys, trace_memory, trace_policy, trace_store, write_admission
 
 router = APIRouter()
 
@@ -67,6 +69,9 @@ class FrameRequest(BaseModel):
     browser: bool = False
     image: str
     text: str = ""
+    #: Every connected screen (2026-10-28): this frame is screen ``display`` of ``displays`` at that moment.
+    display: int = 0
+    displays: int = 0
 
 
 class SearchRequest(BaseModel):
@@ -81,14 +86,49 @@ class WipeRequest(BaseModel):
     confirm: bool = False
 
 
+class DeleteRequest(BaseModel):
+    day: str
+    spans: list[str] = Field(default_factory=list, max_length=5000)
+    frames: list[str] = Field(default_factory=list, max_length=5000)
+    #: The whole day: every span and screenshot filed under it.
+    all: bool = False
+
+
+class UndoRemovalRequest(BaseModel):
+    removal_id: str
+
+
+SLEEP_HOLDS = "Sleep is writing your memory right now — try again in a moment."
+
+
+def _sleep_holds() -> HTTPException:
+    return HTTPException(status_code=409, detail=SLEEP_HOLDS)
+
+
+_admitted = write_admission.route(refuse=_sleep_holds)
+
+
+def _day(raw: str | None, default: date | None = None) -> date:
+    if not raw and default is not None:
+        return default
+    try:
+        return date.fromisoformat(str(raw))
+    except ValueError:
+        raise HTTPException(status_code=422, detail="day is YYYY-MM-DD")
+
+
 def _store() -> trace_store.TraceStore:
     return trace_store.store()
 
 
 def _answer(values: dict) -> dict:
     s = _store()
-    return {"settings": values, "status": s.status(), "policy": trace_policy.served(),
-            "consent_version": trace_store.CONSENT_VERSION}
+    # The removals' claim ids are Undo's (``/added`` lists them by count); the settings answer stays the person's
+    # choices.
+    shown = {k: v for k, v in values.items() if k != "removals"}
+    return {"settings": shown, "status": s.status(), "policy": trace_policy.served(),
+            "consent_version": trace_store.CONSENT_VERSION,
+            "all_screens_consent": trace_store.ALL_SCREENS_CONSENT}
 
 
 def _refuse(exc: Exception):
@@ -188,11 +228,70 @@ async def trace_days():
 
 @router.get("/sources/traces/timeline", dependencies=_LOCAL)
 async def trace_timeline(day: str):
+    return await run_in_threadpool(_store().timeline, _day(day))
+
+
+@router.get("/sources/traces/day-cards", dependencies=_LOCAL)
+async def trace_day_cards():
+    """The page's days, newest first: counts, the screens connected, and the id of the screenshot that stands for the
+    day (its pixels stay behind Touch ID, fetched through ``/frames/{id}`` like any other)."""
+    return {"days": await run_in_threadpool(_store().day_cards)}
+
+
+@router.post("/sources/traces/delete", dependencies=_LOCAL)
+async def delete_traces(req: DeleteRequest):
+    """Delete what the person picked from one day — spans (with the screenshots taken of them), screenshots, or the
+    whole day. Never the bank: what already joined memory stays."""
+    the_day = _day(req.day)
+    if not req.all and not req.spans and not req.frames:
+        raise HTTPException(status_code=422, detail="say what to delete: spans, frames, or all")
+    return await run_in_threadpool(_store().delete, the_day, spans=req.spans, frames=req.frames, whole_day=req.all)
+
+
+@router.get("/sources/traces/preview", dependencies=_LOCAL)
+async def preview_digest(day: str | None = None, settings: Settings = Depends(get_settings)):
+    """Exactly the digest Sleep would read for a day (yesterday by default), counted here with no model — shown
+    before "Learn from my day" is on, so turning it on is informed. Reads the bank only for the person's projects."""
+    yesterday = trace_store.local_day(datetime.now(timezone.utc)) - timedelta(days=1)
+    return await run_in_threadpool(trace_memory.preview, settings.memory_path, _store(), _day(day, yesterday))
+
+
+@router.get("/sources/traces/added", dependencies=_LOCAL)
+async def traces_added(settings: Settings = Depends(get_settings)):
+    """What traces added to memory: the open beliefs and progress notes whose only evidence is a day digest, and the
+    removals that can still be undone."""
+    out = await run_in_threadpool(trace_memory.added, settings.memory_path)
+    values = await run_in_threadpool(_store().settings)
+    out["removals"] = [{"id": r.get("id"), "day": r.get("day"), "count": len(r.get("items") or [])}
+                       for r in values.get("removals") or [] if isinstance(r, dict)]
+    return out
+
+
+@router.post("/sources/traces/remove-from-memory", dependencies=_LOCAL)
+@_admitted
+async def remove_from_memory(settings: Settings = Depends(get_settings)):
+    """Take back everything traces added — every open belief and progress note whose only evidence is a day digest —
+    as ONE commit, undoable (``…/remove-from-memory/undo``). The digests themselves stay: they are what was read."""
+    mp = settings.memory_path
+    result = await run_in_threadpool(trace_memory.remove, mp, _store())
+    if result["paths"]:
+        await folder_source.commit_paths_for(mp, result["paths"], subject="Removed from memory what traces added",
+                                             trigger="person/traces-remove")
+    return {"removal_id": result["removal_id"], "removed": result["removed"]}
+
+
+@router.post("/sources/traces/remove-from-memory/undo", dependencies=_LOCAL)
+@_admitted
+async def undo_remove_from_memory(req: UndoRemovalRequest, settings: Settings = Depends(get_settings)):
+    mp = settings.memory_path
     try:
-        the_day = date.fromisoformat(day)
-    except ValueError:
-        raise HTTPException(status_code=422, detail="day is YYYY-MM-DD")
-    return await run_in_threadpool(_store().timeline, the_day)
+        result = await run_in_threadpool(trace_memory.undo, mp, _store(), req.removal_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="nothing to undo: that removal is not known here")
+    if result["paths"]:
+        await folder_source.commit_paths_for(mp, result["paths"], subject="Put back what traces added",
+                                             trigger="person/traces-remove-undone")
+    return {"restored": result["restored"]}
 
 
 @router.post("/sources/traces/search", dependencies=_LOCAL)
@@ -233,8 +332,8 @@ async def forget_traces(req: ForgetRequest):
 @router.post("/sources/traces/wipe", dependencies=_LOCAL)
 async def wipe_traces(req: WipeRequest):
     """Every trace, every screenshot, the settings and the key, gone. What was already promoted into memory stays
-    (a watched day, a summary): those are the bank's, and the sheet says so."""
+    (a watched or read day, a digest): those are the bank's, and the sheet says so."""
     if not req.confirm:
         raise HTTPException(status_code=422, detail="wiping traces needs confirm: true")
     await run_in_threadpool(_store().wipe)
-    return _answer(trace_store.DEFAULTS | {})
+    return _answer(trace_store.with_aliases(dict(trace_store.DEFAULTS)))

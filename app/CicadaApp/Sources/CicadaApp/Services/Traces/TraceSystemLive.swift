@@ -142,6 +142,42 @@ struct LiveTraceScreenCapture: TraceScreenCapture {
         return TraceCapturedFrame(jpeg: jpeg, width: image.width, height: image.height)
     }
 
+    func captureScreens(frontPid: Int32, keepFrontWindow: Bool, maxSide: Int,
+                        shown: @escaping @Sendable (String) -> Bool) async throws -> [TraceCapturedFrame] {
+        guard CGPreflightScreenCaptureAccess() else { throw CaptureError.noAccess }
+        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        // Cut out every app the policy may not describe, before the picture is taken (never blurred after).
+        let hidden = content.applications.filter { !shown($0.bundleIdentifier) }
+        var excepting: [SCWindow] = []
+        if keepFrontWindow {
+            // The one browser window whose tab was read and known not to be private, chosen as the front window is.
+            let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+                as? [[String: Any]] ?? []
+            if let frontID = TraceWindowPick.frontWindowID(in: info, pid: frontPid),
+               let window = content.windows.first(where: { $0.windowID == frontID
+                   && $0.owningApplication?.processID == frontPid }) {
+                excepting.append(window)
+            }
+        }
+        let main = CGMainDisplayID()
+        let displays = content.displays.sorted { ($0.displayID == main ? 0 : 1, $0.frame.minX, $0.frame.minY)
+            < ($1.displayID == main ? 0 : 1, $1.frame.minX, $1.frame.minY) }
+        var frames: [TraceCapturedFrame] = []
+        for (index, display) in displays.prefix(TraceScreens.max).enumerated() {
+            let filter = SCContentFilter(display: display, excludingApplications: hidden, exceptingWindows: excepting)
+            let config = SCStreamConfiguration()
+            let scale = min(1.0, Double(maxSide) / Double(max(display.width, display.height)))
+            config.width = max(1, Int(Double(display.width) * scale))
+            config.height = max(1, Int(Double(display.height) * scale))
+            config.showsCursor = false
+            let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
+            guard let jpeg = Self.jpeg(image) else { throw CaptureError.encode }
+            frames.append(TraceCapturedFrame(jpeg: jpeg, width: image.width, height: image.height, display: index + 1,
+                                             displays: min(displays.count, TraceScreens.max)))
+        }
+        return frames
+    }
+
     static func jpeg(_ image: CGImage, quality: Double = 0.6) -> Data? {
         let data = NSMutableData()
         guard let dest = CGImageDestinationCreateWithData(data, UTType.jpeg.identifier as CFString, 1, nil) else {

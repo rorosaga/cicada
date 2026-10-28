@@ -83,14 +83,16 @@ struct TracePolicy: Equatable, Sendable {
 /// page in front), and then one every `steadyInterval` while the same span continues — never on a fast timer, never
 /// while idle, locked or paused, and never two within `minGap`.
 ///
-/// The numbers (G218, 2026-10-23): `minGap` 60 s — the proposal's "at most one a minute", so an alt-tab burst costs one
-/// frame; `steadyInterval` 5 min — a long read or a video still gets a frame or two for "what was on screen at 15:20"
-/// without filling the disk; `maxSide` 1280 px at JPEG quality 0.6 — legible text for the recognizer at ~100–200 KB a
-/// frame. A heavy day (eight hours, a switch every minute) is at most 480 frames, ~70 MB; seven days' retention keeps
-/// the worst case near 0.5 GB and a typical week far under it — against Screenpipe's ~20 GB a month.
+/// **The numbers (owner 2026-10-28: "a low screenshot frequency is probably best").** `minGap` 5 min and
+/// `steadyInterval` 15 min (were 1 min and 5 min): a heavy eight-hour day is at most 96 moments, a quiet one ~32.
+/// Measured on this Mac (synthetic 1280×800 screen of dense text, `maxSide` 1280, JPEG 0.6): ~0.5 MB a frame at worst
+/// (a typical mixed screen ~0.2–0.3 MB), JPEG encode ~10 ms, on-device text recognition ~0.65 s wall and ~1.1 s CPU at
+/// utility priority. Per connected screen that is ≤ ~30 MB and ~2 CPU-minutes a heavy day — ≤ ~0.2 GB for the
+/// seven days screenshots are kept — against ~150 MB and ~9 CPU-minutes a day at the old cadence (480 moments).
+/// Battery follows the CPU: a couple of minutes of one core a day, off the main thread.
 struct TraceFrameCadence: Equatable, Sendable {
-    var minGap: TimeInterval = 60
-    var steadyInterval: TimeInterval = 300
+    var minGap: TimeInterval = 300
+    var steadyInterval: TimeInterval = 900
     var maxSide = 1280
 
     func shouldCapture(now: Date, spanStartedAt: Date, spanIsNew: Bool, lastFrameAt: Date?,
@@ -102,5 +104,26 @@ struct TraceFrameCadence: Equatable, Sendable {
             return true
         }
         return now.timeIntervalSince(last) >= steadyInterval
+    }
+}
+
+/// Every connected screen (owner 2026-10-28). Which apps may appear on a screen's picture: only an app the policy may
+/// describe — never a browser (one appears only through its vetted front window), a chat or mail app whose titles stay
+/// off, an app left out, a password manager, Cicada itself, or a system surface that shows other apps' words
+/// (notification banners, Spotlight).
+enum TraceScreens {
+    static let max = 8
+    static let overlays: Set<String> = [
+        "com.apple.notificationcenterui", "com.apple.UserNotificationCenter", "com.apple.Spotlight",
+        "com.apple.screencaptureui", "com.apple.WindowManager",
+    ]
+
+    /// `isBrowser`: a named browser, or any app registered to open https: links (review of #456, B3).
+    static func shown(_ policy: TracePolicy,
+                      isBrowser: @escaping @Sendable (String) -> Bool) -> @Sendable (String) -> Bool {
+        { bundle in
+            !bundle.isEmpty && !overlays.contains(bundle) && !policy.neverRecorded(bundle)
+                && policy.titleAllowed(bundle) && !policy.isBrowser(bundle) && !isBrowser(bundle)
+        }
     }
 }

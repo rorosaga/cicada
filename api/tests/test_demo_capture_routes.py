@@ -97,7 +97,11 @@ HANDLED_ELSEWHERE = {
        "into a demo bank (test_trace_routes.py)"
        for method, path in [("PUT", "settings"), ("POST", "on"), ("POST", "off"), ("POST", "pause"),
                             ("POST", "sync"), ("POST", "frames"), ("POST", "search"), ("POST", "forget"),
-                            ("POST", "wipe")]},
+                            ("POST", "wipe"), ("POST", "delete")]},
+    **{("POST", f"/sources/traces/{path}"):
+       "G218 (2026-10-28): closes or reopens only claims whose evidence is a traces-day digest, which a demo bank "
+       "never receives; trace_memory.remove/undo write nothing in a demo bank (test_trace_routes.py)"
+       for path in ("remove-from-memory", "remove-from-memory/undo")},
     ("PUT", "/agent-methods"):
         "a machine-wide choice (~/.cicada/agent_methods.json); the skill page beside it is guarded by "
         "demo_guard inside skill_pages.ensure and reports `demo` without writing (test_agent_methods_rest.py)",

@@ -25,6 +25,7 @@
   fixture), and a conversation tied without a claim yet counts as activity (`_tied_days`); list p95 stays ≤ 58 ms on
   the 2,500-page bench. The second amends DESIGN_RULES 2026-10-19 (1)'s "resting — a decaying or archived page" —
   awaiting the owner's yes.
+- **2026-10-28 — traces redesign (G218; branch `feat/traces-v2`).** "Learn from my day" is one switch, off, with the exact counted digest previewed (no title, address or screenshot text; project time only through the person's own projects' folders, repositories and tied addresses) and "Remove from memory" as one undoable commit; "What you watch and read" on any site replaces the YouTube-only switch (index-only reading days); the Traces page manages days as cards (each item or day deletable); screenshots cover every connected screen behind consent sheet 2, at 5 min on change / 15 min steady. The 39b amendment text waits for the owner (traces-v2 report).
 - **2026-10-28 — pictures in the one meaning index (vision item 3, G195, G162, ruling 30; branch
   `feat/vision-meaning-index`).** Looks, the newest capture thumbnail per saved site, saved links' previews and saved
   or watched YouTube stills already on this Mac are a fifth kind of `vector_index.db` (`image_index`), embedded in the

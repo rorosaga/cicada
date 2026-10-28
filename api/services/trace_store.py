@@ -9,7 +9,9 @@ record and keeps it for its retention. No model runs here, nothing is fetched, n
 **Outside every bank, never in git, never on the network.** ``$CICADA_HOME/traces/`` beside ``captures/``; Time
 Machine is asked to skip it; no route serves it to a device token or the remote listener (``routers/traces.py``); the
 telemetry ledger never hears of it (not even ids). What enters a bank is only what the person's switches promote
-(:mod:`trace_memory`): YouTube views into the watch history, and a counted day summary.
+(:mod:`trace_memory`): what was watched and read on any site (videos into the watch history, other pages into a
+reading day, both index-only — "What you watch and read", on with traces), and, behind "Learn from my day" (off), the
+counted day digest Sleep reads.
 
 **Encrypted at rest.** Every record is sealed on its own (:mod:`trace_seal`, AES-256-GCM, bound to its kind and day);
 the key's custody is :mod:`trace_keys` (interim: a 0600 file outside this folder). A record that fails its check is
@@ -41,8 +43,13 @@ from pathlib import Path
 from api.services import runtime_layout, trace_keys, trace_policy, trace_seal
 
 DIR_NAME = "traces"
-#: The sheet's version: turning traces on with an older (or no) consent is refused.
-CONSENT_VERSION = 1
+#: The sheet's version: turning traces on with an older (or no) consent is refused. 2 (2026-10-28): screenshots cover
+#: every connected screen, not only the window in front — a wider capture, so the app takes them only once the person
+#: agreed to this sheet (``settings.consent_version >= ALL_SCREENS_CONSENT``); a person on 1 keeps front-window frames.
+CONSENT_VERSION = 2
+ALL_SCREENS_CONSENT = 2
+#: At most this many screens per moment (a frame's ``display`` is 1..MAX_DISPLAYS).
+MAX_DISPLAYS = 8
 TIMELINE_DAYS = 30
 SHOT_DAYS = 7
 MAX_SPANS_PER_SYNC = 2000
@@ -73,9 +80,12 @@ DEFAULTS: dict = {
     "browsers": [],
     "excluded_apps": [],
     "excluded_sites": [],
-    "youtube_to_watch_history": True,
-    "daily_summary": False,
-    "learn_from_summary": False,
+    #: "What you watch and read" (2026-10-28, generalises ruling 39b from YouTube to every site): a video page in front
+    #: joins the watch history and any other page the reading day, both index-only — never read by a model.
+    "watch_and_read": True,
+    #: "Learn from my day" (2026-10-28, one switch for the two old nested ones): the counted digest of each finished
+    #: day is written and read by Sleep. Off by default.
+    "learn_from_day": False,
     "timeline_days": TIMELINE_DAYS,
     "shot_days": SHOT_DAYS,
     "paused_since": None,
@@ -84,11 +94,22 @@ DEFAULTS: dict = {
     #: The instant up to which spans were offered to the bank (``trace_memory.promote``); never later than now minus
     #: :data:`PROMOTE_HOLD`.
     "promoted_through": None,
+    #: "Remove from memory" (``trace_memory.remove``): one entry per removal — its id, when, and the ``[page, record,
+    #: target]`` claim ids it closed — so Undo finds exactly what it took back. Ids only; sealed like everything here.
+    "removals": [],
+    #: Reading days waiting for their record to be rewritten, and when it last was (``trace_memory._due_reading``).
+    "reading_pending": [],
+    "reading_written_at": None,
 }
+#: Hyrum (2026-10-28): the old keys a client may still read or send. ``youtube_to_watch_history`` is
+#: ``watch_and_read``; ``daily_summary`` and ``learn_from_summary`` both read ``learn_from_day``. Writing one maps it
+#: (:func:`_map_aliases`); they are never stored.
+ALIASES = {"youtube_to_watch_history": "watch_and_read", "daily_summary": "learn_from_day",
+           "learn_from_summary": "learn_from_day"}
+MAX_REMOVALS = 20
 #: What a person's PUT may change (consent, pause and the digest cursor have their own doors).
 EDITABLE = frozenset({"screenshots", "titles", "title_apps", "browsers", "excluded_apps", "excluded_sites",
-                      "youtube_to_watch_history", "daily_summary", "learn_from_summary", "timeline_days",
-                      "shot_days"})
+                      "watch_and_read", "learn_from_day", "timeline_days", "shot_days"}) | frozenset(ALIASES)
 #: ``paused_until`` for a pause that lasts until the person resumes.
 UNTIL_RESUMED = "until-resumed"
 
@@ -158,6 +179,8 @@ class TraceStore:
         self._key: bytes | None = None
         #: (kind, day) -> the ids a day's file holds, so a re-sent span is skipped without re-reading the file
         self._ids: dict[tuple[str, str], set[str]] = {}
+        #: day -> ((timeline stamp, frames stamp), card): ``day_cards`` decrypts a day again only when a file moved
+        self._cards: dict[str, tuple] = {}
 
     # --- where, and the key ------------------------------------------------------------------------------------
 
@@ -209,17 +232,18 @@ class TraceStore:
         try:
             key = self._key_or_none()
         except trace_keys.KeyRefused:
-            return out
+            return with_aliases(out)
         path = self.root / "settings.enc"
         if key is None or not path.is_file():
-            return out
+            return with_aliases(out)
         try:
             stored = json.loads(trace_seal.open_sealed(key, path.read_bytes(), "settings"))
         except (trace_seal.Tampered, ValueError, OSError):
-            return out   # a settings file that fails its check reads as off: never record on a guess
+            return with_aliases(out)   # a settings file that fails its check reads as off: never record on a guess
         if isinstance(stored, dict):
             out.update({k: v for k, v in stored.items() if k in DEFAULTS})
-        return out
+            out.update(_migrated(stored))
+        return with_aliases(out)
 
     def _write_settings(self, values: dict) -> None:
         key = self._require_key()
@@ -235,8 +259,11 @@ class TraceStore:
                 self._key = self.keys.create()
             trace_keys.exclude_from_backup(self.root)
             values = self.settings()
-            values.update(enabled=True, consent_version=CONSENT_VERSION,
-                          consented_at=_iso(now or _now()), paused_since=None, paused_until=None)
+            already = bool(values["enabled"])
+            values.update(enabled=True, consent_version=CONSENT_VERSION, consented_at=_iso(now or _now()))
+            if not already:
+                # Agreeing to a newer sheet while recording keeps the person's pause; a fresh turn-on starts unpaused.
+                values.update(paused_since=None, paused_until=None)
             self._write_settings(values)
             return values
 
@@ -258,14 +285,12 @@ class TraceStore:
             if self._key_or_none() is None:
                 raise TracesOff("turn traces on first")
             values = self.settings()
-            for name, value in patch.items():
-                values[name] = _validate(name, value)
-            if not values["daily_summary"]:
-                values["learn_from_summary"] = False
-            if "daily_summary" in patch or "learn_from_summary" in patch:
-                values["digest_through"] = None   # the summary's days are written again under the new switch
+            before = values["learn_from_day"]
+            values.update(_map_aliases({k: _validate(k, v) for k, v in patch.items()}))
+            if values["learn_from_day"] != before:
+                values["digest_through"] = None   # the digest's days are written again under the new switch
             self._write_settings(values)
-            return values
+            return with_aliases(values)
 
     def pause(self, until: str | None, *, now: datetime | None = None) -> dict:
         """Pause until an instant, or :data:`UNTIL_RESUMED`; ``None`` resumes. While paused nothing is recorded."""
@@ -303,6 +328,45 @@ class TraceStore:
             if end is not None and end <= until and (after is None or end > after):
                 out.append(span)
         return out
+
+    def add_reading_pending(self, days) -> None:
+        """Days whose reading record waits to be rewritten (``trace_memory._due_reading``)."""
+        with self._locked():
+            if self._key_or_none() is None:
+                return
+            values = self.settings()
+            values["reading_pending"] = sorted({*(values.get("reading_pending") or []), *(d.isoformat() for d in days)})
+            self._write_settings(values)
+
+    def reading_written(self, at: datetime) -> None:
+        with self._locked():
+            if self._key_or_none() is None:
+                return
+            values = self.settings()
+            values.update(reading_pending=[], reading_written_at=_iso(at))
+            self._write_settings(values)
+
+    def record_removal(self, entry: dict) -> None:
+        """Keep one "Remove from memory" (ids only) so Undo can find it; the newest :data:`MAX_REMOVALS`."""
+        with self._locked():
+            if self._key_or_none() is None:
+                return
+            values = self.settings()
+            kept = [r for r in values.get("removals") or [] if isinstance(r, dict) and r.get("id") != entry["id"]]
+            values["removals"] = (kept + [entry])[-MAX_REMOVALS:]
+            self._write_settings(values)
+
+    def removal(self, rid: str) -> dict | None:
+        return next((r for r in self.settings().get("removals") or [] if isinstance(r, dict) and r.get("id") == rid),
+                    None)
+
+    def drop_removal(self, rid: str) -> None:
+        with self._locked():
+            if self._key_or_none() is None:
+                return
+            values = self.settings()
+            values["removals"] = [r for r in values.get("removals") or [] if isinstance(r, dict) and r.get("id") != rid]
+            self._write_settings(values)
 
     def set_digest_through(self, day: date | None) -> None:
         with self._locked():
@@ -445,6 +509,10 @@ class TraceStore:
                    "width": width, "height": height, "kind": "jpeg" if image[:3] == b"\xff\xd8\xff" else "png"}
             if words:
                 row["text"] = words
+            # Every connected screen (2026-10-28): which screen of how many, when the app took more than one.
+            displays, display = _int(meta.get("displays")), _int(meta.get("display"))
+            if 1 <= displays <= MAX_DISPLAYS and 1 <= display <= displays:
+                row["displays"], row["display"] = displays, display
             span_id = str(meta.get("span_id") or "")
             if _ID.match(span_id):
                 row["span_id"] = span_id
@@ -538,6 +606,7 @@ class TraceStore:
             self.keys.destroy()
             self._key = None
             self._ids.clear()
+            self._cards.clear()
 
     def _clear_locked(self) -> None:
         for entry in list(self.root.iterdir()) if self.root.exists() else []:
@@ -548,6 +617,7 @@ class TraceStore:
             else:
                 _unlink(entry)
         self._ids.clear()
+        self._cards.clear()
 
     # --- reads -------------------------------------------------------------------------------------------------
 
@@ -562,7 +632,75 @@ class TraceStore:
         return {"day": day.isoformat(), "spans": spans,
                 "frames": [{k: v for k, v in f.items() if k != "text"} | {"has_text": bool(f.get("text"))}
                            for f in frames],
+                "screens": max((int(f.get("displays") or 1) for f in frames), default=1),
                 "unreadable": bad + bad2}
+
+    def day_cards(self) -> list[dict]:
+        """One card per kept day, newest first: counts, how many screens were connected, and the screenshot that
+        stands for the day (:func:`cover_frame`) — its id only; the pixels stay behind Touch ID. Counted from the
+        sealed files, cached per day by each file's size and time, so an unchanged day is not decrypted again."""
+        key = self._key_or_none()
+        if key is None:
+            return []
+        days = sorted({*self._days("timeline"), *self._days("frames")}, reverse=True)
+        out = []
+        for day in days:
+            iso = day.isoformat()
+            stamp = (_stamp(self.root / "timeline" / f"{iso}.log"), _stamp(self.root / "frames" / f"{iso}.log"))
+            cached = self._cards.get(iso)
+            if cached is None or cached[0] != stamp:
+                spans, _ = self._read(key, "timeline", iso)
+                frames, _ = self._read(key, "frames", iso)
+                seconds = 0.0
+                for s in spans:
+                    a, b = parse_instant(s.get("start")), parse_instant(s.get("end"))
+                    if a and b and b > a:
+                        seconds += (b - a).total_seconds()
+                card = {"day": iso, "spans": len(spans), "seconds": int(seconds),
+                        "apps": len({s.get("bundle_id") for s in spans}),
+                        "sites": len({s.get("host") for s in spans if s.get("host")}),
+                        "frames": len(frames), "screens": max((int(f.get("displays") or 1) for f in frames), default=1),
+                        "cover": cover_frame(spans, frames)}
+                cached = (stamp, card)
+                self._cards[iso] = cached
+            out.append(dict(cached[1]))
+        return out
+
+    def delete(self, day: date, *, spans=(), frames=(), whole_day: bool = False) -> dict:
+        """Delete what the person picked from one day: spans (and the screenshots taken of them), screenshots, or the
+        whole day. What already joined memory stays (the page says so; "Remove from memory" is that door)."""
+        iso = day.isoformat()
+        removed = {"spans": 0, "frames": 0}
+        with self._locked():
+            key = self._key_or_none()
+            if key is None:
+                return removed
+            if whole_day:
+                removed["spans"] = len(self._read(key, "timeline", iso)[0])
+                removed["frames"] = len(self._read(key, "frames", iso)[0])
+                _unlink(self.root / "timeline" / f"{iso}.log")
+                _unlink(self.root / "frames" / f"{iso}.log")
+                shutil.rmtree(self.root / "shots" / iso, ignore_errors=True)
+                self._ids.pop(("timeline", iso), None)
+                self._ids.pop(("frames", iso), None)
+                self._cards.pop(iso, None)
+                return removed
+            span_ids, frame_ids = {str(s) for s in spans}, {str(f) for f in frames}
+            if span_ids:
+                kept, gone = self._partition(key, "timeline", iso, lambda r: str(r.get("id")) not in span_ids)
+                if gone:
+                    self._rewrite(key, "timeline", iso, kept)
+                    removed["spans"] = len(gone)
+            if span_ids or frame_ids:
+                kept, gone = self._partition(key, "frames", iso,
+                                             lambda r: str(r.get("id")) not in frame_ids
+                                             and str(r.get("span_id") or "") not in span_ids)
+                if gone:
+                    self._rewrite(key, "frames", iso, kept)
+                    for r in gone:
+                        _unlink(self.root / "shots" / iso / f"{r['id']}.enc")
+                    removed["frames"] = len(gone)
+        return removed
 
     def spans_between(self, first: date, last: date) -> list[dict]:
         key = self._key_or_none()
@@ -711,6 +849,43 @@ class TraceStore:
         self._ids[(kind, day)] = {str(r.get("id")) for r in rows}
 
 
+def cover_frame(spans: list[dict], frames: list[dict]) -> str | None:
+    """The screenshot that stands for a day ("kind of like BeReal", owner 2026-10-28) — chosen, never random: one taken
+    during the day's longest span (the main screen's when several were), else the one nearest the day's middle."""
+    if not frames:
+        return None
+
+    def length(s: dict) -> float:
+        a, b = parse_instant(s.get("start")), parse_instant(s.get("end"))
+        return (b - a).total_seconds() if a and b else 0.0
+
+    main = [f for f in frames if int(f.get("display") or 1) == 1] or frames
+    by_span: dict[str, list[dict]] = {}
+    for f in main:
+        if f.get("span_id"):
+            by_span.setdefault(str(f["span_id"]), []).append(f)
+    for s in sorted(spans, key=lambda s: (-length(s), s.get("start", ""))):
+        if str(s.get("id")) in by_span:
+            return str(sorted(by_span[str(s["id"])], key=lambda f: f.get("at", ""))[0]["id"])
+    ordered = sorted(main, key=lambda f: f.get("at", ""))
+    return str(ordered[len(ordered) // 2]["id"])
+
+
+def _stamp(path: Path) -> tuple[int, int] | None:
+    try:
+        st = path.stat()
+    except OSError:
+        return None
+    return st.st_mtime_ns, st.st_size
+
+
+def _int(value) -> int:
+    try:
+        return int(value) if value is not None and not isinstance(value, bool) else 0
+    except (TypeError, ValueError):
+        return 0
+
+
 def _clean_ocr(text: str | None) -> str:
     from api.services import episode_scrub
 
@@ -719,8 +894,43 @@ def _clean_ocr(text: str | None) -> str:
     return words[:OCR_CAP]
 
 
+def _migrated(stored: dict) -> dict:
+    """A settings file written before 2026-10-28 holds the old keys. ``learn_from_day`` is on only when BOTH old
+    switches were (a model read the summary): an index-only summary (``daily_summary`` alone) never widens into a model
+    read nobody chose — it ends, its written days stay. ``watch_and_read`` keeps the YouTube switch's answer."""
+    out: dict = {}
+    if "learn_from_day" not in stored:
+        out["learn_from_day"] = bool(stored.get("daily_summary")) and bool(stored.get("learn_from_summary"))
+    if "watch_and_read" not in stored and "youtube_to_watch_history" in stored:
+        out["watch_and_read"] = bool(stored.get("youtube_to_watch_history"))
+    return out
+
+
+def with_aliases(values: dict) -> dict:
+    """The settings with the old keys mirrored for a client that still reads them (Hyrum)."""
+    out = {k: v for k, v in values.items() if k not in ALIASES}
+    for old, new in ALIASES.items():
+        out[old] = out.get(new, DEFAULTS[new])
+    return out
+
+
+def _map_aliases(patch: dict) -> dict:
+    """An old key in a PUT, as the new one. ``daily_summary: true`` alone changes nothing: the index-only summary it
+    turned on is gone, and turning a model read on is ``learn_from_day``'s (or ``learn_from_summary``'s) to say.
+    ``daily_summary: false`` turns learning off, as it turned its nested switch off before."""
+    out = {k: v for k, v in patch.items() if k not in ALIASES}
+    if "youtube_to_watch_history" in patch and "watch_and_read" not in patch:
+        out["watch_and_read"] = patch["youtube_to_watch_history"]
+    if "learn_from_day" not in patch:
+        if "learn_from_summary" in patch:
+            out["learn_from_day"] = bool(patch["learn_from_summary"]) and patch.get("daily_summary", True) is not False
+        elif patch.get("daily_summary") is False:
+            out["learn_from_day"] = False
+    return out
+
+
 def _validate(name: str, value):
-    if name in ("screenshots", "titles", "youtube_to_watch_history", "daily_summary", "learn_from_summary"):
+    if name in ("screenshots", "titles", "watch_and_read", "learn_from_day") or name in ALIASES:
         if not isinstance(value, bool):
             raise PayloadError(f"{name} is true or false")
         return value

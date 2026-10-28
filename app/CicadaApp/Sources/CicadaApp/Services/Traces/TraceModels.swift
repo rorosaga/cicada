@@ -14,9 +14,10 @@ struct TraceSettings: Codable, Equatable, Sendable {
     var browsers: [String] = []
     var excludedApps: [String] = []
     var excludedSites: [String] = []
-    var youtubeToWatchHistory = true
-    var dailySummary = false
-    var learnFromSummary = false
+    /// "What you watch and read" (2026-10-28, ruling 39b generalised to every site): on with traces.
+    var watchAndRead = true
+    /// "Learn from my day" (2026-10-28, the two old nested switches as one): off by default.
+    var learnFromDay = false
     var timelineDays = 30
     var shotDays = 7
     var pausedSince: String?
@@ -26,8 +27,8 @@ struct TraceSettings: Codable, Equatable, Sendable {
         case enabled, screenshots, titles, browsers
         case consentVersion = "consent_version", consentedAt = "consented_at", titleApps = "title_apps"
         case excludedApps = "excluded_apps", excludedSites = "excluded_sites"
-        case youtubeToWatchHistory = "youtube_to_watch_history", dailySummary = "daily_summary"
-        case learnFromSummary = "learn_from_summary", timelineDays = "timeline_days", shotDays = "shot_days"
+        case watchAndRead = "watch_and_read", learnFromDay = "learn_from_day"
+        case timelineDays = "timeline_days", shotDays = "shot_days"
         case pausedSince = "paused_since", pausedUntil = "paused_until"
     }
 
@@ -44,13 +45,20 @@ struct TraceSettings: Codable, Equatable, Sendable {
         browsers = try c.decodeIfPresent([String].self, forKey: .browsers) ?? []
         excludedApps = try c.decodeIfPresent([String].self, forKey: .excludedApps) ?? []
         excludedSites = try c.decodeIfPresent([String].self, forKey: .excludedSites) ?? []
-        youtubeToWatchHistory = try c.decodeIfPresent(Bool.self, forKey: .youtubeToWatchHistory) ?? true
-        dailySummary = try c.decodeIfPresent(Bool.self, forKey: .dailySummary) ?? false
-        learnFromSummary = try c.decodeIfPresent(Bool.self, forKey: .learnFromSummary) ?? false
+        // A backend from before 2026-10-28 answers with the old keys only (Hyrum, both ways).
+        let old = try decoder.container(keyedBy: OldKeys.self)
+        watchAndRead = try c.decodeIfPresent(Bool.self, forKey: .watchAndRead)
+            ?? old.decodeIfPresent(Bool.self, forKey: .youtubeToWatchHistory) ?? true
+        learnFromDay = try c.decodeIfPresent(Bool.self, forKey: .learnFromDay)
+            ?? old.decodeIfPresent(Bool.self, forKey: .learnFromSummary) ?? false
         timelineDays = try c.decodeIfPresent(Int.self, forKey: .timelineDays) ?? 30
         shotDays = try c.decodeIfPresent(Int.self, forKey: .shotDays) ?? 7
         pausedSince = try c.decodeIfPresent(String.self, forKey: .pausedSince)
         pausedUntil = try c.decodeIfPresent(String.self, forKey: .pausedUntil)
+    }
+
+    private enum OldKeys: String, CodingKey {
+        case youtubeToWatchHistory = "youtube_to_watch_history", learnFromSummary = "learn_from_summary"
     }
 
     /// `paused_until`'s value for a pause that lasts until the person resumes (`trace_store.UNTIL_RESUMED`).
@@ -119,10 +127,13 @@ struct TraceSettingsAnswer: Codable, Equatable, Sendable {
     var status: TraceStoreStatus
     var policy: TracePolicyLists
     var consentVersion: Int
+    /// The sheet version from which screenshots cover every connected screen (`trace_store.ALL_SCREENS_CONSENT`);
+    /// nil from an older backend, which keeps the front window only.
+    var allScreensConsent: Int?
 
     enum CodingKeys: String, CodingKey {
         case settings, status, policy
-        case consentVersion = "consent_version"
+        case consentVersion = "consent_version", allScreensConsent = "all_screens_consent"
     }
 }
 
@@ -172,9 +183,12 @@ struct TraceFramePost: Codable, Equatable, Sendable {
     var image: String
     var text: String
     var browser = false
+    /// Every connected screen (2026-10-28): this is screen `display` of `displays`; 0 for a front-window frame.
+    var display = 0
+    var displays = 0
 
     enum CodingKeys: String, CodingKey {
-        case id, at, app, host, width, height, image, text, browser
+        case id, at, app, host, width, height, image, text, browser, display, displays
         case bundleId = "bundle_id", spanId = "span_id"
     }
 }
@@ -206,9 +220,12 @@ struct TraceFrameMeta: Codable, Equatable, Sendable, Identifiable {
     var height: Int
     var spanId: String?
     var hasText: Bool
+    /// Which screen of how many, when more than one was connected.
+    var display: Int?
+    var displays: Int?
 
     enum CodingKeys: String, CodingKey {
-        case id, at, app, width, height
+        case id, at, app, width, height, display, displays
         case bundleId = "bundle_id", spanId = "span_id", hasText = "has_text"
     }
 }
@@ -218,6 +235,124 @@ struct TraceTimeline: Codable, Equatable, Sendable {
     var spans: [TraceStoredSpan]
     var frames: [TraceFrameMeta]
     var unreadable: Int
+    /// The most screens connected at any screenshot that day (1 when unknown).
+    var screens: Int?
+}
+
+/// `GET /sources/traces/day-cards` — one kept day: its counts, the screens connected, and the id of the screenshot that
+/// stands for it (pixels only after Touch ID, like every screenshot).
+struct TraceDayCard: Codable, Equatable, Sendable, Identifiable {
+    var day: String
+    var spans: Int
+    var seconds: Int
+    var apps: Int
+    var sites: Int
+    var frames: Int
+    var screens: Int
+    var cover: String?
+    var id: String { day }
+}
+
+/// `GET /sources/traces/preview` — the counted digest Sleep would read for one day, and its words.
+struct TraceDigestPreview: Codable, Equatable, Sendable {
+    struct Project: Codable, Equatable, Sendable, Identifiable {
+        var id: String
+        var name: String
+        var seconds: Int
+        var apps: [String]
+    }
+
+    struct Reading: Codable, Equatable, Sendable {
+        var seconds = 0
+        var pages = 0
+        var sites: [String] = []
+        var siteCount = 0
+        var apps: [String] = []
+
+        enum CodingKeys: String, CodingKey { case seconds, pages, sites, apps, siteCount = "site_count" }
+    }
+
+    struct Watching: Codable, Equatable, Sendable {
+        var seconds = 0
+        var videos = 0
+        var platforms: [String] = []
+    }
+
+    struct Calls: Codable, Equatable, Sendable {
+        var seconds = 0
+        var count = 0
+        var apps: [String] = []
+    }
+
+    struct Rest: Codable, Equatable, Sendable {
+        var seconds = 0
+        var apps: [String] = []
+        var busiestSwitches = 0
+
+        enum CodingKeys: String, CodingKey { case seconds, apps, busiestSwitches = "busiest_switches" }
+    }
+
+    struct Counts: Codable, Equatable, Sendable {
+        var day: String
+        var totalSeconds: Int
+        var projects: [Project]
+        var reading: Reading
+        var watching: Watching
+        var calls: Calls
+        var rest: Rest
+
+        enum CodingKeys: String, CodingKey {
+            case day, projects, reading, watching, calls
+            case totalSeconds = "total_seconds", rest = "else"
+        }
+    }
+
+    var day: String
+    var counts: Counts?
+    var text: String?
+}
+
+/// `GET /sources/traces/added` — what traces added to memory, and the removals that can still be undone.
+struct TraceAdded: Codable, Equatable, Sendable {
+    struct Item: Codable, Equatable, Sendable, Identifiable {
+        var entityId: String
+        var claimId: String
+        var text: String
+        var progress: Bool
+        var day: String?
+        var id: String { "\(entityId)/\(claimId)" }
+
+        enum CodingKeys: String, CodingKey {
+            case text, progress, day
+            case entityId = "entity_id", claimId = "claim_id"
+        }
+    }
+
+    struct Removal: Codable, Equatable, Sendable, Identifiable {
+        var id: String
+        var day: String?
+        var count: Int
+    }
+
+    var beliefs = 0
+    var progress = 0
+    var since: String?
+    var items: [Item] = []
+    var removals: [Removal] = []
+}
+
+/// `POST /sources/traces/remove-from-memory`.
+struct TraceRemoval: Codable, Equatable, Sendable {
+    var removalId: String?
+    var removed: Int
+
+    enum CodingKeys: String, CodingKey { case removed, removalId = "removal_id" }
+}
+
+/// `POST /sources/traces/delete`.
+struct TraceDeleted: Codable, Equatable, Sendable {
+    var spans: Int
+    var frames: Int
 }
 
 struct TraceSearchHit: Codable, Equatable, Sendable, Identifiable {

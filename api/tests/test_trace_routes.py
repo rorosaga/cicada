@@ -196,23 +196,35 @@ def test_a_demo_bank_receives_nothing_but_the_trace_is_kept_outside_it(client):
     assert _watch_days(memory) == {}
 
 
-def test_the_day_summary_is_counted_index_only_and_never_a_mention(client):
+def test_the_digest_is_counted_names_no_title_or_address_and_is_never_a_mention(client):
     c, memory = client
-    _on(c, daily_summary=True)
+    _on(c, learn_from_day=True)
     yesterday = (_now() - timedelta(days=1, minutes=20)).replace(hour=10, minute=0, second=0)
     c.post("/sources/traces/sync", json={"spans": [
         _span("span-0001", yesterday, minutes=40, bundle_id="com.example.Editor", app="Editor",
-              title="alpha-project plan"),
+              title="secret-plan.txt"),
         _span("span-0002", yesterday + timedelta(minutes=40), minutes=20, url="https://docs.example/a",
               title="Reference")]})
-    summary = _watch_days(memory)[f"traces-day:{yesterday.date().isoformat()}"]
-    assert "Editor — 40 min" in summary.body and "docs.example — 20 min" in summary.body
-    assert "alpha-project plan" in summary.body          # behind the switch, a title the store kept
-    assert history_index.kind(summary.frontmatter) == "traces"
-    assert summary.frontmatter["processed_by"] == history_index.INDEXED_BY
-    assert not history_index.waits_for_model(summary.frontmatter)
-    assert not episode_time.counts_as_activity(summary.frontmatter)
-    assert summary.frontmatter["evidence_kind"] == "assistant"   # never the person's own words
+    digest = _watch_days(memory)[f"traces-day:{yesterday.date().isoformat()}"]
+    assert "## Reading" in digest.body and "1 page on 1 site" in digest.body and "docs.example" in digest.body
+    assert "## Everything else" in digest.body and "Editor" in digest.body
+    # Counted only: no window title, no address, ever (owner 2026-10-28: "never the window titles").
+    assert "secret-plan" not in digest.body and "Reference" not in digest.body and "docs.example/a" not in digest.body
+    assert history_index.kind(digest.frontmatter) is None and history_index.waits_for_model(digest.frontmatter)
+    assert not episode_time.counts_as_activity(digest.frontmatter)
+    assert digest.frontmatter["evidence_kind"] == "assistant"   # never the person's own words
+
+
+def test_the_old_summary_switch_alone_no_longer_writes_anything(client):
+    """Hyrum: an old client's `daily_summary: true` is accepted and changes nothing — the index-only summary it turned
+    on is gone, and only `learn_from_day` (or `learn_from_summary`) turns a model read on."""
+    c, memory = client
+    body = _on(c, daily_summary=True)
+    assert body["settings"]["learn_from_day"] is False and body["settings"]["daily_summary"] is False
+    yesterday = (_now() - timedelta(days=1, minutes=20)).replace(hour=10, minute=0, second=0)
+    c.post("/sources/traces/sync", json={"spans": [
+        _span("span-0001", yesterday, minutes=40, bundle_id="com.example.Editor", app="Editor")]})
+    assert not [k for k in _watch_days(memory) if k.startswith("traces-day:")]
 
 
 def test_learn_from_traces_queues_the_summary_for_sleep_and_nothing_else(client):
@@ -247,6 +259,11 @@ def test_another_device_can_neither_read_nor_send_traces(client, monkeypatch):
                                ("POST", "/sources/traces/search", {"query": "x"}),
                                ("GET", "/sources/traces/timeline?day=2026-10-23", None),
                                ("GET", "/sources/traces/frames/frame-0001", None),
+                               ("GET", "/sources/traces/day-cards", None),
+                               ("GET", "/sources/traces/preview", None), ("GET", "/sources/traces/added", None),
+                               ("POST", "/sources/traces/delete", {"day": "2026-10-23", "all": True}),
+                               ("POST", "/sources/traces/remove-from-memory", None),
+                               ("POST", "/sources/traces/remove-from-memory/undo", {"removal_id": "trm_x"}),
                                ("POST", "/sources/traces/wipe", {"confirm": True})]:
         r = c.request(method, path, json=body, headers=headers)
         assert r.status_code == 403, (path, r.status_code)
@@ -413,7 +430,7 @@ def test_yesterdays_summary_waits_until_its_last_moments_are_past_the_forget_win
     s = trace_store.TraceStore(root=tmp_path / "t", keys=trace_store.trace_keys.FileKeyProvider(tmp_path / "k"))
     midnight = datetime.combine(_now().date(), datetime.min.time(), tzinfo=timezone.utc)
     s.turn_on(trace_store.CONSENT_VERSION, now=midnight - timedelta(hours=2))
-    s.update({"daily_summary": True})
+    s.update({"learn_from_day": True})
     s.add_spans([_span("span-0001", midnight - timedelta(minutes=50), minutes=45, bundle_id="com.example.Editor",
                        app="Editor")], now=midnight - timedelta(minutes=1))
     assert trace_memory.promote(memory, s, s.settings(), now=midnight + timedelta(minutes=5)) == []

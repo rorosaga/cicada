@@ -662,8 +662,8 @@ Messages, the `timeline.selection` symbol): Connected only while the recorder re
 and a failed read all read **Off** (ruling 36's three words), each with its own line in the controls ("Paused until
 3:40 PM.", "This Mac only…"). Off, the detail says what traces are and offers **Turn on…**, which opens
 `TracesConsentSheet`: what is recorded, where (this Mac only, encrypted, outside memory and its history, never sent),
-how long (timeline 30 days, screenshots and their text 7), what goes into memory (YouTube watches; a day summary only
-when asked), how to wipe, and the honest limit ("anything running as you on this Mac can read what you can"); *Turn on*
+how long (timeline 30 days, screenshots and their text 7), what goes into memory (what you watch and read on any site;
+a day summary Sleep learns from only when asked), how to wipe, and the honest limit ("anything running as you on this Mac can read what you can"); *Turn on*
 posts the consent (`TraceRecorder.turnOn`), then two skippable steps — Accessibility (window titles) and Screen
 Recording (screenshots) — each through **`PermissionDragHelper(kind:)`**, the one reusable permission component
 (kinds `screenRecording`, `accessibility`, `fullDiskAccess` — the last for Messages and Safari, wired by onboarding v3
@@ -677,8 +677,7 @@ near-miss hint ("Drag into 'Screen & System Audio Recording', not the audio-only
 1 s) and closes itself and ticks the step on a grant — **no prompting API is ever called**. On, `TracesControls` holds
 the state line, Pause (1 hour · until tomorrow · until I resume) / Resume, *Forget the last 15 minutes*, *Wipe all
 traces…* (a destructive confirmation that says the key goes and memory keeps what was already added), the switches
-(screenshots, window titles, YouTube into the watch history, the day summary and, nested, "Let Sleep learn from the
-summary" with its plan-usage line), retention steppers that only shorten, the never-recorded apps (pick a running app
+(screenshots, window titles — what joins memory moved to the Traces page itself on 2026-10-28), retention steppers that only shorten, the never-recorded apps (pick a running app
 or type an identifier; never prefilled) and sites (typed), the browsers whose address may be read (only names with an
 installed bundle id; turning one on is the one moment Cicada asks for Automation, `LiveTraceBrowserTabs.ask`, off the
 main thread — "Open Chrome, then ask again" when it is not running), titles allowed per chat app, and the days kept,
@@ -696,9 +695,28 @@ knows at launch; a server connection or a Wipe takes it away), **Traces** is a r
 tenth with no ⌘ digit — DR-22, ⌘0 is Actual Size) and ⌘K offers *Go to Traces*. `TracesPage`: the eyebrow (Traces ·
 the state line) with *Settings…* (`TracesSettingsSheet`: `TracesControls` without *Browse*) and *Wipe all traces…*; one
 line, "Everything here stays on this Mac, encrypted; screenshots N days, timeline N days" from the person's own
-retention; then `TracesTimelineView` in its page layout — the days down the side (`bgSelected` selection, instant),
-the day's screenshots behind the same Touch ID gate and its spans beside them, the search in the header; leaving the
-page drops every screenshot like closing the sheet did. Sources' Traces detail becomes one line and *Open Traces*
+retention.
+
+**Redesigned 2026-10-28 (mock 11; the owner's answers, Q12).** No drop-downs on the page (owner): an empty section is
+hidden and a long list is capped with "All N" (`TracesPageLogic.capped`). In order:
+*Into memory* — **Learn from my day** (off by default; the help says what Sleep reads and never reads, and "the engine
+you chose for Sleep", provider-neutral) and **What you watch and read** (any site, on); while recording under consent
+sheet 1 with screenshots on, one line offers the newer sheet ("Screenshots can now cover every screen you have
+connected." · *Review…*, which reopens `TracesConsentSheet`). *Yesterday, as Sleep would read it* — trailing
+"Counted on this Mac · nothing sent": the exact counted digest (`GET /sources/traces/preview`) as rows — Your projects
+(one row per project), Reading, Watching, Calls, Everything else — each with a neutral-ink bar (DR-7: one hue, data),
+its words and minutes, and the attribution rule in one line under it; a part under a minute is not shown, and the
+section is hidden on a day with nothing counted. *What traces added* (only when there is something, or a removal can be
+undone) — "N beliefs and M progress notes, since <day>", *Show* (the claims, capped at 5 + All N) and *Remove from
+memory…* behind a confirmation in words; after it, "Removed N from memory." and *Undo* (`TracesMemoryModel`). *Days*
+(`TracesDaysView`, on `TracesBrowserModel`) — one card per kept day ("kind of like BeReal"): the screenshot that stands
+for it, shown only after Touch ID like every screenshot (a lock until then), the day's words, a two-screens glyph when
+more than one screen was connected, and "2 h 17 m · 3 apps"; *Show screenshots* and the search in the header. A card
+opens the day: *All days*, the day's name, "2 screens connected", *Delete day…* (confirmation in words: what already
+joined memory stays); its screenshots grouped by moment ("Screen 1 of 2"), each with a delete button; Apps and Sites
+with time (8 + All N); the Timeline, every span with a delete button (it takes the screenshots of that span with it).
+Leaving the page drops every screenshot like closing the sheet did. DR-4, DR-7, DR-22, DR-25, DR-40, DR-50, DR-58,
+DR-60; depth is a ring. Screenshots of the scratch-app verification are in the traces-v2 report. Sources' Traces detail becomes one line and *Open Traces*
 (`TracesSourcesLink`) once the page exists; before traces were first turned on it keeps the switch (`TracesControls`).
 A hidden Traces page lands on Sources (`AppTab.landing`).
 

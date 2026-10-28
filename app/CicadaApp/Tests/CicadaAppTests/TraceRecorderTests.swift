@@ -50,6 +50,14 @@ final class TraceRecorderTests: XCTestCase {
         func traceFrameText(id: String) async throws -> TraceFrameText { TraceFrameText(id: id, at: "", app: nil, text: "") }
         func traceForget(minutes: Int) async throws { note("forget") }
         func traceWipe() async throws -> TraceSettingsAnswer { note("wipe"); answer.settings = TraceSettings(); return answer }
+        func traceDayCards() async throws -> [TraceDayCard] { [] }
+        func traceDelete(day: String, spans: [String], frames: [String], all: Bool) async throws -> TraceDeleted {
+            TraceDeleted(spans: 0, frames: 0)
+        }
+        func tracePreview(day: String?) async throws -> TraceDigestPreview { TraceDigestPreview(day: "") }
+        func traceAdded() async throws -> TraceAdded { TraceAdded() }
+        func traceRemoveFromMemory() async throws -> TraceRemoval { TraceRemoval(removalId: nil, removed: 0) }
+        func traceUndoRemoval(id: String) async throws -> Int { 0 }
     }
 
     final class Workspace: TraceWorkspace {
@@ -87,12 +95,26 @@ final class TraceRecorderTests: XCTestCase {
     final class Capture: TraceScreenCapture, @unchecked Sendable {
         var access = true
         private(set) var captures = 0
+        private(set) var accessChecks = 0
+        private(set) var screenCaptures = 0
+        /// What each all-screens capture was told to show and keep.
+        private(set) var shownAsked: [(keepFront: Bool, shown: @Sendable (String) -> Bool)] = []
+        var screens = 2
         var onCapture: (@MainActor () -> Void)?
-        func hasAccess() -> Bool { access }
+        func hasAccess() -> Bool { accessChecks += 1; return access }
         func captureFrontWindow(pid: Int32, maxSide: Int) async throws -> TraceCapturedFrame {
             captures += 1
             if let onCapture { await onCapture() }
             return TraceCapturedFrame(jpeg: Data([0xFF, 0xD8, 0xFF, 0xE0]), width: 640, height: 400)
+        }
+        func captureScreens(frontPid: Int32, keepFrontWindow: Bool, maxSide: Int,
+                            shown: @escaping @Sendable (String) -> Bool) async throws -> [TraceCapturedFrame] {
+            screenCaptures += 1
+            shownAsked.append((keepFrontWindow, shown))
+            return (1...screens).map {
+                TraceCapturedFrame(jpeg: Data([0xFF, 0xD8, 0xFF, 0xE0]), width: 640, height: 400, display: $0,
+                                   displays: screens)
+            }
         }
     }
 
@@ -460,28 +482,28 @@ final class TraceRecorderTests: XCTestCase {
 
     // MARK: Screenshots
 
-    func testScreenshotsComeOnChangeAtMostOneAMinuteAndEveryFiveMinutesOtherwise() async {
+    /// Owner 2026-10-28, "a low screenshot frequency": on change at most every five minutes, every fifteen otherwise.
+    func testScreenshotsComeOnChangeAtMostEveryFiveMinutesAndEveryFifteenOtherwise() async {
         let recorder = makeRecorder()
         await recorder.start()
         workspace.front = Self.editor
         await recorder.tick()
         await settle()
         XCTAssertEqual(capture.captures, 1, "a new span gets a frame")
-        // A burst of switches inside a minute costs nothing more.
-        for i in 0..<6 {
+        // A burst of switches inside five minutes costs nothing more.
+        for i in 0..<30 {
             advance(5)
             titles.title = "window \(i)"
             await recorder.tick()
         }
         await settle()
         XCTAssertEqual(capture.captures, 1)
-        // The same span for five more minutes: one steady frame.
         titles.title = "steady"
-        advance(61)
+        advance(151)
         await recorder.tick()
         await settle()
-        XCTAssertEqual(capture.captures, 2, "the span that had none gets one once the minute passed")
-        await run(recorder, for: 290)
+        XCTAssertEqual(capture.captures, 2, "the span that had none gets one once five minutes passed")
+        await run(recorder, for: 890)
         await settle()
         XCTAssertEqual(capture.captures, 2)
         await run(recorder, for: 20)
@@ -490,6 +512,58 @@ final class TraceRecorderTests: XCTestCase {
         XCTAssertEqual(backend.frames.count, 3)
         XCTAssertEqual(backend.frames.first?.text, "recognized words")
         XCTAssertEqual(backend.frames.first?.spanId.isEmpty, false)
+    }
+
+    /// The Screen Recording preflight is a TCC lookup (~7 ms on the main actor, measured 2026-10-28): asked only when a
+    /// frame is due, never on every tick.
+    func testTheScreenRecordingPreflightIsAskedOnlyWhenAFrameIsDue() async {
+        let recorder = makeRecorder()
+        await recorder.start()
+        workspace.front = Self.editor
+        await run(recorder, for: 1200)
+        await settle()
+        XCTAssertEqual(capture.accessChecks, capture.captures)
+        XCTAssertLessThanOrEqual(capture.accessChecks, 3, "20 minutes of five-second ticks")
+    }
+
+    /// Every connected screen only under the sheet that says so (consent 2); the older sheet keeps the front window.
+    func testEveryScreenIsCapturedOnlyAfterTheNewerSheet() async {
+        let older = makeRecorder { $0.consentVersion = 1 }
+        backend.answer.allScreensConsent = 2
+        await older.start()
+        XCTAssertTrue(older.offersAllScreens)
+        workspace.front = Self.editor
+        await older.tick()
+        await settle()
+        XCTAssertEqual([capture.captures, capture.screenCaptures], [1, 0])
+
+        let newer = makeRecorder { $0.consentVersion = 2 }
+        backend.answer.allScreensConsent = 2
+        await newer.start()
+        XCTAssertFalse(newer.offersAllScreens)
+        workspace.front = Self.editor
+        await newer.tick()
+        await settle()
+        XCTAssertEqual([capture.captures, capture.screenCaptures], [0, 1])
+        XCTAssertEqual(backend.frames.map(\.display), [1, 2])
+        XCTAssertEqual(backend.frames.map(\.displays), [2, 2])
+        XCTAssertEqual(Set(backend.frames.map(\.at)).count, 1, "one moment, one frame per screen")
+        let asked = try? XCTUnwrap(capture.shownAsked.first)
+        XCTAssertEqual(asked?.keepFront, false, "an editor in front: no browser window to keep")
+        let shown = asked?.shown ?? { _ in true }
+        XCTAssertTrue(shown("com.example.Editor"))
+        XCTAssertFalse(shown("com.google.Chrome"), "a browser appears only through its vetted front window")
+        XCTAssertFalse(shown("com.example.Chat"), "a chat app whose titles stay off")
+        XCTAssertFalse(shown("com.example.Vault"), "an app never recorded")
+        XCTAssertFalse(shown("com.apple.notificationcenterui"), "banners show other apps' words")
+        XCTAssertFalse(shown("com.rorosaga.cicada.test"), "Cicada itself")
+    }
+
+    func testAnOlderBackendNeverTurnsEveryScreenOn() async {
+        let recorder = makeRecorder { $0.consentVersion = 9 }
+        await recorder.start()   // no all_screens_consent in the answer
+        XCTAssertFalse(recorder.capturesAllScreens)
+        XCTAssertFalse(recorder.offersAllScreens)
     }
 
     func testScreenshotsOffOrNoScreenRecordingTakesNone() async {
@@ -567,8 +641,8 @@ final class TraceRecorderTests: XCTestCase {
 
     func testTheCadenceNumbersAreTheOnesTheDocsName() {
         let cadence = TraceFrameCadence()
-        XCTAssertEqual(cadence.minGap, 60)
-        XCTAssertEqual(cadence.steadyInterval, 300)
+        XCTAssertEqual(cadence.minGap, 300)
+        XCTAssertEqual(cadence.steadyInterval, 900)
         XCTAssertEqual(cadence.maxSide, 1280)
         XCTAssertEqual(TraceRecorder.idleThreshold, 120)
     }
@@ -626,7 +700,7 @@ final class TraceNoNetworkTests: XCTestCase {
         let end = try XCTUnwrap(text.range(of: "// MARK: - Messages (G179)"))
         let body = String(text[section.upperBound..<end.lowerBound])
         let funcs = body.components(separatedBy: "    func trace").dropFirst()
-        XCTAssertEqual(funcs.count, 13)
+        XCTAssertEqual(funcs.count, 19)   // 13, plus the page's six (2026-10-28)
         for f in funcs { XCTAssertTrue(f.contains("try traceGate()"), "ungated: func trace\(f.prefix(30))") }
     }
 
