@@ -23,7 +23,7 @@ final class NavRailTests: XCTestCase {
     func testTheRailIsAppTabInItsCommandOrder() {
         XCTAssertEqual(AppTab.allCases.map(RailItem.digit(for:)), Array(1...AppTab.allCases.count))
         XCTAssertEqual(RailItem.shortcut(for: .home), "⌘1")
-        XCTAssertEqual(RailItem.shortcut(for: .inbox), "⌘6")
+        XCTAssertEqual(RailItem.shortcut(for: .inbox), "", "ruling 48 (2): the Inbox left the rail; ⌘6 is unused")
         XCTAssertEqual(RailItem.shortcut(for: .sources), "⌘7")
         XCTAssertEqual(RailItem.shortcut(for: .projects), "⌘8", "the eighth page, after Sources — no shortcut moved")
         XCTAssertEqual(RailItem.key(for: .graph), KeyEquivalent("2"))
@@ -37,9 +37,21 @@ final class NavRailTests: XCTestCase {
     func testTooltipsAndLabelsSayWhatTheCellIsDoing() {
         XCTAssertEqual(RailItem.tooltipTitle(.inbox, busy: false), "Inbox")
         XCTAssertEqual(RailItem.tooltipTitle(.sleep, busy: true), "Sleep · consolidating")
-        XCTAssertEqual(RailItem.accessibilityLabel(.inbox, count: 6, busy: false), "Inbox, 6 pending")
+        XCTAssertEqual(RailItem.accessibilityLabel(.home, count: 6, busy: false), "Home, 6 pending",
+                       "ruling 48 (2): the pending count moved to Home")
         XCTAssertEqual(RailItem.accessibilityLabel(.sleep, count: 0, busy: true), "Sleep, consolidating")
         XCTAssertEqual(RailItem.accessibilityLabel(.graph, count: 0, busy: false), "Graph")
+    }
+
+    /// Ruling 48 (2) — the Inbox is Home's sub-view: no cell of its own, Home's cell reads as selected while it shows.
+    func testTheInboxIsHomesSubViewOnTheRail() {
+        XCTAssertFalse(PageSwitches.inboxOnRail, "DR-73's flag for this screen exists and is off")
+        XCTAssertFalse(AppTab.inbox.onRail)
+        XCTAssertEqual(AppTab.inbox.railCell, .home)
+        XCTAssertEqual(AppTab.sources.railCell, .sources)
+        XCTAssertFalse(AppTab.shown(tracesPage: true).contains(.inbox))
+        XCTAssertNil(RailItem.key(for: .inbox))
+        XCTAssertEqual(AppTab.inbox.landing(tracesPage: false), .inbox, "⌘K, the menu bar and Home still land on it")
     }
 
     /// R-DS14 — 450 ms for the first; instantly while one shows or within a second of one hiding.

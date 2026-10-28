@@ -178,6 +178,11 @@ def _item_from_file(
             extra["check"] = InboxCheck(**source_check.for_item(fm, raw_options, context).to_wire())
         except Exception as exc:  # noqa: BLE001 — a derived field never costs the card
             logger.warning(f"checkability skipped for {filepath.name}: {type(exc).__name__}")
+        # Vision item 10 / ruling 48 (1): the plain question and its reason, from the pages this context already read.
+        try:
+            extra.update(_spoken(fm, kind, question, entity_id, context, now))
+        except Exception as exc:  # noqa: BLE001 — a derived field never costs the card
+            logger.warning(f"wording skipped for {filepath.name}: {type(exc).__name__}")
 
     options: list[InboxOption] = []
     for raw in raw_options:
@@ -239,6 +244,30 @@ def _item_from_file(
         claim_id=_opt_str(fm.get("claim_id")),
         **extra,
     )
+
+
+#: Kinds Cicada asks in plain words (`inbox_wording`); the rest (a removal, a page edit, an agent's request…) are the
+#: person's own housekeeping and keep their stored words.
+_SPOKEN_KINDS = frozenset({"conflict", "decay", "clarification", "merge_suggestion", "followup"})
+
+
+def _spoken(fm: dict, kind: str, question: str | None, entity_id: str,
+            context: "inbox_context.InboxContext", today: str) -> dict:
+    """``{spoken_question, spoken_reason}`` for one served item, or ``{}``. The pages come from ``context``'s cache,
+    so a warm read parses nothing new; the owner's id is read once per context."""
+    from api.services import inbox_wording
+
+    if kind not in _SPOKEN_KINDS or str(fm.get("asks") or "") == "sources":
+        return {}
+
+    def page(pid) -> dict | None:
+        found = context.entity(str(pid or "")) if pid else None
+        return dict(found.frontmatter) if found is not None else None
+
+    said = inbox_wording.spoken({**fm, "question": question or fm.get("question")}, today,
+                                page_fm=page(entity_id), other_fm=page(fm.get("merge_target_hint")),
+                                owner_id=context.owner_id())
+    return {"spoken_question": said.question or None, "spoken_reason": said.reason or None}
 
 
 def _check_findings(fm: dict) -> list[InboxCheckFinding]:

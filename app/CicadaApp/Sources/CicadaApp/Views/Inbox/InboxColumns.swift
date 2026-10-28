@@ -154,7 +154,8 @@ struct InboxRowSlots: Equatable {
 enum InboxEyebrow {
     /// Say it once (owner 2026-10-19) — "Inbox", whatever is open: the tabs beside it carry the counts ("All 9"), the
     /// selected row says which question is open and the card names its kind, so the eyebrow repeats none of them.
-    static func text(visible: [InboxItem], openId: String?) -> String { Copy.Inbox.title }
+    /// Ruling 48 (2): the list is Home's sub-view, so the eyebrow is the path back — Esc takes it.
+    static func text(visible: [InboxItem], openId: String?) -> String { Copy.Inbox.homePath }
 }
 
 /// DR-45 — "All 6 · Decay 1 · Conflict 2 …": the kinds present, in a stable order, never a dot.

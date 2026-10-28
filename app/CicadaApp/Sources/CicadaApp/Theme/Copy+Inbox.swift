@@ -6,6 +6,9 @@ import Foundation
 extension Copy {
     enum Inbox {
         static let title = "Inbox"
+        /// Ruling 48 (2) — the full list is Home's sub-view: its eyebrow is the path back ("Home · All questions").
+        static let homePath = "Home · All questions"
+        static let backHome = "Back to Home"
         static func pending(_ n: Int) -> String { "\(UsageFormat.count(n)) pending" }
         static func position(_ i: Int, of n: Int) -> String { "\(UsageFormat.count(i)) of \(UsageFormat.count(n))" }
         static let all = "All"
@@ -220,11 +223,11 @@ extension Copy.Inbox {
                 + "\(UsageFormat.count(left)) left"
         }
         static let end = "End review"
-        static let endHelp = "Back to the Inbox (Esc). Skipped questions stay there."
+        static let endHelp = "Back to all questions (Esc). Skipped questions stay there."
         static let openInInbox = "Open in Inbox"
-        static let openInInboxHelp = "Answer this one in the Inbox's full card — another answer, not now, the conversation"
+        static let openInInboxHelp = "Answer this one in its full card — another answer, not now, the conversation"
         static let skip = "Skip"
-        static let skipHelp = "Leave it in the Inbox and go to the next one (S)"
+        static let skipHelp = "Leave it with your questions and go to the next one (S)"
         static let undo = "Undo"
         static let undoHelp = "Take back the last answer or skip (⌘Z)"
 
@@ -282,7 +285,7 @@ extension Copy.Inbox {
         static func finishedDetail(answered: Int, skipped: Int) -> String {
             let a = "\(UsageFormat.count(answered)) answered"
             guard skipped > 0 else { return "\(a)." }
-            return "\(a), \(UsageFormat.count(skipped)) skipped — skipped questions stay in the Inbox."
+            return "\(a), \(UsageFormat.count(skipped)) skipped — skipped questions stay with the rest."
         }
         static let backToInbox = "Back to the Inbox"
     }

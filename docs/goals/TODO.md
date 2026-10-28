@@ -29,6 +29,17 @@
   freshness with a click-only Refresh). Research on "Grok and Cursor are now one": one subscription since 2026-10-12,
   still two tools and sign-ins; Cursor's third-party models bill at list price from top-ups. Ruled the same day
   (ruling 46a): Auto and schedules run Cursor only on Cursor's own models, also when the mode is pinned in the env.
+- **2026-10-28 — questions on Home, the catch-up chat in the app (ruling 48 (1), (2), (8), (17); vision item 10, app
+  half; branch `feat/home-inbox-catchup`).** The Inbox left the rail (⌘6 unused, the count on Home); Home leads with
+  *Catch me up* as its own block, then one row per page with a question — the page's picture, the plain question
+  (`spokenQuestion` on `GET /inbox`), its reason and the page as a link — and *All N questions* opens the full list as
+  Home's sub-view, its kind groups never folded. Each page has its questions strip ("1 of N"). *Catch me up* is a chat
+  with the worm's head as Cicada's face: taps are the inbox's held answers; the person's own words go to `POST
+  /inbox/catchup/turn` (one turn on their chosen engine, Ask's resolution; a reading only when found in their words, and
+  then only proposed — applied on the person's *Yes*) and the chat is kept as one episode per session (`POST /inbox/catchup/record`). The
+  harness door's catch-up carries the same page context and asks for a conversation (skill, prompt). Speed and what is
+  next for `load_inbox` in the PR body.
+
 - **2026-10-28 — ruling 48 recorded; the redesign accepted (docs only; branch `docs/redesign-rulings-2026-10-28`).**
   The owner answered the redesign's decisions: entity pages read as articles that carry their beliefs (citation
   markers, References, no beliefs list), Home leads its questions with their pages and Catch me up stands apart as a

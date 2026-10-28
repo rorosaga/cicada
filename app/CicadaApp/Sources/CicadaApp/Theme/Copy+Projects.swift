@@ -136,7 +136,7 @@ extension Copy {
         static let threadStartedToday = "Started today"
         static func threadHeard(since day: String, heard: String) -> String { "Since \(day) · last heard \(heard)" }
         static let howDidItGo = "How did it go? ›"
-        static let howDidItGoHelp = "Answer this follow-up in the Inbox"
+        static let howDidItGoHelp = "Answer this follow-up in your questions"
         static let statusDone = "Done"
         static let statusOngoing = "Ongoing"
         static let statusSaid = "Said here"

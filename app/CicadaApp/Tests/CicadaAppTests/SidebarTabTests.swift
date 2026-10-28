@@ -22,11 +22,12 @@ final class SidebarTabTests: XCTestCase {
     /// learned still opens the page it opened.
     func testMapANothingButTheFeedsCellMoves() {
         XCTAssertEqual(AppTab.allCases.map { RailItem.shortcut(for: $0) },
-                       ["⌘1", "⌘2", "⌘3", "⌘4", "⌘5", "⌘6", "⌘7", "⌘8", "⌘9", ""],
-                       "Traces, the tenth page (2026-10-26), has no digit: ⌘0 is Actual Size")
+                       ["⌘1", "⌘2", "⌘3", "⌘4", "⌘5", "", "⌘7", "⌘8", "⌘9", ""],
+                       "Traces, the tenth page (2026-10-26), has no digit: ⌘0 is Actual Size; the Inbox left the rail "
+                       + "and ⌘6 stays unused (ruling 48 (2))")
         XCTAssertEqual(RailItem.shortcut(for: .skills), "⌘4")
         XCTAssertEqual(RailItem.shortcut(for: .sleep), "⌘5")
-        XCTAssertEqual(RailItem.shortcut(for: .inbox), "⌘6")
+        XCTAssertEqual(RailItem.shortcut(for: .inbox), "", "ruling 48 (2): ⌘6 is left unused, nothing moved into it")
         XCTAssertEqual(RailItem.shortcut(for: .agents), "⌘9", "Agents took the free ninth cell (ruling 36 D6)")
     }
 
@@ -61,13 +62,13 @@ final class SidebarTabTests: XCTestCase {
     func testHiddenPagesLeaveTheRailAndNoDigitMoves() {
         XCTAssertTrue(PageSwitches.projectsPage, "ruling 45 (2026-10-27): back on with the redesign")
         XCTAssertEqual(AppTab.shown(tracesPage: false, projectsPage: false),
-                       [.home, .graph, .clusters, .skills, .sleep, .inbox, .sources, .agents])
+                       [.home, .graph, .clusters, .skills, .sleep, .sources, .agents])
         XCTAssertEqual(AppTab.shown(tracesPage: true).last, .traces)
         XCTAssertEqual(AppTab.shown(tracesPage: false),
-                       [.home, .graph, .clusters, .skills, .sleep, .inbox, .sources, .projects, .agents],
+                       [.home, .graph, .clusters, .skills, .sleep, .sources, .projects, .agents],
                        "the switch brings Projects back where it was")
         XCTAssertEqual(AppTab.shown(tracesPage: false, projectsPage: false).map { RailItem.shortcut(for: $0) },
-                       ["⌘1", "⌘2", "⌘3", "⌘4", "⌘5", "⌘6", "⌘7", "⌘9"])
+                       ["⌘1", "⌘2", "⌘3", "⌘4", "⌘5", "⌘7", "⌘9"])
     }
 
     /// Every door to a hidden page lands where its content is now: a stored "Projects" selection, a ⌘K row, a hand-off.

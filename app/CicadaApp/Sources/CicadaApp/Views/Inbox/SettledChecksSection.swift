@@ -4,8 +4,8 @@ import SwiftUI
 /// what Sleep answered from the person's own words or assumed, each with its reason): what a web lookup (or the person's own
 /// agent) answered for them, each with its answer, the page and quote it rests on, and two neutral actions — Undo puts
 /// the question back and takes back only what the check wrote; Track this source makes the citation one of the places
-/// Cicada re-checks (only on this tap; a citation is never a tracked source by itself). Closed until asked for — the
-/// inbox is there when wanted, not pushed (UX 4). Neutral buttons, no accent (DR-40); a fill, not a lift (DR-48); a
+/// Cicada re-checks (only on this tap; a citation is never a tracked source by itself). Open, capped, "All N" to the
+/// whole list (ruling 48 (17), DR-81 — it was closed until asked for). Neutral buttons, no accent (DR-40); a fill, not a lift (DR-48); a
 /// disabled action says why (DR-41); a keyboard path never animates (DR-60).
 struct SettledChecksSection: View {
     let model: SettledChecks
@@ -33,8 +33,11 @@ struct SettledChecksSection: View {
     }
 }
 
-/// One collapsible group of settled questions — closed until asked for (UX 4).
+/// One group of settled questions (ruling 48 (17), DR-81 — no folds): open, its first `SettledGroup.cap` rows under its
+/// label, and "All N" opening the whole group in a sheet.
 private struct SettledGroup: View {
+    static let cap = 3
+
     let rows: [SettledCheck]
     let model: SettledChecks
     let onUndone: @MainActor () async -> Void
@@ -42,25 +45,33 @@ private struct SettledGroup: View {
     let header: String
     let help: String
 
-    @State private var open = false
+    @State private var showAll = false
 
     var body: some View {
         if !rows.isEmpty {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                // The header picks the motion: a click eases it open, a key lands in one frame (DR-60).
-                DisclosureHeader(title: header, isOpen: open, help: help, spokenTitle: title) { open.toggle() }
-
-                if open {
-                    VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                        ForEach(rows) { row in
-                            SettledCheckRow(row: row, tracked: model.tracked.contains(row.id),
-                                            busy: model.busy.contains(row.id),
-                                            undo: { Task { await model.undo(row, then: onUndone) } },
-                                            track: { Task { await model.track(row) } })
-                        }
+                HStack(alignment: .firstTextBaseline) {
+                    SectionLabel(header)
+                    Spacer(minLength: CicadaTheme.spacingSM)
+                    if rows.count > Self.cap {
+                        InlineLink(title: Copy.FullList.all(rows.count), help: help) { showAll = true }
                     }
-                    .disclosureReveal()
                 }
+                list(Array(rows.prefix(Self.cap)))
+            }
+            .sheet(isPresented: $showAll) {
+                FullListSheet(title: title) { list(rows) }
+            }
+        }
+    }
+
+    private func list(_ shown: [SettledCheck]) -> some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+            ForEach(shown) { row in
+                SettledCheckRow(row: row, tracked: model.tracked.contains(row.id),
+                                busy: model.busy.contains(row.id),
+                                undo: { Task { await model.undo(row, then: onUndone) } },
+                                track: { Task { await model.track(row) } })
             }
         }
     }

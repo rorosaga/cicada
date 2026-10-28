@@ -98,14 +98,26 @@ enum PageSwitches {
     /// this one value: the rail, ⌘K, a project's ⌘K row, the tour and every hand-off read it. Back on with the
     /// redesign (ruling 45, 2026-10-27): the list is the person's own, everything detected is suggested.
     static let projectsPage = true
+    /// Ruling 48 (2), owner 2026-10-28 — the Inbox left the rail (its questions live on Home and on each page). DR-73's
+    /// flag for this screen: `true` brings its cell and ⌘6 back; nothing else reads it.
+    static let inboxOnRail = false
 }
 
 extension AppTab {
     /// The rail's cells and ⌘K's "Go to" rows, in `allCases` order — so a hidden page leaves its ⌘ digit unused
     /// rather than moving another page's (DR-22).
     static func shown(tracesPage: Bool, projectsPage: Bool = PageSwitches.projectsPage) -> [AppTab] {
-        allCases.filter { $0.landing(tracesPage: tracesPage, projectsPage: projectsPage) == $0 }
+        allCases.filter { $0.onRail && $0.landing(tracesPage: tracesPage, projectsPage: projectsPage) == $0 }
     }
+
+    /// Ruling 48 (2), owner 2026-10-28 — the Inbox left the rail: its questions live on Home and on each page, and the
+    /// full grouped list is a Home sub-view ("All N questions", Esc back). The page stays a destination — ⌘K, the menu
+    /// bar, a notification and Home's own links still land on it — but it draws no cell, and ⌘6 is left unused (DR-22:
+    /// no other digit moves).
+    var onRail: Bool { self != .inbox || PageSwitches.inboxOnRail }
+
+    /// The rail cell that reads as selected while this page shows: the Inbox is Home's sub-view, so Home's cell.
+    var railCell: AppTab { onRail ? self : .home }
 
     /// Where a selection of this page lands: itself, or — for a hidden page — the page that holds its content now
     /// (Projects → Clusters, where project pages still are; Traces → Sources, where its switch is).

@@ -50,11 +50,16 @@ final class InboxV2Tests: XCTestCase {
         let disclosure = try String(contentsOf: root.appendingPathComponent("Views/Common/Disclosure.swift"),
                                     encoding: .utf8)
         XCTAssertTrue(disclosure.contains("DisclosureMotion.toggle(opening: !isOpen, reduceMotion: reduceMotion, toggle)"))
-        for file in ["Views/Inbox/InboxQuestionList.swift", "Views/Inbox/SettledChecksSection.swift"] {
+        let list = try String(contentsOf: root.appendingPathComponent("Views/Inbox/InboxQuestionList.swift"),
+                              encoding: .utf8)
+        XCTAssertFalse(list.contains("Instant.run { toggle() }"))
+        XCTAssertTrue(list.contains("disclosureReveal()"))
+        // Ruling 48 (17), DR-81 — the settled groups and the link review's extra pages are no folds any more: open,
+        // capped, "All N" to a sheet.
+        for file in ["Views/Inbox/SettledChecksSection.swift", "Views/Inbox/InboxTopCards.swift"] {
             let source = try String(contentsOf: root.appendingPathComponent(file), encoding: .utf8)
-            XCTAssertFalse(source.contains("Instant.run { toggle() }"), file)
-            XCTAssertFalse(source.contains("Instant.run { open.toggle() }"), file)
-            XCTAssertTrue(source.contains("disclosureReveal()"), file)
+            XCTAssertFalse(source.contains("DisclosureHeader("), file)
+            XCTAssertTrue(source.contains("FullListSheet("), file)
         }
     }
 

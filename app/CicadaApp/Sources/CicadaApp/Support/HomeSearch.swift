@@ -10,6 +10,9 @@ import Observation
 final class HomeSearch {
     let model: FindPaletteModel
     private(set) var focusRequest = 0
+    /// Ruling 48 (8) — the catch-up chat open on Home. Held here, with the field, so opening a page from the chat and
+    /// coming back finds the conversation where it was; Home's rail cell clicked again or a bank switch ends it.
+    var catchup: CatchupSession?
 
     init(model: FindPaletteModel) { self.model = model }
 

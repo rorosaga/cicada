@@ -30,21 +30,17 @@ final class InboxGroupsTests: XCTestCase {
                        "a header only over two or more questions about one page; questions with no page never share one")
     }
 
-    func testOneSectionIsOpenAndOfSeveralOnlyTheFirstUntilThePersonChooses() throws {
+    /// Ruling 48 (17), DR-81 — no stacked folds: every kind's group is open, a section label over its questions,
+    /// whatever its size or the person's earlier choice.
+    func testEveryGroupIsOpenNoFold() throws {
         let items = [try item("c1", priority: 0.9), try item("d1", kind: "decay", priority: 0.3)]
         let sections = InboxGroups.sections(items, byKind: true)
         XCTAssertTrue(InboxGroups.isOpen(.conflict, sections: sections, chosen: [:], openKind: nil))
-        XCTAssertFalse(InboxGroups.isOpen(.decay, sections: sections, chosen: [:], openKind: nil))
-        XCTAssertTrue(InboxGroups.isOpen(.decay, sections: sections, chosen: [.decay: true], openKind: nil))
-        XCTAssertFalse(InboxGroups.isOpen(.conflict, sections: sections, chosen: [.conflict: false], openKind: nil))
-        XCTAssertTrue(InboxGroups.isOpen(.decay, sections: sections, chosen: [.decay: false], openKind: .decay),
-                      "the open question's group is always open")
-        XCTAssertTrue(InboxGroups.isOpen(nil, sections: InboxGroups.sections(items, byKind: false), chosen: [:],
-                                         openKind: nil))
+        XCTAssertTrue(InboxGroups.isOpen(.decay, sections: sections, chosen: [:], openKind: nil))
+        XCTAssertTrue(InboxGroups.isOpen(.conflict, sections: sections, chosen: [.conflict: false], openKind: nil))
         let full = try (0..<13).map { try item("c\($0)", page: "p\($0)", name: "P\($0)") } + [try item("d", kind: "decay")]
-        let fullSections = InboxGroups.sections(full, byKind: true)
-        XCTAssertFalse(InboxGroups.isOpen(.conflict, sections: fullSections, chosen: [:], openKind: nil),
-                       "a full inbox starts as its kinds and counts")
+        XCTAssertTrue(InboxGroups.isOpen(.conflict, sections: InboxGroups.sections(full, byKind: true), chosen: [:],
+                                         openKind: nil), "a full inbox is every question, under its kind")
     }
 
     func testLinesCarryCountsAReviewAndOnlyOpenGroupsQuestions() throws {

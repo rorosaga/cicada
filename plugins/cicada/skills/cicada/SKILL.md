@@ -40,7 +40,7 @@ it).
 | `cicada status` | Which memory this command uses, and whether the app's backend agrees. |
 | `cicada commands` | Every command, and the MCP tool each one mirrors. |
 
-- **Options:** get: `--start`, `--from`, `--count`, `--line-numbers`; project: `--since`, `--tz`; continue: `--session`, `--before`; save: `--title`; timeline: `--since`; skills propose: `--source`, `--skill`, `--agent`; skills create: `--reason`. `get` also takes `<entity-id>:<start>[:<end>]`; `save` reads the
+- **Options:** get: `--start`, `--include`, `--from`, `--count`, `--line-numbers`; project: `--since`, `--tz`; continue: `--session`, `--before`; save: `--title`; timeline: `--since`; skills propose: `--source`, `--skill`, `--agent`; skills create: `--reason`. `get` also takes `<entity-id>:<start>[:<end>]`; `save` reads the
   text from stdin when it is `-`.
 - **`--json`** (before or after the command) prints one envelope: `{schema, command, ok, code, bank, data,
   text, warnings, version}`. `text` is what the matching MCP tool says; `data` is the structured part.
@@ -131,13 +131,19 @@ When the person asks to catch Cicada up ("let's catch up", "what do you want
 to ask me", "anything you need from me?"), or starts the `catch_up` prompt:
 - Call `cicada_check_nudges(mode="catchup")`. It returns the next few questions,
   the pages they use most first, each with an `Ask:` line and a `Why` line.
-- Ask ONE at a time, in your own words, with its reason ("Are you still
-  working at <org>? Your LinkedIn seems a bit stale, so I wasn't sure").
-  Never read the list out, never press: "not now" is an answer (`skip=true`).
+- It is a conversation, not an interrogation. Ask ONE at a time, in your own
+  words, with its reason ("Are you still working at <org>? Your LinkedIn
+  seems a bit stale, so I wasn't sure"). Follow up when an answer opens
+  something, say it another way if they are unsure, and move to a related
+  question when their answer touches it. Never read the list out, never
+  press: "not now" is an answer (`skip=true`).
+- Each question carries what Cicada has on its page: follow up from that,
+  never read it out, never guess past it.
 - Record each answer as the reply says (their exact words as `quote`). For
   "are these the same person?", a yes is never joined by you: say you noted
   it — Cicada joins them from their own words at its next consolidation. A
-  "different people" is `reject=true`.
+  "different people" is `reject=true`. Something new they mention in passing
+  is memory like in any chat: save it (`cicada_save_episode`).
 - When they want more, call it again: nothing repeats in this conversation.
   Stop when they say so or when it says nothing is left.
 

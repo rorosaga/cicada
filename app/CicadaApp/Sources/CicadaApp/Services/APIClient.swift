@@ -2363,15 +2363,41 @@ actor APIClient {
         optionKey: String? = nil,
         remindDays: Int? = nil,
         mergeTarget: String? = nil,
-        mergeSurvivor: String? = nil
+        mergeSurvivor: String? = nil,
+        quote: String? = nil,
+        relayedBy: String? = nil,
+        sessionId: String? = nil
     ) async throws {
         var body: [String: Any] = ["action": action]
+        // Ruling 48 (8): the person's words the catch-up read this answer from, kept as the answer's evidence.
+        if let quote, !quote.isEmpty { body["quote"] = quote }
+        if let relayedBy { body["relayedBy"] = relayedBy }
+        if let sessionId { body["sessionId"] = sessionId }
         if let answer { body["answer"] = answer }
         if let optionKey { body["optionKey"] = optionKey }
         if let remindDays { body["remindDays"] = remindDays }
         if let mergeTarget { body["mergeTarget"] = mergeTarget }
         if let mergeSurvivor { body["mergeSurvivor"] = mergeSurvivor }
         try await post("/inbox/\(id)/resolve", body: body)
+    }
+
+    /// Ruling 48 (8) — one turn of the catch-up chat: the person's own words about `itemId`, answered on their chosen
+    /// engine (`POST /inbox/catchup/turn`). Writes nothing; a reading is applied through `resolveInboxItem`.
+    func catchupTurn(itemId: String, message: String, history: [CatchupLine], upcoming: [String]) async throws
+        -> CatchupTurnReply {
+        try await post("/inbox/catchup/turn", body: [
+            "itemId": itemId, "message": message, "upcoming": upcoming,
+            "history": history.compactMap { line in line.wire.map { ["who": $0.who, "text": $0.text] } },
+        ])
+    }
+
+    /// Ruling 48 (8) — the chat kept as one episode per catch-up session (`POST /inbox/catchup/record`).
+    func catchupRecord(sessionId: String, lines: [CatchupLine]) async throws {
+        let iso = ISO8601DateFormatter()
+        let turns: [[String: Any]] = lines.compactMap { line in
+            line.wire.map { ["who": $0.who, "text": $0.text, "at": iso.string(from: line.at)] }
+        }
+        try await post("/inbox/catchup/record", body: ["sessionId": sessionId, "turns": turns])
     }
 
     /// G61 "Where to check" (#422) — one row of the grouped review answered: `yes` takes that link on its page, `no`
@@ -4088,6 +4114,15 @@ extension APIClient: SyncAPI {
         try await resolveInboxItem(id: id, action: action, answer: answer,
                                    optionKey: optionKey, remindDays: remindDays,
                                    mergeTarget: mergeTarget, mergeSurvivor: mergeSurvivor)
+    }
+
+    func resolveInbox(id: String, action: String, answer: String?,
+                      optionKey: String?, remindDays: Int?,
+                      mergeTarget: String?, mergeSurvivor: String?,
+                      quote: String?, relayedBy: String?, sessionId: String?) async throws {
+        try await resolveInboxItem(id: id, action: action, answer: answer, optionKey: optionKey, remindDays: remindDays,
+                                   mergeTarget: mergeTarget, mergeSurvivor: mergeSurvivor, quote: quote,
+                                   relayedBy: relayedBy, sessionId: sessionId)
     }
 
     func setConnectionTier(_ id: String, tier: String?) async throws -> ConnectionStatus {

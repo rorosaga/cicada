@@ -2,12 +2,21 @@ import asyncio
 from typing import Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, Response
+from loguru import logger
 
 from api.config import Settings, get_settings
-from api.models.schemas import CheckCensus, InboxItem, InboxResolveRequest, SettledCheck
+from api.models.schemas import (CatchupRecordRequest, CatchupTurnRequest, CheckCensus, InboxItem,
+                                InboxResolveRequest, SettledCheck)
 from api.services import inbox_service, source_check, sync_service
 
 router = APIRouter()
+
+
+def _served_day() -> str:
+    """The day the inbox's words are said for (its ETag moves with it; review B2 of #509)."""
+    from datetime import date
+
+    return date.today().isoformat()
 
 
 @router.get("/inbox", response_model=list[InboxItem])
@@ -24,7 +33,10 @@ async def list_inbox(
     # commit; without it SnapshotCache serves stale context until the inbox
     # itself changes.
     # G205: agent requests (outside the bank) fold into the `inbox` component's stamp, so this ETag moves with them.
-    etag = sync_service.etag_for(settings.memory_path, "inbox", "entities", "episodes", extra=kind or "")
+    # Ruling 48 (1): every served question carries its plain words and reason, whose ages ("yesterday", "about 2
+    # months ago") are worded at read — so the tag moves with the day, or a 304 would keep yesterday's words (DR-58).
+    etag = sync_service.etag_for(settings.memory_path, "inbox", "entities", "episodes",
+                                 extra=f"{kind or ''}|{_served_day()}")
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     # Off the event loop (inbox lag, 2026-10-17): the read parses every inbox file and the pages they name, and a
@@ -259,6 +271,58 @@ async def web_check_status():
     from api.services import web_lookup
 
     return web_lookup.sweep_status()
+
+
+@router.post("/inbox/catchup/turn")
+async def catchup_turn(request: CatchupTurnRequest, settings: Settings = Depends(get_settings)):
+    """Ruling 48 (8): one turn of the in-app catch-up chat — the person's own words about one open question, answered
+    the way a person would (a follow-up, other words, a related question) on the person's chosen engine, resolved like
+    Ask (`engine_select.resolve_settings(user_triggered=True)`; rulings 4/31/46: never a metered key nobody chose).
+    Writes nothing: a reading grounded in their words is the app's to apply through the inbox's own resolver
+    (`catchup_chat`). ``{"engine": false, "why": …}`` when no engine may answer — the chat then takes taps only."""
+    import uuid
+
+    from api.services import agent_engine, catchup_chat, engine_readiness, engine_select
+
+    resolved, why = await engine_select.resolve_settings(settings, user_triggered=True)
+    if engine_readiness.key_missing(resolved):
+        return {"engine": False, "why": engine_select.no_engine_sentence(why), "reply": None, "reading": None,
+                "move": "stay", "nextId": None}
+
+    def llm_fn(system: str, prompt: str) -> str:
+        import litellm
+
+        from api.services.providers import resolve_llm_fn
+
+        call = resolve_llm_fn(resolved, model=resolved.litellm_model, completion=litellm.completion, stage="catchup")
+        # Its own self-purging breaker scope, like Ask's (one throttle stops this turn, never every later one).
+        with agent_engine.use_scope(f"catchup:{uuid.uuid4().hex}"):
+            response = call(messages=[{"role": "system", "content": system}, {"role": "user", "content": prompt}],
+                            response_format={"type": "json_object"})
+        return response.choices[0].message.content or ""
+
+    try:
+        return await asyncio.to_thread(catchup_chat.turn, resolved.memory_path, request.item_id, request.message,
+                                       request.history, request.upcoming, llm_fn)
+    except LookupError:
+        raise HTTPException(404, "That question is no longer open.") from None
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    except Exception as exc:  # noqa: BLE001 — the engine failed: the chat keeps the question and the person's words
+        logger.warning(f"catch-up turn failed: {type(exc).__name__}")
+        return {"engine": True, "error": True, "reply": None, "reading": None, "move": "stay", "nextId": None}
+
+
+@router.post("/inbox/catchup/record")
+async def catchup_record(request: CatchupRecordRequest, settings: Settings = Depends(get_settings)):
+    """Ruling 48 (8): the catch-up chat kept as ONE episode per session (source-keyed, updated in place), so Sleep
+    reads what the person said in passing as it reads any conversation. Never into a demo bank."""
+    from api.services import catchup_chat
+
+    try:
+        return await asyncio.to_thread(catchup_chat.record, settings.memory_path, request.session_id, request.turns)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
 
 
 @router.post("/inbox/{item_id}/resolve")

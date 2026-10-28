@@ -181,6 +181,6 @@ extension Copy {
         "\(UsageFormat.count(n)) conversation\(n == 1 ? "" : "s") waiting for Sleep"
     }
     static func menuBarInboxLine(_ n: Int) -> String {
-        n == 0 ? "Inbox: no questions waiting" : "Inbox: \(questionsWaiting(n))"
+        n == 0 ? "No questions waiting" : questionsWaiting(n)
     }
 }

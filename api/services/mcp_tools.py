@@ -5571,7 +5571,7 @@ def catchup_nudges(ctx: ToolContext) -> str:
     question; a "yes" to it is never joined here: Sleep reads the person's own words from this conversation and
     joins only on them (ruling 29 part 1, ruling 41). Local doors only: a remote connection is refused, and its schema
     does not offer the mode."""
-    from api.services import inbox_catchup, inbox_questions
+    from api.services import catchup_chat, inbox_catchup, inbox_questions
 
     if ctx.is_remote:
         return Reply(CATCHUP_REMOTE, code="refused")
@@ -5597,6 +5597,11 @@ def catchup_nudges(ctx: ToolContext) -> str:
                  f" (entity_id={fm.get('entity_id') or ''})",
                  f"  Ask: {said.question}",
                  f"  Why you are asking (in your words): {said.reason}"]
+        # Ruling 48 (8): what Cicada holds on the page, so a follow-up or a rephrase rests on the record — the same
+        # lines the app's own catch-up turn gives its model (`catchup_chat.context_lines`).
+        held = catchup_chat.context_lines(memory_path, str(fm.get("entity_id") or ""), inbox_ctx)
+        if held:
+            lines.append("  What Cicada has on it (to follow up from, never to read out): " + " ".join(held))
         options = inbox_questions.normalize_options(fm.get("options"))
         if options and kind != "merge_suggestion":
             lines.append("  Answers: " + "; ".join(f"{o.get('label')} (option_key={o.get('key')})" for o in options))
@@ -5616,8 +5621,10 @@ def catchup_nudges(ctx: ToolContext) -> str:
                        ("own", f"\n{how}\n  They let it pass: {skip_ids}. Not sure yet: {later}.")])
     cursor.add(served)
     count = f"{len(entries)} question{'s' if len(entries) != 1 else ''}"
-    head = (f"Catching up — {count}, the pages they use most first. Ask one at a time, in your own words, with its "
-            "reason; never read the list out, never push. "
+    head = (f"Catching up — {count}, the pages they use most first. It is a conversation, not a quiz: ask one at a "
+            "time, in your own words, with its reason; follow up when an answer opens something, say it another way "
+            "if they are unsure, and move to a related one when their answer touches it. Never read the list out, "
+            "never push. Anything new they tell you in passing is memory too — save it as you would in any chat. "
             + (f"{remaining} more after these: call this again when they want more." if remaining
                else "These are the last ones."))
     segments: list[tuple[str, str]] = [("own", head)]

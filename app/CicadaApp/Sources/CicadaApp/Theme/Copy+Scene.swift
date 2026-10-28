@@ -39,7 +39,7 @@ extension Copy {
     static let appearanceDetail = "Follows your Mac, or pick one"
     static let showInMenuBar = "Show in menu bar"
     /// R-HO16 — never F-10's "no window, just the bookworm": Cicada opens its window at login today (R-FA7).
-    static let showInMenuBarDetail = "Sleep and your Inbox at a glance. Closing the window never stops Cicada."
+    static let showInMenuBarDetail = "Sleep and your questions at a glance. Closing the window never stops Cicada."
 
     static let sceneLabels: [String] = [homeOpenInbox, homeMostly, homeNeedsYouCount(3), homeOriginCount("Chrome", 2_104),
                                         tipTitle, tipFindIt, tipDismiss,

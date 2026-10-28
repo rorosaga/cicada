@@ -403,6 +403,10 @@ struct InboxItem: Identifiable, Codable {
     /// G61 "Where to check" — the links waiting (`asks: "sources"`), and whether this is the ONE grouped review.
     var rows: [WhereToCheckRow]? = nil
     var review: Bool = false
+    /// Ruling 48 (1) — the question as a person would ask it and its reason (`inbox_wording`, derived at read). Home's
+    /// rows, a page's questions strip and the catch-up chat say these; nil from an older server or cache.
+    var spokenQuestion: String? = nil
+    var spokenReason: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case id, kind, requiredInput, status, priority
@@ -411,7 +415,7 @@ struct InboxItem: Identifiable, Codable {
         case uncertaintyType, suggestedClassification, suggestedConfidence, mergeTargetHint, asks
         case entityType, sourceEpisode, sourceEpisodeTimestamp, claimId, cause
         case extractorConfidence, extractorModel, recommendedKey, informational, checks
-        case subject, fold, request, rows, review
+        case subject, fold, request, rows, review, spokenQuestion, spokenReason
     }
 
     init(from decoder: Decoder) throws {
@@ -469,6 +473,8 @@ struct InboxItem: Identifiable, Codable {
         request = (try? c.decodeIfPresent(AgentRequestInfo.self, forKey: .request)) ?? nil
         rows = ((try? c.decodeIfPresent([Lenient<WhereToCheckRow>].self, forKey: .rows)) ?? nil)?.compactMap(\.value)
         review = (try? c.decodeIfPresent(Bool.self, forKey: .review)) ?? false
+        spokenQuestion = (try? c.decodeIfPresent(String.self, forKey: .spokenQuestion)) ?? nil
+        spokenReason = (try? c.decodeIfPresent(String.self, forKey: .spokenReason)) ?? nil
     }
 
     /// G61 — the one grouped "Confirm N links" review, drawn as its own card above the questions.
@@ -486,6 +492,12 @@ struct InboxItem: Identifiable, Codable {
     var questionText: String {
         if let question, !question.isEmpty { return question }
         return title.isEmpty ? body : title
+    }
+
+    /// Ruling 48 (1) — what Home, a page's strip and the catch-up say: the plain question, else the stored one.
+    var askText: String {
+        if let spokenQuestion, !spokenQuestion.isEmpty { return spokenQuestion }
+        return questionText
     }
 
     var createdDateValue: Date {

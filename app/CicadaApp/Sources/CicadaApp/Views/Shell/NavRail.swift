@@ -19,7 +19,7 @@ import SwiftUI
 /// **Keys.** ⌘1–9 are the cells' own shortcuts, in `AppTab.allCases` order (`RailItem`). A
 /// switch is instant, pointer and key alike (DR-60/61).
 ///
-/// **Tooltips.** Each cell names its page and shortcut ("Inbox ⌘6"). The first waits 450 ms and
+/// **Tooltips.** Each cell names its page and shortcut ("Sleep ⌘5"). The first waits 450 ms and
 /// the next opens at once (R-DS14). `.help` cannot be timed, so the bubble is SwiftUI; the
 /// cell's accessibility label and hint are its text twin.
 struct NavRail: View {
@@ -60,9 +60,10 @@ struct NavRail: View {
 
     @ViewBuilder
     private func cell(_ tab: AppTab) -> some View {
-        let count = tab == .inbox ? inboxCount : 0
+        // Ruling 48 (2): the pending count moved to Home with the questions.
+        let count = tab == .home ? inboxCount : 0
         let busy = tab == .sleep && isSleeping
-        let selected = selectedTab == tab
+        let selected = selectedTab.railCell == tab
         Button {
             // Sources v3 — the page already showing: tell it, so it can return to its root (a tab bar's re-tap).
             if RailReselect.isReselect(current: selectedTab, tapped: tab) {

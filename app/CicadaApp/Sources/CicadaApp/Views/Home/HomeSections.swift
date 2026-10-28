@@ -251,37 +251,181 @@ struct TodaySection: View {
 
 // MARK: - Needs you
 
+/// Ruling 48 (1), (2) — owner 2026-10-28: the questions live on Home (and on each page), the Inbox off the rail.
+/// *Catch me up* stands apart as its own block (`07-home-b`); under it each row leads with the page it is about — its
+/// face, logo or type glyph (DR-48: a picture or a glyph, the kind moves to `.help`) — the question in plain words with
+/// its reason, and a link to the page (`06-home-a`). One row per page, the pages the person uses most first (the
+/// server's order, `page_use`). *All N questions* opens the full list as Home's sub-view — never a fold (part 17).
+/// Drawn from the Store's disk-hydrated snapshot: Home never waits on `GET /inbox`.
 struct NeedsYouSection: View {
     /// Review #8 — the inbox is loaded and empty: "Needs you · nothing right now", no card.
     var empty = false
     @Binding var selectedTab: AppTab
+    let openPage: (String) -> Void
+    let startCatchup: ([String]) -> Void
 
     @Environment(Store.self) private var store
     @Environment(AppRouter.self) private var router
 
     var body: some View {
-        let figures = HomeFigures.needsYou(store.visibleInbox)
+        let items = store.visibleInbox
         // DR-58 — an age is computed when read, never stored.
-        let now = Date.now
-        // F-09 (R-HO12) — the count on the label and the one link at its right; the Inbox's own rows cut to glyph ·
-        // question · age (no entity or source column, no chevron — the row opens the question in STATE 1).
-        HomeBlock(title: Copy.homeNeedsYouCount(figures.total), linkTitle: Copy.homeOpenInbox,
-                  linkAction: { selectedTab = .inbox }, emptyNote: empty ? Copy.homeNeedsYouNothing : nil) {
-            if figures.shown.isEmpty {
-                HomeLine {
-                    Text(Copy.homeNothingNeedsYou)
-                        .font(CicadaTheme.bodyFont)
-                        .foregroundStyle(CicadaTheme.textSecondary)
+        let figures = HomeQuestions.figures(items, now: .now)
+        VStack(alignment: .leading, spacing: CicadaTheme.scaled(HomeLayout.blockGap)) {
+            if !figures.catchUp.isEmpty {
+                CatchupBlock(questions: figures.catchUp.count, pages: figures.catchUpPages) {
+                    startCatchup(figures.catchUp)
                 }
-            } else {
-                ForEach(figures.shown) { item in
-                    InboxRow(item: item, style: .wide, slots: InboxRowSlots(entity: false, source: false),
-                             selected: false, now: now, showsOpenButton: false) {
-                        router.pendingInboxItem = item.id
-                        selectedTab = .inbox
+            }
+            HomeBlock(title: figures.rows.isEmpty ? Copy.homeNeedsYouCount(figures.total)
+                          : Copy.Catchup.pagesWithAQuestion,
+                      linkTitle: figures.total > 0 ? Copy.Catchup.allQuestions(figures.total) : nil,
+                      linkAction: { selectedTab = .inbox }, emptyNote: empty ? Copy.homeNeedsYouNothing : nil) {
+                if figures.rows.isEmpty {
+                    // Only the list's own kinds wait (an agent's request, the link review): the list says what they are.
+                    HomeRowButton(help: Copy.Catchup.allHelp, action: { selectedTab = .inbox }) {
+                        Text(figures.total > 0 ? Copy.Catchup.allQuestions(figures.total) : Copy.homeNothingNeedsYou)
+                            .font(CicadaTheme.bodyFont)
+                            .foregroundStyle(CicadaTheme.textSecondary)
+                    }
+                } else {
+                    // #512's slot rule: the picture column stays only while some row draws a picture.
+                    let reserves = HomeQuestions.reservesPicture(figures.rows, store: store)
+                    ForEach(figures.rows) { row in
+                        HomeQuestionRow(row: row, reservesPicture: reserves, openPage: openPage) {
+                            router.pendingInboxItem = row.id
+                            selectedTab = .inbox
+                        }
                     }
                 }
             }
+        }
+    }
+}
+
+/// Ruling 48 (1) — *Catch me up*, its own block above the questions (`07-home-b`): the chat glyph, what it will ask,
+/// and *Start* — a `NeutralButton`, never the accent (Home has no primary, DR-40). The same session is one sentence
+/// away in any agent with Cicada, and the line says so.
+struct CatchupBlock: View {
+    let questions: Int
+    let pages: Int
+    let start: () -> Void
+
+    var body: some View {
+        HStack(alignment: .center, spacing: CicadaTheme.spacingMD) {
+            Image(systemName: "bubble.left")
+                .font(CicadaTheme.icon(.list))
+                .foregroundStyle(CicadaTheme.textSecondary)
+                .frame(width: CicadaTheme.scaled(36), height: CicadaTheme.scaled(36))
+                .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(CicadaTheme.bgOption))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(Copy.Catchup.title)
+                    .font(CicadaTheme.rowFont)
+                    .foregroundStyle(CicadaTheme.textPrimary)
+                    .accessibilityAddTraits(.isHeader)
+                Text(Copy.Catchup.blockLine(questions: questions, pages: pages))
+                    .font(CicadaTheme.metaFont)
+                    .monospacedDigit()
+                    .foregroundStyle(CicadaTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: CicadaTheme.spacingSM)
+            NeutralButton(title: Copy.Catchup.start, size: .compact, help: Copy.Catchup.startHelp, action: start)
+        }
+        .padding(CicadaTheme.spacingMD)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard()
+        .accessibilityElement(children: .contain)
+    }
+}
+
+/// One page with a question (`06-home-a`'s row): the page's picture, the question in plain words, its reason and the
+/// page as a link, and the question's age. The row opens the question in the full list; the link opens the page.
+struct HomeQuestionRow: View {
+    let row: HomeQuestions.Row
+    /// Some row in the list draws a picture, so every row keeps the column (`EntityPictureLayout.anyDrawn`, #512).
+    var reservesPicture = true
+    let openPage: (String) -> Void
+    let open: () -> Void
+
+    @State private var hovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Button(action: open) {
+            HStack(alignment: .center, spacing: CicadaTheme.scaled(10)) {
+                picture
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(row.question)
+                        .font(CicadaTheme.bodyFont)
+                        .foregroundStyle(CicadaTheme.textPrimary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: CicadaTheme.scaled(4)) {
+                        if let reason = row.reason, !reason.isEmpty {
+                            Text(reason)
+                                .font(CicadaTheme.metaFont)
+                                .foregroundStyle(CicadaTheme.textSecondary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                        }
+                        if !row.entityId.isEmpty {
+                            if row.reason?.isEmpty == false {
+                                Text(Copy.Inbox.dot).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
+                            }
+                            InlineLink(title: row.entityName, help: Copy.Catchup.openPage(row.entityName)) {
+                                openPage(row.entityId)
+                            }
+                            .font(CicadaTheme.metaFont)
+                            .fixedSize()
+                        }
+                        if row.onPage > 1 {
+                            Text(Copy.Inbox.dot).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
+                            Text(Copy.Catchup.moreOnPage(row.onPage))
+                                .font(CicadaTheme.metaFont)
+                                .monospacedDigit()
+                                .foregroundStyle(CicadaTheme.textTertiary)
+                                .fixedSize()
+                        }
+                    }
+                }
+                Spacer(minLength: CicadaTheme.spacingSM)
+                Text(row.age)
+                    .font(CicadaTheme.metaFont)
+                    .monospacedDigit()
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .help(row.ageHelp)
+                Image(systemName: "chevron.right")
+                    .font(CicadaTheme.icon(.list))
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .accessibilityHidden(true)
+            }
+            .padding(.horizontal, CicadaTheme.scaled(10))
+            .padding(.vertical, CicadaTheme.scaled(6))
+            .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(RowMetrics.twoLine), alignment: .leading)
+            .rowHoverFill(hovering: hovering)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.cicadaPlain)
+        .help(Copy.Catchup.answerHelp + " · " + row.kind.label)
+        .onHover { hovering = $0 }
+        .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
+    }
+
+    /// DR-48 — a picture, never a type glyph standing in for one (#512): the page's own face or logo, a person's
+    /// initials, or no slot at all when no row in the list draws anything. A question with no page keeps its kind's
+    /// glyph only while the column is there.
+    @ViewBuilder
+    private var picture: some View {
+        if row.entityId.isEmpty {
+            if reservesPicture {
+                KindGlyph(kind: row.kind)
+                    .frame(width: CicadaTheme.scaled(28), height: CicadaTheme.scaled(28))
+            }
+        } else {
+            EntityPicture(id: row.entityId, name: row.entityName, type: row.entityType ?? .unknown, size: 28,
+                          collapsesWhenEmpty: !reservesPicture)
         }
     }
 }

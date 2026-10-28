@@ -67,19 +67,11 @@ enum InboxGroups {
         }
     }
 
-    /// Up to this many questions in all, the first group draws open; past it every group starts closed, so a full
-    /// inbox reads as its kinds and their counts (UX 4: there when wanted, not pushed).
-    static let openFirstUpTo = 12
-
-    /// Which kinds draw open. The person's own choice for a kind wins; otherwise a lone section is open and, with
-    /// several, the first is while the whole inbox is small (`openFirstUpTo`). The open question's kind is always
-    /// open, so a question opened from ⌘K, Home or the keys is never inside a closed group.
+    /// Which kinds draw open: every one (ruling 48 (17), DR-81, owner 2026-10-28 — no stacked folds anywhere; the
+    /// Inbox's kind groups were the first on its sweep). A kind is a section label over its questions, never a fold.
+    /// The signature stays so the list's callers and the held answer's place are unchanged.
     static func isOpen(_ kind: InboxKind?, sections: [Section], chosen: [InboxKind: Bool], openKind: InboxKind?) -> Bool {
-        guard let kind else { return true }
-        if kind == openKind { return true }
-        if let choice = chosen[kind] { return choice }
-        if sections.count == 1 { return true }
-        return sections.first?.kind == kind && sections.reduce(0) { $0 + $1.count } <= openFirstUpTo
+        true
     }
 }
 

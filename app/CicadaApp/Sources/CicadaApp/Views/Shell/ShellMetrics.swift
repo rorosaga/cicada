@@ -26,6 +26,7 @@ enum RailItem {
     /// A tenth page would get none (⌘0 is Actual Size), and no shortcut moves to make room (DR-22). Never a
     /// two-character key (`Character("10")` would trap).
     static func keyDigit(for tab: AppTab) -> String? {
+        guard tab.onRail else { return nil }   // ruling 48 (2): ⌘6 stays unused, nothing moves into it
         let n = digit(for: tab)
         return n <= 9 ? String(n) : nil
     }

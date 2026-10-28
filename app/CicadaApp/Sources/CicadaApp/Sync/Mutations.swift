@@ -58,6 +58,10 @@ struct InboxResolve: Mutation {
     var remindDays: Int? = nil
     var mergeTarget: String? = nil
     var mergeSurvivor: String? = nil
+    /// Ruling 48 (8) — the person's located words a catch-up reading rests on, and the chat they were said in.
+    var quote: String? = nil
+    var relayedBy: String? = nil
+    var sessionId: String? = nil
     private let failure = MutationMemo<any Error>()
 
     /// `skip` deliberately keeps the item in the queue — nothing to hide.
@@ -71,9 +75,16 @@ struct InboxResolve: Mutation {
 
     func request(_ api: any SyncAPI) async throws {
         do {
-            try await api.resolveInbox(id: id, action: action, answer: answer,
-                                       optionKey: optionKey, remindDays: remindDays,
-                                       mergeTarget: mergeTarget, mergeSurvivor: mergeSurvivor)
+            if quote != nil {
+                try await api.resolveInbox(id: id, action: action, answer: answer, optionKey: optionKey,
+                                           remindDays: remindDays, mergeTarget: mergeTarget,
+                                           mergeSurvivor: mergeSurvivor, quote: quote, relayedBy: relayedBy,
+                                           sessionId: sessionId)
+            } else {
+                try await api.resolveInbox(id: id, action: action, answer: answer,
+                                           optionKey: optionKey, remindDays: remindDays,
+                                           mergeTarget: mergeTarget, mergeSurvivor: mergeSurvivor)
+            }
         } catch {
             failure.value = error
             throw error

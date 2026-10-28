@@ -93,9 +93,11 @@ final class HomeF09Tests: XCTestCase {
         let sections = try source("Views/Home/HomeSections.swift")
         XCTAssertTrue(sections.contains("selectedTab = .sources"), "R-HO11 — Today opens Sources")
         XCTAssertFalse(sections.contains("routeToSourceDetail"), "R-HO11 — one row, one link")
-        XCTAssertTrue(sections.contains("InboxRowSlots(entity: false, source: false)"), "R-HO12 — glyph · question · age")
-        XCTAssertTrue(sections.contains("showsOpenButton: false"))
-        XCTAssertTrue(sections.contains("linkTitle: Copy.homeOpenInbox"))
+        // Ruling 48 (1) superseded R-HO12's glyph rows: a row leads with its page's picture, the plain question, its
+        // reason and the page as a link; *All N questions* replaced *Open Inbox*.
+        XCTAssertTrue(sections.contains("EntityPicture(id: row.entityId"), "ruling 48 (1) — the page leads the row")
+        XCTAssertTrue(sections.contains("linkTitle: figures.total > 0 ? Copy.Catchup.allQuestions(figures.total)"))
+        XCTAssertTrue(sections.contains("CatchupBlock("), "ruling 48 (1) — Catch me up stands apart")
         XCTAssertTrue(try source("Views/Home/HomeView.swift").contains("LastReadSection("), "R-HO13 — Last read stays")
     }
 }
