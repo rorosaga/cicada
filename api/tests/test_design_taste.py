@@ -361,12 +361,17 @@ def test_an_example_picture_finds_the_look_like_it(bank):
     assert "image_model" in design_index.search(bank, image=similar, emb=text_only)["missing"]
 
 
-def test_the_index_lives_outside_the_bank_and_follows_it(bank, tmp_path):
+def test_the_index_is_a_table_of_the_one_meaning_index_and_follows_the_board(bank, tmp_path):
+    """Meaning index 2 (2026-10-28): the board's rows live in the bank's derived `vector_index.db` (git-ignored,
+    never copied or exported), and no other file of its own."""
+    from api.services import bank_registry
+
     a = _add(bank, image=DARK, look=([], []))["ref"]
     _add(bank, image=LIGHT, look=([], []), url="https://launch.example.com")
     design_index.refresh(bank, _fake_embedders())
     path = design_index.index_path(bank)
-    assert path.is_file() and bank not in path.parents
+    assert path == bank / "vector_index.db" and path.name in bank_registry.DERIVED_ARTIFACTS
+    assert not design_index.legacy_path(bank).exists()
     assert not any(p.suffix in (".sqlite", ".db") for p in bank.rglob("*") if "design" in p.parts)
     design_refs.remove_ref(bank, a.id)
     design_index.refresh(bank, _fake_embedders())
@@ -376,6 +381,31 @@ def test_the_index_lives_outside_the_bank_and_follows_it(bank, tmp_path):
     path.write_bytes(b"not a database")
     design_index.refresh(bank, _fake_embedders())
     assert design_index.status(bank)["images"] == 1, "a damaged index is rebuilt, never an error"
+
+
+def test_the_boards_old_file_is_folded_into_the_one_index_once_and_deleted(bank):
+    """Migration (meaning index 2): the rows of `$CICADA_HOME/design-index/<bank-id>.sqlite` move into the one index
+    with their stamps, so nothing is re-embedded; the old file goes."""
+    import sqlite3
+
+    a = _add(bank, image=DARK, look=([], []))["ref"]
+    old = design_index.legacy_path(bank)
+    old.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(old)
+    conn.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT)")
+    conn.execute("INSERT INTO meta VALUES ('schema', ?)", (design_index.SCHEMA,))
+    conn.execute("CREATE TABLE vectors (ref TEXT, kind TEXT, hash TEXT, model TEXT, dim INTEGER, vec BLOB, "
+                 "PRIMARY KEY (ref, kind))")
+    emb = _fake_embedders()
+    vec = design_index._unit(emb.image(DARK))
+    conn.execute("INSERT INTO vectors VALUES (?, 'image', ?, ?, ?, ?)",
+                 (a.id, a.image["sha256"], emb.image_stamp, int(vec.size), vec.tobytes()))
+    conn.commit()
+    conn.close()
+    assert design_index.status(bank) == {"images": 1, "notes": 0}, "moved, not re-embedded"
+    assert not old.exists()
+    counts = design_index.refresh(bank, emb)
+    assert counts["images"] == 0 and counts["notes"] == 1, "the moved picture vector is current; only the note embeds"
 
 
 def test_one_picture_that_will_not_embed_never_stops_the_rest(bank):

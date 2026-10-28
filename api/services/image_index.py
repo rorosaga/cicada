@@ -414,13 +414,37 @@ def refresh(memory_path, embedder: tuple[Callable[[list[bytes]], np.ndarray], st
     return counts
 
 
+def _look_vectors(memory_path: Path, todo: list[str], wanted, model, tag) -> dict[str, np.ndarray]:
+    """``{content hash: vector}`` for the looks in ``todo`` whose current picture vector the design board already
+    holds (``design_index.read_rows``: same bytes, a stamp current for EmbeddingGemma 2 and this fingerprint)."""
+    from api.services import onnx_embedder, vision_embedder
+
+    looks = [k for k in todo if k.startswith("look:")]
+    if not looks or tag is None or model != onnx_embedder.PREFERRED_ID:
+        return {}
+    from api.services import design_index
+
+    rows = design_index.read_rows(memory_path)
+    out: dict[str, np.ndarray] = {}
+    for key in looks:
+        got = rows.get((key[len("look:"):], "image"))
+        if got is None or str(got[0])[:32] != wanted[key][1]:
+            continue
+        if any(vision_embedder.stamp_current(got[1], base, tag)
+               for base in (onnx_embedder.PREFERRED_BASE, onnx_embedder.PREFERRED_ID)):
+            out[wanted[key][1]] = np.asarray(got[2], dtype=np.float32)
+    return out
+
+
 def _embed_into(conn, memory_path: Path, gen: str, todo: list[str], wanted, have, embedder, model, tag, counts,
                 should_stop) -> None:
     from api.services.vector_index import _blob
 
     failed: list[str] = counts.setdefault("_failed_keys", [])
-    # Pictures with the same bytes under two keys (a still saved and watched) are embedded once.
-    by_hash: dict[str, np.ndarray] = {}
+    # Pictures with the same bytes under two keys (a still saved and watched) are embedded once, and a look the
+    # design board already embedded with this model and fingerprint is never embedded twice (meaning index 2).
+    by_hash: dict[str, np.ndarray] = _look_vectors(memory_path, todo, wanted, model, tag)
+    counts["reused_looks"] = len(by_hash)
     for start in range(0, len(todo), STEP):
         if should_stop is not None and should_stop():
             raise RefreshStopped("Sleep started")
