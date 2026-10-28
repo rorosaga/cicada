@@ -76,6 +76,18 @@ final class EnginePickerV2Tests: XCTestCase {
         XCTAssertEqual(drifted.drift, "changed shape")
     }
 
+    /// Ruling 46a (owner 2026-10-28): a third-party model inside Cursor says how it is billed on its row, before it is
+    /// chosen; Cursor's own models say nothing.
+    func testAThirdPartyModelInCursorSaysItIsBilledSeparately() throws {
+        let json = #"{"id":"cursor","label":"Cursor","available":true,"connected":true,"models":["auto","sonnet-5"],"catalogue":{"engine":"cursor-cli","source":"agent models","models":[{"id":"auto","source":"harness","family":"own","familyLabel":"Cursor's own"},{"id":"sonnet-5","source":"harness","family":"claude","familyLabel":"Claude","billingNote":"Billed separately at list price, outside your plan's included usage."}]}}"#
+        let c = try JSONDecoder().decode(SleepEngineCandidate.self, from: Data(json.utf8))
+        let rows = EngineModelListModel.from(card: c, selected: "auto", now: now).flat
+        XCTAssertNil(rows.first { $0.id == "auto" }?.billing)
+        let claude = try XCTUnwrap(rows.first { $0.id == "sonnet-5" })
+        XCTAssertEqual(claude.billing, "Billed separately at list price")
+        XCTAssertEqual(claude.help, "Billed separately at list price, outside your plan's included usage.")
+    }
+
     func testAnOlderBackendIsOneUnnamedFamily() {
         let bare = SleepEngineCandidate(id: "agent", label: "Claude plan", available: true, connected: true,
                                         models: ["sonnet", "haiku", "opus"], detail: nil)

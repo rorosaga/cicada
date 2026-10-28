@@ -54,9 +54,12 @@ struct ModelCatalogue: Codable, Hashable {
         var firstSeen: String? = nil
         var new: Bool = false
         var resolvesTo: String? = nil
+        /// Ruling 46a — how a model the tool bills outside the plan is billed (a third-party model in Cursor), said
+        /// before it is chosen; nil for a model the plan covers.
+        var billingNote: String? = nil
 
         init(id: String, source: String, asOf: String? = nil, family: String = "", familyLabel: String = "",
-             firstSeen: String? = nil, new: Bool = false, resolvesTo: String? = nil) {
+             firstSeen: String? = nil, new: Bool = false, resolvesTo: String? = nil, billingNote: String? = nil) {
             self.id = id
             self.source = source
             self.asOf = asOf
@@ -65,6 +68,7 @@ struct ModelCatalogue: Codable, Hashable {
             self.firstSeen = firstSeen
             self.new = new
             self.resolvesTo = resolvesTo
+            self.billingNote = billingNote
         }
 
         init(from decoder: Decoder) throws {
@@ -77,6 +81,7 @@ struct ModelCatalogue: Codable, Hashable {
             firstSeen = (try? c.decodeIfPresent(String.self, forKey: .firstSeen)) ?? nil
             new = (try? c.decodeIfPresent(Bool.self, forKey: .new)) ?? false
             resolvesTo = (try? c.decodeIfPresent(String.self, forKey: .resolvesTo)) ?? nil
+            billingNote = (try? c.decodeIfPresent(String.self, forKey: .billingNote)) ?? nil
         }
     }
 

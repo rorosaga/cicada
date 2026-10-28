@@ -302,10 +302,16 @@ def _attach_catalogues(cards, *, agent_catalogue: dict, snap, configured_codex: 
         listed = set(st.models or ())
         rows = [(m, "harness" if m in listed else ("default" if m in spec.default_models else "saved"))
                 for m in c.models]
-        c.catalogue = ModelCatalogue(**model_catalogue.catalogue(
+        cat = model_catalogue.catalogue(
             spec.label, [r for r in rows if r[1] != "saved"], as_of=st.as_of or None,
             source=f"{spec.binaries[0]} models", drift=st.drift, tool=spec.name,
-            saved=next((m for m, how in rows if how == "saved"), None)))
+            saved=next((m for m, how in rows if how == "saved"), None))
+        if spec is cli_engines.CURSOR:
+            # Ruling 46a: a third-party model in Cursor says how it is billed before it is chosen.
+            for row in cat["models"]:
+                if not cli_engines.cursor_own_model(row["id"]):
+                    row["billingNote"] = cli_engines.CURSOR_SEPARATE_BILLING
+        c.catalogue = ModelCatalogue(**cat)
 
 
 def _plan_window_usage(snap) -> SleepEngineUsage | None:

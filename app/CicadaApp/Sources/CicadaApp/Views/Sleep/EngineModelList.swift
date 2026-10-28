@@ -21,6 +21,9 @@ struct EngineModelListModel: Equatable {
         let isSelected: Bool
         /// "Last run on <id>" when an alias resolved on a real run — `.help` only.
         let help: String?
+        /// Ruling 46a — "Billed separately at list price" on a model the tool bills outside the plan, on the row
+        /// itself so it is read before the model is chosen.
+        var billing: String? = nil
     }
 
     struct Section: Equatable, Identifiable {
@@ -70,7 +73,8 @@ struct EngineModelListModel: Equatable {
             if let chosen = matching.first(where: { $0.id == selected }), !shown.contains(chosen) { shown.append(chosen) }
             let rows = shown.map { m in
                 Row(id: m.id, price: prices[m.id], isNew: m.new, isSelected: m.id == selected,
-                    help: m.resolvesTo.map(Copy.EngineMenu.resolvesTo))
+                    help: m.billingNote ?? m.resolvesTo.map(Copy.EngineMenu.resolvesTo),
+                    billing: m.billingNote == nil ? nil : Copy.EngineMenu.billedSeparately)
             }
             return Section(id: key, label: labels[key] ?? "", total: all.count, rows: rows,
                            hidden: matching.count - shown.count)
@@ -212,6 +216,12 @@ private struct ModelRow: View {
                     .truncationMode(.middle)
                 if row.isNew { Tag(text: Copy.EngineMenu.new) }
                 Spacer(minLength: CicadaTheme.spacingSM)
+                if let billing = row.billing {
+                    Text(billing)
+                        .font(CicadaTheme.metaFont)
+                        .foregroundStyle(row.isSelected || hovering ? CicadaTheme.textTertiaryOnFill : CicadaTheme.textTertiary)
+                        .lineLimit(1)
+                }
                 if let price = row.price {
                     Text(price)
                         .font(CicadaTheme.metaFont)

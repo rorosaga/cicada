@@ -144,6 +144,10 @@ def no_engine_sentence(why: str | None) -> str:
                 "use my plan” in Settings → Sleep; on a server, `cicada sleep schedule --use-plan on`), no local model "
                 "is running, and an API key is used only when you choose it as Sleep's engine. What was waiting is "
                 "still waiting.")
+    if why == SCHEDULE_CURSOR_THIRD_PARTY:
+        return ("Scheduled runs use Cursor only with its own models, and the model you chose there is billed "
+                "separately at list price. Start a read yourself, or choose one of Cursor's own models in Settings → "
+                "Intelligence. What was waiting is still waiting.")
     # Ruling 46: an installed tool Auto skipped says why, after the sentence (``_cli_rungs``' notes ride ``NO_ENGINE``).
     notes = why[len(NO_ENGINE):].strip() if why and why.startswith(NO_ENGINE) else ""
     return ("No engine to read with: no plan is signed in, the local model isn't running, and an API key is used only "
@@ -683,7 +687,9 @@ def _cli_landed_why(spec) -> str:
     from api.services import cli_engines
 
     if spec is cli_engines.CURSOR:
-        return f"Cursor signed in — running Sleep on your Cursor plan. {cli_engines.CURSOR_USAGE_NOTE}"
+        # Ruling 46a: Auto runs Cursor only with its own models (`_cursor_own_models_only`).
+        return (f"Cursor signed in — running Sleep on your Cursor plan, with Cursor's own models. "
+                f"{cli_engines.CURSOR_USAGE_NOTE}")
     return "OpenCode signed in to a subscription — running Sleep on your OpenCode plan"
 
 
@@ -856,6 +862,37 @@ async def resolve_settings(
         updates.update(_model_overrides(registry, mode))
         if _prefs_allow_overage(registry):
             updates["agent_allow_overage"] = True
+        if mode == "cursor":
+            refusal = _cursor_own_models_only(settings, registry, updates, user_triggered=user_triggered)
+            if refusal is not None:
+                why = refusal
+                updates = {"llm_mode": "auto", "no_engine_reason": no_engine_sentence(refusal)}
     if not updates:
         return settings, why
     return settings.model_copy(update=updates), why
+
+
+#: Ruling 46a — why a scheduled run has no engine: the person's Cursor choice is a model Cursor bills separately.
+SCHEDULE_CURSOR_THIRD_PARTY = "scheduled cycle — Cursor reads on a schedule only with its own models"
+
+
+def _cursor_own_models_only(settings, registry, updates: dict, *, user_triggered: bool) -> str | None:
+    """Ruling 46a (owner, 2026-10-28): Auto and a scheduled run use Cursor only with Cursor's own models (the Grok line,
+    Composer, its own `auto`). When Auto lands on Cursor, its model is set to Cursor's own `auto` unless the stored one
+    is already Cursor's own — never the tool's config default, which may be a third-party model. A run the person starts
+    on Cursor they chose keeps any model they picked (it was labelled "billed separately" before they chose it). A
+    scheduled run on a chosen third-party model is never swapped onto another model: it has no engine, said in words
+    (the reason returned)."""
+    from api.services import cli_engines
+
+    chosen = _prefs_mode(registry) == "cursor"
+    if chosen and user_triggered:
+        return None
+    fields = ("cli_engine_model", "cli_engine_disambiguation_model")
+    current = {f: updates.get(f, getattr(settings, f, "") or "") for f in fields}
+    if chosen and any(v and not cli_engines.cursor_own_model(v) for v in current.values()):
+        return SCHEDULE_CURSOR_THIRD_PARTY
+    for f, value in current.items():
+        if not value or not cli_engines.cursor_own_model(value):
+            updates[f] = cli_engines.CURSOR_OWN_MODEL
+    return None

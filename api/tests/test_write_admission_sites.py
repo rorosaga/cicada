@@ -414,6 +414,8 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "PUT /sleep/run-options": (OUTSIDE, None),
     "PUT /sleep/schedule": (OUTSIDE, None),
     "PUT /sleep/engine": (OUTSIDE, None),
+    # Engine picker v2: re-reads one card's model list; writes only the model cache in $CICADA_HOME.
+    "POST /sleep/engine/models/refresh": (OUTSIDE, None),
     # Ruling 45: a Claude export's projects make or match pages, inside their own admission.
     "POST /conversations/upload": (PER_WRITE, "api.services.provider_projects.after_import"),
     "POST /conversations/{conversation_id}/resume": (NONE, None),

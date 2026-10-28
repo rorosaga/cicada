@@ -3651,6 +3651,9 @@ class CatalogueModel(CamelModel):
     new: bool = False
     resolves_to: Optional[str] = None
     resolved_at: Optional[str] = None
+    # Ruling 46a (owner 2026-10-28): set on a model the tool bills outside the plan (a third-party model inside
+    # Cursor) — said before it is chosen; Auto and a scheduled run never pick it.
+    billing_note: Optional[str] = None
 
 
 class ModelCatalogue(CamelModel):

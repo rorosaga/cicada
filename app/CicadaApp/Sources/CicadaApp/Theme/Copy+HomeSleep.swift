@@ -56,6 +56,8 @@ extension Copy {
             }
         }
         static func resolvesTo(_ id: String) -> String { "Last run on \(id)" }
+        /// Ruling 46a (owner 2026-10-28) — a model the tool bills outside the plan, said on its row before it is chosen.
+        static let billedSeparately = "Billed separately at list price"
     }
 
     /// What a cycle cost (2026-09-28 ruling, TODO ruling 12): the Sleep page's Details and its engine
