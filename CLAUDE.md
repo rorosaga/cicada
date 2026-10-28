@@ -323,8 +323,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **Activity traces (G218, ruling 38):** off by default; the app alone captures (preflight-only permissions, Touch ID to
   browse screenshots) and the backend keeps them sealed in `$CICADA_HOME/traces/` — outside every bank and git, never on
   the network, a remote door or another device, 30-day timeline / 7-day screenshots, Wipe shreds the key; a trace is not
-  a mention; only the person's switches promote (YouTube views into the watch history; a counted day summary, the one
-  thing a model may read) (`storage.md`, `capture-and-sleep.md`).
+  a mention; only the person's switches promote (YouTube views into the watch history — ruling 48 turns this toward any
+  site, design in the traces PR; a counted day summary, the one thing a model may read) (`storage.md`, `capture-and-sleep.md`).
 - **Design references (2026-10-14):** one markdown file plus its screenshot per look, in the bank, one writer
   (`design_refs`), never an entity page; palette and vectors are computed here, the index lives outside the bank.
   **Owner 2026-10-20:** a look lives on the page of the thing it shows — the record's `entity:` plus a `## Looks` section
@@ -398,6 +398,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   a dated ruling). SF only; the accent in six uses; depth is a ring, not a shadow; painted art is retired, the pixel study room the one
   illustration and never behind data or text (owner 2026-10-16);
   Liquid Glass only in the chrome layer; a keyboard action never animates; every duration is spelled in `CicadaMotion` (a sprite's frame timings are data in its sheet, inside `CicadaMotion`'s sprite caps — TODO ruling 18).
+  **The redesign (ruling 48, owner 2026-10-28):** a page is an article carrying its beliefs as citations, never a stacked
+  fold; the Inbox lives on Home and each page, off the rail (DESIGN_RULES §9 2026-10-28, DR-77…DR-81).
 - **Bookmarks (G191 v3, 2026-10-15):** the app removes a bookmark from the person's browser only on their click, after
   asking in words — Chrome through Apple Events (the Automation prompt only then), never Safari, never the backend; it
   sees Chrome's bookmark bubble from window bounds alone (no title, no permission), read only in the moment after the

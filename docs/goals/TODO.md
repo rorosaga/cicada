@@ -10,6 +10,14 @@
 
 ## Current state and evidence
 
+- **2026-10-28 — ruling 48 recorded; the redesign accepted (docs only; branch `docs/redesign-rulings-2026-10-28`).**
+  The owner answered the redesign's decisions: entity pages read as articles that carry their beliefs (citation
+  markers, References, no beliefs list), Home leads its questions with their pages and Catch me up stands apart as a
+  conversation with the worm, the Inbox leaves the rail, no page stacks folds, Projects redrawn (its header to be
+  lightened and mocked first), native MapKit, the filterable model picker, traces with one switch, a per-day view and
+  no YouTube special case. The binding text is DESIGN_RULES §9 2026-10-28 (parts 1–17) and DR-77…DR-81; the mocks are
+  in `docs/design/redesign-2026-10-28/`. Builders cite the part numbers.
+
 - **2026-10-28 — two #493 verification defects fixed (G194, G141; branch `fix/event-object-project-past`).** An act on
   an event (signed up, registered, applied) is no longer pinned on its venue or organiser (`act_object`, Stage 1
   prompt + a guard reading the located sentence; replay on haiku 5/5 → 0/5). A project heard from within its rhythm
@@ -2103,3 +2111,20 @@ A whole row moves to DONE only after its remaining implementation and required a
     to read it reliably (tier 1 → 2) or its API's terms or access change (tier 2 → 1); the ruling itself if a
     connection is ever wanted for anything but ingestion, or a person's account is restricted for a connection Cicada
     made.
+48. **The redesign is accepted; the rulings live in DESIGN_RULES (owner, 2026-10-28; amends rulings 38 and 39b in
+    direction only).** The owner answered the redesign proposal's decisions item by item; every accepted change is a
+    numbered part of the dated ruling in `docs/design/DESIGN_RULES.md` §9 (2026-10-28) and new rows DR-77…DR-81, with
+    the synthetic mocks in `docs/design/redesign-2026-10-28/`. In short: an entity page is an article that carries its
+    beliefs (DR-80); no page stacks folds (DR-81); Home's questions lead with their page, Catch me up is a conversation
+    (the questions may change, follow-ups are the person's words) in the worm's voice and on every harness door; the
+    Inbox leaves the rail; Ongoing and In short on pages (In short triggered by bank facts, never page views — the
+    telemetry rail holds); places on native MapKit with coordinates from the Mac's own geocoder, never a public one
+    for a private place (ruling 44); the filterable model picker (ruling 46 unchanged until the shared-owner engines
+    are researched); the history line. **Traces (direction, not yet design):** ruling 39b's YouTube special case —
+    trace YouTube views promoted into the watch history — is to become one general rule for what the person watches
+    and reads on **any** site; the traces PR brings the design and the amendment's exact text (what counts as a watch
+    or a read, where it lands, which switch), and until it merges 39b stands as written. The same PR brings the per-day
+    view, every connected display and a low screenshot frequency under ruling 38's rails. New trace signals are
+    "not yet". **Revisit** a part when its build shows a measured cost the mock hid (a p95 regression, a rail it
+    cannot keep), on that part only.
+
