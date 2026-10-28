@@ -272,6 +272,17 @@ def _disable_telemetry(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _fresh_inbox_build():
+    """`load_inbox` keeps its built list per bank on the stamps of what it reads (speed 2026-10-29); a test that
+    patches a reader (the clock aside, which is in the key) starts from no built list."""
+    from api.services import inbox_service
+
+    inbox_service.reset_built()
+    yield
+    inbox_service.reset_built()
+
+
+@pytest.fixture(autouse=True)
 def _disable_connector_fetch(monkeypatch):
     """G71: no test may reach Pinterest, Reddit, or X's default transport.
 

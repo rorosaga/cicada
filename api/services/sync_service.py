@@ -172,47 +172,64 @@ def _reading_component(mp: Path) -> str:
 WALKED_OUTSIDE_INDEX = ("backlog", "captures")
 
 
-def components(memory_path: Path, *, sleep_state=None, reuse: dict | None = None) -> dict[str, str]:
+def components(memory_path: Path, *, sleep_state=None, reuse: dict | None = None,
+               keys: tuple[str, ...] | None = None) -> dict[str, str]:
     """``reuse``: :data:`WALKED_OUTSIDE_INDEX` values from the last full walk, for a caller that knows nothing in the
-    bank changed since (the SSE tick between file-change events). Never passed by a request's ETag."""
+    bank changed since (the SSE tick between file-change events). Never passed by a request's ETag.
+
+    ``keys``: only these components, in this order (an ETag names three of twenty; speed 2026-10-29: ``GET /inbox``'s
+    ETag walked ``sources/``, ``captures/``, the backlog and the caches outside the bank only to drop them — about
+    half its cost). Every component is computed exactly as the full map computes it; an unknown key raises
+    ``KeyError`` as indexing the full map did."""
     mp = Path(memory_path)
     reuse = reuse or {}
+    builders = _builders(mp, sleep_state, reuse)
+    return {k: builders[k]() for k in (keys if keys is not None else builders)}
+
+
+def _builders(mp: Path, sleep_state, reuse: dict) -> dict:
     # Audit 2026-10-05 P2-9: every directory component is a fingerprint of its
     # files' names, sizes and nanosecond mtimes (`bank_index.dir_fingerprint`,
     # one shared scan) — "the newest mtime" stood still for an edit beside a
     # future-dated file, and the app's ETags answered 304 over a changed page.
-    stamp = inbox_stamp(mp)
-    inbox_component = stamp
-    if _inbox_has_pending_defer(mp, stamp):
-        # Cheap: today's date is enough to force a re-validate once a day: the
-        # exact remind_after value doesn't matter, only that "today" advanced.
-        inbox_component += f":{date.today().isoformat()}"
-    from api.services import agent_requests
+    def inbox_component() -> str:
+        stamp = inbox_stamp(mp)
+        out = stamp
+        if _inbox_has_pending_defer(mp, stamp):
+            # Cheap: today's date is enough to force a re-validate once a day: the
+            # exact remind_after value doesn't matter, only that "today" advanced.
+            out += f":{date.today().isoformat()}"
+        from api.services import agent_requests
 
-    if (requests_mtime := agent_requests.mtime(mp)) is not None:
-        # G205: agent requests live outside the bank; a bank that never had one keeps its old stamp (and ETags).
-        # Requests expire after days, not seconds, so today's date covers an expiry with nothing written.
-        inbox_component += f":r{requests_mtime:.6f}:{date.today().isoformat()}"
+        if (requests_mtime := agent_requests.mtime(mp)) is not None:
+            # G205: agent requests live outside the bank; a bank that never had one keeps its old stamp (and ETags).
+            # Requests expire after days, not seconds, so today's date covers an expiry with nothing written.
+            out += f":r{requests_mtime:.6f}:{date.today().isoformat()}"
+        return out
+
     # Ruling 45: `project_groupings.yaml` (dismissed ChatGPT groupings, imported provider ids) changes what the Projects
     # list says without touching a page, so it rides the `entities` component — every read keyed on it (`/projects`,
     # and the app's `ProjectsRefresh`, which revalidates on `entities`) moves with it. A bank without the file keeps
     # its stamp byte for byte.
-    groupings = mp / "project_groupings.yaml"
-    entities_component = bank_index.dir_fingerprint(mp / "entities")
-    if groupings.exists():
-        entities_component += f":g{file_mtime(groupings):.6f}"
+    def entities_component() -> str:
+        groupings = mp / "project_groupings.yaml"
+        out = bank_index.dir_fingerprint(mp / "entities")
+        if groupings.exists():
+            out += f":g{file_mtime(groupings):.6f}"
+        return out
+
     return {
         "entities": entities_component,
-        "edges": f"{file_mtime(mp / 'graph_edges.yaml'):.6f}",
-        "hubs": bank_index.dir_fingerprint(mp / "hubs"),
+        "edges": lambda: f"{file_mtime(mp / 'graph_edges.yaml'):.6f}",
+        "hubs": lambda: bank_index.dir_fingerprint(mp / "hubs"),
         "inbox": inbox_component,
-        "episodes": bank_index.dir_fingerprint(mp / "episodes"),
+        "episodes": lambda: bank_index.dir_fingerprint(mp / "episodes"),
         # G150 R-B16: every backlog item's stamp (a stat walk, no parse) — the
         # Projects page's backlog reads and `_state.md`'s `backlog_open` move
         # on it; nothing in `entities`/`episodes` notices a backlog write.
-        "backlog": reuse["backlog"] if "backlog" in reuse else backlog.stamp(mp),
+        "backlog": lambda: reuse["backlog"] if "backlog" in reuse else backlog.stamp(mp),
         # Design taste (2026-10-14): every reference file's stamp — the Looks page's board revalidates on it.
-        "design": design_refs.stamp(mp),
+        "design": lambda: design_refs.stamp(mp),
         # `feeds.yaml` / `calendars.yaml` (the RSS + ICS subscription registries)
         # ride the `sources` component: subscribing or unsubscribing changes
         # neither the sources dir nor the url index, so without them the app's
@@ -224,7 +241,7 @@ def components(memory_path: Path, *, sleep_state=None, reuse: dict | None = None
         # component. So does `sources/wispr_flow.json` (G134): turning the
         # source on adds a channel row the same way (R-LS29). And
         # `sources/bookmark_seen.json` (G191 v4: a bookmark that left its browser).
-        "sources": (
+        "sources": lambda: (
             f"{bank_index.dir_fingerprint(mp / 'sources')}"
             f":{file_mtime(mp / 'sources' / 'url_index.json'):.6f}"
             f":{file_mtime(mp / 'sources' / FOLDERS_FILENAME):.6f}"
@@ -243,12 +260,12 @@ def components(memory_path: Path, *, sleep_state=None, reuse: dict | None = None
         # conditional GET 304s and the node keeps painting a monogram forever.
         # (The other direction — an entry aging out of its TTL, which writes
         # nothing — rides the expired count; see `_logos_component`.)
-        "logos": _logos_component(mp),
+        "logos": lambda: _logos_component(mp),
         # marks-2 (security review of #387): a saved link's own site icon is cached at
         # `$CICADA_HOME/logos/<bank>/sites/own/`, outside the bank; `/sources/overview` puts the sites whose icon is
         # cached first among a saved row's faces, so an icon landing (or a hit aging out, which writes nothing and
         # rides the expired count) must move its ETag. Its own key — `logos` refetches `.graph`, this only the overview.
-        "siteIcons": _cache_stamp(logo_service.own_site_bank(logo_service.bank_name(mp))),
+        "siteIcons": lambda: _cache_stamp(logo_service.own_site_bank(logo_service.bank_name(mp))),
         # G159 (2026-10-09): a person's public-profile photo is cached at `$CICADA_HOME/pictures/<bank>/people/`,
         # outside the bank, and `/graph` bakes its `?v=` (or its absence, after a miss) into the node's hash. The
         # stamp is `meta.json`'s mtime plus the misses past their retry window (an expiry writes nothing). The app
@@ -256,20 +273,20 @@ def components(memory_path: Path, *, sleep_state=None, reuse: dict | None = None
         # 2026-10-16: a ticked Messages chat's shared photo (`messages_photos`) rides it too — cached at
         # `$CICADA_HOME/pictures/<bank>/messages/`, drawn at the page its correspondent record links, so a photo stored
         # or gone, or a link made or lost (a mark, a page Sleep creates), moves the node's picture and nothing else.
-        "photos": f"{person_photo.stamp(logo_service.bank_name(mp))}:{messages_photos.stamp(mp)}",
+        "photos": lambda: f"{person_photo.stamp(logo_service.bank_name(mp))}:{messages_photos.stamp(mp)}",
         # G162: the person's video queue lives at `$CICADA_HOME/video_queue/<bank>.json`,
         # OUTSIDE the bank, so a queued video, an agent's lease or a hand-back moves nothing
         # above. `stamp` is the file's mtime plus how many leases, failed rows and finished
         # batches have come DUE with nothing written (a lease lapsing writes nothing, yet it
         # changes what /videos/state says). The app revalidates its VideoStateCache on this
         # component (VideoRefresh); it is NOT a Store domain and NOT in `_state.md`'s digest.
-        "videoQueue": video_queue.stamp(mp),
+        "videoQueue": lambda: video_queue.stamp(mp),
         # G166 exploring (2026-10-14): the explore queue lives at `$CICADA_HOME/explore_queue/<bank>.json`, outside the
         # bank, with the video queue's stamp rule (mtime plus what came due with nothing written). `captures` is every
         # capture record's stamp in `<bank>/captures/` (a stat walk, two levels). The app revalidates its
         # ExploreCache on both; neither is a Store domain.
-        "exploreQueue": explore_queue.stamp(mp),
-        "captures": reuse["captures"] if "captures" in reuse else site_captures.stamp(mp),
+        "exploreQueue": lambda: explore_queue.stamp(mp),
+        "captures": lambda: reuse["captures"] if "captures" in reuse else site_captures.stamp(mp),
         # G166: the reading asks live at `$CICADA_HOME/reading_asks/<bank>.json`
         # and the person's reading settings at `$CICADA_HOME/reading.json` —
         # both OUTSIDE the bank, so nothing above notices a "needs you to sign
@@ -277,7 +294,7 @@ def components(memory_path: Path, *, sleep_state=None, reuse: dict | None = None
         # component onto `.sources` (the Feed's read state rides `/sources`),
         # so the outcome shows over SSE within a second, with no bank write. A row
         # aging out writes nothing and rides the expired count (`_reading_component`).
-        "reading": _reading_component(mp),
+        "reading": lambda: _reading_component(mp),
         # The consumption ledger lives at `$CICADA_HOME/telemetry/events-YYYY-MM.jsonl`,
         # *outside* the memory bank (it's machine-global, not per-bank), so no other
         # component notices a new usage event landing. Modelled on "logos" above for
@@ -292,23 +309,23 @@ def components(memory_path: Path, *, sleep_state=None, reuse: dict | None = None
         # `~/.codex/sessions` among them (G124 final review M2). The one
         # endpoint that reports reads folds that file's mtime into its own
         # ETag (`/contributors/top-entities`).
-        "telemetry": (
+        "telemetry": lambda: (
             f"{file_mtime(telemetry.ledger_file(f'{_utc_now():%Y-%m}')):.6f}"
         ),
-        "git_head": git_head(mp),
-        "bank": mp.name,
+        "git_head": lambda: git_head(mp),
+        "bank": lambda: mp.name,
         # A paused run (Sleep page v5) is not a status: it lives in a machine-local sidecar, so
         # Pause, Continue, End, a restart and an armed auto-continue move this on their own.
         # G177 — the write window too: the app's write controls follow `writing`, which flips between a drain's
         # batches with no status change, and `/status` has no ETag of its own to move.
-        "sleep": (f"{getattr(sleep_state, 'status', 'idle')}:{getattr(sleep_state, 'cycle_id', '') or ''}"
-                  f"{_writing_token(sleep_state)}{_paused_token(mp)}"),
+        "sleep": lambda: (f"{getattr(sleep_state, 'status', 'idle')}:{getattr(sleep_state, 'cycle_id', '') or ''}"
+                          f"{_writing_token(sleep_state)}{_paused_token(mp)}"),
         # The Sleep engine choice lives in `$CICADA_HOME/connections.json`, outside every bank, so a
         # `PUT /sleep/engine` from anywhere but the app's own menu (curl, an agent, the CLI) moved nothing
         # and the Sleep page kept naming the old engine until it was reopened. The app reloads its engine
         # response (not a Store domain) when this moves. While a run of this bank reads, the engine it
         # pinned at its start rides along, so the page learns when a run starts or ends on another engine.
-        "engine": _engine_token(mp, sleep_state),
+        "engine": lambda: _engine_token(mp, sleep_state),
     }
 
 
@@ -359,8 +376,7 @@ def etag_for(memory_path: Path, *keys: str, extra: str = "") -> str:
     into the digest — for varying request state (query params, filters) that
     changes the response body but isn't reflected in any filesystem component.
     """
-    comps = components(memory_path)
-    parts: dict = {k: comps[k] for k in keys}
+    parts: dict = components(memory_path, keys=keys)
     if extra:
         parts["_extra"] = extra
     return '"' + _digest(parts) + '"'
