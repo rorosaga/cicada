@@ -2,7 +2,7 @@ import SwiftUI
 
 /// §5.3 / §10 — the Clusters list in its three styles: one line while find is open (STATE 0 is the grid, F-11), two
 /// lines beside a card, titles beside a card and the Reader. Each row its picture and, beside a card, its age
-/// (R-PE12, reversing R-DL11) — a picture or a glyph, never a dot beside it (DR-48). Selection is `bgSelected`, never
+/// (R-PE12, reversing R-DL11) — a real picture or nothing, never a type glyph (owner 2026-10-28) and never a dot (DR-48). Selection is `bgSelected`, never
 /// the accent.
 struct ClustersListColumn: View {
     let lines: [ClustersModel.ClusterLine]
@@ -19,6 +19,16 @@ struct ClustersListColumn: View {
     let focusDetail: () -> Void
     let escape: () -> Void
     let showEverything: () -> Void
+
+    @Environment(Store.self) private var store
+
+    /// Owner 2026-10-28 — the picture column stays only while some row in the list draws a picture.
+    private var reservesPicture: Bool {
+        EntityPictureLayout.anyDrawn(lines.compactMap { line -> Entity? in
+            if case .row(let entity, _) = line { return entity }
+            return nil
+        }, store: store)
+    }
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -84,10 +94,6 @@ struct ClustersListColumn: View {
         switch line {
         case .header(let type, let count, let first, let recency):
             HStack(spacing: CicadaTheme.spacingSM) {
-                Image(systemName: EntityPictureLayout.glyph(type))
-                    .font(CicadaTheme.icon(.inline))
-                    .foregroundStyle(CicadaTheme.entityColor(for: type))
-                    .accessibilityHidden(true)
                 Text(type.groupLabel)
                     .font(CicadaTheme.rowFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
@@ -109,7 +115,7 @@ struct ClustersListColumn: View {
         case .row(let entity, let showsType):
             ClusterRow(entity: entity, showsType: showsType,
                        highlight: findOpen ? ClusterSearchIndex.titleRanges(entity.name, query: query) : [],
-                       style: style, selected: entity.id == openId) { open(entity) }
+                       style: style, selected: entity.id == openId, reservesPicture: reservesPicture) { open(entity) }
         case .more(let type, let count):
             TextButton(title: Copy.Lists.showAll(count)) { showTab(type) }
                 .padding(.leading, CicadaTheme.scaled(2))
@@ -146,6 +152,8 @@ struct ClusterRow: View {
     var highlight: [[Int]] = []
     let style: ColumnPlan.ListStyle
     let selected: Bool
+    /// Some row in this list has a picture: keep the slot so every name starts at one edge (owner 2026-10-28).
+    var reservesPicture = true
     let open: () -> Void
 
     private var nameColor: Color {
@@ -186,7 +194,8 @@ struct ClusterRow: View {
         switch style {
         case .wide:   // only while find is open (All's groups, then its ranked matches); STATE 0 is the grid
             HStack(spacing: CicadaTheme.spacingMD) {
-                EntityPicture(id: entity.id, name: entity.name, type: entity.type, size: 24)
+                EntityPicture(id: entity.id, name: entity.name, type: entity.type, size: 24,
+                              collapsesWhenEmpty: !reservesPicture)
                     .opacity(pictureOpacity)
                 name.frame(maxWidth: CicadaTheme.scaled(ColumnLayout.textMaxWidth), alignment: .leading)
                 if let detail = ClustersModel.detail(entity, showsType: showsType) {
@@ -196,7 +205,8 @@ struct ClusterRow: View {
             }
         case .triage:   // F-12's list: picture, name, age; the line under them
             HStack(spacing: CicadaTheme.spacingMD) {
-                EntityPicture(id: entity.id, name: entity.name, type: entity.type, size: 32)
+                EntityPicture(id: entity.id, name: entity.name, type: entity.type, size: 32,
+                              collapsesWhenEmpty: !reservesPicture)
                     .opacity(pictureOpacity)
                 VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
                     HStack(spacing: CicadaTheme.spacingSM) {
@@ -214,7 +224,8 @@ struct ClusterRow: View {
             }
         case .titles, .hidden:
             HStack(spacing: CicadaTheme.spacingSM) {
-                EntityPicture(id: entity.id, name: entity.name, type: entity.type, size: 20)
+                EntityPicture(id: entity.id, name: entity.name, type: entity.type, size: 20,
+                              collapsesWhenEmpty: !reservesPicture)
                     .opacity(pictureOpacity)
                 name.help(entity.name)
             }
