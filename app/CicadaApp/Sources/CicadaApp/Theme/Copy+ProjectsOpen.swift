@@ -35,7 +35,9 @@ extension Copy {
         static let goneQuiet = "Gone quiet"
         static func pulseCounts(conversations: Int, done: Int) -> String {
             let talk = "\(UsageFormat.count(conversations)) conversation\(conversations == 1 ? "" : "s")"
-            return done > 0 ? "\(talk) · \(UsageFormat.count(done)) done" : talk
+            let finished = "\(UsageFormat.count(done)) done"
+            if conversations == 0 { return finished }
+            return done > 0 ? "\(talk) · \(finished)" : talk
         }
         static func weeksHelp(_ weeks: [Int]) -> String {
             "Conversations each week, oldest first: " + weeks.map { UsageFormat.count($0) }.joined(separator: ", ")

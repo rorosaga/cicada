@@ -89,7 +89,7 @@ def lines(p: dict, *, hidden: set[str] = frozenset()) -> list[str]:
     person's own Log sentence and may not be printed here (R-PJ23: a remote caller without ``sources``)."""
     out: list[str] = []
     if p["conversations"] or p["done"]:
-        bits = [f"{p['conversations']} conversation{'s' if p['conversations'] != 1 else ''}"]
+        bits = [f"{p['conversations']} conversation{'s' if p['conversations'] != 1 else ''}"] if p["conversations"] else []
         if p["done"]:
             bits.append(f"{p['done']} done")
         out.append("Last 4 weeks: " + " · ".join(bits) + f" (weekly, oldest first: {', '.join(map(str, p['weeks']))}).")

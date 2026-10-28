@@ -340,32 +340,45 @@ struct ProjectPagesBlock: View {
 
     private func row(_ p: ProjectPageRow) -> some View {
         let hovering = hovered == p.id
-        return HStack(spacing: CicadaTheme.spacingSM) {
-            TypeDot(type: EntityType(rawValue: p.type ?? "") ?? .concept)
-            Text(p.name).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textPrimary).lineLimit(1)
-            if !p.rolePhrase.isEmpty {
-                Text("· " + p.rolePhrase).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
-                    .lineLimit(1)
+        return VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
+            HStack(spacing: CicadaTheme.spacingSM) {
+                TypeDot(type: EntityType(rawValue: p.type ?? "") ?? .concept)
+                Text(p.name).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textPrimary).lineLimit(1)
+                if !p.rolePhrase.isEmpty && !p.isProposed {
+                    Text("· " + p.rolePhrase).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: CicadaTheme.spacingXS)
+                if p.isProposed {
+                    EmptyView()
+                } else if hovering && !blocked {
+                    TextButton(title: Copy.ProjectsOpen.notPartOfIt, help: Copy.ProjectsOpen.notPartOfItHelp,
+                               inline: true) { remove(p) }
+                } else if p.tie == "user" {
+                    Tag(text: Copy.ProjectsOpen.youTiedIt)
+                } else if p.tie == "agent" {
+                    Tag(text: Copy.ProjectsOpen.agentTiedIt(p.by ?? "agent"))
+                } else if p.count > 0 {
+                    Text(UsageFormat.count(p.count)).font(CicadaTheme.metaFont).monospacedDigit()
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                }
             }
-            Spacer(minLength: CicadaTheme.spacingXS)
+            // An agent's proposal says whose it is on its own line, with the person's two answers (DR-40: both
+            // neutral text buttons), so neither the name nor a label is ever cut short.
             if p.isProposed {
-                Text(Copy.ProjectsOpen.suggestedBy(p.by ?? "agent"))
-                    .font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary).lineLimit(1)
-                TextButton(title: Copy.ProjectsOpen.takeIt, help: Copy.ProjectsOpen.takeItHelp, inline: true) { take(p) }
+                HStack(spacing: CicadaTheme.spacingXS) {
+                    Text(Copy.ProjectsOpen.suggestedBy(p.by ?? "agent"))
+                        .font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary).lineLimit(1)
+                    Spacer(minLength: CicadaTheme.spacingXS)
+                    TextButton(title: Copy.ProjectsOpen.takeIt, help: Copy.ProjectsOpen.takeItHelp, inline: true) {
+                        take(p)
+                    }
                     .disabled(blocked)
-                TextButton(title: Copy.ProjectsOpen.notPartOfIt, help: Copy.ProjectsOpen.notPartOfItHelp,
-                           inline: true) { remove(p) }
-                    .disabled(blocked)
-            } else if hovering && !blocked {
-                TextButton(title: Copy.ProjectsOpen.notPartOfIt, help: Copy.ProjectsOpen.notPartOfItHelp,
-                           inline: true) { remove(p) }
-            } else if p.tie == "user" {
-                Tag(text: Copy.ProjectsOpen.youTiedIt)
-            } else if p.tie == "agent" {
-                Tag(text: Copy.ProjectsOpen.agentTiedIt(p.by ?? "agent"))
-            } else if p.count > 0 {
-                Text(UsageFormat.count(p.count)).font(CicadaTheme.metaFont).monospacedDigit()
-                    .foregroundStyle(CicadaTheme.textTertiary)
+                    TextButton(title: Copy.ProjectsOpen.notPartOfIt, help: Copy.ProjectsOpen.notPartOfItHelp,
+                               inline: true) { remove(p) }
+                        .disabled(blocked)
+                }
+                .padding(.leading, CicadaTheme.scaled(16))
             }
         }
         .frame(minHeight: CicadaTheme.scaled(22))
