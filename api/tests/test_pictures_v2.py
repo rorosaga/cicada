@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import struct
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 
@@ -18,7 +18,7 @@ from api.services import (coverage_report, entity_picture, logo_service, markdow
                           web_context)
 from api.services.logo_service import FetchResult
 
-TODAY = date(2026, 10, 28)
+TODAY = date.today()   # a match is good for PUBLIC_FRESH_DAYS from its last local test
 ITEM = "Q4200001"
 FILE = "Jules Example 2024.jpg"
 
@@ -109,6 +109,53 @@ def test_failing_the_local_test_later_drops_the_cached_match(bank, monkeypatch):
     pg.entity_id, pg.type = "jules-example", "person"
     v = asyncio.run(web_context.verdict(bank, pg, None, memo, get=None, today=TODAY))
     assert v.public is False and "jules-example" not in memo["wd"]
+
+
+def test_a_match_the_local_test_has_not_passed_recently_draws_no_portrait(bank):
+    # Review of #510: `plan` verdicts only due pages, so a fresh, fixed or quiet page's match could outlive the page
+    # turning private. A match counts only while its last local test is within PUBLIC_FRESH_DAYS.
+    old = (TODAY - timedelta(days=web_context.PUBLIC_FRESH_DAYS + 1)).isoformat()
+    memo = web_context.load_memo(bank)
+    memo["wd"]["jules-example"] = {"v": "encyclopedia_match", "at": old, "item": ITEM}
+    web_context.save_memo(bank, memo)
+    assert web_context.public_items(bank) == {}
+    memo["wd"]["jules-example"]["checked"] = TODAY.isoformat()
+    web_context.save_memo(bank, memo)
+    assert web_context.public_items(bank) == {"jules-example": ITEM}
+
+
+def test_every_sleep_rechecks_each_match_and_a_page_turned_private_loses_its_portrait(bank, monkeypatch):
+    page(bank, "jules-example", type="person", name="Jules Example")
+    page(bank, "tove-example", type="person", name="Tove Example")
+    old = (TODAY - timedelta(days=60)).isoformat()
+    memo = web_context.load_memo(bank)
+    for eid, item in (("jules-example", ITEM), ("tove-example", "Q4200003")):
+        memo["wd"][eid] = {"v": "encyclopedia_match", "at": old, "item": item}
+    memo["wd"]["kai-example"] = {"v": "ambiguous", "at": old}
+    web_context.save_memo(bank, memo)
+    verdicts = {"jules-example": web_context.Verdict(None, "needs_encyclopedia"),
+                "tove-example": web_context.Verdict(False, "personal_relation")}
+    monkeypatch.setattr(web_context, "local_verdict", lambda mem, pg, facts: verdicts[pg.entity_id])
+    monkeypatch.setattr(web_context.web_settle, "bank_facts", lambda mem: None)
+    web_context._recheck_public_saved(bank, TODAY)
+    memo = web_context.load_memo(bank)
+    assert "tove-example" not in memo["wd"] and memo["wd"]["kai-example"]["v"] == "ambiguous"
+    assert memo["wd"]["jules-example"]["checked"] == TODAY.isoformat()
+    assert web_context.public_items(bank) == {"jules-example": ITEM}
+    fm = markdown_parser.parse(bank / "entities" / "tove-example.md").frontmatter
+    pic, _ = entity_picture.resolve_page(bank, "tove-example", fm, "", page_mtime=0.0, cached=set(), missed={})
+    assert pic.source is None, "the page turned private: no portrait offered"
+
+
+def test_the_recheck_runs_before_every_gate_and_sends_nothing(bank, monkeypatch):
+    calls = []
+    monkeypatch.setattr(web_context, "_recheck_public_saved", lambda mem, today: calls.append(today))
+
+    class Off:
+        web_context_per_run = 0
+
+    report = asyncio.run(web_context.run_tail(bank, Off(), user_triggered=False, today=TODAY))
+    assert report.reason == "off" and calls == [TODAY]
 
 
 def test_the_item_is_an_identifier_only_for_a_person_and_never_the_owners_page(bank):

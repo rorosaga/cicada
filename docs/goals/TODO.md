@@ -2058,9 +2058,10 @@ A whole row moves to DONE only after its remaining implementation and required a
     is their encyclopedia portrait:** a person the full public test called public (the local test, then exactly ONE
     human with an encyclopedia article) gets that item's image (Wikidata P18), drawn from Wikimedia Commons. The memo
     outside every bank now keeps the matched item, so the portrait is asked by item and file name only — the person's
-    name is never sent again, and a private person's never at all (the local test still sends nothing). The local test
-    runs once more just before the ask (err private); a page that fails it on a later verdict leaves the memo and its
-    portrait with it. In the people ladder after the GitHub avatar and before the proxy (no proxy budget, nothing the
+    name is never sent again as a query (the Commons file name P18 holds may contain it), and a private person's never
+    at all (the local test still sends nothing). The local test runs once more just before the ask (err private), and
+    again for every held match on each Sleep run before any gate; a match not passed within 14 days draws nothing, and
+    a page that fails leaves the memo and its portrait with it (review of #510). In the people ladder after the GitHub avatar and before the proxy (no proxy budget, nothing the
     test did not already ask); never the owner's page or a demo bank; behind `CICADA_ALLOW_LOGO_FETCH` and the people
     gate, on the ToS rail (`person_photo`). **Measured** on the copy: of 132 people with no picture, 22 pass the local
     test, 5 match one encyclopedia item, all 5 have a portrait (people with a picture: 2 → 7 of 134).

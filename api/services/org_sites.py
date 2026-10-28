@@ -814,7 +814,12 @@ def apply(fm: dict, finding: Finding, today: str) -> int:
             # Only Cicada's own unconfirmed entry joins the review; another writer's is left as that writer put it.
             if str(entry.get("added_by") or fact_sources.USER) == AUTHOR and not entry.get(fact_sources.PROPOSED):
                 entry[fact_sources.PROPOSED] = True
-                entry.setdefault("evidence", dict(finding.evidence) or {"page": True})
+                evidence = entry.get("evidence") if isinstance(entry.get("evidence"), dict) else None
+                entry["evidence"] = evidence = dict(evidence or finding.evidence or {"page": True})
+                if finding.reason:
+                    # The doubt it is held for travels with it: `sleeps_own_site` may later confirm only a proposal
+                    # held for the homepage, never one held for an alias, a namesake or content (review of #510).
+                    evidence["reason"] = finding.reason
                 changed += 1
             continue
         if len(existing) >= fact_sources.MAX_SOURCES or sum(

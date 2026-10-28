@@ -92,7 +92,7 @@ Three backend gates, and a separate app-side scenery gate below. They do **not**
   rail: 4 s, ≤ 512 KB, no cookies, `net_guard`, a block never retried); then
   `https://commons.wikimedia.org/wiki/Special:FilePath/<file>?width=256` with the Commons file name P18 holds, every
   hop pinned to `commons.wikimedia.org` / `upload.wikimedia.org` and `net_guard`, under Wikimedia's User-Agent policy
-  (`Cicada/1 (<repo URL>) httpx`, the project's contact). The person's name is not in any of these requests.
+  (`Cicada/1 (<repo URL>) httpx`, the project's contact). The person's name is never sent as a query; the Commons file name P18 holds may contain it (a portrait's file is usually named after its subject).
 - **A project's organisation avatar** (owner 2026-10-28, E; behind `CICADA_ALLOW_LOGO_FETCH`, asked by `/logo` and the
   Sleep tail's logo warm-up like any logo): `https://api.github.com/users/<login>` with the owner login of a trusted
   repository URL, then — only when it answers `type: Organization` for that login — its `avatar_url` on
