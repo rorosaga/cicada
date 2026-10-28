@@ -558,6 +558,10 @@ def policy(memory_path: Path, path: Path, fm: dict, *, today: str | None = None)
                         guard=_guard(memory_path, str(fm.get("entity_id") or ""))), ""
     if page_state == "unreadable":
         return None, "unreadable_page"   # never retired on a read error: the person (or a repair) looks at it
+    if kind == "conflict" and str(fm.get("asks") or "") == "still":
+        # "Are you still …?" (`still_questions`) asks the person whether a quiet fact about their own life holds: no
+        # rule and no judge may assume it — only their own located words (part 1) settle it.
+        return None, "needs_person"
     if kind == "clarification" and str(fm.get("asks") or "") == "sources":
         # G61 "Where to check" (ruling 36 D5): only the person's own located words giving that very link for this page
         # settle it; nothing else (no engine, no other rule) ever reads it.

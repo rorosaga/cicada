@@ -155,6 +155,8 @@ def _item_from_file(
         extra["cause"] = InboxCause(**context.cause_for(fm, raw_options).to_wire())
         extra["informational"] = (
             kind == "conflict"
+            # A "still?" question (`still_questions`) asks about ONE value, whatever the predicate's cardinality.
+            and str(fm.get("asks") or "") != "still"
             and predicates.cardinality(context.memory_path, str(fm.get("predicate", "") or "")) == "multi"
         )
         extra.update(_extractor_refs(fm, kind, context))
@@ -429,7 +431,7 @@ def agent_request_items(memory_path: Path) -> list[InboxItem]:
 
 
 def load_inbox(memory_path: Path, *, include_deferred: bool = False) -> list[InboxItem]:
-    """Load inbox items, sorted: pending first, then priority desc, date desc.
+    """Load inbox items, sorted: pending first, then priority moved by page use (``page_use.rank``), date desc.
 
     Deferred items (``remind_after`` still in the future, §2.3-4) are hidden by
     default — the file stays on disk and the card returns on its own the day the
@@ -471,11 +473,16 @@ def load_inbox(memory_path: Path, *, include_deferred: bool = False) -> list[Inb
         ):
             continue
         items.append(item)
-    # pending first, then priority desc, then created_date desc.
+    # Pending first, then Sleep's priority moved by how much the person's life uses the page (`page_use`, vision
+    # item 10: the questions on the pages they use most come first), then newest.
+    from api.services import page_use
+
+    use = page_use.scores(memory_path)
     items.sort(
         key=lambda i: (
             0 if i.status == "pending" else 1,
-            -i.priority,
+            -page_use.rank(i.priority, page_use.item_use(use, {"entity_id": i.entity_id,
+                                                                 "merge_target_hint": i.merge_target_hint})),
             _neg_date_key(i.created_date),
         )
     )
@@ -935,6 +942,16 @@ def _feedback_refs(fm: dict, kind: str, label: str, request: InboxResolveRequest
     return out
 
 
+def _use_bucket(settings, fm: dict) -> str | None:
+    """``page_use``'s enum for the item's page, or None when it cannot be read (bookkeeping never blocks an answer)."""
+    try:
+        from api.services import page_use
+
+        return page_use.bucket(page_use.item_use(page_use.scores(settings.memory_path), fm))
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _emit_resolution(
     fm: dict,
     item_id: str,
@@ -989,6 +1006,10 @@ def _emit_resolution(
                     "recommended_key": rec,
                     "picked_recommended": bool(rec)
                     and (str(request.option_key or "").strip().lower() == rec or label == rec),
+                    # Vision item 10 (G113): which question shape it was and how used its page is — enums only, so
+                    # the reward can say whether the use-weighted order asks what the person answers.
+                    "asks": _opt_str(fm.get("asks")),
+                    "page_use": _use_bucket(settings, fm),
                     # G141 PJ-6 (R-PJB24): ids and enums only — never the sentence.
                     **(extra_refs or {}),
                     # Ruling 29: Sleep's settle is recorded as Sleep's (`by: sleep` + its rule), never the person's.
@@ -1188,6 +1209,15 @@ async def _resolve_admitted(item_id: str, request: InboxResolveRequest, settings
         raise
     finally:
         _ANSWER_QUOTE.reset(token)
+    if kind == "conflict" and str(parsed.frontmatter.get("asks") or "") == "still" and not skipped:
+        # A "still?" question answered is not asked again for a while (`still_questions`, the `_merge_rejected.yaml`
+        # pattern): an enum and a day, committed with the answer.
+        from api.services import still_questions
+
+        if still_questions.record_answer(settings.memory_path, _opt_str(parsed.frontmatter.get("claim_id")) or "",
+                                         still_questions.answer_enum(label), str(date.today())):
+            extra_lines = [*extra_lines,
+                           f"{still_questions.FILE}: updated (source: {item_id}, trigger: inbox/conflict/resolved)"]
     if quote_episode and skipped:
         (settings.memory_path / "episodes" / f"{quote_episode}.md").unlink(missing_ok=True)
         bank_index.invalidate()
@@ -1930,10 +1960,19 @@ def _conflict_plan(path, parsed, request, settings) -> "_ConflictPlan":
                 for loser in option_claims:
                     if loser.valid_to is None:
                         loser.valid_to = today
-                sentence = (
-                    f"None of the previously recorded values for "
-                    f"'{predicate}' are current as of {today}."
-                )
+                if str(fm_item.get("asks") or "") == "still":
+                    # "Not anymore" on a "still?" question ends ONE value: the sentence the prose is rewritten from
+                    # names only it, never "none of the values" (an interest or a job beside it stays).
+                    from api.services import still_questions
+
+                    label = next((str(o.get("label") or "") for o in options
+                                  if str(o.get("key")) not in ("both", "neither")), "")
+                    sentence = still_questions.ended_sentence(predicate, name, label, today)
+                else:
+                    sentence = (
+                        f"None of the previously recorded values for "
+                        f"'{predicate}' are current as of {today}."
+                    )
 
     entity.body = write_claims(entity.body, claim_list)
 

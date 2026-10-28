@@ -1812,6 +1812,15 @@ Every registry, lock and index file is opened without following a symlink in its
 it is a regular file (`continuity_sessions.open_regular`), so a planted link can never redirect a read, a write or a
 `chmod` into a bank.
 
+### The catch-up cursor and the "still?" answers (vision item 10, 2026-10-28)
+`$CICADA_HOME/inbox_catchup/<sha256(bank path, session id)[:20]>.json` holds the inbox ids one session's catch-up
+already served (`inbox_catchup.Cursor`): ids and a time, written atomically, 0600, outside every bank and git,
+forgotten after 12 hours (each read sweeps the old ones). Neither the path nor the session id is stored in clear.
+`<bank>/_still_answered.yaml` (`still_questions`) is the bank's memory of the person's answers to "Are you still …?":
+`answered: {<claim id>: {on: <day>, answer: still|ended|other|dismissed}}`, written by the conflict resolver and
+committed with the answer as the person's (the `_merge_rejected.yaml` pattern), so a claim answered is not asked again
+for 180 days (a role) or 120 (an interest). An enum and a day — never a label or the person's words.
+
 ### Telemetry ledger (`~/.cicada/telemetry/`)
 Append-only JSONL, machine-global, **never in a bank or git**. `CICADA_TELEMETRY=off` disables it.
 **IDs and enums only — never claim text, query text or answer text.** The `read` kind (G124) records
@@ -1854,8 +1863,9 @@ for a run that did not report it (`cycle_usage.plan_share`, `rate_samples`, `rat
 
 **Feedback events (G113):** every inbox resolution emits a `resolution` event (`stage: feedback`,
 `refs` = item id, kind, predicate, entity id, action label, `verdict: agreed|overruled|neutral`,
-winner/loser claim ids, the extractor's confidence and model — ids and enums only, never claim
-text), Stage-3 reconcile emits one `audit` event per supersede/reject, and the dedup sweep emits one
+winner/loser claim ids, the extractor's confidence and model, and since vision item 10 the question's `asks` shape
+and its page's `page_use` bucket (`high|mid|low`, so the reward can say whether the use-weighted order asks what the
+person answers) — ids and enums only, never claim text), Stage-3 reconcile emits one `audit` event per supersede/reject, and the dedup sweep emits one
 `dedup_verdict` per judged pair. `telemetry.FEEDBACK_KINDS` names the three (a superset,
 `NON_SPEND_KINDS`, also excludes `capture`/`handshake`/`read`); `consumption_stats.stats()` excludes
 them from `by_connection` so they never show as an "unknown" connection. Nothing learned from the

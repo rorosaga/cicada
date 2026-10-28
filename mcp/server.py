@@ -189,14 +189,14 @@ TOOLS = [
     },
     {
         "name": "cicada_check_nudges",
-        "description": "Open questions Cicada has for the person — two facts that disagree, a name that could be two people, a follow-up. mode=\"ask\" (after `cicada_recall`, with `topic` = the person's own words this turn and `entity_ids` = recall's ids) returns at most two questions about what they are talking about now, and nothing when none is: ask one only if it fits, in your own words, or record an answer their words already gave. mode=\"list\" (the default) lists everything pending, for when the person asks what is in their inbox or what conflicts they have.",
+        "description": "Open questions Cicada has for the person — two facts that disagree, a name that could be two people, a follow-up. mode=\"ask\" (after `cicada_recall`, with `topic` = the person's own words this turn and `entity_ids` = recall's ids) returns at most two questions about what they are talking about now, and nothing when none is: ask one only if it fits, in your own words, or record an answer their words already gave. mode=\"catchup\" when the person asks to catch Cicada up (\"catch up\", \"what do you want to ask me\"): the next few questions, the pages they use most first, each in plain words with the reason to give; ask one at a time and call it again for more — nothing repeats in this session. mode=\"list\" (the default) lists everything pending, for when the person asks what is in their inbox or what conflicts they have.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "mode": {
                     "type": "string",
-                    "enum": ["ask", "list"],
-                    "description": "\"ask\": only questions about what the person is talking about now (needs `topic`). \"list\" (default): every pending question, plainly.",
+                    "enum": ["ask", "catchup", "list"],
+                    "description": "\"ask\": only questions about what the person is talking about now (needs `topic`). \"catchup\": the person asked to catch up — the next few questions, most-used pages first, in plain words with their reasons. \"list\" (default): every pending question, plainly.",
                 },
                 "topic": {
                     "type": "string",
@@ -1223,7 +1223,7 @@ def initialize_result(params: dict) -> dict:
         })
     result = {
         "protocolVersion": "2024-11-05",
-        "capabilities": {"tools": {}},
+        "capabilities": {"tools": {}, "prompts": {}},
         "serverInfo": {"name": "cicada-bookworm", "version": __version__},
     }
     if in_engine_spawn():
@@ -1335,6 +1335,17 @@ def main():
         elif method == "tools/list":
             respond(req_id, {"tools": [] if in_engine_spawn() else TOOLS})
 
+        elif method == "prompts/list":
+            respond(req_id, {"prompts": [] if in_engine_spawn() else PROMPTS})
+
+        elif method == "prompts/get":
+            name = params.get("name", "") if isinstance(params, dict) else ""
+            prompt = None if in_engine_spawn() else prompt_get(name)
+            if prompt is None:
+                respond_error(req_id, -32602, f"Invalid params: no prompt named {str(name)[:64]!r}")
+            else:
+                respond(req_id, prompt)
+
         elif method == "tools/call":
             tool_name = params.get("name", "") if isinstance(params, dict) else ""
             arguments = params.get("arguments") if isinstance(params, dict) else None
@@ -1351,6 +1362,32 @@ def main():
         elif req_id is not None:
             # Unknown method with an id — return error
             respond_error(req_id, -32601, f"Method not found: {method}")
+
+
+#: MCP prompts (vision item 10, S3): a harness lists these as commands the person starts (Claude Code shows them as
+#: `/mcp__cicada__catch_up`). One today — the catch-up chat — and its text names only arguments the tool schema has
+#: (R12, `test_mcp_prompts`).
+CATCH_UP_TEXT = (
+    "Let's catch Cicada up. Call cicada_check_nudges with mode=\"catchup\" and ask me its questions one at a time, "
+    "in your own words, each with the reason it gives — never read them out as a list. Record each answer with "
+    "cicada_resolve_inbox, passing my exact words as quote; if I let one pass, skip it. When I want more, call it "
+    "again; stop when I say so or nothing is left, and tell me in one line what you noted."
+)
+PROMPTS = [
+    {
+        "name": "catch_up",
+        "description": "Catch Cicada up: a few questions about the things you use most, asked one at a time.",
+        "arguments": [],
+    },
+]
+
+
+def prompt_get(name) -> dict | None:
+    """``prompts/get`` for one of :data:`PROMPTS`, or None for a name that is not one."""
+    if name != "catch_up":
+        return None
+    return {"description": PROMPTS[0]["description"],
+            "messages": [{"role": "user", "content": {"type": "text", "text": CATCH_UP_TEXT}}]}
 
 
 _SCHEMAS = {tool["name"]: tool["inputSchema"] for tool in TOOLS}

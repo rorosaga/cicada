@@ -992,6 +992,46 @@ recall's own inbox block was a body-text token match (a recall for "alpha projec
   `recommended` and `cause` stay on the wire for agents and tests, never as copy to recite. G98's subject gates are
   unchanged and still run first (`nudge_visible`, `load_inbox`).
 
+**Catching up (vision item 10, owner 2026-10-28).** Owner: "a nice quick, hop on a chat with cicada to catch him up
+to speed … just have the user answer at first those things linked to more accessed entities", in "more human
+concrete format". `cicada_check_nudges(mode="catchup")` is that chat's read (`mcp_tools.catchup_nudges`,
+`inbox_catchup`):
+- **What comes back:** the next `inbox_catchup.LIMIT` (3) questions the person can answer in conversation — every
+  visible kind but `normalization`, `page_edit`, an agent request and the grouped "Confirm N links" review, and never a
+  multi-valued conflict (G98: shown, never asked) — ordered by `page_use.rank` (Sleep's priority + 0.5 × how much the
+  person's life uses the page, below). Each block has `Ask:` (the question in a person's words), `Why you are asking`
+  (its reason, from the record), the answers with their unchanged keys, Cicada's guess once, and the call that records
+  it on this door (`cicada_resolve_inbox(…)` on MCP, a `cicada inbox resolve …` line from `cli_map.spell` on the CLI).
+  Decay is included here — it never comes up uninvited (`mode="ask"`), but a catch-up is the person asking.
+- **Nothing repeats:** a session cursor (`inbox_catchup.Cursor`, `$CICADA_HOME/inbox_catchup/<hash>.json` — the hash
+  of the bank's path and the session id, ids and a time only, outside every bank, forgotten after 12 h) holds what the
+  session's catch-up already served; a second call moves on and says how many remain; `skip`ped ids stay out.
+- **One person under several names** is ONE question: open `merge_suggestion` items about people that chain (A~B, B~C)
+  come as "Are A, B and C the same person?" with every item id. A yes is never joined by the agent: the reply tells
+  it to say it noted it — Sleep's tending reads the person's own words from the captured conversation and joins only
+  on them (ruling 29 part 1, ruling 41); "different people" is `reject=true` on each.
+- **Local doors only:** stdio, the CLI and a client machine's tool door. A remote connection is refused
+  (`CATCHUP_REMOTE`) and its schema keeps `["ask", "list"]` (Needs the owner: remote access).
+- **The wording layer** (`inbox_wording.spoken`, template-only, at read, never written; option keys, labels and the
+  stored question unchanged — Hyrum) also adds `Ask it like:` / `The reason, if you ask it:` lines to `mode="ask"`.
+  Per kind: decay by the page's type ("Are you still interested in X?", "Do you still use X?", "Are you still in touch
+  with X?") with "You mentioned it once, about two months ago, and I don't want to push you on it" for a one-off
+  concept or skill; a duplicate pair or group as "the same person/tool/…?" ("your partner" for a relation-titled page
+  with no name, never its title); a conflict on the person's own page in the second person, and the generic "Which is
+  true about X (predicate)?" as "Which is right about X: a or b?", with both sides' ages; a clarification as "Who is X
+  to you?" or "Who or what is X?" with when it was said; a "still?" question with its source cue ("…and your LinkedIn
+  seems a bit stale, so I wasn't sure you still are"). Every question ends in `?` within 160 characters.
+- **Use, derived (S1).** `page_use.scores`: per page, log₂(1 + conversations) × ½^(days since last said / 90) plus a
+  0.25 lift for its links, scaled to the busiest page; the owner's page is 1.0. From frontmatter only (`bank_index`),
+  cached per bank on the entities directory's mtime (every page write is atomic, so a write moves it) and reused for a
+  minute after a write (91 ms p50 to rebuild at 8,028 pages). The telemetry ledger is never read for it: it is
+  machine-global and its rail is "nothing learned from it is auto-applied". `load_inbox` (so `GET /inbox` and the
+  Home's "Needs you") and `mode="ask"` sort by the same rank; the recall hook never loads the inbox.
+- **The prompt (S3).** The stdio server registers one MCP prompt, `catch_up` (`prompts/list`, `prompts/get`;
+  `capabilities.prompts`), which a harness lists as a command (Claude Code: `/mcp__cicada__catch_up`); its text names
+  only `cicada_check_nudges(mode="catchup")` and `cicada_resolve_inbox`'s real arguments (R12). The plugin skill has a
+  "Catching up" section; the primer is unchanged (its token budget).
+
 **Ask reads what is on the page (owner, 2026-10-14).** Two reproductions on a real bank (values redacted): "what is
 the owner's full name?" answered "only a first name is recorded", the summary "truncated at 'R'"; "who is helping the
 owner create <project>?" missed the people. The cause: each page's claims and prose shared one 3,000-character

@@ -1172,12 +1172,42 @@ said and what day it is now (`api/services/source_dates.py`).
 
 An **engine-independent tail** runs on every exit path, idle nights included: the state-dictionary
 refresh, claim expiry (first in the clean-tree-guarded slot, its own `commit_paths` commit),
-follow-ups (G141 PJ-6, right after expiry, its own `cicada` commit), the exact-match source links (G61 S3-a, `source_links`,
+follow-ups (G141 PJ-6, right after expiry, its own `cicada` commit), **the catch-up questions** (below, right after the
+follow-ups, their own `cicada` commits), the exact-match source links (G61 S3-a, `source_links`,
 its own `cicada` commit, dirty pages skipped), the site check (G61 S3-b, behind `CICADA_ALLOW_CONNECTOR_FETCH`, its own
 `cicada` commit), the tracked-source re-check (ruling 26), **the web check** (below), the connector poll, RSS/ICS
 polling (opt-in via `CICADA_ALLOW_FEED_FETCH=1`), and the link enrichment backfill (which reads for the person's reason, below) — all in a clean-tree-guarded slot,
 after `_finalize`'s own commit so the poll's `git add -A` sweeps only its own files. After them, unguarded (no git),
 the episode vectors are synced when an index-only episode is newer than the vector index (owner ruling 2026-10-18).
+
+**The catch-up questions (vision item 10, owner 2026-10-28; `sleep_cycle._catchup_questions_safely`).** Two
+engine-free proposers feed the person's catch-up chat (`mcp.md`, "Catching up"), under ONE budget of new questions per
+drain (`inbox_catchup.Budget`, `NEW_PER_DRAIN` = 3), each in its own `cicada` commit (`Questions to check in <day>`,
+`Same-person questions <day>`; dirty pages skipped, a failed commit unlinks what it wrote):
+- **"Are you still …?"** (`still_questions`): an open, non-event claim on the person's own page whose predicate is a
+  state that ends — a role (`works-at`, `employed-by`, `studies-at`, `lives-in`, `reports-to`) or an interest
+  (`is-interested-in`, `interested-in`, `wants-to-learn`, `is-learning`, `learning`, `studies`) — last said in a dated
+  conversation (`claim_reconciler._said`; a memory export entry is no mention) at least 180 days ago (a role) or 60–365
+  days ago (an interest: past a year it is history), whose object page was not said since either. A role is held back
+  when a tracked source on the page was re-read within its cadence (ruling 26 keeps it current); a stale, never
+  re-read or dead source is the human reason ("your LinkedIn seems a bit stale"), read from the stored `refresh`
+  state, never fetched. An interest is held back while its page has an open decay question. Written as an ordinary
+  `conflict` with `asks: still`, `still: role|interest`, `last_said`, `said_in`, the claim as option `a` and the item's
+  `claim_id` (picking it grades `agreed`, "Not anymore" — `neither` — closes it today, free text is a new claim), at
+  most 4 open and one per `(page, predicate)`; roles first, then the most-used topic, then the most recently quiet.
+  The person's answer is remembered in `<bank>/_still_answered.yaml` (claim id → day and an enum, committed with the
+  answer; the `_merge_rejected.yaml` pattern) and that claim is not asked again for 180 days (a role) or 120 (an
+  interest). Ruling 29's tending never settles one by rule or judge (`inbox_tend.policy` → `needs_person`); only the
+  person's own located words do (part 1). Only the person's own page — a third party's job waits on the owner.
+  "Still interested?" is claim-level (an open interest claim 60–365 days silent), not a decay question — the page's
+  decay is untouched — and rests on the owner's 2026-10-28 item-10 request. "Not anymore" closes that one claim and
+  its sentence names only that value (`still_questions.ended_sentence`), never "none of the values are current".
+- **"Are A and B the same person?"** (`inbox_catchup.propose_nicknames`): two People pages whose names are a nickname
+  and its long form (`nickname_pair`: the short one a single word of ≥ 3 letters, a strict prefix of the long one's
+  first word and at most 0.6 of its length) with no open question, no alias in common and no "two people" answer
+  (`merge_rejections`), written as an ordinary `merge_suggestion` marked `detected: spelling` on the less-used page,
+  at most 3 open. A question only (ruling 41, G209): spelling is a reason to ask, never proof, and only the person's
+  words join them.
 
 **The web check (owner ruling 2026-10-16, TODO ruling 27; `sleep_cycle._web_check_safely`, `web_lookup`).** After the
 run's last nudges, up to `web_check_per_run` (8; `CICADA_WEB_CHECK_PER_RUN`, 0 = off) pending questions about public
