@@ -571,6 +571,16 @@ class Status:
     models: list[str] = field(default_factory=list)
     as_of: float = 0.0
     timed_out: bool = False   # a status command did not answer within PROBE_TIMEOUT_S
+    #: The model listing answered with text this parser read no model id from — its format changed (vision item 4,
+    #: 2026-10-28): said in words by `model_catalogue`, never an empty list passed off as "no models".
+    drift: bool = False
+
+
+def listing_drifted(stdout: str | None, rc: int, found: list[str]) -> bool:
+    """A successful listing with words in it and not one model id read: the tool's output format moved under the
+    parser. A signed-out tool (non-zero exit) or an empty listing is not drift."""
+    text = (stdout or "").strip()
+    return rc == 0 and bool(text) and not found and not _signed_out(text)
 
 
 _CACHE: dict[str, Status] = {}
@@ -638,7 +648,8 @@ def probe_now(spec: EngineSpec, *, runner=None, timeout: float | None = None) ->
         if status_r.rc != 0 or _signed_out(text):
             return Status(True, False, f"Cursor is signed out — run `{spec.sign_in}`.", as_of=time.time())
         models = parse_model_lines(listing.stdout) if listing.rc == 0 else []
-        return Status(True, True, "Signed in to Cursor.", models, time.time())
+        return Status(True, True, "Signed in to Cursor.", models, time.time(),
+                      drift=listing_drifted(listing.stdout, listing.rc, models))
     listing = run([binary, "models"], stdin=None, timeout=timeout, cwd=None,
                   env_overrides=opencode_env() if spec is OPENCODE else dict(GROK_ENV))
     if listing.rc == 124:
@@ -647,13 +658,20 @@ def probe_now(spec: EngineSpec, *, runner=None, timeout: float | None = None) ->
     if spec is OPENCODE:
         models = [m for m in parse_model_lines(listing.stdout) if "/" in m] if listing.rc == 0 else []
         plan = [m for m in models if opencode_is_plan_model(m)]
+        if listing_drifted(listing.stdout, listing.rc, models):
+            return Status(True, False, "OpenCode's model list changed shape, so Cicada couldn't read it.",
+                          as_of=time.time(), drift=True)
         if not plan:
             return Status(True, False, "OpenCode has no subscription signed in — run `opencode auth login` and "
                                        "choose GitHub Copilot or OpenCode Go.", as_of=time.time())
         return Status(True, True, "Signed in to a subscription in OpenCode.", plan, time.time())
     if listing.rc != 0 or _signed_out(text):
         return Status(True, False, f"Grok is signed out — run `{spec.sign_in}`.", as_of=time.time())
-    builtin = [m for m in parse_model_lines(listing.stdout) if grok_is_builtin(m)]
+    listed = parse_model_lines(listing.stdout)
+    builtin = [m for m in listed if grok_is_builtin(m)]
+    if listing_drifted(listing.stdout, listing.rc, listed):
+        return Status(True, False, "Grok's model list changed shape, so Cicada couldn't read it.", as_of=time.time(),
+                      drift=True)
     if not builtin:
         return Status(True, False, "Grok lists none of xAI's own grok-… models — run `grok login` with your Grok "
                                    "subscription.", as_of=time.time())

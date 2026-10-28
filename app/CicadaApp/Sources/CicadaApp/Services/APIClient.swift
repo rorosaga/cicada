@@ -1588,6 +1588,9 @@ actor APIClient {
     /// `APIClient(session:)` over a fake transport.
     static let shared: APIClient = AppPasteboard.isRunningTests ? pointingAtNothing() : APIClient()
 
+    /// The pages `fetchEntity` read, with their ETags (2026-10-28) — in memory only.
+    private var entityCards = EntityCardCache()
+
     /// A client that reaches nothing: its session answers every request with "cannot connect" before a byte leaves the
     /// process (`NoBackendURLProtocol`), its base is `ServerConnection.unreachableBase` (a name that never resolves),
     /// and its home does not exist, so no token file is found. This Mac's connection shape (`.thisMac`) is kept so
@@ -1857,8 +1860,23 @@ actor APIClient {
         return id.addingPercentEncoding(withAllowedCharacters: allowed) ?? id
     }
 
+    /// `GET /entities/{id}`, revalidated with its ETag (2026-10-28): a page held from an earlier open is sent back as
+    /// `If-None-Match` and a 304 hands back the held copy — the server answers from a few stats, never re-reading the
+    /// page or its history. Not a Store domain: `EntityCardCache` holds it in memory, emptied on a bank switch.
     func fetchEntity(id: String) async throws -> Entity {
-        return try await get("/entities/\(encodedID(id))")
+        let held = entityCards.held(id)
+        do {
+            let result: Conditional<Entity> = try await getConditional("/entities/\(encodedID(id))", etag: held?.etag)
+            return try entityCards.settle(id, result, held: held)
+        } catch APIError.httpError(404, let body) {
+            entityCards.forget(id)
+            throw APIError.httpError(404, body)
+        }
+    }
+
+    /// A bank switch: the held pages belong to the bank they were read in (the server's ETag names the bank too).
+    func resetEntityCards() {
+        entityCards = EntityCardCache()
     }
 
     /// F4 — `GET /entities/{id}/raw`: the page verbatim, for the Source view and Copy when the card's payload left it

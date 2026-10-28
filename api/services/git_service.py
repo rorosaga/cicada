@@ -271,6 +271,41 @@ def _parse_entity_sessions(body: str, entity_id: str) -> list[str]:
     return out
 
 
+_ENTITY_LINE_TRIGGER_RE = re.compile(r"\(.*?\btrigger:\s*([^,)]+)")
+
+#: Vision item 5 (2026-10-28): the door a change came through, read from its manifest line's trigger, so a history row
+#: shows Sleep as a tag and the contributor (the model, or the person) as its picture. Derived on read, never stored.
+HISTORY_VIAS = ("sleep", "app", "agent", "remote", "inbox", "sync", "cicada", "unknown")
+_SYNC_TRIGGERS = frozenset({"user/calendar_poll", "user/feed_poll", "user/notes_sync"})
+
+
+def _parse_entity_trigger(body: str, entity_id: str) -> str:
+    """This entity's own ``trigger:`` from its manifest line in a commit body; ``""`` when it has none (a hand-made or
+    pre-manifest commit). Its own line only, like :func:`_parse_entity_sessions`: a batched commit names many."""
+    prefix = f"entities/{entity_id}.md:"
+    for line in body.splitlines():
+        line = line.strip()
+        if line.startswith(prefix) and (m := _ENTITY_LINE_TRIGGER_RE.search(line)):
+            return m.group(1).strip()
+    return ""
+
+
+def history_via(trigger: str | None) -> str:
+    """Which of :data:`HISTORY_VIAS` a change came through, from its trigger alone. ``sleep/…`` and an inbox question
+    Sleep settled (``inbox/<kind>/settled…``) are Sleep; ``user/…`` the person in the app, except a reader that polls
+    on its own (``sync``, like ``sync/…``); ``mcp/…`` a local agent; ``remote/…`` a connected app; any other
+    ``inbox/…`` the person answering a question; anything else (``migration/…``, housekeeping) Cicada's own."""
+    t = (trigger or "").strip().lower()
+    if not t:
+        return "unknown"
+    head = t.split("/", 1)[0]
+    if head == "sleep" or (head == "inbox" and "/settled" in t):
+        return "sleep"
+    if head == "sync" or t in _SYNC_TRIGGERS:
+        return "sync"
+    return {"user": "app", "mcp": "agent", "remote": "remote", "inbox": "inbox"}.get(head, "cicada")
+
+
 # --- G15: contributor visual identity (kind / provider / avatar) ------------
 
 # The literal "user" author (manual/companion-app/media-save writes).
@@ -1010,6 +1045,8 @@ async def entity_history(
             commit_hash=commit_hash,
             diff=diff,
             sessions=sessions,
+            trigger=(trigger := _parse_entity_trigger(body, entity_id)),
+            via=history_via(trigger),
         ))
 
     return entries, truncated

@@ -262,6 +262,8 @@ def _no_background_reindex(monkeypatch):
     monkeypatch.setenv("CICADA_EMBED_WORKER", "off")
     # G207: the job after capture (an embed, a quick read) is off too — its own tests turn it on.
     monkeypatch.setenv("CICADA_AWAKE_READ", "off")
+    # Vision item 4: the model catalogue's background `claude --help` read — its own tests run it with a stub.
+    monkeypatch.setenv("CICADA_MODEL_CATALOGUE_REFRESH", "off")
 
 
 @pytest.fixture(autouse=True)

@@ -1,0 +1,7 @@
+Available models:
+  auto - Auto
+  sonnet-5 - Sonnet 5
+  gpt-5.5 - GPT-5.5
+  grok-4.6
+
+Tip: use --model <id> to switch.

@@ -35,6 +35,7 @@ from api.models.schemas import (
     SourceRefreshRequest,
     PageEditRequest,
     PageEditResponse,
+    PageBlocks,
     PageLinksResponse,
     PaperDetailResponse,
     PictureInputsModel,
@@ -49,7 +50,9 @@ from api.models.schemas import (
 )
 from api.services import (
     page_relevance,
+    bank_index,
     claims_ledger,
+    page_blocks,
     decay_policy,
     decay_tuning,
     entity_bands,
@@ -101,86 +104,121 @@ _LOGO_MEDIA_TYPES = {
 async def get_entity(
     entity_id: str,
     settings: Settings = Depends(get_settings),
+    request: Request = None,
+    response: Response = None,
 ):
-    """Get full entity data including markdown content and history."""
+    """Get full entity data including markdown content and history.
+
+    Vision item 5 (2026-10-28): with its ``blocks`` (``page_blocks``) and an ETag over every input the card reads
+    (``page_blocks.card_etag``), checked before the page is parsed or its history read — a held card answers 304 at
+    the cost of a few stats. On demand, not a Store domain: the app's ``EntityCardCache`` holds the answer by bank and
+    id and revalidates it on every open."""
     entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
     if not entity_path.exists():
         raise HTTPException(404, f"Entity {entity_id} not found")
-
-    # The page file alone: the card shows prose and reads claims from `/claims`, so an owner-sized page's ledger
-    # (`claims_ledger`) is never opened here.
-    parsed = markdown_parser.parse(entity_path, ledger=False)
-    fm = parsed.frontmatter
+    # `request`/`response` are None only for an in-process caller (tests, the CLI's twin): no revalidation then.
+    card = await run_in_threadpool(_card_read, settings, entity_id, entity_path,
+                                   request.headers.get("if-none-match") if request is not None else None)
+    if response is not None:
+        response.headers["ETag"] = card["etag"]
+    if card.get("not_modified"):
+        return Response(status_code=304, headers={"ETag": card["etag"]})
     history, history_truncated = await git_service.entity_history(entity_id, settings.memory_path)
-    decay_class, decay_rate = decay_policy.resolve(fm)
-    # G147 — the pace the decay pass actually charges, from the SAME function
-    # (`decay_policy.effective`, plan R-FD11), so the card can never describe a
-    # pace Sleep does not charge. Read time only; nothing is stored.
-    alpha, floor = decay_policy.spacing_params(settings)
-    effective = decay_policy.effective(
-        fm, alpha=alpha, floor=floor, tuning=decay_tuning.load(settings.memory_path),
-        # Only this page's conversations are read (a full episode scan was most of a cold open's time).
-        untimed=episode_time.untimed_among(settings.memory_path, decay_policy._as_list(fm.get("source_episodes"))),
-    )
-    # C11 (G146) — the page's picture, resolved at read like everything else on this card (plan R-PE5).
-    page_stat = entity_path.stat()
-    picture, picture_inputs = entity_picture.resolve_page(
-        settings.memory_path, entity_id, fm, parsed.body, page_mtime=page_stat.st_mtime)
-    raw = entity_path.read_text(encoding="utf-8")
-    raw_omitted = False
-    fence = claims_block_start(raw)
-    big_fence = page_stat.st_size > RAW_INLINE_MAX_BYTES or claims_ledger.STAMP in fm \
-        or (fence is not None and len(raw) - fence > RAW_INLINE_FENCE_MAX_CHARS)
-    if claims_ledger.STAMP in fm and (split := markdown_parser.split_frontmatter(raw)) is not None:
-        # A hub page (its claims partly in its ledger): the frontmatter alone — every frontmatter reader (a location's
-        # lat/lon, a media block) keeps its input, the prose is `markdown_content` already, and Source and Copy read
-        # `/raw` for the file (owner page, 2026-10-14: the prose twice was a third of a 490 KB card).
-        raw, raw_omitted = raw[:len(raw) - len(split[1])], True
-    elif big_fence and fence is not None:
-        # Review r1 #4: withhold only the fence. The frontmatter and prose stay verbatim, so every frontmatter reader
-        # (a location's declared lat/lon, a media block) keeps its input; Source and Copy read `/raw` for the rest.
-        raw, raw_omitted = raw[:fence], True
+    blocks = card.pop("blocks")
+    blocks["history"] = page_blocks.history(history, history_truncated)
+    if blocks["history"] is not None:
+        blocks["order"].append("history")
+    card.pop("etag")
+    return EntityResponse(**card, history=history, history_truncated=history_truncated, blocks=PageBlocks(**blocks))
 
-    return EntityResponse(
-        id=entity_id,
-        name=fm.get("name", entity_id.replace("-", " ").title()),
-        type=fm.get("type", "concept"),
-        status=fm.get("status", "active"),
-        confidence=fm.get("confidence", 0.5),
-        created=str(fm.get("created", "")),
-        last_referenced=str(fm.get("last_referenced", "")),
-        decay_rate=decay_rate,
-        decay_class=decay_class,
-        source_episodes=fm.get("source_episodes", []),
-        tags=fm.get("tags", []),
-        related=fm.get("related", []),
-        version=fm.get("version", 1),
-        # F4: prose only — the fence is machine data the card reads from `/claims`, and on the owner's page it was
-        # 2.5 MB shipped twice per open.
-        markdown_content=served_prose(parsed.body)[0],
-        raw_markdown=raw,
-        raw_omitted=raw_omitted,
-        history=history,
-        history_truncated=history_truncated,
-        media=_build_media_block(fm, parsed.body, entity_id=entity_id),
-        is_owner=bool(fm.get("owner")),
-        decay=EntityDecay(
-            decay_class=effective.decay_class,
-            effective_rate_per_week=round(effective.rate, 6),
-            mention_weeks=effective.mention_weeks,
-        ),
-        # G180 parity: the card's bands from the backend, the charged rate above being the pace's one input.
-        bands=EntityBands(**entity_bands.bands(confidence=fm.get("confidence", 0.5),
-                                               rate_per_week=round(effective.rate, 6),
-                                               last_referenced=str(fm.get("last_referenced", "")),
-                                               today=date.today())),
-        picture=picture.url,
-        picture_source=picture.source,
-        picture_inputs=PictureInputsModel(**picture_inputs.to_fields()),
-        quiet=quiet_pages.page_is_quiet(settings.memory_path, entity_id),
-        relevance=EntityRelevance(**(await run_in_threadpool(
-            page_relevance.for_page, settings.memory_path, entity_id, fm=fm, body=parsed.body)).to_dict()),
-    )
+
+def _card_read(settings: Settings, entity_id: str, entity_path: Path, if_none_match: str | None) -> dict:
+    """Everything the card reads but its history, in one worker thread under one shared directory scan (the ETag's
+    fingerprints and the relevance line's name index list ``entities/`` and ``episodes/`` once between them)."""
+    from api.services.claims import parse_claims
+
+    memory_path = settings.memory_path
+    alpha, floor = decay_policy.spacing_params(settings)
+    with bank_index.shared_scans():
+        etag = page_blocks.card_etag(memory_path, entity_id, extra=f"{alpha}|{floor}")
+        if if_none_match == etag:
+            return {"etag": etag, "not_modified": True}
+        # The page file alone: the card shows prose and reads claims from `/claims`, so an owner-sized page's ledger
+        # (`claims_ledger`) is never opened here.
+        parsed = markdown_parser.parse(entity_path, ledger=False)
+        fm = parsed.frontmatter
+        decay_class, decay_rate = decay_policy.resolve(fm)
+        # G147 — the pace the decay pass actually charges, from the SAME function
+        # (`decay_policy.effective`, plan R-FD11), so the card can never describe a
+        # pace Sleep does not charge. Read time only; nothing is stored.
+        effective = decay_policy.effective(
+            fm, alpha=alpha, floor=floor, tuning=decay_tuning.load(memory_path),
+            # Only this page's conversations are read (a full episode scan was most of a cold open's time).
+            untimed=episode_time.untimed_among(memory_path, decay_policy._as_list(fm.get("source_episodes"))),
+        )
+        # C11 (G146) — the page's picture, resolved at read like everything else on this card (plan R-PE5).
+        page_stat = entity_path.stat()
+        picture, picture_inputs = entity_picture.resolve_page(
+            memory_path, entity_id, fm, parsed.body, page_mtime=page_stat.st_mtime)
+        raw = entity_path.read_text(encoding="utf-8")
+        raw_omitted = False
+        fence = claims_block_start(raw)
+        big_fence = page_stat.st_size > RAW_INLINE_MAX_BYTES or claims_ledger.STAMP in fm \
+            or (fence is not None and len(raw) - fence > RAW_INLINE_FENCE_MAX_CHARS)
+        if claims_ledger.STAMP in fm and (split := markdown_parser.split_frontmatter(raw)) is not None:
+            # A hub page (its claims partly in its ledger): the frontmatter alone — every frontmatter reader (a
+            # location's lat/lon, a media block) keeps its input, the prose is `markdown_content` already, and Source
+            # and Copy read `/raw` for the file (owner page, 2026-10-14: the prose twice was a third of a 490 KB card).
+            raw, raw_omitted = raw[:len(raw) - len(split[1])], True
+        elif big_fence and fence is not None:
+            # Review r1 #4: withhold only the fence. The frontmatter and prose stay verbatim, so every frontmatter
+            # reader (a location's declared lat/lon, a media block) keeps its input; Source and Copy read `/raw`.
+            raw, raw_omitted = raw[:fence], True
+        try:
+            claims = parse_claims(parsed.body or "")
+        except Exception:  # noqa: BLE001 — an unreadable fence reads as a page with no claims
+            claims = []
+        relevance = page_relevance.for_page(memory_path, entity_id, fm=fm, body=parsed.body, claims=claims).to_dict()
+        blocks = page_blocks.build(memory_path, entity_id, fm=fm, claims=claims, relevance=relevance)
+        return {
+            "etag": etag,
+            "blocks": blocks,
+            "id": entity_id,
+            "name": fm.get("name", entity_id.replace("-", " ").title()),
+            "type": fm.get("type", "concept"),
+            "status": fm.get("status", "active"),
+            "confidence": fm.get("confidence", 0.5),
+            "created": str(fm.get("created", "")),
+            "last_referenced": str(fm.get("last_referenced", "")),
+            "decay_rate": decay_rate,
+            "decay_class": decay_class,
+            "source_episodes": fm.get("source_episodes", []),
+            "tags": fm.get("tags", []),
+            "related": fm.get("related", []),
+            "version": fm.get("version", 1),
+            # F4: prose only — the fence is machine data the card reads from `/claims`, and on the owner's page it was
+            # 2.5 MB shipped twice per open.
+            "markdown_content": served_prose(parsed.body)[0],
+            "raw_markdown": raw,
+            "raw_omitted": raw_omitted,
+            "media": _build_media_block(fm, parsed.body, entity_id=entity_id),
+            "is_owner": bool(fm.get("owner")),
+            "decay": EntityDecay(
+                decay_class=effective.decay_class,
+                effective_rate_per_week=round(effective.rate, 6),
+                mention_weeks=effective.mention_weeks,
+            ),
+            # G180 parity: the card's bands from the backend, the charged rate above being the pace's one input.
+            "bands": EntityBands(**entity_bands.bands(confidence=fm.get("confidence", 0.5),
+                                                      rate_per_week=round(effective.rate, 6),
+                                                      last_referenced=str(fm.get("last_referenced", "")),
+                                                      today=date.today())),
+            "picture": picture.url,
+            "picture_source": picture.source,
+            "picture_inputs": PictureInputsModel(**picture_inputs.to_fields()),
+            "quiet": quiet_pages.page_is_quiet(memory_path, entity_id),
+            "relevance": EntityRelevance(**relevance),
+        }
 
 
 @router.post("/entities/{entity_id}/web-context")
@@ -858,7 +896,7 @@ async def update_entity_repos(
 
 
 def _sources_payload(memory_path: Path, entity_id: str) -> EntitySourceList:
-    from api.services import reading_hosts, source_proposals
+    from api.services import source_proposals
 
     rows = []
     entity_path = memory_path / "entities" / f"{entity_id}.md"
@@ -884,9 +922,7 @@ def _sources_payload(memory_path: Path, entity_id: str) -> EntitySourceList:
         if not isinstance(s.get("evidence"), dict):
             s.pop("evidence", None)
         s["link_kind"], s["label"] = source_proposals.link_kind(s)
-        site = reading_hosts.site_of(str(s.get("ref") or "")) if str(s.get("kind") or "") == "url" else ""
-        s["icon_site"] = (site if site and s["trusted"] and page_type not in ("person", "media")
-                          and reading_hosts.valid_site_key(site) and reading_hosts.icon_host(site) else None)
+        s["icon_site"] = page_blocks.icon_site(s, page_type)
         rows.append(EntitySource(**s))
     return EntitySourceList(entity_id=entity_id, sources=rows)
 

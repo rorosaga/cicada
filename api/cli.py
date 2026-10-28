@@ -474,17 +474,21 @@ def cmd_get(boot: Boot, args) -> Result:
 
     start, count = args.__dict__.get("from"), args.count
     numbered = bool(getattr(args, "line_numbers", False))
+    # Vision item 5: `--include` blocks ride the unbounded read only (a line range is the page's own lines).
+    include = getattr(args, "include", None) or None
     if boot.client:
-        def detail(entity_id, start=None, whole=False):
-            return _door(boot, "cicada_recall_detail", {"entity_id": entity_id, "start": start}, {"whole": whole})
+        def detail(entity_id, start=None, whole=False, include=None):
+            body = {"entity_id": entity_id, "start": start, **({"include": include} if include else {})}
+            return _door(boot, "cicada_recall_detail", body, {"whole": whole})
     else:
         ctx = _tool_context(boot)
 
-        def detail(entity_id, start=None, whole=False):
-            return mcp_tools.recall_detail(ctx, entity_id, start=start, whole=whole)
+        def detail(entity_id, start=None, whole=False, include=None):
+            return mcp_tools.recall_detail(ctx, entity_id, start=start, whole=whole, include=include)
     # A bounded read slices the whole page; an unbounded one is the tool's own reply (F5: an over-budget fence elided).
-    reply = detail(args.entity_id, start=getattr(args, "start", None),
-                   whole=start is not None or count is not None or numbered)
+    bounded = start is not None or count is not None or numbered
+    reply = detail(args.entity_id, start=getattr(args, "start", None), whole=bounded,
+                   include=None if bounded else include)
     if getattr(reply, "code", None) == "not_found" and (m := _RANGE.match(args.entity_id)):
         if start is not None or count is not None:
             raise UsageError("give the line range once: ENTITY:START[:END] or --from/--count")

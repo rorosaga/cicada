@@ -199,6 +199,11 @@ struct EntityHistoryEntry: Identifiable, Codable {
     // G48: the conversations that produced this commit (parsed Cicada-Session:
     // trailers). Empty for pre-G48 and user-action commits.
     let sessions: [String]
+    /// Vision item 5 (2026-10-28): this page's own manifest trigger and the door it names (`git_service.history_via`:
+    /// sleep | app | agent | remote | inbox | sync | cicada | unknown) — Sleep as a tag, the author as the picture.
+    /// "" / "unknown" from an older backend.
+    var trigger: String = ""
+    var via: String = "unknown"
 
     var dateValue: Date {
         let f = DateFormatter()
@@ -207,7 +212,7 @@ struct EntityHistoryEntry: Identifiable, Codable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case date, changeType, description, author, authorKind, authorProvider, commitHash, diff, sessions
+        case date, changeType, description, author, authorKind, authorProvider, commitHash, diff, sessions, trigger, via
     }
 
     init(from decoder: Decoder) throws {
@@ -221,6 +226,8 @@ struct EntityHistoryEntry: Identifiable, Codable {
         commitHash = try c.decodeIfPresent(String.self, forKey: .commitHash) ?? ""
         diff = try c.decodeIfPresent(EntityDiff.self, forKey: .diff)
         sessions = try c.decodeIfPresent([String].self, forKey: .sessions) ?? []
+        trigger = (try? c.decodeIfPresent(String.self, forKey: .trigger)) ?? ""
+        via = (try? c.decodeIfPresent(String.self, forKey: .via)) ?? "unknown"
     }
 
     init(
@@ -258,6 +265,8 @@ struct EntityHistoryEntry: Identifiable, Codable {
         try c.encode(commitHash, forKey: .commitHash)
         try c.encodeIfPresent(diff, forKey: .diff)
         try c.encode(sessions, forKey: .sessions)
+        try c.encode(trigger, forKey: .trigger)
+        try c.encode(via, forKey: .via)
     }
 }
 
@@ -810,6 +819,10 @@ struct Entity: Identifiable, Codable {
     /// not mentioned yet (`quiet_pages`): drawn dimmed in lists and the graph. Derived by the backend on every read,
     /// never stored; false from an older backend.
     var quiet: Bool = false
+    /// Owner ruling 44 (G121) — why the page matters to the person, derived on read; nil from an older backend.
+    var relevance: EntityRelevance? = nil
+    /// Vision item 5 (2026-10-28) — which blocks the page has and their data; nil from an older backend or a stub.
+    var blocks: PageBlocks? = nil
 
     var pictureRef: EntityPictureRef? { EntityPictureRef.wire(url: pictureURL, source: pictureSource) }
 
@@ -846,7 +859,7 @@ struct Entity: Identifiable, Codable {
         case id, name, type, status, confidence, created, lastReferenced
         case decayRate, decayClass, decay, sourceEpisodes, tags, related, version
         case markdownContent, rawMarkdown, rawOmitted, path, media, history, historyTruncated, isOwner
-        case pictureURL = "picture", pictureSource, pictureInputs, quiet
+        case pictureURL = "picture", pictureSource, pictureInputs, quiet, relevance, blocks
     }
 
     init(from decoder: Decoder) throws {
@@ -888,6 +901,8 @@ struct Entity: Identifiable, Codable {
         pictureSource = (try? c.decodeIfPresent(String.self, forKey: .pictureSource)) ?? nil
         pictureInputs = (try? c.decodeIfPresent(PictureInputs.self, forKey: .pictureInputs)) ?? nil
         quiet = (try? c.decodeIfPresent(Bool.self, forKey: .quiet)) ?? false
+        relevance = (try? c.decodeIfPresent(EntityRelevance.self, forKey: .relevance)) ?? nil
+        blocks = (try? c.decodeIfPresent(PageBlocks.self, forKey: .blocks)) ?? nil
     }
 
     /// Fallback parser for the nested `media:` block when the backend hasn't

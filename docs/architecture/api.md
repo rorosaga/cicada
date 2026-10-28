@@ -41,6 +41,31 @@ committed alone as `Page edit <date>` with `entities/<id>.md: edited (trigger: u
 and `Cicada-Author: user` — a second door onto one writer, as the CLI is (ruling 21). 400: a request the editor refuses;
 409: words no longer on the page; 404: no page. The link-view switcher sends one `{old, new, all: true, pin: true}` row.
 
+**The card's blocks and its ETag (vision item 5, 2026-10-28; `page_blocks`).** `GET /entities/{id}` carries
+`blocks: {shape, order, relevance, sources, coordinates, looks, ongoing, ongoingTotal, history}` — which blocks the
+page has (`order`, in the page order the redesign proposal draws: why it matters, where to check, the type block,
+what is ongoing, who changed it) and each one's data, derived on read, never stored, never fetched: `relevance` (the
+`page_relevance` dict, also still top-level), `sources` (at most 12 "where to check" rows, each `state` one of
+`proposed|dead|changed|stale|checked|unchecked|unconfirmed` from `source_refresh`'s own rules, `site`, `checkedAt`,
+`iconSite` — the stored icon route, no fetch — plus `total`, `proposed`, `tracked`), `coordinates` (`lat`/`lon` the
+page itself stores, with its name as `label`; never geocoded), `looks` (the page's looks from `design_refs`, palette,
+type and the screenshot route, indexed once per `design` stamp), `ongoing` (open happenings and planned milestones,
+heads only, `verbatim` when the words are the person's own) and `history` (contributors with change counts and last
+day, `bySleep`; the rows are `history[]`, which gains `trigger` — the page's own manifest-line trigger — and `via`,
+the door it names: `sleep|app|agent|remote|inbox|sync|cicada|unknown`, so Sleep is a tag and the author the picture).
+Blame stays lazy (`/blame`); beliefs are not on open (the 2026-10-09 speed ruling). The wire is pinned on both sides
+by `api/tests/fixtures/page_blocks.json` (`test_page_blocks.py`, `PageBlocksTests.swift`). **The route now has an
+ETag** (`page_blocks.card_etag`): a handful of `stat` calls — this page and its ledger, the owner page and its ledger,
+the `entities`, `episodes` and `design` directories by their own mtime (every bank write is a rename, which moves it),
+the git head, the logo and people-photo stamps, the day, `SHAPE`, the bank's path and the decay pace — checked
+before the page is parsed or its history read, so a held card answers 304 without either. A hand edit made in place
+to another page is not seen until the next real write. Not a Store domain: the app's client mapping is
+`EntityCardCache` inside `APIClient.fetchEntity` (24 pages, in memory, `If-None-Match`, a 304 returns the held copy,
+reset on a bank switch). The card's reads run in one worker thread under one `bank_index.shared_scans` block, so the
+relevance line's two listings of `entities/` became one. Measured in process (TestClient) on a copy of the owner's
+bank (8,027 pages, 1,563 commits; 60 pages, 3 warm passes, baseline and branch alternated twice): warm p50 237–248 →
+190 ms, p95 440–446 → 301–311 ms (most of what is left is the page's `git log`); a 304 p50 1.0 ms, p95 1.4 ms.
+
 **Where a page's knowledge comes from (owner 2026-10-14, G61).** `GET /entities/{id}/sources/overview`
 (`page_sources.overview`) answers the card's one section in one read: `sources[]` (each the `/sources` entry plus
 `site`, a `title` (the page's `## Links` title for that URL, else the name of the saved page `entity:` links it to —
@@ -484,6 +509,28 @@ client that reads by id is unaffected. Their status is probed by `cli_engines.st
 spends, 8 s per command, Cursor's two side by side); the GET serves the last known state while a refresh runs, so a hung
 tool never holds the Sleep page. A scheduled preview of a chosen Grok is `none` (it reads only when you start one). Previews name `cursor-cli` / `opencode-cli` / `grok-cli` with `billing: plan`; the field is named
 `billingNote`, never a cost or price, because prices ride only `usage`/`modelPrices` (ruling 12).
+
+**The model catalogue on every card (vision item 4, 2026-10-28; `model_catalogue`).** Each candidate gains an
+optional `catalogue`: `{engine, source, asOf, drift, models: [{id, source, asOf, family, firstSeen, new, resolvesTo,
+resolvedAt}]}` describing its `models` (unchanged, so an older app and the R-HS7 first-model tap read what they read).
+A model's `source` is `harness` (the person's own tool listed it: `claude --help`, `agent models`, `opencode models`,
+`grok models`, the ChatGPT plan's app-server `model/list`, Ollama's tags), `documented` (the Claude plan alias the
+harness accepts but its help did not name), `default` (a key card's one default) or `saved` (the person's choice no
+list names, never dropped — `stale_model_sentence` holds). **Harness-reported only: Cicada fetches no vendor page or
+list** (whether it may is the owner's call). The Claude plan's list needs no code edit: `claude --help`'s `--model`
+aliases (today `fable`, `opus`, `sonnet`), cached a day in `$CICADA_HOME/model_catalogue.json` (ids, days, times only;
+outside every bank, disposable) and refreshed in a background thread — the GET never waits on it, no hook imports it —
+beside the documented `sonnet`, `haiku`, `opus`, which keep the card's first model where it was. `resolvesTo` is what a
+real run reported an alias served (`agent_engine.response_shim`, written only when it changes). `firstSeen` is null
+for every model present the first time an engine is catalogued and the day for one that arrived later; `new` is a
+first sight within 14 days. **Drift fails loudly:** a listing that answered with words and no id
+(`cli_engines.listing_drifted`), a `model/list` result in a shape with no `model` key (`CodexSnapshot.models_drift`), or
+a help text whose `--model` option or quoted aliases moved (`FormatDrift`) sets `drift` to a sentence and logs a
+warning; OpenCode and Grok then read as not connected (they always pass an explicit model and cannot pick one blind),
+Cursor keeps its own `auto`, the Claude plan keeps its last good list. One fixture per harness pins each parser
+(`api/tests/fixtures/model_lists/`, `test_model_catalogue.py`). Measured: `GET /sleep/engine` p95 17.6–18.1 →
+18.4–19.3 ms in process on an owner-scale bank copy, no plan CLI on the path (30 reads, alternated runs; the cache
+file is parsed once per stamp).
 
 **A request runs in one bank, and a write only in the bank it was made in (`bank_binding`, G183(d)).** One
 app-wide dependency (`bank_binding.require_same_bank`, beside `require_token` in `api/main.py`) does two things:

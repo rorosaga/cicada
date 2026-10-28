@@ -1,0 +1,3 @@
+Models:
+  grok-4.6
+  grok-4.6-mini

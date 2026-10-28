@@ -24,6 +24,7 @@ from fastapi import HTTPException
 
 from api.config import Settings
 from api.models.schemas import (
+    ModelCatalogue,
     SleepEngineCandidate,
     SleepEngineChoice,
     SleepEngineModelPrice,
@@ -36,7 +37,7 @@ from api.models.schemas import (
     SleepReserveWindow,
 )
 from api.services import (agent_engine, cli_engines, codex_app_server, codex_engine, cycle_usage, engine_select,
-                          telemetry)
+                          model_catalogue, telemetry)
 from api.services.connections import byok, secrets
 from api.services.connections import registry as registry_module
 
@@ -46,13 +47,10 @@ PREF_KEY = engine_select.SLEEP_ENGINE_PREF_KEY
 # `codex` be writable here yet silently ignored there, or the reverse.
 VALID_MODES = engine_select._VALID_PREF_MODES
 
-# The agent rung's model picker offers these plus whatever `agent_model` is
-# already configured (so an existing non-default choice never disappears
-# from the list just because this page hasn't seen it before). Claude Code has
-# no command that lists models outside its interactive `/model` (checked
-# 2026-10-28, code.claude.com/docs/en/cli-reference), so the aliases stay a
-# documented list — each alias always names the latest model of its family.
-_AGENT_MODEL_CHOICES = ("sonnet", "haiku", "opus")
+# The agent rung's model picker: Claude Code has no command that lists models outside its interactive `/model`, so
+# its list is what `claude --help` names plus the documented aliases (`model_catalogue.claude_plan`, vision item 4) —
+# each alias always the latest model of its family — plus whatever `agent_model` is configured, so an existing
+# non-default choice never disappears from the list.
 
 # R-AG12: a key model is handed to LiteLLM as-is, so the PUT checks its shape
 # before it is stored — a leading letter or digit (never `-`, never a space),
@@ -150,7 +148,11 @@ async def _candidates(settings: Settings, reg, *, mode: str, model: str | None) 
     chatgpt = statuses.get(engine_select.CODEX_CONNECTION_ID)
     ollama = statuses.get(engine_select.OLLAMA_CONNECTION_ID)
 
-    agent_models = list(_AGENT_MODEL_CHOICES)
+    # Vision item 4 (2026-10-28): the Claude plan's aliases as `claude --help` names them (cached a day, refreshed in
+    # the background — this read never waits on it), the documented ones beside them; a configured or saved choice
+    # stays listed (never swapped).
+    saved_agent = (model if mode == "agent" else None) or settings.agent_model or None
+    agent_models, agent_catalogue = model_catalogue.claude_plan(saved_agent)
     if settings.agent_model and settings.agent_model not in agent_models:
         agent_models.append(settings.agent_model)
 
@@ -243,11 +245,49 @@ async def _candidates(settings: Settings, reg, *, mode: str, model: str | None) 
             detail=st.detail, billing_note=spec.billing_note, sign_in=spec.sign_in,
             model_note=cli_engines.stale_model_sentence(spec, st, saved),
         ))
+    _attach_catalogues(cards, agent_catalogue=agent_catalogue, snap=snap, configured_codex=configured_codex,
+                       ollama_models=ollama_models, cli_statuses=dict(zip(cli_engines.SPECS, statuses_cli)),
+                       mode=mode, model=model)
     key_model = (model if mode == "byok" and model and selected_card(mode, model) != "openrouter" else None) \
         or (key_models[0] if key_models else None) or settings.litellm_model
     await _attach_usage(cards, snap, or_models=or_models, key_model=key_model,
                         bank=telemetry.bank_name(settings))
     return cards
+
+
+def _attach_catalogues(cards, *, agent_catalogue: dict, snap, configured_codex: str, ollama_models: list[str],
+                       cli_statuses: dict, mode: str, model: str | None) -> None:
+    """Vision item 4: each card's ``models`` described — where each came from and when — from the reads this request
+    already made (no probe of its own). The key cards list one default, said as ``default``."""
+    import time as _time
+
+    by_id = {c.id: c for c in cards}
+    if (c := by_id.get("agent")) is not None:
+        c.catalogue = ModelCatalogue(**agent_catalogue)
+    if (c := by_id.get("codex")) is not None:
+        roster = [(m, "harness") for m in (snap.models if snap else ())]
+        c.catalogue = ModelCatalogue(**model_catalogue.catalogue(
+            "codex-cli", roster, as_of=snap.as_of if snap else None, source="model/list",
+            drift=bool(snap and snap.models_drift), saved=configured_codex or None))
+    if (c := by_id.get("local")) is not None:
+        c.catalogue = ModelCatalogue(**model_catalogue.catalogue(
+            "ollama", [(m, "harness") for m in ollama_models], as_of=_time.time() if ollama_models else None,
+            source="ollama tags", saved=model if mode == "local" else None))
+    for card_id in ("openrouter", "byok"):
+        if (c := by_id.get(card_id)) is not None:
+            c.catalogue = ModelCatalogue(**model_catalogue.catalogue(
+                "litellm", [(m, "default") for m in c.models], as_of=None, source="default"))
+    for spec_mode, st in cli_statuses.items():
+        spec, c = cli_engines.SPECS[spec_mode], by_id.get(spec_mode)
+        if c is None:
+            continue
+        listed = set(st.models or ())
+        rows = [(m, "harness" if m in listed else ("default" if m in spec.default_models else "saved"))
+                for m in c.models]
+        c.catalogue = ModelCatalogue(**model_catalogue.catalogue(
+            spec.label, [r for r in rows if r[1] != "saved"], as_of=st.as_of or None,
+            source=f"{spec.binaries[0]} models", drift=st.drift,
+            saved=next((m for m, how in rows if how == "saved"), None)))
 
 
 def _plan_window_usage(snap) -> SleepEngineUsage | None:

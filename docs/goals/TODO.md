@@ -50,6 +50,12 @@
   pairs, 3 new a drain. "Still interested?" questions are claim-level (an open interest claim 60–365 days silent),
   not decay questions, and rest on the owner's 2026-10-28 item-10 request. No rail or ruling changed. **Next:** the owner tunes the weights and N, and decides remote
   access, third-party roles and where the inbox sits in the app (report `vision-pr3-inbox-catchup`).
+- **2026-10-28 — page blocks and the model catalogue (vision items 5 and 4; G121, G122; branch
+  `feat/vision-page-contract-models`).** `GET /entities/{id}` serves `blocks` (`page_blocks`) and an ETag of stats
+  only (the app's `EntityCardCache`), history rows `trigger`/`via`, and the card one "why it matters" line;
+  `cicada_recall_detail(include=…)` words the same blocks (never per-page history remotely). Every engine card
+  carries a `catalogue` (harness-reported only; the Claude plan list follows `claude --help`; drift said in words, a
+  fixture per harness). Waits on the owner: a public vendor model list, key-provider listing, the page layout (D).
 - **2026-10-28 — ruling 46 recorded; Auto reaches Cursor and OpenCode after the two plans (G49, G50; branch
   `feat/auto-ladder-46`).** Auto: Claude plan → ChatGPT plan → Cursor → OpenCode on a subscription model; Grok is in
   neither Auto nor scheduled runs until a live sign-in shows what a subscription call reports. Read from #494's cached
