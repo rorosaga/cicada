@@ -153,6 +153,8 @@ _PROMPT_PROPER_NOUNS = frozenset(
         "Postgres", "SQLite", "Mongo", "MongoDB", "GitHub", "Python", "Docker",
         # calendar words in G194's TIME examples ("In February 2025, …", "met on Monday")
         "February", "Monday",
+        # the product's own name, the same on every bank (the catch-up chat introduces itself, #509)
+        "Cicada",
     }
 )
 

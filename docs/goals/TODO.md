@@ -10,6 +10,11 @@
 
 ## Current state and evidence
 
+- **2026-10-29 — Speed + quality (branch `fix/speed-quality-1`).** dev's full-suite failures sorted: the writer
+  inventory gained the twelve writers #492, #500, #501 and #508 added (each with its disposition); the four bench budgets
+  that failed at load 30–55 pass at load 8–20 on the same commit (no regression from #496–#503) and now measure CPU time;
+  the hung-tool engine test injects the runner's timeout answer; the shared stdio server starts every test with no client.
+  `GET /inbox` warm p95 529 → 69 ms at the owner's scale (G115 row). Report: `speed-quality-1`.
 - **2026-10-28 — Projects v3 (G141, G222; decisions 9, 10, 17; branch `feat/projects-v3`).** The project page has no
   folds: Pulse (counted, no model, one fixture for Python and Swift), In motion, Coming up and Timeline open and capped
   with "All N"; Pages in this project with Add / Not part of it (`entities_added`/`entities_removed`, frontmatter, one
