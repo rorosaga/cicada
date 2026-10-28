@@ -250,6 +250,15 @@ struct TracesPage: View {
                            isOn: recorder.settings.watchAndRead) { on in
                         patch(recorder, ["watch_and_read": .bool(on)])
                     }
+                    if recorder.settings.readingNotice {
+                        HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingSM) {
+                            caption(Copy.Traces.readingNotice)
+                            Spacer(minLength: CicadaTheme.spacingSM)
+                            TextButton(title: Copy.Traces.gotIt, inline: true) {
+                                patch(recorder, ["reading_notice": .bool(false)])
+                            }
+                        }
+                    }
                     if recorder.offersAllScreens {
                         HStack(spacing: CicadaTheme.spacingSM) {
                             caption(Copy.Traces.allScreensOffer)

@@ -45,7 +45,7 @@ def client(tmp_path, monkeypatch):
 @pytest.fixture
 def store(tmp_path):
     s = trace_store.TraceStore(root=tmp_path / "t", keys=trace_keys.FileKeyProvider(tmp_path / "k"))
-    s.turn_on(trace_store.CONSENT_VERSION, now=_now() - timedelta(days=3))
+    s.turn_on(trace_store.CONSENT_VERSION, displayed_version=2, now=_now() - timedelta(days=3))
     s.update({"browsers": ["chrome"]})
     return s
 
@@ -112,11 +112,50 @@ def test_a_settings_file_from_before_migrates_without_widening_a_model_read(stor
 
 def test_agreeing_to_the_newer_sheet_while_paused_keeps_the_pause(store):
     store.pause(trace_store.UNTIL_RESUMED)
-    values = store.turn_on(trace_store.CONSENT_VERSION)
+    values = store.turn_on(trace_store.CONSENT_VERSION, displayed_version=2)
     assert values["paused_until"] == trace_store.UNTIL_RESUMED
     assert values["consent_version"] == trace_store.ALL_SCREENS_CONSENT
     with pytest.raises(trace_store.PayloadError):
         store.turn_on(1)   # a sheet the person did not see is refused
+
+
+def test_the_recorded_sheet_is_the_one_the_app_displayed(tmp_path):
+    """Review of #508, must-fix 6: an app from before 2026-10-28 echoes the served version but showed sheet 1."""
+    s = trace_store.TraceStore(root=tmp_path / "t", keys=trace_keys.FileKeyProvider(tmp_path / "k"))
+    assert s.turn_on(trace_store.CONSENT_VERSION)["consent_version"] == 1          # an old app: no displayed version
+    assert s.turn_on(trace_store.CONSENT_VERSION, displayed_version=2)["consent_version"] == 2
+    with pytest.raises(trace_store.PayloadError):
+        s.turn_on(trace_store.CONSENT_VERSION, displayed_version=trace_store.CONSENT_VERSION + 1)   # unknown sheet
+    with pytest.raises(trace_store.PayloadError):
+        s.turn_on(trace_store.CONSENT_VERSION, displayed_version=0)
+
+
+def test_the_store_refuses_a_whole_screen_frame_under_sheet_one(tmp_path):
+    """Review of #508, must-fix 5: policy parity — the store holds the rail too, not only the app."""
+    s = trace_store.TraceStore(root=tmp_path / "t", keys=trace_keys.FileKeyProvider(tmp_path / "k"))
+    s.turn_on(trace_store.CONSENT_VERSION)   # sheet 1
+    at = _now() - timedelta(minutes=5)
+    with pytest.raises(trace_store.TracesOff):
+        _frame(s, "frame-0001", at, display=1, displays=2)
+    assert _frame(s, "frame-0002", at) == "frame-0002"   # the front window, as sheet 1 says
+    s.turn_on(trace_store.CONSENT_VERSION, displayed_version=2)
+    assert _frame(s, "frame-0003", at, display=1, displays=2) == "frame-0003"
+
+
+def test_an_upgrade_with_the_youtube_switch_on_says_once_that_it_now_covers_every_site(store):
+    key = store.keys.load()
+    stored = {k: v for k, v in trace_store.DEFAULTS.items()
+              if k not in ("learn_from_day", "watch_and_read", "reading_notice")}
+    stored.update(enabled=True, consent_version=1, youtube_to_watch_history=True)
+    (store.root / "settings.enc").write_bytes(trace_seal.seal(key, json.dumps(stored).encode(), "settings"))
+    assert store.settings()["reading_notice"] is True
+    assert store.update({"reading_notice": False})["reading_notice"] is False
+    assert store.settings()["reading_notice"] is False                  # once
+    with pytest.raises(trace_store.PayloadError):
+        store.update({"reading_notice": True})                          # only the person clears it
+    off = {**stored, "youtube_to_watch_history": False}
+    (store.root / "settings.enc").write_bytes(trace_seal.seal(key, json.dumps(off).encode(), "settings"))
+    assert store.settings()["reading_notice"] is False                  # nothing changed for them
 
 
 # --- what you watch and read, on any site --------------------------------------------------------------------------
@@ -216,24 +255,29 @@ def test_the_preview_is_exactly_the_digest_sleep_reads(client):
 # --- what traces added, Remove from memory, Undo --------------------------------------------------------------------
 
 
-def _claim_page(memory: Path, eid: str, digest: str, other: str) -> None:
-    page = memory / "entities" / f"{eid}.md"
-    parsed = markdown_parser.parse(page)
-    only = Claim(id="clm_only_trace", text="Spends mornings on writing.", subject=eid, predicate="habit",
-                 object="writing", object_kind="literal", source_episodes=[digest],
-                 evidence=[Evidence(episode=digest)])
-    progress = Claim(id="clm_progress_trace", text="Worked on the draft.", subject=eid, predicate="happened",
-                     object="draft", object_kind="literal", status="done", valid_from="2026-10-27",
-                     source_episodes=[digest])
-    mixed = Claim(id="clm_mixed", text="Uses the editor.", subject=eid, predicate="uses", object="editor",
-                  object_kind="literal", source_episodes=[digest, other])
-    fm = {**parsed.frontmatter, "source_episodes": [digest, other]}
-    markdown_parser.write(page, fm, write_claims(parsed.body, [only, progress, mixed]))
+def _claims_through_the_writers(memory: Path, digest: str, other: str) -> None:
+    """Review of #508, B2: built by the real writers — a done happening is born closed (``valid_to = valid_from``)."""
+    from api.services import agentic_write, progress
+
+    yesterday = (_now() - timedelta(days=1)).date()
+    r = progress.record_happening(memory, subject="alpha-project", text="Worked on the draft", status="done",
+                                  source_episode=digest, day=yesterday, date_basis="episode", observer="agent",
+                                  origin="sleep", authored_by="claude-haiku-test")
+    assert r["action"] == "written", r
+    for predicate, obj, episode in [("habit", "morning writing", digest), ("uses", "the editor", digest),
+                                    ("uses", "the editor", other)]:
+        w = agentic_write.write_claim(memory, "bob-example", predicate, obj, observer="agent", object_kind="literal",
+                                      source_episode=episode, origin="sleep", authored_by="claude-haiku-test")
+        assert w.get("action") in ("written", "reinforced", "created", "updated"), w
 
 
 def _commit_all(memory: Path) -> None:
     subprocess.run(["git", "-C", str(memory), "add", "-A"], check=True, capture_output=True)
     subprocess.run(["git", "-C", str(memory), "commit", "-qm", "fixture"], check=True, capture_output=True)
+
+
+def _claims(memory: Path, eid: str) -> list:
+    return parse_claims(markdown_parser.parse(memory / "entities" / f"{eid}.md").body)
 
 
 def test_remove_from_memory_takes_back_only_what_traces_alone_said_in_one_commit_and_undo_restores_it(client):
@@ -244,30 +288,55 @@ def test_remove_from_memory_takes_back_only_what_traces_alone_said_in_one_commit
     trace_store.store().add_spans([_span("span-0001", at, minutes=40, bundle_id=EDITOR, app="Editor")], now=_now())
     c.post("/sources/traces/sync", json={"spans": []})
     digest = next(iter(_episodes(memory, "traces-day:").values())).frontmatter["id"]
-    _claim_page(memory, "bob-example", digest, "ep_2026-09-01_001")
+    _claims_through_the_writers(memory, digest, "ep_2026-09-01_001")
     _commit_all(memory)
     bank_index.invalidate(memory)
+    happening = next(cl for cl in _claims(memory, "alpha-project") if cl.predicate == "happened")
+    born = happening.valid_to
+    assert born is not None, "a done happening is born closed — the case the first fixture missed"
     added = c.get("/sources/traces/added").json()
     assert (added["beliefs"], added["progress"]) == (1, 1) and added["since"] == at.date().isoformat()
-    assert {i["claim_id"] for i in added["items"]} == {"clm_only_trace", "clm_progress_trace"}   # never the mixed one
     head = subprocess.run(["git", "-C", str(memory), "rev-parse", "HEAD"], capture_output=True, text=True).stdout
     r = c.post("/sources/traces/remove-from-memory")
     assert r.status_code == 200 and r.json()["removed"] == 2
     log = subprocess.run(["git", "-C", str(memory), "log", "--format=%s", f"{head.strip()}..HEAD"],
                          capture_output=True, text=True).stdout.strip().splitlines()
     assert len(log) == 1 and "Removed from memory" in log[0]                                # ONE commit
-    claims = {cl.id: cl for cl in parse_claims(markdown_parser.parse(memory / "entities" / "bob-example.md").body)}
-    assert claims["clm_only_trace"].valid_to and claims["clm_progress_trace"].valid_to       # closed, kept as history
-    assert claims["clm_mixed"].valid_to is None                                             # another conversation says it
+    happening = next(cl for cl in _claims(memory, "alpha-project") if cl.predicate == "happened")
+    assert happening.superseded_by and happening.valid_to == born                           # taken back, dates kept
+    bob = {cl.predicate: cl for cl in _claims(memory, "bob-example") if cl.predicate != "retracts"}
+    assert bob["habit"].superseded_by and bob["habit"].valid_to                              # closed, kept as history
+    assert bob["uses"].valid_to is None and not bob["uses"].superseded_by                   # another conversation says it
     assert c.get("/sources/traces/added").json()["beliefs"] == 0
     rid = r.json()["removal_id"]
     assert [x["id"] for x in c.get("/sources/traces/added").json()["removals"]] == [rid]
     u = c.post("/sources/traces/remove-from-memory/undo", json={"removal_id": rid})
     assert u.status_code == 200 and u.json()["restored"] == 2
-    claims = {cl.id: cl for cl in parse_claims(markdown_parser.parse(memory / "entities" / "bob-example.md").body)}
-    assert claims["clm_only_trace"].valid_to is None and claims["clm_progress_trace"].valid_to is None
-    assert not [cl for cl in claims.values() if cl.predicate == "retracts"]
+    happening = next(cl for cl in _claims(memory, "alpha-project") if cl.predicate == "happened")
+    assert happening.valid_to == born and not happening.superseded_by                        # exactly as it was
+    habit = next(cl for cl in _claims(memory, "bob-example") if cl.predicate == "habit")
+    assert habit.valid_to is None and not habit.superseded_by
+    assert not [cl for e in ("alpha-project", "bob-example") for cl in _claims(memory, e) if cl.predicate == "retracts"]
     assert c.post("/sources/traces/remove-from-memory/undo", json={"removal_id": rid}).status_code == 404
+
+
+def test_remove_after_a_wipe_is_refused_and_changes_nothing(client):
+    """Review of #508, B3: with no key, the undo record cannot be kept, so nothing is removed."""
+    c, memory = client
+    assert c.post("/sources/traces/on", json={"consent_version": trace_store.CONSENT_VERSION}).status_code == 200
+    c.put("/sources/traces/settings", json={"learn_from_day": True})
+    trace_store.store().add_spans([_span("span-0001", _yesterday_at(9), minutes=40, bundle_id=EDITOR, app="Editor")],
+                                  now=_now())
+    c.post("/sources/traces/sync", json={"spans": []})
+    digest = next(iter(_episodes(memory, "traces-day:").values())).frontmatter["id"]
+    _claims_through_the_writers(memory, digest, "ep_2026-09-01_001")
+    _commit_all(memory)
+    bank_index.invalidate(memory)
+    assert c.post("/sources/traces/wipe", json={"confirm": True}).status_code == 200
+    before = (memory / "entities" / "bob-example.md").read_bytes()
+    r = c.post("/sources/traces/remove-from-memory")
+    assert r.status_code == 409 and "could not be undone" in r.json()["detail"]
+    assert (memory / "entities" / "bob-example.md").read_bytes() == before
 
 
 # --- managing traces by day ------------------------------------------------------------------------------------------
@@ -315,6 +384,24 @@ def test_deleting_a_span_takes_its_screenshots_and_a_whole_day_goes_at_once(clie
     assert c.post("/sources/traces/delete", json={"day": day, "all": True}).json() == {"spans": 1, "frames": 1}
     assert c.get("/sources/traces/day-cards").json()["days"] == []
     assert not (s.root / "shots" / day).exists()
+
+
+def test_deleting_a_span_across_midnight_takes_its_next_day_screenshots(store):
+    """Review of #508: a span is filed under the day it started; its screenshots after midnight under the next."""
+    midnight = datetime.combine(_now().date(), datetime.min.time(), tzinfo=timezone.utc)
+    start = midnight - timedelta(minutes=20)
+    store.add_spans([_span("span-0001", start, minutes=40, bundle_id=EDITOR, app="Editor"),
+                     _span("span-0002", midnight + timedelta(minutes=30), minutes=10, bundle_id=EDITOR, app="Editor")],
+                    now=_now())
+    _frame(store, "frame-0001", start + timedelta(minutes=5), span_id="span-0001")
+    _frame(store, "frame-0002", midnight + timedelta(minutes=10), span_id="span-0001")
+    _frame(store, "frame-0003", midnight + timedelta(minutes=12))          # no span id, inside its time range
+    _frame(store, "frame-0004", midnight + timedelta(minutes=35), span_id="span-0002")
+    gone = store.delete(trace_store.local_day(start), spans=["span-0001"])
+    assert gone == {"spans": 1, "frames": 3}
+    left = store.timeline(trace_store.local_day(midnight))
+    assert [f["id"] for f in left["frames"]] == ["frame-0004"] and [x["id"] for x in left["spans"]] == ["span-0002"]
+    assert not (store.root / "shots" / midnight.date().isoformat() / "frame-0002.enc").exists()
 
 
 def test_a_frame_keeps_which_screen_it_shows_only_when_it_makes_sense(store):

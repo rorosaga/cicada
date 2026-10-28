@@ -160,10 +160,14 @@ final class TraceRecorder {
         }
     }
 
+    /// The sheet this app shows (`TracesConsentSheet`): 2 says screenshots cover every connected screen. Sent as what
+    /// the person saw — never the version the backend serves (review of #508, must-fix 6).
+    nonisolated static let sheetVersion = 2
+
     /// The consent sheet's Turn on.
     func turnOn() async throws {
         guard TraceBackendGate.allows(connection()) else { throw TraceBackendError.notThisMac }
-        apply(try await backend.traceTurnOn(consentVersion: consentVersion))
+        apply(try await backend.traceTurnOn(consentVersion: consentVersion, displayedVersion: Self.sheetVersion))
     }
 
     func turnOff() async {

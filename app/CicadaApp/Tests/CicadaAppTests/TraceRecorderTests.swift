@@ -26,8 +26,9 @@ final class TraceRecorderTests: XCTestCase {
 
         private func note(_ call: String) { lock.lock(); calls.append(call); lock.unlock() }
         func traceSettings() async throws -> TraceSettingsAnswer { note("settings"); return answer }
-        func traceTurnOn(consentVersion: Int) async throws -> TraceSettingsAnswer {
-            note("on"); answer.settings.enabled = true; return answer
+        private(set) var displayedVersions: [Int] = []
+        func traceTurnOn(consentVersion: Int, displayedVersion: Int) async throws -> TraceSettingsAnswer {
+            note("on"); displayedVersions.append(displayedVersion); answer.settings.enabled = true; return answer
         }
         func traceTurnOff() async throws -> TraceSettingsAnswer { note("off"); answer.settings.enabled = false; return answer }
         func traceUpdate(_ patch: [String: TracePatchValue]) async throws -> TraceSettingsAnswer { note("update"); return answer }
@@ -557,6 +558,43 @@ final class TraceRecorderTests: XCTestCase {
         XCTAssertFalse(shown("com.example.Vault"), "an app never recorded")
         XCTAssertFalse(shown("com.apple.notificationcenterui"), "banners show other apps' words")
         XCTAssertFalse(shown("com.rorosaga.cicada.test"), "Cicada itself")
+    }
+
+    /// Review of #508, must-fix 6: the sheet this app showed is what is sent, never the version the backend serves.
+    func testTurnOnSendsTheSheetThisAppShowed() async throws {
+        let recorder = makeRecorder { $0.enabled = false }
+        backend.answer = TraceSettingsAnswer(settings: backend.answer.settings, status: backend.answer.status,
+                                             policy: backend.answer.policy, consentVersion: 7)
+        await recorder.start()
+        try await recorder.turnOn()
+        XCTAssertEqual(backend.displayedVersions, [TraceRecorder.sheetVersion])
+    }
+
+    /// Review of #508, B1: the every-screen picture is an allow-list — unknown, new and helper windows are not drawn.
+    func testOnlyListedWindowsOfAppsThatMayBeDescribedAreDrawn() async {
+        func w(_ id: UInt32, _ bundle: String, pid: Int32, layer: Int = 0, here: Bool = true) -> TraceScreenWindow {
+            TraceScreenWindow(id: id, bundleId: bundle, pid: pid, layer: layer, onScreen: true, onThisScreen: here)
+        }
+        let recorder = makeRecorder()
+        await recorder.start()   // the backend's lists: chat apps keep no titles
+        let shown = TraceScreens.shown(recorder.policy) { _ in false }
+        let regular: (Int32) -> Bool = { $0 < 100 }   // fixtures: pids under 100 are Dock apps
+        let windows = [
+            w(1, "com.example.Editor", pid: 10),
+            w(2, "com.google.Chrome", pid: 11),                         // a browser window, not the vetted one
+            w(3, "com.google.Chrome", pid: 11),                         // the vetted front window
+            w(4, "com.apple.quicklook.QuickLookUIService", pid: 500),  // a Mail attachment's preview
+            w(5, "com.apple.appkit.xpc.openAndSavePanelService", pid: 501),
+            w(6, "com.example.Helper", pid: 502),                       // an unknown helper, not a Dock app
+            w(7, "com.example.Chat", pid: 12),                          // a chat app, titles off
+            w(8, "com.example.Editor", pid: 10, layer: 3),              // a floating panel
+            w(9, "com.example.Editor", pid: 10, here: false),           // on another screen
+            w(10, "", pid: 13),
+        ]
+        let allowed = TraceScreenPick.allowed(windows, frontWindowID: 3, frontPid: 11, shown: shown, regular: regular)
+        XCTAssertEqual(allowed, [1, 3])
+        XCTAssertEqual(TraceScreenPick.allowed(windows, frontWindowID: nil, frontPid: 11, shown: shown,
+                                               regular: regular), [1])
     }
 
     func testAnOlderBackendNeverTurnsEveryScreenOn() async {

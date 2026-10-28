@@ -145,26 +145,31 @@ struct LiveTraceScreenCapture: TraceScreenCapture {
     func captureScreens(frontPid: Int32, keepFrontWindow: Bool, maxSide: Int,
                         shown: @escaping @Sendable (String) -> Bool) async throws -> [TraceCapturedFrame] {
         guard CGPreflightScreenCaptureAccess() else { throw CaptureError.noAccess }
-        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-        // Cut out every app the policy may not describe, before the picture is taken (never blurred after).
-        let hidden = content.applications.filter { !shown($0.bundleIdentifier) }
-        var excepting: [SCWindow] = []
-        if keepFrontWindow {
-            // The one browser window whose tab was read and known not to be private, chosen as the front window is.
-            let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
-                as? [[String: Any]] ?? []
-            if let frontID = TraceWindowPick.frontWindowID(in: info, pid: frontPid),
-               let window = content.windows.first(where: { $0.windowID == frontID
-                   && $0.owningApplication?.processID == frontPid }) {
-                excepting.append(window)
-            }
-        }
         let main = CGMainDisplayID()
-        let displays = content.displays.sorted { ($0.displayID == main ? 0 : 1, $0.frame.minX, $0.frame.minY)
-            < ($1.displayID == main ? 0 : 1, $1.frame.minX, $1.frame.minY) }
+        let displays = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true).displays
+            .sorted { ($0.displayID == main ? 0 : 1, $0.frame.minX, $0.frame.minY)
+                < ($1.displayID == main ? 0 : 1, $1.frame.minX, $1.frame.minY) }
+            .prefix(TraceScreens.max)
         var frames: [TraceCapturedFrame] = []
-        for (index, display) in displays.prefix(TraceScreens.max).enumerated() {
-            let filter = SCContentFilter(display: display, excludingApplications: hidden, exceptingWindows: excepting)
+        for (index, display) in displays.enumerated() {
+            // An ALLOW-list, read fresh for each screen (review of #508, B1): only windows that are named here are drawn,
+            // so a window that appeared since, an app launched mid-capture, or a system helper with its own bundle id
+            // (Quick Look's preview, the open/save panel) is never in the picture.
+            let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
+            let frontID: UInt32? = keepFrontWindow ? TraceWindowPick.frontWindowID(
+                in: CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+                    as? [[String: Any]] ?? [], pid: frontPid) : nil
+            let candidates = content.windows.map { w in
+                TraceScreenWindow(id: w.windowID, bundleId: w.owningApplication?.bundleIdentifier ?? "",
+                                  pid: w.owningApplication?.processID ?? 0, layer: w.windowLayer, onScreen: w.isOnScreen,
+                                  onThisScreen: w.frame.intersects(display.frame))
+            }
+            let allowed = TraceScreenPick.allowed(candidates, frontWindowID: frontID, frontPid: frontPid, shown: shown) {
+                NSRunningApplication(processIdentifier: $0)?.activationPolicy == .regular
+            }
+            let windows = content.windows.filter { allowed.contains($0.windowID) }
+            guard !windows.isEmpty else { continue }   // nothing on this screen may be kept: no frame of it
+            let filter = SCContentFilter(display: display, including: windows)
             let config = SCStreamConfiguration()
             let scale = min(1.0, Double(maxSide) / Double(max(display.width, display.height)))
             config.width = max(1, Int(Double(display.width) * scale))
@@ -173,7 +178,7 @@ struct LiveTraceScreenCapture: TraceScreenCapture {
             let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
             guard let jpeg = Self.jpeg(image) else { throw CaptureError.encode }
             frames.append(TraceCapturedFrame(jpeg: jpeg, width: image.width, height: image.height, display: index + 1,
-                                             displays: min(displays.count, TraceScreens.max)))
+                                             displays: displays.count))
         }
         return frames
     }

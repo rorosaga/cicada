@@ -107,6 +107,35 @@ struct TraceFrameCadence: Equatable, Sendable {
     }
 }
 
+/// One window ScreenCaptureKit lists, as `TraceScreenPick` judges it (a value, so tests pass fixtures).
+struct TraceScreenWindow: Equatable, Sendable {
+    var id: UInt32
+    var bundleId: String
+    var pid: Int32
+    var layer: Int
+    var onScreen: Bool
+    var onThisScreen: Bool
+}
+
+/// Which windows a screen's picture may draw — an allow-list (review of #508, B1): a normal window, on screen and on this
+/// screen, of a regular app (a Dock app — never an XPC helper such as Quick Look's preview or the open/save panel) that
+/// the policy may describe; plus the one vetted browser window. Anything unknown, new or unlisted is left out.
+enum TraceScreenPick {
+    static func allowed(_ windows: [TraceScreenWindow], frontWindowID: UInt32?, frontPid: Int32,
+                        shown: (String) -> Bool, regular: (Int32) -> Bool) -> Set<UInt32> {
+        var out: Set<UInt32> = []
+        for w in windows where w.onScreen && w.onThisScreen && w.layer == 0 {
+            if let front = frontWindowID, w.id == front, w.pid == frontPid {
+                out.insert(w.id)
+                continue
+            }
+            guard !w.bundleId.isEmpty, shown(w.bundleId), regular(w.pid) else { continue }
+            out.insert(w.id)
+        }
+        return out
+    }
+}
+
 /// Every connected screen (owner 2026-10-28). Which apps may appear on a screen's picture: only an app the policy may
 /// describe — never a browser (one appears only through its vetted front window), a chat or mail app whose titles stay
 /// off, an app left out, a password manager, Cicada itself, or a system surface that shows other apps' words
@@ -115,7 +144,8 @@ enum TraceScreens {
     static let max = 8
     static let overlays: Set<String> = [
         "com.apple.notificationcenterui", "com.apple.UserNotificationCenter", "com.apple.Spotlight",
-        "com.apple.screencaptureui", "com.apple.WindowManager",
+        "com.apple.screencaptureui", "com.apple.WindowManager", "com.apple.quicklook.QuickLookUIService",
+        "com.apple.appkit.xpc.openAndSavePanelService", "com.apple.dock", "com.apple.controlcenter",
     ]
 
     /// `isBrowser`: a named browser, or any app registered to open https: links (review of #456, B3).

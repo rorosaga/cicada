@@ -2689,9 +2689,10 @@ actor APIClient {
         return try await get("/sources/traces/settings")
     }
 
-    func traceTurnOn(consentVersion: Int) async throws -> TraceSettingsAnswer {
+    func traceTurnOn(consentVersion: Int, displayedVersion: Int) async throws -> TraceSettingsAnswer {
         try traceGate()
-        return try await post("/sources/traces/on", body: ["consent_version": consentVersion])
+        return try await post("/sources/traces/on",
+                              body: ["consent_version": consentVersion, "displayed_version": displayedVersion])
     }
 
     func traceTurnOff() async throws -> TraceSettingsAnswer {

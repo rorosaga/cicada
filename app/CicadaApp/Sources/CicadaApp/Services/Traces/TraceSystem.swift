@@ -92,10 +92,11 @@ enum TraceWindowPick {
 ///
 /// **Front window** (consent sheet 1): the front app's front window only — the window the recorder already vetted.
 /// **Every connected screen** (consent sheet 2, owner 2026-10-28): one frame per screen, each showing only the windows
-/// of apps the policy may describe (`shown`) — every browser, chat or mail app (unless its titles were allowed), app
-/// left out, password manager, notification banner and Cicada itself is cut out of the picture before it is taken
-/// (`SCContentFilter(display:excludingApplications:exceptingWindows:)`), and a browser appears only through the one
-/// front window whose tab was read and known not to be private (`keepFrontWindow`).
+/// of apps the policy may describe (`shown`), named one by one (`SCContentFilter(display:including:)`, an allow-list
+/// read fresh for each screen, `TraceScreenPick`) — so every browser, chat or mail app (unless its titles were
+/// allowed), app left out, password manager, system helper, notification banner, Cicada itself and anything that
+/// appeared since is simply not drawn; a browser appears only through the one front window whose tab was read and
+/// known not to be private (`keepFrontWindow`).
 protocol TraceScreenCapture: Sendable {
     /// `CGPreflightScreenCaptureAccess()` — never the requesting variant.
     func hasAccess() -> Bool
@@ -127,7 +128,8 @@ protocol TracePermissionProbe: Sendable {
 /// talks to a server (`TraceBackendGate`), so a client Mac's traces never leave it.
 protocol TraceBackend: Sendable {
     func traceSettings() async throws -> TraceSettingsAnswer
-    func traceTurnOn(consentVersion: Int) async throws -> TraceSettingsAnswer
+    /// `displayedVersion` is the sheet this app showed (its own constant), never the one the backend serves.
+    func traceTurnOn(consentVersion: Int, displayedVersion: Int) async throws -> TraceSettingsAnswer
     func traceTurnOff() async throws -> TraceSettingsAnswer
     func traceUpdate(_ patch: [String: TracePatchValue]) async throws -> TraceSettingsAnswer
     func tracePause(until: String?) async throws -> TraceSettingsAnswer

@@ -224,6 +224,11 @@ extension Copy {
         // MARK: - The Traces page, redesigned (owner 2026-10-28)
 
         static let allScreensOffer = "Screenshots can now cover every screen you have connected."
+        /// Once, for someone upgraded with the YouTube switch on (2026-10-28).
+        static let readingNotice = "This used to be YouTube only. It now keeps the pages you stay on and the videos "
+            + "you watch on any site, from browsers you allow — still only to look up, never read by a model. The switch "
+            + "is right above if you'd rather not."
+        static let gotIt = "Got it"
         static let review = "Review…"
         static let previewSection = "Yesterday, as Sleep would read it"
         static func previewSectionFor(_ day: String) -> String { "\(day), as Sleep would read it" }

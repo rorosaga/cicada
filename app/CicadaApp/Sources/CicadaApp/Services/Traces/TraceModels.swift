@@ -18,6 +18,8 @@ struct TraceSettings: Codable, Equatable, Sendable {
     var watchAndRead = true
     /// "Learn from my day" (2026-10-28, the two old nested switches as one): off by default.
     var learnFromDay = false
+    /// Upgraded with the YouTube switch on: the page says once that it now covers every site.
+    var readingNotice = false
     var timelineDays = 30
     var shotDays = 7
     var pausedSince: String?
@@ -27,7 +29,7 @@ struct TraceSettings: Codable, Equatable, Sendable {
         case enabled, screenshots, titles, browsers
         case consentVersion = "consent_version", consentedAt = "consented_at", titleApps = "title_apps"
         case excludedApps = "excluded_apps", excludedSites = "excluded_sites"
-        case watchAndRead = "watch_and_read", learnFromDay = "learn_from_day"
+        case watchAndRead = "watch_and_read", learnFromDay = "learn_from_day", readingNotice = "reading_notice"
         case timelineDays = "timeline_days", shotDays = "shot_days"
         case pausedSince = "paused_since", pausedUntil = "paused_until"
     }
@@ -51,6 +53,7 @@ struct TraceSettings: Codable, Equatable, Sendable {
             ?? old.decodeIfPresent(Bool.self, forKey: .youtubeToWatchHistory) ?? true
         learnFromDay = try c.decodeIfPresent(Bool.self, forKey: .learnFromDay)
             ?? old.decodeIfPresent(Bool.self, forKey: .learnFromSummary) ?? false
+        readingNotice = try c.decodeIfPresent(Bool.self, forKey: .readingNotice) ?? false
         timelineDays = try c.decodeIfPresent(Int.self, forKey: .timelineDays) ?? 30
         shotDays = try c.decodeIfPresent(Int.self, forKey: .shotDays) ?? 7
         pausedSince = try c.decodeIfPresent(String.self, forKey: .pausedSince)

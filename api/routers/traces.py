@@ -44,6 +44,8 @@ _LOCAL = [Depends(on_this_mac)]
 
 class TurnOnRequest(BaseModel):
     consent_version: int
+    #: The sheet the app actually displayed (its own constant); absent from an app before 2026-10-28, which showed 1.
+    displayed_version: int | None = None
 
 
 class PauseRequest(BaseModel):
@@ -162,7 +164,8 @@ async def put_traces_settings(patch: dict):
 async def turn_traces_on(req: TurnOnRequest):
     """The consent sheet's Turn on. Refused for a sheet version the person did not see."""
     try:
-        return _answer(await run_in_threadpool(_store().turn_on, req.consent_version))
+        return _answer(await run_in_threadpool(lambda: _store().turn_on(req.consent_version,
+                                                                         displayed_version=req.displayed_version)))
     except (trace_store.PayloadError, trace_keys.KeyRefused) as exc:
         _refuse(exc)
 
@@ -273,7 +276,10 @@ async def remove_from_memory(settings: Settings = Depends(get_settings)):
     """Take back everything traces added — every open belief and progress note whose only evidence is a day digest —
     as ONE commit, undoable (``…/remove-from-memory/undo``). The digests themselves stay: they are what was read."""
     mp = settings.memory_path
-    result = await run_in_threadpool(trace_memory.remove, mp, _store())
+    try:
+        result = await run_in_threadpool(trace_memory.remove, mp, _store())
+    except (trace_memory.NoUndoPossible, trace_store.TracesOff) as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     if result["paths"]:
         await folder_source.commit_paths_for(mp, result["paths"], subject="Removed from memory what traces added",
                                              trigger="person/traces-remove")

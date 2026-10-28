@@ -74,7 +74,7 @@ private final class TracesUIBackend: TraceBackend, @unchecked Sendable {
 
     private func unexpected() -> Never { fatalError("the browser only reads") }
     func traceSettings() async throws -> TraceSettingsAnswer { unexpected() }
-    func traceTurnOn(consentVersion: Int) async throws -> TraceSettingsAnswer { unexpected() }
+    func traceTurnOn(consentVersion: Int, displayedVersion: Int) async throws -> TraceSettingsAnswer { unexpected() }
     func traceTurnOff() async throws -> TraceSettingsAnswer { unexpected() }
     func traceUpdate(_ patch: [String: TracePatchValue]) async throws -> TraceSettingsAnswer { unexpected() }
     func tracePause(until: String?) async throws -> TraceSettingsAnswer { unexpected() }
@@ -441,6 +441,9 @@ final class TracesUIRedesignTests: XCTestCase {
                                            from: Data(#"{"learn_from_summary": true, "youtube_to_watch_history": false}"#.utf8))
         XCTAssertTrue(old.learnFromDay)
         XCTAssertFalse(old.watchAndRead)
+        let notice = try JSONDecoder().decode(TraceSettings.self, from: Data(#"{"reading_notice": true}"#.utf8))
+        XCTAssertTrue(notice.readingNotice)
+        XCTAssertTrue(Copy.Traces.readingNotice.contains("any site") && Copy.Traces.readingNotice.contains("YouTube only"))
         let none = try JSONDecoder().decode(TraceSettings.self, from: Data("{}".utf8))
         XCTAssertFalse(none.learnFromDay, "off by default")
         XCTAssertTrue(none.watchAndRead)

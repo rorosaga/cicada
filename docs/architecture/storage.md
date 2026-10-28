@@ -1549,21 +1549,34 @@ traces/shots/<YYYY-MM-DD>/<id>.enc   the screenshot itself (downscaled JPEG), se
   - **The preview** (`GET /sources/traces/preview?day=`, yesterday by default) is the same function
     (`count_day` → `render_counts`) on one day, with no model — exactly the words Sleep would read, shown before the
     switch is on (`text`, plus the structured `counts` the page draws).
-  - **Remove from memory** (`POST /sources/traces/remove-from-memory`, admitted): every open belief and progress note
-    whose cited episodes are all `traces-day` digests (found on the pages that list a digest among their conversations)
-    is closed the way a withdrawal closes one — a born-closed `retracts` record beside it, origin `traces-remove` — as
-    **one commit**. A claim another conversation also supports stays. The removal's `[page, record, target]` ids are
-    kept in the sealed settings (`removals`, newest 20) so **Undo** (`…/remove-from-memory/undo`) reopens exactly those
-    claims, only while each is still as the removal left it, as one commit. `GET /sources/traces/added` counts what is
+  - **Remove from memory** (`POST /sources/traces/remove-from-memory`, admitted): every belief and progress note whose
+    cited episodes are all `traces-day` digests and that is not already superseded or a retraction — closed or not: a
+    done happening is born closed (`valid_to = valid_from`) and is exactly what a digest adds (review of #508, B2) — is
+    taken back the way a withdrawal takes one back: superseded by a born-closed `retracts` record beside it (origin
+    `traces-remove`), an open one closed today, a closed one keeping its dates; **one commit**. Pages are found by their
+    bytes naming a digest (page or claims ledger), whichever writer wrote the claim — each file re-read only when
+    its size or time moved (on a copy of the owner's 8,028 pages: ~1.5 s once, then ~50 ms). A claim another conversation also
+    supports stays. The removal's `[page, record, target, valid_to before]` is kept in the sealed settings (`removals`,
+    newest 20) — written **before** any page moves, and with no key (after a Wipe) the removal is **refused, 409**, so
+    nothing is ever taken back that could not be undone (B3). **Undo** (`…/remove-from-memory/undo`) gives each claim
+    exactly its dates again, only while it is still superseded by that record, as one commit. `GET /sources/traces/added` counts what is
     left and lists the undoable removals. The digests themselves stay: they are what was read.
 - **Managing traces by day** (2026-10-28): `GET /sources/traces/day-cards` — one card per kept day, counts, the screens
   connected (`screens`), and the id of the screenshot that stands for the day (`cover`: one taken during the day's
   longest span, the main screen's; else the one nearest the day's middle — chosen, never random), cached per day by the
   files' size and time. `POST /sources/traces/delete` deletes picked spans (with the screenshots taken of them),
-  picked screenshots, or a whole day (`all: true`); it never touches the bank.
+  picked screenshots, or a whole day (`all: true`); a deleted span takes every screenshot in its time range with it,
+  on every day that range touches (a span across midnight has screenshots filed under the next day); it never touches
+  the bank.
 - **Every connected screen** (consent sheet 2, `ALL_SCREENS_CONSENT`): a frame may carry `display`/`displays`
-  (1-based, ≤ 8, kept only when consistent); `timeline` answers `screens`. A person on sheet 1 keeps front-window frames
-  until they agree to the newer sheet; agreeing while recording keeps their pause.
+  (1-based, ≤ 8, kept only when consistent); `timeline` answers `screens`. **The store refuses a whole-screen frame
+  (`display` > 0) from someone on sheet 1** — policy parity with the app (review of #508). A person on sheet 1 keeps
+  front-window frames until they agree to the newer sheet; agreeing while recording keeps their pause. **The sheet
+  recorded is the one the app displayed:** `POST /sources/traces/on` takes `displayed_version` (the app's own
+  constant, `TraceRecorder.sheetVersion`); an app from before sends none and echoes the served version, so 1 is
+  recorded; a version above what the store knows is refused.
+- **The one-time note** (`reading_notice`): someone upgraded with the YouTube switch on is told once, on the page beside
+  the switch, that it now covers every site; only the person clears it (`reading_notice: false`).
 
 **Key custody — interim, an owner ruling pending (G218).** `trace_keys.KeyProvider` is the one seam; `provider()`
 returns **`FileKeyProvider`: `$CICADA_HOME/traces.key`, 0600 in the 0700 home, outside `traces/`**, created with

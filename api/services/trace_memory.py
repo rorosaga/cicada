@@ -35,6 +35,7 @@ A demo bank receives nothing (``demo_guard``). The caller commits the returned p
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -579,24 +580,56 @@ def _cited(claim) -> set[str]:
 
 
 def _from_traces_only(claim, digests: set[str]) -> bool:
+    """A claim every cited episode of which is a digest, not yet taken back, and not itself a retraction. Closed is no
+    bar (review of #508, B2): a done happening — the "worked on X" a digest produces — is born closed
+    (``valid_to = valid_from``, ``claim_reconciler._stamp_event``), and it is still what traces added."""
     from api.services.claims import RETRACT_PREDICATE
 
     cited = _cited(claim)
-    return (bool(cited) and cited <= digests and claim.valid_to is None and claim.predicate != RETRACT_PREDICATE)
+    return (bool(cited) and cited <= digests and not claim.superseded_by and claim.predicate != RETRACT_PREDICATE)
 
 
 def _pages_citing(memory_path: Path, digests: set[str]) -> list[Path]:
-    """Entity pages whose conversations include a digest (Sleep lists every conversation it writes a page from)."""
+    """Entity pages whose bytes name a digest — the page or its claims ledger. Read, never parsed, so it does not depend
+    on which writer listed the episode among the page's conversations (a direct claim write does not)."""
+    if not digests:
+        return []
+    needles = [d.encode() for d in digests]
     out = []
-    for f in bank_index.files(Path(memory_path), "entities"):
-        eps = (f.frontmatter or {}).get("source_episodes") or []
-        if isinstance(eps, list) and digests.intersection(str(e) for e in eps):
-            out.append(f.path)
-    return out
+    entities = Path(memory_path) / "entities"
+    if not entities.is_dir():
+        return out
+    # Each file is read again only when its size or time moved, or the digests did (measured on a copy of the owner's
+    # bank, 8,028 pages: reading every one took ~330 ms warm; unchanged files answer from here).
+    key = str(entities)
+    known_digests, seen = _CITING.get(key, (None, {}))
+    if known_digests != frozenset(digests):
+        seen = {}
+    fresh: dict[str, tuple] = {}
+    with os.scandir(entities) as it:
+        files = [(e.name, e.stat()) for e in it if e.name.endswith((".md", ".claims.jsonl"))]
+    for name, st in files:
+        stamp = (st.st_mtime_ns, st.st_size)
+        hit = seen.get(name)
+        if hit is None or hit[0] != stamp:
+            try:
+                data = (entities / name).read_bytes()
+            except OSError:
+                continue
+            hit = (stamp, any(n in data for n in needles))
+        fresh[name] = hit
+    _CITING[key] = (frozenset(digests), fresh)
+    pages = {name.removesuffix(".claims.jsonl") + ".md" if name.endswith(".claims.jsonl") else name
+             for name, (_, found) in fresh.items() if found}
+    return [entities / name for name in sorted(pages) if (entities / name).exists()]
+
+
+#: entities dir -> (the digests last looked for, {file name: ((mtime_ns, size), names a digest)})
+_CITING: dict[str, tuple] = {}
 
 
 def added(memory_path: Path, *, limit: int = 200) -> dict:
-    """What traces added: every open belief and progress note whose only evidence is a ``traces-day`` digest."""
+    """What traces added: every belief and progress note whose only evidence is a ``traces-day`` digest."""
     from api.services.claims import EVENT_PREDICATES, parse_claims
 
     digests = digest_episodes(memory_path)
@@ -628,21 +661,30 @@ def removal_id(day: str, keys: list[str]) -> str:
     return "trm_" + hashlib.sha1(("\x00".join([day, *sorted(keys)])).encode()).hexdigest()[:10]
 
 
+class NoUndoPossible(RuntimeError):
+    """The traces store has no key (wiped or never on): a removal could not be undone, so none is made."""
+
+
 def remove(memory_path: Path, store: TraceStore, *, today: date | None = None) -> dict:
-    """Take back every open belief and progress note whose only evidence is a digest: each is closed today the way a
-    withdrawal closes one (``agentic_write._withdrawal_record``: a born-closed ``retracts`` record beside it, the
-    reason in words), so its history stays. Returns ``{removal_id, removed, paths}``; the caller commits the paths as
-    ONE commit. The removal's claim ids are kept in the traces settings (sealed) so :func:`undo` finds them."""
+    """Take back every belief and progress note whose only evidence is a digest: each is marked superseded by a
+    born-closed ``retracts`` record beside it (``agentic_write._withdrawal_record``, the reason in words), so its
+    history stays. An open claim is closed today; a claim already closed by its own dates (a done happening) keeps
+    them. Returns ``{removal_id, removed, paths}``; the caller commits the paths as ONE commit. Each claim's
+    ``[page, record, target, valid_to before]`` is kept in the traces settings (sealed) so :func:`undo` restores exactly
+    what was there. Refused (:class:`NoUndoPossible`) when the store has no key to keep that in (review of #508, B3)."""
     from api.services import agentic_write, evidence as evidence_mod
     from api.services.claims import MalformedClaimsBlockError, parse_claims, write_claims
 
     memory_path = Path(memory_path)
     if demo_guard.is_demo(memory_path):
         return {"removal_id": None, "removed": 0, "paths": []}   # a demo bank never receives a digest
+    if not store.can_keep():
+        raise NoUndoPossible("Traces were wiped or never turned on here, so a removal could not be undone; turn traces "
+                             "on to remove what they added.")
     day = (today or date.today()).isoformat()
     digests = set(digest_episodes(memory_path))
-    taken: list[list[str]] = []
-    paths: list[str] = []
+    taken: list[list] = []
+    writes: list[tuple[Path, dict, str]] = []
     with page_lock.page_lock(memory_path):
         for page in _pages_citing(memory_path, digests):
             parsed = markdown_parser.parse(page)
@@ -657,38 +699,43 @@ def remove(memory_path: Path, store: TraceStore, *, today: date | None = None) -
                 record = agentic_write._withdrawal_record(
                     c, [*claims, *records], reason=REMOVE_REASON, author=REMOVAL_AUTHOR, origin=REMOVAL_ORIGIN,
                     session_id=None, spans=[evidence_mod.reasoning("")], day=day, fallback_subject=page.stem)
-                c.valid_to = day
+                taken.append([page.stem, record.id, c.id, c.valid_to])
+                if c.valid_to is None:
+                    c.valid_to = day
                 c.superseded_by = record.id
                 records.append(record)
-                taken.append([page.stem, record.id, c.id])
             if records:
-                markdown_parser.write(page, parsed.frontmatter, write_claims(parsed.body, [*claims, *records]))
-                paths.append(f"entities/{page.name}")
-    if not taken:
-        return {"removal_id": None, "removed": 0, "paths": []}
-    rid = removal_id(day, [f"{p}/{c}" for p, _, c in taken])
-    store.record_removal({"id": rid, "day": day, "items": taken})
+                writes.append((page, parsed.frontmatter, write_claims(parsed.body, [*claims, *records])))
+        if not taken:
+            return {"removal_id": None, "removed": 0, "paths": []}
+        rid = removal_id(day, [f"{p}/{c}" for p, _, c, _ in taken])
+        # The undo record first: if it cannot be kept, nothing in the bank moves.
+        store.record_removal({"id": rid, "day": day, "items": taken})
+        for page, fm, body in writes:
+            markdown_parser.write(page, fm, body)
     bank_index.invalidate(memory_path)
-    return {"removal_id": rid, "removed": len(taken), "paths": sorted(set(paths))}
+    return {"removal_id": rid, "removed": len(taken), "paths": sorted(f"entities/{p.name}" for p, _, _ in writes)}
 
 
 def undo(memory_path: Path, store: TraceStore, rid: str) -> dict:
-    """Put a removal back: each claim it closed reopens — only while it is still as the removal left it (closed that
-    day, superseded by that record) — and the record goes. Returns ``{restored, paths}``; ``KeyError`` for an unknown
-    removal."""
+    """Put a removal back: each claim it took back gets exactly its dates again — only while it is still as the
+    removal left it (superseded by that record) — and the record goes. Returns ``{restored, paths}``; ``KeyError``
+    for an unknown removal."""
     from api.services.claims import MalformedClaimsBlockError, parse_claims, write_claims
 
     memory_path = Path(memory_path)
     entry = store.removal(rid)
     if entry is None or demo_guard.is_demo(memory_path):
         raise KeyError(rid)
-    by_page: dict[str, list[tuple[str, str]]] = defaultdict(list)
-    for page, record_id, target_id in entry.get("items") or []:
-        by_page[str(page)].append((str(record_id), str(target_id)))
+    by_page: dict[str, list[tuple]] = defaultdict(list)
+    for item in entry.get("items") or []:
+        page, record_id, target_id = (str(x) for x in item[:3])
+        before = item[3] if len(item) > 3 else None
+        by_page[page].append((record_id, target_id, before))
     restored = 0
     paths: list[str] = []
     with page_lock.page_lock(memory_path):
-        for stem, pairs in sorted(by_page.items()):
+        for stem, triples in sorted(by_page.items()):
             page = memory_path / "entities" / f"{stem}.md"
             if not page.exists():
                 continue
@@ -698,12 +745,11 @@ def undo(memory_path: Path, store: TraceStore, rid: str) -> dict:
             except MalformedClaimsBlockError:
                 continue
             drop: set[str] = set()
-            for record_id, target_id in pairs:
-                target = next((c for c in claims if c.id == target_id and c.superseded_by == record_id
-                               and c.valid_to == entry.get("day")), None)
+            for record_id, target_id, before in triples:
+                target = next((c for c in claims if c.id == target_id and c.superseded_by == record_id), None)
                 if target is None:
                     continue
-                target.valid_to = None
+                target.valid_to = before
                 target.superseded_by = None
                 drop.add(record_id)
                 restored += 1

@@ -662,10 +662,12 @@ this Mac, with times — off by default, on only after the consent sheet (Source
     first normal-layer window of that app in the window server's front-to-back list
     (`CGWindowListCopyWindowInfo(.optionOnScreenOnly)`, `TraceWindowPick`), matched by id in ScreenCaptureKit.
   - *Sheet 2 (`ALL_SCREENS_CONSENT`, owner 2026-10-28: "capture all connected displays"):* one frame per connected
-    screen (main screen first, ≤ 8), each `SCContentFilter(display:excludingApplications:exceptingWindows:)` — every app
-    the policy may not describe is **cut out before the picture is taken** (`TraceScreens.shown`: browsers, chat/mail
-    apps whose titles stay off, excluded apps, password managers, Cicada itself, notification banners, Spotlight), and a
-    browser appears only through its one vetted front window (tab read, not private). A person on sheet 1 keeps
+    screen (main screen first, ≤ 8), each `SCContentFilter(display:including:)` — an **allow-list** read fresh for each
+    screen (`TraceScreenPick`, review of #508 B1): only normal on-screen windows on that screen of *regular* apps the
+    policy may describe (`TraceScreens.shown`: never a browser, a chat/mail app whose titles stay off, an excluded app, a
+    password manager, Cicada, a notification banner, Spotlight) plus the one vetted browser front window. A window that
+    appeared since, an app launched mid-capture, or a system helper (Quick Look's preview of a Mail attachment, the
+    open/save panel) is never named, so never drawn; a screen with nothing named gives no frame. A person on sheet 1 keeps
     front-window frames until they agree to sheet 2 (the Traces page offers it, "Review…"). Frames of one moment share
     its instant and carry `display`/`displays`.
   Either way the frame is dropped when, after capture, another app is in front or a browser's front tab changed or

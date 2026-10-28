@@ -100,6 +100,9 @@ DEFAULTS: dict = {
     #: Reading days waiting for their record to be rewritten, and when it last was (``trace_memory._due_reading``).
     "reading_pending": [],
     "reading_written_at": None,
+    #: Upgraded with the YouTube switch on (2026-10-28): the page says once that it now covers every site, the switch
+    #: beside it. Only the person clears it (``reading_notice: false``).
+    "reading_notice": False,
 }
 #: Hyrum (2026-10-28): the old keys a client may still read or send. ``youtube_to_watch_history`` is
 #: ``watch_and_read``; ``daily_summary`` and ``learn_from_summary`` both read ``learn_from_day``. Writing one maps it
@@ -109,7 +112,8 @@ ALIASES = {"youtube_to_watch_history": "watch_and_read", "daily_summary": "learn
 MAX_REMOVALS = 20
 #: What a person's PUT may change (consent, pause and the digest cursor have their own doors).
 EDITABLE = frozenset({"screenshots", "titles", "title_apps", "browsers", "excluded_apps", "excluded_sites",
-                      "watch_and_read", "learn_from_day", "timeline_days", "shot_days"}) | frozenset(ALIASES)
+                      "watch_and_read", "learn_from_day", "timeline_days", "shot_days",
+                      "reading_notice"}) | frozenset(ALIASES)
 #: ``paused_until`` for a pause that lasts until the person resumes.
 UNTIL_RESUMED = "until-resumed"
 
@@ -250,17 +254,26 @@ class TraceStore:
         data = json.dumps({k: values.get(k, DEFAULTS[k]) for k in DEFAULTS}, sort_keys=True).encode("utf-8")
         _write_atomic(self.root / "settings.enc", trace_seal.seal(key, data, "settings"))
 
-    def turn_on(self, consent_version: int, *, now: datetime | None = None) -> dict:
-        """The person agreed to the sheet: make the key (once) and record. Refused for a sheet they did not see."""
+    def turn_on(self, consent_version: int, *, displayed_version: int | None = None,
+                now: datetime | None = None) -> dict:
+        """The person agreed to the sheet: make the key (once) and record. Refused for a sheet they did not see.
+
+        **What is recorded is the sheet the app displayed** (review of #508, must-fix 6): an app sends its own sheet's
+        version as ``displayed_version``. An app from before 2026-10-28 sends none and echoes whatever version this
+        backend serves as ``consent_version`` — it showed sheet 1 (the front window only), so 1 is recorded; a
+        ``displayed_version`` above what this backend knows is refused."""
         if int(consent_version or 0) != CONSENT_VERSION:
             raise PayloadError("turning traces on needs the current consent sheet")
+        shown = 1 if displayed_version is None else int(displayed_version)
+        if not 1 <= shown <= CONSENT_VERSION:
+            raise PayloadError("that consent sheet is not one this Cicada knows")
         with self._locked():
             if self._key_or_none() is None:
                 self._key = self.keys.create()
             trace_keys.exclude_from_backup(self.root)
             values = self.settings()
             already = bool(values["enabled"])
-            values.update(enabled=True, consent_version=CONSENT_VERSION, consented_at=_iso(now or _now()))
+            values.update(enabled=True, consent_version=shown, consented_at=_iso(now or _now()))
             if not already:
                 # Agreeing to a newer sheet while recording keeps the person's pause; a fresh turn-on starts unpaused.
                 values.update(paused_since=None, paused_until=None)
@@ -346,11 +359,19 @@ class TraceStore:
             values.update(reading_pending=[], reading_written_at=_iso(at))
             self._write_settings(values)
 
+    def can_keep(self) -> bool:
+        """The store holds a key, so a removal's undo record can be kept (``trace_memory.remove`` asks first)."""
+        try:
+            return self._key_or_none() is not None
+        except trace_keys.KeyRefused:
+            return False
+
     def record_removal(self, entry: dict) -> None:
-        """Keep one "Remove from memory" (ids only) so Undo can find it; the newest :data:`MAX_REMOVALS`."""
+        """Keep one "Remove from memory" (ids only) so Undo can find it; the newest :data:`MAX_REMOVALS`. Raises
+        :class:`TracesOff` with no key — the caller must then change nothing (review of #508, B3)."""
         with self._locked():
             if self._key_or_none() is None:
-                return
+                raise TracesOff("traces were wiped: a removal could not be undone")
             values = self.settings()
             kept = [r for r in values.get("removals") or [] if isinstance(r, dict) and r.get("id") != entry["id"]]
             values["removals"] = (kept + [entry])[-MAX_REMOVALS:]
@@ -488,6 +509,10 @@ class TraceStore:
             host = trace_policy.normalize_host(str(meta.get("host") or ""))
             if host and trace_policy.host_excluded(host, set(values["excluded_sites"])):
                 raise TracesOff("that site is never recorded")
+            # Policy parity with the app (review of #508, must-fix 5): a frame of a whole screen only under the sheet
+            # that says screens are taken.
+            if _int(meta.get("display")) > 0 and int(values.get("consent_version") or 0) < ALL_SCREENS_CONSENT:
+                raise TracesOff("screenshots of every screen need the newer consent sheet")
             if trace_policy.is_browser(bundle, bool(meta.get("browser"))) and (
                     not host or trace_policy.url_browser(bundle) not in values["browsers"]):
                 raise TracesOff("a browser window is kept only when it is known not to be private")
@@ -686,20 +711,35 @@ class TraceStore:
                 self._cards.pop(iso, None)
                 return removed
             span_ids, frame_ids = {str(s) for s in spans}, {str(f) for f in frames}
+            ranges: list[tuple[datetime, datetime]] = []
             if span_ids:
                 kept, gone = self._partition(key, "timeline", iso, lambda r: str(r.get("id")) not in span_ids)
                 if gone:
                     self._rewrite(key, "timeline", iso, kept)
                     removed["spans"] = len(gone)
-            if span_ids or frame_ids:
-                kept, gone = self._partition(key, "frames", iso,
-                                             lambda r: str(r.get("id")) not in frame_ids
-                                             and str(r.get("span_id") or "") not in span_ids)
+                for r in gone:
+                    a, b = parse_instant(r.get("start")), parse_instant(r.get("end"))
+                    if a and b:
+                        ranges.append((a, b))
+
+            def taken(r: dict) -> bool:
+                if str(r.get("id")) in frame_ids or str(r.get("span_id") or "") in span_ids:
+                    return True
+                at = parse_instant(r.get("at"))
+                return at is not None and any(a <= at <= b for a, b in ranges)
+
+            # A span is filed under the day it started; one that crosses midnight has screenshots filed under the next
+            # day(s) too — every day its time range touches is cleared (review of #508).
+            last = max((local_day(b) for _, b in ranges), default=day)
+            frame_days = [day + timedelta(days=i) for i in range((last - day).days + 1)]
+            for d in frame_days:
+                d_iso = d.isoformat()
+                kept, gone = self._partition(key, "frames", d_iso, lambda r: not taken(r))
                 if gone:
-                    self._rewrite(key, "frames", iso, kept)
+                    self._rewrite(key, "frames", d_iso, kept)
                     for r in gone:
-                        _unlink(self.root / "shots" / iso / f"{r['id']}.enc")
-                    removed["frames"] = len(gone)
+                        _unlink(self.root / "shots" / d_iso / f"{r['id']}.enc")
+                    removed["frames"] += len(gone)
         return removed
 
     def spans_between(self, first: date, last: date) -> list[dict]:
@@ -901,8 +941,11 @@ def _migrated(stored: dict) -> dict:
     out: dict = {}
     if "learn_from_day" not in stored:
         out["learn_from_day"] = bool(stored.get("daily_summary")) and bool(stored.get("learn_from_summary"))
-    if "watch_and_read" not in stored and "youtube_to_watch_history" in stored:
-        out["watch_and_read"] = bool(stored.get("youtube_to_watch_history"))
+    if "watch_and_read" not in stored:
+        youtube = bool(stored.get("youtube_to_watch_history", True))
+        out["watch_and_read"] = youtube
+        # The YouTube switch was on: it now covers every site — said once, plainly (review of #508, must-fix 6).
+        out["reading_notice"] = youtube and bool(stored.get("enabled"))
     return out
 
 
@@ -930,6 +973,10 @@ def _map_aliases(patch: dict) -> dict:
 
 
 def _validate(name: str, value):
+    if name == "reading_notice":
+        if value is not False:
+            raise PayloadError("reading_notice is only cleared (false)")
+        return value
     if name in ("screenshots", "titles", "watch_and_read", "learn_from_day") or name in ALIASES:
         if not isinstance(value, bool):
             raise PayloadError(f"{name} is true or false")
