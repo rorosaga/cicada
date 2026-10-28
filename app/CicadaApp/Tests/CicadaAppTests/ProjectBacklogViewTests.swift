@@ -22,7 +22,7 @@ final class ProjectBacklogViewTests: XCTestCase {
     }
 
     func testTheBacklogSitsAfterThePlanAndItsFoldIsRemembered() {
-        XCTAssertEqual(ProjectSection.allCases, [.now, .lately, .plan, .backlog, .around])
+        XCTAssertEqual(ProjectSection.allCases, [.now, .done, .lately, .plan, .backlog, .around], "ruling 45: In progress · Done · Timeline")
         XCTAssertEqual(ProjectSection(rawValue: "backlog"), .backlog)
     }
 }

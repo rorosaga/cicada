@@ -2,8 +2,8 @@ import Foundation
 
 /// G141 PJ-5 — the Projects page's words (DR-59: sentence case, plain verbs, no "!", no bare "%", no ids — DR-54; no
 /// prices). Its own file for the reason `Copy+Lists.swift` gives: parallel tracks edit `Copy.swift`. Day words are NOT
-/// here — `RelativeDay` spells them, once (DR-58). And nothing here says "Timeline": that is the entity card's tab for
-/// contested beliefs, and the card can share the screen with the band (R-PP12, R-PJ22).
+/// here — `RelativeDay` spells them, once (DR-58). "Timeline" names the project's dated list since ruling 45 (Q6, the
+/// owner's word); the band itself keeps no label (R-PP12, R-PJ22).
 extension Copy {
     enum Projects {
         // MARK: The page
@@ -121,7 +121,8 @@ extension Copy {
 
         // MARK: The sections (R-PP13…R-PP18)
         static let now = "In progress"
-        static let lately = "What happened"
+        /// Ruling 45, Q6 (owner 2026-10-27): the dated list is "Timeline", the owner's own word; the band keeps no label.
+        static let lately = "Timeline"
         static let plan = "Plan"
         static let around = "Around this project"
         static let collapse = "Collapse"

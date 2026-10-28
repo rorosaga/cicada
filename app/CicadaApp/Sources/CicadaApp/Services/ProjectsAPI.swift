@@ -6,6 +6,8 @@ import Foundation
 protocol ProjectsAPI: Sendable {
     func fetchProjects(etag: String?) async throws -> Conditional<ProjectsResponse>
     func fetchProjectTimeline(id: String, etag: String?) async throws -> Conditional<ProjectTimeline>
+    /// Ruling 45 — every conversation tied to the project, and why.
+    func fetchProjectConversations(id: String, etag: String?) async throws -> Conditional<ProjectConversationsPage>
 }
 
 extension APIClient: ProjectsAPI {
@@ -17,5 +19,9 @@ extension APIClient: ProjectsAPI {
     /// `#` never reshapes the URL.
     func fetchProjectTimeline(id: String, etag: String?) async throws -> Conditional<ProjectTimeline> {
         try await getConditional(Self.provenancePath("/projects", id, "/timeline"), etag: etag)
+    }
+
+    func fetchProjectConversations(id: String, etag: String?) async throws -> Conditional<ProjectConversationsPage> {
+        try await getConditional(Self.provenancePath("/projects", id, "/conversations") + "?limit=200", etag: etag)
     }
 }

@@ -23,6 +23,7 @@ import SwiftUI
 /// shows is fetched from the bank on demand and held in memory only — spans,
 /// not copies (§4.9).
 struct ReaderColumn: View {
+    @Environment(ProjectsCache.self) private var projectsCache
     @Environment(ProvenanceRouter.self) private var router
     @Environment(ProvenanceCache.self) private var cache
     @Environment(Store.self) private var store
@@ -92,7 +93,10 @@ struct ReaderColumn: View {
                     Task { await act(await conversations.resume(id)) }
                 },
                 // A pointer path: the host's drawer animation plays (DR-61).
-                onClose: { router.close() })
+                onClose: { router.close() },
+                untie: router.current?.fromProject.map { project in
+                    { untieFromProject(project) }
+                })
             content
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -581,6 +585,21 @@ enum ReaderLandingMotion: Equatable {
 /// The mock's header (§5.4, DR-16): Back, the mark, the title in the display face at 20 over its
 /// meta line, Resume as a neutral button, Close. A value view, so the loading state draws the same
 /// header from the target's known fields (DR-32).
+extension ReaderColumn {
+    /// Ruling 45 — "Not about this project" from the Reader: the same `ProjectOwnershipWrite(.tie(remove: true))` the
+    /// panel's row menu sends; the Reader closes, the panel asks again.
+    fileprivate func untieFromProject(_ project: String) {
+        guard let episode = router.current?.episode else { return }
+        let write = ProjectOwnershipWrite(.tie(id: project, episode: episode, remove: true), cache: projectsCache)
+        router.close()
+        Task {
+            if await store.perform(write) { projectsCache.confirmPaint(write.overlayId) }
+            await projectsCache.refreshConversations(project)
+            await projectsCache.refreshTimeline(project)
+        }
+    }
+}
+
 struct ReaderColumnHeader: View {
     let canGoBack: Bool
     let onBack: () -> Void
@@ -597,6 +616,8 @@ struct ReaderColumnHeader: View {
     let agent: String?
     let onResume: () -> Void
     let onClose: () -> Void
+    /// Ruling 45 — set when a project's knowledge panel opened this conversation: "Not about this project".
+    var untie: (() -> Void)? = nil
 
     var body: some View {
         HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
@@ -627,6 +648,9 @@ struct ReaderColumnHeader: View {
             if canResume {
                 NeutralButton(title: Copy.Provenance.resume, systemImage: "arrow.uturn.right", size: .compact,
                               help: Copy.Provenance.resumeHelp(agent), action: onResume)
+            }
+            if let untie {
+                TextButton(title: Copy.ProjectsMine.notAboutThis, help: Copy.ProjectsMine.tieHelp, action: untie)
             }
             IconButton(systemName: "xmark", help: Copy.Provenance.closeHelp,
                        accessibilityLabel: Copy.Provenance.close, action: onClose)

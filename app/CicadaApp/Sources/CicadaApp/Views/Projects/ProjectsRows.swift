@@ -2,14 +2,16 @@ import SwiftUI
 
 /// What the list column says before it has rows to draw, in precedence order (DR-43, DR-50).
 enum ProjectsListState: Equatable {
-    case loading, failed(String), empty, tabEmpty, noMatch, list
+    case loading, failed(String), empty, emptyMine, tabEmpty, noMatch, list
 
-    static func of(phase: ProjectsCache.Phase, hasList: Bool, rows: Int, lines: Int, finding: Bool) -> ProjectsListState {
+    /// `suggestions` (ruling 45): none of the person's own yet, but Cicada suggests some — say so above the fold.
+    static func of(phase: ProjectsCache.Phase, hasList: Bool, rows: Int, suggestions: Int = 0, lines: Int,
+                   finding: Bool) -> ProjectsListState {
         if !hasList {
             if case .failed(let message) = phase { return .failed(message) }
             return .loading
         }
-        if rows == 0 { return .empty }
+        if rows == 0 { return suggestions > 0 ? .emptyMine : .empty }
         if lines == 0 { return finding ? .noMatch : .tabEmpty }
         return .list
     }
@@ -38,13 +40,16 @@ struct ProjectsListColumn: View {
     let focusDetail: () -> Void
     let escape: () -> Void
     let retry: () -> Void
+    /// Ruling 45 — the Suggested fold, drawn after the rows (and after the empty words when none are the person's).
+    var suggestedFold: () -> AnyView = { AnyView(EmptyView()) }
 
     var body: some View {
         ScrollViewReader { proxy in
             VStack(alignment: .leading, spacing: 0) {
                 // DR-46 — the find row sits above the scroll (Clusters' reason: a lazy row scrolled away is released).
                 // Past is the archive, so its field is always there; Current opens one on ⌘F.
-                if tab == .past {
+                // The titles column beside the Reader is too narrow for a field: it would spill onto the project.
+                if tab == .past && style != .titles && style != .hidden {
                     CicadaSearchField(text: $findText, prompt: Copy.Projects.findPast)
                         .padding(findInsets)
                 } else if findOpen {
@@ -62,14 +67,19 @@ struct ProjectsListColumn: View {
                         case .empty:
                             EmptyStateView(systemImage: "point.topleft.down.to.point.bottomright.curvepath",
                                            title: Copy.Projects.emptyTitle, message: Copy.Projects.emptyMessage)
+                        case .emptyMine:
+                            note(Copy.ProjectsMine.emptyMineMessage)
+                            suggestedFold()
                         case .tabEmpty:
                             note(tab == .past ? Copy.Projects.nonePast : Copy.Projects.noneCurrent)
+                            suggestedFold()
                         case .noMatch:
                             note(Copy.Projects.noMatch(query.trimmingCharacters(in: .whitespaces)))
                         case .list:
                             ForEach(entries) { entry in
                                 self.entry(entry).id(entry.id)
                             }
+                            suggestedFold()
                         }
                     }
                     .padding(ListInsets.of(style))
@@ -80,6 +90,7 @@ struct ProjectsListColumn: View {
                 }
             }
         }
+        .clipped()   // nothing in the list column ever draws over the project beside it
         .listKeys(move: move, side: side, enter: {
             guard openId != nil else { return false }
             focusDetail()

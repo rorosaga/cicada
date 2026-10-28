@@ -39,14 +39,18 @@ struct ReaderTarget: Hashable, Identifiable {
     /// (§4.4 "Loading: the header from the target's known fields").
     let knownTitle: String?
     let knownHarness: String?
+    /// Ruling 45 — the project whose knowledge panel opened this conversation: the Reader's header then offers "Not
+    /// about this project", the same untie as the row's context menu.
+    let fromProject: String?
 
     init(episode: String, focus: Focus = .none, subjectId: String? = nil,
-         knownTitle: String? = nil, knownHarness: String? = nil) {
+         knownTitle: String? = nil, knownHarness: String? = nil, fromProject: String? = nil) {
         self.episode = episode
         self.focus = focus
         self.subjectId = subjectId
         self.knownTitle = knownTitle
         self.knownHarness = knownHarness
+        self.fromProject = fromProject
     }
 
     var id: String { "\(episode)|\(focus)|\(subjectId ?? "")" }

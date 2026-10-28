@@ -125,6 +125,8 @@ protocol SyncAPI: Sendable {
     func logProjectHappening(project: String, text: String, status: String, when: String?) async throws -> ProjectWriteResponse
     func settleProjectThread(project: String, claimId: String, status: String) async throws -> ProjectWriteResponse
     func withdrawProjectHappening(project: String, claimId: String) async throws -> ProjectWriteResponse
+    /// Projects v2 (ruling 45) — the person's other project writes, one enum (`ProjectChange`), one answer.
+    func sendProjectChange(_ change: ProjectChange) async throws -> ProjectOwnershipResponse
     /// C11 (G146) — the three picture writes (`routers/entities.py`): each answers the page's picture after it and the
     /// inputs the twin re-resolves from; each answers 409 while Sleep runs.
     func setEntityPicture(entityId: String, data: Data, ext: String) async throws -> EntityPictureAnswer

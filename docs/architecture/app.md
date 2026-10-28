@@ -1614,6 +1614,32 @@ project whose happenings cite hundreds of pages opens at once (round-4 D6). Ever
 the demo scenario's real wire, `app/CicadaApp/Tests/fixtures/projects-demo.json`, pinned by
 `api/tests/test_projects_app_fixture.py`.
 
+**Projects v2 redesign — the person's own list, Suggested, the knowledge panel (TODO ruling 45, 2026-10-27; wire
+g141-7; DESIGN_RULES §9 2026-10-27).** The page is back on the rail (`PageSwitches.projectsPage`, ⌘8). What it does:
+- **The list draws only the person's own** (`ProjectRow.mine`; an older server's rows, with no `mine`, all count as
+  theirs). After the rows, a *Suggested · N* fold (`ProjectsSuggestedSection`): each suggestion's reason glyph, its
+  reason in words (`why`), the person's located sentence for a words birth, and two neutral buttons, *Add to my
+  projects* and *Not mine*. It opens the first time and is remembered (`cicada.projects.suggestedOpen`); dismissed ones
+  sit behind "N dismissed · Show". A provider grouping (`kind: group`) asks for a name on accept (`ProjectNameSheet`).
+  With none of the person's own yet, the list says so above the fold (`ProjectsListState.emptyMine`).
+- **New project** is the eyebrow row's `PageAddButton`; its sheet takes a name and a description and opens the new
+  project.
+- **The header** is `ProjectHeaderEditor`: the name and the person's description, edited in place (PATCH), a meta
+  line saying how it became theirs and who last set the description (with that agent's mark). Sleep's first line shows,
+  dimmer, only when the person wrote no description.
+- **The knowledge panel** (`ProjectKnowledgePanel`) sits beside the card when the column is wide enough
+  (`ProjectKnowledgeLayout.sideBySide`), else under it: Conversations · N from `GET /projects/{id}/conversations`
+  (`ProjectsCache.refreshConversations`, ETag-revalidated, never a Store domain; a row opens the Reader, its context
+  menu unties it), the why line in words, Sources & influences grouped by kind with *Add an influence*
+  (`AddInfluenceSheet`) and Undo on the person's own, then a provider project's instructions and documents.
+- **Writes** are `ProjectOwnershipWrite` (`ProjectChange`: create, accept, dismiss, header, tie, add or withdraw an
+  influence) through `Store.perform`: painted over the cache (`ProjectPaint`: a project moved in or out of the list,
+  the header's words, an untie, an influence taken back), rolled back with the server's sentence on failure, settled
+  by the first answer requested after the confirmation. The groupings file rides the sync `entities` component, which
+  `ProjectsRefresh` already watches.
+- **"Timeline"** names the dated list (the old *What happened*, Q6). A separate *Done* fold is not built: done items
+  read in the Timeline with their state (disclosed in the build report).
+
 **Projects v3 — where it came from, six standard sections (ruling 36 D4, G141; backend shipped 2026-10-22, the SwiftUI
 part is a spec and needs a Mac).** The wire is `api.md`'s g141-6. What the page does with it:
 - **The row** keeps its one signal (DR-38) and adds nothing for a page with `origin` null. A row with `origin: repo`
