@@ -366,13 +366,27 @@ def refresh(memory_path, embedder: tuple[Callable[[list[bytes]], np.ndarray], st
             todo = todo[: max(0, int(limit))]
         if not embedder:
             todo = []   # no encoder here: keep what is stored, only drop what is gone
+        if target != serving:
+            # Review of #506: a picture gone leaves the generation search reads NOW, before any embed (a stop for
+            # Sleep, or a new generation that never fills, must not keep a deleted picture's title and path).
+            served = _rows(conn, serving)
+            stale = [k for k in served if k not in wanted]
+            if stale:
+                with _write_lock(_db(memory_path)):
+                    for k in stale:
+                        conn.execute(f"DELETE FROM vec_{serving} WHERE rowid = ?", (served[k][0],))
+                        conn.execute(f"DELETE FROM meta_{serving} WHERE rowid = ?", (served[k][0],))
+                    conn.commit()
+                _write_moments(conn, memory_path, serving)
+                counts["removed"] += len(stale)
         _embed_into(conn, memory_path, target, todo, wanted, have, embedder, model, tag, counts, should_stop)
         with _write_lock(_db(memory_path)):
             for k in gone:
                 rowid = have[k][0]
                 conn.execute(f"DELETE FROM vec_{target} WHERE rowid = ?", (rowid,))
                 conn.execute(f"DELETE FROM meta_{target} WHERE rowid = ?", (rowid,))
-            counts["removed"] = len(gone)
+            if target == serving:
+                counts["removed"] += len(gone)
             # Metadata moves without its picture moving (a page renamed): refreshed in place, no embed.
             if _has_table(conn, target):
                 for k, (p, h) in wanted.items():
@@ -383,8 +397,10 @@ def refresh(memory_path, embedder: tuple[Callable[[list[bytes]], np.ndarray], st
         if target != serving:
             # Complete = every picture that can be embedded is in the new generation (one that failed is not waited
             # for; one a ``limit`` left out is).
+            # Nothing left to embed (no pictures left, or every one fails under the new decoder) completes it too,
+            # so the old generation never outlives what it describes.
             needed = set(wanted) - set(counts.get("_failed_keys", []))
-            if _has_table(conn, target) and set(_rows(conn, target)) >= needed:
+            if not needed or (_has_table(conn, target) and set(_rows(conn, target)) >= needed):
                 _swap(conn, memory_path, serving, target)
                 counts["rebuilding"] = 0
         elif _has_table(conn, target) and (counts["embedded"] or counts["removed"]):
