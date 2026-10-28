@@ -35,8 +35,8 @@
   (`spokenQuestion` on `GET /inbox`), its reason and the page as a link — and *All N questions* opens the full list as
   Home's sub-view, its kind groups never folded. Each page has its questions strip ("1 of N"). *Catch me up* is a chat
   with the worm's head as Cicada's face: taps are the inbox's held answers; the person's own words go to `POST
-  /inbox/catchup/turn` (one turn on their chosen engine, Ask's resolution; a reading applied only when found in their
-  words; identity only by tap) and the chat is kept as one episode per session (`POST /inbox/catchup/record`). The
+  /inbox/catchup/turn` (one turn on their chosen engine, Ask's resolution; a reading only when found in their words, and
+  then only proposed — applied on the person's *Yes*) and the chat is kept as one episode per session (`POST /inbox/catchup/record`). The
   harness door's catch-up carries the same page context and asks for a conversation (skill, prompt). Speed and what is
   next for `load_inbox` in the PR body.
 

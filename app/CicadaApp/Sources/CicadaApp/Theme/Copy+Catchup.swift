@@ -45,8 +45,13 @@ extension Copy {
         static let notedSame = "Noted: one and the same"
         static let notedDifferent = "Noted: kept apart"
         static let notedLater = "I'll ask another day"
-        static func confirm(_ what: String) -> String { "Yes — \(what)" }
-        static let useMyWords = "Answer with these words"
+        static func propose(_ what: String) -> String { "Note it as “\(what)”?" }
+        static let proposeSame = "Join them as one?"
+        static let proposeDifferent = "Keep them apart?"
+        static let proposeLater = "Ask again another day?"
+        static let yes = "Yes"
+        static let notQuite = "Not quite"
+        static let notQuiteHelp = "Nothing is noted; say it again in your own words"
         static let opening = "A few quick ones, the things you use most first."
         static let skipped = "Let's leave that one."
         static let done = "That's everything for now. Thanks for catching me up."

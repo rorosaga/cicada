@@ -444,10 +444,13 @@ options, *Yes, the same* / *No, different* for a pair, Keep / Archive for a lega
 (Undo asks the question again, and removes the tap and its receipt). A tap is drawn on the person's side but is never
 their words: it stays out of the record and the model's history (only typed words are `user:`, review B1 of #509). **Their own words** go to `POST /inbox/catchup/turn` (`features.md`): one turn on the
 person's chosen engine that answers like a person — a follow-up, the question in other words, or a move to a related
-upcoming question (asked in the reply's words, never repeated from the template). A reading grounded in their words
-is applied through the same hold, carrying the person's located words as the resolve's `quote` (`relayedBy:
-cicada-catchup`, the chat's session — kept by the backend as the answer's relay evidence); a question about who someone is (a pair, a name) only becomes a one-tap
-confirmation (ruling 41). With no engine the chat says "I can only take taps right now — <why>" and offers their words
+upcoming question (asked in the reply's words, never repeated from the template). **A reading from their words is
+never applied on its own** (agent proposes, user disposes — the coordinator's ruling on #509): it shows as a proposal
+under the reply, "Note it as “Paused”?" with *Yes* / *Not quite* (`CatchupSession.Confirmation`); *Yes* applies it
+through the same hold, carrying the person's located words as the resolve's `quote` (`relayedBy: cicada-catchup`, the
+chat's session — kept by the backend as the answer's relay evidence); *Not quite* applies nothing and leaves the
+question for them to say again; "another day" is proposed the same way. Their typed words stay in the record as theirs
+either way. With no engine the chat says "I can only take taps right now — <why>" and offers their words
 as a free answer for one tap where the question takes words. After each thing the person says the chat is posted to
 `POST /inbox/catchup/record` (one episode per session; posts never overlap). **The worm is Cicada's face**
 (`WormFace`): the menu bar's own 18 × 18 sheet at 32 pt beside the latest Cicada line only — *curious* while asking,

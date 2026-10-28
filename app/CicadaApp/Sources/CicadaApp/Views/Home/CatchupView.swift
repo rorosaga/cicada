@@ -207,8 +207,18 @@ struct CatchupView: View {
     private var answers: some View {
         if !session.waiting, !session.finished {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                // Agent proposes, the person disposes: a reading from their words waits for this tap.
                 if let pending = session.confirmation {
-                    NeutralButton(title: pending.label, size: .compact) { session.confirm() }
+                    HStack(spacing: CicadaTheme.spacingSM) {
+                        Text(pending.label)
+                            .font(CicadaTheme.bodyFont)
+                            .foregroundStyle(CicadaTheme.textPrimary)
+                        NeutralButton(title: Copy.Catchup.yes, size: .compact) { session.confirm() }
+                        TextButton(title: Copy.Catchup.notQuite, help: Copy.Catchup.notQuiteHelp) {
+                            session.notQuite()
+                            composing = true
+                        }
+                    }
                 }
                 if let item = session.current {
                     let chips = session.chips

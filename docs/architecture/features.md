@@ -188,9 +188,12 @@ its answer keys, what Cicada has on the page (`catchup_chat.context_lines`: its 
 conversations, a few current beliefs), the upcoming questions it may move to, and the chat so far; it answers
 `{reply, reading, move, nextId}`. The turn **writes nothing**: a `reading` is kept only when its `quote` is found in
 what the person typed (`evidence.locate` — exact, whitespace, case; never fuzzy) and a free `answer` too, its key is
-one of the question's, and a free answer only on a question that takes words; a same-person pair or a name is marked
-`confirm` (ruling 41: the app offers it for a tap, never applies it). The app applies a kept reading through `POST
-/inbox/{id}/resolve` like a tap. `POST /inbox/catchup/record` `{sessionId, turns}` keeps the chat as ONE episode per
+one of the question's, and a free answer only on a question that takes words. **Every reading is a proposal**
+(`confirm: true` always; the coordinator's ruling on #509, after a live turn read "the camera works but the arm is
+paused" as *Done*): the app shows it for one tap ("Note it as “Paused”? Yes / Not quite") and only *Yes* applies it,
+through `POST /inbox/{id}/resolve` with the person's located `quote`, `relayedBy: cicada-catchup` and the chat's
+session — never a typed answer on its own; a move to *later* is proposed the same way. The prompt asks the model to
+propose, never to say it noted anything. `POST /inbox/catchup/record` `{sessionId, turns}` keeps the chat as ONE episode per
 session (`episode_staging`, `source_id: catchup:<session>`, `source: companion_app`, `origin: catchup`; the person's
 turns as `user`, Cicada's as `assistant`; re-posted in place and re-queued), so Sleep reads a follow-up answered in
 passing like any conversation (ruling 29 part 1 may settle a question from their located words); never into a demo

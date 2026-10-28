@@ -253,6 +253,21 @@ enum CatchupAnswers {
         return ownWords(item, answer)
     }
 
+    /// A reading as a question for the person's tap ("Note it as “Paused”?"); never a claim that it was noted.
+    static func proposal(_ item: InboxItem, _ resolution: QuestionResolution) -> String {
+        switch resolution.action {
+        case "merge": return Copy.Catchup.proposeSame
+        case "reject": return Copy.Catchup.proposeDifferent
+        case "defer": return Copy.Catchup.proposeLater
+        default: break
+        }
+        if let answer = resolution.answer, !answer.isEmpty { return Copy.Catchup.propose(answer) }
+        if let key = resolution.optionKey, let option = item.options.first(where: { $0.key == key }) {
+            return Copy.Catchup.propose(option.label)
+        }
+        return Copy.Catchup.propose(resolution.action)
+    }
+
     /// How the chat says what it noted, in a few words ("Noted: Org Gamma").
     static func noted(_ item: InboxItem, _ resolution: QuestionResolution) -> String {
         if let key = resolution.optionKey, let option = item.options.first(where: { $0.key == key }) {

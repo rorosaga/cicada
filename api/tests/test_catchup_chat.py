@@ -62,12 +62,14 @@ def test_a_reading_on_the_persons_own_words_is_offered_and_nothing_is_written(ba
     out = catchup_chat.turn(bank, still, "Yes, still there!", [{"who": "cicada", "text": "Still at Org Gamma?"}], [],
                             llm)
     assert out["reply"] == "Got it, still there." and out["move"] == "next" and out["engine"] is True
-    assert out["reading"] == {"optionKey": "a", "answer": None, "quote": "still there", "confirm": False}
+    # Every reading is a proposal for the person's tap, never applied from typed words alone (#509 review).
+    assert out["reading"] == {"optionKey": "a", "answer": None, "quote": "still there", "confirm": True}
     assert (bank / "inbox" / f"{still}.md").read_text() == before
     # The model is handed the question, its answers by key, what Cicada has on the page and the chat so far.
     assert "Are you still working at Org Gamma?" in seen["prompt"] and '"key": "a"' in seen["prompt"]
     assert "Owner Example: person" in seen["prompt"] and "cicada: Still at Org Gamma?" in seen["prompt"]
     assert "never guess who someone is" in seen["system"]
+    assert "never say" in seen["system"] and "you propose, they decide" in seen["system"]
 
 
 @pytest.mark.parametrize("reading", [

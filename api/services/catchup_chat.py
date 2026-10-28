@@ -9,10 +9,11 @@ other words, or a move to a related question — and says how it read their word
 
 Nothing here writes an answer. A reading is a PROPOSAL the app applies through ``POST /inbox/{id}/resolve`` (the same
 resolver and Undo window as a tap), and only when it rests on the person's own words: its ``quote`` must be found in
-what they typed (exact, whitespace, case — ``evidence.locate``, never fuzzy), and a free-text ``answer`` too. A
-question about who someone is (a same-person pair, a name) is never applied from a reading: the app shows it as a
-one-tap confirmation (ruling 41 — identity only on the person's word, and the word here is their tap). Anything the
-model cannot ground is dropped and the reply stands alone; the question stays open.
+what they typed (exact, whitespace, case — ``evidence.locate``, never fuzzy), and a free-text ``answer`` too. Even a
+grounded reading is never applied from typed words alone: the app shows it as a one-tap proposal ("Note it as
+“Paused”? Yes / Not quite") and applies it only on *Yes*, with the located quote attached (agent proposes, user
+disposes — the coordinator's ruling on #509; for who someone is, ruling 41 too). Anything the model cannot ground is
+dropped and the reply stands alone; the question stays open.
 
 :func:`record` keeps the chat as ONE episode per catch-up session (``episode_staging``, source-keyed, so each post
 updates it in place and re-queues it): the person's turns as their own words, Cicada's as its own. Sleep reads it like
@@ -47,23 +48,23 @@ _ITEM_RE = re.compile(r"^inbox-[A-Za-z0-9._-]{1,120}$")
 
 #: What the model may say it is doing next.
 MOVES = ("stay", "next", "later", "pass", "stop")
-#: Kinds whose reading is never applied, only offered for the person's tap (ruling 41).
-_IDENTITY_KINDS = frozenset({"merge_suggestion"})
 
 SYSTEM_PROMPT = (
     "You are Cicada, the person's own memory, catching up with them in a short, warm chat — a conversation, never an "
     "interrogation. You are asking about ONE open question (CURRENT). Read what they just said and answer like a "
-    "person would: if it answers the question, say in a few words what you noted; if it is unclear, ask a short "
-    "follow-up or say the question again in other words; if their answer touches another open question (UPCOMING), "
-    "you may move to it naturally. Never invent facts, never guess who someone is, never push — 'not now' is fine. "
-    "One or two short sentences. Never mention inboxes, options, keys or tools. Say you noted something only when "
-    "you return a reading for it; when their answer is unsure, ask, never decide for them.\n"
+    "person would: if it seems to answer the question, return your reading and ASK them to confirm it in a few words "
+    "(\"Sounds like it's paused for now — shall I note that?\"); you propose, they decide with a tap, so never say "
+    "you noted or changed anything. If it is unclear, ask a short follow-up or say the question again in other words; "
+    "if their answer touches another open question (UPCOMING) and does not answer CURRENT, you may move to it "
+    "naturally. Never invent facts, never guess who someone is, never push — 'not now' is fine. One or two short "
+    "sentences. Never mention inboxes, options, keys or tools.\n"
     "Reply with JSON only: {\"reply\": str, \"reading\": {\"option_key\": str|null, \"answer\": str|null, "
     "\"quote\": str} | null, \"move\": \"stay\"|\"next\"|\"later\"|\"pass\"|\"stop\", \"next_id\": str|null}.\n"
     "- reading: only when their words answer CURRENT. option_key is one of CURRENT's answer keys; answer is a short "
     "value copied word for word from their message when none of the keys fits (or a name they gave); quote is the "
     "exact words of their message you relied on, copied character for character.\n"
-    "- move: stay = keep talking about CURRENT (a follow-up); next = CURRENT is settled or they moved on; later = they "
+    "- move: stay = keep talking about CURRENT (a follow-up, or a reading waiting for their yes); next = they moved "
+    "on without answering CURRENT; later = they "
     "want it another day; pass = they let it go; stop = they want to stop.\n"
     "- next_id: when moving, the UPCOMING id you ask next (pick a related one if their answer touched it), and your "
     "reply asks it in your own words with its reason."
@@ -219,8 +220,10 @@ def ground(item, message: str, data: dict) -> Reading | None:
         return None
     if answer is not None and key is None and not (item.allow_other or item.asks == "name" or not item.options):
         return None   # a closed question answered only in free words: the person picks, Cicada does not
-    identity = item.kind.value in _IDENTITY_KINDS or item.asks == "name"
-    return Reading(option_key=key, answer=answer, quote=quote, confirm=identity)
+    # Every reading is a proposal (the coordinator's ruling on #509, after a live misread applied "but the arm is
+    # paused" as Done): the app shows it for the person's tap and applies it only then. `confirm` stays on the wire,
+    # always true, so an older reader of it still asks.
+    return Reading(option_key=key, answer=answer, quote=quote, confirm=True)
 
 
 def turn(memory_path: Path, item_id: str, message: str, history: list, upcoming: list[str], llm_fn,

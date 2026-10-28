@@ -26,9 +26,12 @@ final class CatchupSession {
         -> CatchupTurnReply
     typealias Record = (_ sessionId: String, _ lines: [CatchupLine]) async throws -> Void
 
+    /// An answer Cicada read from the person's words, waiting for their tap — "agent proposes, user disposes"
+    /// (coordinator's ruling on #509 after a live misread): a reading from typed words is never applied on its own.
     struct Confirmation: Equatable {
         let itemId: String
         let resolution: QuestionResolution
+        /// The proposal in words: "Note it as “Paused”?"
         let label: String
     }
 
@@ -153,8 +156,7 @@ final class CatchupSession {
         keep()
     }
 
-    /// The one-tap confirmation a reading became (a name, a same-person pair, or the person's own words while the chat
-    /// takes taps only).
+    /// *Yes* on a proposal: the reading is applied through the inbox's hold, with the person's located words attached.
     func confirm() {
         guard let pending = confirmation, let item = items().first(where: { $0.id == pending.itemId }) else {
             confirmation = nil
@@ -163,6 +165,14 @@ final class CatchupSession {
         confirmation = nil
         apply(item, pending.resolution)
         if item.id == currentId { advance(preferred: nil, alreadyAsked: false) }
+        keep()
+    }
+
+    /// *Not quite* on a proposal: nothing is applied; the question stays and the person says it again in their words.
+    func notQuite() {
+        guard confirmation != nil else { return }
+        confirmation = nil
+        stored = .asking
     }
 
     @discardableResult
@@ -235,32 +245,31 @@ final class CatchupSession {
             offerOwnWords(item, text, aside: Copy.Catchup.didNotCatch)
             return
         }
-        let moving = ["next", "pass", "later"].contains(reply.move)
-        // What was noted sits under the person's words (mock 08), then Cicada's reply.
-        var answered = false
+        // A reading from typed words is only ever a proposal (the coordinator's ruling on #509): the person's tap
+        // applies it. So is "ask me another day" — deferring is an answer too. Until they tap, the talk stays here.
         if let reading = reply.reading,
            let resolution = CatchupAnswers.resolution(item, reading, sessionId: sessionId) {
-            if reading.confirm {
-                confirmation = Confirmation(itemId: item.id, resolution: resolution,
-                                            label: Copy.Catchup.confirm(CatchupAnswers.noted(item, resolution)))
-            } else {
-                answered = apply(item, resolution)
-            }
+            confirmation = Confirmation(itemId: item.id, resolution: resolution,
+                                        label: CatchupAnswers.proposal(item, resolution))
+        } else if reply.move == "later" {
+            let later = QuestionResolution(action: "defer", remindDays: 7)
+            confirmation = Confirmation(itemId: item.id, resolution: later, label: CatchupAnswers.proposal(item, later))
         }
+        if confirmation != nil {
+            say(words, itemId: currentId)
+            if reply.move == "stop" { stop() } else { stored = .asking }
+            return
+        }
+        let moving = ["next", "pass"].contains(reply.move)
         say(words, itemId: moving ? reply.nextId : (reply.nextId ?? currentId))
         switch reply.move {
         case "stop":
             stop()
-        case "later" where !answered:
-            apply(item, QuestionResolution(action: "defer", remindDays: 7))
+        case "next", "pass":
+            // Nothing is written: the question stays open in the list, and the talk moves on.
             advance(preferred: reply.nextId, alreadyAsked: reply.nextId != nil)
-        case "next", "pass", "later":
-            if confirmation == nil || reply.nextId != nil {
-                advance(preferred: reply.nextId, alreadyAsked: reply.nextId != nil)
-            }
         default:
-            // A follow-up on the same question — unless their words answered it, then the talk moves on.
-            if answered { advance(preferred: reply.nextId, alreadyAsked: reply.nextId != nil) } else { stored = .asking }
+            stored = .asking   // a follow-up on the same question
         }
     }
 
@@ -268,7 +277,8 @@ final class CatchupSession {
     private func offerOwnWords(_ item: InboxItem, _ text: String, aside: String?) {
         if let aside { lines.append(CatchupLine(.aside(aside))) }
         if let resolution = CatchupAnswers.ownWords(item, text) {
-            confirmation = Confirmation(itemId: item.id, resolution: resolution, label: Copy.Catchup.useMyWords)
+            confirmation = Confirmation(itemId: item.id, resolution: resolution,
+                                        label: CatchupAnswers.proposal(item, resolution))
         }
         stored = .asking
     }
