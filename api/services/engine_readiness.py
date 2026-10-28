@@ -83,6 +83,12 @@ async def scheduled_problem(settings, registry=None) -> Problem | None:
                                       "no API key or local model is chosen as Sleep's engine.")
         return Problem(NO_ENGINE, "Scheduled runs have no engine they may use here: your plan is off for scheduled "
                                   "runs, and no API key or local model is chosen as Sleep's engine.")
+    if mode in engine_select.CLI_ENGINE_MODES:
+        from api.services import cli_engines
+
+        st = await cli_engines.astatus(cli_engines.SPECS[mode])
+        return None if st.connected else Problem(PLAN_SIGNED_OUT, "Scheduled runs may use your plan, but it is not "
+                                                                  "signed in on this machine.")
     if mode in ("agent", "codex"):
         probe = engine_select.probe_claude_cheaply if mode == "agent" else engine_select.probe_codex_cheaply
         ok, _detail = await probe(registry)

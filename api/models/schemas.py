@@ -3502,6 +3502,21 @@ class SleepEngineCandidate(CamelModel):
     # model id -> list price per million tokens, for the model picker. A
     # parallel map, so `models` keeps its element type for an older app.
     model_prices: dict[str, "SleepEngineModelPrice"] = Field(default_factory=dict)
+    # G49/G50 (2026-10-28) — the picker is data-driven: each card says what it is, so a client renders a new engine
+    # without a release of its own. All optional and additive; an older app ignores them.
+    # ``kind``: "auto" | "plan" (a subscription you sign in to — ruling 4's guard) | "key" | "local".
+    kind: Optional[str] = None
+    # The engine label a run on this card reports (``ENGINE_LABELS``: "claude-cli", "cursor-cli" …), so a preview's
+    # engine maps back to its card.
+    engine: Optional[str] = None
+    # The bundled logo's name ("cursor", "opencode", "grok"); ``None`` for a card with its own glyph.
+    mark: Optional[str] = None
+    # How this engine is paid for, in words, when a metered path is possible (rail 2): shown before it is chosen.
+    billing_note: Optional[str] = None
+    # A saved model the tool no longer offers, in words — never silently swapped.
+    model_note: Optional[str] = None
+    # The exact command that signs the person in to this tool (they run it; Cicada never signs in for them).
+    sign_in: Optional[str] = None
 
 
 class SleepEngineModelPrice(CamelModel):

@@ -193,6 +193,10 @@ enum Copy {
         switch id {
         case "claude-cli": "Claude Code (your plan)"
         case "codex-cli": "Codex (your ChatGPT plan)"
+        // G49/G50: the person's own signed-in tool, named only because it is their choice (provider-neutral copy).
+        case "cursor-cli": "Cursor (your plan)"
+        case "opencode-cli": "OpenCode (your plan)"
+        case "grok-cli": "Grok (your plan)"
         case "ollama": "Ollama (on this Mac)"
         case "litellm": "API key"
         // 2026-10-19: Auto found no plan and no local model, and an API key reads only when chosen.

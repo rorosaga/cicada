@@ -462,6 +462,17 @@ bank reads (the pair it pinned at its start): `$CICADA_HOME/connections.json` is
 `SleepEngineRefresh` reloads `GET /sleep/engine` on it; that body's `runKeepsEngine` is true while such a run reads on
 an engine other than the one its kind (manual or scheduled) resolves to now.
 
+**`GET/PUT /sleep/engine` and the person's own tools (G49/G50, 2026-10-28).** `mode` accepts `cursor`, `opencode` and
+`grok` beside `auto|agent|codex|byok|local`; their model ids pass the CLI id charset, and an OpenCode model off a
+subscription provider answers 422 with the sentence (rail 2). Each candidate gains optional, additive fields: `kind`
+(`auto|plan|key|local`), `engine` (its `ENGINE_LABELS` id), `mark` (the bundled logo), `billingNote`, `modelNote` (a
+saved model the tool no longer lists) and `signIn` (the command the person runs). The three tool cards follow the
+ChatGPT plan's, so the order is Auto, Claude plan, ChatGPT plan, Cursor, OpenCode, Grok, OpenRouter, Ollama, API key; a
+client that reads by id is unaffected. Their status is probed by `cli_engines.status` (30 s cache, never a call that
+spends, 8 s per command, Cursor's two side by side); the GET serves the last known state while a refresh runs, so a hung
+tool never holds the Sleep page. A scheduled preview of a chosen Grok is `none` (it reads only when you start one). Previews name `cursor-cli` / `opencode-cli` / `grok-cli` with `billing: plan`; the field is named
+`billingNote`, never a cost or price, because prices ride only `usage`/`modelPrices` (ruling 12).
+
 **A request runs in one bank, and a write only in the bank it was made in (`bank_binding`, G183(d)).** One
 app-wide dependency (`bank_binding.require_same_bank`, beside `require_token` in `api/main.py`) does two things:
 - *The pin.* The active bank is resolved ONCE when the request starts and pinned for the rest of it

@@ -38,6 +38,16 @@ Agents page, ⌘9, `AppTab.agents`, appended so no shortcut moved — DR-22).
   may use my plan* (ruling 4c), *Keep going on extra usage* (R-E13, only under a plan) and *Use my Claude plan when I
   start* (only under a key). The Sleep page's engine menu is a label that opens this page (`EngineLabelButton`); the
   full menu stays in Sleep → Options, which keeps the plan reserve and the model prices (ruling 12).
+  **Your agent tools (G49/G50, 2026-10-28)** sits between Plans and API keys: one `OwnToolRow` per Cursor, OpenCode or
+  Grok card from `GET /sleep/engine` (mark, *Connected* / *Not connected* / *Not installed*, the tool's billing note or
+  a stale saved model in words, *Use* once signed in, and — signed out — the sign-in command in a `CommandBox`; Cicada
+  never signs in for them). **The picker is data-driven:** a candidate's optional `kind`, `engine`, `mark`,
+  `billingNote`, `modelNote` and `signIn` drive `EngineOption.isPlan` / `isOwnTool` / `logoName(for:)` /
+  `costModel(for:)`, `previewName` / `previewMark` / `candidateId(forEngine:candidates:)` and `EngineReadiness`, so a
+  new engine renders, selects and names its runs without an id table; a body without them (an older backend) answers
+  as before. The quick menu lists an own tool's models (live, else its documented defaults, plus a saved one) and says
+  a stale one; onboarding keeps its four engines (`compactCandidates`); `EngineMark` wears the tool's mark for a
+  `<tool>-cli` run.
 - **You:** the name and photo (`EntityPicture`, editable), the email the photo ladder hashes, and *Your profiles* — any
   profile link pasted as-is, stored as the owner page's sources (`/entities/{owner}/sources`, G61); a pre-D6 GitHub
   handle shows as its profile link. *Connect* only for a service read through a connection (X, Reddit, Pinterest),

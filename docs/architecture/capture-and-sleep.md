@@ -1372,6 +1372,46 @@ say so in words. With the switch off, a plan the person chose — or Auto's plan
 (`SCHEDULE_DEGRADED`), never the metered key by itself (ruling 31); a key the person chose still reads; an explicit `CICADA_LLM_MODE` CLI
 override also reaches the transient retry/pause policy. Such a scheduled engine pause is eligible for replacement
 by a fresh unattended run only after six hours (`sleep_paused.ENGINE_RETRY_S`), rather than the next scheduler tick.
+
+**The person's own Cursor, OpenCode and Grok (G49/G50, 2026-10-28).** Three more plan engines beside the Claude and
+ChatGPT plans — `llm_mode` `cursor` / `opencode` / `grok`, engine labels `cursor-cli` / `opencode-cli` / `grok-cli`,
+ledger connections `cursor-plan` / `opencode-plan` / `grok-plan` (no Plans & keys adapter) — each one headless call per
+LLM call on the CLI the person installed and signed into (`cli_engines`, one `EngineSpec` per tool). All three are in
+`SUBSCRIPTION_MODES`; Cursor and OpenCode are in `SCHEDULE_PLAN_MODES` (a scheduled run reaches them only through the
+switch above), **Grok reads only when the person starts a read** (`SCHEDULE_USER_ONLY`, said in words) until a live
+sign-in shows what a subscription call reports; none is **ever on Auto's ladder** (ruling 31 / 36 D1; the ladder is the
+owner's call). **No MCP context (review of #494):** Grok runs with every Claude/Cursor compatibility cell off
+(`GROK_{CLAUDE,CURSOR}_{MCPS,HOOKS,RULES,SKILLS,AGENTS}_ENABLED=false`, `GROK_MANAGED_MCPS_ENABLED=false`); OpenCode gets
+Cicada's own `OPENCODE_CONFIG_CONTENT` (set after the scrub) turning off every MCP server its global config names, Cicada
+included; Cursor has no documented run-wide switch, so it never gets `--approve-mcps` and its `Mcp(*:*)` calls are
+denied. The belt for all three (and Grok's own `config.toml` servers, which nothing turns off): every child carries
+`CICADA_ENGINE_SPAWN=1`, and Cicada's MCP server started under it offers no instructions, no tools and no "agent reached
+Cicada" row (`mcp/server.py` `in_engine_spawn`). Cicada never installs, signs in or reads a
+tool's credentials; the variables that would move a tool off its sign-in (`CURSOR_API_KEY`, `XAI_API_KEY`, an inline
+`OPENCODE_CONFIG_CONTENT`/`OPENCODE_PERMISSION`) are stripped (`base.CLI_ENGINE_OVERRIDE_ENV`), and `CICADA_CAPTURE=off`
+/ `CICADA_RECALL=off` ride every child, so Cicada's own Cursor and Gemini CLI hooks, and the Claude Code hooks Grok also
+runs, stay silent. **No tools:** every call runs in a fresh empty directory under `$CICADA_HOME/engine-scratch/<mode>`,
+deleted after; Cursor `agent -p --output-format json --mode ask --trust --workspace <dir>` without `--force`, plus a
+deny-all `.cursor/cli.json`; OpenCode `opencode run --format json --pure --dir <dir> -m <provider/model> --file
+<request>` with `OPENCODE_PERMISSION={"*":"deny"}` and no Claude Code or project config; Grok `grok --prompt-file
+<request> --output-format json --permission-mode dontAsk` with every tool kind denied, `--disable-web-search
+--no-subagents --no-plan --disallowed-tools Agent`. **Plan, not metered:** OpenCode counts only GitHub Copilot and
+OpenCode Go (`OPENCODE_PLAN_PROVIDERS`); a model on any other provider is refused before a call (the PUT answers 422,
+the pre-flight and the call refuse in words, "Nothing was read"). Cursor bills past its included usage only if the
+person turned that on in their Cursor account — said on the card (`billingNote`). Grok runs only xAI's built-in
+`grok-…` ids (a `config.toml` model with its own provider or key outranks the sign-in, so anything else is refused and
+never listed; `config.toml` is never read), and OpenCode and Grok always get an explicit model — never the tool's own
+config default. What remains is a key override set on a built-in id in Grok's own settings, said on the card; a reply
+carrying a charged cost stops the run (`EngineOverage`) — unverified until a live sign-in shows whether subscription
+calls ever report one (the docs say an absent cost never proves a free call). **Pre-flight** (`cli_engines.preflight`, each batch): installed, signed
+in (Cursor `agent status`; OpenCode: `opencode models` lists a plan model; Grok `grok models`), the saved model still
+offered — a model the tool no longer lists stops the run in words, never swapped — and OpenCode's unpicked model is the
+first plan model it lists (Grok's too). Usage and rate-limit words are `EngineThrottled` (the breaker, a pause); signed-out words name
+the exact sign-in command. The model a tool reports (Grok's `modelUsage`, OpenCode's `step_finish`) is what the
+`Cicada-Author` trailer and the ledger carry; none reported and none chosen is omitted, never guessed. The reserve line
+reads only engines that report windows (`RESERVE_ENGINES`: Claude, ChatGPT). Antigravity is not an engine: Google's FAQ
+says wrapping `agy` inside another application "is not supported under consumer plans", and Gemini CLI stopped serving
+personal Google sign-ins on 2026-06-18.
 **Before the freeze:** every run that holds the bank first marks what is only ever looked up as read — watch
 history, month summaries and list saves (*Indexed, not consolidated*, above) — so they are never frozen, batched or
 counted as read by the model. **Once per drain, not per batch:** temporal decay (both engines,

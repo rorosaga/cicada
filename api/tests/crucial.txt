@@ -54,13 +54,24 @@ test_write_window_guards.py::test_reading_routes_are_never_gated
 test_status_writing.py::test_status_says_writing_only_inside_the_window
 
 ## Ruling 4 / 4b / 4c: a scheduled run uses a plan only through the person's switch, on unless they turned it off
-test_engine_select.py::test_ruling_4_names_both_plans_in_one_tuple
+test_engine_select.py::test_ruling_4_names_every_plan_in_one_tuple
 test_engine_select.py::test_a_settings_chosen_plan_never_runs_on_a_schedule_with_the_switch_off
 test_server_readers.py::test_with_the_switch_off_a_scheduled_run_never_uses_a_plan_chosen_in_settings
 test_server_readers.py::test_the_switch_is_on_by_default_and_an_explicit_off_stays_off
 test_server_readers.py::test_with_the_switch_a_scheduled_run_uses_the_claude_plan_chosen_in_settings
 test_server_readers.py::test_the_switch_is_stored_beside_the_reading_options_and_reads_off_when_corrupt
 test_sleep_scheduled_drain.py::test_a_scheduled_drain_reads_every_batch_but_never_selects_a_plan
+
+## G49/G50: the person's own Cursor, OpenCode and Grok — no tools, no capture, no key, never on Auto's ladder
+test_cli_engines.py::test_success_reads_the_answer_without_tools_capture_or_keys
+test_cli_engines.py::test_opencode_never_calls_a_key_backed_model
+test_cli_engines.py::test_a_plan_limit_is_a_throttle_so_sleep_pauses
+test_cli_engines.py::test_auto_never_reaches_a_cli_engine
+test_cli_engines.py::test_grok_never_loads_claude_or_cursor_mcp_servers_or_their_config
+test_cli_engines.py::test_opencode_turns_off_every_mcp_server_the_persons_config_names
+test_cli_engines.py::test_cicadas_own_mcp_server_offers_nothing_inside_an_engine_call
+test_cli_engines.py::test_a_grok_model_that_is_not_xais_own_is_never_offered_or_called
+test_cli_engines.py::test_a_chosen_cli_engine_resolves_with_its_models_and_ruling_4_on_schedules
 
 ## Ruling 31: the default is Auto — a plan, else a local model — never a metered key nobody chose
 test_engine_select.py::test_the_default_install_never_falls_to_a_metered_key

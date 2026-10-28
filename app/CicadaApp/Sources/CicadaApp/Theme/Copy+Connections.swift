@@ -48,6 +48,9 @@ extension Copy {
         static let auto = "Auto"
         static let useAuto = "Use Auto"
         static let plans = "Plans"
+        /// G49/G50 — the person's own agent tools, each signed in through itself.
+        static let ownTools = "Your agent tools"
+        static let notInstalled = "Not installed"
         static let keys = "API keys"
         static let signIn = "Sign in"
         static let signOut = "Sign out"

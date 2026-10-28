@@ -126,7 +126,7 @@ class Settings(BaseSettings):
     # happens once per Sleep cycle in ``engine_select``; ``resolve_llm_fn`` treats an unresolved ``"auto"`` as
     # ``"byok"`` and never shells out synchronously — a RESOLVED auto that found no engine carries
     # ``no_engine_reason`` and refuses every call before it is made.
-    llm_mode: str = "auto"                    # CICADA_LLM_MODE (agent|auto|byok|codex|local)
+    llm_mode: str = "auto"                    # CICADA_LLM_MODE (agent|auto|byok|codex|local|cursor|opencode|grok)
     # Set only on a resolved copy (``engine_select.resolve_settings``) whose engine selection found nothing it may use:
     # the sentence saying why. Every engine call built from that copy refuses with it (``providers.resolve_llm_fn``).
     no_engine_reason: str = ""
@@ -176,6 +176,12 @@ class Settings(BaseSettings):
     codex_model: str = ""                           # CICADA_CODEX_MODEL
     codex_disambiguation_model: str = ""            # CICADA_CODEX_DISAMBIGUATION_MODEL
     codex_reasoning_effort: str = "low"             # CICADA_CODEX_REASONING_EFFORT
+
+    # G49 — the person's own signed-in agent CLIs as Sleep engines (llm_mode="cursor"|"opencode"|"grok",
+    # `cli_engines`). Only one is ever the engine, so one model pair serves whichever it is; "" = the tool's
+    # own default (no model flag), except OpenCode, whose pre-flight picks the first plan model it lists.
+    cli_engine_model: str = ""                      # CICADA_CLI_ENGINE_MODEL
+    cli_engine_disambiguation_model: str = ""       # CICADA_CLI_ENGINE_DISAMBIGUATION_MODEL
 
     # Server
     host: str = "127.0.0.1"

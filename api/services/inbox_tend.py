@@ -1066,7 +1066,9 @@ def default_llm_fn(settings, *, sink: Callable[..., None] | None = None) -> Call
     from api.services import providers
 
     model = (getattr(settings, "litellm_disambiguation_model", "") or None)
-    if str(getattr(settings, "llm_mode", "")).lower() in ("agent", "codex"):
+    from api.services.engine_select import CLI_MODES
+
+    if str(getattr(settings, "llm_mode", "")).lower() in CLI_MODES:
         return providers.resolve_llm_fn(settings, stage=STAGE, is_async=False, sink=sink)
     import litellm
 
@@ -2410,6 +2412,10 @@ _ENGINE_MODELS = {
     "codex-cli": re.compile(r"(?:gpt-[a-z0-9.-]{1,40}|o[0-9][a-z0-9-]{0,30}|codex-[a-z0-9.-]{1,40})"),
     "litellm": re.compile(r"(?:(?:openrouter|anthropic|openai|gemini|groq|mistral)/)?[a-z0-9][a-z0-9._:/-]{1,100}"),
     "ollama": re.compile(r"(?:ollama/)?[a-z0-9][a-z0-9._:-]{0,60}"),
+    # G49/G50: the id the tool itself reported (Cursor's, OpenCode's `provider/model`, Grok's).
+    "cursor-cli": re.compile(r"[a-z0-9][a-z0-9._:-]{0,80}"),
+    "opencode-cli": re.compile(r"[a-z0-9][a-z0-9._-]{0,40}/[a-z0-9][a-z0-9._:/-]{0,80}"),
+    "grok-cli": re.compile(r"[a-z0-9][a-z0-9._:-]{0,80}"),
 }
 MAX_VETTED = 500
 _VETTED_ID = re.compile(r"inbox-[A-Za-z0-9_-]{1,96}")

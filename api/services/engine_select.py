@@ -66,7 +66,14 @@ SLEEP_ENGINE_PREF_KEY = "sleep-engine"
 # "codex" was labelled first (Track E Task 3) so every engine-keyed site was
 # generalised before the mode became selectable; it became selectable in the
 # same change that put it under ruling 4's guard (Task 4, SUBSCRIPTION_MODES).
-ENGINE_LABELS = {"agent": "claude-cli", "codex": "codex-cli", "local": "ollama", "byok": "litellm"}
+ENGINE_LABELS = {"agent": "claude-cli", "codex": "codex-cli", "local": "ollama", "byok": "litellm",
+                 # G49/G50 — the person's own signed-in Cursor, OpenCode and Grok CLIs (`cli_engines`).
+                 "cursor": "cursor-cli", "opencode": "opencode-cli", "grok": "grok-cli"}
+#: The modes that run the person's own signed-in agent CLI headless (`cli_engines`), beside Claude's and Codex's.
+CLI_ENGINE_MODES = ("cursor", "opencode", "grok")
+CLI_ENGINE_LABELS = ("cursor-cli", "opencode-cli", "grok-cli")
+#: Every mode whose calls are a CLI subprocess on a plan (``providers``' CLI seam).
+CLI_MODES = ("agent", "codex", *CLI_ENGINE_MODES)
 #: The engine label of a resolved copy whose selection found nothing it may use (ruling 2026-10-19: Auto never falls
 #: to a metered key by itself). Never stamped on a call: every call from such a copy refuses first.
 NO_ENGINE_LABEL = "none"
@@ -88,8 +95,16 @@ UNRESOLVED_AUTO = ("Cicada had not chosen an engine for this call (Auto, unresol
 PLAN_ENGINES: dict[str, tuple[str, str]] = {
     "claude-cli": (CLAUDE_CONNECTION_ID, "subscription"),
     "codex-cli": (CODEX_CONNECTION_ID, "subscription"),
+    # G49/G50: no Plans & keys card (no adapter) — the id only groups their calls in the ledger.
+    "cursor-cli": ("cursor-plan", "subscription"),
+    "opencode-cli": ("opencode-plan", "subscription"),
+    "grok-cli": ("grok-plan", "subscription"),
 }
-PLAN_NAMES: dict[str, str] = {"claude-cli": "Claude plan", "codex-cli": "ChatGPT plan"}
+#: The plans whose usage windows a run can watch (the reserve line): Claude reports its windows on every call, the
+#: ChatGPT plan through its read-only snapshot. The Cursor, OpenCode and Grok CLIs report none.
+RESERVE_ENGINES = ("claude-cli", "codex-cli")
+PLAN_NAMES: dict[str, str] = {"claude-cli": "Claude plan", "codex-cli": "ChatGPT plan",
+                              "cursor-cli": "Cursor plan", "opencode-cli": "OpenCode plan", "grok-cli": "Grok plan"}
 
 
 def engine_label(settings: Settings) -> str:
@@ -119,6 +134,10 @@ def no_engine(settings) -> bool:
 def no_engine_sentence(why: str | None) -> str:
     """What a run with no engine says, in words, with the fix — naming the scheduled-plan switch when it is the
     reason (ruling 4b). Provider-neutral."""
+    if why == SCHEDULE_USER_ONLY:
+        return ("Scheduled runs don't use the engine you chose: it reads only when you start a read yourself. Start a "
+                "read, or choose another engine for scheduled runs in Settings → Intelligence. What was waiting is "
+                "still waiting.")
     if why == SCHEDULE_DEGRADED:
         return ("Scheduled runs have no engine they may use: your plan is off for scheduled runs (“Scheduled runs may "
                 "use my plan” in Settings → Sleep; on a server, `cicada sleep schedule --use-plan on`), no local model "
@@ -145,6 +164,10 @@ def shown_model(settings) -> str:
         from api.services import codex_engine
 
         return codex_engine.model_for_stage(settings, None) or "default model"
+    if engine in CLI_ENGINE_LABELS:
+        from api.services import cli_engines
+
+        return cli_engines.model_for_stage(settings, None) or "default model"
     if engine == "ollama":
         return str(getattr(settings, "ollama_model", "") or "")
     return str(getattr(settings, "litellm_model", "") or "")
@@ -165,6 +188,12 @@ def author_model(settings) -> str:
         from api.services import codex_engine
 
         return codex_engine.model_for_stage(settings, None) or "unknown"
+    if engine in CLI_ENGINE_LABELS:
+        from api.services import cli_engines
+
+        # A tool's own default is unknown until it reports it; the reported model reaches the trailer through
+        # `agent_engine.models_used()` — never `litellm_model`, which never ran here.
+        return cli_engines.model_for_stage(settings, None) or "unknown"
     return str(getattr(settings, "litellm_model", "") or "unknown")
 
 
@@ -178,7 +207,7 @@ def use_for_sleep(registry) -> bool:
 #: Ruling 4, generalised in code (spec Decision 3, R-E20): the modes that
 #: spend a subscription. A Settings-chosen one never runs on a schedule; one
 #: tuple, so a third plan engine cannot forget the guard.
-SUBSCRIPTION_MODES = ("agent", "codex")
+SUBSCRIPTION_MODES = ("agent", "codex", *CLI_ENGINE_MODES)
 
 #: Ruling 4b (owner, 2026-10-16: "The server should be allowed to use plans too"; on the ChatGPT plan: "Yeah chat
 #: too"): the plan modes the person's explicit switch — Settings → Sleep's "Scheduled runs may use my plan",
@@ -186,7 +215,13 @@ SUBSCRIPTION_MODES = ("agent", "codex")
 #: (2026-10-19) — may open on a schedule:
 #: both plans, each only when it is the engine the person's own choice resolves to and it is signed in. The switch is
 #: the guard's only door besides an explicit ``CICADA_LLM_MODE``.
-SCHEDULE_PLAN_MODES = ("agent", "codex")
+#: G49/G50 (2026-10-28): the Cursor and OpenCode plans open on a schedule only through the same switch, and only when
+#: chosen — none of the new engines is ever a rung on Auto's ladder. Grok is user-started only (review of #494) until a
+#: live sign-in shows what a subscription call reports: a key override on a built-in model cannot be told apart
+#: before the call.
+SCHEDULE_PLAN_MODES = ("agent", "codex", "cursor", "opencode")
+#: Why a scheduled run has no engine: the chosen plan reads only when the person starts a read.
+SCHEDULE_USER_ONLY = "scheduled cycle — this Sleep engine reads only when you start a read"
 
 #: Why a scheduled run resolved to the metered engine: ruling 4 kept it off a plan because the person's switch is
 #: off. ``sleep_cycle`` reads it to name the switch as a fix when that engine then refuses every call.
@@ -212,7 +247,7 @@ def _schedule_may_use(mode: str, registry) -> bool:
         return True
     return mode in SCHEDULE_PLAN_MODES and scheduled_plan_allowed(registry)
 
-_VALID_PREF_MODES = ("auto", "agent", "codex", "byok", "local")
+_VALID_PREF_MODES = ("auto", "agent", "codex", "byok", "local", *CLI_ENGINE_MODES)
 
 
 def _prefs_mode(registry) -> str | None:
@@ -269,7 +304,8 @@ def powered_connection_id(settings, registry, connected_ids) -> str | None:
     """
     connected = set(connected_ids)
     mode = configured_mode(settings, registry)
-    direct = {"agent": CLAUDE_CONNECTION_ID, "codex": CODEX_CONNECTION_ID, "local": OLLAMA_CONNECTION_ID}
+    direct = {"agent": CLAUDE_CONNECTION_ID, "codex": CODEX_CONNECTION_ID, "local": OLLAMA_CONNECTION_ID,
+              **{m: PLAN_ENGINES[ENGINE_LABELS[m]][0] for m in CLI_ENGINE_MODES}}
     if mode in direct:
         return direct[mode] if direct[mode] in connected else None
     if mode == "auto":
@@ -375,6 +411,13 @@ def _model_overrides(registry, mode: str) -> dict:
         return updates
     if mode == "local":
         return {"ollama_model": model} if model else {}
+    if mode in CLI_ENGINE_MODES:
+        updates = {}
+        if model:
+            updates["cli_engine_model"] = model
+        if disambiguation:
+            updates["cli_engine_disambiguation_model"] = disambiguation
+        return updates
     if mode == "byok":
         updates = {}
         if model:
@@ -519,12 +562,14 @@ async def resolve_llm_mode(
         if pref_mode is not None:
             configured = pref_mode
 
-    if configured in ("agent", "codex", "local"):
+    if configured in ("agent", "codex", "local", *CLI_ENGINE_MODES):
         # R3 / R-E20: a prefs-chosen PLAN is not a dotfile edit — ruling 4
         # applies to it exactly as to the auto/byok rungs below. An explicit
         # CICADA_LLM_MODE=agent|codex is deliberate configuration and is
         # untouched by trigger source (unchanged from before G122).
         if configured in SUBSCRIPTION_MODES and not env_explicit and not user_triggered:
+            if configured not in SCHEDULE_PLAN_MODES:
+                return "auto", SCHEDULE_USER_ONLY
             if not _schedule_may_use(configured, registry):
                 # Ruling 2026-10-19: the person chose a plan, not a key — a schedule the plan is closed to has no
                 # engine, never the metered key by itself.
@@ -532,6 +577,7 @@ async def resolve_llm_mode(
             return configured, "scheduled runs may use your plan (Settings → Sleep)"
         return configured, (
             f"CICADA_LLM_MODE={configured}" if env_explicit
+            else f"Sleep engine set to {PLAN_NAMES[ENGINE_LABELS[configured]]} in Settings" if configured in CLI_ENGINE_MODES
             else f"Sleep engine set to {configured!r} in Settings"
         )
 

@@ -21,6 +21,7 @@ struct IntelligenceView: View {
                 inUse.settingsRow(.engineChoice)
             }
             group(Copy.Intelligence.plans, kind: "plan").settingsRow(.plansAndKeys)
+            ownTools
             group(Copy.Intelligence.keys, kind: "key")
             SettingsGroupCard {
                 SettingsRow(.sleepUsePlan, title: Copy.ServerPlan.usePlanTitle) {
@@ -80,8 +81,10 @@ struct IntelligenceView: View {
     private var inUse: some View {
         let response = engineVM.response
         let preview = response?.preview?.manual
-        let name = preview.map { EngineOption.previewName(engine: $0.engine, model: $0.model) } ?? Copy.Intelligence.auto
-        let mark = preview.flatMap { EngineOption.previewMark(engine: $0.engine, model: $0.model) }
+        let cards = response?.candidates ?? []
+        let name = preview.map { EngineOption.previewName(engine: $0.engine, model: $0.model, candidates: cards) }
+            ?? Copy.Intelligence.auto
+        let mark = preview.flatMap { EngineOption.previewMark(engine: $0.engine, model: $0.model, candidates: cards) }
             ?? response.flatMap { Self.connection(forCard: $0.selected, provider: $0.provider) }
                 .flatMap { ConnectionMark.logoName(connectionId: $0) }
         let isAuto = response?.selected == "auto"
@@ -130,6 +133,24 @@ struct IntelligenceView: View {
                                     canChoose: engineVM.response?.isPinnedByEnvironment == false,
                                     onUse: { use(pair.item) })
                         .settingsRow(.connection(ProviderDirectory.connectionId(pair.item.connection)))
+                }
+            }
+        }
+    }
+
+    /// G49/G50 — the person's own Cursor, OpenCode or Grok, straight from `GET /sleep/engine`'s cards: its mark, how
+    /// it is paid for, *Use* once it is signed in, and — signed out — the one command they run in their own terminal
+    /// (Cicada never signs in for them). Never on Auto's ladder, so only ever chosen here or in the Sleep page's menu.
+    @ViewBuilder
+    private var ownTools: some View {
+        let response = engineVM.response
+        let tools = (response?.candidates ?? []).filter(EngineOption.isOwnTool)
+        if let response, !tools.isEmpty {
+            SettingsGroupCard(header: Copy.Intelligence.ownTools) {
+                ForEach(Array(tools.enumerated()), id: \.element.id) { index, tool in
+                    if index > 0 { SettingsDivider() }
+                    OwnToolRow(tool: tool, inUse: response.selected == tool.id,
+                               canChoose: !response.isPinnedByEnvironment) { choose(card: tool.id) }
                 }
             }
         }
@@ -191,6 +212,34 @@ struct IntelligenceView: View {
             guard await sleepVM.updateRunOptions(.scheduledUsePlan(on)) else { return }
             await sleepVM.load()
             await engineVM.load()
+        }
+    }
+}
+
+/// G49/G50 — one of the person's own agent tools as a Sleep engine: the line Plans draw, from the engine card alone.
+struct OwnToolRow: View {
+    let tool: SleepEngineCandidate
+    let inUse: Bool
+    let canChoose: Bool
+    let onUse: () -> Void
+
+    var body: some View {
+        ConnectionLine(logo: tool.mark, name: tool.label, systemFallback: "terminal",
+                       detail: tool.connected ? (tool.modelNote ?? tool.billingNote) : tool.detail,
+                       status: (tool.connected ? Copy.Status.connected
+                                    : tool.available ? Copy.Status.notConnected : Copy.Intelligence.notInstalled,
+                                tool.connected)) {
+            if inUse {
+                Text(Copy.Intelligence.inUse)
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+            } else if tool.connected, canChoose {
+                TextButton(title: Copy.Intelligence.use, help: Copy.Intelligence.useHelp, inline: true, action: onUse)
+            }
+        } below: {
+            if tool.available, !tool.connected, let command = tool.signIn {
+                CommandBox(command: command)
+            }
         }
     }
 }

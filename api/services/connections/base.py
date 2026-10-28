@@ -56,9 +56,19 @@ CODEX_PLAN_OVERRIDE_ENV = ("CODEX_API_KEY", "CODEX_ACCESS_TOKEN", "OPENAI_BASE_U
 #: its own below.
 _ALSO_STRIPPED = ("CLAUDE_CODE_RETRY_WATCHDOG", "CODEX_HOME")
 
-#: R-E5: one list for every child. Cicada only ever spawns ``claude`` and
-#: ``codex``, so stripping the union is safe for both.
-SCRUBBED_ENV_KEYS = MANAGED_KEY_ENV + CLAUDE_PLAN_OVERRIDE_ENV + CODEX_PLAN_OVERRIDE_ENV + _ALSO_STRIPPED
+#: G49/G50 — the plan engines that run the person's own Cursor, OpenCode and Grok sign-ins (``cli_engines``): a key in
+#: the environment would move Cursor off its login (cursor.com/docs/cli/reference/authentication), and an inline
+#: OpenCode config could loosen the deny-all permission Cicada sets for its own calls. (``XAI_API_KEY`` is already in
+#: ``MANAGED_KEY_ENV``.)
+CLI_ENGINE_OVERRIDE_ENV = ("CURSOR_API_KEY", "OPENCODE_CONFIG_CONTENT", "OPENCODE_CONFIG", "OPENCODE_PERMISSION")
+
+#: R-E5: one list for every child. Stripping the union is safe for every CLI Cicada spawns.
+SCRUBBED_ENV_KEYS = (MANAGED_KEY_ENV + CLAUDE_PLAN_OVERRIDE_ENV + CODEX_PLAN_OVERRIDE_ENV + CLI_ENGINE_OVERRIDE_ENV
+                     + _ALSO_STRIPPED)
+
+
+#: Set on every child Cicada spawns; Cicada's own MCP server reads it and stays silent (see ``scrubbed_env``).
+ENGINE_SPAWN_ENV = "CICADA_ENGINE_SPAWN"
 
 
 @dataclass
@@ -174,6 +184,10 @@ def scrubbed_env(name: str | None = None) -> dict[str, str]:
     env = {k: v for k, v in os.environ.items() if k not in SCRUBBED_ENV_KEYS}
     env["CICADA_CAPTURE"] = "off"
     env["CICADA_RECALL"] = "off"
+    # Review of #494: a harness Cicada spawns may still start the person's MCP servers (Cursor has no run-wide switch;
+    # Grok always loads its own config.toml's). Cicada's own server, started under this marker, answers with no
+    # instructions, no tools and no "agent reached Cicada" row (`mcp/server.py`).
+    env[ENGINE_SPAWN_ENV] = "1"
     if name and os.path.basename(name) == "codex":
         env["CODEX_HOME"] = str(codex_home())
     return env

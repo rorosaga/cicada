@@ -156,7 +156,7 @@ def _sum(values: list[float | None]) -> float | None:
 def _model_basis(engine: str | None, billing: str | None, cost: float | None, equiv: float | None) -> str:
     if engine == "claude-cli":
         return "list"
-    if engine == "codex-cli":
+    if engine in ("codex-cli", "cursor-cli", "opencode-cli", "grok-cli"):
         return "plan"
     if billing == "free" or engine == "ollama":
         return "free"
@@ -492,7 +492,8 @@ SHARE_ORDER = ("seven_day", "secondary", "five_hour", "primary", "seven_day_opus
 #: A model's own window moves only for that model, so it is never estimated for a run that did not
 #: report it.
 _MODEL_WINDOWS = frozenset({"seven_day_opus", "seven_day_sonnet"})
-_PLAN_ENGINES = {"claude-cli": "claude-plan", "codex-cli": "chatgpt-plan"}
+_PLAN_ENGINES = {"claude-cli": "claude-plan", "codex-cli": "chatgpt-plan",
+                 "cursor-cli": "cursor-plan", "opencode-cli": "opencode-plan", "grok-cli": "grok-plan"}
 _PLAN_CONNECTIONS = frozenset(_PLAN_ENGINES.values())
 
 _samples_cache: tuple[str, float, dict] | None = None   # (ledger dir, read at, samples)
