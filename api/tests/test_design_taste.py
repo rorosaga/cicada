@@ -670,3 +670,43 @@ def test_real_encoder_puts_pictures_and_words_in_one_space():
     words = emb.embed_text(["a dark mode dashboard with a black background",
                             "a bright white landing page"], is_query=True)
     assert float(words[0] @ dark) > float(words[0] @ light) or float(words[1] @ light) > float(words[1] @ dark)
+
+
+
+# --------------------------------------------------------------------------- the preprocessing stamp (2026-10-28)
+
+
+def _counting(fp: str | None, model: str = "fake/eg2:768"):
+    emb = _fake_embedders(model)
+    calls = []
+    image = emb.image
+
+    def counted(data):
+        calls.append(1)
+        return image(data)
+
+    return design_index.Embedders(model=model, image=counted, text=emb.text, image_fingerprint=fp), calls
+
+
+def test_an_image_vector_re_embeds_only_when_the_preprocessing_really_changed(bank):
+    _add(bank, image=DARK, look=([], []))
+    emb, calls = _counting("aaaaaaaaaaaa")
+    design_index.refresh(bank, emb)
+    assert len(calls) == 1
+    design_index.refresh(bank, emb)
+    assert len(calls) == 1, "the same model and the same preprocessing: nothing re-embeds"
+    moved, calls2 = _counting("bbbbbbbbbbbb")
+    design_index.refresh(bank, moved)
+    assert len(calls2) == 1, "a decoder that draws other pixels re-embeds the picture once"
+
+
+def test_a_vector_stored_before_the_stamp_is_kept_while_the_pipeline_is_the_one_that_made_it(bank):
+    _add(bank, image=DARK, look=([], []))
+    design_index.refresh(bank, _fake_embedders())                       # the pre-stamp row: the bare model id
+    kept, calls = _counting(vision_embedder.LEGACY_FINGERPRINT)
+    design_index.refresh(bank, kept)
+    assert calls == [], "adding the stamp re-embeds nothing"
+    assert design_index.search(bank, image=DARK, emb=kept)["results"], "and the old vector is still searched"
+    changed, calls = _counting("cccccccccccc")
+    design_index.refresh(bank, changed)
+    assert len(calls) == 1

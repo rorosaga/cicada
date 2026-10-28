@@ -17,6 +17,15 @@
   each one, off by default, read-only, credentials 0600, the normal capture path. "Cicada never signs in" is amended
   for tier 2 only. Paths chosen: Telegram (47a), Spotify, Notion, Readwise → API; YouTube, Letterboxd → harness (plus
   Letterboxd's RSS); WhatsApp → local database; Google Calendar → Mac reader (`network.md`).
+- **2026-10-28 — vision PR 1: measure pictures and sources, better logos, logo freshness, an image-vector stamp (G159,
+  G61, G217, G195; branch `feat/vision-measure-pictures`).** `cicada coverage pictures|sources` and
+  `GET /diagnostics/coverage/{report}` (ids and enums only). On a copy of the owner's bank: 65 % of 5,683 live pages can
+  show a picture (media 88 %, brands 33 %, people 2 of 134); 5 % list a source, none from the person or an agent tool.
+  The logo ladder keeps the largest mark (≥ 64 px stops; square `og:image` only as a fallback); ruling 40's record reads
+  the page's prose and Cicada's own unconfirmed site (+1 trusted, +1 proposal); logo freshness is a weekly read-only
+  report (2 visible redraws wait on the owner); image vectors re-embed only when the preprocessing really changed.
+  Needs the owner: a person's own site as a face, project avatars, Gravatar from Contacts, Wikidata P18, Stage 1's
+  site upgraded by ruling 40, the two redrawn marks (`G159`).
 - **2026-10-28 — ruling 46 recorded; Auto reaches Cursor and OpenCode after the two plans (G49, G50; branch
   `feat/auto-ladder-46`).** Auto: Claude plan → ChatGPT plan → Cursor → OpenCode on a subscription model; Grok is in
   neither Auto nor scheduled runs until a live sign-in shows what a subscription call reports. Read from #494's cached

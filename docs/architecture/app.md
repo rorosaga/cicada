@@ -96,7 +96,15 @@ Agents page, ⌘9, `AppTab.agents`, appended so no shortcut moved — DR-22).
 - **Marks:** one per provider umbrella from the curated set (`app/assets/logo-set/`, `scripts/build-logo-set.py`, origin
   `set` in `logos.manifest.json`); `codex`/`chatgpt` draw OpenAI's mark and `gemini-cli` Gemini's through `BrandMark`.
   A listed connection's mark sits in `LogoTile` (26 pt in a 36 pt ring tile; `.dense` 18 in 24); a status is
-  `StatusDot`; a row is `ConnectionLine` (DESIGN_RULES §9, 2026-10-22).
+  `StatusDot`; a row is `ConnectionLine` (DESIGN_RULES §9, 2026-10-22). **Freshness** (vision item 4, 2026-10-28):
+  `scripts/logo-freshness.py` asks each set mark's own `source_url` once and reports `same` (bytes, or pixels for a
+  re-encoded PNG — a pure-stdlib decoder, Adam7 included), `changed` (the fetched file kept under `--save-dir` for
+  review), `pinned` (a commit, npm version or Commons file page: never asked) or `unreachable`; the weekly
+  `.github/workflows/logo-freshness.yml` puts the table in the job summary and the changed files in an artifact, with a
+  read-only token — it never commits or opens a pull request; replacing a mark stays a reviewed `fetch-logos.sh` run.
+  Audit 2026-10-28 (45 set sources behind the 54 bundled PNGs): 23 same (8 of them PNGs the vendor re-encoded), 20 pinned, 2 visible redraws (Fireworks, OpenClaw — waiting on
+  the owner), 0 unreachable; every bundled PNG is 256 px except Instinct (64) and Warp (196), which their vendors still
+  serve no larger, and a 256 px raster is ≥ 4.9× the 52 px the tile draws on Retina, so nothing was re-cut at 512.
 
 **Ruling (G109, 2026-09-02) — d3-force stays.** Evaluated against sigma.js/ForceAtlas2, Pixi,
 cosmos, ngraph and d3-force-3d at ~1,900 nodes: the two G109 symptoms were three local bugs in how

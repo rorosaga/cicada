@@ -1555,7 +1555,8 @@ the CLI.
     down: `page list [--type --status]` and `graph` (`graph_builder`, pages only), `page history <entity>`
     (`git_service.get_entity_history`), `find <query> [--kind --limit]` (`search_service.search`, every kind unless
     `--kind`), `inbox all [--kind]` (`inbox_service.load_inbox`: every kind, deferred hidden), `sleep history`,
-    `feed list`, `bank list`.
+    `feed list`, `bank list`, `coverage pictures|sources [--ids --archived]` (`coverage_report`, vision items 1-2,
+    2026-10-28: counts and enums, a few page ids per bucket only with `--ids`).
   - `via="backend"` — the running backend's own routes with the token, because the state is the backend's: `sleep
     status|start [--continue]|stop|end|schedule [--mode --at --every]|engine [--mode --model]|options [--batch-size
     --continue-after-reset --reserve]`, `index status|rebuild|use <model>|install [--model]`, `feed add|remove|poll`,

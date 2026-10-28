@@ -176,6 +176,26 @@ def source_for(fm: dict) -> Source | None:
     return None
 
 
+def missing_reason(fm: dict) -> str | None:
+    """Why :func:`source_for` has nothing for a ``media`` page — ``paper``, ``no_url``, ``walled`` or
+    ``no_preview_declared`` (an ordinary page with no thumbnail on record) — or None when it has a source or the page
+    is not media. The same branches, in the same order, so the coverage report and the precedence cannot disagree."""
+    fm = fm or {}
+    if str(fm.get("type") or "").strip().lower() != "media" or source_for(fm) is not None:
+        return None
+    media = fm.get("media")
+    if not isinstance(media, dict):
+        return "no_url"
+    page_url = media.get("url").strip() if isinstance(media.get("url"), str) else ""
+    if media.get("kind") == PAPER_KIND or (page_url and _never_scraped(page_url)):
+        return "paper"
+    if not page_url or not _usable(page_url):
+        return "no_url"
+    if _walled(page_url):
+        return "walled"
+    return "no_preview_declared"
+
+
 def key_for(fm: dict) -> str | None:
     source = source_for(fm)
     return source.key if source else None

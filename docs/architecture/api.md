@@ -266,6 +266,18 @@ name a `cicada_…` tool; `llms.txt` maps each to its operation), `data`'s shape
   never a connect, so a harness's own wiring check (`claude mcp get`, which initializes as the agent) never moves it.
   Null until one; onboarding's Agents step confirms a first call from it. `lastSeenAt` and `via` are unchanged (`call`
   counts as an MCP sighting).
+- `GET /diagnostics/coverage/{pictures|sources}?ids=&archived=` (vision items 1-2, 2026-10-28) — JSON, `no-store`, not a
+  Store domain, computed on each ask over the active bank (`coverage_report`; 404 for any other report). **Pictures:**
+  each live page's ONE rung from `entity_picture.resolve_page` (`<rung>:stored` with bytes on disk, `<rung>:offered`
+  when the app will ask for it) or ONE reason (`coverage_report.REASONS`: `type_has_no_rung`, `gate_off`,
+  `fetch_missed`, `no_identifier`, `identifier_proposed`, `identifier_needs_proxy`, `no_site`, `site_proposed`,
+  `site_unconfirmed`, `site_platform`, `paper`, `no_url`, `walled`, `no_preview_declared` — `media_preview.missing_reason`
+  for the last four), by type; cached logos bucketed by their smaller side; `opportunities` counts what rungs awaiting a
+  ruling could draw from. **Sources:** each entry's write path (`coverage_report.writer_of`, inferred from the fields
+  each writer stamps — `WRITERS`) × trusted/proposed/unconfirmed, roles, ruling-26 re-check state, pages with none by
+  type, and web citations counted as claims by origin (never sources, rulings 27/44). Ids and enums only: no page name,
+  URL or handle; `ids=true` adds ≤ 5 page ids per bucket. Reads caches, never creates or fetches. Measured cold on a copy
+  of the owner's bank (5,683 live pages): pictures 4.1 s, sources 6.4 s (the claims fold).
 - `GET /diagnostics/report?lines=N` (tester readiness, 2026-10-26; 1 ≤ N ≤ 1000, default 200) — plain text, `no-store`,
   not a Store domain: the backend half of *Report a problem…* — version, platform, engine mode (an enum, never an
   account), connected channel ids, the bank count, recent warnings and errors, and the tails of `backend*.log` and the

@@ -52,6 +52,23 @@ class Embedders:
     model: str
     image: Callable[[bytes], np.ndarray] | None = None
     text: Callable[[list[str], bool], np.ndarray] | None = None
+    #: The image encoder's preprocessing fingerprint (`vision_embedder.fingerprint`): an image row is current only
+    #: while its stamp matches the model AND this (vision item 3, 2026-10-28). None: rows are stamped with the model.
+    image_fingerprint: str | None = None
+
+    def image_current(self, stored: str) -> bool:
+        from api.services import vision_embedder
+
+        if self.image_fingerprint is None:
+            return stored == self.model
+        return vision_embedder.stamp_current(stored, self.model, self.image_fingerprint)
+
+    @property
+    def image_stamp(self) -> str:
+        from api.services import vision_embedder
+
+        return self.model if self.image_fingerprint is None else vision_embedder.stamp_for(self.model,
+                                                                                           self.image_fingerprint)
 
 
 def default_embedders(environ=None) -> Embedders | None:
@@ -62,8 +79,12 @@ def default_embedders(environ=None) -> Embedders | None:
     environ = os.environ if environ is None else environ
     vision = vision_embedder.get(environ)
     if vision is not None:
+        try:
+            fp = vision_embedder.fingerprint()
+        except Exception:  # noqa: BLE001 — a decoder that cannot run embeds no picture anyway
+            fp = None
         return Embedders(model=vision.model_id or onnx_embedder.PREFERRED_ID, image=vision.embed,
-                         text=lambda texts, q: vision.embed_text(texts, is_query=q))
+                         text=lambda texts, q: vision.embed_text(texts, is_query=q), image_fingerprint=fp)
     if onnx_embedder.find(onnx_embedder.PREFERRED_ID, environ) is None:
         return None
     try:
@@ -154,7 +175,7 @@ def refresh(memory_path, emb: Embedders | None, *, refs=None, limit: int | None 
                         break
                     sha = (ref.image or {}).get("sha256") or ""
                     old = have.get((ref.id, "image"))
-                    if not sha or (old and old[0] == sha and old[1] == emb.model):
+                    if not sha or (old and old[0] == sha and emb.image_current(old[1])):
                         continue
                     found = design_refs.image_file(memory_path, ref)
                     if found is None:
@@ -166,7 +187,7 @@ def refresh(memory_path, emb: Embedders | None, *, refs=None, limit: int | None 
                         logger.debug(f"design_index: a picture didn't embed ({type(exc).__name__})")
                         continue
                     conn.execute("INSERT OR REPLACE INTO vectors VALUES (?, 'image', ?, ?, ?, ?)",
-                                 (ref.id, sha, emb.model, int(vec.size), vec.tobytes()))
+                                 (ref.id, sha, emb.image_stamp, int(vec.size), vec.tobytes()))
                     counts["images"] += 1
             if emb.text is not None:
                 todo = []
@@ -317,7 +338,7 @@ def search(memory_path, *, query: str | None = None, image: bytes | None = None,
             have = _rows(conn)
         finally:
             conn.close()
-        images = {r: v for (r, k), (_, m, v) in have.items() if k == "image" and m == emb.model}
+        images = {r: v for (r, k), (_, m, v) in have.items() if k == "image" and emb.image_current(m)}
         notes = {r: v for (r, k), (_, m, v) in have.items() if k == "note" and m == emb.model}
         if query and emb.text is not None:
             try:
@@ -384,7 +405,7 @@ def similar(memory_path, ref_id: str, *, limit: int = 8, emb: Embedders | None |
             have = _rows(conn)
         finally:
             conn.close()
-        images = {r: v for (r, k), (_, m, v) in have.items() if k == "image" and m == emb.model}
+        images = {r: v for (r, k), (_, m, v) in have.items() if k == "image" and emb.image_current(m)}
         mine = images.pop(ref_id, None)
         if mine is not None and images:
             legs["picture"] = _close(_ranked(images, mine))

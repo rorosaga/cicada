@@ -466,6 +466,22 @@ def cmd_graph(boot, args) -> Result:
     return Result(text=text, data=data, warnings=_warn(boot))
 
 
+def _coverage(boot, args, kind: str) -> Result:
+    from api.services import coverage_report
+
+    build = coverage_report.pictures if kind == "pictures" else coverage_report.sources
+    report = build(Path(boot.pin.path), include_archived=bool(args.archived), ids=bool(args.ids))
+    return Result(text=coverage_report.text(kind, report), data=report, warnings=_warn(boot))
+
+
+def cmd_coverage_pictures(boot, args) -> Result:
+    return _coverage(boot, args, "pictures")
+
+
+def cmd_coverage_sources(boot, args) -> Result:
+    return _coverage(boot, args, "sources")
+
+
 def cmd_find(boot, args) -> Result:
     """The app's find (`GET /search`'s body, in process): every kind unless --kind narrows it."""
     from api.services import search_service
@@ -1451,6 +1467,7 @@ def cmd_setup(boot, args) -> Result:
 COMMANDS = {
     "page list": cmd_page_list, "page history": cmd_page_history, "page decay": cmd_page_decay,
     "graph": cmd_graph, "find": cmd_find,
+    "coverage pictures": cmd_coverage_pictures, "coverage sources": cmd_coverage_sources,
     "inbox all": cmd_inbox_all, "inbox answer": cmd_inbox_answer,
     "sleep status": cmd_sleep_status, "sleep start": cmd_sleep_start, "sleep stop": cmd_sleep_stop,
     "sleep end": cmd_sleep_end, "sleep schedule": cmd_sleep_schedule, "sleep engine": cmd_sleep_engine,

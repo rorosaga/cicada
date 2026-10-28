@@ -35,7 +35,6 @@ from __future__ import annotations
 import hashlib
 import os
 import re
-import struct
 from dataclasses import dataclass, replace
 from datetime import date
 from pathlib import Path
@@ -279,26 +278,8 @@ def sniff(data: bytes) -> str | None:
 
 
 def dimensions(data: bytes) -> tuple[int, int] | None:
-    """(width, height) from a PNG's IHDR or a JPEG's first SOFn marker — read from the header, never decoded
-    (`logo_service.min_dimension`'s walk, returning both sides)."""
-    kind = sniff(data)
-    if kind == "png":
-        if len(data) < 24:
-            return None
-        width, height = struct.unpack(">II", data[16:24])
-        return width, height
-    if kind == "jpg":
-        i = 2
-        while i + 9 < len(data):
-            if data[i] != 0xFF:
-                i += 1
-                continue
-            marker = data[i + 1]
-            if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC):
-                height, width = struct.unpack(">HH", data[i + 5:i + 9])
-                return width, height
-            i += 2 + struct.unpack(">H", data[i + 2:i + 4])[0]
-    return None
+    """(width, height) of a PNG or JPEG, from its header — never decoded (`logo_service.dimensions`, one walk)."""
+    return logo_service.dimensions(data) if sniff(data) else None
 
 
 def upload_rel(entity_id: str, ext: str) -> str:

@@ -80,12 +80,6 @@ USER_AGENT = "Mozilla/5.0 (CicadaBot)"
 # guess a domain: nothing guesses one any more.
 GUESSABLE_TYPES = {"company", "tool"}
 
-_ICON_LINK_RE = re.compile(
-    r"""<link\b[^>]*\brel\s*=\s*["']?[^"'>]*\b(?:apple-touch-icon|icon)\b[^"'>]*["']?[^>]*>""",
-    re.IGNORECASE,
-)
-_HREF_RE = re.compile(r"""\bhref\s*=\s*["']([^"']+)["']""", re.IGNORECASE)
-
 # Raster formats only, deliberately. `image/svg+xml` is NOT here: an SVG is a
 # document — it can carry <script>, external <image xlink:href>, and CSS — and
 # `GET /entities/{id}/logo` serves these bytes straight back with their stored
@@ -113,6 +107,7 @@ class FetchResult:
     content_type: str
     etag: str | None = None
     location: str | None = None  # a 3xx's Location header, for manual redirect-following
+    final_url: str | None = None  # the URL that answered, after the redirects `_get_safely` followed
 
 
 Fetcher = Callable[[str], Awaitable[FetchResult]]
@@ -355,27 +350,24 @@ def domain_for(frontmatter: dict, body: str = "") -> str | None:
 # --- image sniffing ---------------------------------------------------------
 
 
-def min_dimension(data: bytes) -> int | None:
-    """Smaller of width/height, read straight from the header.
+#: A logo at least this many pixels on its smaller side ends the ladder; below it the ladder keeps looking for a larger
+#: one (the app draws a 26 pt mark, 52 px on a Retina screen — a 16 or 32 px favicon is visibly soft there).
+GOOD_PIXELS = 64
+#: An `og:image` is a logo candidate only when it is this close to square: a share banner (1200×630) never is.
+MAX_ASPECT = 1.25
 
-    Returns None for a format we don't sniff (WEBP) — "unknown" means
-    "accept", because refusing a perfectly good mark would be worse than
-    letting a rare oddity through. (SVG never reaches here: ``_accept``
-    refuses the format outright, header *and* sniffed body.)
-    """
+
+def dimensions(data: bytes) -> tuple[int, int] | None:
+    """``(width, height)`` read straight from a PNG, GIF, ICO (its first directory entry; a 0 byte means 256) or JPEG
+    header — never decoded. None for a format not sniffed here (WebP)."""
     if len(data) < 8:
         return None
     if data.startswith(b"\x89PNG\r\n\x1a\n") and len(data) >= 24:
-        width, height = struct.unpack(">II", data[16:24])
-        return min(width, height)
+        return struct.unpack(">II", data[16:24])
     if data[:6] in (b"GIF87a", b"GIF89a") and len(data) >= 10:
-        width, height = struct.unpack("<HH", data[6:10])
-        return min(width, height)
-    if data[:4] == b"\x00\x00\x01\x00" and len(data) >= 8:
-        # ICO directory entry: a 0 byte means 256.
-        width = data[6] or 256
-        height = data[7] or 256
-        return min(width, height)
+        return struct.unpack("<HH", data[6:10])
+    if data[:4] == b"\x00\x00\x01\x00":
+        return (data[6] or 256), (data[7] or 256)
     if data[:2] == b"\xff\xd8":
         i = 2
         while i + 9 < len(data):
@@ -385,10 +377,57 @@ def min_dimension(data: bytes) -> int | None:
             marker = data[i + 1]
             if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC):
                 height, width = struct.unpack(">HH", data[i + 5:i + 9])
-                return min(width, height)
-            segment = struct.unpack(">H", data[i + 2:i + 4])[0]
-            i += 2 + segment
-        return None
+                return width, height
+            i += 2 + struct.unpack(">H", data[i + 2:i + 4])[0]
+    return None
+
+
+def min_dimension(data: bytes) -> int | None:
+    """Smaller of width/height, read straight from the header (:func:`dimensions`).
+
+    Returns None for a format we don't sniff (WEBP) — "unknown" means
+    "accept", because refusing a perfectly good mark would be worse than
+    letting a rare oddity through. (SVG never reaches here: ``_accept``
+    refuses the format outright, header *and* sniffed body.)
+    """
+    size = dimensions(data)
+    return min(size) if size is not None else None
+
+
+def _side(data: bytes) -> int:
+    """The smaller side, for comparing candidates; an unreadable size (WebP) counts as ``MIN_PIXELS``."""
+    smallest = min_dimension(data)
+    return smallest if smallest is not None else MIN_PIXELS
+
+
+def _squareish(data: bytes) -> bool:
+    size = dimensions(data)
+    return size is not None and min(size) > 0 and max(size) / min(size) <= MAX_ASPECT
+
+
+_META_RE = re.compile(rb"<meta\b([^<>]*)>", re.IGNORECASE)
+MAX_META_TAGS = 128
+
+
+def og_image(html: bytes, page_url: str) -> str | None:
+    """The homepage's ``og:image`` (or ``og:image:secure_url``), resolved against the page and https only — one linear
+    scan of ``<meta>`` tags, the same shape as ``_icon_tags`` (never the quadratic ``HTMLParser``)."""
+    for count, match in enumerate(_META_RE.finditer(html[:MAX_BYTES])):
+        if count >= MAX_META_TAGS:
+            break
+        attrs = _tag_attrs(match.group(1))
+        if (attrs.get("property") or attrs.get("name") or "").strip().lower() not in ("og:image",
+                                                                                      "og:image:secure_url"):
+            continue
+        content = attrs.get("content", "").strip()
+        if not content or content.lower().startswith("data:"):
+            continue
+        try:
+            url = urljoin(page_url, content)
+        except ValueError:
+            continue
+        if _plain_https(url):
+            return url
     return None
 
 
@@ -464,15 +503,6 @@ def _accept(result: FetchResult) -> tuple[bytes, str, str | None] | None:
     return result.body, ext, result.etag
 
 
-def _icon_href(html: bytes, base_url: str) -> str | None:
-    text = html.decode("utf-8", "replace")
-    for tag in _ICON_LINK_RE.findall(text):
-        href = _HREF_RE.search(tag)
-        if href:
-            return urljoin(base_url, href.group(1).strip())
-    return None
-
-
 async def _get_safely(url: str, *, fetcher: Fetcher, resolver: Resolver) -> FetchResult | None:
     """One logical GET: validates ``url`` (and every redirect hop, up to
     ``MAX_REDIRECTS``) against the SSRF host policy before ever calling
@@ -491,6 +521,7 @@ async def _get_safely(url: str, *, fetcher: Fetcher, resolver: Resolver) -> Fetc
         if result.status in _REDIRECT_STATUSES and result.location:
             current = urljoin(current, result.location)
             continue
+        result.final_url = current
         return result
     logger.debug(f"logo fetch for {url} exceeded {MAX_REDIRECTS} redirects")
     return None
@@ -529,7 +560,13 @@ async def fetch_site_icon(
 async def fetch_logo(
     domain: str, *, fetcher: Fetcher | None = None, resolver: Resolver | None = None
 ) -> tuple[bytes, str, str | None] | None:
-    """Try the three rungs in order. Returns ``(body, ext, etag)`` or None.
+    """Try the rungs in order and keep the largest mark. Returns ``(body, ext, etag)`` or None.
+
+    The site's ``/apple-touch-icon.png``; then the homepage's declared icons, largest first (at most
+    ``MAX_DECLARED_ICONS`` asked); then — only when nothing so far reaches ``GOOD_PIXELS`` — the homepage's ``og:image``
+    when it is a square raster; then the icon service. The first mark of at least ``GOOD_PIXELS`` stops the ladder;
+    otherwise the largest found wins (vision item 2, 2026-10-28: a 16 px favicon was kept while the site declared a
+    192 px icon a tag later). Every candidate comes from the trusted domain's own homepage — never a guessed one.
 
     An injected ``fetcher`` always runs (the caller supplied the mechanism, so
     there is nothing left to gate); the default HTTP one is gated by
@@ -550,26 +587,52 @@ async def fetch_logo(
 
     from api.services import reading_hosts
 
+    best: tuple[bytes, str, str | None] | None = None
+
+    def keep(found: tuple[bytes, str, str | None] | None) -> bool:
+        """Keep ``found`` when it is larger than what is held; True once the held mark is good enough to stop."""
+        nonlocal best
+        if found is not None and (best is None or _side(found[0]) > _side(best[0])):
+            best = found
+        return best is not None and _side(best[0]) >= GOOD_PIXELS
+
     if not reading_hosts.is_walled(f"https://{domain}/"):
         homepage = f"https://{domain}/"
-        candidates = [f"https://{domain}/apple-touch-icon.png"]
-
-        for url in candidates:
-            result = await _get_safely(url, fetcher=fetcher, resolver=resolver)
-            accepted = _accept(result) if result is not None else None
-            if accepted:
-                return accepted
+        result = await _get_safely(f"https://{domain}/apple-touch-icon.png", fetcher=fetcher, resolver=resolver)
+        if keep(_accept(result) if result is not None else None):
+            return best
 
         page = await _get_safely(homepage, fetcher=fetcher, resolver=resolver)
         if page is not None and page.status == 200 and page.body:
-            href = _icon_href(page.body, homepage)
-            if href:
-                result = await _get_safely(href, fetcher=fetcher, resolver=resolver)
-                accepted = _accept(result) if result is not None else None
-                if accepted:
-                    return accepted
+            base = page.final_url or homepage
+            # The homepage's declared icons, largest first (the own-site discovery's ranking): a site that declares a
+            # 192 px icon beside a 16 px favicon is drawn from the 192 px one, not from whichever tag came first.
+            declared = await asyncio.to_thread(declared_icons, page.body, base)
+            asked = 0
+            for link in declared:
+                if asked >= MAX_DECLARED_ICONS:
+                    break
+                if best is not None and link.size is not None and link.size <= _side(best[0]):
+                    continue
+                if link.url.startswith("data:"):
+                    if keep(_decode_data_icon(link.url)):
+                        return best
+                    continue
+                asked += 1
+                result = await _get_safely(link.url, fetcher=fetcher, resolver=resolver)
+                if keep(_accept(result) if result is not None else None):
+                    return best
+            # Nothing declared reached GOOD_PIXELS: the page's own share image, only when it is a square mark (a
+            # banner is never a logo) — vision item 2, 2026-10-28.
+            image = og_image(page.body, base)
+            if image:
+                result = await _get_safely(image, fetcher=fetcher, resolver=resolver)
+                found = _accept(result) if result is not None else None
+                if found is not None and _squareish(found[0]) and keep(found):
+                    return best
 
-    return await fetch_via_icon_service(domain, fetcher=fetcher, resolver=resolver)
+    keep(await fetch_via_icon_service(domain, fetcher=fetcher, resolver=resolver))
+    return best
 
 
 # --- cache ------------------------------------------------------------------
@@ -780,9 +843,20 @@ async def _ensure_logo_locked(
     ensure_rule(bank)
     entry = read_meta(bank).get(entity_id)
     cached_ok = bool(entry) and is_fresh(entry)
+    # A favicon-sized mark cached by an older ladder is asked once more by this one (vision item 2, 2026-10-28); a
+    # good one is stamped once, so the steady state reads nothing more than before.
+    small = None
+    if cached_ok and not entry.get("miss") and int(entry.get("ladder") or 1) < LOGO_LADDER \
+            and (fetcher is not None or fetch_allowed()):
+        side = _cached_side(bank, entity_id, entry)
+        if side is not None and side < GOOD_PIXELS:
+            small = side
+        elif side is not None:
+            entry = {**entry, "ladder": LOGO_LADDER}
+            await _record_meta(bank, entity_id, entry)
     # An edit to the page can change which domain this entity resolves to, so a
     # fresh entry is only good while the page is older than it.
-    if cached_ok and not page_edited_since_fetch(entity_file, entry):
+    if cached_ok and small is None and not page_edited_since_fetch(entity_file, entry):
         return cached_path(bank, entity_id)
 
     if not entity_file.exists():
@@ -800,7 +874,7 @@ async def _ensure_logo_locked(
     # say) — that's an unrelated edit, not a rebrand. Refresh the fetch stamp
     # so the mtime compare settles and skip the network ladder entirely,
     # instead of re-running it for every active entity on every Sleep cycle.
-    if cached_ok and domain == entry.get("domain"):
+    if cached_ok and small is None and domain == entry.get("domain"):
         await _record_meta(
             bank, entity_id, {**entry, "fetched_at": datetime.now(timezone.utc).isoformat()},
         )
@@ -832,6 +906,10 @@ async def _ensure_logo_locked(
 
     result = await fetch_logo(domain, fetcher=fetcher)
     now = datetime.now(timezone.utc).isoformat()
+    if small is not None and domain == entry.get("domain") and (result is None or _side(result[0]) <= small):
+        # The new ladder found nothing larger: the mark we have stays, stamped so it is not asked again.
+        await _record_meta(bank, entity_id, {**entry, "fetched_at": now, "ladder": LOGO_LADDER})
+        return cached_path(bank, entity_id)
 
     if result is None:
         if cached_ok and not (entry or {}).get("miss"):
@@ -853,11 +931,35 @@ async def _ensure_logo_locked(
     except OSError as exc:
         logger.warning(f"Could not cache logo for {entity_id}: {type(exc).__name__}: {exc}")
         return None
+    for stale in logos_dir(bank).glob(f"{entity_id}.*"):
+        if stale != path and stale.suffix.lstrip(".") in _EXT_BY_TYPE.values():
+            stale.unlink(missing_ok=True)   # a mark replaced in another format leaves no orphan behind
     await _record_meta(
         bank, entity_id,
-        {"fetched_at": now, "domain": domain, "miss": False, "etag": etag, "ext": ext},
+        {"fetched_at": now, "domain": domain, "miss": False, "etag": etag, "ext": ext, "ladder": LOGO_LADDER},
     )
     return path
+
+
+#: The fetch ladder's version, stamped on every hit. 2 (2026-10-28): the largest declared icon and a square og:image.
+#: A hit cached by an older ladder whose mark is under ``GOOD_PIXELS`` is asked once more; anything else stays.
+LOGO_LADDER = 2
+
+
+def _cached_side(bank: str, entity_id: str, entry: dict) -> int | None:
+    """The cached mark's smaller side, read from its header alone; None when there is no file."""
+    ext = entry.get("ext")
+    if not ext:
+        return None
+    try:
+        with open(logos_dir(bank) / f"{entity_id}.{ext}", "rb") as fh:
+            return _side(fh.read(HEADER_BYTES))
+    except OSError:
+        return None
+
+
+#: Enough of a cached mark to read its size (a JPEG's SOF marker sits after its metadata segments).
+HEADER_BYTES = 64 * 1024
 
 
 def _record_meta_sync(bank: str, entity_id: str, entry: dict) -> None:

@@ -429,6 +429,15 @@ def test_page_list_and_graph_read_the_bank_with_the_backend_down(env, capsys):
     assert code == 0 and out["data"]["pages"] >= 5 and out["data"]["by_type"]["project"] >= 2
 
 
+def test_coverage_reads_the_bank_and_names_no_page_unless_asked(env, capsys):
+    code, out = _run(["coverage", "pictures"], capsys)
+    assert code == 0 and out["data"]["pages"] >= 4 and "ids" not in out["data"]
+    assert out["data"]["by_type"]["project"]["none"] == {"type_has_no_rung": 2}
+    assert out["data"]["by_type"]["person"]["none"] == {"no_identifier": 1}
+    code, out = _run(["coverage", "sources", "--ids"], capsys)
+    assert code == 0 and "bob-example" in out["data"]["ids"]["none/person"]
+
+
 def test_inbox_all_lists_every_kind_and_hides_deferred(env, capsys):
     code, out = _run(["inbox", "all"], capsys)
     assert code == 0
@@ -464,7 +473,8 @@ def test_find_and_timeline_read_the_bank(env, capsys):
 def test_bank_reads_never_call_the_backend(env, monkeypatch, capsys):
     with _backend(env, monkeypatch) as server:
         for argv in (["page", "list"], ["graph"], ["inbox", "all"], ["bank", "list"], ["feed", "list"],
-                     ["sleep", "history"], ["page", "history", "alpha-project"]):
+                     ["sleep", "history"], ["page", "history", "alpha-project"], ["coverage", "pictures"],
+                     ["coverage", "sources", "--ids"]):
             code, out = _run(argv, capsys)
             assert code == 0, (argv, out)
     assert server.seen == []
