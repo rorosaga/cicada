@@ -74,8 +74,9 @@ struct EntityCardHeader: View {
                 relevanceLine
             } else {
                 HStack(alignment: .center, spacing: CicadaTheme.spacingMD) {
+                    // Owner 2026-10-28: no picture, no tile — the name starts the line; *Add picture* is in the line below.
                     EntityPicture(id: entity.id, name: entity.name, type: entity.type, size: 40, held: entity.pictureRef,
-                                  heldInputs: pictureInputs, editing: .tile)
+                                  heldInputs: pictureInputs, editing: .tile, collapsesWhenEmpty: true)
                     // Wraps rather than truncates: a selectable name cut short opened over the Summary on a click.
                     Text(entity.isOwner ? Copy.Graph.ownerName(entity.name) : entity.name)
                         .font(CicadaTheme.displayFont(size: 22))
@@ -90,7 +91,7 @@ struct EntityCardHeader: View {
                 }
                 relevanceLine
                 PictureSourceLine(id: entity.id, name: entity.name, type: entity.type, held: entity.pictureRef,
-                                  inputs: pictureInputs, quietWhenEmpty: true)
+                                  inputs: pictureInputs, quietWhenEmpty: !PictureActions.canEdit(entity.type))
                     .padding(.top, CicadaTheme.scaled(4))
             }
             // DR-45 — a tab label is never truncated: the tools share the tab row when it all fits; at a narrow column

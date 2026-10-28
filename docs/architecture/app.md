@@ -1540,7 +1540,7 @@ name on word boundaries, literal characters, diacritic-insensitive and case-inse
 the start or end of a longer name — "Claude" is not named by "Claude Code"; in doubt the name shows).
 - **Clusters has one filter:** a View menu with the Graph's own types (`graphVM.filter.types`), labels, and a
   remembered *Expand all*. Its tabs are navigation: All plus each present type, by plural name. With nothing open it
-  is mock A's icon-led cards (F-11, G146): People · Projects · Companies · Tools · Concepts · Media two to a row, the
+  is mock A's cards (F-11, G146; plain labels and no type glyphs since 2026-10-28): People · Projects · Companies · Tools · Concepts · Media two to a row, the
   rest three to a short row, each a card of 56 pt tiles — `EntityPicture`, the name, one line in words (never tags or
   a percentage) — six in the first row of cards and four after, "Show all ›" opening the type's tab (one card, every
   tile); `ClustersGrid` decides it, pure. A click on a tile's picture opens the image picker (no separate hover button, owner 2026-09-30); its

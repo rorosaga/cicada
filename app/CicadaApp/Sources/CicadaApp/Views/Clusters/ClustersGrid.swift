@@ -133,8 +133,8 @@ struct ClustersGridView: View {
     }
 }
 
-/// A type's card header (F-11): its outline glyph in its hue, its plural name, "Show all ›" when some are hidden. The
-/// hue appears once, on the glyph (DR-8). Say it once (owner 2026-10-19): the count is the type's tab's ("People 17"),
+/// A type's card header (F-11): its plural name as a plain label, "Show all ›" when some are hidden — no type glyph
+/// (owner 2026-10-28, DESIGN_RULES §9). Say it once (owner 2026-10-19): the count is the type's tab's ("People 17"),
 /// so the card no longer prints it beside the name.
 struct ClusterCardHeader: View {
     let type: EntityType
@@ -143,10 +143,6 @@ struct ClusterCardHeader: View {
 
     var body: some View {
         HStack(spacing: CicadaTheme.spacingSM) {
-            Image(systemName: EntityPictureLayout.glyph(type))
-                .font(CicadaTheme.icon(.inline))
-                .foregroundStyle(CicadaTheme.entityColor(for: type))
-                .accessibilityHidden(true)
             Text(type.groupLabel)
                 .font(CicadaTheme.font(size: 14, weight: .medium))
                 .foregroundStyle(CicadaTheme.textPrimary)
@@ -168,6 +164,8 @@ struct ClusterCard: View {
     let open: (Entity) -> Void
     let showAll: (() -> Void)?
 
+    @Environment(Store.self) private var store
+
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
             ClusterCardHeader(type: group.type, count: group.entities.count,
@@ -175,8 +173,9 @@ struct ClusterCard: View {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: CicadaTheme.spacingSM, alignment: .leading),
                                      count: max(columns, 1)),
                       alignment: .leading, spacing: CicadaTheme.scaled(4)) {
+                let reserves = EntityPictureLayout.anyDrawn(shown, store: store)
                 ForEach(shown) { entity in
-                    ClusterTile(entity: entity) { open(entity) }.id(entity.id)
+                    ClusterTile(entity: entity, reservesPicture: reserves) { open(entity) }.id(entity.id)
                 }
             }
         }
@@ -194,14 +193,18 @@ struct ClusterShortCard: View {
     let open: (Entity) -> Void
     let showAll: () -> Void
 
+    @Environment(Store.self) private var store
+
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.scaled(4)) {
             ClusterCardHeader(type: group.type, count: group.entities.count,
                               showAll: shown.count < group.entities.count ? showAll : nil)
+            let reserves = EntityPictureLayout.anyDrawn(shown, store: store)
             ForEach(shown) { entity in
                 Button { open(entity) } label: {
                     HStack(spacing: CicadaTheme.spacingSM) {
-                        EntityPicture(id: entity.id, name: entity.name, type: entity.type, size: 20)
+                        EntityPicture(id: entity.id, name: entity.name, type: entity.type, size: 20,
+                                      collapsesWhenEmpty: !reserves)
                         Text(entity.name)
                             .font(CicadaTheme.bodyFont)
                             .foregroundStyle(CicadaTheme.textPrimary)
@@ -230,6 +233,8 @@ struct ClusterShortCard: View {
 /// image picker (R-PE15 — the hover "Change picture…" button repeated it and is gone, owner 2026-09-30). Hover is a fill (DR-63).
 struct ClusterTile: View {
     let entity: Entity
+    /// Some tile in this card has a picture: keep the slot so every name starts at one edge (owner 2026-10-28).
+    var reservesPicture = true
     let open: () -> Void
 
     @State private var hovering = false
@@ -237,7 +242,7 @@ struct ClusterTile: View {
     var body: some View {
         HStack(spacing: CicadaTheme.spacingMD) {
             EntityPicture(id: entity.id, name: entity.name, type: entity.type, size: 32, heldInputs: entity.pictureInputs,
-                          editing: .tile)
+                          editing: .tile, collapsesWhenEmpty: !reservesPicture)
                 .opacity(entity.quiet ? CicadaTheme.quietPictureOpacity : 1)
             Button(action: open) {
                 VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {

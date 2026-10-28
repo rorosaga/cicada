@@ -1,22 +1,5 @@
 import SwiftUI
 
-/// F-12 — a section label led by a 12 pt glyph in a data hue, the same key on every card (seal · nodes · flag).
-struct GlyphSectionLabel: View {
-    let glyph: String
-    let type: EntityType
-    let text: String
-
-    var body: some View {
-        HStack(spacing: CicadaTheme.scaled(6)) {
-            Image(systemName: glyph)
-                .font(CicadaTheme.icon(.inline))
-                .foregroundStyle(CicadaTheme.entityColor(for: type))
-                .accessibilityHidden(true)
-            SectionLabel(text)
-        }
-    }
-}
-
 /// R-PE18 — "· Written by [mark] Claude Code · Opus 5.5 · high effort · Sep 24", after the evidence chip.
 struct SignedLineView: View {
     let claim: Claim
@@ -61,7 +44,7 @@ struct PersonBeliefsSection: View {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                 HStack {
                     if showsLabel {
-                        GlyphSectionLabel(glyph: "checkmark.seal", type: .concept, text: Copy.People.believes(ordered.count))
+                        SectionLabel(Copy.People.believes(ordered.count))
                         Spacer(minLength: 0)
                     }
                     Text(Copy.People.newestFirst).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
@@ -103,8 +86,7 @@ struct PersonMapSection: View {
         if !map.nodes.isEmpty {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                 if showsLabel {
-                    GlyphSectionLabel(glyph: "point.3.connected.trianglepath.dotted", type: .hub,
-                                      text: PersonMapLayout.title(name: name, isOwner: isOwner))
+                    SectionLabel(PersonMapLayout.title(name: name, isOwner: isOwner))
                 }
                 GeometryReader { geo in
                     ZStack {
@@ -171,8 +153,7 @@ struct PersonHappeningsSection: View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
             if !rows.isEmpty {
                 HStack {
-                    GlyphSectionLabel(glyph: EntityPictureLayout.glyph(.project), type: .project,
-                                      text: Copy.People.whatsHappening)
+                    SectionLabel(Copy.People.whatsHappening)
                     Spacer(minLength: 0)
                     if let first = timelines.first {
                         InlineLink(title: Copy.People.openProject(first.project.name)) {
