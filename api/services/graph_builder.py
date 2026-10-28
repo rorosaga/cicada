@@ -9,7 +9,8 @@ import yaml
 from loguru import logger
 
 from api.models.schemas import GraphLink, GraphNode, GraphResponse
-from api.services import bank_index, claim_contexts, decay_policy, entity_picture, logo_service, predicates, quiet_pages
+from api.services import (bank_index, claim_contexts, decay_policy, entity_picture, fact_sources, logo_service,
+                          predicates, quiet_pages)
 from api.services.claims import is_current, parse_claims, strip_claims_block
 from api.services.id_utils import sanitize_id
 from api.services.markdown_parser import load_yaml, load_yaml_file, parse, write_yaml
@@ -273,7 +274,11 @@ def _build_full(memory_path: Path) -> GraphResponse:
         )
         raw_sources = fm.get("sources")
         for src in raw_sources if isinstance(raw_sources, list) else []:
-            target = str(src.get("entity") or "").strip() if isinstance(src, dict) else ""
+            # Ruling 36 D5: a proposal is never drawn until the person takes it — a saved link's where-to-check
+            # proposal carries `entity:` (its saved-link page) from the moment Sleep files it.
+            if not isinstance(src, dict) or fact_sources.is_proposed(src):
+                continue
+            target = str(src.get("entity") or "").strip()
             if target and target != eid:
                 predicate = str(src.get("predicate") or "").strip() or "source"
                 source_links.append(GraphLink(source=eid, target=target, label=predicate, kind="source"))

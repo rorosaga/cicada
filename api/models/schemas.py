@@ -4593,13 +4593,16 @@ class MaintenanceEnrichLinksResponse(CamelModel):
     live count of media pages still owed a description, `remainingRecon` the
     pages still owed relations, `deferred` the failed fetches inside their
     30-day backoff. `engine`/`engineDetail` say which engine the run resolved
-    (a $0 run reports the configured engine but makes no call)."""
+    (a $0 run reports the configured engine but makes no call). `reread` counts
+    pages read again for a reason the person gave after they were described
+    (vision item 1, 2026-10-28)."""
     selected: int = 0
     reused: int = 0
     summarized: int = 0
     fetched: int = 0
     failed: int = 0
     skipped: int = 0
+    reread: int = 0
     extracted: int = 0
     related: int = 0
     remaining: int = 0

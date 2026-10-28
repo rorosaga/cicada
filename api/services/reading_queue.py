@@ -88,6 +88,9 @@ class Entry:
     predicate: str = ""
     linked_entity: str = ""  # the source's own memory node (`entity:`), when it still resolves
     access: str = ""         # the source's effective access, in the enum's words
+    # Vision item 1 (2026-10-28): the person's reason for saving the link, one scrubbed line — what to read for. Filled
+    # only by :func:`entries` (never on the hook's counting path); empty for a check entry and a save with no reason.
+    why: str = ""
 
 #: A source an agent looked at is not listed again for this long (the ask store's own expiry).
 CHECK_RECHECK_DAYS = 7
@@ -306,8 +309,37 @@ def entries(memory_path: Path, *, include_words_origin: bool = True, now: dateti
     memory_path = Path(memory_path)
     rows = _live_rows(memory_path, now)
     idx = media_ingestor.load_url_index(memory_path)
-    return ask_entries(memory_path, rows, idx) + site_entries(
-        memory_path, rows, include_words_origin=include_words_origin) + _safe_checks(memory_path, now)
+    saved = ask_entries(memory_path, rows, idx) + site_entries(memory_path, rows,
+                                                               include_words_origin=include_words_origin)
+    return with_why(memory_path, saved, idx) + _safe_checks(memory_path, now)
+
+
+def _saved_episodes(memory_path: Path, entry: Entry, idx: dict) -> list[str]:
+    """The episodes a saved link's reason can sit on: its index row's episode and its page's source episodes (a link
+    saved again keeps a reason per save, G191 v3)."""
+    row = idx.get(entry.url_hash) or {}
+    out = [str(row.get("episode_id") or "")]
+    media_id = str(row.get("media_entity_id") or "")
+    if media_id:
+        f = bank_index.file(memory_path, "entities", f"{media_id}.md")
+        out += [str(e) for e in ((f.frontmatter or {}).get("source_episodes") or [])] if f is not None else []
+    return [e for e in out if e]
+
+
+def with_why(memory_path: Path, saved: list[Entry], idx: dict | None = None) -> list[Entry]:
+    """``saved`` (ask and site entries) with each one's :attr:`Entry.why`: the newest reason the person gave for saving
+    it (``saved_why.reason_of``). Cached frontmatter reads only; never on the hook's counting path."""
+    from dataclasses import replace
+
+    from api.services import saved_why
+
+    memory_path = Path(memory_path)
+    idx = media_ingestor.load_url_index(memory_path) if idx is None else idx
+    out = []
+    for e in saved:
+        reason = saved_why.reason_of(memory_path, _saved_episodes(memory_path, e, idx))
+        out.append(replace(e, why=reason.text) if reason is not None else e)
+    return out
 
 
 def _safe_checks(memory_path: Path, now: datetime | None, *, cached_only: bool = False,
