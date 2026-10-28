@@ -10,6 +10,11 @@
 
 ## Current state and evidence
 
+- **2026-10-28 — Projects v3 (G141, G222; decisions 9, 10, 17; branch `feat/projects-v3`).** The project page has no
+  folds: Pulse (counted, no model, one fixture for Python and Swift), In motion, Coming up and Timeline open and capped
+  with "All N"; Pages in this project with Add / Not part of it (`entities_added`/`entities_removed`, frontmatter, one
+  writer) and `cicada_link_entity` on every door (trusted ties, others propose); Suggested as one line; a lighter head
+  (one standing line, the meta in `.help`). Bench p95 on the 2,500-page synthetic in the PR.
 - **2026-10-28 — pictures v2: public figures, Sleep's own sites, projects (G159, G146, G61; rulings 40 and 44 amended,
   owner C/D/E; branch `feat/pictures-v2`).** A public figure the full ruling-44 test called public gets the matched
   item's encyclopedia portrait, asked by item and file name only; ruling 40 trusts a site Sleep itself first proposed
