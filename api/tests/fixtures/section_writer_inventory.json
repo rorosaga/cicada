@@ -1400,5 +1400,19 @@
       "frontmatter": "item_frontmatter(owner, owner_name, cand, today)",
       "disposition": "fresh_frontmatter_untracked"
     }
+  ],
+  "services/trace_memory.py": [
+    {
+      "function": "remove",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "undo",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    }
   ]
 }
