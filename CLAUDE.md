@@ -221,7 +221,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   **Ruling 36 D1 (owner, 2026-10-22):** with nothing chosen, Auto uses a signed-in plan (Claude Code, then Codex) and
   says in words what runs; a key secured properly is an equal option; a local model runs only when chosen, never as Auto's rung.
   **The person's own Cursor, OpenCode or Grok (G49/G50, 2026-10-28)** are plans under ruling 4's switch (Grok user-started
-  only), chosen only, never Auto's rungs, headless with no tools or MCP context, on their own sign-in; a key-billed path is refused or stops the run (`cli_engines`). Continue-after-reset is opt-in,
+  only), headless with no tools or MCP context, on their own sign-in; a key-billed path is refused or stops the run (`cli_engines`).
+  **Ruling 46 (owner, 2026-10-28):** Auto is Claude plan → ChatGPT plan → Cursor → OpenCode (subscription model only), each
+  read from cached status, an unknown or hung tool skipped in words, never a stall; Grok never on Auto (`capture-and-sleep.md`). Continue-after-reset is opt-in,
   off (ruling 15). A scheduled time the Mac slept or was off through runs once, after a short settle, as a scheduled
   run — never over a pause or a running cycle (`sleep_catch_up`, owner 2026-10-19, `features.md`).
 - **The write window (G177):** `sleep_cycle.is_writing()` is the one predicate behind every "Sleep is running" refusal,

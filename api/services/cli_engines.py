@@ -67,6 +67,9 @@ class EngineSpec:
     explicit_model: bool = False
 
 
+#: Cursor's billing in words (ruling 46): shown on its card, and wherever Auto names Cursor as the engine that ran.
+CURSOR_USAGE_NOTE = ("Past its included usage Cursor stops, unless you turned on usage-based pricing in your Cursor "
+                     "account — then it bills there.")
 CURSOR = EngineSpec(
     mode="cursor", label="cursor-cli", connection="cursor-plan", name="Cursor", plan_name="Cursor plan",
     binaries=("cursor-agent", "agent"),
@@ -74,8 +77,7 @@ CURSOR = EngineSpec(
     sign_in="agent login",
     # Cursor's own Auto model is part of every plan; the live `agent models` list adds the rest.
     default_models=("auto",),
-    billing_note=("Runs on your Cursor plan. Past its included usage Cursor stops, unless you turned on "
-                  "usage-based pricing in your Cursor account — then it bills there."),
+    billing_note=f"Runs on your Cursor plan. {CURSOR_USAGE_NOTE}",
 )
 OPENCODE = EngineSpec(
     mode="opencode", label="opencode-cli", connection="opencode-plan", name="OpenCode", plan_name="OpenCode plan",
@@ -568,6 +570,7 @@ class Status:
     detail: str
     models: list[str] = field(default_factory=list)
     as_of: float = 0.0
+    timed_out: bool = False   # a status command did not answer within PROBE_TIMEOUT_S
 
 
 _CACHE: dict[str, Status] = {}
@@ -608,11 +611,16 @@ def _signed_out(text: str) -> bool:
 PROBE_TIMEOUT_S = 8.0
 
 
-def probe_now(spec: EngineSpec, *, runner=None, timeout: float = PROBE_TIMEOUT_S) -> Status:
+def _hung(spec: EngineSpec, timeout: float) -> Status:
+    return Status(True, False, f"{spec.name} didn't answer within {timeout:g} s.", as_of=time.time(), timed_out=True)
+
+
+def probe_now(spec: EngineSpec, *, runner=None, timeout: float | None = None) -> Status:
     """One status read: is the tool installed, signed in (on a plan), and which plan models it offers.
     Cursor: ``agent status`` and ``agent models``, side by side. OpenCode: ``opencode models`` — signed in to a plan
     when it lists a model on a plan provider. Grok: ``grok models`` (it refuses without a sign-in, with
     ``XAI_API_KEY`` stripped), only xAI's built-in ``grok-…`` ids kept."""
+    timeout = PROBE_TIMEOUT_S if timeout is None else timeout
     run = runner or agent_engine._default_runner()
     binary = resolve_binary(spec)
     if binary is None:
@@ -624,6 +632,8 @@ def probe_now(spec: EngineSpec, *, runner=None, timeout: float = PROBE_TIMEOUT_S
             status_f = pool.submit(run, [binary, "status"], stdin=None, timeout=timeout, cwd=None)
             models_f = pool.submit(run, [binary, "models"], stdin=None, timeout=timeout, cwd=None)
             status_r, listing = status_f.result(), models_f.result()
+        if status_r.rc == 124:
+            return _hung(spec, timeout)
         text = f"{status_r.stdout}\n{status_r.stderr}"
         if status_r.rc != 0 or _signed_out(text):
             return Status(True, False, f"Cursor is signed out — run `{spec.sign_in}`.", as_of=time.time())
@@ -631,6 +641,8 @@ def probe_now(spec: EngineSpec, *, runner=None, timeout: float = PROBE_TIMEOUT_S
         return Status(True, True, "Signed in to Cursor.", models, time.time())
     listing = run([binary, "models"], stdin=None, timeout=timeout, cwd=None,
                   env_overrides=opencode_env() if spec is OPENCODE else dict(GROK_ENV))
+    if listing.rc == 124:
+        return _hung(spec, timeout)
     text = f"{listing.stdout}\n{listing.stderr}"
     if spec is OPENCODE:
         models = [m for m in parse_model_lines(listing.stdout) if "/" in m] if listing.rc == 0 else []
@@ -660,13 +672,18 @@ def status(spec: EngineSpec, *, fresh: bool = False, runner=None, stale_ok: bool
     if cached is not None and not fresh and time.time() - cached.as_of < CACHE_TTL_S:
         return cached
     if cached is not None and stale_ok and not fresh:
-        with _CACHE_LOCK:
-            start = spec.mode not in _REFRESHING
-            _REFRESHING.add(spec.mode)
-        if start:
-            threading.Thread(target=_refresh, args=(spec, runner), daemon=True).start()
+        _start_refresh(spec, runner)
         return cached
     return _refresh(spec, runner)
+
+
+def _start_refresh(spec: EngineSpec, runner=None) -> None:
+    """One background refresh per tool at a time; a second ask while one runs joins it."""
+    with _CACHE_LOCK:
+        start = spec.mode not in _REFRESHING
+        _REFRESHING.add(spec.mode)
+    if start:
+        threading.Thread(target=_refresh, args=(spec, runner), daemon=True).start()
 
 
 def _refresh(spec: EngineSpec, runner=None) -> Status:
@@ -684,6 +701,43 @@ def _refresh(spec: EngineSpec, runner=None) -> Status:
 def invalidate() -> None:
     with _CACHE_LOCK:
         _CACHE.clear()
+
+
+#: Ruling 46: Auto's rungs past the two plans, in ladder order. Grok is never one (the acting owner's guard: not until
+#: a live sign-in shows what a subscription call reports).
+AUTO_SPECS: tuple[EngineSpec, ...] = (CURSOR, OPENCODE)
+#: How long a cycle waits for a tool's status before Auto skips it for that run: one status command's own budget,
+#: plus a second for the thread to hand the answer back. The Sleep page never waits (``wait=0``).
+LADDER_WAIT_S = PROBE_TIMEOUT_S + 1.0
+
+
+def cached_connected() -> set[str]:
+    """The ledger connection ids of Auto's tool rungs whose LAST status read signed in — a pure cache read, never a
+    probe (the handshake's Now line and the cards' POWERS, R-E24)."""
+    with _CACHE_LOCK:
+        return {s.connection for s in AUTO_SPECS if (st := _CACHE.get(s.mode)) is not None and st.connected}
+
+
+async def ladder_status(spec: EngineSpec, *, wait: float = LADDER_WAIT_S) -> Status | None:
+    """Auto's read of one tool rung (ruling 46), never a stall: a fresh cached answer at once; otherwise one
+    background refresh (#494's, ``PROBE_TIMEOUT_S`` per command) awaited up to ``wait`` seconds, then the last known
+    answer if there is one. ``None`` = unknown for this run (never read, and no answer in time) — the caller skips it.
+    """
+    with _CACHE_LOCK:
+        cached = _CACHE.get(spec.mode)
+    if cached is not None and time.time() - cached.as_of < CACHE_TTL_S:
+        return cached
+    _start_refresh(spec)
+    deadline = time.monotonic() + max(0.0, wait)
+    while True:
+        with _CACHE_LOCK:
+            now = _CACHE.get(spec.mode)
+            refreshing = spec.mode in _REFRESHING
+        if now is not None and not refreshing and now is not cached:
+            return now
+        if time.monotonic() >= deadline:
+            return cached
+        await asyncio.sleep(0.05)
 
 
 async def astatus(spec: EngineSpec, *, fresh: bool = False, stale_ok: bool = False) -> Status:

@@ -564,7 +564,7 @@ the bank keeps `owner_identity`'s "Owner" placeholder (G169's self-references st
 **Engine choice in onboarding: Auto first (settings defaults pass 2, owner 2026-10-22; ruling 31).** Until D6 Settings drew
 `EngineChooser(foldsOtherEngines: true)` (the engine card): the card opens on `EngineHeadline` — *Auto* and what it uses now from
 `preview.manual` ("Using your Claude plan — you're signed in.", the ChatGPT plan, the model on this Mac, or "Nothing to
-read with yet" with a Plans & keys link), the rule in one line (the Claude plan, then the ChatGPT plan — ruling 36 D1 removed the local rung — never a key
+read with yet" with a Plans & keys link), the rule in one line (the Claude plan, then the ChatGPT plan, then Cursor, then OpenCode — ruling 36 D1 removed the local rung, ruling 46 added the two tools — never a key
 nobody chose), or, for a stored choice that isn't Auto, that card's name, its cost model and state, and *Back to Auto*
 (`EngineWrite(mode: "auto", model: nil)`; hidden while the environment fixes the engine). Every other card waits
 under *Use a different engine* (`DisclosureGroup`, DR-39, per viewer `cicada.engines.othersOpen`; landing on

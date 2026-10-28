@@ -17,8 +17,9 @@ Precedence, and the reason for each rung:
      independent registry read anywhere else in this module.
   3. ``"auto"`` — the shipped default since 2026-10-19 (owner: "OpenRouter, eliminate it as the default … the
      defaults now are either the Claude plan or the Codex/ChatGPT plan"): the Claude plan if it probes connected,
-     else the ChatGPT plan if it is signed in (R-E20) — else NO engine (ruling 36 D1 removed the local rung)
-     (``NO_ENGINE``), never a metered API key by itself. A resolved copy then carries ``no_engine_reason`` and every
+     else the ChatGPT plan if it is signed in (R-E20), else (ruling 46, 2026-10-28) Cursor, else OpenCode on a
+     subscription model — each tool read from its cached status, an unknown or hung one skipped for the run — else NO
+     engine (ruling 36 D1 removed the local rung) (``NO_ENGINE``), never a metered API key by itself. A resolved copy then carries ``no_engine_reason`` and every
      call built from it refuses before it is made (``providers.resolve_llm_fn``).
   4. ``"byok"`` — the person CHOSE an API key (``CICADA_LLM_MODE=byok`` or the picker): it defers to the
      ``use_for_sleep`` pref — once the Claude card's **Use for Sleep** toggle, now Settings → Intelligence' "Use my
@@ -143,10 +144,12 @@ def no_engine_sentence(why: str | None) -> str:
                 "use my plan” in Settings → Sleep; on a server, `cicada sleep schedule --use-plan on`), no local model "
                 "is running, and an API key is used only when you choose it as Sleep's engine. What was waiting is "
                 "still waiting.")
+    # Ruling 46: an installed tool Auto skipped says why, after the sentence (``_cli_rungs``' notes ride ``NO_ENGINE``).
+    notes = why[len(NO_ENGINE):].strip() if why and why.startswith(NO_ENGINE) else ""
     return ("No engine to read with: no plan is signed in, the local model isn't running, and an API key is used only "
             "when you choose it. Connect your plan, or choose an engine in Settings → Intelligence (on a server: `cicada "
             "engine connect claude-plan`, or `cicada sleep engine --mode byok` for a key you chose). What was waiting "
-            "is still waiting.")
+            "is still waiting." + (f" {notes}" if notes else ""))
 
 
 def shown_model(settings) -> str:
@@ -215,9 +218,9 @@ SUBSCRIPTION_MODES = ("agent", "codex", *CLI_ENGINE_MODES)
 #: (2026-10-19) — may open on a schedule:
 #: both plans, each only when it is the engine the person's own choice resolves to and it is signed in. The switch is
 #: the guard's only door besides an explicit ``CICADA_LLM_MODE``.
-#: G49/G50 (2026-10-28): the Cursor and OpenCode plans open on a schedule only through the same switch, and only when
-#: chosen — none of the new engines is ever a rung on Auto's ladder. Grok is user-started only (review of #494) until a
-#: live sign-in shows what a subscription call reports: a key override on a built-in model cannot be told apart
+#: G49/G50 (2026-10-28): the Cursor and OpenCode plans open on a schedule only through the same switch — chosen, or
+#: (ruling 46, same day) reached by Auto's ladder. Grok is user-started only and never on Auto (review of #494) until
+#: a live sign-in shows what a subscription call reports: a key override on a built-in model cannot be told apart
 #: before the call.
 SCHEDULE_PLAN_MODES = ("agent", "codex", "cursor", "opencode")
 #: Why a scheduled run has no engine: the chosen plan reads only when the person starts a read.
@@ -267,7 +270,9 @@ def _prefs_mode(registry) -> str | None:
 #: POWERS line reads the same order so a card never claims an engine the
 #: ladder would not reach first.
 #: Ruling 36 D1 (2026-10-22): the local rung is gone — a model on this machine runs only when the person picks it.
-_AUTO_LADDER = (CLAUDE_CONNECTION_ID, CODEX_CONNECTION_ID)
+#: Ruling 46 (owner, 2026-10-28): Cursor, then OpenCode, after the two plans — each only installed and signed in (for
+#: OpenCode, with a GitHub Copilot or OpenCode Go model). Grok is never a rung.
+_AUTO_LADDER = (CLAUDE_CONNECTION_ID, CODEX_CONNECTION_ID, "cursor-plan", "opencode-plan")
 
 
 def configured_mode(settings, registry) -> str:
@@ -310,6 +315,7 @@ def powered_connection_id(settings, registry, connected_ids) -> str | None:
         return direct[mode] if direct[mode] in connected else None
     if mode == "auto":
         # Ruling 2026-10-19: Auto never reaches a metered key by itself — nothing on the ladder connected, nothing powers.
+        connected |= _cli_cached_connected()
         for connection_id in _AUTO_LADDER:
             if connection_id in connected:
                 return connection_id
@@ -331,7 +337,15 @@ def powered_connection_id(settings, registry, connected_ids) -> str | None:
     return key_card if key_card in connected else None
 
 
-_LADDER_MODES = {CLAUDE_CONNECTION_ID: "agent", CODEX_CONNECTION_ID: "codex"}
+_LADDER_MODES = {CLAUDE_CONNECTION_ID: "agent", CODEX_CONNECTION_ID: "codex", "cursor-plan": "cursor",
+                 "opencode-plan": "opencode"}
+
+
+def _cli_cached_connected() -> set[str]:
+    """Auto's tool rungs the cache last saw signed in (ruling 46) — never a probe."""
+    from api.services import cli_engines
+
+    return cli_engines.cached_connected()
 
 
 def expected_settings(settings, registry, connected_ids) -> tuple[str, object]:
@@ -354,6 +368,7 @@ def expected_settings(settings, registry, connected_ids) -> tuple[str, object]:
     connected = set(connected_ids or ())
     mode = configured
     if mode == "auto":
+        connected |= _cli_cached_connected()
         mode = next((_LADDER_MODES[c] for c in _AUTO_LADDER if c in connected), "auto")
     elif mode == "byok" and registry is not None and use_for_sleep(registry) and CLAUDE_CONNECTION_ID in connected:
         mode = "agent"
@@ -532,9 +547,12 @@ def scheduled_plan_pin(settings) -> bool:
 
 
 async def resolve_llm_mode(
-    settings: Settings, registry=None, *, user_triggered: bool = True,
+    settings: Settings, registry=None, *, user_triggered: bool = True, cli_wait: float | None = None,
 ) -> tuple[str, str]:
     """Returns ``(concrete mode, one sentence saying why)``.
+
+    ``cli_wait``: how long Auto's tool rungs (ruling 46) may wait for a status read that is not fresh in the cache —
+    ``None`` is a cycle's bound (``cli_engines.LADDER_WAIT_S``); the Sleep page passes 0 and never waits.
 
     ``getattr`` (not a direct attribute read) for the same reason as
     ``engine_label`` above: a duck-typed ``Settings`` stand-in without
@@ -628,9 +646,9 @@ async def resolve_llm_mode(
             return "byok", "could not probe the Claude plan — using the API key you chose"
         return "byok", "Claude plan is not connected — using the API key you chose"
 
-    # configured == "auto" from here — the default (2026-10-19). R-E20's ladder: the Claude plan, then the ChatGPT plan
-    # (ruling 36 D1 removed the local rung: a model on this machine runs only when chosen); a plan is open to a scheduled
-    # run only through the person's switch (ruling 4b). A rung whose probe fails (None) falls through to the next, as an
+    # configured == "auto" from here — the default (2026-10-19). R-E20's ladder: the Claude plan, then the ChatGPT plan,
+    # then Cursor and OpenCode (ruling 46; ruling 36 D1 removed the local rung: a model on this machine runs only when
+    # chosen); a plan is open to a scheduled run only through the person's switch (ruling 4b). A rung whose probe fails (None) falls through to the next, as an
     # unconnected one does; the ladder never ends on a metered key or on a local model.
     claude_open = user_triggered or _schedule_may_use("agent", registry)
     codex_open = user_triggered or _schedule_may_use("codex", registry)
@@ -644,9 +662,63 @@ async def resolve_llm_mode(
         codex = await _connected(registry, CODEX_CONNECTION_ID)
         if codex:
             return "codex", "ChatGPT plan signed in — running Sleep on your ChatGPT plan"
+    # Ruling 46: Cursor, then OpenCode — the same switch opens them on a schedule.
+    landed, skipped = await _cli_rungs(registry, user_triggered=user_triggered, cli_wait=cli_wait)
+    if landed is not None:
+        return landed
     if not (claude_open or codex_open):
         return "auto", SCHEDULE_DEGRADED
-    return "auto", NO_ENGINE
+    return "auto", NO_ENGINE + "".join(f" {note}" for note in skipped)
+
+
+def run_detail(why: str | None, preflight_line: str) -> str:
+    """A tool engine's run detail (ruling 46): the sentence that says what ran and why — Auto's landing, with Cursor's
+    billing note — then the pre-flight's own line, so the run says both."""
+    why = (why or "").strip()
+    return f"{why.rstrip('.')}. {preflight_line}" if why else preflight_line
+
+
+def _cli_landed_why(spec) -> str:
+    """What Auto says when it lands on a tool rung (ruling 46): what ran, and for Cursor its billing in words."""
+    from api.services import cli_engines
+
+    if spec is cli_engines.CURSOR:
+        return f"Cursor signed in — running Sleep on your Cursor plan. {cli_engines.CURSOR_USAGE_NOTE}"
+    return "OpenCode signed in to a subscription — running Sleep on your OpenCode plan"
+
+
+async def _cli_rungs(registry, *, user_triggered: bool, cli_wait: float | None) -> tuple[tuple[str, str] | None, list[str]]:
+    """Auto's rungs past the two plans (ruling 46), in ladder order: ``((mode, why) | None, skip notes)``.
+
+    Every rung reads ``cli_engines``' cached status — never a fresh probe of its own; a stale or missing answer is
+    refreshed in the background, both tools at once, and waited on only up to ``cli_wait``. A tool that is not
+    installed is passed over silently; one installed but unusable (signed out, no subscription model, no answer in
+    time) is skipped for this run with its reason, which the no-engine sentence carries."""
+    from api.services import cli_engines
+
+    specs = [s for s in cli_engines.AUTO_SPECS if user_triggered or _schedule_may_use(s.mode, registry)]
+    wait = cli_engines.LADDER_WAIT_S if cli_wait is None else cli_wait
+    reads = [asyncio.ensure_future(cli_engines.ladder_status(s, wait=wait)) for s in specs]
+    skipped: list[str] = []
+    try:
+        for spec, read in zip(specs, reads):
+            try:
+                st = await read
+            except Exception as exc:  # noqa: BLE001 — a rung's read never fails the ladder
+                logger.warning(f"Auto: {spec.label} status unreadable: {type(exc).__name__}")
+                st = None
+            if st is not None and st.connected:
+                return (spec.mode, _cli_landed_why(spec)), skipped
+            if st is None:
+                skipped.append(f"{spec.name}'s status isn't known yet, so Auto skipped it for this run.")
+            elif st.timed_out:
+                skipped.append(f"{st.detail} Auto skipped it for this run.")
+            elif st.available:
+                skipped.append(st.detail)
+        return None, skipped
+    finally:
+        for read in reads:
+            read.cancel()
 
 
 #: The one-time record that Auto's local rung was retired for this install (ruling 36 D1): the date it was checked, and
@@ -736,7 +808,7 @@ async def retire_auto_local_rung(settings, registry, *, runner=None, timeout: fl
 
 
 async def resolve_settings(
-    settings: Settings, registry=None, *, user_triggered: bool = True,
+    settings: Settings, registry=None, *, user_triggered: bool = True, cli_wait: float | None = None,
 ) -> tuple[Settings, str]:
     """A ``Settings`` copy whose ``llm_mode`` is concrete, plus the reason.
 
@@ -770,7 +842,7 @@ async def resolve_settings(
         from api.services.connections.registry import get_registry
 
         registry = get_registry(settings)
-    mode, why = await resolve_llm_mode(settings, registry, user_triggered=user_triggered)
+    mode, why = await resolve_llm_mode(settings, registry, user_triggered=user_triggered, cli_wait=cli_wait)
     configured = (getattr(settings, "llm_mode", None) or "byok").strip().lower()
     if not hasattr(settings, "model_copy"):
         return settings, why           # M2 guard, unchanged in spirit

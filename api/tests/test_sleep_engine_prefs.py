@@ -460,9 +460,10 @@ def test_the_auto_local_record_is_said_only_while_the_kept_choice_stands():
     assert sleep_engine_prefs._auto_local_kept_on(_Reg({})) is None
 
 
-def test_the_signed_in_cli_engines_are_cards_after_the_plans_never_on_auto(client, monkeypatch):
+def test_the_signed_in_cli_engines_are_cards_after_the_plans_and_autos_line_names_the_ladder(client, monkeypatch):
     """G49/G50: Cursor, OpenCode and Grok are plan cards after the two plans, each saying how it is paid for, its
-    live models, and the exact sign-in command when signed out. Auto's line still names only the two plans."""
+    live models, and the exact sign-in command when signed out. Auto's line names its ladder in order (ruling 46),
+    never Grok."""
     from api.services import cli_engines
 
     def fake_status(spec, *, fresh=False, runner=None, stale_ok=False):
@@ -481,7 +482,37 @@ def test_the_signed_in_cli_engines_are_cards_after_the_plans_never_on_auto(clien
     assert "usage-based pricing" in cards["cursor"]["billingNote"]
     assert cards["grok"]["connected"] is False and "grok login" in cards["grok"]["detail"]
     assert cards["agent"]["kind"] == "plan" and cards["byok"]["kind"] == "key" and cards["local"]["kind"] == "local"
-    assert "ChatGPT plan" in cards["auto"]["detail"] and "Cursor" not in cards["auto"]["detail"]
+    auto = cards["auto"]["detail"]
+    assert auto.index("Claude plan") < auto.index("ChatGPT plan") < auto.index("Cursor") < auto.index("OpenCode")
+    assert "Grok" not in auto
+
+
+@pytest.mark.shipped_engine_default
+def test_the_page_names_cursor_when_auto_lands_on_it(client, monkeypatch):
+    """Ruling 46: the Sleep page's line names Cursor and its billing note when Auto would land there, read from the
+    tools' cache warmed by the cards — the page never waits on a tool."""
+    import time as _time
+
+    from api.services import cli_engines
+
+    monkeypatch.setattr(cli_engines, "AUTO_SPECS", (cli_engines.CURSOR, cli_engines.OPENCODE))
+
+    def fake_status(spec, *, fresh=False, runner=None, stale_ok=False):
+        st = (cli_engines.Status(True, True, "Signed in to Cursor.", ["auto"], _time.time())
+              if spec is cli_engines.CURSOR else cli_engines.Status(False, False, "not installed", as_of=_time.time()))
+        cli_engines._CACHE[spec.mode] = st
+        return st
+
+    async def signed_out(argv):   # neither plan signed in, so Auto reaches the tools
+        if argv[:3] == ["claude", "auth", "status"]:
+            return CliResult(0, json.dumps({"loggedIn": False}), "")
+        return CliResult(1, "", "Not logged in")
+
+    monkeypatch.setattr(base, "run_cli", signed_out)
+    monkeypatch.setattr(cli_engines, "status", fake_status)
+    manual = client.get("/sleep/engine").json()["preview"]["manual"]
+    assert manual["engine"] == "cursor-cli" and manual["billing"] == "plan"
+    assert "Cursor plan" in manual["why"] and "usage-based pricing" in manual["why"]
 
 
 def test_a_chosen_cli_engine_previews_its_plan_and_its_saved_model_never_vanishes(client, monkeypatch):
