@@ -89,7 +89,8 @@ final class ProjectsV2RenderTests: XCTestCase {
                     ProjectDetailColumn(projectId: "rover-arm-project", row: rover, parentName: nil, today: today,
                                         gutter: CicadaTheme.spacingXL, hiddenListCount: nil, openCard: nil,
                                         openBacklogItem: nil, onShowList: {}, onClose: {}, onEscape: {},
-                                        openProject: { _ in }, openEntity: { _ in }, openItem: { _ in })
+                                        openProject: { _ in }, openEntity: { _ in }, openItem: { _ in },
+                                        full: .constant(nil))
                 }
             }
             try await write(detail, size: CGSize(width: 1240, height: 760), scheme: scheme, store: store, cache: cache,

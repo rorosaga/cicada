@@ -56,8 +56,9 @@ struct ProjectDetailColumn: View {
     @State private var conversations = ConversationsViewModel()
     @State private var addingInfluence = false
     @State private var addingPage = false
-    /// Decision 17 — the full list an "All N" opened in place of the sections; Esc or Back returns.
-    @State private var full: ProjectOpen.Full?
+    /// Decision 17 — the full list an "All N" opened in place of the sections; Esc or Back returns. Owned by the page,
+    /// so its Esc (from whichever column holds the keys) closes the full list before the project (DR-28).
+    @Binding var full: ProjectOpen.Full?
 
     /// R-FA2 — the column re-derives exactly when the project, the viewer's day or the cached payload moved.
     private var deriveKey: ProjectDerived.Key {

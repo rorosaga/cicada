@@ -34,6 +34,8 @@ struct ProjectsPage: View {
     /// dismiss painted over what the server last said).
     private var rows: [ProjectRow] { cache.displayList?.projects.filter(\.mine) ?? [] }
     private var suggested: [SuggestedProject] { cache.displayList?.suggested ?? [] }
+    /// Decision 17 — the open project's "All N" full list (Esc closes it before the project).
+    @State private var detailFull: ProjectOpen.Full?
     @State private var creating = false
     @State private var naming: SuggestedProject?
     /// R-PP20 — Sleep is writing: the list's writes wait, their reason in `.help`.
@@ -132,7 +134,8 @@ struct ProjectsPage: View {
                     hiddenListCount: plan.listHidden ? lines.count : nil, openCard: trailing?.entityId,
                     openBacklogItem: trailing?.backlogItemId,
                     onShowList: { showList() }, onClose: { closeProject() }, onEscape: { escape() },
-                    openProject: { openProject($0) }, openEntity: { openCard($0) }, openItem: { openItem($0) })
+                    openProject: { openProject($0) }, openEntity: { openCard($0) }, openItem: { openItem($0) },
+                    full: $detailFull)
                     .id(id)
                     .focused($focus, equals: .detail)
                     .tourAnchor(.projectDetail)
@@ -291,6 +294,10 @@ struct ProjectsPage: View {
     /// DR-28 — Esc closes the rightmost open thing: the Reader, then the item or card, then the project.
     private func escape() {
         Instant.run {
+            if detailFull != nil && !provenance.isPresented && trailing == nil {
+                detailFull = nil
+                return
+            }
             switch ProjectTrailing.escape(readerOpen: provenance.isPresented, trailing: trailing,
                                           projectOpen: columns.openId != nil) {
             case .reader: provenance.close()

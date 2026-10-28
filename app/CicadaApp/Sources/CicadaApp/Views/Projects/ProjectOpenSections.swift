@@ -278,7 +278,7 @@ struct ProjectMilestoneDoneRow: View {
     let pick: (ProjectKey) -> Void
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingMD) {
+        HStack(alignment: .center, spacing: CicadaTheme.spacingMD) {
             PlanDiamond(style: .filled)
             Text(milestone.name).font(CicadaTheme.rowFont).foregroundStyle(CicadaTheme.textPrimary).lineLimit(2)
             Tag(text: Copy.ProjectsOpen.milestoneDone)
