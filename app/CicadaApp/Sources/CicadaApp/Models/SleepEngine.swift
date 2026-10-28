@@ -24,6 +24,20 @@ struct SleepEngineCandidate: Codable, Identifiable, Hashable {
     var usage: SleepEngineUsage? = nil
     /// Model id → list price per million tokens, a parallel map so `models` keeps its type.
     var modelPrices: [String: SleepEngineModelPrice] = [:]
+    /// G49/G50 (2026-10-28) — the card says what it is, so a new engine renders without a release of its own. All
+    /// absent on an older backend, where `EngineOption`'s id tables keep answering exactly as before.
+    /// `"auto" | "plan" | "key" | "local"`.
+    var kind: String? = nil
+    /// The engine label a run on this card reports (`claude-cli`, `cursor-cli` …): a preview maps back to its card.
+    var engine: String? = nil
+    /// The bundled logo's name (`cursor`, `opencode`, `grok`).
+    var mark: String? = nil
+    /// How the engine is paid for when a metered path is possible, in words, shown before it is chosen.
+    var billingNote: String? = nil
+    /// A saved model the tool no longer offers, in words.
+    var modelNote: String? = nil
+    /// The exact command the person runs to sign in to the tool.
+    var signIn: String? = nil
 }
 
 extension SleepEngineCandidate {
@@ -38,6 +52,12 @@ extension SleepEngineCandidate {
         mode = try c.decodeIfPresent(String.self, forKey: .mode)
         usage = (try? c.decodeIfPresent(SleepEngineUsage.self, forKey: .usage)) ?? nil
         modelPrices = ((try? c.decodeIfPresent([String: SleepEngineModelPrice].self, forKey: .modelPrices)) ?? nil) ?? [:]
+        kind = (try? c.decodeIfPresent(String.self, forKey: .kind)) ?? nil
+        engine = (try? c.decodeIfPresent(String.self, forKey: .engine)) ?? nil
+        mark = (try? c.decodeIfPresent(String.self, forKey: .mark)) ?? nil
+        billingNote = (try? c.decodeIfPresent(String.self, forKey: .billingNote)) ?? nil
+        modelNote = (try? c.decodeIfPresent(String.self, forKey: .modelNote)) ?? nil
+        signIn = (try? c.decodeIfPresent(String.self, forKey: .signIn)) ?? nil
     }
 }
 

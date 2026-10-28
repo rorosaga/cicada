@@ -177,7 +177,7 @@ struct EngineChooser: View {
         let headline = EngineHeadline.of(response)
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
             HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
-                headlineMark(headline.mark)
+                headlineMark(headline.mark, candidates: response.candidates)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(headline.title)
                         .font(CicadaTheme.rowFont)
@@ -222,9 +222,10 @@ struct EngineChooser: View {
     }
 
     @ViewBuilder
-    private func headlineMark(_ id: String) -> some View {
+    private func headlineMark(_ id: String, candidates: [SleepEngineCandidate]) -> some View {
         let size = CicadaTheme.scaled(28)
-        if let logo = EngineOption.logoName(for: id) {
+        let declared = candidates.first { $0.id == id }.flatMap { EngineOption.logoName(for: $0) }
+        if let logo = declared ?? EngineOption.logoName(for: id) {
             LogoImage.platformTile(name: logo, size: size, systemFallback: EngineOption.symbol(for: id))
         } else {
             Image(systemName: EngineOption.symbol(for: id))
@@ -262,8 +263,8 @@ struct EngineChooser: View {
                     isSelectable: EngineOption.isSelectable(candidate, selectedMode: selectedCard)
                         && !response.isPinnedByEnvironment,
                     // R-AG14 — how OpenRouter and Ollama are paid for is not obvious from their names.
-                    costModel: ["openrouter", "local"].contains(candidate.id)
-                        ? EngineOption.costModel(for: candidate.id) : nil,
+                    costModel: ["openrouter", "local"].contains(candidate.id) || EngineOption.isOwnTool(candidate)
+                        ? EngineOption.costModel(for: candidate) : nil,
                     tag: EngineOption.isLocal(candidate.id) ? Copy.engineLocalTag : nil
                 ) { select(candidate) }
             }
@@ -388,7 +389,31 @@ struct EngineChooser: View {
         case "byok":
             if let response = vm.response { providerPicker(response) }
         default:
-            EmptyView()
+            if EngineOption.isOwnTool(candidate) { ownToolStep(candidate) }
+        }
+    }
+
+    /// G49/G50 — the person's own Cursor, OpenCode or Grok: how it is paid for (said before anything runs, rail 2), a
+    /// saved model it no longer offers, and — signed out — the one command they run in their own terminal. Cicada
+    /// never signs in for them.
+    @ViewBuilder
+    private func ownToolStep(_ candidate: SleepEngineCandidate) -> some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+            if let note = candidate.billingNote {
+                Text(note)
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if let note = candidate.modelNote {
+                Text(note)
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if candidate.available, !candidate.connected, let command = candidate.signIn {
+                CommandBox(command: command)
+            }
         }
     }
 
@@ -458,8 +483,8 @@ struct EngineChooser: View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
             // R-HS11 — one pair of labels app-wide: this chooser, Settings → Sleep and the Sleep
             // page's quick menu said the same two facts two ways before DS-3b.
-            Self.previewRow(preview.manual, label: Copy.EngineMenu.whenYouStart)
-            Self.previewRow(preview.scheduled, label: Copy.EngineMenu.scheduledCycles)
+            Self.previewRow(preview.manual, label: Copy.EngineMenu.whenYouStart, candidates: vm.response?.candidates ?? [])
+            Self.previewRow(preview.scheduled, label: Copy.EngineMenu.scheduledCycles, candidates: vm.response?.candidates ?? [])
             // Ruling 4 stays binding and VISIBLE: a scheduled cycle never
             // spends plan quota. The caption only earns its place when the
             // two previews actually diverge — an `auto`/`byok` choice that
@@ -477,13 +502,15 @@ struct EngineChooser: View {
     /// the chosen card wears (G139: a named service shows its real mark).
     /// Internal and static so the Sleep page's read-only engine row draws the
     /// same marked line (Task 2 review round 1) instead of a bare-text twin.
-    static func previewRow(_ preview: SleepEnginePreview, label: String) -> some View {
+    static func previewRow(_ preview: SleepEnginePreview, label: String,
+                           candidates: [SleepEngineCandidate] = []) -> some View {
         HStack(spacing: CicadaTheme.spacingXS) {
-            LogoImage.platformTile(name: EngineOption.previewMark(engine: preview.engine, model: preview.model) ?? "",
+            LogoImage.platformTile(name: EngineOption.previewMark(engine: preview.engine, model: preview.model,
+                                                                  candidates: candidates) ?? "",
                                    size: CicadaTheme.scaled(16),
                                    // A key run wears the key; Auto with no engine yet wears Auto's own sparkle.
                                    systemFallback: preview.engine == "litellm" ? "key.fill" : EngineOption.symbol(for: "auto"))
-            Text(Self.previewLine(preview, label: label))
+            Text(Self.previewLine(preview, label: label, candidates: candidates))
                 .font(CicadaTheme.captionFont)
                 .foregroundStyle(CicadaTheme.textSecondary)
         }
@@ -505,8 +532,9 @@ struct EngineChooser: View {
     /// view. The engine half is exactly `Copy.engineLabel`'s mapping
     /// (`claude-cli|codex-cli|ollama|litellm`), never a fresh coinage — except a key run
     /// through OpenRouter, which names OpenRouter (`EngineOption.previewName`, R-AG12).
-    static func previewLine(_ preview: SleepEnginePreview, label: String) -> String {
-        "\(label): \(EngineOption.previewName(engine: preview.engine, model: preview.model))"
+    static func previewLine(_ preview: SleepEnginePreview, label: String,
+                            candidates: [SleepEngineCandidate] = []) -> String {
+        "\(label): \(EngineOption.previewName(engine: preview.engine, model: preview.model, candidates: candidates))"
     }
 }
 
@@ -588,7 +616,7 @@ struct EngineOptionCard: View {
 
     @ViewBuilder
     private var mark: some View {
-        if let logo = EngineOption.logoName(for: candidate.id) {
+        if let logo = EngineOption.logoName(for: candidate) {
             LogoImage.platformTile(name: logo, size: markSize,
                                    systemFallback: EngineOption.symbol(for: candidate.id))
         } else {

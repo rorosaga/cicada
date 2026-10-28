@@ -849,6 +849,15 @@ def _stage1_failure_message(engine: str, engine_detail: str | None = None, *,
             "Check ChatGPT is still signed in on Settings → Intelligence → Plans & keys. "
             "The queue is intact; trigger Sleep again once it is."
         )
+    if engine in engine_select.CLI_ENGINE_LABELS:
+        from api.services import cli_engines
+
+        spec = cli_engines.BY_LABEL[engine]
+        return (
+            f"Stage 1 extracted nothing — every episode failed on {spec.name}. "
+            f"Check it is still signed in (`{spec.sign_in}`). "
+            "The queue is intact; trigger Sleep again once it is."
+        )
     if engine == "ollama":
         return (
             "Stage 1 extracted nothing — every episode failed on the local Ollama engine. "
@@ -2090,7 +2099,7 @@ async def _drain(
         ds.engine_model = None
     if continue_from:
         ds.auto_used = sleep_paused.auto_used(continue_from)
-    if ds.reserve_pct and engine_lbl in engine_select.PLAN_ENGINES:
+    if ds.reserve_pct and engine_lbl in engine_select.RESERVE_ENGINES:
         ds.guard = sleep_reserve.ReserveGuard(ds.reserve_pct, engine=engine_lbl)
         if engine_lbl == "claude-cli" and hasattr(resolved[0], "model_copy"):
             # With a reserve set, the reserve is the line: R-E12's own 90% stop would pre-empt a 5% one.
@@ -2663,6 +2672,22 @@ async def _run_stages(
         if guard is not None:
             # The reserve line, read from the snapshot this pre-flight already took (no second probe).
             guard.observe_snapshot(codex_engine.last_snapshot())
+    elif _state.last_engine in engine_select.CLI_ENGINE_LABELS:
+        # G49/G50: the person's own Cursor, OpenCode or Grok — installed, signed in, the saved model still offered
+        # and on a plan, all BEFORE the first spawn; a refusal names the exact command or choice that fixes it.
+        from api.services import cli_engines
+
+        spec = cli_engines.BY_LABEL[_state.last_engine]
+        ok, detail, fill_model = await cli_engines.preflight(spec, settings)
+        _state.engine_detail = detail
+        if not ok:
+            logger.error(f"Sleep cycle {cycle_id} aborted before Stage 1 — {detail}")
+            _state.error = detail
+            _state.progress = f"Failed: {detail}"
+            return _StageOutcome(stop=sleep_drain.DrainStop("engine", detail))
+        if fill_model:
+            settings = settings.model_copy(update={"cli_engine_model": fill_model})
+            logger.info(f"Sleep cycle {cycle_id} — {spec.name} model: {fill_model}")
 
     # Stage 1: Entity & Relationship Extraction
     _say(f"Stage 1/5: Extracting entities from {len(episodes)} episodes...")

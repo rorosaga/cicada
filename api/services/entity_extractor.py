@@ -720,7 +720,10 @@ async def extract(
 
     _engine = engine_select.engine_label(settings)
     plan_name = engine_select.PLAN_NAMES.get(_engine, "Claude plan")
-    tool_name = "Codex" if _engine == "codex-cli" else "Claude Code"
+    from api.services import cli_engines
+
+    _cli_spec = cli_engines.spec_for(_engine)
+    tool_name = _cli_spec.name if _cli_spec else ("Codex" if _engine == "codex-cli" else "Claude Code")
     entities_so_far = 0
     # Perf report 2026-10-24, item 1: the plan account's email rides the CLI's own context. It is read once here and
     # kept only in memory; an item carrying it is dropped below unless the conversation itself says it.

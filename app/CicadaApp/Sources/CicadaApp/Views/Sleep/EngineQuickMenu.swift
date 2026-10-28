@@ -90,7 +90,7 @@ struct EngineQuickMenuModel: Equatable {
     /// "Runs on …" caption stated the same fact. `nil` until the preview is known (R-A7).
     static func buttonLabel(_ response: SleepEngineResponse?) -> String? {
         guard let response, let manual = response.preview?.manual else { return nil }
-        let name = EngineOption.candidateId(forEngine: manual.engine, model: manual.model)
+        let name = EngineOption.candidateId(forEngine: manual.engine, model: manual.model, candidates: response.candidates)
             .flatMap { id in response.candidates.first { $0.id == id }?.label }
             ?? Copy.engineLabel(manual.engine)
         let runs = "\(name) · \(manual.model)"
@@ -111,7 +111,7 @@ struct EngineQuickMenuModel: Equatable {
             let selectable = EngineOption.isSelectable(candidate, selectedMode: current)
                 && !response.isPinnedByEnvironment
             return Row(id: candidate.id, label: candidate.label, caption: caption,
-                       logo: EngineOption.logoName(for: candidate.id), symbol: EngineOption.symbol(for: candidate.id),
+                       logo: EngineOption.logoName(for: candidate), symbol: EngineOption.symbol(for: candidate.id),
                        isSelected: candidate.id == current, isSelectable: selectable,
                        help: response.isPinnedByEnvironment ? Copy.EngineMenu.pinnedByEnvironment(response.mode)
                            : selectable ? "\(candidate.label) — \(usage?.help ?? caption)" : Copy.EngineMenu.signInFirst(candidate.label))
@@ -119,19 +119,22 @@ struct EngineQuickMenuModel: Equatable {
         let chosen = response.candidates.first { $0.id == current }
         // R-HS10 — a model list only where the engine has one to pick from; Auto and the API key say
         // in the backend's own words how their model is decided.
-        let pickable = ["agent", "codex", "local"].contains(current)
-        let note: String? = (current == "auto" || current == "byok") ? chosen?.detail : nil
+        // G49/G50: the person's own Cursor, OpenCode or Grok lists its own models (live, else documented defaults).
+        let pickable = ["agent", "codex", "local"].contains(current) || chosen.map(EngineOption.isOwnTool) == true
+        let note: String? = (current == "auto" || current == "byok") ? chosen?.detail : chosen?.modelNote
         let command = chosen.flatMap { $0.id == "local" ? OllamaGuideState.from(candidate: $0).command : nil }
         let previews: [Preview] = response.preview.map { p in
             [Preview(label: Copy.EngineMenu.whenYouStart, engine: p.manual.engine,
-                     text: "\(EngineOption.previewName(engine: p.manual.engine, model: p.manual.model)) · \(p.manual.model)",
+                     text: "\(EngineOption.previewName(engine: p.manual.engine, model: p.manual.model, candidates: response.candidates)) · \(p.manual.model)",
                      model: p.manual.model),
              Preview(label: Copy.EngineMenu.scheduledCycles, engine: p.scheduled.engine,
-                     text: "\(EngineOption.previewName(engine: p.scheduled.engine, model: p.scheduled.model)) · \(p.scheduled.model)",
+                     text: "\(EngineOption.previewName(engine: p.scheduled.engine, model: p.scheduled.model, candidates: response.candidates)) · \(p.scheduled.model)",
                      model: p.scheduled.model)]
         } ?? []
         let prices = pickable ? (chosen?.modelPrices ?? [:]).compactMapValues { CycleUsageText.modelPrice($0, locale: locale) } : [:]
-        let manualCard = response.preview.flatMap { EngineOption.candidateId(forEngine: $0.manual.engine, model: $0.manual.model) }
+        let manualCard = response.preview.flatMap {
+            EngineOption.candidateId(forEngine: $0.manual.engine, model: $0.manual.model, candidates: response.candidates)
+        }
         let last = CycleUsageText.lastCycle(response.candidates, preferring: manualCard, locale: locale)
         return EngineQuickMenuModel(
             rows: rows,

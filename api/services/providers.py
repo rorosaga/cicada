@@ -355,7 +355,10 @@ def resolve_llm_fn(
     mode = (settings.llm_mode or "byok").strip().lower()
     # R-E2: both plan engines are CLI rungs behind one seam — the Claude plan
     # (`claude -p`) and the ChatGPT plan (`codex exec`).
-    is_cli = mode in ("agent", "codex")
+    # G49/G50: the person's own signed-in Cursor, OpenCode and Grok CLIs ride the same seam (`cli_engines`).
+    from api.services.engine_select import CLI_MODES
+
+    is_cli = mode in CLI_MODES
     if completion is None and not is_cli:
         # Fix round 1, N2: never imported on the agent rung — a multi-second
         # import for a callable that branch is built specifically to avoid
@@ -394,13 +397,19 @@ def resolve_llm_fn(
             # `litellm_model` ids mean nothing to `claude --model`; the rung has
             # its own model pair (settings.agent_model / agent_disambiguation_model).
             argv_model = agent_engine.model_for_stage(settings, stage)
-        else:
+        elif mode == "codex":
             from api.services import codex_engine
 
             # R-E2: the ChatGPT plan's own card and model pair. "" = no `-m`
             # (the plan's default, R-E17).
             engine_label, connection, billing = "codex-cli", "chatgpt-plan", "subscription"
             argv_model = codex_engine.model_for_stage(settings, stage)
+        else:
+            from api.services import cli_engines, engine_select
+
+            engine_label = engine_select.ENGINE_LABELS[mode]
+            connection, billing = engine_select.PLAN_ENGINES[engine_label]
+            argv_model = cli_engines.model_for_stage(settings, stage)
     else:
         engine_label = "litellm"
         connection, billing = telemetry.connection_for_model(resolved_model)
@@ -553,6 +562,20 @@ def resolve_llm_fn(
                 used = resp["model"]
                 equiv = agent_engine.equiv_cost_from_envelope(envelope)
                 refs = _claude_refs(envelope, seen.get("stream"))
+            elif mode in ("cursor", "opencode", "grok"):
+                from api.services import cli_engines
+
+                # G49/G50: one headless call on the person's own signed-in tool, through the same breaker scope,
+                # semaphore and ledger. The model is the one the tool REPORTED serving, else the one asked for,
+                # else nothing — never a guess.
+                parsed = cli_engines.complete(
+                    cli_engines.SPECS[mode], messages=messages, model=argv_model, stage=stage,
+                    want_json=response_format is not None, timeout=timeout, runner=runner, scope=resolved_scope,
+                )
+                resp = cli_engines.response_shim(parsed, argv_model)
+                used = parsed.model or argv_model or None
+                equiv = None
+                refs = {}
             else:
                 from api.services import codex_engine
 

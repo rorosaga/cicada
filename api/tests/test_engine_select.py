@@ -495,7 +495,11 @@ def test_duck_typed_settings_never_touches_the_registry_for_prefs():
 def test_the_codex_label_and_the_plan_maps():
     assert engine_select.engine_label(Settings(llm_mode="codex")) == "codex-cli"
     assert engine_select.PLAN_ENGINES == {"claude-cli": ("claude-plan", "subscription"),
-                                          "codex-cli": ("chatgpt-plan", "subscription")}
+                                          "codex-cli": ("chatgpt-plan", "subscription"),
+                                          # G49/G50: the person's own signed-in Cursor, OpenCode and Grok.
+                                          "cursor-cli": ("cursor-plan", "subscription"),
+                                          "opencode-cli": ("opencode-plan", "subscription"),
+                                          "grok-cli": ("grok-plan", "subscription")}
     assert engine_select.PLAN_NAMES["codex-cli"] == "ChatGPT plan"
 
 
@@ -525,8 +529,8 @@ def test_a_plan_cycles_claim_is_authored_by_the_plans_model_and_byok_is_unchange
 # Track E — the ChatGPT plan on the ladder; ruling 4 for both plans (R-E20/R-E21)
 # --------------------------------------------------------------------------- #
 
-def test_ruling_4_names_both_plans_in_one_tuple():
-    assert engine_select.SUBSCRIPTION_MODES == ("agent", "codex")
+def test_ruling_4_names_every_plan_in_one_tuple():
+    assert engine_select.SUBSCRIPTION_MODES == ("agent", "codex", "cursor", "opencode", "grok")
 
 
 @pytest.mark.parametrize("mode", ["agent", "codex"])

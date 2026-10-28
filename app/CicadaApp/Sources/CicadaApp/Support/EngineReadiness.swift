@@ -11,13 +11,15 @@ enum EngineReadiness: Equatable {
     /// `ENGINE_LABELS` id → `GET /sleep/engine` candidate id. R-AG12: a `litellm` run on an
     /// `openrouter/` model is the OpenRouter card (the server's `selected_card` rule), so onboarding
     /// rings OpenRouter, not the API key, when OpenRouter will read.
-    static func candidateId(forEngine engine: String, model: String? = nil) -> String? {
+    static func candidateId(forEngine engine: String, model: String? = nil,
+                            candidates: [SleepEngineCandidate] = []) -> String? {
         switch engine {
         case "claude-cli": "agent"
         case "codex-cli": "codex"
         case "ollama": "local"
         case "litellm": EngineOption.runsOnOpenRouter(model) ? "openrouter" : "byok"
-        default: nil
+        // G49/G50: an engine the table does not know belongs to the card that declares it.
+        default: EngineOption.card(forEngine: engine, in: candidates)?.id
         }
     }
 
@@ -37,10 +39,13 @@ enum EngineReadiness: Equatable {
     static func resolve(candidates: [SleepEngineCandidate], connections: [ConnectionStatus],
                         preview: SleepEnginePreviews?) -> EngineReadiness {
         guard let engine = preview?.manual.engine,
-              let id = candidateId(forEngine: engine, model: preview?.manual.model) else { return .needsChoice }
+              let id = candidateId(forEngine: engine, model: preview?.manual.model, candidates: candidates)
+        else { return .needsChoice }
         let canRun: Bool
+        let ownTool = candidates.first { $0.id == id }.map(EngineOption.isOwnTool) ?? false
         switch id {
         case "agent", "codex": canRun = connected(id, candidates)
+        case _ where ownTool: canRun = connected(id, candidates)
         case "local": canRun = ollamaReady(candidates)
         // `byok` and `openrouter` alike: a usage key is what lets either run (F6).
         default: canRun = hasKey(connections)

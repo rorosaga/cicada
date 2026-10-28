@@ -35,7 +35,8 @@ from api.models.schemas import (
     SleepReserveStatus,
     SleepReserveWindow,
 )
-from api.services import agent_engine, codex_app_server, codex_engine, cycle_usage, engine_select, telemetry
+from api.services import (agent_engine, cli_engines, codex_app_server, codex_engine, cycle_usage, engine_select,
+                          telemetry)
 from api.services.connections import byok, secrets
 from api.services.connections import registry as registry_module
 
@@ -47,7 +48,10 @@ VALID_MODES = engine_select._VALID_PREF_MODES
 
 # The agent rung's model picker offers these plus whatever `agent_model` is
 # already configured (so an existing non-default choice never disappears
-# from the list just because this page hasn't seen it before).
+# from the list just because this page hasn't seen it before). Claude Code has
+# no command that lists models outside its interactive `/model` (checked
+# 2026-10-28, code.claude.com/docs/en/cli-reference), so the aliases stay a
+# documented list — each alias always names the latest model of its family.
 _AGENT_MODEL_CHOICES = ("sonnet", "haiku", "opus")
 
 # R-AG12: a key model is handed to LiteLLM as-is, so the PUT checks its shape
@@ -111,6 +115,12 @@ def _resolved_model_pair(settings: Settings, reg, mode: str, source: str) -> tup
         model = overrides.get("codex_model") or codex_engine.model_for_stage(settings, None)
         disambiguation = (overrides.get("codex_disambiguation_model")
                           or codex_engine.model_for_stage(settings, "disambiguation") or model)
+        return model, disambiguation
+    if mode in engine_select.CLI_ENGINE_MODES:
+        # G49/G50: "" = the tool's own default (OpenCode's pre-flight picks the first plan model it lists).
+        model = overrides.get("cli_engine_model") or cli_engines.model_for_stage(settings, None)
+        disambiguation = (overrides.get("cli_engine_disambiguation_model")
+                          or cli_engines.model_for_stage(settings, "disambiguation") or model)
         return model, disambiguation
     if mode == "local":
         # Ollama binds one model for every stage (providers.resolve_llm_fn
@@ -212,6 +222,23 @@ async def _candidates(settings: Settings, reg, *, mode: str, model: str | None) 
             detail="Your own key from Anthropic, OpenAI, Gemini, xAI, Groq or Mistral.",
         ),
     ]
+    for card in cards:
+        card.kind = {"auto": "auto", "agent": "plan", "codex": "plan", "local": "local"}.get(card.id, "key")
+        card.engine = {"agent": "claude-cli", "codex": "codex-cli", "local": "ollama", "openrouter": "litellm",
+                       "byok": "litellm"}.get(card.id)
+    # G49/G50: the person's own signed-in Cursor, OpenCode and Grok, after the two plans — choosable, never on Auto's
+    # ladder (ruling 31 / 36 D1: changing the ladder is the owner's call). Each probe is cached for 30 s.
+    statuses_cli = await asyncio.gather(*(cli_engines.astatus(spec) for spec in cli_engines.SPECS.values()))
+    at = next(i for i, c in enumerate(cards) if c.id == "codex") + 1
+    for offset, (spec, st) in enumerate(zip(cli_engines.SPECS.values(), statuses_cli)):
+        saved = (model if mode == spec.mode else None) or None
+        cards.insert(at + offset, SleepEngineCandidate(
+            id=spec.mode, label=spec.name, kind="plan", engine=spec.label, mark=spec.mode,
+            available=st.available, connected=st.connected,
+            models=cli_engines.model_choices(spec, st, saved),
+            detail=st.detail, billing_note=spec.billing_note, sign_in=spec.sign_in,
+            model_note=cli_engines.stale_model_sentence(spec, st, saved),
+        ))
     key_model = (model if mode == "byok" and model and selected_card(mode, model) != "openrouter" else None) \
         or (key_models[0] if key_models else None) or settings.litellm_model
     await _attach_usage(cards, snap, or_models=or_models, key_model=key_model,
@@ -304,7 +331,8 @@ def run_keeps_engine(settings: Settings, previews: SleepEnginePreviews) -> bool:
 
 #: How a run on an engine is billed, from its id alone (Sleep page v5). No provider is named:
 #: the app words it from this enum and the engine label the person already chose.
-_BILLING = {"claude-cli": "plan", "codex-cli": "plan", "litellm": "charged", "ollama": "local"}
+_BILLING = {"claude-cli": "plan", "codex-cli": "plan", "litellm": "charged", "ollama": "local",
+            "cursor-cli": "plan", "opencode-cli": "plan", "grok-cli": "plan"}
 
 
 def billing_for(engine: str | None) -> str:
@@ -317,7 +345,7 @@ def _reserve_status(settings: Settings, reg, manual_engine: str) -> SleepReserve
     from api.services import sleep_cycle, sleep_run_prefs
 
     opts = sleep_run_prefs.load(reg)
-    applies = manual_engine in engine_select.PLAN_ENGINES
+    applies = manual_engine in engine_select.RESERVE_ENGINES
     windows: list[SleepReserveWindow] = []
     ds = getattr(sleep_cycle.get_sleep_state(), "drain", None)
     guard = getattr(ds, "guard", None) if ds is not None else None
@@ -395,7 +423,7 @@ def validate_and_write(body: SleepEngineChoice, reg) -> None:
     if body.mode not in VALID_MODES:
         raise HTTPException(status_code=422, detail=f"mode must be one of {VALID_MODES}")
 
-    if body.mode in ("agent", "codex"):
+    if body.mode in ("agent", "codex", *engine_select.CLI_ENGINE_MODES):
         # Both plan engines pass the id to a CLI as `--model`/`-m`: the same
         # charset `build_argv` enforces before any spawn (a leading `-` must
         # never become a flag) is checked here, before it is ever stored.
@@ -407,6 +435,11 @@ def validate_and_write(body: SleepEngineChoice, reg) -> None:
             raise HTTPException(
                 status_code=422, detail="invalid disambiguation model id for this engine"
             )
+        # Rail 2: an OpenCode model on an API key is refused here too, before it is stored.
+        if body.mode == "opencode":
+            for value in (body.model, body.disambiguation_model):
+                if value and cli_engines.metered_refusal(cli_engines.OPENCODE, value):
+                    raise HTTPException(status_code=422, detail=cli_engines.metered_refusal(cli_engines.OPENCODE, value))
     elif body.mode == "local":
         if body.model is not None and not body.model.strip():
             raise HTTPException(status_code=422, detail="model must not be blank")

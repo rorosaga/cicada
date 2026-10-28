@@ -58,7 +58,7 @@ def test_get_default_shape(client):
     assert body["mode"] == "byok"
     assert body["source"] == "default"
     ids = {c["id"] for c in body["candidates"]}
-    assert ids == {"auto", "agent", "codex", "openrouter", "local", "byok"}
+    assert ids == {"auto", "agent", "codex", "cursor", "opencode", "grok", "openrouter", "local", "byok"}
     codex = next(c for c in body["candidates"] if c["id"] == "codex")
     # Track E Task 4: the ChatGPT plan is a live card now — the fixture's
     # `which` finds `codex`, and `codex login status` is rc 1 (signed out).
@@ -210,7 +210,8 @@ def test_openrouter_is_a_byok_card_that_needs_a_key(client):
     card = next(c for c in body["candidates"] if c["id"] == "openrouter")
     assert card["mode"] == "byok" and card["connected"] is False
     assert card["models"] == ["openrouter/openai/gpt-oss-120b"]
-    assert [c["id"] for c in body["candidates"]] == ["auto", "agent", "codex", "openrouter", "local", "byok"]
+    assert [c["id"] for c in body["candidates"]] == ["auto", "agent", "codex", "cursor", "opencode", "grok", "openrouter",
+                                                     "local", "byok"]
     assert body["selected"] == body["mode"] == "byok"
 
 
@@ -239,7 +240,7 @@ def test_openrouter_is_never_a_mode(client):
     from api.services import engine_select
 
     assert client.put("/sleep/engine", json={"mode": "openrouter"}).status_code == 422
-    assert engine_select.SUBSCRIPTION_MODES == ("agent", "codex")
+    assert engine_select.SUBSCRIPTION_MODES == ("agent", "codex", "cursor", "opencode", "grok")
 
 
 def test_a_provider_pick_writes_its_default_and_its_own_judge(client):
@@ -457,3 +458,53 @@ def test_the_auto_local_record_is_said_only_while_the_kept_choice_stands():
     checked = {engine_select.AUTO_LOCAL_RECORD_KEY: {"outcome": "checked", "on": "2026-10-22"}}
     assert sleep_engine_prefs._auto_local_kept_on(_Reg({"mode": "local", **checked})) is None
     assert sleep_engine_prefs._auto_local_kept_on(_Reg({})) is None
+
+
+def test_the_signed_in_cli_engines_are_cards_after_the_plans_never_on_auto(client, monkeypatch):
+    """G49/G50: Cursor, OpenCode and Grok are plan cards after the two plans, each saying how it is paid for, its
+    live models, and the exact sign-in command when signed out. Auto's line still names only the two plans."""
+    from api.services import cli_engines
+
+    def fake_status(spec, *, fresh=False, runner=None):
+        if spec is cli_engines.GROK:
+            return cli_engines.Status(True, False, "Grok is signed out — run `grok login`.")
+        return cli_engines.Status(True, True, "Signed in.", ["auto", "sonnet-5"] if spec is cli_engines.CURSOR
+                                  else ["github-copilot/gpt-5.5"], 1.0)
+
+    monkeypatch.setattr(cli_engines, "status", fake_status)
+    body = client.get("/sleep/engine").json()
+    order = [c["id"] for c in body["candidates"]]
+    assert order[:6] == ["auto", "agent", "codex", "cursor", "opencode", "grok"]
+    cards = {c["id"]: c for c in body["candidates"]}
+    assert cards["cursor"]["kind"] == "plan" and cards["cursor"]["engine"] == "cursor-cli"
+    assert cards["cursor"]["mark"] == "cursor" and cards["cursor"]["models"] == ["auto", "sonnet-5"]
+    assert "usage-based pricing" in cards["cursor"]["billingNote"]
+    assert cards["grok"]["connected"] is False and "grok login" in cards["grok"]["detail"]
+    assert cards["agent"]["kind"] == "plan" and cards["byok"]["kind"] == "key" and cards["local"]["kind"] == "local"
+    assert "ChatGPT plan" in cards["auto"]["detail"] and "Cursor" not in cards["auto"]["detail"]
+
+
+def test_a_chosen_cli_engine_previews_its_plan_and_its_saved_model_never_vanishes(client, monkeypatch):
+    from api.services import cli_engines
+
+    monkeypatch.setattr(cli_engines, "status", lambda spec, **_kw: cli_engines.Status(
+        True, True, "Signed in.", ["auto", "sonnet-5"], 1.0))
+    assert client.put("/sleep/engine", json={"mode": "cursor", "model": "gone-1"}).status_code == 200
+    body = client.get("/sleep/engine").json()
+    assert (body["mode"], body["model"], body["selected"]) == ("cursor", "gone-1", "cursor")
+    assert body["preview"]["manual"]["engine"] == "cursor-cli" and body["preview"]["manual"]["model"] == "gone-1"
+    assert body["preview"]["manual"]["billing"] == "plan"
+    assert body["preview"]["manual"]["why"] == "Sleep engine set to Cursor plan in Settings"
+    cursor = next(c for c in body["candidates"] if c["id"] == "cursor")
+    assert cursor["models"] == ["auto", "sonnet-5", "gone-1"] and "no longer lists gone-1" in cursor["modelNote"]
+    # Ruling 4b: a scheduled run reaches the chosen plan only through the person's switch.
+    client.put("/sleep/run-options", json={"scheduledUsePlan": False})
+    scheduled = client.get("/sleep/engine").json()["preview"]["scheduled"]
+    assert (scheduled["engine"], scheduled["model"]) == ("none", "")
+
+
+def test_put_refuses_an_opencode_model_on_an_api_key(client):
+    assert client.put("/sleep/engine", json={"mode": "opencode", "model": "github-copilot/gpt-5.5"}).status_code == 200
+    resp = client.put("/sleep/engine", json={"mode": "opencode", "model": "anthropic/claude-sonnet-5"})
+    assert resp.status_code == 422 and "API key" in resp.text
+    assert client.put("/sleep/engine", json={"mode": "grok", "model": "-oops"}).status_code == 422

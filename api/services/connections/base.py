@@ -56,9 +56,15 @@ CODEX_PLAN_OVERRIDE_ENV = ("CODEX_API_KEY", "CODEX_ACCESS_TOKEN", "OPENAI_BASE_U
 #: its own below.
 _ALSO_STRIPPED = ("CLAUDE_CODE_RETRY_WATCHDOG", "CODEX_HOME")
 
-#: R-E5: one list for every child. Cicada only ever spawns ``claude`` and
-#: ``codex``, so stripping the union is safe for both.
-SCRUBBED_ENV_KEYS = MANAGED_KEY_ENV + CLAUDE_PLAN_OVERRIDE_ENV + CODEX_PLAN_OVERRIDE_ENV + _ALSO_STRIPPED
+#: G49/G50 — the plan engines that run the person's own Cursor, OpenCode and Grok sign-ins (``cli_engines``): a key in
+#: the environment would move Cursor off its login (cursor.com/docs/cli/reference/authentication), and an inline
+#: OpenCode config could loosen the deny-all permission Cicada sets for its own calls. (``XAI_API_KEY`` is already in
+#: ``MANAGED_KEY_ENV``.)
+CLI_ENGINE_OVERRIDE_ENV = ("CURSOR_API_KEY", "OPENCODE_CONFIG_CONTENT", "OPENCODE_CONFIG", "OPENCODE_PERMISSION")
+
+#: R-E5: one list for every child. Stripping the union is safe for every CLI Cicada spawns.
+SCRUBBED_ENV_KEYS = (MANAGED_KEY_ENV + CLAUDE_PLAN_OVERRIDE_ENV + CODEX_PLAN_OVERRIDE_ENV + CLI_ENGINE_OVERRIDE_ENV
+                     + _ALSO_STRIPPED)
 
 
 @dataclass

@@ -640,6 +640,10 @@ struct EngineMark: View {
         case "ollama": .logo("ollama")
         case "litellm" where EngineOption.runsOnOpenRouter(model):
             EngineOption.previewMark(engine: engine, model: model).map(Source.logo) ?? .symbol("key")
+        // G49/G50: the person's own signed-in tool (`cursor-cli`, `opencode-cli`, `grok-cli`) wears that tool's mark
+        // from the shared set; only a key run has no vendor to show.
+        case _ where engine.hasSuffix("-cli") && LogoSet.umbrellaMarks.contains(String(engine.dropLast(4))):
+            .logo(String(engine.dropLast(4)))
         default: .symbol("key")
         }
     }
