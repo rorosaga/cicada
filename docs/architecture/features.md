@@ -175,6 +175,26 @@ additive question shapes feed the catch-up chat: `asks: still` on a `conflict` (
 `inbox_catchup.propose_nicknames`); an older app draws them as a one-choice conflict and a duplicate pair. A
 "still?" question is never `informational`, whatever its predicate's cardinality.
 
+**Plain words on the wire, and the in-app catch-up (ruling 48 (1), (8), 2026-10-28).** `GET /inbox` serves each
+conflict, decay, clarification, duplicate and follow-up with `spokenQuestion` / `spokenReason` — `inbox_wording.spoken`
+over the pages the read already holds (`InboxContext`, the owner's id once per read), derived and never stored;
+additive, so an older app draws `question` as before. The app's catch-up chat (`app.md`, "Catch me up") adds two
+routes. `POST /inbox/catchup/turn` `{itemId, message, history, upcoming}` is one turn of the conversation
+(`catchup_chat.turn`): the engine is resolved as Ask's is — `engine_select.resolve_settings(user_triggered=True)`, a
+person asking is a person present (rulings 4/31/46: never a metered key nobody chose) — and with no engine to call it
+answers `{"engine": false, "why": …}` and spends nothing. The model gets the open question in its plain words with
+its answer keys, what Cicada has on the page (`catchup_chat.context_lines`: its type, when last said, in how many
+conversations, a few current beliefs), the upcoming questions it may move to, and the chat so far; it answers
+`{reply, reading, move, nextId}`. The turn **writes nothing**: a `reading` is kept only when its `quote` is found in
+what the person typed (`evidence.locate` — exact, whitespace, case; never fuzzy) and a free `answer` too, its key is
+one of the question's, and a free answer only on a question that takes words; a same-person pair or a name is marked
+`confirm` (ruling 41: the app offers it for a tap, never applies it). The app applies a kept reading through `POST
+/inbox/{id}/resolve` like a tap. `POST /inbox/catchup/record` `{sessionId, turns}` keeps the chat as ONE episode per
+session (`episode_staging`, `source_id: catchup:<session>`, `source: companion_app`, `origin: catchup`; the person's
+turns as `user`, Cicada's as `assistant`; re-posted in place and re-queued), so Sleep reads a follow-up answered in
+passing like any conversation (ruling 29 part 1 may settle a question from their located words); never into a demo
+bank. The message is never logged. Write-admission classes: the turn `NONE`, the record `CAPTURE`.
+
 **A count is what the inbox serves, never a count of files.** `load_inbox` skips a deferred item and
 one whose subject is archived, dropped or (for every kind but `clarification`) gone; those files stay
 on disk. **A quiet subject is never asked about either (owner ruling 2026-10-20):** a page only an import made — a

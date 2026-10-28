@@ -37,6 +37,7 @@ struct HomeView: View {
     @State private var seeHow: ChatVendor?
     @Environment(AppRouter.self) private var router: AppRouter?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(InboxViewModel.self) private var inboxVM
     /// Say it once — bumps when Home is clicked again in the rail, so the page scrolls back to its headline.
     @State private var toTop = 0
     private static let topAnchor = "home.top"
@@ -61,6 +62,15 @@ struct HomeView: View {
         let tipShown = AppearanceTipPolicy.visible(armed: tipArmed, dismissed: tipDismissed, seenBefore: tipSeen,
                                                    shownThisSession: AppearanceTipPolicy.shownThisSession)
             && !showsResults
+        Group {
+        if let session = search.catchup, session.bank == store.bank {
+            // Ruling 48 (8) — Catch me up opens in place on Home as a chat; Esc, × or Home's cell leave it.
+            CatchupView(session: session, onClose: { closeCatchup() }, openPage: { open(.entity(id: $0)) },
+                        openQuestion: { id in
+                            router?.pendingInboxItem = id
+                            selectedTab = .inbox
+                        })
+        } else {
         GeometryReader { geo in
             VStack(spacing: 0) {
                 // Owner 2026-10-06 — one scroll view carries the headline, the field and the blocks, so a scrolled card
@@ -108,6 +118,8 @@ struct HomeView: View {
             }
             .frame(width: geo.size.width, height: geo.size.height)
         }
+        }
+        }
         .background(CicadaTheme.bgBase)
         // Review #1 — onboarding's drawn walkthrough, over Home, from a vendor row's "See how ›".
         .overlay {
@@ -137,8 +149,19 @@ struct HomeView: View {
             search.model.setMode(.find)
             search.model.setQuery("")
             seeHow = nil
+            search.catchup = nil
         }
         toTop &+= 1
+    }
+
+    // MARK: Catch me up (ruling 48 (8))
+
+    private func startCatchup(_ queue: [String]) {
+        search.catchup = CatchupSession.live(queue: queue, store: store, inbox: inboxVM)
+    }
+
+    private func closeCatchup() {
+        search.catchup = nil
     }
 
     // MARK: The blocks
@@ -162,7 +185,10 @@ struct HomeView: View {
                 EmptyView()
             }
         case .needsYou:
-            if mode == .blocks { NeedsYouSection(empty: empty.needsYouEmpty, selectedTab: $selectedTab) }
+            if mode == .blocks {
+                NeedsYouSection(empty: empty.needsYouEmpty, selectedTab: $selectedTab,
+                                openPage: { open(.entity(id: $0)) }, startCatchup: { startCatchup($0) })
+            }
         case .readingSites:
             ReadingSitesSection()
         case .lastRead:

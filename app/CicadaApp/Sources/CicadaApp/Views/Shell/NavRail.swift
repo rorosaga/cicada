@@ -60,9 +60,10 @@ struct NavRail: View {
 
     @ViewBuilder
     private func cell(_ tab: AppTab) -> some View {
-        let count = tab == .inbox ? inboxCount : 0
+        // Ruling 48 (2): the pending count moved to Home with the questions.
+        let count = tab == .home ? inboxCount : 0
         let busy = tab == .sleep && isSleeping
-        let selected = selectedTab == tab
+        let selected = selectedTab.railCell == tab
         Button {
             // Sources v3 — the page already showing: tell it, so it can return to its root (a tab bar's re-tap).
             if RailReselect.isReselect(current: selectedTab, tapped: tab) {

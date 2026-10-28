@@ -229,7 +229,12 @@ its window shift, else "share of the plan not recorded". Past nights' folded run
 detail does): the row has no whole-run usage on the wire.
 
 **Navigation (Direction D, DS-1).** A 56 pt icon rail (`Views/Shell/NavRail.swift`): Home, Graph, Clusters, Skills,
-Sleep, Inbox, Sources, Projects, Agents at ⌘1–9 in `AppTab.allCases` order (`RailItem`; a page switch is instant). Looks
+Sleep, Sources, Projects, Agents at ⌘1–5 and ⌘7–9 in `AppTab.allCases` order (`RailItem`; a page switch is instant).
+**The Inbox left the rail (ruling 48 (2), owner 2026-10-28):** its questions live on Home and on each page, and the
+full grouped list is Home's sub-view — `AppTab.inbox` stays a destination (⌘K, the menu bar, a notification, Home's
+*All N questions*) but draws no cell (`AppTab.onRail`), Home's cell reads as selected while it shows (`railCell`), its
+eyebrow is the path back ("Home · All questions") and Esc with nothing open returns to Home; ⌘6 is left unused and no
+other digit moved (DR-22). The pending count is Home's badge now. Looks
 (⌘9 from 2026-10-14) went on 2026-10-20 — its looks live on their pages' cards — and a stored "Looks" selection restores
 to Clusters; Agents took the free ⌘9 on 2026-10-22 (ruling 36 D6). The Feed
 retired into Sleep on 2026-10-16 and Skills took its cell, so ⌘4 opens Skills and no other shortcut moved (⌘ map A);
@@ -237,7 +242,7 @@ for one release the first ⌘4 that lands on Skills toasts "The Feed is now part
 (`FeedMovedHint`, the key only — a click on the cell never shows it), and a stored "Feed" or "Capture" selection
 restores to Sleep. Each cell's tooltip
 naming its page and shortcut (450 ms, then instant while warm), selection by brightness and one neutral fill
-(`bgSelected` — never the accent, `SelectionTintLintTests`), the Inbox count a neutral `bgBadge` numeral, a spinner on
+(`bgSelected` — never the accent, `SelectionTintLintTests`), the pending count on Home a neutral `bgBadge` numeral, a spinner on
 Sleep while a cycle runs, the gear alone at its foot (the sun/moon toggle retired into Settings → General → Appearance,
 owner 2026-10-26), no wordmark. The gear's `warning` dot lights only
 when the engine the person chose is a plan that is installed but signed out (owner 2026-10-16,
@@ -407,7 +412,14 @@ on this Mac* as an offer. Your past chats has one 36 pt row per vendor still to 
 `chat-export:<vendor>` row has episodes is not asked again), the whole row opening onboarding's drawn walkthrough over
 Home (`HomeWalkthroughLayer`), with waits above them leading with "Check your email for the … link". Today is one row to
 Sources (captured today, UTC, with the three busiest origins' marks, names and counts) plus the waiting count as a row
-to Sleep; Needs you is the Inbox's kind glyph, question and age, *Open Inbox* at the label's right, landing in STATE 1;
+to Sleep; Needs you (ruling 48 (1), owner 2026-10-28; `NeedsYouSection`, `HomeQuestions`) is two blocks: **Catch me
+up** on its own (`CatchupBlock`, `07-home-b`'s separation — the chat glyph, "N questions about M pages, the ones you use
+most first · or say "catch me up" to your agent", *Start* a `NeutralButton`), then *Pages with a question*, one row per
+page (at most four, the server's `page_use` order), each leading with the page's picture (`EntityPicture`: face, logo
+or type glyph — the kind moves to `.help`, DR-48), the question in plain words (`spokenQuestion`), its reason and the page
+as an `InlineLink`, "N questions" when the page has more, and the question's age; a row opens that question in the
+list (STATE 1), the link opens the page; *All N questions* at the label's right opens the full list (never a fold —
+ruling 48 (17)). Drawn from the Store's disk-hydrated snapshot, so Home never waits on `GET /inbox`;
 Last read is the newest Sleep commit as a row to that read in Sleep's Past reads ("Today 07:27 · 33 updated", the commit's
 instant on the viewer's clock), its pages as `Tag`s in 24 pt hit frames — each number once, never a Consolidate. The
 history is not a Store domain: `SleepViewModel` holds it in memory, Home fetches it on arrival and whenever the status's
@@ -419,6 +431,33 @@ all three empty is one `HomeEmptyBlock` (*Choose a file…*), or nothing while G
 `InlineLink` hits 28 pt (layout-neutral, `LinkHitShape`). Right after onboarding ends (Open Cicada or *Set up later*),
 *Make it yours* (Appearance; `AppearanceTipPolicy`, per viewer; × closes it, its foot links Settings → General) is a row after
 Needs you for that one session; once hidden or seen it lives only in Settings.
+
+**Catch me up, the chat (ruling 48 (8), owner 2026-10-28: "not a monotone interrogation").** *Start* opens the chat in
+place on Home (`CatchupView`, mock `08-catchup`; held by `HomeSearch.catchup`, so opening a page from it and coming
+back resumes it; Home's cell, Esc, × or *Stop for now* leave it; a bank switch ends it). Cicada on the left, the person
+on the right (the 2026-10-19 Reader ruling); the eyebrow "Home · Catching up · 3 of 6". `CatchupSession` asks the
+askable questions (`HomeQuestions.askable`: not an agent's request, the grouped link review, a shown-never-asked
+conflict or a pair with no other side) in the inbox's order, each in its plain words with its reason and its page as a
+link. **One tap still answers** (DR-42): the chips are the inbox's own resolutions (`CatchupAnswers.chips` — the
+options, *Yes, the same* / *No, different* for a pair, Keep / Archive for a legacy decay, *Not now* = the 7-day defer,
+*Skip* sends nothing), held through `InboxViewModel.answer` for the same Undo window, with a "✓ Noted: … · Undo" line
+(Undo asks the question again). **Their own words** go to `POST /inbox/catchup/turn` (`features.md`): one turn on the
+person's chosen engine that answers like a person — a follow-up, the question in other words, or a move to a related
+upcoming question (asked in the reply's words, never repeated from the template). A reading grounded in their words
+is applied through the same hold; a question about who someone is (a pair, a name) only becomes a one-tap
+confirmation (ruling 41). With no engine the chat says "I can only take taps right now — <why>" and offers their words
+as a free answer for one tap where the question takes words. After each thing the person says the chat is posted to
+`POST /inbox/catchup/record` (one episode per session; posts never overlap). **The worm is Cicada's face**
+(`WormFace`): the menu bar's own 18 × 18 sheet at 32 pt beside the latest Cicada line only — *curious* while asking,
+*reading* while the person types, *digesting* while a turn is out, *happy* after a noted answer, *awake* at the end —
+the sheet's own clips on the shared sprite clock (ruling 18; no new frames), the menu bar's code-drawn badge left off; a
+mood swaps the clip in one frame, never through `withAnimation`, so typing and ⏎ never animate (DR-60), and Reduce
+Motion holds the key frame (DR-66). **A page's questions strip** (`PageQuestionsStrip`, first on every entity page's
+content): its open questions (either side of a pair, `HomeQuestions.onPage`), one at a time — "A question · 1 of N"
+with ‹ › — the plain question, its reason, the one-tap answers through the same hold, and *Open the full question*;
+nothing when the page has none. **The full list** (`InboxPage`) is unchanged but for the path eyebrow, Esc back to
+Home, and its kind groups always open — a section label with the kind's glyph, plural and count, never a fold
+(`InboxGroups.isOpen`, ruling 48 (17), DR-81). DR ids: DR-22, DR-40, DR-42, DR-48, DR-60, DR-66, DR-81.
 
 **Onboarding v2 (G92, G217, ruling 36; 2026-10-22; replaces G145's seven pages).** Six steps of one verb each in
 one full-window layer, raised by `FirstRunGate` (unknown is never empty; never over the demo) or by the one door,

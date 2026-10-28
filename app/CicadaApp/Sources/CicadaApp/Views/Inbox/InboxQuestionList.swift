@@ -431,11 +431,22 @@ struct InboxGroupHeader: View {
 
     var body: some View {
         HStack(spacing: CicadaTheme.spacingSM) {
-            DisclosureHeader(title: kind.groupTitle, summary: UsageFormat.count(count), summaryWhenOpen: true,
-                             isOpen: isOpen, help: isOpen ? Copy.Inbox.groupCloseHelp : Copy.Inbox.groupOpenHelp,
-                             fillsWidth: true, spokenTitle: Copy.Inbox.groupSpoken(kind.groupTitle, count),
-                             leading: AnyView(KindGlyph(kind: kind).accessibilityHidden(true)), toggle: toggle)
-            if isOpen, let review {
+            // Ruling 48 (17), DR-81 — a kind is a section label over its questions, never a fold.
+            HStack(spacing: CicadaTheme.scaled(6)) {
+                KindGlyph(kind: kind).accessibilityHidden(true)
+                Text(kind.groupTitle)
+                    .font(CicadaTheme.rowFont)
+                    .foregroundStyle(CicadaTheme.textPrimary)
+                Text(UsageFormat.count(count))
+                    .font(CicadaTheme.metaFont)
+                    .monospacedDigit()
+                    .foregroundStyle(CicadaTheme.textTertiary)
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Copy.Inbox.groupSpoken(kind.groupTitle, count))
+            .accessibilityAddTraits(.isHeader)
+            Spacer(minLength: CicadaTheme.spacingSM)
+            if let review {
                 TextButton(title: Copy.Inbox.groupReview, help: Copy.Inbox.Review.entryHelp(review.kind)) {
                     startReview(review.kind)
                 }

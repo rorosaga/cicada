@@ -6,6 +6,9 @@ import Foundation
 extension Copy {
     enum Inbox {
         static let title = "Inbox"
+        /// Ruling 48 (2) — the full list is Home's sub-view: its eyebrow is the path back ("Home · All questions").
+        static let homePath = "Home · All questions"
+        static let backHome = "Back to Home"
         static func pending(_ n: Int) -> String { "\(UsageFormat.count(n)) pending" }
         static func position(_ i: Int, of n: Int) -> String { "\(UsageFormat.count(i)) of \(UsageFormat.count(n))" }
         static let all = "All"

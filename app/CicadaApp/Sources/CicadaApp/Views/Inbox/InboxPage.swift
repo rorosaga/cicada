@@ -238,7 +238,9 @@ struct InboxPage: View {
             case .closeQuestion:
                 viewModel.columns.close()
                 focus = .list
-            case .none: break
+            case .none:
+                // Ruling 48 (2): the list is Home's sub-view — Esc with nothing open goes back to Home.
+                router.pendingTab = .home
             }
         }
     }

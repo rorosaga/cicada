@@ -1392,9 +1392,11 @@ def main():
 #: (R12, `test_mcp_prompts`).
 CATCH_UP_TEXT = (
     "Let's catch Cicada up. Call cicada_check_nudges with mode=\"catchup\" and ask me its questions one at a time, "
-    "in your own words, each with the reason it gives — never read them out as a list. Record each answer with "
-    "cicada_resolve_inbox, passing my exact words as quote; if I let one pass, skip it. When I want more, call it "
-    "again; stop when I say so or nothing is left, and tell me in one line what you noted."
+    "in your own words, each with the reason it gives — never read them out as a list. Make it a conversation, not "
+    "a quiz: follow up when my answer opens something, say a question another way if I'm unsure, and move to a "
+    "related one when my answer touches it. Record each answer with cicada_resolve_inbox, passing my exact words as "
+    "quote; if I let one pass, skip it; save anything new I mention with cicada_save_episode. When I want more, call "
+    "it again; stop when I say so or nothing is left, and tell me in one line what you noted."
 )
 PROMPTS = [
     {

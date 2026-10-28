@@ -153,6 +153,7 @@ class InboxContext:
         self._bodies: dict[str, str] = {}
         self._check_vocab = None
         self._untimed: frozenset[str] | None = None
+        self._owner: tuple[str | None] | None = None
 
     # ---------- indices ----------
 
@@ -168,6 +169,14 @@ class InboxContext:
         if key not in self._files:
             self._files[key] = bank_index.file(self.memory_path, subdir, filename)
         return self._files[key]
+
+    def owner_id(self) -> str | None:
+        """The person's own page id (``_state.md``), read once per context."""
+        if self._owner is None:
+            from api.services import everyday_names
+
+            self._owner = (everyday_names.owner_id(self.memory_path),)
+        return self._owner[0]
 
     def episode(self, ep_id: str | None):
         if not ep_id:

@@ -316,6 +316,8 @@ struct EntityDetailCard: View {
     /// their data when opened. Capped at DR-36's 760.
     private var contentTab: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingCard) {
+            // Ruling 48 (1), (2) — the page's own open question, one at a time ("1 of N"); nothing when it has none.
+            PageQuestionsStrip(entityId: entity.id).id(entity.id)
             // G61 "Where to check" (ruling 36 D5) — the page's places to check as chips, and how pages fade.
             if !isStub {
                 WhereToCheckChips(entityId: entity.id, isCurrent: { [id = entity.id] in activeEntityId == id })

@@ -369,6 +369,10 @@ REMOTE = "remote: runs one remote tool through RemoteRuntime.call, which takes a
 ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /ask": (NONE, None),
     "POST /inbox/{item_id}/resolve": (ADMITTED, "api.services.inbox_service.resolve"),
+    # Ruling 48 (8): the catch-up chat's turn reads and calls the engine, writing nothing (its answer is applied
+    # through /resolve above); its record is one source-keyed episode per session (capture-shaped, never a page).
+    "POST /inbox/catchup/turn": (NONE, None),
+    "POST /inbox/catchup/record": (CAPTURE, None),
     "POST /inbox/settled/{item_id}/undo": (ADMITTED, None),   # the web check's undo (owner ruling 2026-10-16)
     "POST /entities/{entity_id}/web-context": (ADMITTED, "api.services.web_context.deeper"),   # ruling 44
     # Ruling 29: the one-time tidy settles each question under its own admission, refused while Sleep holds the pages.

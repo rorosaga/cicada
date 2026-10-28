@@ -1054,6 +1054,13 @@ concrete format". `cicada_check_nudges(mode="catchup")` is that chat's read (`mc
   minute after a write (91 ms p50 to rebuild at 8,028 pages). The telemetry ledger is never read for it: it is
   machine-global and its rail is "nothing learned from it is auto-applied". `load_inbox` (so `GET /inbox` and the
   Home's "Needs you") and `mode="ask"` sort by the same rank; the recall hook never loads the inbox.
+- **A conversation, not an interrogation (ruling 48 (8), owner 2026-10-28).** Each block also carries "What Cicada has
+  on it" (`catchup_chat.context_lines` — the page's type, when last said, in how many conversations, a few current
+  beliefs: the same lines the app's own turn gives its model), so a follow-up or a rephrase rests on the record; the
+  head asks the agent to follow up when an answer opens something, say a question another way, move to a related one,
+  and save what the person mentions in passing. The skill's "Catching up" section and the `catch_up` prompt say the
+  same. No new tool: in a harness the agent itself is the conversational step; the app's chat has its own turn
+  (`features.md`). Remote stays refused.
 - **The prompt (S3).** The stdio server registers one MCP prompt, `catch_up` (`prompts/list`, `prompts/get`;
   `capabilities.prompts`), which a harness lists as a command (Claude Code: `/mcp__cicada__catch_up`); its text names
   only `cicada_check_nudges(mode="catchup")` and `cicada_resolve_inbox`'s real arguments (R12). The plugin skill has a

@@ -2787,6 +2787,30 @@ class InboxItem(CamelModel):
     fold: Optional[InboxFold] = None
     # G205: set on an ``agent_request`` item only.
     request: Optional[AgentRequestInfo] = None
+    # Vision item 10 / ruling 48 (1): the question as a person would ask it and its reason (`inbox_wording`), derived
+    # at read and never stored — Home's rows, a page's questions strip and the catch-up chat say these. Additive: an
+    # older app draws `question`/`title` as before.
+    spoken_question: Optional[str] = None
+    spoken_reason: Optional[str] = None
+
+
+class CatchupTurnRequest(CamelModel):
+    """``POST /inbox/catchup/turn`` — one turn of the in-app catch-up chat (ruling 48 (8)). ``message`` is what the
+    person just typed about ``item_id``; ``history`` the chat so far (``who``: ``you`` | ``cicada``); ``upcoming`` the
+    ids the app would ask next, so a reply may move to a related one. Nothing is written by this call."""
+
+    item_id: str
+    message: str
+    history: list[dict] = []
+    upcoming: list[str] = []
+
+
+class CatchupRecordRequest(CamelModel):
+    """``POST /inbox/catchup/record`` — the chat so far, kept as ONE episode per catch-up session (source-keyed, so a
+    later post updates it in place): the person's turns as their own words, Cicada's as its own."""
+
+    session_id: str
+    turns: list[dict] = []
 
 
 class InboxResolveRequest(CamelModel):
