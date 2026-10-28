@@ -582,9 +582,6 @@ struct ProjectDetailColumn: View {
                 ProjectHeaderEditor(ref: ref, blocked: blocked) { newName, newDescription in
                     Task { await change(.header(id: projectId, name: newName, description: newDescription)) }
                 }
-                if ref.description == nil, !oneLiner.isEmpty {
-                    Text(oneLiner).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textTertiary).lineLimit(2)
-                }
             } else {
                 Text(name)
                     .font(CicadaTheme.displayFont(size: 22))

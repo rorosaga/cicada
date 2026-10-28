@@ -201,8 +201,18 @@ struct ProjectHeaderEditor: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .onTapGesture { begin(.description, text) }
                     .help(blocked ? Copy.Projects.sleepBusy : about + "\n" + Copy.ProjectsMine.editDescriptionHelp)
+            } else if !ref.oneLiner.isEmpty {
+                // Sleep's first line stands in until the person writes theirs; a click starts their own (Projects v3:
+                // one line here, never the line plus an "Add a description" button).
+                Text(ref.oneLiner)
+                    .font(CicadaTheme.detailBodyFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .lineLimit(2)
+                    .onTapGesture { begin(.description, "") }
+                    .help(blocked ? Copy.Projects.sleepBusy : about + "\n" + Copy.ProjectsMine.addDescription)
             } else {
-                TextButton(title: Copy.ProjectsMine.addDescription, action: { begin(.description, "") })
+                TextButton(title: Copy.ProjectsMine.addDescription, flushLeading: true,
+                           action: { begin(.description, "") })
                     .disabled(blocked)
             }
         }
