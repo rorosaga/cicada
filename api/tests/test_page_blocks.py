@@ -206,6 +206,28 @@ def test_a_remote_connection_gets_no_history_and_no_quoted_words(tmp_path, monke
     assert "history" not in tail
     assert "Building the alpha-project prototype." not in tail and "(in the person's own words)" in tail
     assert page_blocks.wanted(["history"], remote=True) == ()
+    # The structured copy /v1 returns as it is carries the same mask, and no history (review of #505).
+    data = reply.data["blocks"]
+    assert "Building the alpha-project prototype." not in json.dumps(data)
+    assert data["history"] is None and "history" not in data["order"]
+    assert next(o for o in data["ongoing"] if o["claimId"] == "c-ongoing")["text"] == page_blocks.OWN_WORDS
+
+
+def test_a_remote_page_over_its_budget_still_masks_the_data(tmp_path, monkeypatch):
+    """The review's repro: prose over REMOTE_DETAIL_BUDGET (the digest path), include=["ongoing"]."""
+    _, memory = _client(tmp_path, monkeypatch)
+    page = memory / "entities" / "alpha-place.md"
+    parsed = markdown_parser.parse(page)
+    long_prose = "## Summary\n\n" + ("A place with a long article. " * 2000) + "\n"
+    markdown_parser.write(page, parsed.frontmatter, write_claims(long_prose, _claims()))
+    ctx = _ctx(memory, connector_id="c1", raw_excerpts=False)
+    reply = mcp_tools.recall_detail(ctx, "alpha-place", include=["ongoing"])
+    assert "Building the alpha-project prototype." not in json.dumps(reply.data)
+    assert reply.data["blocks"]["order"] == ["ongoing"]
+    assert reply.data["blocks"]["sources"] is None, "only the kinds asked for"
+    # A local caller with the person's words keeps them.
+    local = mcp_tools.recall_detail(_ctx(memory), "alpha-place", include=["ongoing"])
+    assert "Building the alpha-project prototype." in json.dumps(local.data)
 
 
 def test_the_include_argument_is_in_both_schemas():

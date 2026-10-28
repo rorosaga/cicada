@@ -356,6 +356,26 @@ def for_page(memory_path: Path, entity_id: str, kinds: tuple[str, ...]) -> dict:
                  history_entries=entries, history_truncated=truncated)
 
 
+#: What an ongoing item in the person's own words reads as for a caller that may not see their words.
+OWN_WORDS = "(in the person's own words)"
+
+
+def for_caller(blocks: dict, kinds: tuple[str, ...], *, verbatim: bool) -> dict:
+    """The blocks one agent call may carry — as its words AND as structured data (``/v1`` returns ``data`` as it is,
+    review of #505): only the kinds asked for (an absent one null or empty, ``order`` narrowed), and, for a caller
+    without ``sources`` (``verbatim=False``), every ongoing item worded in the person's own sentence masked. A copy:
+    the input is never changed."""
+    out = {"shape": blocks.get("shape", SHAPE), "order": [k for k in blocks.get("order") or [] if k in kinds]}
+    empty = {"relevance": None, "sources": None, "coordinates": None, "looks": [], "ongoing": [], "history": None}
+    for kind in KINDS:
+        out[kind] = blocks.get(kind, empty[kind]) if kind in kinds else empty[kind]
+    out["ongoingTotal"] = blocks.get("ongoingTotal", 0) if "ongoing" in kinds else 0
+    if not verbatim:
+        out["ongoing"] = [dict(item, text=OWN_WORDS) if item.get("verbatim") else dict(item)
+                          for item in out["ongoing"]]
+    return out
+
+
 def words(blocks: dict, kinds: tuple[str, ...], *, verbatim: bool = True) -> str:
     """The blocks as compact text for an agent, in page order, one heading line each; a kind asked for that the page
     does not have says so in one line. ``verbatim=False`` (a remote connection without ``sources``): an ongoing item
@@ -387,7 +407,7 @@ def words(blocks: dict, kinds: tuple[str, ...], *, verbatim: bool = True) -> str
         elif kind == "ongoing":
             lines.append(f"- ongoing: {blocks.get('ongoingTotal', len(blocks['ongoing']))}")
             for item in blocks["ongoing"]:
-                text = item["text"] if verbatim or not item.get("verbatim") else "(in the person's own words)"
+                text = item["text"] if verbatim or not item.get("verbatim") else OWN_WORDS
                 when = (f", planned for {item['target']}" if item.get("target")
                         else f", since {item['since']}" if item.get("since") else "")
                 lines.append(f"  - {item['kind']} {item['status']}{when}: {text} [{item['claimId']}]")

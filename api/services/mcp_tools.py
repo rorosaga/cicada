@@ -2572,9 +2572,12 @@ def recall_detail(ctx: ToolContext, entity_id: str, *, start: int | None = None,
                     return text
             data = {"entity_id": path.stem, "type": fm.get("type"), "status": fm.get("status")}
             if start is None and (kinds := page_blocks.wanted(include, remote=ctx.is_remote)):
-                blocks = page_blocks.for_page(memory_path, path.stem, kinds)
+                # One shaped copy feeds both the words and `data` (which /v1 returns as it is): only the blocks asked
+                # for, and the person's own words masked where the caller may not see them.
+                blocks = page_blocks.for_caller(page_blocks.for_page(memory_path, path.stem, kinds), kinds,
+                                                verbatim=ctx.raw_excerpts)
                 data["blocks"] = blocks
-                said = "\n\n" + page_blocks.words(blocks, kinds, verbatim=ctx.raw_excerpts) + "\n"
+                said = "\n\n" + page_blocks.words(blocks, kinds) + "\n"
                 if getattr(text, "segments", None):
                     return Reply.framed([*text.segments, ("data", said)], data=data)
                 text = text.rstrip("\n") + said
