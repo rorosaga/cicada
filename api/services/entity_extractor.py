@@ -609,24 +609,29 @@ def _member_of(content: str, start: int) -> str | None:
     return hit
 
 
+#: A group claim resting on several members' lines (#499 re-check). One stable observer rather than the members'
+#: names joined: a joined name would mint a new observer for every combination and split one belief across them,
+#: while the evidence spans already say exactly who said what. It is never the person's.
+GROUP_OBSERVER = "external:group"
+
+
 def _observer_for(item: dict, their_observer: str | None, members: list[dict], content: str) -> str | None:
-    """Who a claim is ``external:`` to, or ``None`` for the default reading. In a group, a claim resting only on one
-    member's lines is that member's; otherwise the other side's when only their words carry it. A reaction never
-    changes it (`_weigh_reaction`)."""
+    """Who a claim is ``external:`` to, or ``None`` for the default reading. In a group, a claim with no span in the
+    person's own lines is never the default: one member's lines make it that member's, several members' (or a member
+    Cicada cannot name) :data:`GROUP_OBSERVER`. Otherwise the other side's when only their words carry it. A reaction
+    never changes it (`_weigh_reaction`)."""
     if members:
         spans = [e for e in item.get("evidence") or [] if isinstance(e, dict) and e.get("kind") != "reasoning"]
         if not spans or any(e.get("kind") not in ("assistant", "speaker") for e in spans):
-            return None
+            return None   # unlocated, or the person's own words back it
         markers = {_member_of(content, int(e.get("start", 0))) for e in spans}
-        if len(markers) != 1:
-            return None
-        member = next((m for m in members if m["marker"] == next(iter(markers))), None)
+        member = next((m for m in members if m["marker"] == next(iter(markers))), None) if len(markers) == 1 else None
         if member is None:
-            return None
+            return GROUP_OBSERVER
         from api.services.id_utils import sanitize_id
 
         slug = sanitize_id(member["name"] or member["marker"].partition(":")[2] or member["marker"])
-        return f"external:{slug}" if slug and slug != "unnamed" else None
+        return f"external:{slug}" if slug and slug != "unnamed" else GROUP_OBSERVER
     if their_observer and _only_their_words(item):
         return their_observer
     return None

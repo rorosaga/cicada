@@ -371,6 +371,58 @@ def test_someone_elses_claim_is_never_the_persons_words_on_a_page():
     assert quiet_pages.is_quiet(fm, [meeting], kind_of) is False
 
 
+TWO_MEMBERS = ("user: who is coming?\nspeaker:alice-example: Carol works at alpha-corp\n"
+               "speaker:bob-example: yes alpha-corp hired Carol")
+MEMBERS_AB = [{"marker": "speaker:alice-example", "name": "Alice Example", "kind": "person"},
+              {"marker": "speaker:bob-example", "name": "Bob Example", "kind": "person"}]
+
+
+def _spans(body, *quotes):
+    return [evidence.verify(None, "ep_2026-09-05_001", q, text=body).to_dict() for q in quotes]
+
+
+def test_a_group_claim_on_several_members_lines_is_the_groups_never_the_persons():
+    rel = {"source": "Carol", "target": "alpha-corp", "label": "works at",
+           "evidence": _spans(TWO_MEMBERS, "Carol works at alpha-corp", "alpha-corp hired Carol")}
+    rel["observer"] = entity_extractor._observer_for(rel, None, MEMBERS_AB, TWO_MEMBERS)
+    assert rel["observer"] == entity_extractor.GROUP_OBSERVER == "external:group"
+    assert not promotion.person_said(rel)
+    # The person's own line among them: it rests on their words too, the default reading.
+    mixed = {"evidence": _spans(TWO_MEMBERS, "who is coming?", "Carol works at alpha-corp")}
+    assert entity_extractor._observer_for(mixed, None, MEMBERS_AB, TWO_MEMBERS) is None
+    # A member Cicada cannot name is never the person either.
+    unnamed = {"evidence": _spans("speaker:member: alpha-corp is hiring\nuser: ok", "alpha-corp is hiring")}
+    assert entity_extractor._observer_for(unnamed, None, MEMBERS_AB, "speaker:member: alpha-corp is hiring\nuser: ok") \
+        == "external:group"
+
+
+def test_a_group_claim_never_links_a_first_mention_to_a_page():
+    from api.services import entity_resolver
+
+    existing = {"alpha-corp": {"id": "alpha-corp", "frontmatter": {"confidence": 0.9}}}
+    rel = {"source": "Carol", "target": "alpha-corp", "label": "works at", "observer": "external:group",
+           "evidence": _spans(TWO_MEMBERS, "Carol works at alpha-corp", "alpha-corp hired Carol")}
+    assert entity_resolver._is_linked_to_existing("Carol", [rel], existing) is False
+    assert entity_resolver._is_linked_to_existing("Carol", [dict(rel, observer="agent")], existing) is True
+
+
+def test_page_repair_never_counts_a_group_claim_as_the_persons_link(bank):
+    from api.services import page_quality_repair
+
+    _group_episode(bank, TWO_MEMBERS)
+    spans = [claims_mod.Evidence.from_dict(e) for e in _spans(TWO_MEMBERS, "Carol works at alpha-corp")]
+    fm = {"name": "Carol", "type": "person", "source_episodes": ["ep_2026-09-05_001"]}
+    pages = {"alpha-corp": {"confidence": 0.9}}
+
+    def body(observer):
+        claim = claims_mod.Claim(id="c1", text="Carol works at alpha-corp", subject="carol", predicate="works-at",
+                                 object="alpha-corp", observer=observer, evidence=spans)
+        return claims_mod.write_claims("## Summary\nCarol.\n", [claim])
+
+    assert page_quality_repair._clears_bar(bank, fm, body("external:group"), set(), pages) == (None, True)
+    assert page_quality_repair._clears_bar(bank, fm, body("agent"), set(), pages) == ("link", True)
+
+
 def test_a_meeting_still_counts_every_speaker():
     text = "speaker:alice-example: alpha-hall is lovely\nuser: ok"
     assert promotion.exchanges(text)[0][0] == "alpha-hall is lovely"

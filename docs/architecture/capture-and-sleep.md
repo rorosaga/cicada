@@ -1205,13 +1205,17 @@ said and what day it is now (`api/services/source_dates.py`).
   (`entities_to_claims` resets it when chunks disagree). Never `user_stated` either way.
   **A group chat** gets `group_note` instead: which member each `speaker:<label>:` (or `assistant:`) marker is, and
   that a member's words and "I" are theirs. A claim resting only on ONE member's lines has observer
-  `external:<member>`; one resting on several members' lines keeps the default reading; and in a group only the
+  `external:<member>`; one resting on several members' lines (or on a member Cicada cannot name) `external:group` —
+  one stable observer, since joined names would split one belief per combination and the spans already say who; a
+  group claim is the default reading only when the person's own line backs it; and in a group only the
   person's own `user:` lines count as "the person's own words" for promotion, project birth and an application
   (`promotion.person_kinds`) — a meeting still counts every speaker; the same rule holds for a waiting Contacts card
   (`entity_resolver._said_in_person_turn`), a project's conversations (`project_conversations.person_named`) and the
   inbox tend. `promotion.person_said` and `promotion.claim_cites_person` never count a claim Stage 1 gave to someone
   else (`external:`), so a member's line never reads as the person's words to `page_relevance`, `web_context`'s
-  protected claims or `quiet_pages`.
+  protected claims or `quiet_pages`, nor to `page_quality_repair`'s link rung. The same holds for a one-to-one chat
+  with a friend: a claim resting only on their lines is `external:<friend>` and never counts as the person's words on
+  pages.
   **Interaction signals (owner 2026-10-28, `turn_signals`).** The extras every chat writer stores beside the words
   (`turn_extras`: `reply_to`, `reactions`, `forwarded_from`; `unsent_turns`) reach Stage 1 as one note per chunk,
   after the source note and before the conversation (the model sees it; evidence is verified against the stored body,

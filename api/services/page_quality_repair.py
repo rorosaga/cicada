@@ -117,7 +117,8 @@ def _clears_bar(memory_path: Path, fm: dict, body: str, owner_ids: set[str], pag
         partner = pages.get(other or "")
         if not partner or other in owner_ids or float(partner.get("confidence", 0) or 0) < 0.6:
             continue
-        if promotion.person_said({"evidence": [e.to_dict() for e in claim.evidence]}):
+        # The observer rides along: a claim Stage 1 gave to someone else (`external:`) is never the person's link.
+        if promotion.person_said({"evidence": [e.to_dict() for e in claim.evidence], "observer": claim.observer}):
             return "link", True
     return None, True
 
