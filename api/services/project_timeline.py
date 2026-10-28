@@ -247,6 +247,7 @@ class _Bank:
         self._reverse: dict[str, tuple[str | None, bool]] = {}
         self._ep_convs: dict[str, tuple[tuple[str, str]] | None] = {}
         self._repo_sessions: list[tuple[str, frozenset[str], tuple[str, ...]]] | None = None
+        self._grouped: dict[tuple[str, ...], list[str]] | None = None
         self.scanned = 0
         self.partial = False
         self.transcript_exists = transcript_exists or session_stats.default_transcript_exists
@@ -281,6 +282,23 @@ class _Bank:
                     out.append((str(repo["family"]), names, tuple(sorted(set(days)))))
             self._repo_sessions = out
         return self._repo_sessions
+
+    def grouped(self) -> dict[tuple[str, ...], list[str]]:
+        """The episodes a provider's own project id or a relaying app's word groups, once per request:
+        ``("provider", provider, id)`` and ``("relay", folded name)`` → episode ids (`project_conversations`' provider
+        and relay signals). Frontmatter only."""
+        if self._grouped is None:
+            from api.services.project_conversations import ep_provider, ep_relay_project
+
+            out: dict[tuple[str, ...], list[str]] = {}
+            for ep, f in self.episodes.items():
+                fm = f.frontmatter or _EMPTY
+                if "provider_project" in fm and (p := ep_provider(fm)) is not None:
+                    out.setdefault(("provider", *p), []).append(ep)
+                if "relay" in fm and (said := ep_relay_project(fm)) is not None:
+                    out.setdefault(("relay", project_birth.fold(said)), []).append(ep)
+            self._grouped = out
+        return self._grouped
 
     def _fm(self, eid: str) -> dict:
         """`fm` without the copy, for this class's own reads (the list asks for every page's type and status)."""
@@ -563,6 +581,24 @@ def _repo_days(bank: _Bank, tree: list[str]) -> set[str]:
             if (family and fam == family) or (names & folds):
                 days.update(seen)
     return days
+
+
+def _tied_days(bank: _Bank, root: str) -> set[str]:
+    """The local days of the conversations tied to the project that no claim may cite yet (2026-10-28): tied by hand
+    (``conversations_added``), by the provider's own project id the page records, or by the relaying app's word —
+    `project_conversations`' added, provider and relay signals; an untied one (``conversations_removed``) never
+    counts. A conversation is activity on its own day, read or not, as a repository session is (`_repo_days`)."""
+    fm = bank._fm(root)
+    eps = set(project_ownership.tied(fm, project_ownership.ADDED_KEY))
+    ids = project_ownership.provider_projects(fm)
+    grouped = bank.grouped()
+    for r in ids:
+        eps.update(grouped.get(("provider", str(r["provider"]), str(r["id"])), ()))
+    if grouped:
+        for name in project_birth._names({"name": fm.get("name") or root, "aliases": fm.get("aliases") or []}):
+            eps.update(grouped.get(("relay", project_birth.fold(name)), ()))
+    eps -= set(project_ownership.tied(fm, project_ownership.REMOVED_KEY))
+    return {d for ep in eps if ep in bank.episodes and (d := _ep_day(bank, ep))}
 
 
 def _parents(bank: _Bank) -> tuple[dict[str, str], dict[str, list[str]]]:
@@ -1540,7 +1576,7 @@ def build(memory_path: Path, project_id: str, *, tz_name: str | None, since: str
     # repository, consolidated or not.
     repo_days = _repo_days(bank, tree)
     moment_days = sorted({a.day for c, _, a in rows if c.id in core_ids and a.day}
-                         | {h.day for h in happenings if h.day} | repo_days)
+                         | {h.day for h in happenings if h.day} | repo_days | _tied_days(bank, root))
     core = [c for c, _, _ in rows if c.id in core_ids] + [c for c, _ in events]
     done = [h for h in happenings if h.state == "done" and h.day]
     activity = _activity(bank, core)
@@ -1764,7 +1800,8 @@ def list_projects(memory_path: Path, *, tz_name: str | None, transcript_exists: 
         # list and detail agree (R-PJB19). A milestone is a plan, not activity.
         repo_days = _repo_days(bank, tree)
         days = sorted({d for c in claims if not is_event(c) and (d := _anchor_day(bank, c))}
-                      | {d for c, _ in events if c.predicate == HAPPENED and (d := _day(c.valid_from))} | repo_days)
+                      | {d for c, _ in events if c.predicate == HAPPENED and (d := _day(c.valid_from))} | repo_days
+                      | _tied_days(bank, root))
         milestones = _milestones(bank, tree)
         progress = project_state.progress([m.model_dump(by_alias=True) for m in milestones])
         shown = [m.model_copy(update={"chain": []}) for m in

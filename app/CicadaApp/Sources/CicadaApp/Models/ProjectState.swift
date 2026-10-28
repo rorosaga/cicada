@@ -154,10 +154,13 @@ enum ProjectState {
         let last = ISODay(input.lastMomentDay) ?? input.momentDays.compactMap { ISODay($0) }.max()
         let idle = last.map { today - $0 }
         let section: Section
-        if restingStatuses.contains(input.status) || idle == nil || (idle ?? 0) > quietSectionDays {
+        // Activity inside the rhythm wins over the page's decay status (2026-10-28, the Python's comment).
+        if idle == nil || (idle ?? 0) > quietSectionDays {
             section = .resting
         } else if let idle, idle <= q {
             section = .inMotion
+        } else if restingStatuses.contains(input.status) {
+            section = .resting
         } else {
             section = .quiet
         }

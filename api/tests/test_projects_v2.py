@@ -200,6 +200,28 @@ def test_a_relayed_project_word_ties_as_the_apps(client):
     assert "relay" in reasons["ep_2026-09-22_901"]
 
 
+def test_a_tied_conversation_is_activity_on_its_day_in_the_list_and_the_detail(client):
+    """2026-10-28: a project tied to today's conversation (by hand, the provider's id or the relaying app's word)
+    is heard from today before Sleep reads it — the list's bucket and the detail agree (R-PJB19)."""
+    c, bank = client
+    eid = c.post("/projects", json={"name": "Kiln Shelf Example"}).json()["id"]
+
+    def days():
+        row = next(r for r in c.get("/projects").json()["projects"] if r["id"] == eid)
+        return row["lastMomentDay"], c.get(f"/projects/{eid}/timeline").json()["lastMomentDay"]
+
+    assert days() == (None, None)
+    _episode(bank, "ep_2026-09-22_911", "user: notes\nassistant: ok")
+    assert c.post(f"/projects/{eid}/conversations", json={"episode": "ep_2026-09-22_911"}).status_code == 200
+    assert days() == ("2026-09-22", "2026-09-22")
+    _episode(bank, "ep_2026-09-23_912", "assistant: hi\nuser: a question", evidence_kind="assistant",
+             relay={"app": "claude", "project": "Kiln Shelf Example"})
+    assert days() == ("2026-09-23", "2026-09-23")
+    assert c.post(f"/projects/{eid}/conversations",
+                  json={"episode": "ep_2026-09-23_912", "remove": True}).status_code == 200
+    assert days() == ("2026-09-22", "2026-09-22"), "an untied conversation is no activity"
+
+
 # --- influences ----------------------------------------------------------------------------------------------------
 
 def test_something_new_is_plain_text_and_never_mints_a_page(client):
