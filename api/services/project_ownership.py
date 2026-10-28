@@ -541,6 +541,15 @@ def tie_page(memory_path: Path, stem: str, entity: str, *, remove: bool = False,
         raise OwnershipError(f"{target!r} was dropped from memory.")
     if tfm.get("owner") is True:
         raise OwnershipError("The person's own page is part of every project; it is never tied by hand.")
+    # A sub-project is the project's own tree (`part-of`, `project_timeline._tree`) and is listed under its parent,
+    # never in "Pages in this project": a tie or an untie would be written and never shown.
+    from api.services.project_timeline import _Bank, _tree
+
+    tree = _tree(_Bank(memory_path, None), stem)[0]
+    if target in tree[1:]:
+        project_name = str((markdown_parser.parse(_page(memory_path, stem), ledger=False).frontmatter or {})
+                           .get("name") or stem)
+        raise OwnershipError(f"{target!r} is already a sub-project of {project_name}; it shows under it in the list.")
     person = by == "user"
 
     def change(fm: dict):

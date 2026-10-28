@@ -87,6 +87,20 @@ def test_a_tie_refuses_what_is_not_a_page_the_project_itself_and_the_owner(bank)
     assert "entities_added" not in _fm(bank, "alpha-project")
 
 
+def test_a_sub_project_is_refused_in_words_never_tied_unseen(bank):
+    """Review of #511: a sub-project lists under its parent, never in Pages in this project — a tie would be written
+    and never shown, so it is refused with a sentence, for the person and for an agent alike."""
+    _entity(bank, "beta-project", type="project", body=write_claims("## Summary\nBeta.\n", [Claim(
+        id="clm_b1", text="beta project part of alpha project", subject="beta-project", predicate="part-of",
+        object="alpha-project", valid_from="2026-09-01")]))
+    bank_index.invalidate()
+    with pytest.raises(project_ownership.OwnershipError, match="already a sub-project of Alpha Project"):
+        project_ownership.tie_page(bank, "alpha-project", "beta-project")
+    reply = mcp_tools.link_entity(_ctx(bank), "alpha-project", "beta-project", reason="It is part of alpha.")
+    assert getattr(reply, "code", None) == "refused" and "already a sub-project" in str(reply)
+    assert "entities_added" not in _fm(bank, "alpha-project")
+
+
 def test_an_agent_cannot_retie_what_the_person_removed_or_untie_what_it_did_not_tie(bank):
     project_ownership.tie_page(bank, "alpha-project", "carol-example", remove=True)
     with pytest.raises(project_ownership.OwnershipError, match="not part of this project"):
