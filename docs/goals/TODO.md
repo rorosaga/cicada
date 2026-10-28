@@ -42,6 +42,14 @@
   Needs the owner: a person's own site as a face, project avatars, Gravatar from Contacts, Wikidata P18, Stage 1's
   site upgraded by ruling 40, the two redrawn marks (`G159`).
 - **2026-10-28 — saved links feed the pages they are about (vision item 1; G61, G166, G191; branch `feat/vision-sources-reason`).** The person's reason for a save rides the reading queue (their words: remote with `sources` only), steers link summaries and earns a page described before it one more read (`read_for`); a saved link is a proposed where-to-check source on the project, company, concept, tool or place page its claims are about; `cicada_record_read(facts=…)` lands a read's specifics on their pages with page spans. Dry run on a copy of the owner's bank: 133 proposals on 113 pages, all in the one review; 9 haiku re-reads, the reason answered on 6 of 8 (2 before). Stage 1's prompt is unchanged (a note measured no gain). Coordinator calls: saves with no reason join the review; a read's facts never land on a person's page. **Next:** research citations as proposals (rulings 27/44) waits for the owner.
+- **2026-10-28 — the catch-up chat, backend and agent half (vision item 10; G115, G113, G209; branch
+  `feat/vision-inbox-catchup`).** `cicada_check_nudges(mode="catchup")` serves three questions at a time, the pages the
+  person uses most first (`page_use`, derived from the record, not the ledger), each in plain words with its reason,
+  never repeating in a session; the `catch_up` MCP prompt and the skill section start it. `load_inbox` and ask mode
+  use the same order. Sleep raises "are you still …?" on quiet roles and interests of the owner's page and nickname
+  pairs, 3 new a drain. "Still interested?" questions are claim-level (an open interest claim 60–365 days silent),
+  not decay questions, and rest on the owner's 2026-10-28 item-10 request. No rail or ruling changed. **Next:** the owner tunes the weights and N, and decides remote
+  access, third-party roles and where the inbox sits in the app (report `vision-pr3-inbox-catchup`).
 - **2026-10-28 — ruling 46 recorded; Auto reaches Cursor and OpenCode after the two plans (G49, G50; branch
   `feat/auto-ladder-46`).** Auto: Claude plan → ChatGPT plan → Cursor → OpenCode on a subscription model; Grok is in
   neither Auto nor scheduled runs until a live sign-in shows what a subscription call reports. Read from #494's cached

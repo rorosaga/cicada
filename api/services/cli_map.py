@@ -387,7 +387,10 @@ def spell(tool: str, **values) -> str:
     flags: list[str] = []
     for arg in row.args:
         value = values.pop(arg.prop, None)
-        if value is None:
+        if value is None or (arg.kind == "bool" and value is False):
+            continue
+        if arg.kind == "bool" and value is True and not arg.positional:
+            flags.append(arg.flag)        # a store_true flag takes no value (`--skip`, never `--skip True`)
             continue
         rendered = value if isinstance(value, Placeholder) else shlex.quote(str(value))
         if arg.positional:

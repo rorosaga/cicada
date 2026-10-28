@@ -126,6 +126,21 @@ a name that could be two people). They come up naturally or not at all:
 - When they ask "what is in my inbox" or "what conflicts do I have", use
   `mode="list"` and list them plainly.
 
+## Catching up
+When the person asks to catch Cicada up ("let's catch up", "what do you want
+to ask me", "anything you need from me?"), or starts the `catch_up` prompt:
+- Call `cicada_check_nudges(mode="catchup")`. It returns the next few questions,
+  the pages they use most first, each with an `Ask:` line and a `Why` line.
+- Ask ONE at a time, in your own words, with its reason ("Are you still
+  working at <org>? Your LinkedIn seems a bit stale, so I wasn't sure").
+  Never read the list out, never press: "not now" is an answer (`skip=true`).
+- Record each answer as the reply says (their exact words as `quote`). For
+  "are these the same person?", a yes is never joined by you: say you noted
+  it — Cicada joins them from their own words at its next consolidation. A
+  "different people" is `reject=true`.
+- When they want more, call it again: nothing repeats in this conversation.
+  Stop when they say so or when it says nothing is left.
+
 ## Hub browsing (filesystem traversal)
 For structured exploration rather than fuzzy search, walk the hub tier:
 `cicada_open_hub(hub)` opens a hub page that lists its member entities.

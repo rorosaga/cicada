@@ -1041,6 +1041,46 @@ async def _propose_followups_safely(memory_path: Path) -> None:
         await asyncio.to_thread(followups.restore, memory_path, report)
 
 
+async def _catchup_questions_safely(memory_path: Path) -> None:
+    """Vision item 10 — the engine-free proposers that feed the catch-up chat: "are you still …?" about a quiet fact on
+    the person's own page (`still_questions`) and "are these the same person?" for a nickname and its long form
+    (`inbox_catchup.propose_nicknames`), under ONE per-drain budget of new questions (`inbox_catchup.Budget`), each in
+    its own `cicada` commit. The follow-ups' rules: pages dirty before it ran are skipped, an unreadable tree means
+    nothing tonight, a failed commit undoes what it wrote. Never raises."""
+    from api.services import inbox_catchup, still_questions
+
+    today = date.today()
+    skip: frozenset[str] = frozenset()
+    if (memory_path / ".git").exists():
+        try:
+            skip = await _dirty_paths(memory_path)
+        except Exception as exc:
+            logger.warning(f"Catch-up questions skipped: tree status unreadable ({type(exc).__name__})")
+            return
+    budget = inbox_catchup.Budget(inbox_catchup.NEW_PER_DRAIN)
+    steps = (
+        (lambda: still_questions.propose(memory_path, today, budget=budget, skip=skip),
+         lambda r: still_questions.commit_message(r.written, today)),
+        (lambda: inbox_catchup.propose_nicknames(memory_path, today, budget=budget, skip=skip),
+         lambda r: inbox_catchup.nickname_commit_message(r.written, today)),
+    )
+    for propose, message in steps:
+        try:
+            report = await asyncio.to_thread(propose)
+        except Exception as exc:
+            logger.warning(f"Catch-up questions failed: {type(exc).__name__}: {exc}")
+            continue
+        if not report.written or not (memory_path / ".git").exists():
+            continue
+        try:
+            async with _lock:
+                await git_service.commit_paths(memory_path, message(report), report.written)
+            logger.info(f"Catch-up questions: {len(report.written)} asked")
+        except Exception as exc:
+            logger.warning(f"Catch-up questions commit failed — undoing: {type(exc).__name__}: {exc}")
+            await asyncio.to_thread(still_questions.restore, memory_path, report.written)
+
+
 async def _link_sources_safely(memory_path: Path) -> None:
     """G61 S3-a (D8) — link a source to its own memory node when it is EXACTLY that node (a saved page's URL, a
     directory page's path). Engine-free, in its own `cicada` commit; same rules as follow-ups: pages dirty before
@@ -1461,6 +1501,8 @@ async def _run_engine_independent_tail(
         await _expire_claims_safely(memory_path)
         # G141 PJ-6: after expiry (the night's ends are visible), before any poll's `git add -A`.
         await _propose_followups_safely(memory_path)
+        # Vision item 10: "still?" and same-person questions for the catch-up, one shared budget per drain.
+        await _catchup_questions_safely(memory_path)
         # G61 S3-a (D8): exact-match source -> its own page links, before any poll's `git add -A`.
         await _link_sources_safely(memory_path)
         # LinkedIn connections kept outside the bank, matched against tonight's pages — before any poll's `git add -A`.

@@ -5254,9 +5254,11 @@ def check_nudges(ctx: ToolContext, topic: str | None, entity_ids: list | None = 
     mode = str(mode or "list").strip().lower()
     if mode == "ask":
         return ask_nudges(ctx, topic, entity_ids)
+    if mode == "catchup":
+        return catchup_nudges(ctx)
     if mode != "list":
-        return Reply("Error: mode is \"ask\" (questions about what the person is talking about) or \"list\" (all of them).",
-                     code="invalid_arguments")
+        return Reply("Error: mode is \"ask\" (questions about what the person is talking about), \"catchup\" (the "
+                     "person asked to catch up) or \"list\" (all of them).", code="invalid_arguments")
     memory_path = ctx.memory_path()
     results = []
     wanted = {str(e).strip() for e in (entity_ids or []) if str(e).strip()}
@@ -5348,6 +5350,9 @@ def ask_nudges(ctx: ToolContext, topic: str | None, entity_ids: list | None = No
     wanted = {str(e).strip() for e in (entity_ids or []) if str(e).strip()}
     today = str(date.today())
     inbox_ctx = _inbox_ctx(memory_path, today)
+    from api.services import page_use
+
+    use_table = page_use.scores(memory_path)
     passed: list[tuple[float, str, dict, dict | None, str | None]] = []
     for filepath in _inbox_files(memory_path):
         if filepath.stem in ctx.skipped_inbox_ids:
@@ -5366,7 +5371,8 @@ def ask_nudges(ctx: ToolContext, topic: str | None, entity_ids: list | None = No
         full = {**fm, "aliases": named.get("aliases") or []}
         ok, _reason = inbox_ask_gate.relevant(full, topic, wanted, everyday=inbox_ask_gate.everyday(memory_path, full))
         if ok:
-            passed.append((-_float_or(fm.get("priority")), filepath.stem, fm, cause, rec))
+            passed.append((-page_use.rank(fm.get("priority"), page_use.item_use(use_table, fm)), filepath.stem, fm,
+                           cause, rec))
     if not passed:
         return ("No open question is about what the person is talking about now — ask nothing. "
                 "(If they ask what is in their inbox, mode=\"list\" lists it.)")
@@ -5377,6 +5383,10 @@ def ask_nudges(ctx: ToolContext, topic: str | None, entity_ids: list | None = No
         lines = [f"`{item_id}` · {fm.get('kind') or 'question'} · about {fm.get('entity_name') or fm.get('entity_id')}"
                  f" (entity_id={fm.get('entity_id') or ''})",
                  f"  Question: {str(fm.get('question') or fm.get('title') or '').strip()}"]
+        said = _spoken(memory_path, fm, today)
+        if said is not None:
+            lines.append(f"  Ask it like: {said.question}")
+            lines.append(f"  The reason, if you ask it: {said.reason}")
         if options:
             lines.append("  Possible answers: " + "; ".join(
                 f"{o.get('label')} (option_key={o.get('key')})" for o in options))
@@ -5395,6 +5405,102 @@ def ask_nudges(ctx: ToolContext, topic: str | None, entity_ids: list | None = No
                                "no need to ask.")])
     head = ("Open question about what the person is talking about now. Ask it only if it fits this turn, after their "
             "request, in your own words (no banner, no option letters, no quoted cause); otherwise leave it.")
+    segments: list[tuple[str, str]] = [("own", head)]
+    for block in blocks:
+        segments.append(("own", "\n\n"))
+        segments.extend(block)
+    return Reply.framed(segments)
+
+
+def _spoken(memory_path: Path, fm: dict, today: str):
+    """The item in a person's words with its reason (``inbox_wording``), or None when the api package cannot say it."""
+    try:
+        from api.services import inbox_catchup
+
+        entry = inbox_catchup.Entry(ids=[], rank=0.0, use=0.0, fm=fm, created="")
+        return inbox_catchup.spoken_for(memory_path, entry, fm, today)
+    except Exception:  # noqa: BLE001 — the stored question still reads
+        return None
+
+
+def _resolve_call(ctx: ToolContext, item_id: str, *, answer: bool = False, reject: bool = False, skip: bool = False,
+                  defer: bool = False) -> str:
+    """How this door records an answer to ``item_id``: the MCP call, or the ``cicada`` command (``cli_map.spell``)."""
+    if ctx.is_cli:
+        if answer:
+            values = {"option_key": _placeholder("key"), "quote": _placeholder("their exact words")}
+        else:
+            values = {"reject": reject or None, "skip": skip or None, "defer": defer or None}
+        return "`" + _cli_spell("cicada_resolve_inbox", id=item_id, **{k: v for k, v in values.items() if v}) + "`"
+    if answer:
+        return f"cicada_resolve_inbox(id=\"{item_id}\", option_key or answer, quote=\"<their exact words>\")"
+    flag = "reject" if reject else "skip" if skip else "defer"
+    return f"cicada_resolve_inbox(id=\"{item_id}\", {flag}=true)"
+
+
+CATCHUP_REMOTE = ("Catching up is a conversation on the person's own machine: a remote connection asks only about "
+                  "what the person is talking about (mode=\"ask\").")
+
+
+def catchup_nudges(ctx: ToolContext) -> str:
+    """``cicada_check_nudges(mode="catchup")`` — the person asked to catch Cicada up (vision item 10, owner 2026-10-28).
+
+    The next few open questions (``inbox_catchup.LIMIT``), the most-used pages first (``page_use``), each said the
+    way a person would ask it, with its human reason (``inbox_wording``), and how to record the answer with the
+    answer keys every other door uses. A session cursor (``inbox_catchup.Cursor``) means a second call moves on —
+    nothing repeats — and what the agent ``skip``ped stays out. A chain of same-person questions comes as ONE
+    question; a "yes" to it is never joined here: Sleep reads the person's own words from this conversation and
+    joins only on them (ruling 29 part 1, ruling 41). Local doors only: a remote connection is refused, and its schema
+    does not offer the mode."""
+    from api.services import inbox_catchup, inbox_questions
+
+    if ctx.is_remote:
+        return Reply(CATCHUP_REMOTE, code="refused")
+    memory_path = ctx.memory_path()
+    today = str(date.today())
+    inbox_catchup.sweep()
+    cursor = inbox_catchup.Cursor(memory_path, ctx.session_id)
+    exclude = cursor.seen() | set(ctx.skipped_inbox_ids)
+    entries, remaining = inbox_catchup.select(memory_path, today=today, exclude=exclude)
+    if not entries:
+        return ("Nothing left to catch up on" + (" in this session" if exclude else "") + " — tell the person their "
+                "memory is up to date. (mode=\"list\" lists everything still pending, if they want it.)")
+    inbox_ctx = _inbox_ctx(memory_path, today)
+    blocks = []
+    served: list[str] = []
+    for entry in entries:
+        fm, _cause, rec = _agent_question(memory_path, entry.fm, today, ctx=inbox_ctx, verbatim_ok=ctx.raw_excerpts)
+        said = inbox_catchup.spoken_for(memory_path, entry, fm, today)
+        served.extend(entry.ids)
+        ids = ", ".join(f"`{i}`" for i in entry.ids)
+        kind = str(fm.get("kind") or "question")
+        lines = [f"{ids} · {kind} · about {fm.get('entity_name') or fm.get('entity_id')}"
+                 f" (entity_id={fm.get('entity_id') or ''})",
+                 f"  Ask: {said.question}",
+                 f"  Why you are asking (in your words): {said.reason}"]
+        options = inbox_questions.normalize_options(fm.get("options"))
+        if options and kind != "merge_suggestion":
+            lines.append("  Answers: " + "; ".join(f"{o.get('label')} (option_key={o.get('key')})" for o in options))
+        guess = next((o for o in options if str(o.get("key")) == rec), None)
+        if guess is not None:
+            lines.append(f"  Cicada's current guess: {guess.get('label')}")
+        if kind == "merge_suggestion":
+            how = ("  If they say they are the same: say you noted it — Cicada joins them at its next consolidation, "
+                   "from their own words in this conversation, never from yours. If they say different people: "
+                   + "; ".join(_resolve_call(ctx, i, reject=True) for i in entry.ids)
+                   + (". If only some are the same, ask which." if len(entry.ids) > 1 else "."))
+        else:
+            how = "  Record it: " + _resolve_call(ctx, entry.ids[0], answer=True)
+        skip_ids = "; ".join(_resolve_call(ctx, i, skip=True) for i in entry.ids)
+        later = _resolve_call(ctx, entry.ids[0], defer=True)
+        blocks.append([("data", "\n".join(lines)),
+                       ("own", f"\n{how}\n  They let it pass: {skip_ids}. Not sure yet: {later}.")])
+    cursor.add(served)
+    count = f"{len(entries)} question{'s' if len(entries) != 1 else ''}"
+    head = (f"Catching up — {count}, the pages they use most first. Ask one at a time, in your own words, with its "
+            "reason; never read the list out, never push. "
+            + (f"{remaining} more after these: call this again when they want more." if remaining
+               else "These are the last ones."))
     segments: list[tuple[str, str]] = [("own", head)]
     for block in blocks:
         segments.append(("own", "\n\n"))

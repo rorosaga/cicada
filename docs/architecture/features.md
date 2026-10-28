@@ -164,6 +164,15 @@ prose rewrite is a model call made before admission and used only when the item,
 was made for. Between a
 drain's batches it commits alone.
 
+**The order is the person's use (vision item 10, 2026-10-28).** `load_inbox` sorts pending first, then
+`page_use.rank` — the item's priority plus 0.5 × its page's use (the busier side of a duplicate pair), derived from
+the record (conversations, how lately, links; `mcp.md`, "Catching up") — then newest. A question on a page the person
+lives with comes before an equally-prioritised one on a forgotten page; a much higher priority still wins. Two
+additive question shapes feed the catch-up chat: `asks: still` on a `conflict` ("Are you still working at <org>?",
+`still_questions`, `capture-and-sleep.md`) and `detected: spelling` on a `merge_suggestion` (a nickname and its long form,
+`inbox_catchup.propose_nicknames`); an older app draws them as a one-choice conflict and a duplicate pair. A
+"still?" question is never `informational`, whatever its predicate's cardinality.
+
 **A count is what the inbox serves, never a count of files.** `load_inbox` skips a deferred item and
 one whose subject is archived, dropped or (for every kind but `clarification`) gone; those files stay
 on disk. **A quiet subject is never asked about either (owner ruling 2026-10-20):** a page only an import made — a
