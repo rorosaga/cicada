@@ -665,7 +665,8 @@ struct ReaderColumnHeader: View {
     @ViewBuilder
     private var mark: some View {
         if let page {
-            LogoImage(entityId: page.episode, name: page.title, type: .media, size: CicadaTheme.scaled(20))
+            LogoImage(entityId: page.episode, name: page.title, type: .media, fallbackOrigin: markOrigin,
+                      size: CicadaTheme.scaled(20))
         } else if let site {
             SavedLinkMark(mark: site, size: .row)
                 .help(Copy.Provenance.episodeHelp(episode))

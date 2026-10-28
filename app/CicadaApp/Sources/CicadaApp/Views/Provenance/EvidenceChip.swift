@@ -79,7 +79,8 @@ struct EvidenceChip: View {
             // sits beside it — an import's vendor included.
             OriginMark(origin: agent, size: size)
         } else if model.kind == .page {
-            LogoImage(entityId: model.episode, name: meta?.title ?? model.episode, type: .media, size: size)
+            LogoImage(entityId: model.episode, name: meta?.title ?? model.episode, type: .media,
+                      fallbackOrigin: meta?.origin ?? meta?.harness, size: size)
         } else if model.kind == .user, let origin = meta?.origin, EvidenceSpeaker.sourceSpeaker(origin) != nil {
             // "From the feed" / "On your calendar" wear the source's mark, never the person glyph (DR-57).
             OriginMark(origin: origin, size: size)
