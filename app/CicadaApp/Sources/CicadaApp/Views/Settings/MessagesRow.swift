@@ -133,9 +133,6 @@ struct MessagesPanel: View {
                 Text(error).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.danger)
             }
             HStack {
-                Text(Copy.Messages.groupsLater)
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
                 Spacer()
                 Button(Copy.Messages.done, action: onDone)
                     .buttonStyle(.borderedProminent)
@@ -207,14 +204,17 @@ struct MessagesConversationRow: View {
                         .font(CicadaTheme.rowFont)
                         .foregroundStyle(CicadaTheme.textPrimary)
                         .lineLimit(1)
-                    if let tag = MessagesConversationText.tag(state) { Tag(text: tag) }
+                    // DR ids in the PR: a group reuses the row and its pill; no new visual pattern.
+                    if conversation.isGroup {
+                        Tag(text: Copy.Messages.groupTag).help(Copy.Messages.groupHelp)
+                    } else if let tag = MessagesConversationText.tag(state) { Tag(text: tag) }
                 }
                 Text(Copy.Messages.meta(last: MessagesRowText.lastActivity(conversation.lastActivity),
                                         count: conversation.messageCount))
                     .font(CicadaTheme.captionFont)
                     .monospacedDigit()
                     .foregroundStyle(CicadaTheme.textSecondary)
-                if state?.asksIfAgent == true {
+                if !conversation.isGroup, state?.asksIfAgent == true {
                     HStack(spacing: CicadaTheme.spacingSM) {
                         Text(Copy.Messages.askIfAgent(name))
                             .font(CicadaTheme.captionFont)
@@ -225,16 +225,19 @@ struct MessagesConversationRow: View {
                 }
             }
             Spacer(minLength: CicadaTheme.spacingSM)
-            Menu {
-                Button(Copy.Messages.markAgent) { mark(.agent) }
-                Button(Copy.Messages.markPerson) { mark(.person) }
-                Button(Copy.Messages.markClear) { mark(.clear) }
-            } label: {
-                Image(systemName: "ellipsis.circle").accessibilityLabel(Copy.Messages.markMenu)
+            // A group is nobody's single "who is this?": its members keep the marks of their own chats.
+            if !conversation.isGroup {
+                Menu {
+                    Button(Copy.Messages.markAgent) { mark(.agent) }
+                    Button(Copy.Messages.markPerson) { mark(.person) }
+                    Button(Copy.Messages.markClear) { mark(.clear) }
+                } label: {
+                    Image(systemName: "ellipsis.circle").accessibilityLabel(Copy.Messages.markMenu)
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help(Copy.Messages.markMenu)
             }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-            .help(Copy.Messages.markMenu)
             Toggle(Copy.Messages.tickHelp, isOn: Binding(
                 get: { watcher.tickedIds.contains(conversation.id) },
                 set: { on in tick(on) }))
@@ -273,6 +276,13 @@ struct MessagesConversationRow: View {
         Task {
             do { try await watcher.mark(conversation, as: mark) } catch { onError(MessagesWatcher.failureMessage(error)) }
         }
+    }
+}
+
+/// A group's recognisable title (its own name comes first, in `MessagesWatcher.postedName`).
+enum MessagesGroupText {
+    static func title(_ memberNames: [String], count: Int = 0) -> String {
+        Copy.Messages.groupTitle(memberNames, count: count)
     }
 }
 

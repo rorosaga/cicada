@@ -31,6 +31,8 @@ final class MessagesWatcher {
     private(set) var states: [String: MessagesConversationState] = [:]
     /// Names and Contacts photos by conversation id (only when Contacts is allowed).
     private(set) var cards: [String: MessagesContactCard] = [:]
+    /// A group's members' Contacts cards, by handle (only when Contacts is allowed) — never posted, only their names.
+    private(set) var memberCards: [String: MessagesContactCard] = [:]
     /// The photo each TICKED conversation's other side shares through Messages ("Share Name and Photo"), small PNG
     /// bytes by conversation id — the bubble's rung after the Contacts photo (`MessagesSharedPhotos`). Kept in memory
     /// for the bubbles and posted to the backend (2026-10-16), which draws it at the chat's page everywhere.
@@ -144,9 +146,28 @@ final class MessagesWatcher {
     func postedName(of conversation: MessagesConversation) -> String {
         if let card = cards[conversation.id], !card.name.isEmpty { return card.name }
         if !conversation.displayName.isEmpty { return conversation.displayName }
+        if conversation.isGroup {
+            return MessagesGroupText.title(memberNames(of: conversation), count: conversation.members.count)
+        }
         if let named = states[conversation.id]?.actor.name, !named.isEmpty, named != "Unnamed conversation",
            named != conversation.handle { return named }
         return ""
+    }
+
+    /// A group's members' Contacts names, in the chat's order; a member without a card is left out (never a handle).
+    func memberNames(of conversation: MessagesConversation) -> [String] {
+        conversation.members.compactMap { memberCards[$0]?.name }.filter { !$0.isEmpty }
+    }
+
+    /// What a pass posts for a group's members: each one's participant key, Contacts name, and the person's own
+    /// one-to-one chat with them when it is listed.
+    func memberPayloads(of conversation: MessagesConversation) -> [MessagesMemberPayload] {
+        guard conversation.isGroup else { return [] }
+        return conversation.members.map { handle in
+            MessagesMemberPayload(key: MessagesReader.memberKey(conversationId: conversation.id, handle: handle),
+                                  name: memberCards[handle]?.name ?? "",
+                                  direct: conversations.first { !$0.isGroup && $0.handle == handle }?.id)
+        }
     }
 
     /// The name a waiting conversation's bubble carries.
@@ -180,12 +201,14 @@ final class MessagesWatcher {
             status = .failed(Copy.Messages.unreadable)
             return
         }
-        let byHandle = await lookUpCards(conversations.map(\.handle))
+        let memberHandles = conversations.filter(\.isGroup).flatMap(\.members)
+        let byHandle = await lookUpCards(conversations.filter { !$0.isGroup }.map(\.handle) + memberHandles)
         var next: [String: MessagesContactCard] = [:]
-        for conversation in conversations {
+        for conversation in conversations where !conversation.isGroup {
             if let card = byHandle[conversation.handle] { next[conversation.id] = card }
         }
         cards = next
+        memberCards = byHandle.filter { memberHandles.contains($0.key) }
         await describe()
     }
 
@@ -319,11 +342,16 @@ final class MessagesWatcher {
         var posted = 0
         for conversation in read {
             var cursor = self.cursor(bank: bank, id: conversation.id)
+            if conversation.isGroup, conversation.members.contains(where: { memberCards[$0] == nil }) {
+                let found = await lookUpCards(conversation.members)
+                for (handle, card) in found { memberCards[handle] = card }
+            }
             let name = self.postedName(of: conversation)
+            let members = self.memberPayloads(of: conversation)
             for _ in 0..<20 {   // bounded catch-up: at most 20 batches per pass
                 let since = cursor
                 let pass = try await Task.detached(priority: .utility) {
-                    try reader.read(conversation, name: name, since: since)
+                    try reader.read(conversation, name: name, members: members, since: since)
                 }.value
                 try Task.checkCancellation()
                 if pass.count == 0 { break }

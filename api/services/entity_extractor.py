@@ -13,7 +13,7 @@ from loguru import logger
 from tqdm import tqdm
 
 from api.config import Settings
-from api.services import (act_object, authorship, correspondents, decay_policy, engine_errors, entity_types, episode_time,
+from api.services import (act_object, authorship, turn_signals, correspondents, decay_policy, engine_errors, entity_types, episode_time,
                           evidence, fact_policy, participation, project_birth, promotion, section_provenance, source_dates)
 from api.services.json_parse import parse_json_object
 
@@ -549,6 +549,88 @@ def _application_pages(entities: list, episode: dict, episode_id: str, content: 
     return values
 
 
+#: Transient: the item rests on the person's own reaction (`turn_signals.person_signal`) — popped before it leaves.
+_PERSON_SIGNAL = "_person_signal"
+
+
+#: How much a person's doubting reaction (❓, 👎) on the turn a claim rests on lowers it.
+DOUBT_FACTOR = 0.5
+
+
+def _weigh_reaction(item: dict, episode: dict, content: str) -> None:
+    """The person's own reaction on the one turn a claim rests on, read from the stored extras (`turn_signals`):
+    agreement (❤️, 👍, ‼️) makes it rest on the person's signal too, so it is never handed to the other side alone
+    (G179: the person's reaction is the person's); doubt (❓, 👎) halves its confidence. The model's tag is not needed
+    and never decides it. Neither is ever a claim by itself."""
+    stance = turn_signals.person_stance(episode, content, item)
+    if stance == "agree":
+        item[_PERSON_SIGNAL] = True
+    elif stance == "doubt":
+        try:
+            confidence = float(item.get("confidence", 0.6) or 0.6)
+        except (TypeError, ValueError):
+            confidence = 0.6
+        item["confidence"] = round(confidence * DOUBT_FACTOR, 2)
+
+
+def group_members(episode: dict) -> list[dict]:
+    """A group chat's members as its episode records them (``participants``: ``[{marker, name?, kind?}]``), the
+    person excluded; ``[]`` for anything that is not a group."""
+    if not episode.get("group"):
+        return []
+    out = []
+    for p in episode.get("participants") or []:
+        if isinstance(p, dict) and str(p.get("marker") or "").startswith(("speaker:", "assistant")):
+            out.append({"marker": str(p["marker"]), "name": " ".join(str(p.get("name") or "").split())[:80],
+                        "kind": str(p.get("kind") or "person")})
+    return out
+
+
+def group_note(members: list[dict]) -> str:
+    """G179 groups: who each line's speaker is — each member's words are their own, never the person's."""
+    who = "; ".join(f'"{m["marker"]}:" is {m["name"] or "a member Cicada has no name for"}'
+                    + (", an AI agent" if m["kind"] == "agent" else "") for m in members[:30])
+    return (f"{SOURCE_NOTE_PREFIX[:-1]} with several people (a group chat). Lines starting \"user:\" are the "
+            f"person's own messages; every other line is another member's: {who}. A member's words, and their "
+            "\"I\", are theirs, never the person's. Attribute a fact to the person only from their own lines.]\n\n")
+
+
+def _member_of(content: str, start: int) -> str | None:
+    """The marker of the last turn opened at or before ``start``."""
+    hit = None
+    for turn in evidence.turns(content):
+        if turn.start > start:
+            break
+        if turn.marker is not None:
+            hit = turn.marker
+    return hit
+
+
+def _observer_for(item: dict, their_observer: str | None, members: list[dict], content: str) -> str | None:
+    """Who a claim is ``external:`` to, or ``None`` for the default reading. A claim tagged with the person's own
+    reaction is the person's signal (G179); in a group, a claim resting only on one member's lines is that member's;
+    otherwise the other side's when only their words carry it."""
+    if item.pop(_PERSON_SIGNAL, False):
+        return None
+    if members:
+        spans = [e for e in item.get("evidence") or [] if isinstance(e, dict) and e.get("kind") != "reasoning"]
+        if not spans or any(e.get("kind") not in ("assistant", "speaker") for e in spans):
+            return None
+        markers = {_member_of(content, int(e.get("start", 0))) for e in spans}
+        if len(markers) != 1:
+            return None
+        member = next((m for m in members if m["marker"] == next(iter(markers))), None)
+        if member is None:
+            return None
+        from api.services.id_utils import sanitize_id
+
+        slug = sanitize_id(member["name"] or member["marker"].partition(":")[2] or member["marker"])
+        return f"external:{slug}" if slug and slug != "unnamed" else None
+    if their_observer and _only_their_words(item):
+        return their_observer
+    return None
+
+
 def _only_their_words(rel: dict) -> bool:
     """Every located span of ``rel`` sits in the other side's turns (``assistant`` or ``speaker``), and there is one."""
     spans = [e for e in rel.get("evidence") or [] if isinstance(e, dict) and e.get("kind") != "reasoning"]
@@ -801,8 +883,14 @@ async def extract(
         # Ruling 45 addendum: the provider's project grouping, or the relaying app's word on it, as context.
         if (in_project := project_note(episode)) is not None:
             source_note = (source_note or "") + in_project
+        # G179 groups: who each member is, before every chunk; a claim resting on one member's lines is theirs.
+        members = group_members(episode)
+        if members:
+            source_note = group_note(members) + (source_note or "")
         their_observer = assistant_observer(episode)
         session_id = str(episode.get("session_id") or "").strip() or None
+        # The owner, 2026-10-28: replies, reactions, forwards and unsends, told to each chunk they fall in.
+        signals = list(episode.get("signals") or [])
 
         async with semaphore:
             # Sleep-control checkpoint 2: this task may have waited a while
@@ -824,6 +912,8 @@ async def extract(
                 held_participation = 0
                 for ci, chunk in enumerate(chunks):
                     note = _gap_note(gaps, *spans[ci])
+                    signal_note = turn_signals.chunk_note(signals, *spans[ci]) if signals else None
+                    chunk_note = (source_note or "") + (signal_note or "")
                     parsed = await _extract_chunk(
                         ep_id, chunk, ci, len(chunks), settings,
                         # Only a memory episode carries a note; every other call keeps its shape.
@@ -831,7 +921,7 @@ async def extract(
                         **({"gap_note": note} if note else {}),
                         **({"date_note": date_note} if date_note else {}),
                         **({"owner": owner} if owner else {}),
-                        **({"source_note": source_note} if source_note else {}),
+                        **({"source_note": chunk_note} if chunk_note else {}),
                         **({"stage": stage} if stage != "extraction" else {}),
                     )
                     all_entities.extend(parsed.get("entities", []))
@@ -840,7 +930,11 @@ async def extract(
                     # chunk came from, preferring the chunk window (R11). The
                     # quote is consumed here — nothing downstream sees it.
                     for rel in chunk_rels:
-                        evidence.attach_relationship_evidence(rel, ep_id, content, window=spans[ci], kind_override=authorship.of_episode(episode),
+                        # A relationship tagged with a reply or a reaction is located in that turn first (`turn_signals`).
+                        window, signal = turn_signals.anchor(rel, signals, content, spans[ci])
+                        if turn_signals.person_signal(signal):
+                            rel[_PERSON_SIGNAL] = True
+                        evidence.attach_relationship_evidence(rel, ep_id, content, window=window, kind_override=authorship.of_episode(episode),
                                                               gaps=gaps)
                         # 2026-10-27: "competed in", "won", "worked at"… need the located words to say that role;
                         # "a story about", a topic or a mention stays a mention (`participation`).
@@ -849,7 +943,10 @@ async def extract(
                     all_relationships.extend(chunk_rels)
                     chunk_values = [v for v in (parsed.get("values", []) or []) if isinstance(v, dict)]
                     for value in chunk_values:
-                        evidence.attach_relationship_evidence(value, ep_id, content, window=spans[ci],
+                        window, signal = turn_signals.anchor(value, signals, content, spans[ci])
+                        if turn_signals.person_signal(signal):
+                            value[_PERSON_SIGNAL] = True
+                        evidence.attach_relationship_evidence(value, ep_id, content, window=window,
                                                               kind_override=authorship.of_episode(episode), gaps=gaps)
                     all_values.extend(chunk_values)
 
@@ -870,7 +967,8 @@ async def extract(
                 ep_origin = episode.get("origin", "unknown")
                 # The promotion rule's "more than 3 exchanges" and "the person's own words", counted on the
                 # conversation itself (`promotion`), never guessed from what the model wrote about it.
-                units = promotion.exchanges(content, override=authorship.of_episode(episode), gaps=gaps)
+                units = promotion.exchanges(content, override=authorship.of_episode(episode), gaps=gaps,
+                                            persons=promotion.person_kinds(episode))
                 # Ruling 42: a specific event, program or application the person (or an agent, for them) acted on
                 # gets its page from this one conversation, and the application lives there, not on the owner's.
                 app_values = _application_pages(all_entities, episode, ep_id, content, owner=owner,
@@ -919,15 +1017,19 @@ async def extract(
                     # words is theirs (`external:<name>`), never the person's and never Cicada's own reading —
                     # a texted agent's, a harness session's agent's or a chat export's assistant's alike.
                     rel.pop("observer", None)
-                    if their_observer and _only_their_words(rel):
-                        rel["observer"] = their_observer
+                    if signals:
+                        _weigh_reaction(rel, episode, content)
+                    if (observer := _observer_for(rel, their_observer, members, content)) is not None:
+                        rel["observer"] = observer
                 for value in all_values:
                     value["source_episode"] = ep_id
                     value["source_episode_timestamp"] = episode.get("timestamp")
                     value["origin"] = ep_origin
                     value.pop("observer", None)
-                    if their_observer and _only_their_words(value):
-                        value["observer"] = their_observer
+                    if signals:
+                        _weigh_reaction(value, episode, content)
+                    if (observer := _observer_for(value, their_observer, members, content)) is not None:
+                        value["observer"] = observer
                 for value, by_agent in app_values:
                     value["source_episode"] = ep_id
                     value["source_episode_timestamp"] = episode.get("timestamp")

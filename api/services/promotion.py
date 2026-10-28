@@ -72,7 +72,18 @@ def _pattern(names: list[str]) -> re.Pattern | None:
     return re.compile(rf"(?<![\w]){alternatives}(?![\w])")
 
 
-def exchanges(text: str, *, override: str | None = None, gaps=()) -> list[tuple[str, str]]:
+#: G179 groups (2026-10-28): in a group chat only the person's own lines are "the person's own words" — five other
+#: members naming a thing in a busy group is their talk, not the person's, and must never promote it on its own.
+OWNER_ONLY = frozenset({"user"})
+
+
+def person_kinds(episode: dict | None) -> frozenset[str]:
+    """Whose turns open an exchange and count as a person naming something, for this episode's record."""
+    return OWNER_ONLY if (episode or {}).get("group") else PERSON_KINDS
+
+
+def exchanges(text: str, *, override: str | None = None, gaps=(),
+              persons: frozenset[str] = PERSON_KINDS) -> list[tuple[str, str]]:
     """The conversation as ``(person's words, whole exchange)`` pairs.
 
     An exchange opens at every turn that is a person's (the owner's, or another
@@ -81,7 +92,8 @@ def exchanges(text: str, *, override: str | None = None, gaps=()) -> list[tuple[
     each paragraph is one exchange. A saved item is not (``override`` is
     ``evidence.SAVE_KIND``, from ``authorship.of``): its title, site and
     fetched description are the page's, and only its reason or note sections
-    are an exchange of the person's."""
+    are an exchange of the person's. ``persons`` (:func:`person_kinds`) narrows whose
+    turns open one: in a group chat only the person's own."""
     turns = evidence.turns(text or "", override=override, gaps=gaps)
     if not turns:
         return []
@@ -90,7 +102,7 @@ def exchanges(text: str, *, override: str | None = None, gaps=()) -> list[tuple[
     out: list[list[str]] = []
     for turn in turns:
         words = text[turn.content_start:turn.end]
-        if turn.role in _NOT_AN_EXCHANGE:
+        if turn.role in _NOT_AN_EXCHANGE or turn.role not in persons:
             if out:
                 out[-1][1] += "\n" + words
             else:
@@ -120,7 +132,10 @@ def substantive(entity: dict) -> bool:
 
 
 def person_said(rel: dict) -> bool:
-    """A relationship whose evidence is located in a person's own words."""
+    """A relationship whose evidence is located in a person's own words — never one Stage 1 gave to someone else
+    (``external:<name>``: a texted agent's, a group member's)."""
+    if str(rel.get("observer") or "").startswith("external:"):
+        return False
     return any(isinstance(ev, dict) and ev.get("kind") in PERSON_KINDS and int(ev.get("start", -1)) >= 0
                for ev in rel.get("evidence") or [])
 
