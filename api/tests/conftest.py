@@ -291,13 +291,19 @@ def _stdio_client_info_isolated():
 
 @pytest.fixture(autouse=True)
 def _fresh_inbox_build():
-    """`load_inbox` keeps its built list per bank on the stamps of what it reads (speed 2026-10-29); a test that
-    patches a reader (the clock aside, which is in the key) starts from no built list."""
-    from api.services import inbox_service
+    """`load_inbox` keeps its built list per bank on the stamps of what it reads, and the cut excerpts and untimed ids
+    on theirs (speed 2026-10-29); a test that patches a reader (the clock aside, which is in the key) starts from
+    none of them."""
+    from api.services import episode_time, inbox_context, inbox_service
 
-    inbox_service.reset_built()
+    def clear():
+        inbox_service.reset_built()
+        inbox_context._EXCERPTS.clear()
+        episode_time._UNTIMED.clear()
+
+    clear()
     yield
-    inbox_service.reset_built()
+    clear()
 
 
 @pytest.fixture(autouse=True)

@@ -88,8 +88,16 @@ def _item_from_file(
     flag for a conflict on a multi-valued predicate. Without it — every legacy
     caller and test — the shape is exactly what it was.
     """
-    parsed = markdown_parser.parse(filepath)
-    fm = parsed.frontmatter
+    entry = None
+    if context is not None and filepath.parent == context.memory_path / "inbox":
+        # The item's header through `bank_index` (mtime-gated, speed 2026-10-29): a load after one answer re-parses the
+        # one file that moved, not all 423. A malformed file is `None` here and parsed below, which raises as before.
+        entry = bank_index.file(context.memory_path, "inbox", filepath.name)
+    if entry is not None:
+        fm, item_body = dict(entry.frontmatter), entry.body()
+    else:
+        parsed = markdown_parser.parse(filepath)
+        fm, item_body = parsed.frontmatter, parsed.body
     kind = str(fm.get("kind", "decay"))
     if kind == "normalization" and context is not None:
         # Served on a live covered page when its opener is archived or gone — a
@@ -223,7 +231,7 @@ def _item_from_file(
         entity_id=entity_id,
         entity_name=str(fm.get("entity_name", "") or ""),
         title=str(fm.get("title", "") or fm.get("entity_name", "") or ""),
-        body=parsed.body,
+        body=item_body,
         options=options,
         created_date=str(fm.get("created_date", "") or ""),
         question=question,
