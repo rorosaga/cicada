@@ -327,3 +327,89 @@ def test_a_remote_read_is_record_scope_and_the_apps(saved):
     assert claim.origin == "remote:aaaaaaaa" and claim.authored_by == "chatgpt"
     assert "Cicada-Author: chatgpt" in git_log(memory) and "trigger: remote/chatgpt" in git_log(memory)
     assert page(memory, eid).frontmatter["read"]["harness"] == "chatgpt"
+
+
+# ---- read-for-specifics (vision item 1, 2026-10-28): a read's facts land on the pages they are about ----------------
+
+FACT = {"subject": "alpha-project", "predicate": "stores-index-in", "object": "sqlite-vec on the laptop",
+        "quote": "we keep every vector on the laptop"}
+
+
+def test_a_fact_becomes_a_claim_on_its_page_citing_the_pages_words(saved):
+    server, memory = saved
+    out = record(server, facts=[FACT])
+    eid, ep, _ = ids(out)
+    assert "1 fact(s) recorded" in out and "`alpha-project`" in out, out
+    (claim,) = [c for c in claims(memory, "alpha-project") if c.predicate == "stores-index-in"]
+    assert (claim.observer, claim.authored_by, claim.object) == ("agent", "claude-code", "sqlite-vec on the laptop")
+    text = evidence.source_text(memory, ep)
+    (span,) = claim.evidence
+    assert span.kind == "page" and text[span.start:span.end] == FACT["quote"]
+    source = next(s for s in page(memory, "alpha-project").frontmatter["sources"] if s["ref"] == PUBLIC)
+    assert (source["predicate"], source["added_by"], source["entity"]) == ("stores-index-in", "claude-code", eid)
+    assert not source.get("accepted") and not source.get("verified"), "the agent's own: untrusted until taken"
+    log = git_log(memory)
+    assert "entities/alpha-project.md: updated" in log and "Cicada-Author: claude-code" in log
+    assert porcelain(memory) == ""
+
+
+def test_a_fact_quote_the_excerpts_hold_is_written_once(saved):
+    server, memory = saved
+    _, ep, _ = ids(record(server, facts=[FACT]))
+    body = markdown_parser.parse(memory / "episodes" / f"{ep}.md").body
+    assert body.count("> we keep every vector on the laptop") == 1
+
+
+def test_a_new_fact_quote_joins_the_episode_as_a_page_line(saved):
+    server, memory = saved
+    fact = dict(FACT, quote="the index is rebuilt in a minute")
+    _, ep, _ = ids(record(server, facts=[fact]))
+    assert "> the index is rebuilt in a minute" in markdown_parser.parse(memory / "episodes" / f"{ep}.md").body
+
+
+def test_a_fact_never_makes_a_page_nor_lands_on_a_person(saved):
+    server, memory = saved
+    before = sorted(p.name for p in (memory / "entities").iterdir())
+    out = record(server, facts=[dict(FACT, subject="delta-tool"), dict(FACT, subject="bob-example"),
+                                {"subject": "alpha-project", "predicate": "x"}])
+    assert "1 with no page by that subject" in out and "1 about a person" in out and "1 missing a subject" in out, out
+    after = sorted(p.name for p in (memory / "entities").iterdir())
+    assert [n for n in after if n not in before and not n.startswith("media-")] == []
+    assert not [c for c in claims(memory, "bob-example") if c.predicate == "stores-index-in"]
+
+
+def test_a_happening_is_left_for_note_progress(saved):
+    server, memory = saved
+    out = record(server, facts=[dict(FACT, predicate="happened")])
+    assert "happening or a milestone" in out, out
+
+
+def test_facts_are_capped_at_eight(saved):
+    server, memory = saved
+    many = [dict(FACT, object=f"value {i}", predicate=f"p-{i}") for i in range(10)]
+    out = record(server, facts=many)
+    assert "8 fact(s) recorded" in out and "2 missing a subject, predicate, object or quote, or past the 8-fact cap" in out
+
+
+def test_a_removed_source_drops_the_source_never_the_claim(saved):
+    server, memory = saved
+    path = memory / "entities" / "alpha-project.md"
+    parsed = markdown_parser.parse(path)
+    parsed.frontmatter["sources_removed"] = [{"ref": PUBLIC, "predicate": "stores-index-in", "by": "user",
+                                              "at": "2026-10-01"}]
+    markdown_parser.write(path, parsed.frontmatter, parsed.body)
+    record(server, facts=[FACT])
+    assert [c for c in claims(memory, "alpha-project") if c.predicate == "stores-index-in"]
+    assert not [s for s in page(memory, "alpha-project").frontmatter.get("sources") or [] if s["ref"] == PUBLIC]
+
+
+def test_a_remote_fact_is_the_apps_never_the_persons(saved):
+    _, memory = saved
+    runtime = RemoteRuntime(memory_path=lambda: memory, post=lambda p, d: {}, sleep_running=lambda: False)
+    text, status = runtime.call(_phone(), "cicada_record_read", {"url": PUBLIC, "outcome": "read",
+                                                                 "summary": SUMMARY, "facts": [FACT]})
+    assert status == "ok" and "1 fact(s) recorded" in text, text
+    (claim,) = [c for c in claims(memory, "alpha-project") if c.predicate == "stores-index-in"]
+    assert claim.origin == "remote:aaaaaaaa" and claim.observer == "agent"
+    source = next(s for s in page(memory, "alpha-project").frontmatter["sources"] if s["ref"] == PUBLIC)
+    assert source["origin"] == "remote:aaaaaaaa"

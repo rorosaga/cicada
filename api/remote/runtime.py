@@ -239,7 +239,7 @@ _DISPATCH: dict[str, Callable[[mcp_tools.ToolContext, dict], str]] = {
     "cicada_reading_queue": lambda c, a: mcp_tools.reading_queue(c, a.get("limit")),
     "cicada_record_read": lambda c, a: mcp_tools.record_read(
         c, str(a.get("url") or ""), str(a.get("outcome") or ""), a.get("summary"), a.get("excerpts"),
-        a.get("via"), a.get("note"), a.get("title")),
+        a.get("via"), a.get("note"), a.get("title"), a.get("facts")),
     "cicada_record_check": lambda c, a: mcp_tools.record_check(
         c, str(a.get("item_id") or ""), str(a.get("source") or ""), str(a.get("outcome") or ""),
         a.get("option_key"), a.get("proposed_value"), a.get("quotes"), a.get("summary"), a.get("via")),

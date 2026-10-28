@@ -359,6 +359,20 @@ TOOLS = [
                 "via": {"type": "string", "description": "Optional: the tool you read with (the name of the tool you used). Shown as what you said, never as proof."},
                 "note": {"type": "string", "description": "Optional: one short sentence for the person (at most 200 characters). Shown with the link in Cicada as your words."},
                 "title": {"type": "string", "description": "Optional: the page's real title, used only when the link is still titled by its address."},
+                "facts": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "subject": {"type": "string", "description": "The page id (from cicada_recall) of the thing the fact is about. A read never makes a page."},
+                            "predicate": {"type": "string", "description": "A short verb phrase, e.g. 'supports', 'priced-at', 'deadline-is'."},
+                            "object": {"type": "string", "description": "What the page says (at most 300 characters)."},
+                            "quote": {"type": "string", "description": "The page's words that state it, verbatim (at most 240 characters)."},
+                        },
+                        "required": ["subject", "predicate", "object", "quote"],
+                    },
+                    "description": "Optional, for read: up to 8 specific facts the page states about things Cicada has a page for (a tool, a company, a program; never a person). Each becomes a claim on that page citing the quote, with this link as where to check it. When the person said why they saved the link, read for that.",
+                },
             },
             "required": ["url", "outcome"],
         },
@@ -1616,7 +1630,7 @@ def _handle_local_tool(name: str, arguments: dict) -> str:
     elif name == "cicada_record_read":
         return handle_record_read(arguments.get("url", ""), arguments.get("outcome", ""), arguments.get("summary"),
                                   arguments.get("excerpts"), arguments.get("via"), arguments.get("note"),
-                                  arguments.get("title"))
+                                  arguments.get("title"), arguments.get("facts"))
     elif name == "cicada_sources":
         return handle_sources(arguments.get("entity_id", ""))
     elif name == "cicada_write_claim":
@@ -1862,8 +1876,9 @@ def handle_reading_queue(limit=None) -> str:
     return mcp_tools.reading_queue(_ctx(), limit)
 
 
-def handle_record_read(url, outcome, summary=None, excerpts=None, via=None, note=None, title=None) -> str:
-    return mcp_tools.record_read(_ctx(), url, outcome, summary, excerpts, via, note, title)
+def handle_record_read(url, outcome, summary=None, excerpts=None, via=None, note=None, title=None,
+                       facts=None) -> str:
+    return mcp_tools.record_read(_ctx(), url, outcome, summary, excerpts, via, note, title, facts)
 
 
 def handle_ask(query, top_k=6) -> str:

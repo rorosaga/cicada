@@ -12,6 +12,11 @@ module is the inferred path that never writes the person's trust:
   Scholar, ORCID — :func:`profile_of`) written in the page's own text, or in a line of the person's OWN turn, in a
   conversation the page rests on, that also names the page. A **project** or **tool** page's GitHub repository when the
   repository's name is the page's own name. Never a URL guessed from a name, never a handle read off a saved post.
+  And (vision item 1, 2026-10-28) on a **project, company, concept, tool or place** page, every link the person saved
+  whose read is about the page (:func:`saved_link_hits`): a save Stage 1 wrote one of the page's live claims from, or
+  a saved-link page whose ``about`` claim names it (link recon) — the saved URL as it is on the record, linked to the
+  saved-link page (``entity:``), its evidence the person's reason when they gave one. Never on a person's page (their
+  sources are their own accounts), never a walled or secret-bearing link, never a page created.
 - :func:`propose` — Sleep's tail step: each candidate lands as an untrusted entry (``proposed: true`` plus where it was
   found, ``evidence``), respecting ``sources_removed`` and the caps, then :func:`sync_items` keeps every link still
   waiting — an agent's too (``cicada_add_source(inferred=true)``) — as a row of ONE grouped review
@@ -55,6 +60,11 @@ MAX_LINE_CHARS = 400
 #: The predicates a proposal is filed under — each a profile predicate `person_photo.is_own_account` accepts once taken.
 PROFILE_KINDS = ("github", "x", "instagram", "linkedin", "scholar", "orcid")
 REPO = "repo"
+#: Pages a saved link can be where to check (vision item 1): what a page can be "about" (`link_recon.RELATABLE_TYPES`)
+#: less a person — a person's sources are accounts that are theirs, never an article someone wrote about them.
+SAVED_LINK_TYPES = frozenset({"project", "company", "concept", "tool", "location"})
+#: A saved link's proposal is filed under no predicate: where to check the page as a whole.
+SAVED = ""
 
 _ORCID_RE = re.compile(r"\d{4}-\d{4}-\d{4}-\d{3}[\dX]")
 _SCHOLAR_ID_RE = re.compile(r"[A-Za-z0-9_-]{6,20}")
@@ -160,8 +170,11 @@ def link_kind(source: dict) -> tuple[str, str]:
 class Candidate:
     ref: str
     predicate: str
-    #: ``{"page": true}`` (the page's own text) or ``{"episode", "start", "end"}`` (the person's own line).
+    #: ``{"page": true}`` (the page's own text), ``{"episode", "start", "end"}`` (the person's own line) or
+    #: ``{"episode", "kind": "save"}`` (a saved link with no reason: the save itself).
     evidence: dict
+    #: The page that knows more about the link (``fact_sources`` ``entity:``): a saved link's own page.
+    entity: str = ""
 
 
 def _names(fm: dict) -> list[str]:
@@ -210,7 +223,122 @@ def _person_line_hits(memory_path: Path, fm: dict) -> list[Candidate]:
     return out
 
 
-def candidates(memory_path: Path, fm: dict, body: str) -> list[Candidate]:
+def _save_of(memory_path: Path, episode_id: str) -> tuple[str, str] | None:
+    """``(url, saved-link page id)`` when ``episode_id`` is a saved link's episode (``media_ingestor`` stamps both),
+    else None. Cached frontmatter only."""
+    from api.services import bank_index
+
+    if not str(episode_id).startswith("ep_"):
+        return None
+    f = bank_index.file(Path(memory_path), "episodes", f"{episode_id}.md")
+    fm = (f.frontmatter or {}) if f is not None else {}
+    url, media_id = str(fm.get("url") or "").strip(), str(fm.get("media_entity_id") or "").strip()
+    return (url, media_id) if url.startswith(("http://", "https://")) and media_id else None
+
+
+#: Search engines: a results page is where the person looked, never where to check a thing.
+_SEARCH_HOSTS = ("google.", "bing.com", "duckduckgo.com", "search.yahoo.com", "search.brave.com", "yandex.",
+                 "baidu.com", "ecosia.org", "kagi.com", "startpage.com")
+
+
+def _is_search_page(ref: str) -> bool:
+    try:
+        parsed = urlparse(ref)
+    except ValueError:
+        return True
+    host = (parsed.hostname or "").lower().removeprefix("www.")
+    if not any(host.startswith(h) or host == h.rstrip(".") for h in _SEARCH_HOSTS):
+        return False
+    return parsed.path.startswith("/search") or "q" in parse_qs(parsed.query)
+
+
+def _saved_ref(url: str) -> str | None:
+    """The saved URL as a source may store it — or None. Secret-free (``clean_text``), no fragment, at most
+    ``MAX_REF_CHARS``, and a page anyone can open: not a walled host (only the person's signed-in session opens it), a
+    private workspace, a secret-bearing link, a video, a paper or an AI app's page (``reading_hosts.classify``, the
+    reader's own structural verdict), nor a search engine's results page."""
+    from api.services import reading_hosts
+
+    try:
+        ref = fact_sources.clean_text(url.split("#", 1)[0].strip())
+    except fact_sources.InvalidSource:
+        return None
+    if not ref or len(ref) > fact_sources.MAX_REF_CHARS:
+        return None
+    verdict = reading_hosts.classify(ref)
+    if not verdict.ok or verdict.walled or _is_search_page(ref):
+        return None
+    return ref
+
+
+def _save_candidate(memory_path: Path, episode_id: str, url: str, media_id: str) -> Candidate | None:
+    from api.services import saved_why
+
+    ref = _saved_ref(url)
+    if ref is None:
+        return None
+    span = saved_why.reason_span(memory_path, episode_id)
+    evidence = ({"episode": episode_id, "start": span[0], "end": span[1]} if span
+                else {"episode": episode_id, "kind": "save"})
+    return Candidate(ref, SAVED, evidence, entity=media_id)
+
+
+#: An ``about`` claim in either fence form (a JSON line, or a legacy YAML list).
+_ABOUT_RE = re.compile(r'"predicate":\s*"about"|predicate:\s*about\b')
+
+
+def about_index(memory_path: Path) -> dict[str, list[tuple[str, str]]]:
+    """``{page id: [(saved-link page id, its first episode)]}`` — every live ``about`` claim on a saved-link page (link
+    recon, G102), read once per run: a plain substring test on each saved-link file first, so only a page that holds
+    an ``about`` claim is parsed."""
+    from api.services.claims import parse_claims
+
+    out: dict[str, list[tuple[str, str]]] = {}
+    for path in sorted((Path(memory_path) / "entities").glob("media-*.md")):
+        try:
+            raw = path.read_text(encoding="utf-8", errors="replace")
+            if not _ABOUT_RE.search(raw):
+                continue
+            parsed = markdown_parser.parse(path)
+            claims = parse_claims(parsed.body, strict=False)
+        except Exception:  # noqa: BLE001 — an unreadable page relates nothing
+            continue
+        episodes = [str(e) for e in (parsed.frontmatter or {}).get("source_episodes") or [] if str(e).startswith("ep_")]
+        for c in claims:
+            if c.predicate == "about" and c.valid_to is None and c.object and episodes:
+                out.setdefault(str(c.object), []).append((path.stem, episodes[0]))
+    return out
+
+
+def saved_link_hits(memory_path: Path, page_id: str, fm: dict, body: str,
+                    about: dict[str, list[tuple[str, str]]] | None = None) -> list[Candidate]:
+    """The links the person saved whose read is about this page (see the module docstring), newest save first."""
+    from api.services.claims import parse_claims
+
+    if str(fm.get("type") or "").strip().lower() not in SAVED_LINK_TYPES or not page_id:
+        return []
+    try:
+        claims = [c for c in parse_claims(body or "", strict=False) if c.valid_to is None]
+    except Exception:  # noqa: BLE001
+        claims = []
+    cited: set[str] = set()
+    for c in claims:
+        cited |= {str(e) for e in c.source_episodes or []}
+        cited |= {str(ev.episode) for ev in c.evidence or [] if getattr(ev, "episode", None)}
+    out: list[Candidate] = []
+    for ep in sorted({str(e) for e in fm.get("source_episodes") or []} & cited, reverse=True)[:MAX_EPISODES]:
+        save = _save_of(memory_path, ep)
+        if save is not None and save[1] != page_id and (cand := _save_candidate(memory_path, ep, *save)) is not None:
+            out.append(cand)
+    for media_id, ep in (about or {}).get(page_id, []):
+        save = _save_of(memory_path, ep)
+        if save is not None and save[1] == media_id and (cand := _save_candidate(memory_path, ep, *save)) is not None:
+            out.append(cand)
+    return out
+
+
+def candidates(memory_path: Path, fm: dict, body: str, *, page_id: str = "",
+               about: dict[str, list[tuple[str, str]]] | None = None) -> list[Candidate]:
     """What the record already says this page can be checked at — see the module docstring. Deduplicated by ref (the
     person's own line wins over the page's text: it carries their words), in the order found."""
     kind = str(fm.get("type") or "").strip().lower()
@@ -226,6 +354,7 @@ def candidates(memory_path: Path, fm: dict, body: str) -> list[Candidate]:
             repo = github_repo(url)
             if repo is not None and _squash(repo[1]) in own:
                 found.append(Candidate(f"https://github.com/{repo[0]}/{repo[1]}", REPO, {"page": True}))
+    found += saved_link_hits(memory_path, page_id, fm, body, about)
     out: list[Candidate] = []
     for cand in found:
         if all(c.ref.lower() != cand.ref.lower() for c in out):
@@ -265,9 +394,14 @@ def propose_on(fm: dict, cands: list[Candidate], *, today: str | None = None, li
                 1 for s in existing if fact_sources.same_predicate(s.get("predicate"), cand.predicate)) \
                 >= fact_sources.MAX_PER_PREDICATE:
             break
-        fm["sources"] = existing + [{
-            "ref": cand.ref, "kind": fact_sources.KIND_URL, "predicate": cand.predicate, "added_by": AUTHOR,
-            "added_at": today or str(date.today()), fact_sources.PROPOSED: True, "evidence": dict(cand.evidence)}]
+        entry = {"ref": cand.ref, "kind": fact_sources.KIND_URL}
+        if cand.predicate:
+            entry["predicate"] = cand.predicate
+        entry.update({"added_by": AUTHOR, "added_at": today or str(date.today()), fact_sources.PROPOSED: True,
+                      "evidence": dict(cand.evidence)})
+        if cand.entity:
+            entry["entity"] = cand.entity
+        fm["sources"] = existing + [entry]
         added += 1
     return added
 
@@ -351,6 +485,7 @@ def _body(rows: list[dict]) -> str:
     for r in rows:
         ev = r.get("evidence") or {}
         where = (f"in your own words, {ev['episode']}" if ev.get("episode") and ev.get("kind", "user") == "user"
+                 else f"a link you saved, {ev['episode']}" if ev.get("episode") and ev.get("kind") == "save"
                  else f"in {ev['episode']}" if ev.get("episode")
                  else f"listed as its official site on Wikidata ({ev.get('item')})" if ev.get("lookup") == "wikidata"
                  else "in the page's own text" if ev.get("page") else f"added by {r.get('added_by') or 'an agent'}")
@@ -500,11 +635,13 @@ def _pages(memory_path: Path):
 def plan(memory_path: Path) -> list[tuple[str, list[Candidate]]]:
     """What :func:`propose` would add, per page — read-only (the dry-run script's body)."""
     out = []
+    about = about_index(memory_path)
     for path, parsed in _pages(memory_path):
         fm = dict(parsed.frontmatter)
         if str(fm.get("status") or "") in ("archived", "dropped"):
             continue
-        cands = [c for c in candidates(memory_path, fm, parsed.body) if not _listed(fm, c.ref)][:MAX_PER_PAGE]
+        cands = [c for c in candidates(memory_path, fm, parsed.body, page_id=path.stem, about=about)
+                 if not _listed(fm, c.ref)][:MAX_PER_PAGE]
         if cands:
             out.append((path.stem, cands))
     return out
@@ -519,6 +656,7 @@ def propose(memory_path: Path, skip: frozenset[str] = frozenset(), report: Repor
     report = report or Report()
     report.root = str(memory_path)
     waiting: list[tuple[str, dict, dict]] = []
+    about = about_index(memory_path)
     for path, parsed in _pages(memory_path):
         rel = f"entities/{path.name}"
         fm = parsed.frontmatter
@@ -528,7 +666,7 @@ def propose(memory_path: Path, skip: frozenset[str] = frozenset(), report: Repor
             # A page dirty before the run is not written — but what already waits on it keeps its row.
             waiting += [(path.stem, dict(fm), w) for w in pending(fm)]
             continue
-        cands = candidates(memory_path, fm, parsed.body)
+        cands = candidates(memory_path, fm, parsed.body, page_id=path.stem, about=about)
         if cands:
             report.touch(memory_path, rel)
             added = propose_on(fm, cands, today=today)

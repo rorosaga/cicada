@@ -30,6 +30,14 @@ shipped and tested hermetically. The live §2b network fetch is :func:`default_f
 ``CICADA_ALLOW_CONNECTOR_FETCH`` allows it, behind the injectable ``summarize_fn`` seam; it is
 offline-safe (any fetch/LLM failure marks the page attempted and writes no claim).
 
+Reason-aware (vision item 1, 2026-10-28): when the person said why they saved a link (``saved_why.reason_of`` — G191's
+answer or a ``## Saved because`` section), the summary is asked to lead with what the page says about that reason
+(:data:`_SAVED_WHY`, read by :func:`_summarize_excerpt`). A page described before its reason was given is read again
+ONCE for it (:func:`needs_reason_read`, the backfill's third tier): the new ``describes`` claim supersedes the old one
+(history kept), Cicada's own summary is replaced, a description the page itself gave never is, and the page is
+stamped ``read_for`` with the reason it was read for, whatever the outcome — so a reason costs one read, never a
+nightly one. A page the person's own agent read is left alone (its read carried the reason, ``reading_queue``).
+
 G102 cheap slice (2026-09-02): the in-cycle pass above only ever sees the 20
 most recent pages of a cycle that had episodes. ``backfill`` (bottom of this
 module) is the whole-bank, oldest-first driver that closes that gap on the
@@ -381,6 +389,44 @@ def _episode_persons(memory_path: Path, changes: list[dict]) -> dict[str, list[s
 _LAST_FETCH_STATUS: "contextvars.ContextVar[str | None]" = contextvars.ContextVar("link_fetch_status", default=None)
 
 
+#: The person's reason for saving the page being summarized (one line), set by the caller around one summary and read
+#: by :func:`_summarize_excerpt` — so every injected summarizer keeps its signature and only the live prompt changes.
+_SAVED_WHY: "contextvars.ContextVar[str | None]" = contextvars.ContextVar("link_saved_why", default=None)
+#: The frontmatter stamp that says which reason a page was last read for (:func:`reason_key`).
+READ_FOR_KEY = "read_for"
+
+
+def page_reason(memory_path: Path, fm: dict):
+    """The newest reason the person gave for saving this media page (``saved_why.Reason``), or None."""
+    from api.services import saved_why
+
+    return saved_why.reason_of(memory_path, fm.get("source_episodes") or [])
+
+
+def reason_key(reason) -> str:
+    """A reason's stamp: when it was said, or — a ``## Saved because`` reason, as old as the save — its words' hash."""
+    if reason is None:
+        return ""
+    return reason.at or ("text:" + hashlib.sha1(reason.text.encode("utf-8")).hexdigest()[:10])
+
+
+def needs_reason_read(fm: dict, reason) -> bool:
+    """A page described before the person said why they saved it, never read for that reason, and not read by the
+    person's own agent."""
+    return (reason is not None and str(fm.get(READ_FOR_KEY) or "") != reason_key(reason)
+            and not isinstance(fm.get("read"), dict))
+
+
+def _reason_prompt(why: str | None) -> str:
+    if not why:
+        return ""
+    return ("The person saved this page and said why: " + " ".join(why.split())[:240] + "\n"
+            "Lead with what the page itself shows or says about that (for its design, what the design looks like; for "
+            "the product, what it does), then what the page is about. Write about the page only: never mention the "
+            "person, their reason or \"the user\". At most 2 sentences. If the page says nothing about it, describe "
+            "the page as usual.\n\n")
+
+
 async def default_summarize(title: str, url: str, settings) -> str | None:
     """The live §2b summarizer for Stage 5.57: the rail's own read of the page,
     then one bounded mini-model call. ``None`` unless the page came back ``ok``.
@@ -417,7 +463,8 @@ async def _summarize_excerpt(title: str, excerpt: str, url: str, settings) -> st
             "Given the page title and a text excerpt, write a 1-2 sentence "
             "description of what this site or page is about. Be specific about the "
             'topic. Be concise. Do not start with "This site" or "This page".\n\n'
-            f"Title: {title}\nExcerpt:\n{excerpt}\n\nDescription (1-2 sentences):"
+            + _reason_prompt(_SAVED_WHY.get())
+            + f"Title: {title}\nExcerpt:\n{excerpt}\n\nDescription (1-2 sentences):"
         )
         llm_fn = resolve_llm_fn(
             settings,
@@ -427,7 +474,8 @@ async def _summarize_excerpt(title: str, excerpt: str, url: str, settings) -> st
         )
         response = await llm_fn(
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=100,
+            # A reason asks for the part that answers it first: two full sentences, never one cut mid-word.
+            max_tokens=160 if _SAVED_WHY.get() else 100,
             temperature=0,
         )
         text = (response.choices[0].message.content or "").strip()
@@ -521,11 +569,17 @@ async def enrich_media_links(
             # §2b scour path (injected/hermetic in tests; default does the real
             # fetch+LLM). Offline-safe: a None/short return writes no claim.
             _LAST_FETCH_STATUS.set(None)
+            reason = page_reason(memory_path, fm)
+            token = _SAVED_WHY.set(reason.text if reason else None)
             try:
                 summary = await summarize_fn(title, url, settings)
             except Exception as e:
                 logger.warning(f"link summarize failed for {media_id}: {type(e).__name__}: {e}")
                 summary = None
+            finally:
+                _SAVED_WHY.reset(token)
+            if reason is not None:
+                _stamp(media_fp, **{READ_FOR_KEY: reason_key(reason)})
             walled = _LAST_FETCH_STATUS.get()
             _LAST_FETCH_STATUS.set(None)
             if walled in ("blocked", "interstitial"):
@@ -817,6 +871,8 @@ class _Candidate:
     episode: str
     description: str
     sort_key: str
+    why: str = ""          # the person's reason for the save (one line), when they gave one
+    why_key: str = ""      # its stamp (`reason_key`)
 
 
 @dataclass
@@ -825,6 +881,7 @@ class _Scan:
     reuse: list[_Candidate] = field(default_factory=list)        # §2a — substantive description, zero LLM
     fetch: list[_Candidate] = field(default_factory=list)        # §2b — needs fetch + summary
     backoff: int = 0                                             # failed < retry_days ago; not selectable yet
+    reason: list[_Candidate] = field(default_factory=list)       # described, then given a reason: read once for it
 
 
 def _saved_sort_key(fm: dict) -> str:
@@ -903,7 +960,13 @@ def scan_backfill(memory_path: Path, settings, *, today: date | None = None) -> 
             claims = parse_claims(parsed.body, strict=True)
         except MalformedClaimsBlockError:
             continue  # the corruption guard owns this page; _append_claim would refuse it anyway
+        reason = page_reason(memory_path, fm)
         if any(c.predicate == "describes" for c in claims):
+            if needs_reason_read(fm, reason) and not _in_fetch_backoff(fm, today, retry_days):
+                episodes = fm.get("source_episodes") or []
+                scan.reason.append(_Candidate(
+                    path=fp, media_id=fp.stem, title=title, url=url, episode=str(episodes[0]) if episodes else "",
+                    description="", sort_key=_saved_sort_key(fm), why=reason.text, why_key=reason_key(reason)))
             continue
         episodes = fm.get("source_episodes") or []
         cand = _Candidate(
@@ -911,6 +974,7 @@ def scan_backfill(memory_path: Path, settings, *, today: date | None = None) -> 
             episode=str(episodes[0]) if episodes else "",
             description=_claim_description(_extract_description_section(parsed.body), min_len),
             sort_key=_saved_sort_key(fm),
+            why=reason.text if reason else "", why_key=reason_key(reason),
         )
         if _is_substantive(cand.description, min_len):
             scan.reuse.append(cand)
@@ -920,6 +984,7 @@ def scan_backfill(memory_path: Path, settings, *, today: date | None = None) -> 
             scan.fetch.append(cand)
     scan.reuse.sort(key=lambda c: (c.sort_key, c.media_id))
     scan.fetch.sort(key=lambda c: (c.sort_key, c.media_id))
+    scan.reason.sort(key=lambda c: (c.sort_key, c.media_id))
     return scan
 
 
@@ -984,6 +1049,7 @@ class BackfillReport:
     fetched: int = 0
     failed: int = 0
     skipped: int = 0
+    reread: int = 0
     extracted: int = 0
     related: int = 0
     remaining: int = 0
@@ -999,7 +1065,7 @@ class BackfillReport:
     def as_dict(self) -> dict:
         return {
             k: getattr(self, k) for k in (
-                "selected", "reused", "summarized", "fetched", "failed", "skipped",
+                "selected", "reused", "summarized", "fetched", "failed", "skipped", "reread",
                 "extracted", "related", "remaining", "remaining_recon", "deferred",
                 "llm_calls", "engine_aborted", "commit",
             )
@@ -1173,6 +1239,7 @@ async def backfill(
             report.failed += 1
             continue
         report.fetched += 1
+        token = _SAVED_WHY.set(cand.why or None)
         try:
             summary = await summarize_fn(cand.title, result.text, cand.url, settings)
             # Counted only once a model actually answered (Task 1 review
@@ -1197,6 +1264,10 @@ async def backfill(
             report.llm_calls += 1
             logger.warning(f"link summarize failed for {cand.media_id}: {type(e).__name__}: {e}")
             summary = None
+        finally:
+            _SAVED_WHY.reset(token)
+        if cand.why_key:
+            _stamp(cand.path, **{READ_FOR_KEY: cand.why_key})
         summary = (summary or "").strip()
         if len(summary) < MIN_SUMMARY_CHARS:
             _stamp(cand.path, fetch_status="failed:no_summary")
@@ -1208,6 +1279,21 @@ async def backfill(
         markdown_parser.write(cand.path, parsed.frontmatter, _upsert_description(parsed.body, summary))
         if _describe(cand, summary, model):
             report.summarized += 1
+        else:
+            report.failed += 1
+
+    # Vision item 1: a described page the person later gave a reason for is read once for it.
+    for cand in scan.reason[: max(0, cap - report.selected)]:
+        if summarize_fn is None or fetch_fn is None or report.engine_aborted:
+            break
+        report.selected += 1
+        outcome = await _read_for_reason(memory_path, cand, settings, report, summarize_fn=summarize_fn,
+                                         fetch_fn=fetch_fn, model=model, today_s=today_s)
+        if outcome == "engine":
+            report.selected -= 1
+            break
+        if outcome == "ok":
+            report.reread += 1
         else:
             report.failed += 1
 
@@ -1228,6 +1314,68 @@ async def backfill(
         f"related={report.related} remaining={report.remaining}"
     )
     return report
+
+
+async def _read_for_reason(memory_path: Path, cand: _Candidate, settings, report: BackfillReport, *, summarize_fn,
+                           fetch_fn, model: str, today_s: str) -> str:
+    """Read one described page again for the person's reason (see the module docstring): ``ok``, ``failed`` or
+    ``engine`` (the engine cannot work — the page stays a candidate, unstamped). Stamped ``read_for`` otherwise, so a
+    reason costs one read whatever the page answered."""
+    rel = f"entities/{cand.media_id}.md"
+    try:
+        result = await fetch_fn(cand.url, settings)
+    except Exception as e:
+        result = FetchResult(f"failed:{type(e).__name__}")
+    _stamp(cand.path, **{READ_FOR_KEY: cand.why_key}, fetch_status=result.status, fetch_attempted_at=today_s)
+    report.touched(rel, f"{rel}: read for its reason, fetch {result.status} (source: {cand.episode or 'n/a'}, "
+                        "trigger: sleep/link_enrichment)")
+    if result.status != "ok" or not result.text:
+        return "failed"
+    report.fetched += 1
+    token = _SAVED_WHY.set(cand.why)
+    try:
+        summary = await summarize_fn(cand.title, result.text, cand.url, settings)
+        report.llm_calls += 1
+    except Exception as e:
+        if _is_engine_failure(e):
+            report.engine_aborted = type(e).__name__
+            parsed = markdown_parser.parse(cand.path)
+            parsed.frontmatter.pop(READ_FOR_KEY, None)
+            markdown_parser.write(cand.path, parsed.frontmatter, parsed.body)
+            return "engine"
+        report.llm_calls += 1
+        logger.warning(f"link reason read failed for {cand.media_id}: {type(e).__name__}")
+        summary = None
+    finally:
+        _SAVED_WHY.reset(token)
+    summary = (summary or "").strip()
+    if len(summary) < MIN_SUMMARY_CHARS:
+        return "failed"
+    parsed = markdown_parser.parse(cand.path)
+    try:
+        claims = parse_claims(parsed.body, strict=True)
+    except MalformedClaimsBlockError:
+        return "failed"
+    new = _build_describes_claim(cand.media_id, summary, cand.episode, today_s, model)
+    if any(c.id == new.id for c in claims):
+        return "ok"   # the same words as before: nothing to supersede
+    for old in claims:
+        if old.predicate == "describes" and old.valid_to is None:
+            old.valid_to = today_s
+            old.superseded_by = new.id
+    claims.append(new)
+    fm = parsed.frontmatter
+    body = write_claims(parsed.body, claims)
+    if fm.get("description_source") == "summary" or not _is_substantive(
+            _claim_description(_extract_description_section(body), MIN_SUMMARY_CHARS), MIN_SUMMARY_CHARS):
+        # Cicada's own earlier summary gives way; a description the page itself gave stays (the claim carries the read).
+        body = _upsert_description(body, summary)
+        fm["description_source"] = "summary"
+    fm["read_at"] = utc_now_iso()
+    fm["enrichment_attempted"] = True
+    markdown_parser.write(cand.path, fm, body)
+    report.touched(rel, f"{rel}: enriched (source: {cand.episode or 'n/a'}, trigger: sleep/link_enrichment)")
+    return "ok"
 
 
 async def _run_recon(memory_path: Path, settings, report: BackfillReport, **kwargs) -> None:

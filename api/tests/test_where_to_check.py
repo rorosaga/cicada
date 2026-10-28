@@ -415,3 +415,104 @@ def test_the_sources_route_draws_the_chip_row(memory, monkeypatch):
     assert gh["evidence"] == {"page": True}
     assert contacts["iconSite"] is None and gh["iconSite"] is None, "a person's page draws no site mark (G159)"
     assert (site["linkKind"], site["iconSite"]) == ("website", "alpha-studio.dev")
+
+
+# ---------- a saved link is where to check the page it is about (vision item 1, 2026-10-28) ----------
+
+SAVE_EP = "ep_2026-09-06_001"
+ARTICLE = "https://blog.bob-example.org/delta-tool-review"
+
+
+def _save(memory, url=ARTICLE, *, reason: bool = False, ep=SAVE_EP, media="media-delta-review"):
+    """A saved link: its media page and its episode, the way `media_ingestor` writes both."""
+    fm = {"id": ep, "timestamp": f"{ep[3:13]}T09:00:00+00:00", "processed": True, "source": "bookmark",
+          "url": url, "media_entity_id": media}
+    body = f"# Delta review\n\n**Source:** url\n**URL:** {url}\n**Saved:** 2026-09-06"
+    if reason:
+        fm["saved_why"] = {"reasons": ["product"], "project": None, "text": "want to try its offline mode",
+                           "at": "2026-09-06T10:00:00+00:00"}
+        body += "\n\n## Why it was saved\nSaid 2026-09-06T10:00:00+00:00.\n- The product\n- want to try its offline mode"
+    markdown_parser.write(memory / "episodes" / f"{ep}.md", fm, body)
+    _entity(memory, media, type="media", name="Delta review", source_episodes=[ep],
+            media={"url": url, "media_type": "url"})
+
+
+def _tool_from(memory, ep=SAVE_EP, eid="delta-tool", **fm):
+    from api.services.claims import Claim, write_claims
+
+    claim = Claim(id="clm_delta_1", text="Delta Tool works offline.", subject=eid, predicate="supports",
+                  object="offline mode", object_kind="literal", observer="agent", context="general",
+                  epistemic="explicit", source_trust="agent_extracted", confidence=0.7, valid_from="2026-09-06",
+                  recorded_at="2026-09-06", source_episodes=[ep], authored_by="haiku", origin="sleep")
+    base = {"type": "tool", "name": "Delta Tool", "source_episodes": [ep]}
+    base.update(fm)
+    _entity(memory, eid, body=write_claims("## Summary\nDelta Tool is a note app.\n", [claim]), **base)
+
+
+def test_a_saved_link_a_pages_claim_came_from_is_proposed_with_the_persons_reason(memory):
+    _save(memory, reason=True)
+    _tool_from(memory)
+    report = source_proposals.propose(memory, today="2026-09-10")
+    assert report.proposed == 1
+    [entry] = fact_sources.list_sources(memory, "delta-tool")
+    assert (entry["ref"], entry["added_by"], entry["entity"], entry["proposed"]) == (
+        ARTICLE, "cicada", "media-delta-review", True)
+    assert "predicate" not in entry, "where to check the page as a whole"
+    assert not fact_sources.trusted(entry) and not source_refresh.tracked(entry)
+    from api.services import evidence
+
+    ev = entry["evidence"]
+    text = evidence.source_text(memory, SAVE_EP)
+    assert ev["episode"] == SAVE_EP and text[ev["start"]:ev["end"]].endswith("want to try its offline mode")
+    [q] = _questions(memory)
+    assert "in your own words, " + SAVE_EP in markdown_parser.parse(q).body
+    assert source_proposals.propose(memory, today="2026-09-10").proposed == 0, "idempotent"
+
+
+def test_a_save_with_no_reason_cites_the_save(memory):
+    _save(memory)
+    _tool_from(memory)
+    source_proposals.propose(memory, today="2026-09-10")
+    [entry] = fact_sources.list_sources(memory, "delta-tool")
+    assert entry["evidence"] == {"episode": SAVE_EP, "kind": "save"}
+    [q] = _questions(memory)
+    assert "a link you saved, " + SAVE_EP in markdown_parser.parse(q).body
+
+
+def test_a_saved_links_about_claim_names_the_page(memory):
+    from api.services.claims import Claim, write_claims
+
+    _save(memory)
+    _entity(memory, "delta-tool", type="tool", name="Delta Tool")
+    about = Claim(id="clm_about_1", text="This saved page is about Delta Tool.", subject="media-delta-review",
+                  predicate="about", object="delta-tool", object_kind="node", observer="agent", context="general",
+                  epistemic="explicit", source_trust="agent_extracted", confidence=0.6, valid_from="2026-09-06",
+                  recorded_at="2026-09-06", source_episodes=[SAVE_EP], authored_by="haiku", origin="link_recon")
+    path = memory / "entities" / "media-delta-review.md"
+    parsed = markdown_parser.parse(path)
+    markdown_parser.write(path, parsed.frontmatter, write_claims(parsed.body, [about]))
+    source_proposals.propose(memory, today="2026-09-10")
+    assert [s["ref"] for s in fact_sources.list_sources(memory, "delta-tool")] == [ARTICLE]
+
+
+def test_a_mention_with_no_live_claim_from_the_save_is_no_source(memory):
+    _save(memory)
+    _entity(memory, "delta-tool", type="tool", name="Delta Tool", source_episodes=[SAVE_EP])
+    assert source_proposals.propose(memory).proposed == 0
+
+
+@pytest.mark.parametrize("url", ["https://x.com/delta/status/1", "https://www.google.com/search?q=delta+tool",
+                                 "https://www.youtube.com/watch?v=abcdefghijk", "https://app.slack.com/client/T1/C2"])
+def test_a_walled_search_video_or_workspace_link_is_never_where_to_check(memory, url):
+    _save(memory, url)
+    _tool_from(memory)
+    assert source_proposals.propose(memory).proposed == 0
+
+
+def test_never_on_a_person_and_never_a_removed_link(memory):
+    _save(memory)
+    _tool_from(memory, eid="bob-example", type="person", name="Bob Example")
+    _save(memory, ep="ep_2026-09-07_001", media="media-other")
+    _tool_from(memory, ep="ep_2026-09-07_001",
+               sources_removed=[{"ref": ARTICLE, "by": "user", "at": "2026-09-08"}])
+    assert source_proposals.propose(memory).proposed == 0

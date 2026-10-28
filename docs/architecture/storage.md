@@ -881,7 +881,15 @@ Round 4 (C2–C4):
   engine-free, no fetch, per active page — a **person** page's GitHub, X, Instagram, LinkedIn, Google Scholar or ORCID
   profile URL (`source_proposals.profile_of`, one canonical form each) written in the page's own text, or in a line of
   the person's OWN turn (`user`, not an agent's saved note) in one of the page's newest 40 conversations that also
-  names the page; a **project/tool** page's GitHub repository whose name is the page's own. Never a URL from a name,
+  names the page; a **project/tool** page's GitHub repository whose name is the page's own; and (vision item 1,
+  2026-10-28) on a **project, company, concept, tool or place** page, every **link the person saved whose read is about
+  the page** (`source_proposals.saved_link_hits`): a saved-link episode (`url` + `media_entity_id`) that one of the
+  page's live claims rests on, or a saved-link page whose live `about` claim (link recon) names it (`about_index`, one
+  substring-gated pass over `media-*.md` a run). The saved URL as it is on the record, filed under no predicate (where
+  to check the page as a whole), `entity:` the saved-link page, its evidence the person's reason when they gave one
+  (`saved_why.reason_span`: `{episode, start, end}`, read "in your own words") else `{episode, kind: "save"}` ("a
+  link you saved"). Never on a person page, never a link `reading_hosts.classify` refuses or calls walled (a private
+  workspace, a secret-bearing link, a video, a paper, an AI app's page), never a search engine's results page. Never a URL from a name,
   never a handle off a saved post's path. Skipped when the ref (in any spelling of the same profile) is already a source
   or in `sources_removed` under any fact, or past a cap; ≤ 4 a page a run; pages dirty before the run are skipped; one
   `cicada` commit `Where to check <date>` (trigger `sleep/where-to-check`), restored on a failed commit. **One grouped

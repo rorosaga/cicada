@@ -35,6 +35,15 @@ page), so it does not pretend to: the label everywhere is "as <harness> read
 it". Provenance never blocks memory — an excerpt that cannot be located becomes
 ``reasoning``, and the claim is still written.
 
+**Facts (read-for-specifics, vision item 1, 2026-10-28).** A read may carry ``facts`` — ``{subject, predicate,
+object, quote}``, at most :data:`MAX_FACTS` — the specific things the page states about a thing Cicada already has a
+page for (the tool an article reviews, the program a page announces). Each quote joins the episode as one more page
+line, and each fact becomes a claim on ITS subject's page (``agentic_write.write_claim``, observer ``agent``) whose
+evidence is that line's span (``page``: the page's words as the agent reported them, G118), with the read link as an
+untrusted where-to-check source for that fact, linked to the saved-link page (``entity:``). A fact is left out, and
+counted, when its subject has no page (a read never makes one), is a person (their facts come from their own words,
+``cicada_record_profile`` or ruling 44's public test), or is a happening (``progress`` writes those).
+
 This module NEVER mints a page: an agent cannot fabricate one. The caller
 resolves an existing saved link (``watch_record.resolve``, through the dedup
 index every saver writes) and hands it in.
@@ -61,6 +70,12 @@ MAX_SUMMARY_CHARS = 1500
 MAX_EXCERPTS = 12
 MAX_QUOTE_CHARS = 240
 MAX_TITLE_CHARS = 200
+MAX_FACTS = 8
+MAX_FACT_SUBJECT = 200
+MAX_FACT_PREDICATE = 60
+MAX_FACT_OBJECT = 300
+#: A fact read off a page is the page's claim as an agent reported it — below the read's own ``describes`` (0.7).
+FACT_CONFIDENCE = 0.6
 PREDICATE = "describes"
 ORIGIN = "agent/read"
 SOURCE = "page-read"
@@ -90,6 +105,28 @@ def _excerpts(raw) -> tuple[list[str], int]:
             dropped += 1
             continue
         kept.append(text)
+    return kept, dropped
+
+
+def _facts(raw) -> tuple[list[dict], int]:
+    """``facts`` as ``{subject, predicate, object, quote}`` one-line strings, capped, in the order given, and how many
+    were left out (one missing a field, or past :data:`MAX_FACTS`). Scrubbed by the caller."""
+    kept: list[dict] = []
+    dropped = 0
+    for item in raw if isinstance(raw, list) else []:
+        if not isinstance(item, dict):
+            dropped += 1
+            continue
+        fact = {
+            "subject": _one_line(item.get("subject"))[:MAX_FACT_SUBJECT].strip(),
+            "predicate": _one_line(item.get("predicate"))[:MAX_FACT_PREDICATE].strip(),
+            "object": _one_line(item.get("object"))[:MAX_FACT_OBJECT].strip(),
+            "quote": _one_line(item.get("quote")).lstrip("> ").strip()[:MAX_QUOTE_CHARS].rstrip(),
+        }
+        if not all(fact.values()) or len(kept) >= MAX_FACTS:
+            dropped += 1
+            continue
+        kept.append(fact)
     return kept, dropped
 
 
@@ -203,6 +240,7 @@ def record(
     excerpts=None,
     title=None,
     via=None,
+    facts=None,
     session_frontmatter: dict | None = None,
     author: str = "agent",
     session_id: str | None = None,
@@ -226,6 +264,12 @@ def record(
         quote, n = episode_scrub.scrub(quote)
         scrubbed += n
         quotes.append(quote)
+    fact_items, facts_dropped = _facts(facts)
+    for fact in fact_items:
+        for key in fact:
+            fact[key], n = episode_scrub.scrub(fact[key])
+            scrubbed += n
+    fact_items = [f for f in fact_items if all(f.values())]
     clean_title = None
     if title:
         clean_title, n = episode_scrub.scrub(_one_line(title))
@@ -235,6 +279,8 @@ def record(
 
     host = reading_hosts.display_host(reading_hosts.host_of(target.url)) or "page"
     label = author if author and author != "agent" else "an agent"
+    # A fact's quote is one more line of the page's words; one the excerpts already hold is not written twice.
+    quotes += [q for q in dict.fromkeys(f["quote"] for f in fact_items) if q not in quotes]
     quote_lines = [f"> {q}" for q in quotes]
     head = f"{MARKER} [{host}]: as {label} read it"
     body = "\n".join([f"assistant: {summary}", *(["", head, *quote_lines] if quote_lines else [])])
@@ -280,7 +326,75 @@ def record(
     paths.append(result.get("path") or f"entities/{target.entity_id}.md")
     if retitled:
         paths.append("sources/url_index.json")
+    written, skipped = _write_facts(
+        memory_path, target, fact_items, text=text, episode_id=episode_id, author=author, session_id=session_id,
+        origin=origin, recorded_ts=recorded_ts, today=today)
+    for entry in written:
+        if entry["path"] not in paths:
+            paths.append(entry["path"])
+    if facts_dropped:
+        skipped["malformed"] = skipped.get("malformed", 0) + facts_dropped
     return {"entity_id": target.entity_id, "episode_id": episode_id, "claim_id": result.get("claim_id"),
             "evidence": result.get("evidence") or [], "excerpts": len(quotes), "dropped": dropped,
             "summary_clipped": clipped, "described": described, "closed_claim": closed,
-            "retitled": retitled, "paths": paths}
+            "retitled": retitled, "paths": paths, "facts": written, "facts_skipped": skipped}
+
+
+def _write_facts(memory_path: Path, target: Target, facts: list[dict], *, text: str, episode_id: str, author: str,
+                 session_id, origin: str, recorded_ts, today) -> tuple[list[dict], dict[str, int]]:
+    """Each fact as a claim on its subject's page (see the module docstring). Returns ``(written, skipped)``:
+    ``[{entity_id, claim_id, path, source}]`` and ``{reason: count}``. Never raises on a normal input; never makes a
+    page."""
+    from api.services import fact_sources
+    from api.services.id_utils import resolve_entity_file, sanitize_id
+
+    written: list[dict] = []
+    skipped: dict[str, int] = {}
+
+    def skip(reason: str) -> None:
+        skipped[reason] = skipped.get(reason, 0) + 1
+
+    remote = str(origin or "").startswith(fact_sources.REMOTE_PREFIX)
+    for fact in facts:
+        page = resolve_entity_file(memory_path, fact["subject"])
+        if page is None:
+            skip("no_page")
+            continue
+        try:
+            kind = str((markdown_parser.parse(page).frontmatter or {}).get("type") or "")
+        except Exception:  # noqa: BLE001 — an unreadable page takes no fact
+            skip("no_page")
+            continue
+        if kind == "person":
+            skip("person")
+            continue
+        cite = {"episode": episode_id, "quote": fact["quote"]}
+        at = text.find("\n> " + fact["quote"])
+        if at >= 0:
+            cite["window"] = [at + 1, at + 3 + len(fact["quote"])]
+        result = agentic_write.write_claim(
+            memory_path, page.stem, fact["predicate"], fact["object"], observer="agent",
+            confidence=FACT_CONFIDENCE, context="general", source_episode=episode_id, evidence=[cite],
+            session_id=session_id, origin=origin, authored_by=author, forbid_owner_observer=True,
+            recorded_ts=recorded_ts, today=today,
+        )
+        action = result.get("action")
+        if action in ("error", "ambiguous_subject", "corrupt_claims_block") or not result.get("entity_id"):
+            skip("event" if "happening or a milestone" in str(result.get("error") or "") else "refused")
+            continue
+        entity_id = str(result["entity_id"])
+        source = None
+        if entity_id != target.entity_id:
+            # Where to check this fact: the page the agent read, the agent's own (untrusted until the person takes it),
+            # linked to the saved link's page. A removed or full key drops the source, never the claim (G61 S3-a).
+            try:
+                added = fact_sources.add_source(
+                    memory_path, entity_id, target.url, kind=fact_sources.KIND_URL,
+                    predicate=sanitize_id(fact["predicate"]) or None, added_by=author or "agent",
+                    origin=origin if remote else None, entity=target.entity_id, via_agent=True)
+                source = added.get("ref") if added else None
+            except fact_sources.InvalidSource:
+                source = None
+        written.append({"entity_id": entity_id, "claim_id": result.get("claim_id"),
+                        "path": result.get("path") or f"entities/{entity_id}.md", "source": source})
+    return written, skipped

@@ -306,7 +306,19 @@ REMOTE_TOOLS: dict[str, dict] = {t["name"]: t for t in (
            "via": {"type": "string", "description": "Optional: the tool you read with. Shown as what you said, never as proof."},
            "note": {"type": "string", "description": "Optional: one short sentence for the person (at most 200 characters). Shown with the link in Cicada as your words."},
            "title": {"type": "string",
-                     "description": "Optional: the page's real title, used only when the link is still titled by its address."}},
+                     "description": "Optional: the page's real title, used only when the link is still titled by its address."},
+           "facts": {"type": "array",
+                     "description": "Optional, for read: up to 8 specific facts the page states about things Cicada has "
+                                    "a page for (a tool, a company, a program; never a person). Each becomes a claim "
+                                    "on that page citing the quote, with this link as where to check it, never as "
+                                    "the person's words.",
+                     "items": {"type": "object", "required": ["subject", "predicate", "object", "quote"],
+                               "properties": {
+                                   "subject": {"type": "string", "description": "The page id of the thing the fact is about. A read never makes a page."},
+                                   "predicate": {"type": "string", "description": "A short verb phrase, e.g. 'supports' or 'priced-at'."},
+                                   "object": {"type": "string", "description": "What the page says (at most 300 characters)."},
+                                   "quote": {"type": "string", "description": "The page's words that state it, verbatim (at most 240 characters)."},
+                               }}}},
           ("url", "outcome"), read_only=False, idempotent=True, open_world=True),
     _tool("cicada_record_check",
           "After you look at a source the person's reading queue listed for a pending question, record what it "
