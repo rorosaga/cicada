@@ -165,6 +165,18 @@ TOOLS = [
                     "description": "The first line to return. A long page comes in parts; each part names the next "
                                    "call. Omit for the beginning.",
                 },
+                "include": {
+                    "type": "array",
+                    "items": {"type": "string",
+                              "enum": ["blocks", "relevance", "sources", "coordinates", "looks", "ongoing", "history"]},
+                    "maxItems": 7,
+                    "description": "Also return what the page holds, as short structured blocks after it: `relevance` "
+                                   "(why it matters to the person), `sources` (where to check, each with its state), "
+                                   "`coordinates` (a place's stored position), `looks` (colours and type of a saved "
+                                   "design), `ongoing` (open happenings and planned milestones), `history` (who "
+                                   "changed the page: each contributor and how many changes Sleep made), or "
+                                   "`blocks` for all of them. Omit for the page alone.",
+                },
             },
             "required": ["entity_id"],
         },
@@ -1562,7 +1574,7 @@ def _handle_local_tool(name: str, arguments: dict) -> str:
     if name == "cicada_recall":
         return handle_recall(arguments.get("query", ""))
     elif name == "cicada_recall_detail":
-        return handle_recall_detail(arguments.get("entity_id", ""), arguments.get("start"))
+        return handle_recall_detail(arguments.get("entity_id", ""), arguments.get("start"), arguments.get("include"))
     elif name == "cicada_save_episode":
         return handle_save_episode(
             arguments.get("content", ""),
@@ -1797,8 +1809,8 @@ def handle_recall(query: str) -> str:
         _STATE_HINT_SENT = ctx.state_hint_sent
 
 
-def handle_recall_detail(entity_id: str, start=None) -> str:
-    return mcp_tools.recall_detail(_ctx(), entity_id, start=mcp_tools.line_number(start))
+def handle_recall_detail(entity_id: str, start=None, include=None) -> str:
+    return mcp_tools.recall_detail(_ctx(), entity_id, start=mcp_tools.line_number(start), include=include)
 
 
 def handle_open_hub(hub: str) -> str:

@@ -71,7 +71,17 @@ REMOTE_TOOLS: dict[str, dict] = {t["name"]: t for t in (
           "Return one page of the person's memory in full, by id or by name.",
           {"entity_id": {"type": "string", "description": "The page id or name, for example 'alpha-project'."},
            "start": {"type": "integer", "description": "The first line to return. A long page comes in parts; each "
-                                                     "part names the next call. Omit for the beginning."}},
+                                                     "part names the next call. Omit for the beginning."},
+           # Vision item 5 (2026-10-28): the page's blocks — never its per-commit history, which no remote scope
+           # covers (`page_blocks.REMOTE_INCLUDE`).
+           "include": {"type": "array", "maxItems": 6,
+                       "items": {"type": "string",
+                                 "enum": ["blocks", "relevance", "sources", "coordinates", "looks", "ongoing"]},
+                       "description": "Also return what the page holds, as short blocks after it: `relevance` (why it "
+                                      "matters to the person), `sources` (where to check, each with its state), "
+                                      "`coordinates` (a place's stored position), `looks` (colours and type of a "
+                                      "saved design), `ongoing` (open happenings and planned milestones), or "
+                                      "`blocks` for all of them."}},
           ("entity_id",), read_only=True),
     _tool("cicada_get_perspective",
           "Return the facts currently believed about one subject — optionally only one observer's view "

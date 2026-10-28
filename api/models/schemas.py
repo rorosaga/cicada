@@ -184,6 +184,12 @@ class EntityHistoryEntry(CamelModel):
     # commit). Empty for every pre-G48 commit and for user-action writes, so
     # the app's "from conversation" affordance simply doesn't render there.
     sessions: list[str] = []
+    # Vision item 5 (2026-10-28): this page's own manifest-line trigger (`sleep/extraction`, `user/companion_app`,
+    # `mcp/claude-code`…; "" when the commit has none) and the door it names (`git_service.history_via`: sleep | app |
+    # agent | remote | inbox | sync | cicada | unknown) — so Sleep reads as a tag beside the contributor, whose picture
+    # `author_kind`/`author_provider` already identify. Derived on read. Additive: an older client ignores both.
+    trigger: str = ""
+    via: str = "unknown"
 
 
 # --- Contributors (git-trailer attribution, backlog A2) ---
@@ -496,6 +502,99 @@ class EntityRelevance(CamelModel):
     basis: list[dict] = []
 
 
+# --- Page blocks (vision item 5, 2026-10-28): what a page holds, for a layout and an agent alike ---
+
+
+class PageBlockOngoing(CamelModel):
+    """An open event on the page (G141): a happening still ``ongoing`` or a milestone still ``planned``, its head only.
+    ``verbatim`` — its words are the person's own sentence (``claims.is_persons_words``)."""
+
+    claim_id: str
+    kind: str                 # happening | milestone
+    status: str               # ongoing | planned
+    text: str
+    since: str = ""
+    target: str = ""
+    verbatim: bool = False
+
+
+class PageBlockCoordinates(CamelModel):
+    """Coordinates the page itself stores (top-level ``lat``/``lon`` or ``latitude``/``longitude``). Never geocoded.
+    ``label``: the pin's caption, the page's name."""
+
+    lat: float
+    lon: float
+    label: str = ""
+    source: str = "page"
+
+
+class PageBlockLook(CamelModel):
+    """A look attached to the page (`design_refs`): its colours and type, and the route its screenshot is served on."""
+
+    id: str
+    title: str = ""
+    site: Optional[str] = None
+    day: str = ""
+    palette: list[str] = []
+    fonts: list[str] = []
+    image: Optional[str] = None
+
+
+class PageBlockSource(CamelModel):
+    """One "where to check" entry in one word of state: proposed | dead | due | checked | trusted | unconfirmed."""
+
+    ref: str
+    kind: str = "note"
+    label: Optional[str] = None
+    link_kind: Optional[str] = None
+    state: str
+    site: Optional[str] = None
+    checked_at: Optional[str] = None
+    added_by: str = "user"
+    icon_site: Optional[str] = None
+
+
+class PageBlockSources(CamelModel):
+    total: int
+    proposed: int = 0
+    tracked: int = 0
+    items: list[PageBlockSource] = []
+
+
+class PageBlockContributor(CamelModel):
+    """Who changed the page (a model id or ``user``), bucketed by ``git_service.author_identity`` for a picture."""
+
+    author: str
+    kind: str = "unknown"
+    provider: Optional[str] = None
+    changes: int = 0
+    last: str = ""
+
+
+class PageBlockHistory(CamelModel):
+    changes: int
+    truncated: bool = False
+    by_sleep: int = 0
+    last_change: str = ""
+    contributors: list[PageBlockContributor] = []
+
+
+class PageBlocks(CamelModel):
+    """``page_blocks.build``: ``order`` names the blocks this page has, in the order a page reads them; each present
+    block's data rides its own key (an absent block is null or empty). Derived on read, never stored, never fetched.
+    Pinned on both sides by ``api/tests/fixtures/page_blocks.json``."""
+
+    shape: str
+    order: list[str] = []
+    relevance: Optional[EntityRelevance] = None
+    ongoing: list[PageBlockOngoing] = []
+    ongoing_total: int = 0
+    coordinates: Optional[PageBlockCoordinates] = None
+    looks: list[PageBlockLook] = []
+    sources: Optional[PageBlockSources] = None
+    history: Optional[PageBlockHistory] = None
+
+
 class EntityBands(CamelModel):
     """G180 parity — the card's classifications, computed behind the API (`entity_bands`) so no client re-derives
     them: ``confidence`` very|fairly|unsure|doubtful, ``fade_pace`` never|very_slowly|slowly|usual|quickly (from the
@@ -575,7 +674,8 @@ class EntityResponse(CamelModel):
     # builds an EntityResponse without a page. Additive: an older client
     # ignores it and keeps showing the class.
     decay: Optional[EntityDecay] = None
-    # G180 parity: additive; `GET /entities/{id}` has no ETag and is not a Store domain, so no VersionVector change.
+    # G180 parity: additive. `GET /entities/{id}` is not a Store domain (no VersionVector change); since 2026-10-28 it
+    # carries an ETag (`page_blocks.card_etag`) the app's `EntityCardCache` revalidates with.
     bands: Optional[EntityBands] = None
     # C11 (G146) — the page's picture (`entity_picture.resolve`): a path on this API the app loads with the bearer
     # (`/entities/{id}/picture?v=…`, `/entities/{id}/logo`, `/entities/{id}/preview?v=…` — a media page's stored
@@ -588,6 +688,8 @@ class EntityResponse(CamelModel):
     quiet: bool = False
     # Owner ruling 44 (G121) — "why it matters to you", derived at read (`page_relevance`), never stored. Additive.
     relevance: Optional[EntityRelevance] = None
+    # Vision item 5 (2026-10-28) — which blocks the page has and their data (`page_blocks`), derived at read. Additive.
+    blocks: Optional[PageBlocks] = None
 
 
 class PaperSummary(CamelModel):
@@ -3517,6 +3619,35 @@ class SleepEngineCandidate(CamelModel):
     model_note: Optional[str] = None
     # The exact command that signs the person in to this tool (they run it; Cicada never signs in for them).
     sign_in: Optional[str] = None
+    # Vision item 4 (2026-10-28) — `models` described (`model_catalogue`): where each came from and when, its family,
+    # when Cicada first saw it, what an alias last resolved to, and a format change in words. Additive.
+    catalogue: Optional["ModelCatalogue"] = None
+
+
+class CatalogueModel(CamelModel):
+    """One model on a card. ``source``: ``harness`` (the person's own tool listed it), ``documented`` (the harness
+    accepts it but did not list it), ``run`` (only a run reported it), ``default`` (the card's built-in default) or
+    ``saved`` (the person's choice, which no list names now — never dropped)."""
+
+    id: str
+    source: str
+    as_of: Optional[str] = None
+    family: str = ""
+    first_seen: Optional[str] = None
+    new: bool = False
+    resolves_to: Optional[str] = None
+    resolved_at: Optional[str] = None
+
+
+class ModelCatalogue(CamelModel):
+    """A card's catalogue: ``source`` names the harness read (``claude --help``, ``agent models``, ``model/list`` …),
+    ``asOf`` when; ``drift`` is a sentence when that read came back in a shape Cicada could not parse."""
+
+    engine: str
+    as_of: Optional[str] = None
+    source: str
+    drift: Optional[str] = None
+    models: list[CatalogueModel] = Field(default_factory=list)
 
 
 class SleepEngineModelPrice(CamelModel):

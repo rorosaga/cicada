@@ -307,8 +307,9 @@ def compose(fm: dict, rels: list[Relation], convo: int, last: str, other: int) -
 
 
 def for_page(memory_path: Path, entity_id: str, *, today: date | None = None, fm: dict | None = None,
-             body: str | None = None) -> Relevance:
-    """The page's "why it matters to you" — never raises (an unreadable page reads as one with no relation)."""
+             body: str | None = None, claims: list | None = None) -> Relevance:
+    """The page's "why it matters to you" — never raises (an unreadable page reads as one with no relation).
+    ``claims``: the page's claims when the caller already parsed ``body`` (the card's one parse)."""
     from api.services import markdown_parser
     from api.services.claims import parse_claims
 
@@ -317,7 +318,8 @@ def for_page(memory_path: Path, entity_id: str, *, today: date | None = None, fm
         if fm is None or body is None:
             parsed = markdown_parser.parse(memory_path / "entities" / f"{entity_id}.md")
             fm, body = parsed.frontmatter, parsed.body
-        claims = parse_claims(body or "")
+            claims = None
+        claims = parse_claims(body or "") if claims is None else claims
     except Exception:  # noqa: BLE001
         return Relevance("none", "No personal relation on the record.")
     if fm.get("owner") is True:

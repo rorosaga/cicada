@@ -267,7 +267,7 @@ def model_from_envelope(envelope: dict, requested_model: str) -> str:
             return key
     # Asked by a family alias ("sonnet"): the one key of that family answered it. 2026-10-19: a web lookup's search
     # side-call out-output the main turn and a sonnet lookup was recorded as the side-call's model.
-    if want in _FAMILY_ALIASES:
+    if want in _FAMILY_ALIASES or want.isalpha():   # any bare alias the harness accepts ("fable"), not only these
         family = [key for key, info in per_model.items()
                   if want in re.split(r"[^a-z]+", _bare_model((info or {}).get("canonicalModel") or key))]
         if len(family) == 1:
@@ -318,13 +318,18 @@ def response_shim(envelope: dict, requested_model: str) -> _D:
     # prose around it on a --json-schema call.
     structured = envelope.get("structured_output")
     content = json.dumps(structured, ensure_ascii=False) if structured is not None else envelope.get("result")
+    served = model_from_envelope(envelope, requested_model)
+    # Vision item 4: what an alias resolved to on this run, for the picker's catalogue (ids only, written on change).
+    from api.services import model_catalogue
+
+    model_catalogue.note_resolved("claude-cli", requested_model, served)
 
     return _wrap({
         "choices": [{
             "message": {"role": "assistant", "content": content or ""},
             "finish_reason": envelope.get("stop_reason"),
         }],
-        "model": model_from_envelope(envelope, requested_model),
+        "model": served,
         "usage": {
             "prompt_tokens": raw_input + cache_read + cache_write,
             "completion_tokens": output,

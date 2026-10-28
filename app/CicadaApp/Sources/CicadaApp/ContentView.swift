@@ -125,6 +125,7 @@ struct ContentView: View {
             provenance.close()
             provenanceCache.reset()
             LinkFactsCache.shared.reset()
+            Task { await APIClient.shared.resetEntityCards() }
             projectsCache.reset()
             backlogCache.reset()
             channelItemsCache.reset()

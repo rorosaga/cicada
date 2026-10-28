@@ -36,7 +36,7 @@ from pathlib import Path
 from typing import Callable
 
 from api.services import agent_commits, agentic_write, demo_guard, episode_ids, episode_scrub, episode_time
-from api.services import episode_actor
+from api.services import episode_actor, page_blocks
 from api.services import search_service
 # One fence rule for every frontmatter reader (L final review, finding 2).
 from api.services import bank_index, entity_bands, link_views, markdown_parser, page_lock, search_index, write_admission
@@ -2515,11 +2515,17 @@ def _page_digest(ctx: ToolContext, path: Path, text: str, fm: dict, total: int) 
     return "".join(head) + prose + footer
 
 
-def recall_detail(ctx: ToolContext, entity_id: str, *, start: int | None = None, whole: bool = False) -> str:
+def recall_detail(ctx: ToolContext, entity_id: str, *, start: int | None = None, whole: bool = False,
+                  include=None) -> str:
     """Return the full entity page for one entity (Pass 2), its claims ledger after it when it has one
     (:func:`_with_ledger`). A page over the caller's budget answers first with its prose (:func:`_page_digest`); a
     read given a ``start`` line comes in parts (:func:`_page_part`); ``whole`` — the command line's bounded read,
-    which slices the page itself — always returns it all."""
+    which slices the page itself — always returns it all.
+
+    ``include`` (vision item 5, 2026-10-28; additive — omitted, the reply is byte for byte what it was): block kinds
+    (``page_blocks.INCLUDE``; ``blocks`` for all) worded after the page under ``## Page blocks`` — the same data
+    ``GET /entities/{id}`` serves the app. Only on a read from the page's start. A remote connection is never offered
+    ``history``, and without ``sources`` an ongoing item in the person's own words is named, not quoted."""
     memory_path = ctx.memory_path()
     entities_dir = memory_path / "entities"
     if not entity_id:
@@ -2564,8 +2570,18 @@ def recall_detail(ctx: ToolContext, entity_id: str, *, start: int | None = None,
                 text = _page_part(ctx, path.stem, text, start)
                 if getattr(text, "code", None):
                     return text
-            return Reply(text, data={"entity_id": path.stem, "type": fm.get("type"), "status": fm.get("status")},
-                         segments=getattr(text, "segments", None))
+            data = {"entity_id": path.stem, "type": fm.get("type"), "status": fm.get("status")}
+            if start is None and (kinds := page_blocks.wanted(include, remote=ctx.is_remote)):
+                # One shaped copy feeds both the words and `data` (which /v1 returns as it is): only the blocks asked
+                # for, and the person's own words masked where the caller may not see them.
+                blocks = page_blocks.for_caller(page_blocks.for_page(memory_path, path.stem, kinds), kinds,
+                                                verbatim=ctx.raw_excerpts)
+                data["blocks"] = blocks
+                said = "\n\n" + page_blocks.words(blocks, kinds) + "\n"
+                if getattr(text, "segments", None):
+                    return Reply.framed([*text.segments, ("data", said)], data=data)
+                text = text.rstrip("\n") + said
+            return Reply(text, data=data, segments=getattr(text, "segments", None))
 
     return Reply(f"Entity '{entity_id}' not found.", code="not_found")
 
@@ -2576,7 +2592,8 @@ def _relevance_line(memory_path: Path, entity_id: str) -> str | None:
     try:
         from api.services import page_relevance
 
-        rel = page_relevance.for_page(memory_path, entity_id)
+        with bank_index.shared_scans():   # its two listings of `entities/` become one
+            rel = page_relevance.for_page(memory_path, entity_id)
     except Exception:  # noqa: BLE001 — a derived line never fails a read
         return None
     return None if rel.tense == "self" else rel.line

@@ -1,0 +1,12 @@
+{
+  "id": 3,
+  "result": {
+    "data": [
+      {"id": "gpt-5.5", "model": "gpt-5.5", "displayName": "GPT-5.5", "isDefault": true, "hidden": false},
+      {"id": "gpt-5.5-mini", "model": "gpt-5.5-mini", "displayName": "GPT-5.5 mini", "isDefault": false,
+       "hidden": false},
+      {"id": "gpt-internal", "model": "gpt-internal", "isDefault": false, "hidden": true}
+    ],
+    "nextCursor": null
+  }
+}

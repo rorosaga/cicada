@@ -61,6 +61,9 @@ class CodexSnapshot:
     # two different windows (``used_percent`` above is only the fullest).
     windows: tuple[tuple[str, int, int | None], ...] = ()
     as_of: str | None = None              # wall-clock ISO time of the probe
+    #: ``model/list`` answered, but in a shape this parser reads no model from (vision item 4, 2026-10-28): the
+    #: catalogue says so in words rather than show an empty roster as the plan's.
+    models_drift: bool = False
 
 
 def parse_snapshot(replies: dict) -> CodexSnapshot:
@@ -74,7 +77,12 @@ def parse_snapshot(replies: dict) -> CodexSnapshot:
     limits = limits_result.get("rateLimits") or {}
     windows = [w for w in (limits.get("primary"), limits.get("secondary")) if isinstance(w, dict)]
     fullest = max(windows, key=lambda w: w.get("usedPercent") or 0, default=None)
-    data = ((replies.get("model/list") or {}).get("result") or {}).get("data") or []
+    listed = (replies.get("model/list") or {}).get("result")
+    data = (listed or {}).get("data") if isinstance(listed, dict) else None
+    # Drift: a result arrived, yet not as a list of `{model: …}` entries (a renamed key, a new envelope).
+    drift = listed is not None and (not isinstance(data, list)
+                                    or (bool(data) and not any(isinstance(m, dict) and m.get("model") for m in data)))
+    data = data if isinstance(data, list) else []
     visible = [m for m in data if isinstance(m, dict) and not m.get("hidden") and m.get("model")]
     default = next((m["model"] for m in visible if m.get("isDefault")), None)
     roster = ([default] if default else []) + [m["model"] for m in visible if m["model"] != default]
@@ -99,6 +107,7 @@ def parse_snapshot(replies: dict) -> CodexSnapshot:
         models=tuple(roster),
         default_model=default,
         windows=tuple(per_window),
+        models_drift=drift,
     )
 
 

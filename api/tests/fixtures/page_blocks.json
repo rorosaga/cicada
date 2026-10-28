@@ -1,0 +1,137 @@
+{
+  "_comment": "Shared by test_page_blocks.py and PageBlocksTests.swift: the `blocks` of GET /entities/{id} (page_blocks.build). Regenerate with CICADA_REGEN_FIXTURES=1.",
+  "blocks": {
+    "shape": "blocks-1",
+    "order": [
+      "relevance",
+      "sources",
+      "coordinates",
+      "looks",
+      "ongoing",
+      "history"
+    ],
+    "relevance": {
+      "tense": "is",
+      "line": "Why it matters to you: you are building something there (since 2026-10-01).",
+      "conversations": 2,
+      "lastMentioned": "2026-10-20",
+      "basis": []
+    },
+    "ongoing": [
+      {
+        "claimId": "c-planned",
+        "kind": "milestone",
+        "status": "planned",
+        "text": "Open the alpha-project studio.",
+        "since": "2026-10-02",
+        "target": "2026-12-01",
+        "verbatim": false
+      },
+      {
+        "claimId": "c-ongoing",
+        "kind": "happening",
+        "status": "ongoing",
+        "text": "Building the alpha-project prototype.",
+        "since": "2026-10-01",
+        "target": "",
+        "verbatim": true
+      }
+    ],
+    "ongoingTotal": 2,
+    "coordinates": {
+      "lat": 40.4168,
+      "lon": -3.7038,
+      "label": "Alpha Place",
+      "source": "page"
+    },
+    "looks": [
+      {
+        "id": "2026-10-14-alpha-site",
+        "title": "Alpha site",
+        "site": "example.org",
+        "day": "2026-10-14",
+        "palette": [
+          "#112233",
+          "#F4F1EA"
+        ],
+        "fonts": [
+          "Inter"
+        ],
+        "image": "/design/2026-10-14-alpha-site/image"
+      }
+    ],
+    "sources": {
+      "total": 4,
+      "proposed": 1,
+      "tracked": 3,
+      "items": [
+        {
+          "ref": "https://example.org/alpha",
+          "kind": "url",
+          "label": "example.org",
+          "linkKind": "website",
+          "state": "unchecked",
+          "site": "example.org",
+          "checkedAt": null,
+          "addedBy": "user",
+          "iconSite": null
+        },
+        {
+          "ref": "https://example.com/alpha",
+          "kind": "url",
+          "label": "example.com",
+          "linkKind": "website",
+          "state": "proposed",
+          "site": "example.com",
+          "checkedAt": null,
+          "addedBy": "claude-code",
+          "iconSite": null
+        },
+        {
+          "ref": "https://example.net/alpha",
+          "kind": "url",
+          "label": "example.net",
+          "linkKind": "website",
+          "state": "checked",
+          "site": "example.net",
+          "checkedAt": "2026-10-10",
+          "addedBy": "cicada",
+          "iconSite": null
+        },
+        {
+          "ref": "https://example.io/alpha",
+          "kind": "url",
+          "label": "example.io",
+          "linkKind": "website",
+          "state": "stale",
+          "site": "example.io",
+          "checkedAt": "2026-08-01",
+          "addedBy": "user",
+          "iconSite": null
+        }
+      ]
+    },
+    "history": {
+      "changes": 3,
+      "truncated": false,
+      "bySleep": 2,
+      "lastChange": "2026-10-20",
+      "contributors": [
+        {
+          "author": "claude-haiku-4-5",
+          "kind": "model",
+          "provider": "anthropic",
+          "changes": 2,
+          "last": "2026-10-20"
+        },
+        {
+          "author": "user",
+          "kind": "user",
+          "provider": null,
+          "changes": 1,
+          "last": "2026-10-12"
+        }
+      ]
+    }
+  }
+}

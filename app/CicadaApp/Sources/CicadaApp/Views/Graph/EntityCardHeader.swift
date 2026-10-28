@@ -71,6 +71,7 @@ struct EntityCardHeader: View {
                 PersonHero(entity: entity, summary: summary, isStub: isStub, inputs: pictureInputs, facts: facts,
                            onOpenEntity: onOpenEntity)
                     .padding(.top, CicadaTheme.spacingMD)
+                relevanceLine
             } else {
                 HStack(alignment: .center, spacing: CicadaTheme.spacingMD) {
                     EntityPicture(id: entity.id, name: entity.name, type: entity.type, size: 40, held: entity.pictureRef,
@@ -87,6 +88,7 @@ struct EntityCardHeader: View {
                 if let summary {
                     EntitySummaryText(text: summary, isStub: isStub).padding(.top, CicadaTheme.scaled(6))
                 }
+                relevanceLine
                 PictureSourceLine(id: entity.id, name: entity.name, type: entity.type, held: entity.pictureRef,
                                   inputs: pictureInputs, quietWhenEmpty: true)
                     .padding(.top, CicadaTheme.scaled(4))
@@ -115,6 +117,23 @@ struct EntityCardHeader: View {
         .padding(.leading, CicadaTheme.scaled(inset))
         .padding(.trailing, CicadaTheme.scaled(20))
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Owner ruling 44 (G121) — "why it matters to you", the backend's one derived line (`EntityRelevance.shownLine`),
+    /// under the summary in the meta style (DR-2 `textTertiary`, DR-16 `metaFont`): one line of text, no card around
+    /// it (DR-37), none on the owner's own page (DR-38) or on a graph stub, whose page has not landed yet.
+    @ViewBuilder
+    private var relevanceLine: some View {
+        if !isStub, let line = entity.relevance?.shownLine {
+            Text(line)
+                .font(CicadaTheme.metaFont)
+                .foregroundStyle(CicadaTheme.textTertiary)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+                .padding(.top, CicadaTheme.scaled(4))
+                .accessibilityIdentifier("entity-relevance")
+        }
     }
 
     private var tabRow: some View {
