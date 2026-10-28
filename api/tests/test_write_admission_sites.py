@@ -494,9 +494,14 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /sources/traces/forget": (OUTSIDE, None),
     "POST /sources/traces/wipe": (OUTSIDE, None),     # what was already promoted stays the bank's, untouched
     "POST /sources/traces/search": (NONE, None),      # a POST only so the words never reach an access log
+    "POST /sources/traces/delete": (OUTSIDE, None),   # the person's pick from one day; what joined memory stays
+    # 2026-10-28 "Remove from memory": closes the claims whose only evidence is a traces-day digest (and Undo reopens
+    # them) — entity pages, so the bank's admission through the one commit, 409 while Sleep holds the pages.
+    "POST /sources/traces/remove-from-memory": (ADMITTED, "api.services.trace_memory.remove"),
+    "POST /sources/traces/remove-from-memory/undo": (ADMITTED, "api.services.trace_memory.undo"),
     # The spans go outside every bank; `trace_memory.promote` then writes EPISODES ONLY into the bank — watched days
-    # and their month rollups through `watch_history.record` (the writer `/sources/watch-history/sync` uses) and the
-    # day summary through `episode_staging.stage`, each under STAGE_LOCK + episode_lock — committed alone by
+    # and their month rollups through `watch_history.record` (the writer `/sources/watch-history/sync` uses), the
+    # reading days and the day digest through `episode_staging.stage`, each under STAGE_LOCK + episode_lock — committed alone by
     # `commit_paths_for`. Awake capture never takes admission (write_admission's rail); pinned in test_trace_routes.
     "POST /sources/traces/sync": (CAPTURE, None),
     "POST /tools/call": (DOOR, None),

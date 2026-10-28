@@ -324,8 +324,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **Activity traces (G218, ruling 38):** off by default; the app alone captures (preflight-only permissions, Touch ID to
   browse screenshots) and the backend keeps them sealed in `$CICADA_HOME/traces/` — outside every bank and git, never on
   the network, a remote door or another device, 30-day timeline / 7-day screenshots, Wipe shreds the key; a trace is not
-  a mention; only the person's switches promote (YouTube views into the watch history — ruling 48 turns this toward any
-  site, design in the traces PR; a counted day summary, the one thing a model may read) (`storage.md`, `capture-and-sleep.md`).
+  a mention; only the person's switches promote (what is watched and read on any site, index-only — 39b generalised,
+  2026-10-28; behind "Learn from my day", off, a counted day digest with no title or address, the one thing a model may
+  read, removable from memory as one undoable commit) (`storage.md`, `capture-and-sleep.md`).
 - **Design references (2026-10-14):** one markdown file plus its screenshot per look, in the bank, one writer
   (`design_refs`), never an entity page; palette and vectors are computed here, the index lives outside the bank.
   **Owner 2026-10-20:** a look lives on the page of the thing it shows — the record's `entity:` plus a `## Looks` section

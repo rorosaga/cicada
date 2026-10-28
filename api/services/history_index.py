@@ -40,6 +40,10 @@ MONTH_PREFIX = "watch-history-month:"
 #: on "Learn from traces" when it was written (``learn_from_traces`` in its frontmatter) — the one model read traces get.
 TRACES_SOURCE = "traces-day"
 TRACES_PREFIX = "traces-day:"
+#: ``source`` of a reading day (G218, 2026-10-28, ``trace_memory.write_reading``): the pages activity traces saw read
+#: on any site that day — index-only like a watched day (ruling 30), never read by a model.
+READING_SOURCE = "reading-history"
+READING_PREFIX = "reading-history:"
 #: Origins only a platform's saved list writes (an export archive, or the person's agent reading Watch later or,
 #: G206, a saved list on X, Instagram or LinkedIn — ``saved_lists``, which files X under the archive's ``Bookmarks``).
 LIST_ORIGINS = frozenset({"youtube-playlist", "instagram-saved", "tiktok-saved", "x-likes", "linkedin-saved"})
@@ -62,7 +66,8 @@ COMMIT_STEP = 500
 
 def kind(fm: dict | None) -> str | None:
     """``history`` (a watched day), ``month`` (a month's summary), ``list`` (a save from a platform's saved list),
-    or ``None`` — an episode Sleep reads with a model."""
+    ``traces`` (an index-only trace day written before 2026-10-28), ``reading`` (a reading day), or ``None`` — an
+    episode Sleep reads with a model."""
     if not isinstance(fm, dict):
         return None
     source = str(fm.get("source") or "")
@@ -73,6 +78,8 @@ def kind(fm: dict | None) -> str | None:
         return "month"
     if source == TRACES_SOURCE or sid.startswith(TRACES_PREFIX):
         return None if fm.get("learn_from_traces") is True else "traces"
+    if source == READING_SOURCE or sid.startswith(READING_PREFIX):
+        return "reading"
     origin = str(fm.get("origin") or "")
     if any(fm.get(key) for key in PERSON_KEYS):
         return None

@@ -104,7 +104,7 @@ def test_a_line_moved_to_another_days_file_fails_its_check(store):
     yesterday = store.root / "timeline" / f"{(NOW.date() - timedelta(days=1)).isoformat()}.log"
     yesterday.write_text(today.read_text())
     assert store.timeline(NOW.date() - timedelta(days=1)) | {} == {
-        "day": yesterday.stem, "spans": [], "frames": [], "unreadable": 1}
+        "day": yesterday.stem, "spans": [], "frames": [], "screens": 1, "unreadable": 1}
 
 
 def test_the_key_file_is_0600_outside_the_store_and_a_widened_key_is_refused(store, tmp_path):

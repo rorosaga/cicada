@@ -6,8 +6,9 @@ import Observation
 ///
 /// **The app captures; the backend keeps.** This recorder is the only capturer: each tick it reads the app in front,
 /// idle time, the locked screen and secure input (no permission), the focused window's title (Accessibility), an
-/// allowed Chromium browser's front tab (Automation), and now and then a screenshot of the front window (Screen
-/// Recording) with its text read on this Mac (Vision). It applies `TracePolicy` *before* anything leaves it and posts
+/// allowed Chromium browser's front tab (Automation), and now and then a screenshot (Screen Recording) — of every
+/// connected screen once the person agreed to the sheet that says so (`allScreensConsent`), each cut down to the apps the
+/// policy may describe; of the front window before that — with its text read on this Mac (Vision). It applies `TracePolicy` *before* anything leaves it and posts
 /// closed spans and frames to This Mac's backend, which re-applies the policy and seals them outside every bank. The
 /// app writes nothing to disk: what waits to be posted waits in memory, capped, and is dropped rather than spilled.
 ///
@@ -37,6 +38,18 @@ final class TraceRecorder {
     private(set) var status = TraceStoreStatus()
     private(set) var lists = TracePolicyLists()
     private(set) var consentVersion = 1
+    /// The sheet version from which screenshots cover every connected screen; nil from an older backend.
+    private(set) var allScreensConsent: Int?
+    /// Screenshots cover every connected screen: the person agreed to the sheet that says so.
+    var capturesAllScreens: Bool {
+        guard let needed = allScreensConsent else { return false }
+        return settings.consentVersion >= needed
+    }
+    /// Recording, with screenshots on, under the older sheet: the page offers the newer one (every screen).
+    var offersAllScreens: Bool {
+        guard let needed = allScreensConsent, settings.enabled, settings.screenshots else { return false }
+        return settings.consentVersion < needed
+    }
     /// Spans waiting to be posted (memory only).
     private(set) var pendingCount = 0
     var isRecording: Bool { state == .recording }
@@ -72,8 +85,8 @@ final class TraceRecorder {
     nonisolated static let flushCount = 50
     /// At most this many spans wait in memory when the backend is away; the oldest go first.
     nonisolated static let pendingCap = 500
-    /// At most this many frames wait for text recognition and posting.
-    nonisolated static let frameQueueCap = 3
+    /// At most this many frames wait for text recognition and posting (a moment is one frame per connected screen).
+    nonisolated static let frameQueueCap = 8
 
     struct OpenSpan: Equatable {
         var id: String
@@ -147,10 +160,14 @@ final class TraceRecorder {
         }
     }
 
+    /// The sheet this app shows (`TracesConsentSheet`): 2 says screenshots cover every connected screen. Sent as what
+    /// the person saw — never the version the backend serves (review of #508, must-fix 6).
+    nonisolated static let sheetVersion = 2
+
     /// The consent sheet's Turn on.
     func turnOn() async throws {
         guard TraceBackendGate.allows(connection()) else { throw TraceBackendError.notThisMac }
-        apply(try await backend.traceTurnOn(consentVersion: consentVersion))
+        apply(try await backend.traceTurnOn(consentVersion: consentVersion, displayedVersion: Self.sheetVersion))
     }
 
     func turnOff() async {
@@ -224,6 +241,7 @@ final class TraceRecorder {
         status = answer.status
         lists = answer.policy
         consentVersion = answer.consentVersion
+        allScreensConsent = answer.allScreensConsent
         loaded = true
         if !settings.enabled {
             disarm()
@@ -383,17 +401,31 @@ final class TraceRecorder {
     // MARK: - Screenshots
 
     private func considerFrame(_ span: OpenSpan, isNew: Bool, at moment: Date) {
-        guard settings.screenshots, span.describable, capture.hasAccess(),
+        // The cadence first: the Screen Recording preflight is a TCC lookup (~7 ms measured on the main actor, 2026-10-28),
+        // asked only when a frame is due — not on every five-second tick.
+        guard settings.screenshots, span.describable,
               cadence.shouldCapture(now: moment, spanStartedAt: span.start, spanIsNew: isNew, lastFrameAt: lastFrameAt,
-                                    lastFrameSpanStart: lastFrameSpanStart) else { return }
+                                    lastFrameSpanStart: lastFrameSpanStart),
+              capture.hasAccess() else { return }
         lastFrameAt = moment
         lastFrameSpanStart = span.start
         let capture = self.capture
         let maxSide = cadence.maxSide
+        let allScreens = capturesAllScreens
+        let registry = self.registry
+        let shown = TraceScreens.shown(policy) { registry.opensWebLinks($0) }
         Task { [weak self] in
-            guard let frame = try? await capture.captureFrontWindow(pid: span.pid, maxSide: maxSide) else { return }
-            guard let self, await self.stillShows(span) else { return }
-            await self.enqueue(frame, span: span, at: moment)
+            let frames: [TraceCapturedFrame]
+            if allScreens {
+                frames = (try? await capture.captureScreens(frontPid: span.pid, keepFrontWindow: span.isBrowser,
+                                                            maxSide: maxSide, shown: shown)) ?? []
+            } else if let frame = try? await capture.captureFrontWindow(pid: span.pid, maxSide: maxSide) {
+                frames = [frame]
+            } else {
+                frames = []
+            }
+            guard !frames.isEmpty, let self, await self.stillShows(span) else { return }
+            for frame in frames { await self.enqueue(frame, span: span, at: moment) }
         }
     }
 
@@ -416,7 +448,7 @@ final class TraceRecorder {
         let post = TraceFramePost(id: Self.newId(), at: TraceClock.stamp(moment), bundleId: span.bundleId,
                                   app: span.app, host: span.host ?? "", spanId: span.id, width: frame.width,
                                   height: frame.height, image: frame.jpeg.base64EncodedString(), text: "",
-                                  browser: span.isBrowser)
+                                  browser: span.isBrowser, display: frame.display, displays: frame.displays)
         frameQueue.append(post)
         if frameQueue.count > Self.frameQueueCap { frameQueue.removeFirst(frameQueue.count - Self.frameQueueCap) }
         await drainFrames()

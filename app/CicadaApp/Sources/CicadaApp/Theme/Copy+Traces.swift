@@ -40,7 +40,7 @@ extension Copy {
         static let wipeTitle = "Wipe all traces?"
         static let wipeConfirm = "Wipe all traces"
         static let wipeMessage = "This deletes every trace and screenshot, your traces settings and the key that locks "
-            + "them, and turns traces off. What was already added to your memory — watched YouTube days and day "
+            + "them, and turns traces off. What was already added to your memory — what you watched and read, and day "
             + "summaries — stays in your memory."
         static let wiped = "Every trace is gone, and traces are off."
         static let turnOff = "Turn off"
@@ -51,8 +51,8 @@ extension Copy {
 
         static let recordSection = "What is recorded"
         static let screenshots = "Screenshots"
-        static let screenshotsHelp = "A picture of the window in front when it changes, and every few minutes while it "
-            + "doesn't. Its text is read on this Mac."
+        static let screenshotsHelp = "A picture of your screens when what's in front changes, at most every five minutes, "
+            + "and every fifteen while it doesn't. Its text is read on this Mac."
         static let titles = "Window titles"
         static let titlesHelp = "The title of the window in front. Never for chat and mail apps unless you allow them below."
         static let allowScreenRecording = "Allow screen recording…"
@@ -62,15 +62,16 @@ extension Copy {
 
         // MARK: - Into memory
 
-        static let memorySection = "Into your memory"
-        static let youtube = "Add YouTube videos I watch to my watch history"
-        static let youtubeHelp = "A video you watch in an allowed browser joins your watch history, one day at a time."
-        static let dailySummary = "Keep a daily summary in memory"
-        static let dailySummaryHelp = "One short note a day of where your time went. It joins your memory and its "
-            + "history, window titles included."
-        static let learn = "Let Sleep learn from the summary"
-        static let learnHelp = "Sleep reads each day's summary with the engine you chose for Sleep, so it uses your "
-            + "plan's usage or your key's spend. Nothing else in traces is ever read by a model."
+        static let memorySection = "Into memory"
+        /// "Learn from my day" (owner 2026-10-28): one switch, off until the person turns it on.
+        static let learn = "Learn from my day"
+        static let learnHelp = "Once a day, Sleep reads a counted summary of yesterday: time on your projects, what you "
+            + "read, which apps. Never the screenshots, the window titles or the timeline. Off until you turn it on. "
+            + "Reading uses the engine you chose for Sleep, so your plan's usage or your key's spend."
+        /// "What you watch and read" (2026-10-28): every site, not one (ruling 39b, generalised).
+        static let watchAndRead = "What you watch and read"
+        static let watchAndReadHelp = "Videos you watch join your watch history and pages you stay on join that day's "
+            + "reading, on any site, from browsers you allow. Kept to look up later; nothing is read by a model."
 
         // MARK: - How long
 
@@ -125,7 +126,8 @@ extension Copy {
             "The app in front, and when.",
             "Window titles, once you allow Accessibility — never for chat and mail apps.",
             "The page's address, only from browsers you allow — never private windows.",
-            "A screenshot when what's in front changes, and every few minutes while it doesn't. Its text is read on this Mac.",
+            "A screenshot of every screen you have connected when what's in front changes — at most every five minutes, "
+                + "every fifteen while it doesn't — showing only apps whose windows may be kept. Its text is read on this Mac.",
             "Nothing while paused, while the screen is locked, while you type a password, or in apps and sites you leave out.",
         ]
         static let whereTitle = "Where it stays"
@@ -135,7 +137,8 @@ extension Copy {
         static let howLong = "The timeline for 30 days; screenshots and their text for 7 days. Then they are deleted on "
             + "their own."
         static let intoMemoryTitle = "What joins your memory"
-        static let intoMemory = "YouTube videos you watch join your watch history. A daily summary only if you turn it on."
+        static let intoMemory = "What you watch and read on any site joins your watch history and reading, to look up. "
+            + "A daily summary Sleep learns from only if you turn it on."
         static let wipeTitleConsent = "How to wipe"
         static let wipeHow = "Wipe all traces deletes everything and its key. Pause any time from the menu bar."
         static let honestLimit = "Anything running as you on this Mac can read what you can — so traces are kept small, "
@@ -150,7 +153,7 @@ extension Copy {
         static let stepTitles = "Window titles"
         static let stepTitlesLine = "Accessibility lets Cicada read the title of the window in front."
         static let stepShots = "Screenshots"
-        static let stepShotsLine = "Screen recording lets Cicada take a picture of the window in front."
+        static let stepShotsLine = "Screen recording lets Cicada take a picture of your screens."
         static let allow = "Allow…"
         static let allowed = "Allowed"
         static let skip = "Skip"
@@ -209,13 +212,89 @@ extension Copy {
             return "Everything here stays on this Mac, encrypted; screenshots \(shots), timeline \(line)."
         }
         static let settings = "Settings…"
-        static let settingsHelp = "Pause, what is recorded, what joins memory, how long it is kept, what is never recorded."
+        static let settingsHelp = "Pause, what is recorded, how long it is kept, what is never recorded."
         static let settingsTitle = "Traces settings"
         static let daysSection = "Days"
         /// Sources' Traces row once the page exists: one line and the way there.
-        static let onItsPage = "Your traces have their own page: the timeline by day, and screenshots after Touch ID."
+        static let onItsPage = "Your traces have their own page: your days, what joins memory, and screenshots after "
+            + "Touch ID."
         static let openPage = "Open Traces"
         static let openPageHelp = "Go to the Traces page."
+
+        // MARK: - The Traces page, redesigned (owner 2026-10-28)
+
+        static let allScreensOffer = "Screenshots can now cover every screen you have connected."
+        /// Once, for someone upgraded with the YouTube switch on (2026-10-28).
+        static let readingNotice = "This used to be YouTube only. It now keeps the pages you stay on and the videos "
+            + "you watch on any site, from browsers you allow — still only to look up, never read by a model. The switch "
+            + "is right above if you'd rather not."
+        static let gotIt = "Got it"
+        static let review = "Review…"
+        static let previewSection = "Yesterday, as Sleep would read it"
+        static func previewSectionFor(_ day: String) -> String { "\(day), as Sleep would read it" }
+        static let previewTrailing = "Counted on this Mac · nothing sent"
+        static let previewFoot = "Time is matched to a project only through its folders, its repository or an address "
+            + "tied to it. Anything else stays in \"Everything else\"."
+        static let yourProjects = "Your projects"
+        static let reading = "Reading"
+        static let watching = "Watching"
+        static let calls = "Calls"
+        static let everythingElse = "Everything else"
+        static func pagesOnSites(_ pages: Int, _ sites: Int) -> String {
+            "\(pages == 1 ? "1 page" : "\(pages) pages") on \(sites == 1 ? "1 site" : "\(sites) sites")"
+        }
+        static func videos(_ n: Int) -> String { n == 1 ? "1 video" : "\(n) videos" }
+        static func callCount(_ n: Int) -> String { n == 1 ? "1 call" : "\(n) calls" }
+        static func switchesAtBusiest(_ n: Int) -> String { "switched apps \(n) times in the busiest hour" }
+        static let addedSection = "What traces added"
+        static func added(beliefs: Int, progress: Int, since: String?) -> String {
+            var parts: [String] = []
+            if beliefs > 0 { parts.append(beliefs == 1 ? "1 belief" : "\(beliefs) beliefs") }
+            if progress > 0 { parts.append(progress == 1 ? "1 progress note" : "\(progress) progress notes") }
+            let what = parts.joined(separator: " and ")
+            return since.map { "\(what), since \($0)" } ?? what
+        }
+        static let addedLine = "Each says it came from your day's summary, and none of them counts as a mention."
+        static let show = "Show"
+        static let hide = "Hide"
+        static func allCount(_ n: Int) -> String { "All \(n)" }
+        static let removeFromMemory = "Remove from memory…"
+        static let removeTitle = "Remove what traces added?"
+        static let removeConfirm = "Remove from memory"
+        static let removeMessage = "Every belief and progress note that only your day's summaries support is closed, in "
+            + "one change you can undo. Beliefs another conversation also supports stay."
+        static func removed(_ n: Int) -> String { n == 1 ? "Removed 1 from memory." : "Removed \(n) from memory." }
+        static let undo = "Undo"
+        static func restored(_ n: Int) -> String { n == 1 ? "Put 1 back." : "Put \(n) back." }
+        static let nothingToRemove = "Nothing traces added is left to remove."
+        // Days
+        static let allDays = "All days"
+        static let allDaysHelp = "Back to every day"
+        static func screensConnected(_ n: Int) -> String { "\(n) screens connected" }
+        static func screenOf(_ i: Int, _ n: Int) -> String { "Screen \(i) of \(n)" }
+        static func dayLine(seconds: Int, apps: Int) -> String {
+            let a = apps == 1 ? "1 app" : "\(apps) apps"
+            return seconds > 0 ? "\(duration(seconds)) · \(a)" : a
+        }
+        static func duration(_ seconds: Int) -> String {
+            let m = Int((Double(seconds) / 60).rounded())
+            if m < 1 { return "under a minute" }
+            if m < 60 { return "\(m) m" }
+            return m % 60 == 0 ? "\(m / 60) h" : "\(m / 60) h \(m % 60) m"
+        }
+        static let lockedCover = "Shown after Touch ID"
+        static let deleteDay = "Delete day…"
+        static func deleteDayTitle(_ day: String) -> String { "Delete everything from \(day)?" }
+        static let deleteDayConfirm = "Delete day"
+        static let deleteDayMessage = "Every span and screenshot of this day goes from this Mac. What already joined your "
+            + "memory stays; Remove from memory is for that."
+        static let deleteItem = "Delete"
+        static func deleteHelp(_ what: String) -> String { "Delete \(what) from this day" }
+        static let deleteSpanHelp = "Delete this moment and the screenshots taken of it"
+        static let appsSection = "Apps"
+        static let sitesSection = "Sites"
+        static let timelineSection = "Timeline"
+        static let screenshotSection = "Screenshots"
 
         // MARK: - The menu bar
 

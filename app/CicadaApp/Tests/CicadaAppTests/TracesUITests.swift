@@ -74,7 +74,7 @@ private final class TracesUIBackend: TraceBackend, @unchecked Sendable {
 
     private func unexpected() -> Never { fatalError("the browser only reads") }
     func traceSettings() async throws -> TraceSettingsAnswer { unexpected() }
-    func traceTurnOn(consentVersion: Int) async throws -> TraceSettingsAnswer { unexpected() }
+    func traceTurnOn(consentVersion: Int, displayedVersion: Int) async throws -> TraceSettingsAnswer { unexpected() }
     func traceTurnOff() async throws -> TraceSettingsAnswer { unexpected() }
     func traceUpdate(_ patch: [String: TracePatchValue]) async throws -> TraceSettingsAnswer { unexpected() }
     func tracePause(until: String?) async throws -> TraceSettingsAnswer { unexpected() }
@@ -82,6 +82,17 @@ private final class TracesUIBackend: TraceBackend, @unchecked Sendable {
     func traceAddFrame(_ frame: TraceFramePost) async throws { unexpected() }
     func traceForget(minutes: Int) async throws { unexpected() }
     func traceWipe() async throws -> TraceSettingsAnswer { unexpected() }
+    var cards: [TraceDayCard] = []
+    private(set) var deletes: [(day: String, spans: [String], frames: [String], all: Bool)] = []
+    func traceDayCards() async throws -> [TraceDayCard] { cards }
+    func traceDelete(day: String, spans: [String], frames: [String], all: Bool) async throws -> TraceDeleted {
+        deletes.append((day, spans, frames, all))
+        return TraceDeleted(spans: spans.count, frames: frames.count)
+    }
+    func tracePreview(day: String?) async throws -> TraceDigestPreview { unexpected() }
+    func traceAdded() async throws -> TraceAdded { unexpected() }
+    func traceRemoveFromMemory() async throws -> TraceRemoval { unexpected() }
+    func traceUndoRemoval(id: String) async throws -> Int { unexpected() }
 }
 
 // MARK: - PermissionDragHelperModel
@@ -208,6 +219,8 @@ final class TracesUIConsentCopyTests: XCTestCase {
         XCTAssertTrue(Copy.Traces.where_.contains("remote agents"))
         XCTAssertTrue(Copy.Traces.howLong.contains("30 days") && Copy.Traces.howLong.contains("7 days"))
         XCTAssertTrue(Copy.Traces.intoMemory.contains("watch history"))
+        XCTAssertTrue(Copy.Traces.intoMemory.contains("any site"))
+        XCTAssertTrue(what.contains("every screen"))
         XCTAssertTrue(Copy.Traces.intoMemory.contains("only if you turn it on"))
         XCTAssertTrue(Copy.Traces.wipeHow.contains("Wipe all traces"))
         XCTAssertTrue(Copy.Traces.wipeHow.contains("menu bar"))
@@ -414,5 +427,114 @@ final class TracesUIBrowserModelTests: XCTestCase {
         await model.load()
         await model.select(ISODay(year: 2026, month: 10, day: 22))
         XCTAssertEqual(backend.timelineDays, ["2026-10-23", "2026-10-22"])
+    }
+}
+
+// MARK: - The redesigned page (owner 2026-10-28)
+
+final class TracesUIRedesignTests: XCTestCase {
+    func testTheSettingsReadTheNewKeysAndFallBackToTheOldOnes() throws {
+        let new = try JSONDecoder().decode(TraceSettings.self, from: Data(#"{"learn_from_day": true, "watch_and_read": false}"#.utf8))
+        XCTAssertTrue(new.learnFromDay)
+        XCTAssertFalse(new.watchAndRead)
+        let old = try JSONDecoder().decode(TraceSettings.self,
+                                           from: Data(#"{"learn_from_summary": true, "youtube_to_watch_history": false}"#.utf8))
+        XCTAssertTrue(old.learnFromDay)
+        XCTAssertFalse(old.watchAndRead)
+        let notice = try JSONDecoder().decode(TraceSettings.self, from: Data(#"{"reading_notice": true}"#.utf8))
+        XCTAssertTrue(notice.readingNotice)
+        XCTAssertTrue(Copy.Traces.readingNotice.contains("any site") && Copy.Traces.readingNotice.contains("YouTube only"))
+        let none = try JSONDecoder().decode(TraceSettings.self, from: Data("{}".utf8))
+        XCTAssertFalse(none.learnFromDay, "off by default")
+        XCTAssertTrue(none.watchAndRead)
+    }
+
+    func testThePreviewHidesAnEmptyPartAndKeepsTheMocksOrder() throws {
+        let json = #"""
+        {"day": "2026-10-27", "text": "x", "counts": {"day": "2026-10-27", "total_seconds": 9000,
+         "projects": [{"id": "alpha-project", "name": "Alpha", "seconds": 3000, "apps": ["Editor"]}],
+         "reading": {"seconds": 1200, "pages": 3, "sites": ["docs.example"], "site_count": 2, "apps": []},
+         "watching": {"seconds": 30, "videos": 1, "platforms": ["YouTube"]},
+         "calls": {"seconds": 1800, "count": 2, "apps": ["Zoom"]},
+         "else": {"seconds": 2970, "apps": ["Mail"], "busiest_switches": 41}}}
+        """#
+        let preview = try JSONDecoder().decode(TraceDigestPreview.self, from: Data(json.utf8))
+        let rows = TracesPageLogic.rows(try XCTUnwrap(preview.counts))
+        XCTAssertEqual(rows.map(\.id), ["project-alpha-project", "reading", "calls", "else"], "watching under a minute")
+        XCTAssertEqual(rows.first?.label, Copy.Traces.yourProjects)
+        XCTAssertEqual(rows[1].title, "3 pages on 2 sites")
+        XCTAssertTrue(rows.last?.detail.contains("41") ?? false)
+    }
+
+    func testALongListIsCappedWithAllN() {
+        let capped = TracesPageLogic.capped(Array(1...12), limit: 8, expanded: false)
+        XCTAssertEqual(capped.shown.count, 8)
+        XCTAssertEqual(capped.more, 12)
+        XCTAssertEqual(Copy.Traces.allCount(capped.more), "All 12")
+        XCTAssertEqual(TracesPageLogic.capped(Array(1...12), limit: 8, expanded: true).more, 0)
+        XCTAssertEqual(TracesPageLogic.capped(Array(1...3), limit: 8, expanded: false).more, 0)
+    }
+
+    func testAMomentOnTwoScreensStaysTogetherMainScreenFirst() {
+        func frame(_ id: String, _ at: String, _ display: Int?) -> TraceFrameMeta {
+            TraceFrameMeta(id: id, at: at, bundleId: "com.example.App", app: "Example", width: 640, height: 400,
+                           spanId: nil, hasText: false, display: display, displays: display == nil ? nil : 2)
+        }
+        let moments = TracesPageLogic.moments([frame("b", "2026-10-27T10:00:00Z", 2), frame("a", "2026-10-27T10:00:00Z", 1),
+                                               frame("c", "2026-10-27T10:05:00Z", nil)])
+        XCTAssertEqual(moments.map { $0.map(\.id) }, [["a", "b"], ["c"]])
+    }
+
+    func testTimePerAppAndSiteTheMostFirst() {
+        let spans = [TraceStoredSpan(id: "1", start: "2026-10-27T10:00:00Z", end: "2026-10-27T10:30:00Z",
+                                     bundleId: "com.example.Editor", app: "Editor", title: nil, url: nil, host: nil),
+                     TraceStoredSpan(id: "2", start: "2026-10-27T10:30:00Z", end: "2026-10-27T11:30:00Z",
+                                     bundleId: "com.google.Chrome", app: "Chrome", title: nil, url: "https://docs.example/a",
+                                     host: "docs.example")]
+        XCTAssertEqual(TracesPageLogic.totals(spans) { $0.app }.map(\.name), ["Chrome", "Editor"])
+        XCTAssertEqual(TracesPageLogic.totals(spans) { $0.host }.map(\.seconds), [3600])
+        XCTAssertEqual(Copy.Traces.duration(7800), "2 h 10 m")
+        XCTAssertEqual(Copy.Traces.duration(2400), "40 m")
+    }
+
+    func testTheNewWordsNameNoProvider() {
+        for words in [Copy.Traces.learnHelp, Copy.Traces.watchAndReadHelp, Copy.Traces.removeMessage] {
+            for name in ["Claude", "ChatGPT", "OpenAI", "Codex", "Ollama", "OpenRouter", "Gemini", "YouTube"] {
+                XCTAssertFalse(words.contains(name), name)
+            }
+        }
+        XCTAssertTrue(Copy.Traces.learnHelp.contains("Never the screenshots"))
+    }
+}
+
+@MainActor
+final class TracesUIDaysModelTests: XCTestCase {
+    func testOpeningADayDeletingAnItemAndTheWholeDay() async {
+        let backend = TracesUIBackend()
+        backend.cards = [TraceDayCard(day: "2026-10-23", spans: 2, seconds: 600, apps: 1, sites: 0, frames: 1, screens: 2,
+                                      cover: "f1")]
+        let model = TracesBrowserModel(backend: backend, authenticator: TracesUIAuthenticator(answer: false))
+        await model.loadCards()
+        XCTAssertEqual(model.cards.map(\.day), ["2026-10-23"])
+        XCTAssertNil(model.openDay)
+        await model.open(ISODay(year: 2026, month: 10, day: 23))
+        XCTAssertEqual(model.openDay?.description, "2026-10-23")
+        XCTAssertEqual(backend.timelineDays.last, "2026-10-23")
+        await model.delete(spans: ["s1"])
+        XCTAssertEqual(backend.deletes.last?.spans, ["s1"])
+        XCTAssertEqual(backend.deletes.last?.all, false)
+        await model.deleteDay()
+        XCTAssertEqual(backend.deletes.last?.all, true)
+        XCTAssertNil(model.openDay, "back to the cards")
+    }
+
+    func testNoCoverIsFetchedBeforeTheUnlock() async {
+        let backend = TracesUIBackend()
+        let model = TracesBrowserModel(backend: backend, authenticator: TracesUIAuthenticator(answer: true))
+        await model.image(for: "cover-1")
+        XCTAssertTrue(backend.imageFetches.isEmpty)
+        await model.unlock()
+        await model.image(for: "cover-1")
+        XCTAssertEqual(backend.imageFetches, ["cover-1"])
     }
 }

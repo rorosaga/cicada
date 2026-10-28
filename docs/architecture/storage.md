@@ -1540,16 +1540,63 @@ traces/shots/<YYYY-MM-DD>/<id>.enc   the screenshot itself (downscaled JPEG), se
   the folder, the settings and the key (crypto-shredding: a copy taken before reads as noise) and so turns traces off.
   What was already promoted into the bank (a watched day, a day summary) stays; the sheet says so.
 - **What crosses into the bank** (`trace_memory`, only what the person's switches allow, nothing for a demo bank, one
-  `user` commit per sync, trigger `capture/traces`): a YouTube span in front ≥ 20 s becomes a watch in the existing
-  watch-history writer (`via: traces`, `dwell_s` — the day's seconds in front for that video, the larger figure kept,
-  "N min on screen" in the day's body), on with traces (`youtube_to_watch_history`; on by default, confirmed by the
-  owner 2026-10-24, TODO ruling 39b: "same as having agents check your accounts", read access to keep things up to
-  date); and, behind "Keep a daily summary
-  in memory" (off by default), one counted episode per finished local day (`source: traces-day`: time per app, the
-  sites with the most time, the longest stretches with the titles the store kept), index-only (`history_index.kind` →
-  `traces`) unless "Let Sleep learn from the summary" was on when it was written (`learn_from_traces: true`) — the only
-  model read traces ever get. A summary is `evidence_kind: assistant` (never the person's words) and never a mention
-  (`episode_time.UNTIMED_SOURCES`).
+  `user` commit per sync, trigger `capture/traces`). **Redesigned 2026-10-28** (owner's answers to the redesign, Q12;
+  ruling 39b amended by the owner the same day, TODO ruling 39):
+  - **What you watch and read** (`watch_and_read`, on with traces; reads `youtube_to_watch_history` as its alias):
+    ruling 39b generalised from YouTube to every site. A *video page* of a platform the watch history knows
+    (`watch_history.watch_url`: YouTube, TikTok) in front ≥ 20 s becomes a watch in the existing watch-history writer
+    (`via: traces`, `dwell_s`); *any other page* in front ≥ 30 s over the day (`MIN_READ`) joins that day's **reading
+    record** — one episode per local day, `source: reading-history`, `reading-history:<day>`: the cleaned address, its
+    title where the store kept one, its site, first seen and minutes in front, longest first, ≤ 300. Calls
+    (`CALL_HOSTS`) are not reads. Both are **index-only** (`history_index.kind` → `history` / `reading`), never read by a
+    model, never a mention. The reading record is recomputed from the store for each day new pages touched
+    (idempotent; the stager skips unchanged words) and at most every 15 min for today (`READING_EVERY`; a finished day at
+    once): rewriting it on every sync doubled the promoting sync's p50 (measured, see G218).
+  - **Learn from my day** (`learn_from_day`, **off by default**; the old `daily_summary` + `learn_from_summary` are read
+    aliases). One **counted digest** per finished local day (`source: traces-day`), written only while the switch is on
+    and read by Sleep — the only model read traces get. It names **no window title, no address and no screenshot text**:
+    time on the person's own projects, reading (pages and sites), watching (videos, platforms), calls, and everything
+    else as app names plus app switches at the busiest hour. **Project time is attributed deterministically**
+    (`trace_memory.attribute`) and only to the person's own projects (`project_ownership.is_mine`, ruling 45): a span is
+    a project's when its window title names one of the project's folder or repository names as a whole word (from
+    `paths:`, `repos:`, `born.repo`, trusted `path`/`repo` sources; ≥ 4 characters, generic names like `src` never),
+    its address is that repository on a code host, or its address is at or under a URL the person tied to the project
+    as a source (never a proposal). Two projects matching equally leave the span unattributed. The digest is
+    `evidence_kind: assistant` and never a mention (`episode_time.UNTIMED_SOURCES`). **Migration:** a settings file from
+    before reads `learn_from_day` on only when both old switches were on; an index-only summary (`daily_summary` alone)
+    never widens into a model read — it ends, and its written days stay. A PUT of `daily_summary: true` alone changes
+    nothing; `daily_summary: false` turns learning off; `learn_from_summary` maps onto `learn_from_day`.
+  - **The preview** (`GET /sources/traces/preview?day=`, yesterday by default) is the same function
+    (`count_day` → `render_counts`) on one day, with no model — exactly the words Sleep would read, shown before the
+    switch is on (`text`, plus the structured `counts` the page draws).
+  - **Remove from memory** (`POST /sources/traces/remove-from-memory`, admitted): every belief and progress note whose
+    cited episodes are all `traces-day` digests and that is not already superseded or a retraction — closed or not: a
+    done happening is born closed (`valid_to = valid_from`) and is exactly what a digest adds (review of #508, B2) — is
+    taken back the way a withdrawal takes one back: superseded by a born-closed `retracts` record beside it (origin
+    `traces-remove`), an open one closed today, a closed one keeping its dates; **one commit**. Pages are found by their
+    bytes naming a digest (page or claims ledger), whichever writer wrote the claim — each file re-read only when
+    its size or time moved (on a copy of the owner's 8,028 pages: ~1.5 s once, then ~50 ms). A claim another conversation also
+    supports stays. The removal's `[page, record, target, valid_to before]` is kept in the sealed settings (`removals`,
+    newest 20) — written **before** any page moves, and with no key (after a Wipe) the removal is **refused, 409**, so
+    nothing is ever taken back that could not be undone (B3). **Undo** (`…/remove-from-memory/undo`) gives each claim
+    exactly its dates again, only while it is still superseded by that record, as one commit. `GET /sources/traces/added` counts what is
+    left and lists the undoable removals. The digests themselves stay: they are what was read.
+- **Managing traces by day** (2026-10-28): `GET /sources/traces/day-cards` — one card per kept day, counts, the screens
+  connected (`screens`), and the id of the screenshot that stands for the day (`cover`: one taken during the day's
+  longest span, the main screen's; else the one nearest the day's middle — chosen, never random), cached per day by the
+  files' size and time. `POST /sources/traces/delete` deletes picked spans (with the screenshots taken of them),
+  picked screenshots, or a whole day (`all: true`); a deleted span takes every screenshot in its time range with it,
+  on every day that range touches (a span across midnight has screenshots filed under the next day); it never touches
+  the bank.
+- **Every connected screen** (consent sheet 2, `ALL_SCREENS_CONSENT`): a frame may carry `display`/`displays`
+  (1-based, ≤ 8, kept only when consistent); `timeline` answers `screens`. **The store refuses a whole-screen frame
+  (`display` > 0) from someone on sheet 1** — policy parity with the app (review of #508). A person on sheet 1 keeps
+  front-window frames until they agree to the newer sheet; agreeing while recording keeps their pause. **The sheet
+  recorded is the one the app displayed:** `POST /sources/traces/on` takes `displayed_version` (the app's own
+  constant, `TraceRecorder.sheetVersion`); an app from before sends none and echoes the served version, so 1 is
+  recorded; a version above what the store knows is refused.
+- **The one-time note** (`reading_notice`): someone upgraded with the YouTube switch on is told once, on the page beside
+  the switch, that it now covers every site; only the person clears it (`reading_notice: false`).
 
 **Key custody — interim, an owner ruling pending (G218).** `trace_keys.KeyProvider` is the one seam; `provider()`
 returns **`FileKeyProvider`: `$CICADA_HOME/traces.key`, 0600 in the 0700 home, outside `traces/`**, created with

@@ -26,8 +26,9 @@ final class TraceRecorderTests: XCTestCase {
 
         private func note(_ call: String) { lock.lock(); calls.append(call); lock.unlock() }
         func traceSettings() async throws -> TraceSettingsAnswer { note("settings"); return answer }
-        func traceTurnOn(consentVersion: Int) async throws -> TraceSettingsAnswer {
-            note("on"); answer.settings.enabled = true; return answer
+        private(set) var displayedVersions: [Int] = []
+        func traceTurnOn(consentVersion: Int, displayedVersion: Int) async throws -> TraceSettingsAnswer {
+            note("on"); displayedVersions.append(displayedVersion); answer.settings.enabled = true; return answer
         }
         func traceTurnOff() async throws -> TraceSettingsAnswer { note("off"); answer.settings.enabled = false; return answer }
         func traceUpdate(_ patch: [String: TracePatchValue]) async throws -> TraceSettingsAnswer { note("update"); return answer }
@@ -50,6 +51,14 @@ final class TraceRecorderTests: XCTestCase {
         func traceFrameText(id: String) async throws -> TraceFrameText { TraceFrameText(id: id, at: "", app: nil, text: "") }
         func traceForget(minutes: Int) async throws { note("forget") }
         func traceWipe() async throws -> TraceSettingsAnswer { note("wipe"); answer.settings = TraceSettings(); return answer }
+        func traceDayCards() async throws -> [TraceDayCard] { [] }
+        func traceDelete(day: String, spans: [String], frames: [String], all: Bool) async throws -> TraceDeleted {
+            TraceDeleted(spans: 0, frames: 0)
+        }
+        func tracePreview(day: String?) async throws -> TraceDigestPreview { TraceDigestPreview(day: "") }
+        func traceAdded() async throws -> TraceAdded { TraceAdded() }
+        func traceRemoveFromMemory() async throws -> TraceRemoval { TraceRemoval(removalId: nil, removed: 0) }
+        func traceUndoRemoval(id: String) async throws -> Int { 0 }
     }
 
     final class Workspace: TraceWorkspace {
@@ -87,12 +96,26 @@ final class TraceRecorderTests: XCTestCase {
     final class Capture: TraceScreenCapture, @unchecked Sendable {
         var access = true
         private(set) var captures = 0
+        private(set) var accessChecks = 0
+        private(set) var screenCaptures = 0
+        /// What each all-screens capture was told to show and keep.
+        private(set) var shownAsked: [(keepFront: Bool, shown: @Sendable (String) -> Bool)] = []
+        var screens = 2
         var onCapture: (@MainActor () -> Void)?
-        func hasAccess() -> Bool { access }
+        func hasAccess() -> Bool { accessChecks += 1; return access }
         func captureFrontWindow(pid: Int32, maxSide: Int) async throws -> TraceCapturedFrame {
             captures += 1
             if let onCapture { await onCapture() }
             return TraceCapturedFrame(jpeg: Data([0xFF, 0xD8, 0xFF, 0xE0]), width: 640, height: 400)
+        }
+        func captureScreens(frontPid: Int32, keepFrontWindow: Bool, maxSide: Int,
+                            shown: @escaping @Sendable (String) -> Bool) async throws -> [TraceCapturedFrame] {
+            screenCaptures += 1
+            shownAsked.append((keepFrontWindow, shown))
+            return (1...screens).map {
+                TraceCapturedFrame(jpeg: Data([0xFF, 0xD8, 0xFF, 0xE0]), width: 640, height: 400, display: $0,
+                                   displays: screens)
+            }
         }
     }
 
@@ -460,28 +483,28 @@ final class TraceRecorderTests: XCTestCase {
 
     // MARK: Screenshots
 
-    func testScreenshotsComeOnChangeAtMostOneAMinuteAndEveryFiveMinutesOtherwise() async {
+    /// Owner 2026-10-28, "a low screenshot frequency": on change at most every five minutes, every fifteen otherwise.
+    func testScreenshotsComeOnChangeAtMostEveryFiveMinutesAndEveryFifteenOtherwise() async {
         let recorder = makeRecorder()
         await recorder.start()
         workspace.front = Self.editor
         await recorder.tick()
         await settle()
         XCTAssertEqual(capture.captures, 1, "a new span gets a frame")
-        // A burst of switches inside a minute costs nothing more.
-        for i in 0..<6 {
+        // A burst of switches inside five minutes costs nothing more.
+        for i in 0..<30 {
             advance(5)
             titles.title = "window \(i)"
             await recorder.tick()
         }
         await settle()
         XCTAssertEqual(capture.captures, 1)
-        // The same span for five more minutes: one steady frame.
         titles.title = "steady"
-        advance(61)
+        advance(151)
         await recorder.tick()
         await settle()
-        XCTAssertEqual(capture.captures, 2, "the span that had none gets one once the minute passed")
-        await run(recorder, for: 290)
+        XCTAssertEqual(capture.captures, 2, "the span that had none gets one once five minutes passed")
+        await run(recorder, for: 890)
         await settle()
         XCTAssertEqual(capture.captures, 2)
         await run(recorder, for: 20)
@@ -490,6 +513,95 @@ final class TraceRecorderTests: XCTestCase {
         XCTAssertEqual(backend.frames.count, 3)
         XCTAssertEqual(backend.frames.first?.text, "recognized words")
         XCTAssertEqual(backend.frames.first?.spanId.isEmpty, false)
+    }
+
+    /// The Screen Recording preflight is a TCC lookup (~7 ms on the main actor, measured 2026-10-28): asked only when a
+    /// frame is due, never on every tick.
+    func testTheScreenRecordingPreflightIsAskedOnlyWhenAFrameIsDue() async {
+        let recorder = makeRecorder()
+        await recorder.start()
+        workspace.front = Self.editor
+        await run(recorder, for: 1200)
+        await settle()
+        XCTAssertEqual(capture.accessChecks, capture.captures)
+        XCTAssertLessThanOrEqual(capture.accessChecks, 3, "20 minutes of five-second ticks")
+    }
+
+    /// Every connected screen only under the sheet that says so (consent 2); the older sheet keeps the front window.
+    func testEveryScreenIsCapturedOnlyAfterTheNewerSheet() async {
+        let older = makeRecorder { $0.consentVersion = 1 }
+        backend.answer.allScreensConsent = 2
+        await older.start()
+        XCTAssertTrue(older.offersAllScreens)
+        workspace.front = Self.editor
+        await older.tick()
+        await settle()
+        XCTAssertEqual([capture.captures, capture.screenCaptures], [1, 0])
+
+        let newer = makeRecorder { $0.consentVersion = 2 }
+        backend.answer.allScreensConsent = 2
+        await newer.start()
+        XCTAssertFalse(newer.offersAllScreens)
+        workspace.front = Self.editor
+        await newer.tick()
+        await settle()
+        XCTAssertEqual([capture.captures, capture.screenCaptures], [0, 1])
+        XCTAssertEqual(backend.frames.map(\.display), [1, 2])
+        XCTAssertEqual(backend.frames.map(\.displays), [2, 2])
+        XCTAssertEqual(Set(backend.frames.map(\.at)).count, 1, "one moment, one frame per screen")
+        let asked = try? XCTUnwrap(capture.shownAsked.first)
+        XCTAssertEqual(asked?.keepFront, false, "an editor in front: no browser window to keep")
+        let shown = asked?.shown ?? { _ in true }
+        XCTAssertTrue(shown("com.example.Editor"))
+        XCTAssertFalse(shown("com.google.Chrome"), "a browser appears only through its vetted front window")
+        XCTAssertFalse(shown("com.example.Chat"), "a chat app whose titles stay off")
+        XCTAssertFalse(shown("com.example.Vault"), "an app never recorded")
+        XCTAssertFalse(shown("com.apple.notificationcenterui"), "banners show other apps' words")
+        XCTAssertFalse(shown("com.rorosaga.cicada.test"), "Cicada itself")
+    }
+
+    /// Review of #508, must-fix 6: the sheet this app showed is what is sent, never the version the backend serves.
+    func testTurnOnSendsTheSheetThisAppShowed() async throws {
+        let recorder = makeRecorder { $0.enabled = false }
+        backend.answer = TraceSettingsAnswer(settings: backend.answer.settings, status: backend.answer.status,
+                                             policy: backend.answer.policy, consentVersion: 7)
+        await recorder.start()
+        try await recorder.turnOn()
+        XCTAssertEqual(backend.displayedVersions, [TraceRecorder.sheetVersion])
+    }
+
+    /// Review of #508, B1: the every-screen picture is an allow-list — unknown, new and helper windows are not drawn.
+    func testOnlyListedWindowsOfAppsThatMayBeDescribedAreDrawn() async {
+        func w(_ id: UInt32, _ bundle: String, pid: Int32, layer: Int = 0, here: Bool = true) -> TraceScreenWindow {
+            TraceScreenWindow(id: id, bundleId: bundle, pid: pid, layer: layer, onScreen: true, onThisScreen: here)
+        }
+        let recorder = makeRecorder()
+        await recorder.start()   // the backend's lists: chat apps keep no titles
+        let shown = TraceScreens.shown(recorder.policy) { _ in false }
+        let regular: (Int32) -> Bool = { $0 < 100 }   // fixtures: pids under 100 are Dock apps
+        let windows = [
+            w(1, "com.example.Editor", pid: 10),
+            w(2, "com.google.Chrome", pid: 11),                         // a browser window, not the vetted one
+            w(3, "com.google.Chrome", pid: 11),                         // the vetted front window
+            w(4, "com.apple.quicklook.QuickLookUIService", pid: 500),  // a Mail attachment's preview
+            w(5, "com.apple.appkit.xpc.openAndSavePanelService", pid: 501),
+            w(6, "com.example.Helper", pid: 502),                       // an unknown helper, not a Dock app
+            w(7, "com.example.Chat", pid: 12),                          // a chat app, titles off
+            w(8, "com.example.Editor", pid: 10, layer: 3),              // a floating panel
+            w(9, "com.example.Editor", pid: 10, here: false),           // on another screen
+            w(10, "", pid: 13),
+        ]
+        let allowed = TraceScreenPick.allowed(windows, frontWindowID: 3, frontPid: 11, shown: shown, regular: regular)
+        XCTAssertEqual(allowed, [1, 3])
+        XCTAssertEqual(TraceScreenPick.allowed(windows, frontWindowID: nil, frontPid: 11, shown: shown,
+                                               regular: regular), [1])
+    }
+
+    func testAnOlderBackendNeverTurnsEveryScreenOn() async {
+        let recorder = makeRecorder { $0.consentVersion = 9 }
+        await recorder.start()   // no all_screens_consent in the answer
+        XCTAssertFalse(recorder.capturesAllScreens)
+        XCTAssertFalse(recorder.offersAllScreens)
     }
 
     func testScreenshotsOffOrNoScreenRecordingTakesNone() async {
@@ -567,8 +679,8 @@ final class TraceRecorderTests: XCTestCase {
 
     func testTheCadenceNumbersAreTheOnesTheDocsName() {
         let cadence = TraceFrameCadence()
-        XCTAssertEqual(cadence.minGap, 60)
-        XCTAssertEqual(cadence.steadyInterval, 300)
+        XCTAssertEqual(cadence.minGap, 300)
+        XCTAssertEqual(cadence.steadyInterval, 900)
         XCTAssertEqual(cadence.maxSide, 1280)
         XCTAssertEqual(TraceRecorder.idleThreshold, 120)
     }
@@ -626,7 +738,7 @@ final class TraceNoNetworkTests: XCTestCase {
         let end = try XCTUnwrap(text.range(of: "// MARK: - Messages (G179)"))
         let body = String(text[section.upperBound..<end.lowerBound])
         let funcs = body.components(separatedBy: "    func trace").dropFirst()
-        XCTAssertEqual(funcs.count, 13)
+        XCTAssertEqual(funcs.count, 19)   // 13, plus the page's six (2026-10-28)
         for f in funcs { XCTAssertTrue(f.contains("try traceGate()"), "ungated: func trace\(f.prefix(30))") }
     }
 

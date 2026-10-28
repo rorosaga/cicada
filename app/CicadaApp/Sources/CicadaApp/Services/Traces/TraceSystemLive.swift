@@ -142,6 +142,47 @@ struct LiveTraceScreenCapture: TraceScreenCapture {
         return TraceCapturedFrame(jpeg: jpeg, width: image.width, height: image.height)
     }
 
+    func captureScreens(frontPid: Int32, keepFrontWindow: Bool, maxSide: Int,
+                        shown: @escaping @Sendable (String) -> Bool) async throws -> [TraceCapturedFrame] {
+        guard CGPreflightScreenCaptureAccess() else { throw CaptureError.noAccess }
+        let main = CGMainDisplayID()
+        let displays = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true).displays
+            .sorted { ($0.displayID == main ? 0 : 1, $0.frame.minX, $0.frame.minY)
+                < ($1.displayID == main ? 0 : 1, $1.frame.minX, $1.frame.minY) }
+            .prefix(TraceScreens.max)
+        var frames: [TraceCapturedFrame] = []
+        for (index, display) in displays.enumerated() {
+            // An ALLOW-list, read fresh for each screen (review of #508, B1): only windows that are named here are drawn,
+            // so a window that appeared since, an app launched mid-capture, or a system helper with its own bundle id
+            // (Quick Look's preview, the open/save panel) is never in the picture.
+            let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
+            let frontID: UInt32? = keepFrontWindow ? TraceWindowPick.frontWindowID(
+                in: CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+                    as? [[String: Any]] ?? [], pid: frontPid) : nil
+            let candidates = content.windows.map { w in
+                TraceScreenWindow(id: w.windowID, bundleId: w.owningApplication?.bundleIdentifier ?? "",
+                                  pid: w.owningApplication?.processID ?? 0, layer: w.windowLayer, onScreen: w.isOnScreen,
+                                  onThisScreen: w.frame.intersects(display.frame))
+            }
+            let allowed = TraceScreenPick.allowed(candidates, frontWindowID: frontID, frontPid: frontPid, shown: shown) {
+                NSRunningApplication(processIdentifier: $0)?.activationPolicy == .regular
+            }
+            let windows = content.windows.filter { allowed.contains($0.windowID) }
+            guard !windows.isEmpty else { continue }   // nothing on this screen may be kept: no frame of it
+            let filter = SCContentFilter(display: display, including: windows)
+            let config = SCStreamConfiguration()
+            let scale = min(1.0, Double(maxSide) / Double(max(display.width, display.height)))
+            config.width = max(1, Int(Double(display.width) * scale))
+            config.height = max(1, Int(Double(display.height) * scale))
+            config.showsCursor = false
+            let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
+            guard let jpeg = Self.jpeg(image) else { throw CaptureError.encode }
+            frames.append(TraceCapturedFrame(jpeg: jpeg, width: image.width, height: image.height, display: index + 1,
+                                             displays: displays.count))
+        }
+        return frames
+    }
+
     static func jpeg(_ image: CGImage, quality: Double = 0.6) -> Data? {
         let data = NSMutableData()
         guard let dest = CGImageDestinationCreateWithData(data, UTType.jpeg.identifier as CFString, 1, nil) else {

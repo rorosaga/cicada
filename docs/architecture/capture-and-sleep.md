@@ -653,27 +653,43 @@ this Mac, with times — off by default, on only after the consent sheet (Source
   cannot be verified (Safari, Firefox, Arc; Chromium without Automation) keeps its name and times only — and "browser"
   means any app Launch Services registers to open `https:` links (`TraceBrowserRegistry`), not only the named ones, so
   an unlisted beta or fork fails closed (review of #456, B3).
-- **Screenshots** (on with traces; their own switch; Screen Recording): event-driven — on a new span, at most one a
-  minute (`TraceFrameCadence.minGap` 60 s, so an alt-tab burst costs one frame), then one every 5 min while the same
-  span continues (`steadyInterval`); never while idle, locked or paused; only the **front window** of an app that may be
-  described (never the whole display, so nothing behind it — a private window included — is taken). The front window
-  is the first normal-layer window of that app in the window server's front-to-back list
-  (`CGWindowListCopyWindowInfo(.optionOnScreenOnly)`, `TraceWindowPick`), matched by id in ScreenCaptureKit — whose own
-  list is unordered and counts covered windows as on screen — and the frame is dropped when, after capture, another app
-  is in front or a browser's front tab changed or turned private (`TraceRecorder.stillShows`, B2). Downscaled to 1280
-  px at JPEG 0.6 (~100–200 KB; a heavy day ≤ 480 frames ≈ 70 MB, seven days ≈ 0.5 GB worst case). Text is recognized
-  **on this Mac** with Vision after capture, off the tick (a queue of at most 3 frames), and posted with the frame.
+- **Screenshots** (on with traces; their own switch; Screen Recording): event-driven — on a new span, **at most one
+  every 5 min** (`TraceFrameCadence.minGap` 300 s), then one every **15 min** while the same span continues
+  (`steadyInterval` 900 s) — owner 2026-10-28, "a low screenshot frequency"; never while idle, locked or paused. The
+  Screen Recording preflight (a TCC lookup, ~6–7 ms on the main actor, measured) is asked only once the cadence says a
+  frame is due, never on every five-second tick. **Which pixels:**
+  - *Sheet 1 (before 2026-10-28):* only the **front window** of an app that may be described. The front window is the
+    first normal-layer window of that app in the window server's front-to-back list
+    (`CGWindowListCopyWindowInfo(.optionOnScreenOnly)`, `TraceWindowPick`), matched by id in ScreenCaptureKit.
+  - *Sheet 2 (`ALL_SCREENS_CONSENT`, owner 2026-10-28: "capture all connected displays"):* one frame per connected
+    screen (main screen first, ≤ 8), each `SCContentFilter(display:including:)` — an **allow-list** read fresh for each
+    screen (`TraceScreenPick`, review of #508 B1): only normal on-screen windows on that screen of *regular* apps the
+    policy may describe (`TraceScreens.shown`: never a browser, a chat/mail app whose titles stay off, an excluded app, a
+    password manager, Cicada, a notification banner, Spotlight) plus the one vetted browser front window. A window that
+    appeared since, an app launched mid-capture, or a system helper (Quick Look's preview of a Mail attachment, the
+    open/save panel) is never named, so never drawn; a screen with nothing named gives no frame. A person on sheet 1 keeps
+    front-window frames until they agree to sheet 2 (the Traces page offers it, "Review…"). Frames of one moment share
+    its instant and carry `display`/`displays`.
+  Either way the frame is dropped when, after capture, another app is in front or a browser's front tab changed or
+  turned private (`TraceRecorder.stillShows`, B2). Downscaled to 1280 px at JPEG 0.6. **Cost, measured on this Mac
+  (synthetic 1280×800 screen of dense text):** ≤ ~0.5 MB a frame (a mixed screen ~0.2–0.3 MB), encode ~10 ms, on-device
+  text recognition ~0.65 s wall / ~1.1 s CPU at utility priority. A heavy eight-hour day is ≤ 96 moments: per screen
+  ≤ ~30 MB and ~2 CPU-minutes a day, ≤ ~0.2 GB for the seven days kept (the old 1 min / 5 min cadence: 480 moments,
+  ~150 MB and ~9 CPU-minutes a day). Text is recognized **on this Mac** with Vision after capture, off the tick (a
+  queue of at most 8 frames), and posted with the frame.
 - **Nothing, not even a title,** while off or paused (Pause from the menu bar: an hour, until tomorrow, until resumed),
   locked, in a password field, for an excluded app or site, a password manager, Cicada itself or a private window.
-- **Nothing on the app's disk.** Spans wait in memory (≤ 500, posted once a minute) and frames in a queue of three;
+- **Nothing on the app's disk.** Spans wait in memory (≤ 500, posted once a minute) and frames in a queue of eight;
   with the backend away they wait and the oldest go, never spilled to a file (`ReaderOutbox` never queues a traces
   route). On a server connection (G181) nothing is recorded: `TraceBackendGate` sends traces to This Mac's backend only.
 - **The backend parses and keeps** (`POST /sources/traces/sync`, `POST /sources/traces/frames`): `trace_store` re-applies
   the policy and seals each record outside every bank (`storage.md`, "Activity traces"); `trace_memory` promotes only
-  what the person's switches allow — YouTube views into the watch history (door 4 above) and, behind "Keep a daily
-  summary in memory", a counted day summary (`source: traces-day`, index-only unless "Let Sleep learn from the
-  summary"). Both wait until a span is past the 15-minute forget window (B1). **No model at capture**; a model reads
-  traces only through that opt-in summary. A trace is not a mention.
+  what the person's switches allow — **what you watch and read** on any site (videos into the watch history, door 4
+  above; other pages into the day's index-only reading record; on with traces) and, behind **Learn from my day** (off),
+  the counted day digest Sleep reads (`source: traces-day`; no title, address or screenshot text; project time only
+  through the person's own projects' folders, repositories and tied addresses). All wait until a span is past the
+  15-minute forget window (B1). **No model at capture**; a model reads traces only through that opt-in digest. A trace
+  is not a mention.
 - **Agents:** no MCP tool, no Ask leg and no CLI read the store in v1 — Ask's raw-row lookup would put rows in front of
   a model, which the rail forbids; "what was that video at 15:20" is answered through the watched day Ask and recall
   already read. Remote doors and other devices never see traces.

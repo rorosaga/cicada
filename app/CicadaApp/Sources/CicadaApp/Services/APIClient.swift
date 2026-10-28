@@ -2689,9 +2689,10 @@ actor APIClient {
         return try await get("/sources/traces/settings")
     }
 
-    func traceTurnOn(consentVersion: Int) async throws -> TraceSettingsAnswer {
+    func traceTurnOn(consentVersion: Int, displayedVersion: Int) async throws -> TraceSettingsAnswer {
         try traceGate()
-        return try await post("/sources/traces/on", body: ["consent_version": consentVersion])
+        return try await post("/sources/traces/on",
+                              body: ["consent_version": consentVersion, "displayed_version": displayedVersion])
     }
 
     func traceTurnOff() async throws -> TraceSettingsAnswer {
@@ -2756,6 +2757,42 @@ actor APIClient {
     func traceWipe() async throws -> TraceSettingsAnswer {
         try traceGate()
         return try await post("/sources/traces/wipe", body: ["confirm": true])
+    }
+
+    func traceDayCards() async throws -> [TraceDayCard] {
+        try traceGate()
+        struct Days: Decodable { let days: [TraceDayCard] }
+        let answer: Days = try await get("/sources/traces/day-cards")
+        return answer.days
+    }
+
+    func traceDelete(day: String, spans: [String], frames: [String], all: Bool) async throws -> TraceDeleted {
+        try traceGate()
+        struct Body: Encodable { let day: String; let spans: [String]; let frames: [String]; let all: Bool }
+        return try await postData("/sources/traces/delete",
+                                  json: try JSONEncoder().encode(Body(day: day, spans: spans, frames: frames, all: all)))
+    }
+
+    func tracePreview(day: String?) async throws -> TraceDigestPreview {
+        try traceGate()
+        return try await get("/sources/traces/preview" + (day.map { "?day=\($0)" } ?? ""))
+    }
+
+    func traceAdded() async throws -> TraceAdded {
+        try traceGate()
+        return try await get("/sources/traces/added")
+    }
+
+    func traceRemoveFromMemory() async throws -> TraceRemoval {
+        try traceGate()
+        return try await post("/sources/traces/remove-from-memory")
+    }
+
+    func traceUndoRemoval(id: String) async throws -> Int {
+        try traceGate()
+        struct Restored: Decodable { let restored: Int }
+        let answer: Restored = try await post("/sources/traces/remove-from-memory/undo", body: ["removal_id": id])
+        return answer.restored
     }
 
     // MARK: - Messages (G179)

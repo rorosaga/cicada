@@ -3,8 +3,9 @@ import SwiftUI
 
 // G218 — Traces' own control on the Sources page (`SourceCatalogDetail.controls`, case "traces"). Off: one line of
 // what traces are and "Turn on…", which opens the consent sheet. On: the state line, Pause / Resume, Forget the last
-// 15 minutes, Browse, Turn off and Wipe; then what is recorded, what joins memory, how long, what is never recorded,
-// which browsers' addresses may be read and which chat apps may keep titles; then what is on this Mac. Every write goes
+// 15 minutes, Browse, Turn off and Wipe; then what is recorded, how long, what is never recorded, which browsers'
+// addresses may be read and which chat apps may keep titles; then what is on this Mac. What joins memory lives on the
+// Traces page itself since 2026-10-28 ("Into memory": Learn from my day, What you watch and read). Every write goes
 // through the recorder (`TraceRecorder.update`), never straight to the backend.
 //
 // DR-40 (neutral buttons; the destructive Wipe behind a confirmation in words), DR-47 (one section label), DR-38
@@ -224,7 +225,6 @@ struct TracesControls: View {
                 actions
             }
             recordSection
-            memorySection
             keepSection
             excludeSection
             browsersSection
@@ -305,27 +305,6 @@ struct TracesControls: View {
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: CicadaTheme.spacingSM)
             PermissionAllowButton(kind: kind, title: button, probe: probe, place: .traces) { granted[kind] = true }
-        }
-    }
-
-    // MARK: - Into memory
-
-    private var memorySection: some View {
-        section(Copy.Traces.memorySection) {
-            toggle(Copy.Traces.youtube, help: Copy.Traces.youtubeHelp, isOn: settings.youtubeToWatchHistory) {
-                patch(["youtube_to_watch_history": .bool($0)])
-            }
-            toggle(Copy.Traces.dailySummary, help: Copy.Traces.dailySummaryHelp, isOn: settings.dailySummary) { on in
-                // The nested switch cannot outlive its parent.
-                patch(on ? ["daily_summary": .bool(true)]
-                         : ["daily_summary": .bool(false), "learn_from_summary": .bool(false)])
-            }
-            if settings.dailySummary {
-                toggle(Copy.Traces.learn, help: Copy.Traces.learnHelp, isOn: settings.learnFromSummary) {
-                    patch(["learn_from_summary": .bool($0)])
-                }
-                .padding(.leading, CicadaTheme.spacingLG)
-            }
         }
     }
 
