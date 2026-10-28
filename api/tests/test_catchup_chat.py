@@ -217,3 +217,16 @@ def test_the_harness_door_converses_from_the_same_facts(bank):
     out = mcp_tools.check_nudges(ctx(bank), None, None, "catchup")
     assert "What Cicada has on it" in out and "Owner Example: person" in out
     assert "a conversation, not a quiz" in out
+
+
+def test_the_inbox_tag_moves_with_the_day_so_a_relative_age_is_never_kept_overnight(client, bank, monkeypatch):
+    from api.routers import inbox as inbox_router
+
+    still_item(bank)
+    monkeypatch.setattr(inbox_router, "_served_day", lambda: "2026-10-28")
+    first = client.get("/inbox")
+    tag = first.headers["etag"]
+    assert client.get("/inbox", headers={"If-None-Match": tag}).status_code == 304
+    monkeypatch.setattr(inbox_router, "_served_day", lambda: "2026-10-29")
+    again = client.get("/inbox", headers={"If-None-Match": tag})
+    assert again.status_code == 200 and again.headers["etag"] != tag

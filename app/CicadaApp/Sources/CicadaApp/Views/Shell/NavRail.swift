@@ -19,7 +19,7 @@ import SwiftUI
 /// **Keys.** ⌘1–9 are the cells' own shortcuts, in `AppTab.allCases` order (`RailItem`). A
 /// switch is instant, pointer and key alike (DR-60/61).
 ///
-/// **Tooltips.** Each cell names its page and shortcut ("Inbox ⌘6"). The first waits 450 ms and
+/// **Tooltips.** Each cell names its page and shortcut ("Sleep ⌘5"). The first waits 450 ms and
 /// the next opens at once (R-DS14). `.help` cannot be timed, so the bubble is SwiftUI; the
 /// cell's accessibility label and hint are its text twin.
 struct NavRail: View {

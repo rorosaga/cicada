@@ -143,7 +143,7 @@ final class CatchupSession {
     func tap(_ chip: CatchupChip) {
         guard let item = current, !waiting else { return }
         confirmation = nil
-        lines.append(CatchupLine(.you(chip.label)))
+        lines.append(CatchupLine(.tap(chip.label, itemId: item.id)))
         if let resolution = chip.resolution {
             apply(item, resolution)
         } else {
@@ -176,10 +176,19 @@ final class CatchupSession {
     /// Undo on a noted line: the held answer is dropped unsent and its question is asked again.
     func undo(_ heldId: String) {
         guard self.heldId() == heldId, let item = release() else { return }
+        // The undone answer leaves the chat: its tap and its receipt (review B1). What the person typed stays — those
+        // are their own words whatever was read from them.
+        if let i = lines.lastIndex(where: { if case .noted(_, heldId) = $0.kind { true } else { false } }) {
+            lines.remove(at: i)
+        }
+        if let i = lines.lastIndex(where: { if case .tap(_, heldId) = $0.kind { true } else { false } }) {
+            lines.remove(at: i)
+        }
         if let currentId, currentId != item.id { queue.insert(currentId, at: 0) }
         currentId = item.id
         stored = .asking
         ask(item)
+        keep()
     }
 
     /// The person's own words. With an engine: one turn, which may follow up, rephrase, move on or read an answer.
@@ -229,7 +238,8 @@ final class CatchupSession {
         let moving = ["next", "pass", "later"].contains(reply.move)
         // What was noted sits under the person's words (mock 08), then Cicada's reply.
         var answered = false
-        if let reading = reply.reading, let resolution = CatchupAnswers.resolution(item, reading) {
+        if let reading = reply.reading,
+           let resolution = CatchupAnswers.resolution(item, reading, sessionId: sessionId) {
             if reading.confirm {
                 confirmation = Confirmation(itemId: item.id, resolution: resolution,
                                             label: Copy.Catchup.confirm(CatchupAnswers.noted(item, resolution)))

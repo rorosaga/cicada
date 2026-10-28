@@ -41,6 +41,7 @@ extension Copy {
         }
         static func showMore(_ n: Int) -> String { n == 1 ? "1 more page" : "\(UsageFormat.count(n)) more pages" }
         static let showMoreHelp = "Show the other pages' links"
+        static func allPages(_ n: Int) -> String { "All \(UsageFormat.count(n)) pages" }
         static func rowHelp(yes: Bool, label: String) -> String {
             yes ? "Keep \(label) as a place to check" : "Not a place to check — never proposed again"
         }

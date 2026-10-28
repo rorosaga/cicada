@@ -17,6 +17,8 @@ import SwiftUI
 @MainActor
 final class AppRouter {
     var pendingTab: AppTab?
+    /// Set with `pendingTab` when a key asked for the switch, so it lands in one frame (DR-60).
+    var pendingTabByKey = false
     var pendingAddSource: AddSourceTile?
     /// G117 — Settings → General's "Run setup again" hand-off. The panel's
     /// pages cannot flip `showFirstRun` on `ContentView` themselves (same

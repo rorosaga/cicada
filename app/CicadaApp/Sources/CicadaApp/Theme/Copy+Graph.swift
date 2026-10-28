@@ -148,7 +148,7 @@ extension Copy.Graph {
     static let sourceSaveFailed = "That change wasn't saved. Try again."
     static let sourceBackendDown = "Cicada can't reach its backend, so that change wasn't saved."
     static let openInInbox = "Open in Inbox"
-    static let openInInboxHelp = "Open this question in the Inbox (⌘6)"
+    static let openInInboxHelp = "Open this question in your questions on Home"
 
     // Details
     static let details = "Details"

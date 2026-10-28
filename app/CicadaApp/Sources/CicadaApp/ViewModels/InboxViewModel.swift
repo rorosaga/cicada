@@ -171,7 +171,9 @@ final class InboxViewModel {
         let words = UndoLabel.of(resolution, item: item, names: store.entityNames)
         let held = store.hold(InboxResolve(id: item.id, action: resolution.action, answer: resolution.answer,
                                 optionKey: resolution.optionKey, remindDays: resolution.remindDays,
-                                mergeTarget: resolution.mergeTarget, mergeSurvivor: resolution.mergeSurvivor),
+                                mergeTarget: resolution.mergeTarget, mergeSurvivor: resolution.mergeSurvivor,
+                                quote: resolution.quote, relayedBy: resolution.quote == nil ? nil : CatchupAnswers.relayedBy,
+                                sessionId: resolution.sessionId),
                    label: words.full, shortLabel: words.short, question: item.questionText,
                    kind: item.kind, channel: item.channel)
         guard held else { return false }   // a bank switch is in flight: the question stays open (G183(d))

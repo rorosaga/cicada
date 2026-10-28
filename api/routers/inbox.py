@@ -12,6 +12,13 @@ from api.services import inbox_service, source_check, sync_service
 router = APIRouter()
 
 
+def _served_day() -> str:
+    """The day the inbox's words are said for (its ETag moves with it; review B2 of #509)."""
+    from datetime import date
+
+    return date.today().isoformat()
+
+
 @router.get("/inbox", response_model=list[InboxItem])
 async def list_inbox(
     request: Request,
@@ -26,7 +33,10 @@ async def list_inbox(
     # commit; without it SnapshotCache serves stale context until the inbox
     # itself changes.
     # G205: agent requests (outside the bank) fold into the `inbox` component's stamp, so this ETag moves with them.
-    etag = sync_service.etag_for(settings.memory_path, "inbox", "entities", "episodes", extra=kind or "")
+    # Ruling 48 (1): every served question carries its plain words and reason, whose ages ("yesterday", "about 2
+    # months ago") are worded at read — so the tag moves with the day, or a 304 would keep yesterday's words (DR-58).
+    etag = sync_service.etag_for(settings.memory_path, "inbox", "entities", "episodes",
+                                 extra=f"{kind or ''}|{_served_day()}")
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     # Off the event loop (inbox lag, 2026-10-17): the read parses every inbox file and the pages they name, and a

@@ -84,13 +84,17 @@ enum HomeQuestions {
 
 // MARK: - The catch-up chat (ruling 48 (8))
 
-/// One line of the catch-up chat. Cicada's lines and the person's are the conversation (sent as history and kept as
-/// the session's episode); a *noted* line is the app's own receipt for an answer (with Undo) and never leaves the app.
+/// One line of the catch-up chat. Cicada's lines and what the person typed are the conversation (sent as history and
+/// kept as the session's episode); a tapped answer and a *noted* receipt are the app's own and never leave it.
 struct CatchupLine: Identifiable, Equatable {
     enum Kind: Equatable {
         /// Cicada speaking; `itemId` when the line asks a question.
         case cicada(String, itemId: String?)
+        /// What the person typed — their own words, the only `user:` turns the chat keeps.
         case you(String)
+        /// A tapped answer's label, drawn on the person's side. Never their words: it stays out of the record and the
+        /// model's history (review B1), and an Undo removes it.
+        case tap(String, itemId: String)
         /// "Noted: Org Gamma · Undo" — `heldId` is the answer held for its Undo window.
         case noted(String, heldId: String)
         /// A quiet line in Cicada's voice that is not part of the conversation ("I can only take taps right now").
@@ -111,7 +115,7 @@ struct CatchupLine: Identifiable, Equatable {
         switch kind {
         case .cicada(let text, _): ("cicada", text)
         case .you(let text): ("you", text)
-        case .noted, .aside: nil
+        case .tap, .noted, .aside: nil
         }
     }
 
@@ -220,7 +224,20 @@ enum CatchupAnswers {
 
     /// A reading the backend grounded in the person's words, as the inbox's own resolution. nil when it does not fit
     /// the question (an unknown key, a free answer to a closed question).
-    static func resolution(_ item: InboxItem, _ reading: CatchupTurnReply.Reading) -> QuestionResolution? {
+    static func resolution(_ item: InboxItem, _ reading: CatchupTurnReply.Reading,
+                           sessionId: String? = nil) -> QuestionResolution? {
+        // The coordinator's call on #509: a reading applies under Undo, carrying the person's located words as the
+        // answer's evidence (the resolve's `quote`, kept by the backend as a small relay episode).
+        guard var resolution = bare(item, reading) else { return nil }
+        resolution.quote = reading.quote
+        resolution.sessionId = sessionId
+        return resolution
+    }
+
+    /// The name the chat relays the person's words under (`relayed_by` on the resolve).
+    static let relayedBy = "cicada-catchup"
+
+    private static func bare(_ item: InboxItem, _ reading: CatchupTurnReply.Reading) -> QuestionResolution? {
         if item.kind == .mergeSuggestion {
             switch reading.optionKey {
             case "same": return merge(item, same: true)

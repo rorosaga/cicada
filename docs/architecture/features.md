@@ -178,7 +178,8 @@ additive question shapes feed the catch-up chat: `asks: still` on a `conflict` (
 **Plain words on the wire, and the in-app catch-up (ruling 48 (1), (8), 2026-10-28).** `GET /inbox` serves each
 conflict, decay, clarification, duplicate and follow-up with `spokenQuestion` / `spokenReason` — `inbox_wording.spoken`
 over the pages the read already holds (`InboxContext`, the owner's id once per read), derived and never stored;
-additive, so an older app draws `question` as before. The app's catch-up chat (`app.md`, "Catch me up") adds two
+additive, so an older app draws `question` as before. Because those words carry relative ages, `GET /inbox`'s ETag folds in today's date (`_served_day`):
+a new day is a new tag, never a 304 holding yesterday's "yesterday" (DR-58). The app's catch-up chat (`app.md`, "Catch me up") adds two
 routes. `POST /inbox/catchup/turn` `{itemId, message, history, upcoming}` is one turn of the conversation
 (`catchup_chat.turn`): the engine is resolved as Ask's is — `engine_select.resolve_settings(user_triggered=True)`, a
 person asking is a person present (rulings 4/31/46: never a metered key nobody chose) — and with no engine to call it

@@ -2363,9 +2363,16 @@ actor APIClient {
         optionKey: String? = nil,
         remindDays: Int? = nil,
         mergeTarget: String? = nil,
-        mergeSurvivor: String? = nil
+        mergeSurvivor: String? = nil,
+        quote: String? = nil,
+        relayedBy: String? = nil,
+        sessionId: String? = nil
     ) async throws {
         var body: [String: Any] = ["action": action]
+        // Ruling 48 (8): the person's words the catch-up read this answer from, kept as the answer's evidence.
+        if let quote, !quote.isEmpty { body["quote"] = quote }
+        if let relayedBy { body["relayedBy"] = relayedBy }
+        if let sessionId { body["sessionId"] = sessionId }
         if let answer { body["answer"] = answer }
         if let optionKey { body["optionKey"] = optionKey }
         if let remindDays { body["remindDays"] = remindDays }
@@ -4107,6 +4114,15 @@ extension APIClient: SyncAPI {
         try await resolveInboxItem(id: id, action: action, answer: answer,
                                    optionKey: optionKey, remindDays: remindDays,
                                    mergeTarget: mergeTarget, mergeSurvivor: mergeSurvivor)
+    }
+
+    func resolveInbox(id: String, action: String, answer: String?,
+                      optionKey: String?, remindDays: Int?,
+                      mergeTarget: String?, mergeSurvivor: String?,
+                      quote: String?, relayedBy: String?, sessionId: String?) async throws {
+        try await resolveInboxItem(id: id, action: action, answer: answer, optionKey: optionKey, remindDays: remindDays,
+                                   mergeTarget: mergeTarget, mergeSurvivor: mergeSurvivor, quote: quote,
+                                   relayedBy: relayedBy, sessionId: sessionId)
     }
 
     func setConnectionTier(_ id: String, tier: String?) async throws -> ConnectionStatus {

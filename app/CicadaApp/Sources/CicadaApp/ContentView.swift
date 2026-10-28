@@ -176,8 +176,19 @@ struct ContentView: View {
         .onChange(of: router.pendingTab) { _, newTab in
             guard let newTab else { return }
             router.closeSettings()
-            withAnimation(CicadaMotion.standard(reduceMotion: reduceMotion)) { selectedTab = newTab }
+            // A hand-off a key made (the full list's Esc back to Home) lands in one frame (DR-60).
+            if router.pendingTabByKey {
+                router.pendingTabByKey = false
+                Instant.run { selectedTab = newTab }
+            } else {
+                withAnimation(CicadaMotion.standard(reduceMotion: reduceMotion)) { selectedTab = newTab }
+            }
             router.pendingTab = nil
+        }
+        // Ruling 48 (1): a question's reason says its age in words, worded by the server for today — a new day
+        // asks for them again (the inbox's ETag moves with the date, so this is one fresh read, never a stale 304).
+        .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in
+            Task { await store.refresh([.inbox]) }
         }
         // G139 — Settings → You → "Show on graph": the tab switch above and
         // the reveal here are staged together by `routeToEntity`.

@@ -91,6 +91,12 @@ protocol SyncAPI: Sendable {
     func resolveInbox(id: String, action: String, answer: String?,
                       optionKey: String?, remindDays: Int?,
                       mergeTarget: String?, mergeSurvivor: String?) async throws
+    /// Ruling 48 (8) — the same answer with the person's located words (`quote`) from the catch-up chat, so the
+    /// resolve carries them as its evidence; `relayedBy`/`sessionId` name the chat.
+    func resolveInbox(id: String, action: String, answer: String?,
+                      optionKey: String?, remindDays: Int?,
+                      mergeTarget: String?, mergeSurvivor: String?,
+                      quote: String?, relayedBy: String?, sessionId: String?) async throws
     func setConnectionTier(_ id: String, tier: String?) async throws -> ConnectionStatus
     /// G74(a) — make (or unmake) the Claude plan the Sleep engine.
     func setUseForSleep(_ id: String, on: Bool) async throws -> ConnectionStatus
@@ -331,3 +337,14 @@ struct SleepEventPayload: Codable, Equatable {
     }
 }
 
+
+extension SyncAPI {
+    /// A double that predates the catch-up's evidence answers the same way, without the words.
+    func resolveInbox(id: String, action: String, answer: String?,
+                      optionKey: String?, remindDays: Int?,
+                      mergeTarget: String?, mergeSurvivor: String?,
+                      quote: String?, relayedBy: String?, sessionId: String?) async throws {
+        try await resolveInbox(id: id, action: action, answer: answer, optionKey: optionKey, remindDays: remindDays,
+                               mergeTarget: mergeTarget, mergeSurvivor: mergeSurvivor)
+    }
+}

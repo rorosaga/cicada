@@ -441,10 +441,12 @@ conflict or a pair with no other side) in the inbox's order, each in its plain w
 link. **One tap still answers** (DR-42): the chips are the inbox's own resolutions (`CatchupAnswers.chips` — the
 options, *Yes, the same* / *No, different* for a pair, Keep / Archive for a legacy decay, *Not now* = the 7-day defer,
 *Skip* sends nothing), held through `InboxViewModel.answer` for the same Undo window, with a "✓ Noted: … · Undo" line
-(Undo asks the question again). **Their own words** go to `POST /inbox/catchup/turn` (`features.md`): one turn on the
+(Undo asks the question again, and removes the tap and its receipt). A tap is drawn on the person's side but is never
+their words: it stays out of the record and the model's history (only typed words are `user:`, review B1 of #509). **Their own words** go to `POST /inbox/catchup/turn` (`features.md`): one turn on the
 person's chosen engine that answers like a person — a follow-up, the question in other words, or a move to a related
 upcoming question (asked in the reply's words, never repeated from the template). A reading grounded in their words
-is applied through the same hold; a question about who someone is (a pair, a name) only becomes a one-tap
+is applied through the same hold, carrying the person's located words as the resolve's `quote` (`relayedBy:
+cicada-catchup`, the chat's session — kept by the backend as the answer's relay evidence); a question about who someone is (a pair, a name) only becomes a one-tap
 confirmation (ruling 41). With no engine the chat says "I can only take taps right now — <why>" and offers their words
 as a free answer for one tap where the question takes words. After each thing the person says the chat is posted to
 `POST /inbox/catchup/record` (one episode per session; posts never overlap). **The worm is Cicada's face**
@@ -456,8 +458,12 @@ Motion holds the key frame (DR-66). **A page's questions strip** (`PageQuestions
 content): its open questions (either side of a pair, `HomeQuestions.onPage`), one at a time — "A question · 1 of N"
 with ‹ › — the plain question, its reason, the one-tap answers through the same hold, and *Open the full question*;
 nothing when the page has none. **The full list** (`InboxPage`) is unchanged but for the path eyebrow, Esc back to
-Home, and its kind groups always open — a section label with the kind's glyph, plural and count, never a fold
-(`InboxGroups.isOpen`, ruling 48 (17), DR-81). DR ids: DR-22, DR-40, DR-42, DR-48, DR-60, DR-66, DR-81.
+Home (in one frame, `AppRouter.pendingTabByKey`, DR-60), and no folds anywhere on it (ruling 48 (17), DR-81): its kind
+groups are always open, a section label with the kind's glyph, plural and count (`InboxGroups.isOpen`); *Settled by a
+check* and *Settled by Sleep* show their first three, open, with *All N* opening the whole group in a sheet
+(`FullListSheet`); *Confirm N links* shows its first pages and *All N pages* opens every page in the same sheet. A new
+day refreshes the inbox (`.NSCalendarDayChanged`), whose ETag moves with the date, so a reason's age is never
+yesterday's. Copy that named the Inbox tab or ⌘6 now says Home or "your questions". DR ids: DR-22, DR-40, DR-42, DR-48, DR-60, DR-66, DR-81.
 
 **Onboarding v2 (G92, G217, ruling 36; 2026-10-22; replaces G145's seven pages).** Six steps of one verb each in
 one full-window layer, raised by `FirstRunGate` (unknown is never empty; never over the demo) or by the one door,

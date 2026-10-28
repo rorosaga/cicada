@@ -117,7 +117,7 @@ struct CatchupView: View {
         switch line.kind {
         case .cicada(let text, let itemId):
             cicada(text, itemId: itemId, live: line.id == lastCicadaId)
-        case .you(let text):
+        case .you(let text), .tap(let text, _):
             VStack(alignment: .trailing, spacing: CicadaTheme.spacingXS) {
                 SectionLabel(Copy.Catchup.you)
                 Text(text)

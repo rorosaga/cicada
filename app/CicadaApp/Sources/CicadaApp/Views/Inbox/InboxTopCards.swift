@@ -134,7 +134,7 @@ struct AgentRequestCard: View {
 /// what it is in one sentence, then each page once — its picture and name (a click opens it) — and under it each
 /// waiting link: what it is ("bob-example · GitHub profile"), why Cicada proposed it, and what confirming changes
 /// ("their picture and updates can come from here"). One quiet primary per link (Confirm, a neutral button, DR-40) and
-/// a quieter decline (a text button). Past three pages the rest wait behind "N more pages", one fold (DR-39). Each link
+/// a quieter decline (a text button). Past three pages, "All N pages" opens every page in a sheet (ruling 48 (17): no fold). Each link
 /// is still answered alone; there is no answer-all, and the card leaves when the last is answered.
 struct WhereToCheckReviewCard: View {
     let item: InboxItem
@@ -161,24 +161,24 @@ struct WhereToCheckReviewCard: View {
                     ForEach(pages.prefix(WhereToCheckWords.firstPages)) { page in pageView(page) }
                 }
                 .padding(.top, CicadaTheme.spacingMD)
-                let rest = Array(pages.dropFirst(WhereToCheckWords.firstPages))
-                if !rest.isEmpty {
-                    DisclosureHeader(title: Copy.WhereToCheck.showMore(rest.count), isOpen: showAll,
-                                     help: Copy.WhereToCheck.showMoreHelp) { showAll.toggle() }
-                        .padding(.top, CicadaTheme.spacingSM)
-                    if showAll {
-                        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-                            ForEach(rest) { page in pageView(page) }
-                        }
-                        .padding(.top, CicadaTheme.spacingSM)
-                        .disclosureReveal()
+                // Ruling 48 (17), DR-81 — no fold: the first pages open, "All N pages" opens every page in a sheet.
+                if pages.count > WhereToCheckWords.firstPages {
+                    InlineLink(title: Copy.WhereToCheck.allPages(pages.count), help: Copy.WhereToCheck.showMoreHelp) {
+                        showAll = true
                     }
+                    .padding(.top, CicadaTheme.spacingSM)
                 }
             }
             .padding(CicadaTheme.spacingMD)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(CicadaTheme.bgFocus, in: CicadaTheme.shape(CicadaTheme.cornerRadius))
             .ringed(in: CicadaTheme.shape(CicadaTheme.cornerRadius))
+            .sheet(isPresented: $showAll) {
+                FullListSheet(title: item.questionText) {
+                    ForEach(WhereToCheckWords.byPage(rows)) { page in pageView(page) }
+                }
+                .environment(store)
+            }
         }
     }
 

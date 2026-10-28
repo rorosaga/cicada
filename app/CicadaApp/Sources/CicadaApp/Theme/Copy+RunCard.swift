@@ -60,7 +60,7 @@ extension Copy {
         static let detailsTitle = "Models and batches"
         static func openConversation(_ title: String) -> String { "Open \(title)" }
         static func openPage(_ name: String) -> String { "Open \(name)" }
-        static func openQuestion(_ title: String) -> String { "Open \(title) in the Inbox" }
+        static func openQuestion(_ title: String) -> String { "Open \(title) in your questions" }
 
         /// Short labels the copy lints read.
         static let labels = [startedByYou, startedBySchedule, finished, reading, pausedPlanLimit, pausedReserve, paused,

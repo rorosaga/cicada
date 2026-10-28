@@ -94,11 +94,15 @@ final class HomeQuestionsTests: XCTestCase {
         let q = try item("q1")
         typealias R = CatchupTurnReply.Reading
         XCTAssertEqual(CatchupAnswers.resolution(q, R(optionKey: "a", answer: nil, quote: "still", confirm: false)),
-                       QuestionResolution(action: "resolve", optionKey: "a"))
+                       QuestionResolution(action: "resolve", optionKey: "a", quote: "still"),
+                       "a reading carries the person's located words as its evidence")
+        XCTAssertEqual(CatchupAnswers.resolution(q, R(optionKey: "a", answer: nil, quote: "still", confirm: false),
+                                                 sessionId: "catchup-s1")?.sessionId, "catchup-s1")
         XCTAssertNil(CatchupAnswers.resolution(q, R(optionKey: "zz", answer: nil, quote: "x", confirm: false)))
         XCTAssertEqual(CatchupAnswers.resolution(q, R(optionKey: nil, answer: "Org Delta", quote: "Org Delta",
                                                       confirm: false)),
-                       QuestionResolution(action: "resolve", answer: "Org Delta", optionKey: "neither"))
+                       QuestionResolution(action: "resolve", answer: "Org Delta", optionKey: "neither",
+                                          quote: "Org Delta"))
         let pair = try item("m", kind: "merge_suggestion", options: "[]", extra: #","mergeTargetHint":"beta""#)
         XCTAssertEqual(CatchupAnswers.resolution(pair, R(optionKey: "same", answer: nil, quote: "yes", confirm: true))?.action,
                        "merge")
@@ -147,8 +151,27 @@ final class HomeQuestionsTests: XCTestCase {
         XCTAssertEqual(s.currentId, "q2")
         XCTAssertEqual(s.position, 2)
         await s.settled()
-        XCTAssertEqual(fake.records.last?.compactMap(\.wire?.who), ["cicada", "cicada", "you", "cicada"],
-                       "the chat is kept as the conversation: the noted receipt never leaves the app")
+        XCTAssertTrue(fake.records.isEmpty, "a tap is never the person's words: a chat of taps keeps nothing")
+    }
+
+    /// Review B1 of #509 — a tapped label never reaches the record as `user:`, and an undone answer leaves the chat.
+    func testATappedThenUndoneAnswerNeverReachesTheRecordAsTheirWords() async throws {
+        let fake = Fake([try item("q1"), try item("q2", page: "beta")])
+        let s = session(fake)
+        s.start()
+        s.tap(s.chips[0])
+        s.undo("q1")
+        XCTAssertFalse(s.lines.contains { if case .tap = $0.kind { true } else { false } }, "the undone tap is gone")
+        XCTAssertFalse(s.lines.contains { if case .noted = $0.kind { true } else { false } })
+        s.tap(s.chips.first { $0.role == .skip }!)
+        fake.replies = [CatchupTurnReply(reply: "Got it.", move: "stay")]
+        s.draft = "I typed this myself"
+        await s.send()
+        await s.settled()
+        let record = try XCTUnwrap(fake.records.last)
+        let mine = record.compactMap { $0.wire }.filter { $0.who == "you" }.map(\.text)
+        XCTAssertEqual(mine, ["I typed this myself"], "only typed words are the person's")
+        XCTAssertFalse(record.compactMap { $0.wire?.text }.contains("Org Gamma"))
     }
 
     func testTheirOwnWordsGetAFollowUpAndAGroundedReadingIsApplied() async throws {
