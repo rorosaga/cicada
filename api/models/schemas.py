@@ -2246,6 +2246,13 @@ class SearchHit(CamelModel):
     # G141 — an event claim hit keeps its status, day and closure metadata.
     event_status: str | None = None
     event_day: str | None = None
+    # Vision item 3 (2026-10-28) — an ``image`` hit (asked for with ``kinds=image``, hybrid only): ``id`` is the
+    # picture's key, ``name`` its title, ``type`` ``image``; ``thumbnail`` is the API path that serves the picture and
+    # ``image_source`` where it came from (``look | capture | preview | still``); ``subject_id`` is its page and
+    # ``episode_id`` the watched day it came from, when it has one; ``score`` is its lift over the query's mean
+    # cosine across every picture (``image_index``), comparable between image hits only.
+    thumbnail: str | None = None
+    image_source: str | None = None
 
 
 class SearchResponse(CamelModel):

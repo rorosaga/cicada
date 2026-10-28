@@ -25,6 +25,13 @@
   fixture), and a conversation tied without a claim yet counts as activity (`_tied_days`); list p95 stays ≤ 58 ms on
   the 2,500-page bench. The second amends DESIGN_RULES 2026-10-19 (1)'s "resting — a decaying or archived page" —
   awaiting the owner's yes.
+- **2026-10-28 — pictures in the one meaning index (vision item 3, G195, G162, ruling 30; branch
+  `feat/vision-meaning-index`).** Looks, the newest capture thumbnail per saved site, saved links' previews and saved
+  or watched YouTube stills already on this Mac are a fifth kind of `vector_index.db` (`image_index`), embedded in the
+  background outside Sleep by a picture child (nice 10, 4 threads, 2 GB ceiling; the design board's pictures too),
+  found by text through `/search?kinds=image` and recall's "Pictures that match" on local doors only. Scored by lift
+  over the kind's mean (RRF and z-score measured and rejected, `storage.md`). Cold build 6.7 pictures/s, child peak
+  872 MB. Audio and local-video frames: spikes with recommendations, not built (needs the owner).
 - **2026-10-28 — ruling 47 recorded; two ways in for what the person consumes (G166, G206, G218, G223, G179, G29, G32,
   G94; branch `docs/ruling-47-ingestion-connectors`, docs only).** Tier 1, the default: their own browser and Mac,
   through the browser and macOS harnesses, G166/G206/G218 rails unchanged. Tier 2: an official API for a specific

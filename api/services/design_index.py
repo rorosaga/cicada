@@ -77,13 +77,27 @@ def default_embedders(environ=None) -> Embedders | None:
     from api.services import onnx_embedder, providers, vision_embedder
 
     environ = os.environ if environ is None else environ
+    from api.services import embed_worker
+
     vision = vision_embedder.get(environ)
     if vision is not None:
         try:
             fp = vision_embedder.fingerprint()
         except Exception:  # noqa: BLE001 — a decoder that cannot run embeds no picture anyway
             fp = None
-        return Embedders(model=vision.model_id or onnx_embedder.PREFERRED_ID, image=vision.embed,
+        image = vision.embed
+        if embed_worker.enabled(environ):
+            # Vision item 3 (2026-10-28): every picture vector is made in the picture child, never in the backend —
+            # a Core ML predict holds the GIL and the image encoder is ~300 MB (``embed_worker`` "Pictures too").
+            # Only the image encoder's folder is read here; the text half of `vision` loads only for a query.
+            in_child = embed_worker.images(onnx_embedder.PREFERRED_ID)   # one picture child for every caller
+
+            def image(data: bytes) -> np.ndarray:
+                row = np.asarray(in_child([data]), dtype=np.float32)[0]
+                if not np.all(np.isfinite(row)):
+                    raise ValueError("the picture didn't embed")
+                return row
+        return Embedders(model=vision.model_id or onnx_embedder.PREFERRED_ID, image=image,
                          text=lambda texts, q: vision.embed_text(texts, is_query=q), image_fingerprint=fp)
     if onnx_embedder.find(onnx_embedder.PREFERRED_ID, environ) is None:
         return None

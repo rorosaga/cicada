@@ -2101,6 +2101,15 @@ def _recall(ctx: ToolContext, query: str) -> str:
                 ep_lines.append('_Read one whole with `cicada_sources(entity_id="<episode id>")`._')
             output_parts.append("\n".join(ep_lines))
 
+    # === Vision item 3: pictures that match, by meaning — local doors only ===
+    # The remote connector (G135) has no scope that covers pictures (`sources` covers the person's verbatim words), so
+    # a remote call never sees this section; the owner decides whether one should (the PR's "Needs the owner").
+    if not ctx.is_remote:
+        picture_lines = _picture_lines(memory_path, query, more_call)
+        if picture_lines:
+            output_parts.append("**Pictures that match (by meaning; each names where it came from):**\n"
+                                + "\n".join(picture_lines))
+
     # G180: a graph with no page at all is an empty graph whether or not `entities/` was
     # scaffolded; the text is unchanged, the refusal is typed (never matched on the sentence).
     # Fix round (#419): only a recall that found NOTHING is that refusal. One with hints, inbox blurbs or
@@ -2114,6 +2123,39 @@ def _recall(ctx: ToolContext, query: str) -> str:
     if hints_block and text.startswith(hints_block):
         return Reply.framed([("own", hints_block), ("data", text[len(hints_block):])], data=hints)
     return Reply(text, data=hints)
+
+
+RECALL_PICTURES_SHOWN = 3
+_PICTURE_FROM = {"look": "a look you saved", "capture": "a screenshot of the saved site",
+                 "preview": "the saved link's own picture", "still": "the video's still"}
+
+
+def _picture_lines(memory_path: Path, query: str, more_call) -> list[str]:
+    """At most ``RECALL_PICTURES_SHOWN`` pictures from the one meaning index (``image_index``), each with where it came
+    from and the API path that serves it; none when no picture clears the floor. It embeds only the query's words —
+    the vector recall's entity leg already made for the same model, so usually nothing new."""
+    from api.services import image_index
+
+    try:
+        rows = image_index.search(memory_path, query, top_k=RECALL_PICTURES_SHOWN)
+    except Exception as exc:  # noqa: BLE001 — pictures never fail a recall
+        from loguru import logger
+
+        logger.debug(f"recall: picture leg skipped ({type(exc).__name__})")
+        return []
+    lines = []
+    for row in rows:
+        meta = row.get("metadata") or {}
+        where = _PICTURE_FROM.get(str(meta.get("source") or ""), "a picture")
+        if meta.get("source") == "still" and meta.get("episode_id") and not meta.get("entity_id"):
+            where = f"the still of a video watched on {meta.get('day') or 'a day'} ({meta['episode_id']})"
+        elif meta.get("day"):
+            where += f", {meta['day']}"
+        page = meta.get("entity_id")
+        tail = f" — page `{page}`" + (f", {more_call(page)}" if more_call else "") if page else ""
+        lines.append(f"- {str(meta.get('title') or 'A picture')[:RECALL_HOP_CHARS]} ({where}) · picture "
+                     f"`{meta.get('thumb') or ''}`{tail}")
+    return lines
 
 
 def _recall_detail_spell(ctx: ToolContext):

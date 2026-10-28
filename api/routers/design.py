@@ -401,6 +401,9 @@ async def add_design_ref(image: UploadFile = File(...), url: str | None = Form(N
 
     out = await write_admission.run_admitted(mp, store, refuse=lambda: SleepWriting(BUSY))
     design_index.refresh_in_background(mp)
+    from api.services import image_index
+
+    image_index.start_refresh(mp, delay_s=image_index.SETTLE_S)   # the look joins the one meaning index too
     return out
 
 

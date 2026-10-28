@@ -156,6 +156,11 @@ async def lifespan(app: FastAPI):
 
     asyncio.get_running_loop().run_in_executor(
         None, embedding_models.start_reindex_if_needed, settings.memory_path, settings)
+    # Pictures already on this Mac that the meaning index lacks (vision item 3): in the background, a little after
+    # the start, only where the person installed the image encoder, never while Sleep runs.
+    from api.services import image_index
+
+    image_index.start_refresh(settings.memory_path, delay_s=image_index.SETTLE_S)
 
     logger.info(f"Memory path: {settings.memory_path}")
     logger.info(f"LLM model: {settings.litellm_model}")

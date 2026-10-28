@@ -51,6 +51,15 @@ times — and Ask said "the assistant" where the episode recorded a Claude Code 
 - **The extras earn their place.** "Related (one hop out)" only when a single page passed the floor (160 characters a
   head); excerpts one passage per conversation, a passage that is mostly a link skipped, each naming who the person
   was talking to (`episode_actor`), and one line naming the read (`cicada_sources`, only for a caller holding it).
+- **Pictures that match (vision item 3, 2026-10-28).** On a local door (stdio, the CLI, a per-device client) recall
+  adds at most `RECALL_PICTURES_SHOWN` (3) pictures from the one meaning index (`image_index`, `storage.md` "Pictures
+  in the meaning index"), each as its title, where it came from (a look you saved, a screenshot of the saved site, the
+  saved link's own picture, the video's still, or the still of a video watched on a day with that day's episode id),
+  the API path that serves it, and its page with the call that reads it. Only pictures whose lift clears
+  `image_index.LIFT_MIN`, so most recalls carry none. It embeds only the query's words with the table's text model —
+  the vector the entity leg already made — and never the image encoder. **The remote connector never sees it:** no
+  G135 scope covers pictures (`sources` covers the person's verbatim words), so `ctx.is_remote` skips the section
+  (the owner's call whether a scope should; the PR's "Needs the owner").
 - **Measured** on a 7,962-page bank copy with its own search model, 25 questions (people, events, projects, "who did
   X", "did I send Y"): 457,788 → 150,672 characters in all (median 18,713 → 6,038, largest 22,453 → 8,625), the answer-bearing fact in 23
   of 25 replies before and after. The two misses are the same before and after: both facts sit only on the 482 KB
