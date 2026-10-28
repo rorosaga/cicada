@@ -51,6 +51,8 @@ enum OriginIconography {
         "imessage",
         // G219: a ticked Reminders list's reminder, and a Notion export's page or row.
         "reminders-local", "notion-export",
+        // Ruling 47 tier 2: Readwise highlights and the live Notion connection (`connectors/readwise.py`, `notion.py`).
+        "readwise", "notion-api",
         // G135 R-R26: a remote connector's app, as its episodes stamp it
         "claude-web", "chatgpt", "perplexity", "claude-code-remote",
         "codex-remote", "vscode", "remote-app",
@@ -95,7 +97,8 @@ enum OriginIconography {
         case "calendar-local": "Calendar"
         case "contacts-local": "Contacts"
         case "reminders-local": "Reminders"
-        case "notion-export": "Notion"
+        case "notion-export", "notion-api": "Notion"
+        case "readwise": "Readwise"
         case "imessage": "Messages"
         case "apple-notes": "Apple Notes"
         case "share-sheet": "Share Sheet"
@@ -168,7 +171,8 @@ enum OriginIconography {
         case "calendar", "calendar-local": "calendar"
         case "contacts-local": "person.crop.circle"
         case "reminders-local": "checklist"
-        case "notion-export": "doc.text"
+        case "notion-export", "notion-api": "doc.text"
+        case "readwise": "highlighter"
         case "imessage": "message.fill"
         case "apple-notes": "note.text"
         case "share-sheet": "square.and.arrow.up"

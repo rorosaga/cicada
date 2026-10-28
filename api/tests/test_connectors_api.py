@@ -64,7 +64,7 @@ def test_list_connectors_reports_fields_without_values(client):
     c, _ = client
     body = c.get("/sources/connectors").json()
     ids = [row["id"] for row in body["connectors"]]
-    assert ids == ["pinterest", "reddit", "x"]
+    assert ids == ["pinterest", "reddit", "x", "readwise", "notion-api"]
     pin = body["connectors"][0]
     assert pin["connected"] is False
     assert [f["name"] for f in pin["fields"]] == [pinterest.APP_ID_ENV, pinterest.APP_SECRET_ENV]

@@ -79,6 +79,9 @@ enum SourceBlurb {
         // G219.
         "reminders-local": "Reminders from the lists you ticked.",
         "notion": "Pages and database rows from a Notion export.",
+        // Ruling 47 tier 2.
+        "notion-api": "The Notion pages you shared with your own connection, kept current.",
+        "readwise": "Your Readwise highlights, with your notes and the book or article each came from.",
         // A conversation an agent saved without saying which app it is (no harness on its episodes): kept, and named
         // for what it is, rather than folded into an app it may not be.
         "harness:unknown": "Conversations from agents that didn't say which app they are.",

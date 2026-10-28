@@ -71,6 +71,9 @@ enum SourceDisplayName {
         // G219: Apple Reminders and a Notion export (`source_overview.CATALOG`'s G219 rows).
         "reminders-local": "Reminders",
         "notion": "Notion",
+        // Ruling 47 tier 2 (`source_overview.CATALOG`'s rows).
+        "notion-api": "Notion (live)",
+        "readwise": "Readwise",
         "files": "Files & links",
         "wispr-flow": "Wispr Flow",
         // The open families a live bank produces (A2/A4).

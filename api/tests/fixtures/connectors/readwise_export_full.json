@@ -1,0 +1,53 @@
+{
+  "_note": "The shape of Readwise's GET /api/v2/export/ (readwise.io/api_deets, read 2026-10-29); every value is a placeholder.",
+  "pages": [
+    {"count": 1, "nextPageCursor": "cursor-page-2", "results": [
+      {"user_book_id": 101, "is_deleted": false, "title": "Example Book One", "author": "Author A",
+       "readable_title": "Example Book One", "source": "kindle", "cover_image_url": "", "unique_url": "",
+       "book_tags": [{"id": 1, "name": "reading"}], "category": "books", "document_note": "Read this for alpha-project.",
+       "summary": "", "readwise_url": "https://readwise.io/bookreview/101", "source_url": "", "external_id": null,
+       "asin": null,
+       "highlights": [
+         {"id": 1001, "is_deleted": false, "text": "The first highlighted line.", "location": 10,
+          "location_type": "location", "note": "This is my own thought.", "color": "yellow",
+          "highlighted_at": "2026-09-01T10:00:00Z", "created_at": "2026-09-01T10:00:00Z",
+          "updated_at": "2026-09-01T10:00:00Z", "external_id": null, "end_location": null, "url": null,
+          "book_id": 101, "tags": [], "is_favorite": false, "is_discard": false,
+          "readwise_url": "https://readwise.io/open/1001"},
+         {"id": 1002, "is_deleted": false, "text": "A second line, same day.", "location": 20,
+          "location_type": "location", "note": null, "color": "yellow",
+          "highlighted_at": "2026-09-01T11:00:00Z", "created_at": "2026-09-01T11:00:00Z",
+          "updated_at": "2026-09-01T11:00:00Z", "external_id": null, "end_location": null, "url": null,
+          "book_id": 101, "tags": [], "is_favorite": false, "is_discard": false,
+          "readwise_url": "https://readwise.io/open/1002"},
+         {"id": 1003, "is_deleted": false, "text": "A line from another day.", "location": 30,
+          "location_type": "location", "note": "", "color": "blue",
+          "highlighted_at": "2026-09-05T08:00:00Z", "created_at": "2026-09-05T08:00:00Z",
+          "updated_at": "2026-09-05T08:00:00Z", "external_id": null, "end_location": null, "url": null,
+          "book_id": 101, "tags": [], "is_favorite": false, "is_discard": false,
+          "readwise_url": "https://readwise.io/open/1003"},
+         {"id": 1004, "is_deleted": true, "text": "Deleted before Cicada saw it.", "location": 40,
+          "location_type": "location", "note": null, "color": "yellow",
+          "highlighted_at": "2026-09-05T09:00:00Z", "created_at": "2026-09-05T09:00:00Z",
+          "updated_at": "2026-09-05T09:00:00Z", "external_id": null, "end_location": null, "url": null,
+          "book_id": 101, "tags": [], "is_favorite": false, "is_discard": false,
+          "readwise_url": "https://readwise.io/open/1004"}
+       ]}
+    ]},
+    {"count": 1, "nextPageCursor": null, "results": [
+      {"user_book_id": 202, "is_deleted": false, "title": "Example Article", "author": "example.com",
+       "readable_title": "Example Article", "source": "reader", "cover_image_url": "", "unique_url": "",
+       "book_tags": [], "category": "articles", "document_note": "", "summary": "",
+       "readwise_url": "https://readwise.io/bookreview/202", "source_url": "https://example.com/an-article",
+       "external_id": "01example", "asin": null,
+       "highlights": [
+         {"id": 2001, "is_deleted": false, "text": "An article's line.\nSpanning two lines.", "location": 1,
+          "location_type": "order", "note": null, "color": "yellow",
+          "highlighted_at": "2026-10-02T12:00:00Z", "created_at": "2026-10-02T12:00:00Z",
+          "updated_at": "2026-10-02T12:00:00Z", "external_id": "e1", "end_location": null, "url": null,
+          "book_id": 202, "tags": [], "is_favorite": false, "is_discard": false,
+          "readwise_url": "https://readwise.io/open/2001"}
+       ]}
+    ]}
+  ]
+}

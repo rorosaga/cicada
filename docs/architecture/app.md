@@ -1396,6 +1396,12 @@ agent reads (`agent_methods`), not an install.
   Markdown & CSV with subpages) and holds the one intake's drop (`IntakePanel`); the preview reads "Notion pages" with
   "N pages · N database rows" (`IntakeCounts.pages`/`rows`, `IntakeSummary`), and the row reads Connected once an
   import fed memory (the backend's `notion` origin row, like a chat export).
+  **Ruling 47 tier 2 (2026-10-29):** *Accounts* gains **Readwise** (id `readwise`), and Notion's row also speaks for the
+  live connection (`channels: ["notion", "notion-api"]`). Both details open `ConnectorSetupPanel` — the panel Reddit,
+  Pinterest and X already use, so no new pattern (DR-40 buttons, DR-20/DR-2 caption text, DR-81 no fold, DR-52 marks:
+  Readwise draws the `highlighter` symbol, Notion its export's symbol) — which says what the connector reads
+  (`reads`) and where the token comes from (`tokenHelp`) before Save, then Refresh and Disconnect. A refused token reads
+  Needs sign-in (`signInChannels`). Notion's detail keeps the export's steps and drop below the live panel.
 - **Inbox top cards (G205, G61):** `agent_request` (`InboxKind.agentRequest`) and the grouped *Confirm N links* review
   (`asks: sources`, `review: true`) are cards above the questions, out of the list, its tabs and the quick review
   (`InboxViewModel.questions`). A request: the agent's tile, *Sign in to <site>*, whose and why, **I signed in**

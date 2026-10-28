@@ -401,6 +401,33 @@ in a bank. The connect step says in plain words that Cicada keeps a signed-in se
 (Disconnect in Cicada, or Telegram's own Settings → Devices). Off until connected; only ticked chats are read (G179); the
 bot channel (G29, `CICADA_TELEGRAM_BOT_TOKEN`) is unchanged. Built on `feat/chats-live-whatsapp-telegram`.
 
+**The tier-2 framework (`api/services/connectors/tier2.py`, 2026-10-29).** One module behind every token connector
+after Telegram. An adapter is a module in `ADAPTERS` with `TIER = 2`, so its Sources row, `GET/PUT/DELETE
+/sources/connectors/{id}[/credentials]` and `POST …/sync` are the existing connector routes; it declares `TOKEN_ENV`,
+`API_BASE`, `READS` (what it reads, in words — served as `reads`, with `tokenHelp`, on the status), `REFUSED_WORDS`,
+`auth_headers`, `check(client)` and `fetch(client, cursor, bank) -> Batch`.
+- **Connect** is the person's Save: `check` makes one read-only request to the service's own host with the pasted
+  token; a refusal (or no answer) saves nothing and the 422 says why in words. **Disconnect** forgets every name in
+  `SECRET_NAMES` and the connector's cursors in every bank.
+- **Requests** go only to `API_BASE` (any other URL is refused), follow no redirect, keep no cookie (a fresh client per
+  request), 15 s each; a 429 waits its `Retry-After` once (≤ 60 s), then stops in words with the cursor unmoved. No
+  request carries a person's name or any query text.
+- **Gates.** Refresh and `cicada connector sync` are the person's click (never gated). The scheduler's job
+  (`tier2.scheduled_sync`, every 6 h, only connected connectors, the active bank) is a fetch Cicada starts on its own:
+  behind `CICADA_ALLOW_CONNECTOR_FETCH` (a skip recorded in words), and skipped before any request while Sleep holds the
+  pages. Sleep's tail never runs a tier-2 sync.
+- **Errors** on the Sources row are the adapter's sentence or "<service> answered HTTP <status>" — never a URL, body or
+  token (`sync_state.json` is in the bank and committed).
+- **Credentials** — `CICADA_READWISE_TOKEN`, `CICADA_NOTION_TOKEN` in `secrets.env` (0600); every connector secret (the
+  saved-content connectors' too) is in `connections.base.CONNECTOR_SECRET_ENV`, stripped from every engine child, so a
+  model with tools never holds a key to the person's accounts. No remote door reaches these routes (the G135 listener
+  serves `/mcp` and `/v1` only).
+
+| Connector | Token | What is read | Terms |
+|---|---|---|---|
+| Readwise (`readwise.py`) | the person's access token, readwise.io/access_token (no read-only scope exists; only GETs are made) | `GET /api/v2/export/` (highlights with their books), `GET /api/v2/auth/` on Save | readwise.io/tos §8: "connect AI assistants and other tools to your content … through our APIs"; §3's scraper ban excepts the APIs |
+| Notion (`notion.py`) | an internal connection with Read content only, shared page by page; a personal access token is refused | `POST /v1/search` (pages, no query), `GET /v1/pages/{id}/markdown`, `GET /v1/data_sources/{id}` (a row's database title), `GET /v1/users/me` on Save; Notion-Version 2026-03-11 | developers.notion.com: internal connections are for "syncing data from external tools"; 180 requests a minute per connection outside Business plans, honoured through `Retry-After` |
+
 **The ToS rail — this one is not negotiable.** A fetched page is 4 s / ≤ 512 KB / no cookies / never
 behind auth. Consent interstitials and login walls are classified and retired as `junk` **without a
 byte fetched**. **A block is never retried with different headers.** No scraping behind

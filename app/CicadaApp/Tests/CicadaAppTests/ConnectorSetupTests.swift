@@ -30,6 +30,28 @@ final class ConnectorSetupTests: XCTestCase {
         XCTAssertTrue(status.isOAuth)
     }
 
+    /// Ruling 47 tier 2: a token connector says what it reads and where the token comes from; an older backend's
+    /// payload (no `reads`) still decodes.
+    func testATokenConnectorDecodesWhatItReadsAndAsksForTheToken() throws {
+        let json = """
+        {"id": "readwise", "label": "Readwise", "connected": false,
+         "fields": [{"name": "CICADA_READWISE_TOKEN", "label": "Readwise access token", "secret": true,
+                     "present": false}],
+         "lastSync": null, "lastError": null, "detail": null, "loginMode": "credentials",
+         "reads": "Reads your Readwise highlights.", "tokenHelp": "readwise.io/access_token", "tier": 2}
+        """.data(using: .utf8)!
+        let status = try JSONDecoder().decode(ConnectorStatus.self, from: json)
+        XCTAssertTrue(status.isTokenConnector)
+        XCTAssertEqual(status.reads, "Reads your Readwise highlights.")
+        XCTAssertEqual(ConnectorSetupState.stepLabel(status), "Paste your own token")
+        let older = """
+        {"id": "reddit", "label": "Reddit", "connected": false, "fields": [], "loginMode": "credentials"}
+        """.data(using: .utf8)!
+        let legacy = try JSONDecoder().decode(ConnectorStatus.self, from: older)
+        XCTAssertFalse(legacy.isTokenConnector)
+        XCTAssertNil(legacy.reads)
+    }
+
     func testOAuthConnectorWithSavedAppButNoTokenStillNeedsAuthorization() throws {
         let status = ConnectorStatus(
             id: "pinterest", label: "Pinterest", connected: false,

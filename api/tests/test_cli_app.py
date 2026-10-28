@@ -338,6 +338,9 @@ PERSON_ARGV = {
     "setup": ["setup"],
     "agent revoke": ["agent", "revoke", "ab12cd34"],
     "engine connect": ["engine", "connect", "claude-plan"],
+    "connector connect": ["connector", "connect", "readwise"],
+    "connector disconnect": ["connector", "disconnect", "readwise"],
+    "connector sync": ["connector", "sync", "readwise"],
 }
 
 

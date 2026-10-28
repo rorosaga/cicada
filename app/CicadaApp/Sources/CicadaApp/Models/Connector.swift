@@ -25,6 +25,14 @@ struct ConnectorStatus: Codable, Identifiable, Hashable {
     let detail: String?
     /// "oauth" (save app keys, then authorize in a browser) or "credentials".
     let loginMode: String
+    /// Ruling 47 tier 2 (an official API the person connects with their own token): what it reads, in words, said
+    /// before Save; where the person gets the token; the tier. Absent on the saved-content connectors and on an
+    /// older backend.
+    var reads: String? = nil
+    var tokenHelp: String? = nil
+    var tier: Int? = nil
+
+    var isTokenConnector: Bool { tier == 2 }
 
     var isOAuth: Bool { loginMode == "oauth" }
 

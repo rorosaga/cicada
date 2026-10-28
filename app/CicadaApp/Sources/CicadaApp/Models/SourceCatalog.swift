@@ -103,6 +103,9 @@ enum SourceCatalog {
                            tile: .reddit, site: "reddit"),
         SourceCatalogEntry(id: "pinterest", group: .accounts, title: "Pinterest", origin: "pinterest",
                            channels: ["pinterest"], tile: .pinterest),
+        // Ruling 47 tier 2: highlights with their sources, through the person's own Readwise token.
+        SourceCatalogEntry(id: "readwise", group: .accounts, title: "Readwise", origin: "readwise",
+                           channels: ["readwise"]),
         SourceCatalogEntry(id: "tiktok", group: .accounts, title: "TikTok", origin: "tiktok-saved",
                            channels: ["tiktok"], tile: .tiktok, site: "tiktok", verb: .importFile),
         SourceCatalogEntry(id: "calendar-local", group: .thisMac, title: "Calendar", origin: "calendar-local",
@@ -124,9 +127,10 @@ enum SourceCatalog {
                            channels: [], verb: .connect(Copy.Catalog.addFolder)),
         SourceCatalogEntry(id: "files", group: .exports, title: Copy.Catalog.filesAndLinks, origin: "bookmark",
                            channels: ["files"], tile: .bookmarksFile, verb: .importFile),
-        // G219 slice 1: a Notion export (Markdown & CSV) through the one intake.
+        // G219 slice 1: a Notion export (Markdown & CSV) through the one intake; ruling 47 tier 2: or live, through the
+        // person's own connection (`notion-api`), on the same row.
         SourceCatalogEntry(id: "notion", group: .exports, title: "Notion", origin: "notion-export",
-                           channels: ["notion"], verb: .importFile),
+                           channels: ["notion", "notion-api"], verb: .importFile),
         SourceCatalogEntry(id: "chat-exports", group: .exports, title: Copy.Catalog.chatExports,
                            origin: "claude-export",
                            channels: ["chat-export:claude", "chat-export:chatgpt", "chat-export:gemini"],
@@ -204,7 +208,7 @@ enum SourceCatalog {
     /// The channels a person signs in to (`ChannelActions.connectorChannels`). Only these can need a sign-in: a reader
     /// on this Mac whose failure happens to say "not authorized" or "token" needs a permission or a retry, never an
     /// account (2026-10-23).
-    static let signInChannels: Set<String> = ["pinterest", "reddit", "x"]
+    static let signInChannels: Set<String> = ["pinterest", "reddit", "x", "readwise", "notion-api"]
     /// G206 (#426): the sites whose saved list the person's own agent can keep current from their signed-in browser
     /// (`reading_settings.SAVED_LISTS`).
     static let savedListSites: Set<String> = ["x", "instagram", "linkedin"]

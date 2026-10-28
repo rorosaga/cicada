@@ -37,6 +37,20 @@ final class SourceCatalogTests: XCTestCase {
         XCTAssertEqual(row("x", in: r)?.status, .off)
     }
 
+    /// Ruling 47 tier 2: Readwise is an account row, off until connected; Notion's one row is connected by its live
+    /// connection or its export, and a refused token reads as Needs sign-in.
+    func testTokenConnectorsAreRowsOfTheCatalogueTheyAlreadyHave() {
+        XCTAssertEqual(row("readwise", in: rows())?.entry.group, .accounts)
+        XCTAssertEqual(row("readwise", in: rows())?.status, .off)
+        let r = rows(channels: [
+            SourceChannel(id: "notion-api", label: "Notion", connected: true, lastSync: "2026-10-28T10:00:00Z"),
+            SourceChannel(id: "readwise", label: "Readwise", connected: true,
+                          lastError: "Readwise refused the access token. Get a new one at readwise.io/access_token"),
+        ])
+        XCTAssertEqual(row("notion", in: r)?.status, .connected)
+        XCTAssertEqual(row("readwise", in: r)?.status, .needsSignIn)
+    }
+
     func testInstagramIsConnectedOnlyOnceItsSiteMayBeReadByAnAgentHere() {
         XCTAssertEqual(row("instagram", in: rows())?.status, .off)
         let entries = SourceCatalog.entries(browsers: [], wisprPresent: false, overview: [])

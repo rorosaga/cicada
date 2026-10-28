@@ -62,9 +62,17 @@ _ALSO_STRIPPED = ("CLAUDE_CODE_RETRY_WATCHDOG", "CODEX_HOME")
 #: ``MANAGED_KEY_ENV``.)
 CLI_ENGINE_OVERRIDE_ENV = ("CURSOR_API_KEY", "OPENCODE_CONFIG_CONTENT", "OPENCODE_CONFIG", "OPENCODE_PERMISSION")
 
+#: Ruling 47 tier 2 and G71: the tokens of the person's ingestion connectors (``api/services/connectors``). No engine
+#: child needs one, and a model with tools must never hold a key to the person's Notion, Readwise or Reddit; pinned to
+#: every adapter's ``SECRET_NAMES`` by ``test_connectors_tier2``.
+CONNECTOR_SECRET_ENV = ("PINTEREST_APP_ID", "PINTEREST_APP_SECRET", "PINTEREST_ACCESS_TOKEN",
+                        "REDDIT_CLIENT_ID", "REDDIT_CLIENT_SECRET", "REDDIT_USERNAME", "REDDIT_PASSWORD",
+                        "X_CLIENT_ID", "X_ACCESS_TOKEN", "X_REFRESH_TOKEN", "X_USER_ID",
+                        "CICADA_READWISE_TOKEN", "CICADA_NOTION_TOKEN")
+
 #: R-E5: one list for every child. Stripping the union is safe for every CLI Cicada spawns.
 SCRUBBED_ENV_KEYS = (MANAGED_KEY_ENV + CLAUDE_PLAN_OVERRIDE_ENV + CODEX_PLAN_OVERRIDE_ENV + CLI_ENGINE_OVERRIDE_ENV
-                     + _ALSO_STRIPPED)
+                     + CONNECTOR_SECRET_ENV + _ALSO_STRIPPED)
 
 
 #: Set on every child Cicada spawns; Cicada's own MCP server reads it and stays silent (see ``scrubbed_env``).
