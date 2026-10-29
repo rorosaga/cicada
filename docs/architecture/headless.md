@@ -430,7 +430,10 @@ repository. Every route takes a full device token or the server's own; a capture
   `episodes/<id>.md: created|updated (source: n/a, trigger: sync/capture)`, `Cicada-Author: cicada`, under write
   admission shared, skipped while Sleep writes. A path someone else changed after the writer is dropped and left
   uncommitted; when what the writer wrote over was someone's uncommitted edit, that edit is committed first, alone, as
-  `Uncommitted edit kept apart <date>` with no author (trigger `sync/kept-apart`). Measured cadence (an owner-bank copy,
+  `Uncommitted edit kept apart <date>` with no author (trigger `sync/kept-apart`). Kept apart is only ever bytes that
+  are neither committed nor a capture writer's: each record keeps every hash its own chain wrote, so when another
+  writer's `add -A` (a poll, a Sleep batch) committed one of them meanwhile, the path is clean and nothing older is put
+  back on top of it (review of #565). Measured cadence (an owner-bank copy,
   28 captured sessions, 1,090 reply gaps, p50 211 s): a session's busiest hour makes p50 8 / p90 24 / max 41 commits.
   The capture path itself still commits nothing and runs no model. Each capture commit moves `git_head`, so the app's
   `version` event and the ETags keyed on it move with it.

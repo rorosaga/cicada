@@ -154,3 +154,62 @@ def test_the_background_step_commits_then_stops(bank, monkeypatch):
         time.sleep(0.05)
     assert _last(bank, "%H") != head and capture_commit.pending(bank) == {}
     assert capture_commit._THREAD is None   # nothing is left running once no record waits
+
+
+# --- Review of #565: kept apart only bytes that are neither committed nor a capture writer's ---------------------------
+
+def _poll_commit(bank):
+    from api.services import git_service
+
+    assert git_service.commit_changes_sync(bank, "Feed poll\n\nCicada-Author: cicada") is not None
+
+
+def test_a_poll_committing_our_write_mid_chain_makes_no_kept_apart_commit(bank):
+    first = _capture(bank, SID, ("user", "plan alpha"))
+    assert capture_commit.sweep(bank, now=_later(bank)) == 1
+    rel = f"episodes/{first.episode_id}.md"
+    _capture(bank, SID, ("user", "plan alpha"), ("assistant", "done"))                     # B, base = A = HEAD
+    _poll_commit(bank)                                                                      # a poll's add -A takes B
+    b = git(bank, "show", f"HEAD:{rel}")
+    _capture(bank, SID, ("user", "plan alpha"), ("assistant", "done"), ("user", "and beta"))  # C, the chain goes on
+    assert capture_commit.sweep(bank, now=_later(bank, capture_commit.MIN_INTERVAL_S)) == 1
+    assert git(bank, "log", "-2", "--format=%s").splitlines()[1] == "Feed poll"   # B, then C: no revert to A
+    assert git(bank, "show", f"HEAD~1:{rel}") == b
+    assert "kept apart" not in git(bank, "log", "--format=%s")
+
+
+def test_a_hand_edit_a_poll_then_committed_is_not_kept_apart_again(bank):
+    first = _capture(bank, SID, ("user", "plan alpha"))
+    assert capture_commit.sweep(bank, now=_later(bank)) == 1
+    path = bank / "episodes" / f"{first.episode_id}.md"
+    path.write_text(path.read_text(encoding="utf-8") + "\nthe person's hand edit\n", encoding="utf-8")   # P
+    _poll_commit(bank)                                                                      # the poll commits P
+    _capture(bank, SID, ("user", "plan alpha"), ("assistant", "done"))                      # B over P = HEAD
+    assert capture_commit.sweep(bank, now=_later(bank, capture_commit.MIN_INTERVAL_S)) == 1
+    assert "kept apart" not in git(bank, "log", "--format=%s")
+
+
+def test_a_hand_edit_our_write_replaced_then_a_poll_committed_ours_is_never_put_back(bank):
+    first = _capture(bank, SID, ("user", "plan alpha"))
+    assert capture_commit.sweep(bank, now=_later(bank)) == 1
+    path = bank / "episodes" / f"{first.episode_id}.md"
+    path.write_text(path.read_text(encoding="utf-8") + "\nthe person's hand edit\n", encoding="utf-8")   # P
+    _capture(bank, SID, ("user", "plan alpha"), ("assistant", "done"))                      # B over P: base = P
+    _poll_commit(bank)                                                                      # the poll commits B
+    b = git(bank, "show", f"HEAD:{path.relative_to(bank).as_posix()}")
+    _capture(bank, SID, ("user", "plan alpha"), ("assistant", "done"), ("user", "and beta"))  # C
+    assert capture_commit.sweep(bank, now=_later(bank, capture_commit.MIN_INTERVAL_S)) == 1
+    # P after B would be a false revert of the poll's commit: it is never written into history now.
+    assert "kept apart" not in git(bank, "log", "--format=%s")
+    assert git(bank, "show", f"HEAD~1:{path.relative_to(bank).as_posix()}") == b
+
+
+def test_the_chain_survives_a_restart(bank, monkeypatch):
+    first = _capture(bank, SID, ("user", "plan alpha"))
+    assert capture_commit.sweep(bank, now=_later(bank)) == 1
+    _capture(bank, SID, ("user", "plan alpha"), ("assistant", "done"))
+    _poll_commit(bank)
+    monkeypatch.setattr(capture_commit, "_BANKS", {})                                       # a new process
+    _capture(bank, SID, ("user", "plan alpha"), ("assistant", "done"), ("user", "and beta"))
+    assert capture_commit.sweep(bank, now=_later(bank, capture_commit.MIN_INTERVAL_S)) == 1
+    assert "kept apart" not in git(bank, "log", "--format=%s") and first.episode_id

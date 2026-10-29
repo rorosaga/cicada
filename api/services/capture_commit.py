@@ -22,7 +22,10 @@ the home's (51d).
   is dropped from the records and left uncommitted. When the writer's base was itself someone else's uncommitted edit
   (HEAD holds something else), that edit is committed first, alone, as ``Uncommitted edit kept apart <date>`` with no
   author — ``agent_commits``' rule — and the capture commit carries only the writer's change; if the base's bytes are
-  gone (a restart), the path is left for Sleep as before.
+  gone (a restart), the path is left for Sleep as before. **Kept apart is only ever bytes that are neither committed
+  nor a capture writer's** (review of #565): the record keeps every hash its chain wrote (hashes only), and HEAD
+  holding the base or any of them — a poll's or a Sleep batch's ``add -A`` committed one of our writes — is clean, so
+  an older state is never committed back on top of a newer one.
 
 **Debounce, measured** (owner-bank copy, 28 captured sessions, 1,090 reply gaps; one write per agent reply): gaps p10
 34 s, p50 211 s. A 10 s settle alone gives a session's busiest hour p50 8 / p90 25 / max 54 commits; with a 60 s
@@ -65,6 +68,20 @@ class _Rec:
     hash: str
     at: float
     base: str | None   # sha256 of what the path held before this chain of capture writes; None: the writer made it
+    #: Every hash this chain's capture writes produced (the latest included). HEAD holding any of them means another
+    #: writer's ``add -A`` (a poll, a Sleep batch) committed one of OUR writes: nothing foreign sits under the chain.
+    chain: tuple[str, ...] = ()
+
+    def clean_against(self, head_hash: str | None) -> bool:
+        """Nothing uncommitted and foreign lies under this chain, given what HEAD holds at the path: the writer made
+        the file, or HEAD holds the base or any hash the chain itself wrote."""
+        if self.base is None:
+            return True
+        return head_hash is not None and (head_hash == self.base or head_hash in self.chain)
+
+
+#: Bound on a chain's remembered hashes (one per capture write since the last capture commit).
+CHAIN_MAX = 512
 
 
 class _Bank:
@@ -111,7 +128,8 @@ def _load(bank: _Bank) -> None:
         return
     for rel, rec in (data.get("records") or {}).items() if isinstance(data, dict) else ():
         if isinstance(rec, dict) and isinstance(rec.get("hash"), str) and _episode_rel(rel):
-            bank.records[rel] = _Rec(rec["hash"], float(rec.get("at") or 0), rec.get("base"))
+            chain = tuple(h for h in (rec.get("chain") or [rec["hash"]]) if isinstance(h, str))
+            bank.records[rel] = _Rec(rec["hash"], float(rec.get("at") or 0), rec.get("base"), chain)
     bank.last_commit_at = float(data.get("last_commit_at") or 0) if isinstance(data, dict) else 0.0
 
 
@@ -120,7 +138,8 @@ def _save(bank: _Bank) -> None:
     path = _records_path(bank.memory_path)
     tmp = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
     payload = {"v": 1, "last_commit_at": bank.last_commit_at,
-               "records": {rel: {"hash": r.hash, "at": r.at, "base": r.base} for rel, r in bank.records.items()}}
+               "records": {rel: {"hash": r.hash, "at": r.at, "base": r.base, "chain": list(r.chain)}
+                           for rel, r in bank.records.items()}}
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
         json.dump(payload, fh)
@@ -153,14 +172,17 @@ def note_written(memory_path, path: Path, *, before: bytes | None, now: float | 
             _load(bank)
             prev = bank.records.get(rel)
             before_hash = _sha(before) if before is not None else None
+            digest = _sha(data)
             if prev is not None and before_hash == prev.hash:
                 base = prev.base          # the same writer's chain goes on: the base stays where it began
+                chain = (*prev.chain, digest)[-CHAIN_MAX:]
             else:
                 base = before_hash        # a new chain: whatever was there before is someone's — or HEAD
+                chain = (digest,)
                 bank.base_bytes.pop(rel, None)
                 if before is not None:
                     bank.base_bytes[rel] = before
-            bank.records[rel] = _Rec(_sha(data), time.time() if now is None else now, base)
+            bank.records[rel] = _Rec(digest, time.time() if now is None else now, base, chain)
             _save(bank)
     except Exception as exc:  # noqa: BLE001 — provenance never blocks memory
         logger.info(f"capture commit: record skipped ({type(exc).__name__})")
@@ -227,7 +249,7 @@ def sweep(memory_path, *, now: float | None = None) -> int:
         _load(bank)
         if now - bank.last_commit_at < MIN_INTERVAL_S:
             return 0
-        due = {rel: _Rec(r.hash, r.at, r.base) for rel, r in bank.records.items() if now - r.at >= SETTLE_S}
+        due = {rel: _Rec(r.hash, r.at, r.base, r.chain) for rel, r in bank.records.items() if now - r.at >= SETTLE_S}
         bases = {rel: bank.base_bytes.get(rel, _MISSING) for rel in due}
     if not due or write_admission.probe():
         return 0
@@ -252,9 +274,11 @@ def sweep(memory_path, *, now: float | None = None) -> int:
                     if head == data:
                         drop.add(rel)          # already committed (Sleep's batch, a poll's sweep)
                         continue
-                    # Clean when the writer made the file, or what it wrote over is what HEAD holds. Otherwise the
-                    # bytes it wrote over were someone's uncommitted edit (or an untracked file): kept apart first.
-                    if rec.base is not None and (head is None or _sha(head) != rec.base):
+                    # Kept apart only bytes that are neither committed nor a capture writer's: clean when the writer
+                    # made the file, or HEAD holds the base or any hash this chain wrote (a poll's or a Sleep batch's
+                    # `add -A` committed one of our writes — review of #565). Otherwise the bytes it wrote over were
+                    # someone's uncommitted edit (or an untracked file): committed first, alone, with no author.
+                    if not rec.clean_against(_sha(head) if head is not None else None):
                         before = bases.get(rel, _MISSING)
                         if before is _MISSING:
                             drop.add(rel)      # someone's edit was under this write and its bytes are gone
