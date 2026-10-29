@@ -297,6 +297,11 @@ from api.services.request_limits import RequestLimits  # noqa: E402
 
 app.add_middleware(RequestLimits)
 
+# Speed 2026-10-29: count this process's writes, the gate on an ETag reusing the SSE tick's listings (`local_writes`).
+from api.services.local_writes import CountWrites  # noqa: E402
+
+app.add_middleware(CountWrites)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=LOCAL_ORIGIN_REGEX,

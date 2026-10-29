@@ -769,6 +769,15 @@ skill_folder`). Nothing is written into a bank: agent folders, and `$CICADA_HOME
   on generated banks (1,900 entities):
   - 10,000 episodes: 42 → 24 ms per tick for one stream, and 169 → 25 ms for four.
   - 2,000 episodes: 12 → 6 ms for one stream, and 50 → 6 ms for four.
+- **A request may answer from the tick's walk (2026-10-29, the coordinator's call on item (e)).** `GET /inbox`,
+  `/origins`, `/status`, the card and every `etag_for` outside a request's own block list the bank through
+  `sync_ticker.request_scans`: the last tick's listings when `reusable_listings` opens — the same running watcher has
+  reported nothing since before that walk, this process has written nothing since (`local_writes`: every write and
+  delete through `markdown_parser`, and every request that is not a read, counted as it arrives and as it ends), no
+  Sleep run is under way, and the walk is under `FALLBACK_S` old — else one fresh listing per folder. A local write
+  also makes the next tick walk at once, so the gate reopens within a second. Another process's write reaches the
+  watcher within its debounce (~0.4 s); until then a request sees what the stream sees. Owner's bank copy, load ≈ 20:
+  `GET /inbox` 304 p95 68 → 1.1 ms, 200 p95 65 → 5.2 ms with the gate open.
 - **The tick walks the bank on a file-change event or every 10 s (2026-10-16, owner decision 2).** `bank_watch` keeps
   one watcher per bank — `watchfiles` (already installed by `uvicorn[standard]`): FSEvents on macOS, inotify on Linux —
   over the bank and its machine-local Sleep folder, counting reported changes except git's own (`.git/`) and the index

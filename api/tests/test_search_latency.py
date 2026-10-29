@@ -122,22 +122,37 @@ def _measure(memory, queries, **kw) -> tuple[float, float]:
         search_service.search(memory, q, **kw)
         samples.append(time.process_time() - cpu)
         wall.append(time.perf_counter() - started)
-    print(f"G136 wall p95 {statistics.quantiles(wall, n=20)[18] * 1000:.1f} ms")
+    wall_p95 = statistics.quantiles(wall, n=20)[18]
+    print(f"G136 wall p95 {wall_p95 * 1000:.1f} ms")
+    _WALL[0] = wall_p95
     return statistics.median(samples), statistics.quantiles(samples, n=20)[18]
+
+
+#: The last `_measure`'s wall p95 (review of #518): CPU time alone would pass a search that WAITS — on a subprocess, a
+#: lock, a disk read — so each budget also holds the wall p95 under :data:`WALL_FACTOR` times itself, loose enough
+#: for a loaded machine (load 30–55 measured at most ~5× the CPU p95's budget share, never 4× a budget).
+_WALL = [0.0]
+WALL_FACTOR = 4
+
+
+def _assert_within(p95: float, budget: float) -> None:
+    assert p95 <= budget, f"CPU p95 {p95 * 1000:.1f} ms over {budget * 1000:.0f} ms"
+    assert _WALL[0] <= WALL_FACTOR * budget, (
+        f"wall p95 {_WALL[0] * 1000:.1f} ms over {WALL_FACTOR}× the {budget * 1000:.0f} ms budget: a wait, not work")
 
 
 def test_prefix_mode_p95_is_within_the_50ms_budget(big_bank):
     memory, queries = big_bank
     p50, p95 = _measure(memory, queries, kinds=PALETTE_KINDS, mode="prefix", per_kind=5)
     print(f"G136 prefix (palette Pass A, default freshness TTL): p50 {p50 * 1000:.1f} ms, p95 {p95 * 1000:.1f} ms")
-    assert p95 <= 0.050
+    _assert_within(p95, 0.050)
 
 
 def test_prefix_mode_stays_within_budget_with_a_staleness_scan_on_every_request(big_bank):
     memory, queries = big_bank
     p50, p95 = _measure(memory, queries, kinds=PALETTE_KINDS, mode="prefix", per_kind=5, freshness_ttl_s=0)
     print(f"G136 prefix (scan on every request): p50 {p50 * 1000:.1f} ms, p95 {p95 * 1000:.1f} ms")
-    assert p95 <= 0.050
+    _assert_within(p95, 0.050)
 
 
 def test_hybrid_mode_p95_is_within_the_200ms_budget(big_bank):
@@ -150,4 +165,4 @@ def test_hybrid_mode_p95_is_within_the_200ms_budget(big_bank):
     indexer.index_episodes()
     p50, p95 = _measure(memory, queries, kinds=PALETTE_KINDS, mode="hybrid", per_kind=5, embed_fn=_fake_embed)
     print(f"G136 hybrid (palette Pass B, fake embedder): p50 {p50 * 1000:.1f} ms, p95 {p95 * 1000:.1f} ms")
-    assert p95 <= 0.200
+    _assert_within(p95, 0.200)

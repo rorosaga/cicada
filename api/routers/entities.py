@@ -73,6 +73,7 @@ from api.services import (
     repo_observations,
     source_refresh,
     sync_service,
+    sync_ticker,
     telemetry,
     write_admission,
 )
@@ -141,6 +142,22 @@ async def get_entity(
     return EntityResponse(**card, history=rows, history_truncated=history_truncated, blocks=PageBlocks(**blocks))
 
 
+def _page_file(memory_path: Path, entity_path: Path) -> tuple[markdown_parser.ParsedMarkdown, str]:
+    """``markdown_parser.parse(entity_path, ledger=False)`` and the file's text, with the frontmatter from
+    ``bank_index``'s cache when the file is the one it parsed (speed 2026-10-29: the owner's page's YAML header — every
+    conversation it was said in — was ~56 ms of each open). The file is stat'ed before and after it is read; any
+    move between parses it, as before."""
+    before = entity_path.stat()
+    raw = entity_path.read_text(encoding="utf-8")
+    split = markdown_parser.split_frontmatter(raw)
+    entry = bank_index.file(memory_path, "entities", entity_path.name) if split is not None else None
+    after = entity_path.stat()
+    stamp = (before.st_mtime_ns, before.st_size)
+    if entry is not None and stamp == (after.st_mtime_ns, after.st_size) == (entry.mtime_ns, entry.size):
+        return markdown_parser.ParsedMarkdown(frontmatter=dict(entry.frontmatter), body=split[1].strip()), raw
+    return markdown_parser.parse(entity_path, ledger=False), raw
+
+
 def _card_read(settings: Settings, entity_id: str, entity_path: Path, if_none_match: str | None) -> dict:
     """Everything the card reads but its history, in one worker thread under one shared directory scan (the ETag's
     fingerprints and the relevance line's name index list ``entities/`` and ``episodes/`` once between them)."""
@@ -148,13 +165,13 @@ def _card_read(settings: Settings, entity_id: str, entity_path: Path, if_none_ma
 
     memory_path = settings.memory_path
     alpha, floor = decay_policy.spacing_params(settings)
-    with bank_index.shared_scans():
+    with sync_ticker.request_scans(memory_path):   # the SSE walk's listings when its gate allows (speed 2026-10-29)
         etag = page_blocks.card_etag(memory_path, entity_id, extra=f"{alpha}|{floor}")
         if if_none_match == etag:
             return {"etag": etag, "not_modified": True}
         # The page file alone: the card shows prose and reads claims from `/claims`, so an owner-sized page's ledger
         # (`claims_ledger`) is never opened here.
-        parsed = markdown_parser.parse(entity_path, ledger=False)
+        parsed, raw = _page_file(memory_path, entity_path)
         fm = parsed.frontmatter
         decay_class, decay_rate = decay_policy.resolve(fm)
         # G147 — the pace the decay pass actually charges, from the SAME function
@@ -169,7 +186,6 @@ def _card_read(settings: Settings, entity_id: str, entity_path: Path, if_none_ma
         page_stat = entity_path.stat()
         picture, picture_inputs = entity_picture.resolve_page(
             memory_path, entity_id, fm, parsed.body, page_mtime=page_stat.st_mtime)
-        raw = entity_path.read_text(encoding="utf-8")
         raw_omitted = False
         fence = claims_block_start(raw)
         big_fence = page_stat.st_size > RAW_INLINE_MAX_BYTES or claims_ledger.STAMP in fm \

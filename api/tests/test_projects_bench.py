@@ -3,10 +3,11 @@
 machine and would teach the team to ignore a red. Placeholder names only."""
 from __future__ import annotations
 
-import time
 from datetime import date, timedelta
 
 import pytest
+
+import _bench
 
 from _synthetic_bank import _entity
 from api.services import bank_index, evidence, markdown_parser, predicates, project_timeline, search_index
@@ -17,14 +18,16 @@ pytestmark = pytest.mark.bench
 DAY0 = date(2026, 3, 1)
 
 
-def _p95(fn, runs: int = 20) -> float:
-    fn()                                   # warm: bank_index, the FTS reader, imports
-    times = []
-    for _ in range(runs):
-        t = time.perf_counter()
-        fn()
-        times.append(time.perf_counter() - t)
-    return sorted(times)[int(0.95 * (runs - 1))]
+def _p95(fn, runs: int = 20) -> _bench.Samples:
+    """Warm once (bank_index, the FTS reader, imports), then ``runs`` timed: CPU p95 against a budget, wall p95 under
+    4× it (`_bench`; a busy Mac failed the wall clock alone)."""
+    return _bench.measure(fn, runs)
+
+
+def _within(label: str, took: _bench.Samples, budget: float) -> None:
+    print(f"\n{label}: CPU p95 {took.cpu_p95 * 1000:.1f} ms, wall p95 {took.wall_p95 * 1000:.1f} ms "
+          f"(budget {budget * 1000:.0f} ms)")
+    _bench.within(took.cpu_p95, took.wall_p95, budget, label)
 
 
 @pytest.fixture(scope="module")
@@ -75,8 +78,8 @@ def big(tmp_path_factory):
 def test_the_detail_and_the_list_fit_their_budgets(big):
     detail = _p95(lambda: project_timeline.build(big, "proj-00", tz_name="UTC"))
     listing = _p95(lambda: project_timeline.list_projects(big, tz_name="UTC"))
-    print(f"\nG141 bench p95: build {detail * 1000:.1f} ms · list {listing * 1000:.1f} ms")
-    assert detail <= 0.150 and listing <= 0.080
+    _within("project detail", detail, 0.150)
+    _within("project list", listing, 0.080)
 
 
 def test_the_conversations_read_fits_the_timelines_budget(big):
@@ -86,5 +89,5 @@ def test_the_conversations_read_fits_the_timelines_budget(big):
 
     convs = _p95(lambda: project_conversations.build(big, "proj-00", tz_name="UTC"))
     detail = _p95(lambda: project_timeline.build(big, "proj-00", tz_name="UTC"))
-    print(f"\nprojects v2 bench p95: conversations {convs * 1000:.1f} ms · build (with the count) {detail * 1000:.1f} ms")
-    assert convs <= 0.150 and detail <= 0.150
+    _within("project conversations", convs, 0.150)
+    _within("project detail", detail, 0.150)

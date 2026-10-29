@@ -138,16 +138,31 @@ def test_load_inbox_at_the_owners_scale_is_well_under_half_a_second(tmp_path):
     inbox_service.load_inbox(memory)
     # The build itself, every run (the built list would answer a repeat for nothing, speed 2026-10-29), in CPU time:
     # a wall clock failed this whenever the Mac ran 30–55 other processes, and the budget is the code's cost.
-    runs = []
-    for _ in range(3):
+    # Each budget also holds the wall clock under 4× itself (review of #518): CPU alone would pass a read that waits.
+    def timed(reset) -> tuple[float, float]:
+        cpus, walls = [], []
+        for _ in range(3):
+            reset()
+            cpu, wall = time.process_time(), time.perf_counter()
+            inbox_service.load_inbox(memory)
+            cpus.append(time.process_time() - cpu)
+            walls.append(time.perf_counter() - wall)
+        return min(cpus), min(walls)
+
+    def rebuild():
         inbox_service.reset_built()
-        cpu = time.process_time()
-        inbox_service.load_inbox(memory)
-        runs.append(time.process_time() - cpu)
-    print(f"load_inbox rebuild at 4,700 pages / 913 items: {min(runs) * 1000:.0f} ms CPU (min of 3)")
-    assert min(runs) < 0.5, runs
-    cpu = time.process_time()
-    inbox_service.load_inbox(memory)
-    hit = time.process_time() - cpu
-    print(f"load_inbox, nothing moved: {hit * 1000:.1f} ms CPU")
-    assert hit < 0.1, hit
+
+    def cold():   # and the caches a rebuild leans on: the cut excerpts and the untimed ids (review of #518)
+        from api.services import episode_time, inbox_context
+
+        inbox_service.reset_built()
+        inbox_context._EXCERPTS.clear()
+        episode_time._UNTIMED.clear()
+
+    for label, reset in (("rebuild", rebuild), ("cold rebuild", cold)):
+        cpu, wall = timed(reset)
+        print(f"load_inbox {label} at 4,700 pages / 913 items: {cpu * 1000:.0f} ms CPU, {wall * 1000:.0f} ms wall")
+        assert cpu < 0.5 and wall < 2.0, (label, cpu, wall)
+    cpu, wall = timed(lambda: None)
+    print(f"load_inbox, nothing moved: {cpu * 1000:.1f} ms CPU, {wall * 1000:.1f} ms wall")
+    assert cpu < 0.1 and wall < 0.4, (cpu, wall)
