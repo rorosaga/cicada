@@ -725,7 +725,7 @@ before the flip — see *Ask why* below.
 Contacts (G154), both app-owned rows.
 
 **Activity traces (G218, ruling 38, 2026-10-23).** Sources → This Mac → **Traces** (`SourceCatalog.tracesId`, after
-Messages, the `timeline.selection` symbol): Connected only while the recorder records — paused, off, a server connection
+the chat sources — Messages, WhatsApp — the `timeline.selection` symbol): Connected only while the recorder records — paused, off, a server connection
 and a failed read all read **Off** (ruling 36's three words), each with its own line in the controls ("Paused until
 3:40 PM.", "This Mac only…"). Off, the detail says what traces are and offers **Turn on…**, which opens
 `TracesConsentSheet`: what is recorded, where (this Mac only, encrypted, outside memory and its history, never sent),
