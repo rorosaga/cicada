@@ -220,3 +220,25 @@ def test_the_payload_cache_is_bounded_least_recently_used_first(monkeypatch):
     project_timeline._cached_payload_claim(js[0])                   # used again: kept
     project_timeline._cached_payload_claim(js[3])
     assert list(project_timeline._PAYLOAD_CLAIMS) == [js[2], js[0], js[3]]
+
+
+def test_the_episode_epoch_answers_as_a_fresh_read_and_drops_when_an_episode_moves(tmp_path):
+    """Speed 2026-10-29: a claim's anchor day and conversations outlive the request while the episodes folder and the
+    zone hold. A read from the epoch is a fresh read's, and a re-dated episode starts a new epoch."""
+    bank = demo(tmp_path)
+
+    def fresh():
+        project_timeline._EPOCHS.clear()
+        return project_timeline.list_projects(bank, tz_name=TZ).model_dump()
+
+    first = fresh()
+    assert project_timeline.list_projects(bank, tz_name=TZ).model_dump() == first   # from the epoch
+    before = project_timeline._EPOCHS[str(bank)]
+    assert project_timeline._Bank(bank, "Asia/Tokyo")._anchor_days is not before.anchor_days, "a zone is its own epoch"
+    project_timeline._Bank(bank, TZ)   # back to this zone's epoch, as a request in it would be
+    ep = sorted((bank / "episodes").glob("*.md"))[0]
+    parsed = markdown_parser.parse(ep)
+    markdown_parser.write(ep, {**parsed.frontmatter, "timestamp": "2026-09-22T09:00:00+00:00"}, parsed.body)
+    moved = project_timeline.list_projects(bank, tz_name=TZ).model_dump()
+    assert project_timeline._EPOCHS[str(bank)] is not before
+    assert moved == fresh()

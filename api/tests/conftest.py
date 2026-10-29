@@ -294,13 +294,14 @@ def _fresh_inbox_build():
     """`load_inbox` keeps its built list per bank on the stamps of what it reads, and the cut excerpts and untimed ids
     on theirs (speed 2026-10-29); a test that patches a reader (the clock aside, which is in the key) starts from
     none of them."""
-    from api.services import episode_time, inbox_context, inbox_service, origin_stats
+    from api.services import episode_time, inbox_context, inbox_service, origin_stats, project_timeline
 
     def clear():
         inbox_service.reset_built()
         inbox_context._EXCERPTS.clear()
         episode_time._UNTIMED.clear()
         origin_stats._MEMO.clear()
+        project_timeline._EPOCHS.clear()
 
     clear()
     yield
