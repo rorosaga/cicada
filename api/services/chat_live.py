@@ -576,7 +576,25 @@ def _stage(drafts: list[EpisodeDraft], episodes_dir: Path, index: dict, *, delet
         if episode_staging.reattribute(entry.path, extra=wanted, queue_for_sleep=draft.queue_for_sleep):
             recorded += 1
             staged.paths.append(f"{episodes_dir.name}/{entry.path.name}")
+    recorded += drop_stale_correspondents(drafts, episodes_dir, index, staged)
     return staged, recorded
+
+
+def drop_stale_correspondents(drafts: list[EpisodeDraft], episodes_dir: Path, index: dict,
+                              staged: episode_staging.StageResult) -> int:
+    """A sitting now recorded as the person's own notes (`self_chat`) keeps no ``correspondent`` from before: a staged
+    update or a re-record merges keys, so the stale one is dropped here (#559 review). Returns how many changed."""
+    changed = 0
+    for draft in drafts:
+        entry = index.get(str(draft.source_id))
+        if not draft.extra.get("self_chat") or entry is None or "correspondent" not in entry.fm:
+            continue
+        if episode_staging.drop_keys(entry.path, ("correspondent",)):
+            changed += 1
+            path = f"{episodes_dir.name}/{entry.path.name}"
+            if path not in staged.paths:
+                staged.paths.append(path)
+    return changed
 
 
 def _entries(spec: ChatSpec, index: dict, cid: str) -> dict[str, episode_staging.IndexEntry]:

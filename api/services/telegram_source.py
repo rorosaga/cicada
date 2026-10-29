@@ -172,8 +172,13 @@ def ingest(memory_path, dialog: dict, messages: list[TgMessage], *, deleted: lis
     given = telegram_account.consents()
     if cid not in given:
         raise NoConsent("This chat has no confirmation that the other person agreed, so nothing was saved.")
-    # Saved Messages (ruling 47a amendment 2026-10-29): the person's chat with themselves, ticked by them alone.
+    # Saved Messages (ruling 47a amendment 2026-10-29): the person's chat with themselves, ticked by them alone — only
+    # while Telegram itself lists it as this account's own (`dialog["own"]`, #559 review). A `self` consent on a chat
+    # that is no longer the person's own (another account signed in since) is no consent at all.
     own = bool(given[cid].get("self"))
+    if own and dialog.get("own") is not True:
+        raise NoConsent("This chat was ticked as your Saved Messages, but Telegram no longer lists it as yours, so "
+                        "nothing was saved. Tick it again, with the other person's agreement, to read it.")
     group = False
     chat_messages: list[ChatMessage] = []
     for m in messages:

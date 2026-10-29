@@ -783,6 +783,25 @@ def test_saved_messages_is_ticked_with_no_consent_question_and_kept_as_your_note
     assert ep.body.splitlines() == ["user: idea for alpha-project"]
 
 
+def test_a_saved_messages_tick_belongs_to_its_account_never_the_next(home, bank, live_account):
+    """#559 review: the `self` consent outlived a disconnect, so after another account signed in, a one-to-one chat
+    with the old account's id would have been stored as the person's notes. The disconnect drops `self` consents and
+    the ingest stages a `self` chat only while Telegram lists it as this account's own."""
+    me = 1009
+    cid = telegram_source.conversation_id(me)
+    chat_live.update_settings(bank, telegram_source.SPEC, {"id": cid, "ticked": True}, now="2026-01-01T00:00:00+00:00")
+    telegram_account.set_consent(cid, True, own=True)
+    friend = tick(bank, FRIEND)
+    note = msg(1, me, "now the old account, texting the new one", at=T0 + 10)
+    with pytest.raises(telegram_source.NoConsent):      # Telegram doesn't list it as this account's own any more
+        telegram_source.ingest(bank, {"id": cid, "chat": me, "name": "Old account", "group": False, "own": False},
+                               [note])
+    assert not episodes(bank)
+    run(live_account.disconnect())
+    assert cid not in telegram_account.consents(), "a Saved Messages tick goes with its session"
+    assert friend in telegram_account.consents(), "another person's dated agreement stays"
+
+
 def test_a_ticked_chats_photo_becomes_its_pages_picture_and_goes_on_untick(home, bank, live_account):
     from api.services import logo_service, messages_photos
 

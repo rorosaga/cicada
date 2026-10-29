@@ -353,6 +353,28 @@ def test_a_chat_with_yourself_is_your_own_words_with_no_correspondent(bank):
     assert not any("PLACEHOLDER-ME-CARD" in p.read_text() for p in (bank / "episodes").iterdir())
 
 
+def test_a_chat_recorded_again_as_your_notes_keeps_no_stale_correspondent(bank):
+    """#559 review: a sitting first stored with a correspondent (the chat not yet known to be the person's own) and then
+    re-recorded as `self_chat` merged keys and kept the old `correspondent`. Both the unchanged-words re-record and a
+    changed sitting now drop it."""
+    tick(bank, SELF, history=True)
+    rows = [row("N1", T0, "idea one", me=True), row("N2", T0 + 30, "idea two", me=True)]
+    ingest(bank, rows, cid=SELF, name="Placeholder Self")
+    (before,) = episodes(bank).values()
+    assert "correspondent" in before.frontmatter
+    whatsapp_source.ingest(bank, {"conversation": {"id": SELF, "name": "You", "self_chat": True},
+                                  "messages": [{**r, "from_me": r.pop("fromMe")} for r in rows]})
+    bank_index.invalidate()
+    (after,) = episodes(bank).values()
+    assert after.frontmatter["self_chat"] is True and "correspondent" not in after.frontmatter
+    whatsapp_source.ingest(bank, {"conversation": {"id": SELF, "name": "You", "self_chat": True},
+                                  "messages": [{"stanza": "N3", "date": apple(T0 + 60), "from_me": True,
+                                                "text": "idea three"}]})
+    bank_index.invalidate()
+    (grown,) = episodes(bank).values()
+    assert "correspondent" not in grown.frontmatter and grown.body.count("user: ") == 3
+
+
 def test_one_oversized_field_never_refuses_the_whole_batch(client, bank):
     """The class behind the self-chat failure: a quoted-reply blob over 16 KB (a link preview's or a quoted picture's
     thumbnail rides in it), a long title or a long pasted note answered 422 for all 500 rows of the batch."""

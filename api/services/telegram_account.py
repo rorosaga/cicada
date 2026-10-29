@@ -186,6 +186,11 @@ def forget_session() -> None:
             pass
     # The picker's profile photos go with the session (a ticked chat's page picture lives in `messages_photos`).
     shutil.rmtree(folder() / PHOTO_DIR, ignore_errors=True)
+    # A Saved Messages tick belongs to the account that was signed in (#559 review): the next account's chat with that
+    # person is not its own notes. Other people's dated consents stay (they agreed to a chat, not to a session).
+    for cid, entry in consents().items():
+        if entry.get("self"):
+            set_consent(cid, False)
 
 
 def _cursors() -> dict[str, int]:
@@ -695,7 +700,10 @@ class Account:
                  "group": dialog.group if dialog else bool(
                      chat_live.load_settings(memory_path, telegram_source.SPEC)["conversations"].get(cid, {})
                      .get("group")),
-                 "bot": dialog.bot if dialog else None}
+                 "bot": dialog.bot if dialog else None,
+                 # Saved Messages only as Telegram lists it NOW, for this account (#559 review): never the consent
+                 # file's word alone.
+                 "own": bool(dialog and dialog.is_self)}
 
         async def body():
             out = await run_in_threadpool(telegram_source.ingest, memory_path, entry, messages, deleted=list(deleted),

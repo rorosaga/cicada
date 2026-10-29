@@ -812,6 +812,9 @@ def _stage(drafts: list[EpisodeDraft], episodes_dir: Path, index: dict[str, epis
         if episode_staging.reattribute(entry.path, extra=wanted, queue_for_sleep=draft.queue_for_sleep):
             recorded += 1
             staged.paths.append(f"{episodes_dir.name}/{entry.path.name}")
+    from api.services import chat_live   # lazy: chat_live imports this module
+
+    recorded += chat_live.drop_stale_correspondents(drafts, episodes_dir, index, staged)
     return staged, recorded
 
 
