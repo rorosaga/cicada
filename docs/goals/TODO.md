@@ -12,6 +12,14 @@
 
 ## Current state and evidence
 
+- **2026-10-29 — the home publishes its log, off by default (ruling 51a/d/e, G132 phase 1 PR A; branch
+  `feat/g132-home-publishes`).** `CICADA_SYNC_PUBLISH=on` or `PUT /sync/publish` (the server's own token) turns on
+  `/sync/log` (seq = first-parent position; a hand rewrite freezes it until "publish from here"), `/sync/pack` (a
+  read-only bundle), `/sync/status` (the SSE `sleep` payload from one builder, plus schedule, waiting/parked ids, an
+  engine label, the home's name), the capture commit (51e1: only the bytes the capture writers recorded, settled 10 s,
+  ≤ 1 a minute per bank) and `seq` on `/tools/call` replies; mutating tool calls take an `Idempotency-Key` (8 days).
+  Off, nothing changes (`test_sync_off_unchanged.py`). Measured on a synthetic bank: tool write p95 unchanged off
+  (93.7 → 90.0 ms, interleaved), 92.9 ms on and keyed. Next: PR B, the replica (headless.md).
 - **2026-10-29 — dev suite after #556–#562, and the source page's list at the cost of its own source (G161; branch
   `fix/dev-suite-5-speed`).** Full suites: backend 3 failures, one real — `test_mcp_stdio_golden` pinned recall before
   #560's rare-word excerpt leg (fixture re-recorded), and `test_cli_reads`' CLI-equals-MCP recall raced the words

@@ -385,9 +385,72 @@ Linux gaps: `sips` is macOS-only, so image decode and site-capture thumbnails fa
 features degrade. The Neural Engine model is Apple-only. Every app-side reader (browsers, Notes, Calendar, Contacts,
 Messages, watched folders) stays on the Mac by design.
 
+## The home publishes its log (G132 phase 1, ruling 51a/d/e — built, off by default)
+
+The first half of phase 1: the machine that holds the bank (the home) can publish its history so a replica (phase 1's
+second half, not built yet) can follow it. **Off by default**: on only with `CICADA_SYNC_PUBLISH=on` or
+`$CICADA_HOME/sync/settings.json` `{"publish": true}`, which `PUT /sync/publish` writes (the server's own token only;
+the Settings → Devices switch arrives with the replica). The environment wins over the file both ways. Off, `/sync/log`,
+`/sync/pack`, `/sync/status` and `/sync/publish/from-here` answer a plain 404, nothing is written under
+`$CICADA_HOME/sync/`, the capture writers record nothing, and the lifespan, the MCP door and every client route never
+read the switch (`test_sync_off_unchanged.py`). **A demo bank is never published**, nor a bank that is not its own git
+repository. Every route takes a full device token or the server's own; a capture-only device gets 403.
+
+- **The log** (`sync_log`, `GET /sync/log?since=<seq>&limit=≤1000`): `{bankId, head: {seq, sha}, entries: [{seq, sha,
+  parent, at}], more}`. A commit's **seq** is its position on the first-parent chain from the root (the root is 1):
+  derived, no trailer, the same on every device holding the same history, and it only grows (no bank writer rewrites
+  history). The sidecar `$CICADA_HOME/sync/<bank key>/log.db` is disposable (rebuilt from `git log --first-parent`);
+  it catches up from loose commit objects read with zlib (a just-made commit), else one read-only `git log`. The log
+  never carries a subject, a path or a title. **A rewritten history freezes it** (51e3): when the last published commit
+  is no longer the first parent of what follows it on HEAD's chain (a hand amend, a reset, a rebase), every route answers
+  409 `history_rewritten` with its last seq and sha and a sentence, and stays frozen — new commits heal nothing —
+  until the person's "publish from here" (`POST /sync/publish/from-here`, the server's own token), which starts the
+  sidecar over; replicas then copy the bank again. A failed git read answers 503 and freezes nothing.
+- **The pack** (`sync_pack`, `GET /sync/pack?have=<sha>`): a git bundle of `have..HEAD`, or the whole history without
+  `have`, built with `git bundle create` into a private temporary folder outside every bank and removed once sent —
+  read-only on the bank (no ref, index or lock), and since a bundle holds only committed objects, never a derived index
+  or an untracked file. Headers `X-Cicada-Seq`, `X-Cicada-Head`, `X-Cicada-Bank-Id`; 204 when nothing is new; 404
+  `unknown_base` for a `have` this home never published (ask again without it); 413 past `CICADA_SYNC_PACK_MAX_MB`
+  (2 GB). Only its size and seq are logged.
+- **The status frame** (`sync_status`, `GET /sync/status`): `{bankId, seq, log, home: {device, name}, sleep, schedule:
+  {mode, enabled, hour, minute, intervalHours, nextAt}, queue: {waiting, parked}, engine: {label}}`. `sleep` is the SSE
+  `sleep` event's payload, built by the same function (`sync_status.sleep_event`, which `/sync/events` now calls);
+  the queue is episode ids only, never a title; the engine label is `plan`, `key`, `local`, `auto` or `none` (never a
+  provider's or model's name).
+- **The primer** (51e): `/sync/log` and `/sync/status` bring `_state.md` current first (`state_dictionary.refresh_admitted`:
+  it still commits alone, and is skipped while Sleep holds the pages), so a replica never serves an older primer than
+  the home's.
+- **The capture commit** (`capture_commit`, 51e1): only while publishing, `transcript_capture.write_session` — the one
+  writer behind the session, turn and relay capture paths, at the point its write completes — records the path, the
+  sha256 of what it wrote and the hash of what the path held before its chain began (`$CICADA_HOME/sync/<bank
+  key>/captured.json`: paths, hashes, times). A daemon thread (it ends when nothing waits) commits a path once it has
+  settled 10 s, at most once a minute per bank (all due paths in one commit), and only while the file still hashes to
+  what the writer recorded: the bytes it checks are the bytes it commits, through a private index
+  (`git_service.commit_contents_sync`), so nothing else staged or dirty rides in. `Capture <date>`, manifest lines
+  `episodes/<id>.md: created|updated (source: n/a, trigger: sync/capture)`, `Cicada-Author: cicada`, under write
+  admission shared, skipped while Sleep writes. A path someone else changed after the writer is dropped and left
+  uncommitted; when what the writer wrote over was someone's uncommitted edit, that edit is committed first, alone, as
+  `Uncommitted edit kept apart <date>` with no author (trigger `sync/kept-apart`). Kept apart is only ever bytes that
+  are neither committed nor a capture writer's: each record keeps every hash its own chain wrote, so when another
+  writer's `add -A` (a poll, a Sleep batch) committed one of them meanwhile, the path is clean and nothing older is put
+  back on top of it (review of #565). Measured cadence (an owner-bank copy,
+  28 captured sessions, 1,090 reply gaps, p50 211 s): a session's busiest hour makes p50 8 / p90 24 / max 41 commits.
+  The capture path itself still commits nothing and runs no model. Each capture commit moves `git_head`, so the app's
+  `version` event and the ETags keyed on it move with it.
+- **Idempotent tool writes** (51a): `POST /tools/call` takes an `Idempotency-Key` on a mutating tool (cli_map's
+  `mutates`), scoped by the device (or `server`) and the pinned bank id, under the route `/tools/call:<tool>`, kept 8
+  days (`idempotency.TOOLS_TTL_S`; every other route keeps a day). A resend replays the first answer; a refusal (a
+  `REFUSAL_CODES` code) or an error is never kept, so it runs again. A read is never keyed. While publishing, the reply
+  adds `seq` — the home's head once the write committed — and a body's `base_seq` is recorded beside it in the sidecar
+  (`bases`), never enforced. Off, the reply is byte-for-byte what it was.
+
+What PR B builds on this: replica mode, the follower (SSE `git_head` or a 10 s `/sync/log` poll, then `/sync/pack`
+and a fast-forward), the transaction outbox and the hand-written route table (the G132 row's phase 1).
+
 ## Decided, not built (G132, ruling 51)
 
-Everything above describes what ships. This section records what the owner decided on 2026-10-29
+Everything above describes what ships (the home's publishing, just above, is phase 1's first half). This section
+records what the owner decided on 2026-10-29
 ([TODO ruling 51](../goals/TODO.md), [the plan](../plans/2026-10-29-g132-sync-engine.md), the G132 row's phases); none of
 it is built, and until each phase ships the topology above is the one that runs. Unset or off, nothing here changes a
 single-machine install: no relay, no replica mode, no new process.

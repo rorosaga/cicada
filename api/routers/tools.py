@@ -45,6 +45,9 @@ class ToolCallRequest(BaseModel):
     #: Door options a surface needs beside the tool's own arguments: `cwd` (continue), `delivery` (the primer),
     #: `tz` (the command line's primer), `whole` (the command line's `get`).
     options: dict[str, Any] = Field(default_factory=dict)
+    #: G132 phase 1 (ruling 51a): the home's seq the sending device had when it made this write. Recorded beside the
+    #: seq the write landed on, never enforced.
+    base_seq: int | None = Field(None, ge=0)
 
 
 def _local_headers():
@@ -81,12 +84,38 @@ async def call_tool(req: ToolCallRequest, request: Request, settings: Settings =
                             surface=req.surface, device_id=device.id if device is not None else None,
                             backend_url=runtime_layout.local_backend_url({"CICADA_PORT": str(settings.port)}),
                             headers=_local_headers)
-    try:
-        answer = await asyncio.to_thread(tool_door.run, req.tool, req.arguments, ctx=ctx, state=state,
-                                         surface=req.surface, options=req.options, root=Path(settings.memory_root),
-                                         bank_name=bank_name)
-    except tool_door.DoorError as exc:
-        raise HTTPException(status_code=exc.status, detail=str(exc)) from None
-    return {"text": answer.text, "code": answer.code, "data": answer.data, "error": answer.error,
-            "segments": [list(seg) for seg in answer.segments] if answer.segments else None,
-            "state": state.wire(), "bank": bank_name, "bankId": pin.id if pin is not None else None}
+    from api.services import cli_map, idempotency, sync_log, sync_publish, tool_contract
+
+    row = cli_map.by_tool().get(req.tool)
+    mutates = bool(row is not None and row.mutates)
+    # Off (the default), one environment read and one stat: no thread hop, no reply change.
+    publishing = mutates and sync_publish.enabled() and await asyncio.to_thread(sync_publish.publishable, memory_path)
+
+    async def work() -> tuple[int, dict]:
+        try:
+            answer = await asyncio.to_thread(tool_door.run, req.tool, req.arguments, ctx=ctx, state=state,
+                                             surface=req.surface, options=req.options,
+                                             root=Path(settings.memory_root), bank_name=bank_name)
+        except tool_door.DoorError as exc:
+            raise HTTPException(status_code=exc.status, detail=str(exc)) from None
+        body = {"text": answer.text, "code": answer.code, "data": answer.data, "error": answer.error,
+                "segments": [list(seg) for seg in answer.segments] if answer.segments else None,
+                "state": state.wire(), "bank": bank_name, "bankId": pin.id if pin is not None else None}
+        if publishing:
+            # G132 phase 1: the home's head once this write committed, so the sending device knows which seq to wait
+            # for before it reads its own write back from its replica.
+            body["seq"] = await asyncio.to_thread(sync_log.head_seq, memory_path)
+            if req.base_seq is not None:
+                await asyncio.to_thread(sync_log.note_base, memory_path,
+                                        device.id if device is not None else "server", req.base_seq, body["seq"])
+        return 200, body
+
+    if not mutates:
+        return (await work())[1]
+    # G132 phase 1 (ruling 51a): a mutating call keyed by its device is applied once; a resend (the device never heard
+    # the answer) replays the first answer. A refusal or an error is never kept, so it runs again when sent again.
+    _, body, _ = await idempotency.run_once(
+        idempotency.scope_of(request), f"{idempotency.TOOLS_ROUTE_PREFIX}{req.tool}",
+        request.headers.get(idempotency.HEADER), work,
+        keep=lambda _status, b: b.get("error") is None and not tool_contract.is_error(b.get("code")))
+    return body
