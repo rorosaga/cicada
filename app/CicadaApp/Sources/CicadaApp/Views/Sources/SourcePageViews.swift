@@ -240,6 +240,8 @@ struct SourceGroupRow: View {
                     .foregroundStyle(CicadaTheme.textPrimary)
                     .lineLimit(1)
                     .truncationMode(.tail)
+                // A group chat says so with the chat picker's own pill (DR-44), never a second word in the title.
+                if item.group == true { Tag(text: Copy.Chats.group) }
                 Spacer(minLength: CicadaTheme.spacingSM)
                 Text([count, day?.text].compactMap { $0 }.joined(separator: " · "))
                     .font(CicadaTheme.metaFont)

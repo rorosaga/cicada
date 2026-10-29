@@ -118,9 +118,11 @@ enum SourceItemsRules {
 
     static func isGroup(_ item: ChannelItem) -> Bool { item.kind == .chat || item.videos != nil }
 
-    /// A group row's right-hand words: how many it holds ("3 conversations", "12 messages", "4 videos").
+    /// A group row's right-hand words: how many it holds ("4 videos", "12 messages", else "3 conversations"). A chat
+    /// counts its messages when the backend kept them (#559) — what the apps themselves count — else its sittings.
     static func groupCount(_ item: ChannelItem) -> String? {
         if let videos = item.videos { return Copy.watchedVideos(videos) }
+        if let messages = item.messages, messages > 0 { return Copy.SourcePage.messages(messages) }
         if let sittings = item.sittings, sittings > 0 { return Copy.SourcePage.conversations(sittings) }
         return nil
     }

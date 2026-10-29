@@ -127,6 +127,19 @@ final class SourcePageV3Tests: XCTestCase {
         XCTAssertFalse(SourceItemsRules.isGroup(ChannelItem(kind: .episode, id: "n", title: "A note")))
     }
 
+    func testAChatRowFromAnyChatSourceCountsItsMessagesAndSaysGroup() throws {
+        // #559's chat row (WhatsApp, Telegram): `messages` and `group` beside `sittings`.
+        let json = #"{"kind":"chat","id":"abc","title":"Climbing group","day":"2026-10-28","sittings":2,"messages":6,"group":true,"chat":{"id":"abc","label":"Climbing group"}}"#
+        let item = try JSONDecoder().decode(ChannelItem.self, from: Data(json.utf8))
+        XCTAssertEqual(item.messages, 6)
+        XCTAssertEqual(item.group, true)
+        XCTAssertEqual(SourceItemsRules.groupCount(item), "6 messages")
+        let old = try JSONDecoder().decode(ChannelItem.self,
+                                           from: Data(#"{"kind":"chat","id":"x","title":"A","sittings":3}"#.utf8))
+        XCTAssertNil(old.group)
+        XCTAssertEqual(SourceItemsRules.groupCount(old), "3 conversations", "no message count kept: the sittings")
+    }
+
     func testThePromptNamesWhatTheListHolds() {
         XCTAssertEqual(Copy.SourcePage.searchPrompt(total: 6, noun: ("chat", "chats")), "Search 6 chats")
         XCTAssertEqual(Copy.SourcePage.searchPrompt(total: 1, noun: ("chat", "chats")), "Search 1 chat")

@@ -445,3 +445,22 @@ def test_latest_never_names_a_day_still_ahead(bank):
     bank_index.invalidate()
     page = channel_items.items(bank, "calendar-local")
     assert page["items"][0]["day"] == "2999-01-01" and page["latest"] == "2026-10-01"
+
+
+@pytest.mark.parametrize("channel,origin", [("whatsapp", "whatsapp"), ("telegram-chats", "telegram-chats")])
+def test_q_finds_a_live_chat_sources_chat_row(bank, monkeypatch, channel, origin):
+    """#559 lists WhatsApp and Telegram one row per chat; the source page's search finds that row by its name or by a
+    sitting whose words matched, and `latest` is its newest sitting's day."""
+    from api.services import search_index
+
+    chat = "b" * 32
+    for n, day in ((1, "2026-09-16"), (2, "2026-09-17")):
+        _episode(bank, f"ep_{day}_00{n}", title=f"Chat · {day}", origin=origin, conversation=chat,
+                 correspondent={"name": "Person C"}, message_count=3, timestamp=f"{day}T08:00:00+00:00")
+    bank_index.invalidate()
+    page = channel_items.items(bank, channel)
+    assert [(r["kind"], r["id"], r["sittings"], r.get("messages")) for r in page["items"]] == [("chat", chat, 2, 6)]
+    assert page["latest"] == "2026-09-17"
+    assert channel_items.items(bank, channel, q="person c")["total"] == 1
+    monkeypatch.setattr(search_index, "episodes_with_words", lambda memory_path, q: {"ep_2026-09-16_001"})
+    assert [r["id"] for r in channel_items.items(bank, channel, q="climbing")["items"]] == [chat]

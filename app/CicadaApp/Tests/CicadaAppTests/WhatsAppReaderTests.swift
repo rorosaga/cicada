@@ -104,7 +104,9 @@ final class FakeChatSourcesAPI: ChatSourcesAPI {
     }
     func telegramQR() async throws -> TelegramStatusAnswer {
         if holdQR { await withCheckedContinuation { qrGate = $0 } }
-        return TelegramStatusAnswer(state: "qr", qrUrl: "tg://login?token=PLACEHOLDER")
+        var answer = TelegramStatusAnswer(state: "qr", qrUrl: "tg://login?token=PLACEHOLDER")
+        answer.version = qrVersion
+        return answer
     }
     private(set) var telegramConnects = 0
     /// Held while set: `telegramConnect` waits on it, as a send still in flight does.
@@ -132,6 +134,17 @@ final class FakeChatSourcesAPI: ChatSourcesAPI {
         if ticked && consent { self.ticked.insert(id) } else { self.ticked.remove(id) }
         return answer()
     }
+
+    /// chats-ux-v2 — the version the QR answer carries (nil: an older backend), the long-poll asks (`since` per call)
+    /// and the photos posted.
+    var qrVersion: String?
+    private(set) var statusWaits: [String] = []
+    func telegramStatus(since: String, wait: Int) async throws -> TelegramStatusAnswer {
+        statusWaits.append(since)
+        return try await telegramStatus()
+    }
+    private(set) var photoPosts: [[MessagesPhotoPayload]] = []
+    func putChatPhotos(_ photos: [MessagesPhotoPayload]) async throws { photoPosts.append(photos) }
 
     func postWhatsApp(_ json: Data) async throws -> ChatSyncAnswer {
         posts.append(try XCTUnwrap(JSONSerialization.jsonObject(with: json) as? [String: Any]))

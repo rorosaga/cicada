@@ -31,9 +31,13 @@ struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
     /// Ruling 39 — the day Cicada received the item, sent only when it is days after `day` (the item's own date: a
     /// feed's back catalogue, an old bookmark). Nil for every other row and from an older backend.
     var received: String? = nil
+    /// chats-ux-v2 (#559) — a chat row's message count over its sittings (absent for sittings written before counts
+    /// were kept) and whether it is a group chat. Nil for every other row and from an older backend.
+    var messages: Int? = nil
+    var group: Bool? = nil
 
     enum CodingKeys: String, CodingKey {
-        case kind, id, title, day, left, host, site, why, chat, videos, sittings, video, received
+        case kind, id, title, day, left, host, site, why, chat, videos, sittings, video, received, messages, group
     }
 
     init(kind: Kind, id: String, title: String, day: String? = nil, left: String? = nil, host: String? = nil,
@@ -60,6 +64,8 @@ struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
         sittings = try? c.decodeIfPresent(Int.self, forKey: .sittings)
         video = try? c.decodeIfPresent(Bool.self, forKey: .video)
         received = try? c.decodeIfPresent(String.self, forKey: .received)
+        messages = try? c.decodeIfPresent(Int.self, forKey: .messages)
+        group = try? c.decodeIfPresent(Bool.self, forKey: .group)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -77,6 +83,8 @@ struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
         try c.encodeIfPresent(sittings, forKey: .sittings)
         try c.encodeIfPresent(video, forKey: .video)
         try c.encodeIfPresent(received, forKey: .received)
+        try c.encodeIfPresent(messages, forKey: .messages)
+        try c.encodeIfPresent(group, forKey: .group)
     }
 }
 

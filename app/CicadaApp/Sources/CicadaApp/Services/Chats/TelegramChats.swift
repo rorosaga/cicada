@@ -79,14 +79,33 @@ final class TelegramChats {
     }
 
     /// While a QR is on screen: the backend swaps in a fresh one as Telegram expires it, and moves to `connected`
-    /// (or `password`) the moment the phone accepts it. One status read a second, only while the sheet shows a QR.
+    /// (or `password`) the moment the phone accepts it. chats-ux-v2 (owner 2026-10-29: "it took a bit to change status
+    /// to connected") — the step asks the backend to answer when the status moves (`since` its `version`, ≤ 20 s per
+    /// ask), so a scan shows at once; an older backend with no `version` is read once a second, as before.
     func followQR(every interval: Duration = .seconds(1)) async {
         while status.state == "qr", !Task.isCancelled {
-            try? await Task.sleep(for: interval)
-            guard !Task.isCancelled, let answer = try? await api.telegramStatus() else { continue }
+            let answer: TelegramStatusAnswer?
+            if let held = status.version {
+                answer = try? await api.telegramStatus(since: held, wait: 20)
+                if answer == nil { try? await Task.sleep(for: interval) }   // the backend down: never a hot loop
+            } else {
+                try? await Task.sleep(for: interval)
+                answer = Task.isCancelled ? nil : try? await api.telegramStatus()
+            }
+            guard !Task.isCancelled, let answer else { continue }
             status = answer
             error = answer.error
         }
+    }
+
+    /// chats-ux-v2 — the listed chats' profile photos (Telegram's own small JPEG), read when a row shows; picker display
+    /// only (a ticked chat's becomes its page's picture on the backend). Missing = a monogram.
+    private(set) var photos: [String: Data] = [:]
+    @ObservationIgnored private var askedPhotos: Set<String> = []
+
+    func loadPhoto(_ chat: TelegramChatRow) async {
+        guard connected, askedPhotos.insert(chat.id).inserted else { return }
+        if let data = try? await api.telegramChatPhoto(id: chat.id) { photos[chat.id] = data }
     }
 
     /// Every sign-in step refuses while one is in flight: one ⏎ can reach both a field's submit and the sheet's
@@ -113,6 +132,8 @@ final class TelegramChats {
     func disconnect() async {
         await step { try await api.telegramDisconnect() }
         chats = []
+        photos = [:]
+        askedPhotos = []
     }
 
     func loadChats() async {
@@ -156,14 +177,5 @@ final class TelegramChats {
     }
 
     /// A refusal's sentence is the backend's own (`detail`), else a plain line.
-    static func message(_ error: Error) -> String {
-        if error is URLError { return Copy.sourceBackendDown }
-        guard let api = error as? APIError else { return Copy.Chats.syncFailed }
-        switch api {
-        case .httpError(409, let body), .httpError(422, let body): return ProjectWriteFailure.detail(body) ?? Copy.Chats.syncFailed
-        case .httpError(404, _), .httpError(405, _): return Copy.sourceNeedsUpdate
-        case .serverUnreachable: return Copy.sourceBackendDown
-        default: return Copy.Chats.syncFailed
-        }
-    }
+    static func message(_ error: Error) -> String { Copy.Chats.failure(error) }
 }
