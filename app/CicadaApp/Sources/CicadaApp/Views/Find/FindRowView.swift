@@ -120,6 +120,10 @@ struct FindStill: View {
                 Image(nsImage: image).resizable().interpolation(.high).scaledToFill()
                     .frame(width: height * 16 / 9, height: height)
                     .clipShape(CicadaTheme.shape(CicadaTheme.scaled(4)))
+            } else {
+                // Nothing drawn and no space taken — but a view, so the load below runs (an empty `Group` never
+                // appears, and its `.task` never starts: found driving the app, 2026-10-29).
+                Color.clear.frame(width: 0, height: 0)
             }
         }
         .accessibilityHidden(true)

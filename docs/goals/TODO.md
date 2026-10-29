@@ -17,6 +17,13 @@
   compiling it (§IV.3(a)), so the ToS rail rules out an API connector. The way in is the person's own Extended
   streaming history download through G32's import (not built yet). Capturing what is playing through the harness waits
   on the owner's ruling.
+- **2026-10-29 — files in the app (G195; branch `feat/files-in-the-app`).** The coordinator chose (owner asleep, "go
+  with the recommendations"): the find palette gets a **Files** group, and the File menu gets **Add Recording or
+  Video…**. In the group, a recording reads "the recording's words, at m:ss" and a video frame shows its own thumbnail or
+  no mark (#512). Both use existing row patterns only (DR-48, DR-44, DR-12, DR-81). The menu item uses the intake's open
+  panel and the drop's door, so Speech Recognition is asked only inside the person's own act. Driving the app found two
+  defects, both fixed. First, the lift is now taken over the other items' mean: with two files, the right one never
+  cleared the floor. Second, a frame's thumbnail never loaded, because an empty view's `.task` never runs.
 - **2026-10-28 — Messages interactions reach Sleep; group chats are read (G179, G29, G113; branch
   `feat/messages-replies-groups`, PR #499).** Replies, reactions, forwards and unsends stored in `turn_extras` reach
   Stage 1 as one note per chunk (`turn_signals`), source-agnostic; the person's own reaction moves that claim's

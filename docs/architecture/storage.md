@@ -1881,6 +1881,11 @@ then search answers from the old pictures (the vector rail: the old table serves
 **Scores.** Raw cosines are not comparable across kinds (a text query sits nearer every passage than any picture),
 so a picture is scored by its **lift**, `cos − μ`, where μ is the query's exact mean cosine over every picture
 (`q · mean`, from `stats_images`, no scan), and shown only at `lift ≥ LIFT_MIN` (0.06) — "nothing found" is an answer.
+**Over the others' mean** (2026-10-29, found driving the app with two added files): the lift is taken against the mean
+of the *other* n − 1 items (`image_index.loo_lift`), so with a handful of items the right one no longer drags the mean
+up with it (two passages: the plain lift halved the gap and nothing cleared the floor); over many items it is the same
+number the floors were calibrated on, and a lone item is shown. On the real models at n = 2 passages and 4 frames: the
+topics said lift 0.14–0.19 and the red-circle frame 0.13; topics absent ≤ 0.03 and other frames ≤ 0.05.
 Measured: on synthetic vectors with a modality gap (`benchmarks.perf.image_fusion`, 4 geometries × 3 seeds) RRF put a
 picture in the merged top 5 of 100 % of documents-only queries and raw cosine never showed one, while subtracting the
 kind's mean kept pictures out (≤ 0.3 %); on the real encoder (`benchmarks.perf.image_index_build`, 400 synthetic
