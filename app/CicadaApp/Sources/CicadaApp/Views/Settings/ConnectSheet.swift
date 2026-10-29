@@ -100,13 +100,9 @@ struct PhoneNumberEntry: View {
                 // Grouped as typed; formatting in the binding's setter does not reach a field being edited. A number
                 // pasted or autofilled with its "+34" or "0034" re-picks the country and keeps the national part.
                 .onChange(of: national) { _, typed in
-                    if let (picked, rest) = PhoneCountry.international(typed, preferring: country) {
-                        country = picked
-                        national = PhoneCountry.formatNational(rest)
-                        return
-                    }
-                    let grouped = PhoneCountry.formatNational(typed)
-                    if grouped != typed { national = grouped }
+                    let (picked, field) = PhoneCountry.typing(typed, country: country)
+                    if picked != country { country = picked }
+                    if field != typed { national = field }
                 }
         }
         .onAppear { focused = true }

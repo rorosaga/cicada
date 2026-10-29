@@ -111,6 +111,20 @@ struct PhoneCountry: Identifiable, Hashable, Sendable {
         return out
     }
 
+    /// One keystroke's worth of the phone field: what the field should read and which country it is in. A "+" or
+    /// "00" being typed is kept as typed until its digits name a calling code; then the country is re-picked and the
+    /// field keeps only the national part. Anything else is grouped as a national number.
+    static func typing(_ typed: String, country: PhoneCountry) -> (PhoneCountry, String) {
+        if let (picked, rest) = international(typed, preferring: country) {
+            return (picked, formatNational(rest))
+        }
+        let trimmed = typed.trimmingCharacters(in: .whitespaces)
+        if trimmed.hasPrefix("+") {
+            return (country, "+" + String(digits(trimmed).prefix(4)))   // no code is longer than four digits
+        }
+        return (country, formatNational(typed))
+    }
+
     /// Enough digits to be a phone number at all; the backend and Telegram judge the rest.
     static func plausible(_ national: String) -> Bool { digits(national).count >= 4 }
 

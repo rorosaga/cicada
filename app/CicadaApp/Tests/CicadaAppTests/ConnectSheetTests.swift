@@ -51,6 +51,31 @@ final class ConnectSheetTests: XCTestCase {
         XCTAssertEqual(PhoneCountry.international("+351 912 345 678")?.0.region, "PT")
     }
 
+    /// Typing "+34 612 345 678" one key at a time: the "+" survives until "34" names Spain, then the field holds the
+    /// national number only. The same for "0034…" and for "+351…", whose first digits name no code.
+    func testTypingAnInternationalNumberKeyByKey() {
+        func type(_ text: String, from start: PhoneCountry) -> (PhoneCountry, String) {
+            var country = start, field = ""
+            for key in text {
+                (country, field) = PhoneCountry.typing(field + String(key), country: country)
+            }
+            return (country, field)
+        }
+        let us = PhoneCountry.default(region: "US")
+        for (text, region, number) in [("+34 612 345 678", "ES", "+34612345678"),
+                                       ("0034612345678", "ES", "+34612345678"),
+                                       ("+351 912 345 678", "PT", "+351912345678"),
+                                       ("+44 7700 900123", "GB", "+447700900123")] {
+            let (country, field) = type(text, from: us)
+            XCTAssertEqual(country.region, region, text)
+            XCTAssertFalse(field.contains("+"), text)
+            XCTAssertEqual(country.international(field), number, text)
+        }
+        XCTAssertEqual(PhoneCountry.typing("+", country: us).1, "+")
+        XCTAssertEqual(PhoneCountry.typing("+3", country: us).1, "+3")
+        XCTAssertEqual(type("612345678", from: us).1, "612 345 678")
+    }
+
     func testTheLeadingZeroIsKeptOnlyWhereItIsPartOfTheNumber() {
         XCTAssertEqual(PhoneCountry.default(region: "CI").international("07 01 02 03 04"), "+2250701020304")
         XCTAssertEqual(PhoneCountry.default(region: "BJ").international("01 97 00 00 00"), "+2290197000000")
