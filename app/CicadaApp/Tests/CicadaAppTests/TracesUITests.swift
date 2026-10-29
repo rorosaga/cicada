@@ -252,12 +252,22 @@ final class TracesUICatalogTests: XCTestCase {
             .first { $0.id == SourceCatalog.tracesId }
     }
 
-    func testTracesIsAThisMacEntryAfterMessages() throws {
-        let ids = SourceCatalog.fixed.map(\.id)
-        let traces = try XCTUnwrap(SourceCatalog.fixed.first { $0.id == "traces" })
+    /// Traces sits right after This Mac's chat sources (Messages, WhatsApp, any later one that chooses chats), which
+    /// stay together — not pinned to Messages, so a new chat source joins the group without moving Traces.
+    func testTracesIsAThisMacEntryAfterTheChatSources() throws {
+        let fixed = SourceCatalog.fixed
+        let ids = fixed.map(\.id)
+        let traces = try XCTUnwrap(fixed.first { $0.id == SourceCatalog.tracesId })
         XCTAssertEqual(traces.group, .thisMac)
         XCTAssertEqual(traces.title, Copy.Traces.title)
-        XCTAssertEqual(ids.firstIndex(of: "traces"), ids.firstIndex(of: "imessage").map { $0 + 1 })
+        let chats = fixed.indices.filter {
+            fixed[$0].group == .thisMac && fixed[$0].verb == .connect(Copy.Catalog.chooseChats)
+        }
+        XCTAssertTrue(chats.contains(try XCTUnwrap(ids.firstIndex(of: "imessage"))))
+        XCTAssertTrue(chats.contains(try XCTUnwrap(ids.firstIndex(of: WhatsAppWatcher.channel))))
+        let first = try XCTUnwrap(chats.first), last = try XCTUnwrap(chats.last)
+        XCTAssertEqual(Array(chats), Array(first...last), "the chat sources sit together")
+        XCTAssertEqual(ids.firstIndex(of: SourceCatalog.tracesId), last + 1, "Traces follows the last chat source")
     }
 
     func testConnectedOnlyWhileRecording() {
