@@ -411,9 +411,12 @@ queues, it does not fail.
 
 **Capture commits on the home, replicas are a mode, history only grows (ruling 51e).** Today the session, turn and
 relay capture paths write the episode file and leave the commit to Sleep's batch or a poll's sweep; a replica follows
-commits, so while the home publishes its log a debounced background step commits new or changed `episodes/ep_*.md`
-only — each settled ≥ 10 s, as `cicada` with trigger `sync/capture`, holding write admission shared, skipped while
-Sleep is writing, never another path and never `_state.md`. The capture path itself still makes no commit and runs no
+commits, so while the home publishes its log a debounced background step commits only the episodes those capture
+writers themselves wrote: each writer records the path and content hash it wrote, and the step commits a path, settled
+≥ 10 s, only while its hash still matches — as `cicada` with trigger `sync/capture`, holding write admission shared,
+skipped while Sleep is writing, never another path and never `_state.md`. Any other dirty `ep_*.md` (the person's own
+hand edit, another writer's) keeps its edit uncommitted or is set apart as `agent_commits` does ("Uncommitted edit kept
+apart"), never committed as `cicada` — a write commits alone, under its true author. The capture path itself still makes no commit and runs no
 model; with publishing off, nothing changes. **Replica mode** is a third runtime mode beside local and client:
 read-only, never Sleep or a schedule, never a commit of its own, with a backstop guard that refuses every bank writer;
 reads write nothing there, so `GET /state`'s refresh-and-commit is a no-op on a replica and refreshes at the home. If

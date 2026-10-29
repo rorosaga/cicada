@@ -2604,9 +2604,14 @@ A whole row moves to DONE only after its remaining implementation and required a
     findings).** **e1 — Capture commits on the home.** Today the session, turn and relay capture paths
     (`transcript_capture`, `turn_capture`, `relay_capture`) write the episode file without committing; Sleep's batch
     `add -A` or a poll's sweep commits it later. A replica follows commits, so the queue would differ between devices
-    and break d. So, **while the home publishes its log**, a debounced background step commits new or changed
-    `episodes/ep_*.md` only, each settled ≥ 10 s, as `cicada` with trigger `sync/capture`; it holds write admission
-    shared and is skipped while Sleep is writing; it never sweeps another path and never commits `_state.md`. With
+    and break d. So, **while the home publishes its log**, a debounced background step commits **only the episodes the
+    capture writers themselves wrote** (`transcript_capture`, `turn_capture`, `relay_capture`): each writer records the
+    path and the content hash it wrote, and the step commits a path, settled ≥ 10 s, only while its hash still matches —
+    as `cicada` with trigger `sync/capture`. Any other dirty `ep_*.md` (the person's own hand edit, which Sleep
+    supports, or another writer's) keeps its edit uncommitted, or is set apart the way `agent_commits` does it
+    ("Uncommitted edit kept apart") — never committed as `cicada`, so a write still commits alone under its true
+    author. It holds write admission shared and is skipped while Sleep is writing; it never sweeps another path and
+    never commits `_state.md`. With
     publishing off, nothing changes. This amends nothing in the capture rail: no model, and the capture path itself
     still makes no commit. **e2 — Replica mode is a third runtime mode**, beside local and client: read-only, never
     runs Sleep or a schedule, never commits on its own; a backstop guard refuses every bank writer there. Reads on a
