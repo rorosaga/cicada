@@ -72,7 +72,7 @@ from typing import Any, Callable
 
 from loguru import logger
 
-from api.services import bank_index, inbox_service, markdown_parser, session_stats, sync_service
+from api.services import bank_index, episode_scrub, inbox_service, markdown_parser, session_stats, sync_service
 from api.services.claims import strip_claims_block
 from api.services.hub_builder import _one_line_summary
 from api.services.skill_tag import is_agent_skill
@@ -326,8 +326,10 @@ def _agent_note_rows(memory_path: Path, n: int) -> list[dict]:
             continue
         if str(memo.get("type") or "").strip().lower() not in AGENT_NOTE_TYPES:
             continue
-        title = str(fm.get("title") or "").removeprefix("Agent memory: ").strip()
-        line = " ".join(str(memo.get("description") or title).split())
+        # Scrubbed at read too (review of #560): a bank written before the stager scrubbed extras holds them raw, and
+        # this row reaches every primer and `_state.md`.
+        title = episode_scrub.scrub_value(str(fm.get("title") or "").removeprefix("Agent memory: ").strip())[0]
+        line = " ".join(episode_scrub.scrub_value(str(memo.get("description") or "") or title)[0].split())
         if not line:
             continue
         if len(line) > ONE_LINER_LIMIT:

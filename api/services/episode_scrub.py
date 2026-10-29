@@ -115,6 +115,40 @@ def scrub(text: str) -> tuple[str, int]:
     return text, count
 
 
+#: The named secret shapes alone — not the bare hex / base64 runs, which a one-token identifier (a content hash, a
+#: device id, a session id) legitimately is.
+_NAMED_SECRET_RES = _SECRET_RES[:-1]
+
+
+def scrub_value(value):
+    """``(value, replacements)`` with every string inside ``value`` (a str, or dicts and lists of them) scrubbed — the
+    frontmatter a writer passes beside the body (``EpisodeDraft.extra``), so a description, a title or a name never
+    keeps a secret the body lost (review of #560). A string with whitespace is prose and gets :func:`scrub` whole; a
+    single token gets only the named secret shapes, so an id or a hash stays itself. Other values pass through."""
+    if isinstance(value, str):
+        if any(c.isspace() for c in value):
+            return scrub(value)
+        count = 0
+        for rx in _NAMED_SECRET_RES:
+            value, n = rx.subn(REDACTED, value)
+            count += n
+        return value, count
+    if isinstance(value, dict):
+        out, total = {}, 0
+        for k, v in value.items():
+            out[k], n = scrub_value(v)
+            total += n
+        return out, total
+    if isinstance(value, (list, tuple)):
+        items, total = [], 0
+        for v in value:
+            item, n = scrub_value(v)
+            items.append(item)
+            total += n
+        return (type(value)(items) if isinstance(value, tuple) else items), total
+    return value, 0
+
+
 def record(writer: str, count: int, *, bank: str | None = None) -> None:
     """One ``capture`` ledger row for a write that replaced something. Never
     raises: the ledger must not fail a capture (``telemetry.record`` already

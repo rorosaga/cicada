@@ -42,7 +42,7 @@ from pathlib import Path
 
 import yaml
 
-from api.services import bank_index, episode_ids, episode_staging
+from api.services import bank_index, episode_ids, episode_scrub, episode_staging
 from api.services.episode_staging import EpisodeDraft, Turn
 
 SOURCE = "agent-memory"
@@ -152,8 +152,10 @@ def note_draft(note: dict, *, harness: str, device: str, sessions: dict[str, str
     if not body:
         return None
     project, file = note["project"], note["file"]
-    name = _text(head.get("name"), 200) or file.removesuffix(".md")
-    description = _text(head.get("description"), _DESCRIPTION_MAX)
+    # The head's words are scrubbed like the body (review of #560): they ride the frontmatter, the title and, for a
+    # feedback/user note, the handshake's "How to work with me". The stager scrubs every extra too.
+    name = episode_scrub.scrub_value(_text(head.get("name"), 200))[0] or file.removesuffix(".md")
+    description = episode_scrub.scrub_value(_text(head.get("description"), _DESCRIPTION_MAX))[0]
     when = _aware(_field(head, "modified")) or _aware(note.get("modified_at"))
     session = str(_field(head, "originSessionId") or "").strip()
     session = session if _SESSION_RE.match(session) else ""

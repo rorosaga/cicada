@@ -602,7 +602,10 @@ def _preference(p: dict) -> str:
     where it came from: an agent's summary of the person, never theirs."""
     text = p.get("one_liner") or p["name"]
     if p.get("agent_note"):
-        return f"{text} ({state_dictionary.AGENT_NOTE_MARK}, `{p['id']}`)"
+        # Scrubbed again at render (review of #560): a `_state.md` written before the scrub may hold it raw.
+        from api.services import episode_scrub
+
+        return f"{episode_scrub.scrub_value(text)[0]} ({state_dictionary.AGENT_NOTE_MARK}, `{p['id']}`)"
     return text
 
 

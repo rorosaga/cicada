@@ -404,8 +404,18 @@ def relay_for(draft: EpisodeDraft, candidates: dict[tuple[str, str], list[IndexE
     return near[0] if len(near) == 1 else None
 
 
+def _extra(draft: EpisodeDraft) -> dict:
+    """``draft.extra`` with every string in it scrubbed like the body (review of #560): no writer's frontmatter — a
+    note's description, a chat's title — keeps a secret its words lost. The one way extras reach a file."""
+    return episode_scrub.scrub_value(dict(draft.extra))[0]
+
+
+def _title(draft: EpisodeDraft) -> str:
+    return episode_scrub.scrub_value(draft.title or "")[0]
+
+
 def _apply_common(fm: dict, draft: EpisodeDraft, stamps: list[dict], body: str | None = None) -> None:
-    fm.update(draft.extra)
+    fm.update(_extra(draft))
     _apply_extras(fm, _extras_matching(draft, body) if body is not None else {})
     if draft.content_sha:
         fm["content_sha"] = draft.content_sha
@@ -443,7 +453,7 @@ def write_new(draft: EpisodeDraft, episodes_dir: Path, body: str, digest: str,
         # Ruling 39: the item's own date above, when Cicada received it here — set once, at creation.
         episode_ids.RECEIVED_KEY: normalise_timestamp(draft.received_at) or episode_ids.utc_now_iso(),
         "source": draft.source,
-        "title": draft.title or "Untitled",
+        "title": _title(draft) or "Untitled",
         "processed": False,
         "content_hash": digest,
     }
@@ -477,7 +487,7 @@ def _under_episode_lock(fn):
 def update_in_place(path: Path, draft: EpisodeDraft, body: str, digest: str, stamps: list[dict]) -> None:
     """Same file, same id, same original timestamp; new body, re-queued (G20)."""
     fm = dict(markdown_parser.parse(path).frontmatter)
-    fm["title"] = draft.title or fm.get("title", "Untitled")
+    fm["title"] = _title(draft) or fm.get("title", "Untitled")
     fm["content_hash"] = digest
     fm["source_updated_at"] = draft.source_updated_at
     fm["source_id"] = draft.source_id
@@ -497,7 +507,7 @@ def upgrade_relay(path: Path, draft: EpisodeDraft, body: str, digest: str, stamp
         fm.pop(key, None)
     fm["relay"] = {**(fm.get("relay") or {}), "upgraded_at": at, "upgraded_by": draft.source}
     fm["source"] = draft.source
-    fm["title"] = draft.title or fm.get("title", "Untitled")
+    fm["title"] = _title(draft) or fm.get("title", "Untitled")
     fm["content_hash"] = digest
     fm["source_id"] = draft.source_id
     fm["source_updated_at"] = draft.source_updated_at
@@ -516,7 +526,7 @@ def _refresh(path: Path, draft: EpisodeDraft) -> None:
     parsed = markdown_parser.parse(path)
     fm = dict(parsed.frontmatter)
     fm.pop("source_deleted_at", None)
-    fm.update(draft.extra)
+    fm.update(_extra(draft))
     if draft.content_sha:
         fm["content_sha"] = draft.content_sha
     if draft.source_updated_at:
@@ -719,9 +729,9 @@ def _repoint(path: Path, draft: EpisodeDraft, old_sid: str) -> None:
     fm["source_id"] = draft.source_id
     fm["source_updated_at"] = draft.source_updated_at
     if draft.title:
-        fm["title"] = draft.title
+        fm["title"] = _title(draft)
     fm.pop("source_deleted_at", None)
-    fm.update(draft.extra)
+    fm.update(_extra(draft))
     _requeue_for_authorship(fm, draft)
     _apply_extras(fm, _extras_matching(draft, parsed.body))
     markdown_parser.write(path, fm, parsed.body)

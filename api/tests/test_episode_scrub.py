@@ -86,3 +86,28 @@ def test_only_chat_writers_scrub_phones():
         assert episode_scrub.scrub_for(line, writer) == ("ring [redacted]", 1)
     assert episode_scrub.scrub_for(line, "import") == (line, 0)
     assert {"imessage", "whatsapp"} <= episode_scrub.PHONE_WRITERS
+
+
+SECRET_EXTRA = "ghp_" + "Q1w2E3r4T5y6U7i8O9p0A1s2D3"
+
+
+def test_every_string_a_writer_passes_beside_the_body_is_scrubbed_by_the_stager(tmp_path):
+    """Review of #560: a writer's `extra` and title reached the frontmatter raw; the stager now scrubs them for every
+    writer, and a one-token id or hash stays itself."""
+    from api.services import markdown_parser
+    from api.services.episode_staging import EpisodeDraft, Turn, stage
+
+    episodes = tmp_path / "episodes"
+    episodes.mkdir()
+    sha = "a" * 64
+    draft = EpisodeDraft(title=f"About {SECRET_EXTRA}", source_id="example:1", source="import",
+                         timestamp="2026-10-21T10:00:00+00:00", turns=[Turn(text="hello", speaker="user")],
+                         extra={"memo": {"description": f"use {SECRET_EXTRA} now", "tags": [SECRET_EXTRA]},
+                                "hash_id": sha})
+    stage([draft], episodes)
+    [path] = list(episodes.glob("ep_*.md"))
+    assert SECRET_EXTRA not in path.read_text(encoding="utf-8")
+    fm = markdown_parser.parse(path).frontmatter
+    assert fm["memo"]["description"] == "use [redacted] now" and fm["memo"]["tags"] == ["[redacted]"]
+    assert fm["hash_id"] == sha, "a one-token identifier is never mistaken for a secret"
+    assert fm["title"] == "About [redacted]"
