@@ -344,6 +344,59 @@
       },
       "cicadaNote": "Cicada never opens a browser itself. It only keeps what your agent captured, and checks the capture script against this reviewed version.",
       "bridge": null
+    },
+    {
+      "id": "hoff-harness", "kind": "skill", "rank": 13,
+      "invoke": "hoff-harness",
+      "title": "Show me on screen",
+      "summary": "A second cursor with a speech bubble: your agent points at things on your Mac, walks you through a task step by step, or does it while you watch.",
+      "why": "Some answers are easier to see than to read. Ask your agent to show you where something is, or to walk you through it, and it points instead of describing.",
+      "reach": "Reads what is on screen in the app you ask about, and only shows unless you ask it to do the step for you. macOS asks once for Accessibility and Screen Recording for the app your agent runs in; Cicada never asks. Added without hoff's own hooks: what you mark reaches your agent when you ask it to look, not with every message.",
+      "publisher": "rorosaga",
+      "sourceUrl": "https://github.com/rorosaga/hoff-harness",
+      "licence": "MIT",
+      "mark": null,
+      "symbol": "cursorarrow.rays",
+      "pin": {
+        "repo": "rorosaga/hoff-harness",
+        "ref": "main",
+        "sha": "2edadbd996f4ec0c634b6aa41b70d0362f0d2eb8",
+        "path": "skills/hoff-harness",
+        "skillMdSha256": "90ad2186143383722d3c7a70c3cbb374a14a3f18d9872658ff3f98eb7eda4552",
+        "files": {
+          "config.json": "f263d3866c0616e1f63bc33fccfb8e9b65b3603d6bed97aca8a3e54e065a63c4",
+          "scripts/hoff-harness": "dec137fd0779667cadd74674ee1a9751d0776e0bb7ba19efd8e0588a8ff5d2b8",
+          "scripts/pointer.py": "0557dc9e8c66d5a6eab38e7ae368e64fd8157744377d01f91fd9bb50f6b54381",
+          "scripts/statusline.sh": "092c7f72eecc295f0868a1b0799b8ca5674a5504426d55dc9649e6ead8411e78"
+        }
+      },
+      "agents": {
+        "claude-code": {"method": "skills-cli"},
+        "codex": {"method": "skills-cli"}
+      },
+      "detect": {"skillDirs": ["hoff-harness"], "pluginIds": ["hoff-harness@hoff-harness"]},
+      "onboarding": {
+        "default": false,
+        "title": "Show me",
+        "line": "Your agents can point at things on your screen and walk you through them.",
+        "asks": "macOS asks once for Accessibility and Screen Recording for the app your agent runs in. Cicada never asks for them."
+      },
+      "needs": {
+        "binaries": ["uv", "macOS 14 or later"],
+        "network": ["none of its own; the first run fetches its Python parts with uv"],
+        "writes": [
+          "~/Library/Caches/hoff-harness: its cursor's state, and what you mark with its keys (a picture of the marked part of your screen, kept a day)",
+          "~/.config/hoff-harness/config.json, only if you change its keys"
+        ],
+        "hooks": [],
+        "firstRun": "It checks its permissions with `hoff-harness doctor`, and opens System Settings only when you say so.",
+        "limits": [
+          "Cicada adds the skill without hoff's own hooks. Marks you make with its keys reach your agent when you say \"this\" and it asks hoff for them, not with every message, and the mark keys work while its cursor is up. hoff's own install adds the hooks if you want that.",
+          "macOS only."
+        ]
+      },
+      "cicadaNote": "Cicada only offers it. Nothing hoff shows or you mark enters Cicada unless you ask your agent to save it, and its cursor is never in Cicada's activity-trace screenshots.",
+      "bridge": null
     }
   ]
 }

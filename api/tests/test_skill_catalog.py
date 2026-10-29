@@ -21,7 +21,7 @@ LOGOS = Path(__file__).resolve().parents[2] / "app/CicadaApp/Sources/CicadaApp/R
 def test_the_brief_s_list_is_the_catalog():
     assert set(BY_ID) == {"watch", "skill-creator", "pdf", "paper-lookup", "literature-review",
                           "arxiv-mcp-server", "transcribe", "granola", "wispr-flow", "browser-harness",
-                          "macos-harness", "site-explore"}
+                          "macos-harness", "site-explore", "hoff-harness"}
     assert CATALOG["maxShown"] <= 5
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", CATALOG["reviewedAt"])
 
@@ -156,7 +156,7 @@ def test_at_most_five_by_rank_and_installed_ones_step_aside(tmp_path):
     home = tmp_path / "h"
     fresh = skill_catalog.recommended(home=home)
     assert [s["id"] for s in fresh["recommended"]] == ["watch", "paper-lookup", "wispr-flow", "granola", "skill-creator"]
-    assert fresh["installed"] == [] and fresh["catalogSize"] == 12
+    assert fresh["installed"] == [] and fresh["catalogSize"] == 13
     _skill(home, ".claude/skills", "watch")
     after = skill_catalog.recommended(home=home)
     assert [s["id"] for s in after["installed"]] == ["watch"]
@@ -254,7 +254,27 @@ def test_new_entries_do_not_displace_the_top_five():
     assert BY_ID["browser-harness"]["rank"] == 10 and BY_ID["macos-harness"]["rank"] == 11
     # Cicada's own site-explore skill (G166 exploring) ranks after the role skills: it needs browser-harness first.
     assert BY_ID["site-explore"]["rank"] == 12
-    assert max(s["rank"] for s in SKILLS if s["id"] not in (*ROLE_SKILLS, "site-explore")) < 10
+    assert BY_ID["hoff-harness"]["rank"] == 13   # G220: after the Mac skills it complements
+    assert max(s["rank"] for s in SKILLS if s["id"] not in (*ROLE_SKILLS, "site-explore", "hoff-harness")) < 10
+
+
+def test_hoff_ships_pinned_whole_without_hooks_and_steps_aside_for_its_own_plugin(tmp_path):
+    """G220 (owner 2026-10-29): hoff is copied at a reviewed commit, every file hashed, never with its hooks; a
+    person who installed hoff's own plugin already has it, so Cicada never adds a second copy (its hooks would run
+    beside a duplicate skill)."""
+    from api.services import skill_inventory
+
+    hoff = BY_ID["hoff-harness"]
+    pin = hoff["pin"]
+    assert pin["sha"] == "2edadbd996f4ec0c634b6aa41b70d0362f0d2eb8" and pin["path"] == "skills/hoff-harness"
+    assert set(pin["files"]) == {"config.json", "scripts/hoff-harness", "scripts/pointer.py", "scripts/statusline.sh"}
+    assert skill_inventory.install_method(hoff) == "copy"
+    assert hoff["needs"]["hooks"] == [] and "without hoff's own hooks" in hoff["needs"]["limits"][0]
+    # The Discover row shows `reach`: the permissions are macOS's to ask, and what skipping the hooks loses.
+    assert "Accessibility and Screen Recording" in hoff["reach"] and "Cicada never asks" in hoff["reach"]
+    assert "without hoff's own hooks" in hoff["reach"]
+    assert hoff["onboarding"]["default"] is False and not hoff.get("roles") and hoff["bridge"] is None
+    assert "hoff-harness@hoff-harness" in hoff["detect"]["pluginIds"]
 
 
 def test_agent_prompt_plans_are_copy_only_and_run_nothing():

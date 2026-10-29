@@ -12,6 +12,11 @@
 
 ## Current state and evidence
 
+- **2026-10-29 — Cicada ships with hoff (G220, CIC2; branch `feat/ship-with-hoff`).** The owner's show-me cursor is a
+  reviewed catalog suggestion (rank 13), copied at a pinned commit with every file hashed and without hoff's hooks (the
+  skills rail); a copied suggestion now installs only its reviewed bytes (`check_reviewed`). Traces context is not built:
+  hoff keeps no walkthrough record and its marks cache carries titles and page text — the recommended event line waits
+  on the owner, as does `sharingType = .none` in hoff's own repo. Numbers on the G220 and G138 rows.
 - **2026-10-29 — same name, different things (G227; branch `feat/same-name-qualifier`).** A title two pages share is
   shown "<name> (<qualifier>)" everywhere — the app, the API, recall, Ask, the CLI and `/v1` — from one derived function
   (`same_name`); links resolve by id; Stage 2 no longer joins an exact title of another kind on the name alone (the
