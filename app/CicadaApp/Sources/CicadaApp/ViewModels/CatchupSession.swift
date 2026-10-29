@@ -92,8 +92,17 @@ final class CatchupSession {
         return finished ? .idle : stored
     }
 
-    var current: InboxItem? { currentId.flatMap { id in items().first { $0.id == id } } }
-    var chips: [CatchupChip] { current.map(CatchupAnswers.chips) ?? [] }
+    /// The question being asked: for a same-person chain, its first pair still open.
+    var current: InboxItem? {
+        let open = items()
+        if let chain = currentChain {
+            return chain.lazy.compactMap { id in open.first { $0.id == id } }.first
+        }
+        return currentId.flatMap { id in open.first { $0.id == id } }
+    }
+    var chips: [CatchupChip] { current.map { CatchupAnswers.chips($0, open: items()) } ?? [] }
+    /// The same-person chain being asked (#501's grouping): asked once, answered pair by pair.
+    private(set) var currentChain: [String]?
     /// The answer still in its Undo window, if this chat made it.
     var undoableId: String? { heldId() }
     var position: Int { min(max(asked, 1), max(total, 1)) }
@@ -126,13 +135,14 @@ final class CatchupSession {
         }
         queue.removeAll { $0 == next }
         currentId = next
+        currentChain = item.isChain ? item.chain : nil
         asked += 1
         stored = .asking
         if !(alreadyAsked && preferred == next) { ask(item) }
     }
 
     private func ask(_ item: InboxItem) {
-        let reason = item.spokenReason.map { " " + $0 } ?? ""
+        let reason = item.askReason.map { " " + $0 } ?? ""
         say(item.askText + reason, itemId: item.id)
     }
 
@@ -144,14 +154,22 @@ final class CatchupSession {
 
     /// A tap on one of the question's answers (DR-42): the inbox's own resolution, held for Undo.
     func tap(_ chip: CatchupChip) {
-        guard let item = current, !waiting else { return }
+        guard let asked = current, !waiting else { return }
+        let item = chip.itemId.flatMap { id in items().first { $0.id == id } } ?? asked
         confirmation = nil
         lines.append(CatchupLine(.tap(chip.label, itemId: item.id)))
         if let resolution = chip.resolution {
             apply(item, resolution)
+            // A chain stays until each of its pairs is answered or skipped (one tap per pair, ruling 41).
+            if currentChain != nil, current != nil {
+                stored = .asking
+                keep()
+                return
+            }
         } else {
             say(Copy.Catchup.skipped, itemId: nil)
         }
+        currentChain = nil
         advance(preferred: nil, alreadyAsked: false)
         keep()
     }
@@ -194,8 +212,11 @@ final class CatchupSession {
         if let i = lines.lastIndex(where: { if case .tap(_, heldId) = $0.kind { true } else { false } }) {
             lines.remove(at: i)
         }
-        if let currentId, currentId != item.id { queue.insert(currentId, at: 0) }
+        if let currentId, currentId != item.id, !(currentChain ?? []).contains(item.id) {
+            queue.insert(currentId, at: 0)
+        }
         currentId = item.id
+        currentChain = item.isChain ? item.chain : nil
         stored = .asking
         ask(item)
         keep()

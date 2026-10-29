@@ -214,6 +214,12 @@ turns as `user`, Cicada's as `assistant`; re-posted in place and re-queued), so 
 passing like any conversation (ruling 29 part 1 may settle a question from their located words); never into a demo
 bank. The message is never logged. Write-admission classes: the turn `NONE`, the record `CAPTURE`.
 
+**Same-person chains on the wire (2026-10-29).** `GET /inbox` also serves #501's read-time grouping
+(`inbox_catchup.groups`, `inbox_service._mark_chains`): open duplicate questions about people that chain into one
+person (three names or more; never a tool, a project or a held name) each carry `chain` (the members' ids, served
+order), `chainQuestion` / `chainReason` ("Are A, B and C the same person?") and `chainPairs` (`{id, a, b}`, each pair's
+names as said). Additive; nothing is joined by serving it. The app asks the chain once and answers it pair by pair.
+
 **A count is what the inbox serves, never a count of files.** `load_inbox` skips a deferred item and
 one whose subject is archived, dropped or (for every kind but `clarification`) gone; those files stay
 on disk. **A quiet subject is never asked about either (owner ruling 2026-10-20):** a page only an import made — a

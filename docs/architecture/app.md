@@ -445,6 +445,13 @@ all three empty is one `HomeEmptyBlock` (*Choose a file…*), or nothing while G
 *Make it yours* (Appearance; `AppearanceTipPolicy`, per viewer; × closes it, its foot links Settings → General) is a row after
 Needs you for that one session; once hidden or seen it lives only in Settings.
 
+**Same-person chains (2026-10-29, after #509).** A chain of duplicate questions about one person (`chain` on the wire)
+is ONE question on Home, a page's strip and in the chat — its first open member stands for it
+(`HomeQuestions.leads`), said as "Are A, B and C the same person?" with its reason. Its answers are one tap per pair
+("A is B" / "A isn't B", `CatchupAnswers.chainChips`, each the inbox's own merge or reject for that pair's question,
+held with Undo); the chat stays on the chain until every pair is answered or skipped. Never joined by one answer or
+by typed words (ruling 41); no fold, no placeholder tile.
+
 **Catch me up, the chat (ruling 48 (8), owner 2026-10-28: "not a monotone interrogation").** *Start* opens the chat in
 place on Home (`CatchupView`, mock `08-catchup`; held by `HomeSearch.catchup`, so opening a page from it and coming
 back resumes it; Home's cell, Esc, × or *Stop for now* leave it; a bank switch ends it). Cicada on the left, the person

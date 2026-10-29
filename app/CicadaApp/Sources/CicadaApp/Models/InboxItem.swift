@@ -342,6 +342,13 @@ struct WhereToCheckRow: Codable, Equatable, Identifiable {
     }
 }
 
+/// One pair of a same-person chain (`InboxItem.chainPairs`): the pair's question id and its two names as said.
+struct ChainPair: Codable, Equatable {
+    var id: String
+    var a: String
+    var b: String
+}
+
 /// Decodes to nil instead of throwing, so one unreadable element never loses its siblings.
 private struct Lenient<T: Codable>: Codable {
     let value: T?
@@ -407,6 +414,12 @@ struct InboxItem: Identifiable, Codable {
     /// rows, a page's questions strip and the catch-up chat say these; nil from an older server or cache.
     var spokenQuestion: String? = nil
     var spokenReason: String? = nil
+    /// #501's same-person chain, served at read: every member's item ids (served order), the chain's one question and
+    /// reason, and each pair's spoken names. Asked once, answered pair by pair (ruling 41). nil on every other item.
+    var chain: [String]? = nil
+    var chainQuestion: String? = nil
+    var chainReason: String? = nil
+    var chainPairs: [ChainPair]? = nil
 
     enum CodingKeys: String, CodingKey {
         case id, kind, requiredInput, status, priority
@@ -416,6 +429,7 @@ struct InboxItem: Identifiable, Codable {
         case entityType, sourceEpisode, sourceEpisodeTimestamp, claimId, cause
         case extractorConfidence, extractorModel, recommendedKey, informational, checks
         case subject, fold, request, rows, review, spokenQuestion, spokenReason
+        case chain, chainQuestion, chainReason, chainPairs
     }
 
     init(from decoder: Decoder) throws {
@@ -475,6 +489,11 @@ struct InboxItem: Identifiable, Codable {
         review = (try? c.decodeIfPresent(Bool.self, forKey: .review)) ?? false
         spokenQuestion = (try? c.decodeIfPresent(String.self, forKey: .spokenQuestion)) ?? nil
         spokenReason = (try? c.decodeIfPresent(String.self, forKey: .spokenReason)) ?? nil
+        chain = (try? c.decodeIfPresent([String].self, forKey: .chain)) ?? nil
+        chainQuestion = (try? c.decodeIfPresent(String.self, forKey: .chainQuestion)) ?? nil
+        chainReason = (try? c.decodeIfPresent(String.self, forKey: .chainReason)) ?? nil
+        chainPairs = ((try? c.decodeIfPresent([Lenient<ChainPair>].self, forKey: .chainPairs)) ?? nil)?
+            .compactMap(\.value)
     }
 
     /// G61 — the one grouped "Confirm N links" review, drawn as its own card above the questions.
@@ -496,9 +515,16 @@ struct InboxItem: Identifiable, Codable {
 
     /// Ruling 48 (1) — what Home, a page's strip and the catch-up say: the plain question, else the stored one.
     var askText: String {
+        if isChain, let chainQuestion, !chainQuestion.isEmpty { return chainQuestion }
         if let spokenQuestion, !spokenQuestion.isEmpty { return spokenQuestion }
         return questionText
     }
+
+    /// The reason said with `askText`.
+    var askReason: String? { isChain ? (chainReason ?? spokenReason) : spokenReason }
+
+    /// One of a same-person chain of three names or more (asked once, answered pair by pair).
+    var isChain: Bool { (chain?.count ?? 0) > 1 }
 
     var createdDateValue: Date {
         let f = DateFormatter()

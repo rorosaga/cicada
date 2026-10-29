@@ -610,7 +610,49 @@ def _build_inbox(memory_path: Path, *, today: str, include_deferred: bool) -> li
             _neg_date_key(i.created_date),
         )
     )
+    try:
+        _mark_chains(memory_path, items, context)
+    except Exception as exc:  # noqa: BLE001 — a derived field never costs the inbox
+        logger.warning(f"same-person chains skipped: {type(exc).__name__}")
     return items
+
+
+def _mark_chains(memory_path: Path, items: list[InboxItem], context) -> None:
+    """#501's read-time grouping, served to the app: open duplicate questions about people that chain into one person
+    (three names or more) each carry the chain, its one question and the pairs' names. Nothing is joined here."""
+    from api.services import inbox_catchup, inbox_wording
+
+    rows = [(i.id, {"kind": i.kind.value, "entity_id": i.entity_id, "merge_target_hint": i.merge_target_hint,
+                    "suggested_classification": i.suggested_classification})
+            for i in items if i.kind.value == "merge_suggestion" and i.status == "pending"]
+    if len(rows) < 2:
+        return
+    by_id = {i.id: i for i in items}
+    order = {i.id: n for n, i in enumerate(items)}
+
+    def said(pid: str | None, fallback: str) -> str:
+        page = context.entity(pid) if pid else None
+        fm = dict(page.frontmatter) if page is not None else {}
+        return inbox_wording.speakable(fm.get("name") or fallback or pid or "", fm)
+
+    for ids in inbox_catchup.groups(memory_path, rows):
+        members = sorted(ids, key=lambda x: order[x])
+        pairs, names = [], []
+        for mid in members:
+            it = by_id[mid]
+            a = said(it.entity_id, it.entity_name)
+            b = said(it.merge_target_hint, it.merge_target_hint or "")
+            pairs.append({"id": mid, "a": a, "b": b})
+            for n in (a, b):
+                if n and n not in names:
+                    names.append(n)
+        lead = by_id[members[0]]
+        said_group = inbox_wording.spoken({"kind": "merge_suggestion", "entity_id": lead.entity_id},
+                                          context.today, page_fm={"type": "person"}, group=names)
+        for mid in members:
+            it = by_id[mid]
+            it.chain, it.chain_pairs = members, pairs
+            it.chain_question, it.chain_reason = said_group.question, said_group.reason
 
 
 def _neg_date_key(created_date: str) -> str:

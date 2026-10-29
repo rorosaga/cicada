@@ -35,14 +35,14 @@ struct PageQuestionsStrip: View {
                     .font(CicadaTheme.detailBodyFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
-                if let reason = item.spokenReason, !reason.isEmpty {
+                if let reason = item.askReason, !reason.isEmpty {
                     Text(reason)
                         .font(CicadaTheme.metaFont)
                         .foregroundStyle(CicadaTheme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 FlowLayout(spacing: CicadaTheme.spacingSM) {
-                    ForEach(CatchupAnswers.chips(item).filter { $0.role != .skip }) { chip in
+                    ForEach(CatchupAnswers.chips(item, open: store.visibleInbox).filter { $0.role != .skip }) { chip in
                         switch chip.role {
                         case .answer:
                             NeutralButton(title: chip.label, size: .compact) { answer(item, chip) }
@@ -61,7 +61,9 @@ struct PageQuestionsStrip: View {
 
     private func answer(_ item: InboxItem, _ chip: CatchupChip) {
         guard let resolution = chip.resolution else { return }
-        inboxVM?.answer(item, resolution)
+        // A chain's chip answers its own pair.
+        let target = chip.itemId.flatMap { id in store.visibleInbox.first { $0.id == id } } ?? item
+        inboxVM?.answer(target, resolution)
     }
 
     private func openInList(_ id: String) {

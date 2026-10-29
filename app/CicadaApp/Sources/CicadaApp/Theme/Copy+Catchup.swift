@@ -40,6 +40,9 @@ extension Copy {
         static let skip = "Skip"
         static let same = "Yes, the same"
         static let different = "No, different"
+        /// A same-person chain's pair, one tap each (ruling 41: one pair at a time, never the whole chain at once).
+        static func pairSame(_ a: String, _ b: String) -> String { "\(a) is \(b)" }
+        static func pairDifferent(_ a: String, _ b: String) -> String { "\(a) isn't \(b)" }
         static let undo = "Undo"
         static func noted(_ what: String) -> String { what.isEmpty ? "Noted" : "Noted: \(what)" }
         static let notedSame = "Noted: one and the same"
