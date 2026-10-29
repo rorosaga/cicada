@@ -519,6 +519,18 @@ struct ContentView: View {
             // R-HS20 — the one door (R-DS22). The palette has already closed itself; Home's field
             // (page placement) stays, under the panel.
             router.openSettings(section, row: row)
+        case .addedFile(let id, _), .revealAddedFile(let id):
+            // Meaning index 2 — the file where this Mac last saw it (the app's own record; the backend never has a
+            // path). The default app opens it; ⌥⏎ shows it in Finder. Moved since: said in words, nothing opened.
+            guard let url = MediaFileIndexer.shared.places.url(of: id) else {
+                store.toast = Copy.mediaFileMoved
+                break
+            }
+            if case .revealAddedFile = destination {
+                NSWorkspace.shared.activateFileViewerSelecting([url])
+            } else {
+                NSWorkspace.shared.open(url)
+            }
         case .ask, .askedBefore:
             break
         }

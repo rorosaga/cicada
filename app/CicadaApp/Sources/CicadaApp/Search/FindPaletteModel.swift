@@ -224,7 +224,7 @@ final class FindPaletteModel {
             do { try await sleeper(SearchTiming.serverDebounce) } catch { return }
             await self?.runPass(q, mode: "prefix")
             do { try await sleeper(SearchTiming.semanticIdle - SearchTiming.serverDebounce) } catch { return }
-            await self?.runPass(q, mode: "hybrid")
+            await self?.runPass(q, mode: "hybrid", kinds: FindServerRows.hybridKinds)
         }
     }
 
@@ -262,7 +262,7 @@ final class FindPaletteModel {
         guard SearchTiming.wantsServer(q) else { return }
         serverTask?.cancel()
         serverPhase = .searching
-        serverTask = Task { [weak self] in await self?.runPass(q, mode: "hybrid") }
+        serverTask = Task { [weak self] in await self?.runPass(q, mode: "hybrid", kinds: FindServerRows.hybridKinds) }
     }
 
     /// Offered once a pass has answered and fewer than three rows stand.

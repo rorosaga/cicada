@@ -32,11 +32,18 @@ struct MemorySearchHit: Decodable, Equatable, Sendable {
     let supersededBy: String?
     let eventStatus: String?
     let eventDay: String?
+    /// Meaning index 2 — a picture hit's thumbnail path and where it came from; a file hit's file and its times.
+    let thumbnail: String?
+    let imageSource: String?
+    let fileId: String?
+    let atSeconds: Double?
+    let endSeconds: Double?
 
     enum CodingKeys: String, CodingKey {
         case id, name, type, status, score, snippet, kind, subtitle, snippetOffsets, matchedField, subjectId
         case episodeId, conversationId, harness, origin, site, timestamp, start, end, hash, evidenceKind
         case validFrom, validTo, supersededBy, eventStatus, eventDay
+        case thumbnail, imageSource, fileId, atSeconds, endSeconds
     }
 
     init(from decoder: Decoder) throws {
@@ -67,6 +74,11 @@ struct MemorySearchHit: Decodable, Equatable, Sendable {
         supersededBy = try c.decodeIfPresent(String.self, forKey: .supersededBy)
         eventStatus = try c.decodeIfPresent(String.self, forKey: .eventStatus)
         eventDay = try c.decodeIfPresent(String.self, forKey: .eventDay)
+        thumbnail = try c.decodeIfPresent(String.self, forKey: .thumbnail)
+        imageSource = try c.decodeIfPresent(String.self, forKey: .imageSource)
+        fileId = try c.decodeIfPresent(String.self, forKey: .fileId)
+        atSeconds = try? c.decodeIfPresent(Double.self, forKey: .atSeconds)
+        endSeconds = try? c.decodeIfPresent(Double.self, forKey: .endSeconds)
     }
 }
 

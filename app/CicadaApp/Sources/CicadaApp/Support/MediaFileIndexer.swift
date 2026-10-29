@@ -245,6 +245,30 @@ extension APIClient: MediaFilesAPI {
     }
 }
 
+// MARK: - Where an added file is
+
+/// Where this Mac last saw each added file (`file id → path`), so a palette hit can open it. Per-viewer state of
+/// the app's own (UserDefaults), never posted: the backend never learns a path (G195). A file moved or deleted since
+/// is simply not there — the hit says so and the person can add it again.
+struct MediaFilePlaces {
+    static let key = "cicada.mediaFiles.places"
+    var defaults: UserDefaults = .standard
+
+    func remember(_ id: String, _ url: URL) {
+        guard !id.isEmpty else { return }
+        var all = defaults.dictionary(forKey: Self.key) as? [String: String] ?? [:]
+        all[id] = url.path
+        defaults.set(all, forKey: Self.key)
+    }
+
+    /// The file's URL when it is still where it was added, else nil.
+    func url(of id: String) -> URL? {
+        guard let path = (defaults.dictionary(forKey: Self.key) as? [String: String])?[id],
+              FileManager.default.fileExists(atPath: path) else { return nil }
+        return URL(fileURLWithPath: path)
+    }
+}
+
 // MARK: - The indexer
 
 @MainActor
@@ -256,17 +280,19 @@ final class MediaFileIndexer {
     private let transcriber: any Transcribing
     private let sampler: any FrameSampling
     private let locale: Locale
+    let places: MediaFilePlaces
     /// What the person reads (the Store's toast); one sentence per drop, never a new visual pattern.
     var say: (String) -> Void = { _ in }
 
     init(api: any MediaFilesAPI = APIClient.shared, speech: any SpeechAuthorizing = SystemSpeechAuthorizer(),
          transcriber: any Transcribing = SystemTranscriber(), sampler: any FrameSampling = SystemFrameSampler(),
-         locale: Locale = .current) {
+         locale: Locale = .current, places: MediaFilePlaces = MediaFilePlaces()) {
         self.api = api
         self.speech = speech
         self.transcriber = transcriber
         self.sampler = sampler
         self.locale = locale
+        self.places = places
     }
 
     /// The audio and video among `urls` (files only; a folder's media is not walked here).
@@ -318,6 +344,7 @@ final class MediaFileIndexer {
         do {
             let id = try await api.postMediaFile(body)
             if !sampled.frames.isEmpty { try await api.postMediaFrames(fileId: id, frames: sampled.frames) }
+            places.remember(id, url)
         } catch {
             return .failed
         }
