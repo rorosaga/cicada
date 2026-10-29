@@ -409,3 +409,54 @@ def test_a_note_and_a_different_real_conversation_promote(bank, monkeypatch):
     _episode(bank, "ep_2026-10-21_002", NOTE)
     _episode(bank, "ep_2026-10-22_001", {"source": "telegram"}, "user: Delta Rig again\n")
     assert len(_resolve(bank, monkeypatch, ["ep_2026-10-21_002", "ep_2026-10-22_001"])) == 1
+
+
+# --- the note's type: "How to work with me" (ruling 43, 2026-10-29) --------------------------------------------------
+
+def _typed(name, kind, description, modified="2026-10-21T18:04:05.000Z"):
+    return _note(name=name, description=description, modified=modified).replace("  type: project", f"  type: {kind}")
+
+
+def _how_to_work(bank, n=5):
+    from api.services import handshake, state_dictionary
+
+    bank_index.invalidate()
+    rows = state_dictionary._preferences(bank, n)
+    state = {"preferences": rows, "projects": []}
+    line = next((ln for ln in handshake._now_block(state, "default").splitlines() if "How to work with me" in ln), "")
+    return rows, line
+
+
+def test_feedback_and_user_notes_are_how_to_work_with_me_candidates_in_the_agents_words(bank):
+    _ingest(bank, [
+        _post("squash.md", _typed("squash", "feedback", "Squash-merge every PR into dev")),
+        _post("role.md", _typed("role", "user", "Works as a placeholder researcher", modified="2026-10-22T09:00:00Z")),
+        _post("alpha.md", _typed("alpha", "project", "alpha-project status")),
+        _post("ref.md", _typed("ref", "reference", "Where the alpha docs live")),
+    ])
+    rows, line = _how_to_work(bank)
+    assert [r["one_liner"] for r in rows] == ["Squash-merge every PR into dev", "Works as a placeholder researcher"], \
+        "feedback first (how to work), then user; project and reference notes never"
+    assert all(r["agent_note"] and r["id"].startswith("ep_") for r in rows)
+    assert "Squash-merge every PR into dev (an agent's note, `ep_" in line, "said as the agent's, with where from"
+
+
+def test_agent_notes_take_at_most_two_rows_between_tagged_and_other_skills(bank):
+    from _synthetic_bank import _entity
+
+    _entity(bank, "ask-first", type="skill", decay_class="durable", confidence=0.4, tags=["autonomy"])
+    for i in range(4):
+        _entity(bank, f"skill-{i}", type="skill", decay_class="durable", confidence=0.5 + i / 10)
+    _ingest(bank, [_post(f"fb-{i}.md", _typed(f"fb-{i}", "feedback", f"Feedback {i}",
+                                             modified=f"2026-10-2{i}T10:00:00Z")) for i in range(3)])
+    rows, _line = _how_to_work(bank)
+    assert [r["id"] for r in rows][:1] == ["ask-first"]
+    assert [r["one_liner"] for r in rows[1:3]] == ["Feedback 2", "Feedback 1"], "newest first, two at most"
+    assert [r["id"] for r in rows[3:]] == ["skill-3", "skill-2"]
+
+
+def test_a_deleted_note_leaves_how_to_work_with_me(bank):
+    _ingest(bank, [_post("squash.md", _typed("squash", "feedback", "Squash-merge every PR into dev")), _post()])
+    _ingest(bank, [_post()])          # a complete listing without it: tombstoned
+    rows, _line = _how_to_work(bank)
+    assert rows == []

@@ -277,22 +277,67 @@ def _preferences(memory_path: Path, n: int) -> list[dict]:
         tags = {str(t).strip().lower() for t in raw_tags} if isinstance(raw_tags, list) else set()
         rows.append((0 if tags & WORKING_TAGS else 1, -_confidence(fm), f.stem, f))
     rows.sort(key=lambda r: r[:3])
+    # Ruling 43 (2026-10-29): an agent's own note typed `user`/`feedback` is a candidate too — after the skills tagged
+    # as working agreements, before the rest: it says how the person works with agents, an untagged Stage-4 skill
+    # what they do.
+    notes = _agent_note_rows(memory_path, min(AGENT_NOTE_PREFERENCES, max(0, n)))
+    budget = max(0, n) - len(notes)
     kept, stale = [], []
     for r in rows:
-        if len(kept) >= max(0, n):
+        if len(kept) >= budget:
             break
         body = page(r[2])
         closed = skill_staleness.closed_since(r[3].frontmatter, body[1], page, ends, parsed) if body else []
         if closed:
             stale.append((len(closed), len(stale), r[3]))
             continue
-        kept.append(_row(r[3]))
-    floor = min(max(0, n), PREFERENCE_FLOOR)
+        kept.append((r[0], _row(r[3])))
+    floor = min(budget, PREFERENCE_FLOOR)
     for _count, _order, f in sorted(stale, key=lambda s: s[:2])[: max(0, floor - len(kept))]:
         row = _row(f)
         row["one_liner"] = f"{row['one_liner']} {STALE_MARK}"
-        kept.append(row)
-    return kept
+        kept.append((1, row))
+    # `_fit` trims this list from its end under the file's byte cap, so the order is also what survives.
+    return [row for tag, row in kept if tag == 0] + notes + [row for tag, row in kept if tag != 0]
+
+
+#: The note types an agent's own memory notes declare (Claude Code: user, feedback, project, reference) that say how
+#: the person works with agents — candidates for "How to work with me" (ruling 43, 2026-10-29).
+AGENT_NOTE_TYPES = frozenset({"feedback", "user"})
+#: The most rows of "How to work with me" agent notes may take.
+AGENT_NOTE_PREFERENCES = 2
+#: How an agent note's row is marked wherever it is shown: the agent's words, never the person's.
+AGENT_NOTE_MARK = "an agent's note"
+
+
+def _agent_note_rows(memory_path: Path, n: int) -> list[dict]:
+    """At most ``n`` of an agent's own memory notes typed ``feedback`` or ``user`` (``agent_memory_notes``; ruling 43),
+    ``feedback`` first (guidance on how to work — what the row is for; a ``user`` note is often who the person is),
+    each newest first, as "How to work with me" rows marked :data:`AGENT_NOTE_MARK` — an agent's summary of how the person works with it, still its
+    words (``evidence_kind: assistant``), never theirs. A deleted note (tombstoned) never rides. The row is a cursor:
+    the note's episode id and its own one-line description, never its body."""
+    if n <= 0:
+        return []
+    rows = []
+    for f in bank_index.files(memory_path, "episodes"):
+        fm = f.frontmatter or {}
+        memo = fm.get("agent_memory")
+        if fm.get("source") != "agent-memory" or not isinstance(memo, dict) or fm.get("source_deleted_at"):
+            continue
+        if str(memo.get("type") or "").strip().lower() not in AGENT_NOTE_TYPES:
+            continue
+        title = str(fm.get("title") or "").removeprefix("Agent memory: ").strip()
+        line = " ".join(str(memo.get("description") or title).split())
+        if not line:
+            continue
+        if len(line) > ONE_LINER_LIMIT:
+            line = line[: ONE_LINER_LIMIT - 1].rsplit(" ", 1)[0] + "…"
+        kind = str(memo.get("type") or "").strip().lower()
+        rows.append((kind == "feedback", str(fm.get("timestamp") or ""), f.stem,
+                     {"id": str(fm.get("id") or f.stem), "name": title or f.stem, "one_liner": line,
+                      "agent_note": True}))
+    rows.sort(key=lambda r: r[:3], reverse=True)
+    return [r[3] for r in rows[:n]]
 
 
 def _standing(memory_path: Path, n: int) -> list[dict]:
@@ -690,7 +735,8 @@ def render_body(fm: dict) -> str:
     lines += [f"- `{c['id']}` · {c['harness'] or 'unknown'} · {c['title']} · {c['last_seen'][:10]}"
               for c in fm["conversations"]] or ["- (none recorded)"]
     lines += ["", "## How to work with me"]
-    lines += [row(p) for p in fm["preferences"]] or ["- (none extracted yet)"]
+    lines += [f"- {p['one_liner'] or p['name']} — {AGENT_NOTE_MARK} (`{p['id']}`)" if p.get("agent_note") else row(p)
+              for p in fm["preferences"]] or ["- (none extracted yet)"]
     lines += ["", "## Standing"]
     lines += [row(p) for p in fm.get("standing") or []] or ["- (none yet)"]
     lines += ["", "## Rules for agents",

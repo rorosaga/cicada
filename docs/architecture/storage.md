@@ -1828,7 +1828,12 @@ belief that closed after it was written — `skill_staleness`, W6 2026-10-23: a 
 on, open on the newest day its summary cites and closed after it, whose object the summary names and whose predicate an
 ending closes (`skill_staleness.endable`: the seed's endings, `also_ends`, `dependents`); no model call, each page's
 claims parsed once per rebuild, and the page itself is unchanged — never below three rows
-(`state_dictionary.PREFERENCE_FLOOR`): the least stale fill up to it, marked "(may be out of date)"), long-standing
+(`state_dictionary.PREFERENCE_FLOOR`): the least stale fill up to it, marked "(may be out of date)"; since 2026-10-29
+also at most two of an agent's own memory notes typed `feedback` or `user` (ruling 43), after the skills tagged as
+working agreements and before the rest — `_fit` trims the list from its end under the 6 KiB cap, so the order is also
+what survives — each rendered "… (an agent's note, `ep_…`)": the agent's words, never the person's; on a read-only
+copy of the owner's bank the row went from 3 skill one-liners to 2 working agreements an agent had noted plus 2
+skills, primer 1,643 → 1,690 tokens), long-standing
 durable/evergreen pages — then **Current** — projects, each project with its `now`/`next` (G141),
 pages in focus in the last 14 days, people, recent conversations (G140, schema v2). A test holds R12 for every argument either primer names, for
 every remote scope set. Contract item 3 names `cicada_note_progress` (G141 PJ-3a; remotely only when the

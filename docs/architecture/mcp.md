@@ -103,7 +103,16 @@ says the same, each tool only where the connection holds it (R12). The empty-sta
 rank-fuse two legs, keeping 3: the vector leg (`_leann_search_episodes`), which step 0 fills right after capture
 (`capture-and-sleep.md`, "After capture"), and a word leg over the FTS passages (`_lexical_search_episodes`:
 `search_service.search(kinds=("episode",), vectors=False)`, bm25, ~400 characters of the stored body around the
-matched line, the dropped-middle marker blanked). An excerpt from a conversation still `processed: false` reads
+matched line, the dropped-middle marker blanked). That read asks every word of the query to match, so a question in
+plain words missed a conversation that never says "what" or "decide"; since 2026-10-29, when it finds fewer than 3,
+a second read fills in (`_rare_word_episodes` → `ask_sources.rare_word_conversations`): the query's subject words
+weighed by rarity over the passages (a word in more than 5% of them, never fewer than 20, drops out), a passage
+counting only when it holds every remaining word up to three of them — in one passage, never a long export that says
+each somewhere — index-only records never. Measured on a read-only copy of the owner's bank with a placeholder
+conversation captured into the copy: the first recall hit came 1.2–1.3 s after capture (the index's 1 s freshness
+window; the brief's "next Sleep" was already gone since #423), and 4 of 5 phrasings found it against 2 of 5 before
+(the miss says "percentage" where the conversation said "percent"); the read costs p50 27 ms / p95 36 ms on 65k
+passages. An excerpt from a conversation still `processed: false` reads
 `- [<episode>] (<day>, not yet read by Sleep) …`; a read one is unchanged. When a quick read ran, a block **"Not yet
 read by Sleep (provisional …)"** follows the page summaries. It holds up to 12 provisional claim lines
 (`- [[Page]] <claim text> — \`<claim id>\`, from <episode>`): the top hits' pages first, then claims sharing a word
@@ -840,6 +849,26 @@ same way.
   a one-word alias (after stopwords: "the hackathon") whose word is in three or more page names
   (`common_name_words`, from the index, cached ten minutes) names nothing — "hackathon" no longer names one event's
   page in every message about any hackathon.
+- **A message that names nothing: the topic note (2026-10-29).** Supermemory's write-up of Claude Code's memory
+  scored it down on recall nobody asked for; ours had the same gap — a prompt *about* something with no page name
+  got no note. Now, when the message names no page, `hook_recall.topic_lines` adds at most three current claims
+  its words find, under its own header ("no page is named in this message; these beliefs share its words") and
+  always ending with the pointer to `cicada_recall(query)`. Lexical and engine-free: the message's subject words
+  (from its end, stemmed as `text_fold.subject_terms`) weighed by their rarity over the bank's claims (a word in
+  more than 2% of them finds nothing); a claim rides only when it holds every rare word up to three of them — in its
+  own words, its page's name or its predicate/object — carrying ≥ 40% of the message's rare-word weight, re-checked
+  on its folded words. At most two lines per page, newest first among equals; the person's own page counts (what
+  they said about themselves is about them); a page the session was just shown steps aside; a page changed on disk
+  since the index read it is read again so a closed claim never rides (a stat per page — the person's own page, the
+  largest, parsed only when it changed). The stored claim vectors re-order lines only when the embedder is already
+  warm, never add one. No inbox question rides a topic note. It starts only with 80 ms of the budget left; ledger
+  reason `topic`. Measured: on a labelled synthetic set (`test_hook_topic_recall.py`: 23 topic prompts naming no
+  page, 16 everyday coding asks) the needed fact reached the note for 0/23 before and 22/23 after, with 0 unrelated
+  lines over 22 notes and 0/16 coding asks given a note; on a read-only copy of the owner's bank (19k claims) 20
+  everyday coding asks got the same 2 notes / 3 lines as before (no topic note), 12 personal-topic asks went from 6 to
+  8 notes, and the hook's p50 rose 14 → 21 ms with p95 inside the noise (44 → 33 ms). Precision over reach: the
+  three-word rule turns down "fix the failing test in the parser" (a claim holding "test" and "parser") and also
+  some real hits whose claims say a word differently ("running" vs "runs").
 - **The vectors.** They only re-order pages already named, and only when the on-device embedder is already
   loaded. A hosted embedder is never sent a prompt.
 - **Repeats.** A per-session window keeps a page from being re-sent on consecutive turns.
