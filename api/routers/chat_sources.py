@@ -236,6 +236,8 @@ class TelegramChat(CamelModel):
     history: bool = False
     #: When the person confirmed the other person agreed (ruling 47a amendment), else ``None``.
     consented_at: str | None = None
+    #: Saved Messages, the person's chat with themselves: ticked with no consent question (47a amendment 2026-10-29).
+    own: bool = False
 
 
 class TelegramChatsResponse(CamelModel):
@@ -431,13 +433,16 @@ async def put_telegram_settings(req: ChatSettingsUpdate, background: BackgroundT
         # user that Telegram lists to this account can be ticked or read.
         raise HTTPException(422, "Only a one-to-one Telegram chat with a person can be read — Telegram doesn't list "
                                  "this one as that (connect first if Telegram isn't connected).")
-    if c.ticked is True and c.consent is not True:
+    # Ruling 47a amendment (2026-10-29): Saved Messages — the person's chat with themselves — has no other participant,
+    # so their tick is the whole consent; decided from Telegram's own dialog, never the client's word.
+    own = c.ticked is True and await telegram_account.ACCOUNT.own_chat(c.id)
+    if c.ticked is True and c.consent is not True and not own:
         raise HTTPException(409, "Confirm that the other person agreed before ticking this chat.")
     if c.history and c.id not in telegram_account.consents():
         raise HTTPException(409, "Tick this chat, with the other person's consent, before reading its history.")
     out = await _update(settings.memory_path, telegram_source.SPEC, req)
     if c.ticked is True:
-        telegram_account.set_consent(c.id, True)
+        telegram_account.set_consent(c.id, True, own=own)
     elif c.ticked is False or c.consent is False:
         telegram_account.set_consent(c.id, False)
     if req.conversation.history:

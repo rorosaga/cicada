@@ -757,6 +757,32 @@ def test_a_chats_profile_photo_is_asked_once_kept_outside_the_bank_and_gone_on_d
     assert not (home / "telegram" / "photos").exists()
 
 
+def test_saved_messages_is_ticked_with_no_consent_question_and_kept_as_your_notes(home, bank, live_account):
+    """Ruling 47a amendment (2026-10-29): the consent rule protects the OTHER participants; Saved Messages has none, so
+    the person's tick is the whole consent — decided from Telegram's own dialog, never the client's word."""
+    me = 1009
+    real = live_account.port.dialogs
+
+    async def dialogs(limit):
+        return [*await real(limit), TgDialog(me, "Placeholder Self", False, bot=False, last=T0, is_self=True)]
+    live_account.port.dialogs = dialogs
+    client = TestClient(main.app)
+    rows = {r["id"]: r for r in client.get("/sources/telegram/chats").json()["chats"]}
+    own, friend = telegram_source.conversation_id(me), telegram_source.conversation_id(FRIEND)
+    assert rows[own]["own"] is True and rows[friend]["own"] is False
+    assert client.put("/sources/telegram/settings",
+                      json={"conversation": {"id": friend, "ticked": True}}).status_code == 409, "others still ask"
+    r = client.put("/sources/telegram/settings", json={"conversation": {"id": own, "ticked": True}})
+    assert r.status_code == 200, r.text
+    assert telegram_account.consents()[own].get("self") is True
+    note = msg(1, me, "idea for alpha-project", out=True, at=time.time() + 5)     # live from the tick
+    out = run(live_account.flush({me: [TgEvent(kind="new", chat=me, message=note)]}))
+    assert own in out
+    (ep,) = episodes(bank).values()
+    assert ep.frontmatter["self_chat"] is True and "correspondent" not in ep.frontmatter
+    assert ep.body.splitlines() == ["user: idea for alpha-project"]
+
+
 def test_a_ticked_chats_photo_becomes_its_pages_picture_and_goes_on_untick(home, bank, live_account):
     from api.services import logo_service, messages_photos
 

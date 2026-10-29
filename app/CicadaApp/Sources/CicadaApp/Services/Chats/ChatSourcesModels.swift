@@ -102,16 +102,24 @@ struct TelegramChatRow: Decodable, Equatable, Identifiable, Sendable {
     var history = false
     /// When the person confirmed the other person agreed (ruling 47a amendment).
     var consentedAt: String?
+    /// Saved Messages, the person's chat with themselves: ticked with no consent question — there is no other person
+    /// (ruling 47a amendment 2026-10-29; the backend decides it from Telegram's own dialog).
+    var own = false
 
-    enum CodingKeys: String, CodingKey { case id, name, group, bot, last, ticked, history, consentedAt }
+    enum CodingKeys: String, CodingKey { case id, name, group, bot, last, ticked, history, consentedAt, own }
 
-    init(id: String, name: String = "", group: Bool = false, ticked: Bool = false, history: Bool = false) {
+    init(id: String, name: String = "", group: Bool = false, ticked: Bool = false, history: Bool = false,
+         own: Bool = false) {
         self.id = id
         self.name = name
         self.group = group
         self.ticked = ticked
         self.history = history
+        self.own = own
     }
+
+    /// The name the picker shows: Saved Messages is named for what it is.
+    var shownName: String { own ? Copy.Chats.selfChat : (name.isEmpty ? Copy.Chats.unnamed : name) }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -123,6 +131,7 @@ struct TelegramChatRow: Decodable, Equatable, Identifiable, Sendable {
         ticked = (try? c.decodeIfPresent(Bool.self, forKey: .ticked)) ?? false
         history = (try? c.decodeIfPresent(Bool.self, forKey: .history)) ?? false
         consentedAt = try? c.decodeIfPresent(String.self, forKey: .consentedAt)
+        own = (try? c.decodeIfPresent(Bool.self, forKey: .own)) ?? false
     }
 }
 

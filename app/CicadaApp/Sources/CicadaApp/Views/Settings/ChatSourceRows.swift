@@ -367,18 +367,20 @@ struct TelegramPanel: View {
             Text(Copy.Chats.noneFound).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary)
         } else {
             ChatSearchField(prompt: Copy.Chats.searchPrompt, query: $query)
-            let shown = ChatSearch.filter(model.chats, query: query, name: \.name)
+            let shown = ChatSearch.filter(model.chats, query: query, name: \.shownName)
             if shown.isEmpty { ChatNoMatches(query: query) }
             ScrollView {
                 LazyVStack(spacing: 2) {
                     ForEach(shown) { chat in
-                        ChatTickRow(name: chat.name.isEmpty ? Copy.Chats.unnamed : chat.name, group: false,
+                        ChatTickRow(name: chat.shownName, group: false,
                                     last: chat.last.flatMap { ISO8601DateFormatter().date(from: $0) }
                                         .flatMap { MessagesRowText.lastActivity($0) },
                                     thumbnail: model.photos[chat.id], ticked: model.tickedIds.contains(chat.id),
                                     historyRead: model.historyIds.contains(chat.id),
                                     onTick: { on in
-                                        if on { asking = chat } else { await model.setTicked(chat, false, consent: false) }
+                                        // Saved Messages has no other person to ask about (47a amendment 2026-10-29).
+                                        if on && !chat.own { asking = chat }
+                                        else { await model.setTicked(chat, on, consent: false) }
                                     },
                                     onHistory: { await model.readHistory(chat) })
                             // chats-ux-v2 — the row's picture is asked when the row shows (a lazy list: never all 200).

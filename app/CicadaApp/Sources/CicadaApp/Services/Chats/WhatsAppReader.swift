@@ -90,8 +90,11 @@ struct WhatsAppReader: Sendable {
         return SHA256.hash(data: Data(joined.utf8)).map { String(format: "%02x", $0) }.joined().prefix(24).description
     }
 
+    /// Status updates, channels and broadcast lists are nobody's conversation — every shape a real store holds
+    /// (`@status`, `@lid.status`, `@newsletter`, `@broadcast`; structure check 2026-10-29).
     static func isListed(jid: String) -> Bool {
-        !(jid.isEmpty || jid == "status@broadcast" || jid.hasSuffix("@newsletter") || jid.hasSuffix("@broadcast"))
+        !(jid.isEmpty || jid == "status@broadcast" || jid.hasSuffix("@newsletter") || jid.hasSuffix("@broadcast")
+          || jid.hasSuffix("@status") || jid.hasSuffix(".status"))
     }
 
     func checkAccess() throws {
@@ -190,19 +193,23 @@ struct WhatsAppReader: Sendable {
         String(jid.split(separator: "@", maxSplits: 1).first ?? "").lowercased()
     }
 
-    /// The person's own account(s) as WhatsApp records them in its shared preferences (`OwnJabberID`, and any other
-    /// `Own…ID` key a newer build adds, e.g. a linked-identity id) — read from this Mac's container, never posted.
-    /// Empty when the file or the keys are absent: then no chat is taken for the person's own.
+    /// The keys WhatsApp's shared preferences keep the person's own identities under (structure check on a real
+    /// install, 2026-10-29, names only): the phone JID (`OwnJabberID`, `LastOwnJabberID`, `…@s.whatsapp.net`) and the
+    /// linked-identity id (`lid`, `lidd`, `…@lid`) — the self-chat's session carries the LID, not the phone JID.
+    static let ownIdentityKeys = ["OwnJabberID", "LastOwnJabberID", "lid", "lidd"]
+
+    /// The person's own accounts (the account part of each identity above) — read from this Mac's container, never
+    /// posted. Only a string value that is a phone JID or a LID counts. Empty when the file or keys are absent: then
+    /// no chat is taken for the person's own.
     func ownAccounts() -> Set<String> {
         let plist = containerFolder.appendingPathComponent("Library/Preferences/group.net.whatsapp.WhatsApp.shared.plist")
         guard let data = try? Data(contentsOf: plist), data.count < 4 * 1024 * 1024,
               let dict = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
         else { return [] }
         var out: Set<String> = []
-        for (key, value) in dict {
-            let k = key.lowercased()
-            guard k.hasPrefix("own"), k.hasSuffix("jabberid") || k.hasSuffix("jid") || k.hasSuffix("lid"),
-                  let text = value as? String else { continue }
+        for key in Self.ownIdentityKeys {
+            guard let text = dict[key] as? String,
+                  text.hasSuffix("@s.whatsapp.net") || text.hasSuffix("@lid") else { continue }
             let account = Self.account(jid: text)
             if account.count >= 6, account.allSatisfy(\.isNumber) { out.insert(account) }
         }

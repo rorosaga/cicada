@@ -22,11 +22,14 @@ final class ChatsUXv2Tests: XCTestCase {
     }
     override func tearDown() { store.close() }
 
-    private func writeOwnAccount(_ jid: String) throws {
+    /// The shape a real install keeps (structure check 2026-10-29, names only): the phone JID under `OwnJabberID` and
+    /// `LastOwnJabberID`, the linked-identity id under `lid`/`lidd`, other keys that are not JIDs, and Data values.
+    private func writeOwnAccount(_ jid: String, lid: String = "200000000000001@lid") throws {
         let prefs = store.dir.appendingPathComponent("Library/Preferences", isDirectory: true)
         try FileManager.default.createDirectory(at: prefs, withIntermediateDirectories: true)
-        let data = try PropertyListSerialization.data(fromPropertyList: ["OwnJabberID": jid, "Other": "x"],
-                                                      format: .binary, options: 0)
+        let values: [String: Any] = ["OwnJabberID": jid, "LastOwnJabberID": jid, "lid": lid, "lidd": lid,
+                                     "llid": "not-a-jid", "lids": "1", "OwnBlob": Data([1, 2, 3]), "Other": "x"]
+        let data = try PropertyListSerialization.data(fromPropertyList: values, format: .binary, options: 0)
         try data.write(to: prefs.appendingPathComponent("group.net.whatsapp.WhatsApp.shared.plist"))
     }
 
@@ -68,6 +71,44 @@ final class ChatsUXv2Tests: XCTestCase {
         XCTAssertEqual(conversation["selfChat"] as? Bool, true)
         XCTAssertNil(conversation["contact"], "the person's own card is never a correspondent's")
         XCTAssertFalse(String(describing: api.posts).contains("5550000001"), "the number never crosses")
+    }
+
+    /// On a real install the self-chat's session carries the person's LID (`<digits>@lid`), matched by `lid`/`lidd` —
+    /// neither phone-JID key — and status, channel and broadcast shapes never list.
+    func testTheChatWithYourselfIsFoundByTheLinkedIdentityAndStatusShapesNeverList() throws {
+        try writeOwnAccount(ownJid, lid: "200000000000001@lid")
+        store.session("200000000000001@lid", name: "You", last: 30)
+        store.session("200000000000002@lid", name: "Erin Example", last: 20)
+        store.session(friendJid, name: "Bob Example", last: 10)
+        for jid in ["200000000000003@lid.status", "0@status", "120363999999999999@newsletter", "1234@broadcast"] {
+            store.session(jid, name: "", last: 5)
+        }
+        let chats = try WhatsAppReader(store: store.url).chats()
+        XCTAssertEqual(chats.map(\.partnerName), ["You", "Erin Example", "Bob Example"])
+        XCTAssertEqual(chats.map(\.isSelf), [true, false, false])
+        XCTAssertEqual(WhatsAppReader(store: store.url).ownAccounts(), ["15550000001", "200000000000001"])
+    }
+
+    /// Messages' note to self: the chat's handle is one of the person's own (the handle Messages addressed from, or an
+    /// account login on this Mac) — posted as their notes, never with a card.
+    func testAMessagesNoteToSelfIsFoundAndPostedAsYourNotes() throws {
+        let db = try SyntheticChatDB()
+        defer { db.close() }
+        let mine = db.chat("+15550000001")
+        let friend = db.chat("+15550000002")
+        db.exec("UPDATE chat SET last_addressed_handle = '+15550000001', account_login = 'P:+15550000001'")
+        db.message(mine, minute: 1, fromMe: true, text: "idea for alpha-project")
+        db.message(friend, minute: 2, fromMe: false, text: "hello")
+        let reader = MessagesReader(database: db.url)
+        let listed = try reader.conversations()
+        XCTAssertEqual(listed.filter(\.isSelf).map(\.chatRowId), [mine])
+        let own = try XCTUnwrap(listed.first(where: \.isSelf))
+        let pass = try reader.read(own, name: Copy.Chats.selfChat, contact: "PLACEHOLDER-ME-CARD",
+                                   since: MessagesCursor())
+        let conversation = try XCTUnwrap((JSONSerialization.jsonObject(with: pass.json) as? [String: Any])?["conversation"]
+                                         as? [String: Any])
+        XCTAssertEqual(conversation["selfChat"] as? Bool, true)
+        XCTAssertNil(conversation["contact"])
     }
 
     func testNoOwnAccountOnRecordTakesNoChatForYours() throws {

@@ -618,8 +618,11 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   records `group: true` and `participants: [{key, marker, name?, kind}]` — the Messages group slice's shape (#499) —
   each member under their own `speaker:<label>:`, at most one `assistant`. `chat_live.CHAT_ORIGINS` is what "a texted
   conversation" means to every reader that asks (`inbox_tend`). **chats-ux-v2 (2026-10-29):** a chat with yourself
-  (WhatsApp's "message yourself": its JID is the account's own `OwnJabberID`, read by the app from WhatsApp's shared
-  preferences in the container, never posted) posts `selfChat`; `chat_live.cast_for` makes every line `user:`, writes
+  (WhatsApp's "message yourself": its JID's account part matches one of the person's own identities in WhatsApp's
+  shared preferences — `OwnJabberID`/`LastOwnJabberID` (phone JID) or `lid`/`lidd` (the linked identity, which a real
+  install's self-chat carries) — read by the app, never posted; Messages' note to self: the chat's handle is the one
+  Messages addressed from or an account login; Telegram's Saved Messages: Telegram's own `is_self`, ruling 47a's
+  2026-10-29 amendment) posts `selfChat`; `@status`, `@lid.status`, `@newsletter` and `@broadcast` never list; `chat_live.cast_for` makes every line `user:`, writes
   no correspondent and no card, records `self_chat: true` and titles it "notes to yourself". A link-preview row
   (type 7) is words only. One row's optional field the backend cannot use no longer refuses the batch: words past 64k
   end in "…", a title or file name past 400 is clipped, a `ZMETADATA` blob past 16 KB is dropped (that row loses its

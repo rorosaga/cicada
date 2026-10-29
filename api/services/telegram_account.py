@@ -149,19 +149,22 @@ def consents() -> dict[str, dict]:
         raw = json.loads((folder() / CONSENTS_FILE).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
-    return {k: {"at": str(v.get("at") or "")} for k, v in raw.items()
+    return {k: {"at": str(v.get("at") or ""), **({"self": True} if v.get("self") is True else {})}
+            for k, v in raw.items()
             if chat_live.ID_RE.match(str(k)) and isinstance(v, dict)} if isinstance(raw, dict) else {}
 
 
-def set_consent(cid: str, given: bool, *, at: str | None = None) -> dict[str, dict]:
-    """Keep or withdraw one chat's confirmation, with its date. Ids and times only, 0600, outside every bank."""
+def set_consent(cid: str, given: bool, *, at: str | None = None, own: bool = False) -> dict[str, dict]:
+    """Keep or withdraw one chat's confirmation, with its date. Ids and times only, 0600, outside every bank. ``own``:
+    Saved Messages, the person's chat with themselves — their tick is the only consent there is (ruling 47a
+    amendment 2026-10-29), recorded as ``self`` so the ingest stages it as their own notes."""
     from api.services import episode_ids
 
     if not chat_live.ID_RE.match(str(cid)):
         raise ValueError("a conversation id")
     current = consents()
     if given:
-        current[cid] = {"at": at or episode_ids.utc_now_iso()}
+        current[cid] = {"at": at or episode_ids.utc_now_iso(), **({"self": True} if own else {})}
     else:
         current.pop(cid, None)
     path = _private_dir() / CONSENTS_FILE
@@ -577,6 +580,14 @@ class Account:
         os.replace(tmp, jpg)
         none.unlink(missing_ok=True)
         return data
+
+    async def own_chat(self, cid: str) -> bool:
+        """Whether Telegram itself lists ``cid`` as the person's Saved Messages — decided from Telegram's dialog,
+        never a client's flag (the #504 review B4 rule)."""
+        if self.state != "connected" or self.port is None:
+            return False
+        dialog = await self._dialog(cid)
+        return dialog is not None and dialog.is_self and telegram_source.is_user_peer(dialog.chat)
 
     async def _dialog(self, cid: str) -> TgDialog | None:
         if cid not in self._dialogs and self.port is not None:
