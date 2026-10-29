@@ -879,7 +879,20 @@ def search(
     meaning_ran = ctx.legs is not None or grouped.get("image") or grouped.get("file")
     ran = ctx.mode if ctx.mode == "prefix" or meaning_ran else "lexical"
     results = [hit for kind in ctx.kinds for hit in grouped.get(kind, [])]
+    _qualify(ctx.memory_path, results)
     return SearchResponse(results=results, totals=totals, mode=ran, index_state=state)
+
+
+def _qualify(memory_path: Path, results: list[SearchHit]) -> None:
+    """G227: a page hit whose title another page shares carries its qualifier and the name to show (`same_name`)."""
+    from api.services import same_name
+
+    same = same_name.qualifiers(memory_path)
+    if not same:
+        return
+    for hit in results:
+        if hit.kind in ("entity", "media") and (q := same.get(hit.id)):
+            hit.qualifier, hit.display_name = q, same_name.display(hit.name, q)
 
 
 def _image_kind(ctx: _Ctx, embed_fn) -> list[SearchHit]:

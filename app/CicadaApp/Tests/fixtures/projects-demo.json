@@ -1209,10 +1209,12 @@
     {
      "by": null,
      "count": 1,
+     "displayName": null,
      "fact": "",
      "id": "tool-example-g",
      "lastSeen": "2026-09-14",
      "name": "Tool Example G",
+     "qualifier": null,
      "rolePhrase": "this project uses",
      "tie": "said",
      "type": "tool"
@@ -1220,10 +1222,12 @@
     {
      "by": null,
      "count": 1,
+     "displayName": null,
      "fact": "",
      "id": "tool-example-c",
      "lastSeen": "2026-08-24",
      "name": "Tool Example C",
+     "qualifier": null,
      "rolePhrase": "this project uses",
      "tie": "said",
      "type": "tool"
@@ -1231,10 +1235,12 @@
     {
      "by": null,
      "count": 1,
+     "displayName": null,
      "fact": "",
      "id": "carol-example",
      "lastSeen": "2026-08-02",
      "name": "Carol Example",
+     "qualifier": null,
      "rolePhrase": "works on this project",
      "tie": "said",
      "type": "person"
@@ -2331,10 +2337,12 @@
     {
      "by": null,
      "count": 4,
+     "displayName": null,
      "fact": "4 GPU nodes · Slurm-example scheduler · login.example.com",
      "id": "lab-cluster-example",
      "lastSeen": "2026-09-23",
      "name": "Lab Cluster Example",
+     "qualifier": null,
      "rolePhrase": "about",
      "tie": "said",
      "type": "tool"
@@ -2342,10 +2350,12 @@
     {
      "by": null,
      "count": 1,
+     "displayName": null,
      "fact": "",
      "id": "hana-example",
      "lastSeen": "2026-09-22",
      "name": "Hana Example",
+     "qualifier": null,
      "rolePhrase": "from",
      "tie": "said",
      "type": "person"
@@ -2353,10 +2363,12 @@
     {
      "by": null,
      "count": 1,
+     "displayName": null,
      "fact": "example.com",
      "id": "media-example-cluster-guide",
      "lastSeen": "2026-09-22",
      "name": "Lab Cluster Onboarding Guide",
+     "qualifier": null,
      "rolePhrase": "document",
      "tie": "said",
      "type": "media"
@@ -2364,10 +2376,12 @@
     {
      "by": null,
      "count": 1,
+     "displayName": null,
      "fact": "",
      "id": "rover-arm-project",
      "lastSeen": "2026-08-19",
      "name": "Rover Arm Project",
+     "qualifier": null,
      "rolePhrase": "this project part of",
      "tie": "said",
      "type": "project"
@@ -4298,10 +4312,12 @@
     {
      "by": null,
      "count": 4,
+     "displayName": null,
      "fact": "4 GPU nodes · Slurm-example scheduler · login.example.com",
      "id": "lab-cluster-example",
      "lastSeen": "2026-09-23",
      "name": "Lab Cluster Example",
+     "qualifier": null,
      "rolePhrase": "about",
      "tie": "said",
      "type": "tool"
@@ -4309,10 +4325,12 @@
     {
      "by": null,
      "count": 1,
+     "displayName": null,
      "fact": "",
      "id": "hana-example",
      "lastSeen": "2026-09-22",
      "name": "Hana Example",
+     "qualifier": null,
      "rolePhrase": "from",
      "tie": "said",
      "type": "person"
@@ -4320,10 +4338,12 @@
     {
      "by": null,
      "count": 1,
+     "displayName": null,
      "fact": "example.com",
      "id": "media-example-cluster-guide",
      "lastSeen": "2026-09-22",
      "name": "Lab Cluster Onboarding Guide",
+     "qualifier": null,
      "rolePhrase": "document",
      "tie": "said",
      "type": "media"
@@ -4331,10 +4351,12 @@
     {
      "by": null,
      "count": 1,
+     "displayName": null,
      "fact": "",
      "id": "tool-example-e",
      "lastSeen": "2026-09-09",
      "name": "Tool Example E",
+     "qualifier": null,
      "rolePhrase": "this project uses",
      "tie": "said",
      "type": "tool"
@@ -4342,10 +4364,12 @@
     {
      "by": null,
      "count": 1,
+     "displayName": null,
      "fact": "",
      "id": "tool-example-f",
      "lastSeen": "2026-08-30",
      "name": "Tool Example F",
+     "qualifier": null,
      "rolePhrase": "this project uses",
      "tie": "said",
      "type": "tool"
@@ -4353,10 +4377,12 @@
     {
      "by": null,
      "count": 1,
+     "displayName": null,
      "fact": "",
      "id": "tool-example-d",
      "lastSeen": "2026-08-09",
      "name": "Tool Example D",
+     "qualifier": null,
      "rolePhrase": "this project uses",
      "tie": "said",
      "type": "tool"

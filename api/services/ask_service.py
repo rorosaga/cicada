@@ -231,9 +231,13 @@ def _load_entity(memory_path: Path, entity_id: str) -> dict | None:
     fm = parsed.frontmatter or {}
     if fm.get("status") == "dropped":
         return None
+    from api.services import same_name
+
     return {
         "entity_id": entity_id,
         "entity_name": str(fm.get("name", entity_id.replace("-", " ").title())),
+        # G227: when another page shares the title, the qualifier the answer and its citation name it by.
+        "qualifier": same_name.qualifier(memory_path, entity_id),
         "file_path": str(filepath),
         "snippet": _snippet(parsed.body),
         "source_episodes": list(fm.get("source_episodes", []) or []),
@@ -517,8 +521,12 @@ def _prose_context(prose: str, summary: str, terms: set[str], budget: int) -> st
 
 
 def _header_lines(ent: dict, scale: float) -> list[str]:
-    lines = [f"### entity_id: {ent['entity_id']}", f"name: {ent['entity_name']}",
+    from api.services import same_name
+
+    lines = [f"### entity_id: {ent['entity_id']}", f"name: {same_name.display(ent['entity_name'], ent.get('qualifier'))}",
              f"type: {ent.get('type', 'concept')}"]
+    if ent.get("qualifier"):
+        lines.append(f"another page has the same name; call this one \"{same_name.display(ent['entity_name'], ent['qualifier'])}\"")
     if ent.get("owner"):
         lines.append("this is the page of the person this memory belongs to")
     aliases = [a for a in ent.get("aliases") or [] if a != ent["entity_name"]]
@@ -1714,6 +1722,8 @@ def _citations_for(entities: list[dict], cite_ids: list[str]) -> list[dict]:
         citation = {
             "entity_id": ent["entity_id"],
             "entity_name": ent["entity_name"],
+            **({"qualifier": ent["qualifier"], "display_name": f"{ent['entity_name']} ({ent['qualifier']})"}
+               if ent.get("qualifier") else {}),
             "file_path": ent["file_path"],
             "snippet": ent["snippet"],
             "source_episodes": episodes,

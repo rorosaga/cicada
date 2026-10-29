@@ -490,7 +490,7 @@ def cmd_find(boot, args) -> Result:
     resp = search_service.search(Path(boot.pin.path), args.query, kinds=kinds, mode="hybrid",
                                  per_kind=min(args.limit or 8, search_service.MAX_PER_KIND))
     data = _dump(resp)
-    lines = [f"[{hit.get('kind')}] {hit.get('id')}  {hit.get('name') or ''}".rstrip()
+    lines = [f"[{hit.get('kind')}] {hit.get('id')}  {hit.get('displayName') or hit.get('name') or ''}".rstrip()
              for hit in data.get("results", []) or []]
     warnings = _warn(boot)
     if data.get("mode") == "lexical":

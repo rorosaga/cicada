@@ -175,10 +175,16 @@ _NOUNS = {"person": "person", "company": "company", "project": "project", "tool"
 
 
 def spoken(fm: dict, today: str, *, page_fm: dict | None = None, other_fm: dict | None = None,
-           owner_id: str | None = None, group: list[str] | None = None) -> Spoken:
+           owner_id: str | None = None, group: list[str] | None = None, same: dict[str, str] | None = None,
+           titled: list[dict] | None = None) -> Spoken:
     """The human question and its reason for one item. ``fm`` is the item as the readers serve it (decay and
     follow-up already synthesised); ``page_fm`` its page's frontmatter, ``other_fm`` a duplicate pair's other page;
-    ``group`` the names when several duplicate questions are one person (:mod:`inbox_catchup`)."""
+    ``group`` the names when several duplicate questions are one person (:mod:`inbox_catchup`).
+
+    G227: ``same`` is the bank's qualifier map (`same_name.qualifiers`) and ``titled`` the pages sharing a mention's
+    title (``{id, name, type, qualifier}``, the item's ``same_title``): a page is spoken of with its qualifier, and a
+    mention said exactly as a page's title is asked about the one page its answers act on ("Is this the <name> IDE?"),
+    the others counted in the reason."""
     kind = str(fm.get("kind") or "")
     entity_id = str(fm.get("entity_id") or "")
     own = bool(owner_id) and entity_id == owner_id
@@ -187,7 +193,12 @@ def spoken(fm: dict, today: str, *, page_fm: dict | None = None, other_fm: dict 
     if group and len(group) >= 2:
         return _group(group, page_type)
     if kind == "merge_suggestion":
+        if (said := _same_name(fm, today, name, other_fm, same or {}, titled or [])) is not None:
+            return said
         return _pair(fm, today, name, page_fm, other_fm)
+    if same and (q := same.get(entity_id)):
+        # G227: a page whose title another page shares is asked about by its qualifier ("<name-a> (IDE)").
+        name = f"{name} ({q})"
     if kind == "decay":
         return _decay(name, page_type, page_fm, today)
     if kind == "conflict" and str(fm.get("asks") or "") == "still":
@@ -249,6 +260,53 @@ def _pair(fm: dict, today: str, name: str, page_fm: dict | None, other_fm: dict 
         when = _ago(fm.get("source_episode_timestamp") or fm.get("created_date"), today)
         reason = (f"You mentioned {name} {when}, and it may be {other}; I'd rather ask than join them by mistake."
                   if when else "I'd rather ask than join them by mistake.")
+    return Spoken(question, reason)
+
+
+def _fold(text) -> str:
+    return " ".join(str(text or "").casefold().split())
+
+
+def _is_site(word: str) -> bool:
+    """A saved link's qualifier is its site ("example.com", "example.com/docs"): said "saved from", not as a noun."""
+    head = word.split("/", 1)[0]
+    return "." in head and " " not in word
+
+
+def _thing_word(page: dict) -> str:
+    """What a page is, said in a word: its qualifier when its title is shared, else its type (`same_name`)."""
+    from api.services.same_name import TYPE_WORDS
+
+    return str(page.get("qualifier") or TYPE_WORDS.get(str(page.get("type") or ""), "") or "one")
+
+
+def _same_name(fm: dict, today: str, name: str, other_fm: dict | None, same: dict[str, str],
+               titled: list[dict]) -> Spoken | None:
+    """G227: a mention said exactly as a page's title — "Is this the <name-a> IDE?" — or None when the names differ.
+
+    The question names ONE page, the merge target, because the item's answers ("Yes, the same" / "No, different", and
+    the catch-up's same/different keys) act on that page alone; "No" keeps the mention apart. That other pages share
+    the title is said in the reason, never offered as a choice the answers cannot make (PR #539 review; a pick-the-page
+    answer waits on the owner, G227)."""
+    target = str(fm.get("merge_target_hint") or "")
+    pages = list(titled)
+    if not pages and other_fm and _fold(speakable(other_fm.get("name"), other_fm)) == _fold(name):
+        pages = [{"id": target, "name": str(other_fm.get("name") or name), "type": str(other_fm.get("type") or ""),
+                  "qualifier": same.get(target)}]
+    page = next((p for p in pages if p.get("id") == target), None)
+    if page is None or _fold(page.get("name")) != _fold(name):
+        return None
+    word = _clip(_thing_word(page), MAX_LABEL)
+    thing = f"the {name} saved from {word}" if _is_site(word) else f"the {name} {word}"
+    question = _ask(f"Is this {thing}")
+    when = _ago(fm.get("source_episode_timestamp") or fm.get("created_date"), today)
+    said = f"You mentioned {name} {when}" if when else f"You mentioned {name}"
+    others = len({str(p.get("id")) for p in pages}) - 1
+    if others >= 1:
+        reason = (f"{said}, and {others + 1} things are called {name}; if it's not this one, say no and I'll keep it "
+                  "apart.")
+    else:
+        reason = f"{said}, and a page already has that name; if it's another one, say no and I'll keep it apart."
     return Spoken(question, reason)
 
 

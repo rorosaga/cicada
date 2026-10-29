@@ -30,6 +30,9 @@ def build(bank, root: str, tree: list[str], around: dict[str, dict], commons: se
     from api.models.schemas import ProjectPageRow
     from api.services.project_timeline import _neg
 
+    from api.services import same_name
+
+    same = same_name.qualifiers(bank.path)
     fm = bank.fm(root)
     skip = set(tree) | ({owner} if owner else set())
     removed = {bank.resolve(e) or e for e in project_ownership.pages(fm, project_ownership.PAGES_REMOVED_KEY)}
@@ -41,9 +44,11 @@ def build(bank, root: str, tree: list[str], around: dict[str, dict], commons: se
         roles = info.get("roles")
         phrases = info.get("phrases")
         phrase = roles.most_common(1)[0][0] if roles else (phrases.most_common(1)[0][0] if phrases else "")
+        q = same.get(eid)
         rows[eid] = ProjectPageRow(id=eid, name=bank.name(eid), type=bank.type_of(eid), role_phrase=phrase,
                                    fact=member_fact(bank, eid), count=int(info.get("count") or 0),
-                                   last_seen=info.get("last"), tie=tie, by=by)
+                                   last_seen=info.get("last"), tie=tie, by=by, qualifier=q,
+                                   display_name=same_name.display(bank.name(eid), q) if q else None)
         order[eid] = n
 
     # The hand ties first, newest first: what the person (or an agent) just added is what they look for.

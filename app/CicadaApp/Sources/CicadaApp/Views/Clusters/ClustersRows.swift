@@ -183,7 +183,7 @@ struct ClusterRow: View {
     }
 
     private var name: some View {
-        Text(ExcerptText.attributed(entity.name, bold: highlight))
+        Text(ExcerptText.attributed(entity.shownName, bold: highlight))
             .font(CicadaTheme.font(size: 13, weight: selected ? .medium : .regular))
             .foregroundStyle(nameColor)
             .lineLimit(1)
@@ -227,7 +227,7 @@ struct ClusterRow: View {
                 EntityPicture(id: entity.id, name: entity.name, type: entity.type, size: 20,
                               collapsesWhenEmpty: !reservesPicture)
                     .opacity(pictureOpacity)
-                name.help(entity.name)
+                name.help(entity.shownName)
             }
         }
     }

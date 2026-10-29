@@ -183,6 +183,13 @@ the coordinator) and `dismantleNSView` suspends the page and removes its handler
 releases its graph. Regression nets: `Tests/graph/graph-lifecycle.test.js` and
 `GraphViewLifecycleTests`. Capture, SSE and the menu-bar worm are untouched by any of this.
 
+**Same name, different things (G227, 2026-10-29).** `GraphNode`, `Entity`, `MemorySearchHit`, `ProjectPageRow`,
+`SleepConsolidated.Page` and `InboxItem` decode the backend's `qualifier`/`displayName` (decode-tolerant), and
+`shownName` is what the card header, Clusters' rows and grid, the find palette (the qualifier is also a keyword there),
+Projects' page rows, the run card and every inbox option and merge tile (`EntityNames`) show. A bare `[[<name>]]` that
+two or more pages answer to opens the system's own choice dialog ("Which <name>?", one button per page by its qualified
+name; DR-40's buttons are AppKit's own there, no new visual pattern) — a link never picks one (`MarkdownBody.entityIDs`).
+
 **Sync engine.** One `Store` holds a `Snapshot` per domain, hydrated instantly from a per-bank
 on-disk cache before the first network round-trip, so the app renders real data cold even with the
 backend down. A `SyncEngine` holds one SSE connection to `GET /sync/events`, reconnecting with

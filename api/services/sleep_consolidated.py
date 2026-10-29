@@ -26,7 +26,8 @@ from api.models.schemas import (
 from api.services import bank_index, git_service
 
 #: Folded into the routes' ETag: bump it when the body's shape changes.
-SHAPE = "items-1"
+#: items-2 (G227): a page row whose title another page shares adds `qualifier` and `displayName`.
+SHAPE = "items-2"
 CAP = 200
 
 _EPISODE = re.compile(r"^episodes/(?P<name>[^/]+\.md)$")
@@ -71,9 +72,13 @@ def _conversation(memory_path: Path, name: str) -> SleepConsolidatedConversation
 
 
 def _page(memory_path: Path, entity_id: str) -> SleepConsolidatedPage:
+    from api.services import same_name
+
     fm = _header(memory_path, "entities", f"{entity_id}.md")
-    return SleepConsolidatedPage(id=entity_id, name=str(fm.get("name") or "") or None,
-                                 type=str(fm.get("type") or "") or None, gone=not fm)
+    name = str(fm.get("name") or "") or None
+    q = same_name.qualifier(memory_path, entity_id) if fm else None
+    return SleepConsolidatedPage(id=entity_id, name=name, type=str(fm.get("type") or "") or None, gone=not fm,
+                                 qualifier=q, display_name=same_name.display(name, q) if q and name else None)
 
 
 def _question(memory_path: Path, subdir: str, name: str) -> SleepConsolidatedQuestion:

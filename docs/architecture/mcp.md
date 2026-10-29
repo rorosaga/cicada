@@ -111,6 +111,14 @@ with the query. Then one line names up to 5 held names that match a query word. 
 is unread, it is an ordinary block under `_fit_recall`'s budget, and it is Cicada's reading, not the person's
 verbatim words, so it follows the claim leg's scope.
 
+**Same name, different things (G227, 2026-10-29).** Every door names a page whose title another page shares by
+its qualifier (`same_name`): recall's heading is `### <name> (<qualifier>) (<type>, …) — id `<id>``;
+`cicada_recall_detail` with a name two pages share answers with each one, its qualifier and its id, instead of picking
+one, and a shared page's text ends with a "Shown as: …" line naming the others by id; `cicada_ask` shows the model
+`name: <name> (<qualifier>)` and links its citation by id (`[[<id>|<name> (<qualifier>)]]`); a related-page hop, a hub
+member or any `_entity_id_for_name` lookup never resolves a shared name to one page unless it is a page's own id as
+written. The CLI and `/v1` run the same bodies; `cicada find` lists `displayName`.
+
 **Recall (G140).** Three legs fused by one RRF (`search_service.rrf_fuse`): the stored vectors, the
 FTS lexical leg (names, aliases and prose, word by word), and current claims mapped to their
 subject — so an alias or a relationship label reaches its page. Each leg is filtered against the pages as their

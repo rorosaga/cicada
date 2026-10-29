@@ -52,8 +52,14 @@ class ClarificationManager:
         source_context: str,
         source_episode_timestamp: str | None = None,
         heard_in: dict | None = None,
+        same_title: list[str] | None = None,
+        target_id: str | None = None,
     ) -> str | None:
         """Create a clarification file. Returns its id, or None if duplicate.
+
+        ``same_title`` / ``target_id`` (G227): a mention titled exactly as one or more pages — the candidate's own id
+        is the merge target (a name two pages share never resolves to one), and every page sharing the title is kept
+        (``same_title``) so the question names each one (`inbox_wording`).
 
         ``source_episode_timestamp`` is the ISO timestamp of the conversation
         that originally triggered the clarification. Persisting it lets the
@@ -72,7 +78,7 @@ class ClarificationManager:
         # the sorted entity pair for a merge suggestion. A collision is a
         # RE-ASK of the same question — bump `updated_date` and write nothing.
         second = (
-            self._merge_target_hint(uncertainty_type) or ""
+            (target_id or self._merge_target_hint(uncertainty_type) or "")
             if is_duplicate
             else (uncertainty_type or "")
         )
@@ -127,9 +133,17 @@ class ClarificationManager:
         # the companion app can offer a one-tap merge. The candidate is carried
         # as a display name in ``uncertainty_type`` ("Possible duplicate of X").
         if is_duplicate:
-            target_hint = self._merge_target_hint(uncertainty_type)
+            target_hint = target_id or self._merge_target_hint(uncertainty_type)
             if target_hint:
                 frontmatter["merge_target_hint"] = target_hint
+            if same_title:
+                frontmatter["same_title"] = [str(i) for i in same_title][:6]
+                if target_id:
+                    # G227: the stored title names the one page its answers act on, by its qualifier — every reader
+                    # without the wording layer (an old client, a plain listing) asks the same yes/no question.
+                    from api.services import same_name
+
+                    frontmatter["title"] = f"Is this {same_name.label(self.memory_path, target_id, entity_name)}?"
         if source_episode_timestamp:
             frontmatter["source_episode_timestamp"] = str(source_episode_timestamp)
         if is_duplicate and isinstance(heard_in, dict) and heard_in.get("mention") and heard_in.get("page"):

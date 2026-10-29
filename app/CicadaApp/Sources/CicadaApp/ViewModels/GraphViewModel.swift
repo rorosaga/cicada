@@ -244,7 +244,9 @@ final class GraphViewModel {
                 decayClass: node.decayClass,
                 pictureURL: node.picture,
                 pictureSource: node.pictureSource,
-                quiet: node.quiet
+                quiet: node.quiet,
+                qualifier: node.qualifier,
+                displayName: node.displayName
             )
         }
         edges = response.links

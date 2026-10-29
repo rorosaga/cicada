@@ -60,6 +60,10 @@ extension Copy.Graph {
     static func backTo(_ name: String?) -> String { name.map { "‹ Back to \($0)" } ?? "‹ Back" }
     static func backHelp(_ name: String?) -> String { (name.map { "Back to \($0)" } ?? "Back") + " (⌘[)" }
     static func closeHelp(_ name: String) -> String { "Close \(name) (Esc)" }
+    /// G227 — a link to a name two or more pages share: the person picks which one, never the app.
+    static func whichPage(_ name: String) -> String { "Which \(name)?" }
+    static let whichPageMessage = "More than one page has this name."
+    static let whichPageCancel = "Cancel"
     static let tabContent = "Content"
     static let tabPerspectives = "Perspectives"
     static let tabHistory = "History"

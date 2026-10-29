@@ -71,6 +71,7 @@ from api.services import (
     quiet_pages,
     repo_context,
     repo_observations,
+    same_name,
     source_refresh,
     sync_service,
     sync_ticker,
@@ -166,7 +167,9 @@ def _card_read(settings: Settings, entity_id: str, entity_path: Path, if_none_ma
     memory_path = settings.memory_path
     alpha, floor = decay_policy.spacing_params(settings)
     with sync_ticker.request_scans(memory_path):   # the SSE walk's listings when its gate allows (speed 2026-10-29)
-        etag = page_blocks.card_etag(memory_path, entity_id, extra=f"{alpha}|{floor}")
+        # G227: `same_name.SHAPE` rides the ETag so a held card takes one 200 with `qualifier`/`displayName`; the
+        # qualifier itself moves with the `entities` directory the ETag already stats.
+        etag = page_blocks.card_etag(memory_path, entity_id, extra=f"{alpha}|{floor}|{same_name.SHAPE}")
         if if_none_match == etag:
             return {"etag": etag, "not_modified": True}
         # The page file alone: the card shows prose and reads claims from `/claims`, so an owner-sized page's ledger
@@ -244,7 +247,14 @@ def _card_read(settings: Settings, entity_id: str, entity_path: Path, if_none_ma
             "picture_inputs": PictureInputsModel(**picture_inputs.to_fields()),
             "quiet": quiet_pages.page_is_quiet(memory_path, entity_id),
             "relevance": EntityRelevance(**relevance),
+            # G227: the qualifier when another page shares this title, and the name to show.
+            **_same_name_fields(memory_path, entity_id, fm.get("name", entity_id.replace("-", " ").title())),
         }
+
+
+def _same_name_fields(memory_path: Path, entity_id: str, name: str) -> dict:
+    fields = same_name.fields(memory_path, entity_id, name)
+    return {"qualifier": fields["qualifier"], "display_name": fields["displayName"]}
 
 
 @router.post("/entities/{entity_id}/web-context")

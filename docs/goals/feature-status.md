@@ -9,6 +9,7 @@ Status, in order: `proposed` → `building` (a branch exists) → `PR #n` (open 
 
 | ID | Feature | Status | PR | Updated |
 |---|---|---|---|---|
+| [G227](memory-evolution.md#g227) | Same name, different things: a short qualifier in parentheses on every surface and door ("<name-a> (IDE)"), derived on read; links by id (a shared bare link asks which); Stage 2 never joins an exact title of another kind on the name alone and asks yes/no about one page ("Is this the <name-a> IDE?") when its judge cannot tell | PR #539 | [#539](https://github.com/rorosaga/cicada/pull/539) | 2026-10-29 |
 | [G115](memory-evolution.md#g115) | Same-person chains in the app: `GET /inbox` serves #501's grouping; Home, a page's strip and the catch-up chat ask "Are A, B and C the same person?" once and answer it one tap per pair, never joined by one answer (ruling 41) | PR #536 | [#536](https://github.com/rorosaga/cicada/pull/536) | 2026-10-29 |
 | [G115](memory-evolution.md#g115) | Speed round 4: watched rows in their own per-day file (cold start −1.25 s, −64 MB), the start-up heap frozen out of the collector, `/projects` remembered (p95 110 ms walking, 14 ms with the app open) | PR #533 | [#533](https://github.com/rorosaga/cicada/pull/533) | 2026-10-29 |
 | [G115](memory-evolution.md#g115) | Speed round 3: Projects list (bench p95 58–62 → 33–41 ms), recall (p95 ~2× faster), `/status` (8 ms with the SSE gate open), the owner's id a digest in the inbox sync component | PR #530 | [#530](https://github.com/rorosaga/cicada/pull/530) | 2026-10-29 |

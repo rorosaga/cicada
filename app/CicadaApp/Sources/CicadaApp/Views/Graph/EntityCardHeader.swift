@@ -81,7 +81,7 @@ struct EntityCardHeader: View {
                     EntityPicture(id: entity.id, name: entity.name, type: entity.type, size: 40, held: entity.pictureRef,
                                   heldInputs: pictureInputs, editing: .tile, collapsesWhenEmpty: true)
                     // Wraps rather than truncates: a selectable name cut short opened over the Summary on a click.
-                    Text(entity.isOwner ? Copy.Graph.ownerName(entity.name) : entity.name)
+                    Text(entity.isOwner ? Copy.Graph.ownerName(entity.name) : entity.shownName)
                         .font(CicadaTheme.displayFont(size: 22))
                         .tracking(CicadaTheme.displayTracking(size: 22))
                         .foregroundStyle(CicadaTheme.textPrimary)

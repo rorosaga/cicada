@@ -40,7 +40,8 @@ from api.services import agent_commits, agentic_write, demo_guard, episode_ids, 
 from api.services import episode_actor, page_blocks
 from api.services import search_service
 # One fence rule for every frontmatter reader (L final review, finding 2).
-from api.services import bank_index, entity_bands, link_views, markdown_parser, page_lock, search_index, write_admission
+from api.services import (bank_index, entity_bands, link_views, markdown_parser, page_lock, same_name, search_index,
+                          write_admission)
 # One header and pair of markers for text the caller did not write (R-R29, G200 A9), re-exported for the bodies here.
 from api.services.tool_contract import FENCE_CLOSE, FENCE_OPEN, REFERENCE_HEADER  # noqa: F401
 
@@ -392,6 +393,7 @@ def ask(ctx: ToolContext, query: str, top_k: int = 6) -> str:
                 {
                     "entity_id": c.get("entityId", c.get("entity_id", "")),
                     "entity_name": c.get("entityName", c.get("entity_name", "")),
+                    "display_name": c.get("displayName", c.get("display_name")),
                     "source_episodes": c.get("sourceEpisodes", c.get("source_episodes", [])),
                     "source_episodes_more": c.get("sourceEpisodesMore", c.get("source_episodes_more", 0)),
                 }
@@ -452,7 +454,10 @@ def _render_ask(result: dict, ctx: ToolContext | None = None) -> str:
                 more = 0
             ep_note = (f" (episodes: {', '.join(eps)}{f' +{more:,} more' if more > 0 else ''})" if eps
                        else (f" ({more:,} episodes)" if more > 0 else ""))
-            lines.append(f"- [[{name}]]{ep_note}")
+            shown = c.get("display_name")
+            # G227: a title another page shares is linked by id with its qualifier, never as a bare [[name]].
+            lines.append(f"- [[{c.get('entity_id')}|{shown}]]{ep_note}" if shown and c.get("entity_id")
+                         else f"- [[{name}]]{ep_note}")
 
     # The conversations no page cites that the answer rested on (2026-10-19): the episode id is what
     # `cicada_write_claim`'s evidence cites, so an agent can put the detail on a page with its provenance.
@@ -2069,7 +2074,8 @@ def _recall(ctx: ToolContext, query: str) -> str:
                 continue
             r_fm, r_body = parse_frontmatter(related_path.read_text(encoding="utf-8"))
             hop_blurbs.append(
-                f"- **{r_fm.get('name', related_id)}** (via [[{fm.get('name', eid)}]]): "
+                f"- **{same_name.label(memory_path, related_id, r_fm.get('name', related_id))}** "
+                f"(via [[{fm.get('name', eid)}]]): "
                 f"{link_views.plain(strip_claims_block(r_body))[:RECALL_HOP_CHARS].strip()}"
             )
     if hop_blurbs:
@@ -2609,6 +2615,11 @@ def recall_detail(ctx: ToolContext, entity_id: str, *, start: int | None = None,
     if not entity_id:
         return Reply("entity_id is required.", code="invalid_arguments")
 
+    # G227: a name two pages share is answered with both, never one picked by listing order.
+    choices = _same_name_choices(memory_path, entity_id)
+    if choices:
+        return choices
+
     candidate_ids = [entity_id]
     # Also try name -> id
     resolved = _entity_id_for_name(entities_dir, entity_id)
@@ -2630,6 +2641,9 @@ def recall_detail(ctx: ToolContext, entity_id: str, *, start: int | None = None,
             page_text = path.read_text(encoding="utf-8")
             fm = parse_frontmatter(page_text)[0]
             text = _with_ledger(path, _without_plumbing(page_text))
+            shared = _same_name_note(memory_path, cid, fm)
+            if shared:
+                text = text.rstrip("\n") + "\n\n" + shared + "\n"
             watched = _watch_history_line(memory_path, fm, cid)
             if watched:
                 text = text.rstrip("\n") + "\n\n" + watched + "\n"
@@ -4554,8 +4568,12 @@ def _render_entity_summary(entities_dir: Path, hit: dict, *, ranked_ids: frozens
 
     truncated = _type_aware_truncate(body, etype, max_chars=body_max, collapse=body_max is not None)
 
+    # G227: a title another page shares is shown with its qualifier and its id, so an agent names the right one.
+    qualifier = same_name.qualifier(entities_dir.parent, eid)
     lines = [
-        f"### {name} ({etype}, {said})",
+        # A qualifier that is the type word itself is said once: "### <name-a> (tool, …)".
+        (f"### {name} ({etype}, {said})" if qualifier == same_name.TYPE_WORDS.get(etype)
+         else f"### {same_name.display(name, qualifier)} ({etype}, {said})") + (f" — id `{eid}`" if qualifier else ""),
     ]
     call = more_call(eid) if more_call else None
     if related:
@@ -4814,10 +4832,48 @@ def _entity_id_for_name(entities_dir: Path, name: str) -> str | None:
     # names a recall. A stem match wins over a name match; ties go to the
     # first stem in sorted order.
     by_stem, by_name = _name_lookup(entities_dir)
+    if raw in by_stem.values():
+        return raw                         # a page's own id, as written
+    if same_name.pages_titled(entities_dir.parent, raw):
+        return None                        # G227: a name two pages share is never resolved to one of them
     stems = [by_stem[w] for w in wanted if w in by_stem]
     if stems:
         return min(stems)
     return by_name.get(target)
+
+
+def _same_name_choices(memory_path: Path, ref: str) -> str | None:
+    """G227: when ``ref`` is not a page's own id but a title two or more pages share, the reply naming each — its
+    qualifier and its id — so the agent reads the one it means. None otherwise."""
+    raw = str(ref or "").strip()
+    if not raw or raw in _name_lookup(memory_path / "entities")[0].values():
+        return None                        # empty, or a page's own id as written
+    ids = same_name.pages_titled(memory_path, raw)
+    if len(ids) < 2:
+        return None
+    rows = [f"- {same_name.label(memory_path, pid, _page_name(memory_path, pid))} — id `{pid}`" for pid in ids]
+    return f"{len(ids)} pages are called \"{raw}\". Read the one you mean by its id:\n" + "\n".join(rows)
+
+
+def _page_name(memory_path: Path, page_id: str) -> str:
+    from api.services import bank_index
+
+    entry = bank_index.file(memory_path, "entities", f"{page_id}.md")
+    return str(((entry.frontmatter if entry is not None else {}) or {}).get("name") or page_id)
+
+
+def _same_name_note(memory_path: Path, page_id: str, fm: dict) -> str | None:
+    """G227: the line a page whose title another page shares carries in ``recall_detail``: what it is shown as, and
+    the other pages by qualifier and id — a bare ``[[<name>]]`` link elsewhere may mean any of them."""
+    qualifier = same_name.qualifier(memory_path, page_id)
+    if not qualifier:
+        return None
+    name = str(fm.get("name") or page_id)
+    others = [pid for pid in same_name.pages_titled(memory_path, name) if pid != page_id]
+    listed = "; ".join(f"{same_name.label(memory_path, pid, _page_name(memory_path, pid))} (id `{pid}`)"
+                       for pid in others[:5])
+    return (f"Shown as: {same_name.display(name, qualifier)}. Other pages called \"{name}\": {listed}. A bare "
+            f"[[{name}]] link may mean any of them; name a page by its id.")
 
 
 # (the `entity_names` answer it was built from, lowercased stem -> stem, lowercased name -> stem)
@@ -4905,6 +4961,13 @@ def _format_inbox_blurb(
             fm, body, cause=cause, recommended_key=recommended_key, raw_excerpts=raw_excerpts,
             can_answer=can_answer,
         )
+    if kind == "merge_suggestion" and fm.get("same_title") and fm.get("merge_target_hint"):
+        # G227: a mention said as a title several pages share is asked about ONE page — the one its same/different
+        # answers act on — named by id; the others are counted, never offered.
+        target = str(fm["merge_target_hint"])
+        others = len([p for p in fm.get("same_title") or [] if str(p) != target])
+        return (f"- **{ename}** — {fm.get('title') or 'Is this the existing page?'} (page id `{target}`; "
+                f"{others + 1} pages are called {ename}; answer same or different for this page only)")
     if kind in ("clarification", "merge_suggestion"):
         utype = fm.get("uncertainty_type", "unknown")
         suggestion = fm.get("suggested_classification", "unknown")

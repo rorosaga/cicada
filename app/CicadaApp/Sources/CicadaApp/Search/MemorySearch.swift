@@ -38,12 +38,18 @@ struct MemorySearchHit: Decodable, Equatable, Sendable {
     let fileId: String?
     let atSeconds: Double?
     let endSeconds: Double?
+    /// G227 — an entity or saved-link hit whose title another page shares: its qualifier and the name to show.
+    let qualifier: String?
+    let displayName: String?
+
+    /// The row's title: the qualified name when the title is shared (the bold ranges index its leading name).
+    var shownName: String { displayName ?? name }
 
     enum CodingKeys: String, CodingKey {
         case id, name, type, status, score, snippet, kind, subtitle, snippetOffsets, matchedField, subjectId
         case episodeId, conversationId, harness, origin, site, timestamp, start, end, hash, evidenceKind
         case validFrom, validTo, supersededBy, eventStatus, eventDay
-        case thumbnail, imageSource, fileId, atSeconds, endSeconds
+        case thumbnail, imageSource, fileId, atSeconds, endSeconds, qualifier, displayName
     }
 
     init(from decoder: Decoder) throws {
@@ -78,6 +84,8 @@ struct MemorySearchHit: Decodable, Equatable, Sendable {
         imageSource = try c.decodeIfPresent(String.self, forKey: .imageSource)
         fileId = try c.decodeIfPresent(String.self, forKey: .fileId)
         atSeconds = try? c.decodeIfPresent(Double.self, forKey: .atSeconds)
+        qualifier = try? c.decodeIfPresent(String.self, forKey: .qualifier)
+        displayName = try? c.decodeIfPresent(String.self, forKey: .displayName)
         endSeconds = try? c.decodeIfPresent(Double.self, forKey: .endSeconds)
     }
 }
