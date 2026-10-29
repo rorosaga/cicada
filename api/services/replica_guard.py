@@ -40,8 +40,32 @@ class ReplicaReadOnly(PermissionError):
         self.what = what
 
 
+#: The mode the backend STARTED in (review of #567): set by its lifespan, so writing or removing ``replica_of`` while it
+#: runs changes nothing until it starts again — a running home never half-switches. None outside a backend (the stdio
+#: MCP server and the command line start fresh, and read the file once per process anyway).
+_FROZEN: list[bool | None] = [None]
+
+
+def freeze() -> bool:
+    """Fix this process's answer to :func:`active` as it is now (the backend's lifespan, at start)."""
+    _FROZEN[0] = None
+    _FROZEN[0] = _live()
+    return _FROZEN[0]
+
+
+def thaw() -> None:
+    _FROZEN[0] = None
+
+
 def active() -> bool:
-    """Is this process a replica? (env first, then the ``replica_of`` file by stat; client wins over replica.)"""
+    """Is this process a replica? The mode it started in when a backend froze it; otherwise env first, then the
+    ``replica_of`` file by stat (client wins over replica)."""
+    if _FROZEN[0] is not None:
+        return _FROZEN[0]
+    return _live()
+
+
+def _live() -> bool:
     from api.services import runtime_layout
 
     if (os.environ.get(runtime_layout.API_BASE_ENV) or "").strip():
@@ -92,12 +116,45 @@ def applying():
         _APPLYING.reset(token)
 
 
+_COPY_CACHE: dict[str, tuple[object, bool]] = {}
+
+
+def active_bank_is_copy() -> bool:
+    """Is the active bank a copy (``replica: true`` in ``banks.yaml``)? On a computer no longer in replica mode it must
+    never be written (review of #567): Sleep, capture and every writer would let it drift from its home. The registry
+    is read once per change (stat-cached); a missing or unreadable one is no copy."""
+    try:
+        from api.config import get_settings
+        from api.services import bank_registry
+
+        root = Path(get_settings().memory_root)
+        reg = bank_registry.registry_path(root)
+        st = reg.stat()
+    except Exception:  # noqa: BLE001 — no registry, no settings: nothing is a copy
+        return False
+    stamp = (st.st_mtime_ns, st.st_size)
+    cached = _COPY_CACHE.get(str(reg))
+    if cached is not None and cached[0] == stamp:
+        return cached[1]
+    try:
+        registry = bank_registry.load_registry(root)
+        record = (registry.get("banks") or {}).get(registry.get("active"))
+        value = bool(isinstance(record, dict) and record.get("replica"))
+    except Exception:  # noqa: BLE001
+        value = False
+    _COPY_CACHE[str(reg)] = (stamp, value)
+    return value
+
+
 def check(what: str = "write") -> None:
-    """Raise :class:`ReplicaReadOnly` on a replica, unless the follower's apply is writing."""
-    if active() and not is_applying():
+    """Raise :class:`ReplicaReadOnly` on a replica — or on a copy left active outside replica mode — unless the
+    follower's apply is writing."""
+    if blocks():
         raise ReplicaReadOnly(what)
 
 
 def blocks() -> bool:
     """True when a write would be refused right now (for a writer that turns the refusal into a no-op)."""
-    return active() and not is_applying()
+    if is_applying():
+        return False
+    return active() or active_bank_is_copy()

@@ -180,3 +180,51 @@ def test_the_caches_and_indexes_catch_up_and_vectors_take_only_changed_stems(pai
     db = sqlite3.connect(search_index.db_path(copy))
     assert db.execute("SELECT count(*) FROM docs WHERE ref = 'ep_2026-09-03_001'").fetchone()[0] >= 1
     assert seen == [["ep_2026-09-03_001"]]
+
+
+@pytest.mark.parametrize("cut_at", ["update-ref", "reset"])
+def test_an_apply_cut_short_is_finished_by_the_next_one(pair, monkeypatch, cut_at):
+    """Review of #566: the process dies (or git refuses) after the files are written but before HEAD moved, or before
+    the index followed. The journal says so; the next apply finishes it — never a dirty copy, never `diverged`."""
+    home, tmp = pair
+    copy = _copy(home, tmp)
+    old = git(copy, "rev-parse", "HEAD").strip()
+    first = hand_commit(home, "entities/alpha-project.md", "the home's change\n")
+    real = git_service._git_sync
+
+    def dies(memory_path, *args):
+        if args and args[0] == cut_at:
+            raise git_service.GitError(f"{cut_at} cut short")
+        return real(memory_path, *args)
+
+    monkeypatch.setattr(git_service, "_git_sync", dies)
+    with replica_guard.applying(), pytest.raises(git_service.GitError):
+        git_service.fast_forward_sync(copy, _bundle(home, tmp / "cut.bundle", have=old))
+    monkeypatch.setattr(git_service, "_git_sync", real)
+    assert (copy / ".git" / git_service.APPLY_JOURNAL).exists()
+    assert (copy / "entities" / "alpha-project.md").read_text() == "the home's change\n"   # files new, git behind
+    if cut_at == "update-ref":
+        assert git(copy, "rev-parse", "HEAD").strip() == old
+    # The next apply — with the home one more commit ahead — finishes the first and goes on.
+    second = hand_commit(home, "entities/new-page.md", "new\n")
+    with replica_guard.applying():
+        out = git_service.fast_forward_sync(copy, _bundle(home, tmp / "next.bundle", have=old))
+    assert out["head"] == second and git(copy, "rev-parse", "HEAD").strip() == second
+    assert git(copy, "status", "--porcelain") == "" and not (copy / ".git" / git_service.APPLY_JOURNAL).exists()
+    assert first in git(copy, "log", "--format=%H")
+
+
+def test_a_restart_finishes_a_journalled_apply_before_following(pair, monkeypatch):
+    home, tmp = pair
+    copy = _copy(home, tmp)
+    old = git(copy, "rev-parse", "HEAD").strip()
+    new = hand_commit(home, "entities/alpha-project.md", "the home's change\n")
+    real = git_service._git_sync
+    monkeypatch.setattr(git_service, "_git_sync", lambda mp, *a: (_ for _ in ()).throw(git_service.GitError("dead"))
+                        if a and a[0] == "update-ref" else real(mp, *a))
+    with replica_guard.applying(), pytest.raises(git_service.GitError):
+        git_service.fast_forward_sync(copy, _bundle(home, tmp / "cut.bundle", have=old))
+    monkeypatch.setattr(git_service, "_git_sync", real)
+    with replica_guard.applying():                     # what the follower does first after a start
+        assert git_service.finish_interrupted_apply_sync(copy) == new
+    assert git(copy, "rev-parse", "HEAD").strip() == new and git(copy, "status", "--porcelain") == ""

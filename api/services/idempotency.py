@@ -6,7 +6,7 @@ time and writes nothing — not a second episode, not a second "Note on …". Me
 note wrote one extra note episode.
 
 Keys live outside every bank, in ``$CICADA_HOME/idempotency/keys.db`` (0700/0600, sqlite), scoped to who sent them
-(the device's id, or ``server`` for the server's own token), the bank (its id) and the route, and are forgotten after a day — long
+(the device's id, or ``server`` for the server's own token), the bank (its id) and the route, and are forgotten after a day (8 days for the capture routes and the tool door, below) — long
 enough for an offline queue's retries, short enough to keep nothing about what was saved: a row is the scope, the
 route, the key's sha256, the status and the answer's JSON (ids and titles, no request body). A request with no key
 runs as before. A key the client reuses for a different request gets the first answer — the key is the client's
@@ -37,8 +37,17 @@ TOOLS_ROUTE_PREFIX = "/tools/call:"
 TOOLS_TTL_S = 8 * 24 * 3600
 
 
+#: Review of #566: the capture routes a copy's outbox (or a phone's queue) may send again, days later, with the key
+#: it sent first — kept as long as a tool door key, so an answer lost and resent after a day is still applied once.
+LONG_ROUTES = frozenset({"/capture/note", "/capture/file", "/sources/save"})
+
+
+def _long(route: str) -> bool:
+    return route.startswith(TOOLS_ROUTE_PREFIX) or route in LONG_ROUTES
+
+
 def ttl_for(route: str) -> float:
-    return TOOLS_TTL_S if route.startswith(TOOLS_ROUTE_PREFIX) else TTL_S
+    return TOOLS_TTL_S if _long(route) else TTL_S
 KEY_MAX = 200
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS keys (
@@ -90,10 +99,12 @@ def _hash(key: str) -> str:
 
 def _lookup(scope: str, route: str, key_hash: str, now: float) -> tuple[int, dict] | None:
     with _db() as db:
-        db.execute("DELETE FROM keys WHERE created < ? AND substr(route, 1, ?) != ?",
-                   (now - TTL_S, len(TOOLS_ROUTE_PREFIX), TOOLS_ROUTE_PREFIX))
-        db.execute("DELETE FROM keys WHERE created < ? AND substr(route, 1, ?) = ?",
-                   (now - TOOLS_TTL_S, len(TOOLS_ROUTE_PREFIX), TOOLS_ROUTE_PREFIX))
+        long_routes = sorted(LONG_ROUTES)
+        marks = ",".join("?" for _ in long_routes)
+        is_long = f"(substr(route, 1, ?) = ? OR route IN ({marks}))"
+        prefix = (len(TOOLS_ROUTE_PREFIX), TOOLS_ROUTE_PREFIX)
+        db.execute(f"DELETE FROM keys WHERE created < ? AND NOT {is_long}", (now - TTL_S, *prefix, *long_routes))
+        db.execute(f"DELETE FROM keys WHERE created < ? AND {is_long}", (now - TOOLS_TTL_S, *prefix, *long_routes))
         row = db.execute("SELECT status, body FROM keys WHERE scope=? AND route=? AND key_hash=?",
                          (scope, route, key_hash)).fetchone()
     return (int(row[0]), json.loads(row[1])) if row is not None else None

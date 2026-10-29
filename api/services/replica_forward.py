@@ -24,7 +24,15 @@ from starlette.routing import Match
 MUTATING = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 HOME_AWAY_TEXT = ("The computer that holds your memory is not reachable, so this was not changed. Reading works from "
                   "this copy; try again when that computer is back.")
-QUEUED_TEXT = "Kept on this computer: it is sent to the computer that holds your memory as soon as it is reachable."
+HOME_UNSURE_TEXT = ("The computer that holds your memory did not answer in time, so this may or may not have been "
+                    "saved there. Check before trying again.")
+HOME_UNSURE_KEYED_TEXT = ("The computer that holds your memory did not answer in time, so this may or may not have "
+                          "been saved there. Trying again is safe: it is sent with the same key, so it is applied "
+                          "only once.")
+#: A forwarded write that timed out, by what it was: its key, reused when the same write is sent again (review of #566).
+_UNSURE: dict[str, tuple[str, float]] = {}
+UNSURE_KEEP_S = 3600.0
+QUEUED_TEXT ="Kept on this computer: it is sent to the computer that holds your memory as soon as it is reachable."
 MAX_FORWARD_BYTES = 64 * 1024 * 1024
 
 
@@ -166,7 +174,17 @@ async def _forward(scope, receive, send, *, queue: bool) -> None:
         await _json(send, 413, {"detail": "too large to send on"})
         return
     query = scope.get("query_string", b"").decode("latin-1")
-    key = _header(scope, b"idempotency-key")
+    import hashlib
+    import time
+
+    # Review of #566: the same write sent again after a timeout reuses the key it was first sent with, so the home
+    # applies it once whether or not the first one landed.
+    fingerprint = hashlib.sha256(b"\0".join([scope["method"].encode(), scope["path"].encode(), query.encode(),
+                                             body])).hexdigest()
+    now = time.monotonic()
+    for fp in [fp for fp, (_k, at) in _UNSURE.items() if now - at > UNSURE_KEEP_S]:
+        _UNSURE.pop(fp, None)
+    key = _header(scope, b"idempotency-key") or (_UNSURE.get(fingerprint) or (None, 0))[0]
     try:
         entry = tx_outbox.rest_entry(scope["method"], scope["path"], query, body, _header(scope, b"content-type"),
                                      bank_id=bank_id, base_seq=replica.seq(), key=key)
@@ -181,9 +199,18 @@ async def _forward(scope, receive, send, *, queue: bool) -> None:
     if status is None or (queue and verdict not in ("landed", "rejected", "drop")):
         if queue:
             await _json(send, 202, {"status": "queued", "code": "queued", "detail": QUEUED_TEXT, "id": entry["id"]})
+        elif (answer or {}).get("_noAnswer") == "timeout":
+            from api.services import idempotency
+
+            _UNSURE[fingerprint] = (entry["id"], time.monotonic())
+            keyed = scope["path"] in idempotency.LONG_ROUTES
+            await _json(send, 503, {"code": "home_unsure", "detail": HOME_UNSURE_KEYED_TEXT if keyed
+                                    else HOME_UNSURE_TEXT, "idempotencyKey": entry["id"]},
+                        headers={"Idempotency-Key": entry["id"]})
         else:
             await _json(send, 503, {"code": "home_away", "detail": HOME_AWAY_TEXT})
         return
+    _UNSURE.pop(fingerprint, None)
     answer = dict(answer or {})
     home_seq = answer.pop("_cicadaSeq", None)
     if verdict == "landed":

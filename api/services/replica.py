@@ -49,7 +49,8 @@ TIMEOUT_S = 30.0
 PACK_TIMEOUT_S = 600.0
 
 #: What the follower is doing, for the Devices page and ``/sync/replica``.
-STATES = ("starting", "copying", "following", "offline", "revoked", "home_rewritten", "diverged", "error", "no_token")
+STATES = ("starting", "copying", "following", "offline", "revoked", "home_rewritten", "diverged", "error", "no_token",
+          "stopping")
 TEXTS = {
     "starting": "Starting to follow the computer that holds your memory.",
     "copying": "Making this computer's copy of your memory.",
@@ -62,9 +63,15 @@ TEXTS = {
     "diverged": "This copy no longer matches the history of the computer that holds your memory. Choose \"Copy "
                 "again\" to replace it.",
     "error": "This copy could not be updated just now; it tries again.",
+    "stopping": "This computer no longer keeps a copy; its own memory opens when Cicada starts again.",
     "no_token": "This computer has no device code from the computer that holds your memory, so it does not copy or "
                 "send anything. Pair it again from that computer's Devices page.",
 }
+
+
+#: The header :func:`request` sets when the home gave no answer: ``timeout`` (sent, may have landed) or
+#: ``unreachable`` (never connected, nothing landed).
+NO_ANSWER = "x-cicada-no-answer"
 
 
 class HomeError(Exception):
@@ -156,8 +163,12 @@ def request(method: str, path: str, *, body: bytes | None = None, headers: dict 
         except Exception:  # noqa: BLE001
             parsed = None
         return exc.code, dict(exc.headers.items()) if exc.headers else {}, parsed
-    except (urllib.error.URLError, socket.timeout, TimeoutError, ConnectionError, OSError):
-        return None, {}, None
+    except (urllib.error.URLError, socket.timeout, TimeoutError, ConnectionError, OSError) as exc:
+        # Review of #566: a request sent and not answered in time may have landed; one that never connected did not.
+        reason = getattr(exc, "reason", exc)
+        timed_out = isinstance(exc, (socket.timeout, TimeoutError)) or isinstance(reason, (socket.timeout,
+                                                                                            TimeoutError))
+        return None, {NO_ANSWER: "timeout" if timed_out else "unreachable"}, None
     if not raw:
         return status, rheaders, None
     try:
@@ -220,6 +231,40 @@ def copy_path() -> Path | None:
     return path if read_marker(path) is not None else None
 
 
+def leave_copy(root: Path) -> str | None:
+    """Outside replica mode the copy is never the active bank (review of #567): it would run Sleep and capture and
+    drift from its home. When the active bank is a copy, switch back to the bank this computer had open before it kept
+    one (the marker's ``previous``), else the first bank that is not a copy, else the legacy default at the root.
+    The copy stays on disk, inactive, and is never written. Returns the bank switched to, or None when nothing moved."""
+    from api.services import bank_registry
+
+    root = Path(root)
+    if not bank_registry.registry_path(root).exists():
+        return None
+    registry = bank_registry.load_registry(root)
+    banks = registry.get("banks") or {}
+    active = registry.get("active")
+    record = banks.get(active)
+    if not (isinstance(record, dict) and record.get("replica")):
+        return None
+    copy_dir = root / bank_registry.BANKS_SUBDIR / str(active)
+    previous = (read_marker(copy_dir) or {}).get("previous") or record.get("previous")
+
+    def usable(name) -> bool:
+        rec = banks.get(name)
+        return isinstance(rec, dict) and not rec.get("replica")
+
+    target = previous if usable(previous) else next((n for n in banks if usable(n)), None)
+    if target is None:
+        registry["active"] = bank_registry.DEFAULT_BANK   # the root's own memory, as on a fresh install
+        bank_registry.save_registry(root, registry)
+        target = bank_registry.DEFAULT_BANK
+    else:
+        bank_registry.activate_bank(root, target)
+    logger.info("replica: this computer no longer keeps a copy; its own memory is active again")
+    return target
+
+
 def _free_name(root: Path, wanted: str) -> str:
     from api.services import bank_registry
 
@@ -271,22 +316,37 @@ def bootstrap() -> Path:
         bundle, headers, timings = _fetch_pack(None, folder)
         if bundle is None:
             raise HomeError(204, {"code": "empty_history"})
-        slug = _free_name(root, str(name))
+        registry = bank_registry.load_registry(root)
+        # Review of #566: a first copy cut short (registered, no marker yet) is taken up again — the same bank under the
+        # same id — never a second "-copy" of it.
+        slug = next((n for n, r in (registry.get("banks") or {}).items()
+                     if isinstance(r, dict) and r.get("replica") and r.get("id") == bank_id), None)
+        slug = slug or _free_name(root, str(name))
         target = root / bank_registry.BANKS_SUBDIR / slug
         with replica_guard.applying():
-            head = git_service.bootstrap_from_bundle_sync(target, bundle)
+            if (target / ".git").exists():
+                head = git_service.fast_forward_sync(target, bundle, rewrite=True)["head"]
+            else:
+                shutil.rmtree(target, ignore_errors=True)
+                head = git_service.bootstrap_from_bundle_sync(target, bundle)
             bank_registry.ensure_derived_excluded(target)
             registry = bank_registry.load_registry(root)
+            # The bank this computer had open before it kept a copy: the one it goes back to when it stops (review
+            # of #567) — never the copy, which only follows its home.
+            earlier = (registry.get("banks") or {}).get(slug)
+            previous = earlier.get("previous") if isinstance(earlier, dict) else registry.get("active")
+            if previous == slug:
+                previous = None
             registry.setdefault("banks", {})[slug] = {
                 "legacy": False, "created": date.today().isoformat(),
                 "description": "A copy of the memory another of your computers holds", "id": bank_id,
-                "replica": True,
+                "replica": True, "previous": previous,
             }
             bank_registry.save_registry(root, registry)
             bank_registry.activate_bank(root, slug)
         seq = int(headers.get("X-Cicada-Seq") or headers.get("x-cicada-seq") or 0)
         _write_marker(target, {"home": _host(), "bankId": bank_id, "seq": seq, "sha": head,
-                               "appliedAt": time.time()})
+                               "appliedAt": time.time(), "previous": previous})
         _index_after(target, changed=None)
         timings["bootstrapMs"] = round((time.perf_counter() - t0) * 1000, 1)
         _set(status="following", seq=seq, sha=head, bank_id=bank_id, applied_at=time.time(), last_apply=timings,
@@ -355,15 +415,24 @@ def apply_once(*, rewrite: bool = False) -> dict:
     if mp is None:
         bootstrap()
         return dict(_STATE.last_apply)
+    from api.services import sync_service
+
     marker = read_marker(mp) or {}
-    have = None if rewrite else (marker.get("sha") or None)
+    # Review of #566: an apply cut short (the process killed, a restart, a git refusal) is finished before anything
+    # else, and what the copy asks for is its own HEAD — never a marker that may lag it.
+    with replica_guard.applying():
+        git_service.finish_interrupted_apply_sync(mp)
+    head = sync_service.git_head(mp) or marker.get("sha") or None
+    have = None if rewrite else head
     folder = Path(tempfile.mkdtemp(prefix="cicada-ff-"))
     os.chmod(folder, 0o700)
     try:
         bundle, headers, timings = _fetch_pack(have, folder)
         seq = int(headers.get("X-Cicada-Seq") or headers.get("x-cicada-seq") or marker.get("seq") or 0)
         if bundle is None:
-            _set(status="following", home_seq=seq, last_contact=time.time())
+            if head and (marker.get("sha") != head or marker.get("seq") != seq):
+                _write_marker(mp, {**marker, "seq": seq, "sha": head, "appliedAt": time.time()})
+            _set(status="following", seq=seq, sha=head or "", home_seq=seq, last_contact=time.time())
             return {}
         t0 = time.perf_counter()
         with replica_guard.applying():
@@ -536,6 +605,13 @@ _NOTIFIED: list[float | None] = [None]
 def _follower() -> None:
     delay = 1.0
     while not _STOP.is_set():
+        from api.services import runtime_layout
+
+        if not runtime_layout.is_replica():
+            # "Stop keeping a copy" removed `replica_of` while this backend runs: it follows nothing more (and never
+            # copies the memory again) until it starts again in its own mode.
+            _set(status="stopping")
+            return
         try:
             notified = _NOTIFIED[0]
             timings = apply_once()
@@ -641,9 +717,9 @@ def _send(entry: dict) -> tuple[int | None, dict | None]:
             body["base_seq"] = entry["baseSeq"]
         from api.services import tool_client
 
-        status, _h, answer = request("POST", "/tools/call", body=json.dumps(body).encode("utf-8"),
-                                     headers={**headers, "Content-Type": "application/json"},
-                                     timeout=tool_client.SLOW_TOOLS.get(entry.get("tool"), 60.0))
+        status, rheaders, answer = request("POST", "/tools/call", body=json.dumps(body).encode("utf-8"),
+                                           headers={**headers, "Content-Type": "application/json"},
+                                           timeout=tool_client.SLOW_TOOLS.get(entry.get("tool"), 60.0))
     else:
         path = entry["path"] + (f"?{entry['query']}" if entry.get("query") else "")
         if entry.get("contentType"):
@@ -658,4 +734,6 @@ def _send(entry: dict) -> tuple[int | None, dict | None]:
         _set(status="revoked")       # stops at once: the follower and the outbox wait for a token that works
     elif status is not None:
         _set(last_contact=time.time())
+    if status is None:
+        return None, {"_noAnswer": (rheaders or {}).get(NO_ANSWER, "unreachable")}
     return status, answer if isinstance(answer, dict) else ({"raw": True} if answer else None)

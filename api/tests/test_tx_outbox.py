@@ -79,3 +79,39 @@ def test_a_rest_entry_keeps_its_bytes_and_a_capture_too_large_is_refused(home):
     with pytest.raises(ValueError):
         tx_outbox.rest_entry("POST", "/capture/file", "", b"x" * (tx_outbox.MAX_BODY_BYTES + 1), None,
                              bank_id=None, base_seq=None)
+
+
+#: Capture routes whose posts are made idempotent by their own content (a session's id, a source's item ids, a reader's
+#: snapshot): a resend days later is the same write, whatever the key. Every other capture route is keyed.
+SAME_BY_CONTENT = {
+    "POST /capture/agent-memory", "POST /capture/local-source/wispr-flow", "POST /capture/session",
+    "POST /capture/telegram", "POST /capture/turn", "POST /sources/upload", "POST /sources/calendar-local/sync",
+    "POST /sources/contacts-local/sync", "POST /sources/folders/{folder_id}/sync", "POST /sources/messages/sync",
+    "POST /sources/reminders-local/sync", "POST /sources/sync-bookmarks", "POST /sources/sync-notes",
+    "POST /sources/sync-safari-tabs", "POST /sources/tab-groups/sync", "POST /sources/traces/sync",
+    "POST /sources/watch-history/sync", "POST /sources/whatsapp/sync", "POST /files/media",
+    "POST /files/{file_id}/frames",
+}
+
+
+def test_every_capture_route_keeps_its_key_longer_than_an_outbox_entry_waits():
+    """Review of #566: a capture a copy queued may be sent again up to EXPIRE_S later with the same key; the home must
+    still know that key then, or the capture is saved twice."""
+    import inspect
+
+    from fastapi.routing import APIRoute
+
+    from api.main import app
+    from api.services import replica_routes
+
+    endpoints = {f"{m} {r.path}": r.endpoint for r in app.routes if isinstance(r, APIRoute) for m in r.methods}
+    captures = {k for k, v in replica_routes.ROUTES.items() if v == replica_routes.CAPTURE}
+    assert captures, "no capture routes"
+    for route in sorted(captures):
+        if "idempotency.run_once" in inspect.getsource(endpoints[route]):
+            path = route.split(" ", 1)[1]
+            assert idempotency.ttl_for(path) >= tx_outbox.EXPIRE_S + 24 * 3600, route
+        else:
+            assert route in SAME_BY_CONTENT, f"{route}: key it (8 days) or name how a resend stays one write"
+    assert {r for r in captures if r not in SAME_BY_CONTENT} == {
+        "POST /capture/note", "POST /capture/file", "POST /sources/save"}

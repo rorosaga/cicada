@@ -84,7 +84,7 @@ def test_a_read_is_never_keyed(home):  # noqa: F811
         assert db.execute("SELECT count(*) FROM keys WHERE route LIKE '/tools/call:%'").fetchone() == (0,)
 
 
-def test_tool_keys_live_eight_days_and_other_routes_a_day(tmp_path, monkeypatch):
+def test_tool_and_capture_keys_live_eight_days_and_other_routes_a_day(tmp_path, monkeypatch):
     import asyncio
 
     monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
@@ -98,19 +98,24 @@ def test_tool_keys_live_eight_days_and_other_routes_a_day(tmp_path, monkeypatch)
 
     asyncio.run(seed("/tools/call:cicada_save_episode", 0))
     asyncio.run(seed("/capture/note", 0))
+    asyncio.run(seed("/elsewhere", 0))
     seen = []
 
     async def again():
         seen.append(1)
         return 200, {"ok": True}
 
-    # Two days later the note's key is gone, the tool's is not.
-    asyncio.run(idempotency.run_once("device:x|bank:y", "/capture/note", "k", again, now=lambda: 2 * day))
+    # Two days later a short route's key is gone; the tool's and the capture's are not (review of #566).
+    asyncio.run(idempotency.run_once("device:x|bank:y", "/elsewhere", "k", again, now=lambda: 2 * day))
     assert seen == [1]
     _, _, replayed = asyncio.run(idempotency.run_once(
         "device:x|bank:y", "/tools/call:cicada_save_episode", "k", again, now=lambda: 2 * day))
     assert replayed and seen == [1]
+    _, _, replayed = asyncio.run(idempotency.run_once("device:x|bank:y", "/capture/note", "k", again,
+                                                      now=lambda: 2 * day))
+    assert replayed and seen == [1]
     _, _, replayed = asyncio.run(idempotency.run_once(
         "device:x|bank:y", "/tools/call:cicada_save_episode", "k", again, now=lambda: 8 * day + 1))
     assert not replayed
-    assert idempotency.ttl_for("/tools/call:x") == 8 * day and idempotency.ttl_for("/sources/save") == day
+    assert idempotency.ttl_for("/tools/call:x") == 8 * day and idempotency.ttl_for("/sources/save") == 8 * day \
+        and idempotency.ttl_for("/elsewhere") == day

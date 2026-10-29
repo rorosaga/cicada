@@ -185,12 +185,22 @@ async def lifespan(app: FastAPI):
 
     if runtime_layout.mode_conflict():
         logger.warning(runtime_layout.mode_conflict())
-    if replica_guard.active():
+    # The mode this backend runs in is the one it started in: `replica_of` written or removed while it runs changes
+    # nothing until it starts again (review of #567 — never a half-switched backend).
+    if replica_guard.freeze():
         # G132 phase 1 B (ruling 51e2): this computer keeps a read-only copy. No scaffold, migration, seed, schedule,
         # catch-up, poll, listener or reindex job — only the follower, the words index and the query embedder.
-        async with _replica_lifespan(app, settings):
-            yield
+        try:
+            async with _replica_lifespan(app, settings):
+                yield
+        finally:
+            replica_guard.thaw()
         return
+    # Not a copy (any more): a copy left active from when it was one is never opened here (review of #567) — this
+    # computer's own memory is active again before anything is scaffolded, scheduled or captured.
+    from api.services import replica as _replica
+
+    _replica.leave_copy(settings.memory_root)
 
     # Preload the query embedder recorded in the bank's index in the
     # background so the first /search request doesn't pay the model-load
@@ -316,6 +326,7 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        replica_guard.thaw()
         await remote_listener.LISTENER.stop()
         await telegram_account.ACCOUNT.stop()
         scheduler.shutdown(wait=False)

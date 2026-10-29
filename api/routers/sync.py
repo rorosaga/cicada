@@ -138,12 +138,14 @@ async def _fresh_primer(memory_path: Path, settings: Settings) -> None:
 def _switch_body(settings: Settings) -> dict:
     from api.services import sync_log, sync_publish
 
-    on = sync_publish.enabled()
-    body = {"publish": on, "source": sync_publish.source(), "demo": False, "log": None}
-    if on:
-        from api.services import demo_guard
+    from api.services import demo_guard
 
-        body["demo"] = demo_guard.is_demo(settings.memory_path)
+    on = sync_publish.enabled()
+    # The real answer whatever the switch says (review of #567): the app offers sharing only for a memory that is
+    # not a demo, and says so when it is one.
+    body = {"publish": on, "source": sync_publish.source(), "demo": demo_guard.is_demo(settings.memory_path),
+            "log": None}
+    if on:
         if sync_publish.publishable(settings.memory_path):
             body["log"] = sync_log.state(settings.memory_path)
     return body
@@ -279,6 +281,13 @@ async def put_replica(body: ReplicaSetup):
 
     if runtime_layout.is_client():
         raise HTTPException(status_code=409, detail=runtime_layout.MODE_CONFLICT_TEXT)
+    from api.config import get_settings as _settings
+    from api.services import sleep_cycle, write_admission
+
+    # Review of #567: never while Sleep runs or a write is in flight here — the switch takes effect at the restart that
+    # follows, and that restart would wait on (or cut) the run. Nothing is written.
+    if sleep_cycle.get_sleep_state().status == "running" or write_admission.holders(_settings().memory_path) > 0:
+        raise HTTPException(status_code=409, detail="Sleep is running on this computer; keep a copy once it is done.")
     env = {"CICADA_REPLICA_OF": body.home.strip(), "CICADA_HOME": str(runtime_layout.cicada_home())}
     try:
         base = runtime_layout.replica_of(env)
@@ -328,12 +337,15 @@ async def put_replica(body: ReplicaSetup):
 
 
 @router.delete("/replica")
-async def delete_replica():
-    """Stop keeping a copy: remove ``replica_of`` (the copy stays on disk as an inactive bank; the token stays)."""
-    from api.services import runtime_layout
+async def delete_replica(settings: Settings = Depends(get_settings)):
+    """Stop keeping a copy: remove ``replica_of`` and make the bank this computer had open before it kept one active
+    again (``replica.leave_copy``) — the copy stays on disk, inactive, and is never written outside replica mode. The
+    token stays. Takes effect from the backend's next start (the app restarts it)."""
+    from api.services import replica, runtime_layout
 
     (runtime_layout.cicada_home() / runtime_layout.REPLICA_FILE).unlink(missing_ok=True)
-    return {"mode": runtime_layout.mode(), "restart": True}
+    back_to = await run_in_threadpool(replica.leave_copy, Path(settings.memory_root))
+    return {"mode": runtime_layout.mode(), "restart": True, "bank": back_to}
 
 
 @router.post("/replica/restart")
@@ -348,10 +360,21 @@ async def post_restart():
     import sys
     import threading
 
+    from api.config import get_settings as _settings
+    from api.services import git_service, replica, replica_guard
+
+    memory_path = _settings().memory_path
+
     def again():
         import time
 
         time.sleep(0.5)
+        if replica_guard.active():
+            # Review of #566: never cut an apply short — the follower stops taking new work, and the bank's write lock
+            # (held for the whole of an apply) is taken before the process image is replaced.
+            replica._STOP.set()
+            replica.wake()
+            git_service.write_lock(memory_path).acquire(timeout=120)
         os.execv(sys.executable, list(getattr(sys, "orig_argv", None) or [sys.executable, *sys.argv]))
 
     threading.Thread(target=again, name="cicada-restart", daemon=True).start()

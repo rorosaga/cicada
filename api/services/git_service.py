@@ -891,6 +891,7 @@ def fast_forward_sync(memory_path, bundle: Path, *, expect: str | None = None, r
     Returns ``{"head", "old", "changed", "removed"}``. Called inside ``replica_guard.applying()``."""
     memory_path = Path(memory_path)
     with write_lock(memory_path):
+        finish_interrupted_apply_sync(memory_path)   # a cut-short apply is finished first, never read as dirty
         _git_sync(memory_path, "fetch", "-q", "--no-tags", "--no-write-fetch-head", str(bundle),
                   f"+HEAD:{HOME_REF}")
         new = _git_sync(memory_path, "rev-parse", "--verify", "-q", f"{HOME_REF}^{{commit}}").strip()
@@ -907,27 +908,18 @@ def fast_forward_sync(memory_path, bundle: Path, *, expect: str | None = None, r
                                       capture_output=True)
             if ancestor.returncode != 0:
                 raise NotFastForward("the home's head does not descend from this copy's")
-            listing = _git_sync(memory_path, "diff", "--name-status", "-z", "--no-renames", old, new)
-            fields = [f for f in listing.split("\0") if f]
-            changed, removed = [], []
-            for status, path in zip(fields[0::2], fields[1::2]):
-                (removed if status.startswith("D") else changed).append(path)
+            changed, removed = _tree_change(memory_path, old, new)
             # Only the paths this apply writes need to be clean (a copy's other files are not touched): asking git
             # about them alone keeps a one-file apply from walking an owner-scale tree.
             scope = ("--", *changed, *removed) if len(changed) + len(removed) <= _APPLY_PATHSPEC_MAX else ()
             if _git_sync(memory_path, "status", "--porcelain", "-z", "--untracked-files=no", *scope).strip("\0").strip():
                 raise DirtyCopy("a tracked file of this copy was changed outside the apply")
         else:
-            changed = [p for p in _git_sync(memory_path, "ls-tree", "-r", "-z", "--name-only", new).split("\0") if p]
-            have = set()
-            if old:
-                have = {p for p in _git_sync(memory_path, "ls-tree", "-r", "-z", "--name-only", old).split("\0") if p}
-            removed = sorted(have - set(changed))
-        blobs = _blobs_at(memory_path, new, changed)
-        for rel in changed:
-            _write_atomically(memory_path / rel, blobs[rel])
-        for rel in removed:
-            (memory_path / rel).unlink(missing_ok=True)
+            changed, removed = _tree_change(memory_path, old if old else None, new, whole=True)
+        # Review of #566: the journal goes down BEFORE any file is touched, so an apply cut short anywhere (the process
+        # killed, a restart, a git refusal) is finished by the next one, never mistaken for a dirty copy.
+        _write_journal(memory_path, {"old": old, "new": new, "whole": bool(rewrite or not old)})
+        _write_tree(memory_path, new, changed, removed)
         if old and not rewrite:
             _git_sync(memory_path, "update-ref", "HEAD", new, old)
         else:
@@ -937,11 +929,94 @@ def fast_forward_sync(memory_path, bundle: Path, *, expect: str | None = None, r
             _git_sync(memory_path, "reset", "-q", "--", *touched)   # only these index entries moved
         else:
             _git_sync(memory_path, "reset", "-q")
+        _journal_path(memory_path).unlink(missing_ok=True)
     from api.services import bank_index, markdown_parser
 
     markdown_parser.invalidate_pages(memory_path)
     bank_index.invalidate(memory_path)
     return {"head": new, "old": old, "changed": changed, "removed": removed}
+
+
+#: The replica's apply journal, inside ``.git`` (never a tracked file, never sent): ``{old, new, whole}`` from before
+#: the first file is written until HEAD and the index are the new commit's.
+APPLY_JOURNAL = "cicada-apply.json"
+
+
+def _journal_path(memory_path: Path) -> Path:
+    return Path(memory_path) / ".git" / APPLY_JOURNAL
+
+
+def _write_journal(memory_path: Path, data: dict) -> None:
+    import json
+
+    path = _journal_path(memory_path)
+    tmp = path.with_name(path.name + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(data, fh)
+        fh.flush()
+        os.fsync(fh.fileno())
+    os.replace(tmp, path)
+
+
+def _tree_change(memory_path: Path, old: str | None, new: str, *, whole: bool = False) -> tuple[list[str], list[str]]:
+    """``(changed, removed)`` from ``old`` to ``new``; ``whole``: every file of ``new``, and what ``old`` had beyond."""
+    if not whole and old:
+        fields = [f for f in _git_sync(memory_path, "diff", "--name-status", "-z", "--no-renames", old, new)
+                  .split("\0") if f]
+        changed, removed = [], []
+        for status, path in zip(fields[0::2], fields[1::2]):
+            (removed if status.startswith("D") else changed).append(path)
+        return changed, removed
+    changed = [p for p in _git_sync(memory_path, "ls-tree", "-r", "-z", "--name-only", new).split("\0") if p]
+    have = set()
+    if old:
+        have = {p for p in _git_sync(memory_path, "ls-tree", "-r", "-z", "--name-only", old).split("\0") if p}
+    return changed, sorted(have - set(changed))
+
+
+def _write_tree(memory_path: Path, new: str, changed: list[str], removed: list[str]) -> None:
+    blobs = _blobs_at(memory_path, new, changed)
+    for rel in changed:
+        _write_atomically(memory_path / rel, blobs[rel])
+    for rel in removed:
+        (memory_path / rel).unlink(missing_ok=True)
+
+
+def finish_interrupted_apply_sync(memory_path) -> str | None:
+    """Finish an apply the journal says was cut short (review of #566), under the bank's write lock: write ``old..new``
+    again from ``new``'s blobs (no dirty check — those files are the apply's own half-done work), move HEAD to ``new``
+    from wherever it is, bring the whole index to it, drop the journal. Returns the head it finished at, else None.
+    Called inside ``replica_guard.applying()`` (the follower's start, and every apply before it fetches)."""
+    import json
+
+    memory_path = Path(memory_path)
+    path = _journal_path(memory_path)
+    if not path.exists():
+        return None
+    with write_lock(memory_path):
+        try:
+            journal = json.loads(path.read_text(encoding="utf-8"))
+            old, new = str(journal.get("old") or ""), str(journal["new"])
+        except (OSError, ValueError, KeyError):
+            path.unlink(missing_ok=True)   # an unreadable journal: the next apply's own checks decide
+            return None
+        _git_sync(memory_path, "rev-parse", "--verify", "-q", f"{new}^{{commit}}")
+        changed, removed = _tree_change(memory_path, old or None, new, whole=bool(journal.get("whole")) or not old)
+        _write_tree(memory_path, new, changed, removed)
+        try:
+            current = _git_sync(memory_path, "rev-parse", "--verify", "-q", "HEAD^{commit}").strip()
+        except GitError:
+            current = ""
+        if current != new:
+            _git_sync(memory_path, "update-ref", "HEAD", new, *([current] if current else []))
+        _git_sync(memory_path, "reset", "-q")
+        path.unlink(missing_ok=True)
+    from api.services import bank_index, markdown_parser
+
+    markdown_parser.invalidate_pages(memory_path)
+    bank_index.invalidate(memory_path)
+    logger.info("replica: finished an apply that was cut short")
+    return new
 
 
 def bootstrap_from_bundle_sync(target: Path, bundle: Path) -> str:

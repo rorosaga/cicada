@@ -151,12 +151,14 @@ def verdict(entry: dict, status: int | None, body: dict | None) -> str:
 def submit(entry: dict, send, *, home: Path | None = None, deadline_s: float = 30.0) -> tuple[str, int | None, dict]:
     """Keep ``entry``, then flush oldest first. ``(verdict, status, body)`` for ``entry`` itself — ``queued`` when it
     did not land in this flush (it waits, in order). ``send(entry) -> (status | None, body | None)``."""
+    # One hold across the write and its flush (review of #566): a flush racing in between (the follower's) could send
+    # this entry and leave this caller answering "queued" for a write that landed.
     with _locked(home):
         if len(entries(home)) >= MAX_ENTRIES:
             return "full", None, {}
         name = f"tx-{time.time_ns():020d}-{entry['id'][:12]}.json"
         _write(folder(home) / name, entry)
-    outcome = flush(send, home=home, deadline_s=deadline_s, want=entry["id"])
+        outcome = _flush_locked(send, home=home, deadline_s=deadline_s, now=time.time)
     return outcome.get(entry["id"], ("queued", None, {}))
 
 
@@ -164,47 +166,51 @@ def flush(send, *, home: Path | None = None, deadline_s: float = 30.0, want: str
           now=time.time) -> dict[str, tuple[str, int | None, dict]]:
     """Send what waits, oldest first, until one must wait (order holds) or the deadline. ``{id: (verdict, status,
     body)}`` of what this flush decided."""
+    with _locked(home):
+        return _flush_locked(send, home=home, deadline_s=deadline_s, now=now)
+
+
+def _flush_locked(send, *, home: Path | None, deadline_s: float, now) -> dict[str, tuple[str, int | None, dict]]:
     decided: dict[str, tuple[str, int | None, dict]] = {}
     stop_at = time.monotonic() + deadline_s
-    with _locked(home):
-        for path in entries(home):
-            if time.monotonic() > stop_at:
-                break
-            entry = _read(path)
-            if entry is None:
-                path.unlink(missing_ok=True)
-                continue
-            if now() - float(entry.get("queuedAt") or 0) > EXPIRE_S:
-                path.unlink(missing_ok=True)
-                _count("expired", home)
-                decided[entry.get("id", "")] = ("expired", None, {})
-                continue
-            if entry.get("heldAt") and now() - float(entry["heldAt"]) < HOLD_RETRY_S:
-                continue
-            try:
-                status, body = send(entry)
-            except Exception:  # noqa: BLE001 — a send that raised is no answer
-                status, body = None, None
-            v = verdict(entry, status, body)
-            decided[entry["id"]] = (v, status, body or {})
-            if v == "landed":
-                path.unlink(missing_ok=True)
-                continue
-            if v == "drop":
-                path.unlink(missing_ok=True)
-                _count(f"dropped_{status}", home)
-                continue
-            if v == "rejected":
-                path.unlink(missing_ok=True)
-                _reject(entry, status, (body or {}).get("code") if isinstance(body, dict) else None, home)
-                continue
-            if v == "hold":
-                entry["heldAt"] = now()
-                _write(path, entry)
-                continue
-            entry["attempts"] = int(entry.get("attempts") or 0) + 1
+    for path in entries(home):
+        if time.monotonic() > stop_at:
+            break
+        entry = _read(path)
+        if entry is None:
+            path.unlink(missing_ok=True)
+            continue
+        if now() - float(entry.get("queuedAt") or 0) > EXPIRE_S:
+            path.unlink(missing_ok=True)
+            _count("expired", home)
+            decided[entry.get("id", "")] = ("expired", None, {})
+            continue
+        if entry.get("heldAt") and now() - float(entry["heldAt"]) < HOLD_RETRY_S:
+            continue
+        try:
+            status, body = send(entry)
+        except Exception:  # noqa: BLE001 — a send that raised is no answer
+            status, body = None, None
+        v = verdict(entry, status, body)
+        decided[entry["id"]] = (v, status, body or {})
+        if v == "landed":
+            path.unlink(missing_ok=True)
+            continue
+        if v == "drop":
+            path.unlink(missing_ok=True)
+            _count(f"dropped_{status}", home)
+            continue
+        if v == "rejected":
+            path.unlink(missing_ok=True)
+            _reject(entry, status, (body or {}).get("code") if isinstance(body, dict) else None, home)
+            continue
+        if v == "hold":
+            entry["heldAt"] = now()
             _write(path, entry)
-            break   # wait: what follows waits behind it
+            continue
+        entry["attempts"] = int(entry.get("attempts") or 0) + 1
+        _write(path, entry)
+        break   # wait: what follows waits behind it
     return decided
 
 

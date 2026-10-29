@@ -531,6 +531,29 @@ inbox and the queue are the copy's files, so at the same seq they are the home's
 behind it is, and the outbox counts; `PUT`/`DELETE /sync/replica` and `POST /sync/replica/recopy` are this computer's
 own token only (`auth.MASTER_ONLY_WRITE_PREFIXES`). A change of mode takes effect from the backend's next start.
 
+**Entering and leaving safely (reviews of #566 and #567).**
+- *The mode is the one the backend started in* (`replica_guard.freeze()` in the lifespan): writing or removing
+  `replica_of` while it runs changes nothing until `POST /sync/replica/restart`. `PUT /sync/replica` answers 409 while
+  Sleep runs or a write is in flight, before anything is written; the restart waits for an apply in flight (the
+  follower stops taking work and the bank's write lock is taken before the process image is replaced).
+- *Leaving.* The bootstrap records the bank this computer had open (`previous`, in the marker and on the copy's
+  registry record). `DELETE /sync/replica` — and, at the latest, the first start in local mode (`replica.leave_copy`)
+  — makes it active again (else the first bank that is not a copy, else the root's own memory). A copy is never
+  written outside replica mode: `replica_guard` also refuses every writer while the active bank is a `replica: true`
+  one, and `bank_registry.activate_bank` refuses to open a copy unless the computer is in replica mode. The follower of
+  a backend whose `replica_of` was removed stops at once (`stopping`) and never copies again.
+- *An apply cut short* (the process killed, a restart, a git refusal) is finished by the next one: the apply journal
+  `.git/cicada-apply.json` (`{old, new, whole}`) is written before the first file; `finish_interrupted_apply_sync` — run
+  before every apply and by the follower first — rewrites `old..new` from `new`'s blobs with no dirty check, moves HEAD
+  to `new` from wherever it is, resets the index and drops the journal. A first copy cut short is taken up again
+  under the same bank and id, never a second `-copy`; the follower asks for what is new since the copy's own HEAD.
+- *A forwarded write that timed out* answers 503 `home_unsure` ("may or may not have been saved there"), and the same
+  write sent again within an hour reuses its `Idempotency-Key`; only a home that was never reached answers
+  `home_away` ("this was not changed").
+- *Keys outlive the outbox.* `/capture/note`, `/capture/file` and `/sources/save` keep their keys 8 days, as the tool
+  door does (`idempotency.LONG_ROUTES`); every other capture route is one write by its own content (a session's id, a
+  source's items), which `test_tx_outbox.py` lists route by route.
+
 Known limits of phase 1: a copy's media files and pictures posted from it live at the home (outside every bank) and
 are not copied; `cicada_continue` reads this computer's own continuity registry; `cicada_ask` uses this computer's
 engine; an interactive app write made while the home is away is refused, not queued (phases 4/5).
