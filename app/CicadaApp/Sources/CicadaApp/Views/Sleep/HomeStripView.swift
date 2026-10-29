@@ -31,7 +31,8 @@ struct HomeStripView: View {
                     }
                     .disabled(model.busy)
                 }
-                ForEach(HomeStrip.notes(overview) + (model.problem.map { [$0] } ?? []), id: \.self) { line in
+                ForEach(Array(HomeStrip.lines(overview, movingLine: model.movingLine, problem: model.problem)
+                                .enumerated()), id: \.offset) { _, line in
                     Text(line)
                         .font(CicadaTheme.metaFont)
                         .foregroundStyle(CicadaTheme.textSecondary)
@@ -57,8 +58,11 @@ struct HomeStripView: View {
                                 isPresented: Binding(get: { model.preview != nil },
                                                      set: { if !$0 { model.cancelTakeOver() } }),
                                 titleVisibility: .visible) {
-                Button(Copy.MemoryHome.takeOverConfirm, role: .destructive) {
-                    Task { await model.takeOver() }
+                if let behind = model.preview?.behind {
+                    // The number shown is captured here: the dialog's dismissal clears the preview before a Task runs.
+                    Button(Copy.MemoryHome.takeOverConfirm, role: .destructive) {
+                        Task { await model.takeOver(behind: behind) }
+                    }
                 }
                 Button(Copy.MemoryHome.cancel, role: .cancel) { model.cancelTakeOver() }
             } message: {
@@ -77,7 +81,7 @@ struct HomeStripView: View {
                 .monospacedDigit()
                 .foregroundStyle(CicadaTheme.textSecondary)
                 .lineLimit(1)
-            if HomeStrip.offersMove(device, in: overview) {
+            if HomeStrip.offersMove(device, in: overview) && !model.isMoving {
                 TextButton(title: Copy.MemoryHome.makeHome, help: Copy.MemoryHome.makeHomeHelp(device.name),
                            inline: true) {
                     pendingMove = device

@@ -579,7 +579,7 @@ final class SleepViewModel {
     /// One poll of the machines strip; a failed poll keeps the last answer (never blank).
     func loadMachines() async {
         if let list = try? await fetchMachines() { machines = list.devices }
-        await homeStrip.load()
+        await homeStrip.load(clearingProblem: true)   // the slow poll: a refusal's sentence goes once it answers
     }
 
     /// A run's detail, cached by id and freshness key: a second open under the same key is a dictionary hit; a

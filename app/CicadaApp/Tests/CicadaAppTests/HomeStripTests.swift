@@ -22,14 +22,28 @@ final class HomeStripTests: XCTestCase {
         try JSONDecoder().decode(HomeOverview.self, from: Data(json.utf8))
     }
 
+    private func model(fetch: @escaping () async throws -> HomeOverview,
+                       move: @escaping (String) async throws -> HomeMoveAnswer = { _ in HomeMoveAnswer() },
+                       preview: @escaping () async throws -> TakeOverPreview = { TakeOverPreview(possible: false) },
+                       confirm: @escaping (Int) async throws -> Void = { _ in },
+                       tries: Int = 1) -> HomeStripModel {
+        HomeStripModel(fetch: fetch, move: move, fetchPreview: preview, confirmTakeOver: confirm, followTries: tries,
+                       followEvery: 0)
+    }
+
     func testOneComputerThatSharesNothingDrawsNothing() async throws {
         let local = try overview(#"{"shared": false, "role": "local"}"#)
         XCTAssertFalse(local.shared)
         XCTAssertTrue(local.devices.isEmpty)
-        let model = HomeStripModel(fetch: { local }, move: { _ in }, fetchPreview: { TakeOverPreview(possible: false) },
-                                   confirmTakeOver: { _ in })
-        await model.load()
-        XCTAssertFalse(model.isShown)
+        let m = model(fetch: { local })
+        await m.load()
+        XCTAssertFalse(m.isShown)
+    }
+
+    func testADeviceWithNoNameStillDecodes() throws {
+        let o = try overview(#"{"shared": true, "devices": [{"id": "dddddddd", "keepsCopy": true}]}"#)
+        XCTAssertEqual(o.devices.first?.name, "")
+        XCTAssertFalse(o.devices.first?.canBeHome ?? true)
     }
 
     func testTheStripNamesTheHomeAndEachDevicesLag() throws {
@@ -58,53 +72,101 @@ final class HomeStripTests: XCTestCase {
     func testAMoveSendsThePickedDeviceAndARefusalShowsItsSentence() async throws {
         let o = try overview(sharedJSON)
         var sent: [String] = []
-        let model = HomeStripModel(fetch: { o }, move: { sent.append($0) }, fetchPreview: {
-            TakeOverPreview(possible: false)
-        }, confirmTakeOver: { _ in })
-        await model.load()
-        XCTAssertTrue(model.isShown)
-        await model.makeHome(o.devices[0])
+        let m = model(fetch: { o }, move: { sent.append($0); return HomeMoveAnswer() })
+        await m.load()
+        XCTAssertTrue(m.isShown)
+        await m.makeHome(o.devices[0])
         XCTAssertEqual(sent, ["bbbbbbbb"])
-        XCTAssertNil(model.problem)
+        XCTAssertNil(m.problem)
 
-        let refusing = HomeStripModel(fetch: { o }, move: { _ in
+        let refusing = model(fetch: { o }, move: { _ in
             throw APIError.httpError(409, #"{"code": "target_away", "detail": "bravo-laptop does not answer right now."}"#)
-        }, fetchPreview: { TakeOverPreview(possible: false) }, confirmTakeOver: { _ in })
+        })
         await refusing.makeHome(o.devices[0])
         XCTAssertEqual(refusing.problem, "bravo-laptop does not answer right now.")
+    }
+
+    /// Review of #570: a move pressed on a copy runs at the home, so the copy's own poll may say nothing of it. The
+    /// 202's words show, no second move is offered, and the strip keeps asking until the poll names the new home.
+    func testAMoveFromACopyStaysMovingUntilThePollNamesTheNewHome() async throws {
+        let before = try overview(sharedJSON)
+        var after = before
+        after.home = HomeOverview.Home(id: "bbbbbbbb", name: "bravo-laptop", me: false, online: true, sleep: nil)
+        var polls = 0
+        var seenWhileMoving: [Bool] = []
+        var m: HomeStripModel!
+        m = model(fetch: {
+            polls += 1
+            if polls > 1 { seenWhileMoving.append(m.isMoving && m.movingLine == "Your memory is moving to bravo-laptop.") }
+            return polls < 4 ? before : after
+        }, move: { _ in HomeMoveAnswer(moving: HomeOverview.Words(text: "Your memory is moving to bravo-laptop.",
+                                                                    phase: "starting")) }, tries: 10)
+        await m.load()
+        await m.makeHome(before.devices[0])
+        XCTAssertEqual(polls, 4)                                 // it kept asking until bravo-laptop was the home
+        XCTAssertEqual(seenWhileMoving, [true, true, true])     // moving, with the home's words, the whole time
+        XCTAssertFalse(m.isMoving)
+        XCTAssertEqual(m.overview?.home?.id, "bbbbbbbb")
     }
 
     func testATakeOverIsShownFirstAndConfirmsTheNumberItShowed() async throws {
         let o = try overview(sharedJSON)
         var confirmed: [Int] = []
-        let model = HomeStripModel(fetch: { o }, move: { _ in }, fetchPreview: {
+        let m = model(fetch: { o }, preview: {
             TakeOverPreview(possible: true, behind: 4, text: "This computer is 4 changes behind the last home it saw.")
-        }, confirmTakeOver: { confirmed.append($0) })
-        await model.askTakeOver()
-        XCTAssertEqual(model.preview?.behind, 4)
+        }, confirm: { confirmed.append($0) })
+        await m.askTakeOver()
+        XCTAssertEqual(m.preview?.behind, 4)
         XCTAssertTrue(confirmed.isEmpty)                       // nothing happens before the person confirms
-        await model.takeOver()
+        await m.takeOver(behind: 4)
         XCTAssertEqual(confirmed, [4])
-        XCTAssertNil(model.preview)
+        XCTAssertNil(m.preview)
 
-        let reachable = HomeStripModel(fetch: { o }, move: { _ in }, fetchPreview: {
+        let reachable = model(fetch: { o }, preview: {
             TakeOverPreview(possible: false, text: "alpha-desk answers, so it is not lost.", code: "home_reachable")
-        }, confirmTakeOver: { _ in XCTFail("never confirmed") })
+        }, confirm: { _ in XCTFail("never confirmed") })
         await reachable.askTakeOver()
         XCTAssertNil(reachable.preview)
         XCTAssertEqual(reachable.problem, "alpha-desk answers, so it is not lost.")
     }
 
+    /// Review of #570: the dialog's dismissal clears the preview before the confirm's Task runs; the confirm still
+    /// sends the number that was shown.
+    func testATakeOverConfirmedAfterThePreviewWasClearedStillRuns() async throws {
+        let o = try overview(sharedJSON)
+        var confirmed: [Int] = []
+        let m = model(fetch: { o }, preview: { TakeOverPreview(possible: true, behind: 2, text: "2 behind.") },
+                      confirm: { confirmed.append($0) })
+        await m.askTakeOver()
+        let shown = m.preview!.behind!
+        m.cancelTakeOver()                                     // what the binding's setter does on dismissal
+        await m.takeOver(behind: shown)
+        XCTAssertEqual(confirmed, [2])
+    }
+
+    /// Review of #570: a refusal's sentence stays through a move's own follow and goes at the next slow poll.
+    func testARefusalClearsAtTheNextSlowPollOnly() async throws {
+        let o = try overview(sharedJSON)
+        let m = model(fetch: { o }, move: { _ in
+            throw APIError.httpError(409, #"{"detail": "bravo-laptop does not answer right now."}"#)
+        })
+        await m.makeHome(o.devices[0])
+        await m.load()                                        // an ordinary ask keeps it
+        XCTAssertEqual(m.problem, "bravo-laptop does not answer right now.")
+        await m.load(clearingProblem: true)                   // the page's slow poll answered
+        XCTAssertNil(m.problem)
+    }
+
     func testAFailedPollKeepsTheLastAnswer() async throws {
         let o = try overview(sharedJSON)
         var fail = false
-        let model = HomeStripModel(fetch: {
+        let m = model(fetch: {
             if fail { throw APIError.serverUnreachable }
             return o
-        }, move: { _ in }, fetchPreview: { TakeOverPreview(possible: false) }, confirmTakeOver: { _ in })
-        await model.load()
+        })
+        await m.load()
         fail = true
-        await model.load()
-        XCTAssertEqual(model.overview, o)                      // never blank
+        await m.load(clearingProblem: true)
+        XCTAssertEqual(m.overview, o)                          // never blank
     }
 }

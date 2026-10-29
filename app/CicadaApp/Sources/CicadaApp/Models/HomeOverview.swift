@@ -27,6 +27,24 @@ struct HomeOverview: Decodable, Equatable {
         var keepsCopy: Bool
         var behind: Int?
         var canBeHome: Bool
+
+        enum CodingKeys: String, CodingKey { case id, name, me, online, keepsCopy, behind, canBeHome }
+
+        init(id: String, name: String, me: Bool, online: Bool, keepsCopy: Bool, behind: Int?, canBeHome: Bool) {
+            self.id = id; self.name = name; self.me = me; self.online = online; self.keepsCopy = keepsCopy
+            self.behind = behind; self.canBeHome = canBeHome
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            id = try c.decode(String.self, forKey: .id)
+            name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+            me = try c.decodeIfPresent(Bool.self, forKey: .me) ?? false
+            online = try c.decodeIfPresent(Bool.self, forKey: .online) ?? false
+            keepsCopy = try c.decodeIfPresent(Bool.self, forKey: .keepsCopy) ?? false
+            behind = try c.decodeIfPresent(Int.self, forKey: .behind)
+            canBeHome = try c.decodeIfPresent(Bool.self, forKey: .canBeHome) ?? false
+        }
     }
 
     /// A line the backend wrote in words (moving, a take-over offer, what was set aside, a note).
@@ -70,6 +88,11 @@ struct HomeOverview: Decodable, Equatable {
 
     /// While the memory is moving no other move is offered (the backend refuses one anyway).
     var isMoving: Bool { moving != nil && moving?.phase != "refused" }
+}
+
+/// `POST /sync/home/move`'s 202: the move's progress as the home started it (a copy forwards the home's answer).
+struct HomeMoveAnswer: Decodable, Equatable {
+    var moving: HomeOverview.Words?
 }
 
 /// `GET /sync/home/take-over` — what the person is shown before they confirm a take-over.
@@ -123,5 +146,15 @@ enum HomeStrip {
     static func notes(_ overview: HomeOverview) -> [String] {
         [overview.moving, overview.takeOver, overview.setAside, overview.note]
             .compactMap { $0?.text }.filter { !$0.isEmpty }
+    }
+
+    /// Every plain line under the strip: the move (the poll's words, else the home's answer to this computer's own
+    /// request), a take-over offer, what was set aside, a note, then the last refusal.
+    static func lines(_ overview: HomeOverview, movingLine: String?, problem: String?) -> [String] {
+        var out: [String] = []
+        if let movingLine, !movingLine.isEmpty { out.append(movingLine) }
+        out += [overview.takeOver, overview.setAside, overview.note].compactMap { $0?.text }.filter { !$0.isEmpty }
+        if let problem, !problem.isEmpty { out.append(problem) }
+        return out
     }
 }
