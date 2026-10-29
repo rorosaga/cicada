@@ -7,7 +7,7 @@ not telemetry: it holds what the Agents and Devices pages draw and nothing else.
 **What a row holds — names, devices and times only.** An agent row is ``(agent id, device id, via, first seen, last
 seen, calls)``: the agent id is the catalog way (``agent_catalog.way_for_client``), never the raw ``clientInfo``
 string; the device is a ``device_tokens`` id (``""`` for this machine); ``via`` is an enum (``mcp`` | ``tool`` |
-``remote`` | ``call``). ``call`` (onboarding v3, 2026-10-24) is a stdio ``tools/call`` — the agent asked Cicada
+``remote`` | ``call`` | ``hook``). ``call`` (onboarding v3, 2026-10-24) is a stdio ``tools/call`` — the agent asked Cicada
 something — beside the ``mcp`` row its ``initialize`` writes, so a call can be told apart from a connect (a harness's
 own wiring check, ``claude mcp get``, initializes and never calls a tool). A device row is ``(device id, how, last seen)`` with ``how`` one of :data:`HOW`. No query, no argument,
 no path, no session id, no address.
@@ -33,7 +33,9 @@ from pathlib import Path
 from api.services.auth import cicada_home
 
 STAMP_EVERY_S = 60.0
-VIAS = ("mcp", "tool", "remote", "call")
+#: ``hook`` (G228): a capture hook saw a session of a host app (``agent_catalog.HOSTS``) — T3 Code never calls Cicada
+#: itself; the harness it drives does, so the host is seen only where the hook names it.
+VIAS = ("mcp", "tool", "remote", "call", "hook")
 #: The vias that are a tool call (an agent asking something), never a bare connect: a stdio ``tools/call`` and a
 #: call through the tool door from another of the person's machines.
 CALL_VIAS = ("call", "tool")

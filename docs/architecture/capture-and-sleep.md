@@ -963,12 +963,43 @@ fixtures, not yet run against the installed app.
 | Codex | `Stop` in `~/.codex/hooks.json` | `session_id`, `transcript_path` (JSONL) | Every session (G105); payload R9-unverified |
 | Cursor | `beforeSubmitPrompt`, `afterAgentResponse` in `~/.cursor/hooks.json` | `prompt`; `text` (final reply); `conversation_id`, `generation_id`, `model`; `transcript_path` nullable, format undocumented | Every local chat, per turn (`turn_capture`); unverified |
 | Gemini CLI | `AfterAgent` in `~/.gemini/settings.json` | `prompt`, `prompt_response`, `stop_hook_active`, `session_id`; `transcript_path` format undocumented | Every session, per exchange (`turn_capture`); unverified |
+| T3 Code (G228) | none of its own: the harness it drives fires Cicada's hooks (Claude Code through the Agent SDK with the person's user settings; Codex's `app-server` with `~/.codex/hooks.json` in its "existing login" setup; Cursor's SDK with user settings) | the driving harness's payload; the host is read by the hook from its own ancestors | Every thread, as its harness's one episode labelled `host: t3code` (below); Claude Code verified only as far as T3 Code's recorded SDK fixtures (SessionStart hooks fire), the rest unverified |
 | Claude app (desktop) | none; MCP only | — | Only what it saves through MCP; its chats arrive by the claude.ai data export import (G197) |
 | Claude on the web and phone, ChatGPT, Grok | none; remote connector (G135) | — | Every turn its model relays through `cicada_capture_turns` (ruling 32, below), stored as relayed; an export upgrades it |
 | Windsurf (Cascade) | `pre_user_prompt`, `post_cascade_response` in `~/.codeium/windsurf/hooks.json` | `user_prompt`; `response`; `trajectory_id`, `execution_id` | Not yet: the same shape as Cursor, so it is a registry and an adapter on `/capture/turn` (G197) |
 | GitHub Copilot CLI | `userPromptSubmitted`, `agentStop` in `~/.copilot/hooks/` | `prompt`; the reply only inside `transcriptPath`, format undocumented | Not yet: the reply needs a transcript reader (G197) |
 | OpenCode | JS/TS plugins only (`~/.config/opencode/plugins/`) | events (`message.updated`, `session.idle`) with undocumented payloads | Not yet: needs a plugin, not a command hook (G197) |
 | Hermes, OpenClaw | no hooks documented | — | MCP saves only |
+
+**Host apps: T3 Code (G228, 2026-10-29).** A *host* drives a harness Cicada already captures without being one.
+T3 Code (an open-source GUI for coding agents; source read at commit 3748c5c2) runs Claude Code through the Agent SDK
+with `settingSources` left at its default — user, project and local settings, the CLI's own — so Cicada's Stop,
+flush and recall hooks and the Cicada plugin (its MCP server, skill and hooks; T3 Code's docs say enabled plugins
+load) run inside every T3 Code Claude thread; a thread is one SDK session id, resumed under the same id, so it is one
+episode (G104). Codex runs as `codex app-server`; with T3 Code's "use an existing Codex login" setup its
+`CODEX_HOME` is `~/.codex`, so `hooks.json` applies; its managed ChatGPT sign-in gives Codex a T3-owned home, which
+Cicada's hooks never reach (not captured; Needs the owner on G228). Cursor runs through Cursor's SDK with user
+settings loaded (unverified that `~/.cursor/hooks.json` fires there). T3 Code's own model calls (thread titles,
+commit messages) pass `disableAllHooks` / `codex exec --ephemeral`, so they are never captured. **Nothing is read
+from T3 Code's database** (`~/.t3/userdata`): the harness's hook is the one door, and the backend opens only the
+transcript it already validates. **The label:** T3 Code sets no variable of its own on the agent's environment,
+so the hook reads its ancestors in-process (`api/hooks/host_identity.py`: parent pid, executable path, and for a
+`node`/`bun` ancestor its arguments — `libproc`/`sysctl` on macOS, `/proc` on Linux; never a subprocess, never
+logged) and posts `host: t3code` beside the harness (`/capture/transcript`, `/capture/session`, `/capture/turn`;
+additive, an unknown value dropped, never a refusal). The episode keeps `harness`, `origin`, the transcript rail and
+`external:<harness>` claims — the agent really is Claude Code — and gains `host: t3code` outside the hash, kept once
+written; the source row is T3 Code's (`source_overview.source_key`), and a capture that kept something stamps the
+last-seen registry (`agent_seen`, via `hook`), which is how the Agents page sees T3 Code. **What T3 Code writes into
+a turn is never the person's words** (`transcript_extract.host_envelope`, every path through `_Builder._add`): a
+provider switch or a fork the provider cannot resume starts a new harness session whose first message replays the
+thread ("Context handoff (…)" … "User message:\n<request>": only the request is kept); a provider given history
+natively gets a context message and "[Historical <role>; …; thread=…; item=…]" messages (dropped, counted
+`host_handoff`/`host_replay`); an ACP prompt's `<t3_code_instructions>…<user_request>` wrapper keeps the request.
+Exact shapes only; a person's text that merely mentions a handoff is kept whole. A provider switch inside one T3 Code
+thread is therefore two harness sessions and two episodes, each holding only its own turns (linking them would need
+T3 Code's thread id, which only its database holds). Hook cost: one whole Stop firing p95 61.5 → 61.2 ms (60 runs
+each, alternated, this Mac, a refused loopback post); the ancestor read alone 0.01 ms warm, ~5 ms with `ctypes`'
+first import.
 
 **Hookless apps, through the remote connector (ruling 32, owner 2026-10-19; amends G105 for apps with no hook).**
 Owner: "Exports should only be a starter seed for users; the usual should always be real-time captures." claude.ai,

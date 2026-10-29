@@ -770,6 +770,23 @@ wiring stay `install.sh`'s and the app's).
   source checkout so its older Claude Code entries go. A GitHub marketplace follows the default branch (`main`, so a
   release); a checkout can add itself with `/plugin marketplace add ~/code/cicada` to try `dev`.
 
+**T3 Code: the harness's door is its door (G228, 2026-10-29).** T3 Code drives the Claude Code, Codex and Cursor
+installed on the machine and adds its own MCP server per thread beside theirs; it has no hook or plugin API of its
+own to register Cicada in. Its Claude threads are Agent SDK sessions with the CLI's user settings loaded, so the
+plugin above (MCP server `plugin:cicada:cicada`, the skill, the capture and recall hooks) or `install.sh`'s
+user-scope entries reach every thread unchanged — and T3 Code's own `setMcpServers` replaces only servers it added
+itself, never settings-file or plugin servers (Agent SDK docs). The recall note arrives through the same
+SessionStart/UserPromptSubmit hooks (G149); `cicada_continue` and the handshake see the harness's session id. A
+Codex thread gets Cicada's `config.toml` server and `hooks.json` only under T3 Code's "existing Codex login" setup
+(`CODEX_HOME` = `~/.codex`); a T3-managed ChatGPT sign-in runs Codex in a home of T3 Code's, which has no Cicada (Needs
+the owner on G228). A Claude instance T3 Code points at another `CLAUDE_CONFIG_DIR` reads that folder's settings, so
+Cicada must be connected there too (and its transcripts sit outside the root the backend accepts, so they are
+refused unread, `outside_root`). Nothing is installed in T3 Code and nothing of T3 Code's is read; the agent's
+`clientInfo` names the harness, so its writes carry the harness as `Cicada-Author` and its page-edit trust is the
+harness's (G198). The capture label is the hook's (`host: t3code`, `capture-and-sleep.md`). **T3 Chat** (the hosted
+chat app) documents no MCP connector — its FAQ, read 2026-10-29, names none — so it cannot reach the remote connector
+and is not listed; its link to T3 Code is T3 Code's own account relay, not MCP.
+
 **Implicit recall (G149).** G105 stopped capture depending on a model's tool call, and recall now works the
 same way.
 

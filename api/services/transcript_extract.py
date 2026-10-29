@@ -92,6 +92,43 @@ CODEX_HARNESS_TAGS = frozenset({
     "turn_aborted", "collaboration_mode",
 })
 
+# G228: what T3 Code writes into a harness's turns (its source, commit 3748c5c2, 2026-10-29). A provider switch, a
+# portable restart or a fork the provider cannot resume natively starts a NEW harness session whose first message
+# carries the thread's earlier turns — "Context handoff (…)" … "\n\nUser message:\n<the request>"
+# (``ProviderTurnStartService``); a provider that takes history natively (Codex) gets a context message and then each
+# earlier turn as its own message headed "[Historical <role>; …; thread=…; item=…]" (``renderHistoricalMessage``); an
+# ACP-driven provider's prompt arrives as "<t3_code_instructions>…</t3_code_instructions>\n\n<user_request>\n…\n
+# </user_request>" (``orchestrationInstructions``). None of it is the person speaking now: replayed turns are already
+# in the earlier session's own episode, and the instructions are T3 Code talking to the model. Kept: the request.
+_T3_HANDOFF_HEAD = "Context handoff ("
+_T3_HANDOFF_MARK = "t3_thread_read"
+_T3_USER_SPLIT = "\n\nUser message:\n"
+_T3_HISTORICAL_RE = re.compile(r"\A\s*\[Historical (?:user|assistant); [^\]\n]*\bthread=[^\]\n]*\bitem=[^\]\n]*\]\n")
+_T3_REQUEST_RE = re.compile(r"\A\s*<t3_code_instructions>\n.*?\n</t3_code_instructions>\n\n<user_request>\n(.*)\n"
+                            r"</user_request>\s*\Z", re.DOTALL)
+
+
+def host_envelope(text: str) -> tuple[str, str | None]:
+    """A host app's wrapper around a turn (G228): ``(what is left, the kind removed)`` — ``host_replay`` (an earlier
+    turn replayed: nothing left), ``host_handoff`` (the replay before the request: the request left) or
+    ``host_instructions`` (the request left) — else ``(text, None)``. Exact shapes only, never a guess: a person's own
+    text that merely mentions a handoff is kept whole. When a handoff's request itself holds the split line, the
+    LAST one is the cut, so a replayed turn is never kept as the person's words (the cost: the head of such a
+    request)."""
+    if _T3_HISTORICAL_RE.match(text):
+        return "", "host_replay"
+    stripped = text.lstrip()
+    if stripped.startswith(_T3_HANDOFF_HEAD):
+        cut = stripped.rfind(_T3_USER_SPLIT)
+        head = stripped if cut < 0 else stripped[:cut]
+        if _T3_HANDOFF_MARK in head:
+            return ("" if cut < 0 else stripped[cut + len(_T3_USER_SPLIT):]), "host_handoff"
+    m = _T3_REQUEST_RE.match(text)
+    if m:
+        return m.group(1), "host_instructions"
+    return text, None
+
+
 _SYSTEM_REMINDER_RE = re.compile(r"<system-reminder>.*?</system-reminder>", re.DOTALL)
 # G110 T2b: a line that opens like a Cicada note, past any leading tags — the
 # count `note_like_turns` keeps (the line itself is kept: the person's words).
@@ -249,6 +286,13 @@ class _Builder:
         self._add("assistant", joined, ts, model=model, effort=effort)
 
     def _add(self, role: str, text: str, ts: str | None, *, model=None, effort=None) -> None:
+        text, envelope = host_envelope(text)
+        if envelope:
+            # G228: a host app's replay or wrapper — counted by kind, never kept as this session's words.
+            self.count_block(envelope)
+            if not text.strip():
+                self.count_msg(envelope)
+                return
         cleaned = strip_code_fences(text)
         cleaned, n = scrub_secrets(cleaned)
         self.scrubbed += n

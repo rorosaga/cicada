@@ -258,6 +258,8 @@ def capture_turns(
     hook_event: str | None = None,
     relay: dict | None = None,
     utc_offset_minutes: int | None = None,
+    host: str | None = None,
+    device: str | None = None,
 ) -> tc.CaptureResult:
     """Merge the posted turns into the session's one episode and write it.
 
@@ -265,6 +267,7 @@ def capture_turns(
     connector, channel}``. Any catalog harness is then accepted, the episode carries the channel and
     ``evidence_kind: assistant``, and an episode an export already upgraded is left alone (``upgraded``).
     ``utc_offset_minutes`` (ruling 34): a client's UTC offset, so a new episode's id carries the person's day.
+    ``host`` (G228): the app that launched the harness, a label on the episode (``transcript_capture.host_extra``).
 
     ``status`` is ``transcript_capture``'s vocabulary: ``refused`` (a demo bank,
     a bad harness, session or turn id, or ``state_mismatch``; nothing written),
@@ -332,7 +335,12 @@ def capture_turns(
                                  **({"project": said} if said else {}),
                                  "first": relay_match_key(first)},
                      **extra}
-        return tc.write_session(memory_path, harness=harness, session_id=sid, conv=conv, existing=existing,
-                                cwd=cwd, bank=bank, effort=None, bank_paths=bank_paths if use_registry else None,
-                                hook_event=hook_event, registry_workspace=registry_workspace,
-                                extra=extra, stored=stored, utc_offset_minutes=utc_offset_minutes)
+        if relay is None:
+            extra.update(tc.host_extra(host) or {})
+        result = tc.write_session(memory_path, harness=harness, session_id=sid, conv=conv, existing=existing,
+                                  cwd=cwd, bank=bank, effort=None, bank_paths=bank_paths if use_registry else None,
+                                  hook_event=hook_event, registry_workspace=registry_workspace,
+                                  extra=extra, stored=stored, utc_offset_minutes=utc_offset_minutes)
+    if relay is None:
+        tc.saw_host(host, result, device=device)
+    return result

@@ -68,6 +68,11 @@ Codex (R9): its Stop payload is unverified, so a payload without
 ``transcript_path`` is logged as ``skipped: no transcript_path`` and exits 0
 — nothing breaks, and that log line is the verification signal.
 
+A host app (G228, ``host_identity``): when an app such as T3 Code launched the
+harness, the same firing names it — ``host: t3code`` in the body and ``via t3code``
+in the log line — read from this process's ancestors, never from the app's files.
+The session is still the harness's one episode; the host is a label on it.
+
 One line per firing goes to ``~/.cicada/logs/capture.log`` (0600): a
 timestamp, the harness, the first 8 characters of the session id, the event
 (``Stop`` | ``PreCompact`` | ``SessionEnd`` | ``other``), and the outcome — plus, when the demo memory was open, the name of the bank the
@@ -91,6 +96,7 @@ from workspace_identity import observe_if_needed, remember  # stdlib sibling, ru
 import hook_client as remote_client  # stdlib sibling: a client of a server elsewhere (G181 phase 2)
 import hook_spool as spool  # stdlib sibling: what a client could not deliver yet
 import memory_notes  # stdlib sibling: the agent's own memory notes (ruling 43)
+import host_identity  # stdlib sibling: the app that launched this harness, if any (G228)
 
 TIMEOUT_S = 3.0
 #: G110 gate A: a SessionEnd flush delays the session's exit, so its request
@@ -107,7 +113,8 @@ TURN_INPUT_BYTES = 1024 * 1024
 TEXT_MAX_CHARS = 256 * 1024
 
 
-def _post_exchange(payload: dict, *, harness: str, session_id: str, home: Path, environ, post, token: str):
+def _post_exchange(payload: dict, *, harness: str, session_id: str, home: Path, environ, post, token: str,
+                   host: str | None = None):
     """Gemini CLI's ``AfterAgent``: the prompt and the final reply, as one exchange."""
     prompt, reply = payload.get("prompt"), payload.get("prompt_response")
     messages = [{"speaker": speaker, "text": text[:TEXT_MAX_CHARS]}
@@ -119,6 +126,8 @@ def _post_exchange(payload: dict, *, harness: str, session_id: str, home: Path, 
             "retry": payload.get("stop_hook_active") is True,
             "cwd": payload.get("cwd") if isinstance(payload.get("cwd"), str) else None,
             "hook_event": payload.get("hook_event_name")}
+    if host:
+        body["host"] = host
     port = str(environ.get("CICADA_PORT") or "8000")
     return post(f"http://127.0.0.1:{port}/capture/turn", json.dumps(body).encode("utf-8"), token, TIMEOUT_S), None
 
@@ -142,14 +151,15 @@ def _large(path: str) -> bool:
         return False
 
 
-def _detach(payload: dict, *, harness: str, environ) -> bool:
+def _detach(payload: dict, *, harness: str, environ, host: str | None = None) -> bool:
     """Run this same hook on ``payload`` in a child that outlives the harness's wait. True when it started."""
     import subprocess
 
     try:
         child = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "--harness", harness],
                                  stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                 env={**environ, DETACHED_ENV: "1"}, start_new_session=True, close_fds=True)
+                                 env={**environ, DETACHED_ENV: "1", **({host_identity.ENV: host} if host else {})},
+                                 start_new_session=True, close_fds=True)
         child.stdin.write(json.dumps(payload).encode("utf-8"))
         child.stdin.close()
         return True
@@ -166,7 +176,7 @@ def _client_post(post, url: str, body: bytes, token: str, timeout: float) -> tup
 
 
 def _client_capture(payload: dict, *, harness: str, session_id: str, event: str, tag: str, home: Path, environ,
-                    post, log_path: Path, started: float) -> int:
+                    post, log_path: Path, started: float, host: str | None = None) -> int:
     """G181 phase 2 — this machine is a client (``CICADA_API_BASE``): read the session HERE with Cicada's own
     extractor and post what it keeps to ``/capture/session`` (a turn harness posts ``/capture/turn``, as on one
     machine). A post that does not land is spooled under ``$CICADA_HOME`` and sent by a later firing; nothing is lost
@@ -178,7 +188,7 @@ def _client_capture(payload: dict, *, harness: str, session_id: str, event: str,
     if not detached and harness not in TURN_HARNESSES and transcript and _large(str(transcript)):
         # Reading a very long session takes longer than the harness waits for this hook: hand the same payload to a
         # child that outlives this process (its own session, nothing on our stdout) and return at once.
-        if _detach(payload, harness=harness, environ=environ):
+        if _detach(payload, harness=harness, environ=environ, host=host):
             _log(log_path, f"{tag} reading a long session in the background")
             return 0
     base, token, problem = remote_client.target(environ)
@@ -232,6 +242,8 @@ def _client_capture(payload: dict, *, harness: str, session_id: str, event: str,
         except (OSError, ValueError):
             return fallback
 
+    if host:
+        body["host"] = host   # G228: the app the person typed into; an older server ignores the field
     if "transcript_bytes" in body:
         body["transcript_size"] = size_of(transcript_path, body["transcript_bytes"])
     # D1 (G202): what waits names the server — and, once heard, the bank — it was captured for, and goes only there.
@@ -403,7 +415,8 @@ def main(argv=None, *, stdin=None, stdout=None, environ=None, post=None, log_pat
         session_id = str(payload.get("session_id") or "")
         event = str(payload.get("hook_event_name") or "")
         event = event if event in EVENTS else "other"
-        tag = f"{harness} {session_id[:8] or '?'} {event}"
+        host = host_identity.detect(environ)
+        tag = f"{harness} {session_id[:8] or '?'} {event}" + (f" via {host}" if host else "")
         transcript_path = payload.get("transcript_path")
         if remote_client.is_client(environ):
             if not session_id:
@@ -412,7 +425,7 @@ def main(argv=None, *, stdin=None, stdout=None, environ=None, post=None, log_pat
             outcome = _client_capture(payload, harness=harness, session_id=session_id, event=event, tag=tag,
                                       home=home, environ=environ,
                                       post=post if post is not _default_post else _client_send,
-                                      log_path=log_path, started=started)
+                                      log_path=log_path, started=started, host=host)
             _memory_notes(environ, harness=harness, event=event, tag=tag, log_path=log_path, spawn=memory_spawn)
             return outcome
         if turn_harness:
@@ -427,7 +440,7 @@ def main(argv=None, *, stdin=None, stdout=None, environ=None, post=None, log_pat
                 _log(log_path, f"{tag} skipped: no api_token at {token_path.name}")
                 return 0
             answer, skipped = _post_exchange(payload, harness=harness, session_id=session_id, home=home,
-                                             environ=environ, post=post, token=token)
+                                             environ=environ, post=post, token=token, host=host)
             if skipped:
                 _log(log_path, f"{tag} {skipped}")
                 return 0
@@ -453,6 +466,8 @@ def main(argv=None, *, stdin=None, stdout=None, environ=None, post=None, log_pat
             "cwd": payload.get("cwd"),
             "hook_event": payload.get("hook_event_name"),
         }
+        if host:
+            fields["host"] = host
         effort = payload.get("effort")
         workspace = observe_if_needed(fields["cwd"], home=home, environ=environ, harness=harness,
                                       session_id=session_id)

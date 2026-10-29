@@ -209,6 +209,17 @@ UMBRELLAS: tuple[Umbrella, ...] = (
             note="You text it, so Cicada reads it from the Messages chats you tick; it can also use the HTTP API. "
                  + _REST_NOTE),
     )),
+    # G228 (2026-10-29): T3 Code is a host, not a harness — it drives the Claude Code, Codex and Cursor installed on
+    # this machine with their own settings (checked in its source, commit 3748c5c2), so Cicada's hooks, MCP server and
+    # skill already run inside its threads. Its connect flow is theirs (``setup``); it lights when a capture hook saw
+    # one of its threads (``agent_seen`` via ``hook``). No mark in the set yet: the monogram, never a borrowed one.
+    # T3 Chat is not listed: it documents no MCP connector (its FAQ, read 2026-10-29), so it cannot reach Cicada.
+    Umbrella("t3", "T3 Code", None, 2, ways=(
+        Way("t3code", "T3 Code", ("hooks", "stdio"), tier=2, setup=("claude-code", "codex", "cursor"),
+            note="T3 Code runs the coding agents installed here with their own settings, so connecting those agents "
+                 "connects every T3 Code thread. A Codex account signed in inside T3 Code keeps settings of its "
+                 "own, so use your existing Codex login there."),
+    )),
     # Model hosts: intelligence only.
     Umbrella("openrouter", "OpenRouter", "openrouter", 1,
              intelligence=(Intelligence("byok-openrouter", "OpenRouter", "key"),)),
@@ -248,6 +259,19 @@ TRACKED: tuple[str, ...] = LIVE_PILLS + tuple(w.id for w in WAYS if w.id not in 
 
 #: Cicada's own MCP clients — never "another agent" (the release smoke test).
 OWN_CLIENTS = frozenset({"smoke-test"})
+
+#: G228: apps that launch a harness Cicada already captures, without being one. A host is a label on that harness's
+#: one episode (``host:``) — the transcript, its claims (``external:<harness>``) and page-edit trust stay the
+#: harness's. The capture hook names one from its own process ancestors (``api/hooks/host_identity.HOSTS``, the same
+#: list); each is a way in this table.
+HOSTS: tuple[str, ...] = ("t3code",)
+
+
+def clean_host(value) -> str | None:
+    """A posted host, or ``None`` for anything this release does not know (a newer hook's value is dropped, never a
+    refused capture)."""
+    v = str(value or "").strip().lower()
+    return v if v in HOSTS else None
 
 
 def way(way_id: str) -> Way | None:
