@@ -130,7 +130,10 @@ def test_the_two_downloads_meet_without_doubling(client):
     assert days["listening-history:spotify:2026-09-01"].frontmatter["plays"] == 3
     assert days["listening-history:spotify:2026-09-03"].frontmatter["plays"] == 1
     assert days["listening-history:spotify:2026-09-02"].frontmatter["plays"] == 1
-    played = days["listening-history:spotify:2026-09-01"].frontmatter["played"]
+    from datetime import date
+
+    played = listening_history._stored_rows(memory, date(2026, 9, 1))
+    assert len(played) == 3
     assert all(r.get("uri") for r in played)            # the extended file's URIs kept
     stamps = {p: p.stat().st_mtime_ns for p in (memory / "episodes").glob("*.md")}
     again = _upload(c, _account()).json()
@@ -202,3 +205,49 @@ def test_an_agent_reading_a_listening_day_by_id_is_told_what_it_is(client):
     reply = mcp_tools._episode_read(ctx, path.stem)
     assert "what the person listened to on Spotify" in str(reply) and "Example Song One" not in str(reply)
     assert reply.data["index_only"] == "listening"
+
+
+def test_a_time_zone_change_between_imports_never_doubles_a_play(tmp_path, monkeypatch):
+    """Review of #528, B2's repro: a play imported on a Mac in UTC, then again after it moved to New York, whose local
+    day is the day before — still one play, and no second day."""
+    from datetime import datetime, timezone
+
+    memory = tmp_path / "memory"
+    (memory / "episodes").mkdir(parents=True)
+
+    def plays():
+        return [listening_history.Play(at=datetime(2026, 9, 1, 2, 30, tzinfo=timezone.utc), title="Song", by="A")]
+
+    assert listening_history.record(memory, plays()).added == 1
+    monkeypatch.setenv("TZ", "America/New_York")
+    time.tzset()
+    again = listening_history.record(memory, plays())
+    assert again.added == 0 and again.days_created == 0
+    assert len(list((memory / "episodes").glob("*.md"))) == 1
+
+
+def test_a_compilation_track_is_one_play_across_the_two_downloads(tmp_path):
+    """Account data names a track's own artist, Extended its album artist: the same play, never two."""
+    from datetime import datetime, timezone
+
+    memory = tmp_path / "memory"
+    (memory / "episodes").mkdir(parents=True)
+    at = datetime(2026, 9, 1, 8, 15, 42, tzinfo=timezone.utc)
+    extended = listening_history.Play(at=at, title="Track On A Compilation", by="Various Artists", ms=200000,
+                                      uri="spotify:track:0000000000000000000077")
+    account = listening_history.Play(at=at.replace(second=0), title="Track On A Compilation", by="Artist Z",
+                                     ms=200000)
+    assert listening_history.record(memory, [extended]).added == 1
+    assert listening_history.record(memory, [account]).added == 0
+
+
+def test_the_play_rows_never_ride_an_episode_header(client):
+    """Review of #528, B1: a listening day's play rows live beside it (``sources/listening/spotify/<day>.json``), never
+    in the episode's frontmatter, which every cold start reads and caches (a decade of them cost a cold scan 9.5 s)."""
+    c, memory = client
+    _upload(c, _extended())
+    for path in (memory / "episodes").glob("*.md"):
+        assert "played:" not in path.read_text()
+    rows = sorted((memory / "sources" / "listening" / "spotify").glob("*.json"))
+    assert [p.name for p in rows] == ["2026-09-01.json", "2026-09-03.json"]
+    assert len(json.loads(rows[0].read_text())) == 3

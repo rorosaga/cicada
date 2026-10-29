@@ -12,18 +12,26 @@ keeps what they listened to the way ``watch_history`` keeps what they watched:
   excerpts, the timeline — and never consolidated; a listening day is never a mention of anything it names.
 * **Both of Spotify's files meet without doubling.** Account data's ``StreamingHistory_*.json`` (the last year,
   ``endTime`` to the minute, no URI) and Extended streaming history's ``Streaming_History_*.json`` (the whole account,
-  ``ts`` to the second, with URIs) describe the same plays. A play's identity is what was played (kind, creator and
-  name, case- and space-folded) and the minute it ended, in UTC — the precision both files share — so the same play
+  ``ts`` to the second, with URIs) describe the same plays. A play's identity is what was played (kind and name,
+  case- and space-folded; never the creator, which the two files name differently for a compilation) and the minute it
+  ended, in UTC — the precision both files share, one minute either way allowed — looked up on its day and the day
+  either side (the local day moves with the Mac's time zone), so the same play
   read from either file, or from both, or imported twice, is one play. A day is rewritten in place and re-queued only
   when its words change (the stager's hash), so a repeat import writes nothing.
+
+A day's play rows live in ``sources/listening/spotify/<day>.json``, never in the episode's frontmatter: every episode
+header is cached for the backend's life (review of #528).
 
 No model runs here, nothing is fetched (no Spotify page or API is ever asked), every name is scrubbed before it is
 stored, and the stager scrubs the body too. Pure files: the caller commits ``paths``.
 """
 from __future__ import annotations
 
+import json
+import os
+import tempfile
 from dataclasses import dataclass, field
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Iterable
 
@@ -60,7 +68,12 @@ class Play:
 
     @property
     def key(self) -> str:
-        return "|".join((self.kind, _fold(self.by), _fold(self.title), self.at.strftime("%Y-%m-%dT%H:%M")))
+        return key_at(self.kind, self.title, self.at)
+
+    def keys_near(self) -> tuple[str, ...]:
+        """The keys this same play may carry in a file read at another precision: the minute before and after (one
+        file truncating, the other rounding)."""
+        return tuple(key_at(self.kind, self.title, self.at + timedelta(minutes=m)) for m in (-1, 0, 1))
 
     @property
     def day(self) -> date:
@@ -75,6 +88,14 @@ class RecordResult:
     days_updated: int = 0
     days_unchanged: int = 0
     paths: list[str] = field(default_factory=list)
+
+
+def key_at(kind: str, title: str, at: datetime) -> str:
+    """A play's identity: what it was (kind and name, case- and space-folded) and the UTC minute it ended. The creator
+    is left out on purpose (review of #528): Account data names a track's own artist and Extended streaming history
+    its album artist, so a compilation track would read as two plays; one listener cannot end two plays of the same
+    name in the same minute."""
+    return "|".join((kind, _fold(title), at.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M")))
 
 
 def _fold(text: str) -> str:
@@ -125,8 +146,16 @@ def from_items(items: Iterable[RawItem]) -> list[Play]:
 
 def describe(items: Iterable[RawItem]) -> tuple[int, int]:
     """``(plays, days)`` a list of play rows would become — the preview's words, no write. Doubled plays count once."""
-    plays = {p.key: p for p in from_items(items)}
-    return len(plays), len({p.day for p in plays.values()})
+    seen: set[str] = set()
+    days: set[date] = set()
+    n = 0
+    for p in sorted(from_items(items), key=lambda p: p.at):
+        if seen.intersection(p.keys_near()):
+            continue
+        seen.add(p.key)
+        days.add(p.day)
+        n += 1
+    return n, len(days)
 
 
 def source_id(day: date) -> str:
@@ -141,6 +170,41 @@ def _row(p: Play) -> dict:
 def _rows_of(fm: dict | None) -> list[dict]:
     rows = (fm or {}).get("played")
     return [r for r in rows if isinstance(r, dict) and r.get("key")] if isinstance(rows, list) else []
+
+
+#: A day's play rows live beside the bank's other source records, never in the episode: every episode's header is
+#: read on a cold start and cached for the process's life (``bank_index``), and a decade of plays there cost a cold
+#: scan 9.5 s and +300 MB against 0.5 s without (review of #528). One small JSON file per day, committed with its day.
+ROWS_DIR = ("sources", "listening", PLATFORM)
+
+
+def rows_path(memory_path: Path, day: date) -> Path:
+    return Path(memory_path).joinpath(*ROWS_DIR, f"{day.isoformat()}.json")
+
+
+def _stored_rows(memory_path: Path, day: date) -> list[dict]:
+    try:
+        data = json.loads(rows_path(memory_path, day).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    return _rows_of({"played": data})
+
+
+def _write_rows(memory_path: Path, day: date, rows: list[dict]) -> bool:
+    """The day's rows, atomically; ``False`` when the file already says exactly this."""
+    path = rows_path(memory_path, day)
+    text = json.dumps(rows, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n"
+    try:
+        if path.read_text(encoding="utf-8") == text:
+            return False
+    except OSError:
+        pass
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".rows-", text=True)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(text)
+    os.replace(tmp, path)
+    return True
 
 
 def merge(rows: list[dict], plays: list[Play]) -> tuple[list[dict], int]:
@@ -195,7 +259,11 @@ def _timestamp(day: date, rows: list[dict]) -> str:
 
 
 def record(memory_path: Path, plays: Iterable[Play], *, bank: str | None = None) -> RecordResult:
-    """Fold plays into their days' episodes. Writes episodes only; the caller commits ``result.paths``."""
+    """Fold plays into their days' episodes. Writes episodes only; the caller commits ``result.paths``.
+
+    A play already held anywhere it could have landed — its day or the day either side, its minute or the minute
+    either side — is never added again: the day a play falls on is the Mac's local day, which moves when the Mac's
+    time zone does (review of #528), and the two downloads differ in how they cut the minute."""
     result = RecordResult()
     groups: dict[date, list[Play]] = {}
     for p in plays:
@@ -215,21 +283,44 @@ def record(memory_path: Path, plays: Iterable[Play], *, bank: str | None = None)
         step = days[start:start + DAYS_PER_STEP]
         with episode_staging.STAGE_LOCK, episode_ids.episode_lock(episodes_dir):
             index, _ = episode_staging.scan(episodes_dir)
-            drafts: list[episode_staging.EpisodeDraft] = []
+            stored: dict[date, list[dict]] = {}
+
+            def rows_for(day: date) -> list[dict]:
+                if day not in stored:
+                    stored[day] = _stored_rows(memory_path, day)
+                return stored[day]
+
+            held: set[str] = set()
             for day in step:
-                sid = source_id(day)
-                entry = index.get(sid)
-                rows, added = merge(_rows_of(entry.fm) if entry else [], groups[day])
+                for near in (day - timedelta(days=1), day, day + timedelta(days=1)):
+                    held.update(r["key"] for r in rows_for(near))
+            drafts: list[episode_staging.EpisodeDraft] = []
+            rows_by_day: dict[date, list[dict]] = {}
+            for day in step:
+                fresh: list[Play] = []
+                for p in groups[day]:
+                    if p.key in {r["key"] for r in rows_for(day)}:
+                        fresh.append(p)          # the same day's own row: merge may fill its URI or its length
+                    elif not held.intersection(p.keys_near()):
+                        fresh.append(p)
+                        held.add(p.key)
+                if not fresh and source_id(day) not in index:
+                    continue
+                rows, added = merge(rows_for(day), fresh)
+                rows_by_day[day] = rows
                 result.added += added
                 drafts.append(episode_staging.EpisodeDraft(
-                    title=f"Listened on {PLATFORM_NAME} · {day.isoformat()}", source_id=sid, source=SOURCE,
+                    title=f"Listened on {PLATFORM_NAME} · {day.isoformat()}", source_id=source_id(day), source=SOURCE,
                     origin=ORIGIN, original_date=day.isoformat(), timestamp=_timestamp(day, rows),
                     body=render(day, rows),
                     extra={"platform": PLATFORM, "listened_on": day.isoformat(), "plays": len(rows),
-                           "minutes": _minutes(sum(int(r.get("ms") or 0) for r in rows)), "played": rows},
+                           "minutes": _minutes(sum(int(r.get("ms") or 0) for r in rows))},
                     # Ruling 30: a listening day is indexed, never read by a model.
                     queue_for_sleep=False, processed_by=history_index.INDEXED_BY, writer=SCRUB_WRITER))
             staged = episode_staging.stage(drafts, episodes_dir, bank=bank)
+            for day, rows in rows_by_day.items():
+                if _write_rows(memory_path, day, rows):
+                    result.paths.append(str(rows_path(memory_path, day).relative_to(Path(memory_path))))
         for verdict in staged.verdicts:
             if verdict == "created":
                 result.days_created += 1
