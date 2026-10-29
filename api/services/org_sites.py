@@ -92,7 +92,11 @@ _OWN_THING = re.compile(
     r"speaker|owner)\b|\bthe (?:person|user|speaker|owner)['’]s (?:own|project|startup|side project|app|team|"
     r"home|house|flat|apartment|room|desk|office)\b|\b(?:their|his|her) own\b",
     re.IGNORECASE)
-_NAME_STOP = frozenset("of the and for de del la el y at in on & a an".split())
+#: Words a public proper name may carry in lower case. The name particles (da, do, das, dos, di, du, van, von, der,
+#: le; owner via the coordinator, 2026-10-29) let "Jardim da Estrela" read as a name. They never make a PERSON public:
+#: a person needs ruling 44's whole local test and then exactly one encyclopedia match (`web_context.local_verdict`
+#: never answers True for a person).
+_NAME_STOP = frozenset("of the and for de del la le el y at in on & a an da do das dos di du van von der".split())
 _FACT_LINE = re.compile(r"\b(?:website|web site|homepage|home page|domain|official site|url|site)\b", re.IGNORECASE)
 _BARE_DOMAIN = re.compile(r"(?<![\w@.-])((?:[a-z0-9-]+\.)+[a-z]{2,})(?![\w-])", re.IGNORECASE)
 

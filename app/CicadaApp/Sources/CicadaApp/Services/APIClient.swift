@@ -2010,6 +2010,51 @@ actor APIClient {
         return try await get("/entities/\(encodedID(id))/history/\(encodedID(commitHash))/diff")
     }
 
+    /// Ruling 48 part 14 / DR-77 (part B): one page of the History tab — each row with its filter bucket, time and
+    /// summary — read only when the tab opens; `more` is the `X-History-More` header.
+    func fetchEntityHistoryPage(id: String, skip: Int = 0, limit: Int = HistoryPager.pageSize)
+        async throws -> (rows: [EntityHistoryEntry], more: Bool) {
+        let request = makeRequest("/entities/\(encodedID(id))/history?summary=true&limit=\(limit)&skip=\(skip)",
+                                  method: "GET", json: false)
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw APIError.serverUnreachable }
+        guard (200...299).contains(http.statusCode) else {
+            if http.statusCode == 401 { Self.invalidateToken() }
+            throw APIError.httpError(http.statusCode, String(data: data, encoding: .utf8) ?? "Unknown error")
+        }
+        do {
+            let rows = try decoder.decode([EntityHistoryEntry].self, from: data)
+            return (rows, http.value(forHTTPHeaderField: "X-History-More") == "1")
+        } catch {
+            throw APIError.decodingError("\(error)")
+        }
+    }
+
+    /// Ruling 48 part 6 (part B): what a place's map draws — read when the map draws, never on card open.
+    func fetchPlace(id: String) async throws -> PlaceState {
+        try await get("/entities/\(encodedID(id))/place")
+    }
+
+    /// The Mac's geocoder (or the person's click) found it: store it once. `by`: geocoder | person | none.
+    func storeCoordinates(id: String, lat: Double?, lon: Double?, by: String) async throws -> PlaceState {
+        var body: [String: Any] = ["by": by]
+        if let lat { body["lat"] = lat }
+        if let lon { body["lon"] = lon }
+        return try await putData("/entities/\(encodedID(id))/coordinates",
+                                 json: try JSONSerialization.data(withJSONObject: body))
+    }
+
+    /// The person takes the pin back; nothing places it again until they ask.
+    func removeCoordinates(id: String) async throws -> PlaceState {
+        let data = try await delete("/entities/\(encodedID(id))/coordinates")
+        return try decoder.decode(PlaceState.self, from: data)
+    }
+
+    /// The app's background pass: public places it may resolve on its own.
+    func fetchUnplacedPlaces(limit: Int = 20) async throws -> [UnplacedPlace] {
+        try await get("/places/unplaced?limit=\(limit)")
+    }
+
     /// `GET /entities/{id}/location` (issue #7) — the directory a location or
     /// directory entity declares (frontmatter `path:`, else a path in its body).
     /// Only `path` is filled: the backend never touches the folder, and

@@ -40,6 +40,7 @@ from api.models.schemas import (
     PageLinksResponse,
     PaperDetailResponse,
     PictureInputsModel,
+    PlaceCoordinatesUpdate,
     RepoContext,
     RepoContextList,
     RepoDeclaration,
@@ -107,13 +108,19 @@ async def get_entity(
     settings: Settings = Depends(get_settings),
     request: Request = None,
     response: Response = None,
+    history: bool = False,
 ):
-    """Get full entity data including markdown content and history.
+    """Get full entity data including markdown content.
 
     Vision item 5 (2026-10-28): with its ``blocks`` (``page_blocks``) and an ETag over every input the card reads
-    (``page_blocks.card_etag``), checked before the page is parsed or its history read — a held card answers 304 at
-    the cost of a few stats. On demand, not a Store domain: the app's ``EntityCardCache`` holds the answer by bank and
-    id and revalidates it on every open."""
+    (``page_blocks.card_etag``), checked before the page is parsed — a held card answers 304 at the cost of a few
+    stats. On demand, not a Store domain: the app's ``EntityCardCache`` holds the answer by bank and id and revalidates
+    it on every open.
+
+    Part B (2026-10-29, ruling 48 part 14): the card open reads no git. Its ``git log`` was 130–300 ms p95 of every
+    open on an owner-scale bank copy, for a tab most opens never show; the History tab reads ``/history`` when it
+    opens. ``?history=true`` keeps the embedded rows (and the ``history`` block) for a caller that wants them in one
+    request."""
     entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
     if not entity_path.exists():
         raise HTTPException(404, f"Entity {entity_id} not found")
@@ -124,13 +131,14 @@ async def get_entity(
         response.headers["ETag"] = card["etag"]
     if card.get("not_modified"):
         return Response(status_code=304, headers={"ETag": card["etag"]})
-    history, history_truncated = await git_service.entity_history(entity_id, settings.memory_path)
+    rows, history_truncated = ([], False) if history is not True else \
+        await git_service.entity_history(entity_id, settings.memory_path)
     blocks = card.pop("blocks")
-    blocks["history"] = page_blocks.history(history, history_truncated)
+    blocks["history"] = page_blocks.history(rows, history_truncated)
     if blocks["history"] is not None:
         blocks["order"].append("history")
     card.pop("etag")
-    return EntityResponse(**card, history=history, history_truncated=history_truncated, blocks=PageBlocks(**blocks))
+    return EntityResponse(**card, history=rows, history_truncated=history_truncated, blocks=PageBlocks(**blocks))
 
 
 def _card_read(settings: Settings, entity_id: str, entity_path: Path, if_none_match: str | None) -> dict:
@@ -589,7 +597,10 @@ async def get_entity_history(
     entity_id: str,
     include_diff: bool = False,
     skip: int = 0,
+    summary: bool = False,
+    limit: int | None = None,
     settings: Settings = Depends(get_settings),
+    response: Response = None,
 ):
     """Entity history with per-commit author attribution.
 
@@ -597,10 +608,22 @@ async def get_entity_history(
     (opt-in so the default response stays small — backlog A1). ``?skip=N`` reads
     the touching commits older than the newest N — the rows the card leaves out
     when ``history_truncated`` (review round 1).
+
+    ``?summary=true`` (ruling 48 part 14, DR-77): the History tab's rows — each with its filter ``bucket``, its time
+    ``at`` and what it changed (``summary``), at most ``limit`` (default 30) from ONE ``git log -p``
+    (``page_history``); the ``X-History-More`` header says whether older changes exist.
     """
     entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
     if not entity_path.exists():
         raise HTTPException(404, f"Entity {entity_id} not found")
+    if summary is True:
+        from api.services import page_history
+
+        rows, more = await page_history.page(entity_id, settings.memory_path,
+                                             limit=limit or page_history.DEFAULT_LIMIT, skip=max(0, skip))
+        if response is not None:
+            response.headers["X-History-More"] = "1" if more else "0"
+        return rows
 
     return await git_service.get_entity_history(
         entity_id, settings.memory_path, include_diff=include_diff, skip=max(0, skip)
@@ -703,6 +726,82 @@ async def update_entity_decay(
         _rewrite_page_and_commit, settings.memory_path, entity_id, lambda fm: fm.update(fields), message)
 
     return await get_entity(entity_id, settings=settings)
+
+
+# --- Places (ruling 48 part 6; vision item 5 part B) -------------------------------------------------------------------
+#
+# The backend never geocodes: the app runs the Mac's own geocoder and posts what it found (`place_coordinates`).
+
+
+@router.get("/entities/{entity_id}/place")
+async def get_entity_place(entity_id: str, settings: Settings = Depends(get_settings)):
+    """What the map draws, read when it draws — never on card open: the stored coordinates and the places on the record
+    near them, or, with none stored, whether the app may resolve the place without asking and what it would ask."""
+    from api.models.schemas import PlaceState
+    from api.services import place_coordinates
+
+    result = await run_in_threadpool(place_coordinates.state, settings.memory_path, entity_id)
+    if result is None:
+        raise HTTPException(404, f"Entity {entity_id} not found")
+    return PlaceState(**result).model_dump(by_alias=True)
+
+
+@router.get("/places/unplaced")
+async def get_unplaced_places(limit: int = 20, settings: Settings = Depends(get_settings)):
+    """The app's background pass: place pages it may resolve on its own (public, never taken back), newest mentioned
+    first. Names only of public places (`place_coordinates.geocode_verdict`)."""
+    from api.models.schemas import UnplacedPlace
+    from api.services import place_coordinates
+
+    rows = await run_in_threadpool(place_coordinates.unplaced, settings.memory_path,
+                                   limit=max(1, min(int(limit), place_coordinates.MAX_UNPLACED)))
+    return [UnplacedPlace(**r).model_dump(by_alias=True) for r in rows]
+
+
+async def _write_coordinates(settings: Settings, entity_id: str, by: str, lat, lon) -> dict:
+    from api.services import place_coordinates
+
+    _entity_page(settings, entity_id)
+    try:
+        await run_in_threadpool(place_coordinates.check, settings.memory_path, entity_id, by)
+        values = place_coordinates.fields(lat, lon, by)
+    except place_coordinates.Refused as exc:
+        raise HTTPException(409 if by in ("geocoder", "unfound") else 422, str(exc)) from None
+    # Review of #521: only the person's own acts (their click, their DELETE) are `user`; the geocoder's results —
+    # a place found or not found — are Cicada's upkeep, so History never shows a miss under You.
+    person = by in ("person", "none")
+    what = "coordinates removed" if by == "none" else f"coordinates_by: {by}"
+    message = git_service.build_commit_message(
+        f"Place on the map {date.today().isoformat()}",
+        [f"entities/{entity_id}.md: updated ({what}, trigger: {'user/place' if person else 'sync/geocoder'})"],
+        authors=["user" if person else git_service.CICADA_AUTHOR],
+    )
+    await run_in_threadpool(_rewrite_page_and_commit, settings.memory_path, entity_id,
+                            lambda fm: place_coordinates.apply(fm, values), message)
+    return await get_entity_place(entity_id, settings=settings)
+
+
+@router.put("/entities/{entity_id}/coordinates")
+@_admits(PAGE_BUSY)
+async def put_entity_coordinates(entity_id: str, request: PlaceCoordinatesUpdate,
+                                 settings: Settings = Depends(get_settings)):
+    """Store a place's coordinates once (ruling 48 part 6). ``by="geocoder"``: the app's automatic resolve on the
+    person's first open or its background pass — public places only (409 for a private one, or one the person took
+    off the map). ``by="person"``: the person's own click, any place. ``by="unfound"``: the geocoder found nothing;
+    stop resolving it automatically (the same 409s as ``geocoder``). ``none`` is ``DELETE``'s alone (422 here).
+    Commits this page alone: the person's click as ``user``, an automatic one as ``cicada`` (upkeep in History)."""
+    from api.services import place_coordinates
+
+    if request.by not in place_coordinates.PUT_VALUES:
+        raise HTTPException(422, f"by must be one of {', '.join(place_coordinates.PUT_VALUES)}")
+    return await _write_coordinates(settings, entity_id, request.by, request.lat, request.lon)
+
+
+@router.delete("/entities/{entity_id}/coordinates")
+@_admits(PAGE_BUSY)
+async def delete_entity_coordinates(entity_id: str, settings: Settings = Depends(get_settings)):
+    """The person takes a pin back: the coordinates go, and nothing places it again until they ask."""
+    return await _write_coordinates(settings, entity_id, "none", None, None)
 
 
 # Detect an absolute filesystem path inside a location entity's body when no

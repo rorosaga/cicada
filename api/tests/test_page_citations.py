@@ -198,4 +198,4 @@ def test_the_card_etag_moves_with_what_the_citations_read(tmp_path, monkeypatch)
     markdown_parser.write(page, parsed.frontmatter, parsed.body.replace("It opens in December.", "It opened in May."))
     edited = client.get("/entities/alpha-place", headers={"If-None-Match": etag})
     assert edited.status_code == 200 and len(edited.json()["blocks"]["citations"]["markers"]) == 3
-    assert page_blocks.SHAPE == "blocks-2"
+    assert page_blocks.SHAPE == "blocks-3"

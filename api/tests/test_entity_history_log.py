@@ -131,7 +131,9 @@ def test_the_card_and_the_history_route_carry_the_flag_and_the_skip(repo, monkey
     _long_history(repo)
     settings = type("S", (), {"memory_path": repo})()
     monkeypatch.setattr(entities_router.decay_policy, "spacing_params", lambda s: (0.5, 0.1))
-    card = run(entities_router.get_entity("alpha-project", settings))
+    # Part B (2026-10-29): the card open reads no git; `?history=true` still embeds the rows for whoever asks.
+    assert run(entities_router.get_entity("alpha-project", settings)).history == []
+    card = run(entities_router.get_entity("alpha-project", settings, history=True))
     assert card.history_truncated is True
     older = run(entities_router.get_entity_history("alpha-project", skip=git_service.MAX_PROVENANCE_COMMITS,
                                                    settings=settings))

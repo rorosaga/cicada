@@ -190,6 +190,32 @@ class EntityHistoryEntry(CamelModel):
     # `author_kind`/`author_provider` already identify. Derived on read. Additive: an older client ignores both.
     trigger: str = ""
     via: str = "unknown"
+    # Ruling 48 part 14 / DR-77 (2026-10-29): the History tab's filter (you | agents | sleep | upkeep,
+    # `page_history.bucket`), the commit's time (ISO 8601) and what it changed (`page_history.summarize`). Filled by
+    # `GET /entities/{id}/history?summary=true` only; additive, so an older app ignores them.
+    at: str = ""
+    bucket: str = ""
+    summary: Optional["HistorySummary"] = None
+
+
+class HistorySummaryLine(CamelModel):
+    sign: str           # "+" added, "-" removed
+    text: str           # the changed prose line, as words, clipped
+
+
+class HistorySummary(CamelModel):
+    """What one commit changed in one page (DR-77's "+N beliefs" and up to four changed lines)."""
+    plus_claims: int = 0
+    ended_claims: int = 0
+    removed_claims: int = 0
+    changed_claims: int = 0
+    fields: list[str] = []
+    prose_added: int = 0
+    prose_removed: int = 0
+    lines: list[HistorySummaryLine] = []
+
+
+EntityHistoryEntry.model_rebuild()
 
 
 # --- Contributors (git-trailer attribution, backlog A2) ---
@@ -526,6 +552,66 @@ class PageBlockCoordinates(CamelModel):
     lon: float
     label: str = ""
     source: str = "page"
+    # Part B (2026-10-29): who placed it — `geocoder` (the Mac's own, on the person's open) or `person`; None when
+    # written by hand. Additive.
+    by: Optional[str] = None
+
+
+class PageBlockSummary(CamelModel):
+    """"In short" (ruling 48 part 5): the 2–3 sentences Sleep wrote for a long page the person talks about often
+    (`in_short`). Derived and regenerated, never hand-edited, never part of the prose. ``by`` is always ``sleep``;
+    ``model`` the model that wrote it; ``writtenAt`` its day; ``conversations`` the 30-day count that qualified it."""
+
+    text: str
+    written_at: str = ""
+    by: str = "sleep"
+    model: Optional[str] = None
+    conversations: int = 0
+
+
+class PlaceNearby(CamelModel):
+    id: str
+    name: str
+    lat: float
+    lon: float
+    km: float
+
+
+class PlaceGeocode(CamelModel):
+    """Whether the app may resolve the place without asking (`place_coordinates.geocode_verdict`), why, and what it
+    would ask the Mac's geocoder."""
+
+    allowed: bool
+    reason: str
+    query: str
+
+
+class PlaceState(CamelModel):
+    """``GET /entities/{id}/place``: read when the map draws, never when the card opens."""
+
+    entity_id: str
+    type: str = ""
+    coordinates: Optional[PageBlockCoordinates] = None
+    by: Optional[str] = None
+    at: Optional[str] = None
+    nearby: list[PlaceNearby] = []
+    geocode: Optional[PlaceGeocode] = None
+
+
+class PlaceCoordinatesUpdate(CamelModel):
+    """``PUT /entities/{id}/coordinates`` — what the app's geocoder (or the person's own click) found. ``by``:
+    ``geocoder`` (automatic, public places only), ``person`` (their click), ``unfound`` (no match: stop resolving
+    automatically). ``none`` (the person took the pin back) is written by ``DELETE`` only."""
+
+    lat: Optional[float] = None
+    lon: Optional[float] = None
+    by: str = "geocoder"
+
+
+class UnplacedPlace(CamelModel):
+    entity_id: str
+    name: str
+    query: str
 
 
 class PageBlockLook(CamelModel):
@@ -587,6 +673,7 @@ class PageBlocks(CamelModel):
     shape: str
     order: list[str] = []
     relevance: Optional[EntityRelevance] = None
+    summary: Optional[PageBlockSummary] = None
     ongoing: list[PageBlockOngoing] = []
     ongoing_total: int = 0
     coordinates: Optional[PageBlockCoordinates] = None

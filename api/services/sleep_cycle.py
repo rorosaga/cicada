@@ -1404,6 +1404,51 @@ async def _web_context_safely(memory_path: Path, settings: Settings, *, user_tri
         await asyncio.to_thread(web_lookup.restore, memory_path, report)
 
 
+async def _in_short_safely(memory_path: Path, settings: Settings, *, user_triggered: bool) -> None:
+    """Ruling 48 part 5: the 2–3 sentence In short for long pages the person talks about often (`in_short`) — bank
+    facts only, at most `in_short_per_run` pages, on the person's engine's small tier (a scheduled run on a plan only
+    through ruling 4b's switch). One commit (`In short <date>`, trigger `sleep/in-short`) under the model that wrote
+    them; pages dirty before it ran are left alone; a failed commit puts every page back. Never raises."""
+    from api.services import agent_engine, in_short, web_lookup, web_settle
+
+    skip: frozenset[str] = frozenset()
+    if (memory_path / ".git").exists():
+        try:
+            skip = await _dirty_paths(memory_path)
+        except Exception as exc:
+            logger.warning(f"In short skipped: tree status unreadable ({type(exc).__name__})")
+            return
+    cycle_id = _state.cycle_id
+    drain = _state.drain
+    batch_id = f"{cycle_id}-short" if (cycle_id and drain is not None) else cycle_id
+    report = in_short.Report()
+    try:
+        if drain is not None and batch_id:
+            sleep_drain.register_batch(batch_id, drain)
+        with agent_engine.use_scope(web_lookup.scope_name(batch_id)):
+            await in_short.run_tail(memory_path, settings, user_triggered=user_triggered, skip=skip, report=report)
+    except Exception as exc:
+        logger.warning(f"In short failed — undoing {report.written} page(s): {type(exc).__name__}")
+        await asyncio.to_thread(web_lookup.restore, memory_path, report)
+        return
+    finally:
+        if drain is not None and batch_id:
+            sleep_drain.unregister_batch(batch_id)
+    # Counts and enums only — never a name or a line.
+    logger.info(f"In short: {report.looked} read, {report.written} written, skipped {report.skipped}"
+                + (f" ({report.reason})" if report.reason else ""))
+    if not report.paths or not (memory_path / ".git").exists():
+        return
+    message = web_settle.commit_message("In short", report.lines,
+                                        authors=report.models or [report.engine or "agent"], engine=report.engine)
+    try:
+        async with _lock:
+            await asyncio.to_thread(web_settle.commit_sync, memory_path, message, report.paths)
+    except Exception as exc:
+        logger.warning(f"In short commit failed — undoing {report.written} page(s): {type(exc).__name__}")
+        await asyncio.to_thread(web_lookup.restore, memory_path, report)
+
+
 async def _tend_inbox_safely(memory_path: Path, settings: Settings, episodes: list[dict], *, run_policy: bool,
                              engine: str | None) -> None:
     """Ruling 29 — Sleep tends the inbox (`inbox_tend`): what this batch's conversations answered in the person's own
@@ -1514,6 +1559,12 @@ async def _run_engine_independent_tail(
         # G61 "Where to check" (ruling 36 D5): links already on the record proposed as sources — after the imports
         # above (a link they put on a page is not proposed again), before any poll's `git add -A`.
         await _where_to_check_safely(memory_path)
+        # Ruling 48 part 5: In short for long, busy pages — a model call on the bank alone (nothing from outside), so a
+        # demo bank gets it too; never past a run that stopped at the plan's limit.
+        if skip_links:
+            logger.info("In short skipped: the run stopped at the plan's limit")
+        else:
+            await _in_short_safely(memory_path, settings, user_triggered=user_triggered)
         from api.services import demo_guard
 
         if demo_guard.is_demo(memory_path):

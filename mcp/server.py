@@ -168,11 +168,13 @@ TOOLS = [
                 "include": {
                     "type": "array",
                     "items": {"type": "string",
-                              "enum": ["blocks", "relevance", "sources", "coordinates", "looks", "ongoing", "citations",
+                              "enum": ["blocks", "relevance", "summary", "sources", "coordinates", "looks", "ongoing",
+                                       "citations",
                                        "history"]},
-                    "maxItems": 8,
+                    "maxItems": 9,
                     "description": "Also return what the page holds, as short structured blocks after it: `relevance` "
-                                   "(why it matters to the person), `sources` (where to check, each with its state), "
+                                   "(why it matters to the person), `summary` (the 2-3 sentence In short Sleep writes "
+                                   "for a long page the person talks about often), `sources` (where to check, each with its state), "
                                    "`coordinates` (a place's stored position), `looks` (colours and type of a saved "
                                    "design), `ongoing` (open happenings and planned milestones), `citations` (the "
                                    "article's numbered sources — each conversation, looked-up page or page it cites — "

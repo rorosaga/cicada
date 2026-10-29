@@ -278,6 +278,9 @@ class Settings(BaseSettings):
     # lookups a run (one plan web-search call each, plus at most `web_context.WIKIDATA_BUDGET` public-test lookups);
     # 0 turns the step off. Plan only: a metered key is never spent here. `web_context`.
     web_context_per_run: int = 6               # CICADA_WEB_CONTEXT_PER_RUN
+    # Ruling 48 part 5 (2026-10-29): "In short" lines Sleep's tail writes for long pages the person talks about often —
+    # at most this many pages a run, on the engine's small tier; 0 turns the step off. `in_short`.
+    in_short_per_run: int = 10                 # CICADA_IN_SHORT_PER_RUN
     # Track C: reuse (zero-LLM) and fetch+summarize shared that one budget with
     # reuse spent first, so a night with 20 reuse candidates read no new page.
     # This many of the cap are reserved for fetches while any wait (the in-cycle

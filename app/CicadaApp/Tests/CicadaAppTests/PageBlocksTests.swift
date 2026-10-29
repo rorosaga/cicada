@@ -19,8 +19,15 @@ final class PageBlocksTests: XCTestCase {
 
     func testTheBackendsBlocksDecodeWhole() throws {
         let b = try JSONDecoder().decode(PageBlocks.self, from: Self.fixtureData())
-        XCTAssertEqual(b.order, ["relevance", "sources", "coordinates", "looks", "ongoing", "citations", "history"])
+        XCTAssertEqual(b.order, ["relevance", "summary", "sources", "coordinates", "looks", "ongoing", "citations",
+                                 "history"])
         XCTAssertEqual(b.relevance?.tense, "is")
+        // Part B (ruling 48 parts 5 and 6): In short and who placed the pin.
+        XCTAssertEqual(b.summary?.by, "sleep")
+        XCTAssertEqual(b.summary?.model, "claude-haiku-4-5")
+        XCTAssertEqual(b.summary?.conversations, 6)
+        XCTAssertTrue(b.summary?.text.hasPrefix("Alpha Place is where you build") ?? false)
+        XCTAssertEqual(b.coordinates?.by, "geocoder")
         XCTAssertEqual(b.coordinates?.lat, 40.4168)
         XCTAssertEqual(b.coordinates?.label, "Alpha Place")
         XCTAssertEqual(b.ongoing.map(\.claimId), ["c-planned", "c-ongoing"])

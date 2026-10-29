@@ -82,22 +82,6 @@ struct EntityDetailCard: View {
     /// together share it rather than each asking for megabytes.
     @State private var claimsRead: Task<Void, Never>?
 
-    // History tab (G68 §2.10). `entity.history` is empty BOTH before the full
-    // entity body has landed and when the page has no commits, so track the
-    // fetch explicitly rather than inferring from an empty array.
-    @State private var fetchedHistory: [EntityHistoryEntry]?
-    @State private var historyLoading = false
-    /// Set when `fetchEntityHistory` throws, cleared at the start of every
-    /// attempt. Kept separate from `fetchedHistory` so a failure is never
-    /// mistaken for "fetched successfully, and it was empty" (see
-    /// `HistoryTabState.error`).
-    @State private var historyLoadFailed = false
-    /// #244 — changes older than the served window, read a page at a time by "Older changes".
-    @State private var olderHistory: [EntityHistoryEntry] = []
-    @State private var historyPaging: HistoryPaging?
-    @State private var olderLoading = false
-    @State private var olderFailed = false
-
     /// G66 — the decay class the user just picked, shown immediately while the
     /// PUT is in flight. Cleared once the reload lands (or on failure, so the
     /// chip snaps back to the server's truth).
@@ -113,32 +97,8 @@ struct EntityDetailCard: View {
     @Environment(ProvenanceCache.self) private var provenanceCache: ProvenanceCache?
     @Environment(ProvenanceRouter.self) private var provenanceRouter: ProvenanceRouter?
 
-    // G67 — per-commit diffs in the History tab, fetched on demand and cached
-    // per (entity, commit) — `DiffCacheKey`, not commit hash alone: one
-    // Sleep-cycle commit routinely touches several entity files, so the same
-    // hash commonly appears in more than one entity's history, and keying by
-    // hash alone let entity B render entity A's cached diff for a shared
-    // commit (fix round 1). `expanded` is the set of commits the user has
-    // opened; `loading` guards against a second fetch while the first is in
-    // flight; `diffErrors` marks a fetch that failed so the row can offer a
-    // retry instead of silently reading as "no changes".
-    //
-    // `activeEntityId` names which entity these caches currently belong to.
-    // `toggleCommit`'s fetch `Task` is a bare, uncancelled task: if the user
-    // swaps entities while it's in flight, it resolves *after* the manual
-    // reset below and would otherwise still write into the (now-current)
-    // dicts. The `DiffCacheKey` already prevents that write from being
-    // *read* under the wrong entity, but the `activeEntityId` guard in
-    // `fetchDiff` additionally stops the stale write from happening at all.
+    /// Which entity this card's in-flight reads belong to (a swap mid-read drops the late answer).
     @State private var activeEntityId: String = ""
-    @State private var expandedCommits: Set<DiffCacheKey> = []
-    @State private var commitDiffs: [DiffCacheKey: EntityDiff] = [:]
-    @State private var loadingCommits: Set<DiffCacheKey> = []
-    @State private var diffErrors: Set<DiffCacheKey> = []
-
-    private func diffKey(_ commitHash: String) -> DiffCacheKey {
-        DiffCacheKey(entityId: entity.id, commitHash: commitHash)
-    }
 
     /// Whether to show the card's own close (✕) button. The Clusters detail
     /// embeds this card inside a view that already provides a Back button, so
@@ -205,7 +165,7 @@ struct EntityDetailCard: View {
                 canGoBack: canGoBack, backTargetName: backTargetName, onBack: goBack,
                 showsClose: showsCloseButton, onClose: close,
                 tabs: EntityTabs.tabs(digest: claimsLoaded ? digest : nil,
-                                      historyCount: EntityTabs.historyCount(embedded: entity.history, fetched: fetchedHistory),
+                                      historyCount: EntityTabs.historyCount(embedded: entity.history, fetched: nil),
                                       selected: selectedTab),
                 selection: $selectedTab,
                 inset: style.inset,
@@ -219,7 +179,10 @@ struct EntityDetailCard: View {
                     switch selectedTab {
                     case .content: contentTab
                     case .perspectives: perspectivesTab
-                    case .history: historyTab
+                    case .history:
+                        EntityHistoryView(entityId: entity.id,
+                                          openEpisode: ProvenanceSummary.episodeByConversation(provenanceState.value))
+                            .modifier(EntityTabInsets(style: style))
                     case .timeline: timelineTab
                     }
                 }
@@ -234,8 +197,7 @@ struct EntityDetailCard: View {
         // R-DG16 — a tab loads what it shows; the counts were loaded when the column opened.
         .onChange(of: selectedTab) { _, tab in
             switch tab {
-            case .history:
-                Task { await loadHistoryIfNeeded() }
+            case .history:   // DR-77: `EntityHistoryView` reads its rows when it is shown
                 Task { await loadProvenanceIfNeeded() }
             case .perspectives, .timeline:
                 Task { await loadClaimsIfNeeded() }
@@ -309,7 +271,13 @@ struct EntityDetailCard: View {
             // Ruling 48 (1), (2) — the page's own open question, one at a time ("1 of N"); nothing when it has none.
             PageQuestionsStrip(entityId: entity.id).id(entity.id)
             if !isStub, !showRawMarkdown {
-                PageInShort(relevance: blocks?.relevance ?? entity.relevance)
+                // Ruling 48 part 5: Sleep's In short on a long, busy page; every other page keeps the one
+                // served why-it-matters line in the same slot.
+                if let summary = blocks?.summary {
+                    InShortBlock(summary: summary)
+                } else {
+                    PageInShort(relevance: blocks?.relevance ?? entity.relevance)
+                }
                 if showsWhereToCheck {
                     WhereToCheckBox(entityId: entity.id, isPerson: entity.type == .person, sources: blocks?.sources,
                                     adding: $addingLink, onChanged: reloadPage,
@@ -372,14 +340,7 @@ struct EntityDetailCard: View {
             addingLink = false
             addingLook = false
             CitationDetailCache.shared.forget(entity.id)
-            expandedCommits = []
-            commitDiffs = [:]
-            loadingCommits = []
-            diffErrors = []
             rawFile = RawFileLoader()
-            olderHistory = []
-            historyPaging = nil
-            olderFailed = false
             // §5.7 — the card opened on the graph-node stub, whose `markdownContent` is the server's short `summary`
             // (already rendered above, so there is never an empty card). Upgrade it to the full entity through the
             // Store's memoised cache; the swap lands via `graphVM.selectedEntity`/`entities`, which is what feeds
@@ -837,200 +798,6 @@ struct EntityDetailCard: View {
         }
     }
 
-    // MARK: - History Tab
-
-    // G68 §2.10 — three branches, resolved by `HistoryTabState`: a spinner while the fetch is in flight, an empty
-    // state once it's confirmed there is nothing, and (the common case) the G67 diff-expansion list. Plain words,
-    // no decorative glyph (DR-53); the retry is a neutral button (DR-40).
-    @ViewBuilder
-    private var historyTab: some View {
-        switch historyState {
-        case .loading:
-            HStack(spacing: CicadaTheme.spacingSM) {
-                ProgressView().controlSize(.small)
-                Text(Copy.Graph.readingHistory)
-                    .font(CicadaTheme.bodyFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(CicadaTheme.spacingXXL)
-        case .empty:
-            VStack(spacing: CicadaTheme.spacingSM) {
-                Text(Copy.Graph.noCommitsTitle)
-                    .font(CicadaTheme.headingFont)
-                    .foregroundStyle(CicadaTheme.textPrimary)
-                Text(Copy.Graph.noCommitsDetail)
-                    .font(CicadaTheme.bodyFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                    .multilineTextAlignment(.center)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(CicadaTheme.spacingXXL)
-        case .error:
-            VStack(spacing: CicadaTheme.spacingSM) {
-                Text(Copy.Graph.historyFailed)
-                    .font(CicadaTheme.headingFont)
-                    .foregroundStyle(CicadaTheme.textPrimary)
-                NeutralButton(title: Copy.Graph.retry) { Task { await loadHistoryIfNeeded() } }
-                    .accessibilityLabel("Retry loading history")
-            }
-            .frame(maxWidth: .infinity)
-            .padding(CicadaTheme.spacingXXL)
-        case .entries(let rows):
-            historyList(HistoryPaging.merge(rows, older: olderHistory))
-        }
-    }
-
-    /// G68 — newest first. R-DG24: a neutral ring per change (hue is for data identity, P-c), the change in words,
-    /// the day and who wrote it (the commit's own line only as help); then "Show in conversation" and "What changed" (G67). The
-    /// two links are siblings, never one inside the other's label (the PR #20 round-2 rule that pulled
-    /// `FromConversationButton` out of the expand button).
-    private func historyList(_ rows: [EntityHistoryEntry]) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Newest first, as `git log` serves it (#244; the old blame order was reversed here).
-            ForEach(rows, id: \.id) { entry in
-                HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
-                    Circle()
-                        .strokeBorder(CicadaTheme.textTertiary, lineWidth: 1.5)
-                        .frame(width: CicadaTheme.scaled(8), height: CicadaTheme.scaled(8))
-                        .padding(.top, CicadaTheme.scaled(5))
-                        .accessibilityHidden(true)
-                    VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                        // DR-54/DR-58 (final review): the commit line (`entities/<id>.md: updated (source: ep_…,
-                        // trigger: sleep/…)`) is a path, an episode id and a trigger slug, so it is never on the
-                        // row — the change is already in words — and stays reachable as the change line's help.
-                        HStack(spacing: CicadaTheme.spacingSM) {
-                            Text(HistoryWords.change(entry.changeType))
-                                .font(CicadaTheme.rowFont)
-                                .foregroundStyle(CicadaTheme.textPrimary)
-                            Text(EntityDates.shortDay(entry.date) ?? entry.date)
-                                .font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
-                            if !entry.author.isEmpty {
-                                AuthorPill(entry.author, kind: entry.authorKind, provider: entry.authorProvider)
-                            }
-                        }
-                        .help(entry.description)
-                        HStack(spacing: CicadaTheme.scaled(14)) {
-                            ShowInConversationLink(sessionIds: entry.sessions,
-                                                   openEpisode: ProvenanceSummary.episodeByConversation(provenanceState.value))
-                            if !entry.commitHash.isEmpty { whatChangedToggle(entry) }
-                        }
-                        // The diff for an EXPANDED commit; `entry.diff` (includeDiff=true) wins over a fetch.
-                        if isExpanded(entry) {
-                            let key = diffKey(entry.commitHash)
-                            if let inline = entry.diff {
-                                DiffView(diff: inline)
-                            } else if let fetched = commitDiffs[key] {
-                                DiffView(diff: fetched)
-                            } else if loadingCommits.contains(key) {
-                                DiffView.loading
-                            } else if diffErrors.contains(key) {
-                                DiffView.error { fetchDiff(commitHash: entry.commitHash) }
-                            } else {
-                                DiffView.empty
-                            }
-                        }
-                    }
-                    .padding(.bottom, CicadaTheme.scaled(18))
-                    Spacer(minLength: 0)
-                }
-            }
-            olderChangesRow
-        }
-        .modifier(EntityTabInsets(style: style))
-    }
-
-    private var paging: HistoryPaging { historyPaging ?? HistoryPaging(truncated: entity.historyTruncated) }
-
-    @ViewBuilder
-    private var olderChangesRow: some View {
-        if paging.hasMore {
-            OlderChangesRow(phase: olderLoading ? .loading : (olderFailed ? .failed : .idle)) { loadOlderHistory() }
-        }
-    }
-
-    private func loadOlderHistory() {
-        guard !olderLoading else { return }
-        var next = paging
-        let id = entity.id
-        olderLoading = true
-        olderFailed = false
-        Task {
-            defer { olderLoading = false }
-            do {
-                let page = try await APIClient.shared.fetchEntityHistory(id: id, skip: next.nextSkip)
-                guard id == entity.id else { return }
-                next.received(page)
-                olderHistory += page
-                historyPaging = next
-            } catch {
-                if id == entity.id { olderFailed = true }
-            }
-        }
-    }
-
-    private func isExpanded(_ entry: EntityHistoryEntry) -> Bool {
-        !entry.commitHash.isEmpty && expandedCommits.contains(diffKey(entry.commitHash))
-    }
-
-    private func whatChangedToggle(_ entry: EntityHistoryEntry) -> some View {
-        Button { toggleCommit(entry.commitHash) } label: {
-            HStack(spacing: CicadaTheme.scaled(5)) {
-                DisclosureChevron(isOpen: isExpanded(entry), color: nil)
-                Text(Copy.Graph.whatChanged)
-            }
-            .font(CicadaTheme.metaFont)
-            .foregroundStyle(CicadaTheme.textSecondary)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.cicadaPlain)
-        .help(Copy.Graph.whatChangedHelp)
-        .accessibilityLabel("\(Copy.Graph.whatChanged), \(entry.date)")
-        .accessibilityValue(isExpanded(entry) ? "Open" : "Closed")
-    }
-
-    /// Collapse, or expand + fetch. On-demand only (the `LogoStore`/
-    /// `EntitySource` precedent): a commit diff is not snapshot state, so it
-    /// goes straight to `APIClient` and is cached per `DiffCacheKey` for this
-    /// card.
-    private func toggleCommit(_ commitHash: String) {
-        let key = diffKey(commitHash)
-        if expandedCommits.contains(key) {
-            expandedCommits.remove(key)
-            return
-        }
-        expandedCommits.insert(key)
-        guard commitDiffs[key] == nil, !loadingCommits.contains(key) else { return }
-        fetchDiff(commitHash: commitHash)
-    }
-
-    /// Fetches (or retries) one commit's diff. Captures the entity this fetch
-    /// is FOR up front; if the card has since swapped to a different entity
-    /// by the time the request resolves (a bare, uncancelled `Task`), the
-    /// write is dropped instead of landing in the new entity's cache — on top
-    /// of the `DiffCacheKey` already keeping it out of anything the new
-    /// entity's rows would read.
-    private func fetchDiff(commitHash: String) {
-        let entityId = entity.id
-        let key = diffKey(commitHash)
-        diffErrors.remove(key)
-        loadingCommits.insert(key)
-        Task {
-            do {
-                let diff = try await APIClient.shared.fetchEntityCommitDiff(
-                    id: entityId, commitHash: commitHash
-                )
-                loadingCommits.remove(key)
-                guard entityId == activeEntityId else { return }
-                commitDiffs[key] = diff
-            } catch {
-                loadingCommits.remove(key)
-                guard entityId == activeEntityId else { return }
-                diffErrors.insert(key)
-            }
-        }
-    }
-
     // MARK: - Perspectives Tab (§3b)
 
     /// §3b — who believes what. R-DG22: rows, grouped under a label with its count; a disagreement between
@@ -1150,29 +917,6 @@ struct EntityDetailCard: View {
         claimsRead = read
         await read.value
         if claimsRead == read { claimsRead = nil }
-    }
-
-    private var historyState: HistoryTabState {
-        HistoryTabState.resolve(embedded: entity.history, fetched: fetchedHistory, failed: historyLoadFailed)
-    }
-
-    /// One shot per card. Skipped entirely when the entity payload already
-    /// carried its history — the common case once the full body has landed.
-    /// A failure leaves `fetchedHistory` `nil` and sets `historyLoadFailed`
-    /// instead of coercing to `[]` — coercing used to read as "no commits
-    /// touch this page" AND permanently block retries (the guard below only
-    /// re-fetches while `fetchedHistory == nil`). Re-selecting the History
-    /// tab (or a future retry action) calls this again and clears the flag.
-    private func loadHistoryIfNeeded() async {
-        guard entity.history.isEmpty, fetchedHistory == nil, !historyLoading else { return }
-        historyLoading = true
-        historyLoadFailed = false
-        do {
-            fetchedHistory = try await APIClient.shared.fetchEntityHistory(id: entity.id)
-        } catch {
-            historyLoadFailed = true
-        }
-        historyLoading = false
     }
 
     // MARK: - Helpers

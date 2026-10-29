@@ -1,0 +1,30 @@
+{
+  "_comment": "Shared by test_page_history.py (every key the route serves is here) and PageHistoryTests.swift (decodes it): GET /entities/{id}/history?summary=true. Synthetic.",
+  "rows": [
+    {"date": "2026-10-28", "changeType": "updated", "description": "entities/alpha-place.md: updated (trigger: user/companion_app)",
+     "author": "user", "authorKind": "user", "authorProvider": null, "commitHash": "a000000000000000000000000000000000000001",
+     "diff": null, "sessions": [], "trigger": "user/companion_app", "via": "app", "at": "2026-10-28T14:14:00+01:00", "bucket": "you",
+     "summary": {"plusClaims": 0, "endedClaims": 0, "removedClaims": 0, "changedClaims": 0, "fields": ["decay_class", "decay_rate"],
+                 "proseAdded": 0, "proseRemoved": 0, "lines": []}},
+    {"date": "2026-10-27", "changeType": "updated", "description": "entities/alpha-place.md: updated (trigger: sleep/extraction, sessions: ses_b, ses_c)",
+     "author": "claude-sonnet-5", "authorKind": "model", "authorProvider": "anthropic", "commitHash": "a000000000000000000000000000000000000002",
+     "diff": null, "sessions": ["ses_b", "ses_c"], "trigger": "sleep/extraction", "via": "sleep", "at": "2026-10-27T03:02:00+01:00", "bucket": "sleep",
+     "summary": {"plusClaims": 3, "endedClaims": 1, "removedClaims": 0, "changedClaims": 1, "fields": ["confidence", "last_referenced"],
+                 "proseAdded": 2, "proseRemoved": 1,
+                 "lines": [{"sign": "+", "text": "You build there on Saturdays."}, {"sign": "+", "text": "It closes on November 1 for a floor repair."},
+                           {"sign": "-", "text": "A place by the river."}]}},
+    {"date": "2026-10-26", "changeType": "updated", "description": "entities/alpha-place.md: updated (trigger: mcp/claude-code)",
+     "author": "claude-code", "authorKind": "harness", "authorProvider": null, "commitHash": "a000000000000000000000000000000000000003",
+     "diff": null, "sessions": [], "trigger": "mcp/claude-code", "via": "agent", "at": "2026-10-26T18:40:00+01:00", "bucket": "agents",
+     "summary": {"plusClaims": 1, "endedClaims": 0, "removedClaims": 0, "changedClaims": 0, "fields": [], "proseAdded": 0, "proseRemoved": 0, "lines": []}},
+    {"date": "2026-10-26", "changeType": "updated", "description": "entities/alpha-place.md: decay (source: n/a, trigger: sleep/decay)",
+     "author": "cicada", "authorKind": "system", "authorProvider": null, "commitHash": "a000000000000000000000000000000000000004",
+     "diff": null, "sessions": [], "trigger": "sleep/decay", "via": "sleep", "at": "2026-10-26T03:00:00+01:00", "bucket": "upkeep",
+     "summary": {"plusClaims": 0, "endedClaims": 0, "removedClaims": 0, "changedClaims": 4, "fields": ["confidence"], "proseAdded": 0, "proseRemoved": 0, "lines": []}},
+    {"date": "2026-06-04", "changeType": "created", "description": "entities/alpha-place.md: created (trigger: sleep/extraction, sessions: ses_a)",
+     "author": "claude-haiku-4-5", "authorKind": "model", "authorProvider": "anthropic", "commitHash": "a000000000000000000000000000000000000005",
+     "diff": null, "sessions": ["ses_a"], "trigger": "sleep/extraction", "via": "sleep", "at": "2026-06-04T03:00:00+02:00", "bucket": "sleep",
+     "summary": {"plusClaims": 5, "endedClaims": 0, "removedClaims": 0, "changedClaims": 0, "fields": ["name", "type"], "proseAdded": 3, "proseRemoved": 0,
+                 "lines": [{"sign": "+", "text": "A place by the river."}]}}
+  ]
+}

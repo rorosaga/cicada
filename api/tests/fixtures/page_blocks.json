@@ -1,9 +1,10 @@
 {
   "_comment": "Shared by test_page_blocks.py and PageBlocksTests.swift: the `blocks` of GET /entities/{id} (page_blocks.build). Regenerate with CICADA_REGEN_FIXTURES=1.",
   "blocks": {
-    "shape": "blocks-2",
+    "shape": "blocks-3",
     "order": [
       "relevance",
+      "summary",
       "sources",
       "coordinates",
       "looks",
@@ -17,6 +18,13 @@
       "conversations": 2,
       "lastMentioned": "2026-10-20",
       "basis": []
+    },
+    "summary": {
+      "text": "Alpha Place is where you build the prototype. You go most weeks.",
+      "writtenAt": "2026-10-27",
+      "by": "sleep",
+      "model": "claude-haiku-4-5",
+      "conversations": 6
     },
     "ongoing": [
       {
@@ -43,7 +51,8 @@
       "lat": 40.4168,
       "lon": -3.7038,
       "label": "Alpha Place",
-      "source": "page"
+      "source": "page",
+      "by": "geocoder"
     },
     "looks": [
       {
