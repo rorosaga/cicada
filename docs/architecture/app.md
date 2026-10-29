@@ -71,8 +71,12 @@ Agents page, ⌘9, `AppTab.agents`, appended so no shortcut moved — DR-22).
   revoking (an offer only, behind Revoke's confirmation); Revoke keeps its confirmation (DESIGN_RULES' destructive rule) and the next
   request is refused. *Reach from your phone* (`DeviceReachSection`) sits in the list card above *Pair a device*: a
   `StatusDot` and one line from `GET /devices/reach?check=true` (read on appear, never polled), the one next step in
-  words, the step's command in a `CommandBox` to copy (Cicada never runs it), *Get Tailscale* where it is missing, and
-  where the live check stopped (DR-19, DR-38, DR-39, DR-40, DR-51; no new visual pattern).
+  words, the step's command in a `CommandBox` to copy, *Get Tailscale* where it is missing, and
+  where the live check stopped (DR-19, DR-38, DR-39, DR-40, DR-51; no new visual pattern). **One click (owner
+  2026-10-29, "Yes, one click"; `network.md`):** on the serve step a compact `NeutralButton` *Run it for me* runs that
+  shown command; on a served address a `TextButton` *Stop serving* opens a confirmation naming the exact off
+  (`stopCommand`) before it runs (`POST /devices/reach/serve`, the action only; `DeviceReachText.action`). A refusal or
+  failure is one danger caption under it; the state and check refresh from the answer. The unfunnel step stays copy-only.
   *Memory on* and the folded *Apps outside this machine* (the remote connector, `page:remote`) follow.
 - **Privacy & data** gains Search & memory's one row (*Search runs on this Mac* and the sharper-model download); the
   fade card shows only while it holds a suggestion or a chosen pace. Watched folders are sources (`WatchedFoldersGroup`
@@ -108,12 +112,15 @@ Agents page, ⌘9, `AppTab.agents`, appended so no shortcut moved — DR-22).
   with Muse's own mark (Meta's agent; umbrella id `meta` kept), and xAI's three ways (Grok Build, the Grok app's custom
   connector, Grok Bot asked in chat). Cline, Goose, Kiro and Poke left the table and the logo set; a person who had
   connected one still lights *Another agent* and an old sign-in request reads "An agent" (`agent_catalog`'s docstring).
-  **T3 Code (G228, 2026-10-29)** is a host row: umbrella `t3`, way `t3code`, tier 2, the monogram until its own mark
-  joins the set. It has no pill; its detail's connect steps are the agents it drives (`AgentProducts.entries`: a way
+  **T3 Code (G228, 2026-10-29)** is a host row: umbrella `t3`, way `t3code`, tier 1, its own mark (`t3`, from its
+  repository at a pinned commit; `BrandMark` maps the way id to it). It has no pill; its detail's connect steps are the agents it drives (`AgentProducts.entries`: a way
   with no pill offers the pills its `setup` ids name — `claude-code`, `codex`, `cursor` — the same rule that gives a
   generic-prompt way *Another agent*), so Connect for me, the copied prompt and the wiring status are those agents'
   own. The row lights *Connected* once a capture hook named T3 Code (`agent_seen` via `hook`; never *Another agent*),
-  and its conversations are the episodes labelled `host: t3code` (their own Sources row).
+  and its conversations are the episodes labelled `host: t3code` (their own Sources row). **Way notes (2026-10-29):**
+  each product line in a detail's Products draws its way's `note` under it in caption ink (`ConnectionLine`'s `below`
+  slot; the local line only, never repeated on a remote one) — T3 Code's says that Codex under T3 Code's own sign-in is
+  not captured and to choose the existing Codex login in T3 Code → Settings → Providers.
 - **Marks:** one per provider umbrella from the curated set (`app/assets/logo-set/`, `scripts/build-logo-set.py`, origin
   `set` in `logos.manifest.json`); `codex`/`chatgpt` draw OpenAI's mark and `gemini-cli` Gemini's through `BrandMark`.
   A listed connection's mark sits in `LogoTile` (26 pt in a 36 pt ring tile; `.dense` 18 in 24); a status is
@@ -939,19 +946,29 @@ JID. Telegram's chats post no card: the backend reads them through Telegram's AP
 (ruling 47a), so there is no handle the app could look up.
 
 **Telegram chats (ruling 47a, 2026-10-28).** The same row and sheet (`TelegramSourceRow`, `TelegramPanel`;
-`TelegramChats` holds the state, the backend the client). Not connected: the backend's consent sentence word for word,
-then — since ruling 49 (2026-10-29) — the sheet opens on a sign-in QR: Connect… was the person's act, so the panel asks
+`TelegramChats` holds the state, the backend the client). **The connect sheets' one shape (DESIGN_RULES §9,
+2026-10-29; `Views/Settings/ConnectSheet.swift`):** one step at a time, one primary (⏎) with Cancel as a text button, no
+*Done* until connected; under each sign-in step one caption line — one-to-one only, each with the other person's
+agreement, then the backend's consent sentence word for word — and *What Cicada reads*, which swaps the body for the
+full words (a page of the sheet, never a fold or popover). Since ruling 49 (2026-10-29) the sheet opens on a sign-in QR: Connect… was the person's act, so the panel asks
 `POST /sources/telegram/qr` at once and draws the returned `tg://login` link with Core Image (`TelegramQRCode`: dark
-modules on a light four-module quiet zone in both appearances, a 168 pt tile with the resting ring, DR-9, DR-12), the
-words beside it (Settings → Devices → Link Desktop Device; DR-13), and reads the status once a second only while the
+modules on a light four-module quiet zone in both appearances, a 200 pt tile with the resting ring, centred, DR-9,
+DR-12), one line of how under it (Settings → Devices → Link Desktop Device; DR-13), and reads the status once a second only while the
 QR is up (`TelegramChats.followQR`), so a refreshed QR replaces itself and a scan lands on the chat list. Closing the
 sheet mid sign-in stops it at the backend (`abandonSignIn`): a QR on screen or still being asked for (stopped as it
-lands), a code or a two-step password waiting — never a connected session. *Use a phone number instead* (a `TextButton`, DR-40) keeps the old steps in native
-rounded fields (DR-76: setup sheets keep the native field) — phone number → the code Telegram sends; the two-step
-password when the account has one, after either path. Connected: the one-to-one chats only (no group, no channel),
+lands), a code or a two-step password waiting — never a connected session. *Use phone number instead* (a `TextButton`, DR-40) keeps the old steps: a country button (flag + dial
+code; `PhoneCountry`, defaulting to `Locale.current.region`) opening a searchable country list as a page of the sheet,
+the national number in the native setup field (DR-76) grouped as typed, sent as `+<dial><digits>` — a trunk `0`
+dropped, except where the zero is part of the number (CI, BJ, CG, IT, SM, VA); a pasted or autofilled "+34…" or
+"0034…" re-picks the country from its code and keeps the national part. ⏎ is the sheet's default button alone, and
+`TelegramChats` refuses a second send while one is in flight. Then the code Telegram sends, one cell per digit
+(`OneTimeCodeField`, `.oneTimeCode`, the last digit submits) sized by the status's `codeLength` — the backend reads
+it from Telegram's answer (`TgSentCode.length`, `sent.type.length`) — else five;
+the two-step password when the account has one, after either path. Switching between QR and phone clears the last
+way's refusal (`TelegramChats.clearError`). Connected: "Connected. Tick the chats Cicada may read.", the one-to-one chats only (no group, no channel),
 each with *Read history* and the tick; ticking opens a system alert (*Did they agree?*) carrying the backend's
-per-chat sentence with the chat's name — *They agreed* ticks, Cancel doesn't — and unticking withdraws it; *Disconnect*
-ends the session at Telegram.
+per-chat sentence with the chat's name — *They agreed* ticks, Cancel doesn't — and unticking withdraws it; *Disconnect* (a
+text button beside the sheet's one *Done*) ends the session at Telegram.
 
 **Ask why (G191).** When the bookmark watch's own file event starts a sync (`BookmarkSyncSignal.live`, a task-local
 the watcher sets; a catch-up, Sync now, Turn on or folder import is never live) and the result has exactly one fresh

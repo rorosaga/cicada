@@ -22,7 +22,7 @@ from fastapi.testclient import TestClient
 from api import config, main
 from api.services import (bank_index, chat_live, episode_staging, markdown_parser, telegram_account, telegram_source,
                           turn_extras)
-from api.services.telegram_port import PasswordNeeded, TelegramError, TgDialog, TgEvent, TgMessage, TgQr
+from api.services.telegram_port import PasswordNeeded, TelegramError, TgDialog, TgEvent, TgMessage, TgQr, TgSentCode
 
 T0 = 1_788_000_000.0
 FRIEND, BOT, GROUP, OTHER = 1001, 1002, -100777, 1003     # placeholder peer ids
@@ -46,6 +46,8 @@ class FakePort:
         self.qr_ttl = 30.0
         self.qr_timeouts: list[float] = []
         self.fail_send_code: Exception | None = None
+        #: What ``send_code`` answers: a bare hash, as older ports did, or a ``TgSentCode`` with the code's length.
+        self.sent_code = "hash-1"
 
     async def qr_start(self):
         self.calls.append("qr_start")
@@ -75,7 +77,7 @@ class FakePort:
         self.calls.append("send_code")
         if self.fail_send_code is not None:
             raise self.fail_send_code
-        return "hash-1"
+        return self.sent_code
 
     async def sign_in(self, phone, code, code_hash):
         self.calls.append("sign_in")
@@ -654,3 +656,34 @@ def test_live_update_cost_p95(home, bank, made):
     p95 = took[int(len(took) * 0.95) - 1]
     print(f"telegram live update p95 {p95 * 1000:.1f} ms over {len(took)} (flush + commit, 41 sittings)")
     assert p95 < 1.0 and friend
+
+
+def test_the_status_carries_the_length_of_the_code_telegram_sent(home, made):
+    ports, factory = made
+    account = telegram_account.Account(factory)
+    account.port = factory(1, "hash", "")
+    account.port.sent_code = TgSentCode(hash="hash-1", length=6)
+    status = run(account.send_code("+1 555 000 0000"))
+    assert status["state"] == "code_sent" and status["code_length"] == 6
+    assert account.status()["code_length"] == 6
+    run(account.submit_code("123 456"))
+    assert account.status()["state"] == "connected" and account.status()["code_length"] is None
+
+
+def test_a_bare_hash_leaves_the_code_length_to_the_app(home, made):
+    ports, factory = made
+    account = telegram_account.Account(factory)
+    status = run(account.send_code("+1 555 000 0000"))
+    assert status["state"] == "code_sent" and status["code_length"] is None
+
+
+def test_the_status_route_carries_the_code_length(home, made, monkeypatch):
+    ports, factory = made
+    account = telegram_account.Account(factory)
+    account.port = factory(1, "hash", "")
+    account.port.sent_code = TgSentCode(hash="hash-1", length=6)
+    run(account.send_code("+1 555 000 0000"))
+    monkeypatch.setattr(telegram_account, "ACCOUNT", account)
+    from api.routers.chat_sources import TelegramStatus
+    body = TelegramStatus(**account.status()).model_dump(by_alias=True)
+    assert body["codeLength"] == 6

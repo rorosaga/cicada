@@ -199,7 +199,8 @@ item only (fetched once, on the person's click, through `net_guard` under the To
 (`~/.cicada/remote/settings.json`). When on, a **second listener on `127.0.0.1:8765`**
 (`CICADA_REMOTE_PORT`) serves **only MCP and the agent API** (below) — none of the FastAPI routers — to cloud AI apps
 through a tunnel **the person** runs (Tailscale Funnel or ngrok); **Cicada never starts, stops or
-reconfigures a tunnel** — `GET /remote/status` only detects one — on PATH or in
+reconfigures a tunnel** (one dated exception, owner 2026-10-29: the tailnet-only serve of the backend below, on the
+person's click) — `GET /remote/status` only detects one — on PATH or in
 the standard install folders, since an older LaunchAgent's PATH is bare (F2-back R-B15). Access is a per-connector
 capability token `cic_rc_<id>_<secret>`: shown once, only its sha256 stored in
 `~/.cicada/remote/connectors.db` (0600, never in a bank), scoped (`search`/`read`/`record` default;
@@ -289,11 +290,19 @@ or `ngrok http 8765 --url <their-domain>`. That is the one public port Cicada is
 (8000) is never funnelled (the headless rail, `headless.md`), and Cicada never starts a tunnel. What the person runs is in
 [`docs/connect-remote-apps.md`](../connect-remote-apps.md).
 
-**Reach for the person's own devices is guided, never run (G212, 2026-10-29).** Settings → Devices reads two
-bounded (2 s), read-only CLI answers (`tailscale status --json`, `tailscale funnel status --json`) and shows the one next
-step; a serve of the backend port to the tailnet (`tailscale serve --bg --https=8443 <port>`) or closing a funnel of it
-is shown as a command to copy. The app does not run it on a click: the rail above says Cicada never starts or
-reconfigures a tunnel, and whether a click counts as the person running it waits on the owner. *Check again* is one
+**Reach for the person's own devices is guided (G212, 2026-10-29), and one click may serve it (dated amendment to
+G132 (c), owner 2026-10-29: "Yes, one click").** Settings → Devices reads two bounded (2 s), read-only CLI answers
+(`tailscale status --json`, `tailscale funnel status --json`) and shows the one next step; a serve of the backend port
+to the tailnet (`tailscale serve --bg --https=8443 <port>`) or closing a funnel of it is shown as a command to copy.
+On the serve step, *Run it for me* runs **exactly that shown command**; on a served address, *Stop serving* runs that one
+mapping's off (`tailscale serve --https=<its port> off`), named in its confirmation before the click
+(`POST /devices/reach/serve`, master token, `reach.run_serve`). The app sends only the action (`serve` | `stop`); the
+backend builds the argv from its own port and the person's own ServeConfig, never from a request; the tailscale binary is
+resolved like every other read (`find_tool`, then the app bundle's CLI); argv only, never a shell; 10 s cap; stdin
+closed so nothing waits on a prompt; any failure is a sentence (Serve not enabled on the tailnet names the admin URL
+Tailscale printed; a refused operator says to run it in Terminal); then the state is read again and checked the way a
+phone would. **Never `funnel`, never `up`**: closing a funnel stays a command to copy, and every other step only says
+what to do. *Check again* is one
 fetch of this machine's own served `/healthz` (no token, no redirect, no proxy env, 3 s) — the person's own address
 read from their ServeConfig, never a URL a request names, so it is not a `net_guard` fetch of someone else's page and no
 fetch gate applies; it runs only on the page's open or the person's click. No hosted relay sits in the path: a relay

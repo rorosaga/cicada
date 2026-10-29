@@ -597,6 +597,8 @@ def _episode_hit(ctx: _Ctx, ep: _Episode, score: float, chunk: str = "") -> Sear
             # no kind, no hash (the index blanks it; this holds for any row that
             # still carries it).
             start = end = kind = None
+        elif evidence.in_label(text, start):
+            kind = "page"   # a filing label (a folder, a list) is never anyone's words, as in `evidence.kind_for`
         elif override in evidence.OVERRIDE_KINDS:
             kind = override
     snippet, offsets = snippet_window(src, ctx.tokens)

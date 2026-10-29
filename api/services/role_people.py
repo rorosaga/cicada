@@ -697,8 +697,10 @@ def _drop_role_aliases(fm: dict, names: list[str], only: set[str] | None = None)
 
 
 def _add_alias(fm: dict, alias: str) -> None:
+    from api.services import alias_policy
+
     listed = [a for a in fm.get("aliases") or [] if isinstance(a, str)]
-    if alias and alias.lower() not in {a.lower() for a in listed}:
+    if alias_policy.admits(alias) and alias.lower() not in {a.lower() for a in listed}:
         fm["aliases"] = [*listed, alias]
 
 

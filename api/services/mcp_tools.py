@@ -37,7 +37,7 @@ from pathlib import Path
 from typing import Callable
 
 from api.services import agent_commits, agentic_write, demo_guard, episode_ids, episode_scrub, episode_time
-from api.services import episode_actor, page_blocks
+from api.services import entity_relations, episode_actor, page_blocks
 from api.services import search_service
 # One fence rule for every frontmatter reader (L final review, finding 2).
 from api.services import (bank_index, entity_bands, link_views, markdown_parser, page_lock, same_name, search_index,
@@ -910,6 +910,8 @@ def _check_agent_row(ctx: ToolContext, memory_path: Path, *, item_id: str, entit
 
 
 SETTLES = "settles"
+#: What ``proposed_value`` may be when an agent settles a "same as?" pair (`entity_relations`).
+PAIR_VALUES = ", ".join([*entity_relations.RELATIONS, entity_relations.DIFFERENT])
 MAX_SETTLES_PER_SESSION = 10
 _SETTLES_BY_SESSION: dict[str, int] = {}
 
@@ -959,10 +961,22 @@ def _record_settle(ctx: ToolContext, memory_path: Path, item_id, source, option_
         return Reply("Not recorded: this session has settled the most questions it may. Stop and tell the person.",
                      code="refused")
     try:
-        done = web_settle.settle(
-            memory_path, item_id, ref=source, quote=quotes_clean[0], option_key=option_key, answer=proposed_value,
-            checker=ctx.author, checker_kind="agent", origin="mcp", scopes=(c.scope,),
-            session_frontmatter=ctx.session_frontmatter(), facts=facts)
+        if c.kind == web_settle.PAIR:
+            # Session-1 follow-up (#545, owner's question 3): the person's own agent settles a public pair through the
+            # writer Sleep's tail uses — a cited relation, undoable, never a merge, never a person.
+            relation = entity_relations.clean(proposed_value)
+            if relation not in entity_relations.RELATIONS and relation != entity_relations.DIFFERENT:
+                return Reply(f"Not recorded: for a \"same as\" question, `proposed_value` is how the first relates to "
+                             f"the second — one of {PAIR_VALUES}. The same thing is the person's to merge. Nothing "
+                             "was written.", code="refused")
+            done = web_settle.settle_pair(
+                memory_path, item_id, ref=source, quote=quotes_clean[0], relation=relation, checker=ctx.author,
+                checker_kind="agent", origin="mcp", session_frontmatter=ctx.session_frontmatter(), facts=facts)
+        else:
+            done = web_settle.settle(
+                memory_path, item_id, ref=source, quote=quotes_clean[0], option_key=option_key, answer=proposed_value,
+                checker=ctx.author, checker_kind="agent", origin="mcp", scopes=(c.scope,),
+                session_frontmatter=ctx.session_frontmatter(), facts=facts)
     except web_settle.NotSettleable as exc:
         return Reply(f"Not recorded: {exc} Nothing was written.", code="refused")
     _SETTLES_BY_SESSION[session_key] = _SETTLES_BY_SESSION.get(session_key, 0) + 1
@@ -1120,6 +1134,13 @@ def _settle_lines(ctx: ToolContext, memory_path: Path, item_id: str) -> list[str
             return []
         return [f"  From the repository: answer it from its commit \u2014 cicada_record_check(item_id=\"{item_id}\", "
                 f"source=\"commit:<sha>\", outcome=\"settles\", {answer}=\u2026, quotes=[{{quote: <the commit's subject>}}])"]
+    if c.kind == web_settle.PAIR:
+        # Session-1 follow-up (2026-10-29): a "same as?" pair of two public things is settled by how they are related.
+        searches = " and ".join(f"\"{q}\"" for q in web_settle.queries_for(c))
+        return [f"  Public pair: look each name up alone (search only {searches}), then settle it with how "
+                f"\"{c.name}\" relates to \"{c.other_name}\" — cicada_record_check(item_id=\"{item_id}\", "
+                f"source=<the page>, outcome=\"settles\", proposed_value=<{PAIR_VALUES}>, quotes=[{{quote}}]). "
+                "If the page says they are the same thing, leave it for the person."]
     rule = ""
     if c.type_question:
         # Owner, 2026-10-16: what a thing IS may be several things at once.

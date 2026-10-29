@@ -172,7 +172,8 @@ def test_a_pair_the_record_relates_is_judged_and_asked_never_again(tmp_path, mon
     mention = _entity("Example DB", "tool", EP, TS)
     _resolve(memory, [{"episode_id": EP, "entities": [mention], "relationships": []}], pages, monkeypatch, "unsure",
              calls)
-    assert calls == [] and _asked(memory) == []
+    # Never asked; the alias behind the lead is proposed for removal instead (`wrong_aliases`, 2026-10-29).
+    assert calls == [] and [fm["kind"] for fm in _asked(memory)] == ["page_edit"]
 
 
 def test_the_clarifier_never_proposes_a_related_pair_but_still_asks_about_people(tmp_path):
@@ -355,7 +356,8 @@ def test_b3_a_second_batch_makes_no_judge_call_for_a_lead_already_settled(tmp_pa
     _resolve(memory, extracted, pages, monkeypatch, verdict, second)
     assert second == []
     if case == "rejected":
-        assert first == [] and _asked(memory) == []
+        # No question; the alias that made them meet is proposed for removal, once (`wrong_aliases`, 2026-10-29).
+        assert first == [] and [fm["kind"] for fm in _asked(memory)] == ["page_edit"]
 
 
 def test_the_direction_guard_drops_a_reversed_relation():

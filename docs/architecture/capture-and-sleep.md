@@ -114,8 +114,23 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   (`transcript_bytes`, outside `content_hash`), and under `episode_lock` a capture that read fewer bytes than the
   episode stores — while the file now holds at least that much — writes nothing and answers `superseded` (a flush that
   stalled while a later Stop committed). A transcript that really shrank is still captured. Every `~/.cicada/logs/capture.log` line names its event
-  (`<harness> <sid8> Stop|PreCompact|SessionEnd|other …`), so ruling 7's revisit signal — a Stop `error:` line — is
-  never confused with a flush's; the capture ledger row carries the same enum as `event`. `autosave` in
+  (`<harness> <sid8> Stop|PreCompact|SessionEnd|other …`), so ruling 7's revisit signal — a Stop `no answer` line,
+  and since 2026-10-29 the `in <n>ms` round trip on every answered line — is never confused with a flush's; the capture
+  ledger row carries the same enum as `event`. **The answer never waits on a slow write (2026-10-29):**
+  `/capture/transcript` and `/capture/session` run the writer off the event loop and answer within `CAPTURE_ANSWER_S`
+  (2 s, `routers/capture.answer_within`); a write still running then answers `202 {"status": "accepted"}` (bank and
+  `bankId` named, no episode id yet) and finishes on its own — same lock, same find-or-create, same refusals — and the
+  awake read is queued when it lands. Finding a session's episode reads no episode it has read before: a per-bank index
+  (`transcript_capture._SessionIndex`) keeps each file's `session_id` from its frontmatter lines and re-reads only a file
+  whose mtime or size moved (a stat sweep, ~30 ms at 8,700 episodes); a live session's later Stops check only their own
+  file. Before, every new session's first Stop read every episode in full under the capture lock (0.45 s warm, 1.4 s
+  cold at 8,700), serialised across sessions firing together. **A local post that gets no answer** in the hook's 3 s
+  (backend down, hung or starved) logs `no answer (timed out at 3s) … spooled for a later firing` — never `error:` — and
+  its request (the hook's fields: a path, never the transcript's words) waits in the client's spool (`hook_spool`, one
+  entry per session, `route: /capture/transcript`, target the loopback port); a 5xx waits the same way. The session's
+  own next landed firing drops it, and any other session's landed firing sends up to three waiting ones within its 4 s
+  budget (never on SessionEnd); a client's `/capture/session` entries are never sent to the local port. No spool folder
+  is made on a machine where nothing waited. `autosave` in
   `/agents/wiring` stays the Stop hook alone, so an install from before the flush is never shown as broken; `make doctor`
   passes an absent flush with a note and fails only a half-registered or stale one. **The backend reads the transcript**, and
   only after the path resolves under the harness root as `<session_id>.jsonl` within the size cap —
@@ -1828,7 +1843,10 @@ hull, the hull build — is one thing"), its own other names never the page's al
 <project>?", never a page competing with it (measured 2026-10-29 on a copy of the owner's bank: 74 of 160 open
 duplicate questions were a project name with no birth asked against a page). **An organisation/tool alias lead** (G209,
 2026-10-27: a page that lists another page's name as an alias) now meets the judge once before it is asked; only `same`
-or `unsure` asks, a relation is written as above. No call for a lead whose pair the person rejected (never asked again), whose question is already open (bumped, as before) or that this process already judged on the same two page versions (a memo in memory, keyed by bank, pages and their files' modification times — never in a bank): on the bank copy 67 org/tool leads, 24 with an open question, so at most 43 calls in a drain's first batch that meets them all and none in its later batches, where before every batch could re-judge all 67. **The record remembers:** a pair one current claim already relates
+or `unsure` asks, a relation is written as above. Any other verdict (a relation, `different`, a rejected or related pair)
+also proposes removing the alias behind the lead (`wrong_aliases`, a `page_edit` the person applies or leaves —
+`storage.md`): on the bank copy 21 of the 160 open "same?" questions were org/tool alias leads, 14 of them judged two
+things. No call for a lead whose pair the person rejected (never asked again), whose question is already open (bumped, as before) or that this process already judged on the same two page versions (a memo in memory, keyed by bank, pages and their files' modification times — never in a bank): on the bank copy 67 org/tool leads, 24 with an open question, so at most 43 calls in a drain's first batch that meets them all and none in its later batches, where before every batch could re-judge all 67. **The record remembers:** a pair one current claim already relates
 (`entity_relations.known`: those predicates and `uses`, `depends-on`, `runs-on`, `integrates-with`, `implements`,
 `hosts`, `contains`, `contrasts-with`, either page) is never proposed (`ClarificationManager.create`, never a person
 pair) and an alias lead between them makes no call. A public pair the judge could not tell is the web check's
@@ -1895,6 +1913,17 @@ summary and for every relationship); "an explicit link" was any relationship the
   thing — key facts, summary sentences (each standing alone), history entries naming it — moves onto it
   (`move_from_owner`); the owner keeps its relationship claim (the link). A thing the model typed `project` with no D4
   birth is written as the fallback `concept` (ruling 36 D4 still holds). Its decay is the event page's own.
+  **Once the thing holds its application, any conversation's owner lines about it move (2026-10-29).** The move used to
+  run only in a conversation that itself showed the act, so the agent's saved notes, a texted reminder or the person
+  mentioning the event later wrote "<owner>'s application to [[X]] lists …" back onto the owner's page (the vetted
+  re-run found such lines for an event whose page and status already existed). Stage 1 now also moves the owner
+  extraction's lines **about the application** (the act and the paperwork: applied, registered, signed up, enrolled,
+  submitted, the application, the form — `application_page.ABOUT_APPLICATION`) that name a thing whose page holds an
+  open, **not final** status (`value-of-application-status` other than accepted, rejected or attended;
+  `application_page.standing`, read once per page per extraction, only for names the owner's lines mention). The
+  owner's own life never moves: "joined <company>", "started a job at <company>", "lives next to its office" stay on
+  the owner's page whatever the page holds (review of #548). No new status or birth is written without an act, and a
+  thing with no page keeps the lines.
 - **The act's object is the event, never its venue or organiser (2026-10-28, `api/services/act_object.py`).** "I
   signed up for an <event> at the <venue>" gave both "<person> signed up for <event>" and "<person> signed up for
   <venue>", the second shown as the person's own words. After every chunk's spans are located, `act_object.hold`
@@ -2274,7 +2303,9 @@ for every case, measured on the owner's bank copy (numbers in the report, never 
   refuses a pair when a word on one side has no spelling of it on the other, or the numbers differ; spacing, case,
   accents and punctuation never count, a word spelt two ways is one word (`_variant_words`: a 4+ letter prefix, one
   edit at 5+ letters, two at 8+, a plural), and a word hyphen-joined to a shared word is part of its spelling
-  ("browser-use harness" / "browser-harness"). The entity then goes to the judge with the pages it shares a word with
+  ("browser-use harness" / "browser-harness"). The inbox's question dedup asks the same rule since 2026-10-29
+  (`clarification_manager._same_mention`): "<x>stack" / "stack", "GDPR" / "DPR", "G1" / "Go2" are two questions,
+  never one the person answers for both. The entity then goes to the judge with the pages it shares a word with
   (`_existing_llm_candidates` no longer skips such a page as "the direct match's"); an edge endpoint resolves to
   nothing, so its claim is held page-less, never landed on the wrong page (`fuzzy_same`).
 - **Organisations, labs, projects and tools get people's alias lead.** One lab lived on three pages (company, company,
@@ -2290,9 +2321,16 @@ thing; a phrase that only points at it inside one conversation ("the lock", "thi
 demonstrative (English or Spanish) — or, since 2026-10-27, one all-lowercase personal pronoun ("she", "her", "ella";
 "Ella" stays a name). Titles and names keep a capital at least at the start ("La casa de papel", "The
 Economist"), a number makes a name ("The 100", "El 47"), and a possessive ("my mom", "mi mamá") is how the person
-refers to one thing consistently, so none of those is a reference. It is used in ONE place: `apply_changes` drops
-references from the aliases Sleep adds (a create's, and only the new ones of an update); what a page already lists —
-a person's merge records the losing page's name there — stays, and the #249 alias index reads every alias as before. A
+refers to one thing consistently, so none of those is a reference. Since 2026-10-29 it guards **every automatic
+writer of a new alias** through one predicate, `alias_policy.admits`: Sleep's update and create (`apply_changes`), a
+page merge (the loser's aliases and name — "she" reached three person pages through merges that carried the merged
+page's aliases unfiltered), an inbox answer folding a page-less mention, a relation page's nickname, a correspondent's
+or a card's spoken name. Sleep also never adds an alias that is **another live page's own name** by id
+(`alias_policy.names_another_page`, a file check): the two are either one thing — a merge question the shared name
+already raises — or two, and the alias pulled the other's mentions over (284 such aliases sit on the owner's bank
+copy; none is removed — they wait for the merge questions or the fresh consolidation). What a page already lists stays,
+and the #249 alias index reads every alias as before; removing one is the person's edit (`cicada page edit
+--remove-alias`, a pronoun included). A
 real name typed all lowercase and article-led is the accepted false positive: it is only not recorded as a new alias,
 and a lowercase spelling of a page's own name already matches by name. The extraction prompt no longer shows `"the db"`
 as an example alias and says a part, product, dataset, format or version of a thing is not its alias. An alias a page

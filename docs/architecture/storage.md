@@ -148,6 +148,15 @@ an edit through Sleep, in the frontmatter:
 - `aliases_removed: [{alias, by, on}]` (≤ 50) — like `sources_removed`: Sleep's alias merge (`page_edits.keep_aliases`) and a
   page merge (`page_edits.carry_marks`, which also carries both pages' corrections) never add a removed alias back; matched
   case-insensitively with accents kept. Adding the alias by an edit lifts the mark.
+- **An alias that names a different thing (2026-10-29, `wrong_aliases`, G209).** When the record holds two pages as two
+  things — a judge's related/different on their alias lead, a relation claim on either page (`entity_relations.known`),
+  the person's rejection, or a cited check that settled the pair — and one lists the other's name as an alias, Cicada
+  proposes removing it: one `page_edit` item (`origin: wrong_alias`, `proposed_by: cicada`, "Cicada suggests a change to
+  …"), applied or left by the person (G198); applying it goes through the ordinary apply path, so it lands in
+  `aliases_removed`. Leaving it writes `aliases_kept: [alias]` on the page in the same commit, and it is never proposed
+  again; nothing is proposed while one is open or once the alias is gone. Sleep's alias writer
+  (`conflict_resolver._new_aliases`) never adds, as a NEW alias, the name of a page the record holds apart from this one
+  (one `is_file`, then the two pages' claims and the rejection list only when that page exists).
 - `human_edited: true` — set when an edit rewrites the Summary or an Article section whole: the page is the editor's from
   then on, additive-only, as a person's edit of those halves already makes it. The record sections need no mark.
 
@@ -418,8 +427,22 @@ dated statement wins, ruling 26), and one said before it, read after, is closed 
 `past` ("worked at", "interned at") reinforces an open place and never closes it — only the canonical itself, never a
 relative; with none open it is closed history, never a current place. **Order never decides:** a mention said on or before a departure already on
 the page (a "left" claim, or an ending record's own words) is kept as closed history, whatever order the claims are
-read in, and a re-read of a claim the page holds closed (same id, G104) only adds its sources — a page never holds one
+read in — and so, since 2026-10-29, is one said on or before the end of the same belief the page holds as having held
+and ended (`valid_to` after `valid_from`, not withdrawn), however it was closed: an expiry, the person's edit, a newer
+value. Before, only an ending's own words counted, so "enrolled at <school>" read after "graduated" reopened the
+studies (`claim_reconciler._ended_span`; `past_roles_repair` asks the same, `ended_since`). Cost: the departure check
+now runs for every placement, ~0.4 ms p50 / 1.6 ms p95 on the owner page's 7,490-claim slot. A re-read of a claim the page holds closed (same id, G104) only adds its sources — a page never holds one
 id twice. No fold question is raised for an ending. Stage 1's prompt says "works at" means current.
+**A filing label is never anyone's words (owner 2026-10-29).** A record's header lines that file it — `**Folder:**`
+(a bookmark, a note), `**List:**` (a reminder), `**Calendar:**`, `**Database:**` (Notion), `**Tags:**` (Readwise) —
+are `page` in every evidence reader (`evidence.LABEL_FIELDS`, `label_ranges`; `kind_for`, the search snippet), whatever
+the episode's authorship: the person typed the folder name once, to file things, and a span in it is no claim of
+theirs. Only the header Cicada's own writer put above the body counts; the same words typed in the body are the
+person's. `promotion.exchanges` blanks the labels, so a label is no exchange, and Stage 1 marks a name a conversation
+carries **only** in a label (`promotion.label_only`) — Stage 2 drops it as a mention, so a folder is never a
+conversation for the 2+ rule (on the owner's bank copy: 4 pages existed only because folder names counted, one of them a
+`project`, and 59 episode-page pairs counted a folder as a conversation).
+
 **Past roles (2026-10-27, G121):** a person's whole current state has a past tense, not only a job — the seed's
 endings cover `works-on` (endings only — "previously worked on", "no longer works on"…; never "worked on" as a past
 tense: "I worked on alpha-project today" reports ongoing work), `lives-in` ("lived in", "lived at"; over: "moved out

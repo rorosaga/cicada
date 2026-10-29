@@ -8,12 +8,15 @@
 
 **Pick up here (2026-10-22, redesign):** read ruling 36 (the owner's answers D1–D6 to the redesign proposal), then [`feature-status.md`](feature-status.md) for what is building. Branches in flight: `feat/awake-read` (G207), `fix/people-dedup` (G209), `feat/update-sources` (G61); queued: connection model and providers (G217, G50), agent API (G213), app (G217's pages, needs a Mac). **Decided after review (2026-10-22, in ruling 36):** a new install's Auto uses a signed-in plan, a key offered as an equal option; ruling 4c stays and the quick read follows it; G213's API rides the G135 listener; "Where to check" as one grouped inbox review; `rich` + `questionary` approved. Nothing waits on the owner from this ruling. **Ruling 38 (2026-10-23)** decides the follow-ups: `/v1` from the tool table (G213), a capture-only phone (G91), one-way syncs (G219), traces with screenshots (G218).
 
-**Chats (2026-10-28, G179):** WhatsApp live chats in their PR (`feat/chats-live-whatsapp-telegram`; the source-agnostic `chat_live` engine). Telegram under ruling 47a is its own PR (`feat/telegram-live`), one-to-one chats only with the person's per-chat confirmation of the other side's consent (the owner, 2026-10-28, after Telegram's AI terms).
+**Chats (2026-10-28, G179):** WhatsApp live chats in their PR (`feat/chats-live-whatsapp-telegram`; the source-agnostic `chat_live` engine). Telegram under ruling 47a is its own PR (`feat/telegram-live`), one-to-one chats only with the person's per-chat confirmation of the other side's consent (the owner, 2026-10-28, after Telegram's AI terms). 2026-10-29: the connect sheets go one step at a time with a country picker (`feat/connect-sheets-modern`, DESIGN_RULES §9 2026-10-29).
 
 ## Current state and evidence
 
+- **2026-10-29 — the picture is the control (G146, owner; branch `feat/picture-click`).** The blue *Add a picture…* /
+  *Use initials instead* / *Remove picture* words and the "Picture you added" caption under a page's name are gone; a click on the picture offers them
+  (the picker at once when it is the only choice), a page with no picture adds one from its ••• menu.
 - **2026-10-29 — any join can be undone: merge, split, undo (G227 follow-up; branch `feat/merge-split-pages`, after
-  on #546).** Owner: "the separation of entities should mainly happen by talking to an agent" — the agent shows a
+  #546).** Owner: "the separation of entities should mainly happen by talking to an agent" — the agent shows a
   plain-text proposal, splits on the person's yes, merges on "those are the same", undoes on "undo that"
   (`cicada_split_page` / `cicada_merge_pages` / `cicada_undo_join`, named in the handshake and skill); the page menu
   keeps a light Merge and a *Separate with your agent…* hand-off. Untrusted agents and remote apps propose in the inbox. Each is one commit undone from the page's History; a retired id keeps resolving
@@ -27,6 +30,20 @@
   half way no longer "logs out" a session that never existed. **The real friction left is the app id:** no
   `CICADA_TELEGRAM_API_ID` is set on the repo, so a release build has none and every person would have to make their
   own at my.telegram.org — the owner sets it once (`docs/RELEASING.md`).
+- **2026-10-29 — capture answers in time (G105, ruling 7; branch `fix/capture-post-latency`).** The Stop hook's
+  `error: TimeoutError` lines (32 of the owner's last ~340 firings) were captures that landed late: a new session's
+  first Stop read all ~8,700 episodes under the capture lock, serialised across sessions. Now an index finds the
+  episode, `/capture/transcript` and `/capture/session` answer within 2 s (`202 accepted` past it, the write finishing
+  on its own), and a local post with no answer logs `no answer`, waits in the spool and is sent by a later firing.
+  Reproduced on a scratch copy under load: route p99 10.96 s → 2.01 s, hook firing p95 3.12 s → 0.88 s, timeouts
+  22/126 → 0/147.
+- **2026-10-29 — session-1 follow-ups (G209/G21, G228, G212; branch `feat/session1-followups`).** The alias behind a
+  "same as?" lead is the cause: when the record holds a pair as two things, Cicada proposes removing that alias as a
+  `page_edit` (the person applies or leaves it; a kept alias is never proposed again), Sleep never adds a page-held-apart
+  name as an alias, and Stage 1's prompt says so (21 of 160 open "same?" were org/tool alias leads, 14 of them judged two
+  things). The person's own agent settles a public pair with a relation through Sleep's own writer. The Agents page draws
+  way notes (T3 Code's managed Codex sign-in: not captured) and T3 Code's own mark. **Owner ruling 2026-10-29 "Yes, one
+  click":** Settings → Devices runs exactly the shown tailnet `tailscale serve` (and that mapping's off), never funnel/up.
 - **2026-10-29 — seamless, secure devices (G212; branch `feat/seamless-devices`, cicada-app `feat/seamless-devices`).**
   Settings → Devices guides the Mac onto the person's own tailnet (the next step and the command to copy; Cicada never
   runs it) and checks the served address the way a phone would; a phone's token is bound to a Secure-Enclave key
@@ -42,6 +59,13 @@
   Code's database; `npx t3` goes unlabelled. T3 Chat documents no MCP
   connector, so it is not listed. Stop firing p95 within spread (57.3 → 57.7 ms). Unverified against a live T3 Code; Codex under T3
   Code's managed sign-in is not captured (Needs the owner on the G228 row).
+- **2026-10-29 — live class guards (G194, G169, G118; branch `feat/bank-repair-apply`).** The owner dropped the
+  bespoke repair tooling ("apply fixes that make them generalizable"); the six vetted classes are closed in the live
+  path instead: a belief that held and ended is never reopened by an older mention (`claim_reconciler._ended_span`);
+  a filing label is `page` and no mention (`evidence.LABEL_FIELDS`, `promotion.label_only`); every alias writer asks
+  `alias_policy.admits` and Sleep adds no other page's name; an in-flight application on record takes the owner's lines about it from
+  any conversation (`application_page.standing`); the inbox dedup asks `distinct_names`. Saved-link words (#515) and
+  the near-name join (#491) were already closed on dev. Nothing applied to the bank.
 - **2026-10-29 — chat exports findable (CIC8, G64; branch `feat/chat-exports-obvious`).** Every door to a chat export
   opens the one intake (Sources' header *Import chats or files* and its Chat exports entry, Agents' *Import its chat
   export*, a ⇧⌘I palette action Home's field finds by "chatgpt"/"chat export", the walkthrough's *I have the file…*);
@@ -1055,6 +1079,14 @@ A whole row moves to DONE only after its remaining implementation and required a
    short-circuit makes per-turn firing idempotent. Revisit only if `capture.log` starts showing
    timeout `error:` lines (the hook's 3 s budget, `TIMEOUT_S` in `api/hooks/capture.py`) on the live
    bank — the hook logs no timing, so a blown budget surfaces as an `error:` line, not a latency figure.
+   **Trigger fired and answered (2026-10-29, `fix/capture-post-latency`):** 32 of the last ~340 Stop
+   firings logged `error: TimeoutError`; the cause was the backend's answer, not the trigger — every new
+   session's first Stop read every episode under the capture lock, and a long transcript read while other
+   sessions, a notes sweep or Sleep shared the process ran past 3 s. The route now answers within 2 s
+   (`202 accepted` when the write runs longer; it finishes on its own) and finds a session's episode from an
+   index; under the reproduced load the hook went from 22/126 timeouts (p95 3.12 s) to 0/147 (p95 0.88 s).
+   Stop stays the trigger. The signal is now a Stop `no answer` line (spooled, sent by a later firing) and
+   the `in <n>ms` on every answered line — a latency figure at last.
 8. **The Sleep page shows the ACTIVE stage, and there is one translation** (Track Z R-Z14). The
    wire's `stage` counts completed stages (`sleep_cycle.py` sets 1 only after Stage 1 returns);
    three derivations clamped it without adding one, so the worm, the bracket line and VoiceOver

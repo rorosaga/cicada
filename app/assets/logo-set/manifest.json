@@ -1,6 +1,6 @@
 {
  "generated": "2026-10-26",
- "count": 45,
+ "count": 46,
  "needs_a_mac": [
   "Calendar",
   "Contacts",
@@ -952,6 +952,27 @@
    "license": "Vendor’s own published asset; no licence beyond nominative use",
    "trademark": "Trademark of Tailscale Inc.; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
    "note": null
+  },
+  {
+   "slug": "t3",
+   "group": "agent",
+   "file": "t3.svg",
+   "format": "svg",
+   "pixels": null,
+   "meets_bar": true,
+   "source_tier": "official GitHub assets",
+   "source_url": "https://raw.githubusercontent.com/pingdotgg/t3code/3748c5c241a2740f2e0856e2c2a3f9d8ee7ff8e9/assets/prod/logo.svg",
+   "fetched": "2026-10-29",
+   "sha256": "fbceddbceeb75136fb8e2c702cf0fe459d153b629abbda6262a63d7c4c65e673",
+   "umbrella": "T3 Code",
+   "sub_products": [
+    "T3 Code"
+   ],
+   "dark_variant": null,
+   "replaces_bundled": [],
+   "license": "MIT (T3 Tools Inc., the repository's LICENSE at the pinned commit); the mark stays its owner's trademark",
+   "trademark": "Trademark of T3 Tools Inc.; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
+   "note": "G228 follow-up: the vendor's own repository, pinned to a commit."
   }
  ]
 }

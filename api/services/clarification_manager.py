@@ -277,8 +277,13 @@ def _same_mention(left: str, right: str) -> bool:
         return False
     if left == right:
         return True
+    # 2026-10-29: the one fuzzy rule (`entity_resolver.fuzzy_same`): two names a ratio joins that differ by a word, a
+    # letter-prefix ("<x>stack" / "stack"), an acronym ("GDPR" / "DPR") or a model number ("G1" / "Go2") are two
+    # things, and their questions are two questions — never folded into one the person answers for both.
+    from api.services.entity_resolver import distinct_names
+
     if fuzz.ratio(left, right) > 85:
-        return True
+        return not distinct_names(left, right)
     left_tokens = _mention_tokens(left)
     right_tokens = _mention_tokens(right)
     if not left_tokens or not right_tokens:

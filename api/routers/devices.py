@@ -274,3 +274,31 @@ async def device_reach(request: Request, check: bool = False, settings: Settings
         answer["check"] = await run_in_threadpool(
             lambda: reach.self_check(answer["url"], version=request.app.version, bank_id=_active_bank_id(settings)))
     return answer
+
+
+class ReachServeBody(BaseModel):
+    #: ``serve`` (the ``serve`` step's command) or ``stop`` (the ``ready`` step's ``stopCommand``). Never an argv.
+    action: str
+
+
+@router.post("/devices/reach/serve")
+async def device_reach_serve(body: ReachServeBody, request: Request, settings: Settings = Depends(get_settings)):
+    """The person's click (owner 2026-10-29, "Yes, one click"; the dated amendment to G132 (c)): run exactly the
+    command the guide showed — ``tailscale serve --bg --https=8443 <port>`` on the ``serve`` step, or that one
+    mapping's off on ``ready`` — then answer the fresh guide, checked the way a phone would. The argv is built by
+    ``reach.run_serve`` from this backend's own port and the person's own ServeConfig, never from the request; never
+    ``funnel`` or ``up``; 10 s cap. ``{ok, message, ran, reach}``; a step with nothing to run answers ``ok: false``
+    with the sentence and runs nothing. Master token (under ``/devices``)."""
+    from api.remote import reach
+    from api.routers.status import _active_bank_id
+
+    action = str(body.action or "").strip().lower()
+    if action not in reach.SERVE_ACTIONS:
+        raise HTTPException(status_code=422, detail="action must be 'serve' or 'stop'.")
+    result = await run_in_threadpool(reach.run_serve, action, settings.port)
+    answer = dict(result.pop("guide"))
+    answer["check"] = None
+    if result["ok"] and answer.get("url"):
+        answer["check"] = await run_in_threadpool(
+            lambda: reach.self_check(answer["url"], version=request.app.version, bank_id=_active_bank_id(settings)))
+    return {**result, "reach": answer}

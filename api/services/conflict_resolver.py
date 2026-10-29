@@ -15,6 +15,7 @@ from api.models.schemas import DecayClass
 from api.services import (
     alias_policy, decay_policy, decay_tuning, engine_errors, entity_article, entity_body, entity_types, episode_time,
     fact_sources, json_parse, markdown_parser, page_edits, project_birth, role_people, section_provenance, source_dates,
+    wrong_aliases,
 )
 from api.services.providers import resolve_llm_fn
 
@@ -707,6 +708,14 @@ async def _overlap_pages(jobs: list, run, *, concurrency: int, cancel_check=None
     return results
 
 
+def _new_aliases(memory_path, page_id: str, aliases) -> list[str]:
+    """Sleep's NEW aliases for a page: no reference (`alias_policy`), and never the name of another page the record
+    already holds as a different or related thing (`wrong_aliases.names_other_thing`, 2026-10-29) — that name is
+    the other thing's, and an alias of it would raise "same as?" between the two on every batch."""
+    return [a for a in alias_policy.keep(aliases)
+            if not wrong_aliases.names_other_thing(memory_path, page_id, a)]
+
+
 def apply_changes(changes: list[dict], memory_path) -> None:
     """Write entity changes to disk."""
     entities_dir = memory_path / "entities"
@@ -765,7 +774,7 @@ def apply_changes(changes: list[dict], memory_path) -> None:
                 "tags": entity.get("tags", []) or [],
                 # A reference ("the lock", "my app") is not a name: kept, it would draw this page to every judge
                 # call those common words recur in (`alias_policy`).
-                "aliases": alias_policy.keep(entity.get("aliases", []) or []),
+                "aliases": _new_aliases(memory_path, entity_id, entity.get("aliases", []) or []),
                 "related": [],
                 "version": 1,
                 "layout_version": 2,
@@ -901,7 +910,9 @@ def apply_changes(changes: list[dict], memory_path) -> None:
 
             # Merge new aliases
             # Only Sleep's NEW aliases are filtered: what the page already lists (a hand-added one too) stays.
-            new_aliases = alias_policy.keep(new_entity.get("aliases", []) or [])
+            new_aliases = _new_aliases(memory_path, entity_id, new_entity.get("aliases", []) or [])
+            # 2026-10-29: never another live page's own name (a crossed alias; `alias_policy.names_another_page`).
+            new_aliases = [a for a in new_aliases if not alias_policy.names_another_page(a, entity_id, entities_dir)]
             # G198: an alias an edit removed stays removed (`aliases_removed`, like `sources_removed`).
             new_aliases = page_edits.keep_aliases(parsed.frontmatter, new_aliases)
             if new_aliases or parsed.frontmatter.get("aliases"):

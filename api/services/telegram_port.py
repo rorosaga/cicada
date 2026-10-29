@@ -85,6 +85,14 @@ class TgEvent:
 
 
 @dataclass
+class TgSentCode:
+    """What asking for a login code answers: the hash ``sign_in`` needs and how many digits the code Telegram sent has
+    (``sent.type.length``; ``None`` when the delivery kind has no length, e.g. a flash call)."""
+    hash: str
+    length: int | None = None
+
+
+@dataclass
 class TgQr:
     """A sign-in QR: the ``tg://login`` link the person's phone scans and how long Telegram keeps it (seconds, measured
     on Telegram's clock — a Mac whose clock is off never shortens it). ``signed_in``: asking for a new token found the
@@ -97,7 +105,7 @@ class TgQr:
 class TelegramPort(Protocol):
     async def qr_start(self) -> TgQr: ...
     async def qr_wait(self, timeout: float) -> bool: ...
-    async def send_code(self, phone: str) -> str: ...
+    async def send_code(self, phone: str) -> TgSentCode | str: ...
     async def sign_in(self, phone: str, code: str, code_hash: str) -> None: ...
     async def sign_in_password(self, password: str) -> None: ...
     async def authorized(self) -> bool: ...
@@ -244,7 +252,8 @@ class TelethonPort:  # pragma: no cover — the real network adapter; every call
         except errors.FloodWaitError as exc:
             raise TelegramError(f"Telegram asked to wait {exc.seconds} seconds before another code.") from exc
         self._phone = phone
-        return sent.phone_code_hash
+        length = getattr(getattr(sent, "type", None), "length", None)
+        return TgSentCode(hash=sent.phone_code_hash, length=length if isinstance(length, int) and length > 0 else None)
 
     async def sign_in(self, phone: str, code: str, code_hash: str) -> None:
         from telethon import errors

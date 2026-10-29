@@ -393,6 +393,15 @@ struct EntityDetailCard: View {
         Menu {
             Button(Copy.Pages.addLink) { addingLink = true }
             Button(Copy.Pages.addLook) { addingLook = true }
+            // Owner 2026-10-29: a drawn picture is its own control; a page that draws none (2026-10-28) is given one here,
+            // never an empty spot or blue words under its name.
+            if PictureActions.canEdit(entity.type),
+               EntityPictureLayout.isEmpty(entity.type, picture: store.picture(for: entity.id, held: entity.pictureRef)) {
+                Button(Copy.People.addPicture) {
+                    PictureActions.change(id: entity.id, name: entity.name, type: entity.type, store: store,
+                                          inputs: store.pictureInputs(for: entity.id, held: entity.pictureInputs))
+                }
+            }
             Divider()
             Button(Copy.PageJoin.mergeMenu) { merging = true }
             Button(Copy.PageJoin.separateMenu) { SeparateHandOff.copy(id: entity.id, name: entity.name, store: store) }

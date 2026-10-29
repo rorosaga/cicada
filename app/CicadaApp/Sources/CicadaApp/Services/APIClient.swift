@@ -3756,6 +3756,12 @@ actor APIClient {
         try await get(check ? "/devices/reach?check=true" : "/devices/reach", timeout: Self.refreshTimeout)
     }
 
+    /// `POST /devices/reach/serve` (owner 2026-10-29, "Yes, one click"): `serve` runs the `serve` step's command,
+    /// `stop` the `ready` step's off. Only the action is sent; the backend builds the command it showed.
+    func runDeviceReach(_ action: DeviceReachAction) async throws -> DeviceReachServe {
+        try await post("/devices/reach/serve", body: ["action": action.rawValue])
+    }
+
     func pairingState(_ id: String) async throws -> PairingAnswer {
         try await get("/devices/pairing/\(encodedID(id))", timeout: Self.refreshTimeout)
     }

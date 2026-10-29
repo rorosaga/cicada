@@ -541,6 +541,7 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "DELETE /devices/pairing/{pairing_id}": (OUTSIDE, None),
     "POST /pair": (OUTSIDE, None),
     "POST /devices/me/key": (OUTSIDE, None),   # 2026-10-29: a device binds its own key, in $CICADA_HOME
+    "POST /devices/reach/serve": (OUTSIDE, None),   # 2026-10-29: the person's click runs one tailnet serve, no bank
     "POST /devices": (OUTSIDE, None),
     "DELETE /devices/{device_id}": (OUTSIDE, None),
     "POST /capture/hook-context": (OUTSIDE, None),   # G110: may refresh the continuity index in $CICADA_HOME

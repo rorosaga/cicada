@@ -29,6 +29,7 @@ the human-protection rule must be deterministic and auditable.
 
 from __future__ import annotations
 
+import dataclasses
 from datetime import date, datetime
 from typing import Callable
 
@@ -669,15 +670,45 @@ def _departed_on(new: Claim, slot: list[Claim], over: set[str], untimed=frozense
     record) — so the order claims are read in never decides the belief: a re-read of the older conversation, an
     older mention read after the departure, or "left" listed before "works at" in one extraction."""
     days = []
+    target = _norm_object(new.object)
     for c in slot:
-        if c is new or c.subject != new.subject or not same_object(c, new) or is_event(c) or is_record(c):
+        # Cheapest tests first: on the owner's page this runs over thousands of claims per placement.
+        if c is new or (not over and c.valid_to is None) or c.subject != new.subject \
+                or _norm_object(c.object) != target or is_event(c) or is_record(c):
             continue
-        said_label = predicates._slugify_predicate(c.predicate) in over or (
-            c.predicate in (new.predicate, canonical) and c.valid_to is not None and _says_any(c.text, over))
+        said_label = bool(over) and (predicates._slugify_predicate(c.predicate) in over or (
+            c.predicate in (new.predicate, canonical) and c.valid_to is not None and _says_any(c.text, over)))
         if said_label:
             days.append(_said(c, untimed) or c.valid_from)
+        elif _ended_span(c, new, canonical, slot):
+            # 2026-10-29 (the vetted past-roles re-run): a belief on this page that HELD and then ENDED — closed by
+            # an expiry, the person's edit, a newer value or an ending read earlier — is a departure on the day it
+            # ended, whatever words closed it. Without this only an ending's own words counted, so an older mention
+            # read after the close ("enrolled at <school>", read after "graduated") reopened what had finished.
+            days.append(c.valid_to)
     days = [str(d)[:10] for d in days if d]
     return max(days) if days else None
+
+
+def _ended_span(c: Claim, new: Claim, canonical: str | None, slot: list[Claim]) -> bool:
+    """``c`` is the same belief as ``new`` (its predicate, or the canonical a start or ending folds into) and it held
+    for a while and then ended: closed with ``valid_to`` after ``valid_from``, and not withdrawn (a retraction says it
+    was never true, which ends nothing). A born-closed record (``valid_to == valid_from``: "worked at", an ending's own
+    record) is left to the label rule above."""
+    if c.predicate not in (new.predicate, canonical) or c.valid_to is None or _withdrawn(c, slot):
+        return False
+    return _date_key(c.valid_to) > _date_key(c.valid_from)
+
+
+def ended_since(c: Claim, page_claims: list[Claim], predicate: str, said: str | None) -> bool:
+    """Has the belief ``c`` would state (``predicate`` about ``c``'s object) held and ended on this page on or after
+    ``said``? The live reconciler's departure rule (:func:`_ended_span`), for a reader that is not placing a claim
+    (`past_roles_repair`): a start said before the end it would reopen is history."""
+    probe = dataclasses.replace(c, predicate=predicate)
+    day = str(said or c.valid_from or "")[:10]
+    return any(o is not c and o.subject == c.subject and same_object(o, c) and not is_event(o) and not is_record(o)
+               and _ended_span(o, probe, predicate, page_claims) and day <= str(o.valid_to)[:10]
+               for o in page_claims)
 
 
 def _says_any(text: str, labels: set[str]) -> bool:
@@ -694,14 +725,15 @@ def _place_claim(new: Claim, slot: list[Claim], settings, today: str, cardinalit
     ask about, or rejected).
 
     ``over`` — the labels that end ``new``'s predicate: a mention said on or before a departure already on the page
-    is kept as closed history, never reopened (2026-10-14 review). A claim whose id the page already holds closed, read
+    is kept as closed history, never reopened (2026-10-14 review) — and so is one said on or before the end of the same
+    belief the page holds as having held and ended, however it was closed (:func:`_ended_span`, 2026-10-29). A claim whose id the page already holds closed, read
     again from a conversation that claim already cites (G104), stays closed: a re-read never undoes a close, and never
     doubles an id. A withdrawn claim restated is a fresh assertion (``cicada_retract_claim``'s rule), as before."""
     twin = _reread_twin(new, slot)
     if twin is not None:
         _merge_episodes(twin, new)
         return twin
-    if over and not is_human(new):
+    if not is_human(new):
         departed = _departed_on(new, slot, over, untimed, canonical)
         said = str(_said(new, untimed) or new.valid_from or today)[:10]
         if departed is not None and said <= departed:

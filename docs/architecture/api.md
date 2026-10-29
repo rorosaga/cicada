@@ -306,8 +306,13 @@ party: no relay, no account, no public port (the T3-Connect comparison is in the
   --https=8443 <port>`, or `tailscale funnel --https=<p> off` for a funnelled backend port); `url` only at `ready`, from
   the ServeConfig read `tailnet_backend` already makes. `check=true` fetches this machine's own served `/healthz` the
   way a phone would — no token, no redirect, no proxy env, 3 s (`reach.self_check`) — and answers `{ok, failed, ms}`,
-  `failed` one of `dns, overlay, backend, not-cicada, other-cicada` (version and memory id compared). Cicada runs no
-  `up`, `serve` or `funnel`. Not a Store domain, no ETag.
+  `failed` one of `dns, overlay, backend, not-cicada, other-cicada` (version and memory id compared). At `ready` it also
+  carries `stopCommand` (`tailscale serve --https=<that mapping's port> off`). Not a Store domain, no ETag.
+- **One click: `POST /devices/reach/serve {action: serve|stop}`** (master token; owner 2026-10-29, "Yes, one click").
+  Runs exactly the guide's `command` on the `serve` step or its `stopCommand` on `ready` (`reach.run_serve`: argv built
+  from the backend's port and the ServeConfig, never from the body; argv only; 10 s; stdin closed), then answers
+  `{ok, message, ran, reach}` — `reach` the fresh guide, checked when served. Any other step runs nothing and answers
+  `ok: false` with the sentence; an unknown action is 422. Never `up` or `funnel`. Write admission: outside every bank.
 - **Cost (measured 2026-10-29, TestClient in process, synthetic bank, N = 300 each, p95):** the proof verify alone
   0.06 ms; the device store's verify 0.98 → 0.57 ms (its DDL now runs once per process, not per request); a phone's
   `POST /capture/note` 5.62 ms before, 4.79 unbound, 5.44 bound; `GET /capture/mine` 4.76 / 3.92 / 4.94; a client's

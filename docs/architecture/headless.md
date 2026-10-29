@@ -221,11 +221,13 @@ run dir, never the scratch backend's environment; `cv cleanup` deletes the file 
 app's QR) shows a one-time code; the device trades it once at `POST /pair` for its own token — a phone's is
 capture-only (`api.md`, "A phone is capture-only"). The QR names this machine's tailnet address for the backend only
 when the person already serves the backend port to their tailnet themselves, e.g. `tailscale serve --bg --https=8443
-8000` — tailnet only, never funnel; the backend still binds 127.0.0.1 and Cicada runs no tunnel command.
+8000` — tailnet only, never funnel; the backend still binds 127.0.0.1 and Cicada runs no tunnel command except that
+one serve and its off, on the person's click (below).
 
 **Guided, checked and key-bound (G212, 2026-10-29).** Settings → Devices reads the overlay's state (`GET
 /devices/reach`: Tailscale missing, not running, signed out, off, serving or funnelled) and shows the one next step,
-the serve as a command to copy; *Check again* fetches the served address the way a phone would and names the step that
+the serve as a command to copy — and, since the owner's "Yes, one click" (2026-10-29, `network.md`), *Run it for me*
+runs exactly that command and *Stop serving* that one mapping's off, never a funnel; *Check again* fetches the served address the way a phone would and names the step that
 failed (the name, the overlay, the backend, something else answering). A phone pairs with a proof of its Secure-Enclave
 key, so its token is useless off the phone (`api.md`, "Key-bound device tokens"). A computer client stays unbound for
 now: its hooks, MCP server and CLI share one token and the hooks are stdlib-only, so none of them can sign yet.

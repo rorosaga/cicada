@@ -195,6 +195,9 @@ enum AgentProducts {
         let wayId: String
         let name: String
         let connects: [String]
+        /// The way's one honest sentence (`Way.note`): how it connects, or what it does not capture (G228's managed
+        /// Codex sign-in). Drawn under its line; on the local line only, never repeated on a remote one.
+        var note: String? = nil
     }
 
     static let remoteConnects: Set<String> = ["remote", "export"]
@@ -212,13 +215,14 @@ enum AgentProducts {
 
     static func lines(_ ways: [ProviderWay]) -> [Line] {
         ways.flatMap { way -> [Line] in
+            let note = way.note.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
             guard let remote = way.remoteLabel, !remote.isEmpty else {
-                return [Line(id: way.id, wayId: way.id, name: way.label, connects: way.connects)]
+                return [Line(id: way.id, wayId: way.id, name: way.label, connects: way.connects, note: note)]
             }
             let here = way.connects.filter { !remoteConnects.contains($0) }
             let there = way.connects.filter { remoteConnects.contains($0) }
             var out: [Line] = []
-            if !here.isEmpty { out.append(Line(id: way.id, wayId: way.id, name: way.label, connects: here)) }
+            if !here.isEmpty { out.append(Line(id: way.id, wayId: way.id, name: way.label, connects: here, note: note)) }
             if !there.isEmpty { out.append(Line(id: "\(way.id)#remote", wayId: way.id, name: remote, connects: there)) }
             return out
         }
@@ -278,7 +282,18 @@ private struct AgentDetailColumn: View {
                             if index > 0 { SettingsDivider() }
                             ConnectionLine(logo: AgentSummary.mark(line.wayId), name: line.name, systemFallback: "terminal",
                                            detail: line.connects.compactMap(Copy.AgentsPage.connectsWord)
-                                               .joined(separator: " · ")) { EmptyView() }
+                                               .joined(separator: " · "),
+                                           trailing: { EmptyView() },
+                                           below: {
+                                               // G228 follow-up: the way's own sentence in ConnectionLine's slot
+                                               // under the row (G217's one line; DR-34), secondary ink.
+                                               if let note = line.note {
+                                                   Text(note)
+                                                       .font(CicadaTheme.captionFont)
+                                                       .foregroundStyle(CicadaTheme.textSecondary)
+                                                       .fixedSize(horizontal: false, vertical: true)
+                                               }
+                                           })
                         }
                     }
                     .settingsCardSurface()

@@ -156,6 +156,77 @@ async def capture_telegram(
     return result
 
 
+#: How long a session-capture route waits for its writer before it answers ``202 accepted`` and lets the write finish
+#: on its own (2026-10-29). The Stop hook gives up after ``TIMEOUT_S`` (3 s); a capture is usually done in well under a
+#: second, but a long transcript read while other sessions, a notes sweep or Sleep share the process took 3-9 s, and
+#: the hook then logged an error for a capture that landed a moment later. The writer is the same either way — same
+#: lock, same find-or-create, same refusals — only the answer stops waiting for it.
+CAPTURE_ANSWER_S = 2.0
+#: Writes that outlived their answer, held so the event loop keeps a reference until they finish.
+_LATE_WRITES: set = set()
+
+
+async def answer_within(work, landed, budget: float | None = None):
+    """Run ``work`` (blocking) off the event loop; its result when it finishes within ``budget`` seconds, else ``None``
+    — and then, when it does finish, ``landed(result)`` runs on the loop for a write that was not refused (the step a
+    route takes after a write: the awake read's queue). Never cancels the write: a request the client dropped still
+    finishes, and so does one that answered ``accepted``."""
+    budget = CAPTURE_ANSWER_S if budget is None else budget
+    task = asyncio.ensure_future(asyncio.to_thread(work))
+
+    def late(t: asyncio.Task) -> None:
+        _LATE_WRITES.discard(t)
+        if t.cancelled():
+            return
+        exc = t.exception()
+        if exc is not None:
+            logger.warning(f"capture: a write that answered accepted failed: {type(exc).__name__}")
+            return
+        result = t.result()
+        if result.status == "refused":
+            logger.info(f"capture: a write that answered accepted was refused: {result.reason}")
+            return
+        try:
+            landed(result)
+        except Exception as e:  # noqa: BLE001 - the write is done; what follows it never takes it back
+            logger.warning(f"capture: after a late write: {type(e).__name__}")
+
+    try:
+        done, _ = await asyncio.wait({task}, timeout=budget)
+    except asyncio.CancelledError:
+        _LATE_WRITES.add(task)
+        task.add_done_callback(late)
+        raise
+    if task in done:
+        return task.result()
+    _LATE_WRITES.add(task)
+    task.add_done_callback(late)
+    return None
+
+
+def _after_write(memory_path, target, req, settings):
+    """What a session-capture route does once its writer returned a write that was not refused — at once, or later
+    for one that answered ``accepted``: name a demo redirect in the log and queue the awake read."""
+    def landed(result) -> None:
+        if target is not None and target.redirected_from:
+            logger.info(f"capture: the demo bank is open — saved the {req.harness} session into '{target.name}'")
+        awake_read.after_capture(memory_path, result.episode_id, status=result.status, settings=settings,
+                                 hook_event=req.hook_event)
+    return landed
+
+
+def accepted(*, bank: str | None, redirected_from: str | None, bank_id: str | None = None):
+    """``202``: the capture is being written and was not done within :data:`CAPTURE_ANSWER_S`. Nothing is lost by not
+    waiting — the next Stop re-sends the whole session and is idempotent."""
+    from fastapi.responses import JSONResponse
+
+    body = {"status": "accepted", "episodeId": None, "turnsUser": None, "turnsAssistant": None, "summary": None,
+            "bank": bank, "redirectedFrom": redirected_from}
+    if bank_id is not None:
+        body["bankId"] = bank_id
+    return JSONResponse(status_code=202, content=body)
+
+
 class TranscriptCaptureRequest(BaseModel):
     """What the Stop hook forwards — harness stdin plus D2's git observation.
     Snake_case on purpose: the sender is a stdlib
@@ -225,15 +296,16 @@ async def capture_transcript_endpoint(
             bank_paths=continuity_sessions.bank_paths_for(settings.memory_root),
         )
 
-    result = await asyncio.to_thread(_capture)
+    _landed = _after_write(memory_path, target, req, settings)
+    result = await answer_within(_capture, _landed)
+    if result is None:
+        return accepted(bank=target.name if target is not None else None,
+                        redirected_from=target.redirected_from if target is not None else None)
     if target is None or result.status == "refused":
         if target is None or result.reason == "demo_bank":
             raise HTTPException(status_code=409, detail=demo_guard.HOOK_REFUSAL)
         raise HTTPException(status_code=400, detail=result.reason)
-    if target.redirected_from:
-        logger.info(f"capture: the demo bank is open — saved the {req.harness} session into '{target.name}'")
-    awake_read.after_capture(memory_path, result.episode_id, status=result.status, settings=settings,
-                             hook_event=req.hook_event)
+    _landed(result)
     return {
         "status": result.status,
         "episodeId": result.episode_id,
@@ -308,15 +380,16 @@ async def capture_session_endpoint(req: SessionCaptureRequest, request: Request,
             device=device.id if device is not None else None, utc_offset_minutes=req.utc_offset_minutes,
             host=req.host)
 
-    result = await asyncio.to_thread(_capture)
+    _landed = _after_write(memory_path, target, req, settings)
+    result = await answer_within(_capture, _landed)
+    if result is None:
+        return accepted(bank=target.name if target is not None else None, bank_id=filed,
+                        redirected_from=target.redirected_from if target is not None else None)
     if target is None or result.status == "refused":
         if target is None or result.reason == "demo_bank":
             raise HTTPException(status_code=409, detail=demo_guard.HOOK_REFUSAL)
         raise HTTPException(status_code=400, detail=result.reason)
-    if target.redirected_from:
-        logger.info(f"capture: the demo bank is open — saved the {req.harness} session into '{target.name}'")
-    awake_read.after_capture(memory_path, result.episode_id, status=result.status, settings=settings,
-                             hook_event=req.hook_event)
+    _landed(result)
     return {"status": result.status, "episodeId": result.episode_id, "turnsUser": result.turns_user,
             "turnsAssistant": result.turns_assistant, "summary": result.summary, "bank": target.name,
             "bankId": filed, "redirectedFrom": target.redirected_from}

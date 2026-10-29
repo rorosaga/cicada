@@ -15,7 +15,8 @@ from thefuzz import fuzz
 from api.config import Settings
 from api.services import (agent_engine, alias_policy, application_page, authorship, contact_identity, contacts_local, correspondents, engine_errors,
                           entity_body, entity_relations, entity_types, fact_policy, json_parse, owner_identity, people_directory, person_leads,
-                          project_birth, promotion, quiet_pages, role_people, section_provenance, text_fold)
+                          project_birth, promotion, quiet_pages, role_people, section_provenance, text_fold,
+                          wrong_aliases)
 from api.services.clarification_manager import (
     CONFIDENCE_THRESHOLD,
     ClarificationManager,
@@ -214,6 +215,11 @@ async def resolve(
                 continue
             if agent_engine.is_runtime_path(name):
                 logger.debug("Stage 2: dropped an entity named for the engine runtime path")
+                continue
+            if entity.pop(promotion.LABEL_ONLY, False):
+                # Owner 2026-10-29: a name the conversation carries only as a filing label (a bookmark's folder, a
+                # reminder's list) is no mention: never a conversation for the 2+ rule, never a held line.
+                logger.debug("Stage 2: dropped a name only a filing label carried")
                 continue
             # A texted person saved under a relation ("Mom") is `role_people`'s: one relation page, a person already.
             if (correspondents.from_mark(entity.get(correspondents.MARK)) is not None
@@ -532,10 +538,19 @@ async def resolve(
                                                             gate=lookahead.gate if lookahead is not None else None)
                                 if verdict not in ("same", "unsure"):
                                     relation = entity_relations.relation_of(verdict)
-                                    if relation is not None and entity_relations.plausible(
-                                            relation, person_leads.page_name(family.by_id.get(lead.page) or {}),
-                                            person_leads.page_name(family.by_id.get(lead.holder) or {})):
+                                    b_name = person_leads.page_name(family.by_id.get(lead.page) or {})
+                                    a_name = person_leads.page_name(family.by_id.get(lead.holder) or {})
+                                    plausible = relation is not None and entity_relations.plausible(
+                                        relation, b_name, a_name)
+                                    if plausible:
                                         lead_relations.append(_lead_relation(lead, family, verdict, entity))
+                                    if lead.kind == "alias" and settings.memory_path is not None:
+                                        # The alias that made two things look like one is the cause: Cicada
+                                        # proposes removing it (`wrong_aliases`, the person applies or leaves it).
+                                        why = (entity_relations.phrase(relation, b_name, a_name) + "."
+                                               if plausible else f"{b_name} and {a_name} are different things.")
+                                        pending_actions.append((wrong_aliases.propose, (
+                                            settings.memory_path, lead.holder, b_name or lead.key, why), {}))
                                     continue
                             pending_actions.append((_create_lead_clarification, (),
                                                     {"clarifier": clarifier, "lead": lead, "index": family,
@@ -944,7 +959,7 @@ def _resolve_correspondents(
                        or any(linked(str(e.get("name") or "")) for e in group))
             if promote:
                 entity = {**best, "name": ident.name, "type": ident.page_type}
-                if str(best.get("name") or "") != ident.name:
+                if str(best.get("name") or "") != ident.name and alias_policy.admits(best.get("name")):
                     entity["aliases"] = [*(best.get("aliases") or []), best.get("name")]
                 creates_by_id[page_id] = {
                     "id": page_id,
@@ -1175,7 +1190,8 @@ def _card_entity(entity: dict, card: dict) -> dict:
     name = contacts_local.card_name(card)
     aliases = [a for a in entity.get("aliases") or [] if a]
     said = str(entity.get("name") or "")
-    if said and people_directory.fold(said) != people_directory.fold(name) and said not in aliases:
+    if said and people_directory.fold(said) != people_directory.fold(name) and said not in aliases \
+            and alias_policy.admits(said):
         aliases.append(said)
     aliases = [a for a in aliases if people_directory.fold(a) != people_directory.fold(name)]
     return {**entity, "name": name, "aliases": aliases}

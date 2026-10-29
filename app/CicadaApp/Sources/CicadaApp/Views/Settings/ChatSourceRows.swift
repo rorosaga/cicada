@@ -13,7 +13,11 @@ import SwiftUI
 /// Telegram on their phone (Settings → Devices → Link Desktop Device), nothing typed but a two-step password; "Use a
 /// phone number instead" (a `TextButton`, DR-40) keeps number → code. The QR is a picture inside the same sheet, drawn
 /// dark on light whatever the appearance (a scanner needs it), on a `cornerRadiusSmall` tile with the resting ring
-/// (DR-9: depth is a ring, never a shadow); its words sit beside it, never on it (DR-13).
+/// (DR-9: depth is a ring, never a shadow); its words sit under it, never on it (DR-13).
+///
+/// Owner 2026-10-29 — "more modern and minimal, with the country codes": the sheet follows the connect sheets' one
+/// shape (`ConnectSheet.swift`, DESIGN_RULES §9 2026-10-29) — one step and one primary at a time, no Done until
+/// connected, the facts in one line plus "What Cicada reads", a country picker and a five-cell code.
 
 // MARK: - WhatsApp
 
@@ -158,66 +162,29 @@ struct TelegramSourceRow: View {
 struct TelegramPanel: View {
     let onDone: () -> Void
     @Environment(TelegramChats.self) private var model
-    @State private var phone = ""
+    @State private var country = PhoneCountry.default()
+    @State private var national = ""
     @State private var code = ""
     @State private var password = ""
     /// The fallback: the person chose to type their number (the QR is the default).
     @State private var usePhone = false
+    /// A page of the sheet shown instead of the step: the full words, or the country list (never a fold or popover).
+    @State private var page: Page?
     /// The chat waiting for the person's confirmation that the other person agreed (ruling 47a amendment).
     @State private var asking: TelegramChatRow?
 
+    enum Page { case facts, countries }
+
     var body: some View {
         SettingsSheet(title: Copy.Chats.telegramTitle, onClose: onDone) {
-            ChatSheetSentence(text: Copy.Chats.telegramWhatItReads)
-            if model.connected {
-                chatList
-                HStack {
-                    Spacer()
-                    Button(Copy.Chats.disconnect) { Task { await model.disconnect() } }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                        .help(Copy.Chats.disconnectHelp)
-                        .disabled(model.busy)
-                }
-            } else {
-                // The consent sentence is the backend's, word for word (ruling 47a).
-                Text(model.status.consent)
-                    .font(CicadaTheme.bodyFont)
-                    .foregroundStyle(CicadaTheme.textPrimary)
-                    .fixedSize(horizontal: false, vertical: true)
-                if model.asksPassword {
-                    SecureField(Copy.Chats.passwordPrompt, text: $password)
-                        .textFieldStyle(.roundedBorder)
-                        .onSubmit { Task { await model.submit(password: password); password = "" } }
-                    step(Copy.Chats.signIn, disabled: password.isEmpty) {
-                        await model.submit(password: password)
-                        password = ""
-                    }
-                } else if model.asksCode {
-                    TextField(Copy.Chats.codePrompt, text: $code)
-                        .textFieldStyle(.roundedBorder)
-                        .onSubmit { Task { await model.submit(code: code); code = "" } }
-                    step(Copy.Chats.signIn, disabled: code.isEmpty) {
-                        await model.submit(code: code)
-                        code = ""
-                    }
-                } else if usePhone {
-                    TextField(Copy.Chats.phonePrompt, text: $phone)
-                        .textFieldStyle(.roundedBorder)
-                        .onSubmit { Task { await model.connect(phone: phone) } }
-                    step(Copy.Chats.sendCode, disabled: phone.isEmpty) {
-                        await model.connect(phone: phone)
-                        phone = ""
-                    }
-                    TextButton(title: Copy.Chats.useQR, flushLeading: true) {
-                        usePhone = false
-                        Task { await model.startQR() }
-                    }
-                } else {
-                    qrStep
-                }
+            switch page {
+            case .facts:
+                ConnectFactsPage(paragraphs: [Copy.Chats.telegramWhatItReads, model.status.consent]) { page = nil }
+            case .countries:
+                CountryList(selected: country, onPick: { country = $0; page = nil }, onBack: { page = nil })
+            case nil:
+                if model.connected { connectedStep } else { signInStep }
             }
-            ChatSheetFooter(error: model.error, onDone: onDone)
         }
         .task {
             await model.refresh()
@@ -244,17 +211,77 @@ struct TelegramPanel: View {
         }
     }
 
-    /// The default connect: the QR on its tile, how to scan it beside it, and the fallback beneath.
+    // MARK: Steps
+
+    /// Signed in: what's next in one line, the chats, then Disconnect and the sheet's only "Done".
+    @ViewBuilder
+    private var connectedStep: some View {
+        Text(Copy.Chats.connectedLine)
+            .font(CicadaTheme.bodyFont)
+            .foregroundStyle(CicadaTheme.textSecondary)
+        chatList
+        errorLine
+        HStack(spacing: CicadaTheme.spacingSM) {
+            TextButton(title: Copy.Chats.disconnect, help: Copy.Chats.disconnectHelp, flushLeading: true) {
+                Task { await model.disconnect() }
+            }
+            .disabled(model.busy)
+            Spacer()
+            PrimaryActionButton(title: Copy.Connect.done, action: onDone).keyboardShortcut(.defaultAction)
+        }
+    }
+
+    /// One step at a time: the QR by default; number → code; a two-step password either way.
+    @ViewBuilder
+    private var signInStep: some View {
+        if model.asksPassword {
+            stepLine(Copy.Chats.passwordHow)
+            SecureField(Copy.Chats.passwordPrompt, text: $password)
+                .textFieldStyle(.roundedBorder)
+                .controlSize(.large)
+            footer
+            ConnectSheetActions(primary: Copy.Connect.continueStep, primaryDisabled: password.isEmpty || model.busy,
+                                onPrimary: sendPassword, onCancel: onDone)
+        } else if model.asksCode {
+            stepLine(Copy.Chats.codeHow)
+            OneTimeCodeField(code: $code, length: model.codeLength) { _ in sendCode() }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, CicadaTheme.spacingSM)
+            footer
+            ConnectSheetActions(primary: Copy.Connect.continueStep,
+                                primaryDisabled: code.count < model.codeLength || model.busy,
+                                onPrimary: sendCode, onCancel: onDone)
+        } else if usePhone {
+            stepLine(Copy.Chats.phoneHow)
+            PhoneNumberEntry(country: $country, national: $national, onPickCountry: { page = .countries })
+            footer
+            ConnectSheetActions(leading: AnyView(TextButton(title: Copy.Chats.useQR, flushLeading: true) {
+                                    usePhone = false
+                                    model.clearError()
+                                    Task { await model.startQR() }
+                                }),
+                                primary: Copy.Connect.continueStep,
+                                primaryDisabled: !PhoneCountry.plausible(national) || model.busy,
+                                onPrimary: sendPhone, onCancel: onDone)
+        } else {
+            qrStep
+            footer
+            ConnectSheetActions(primary: nil, onCancel: onDone)
+        }
+    }
+
+    /// The default connect: the code large and centred, one line of how, the fallback beneath it.
     @ViewBuilder
     private var qrStep: some View {
-        HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
-            let side = CicadaTheme.scaled(168)
+        VStack(spacing: CicadaTheme.spacingMD) {
+            let side = CicadaTheme.scaled(200)
             Group {
                 if model.showsQR, let url = model.status.qrUrl, let image = TelegramQRCode.image(for: url) {
                     Image(nsImage: image)
                         .interpolation(.none)
                         .resizable()
                         .accessibilityLabel(Copy.Chats.qrAccessibility)
+                        .help(Copy.Chats.qrRefreshes)
                 } else if model.busy {
                     ProgressView().controlSize(.small)
                 } else {
@@ -267,32 +294,64 @@ struct TelegramPanel: View {
             .overlay(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
                 .strokeBorder(CicadaTheme.ring(.resting), lineWidth: 1))
             .clipShape(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
-            VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                Text(model.showsQR || !model.busy ? Copy.Chats.qrHow : Copy.Chats.qrStarting)
+            if model.showsQR || model.busy {
+                Text(model.showsQR ? Copy.Chats.qrHow : Copy.Chats.qrStarting)
                     .font(CicadaTheme.bodyFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
+                    .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
-                if model.showsQR {
-                    Text(Copy.Chats.qrRefreshes)
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(CicadaTheme.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+            }
+            TextButton(title: Copy.Chats.usePhone) {
+                usePhone = true
+                model.clearError()
+                if model.showsQR { Task { await model.disconnect() } }   // stops the QR; nothing was signed in
             }
         }
-        TextButton(title: Copy.Chats.usePhone, flushLeading: true) {
-            usePhone = true
-            if model.showsQR { Task { await model.disconnect() } }   // stops the QR; nothing was signed in
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, CicadaTheme.spacingSM)
+    }
+
+    /// Under every sign-in step: a refusal in the backend's words, then the one line of what is read and the
+    /// backend's session sentence, word for word (ruling 47a), with the full words one click away.
+    @ViewBuilder
+    private var footer: some View {
+        errorLine
+        ConnectFactsLine(text: "\(Copy.Chats.telegramFacts) \(model.status.consent)") { page = .facts }
+    }
+
+    @ViewBuilder
+    private var errorLine: some View {
+        if let error = model.error {
+            Text(error).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.danger)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
-    private func step(_ title: String, disabled: Bool, _ action: @escaping () async -> Void) -> some View {
-        HStack {
-            Spacer()
-            Button(title) { Task { await action() } }
-                .buttonStyle(.borderedProminent)
-                .disabled(disabled || model.busy)
-        }
+    private func stepLine(_ text: String) -> some View {
+        Text(text)
+            .font(CicadaTheme.bodyFont)
+            .foregroundStyle(CicadaTheme.textPrimary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func sendPhone() {
+        guard PhoneCountry.plausible(national), !model.busy else { return }
+        let number = country.international(national)
+        Task { await model.connect(phone: number) }
+    }
+
+    private func sendCode() {
+        guard code.count >= model.codeLength, !model.busy else { return }
+        let typed = code
+        code = ""
+        Task { await model.submit(code: typed) }
+    }
+
+    private func sendPassword() {
+        guard !password.isEmpty, !model.busy else { return }
+        let typed = password
+        password = ""
+        Task { await model.submit(password: typed) }
     }
 
     @ViewBuilder

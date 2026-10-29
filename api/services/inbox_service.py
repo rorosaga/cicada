@@ -21,6 +21,7 @@ from fastapi import HTTPException
 from api.config import Settings
 from api.models.schemas import InboxCause, InboxCheck, InboxCheckFinding, InboxItem, InboxOption, InboxResolveRequest
 from api.services import (
+    alias_policy,
     bank_index,
     decay_policy,
     entity_types,
@@ -2698,7 +2699,7 @@ async def _resolve_page_edit(path, parsed, settings, label: str, before) -> tupl
 
 
 def _answer_page_edit(path: Path, fm: dict, memory_path: Path, label: str, before) -> None:
-    from api.services import git_service, page_edits, page_lock
+    from api.services import git_service, page_edits, page_lock, wrong_aliases
 
     day = date.today().isoformat()
     rel_item = f"inbox/{path.name}"
@@ -2706,10 +2707,17 @@ def _answer_page_edit(path: Path, fm: dict, memory_path: Path, label: str, befor
     with page_lock.page_lock(memory_path):
         if label == "dismiss":
             path.unlink(missing_ok=True)
+            lines, touched = [f"{rel_item}: removed (trigger: {page_edits.TRIGGER_DISMISS})"], [rel_item]
+            if fm.get("origin") == wrong_aliases.ORIGIN:
+                # The person keeps the alias Cicada proposed removing: remembered on the page, never proposed again.
+                page = resolve_entity_file(memory_path, str(fm.get("entity_id") or ""))
+                edit = fm.get("edit") if isinstance(fm.get("edit"), dict) else {}
+                if page is not None and wrong_aliases.remember_kept(page, edit.get("remove_aliases")):
+                    lines.append(f"entities/{page.name}: updated (trigger: {page_edits.TRIGGER_DISMISS})")
+                    touched.append(f"entities/{page.name}")
             message = git_service.build_commit_message(
-                f"Inbox resolution (page_edit) {day}",
-                [f"{rel_item}: removed (trigger: {page_edits.TRIGGER_DISMISS})"], authors=["user"])
-            git_service.commit_touched_sync(memory_path, message, [rel_item], before=before, **kept)
+                f"Inbox resolution (page_edit) {day}", lines, authors=["user"])
+            git_service.commit_touched_sync(memory_path, message, touched, before=before, **kept)
             return
         if fm.get("join"):
             # G227 follow-up: an agent's proposed merge or split, applied as proposed (`page_join`), its own commit.
@@ -3068,7 +3076,8 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
                 # on instead of being asked about again.
                 names = [str(a) for a in target.frontmatter.get("aliases") or [] if str(a).strip()]
                 own = str(target.frontmatter.get("name") or "")
-                if mention.lower() != own.lower() and all(a.lower() != mention.lower() for a in names):
+                if (mention.lower() != own.lower() and all(a.lower() != mention.lower() for a in names)
+                        and alias_policy.admits(mention)):
                     target.frontmatter["aliases"] = [*names, mention]
             markdown_parser.write(target_path, target.frontmatter, new_body)
             # G209: what Sleep held on the name's pending line lands on the page the person named, in this same write.
