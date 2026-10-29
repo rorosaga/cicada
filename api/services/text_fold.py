@@ -57,7 +57,7 @@ def fold(text: str | None) -> str:
 
     ASCII — most of a bank — is its own NFD with no combining marks, so it folds to ``lower()`` (speed 2026-10-29: a
     per-character pass over every recalled page's sections was a sixth of a recall)."""
-    if text is None:
+    if not text:   # None, "" — and any other falsy value, as `text or ""` always read it
         return ""
     if text.isascii():
         return text.lower()
