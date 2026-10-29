@@ -449,7 +449,8 @@ Needs you for that one session; once hidden or seen it lives only in Settings.
 is ONE question on Home, a page's strip and in the chat — its first open member stands for it
 (`HomeQuestions.leads`), said as "Are A, B and C the same person?" with its reason. Its answers are one tap per pair
 ("A is B" / "A isn't B", `CatchupAnswers.chainChips`, each the inbox's own merge or reject for that pair's question,
-held with Undo); the chat stays on the chain until every pair is answered or skipped. Never joined by one answer or
+held with Undo); the chat stays on the chain until every pair is answered or skipped. Typed words on a chain ("yes, all the same") are proposed pair by pair and by name — "Join A and B as one?", then
+"And C and B, one too?" — each joined only on its own *Yes* (#536 review). Never joined by one answer or
 by typed words (ruling 41); no fold, no placeholder tile.
 
 **Catch me up, the chat (ruling 48 (8), owner 2026-10-28: "not a monotone interrogation").** *Start* opens the chat in

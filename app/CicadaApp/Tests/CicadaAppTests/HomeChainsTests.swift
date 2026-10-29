@@ -75,4 +75,35 @@ final class HomeChainsTests: XCTestCase {
         XCTAssertEqual(held.last?.1.action, "reject")
         XCTAssertEqual(s.current?.id, "d1", "then the talk moves on")
     }
+
+    /// #536 review — typed "yes, all the same": each pair is proposed by name and joined only on its own Yes; the chat
+    /// never leaves the chain with a pair unasked.
+    func testTypedAllTheSameProposesEachPairByNameOneYesEach() async throws {
+        var open = try items()
+        var held: [(String, QuestionResolution)] = []
+        let s = CatchupSession(
+            queue: HomeQuestions.figures(open, now: .now).catchUp, items: { open },
+            hold: { item, r in held.append((item.id, r)); open.removeAll { $0.id == item.id }; return true },
+            heldId: { held.last?.0 }, release: { nil },
+            turn: { _, _, _, _ in
+                CatchupTurnReply(reply: "Sounds like they're one person — shall I join them?",
+                                 reading: .init(optionKey: "same", answer: nil, quote: "all the same", confirm: true),
+                                 move: "stay")
+            }, record: { _, _ in })
+        s.start()
+        s.draft = "yes, all the same"
+        await s.send()
+        XCTAssertTrue(held.isEmpty, "typed words alone join no one")
+        XCTAssertEqual(s.confirmation?.label, "Join Sam Example and Samantha Example as one?")
+        s.confirm()
+        XCTAssertEqual(held.map(\.0), ["m1"], "Yes joins exactly the pair it named")
+        XCTAssertEqual(held.first?.1.quote, "all the same")
+        XCTAssertEqual(s.current?.id, "m2", "the chain stays: its other pair is still open")
+        XCTAssertEqual(s.confirmation?.label, "And Sammy Example and Samantha Example, one too?")
+        XCTAssertEqual(s.confirmation?.itemId, "m2")
+        s.notQuite()
+        XCTAssertEqual(held.map(\.0), ["m1"], "Not quite on the next pair joins nothing")
+        XCTAssertEqual(s.current?.id, "m2")
+        XCTAssertEqual(s.chips.filter { $0.role == .answer }.map(\.itemId), ["m2", "m2"], "its own chips wait")
+    }
 }

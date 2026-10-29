@@ -31,8 +31,11 @@ final class CatchupSession {
     struct Confirmation: Equatable {
         let itemId: String
         let resolution: QuestionResolution
-        /// The proposal in words: "Note it as “Paused”?"
+        /// The proposal in words: "Note it as “Paused”?", or for a chain's pair "Join A and B as one?"
         let label: String
+        /// A chain's typed answer covers its other pairs too: after this one, each remaining pair is proposed in turn
+        /// ("And C and B?"), still one tap each (#536 review).
+        var cascades = false
     }
 
     let sessionId = "catchup-" + UUID().uuidString.lowercased()
@@ -182,7 +185,22 @@ final class CatchupSession {
         }
         confirmation = nil
         apply(item, pending.resolution)
-        if item.id == currentId { advance(preferred: nil, alreadyAsked: false) }
+        if currentChain != nil, let next = current {
+            // A chain stays until each pair is answered (#536 review): a typed "all the same" proposes the next pair,
+            // named, for its own tap; otherwise its chips wait.
+            if pending.cascades,
+               let resolution = CatchupAnswers.merge(next, same: pending.resolution.action == "merge") {
+                var carried = resolution
+                carried.quote = pending.resolution.quote
+                carried.sessionId = pending.resolution.sessionId
+                confirmation = Confirmation(itemId: next.id, resolution: carried,
+                                            label: CatchupAnswers.proposal(next, carried, also: true), cascades: true)
+            }
+            stored = .asking
+        } else if item.id == currentId || currentChain != nil {
+            currentChain = nil
+            advance(preferred: nil, alreadyAsked: false)
+        }
         keep()
     }
 
@@ -271,7 +289,8 @@ final class CatchupSession {
         if let reading = reply.reading,
            let resolution = CatchupAnswers.resolution(item, reading, sessionId: sessionId) {
             confirmation = Confirmation(itemId: item.id, resolution: resolution,
-                                        label: CatchupAnswers.proposal(item, resolution))
+                                        label: CatchupAnswers.proposal(item, resolution),
+                                        cascades: item.isChain && ["merge", "reject"].contains(resolution.action))
         } else if reply.move == "later" {
             let later = QuestionResolution(action: "defer", remindDays: 7)
             confirmation = Confirmation(itemId: item.id, resolution: later, label: CatchupAnswers.proposal(item, later))

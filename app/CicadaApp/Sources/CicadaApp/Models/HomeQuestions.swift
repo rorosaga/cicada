@@ -299,7 +299,17 @@ enum CatchupAnswers {
     }
 
     /// A reading as a question for the person's tap ("Note it as “Paused”?"); never a claim that it was noted.
-    static func proposal(_ item: InboxItem, _ resolution: QuestionResolution) -> String {
+    /// `also`: the next pair of a chain the person's words already covered ("And B and C?").
+    static func proposal(_ item: InboxItem, _ resolution: QuestionResolution, also: Bool = false) -> String {
+        // A chain's pair is always named: a Yes joins (or parts) exactly these two, never "them" (#536 review).
+        if item.isChain, let pair = item.chainPairs?.first(where: { $0.id == item.id }),
+           ["merge", "reject"].contains(resolution.action) {
+            let same = resolution.action == "merge"
+            if also { return same ? Copy.Catchup.proposeAlsoSame(pair.a, pair.b)
+                                  : Copy.Catchup.proposeAlsoDifferent(pair.a, pair.b) }
+            return same ? Copy.Catchup.proposePairSame(pair.a, pair.b)
+                        : Copy.Catchup.proposePairDifferent(pair.a, pair.b)
+        }
         switch resolution.action {
         case "merge": return Copy.Catchup.proposeSame
         case "reject": return Copy.Catchup.proposeDifferent
