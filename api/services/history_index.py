@@ -29,6 +29,8 @@ from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from api.services import evidence as _evidence
+
 #: ``processed_by`` of an episode read by the index, never by a model.
 INDEXED_BY = "index"
 #: ``source`` of a watch-history day (``watch_history.SOURCE``) and of a month's summary.
@@ -58,8 +60,9 @@ NOTE_KEY = "has_note"
 #: Frontmatter a list save carries once the person said why they saved it (``saved_why``'s answer, its earlier
 #: answers) or a note: any of them makes the save theirs to read, never index-only (review of #340).
 PERSON_KEYS = (NOTE_KEY, "saved_why", "saved_why_earlier")
-#: Body sections only the person's own words fill: ``saved_why``'s, a save's reason (Telegram, ``/save``), a note.
-PERSON_SECTIONS = ("## Why it was saved", "## Saved because", "## User note")
+#: Body sections only the person's own words fill: ``saved_why``'s, a save's reason (Telegram, ``/save``), a note —
+#: ``evidence``'s one list, which also makes them the only ``user`` words in a save.
+PERSON_SECTIONS = _evidence.PERSON_SECTIONS
 #: Paths per retirement commit: a commit names each path three times on git's command line.
 COMMIT_STEP = 500
 

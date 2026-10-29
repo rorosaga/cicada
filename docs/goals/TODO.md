@@ -28,6 +28,12 @@
   with "All N"; Pages in this project with Add / Not part of it (`entities_added`/`entities_removed`, frontmatter, one
   writer) and `cicada_link_entity` on every door (trusted ties, others propose); Suggested as one line; a lighter head
   (one standing line, the meta in `.help`). Bench p95 on the 2,500-page synthetic in the PR.
+- **2026-10-29 — a saved item's fetched text is never the person's words (G118; branch `fix/saved-link-words`).**
+  `authorship.of(fm)` is the one `override` every evidence reader passes: a save (by its record) is `page` except its
+  reason and note sections. On a read-only copy of the owner's bank, 347 current claims on 89 pages carry a `user`
+  span inside fetched text and at most 36 one-conversation pages rested only on them; nothing is rewritten — the
+  repair is a per-item dry run awaiting the owner. Hot path unchanged (turns + exchanges p95 0.173 ms per episode
+  before and after, 8,546 episodes).
 - **2026-10-28 — pictures v2: public figures, Sleep's own sites, projects (G159, G146, G61; rulings 40 and 44 amended,
   owner C/D/E; branch `feat/pictures-v2`).** A public figure the full ruling-44 test called public gets the matched
   item's encyclopedia portrait, asked by item and file name only; ruling 40 trusts a site Sleep itself first proposed

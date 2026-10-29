@@ -46,7 +46,7 @@ from typing import Awaitable, Callable
 
 from loguru import logger
 
-from api.services import entity_body, fact_sources, markdown_parser, page_lock, reading_hosts, site_sources, text_fold
+from api.services import authorship, entity_body, fact_sources, markdown_parser, page_lock, reading_hosts, site_sources, text_fold
 
 SCOPE_TYPES = frozenset({"company", "tool", "location"})
 AUTHOR = fact_sources.CICADA
@@ -270,7 +270,7 @@ def _own_line_hits(memory_path: Path, fm: dict, keys: set[str]) -> list[Candidat
         if doc is None:
             continue
         ep_fm, text = doc
-        for turn in evidence.turns(text, override=ep_fm.get("evidence_kind"), gaps=evidence.gap_ranges(ep_fm, text)):
+        for turn in evidence.turns(text, override=authorship.of(ep_fm), gaps=evidence.gap_ranges(ep_fm, text)):
             if turn.role != "user" or inbox_tend._agent_note(ep_fm.get("source"), turn):
                 continue
             pos = turn.content_start

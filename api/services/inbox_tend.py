@@ -78,7 +78,7 @@ from typing import Any
 
 from loguru import logger
 
-from api.services import bank_index, inbox_actor, inbox_questions, markdown_parser, text_fold
+from api.services import authorship, bank_index, inbox_actor, inbox_questions, markdown_parser, text_fold
 
 GROUP = "sleep"
 SETTLED_DIR = "settled"
@@ -676,33 +676,16 @@ def _about_self(text: str) -> bool:
     return bool(set(_words(_prose(text))) & _FIRST_PERSON)
 
 
-#: Where something saved comes from (a bookmark, a saved post, a feed, a watch or web history, a read page): its text
-#: is the page's, not the person's — a name in its title, link or byline is never "their own words".
-_SAVED_ORIGINS = frozenset({"bookmark", "saved-link", "media", "rss", "pdf", "ingest", "watch-history",
-                            "video-watch", "page-read", "profile-read", "web-check", "source-check", "web-history",
-                            "safari-tab", "chrome-tab-group", "tab-group"})
-_SAVED_SUFFIXES = ("-bookmark", "-bookmarks", "-saved", "-history", "-likes", "-playlist", "-tab", "-tabs")
-
-
 def _saved_item(ep_fm: dict, spans) -> bool:
-    """A saved item, not a conversation: no turn marker anywhere (nothing a person typed as a turn), and it came
-    from a saving door (its origin or source) or carries the page's ``url``."""
+    """A saved item, not a conversation: no turn marker anywhere (nothing a person typed as a turn), and its own
+    record says a saving door wrote it (``authorship.is_saved``)."""
     if any(getattr(t, "marker", None) is not None for t in spans):
         return False
-    return bool(ep_fm.get("url")) or any(saved_origin(ep_fm.get(k)) for k in ("origin", "source"))
+    return authorship.is_saved(ep_fm)
 
 
-def saved_origin(tag) -> bool:
-    """Whether an episode's ``origin`` or ``source`` is a saving door (a bookmark, a saved post, a feed, a history):
-    what came through it is the saved page's text, not something the person said."""
-    from api.services import source_overview
-
-    t = str(tag or "").strip().lower()
-    if not t:
-        return False
-    saved = set(_SAVED_ORIGINS)
-    saved |= {o for spec in source_overview.CATALOG if spec.kind in ("browser", "social", "feed") for o in spec.origins}
-    return t in saved or t.endswith(_SAVED_SUFFIXES)
+#: The saving doors — one list, `authorship`'s, which also makes a save's text the page's words for every reader.
+saved_origin = authorship.saved_origin
 
 
 #: Calendar entries: an event's title is the calendar's words (``entity_resolver.CARD_REFUSED_SOURCES``' rule).
@@ -837,7 +820,7 @@ def passing_rule(memory_path: Path, item_id: str, fm: dict) -> tuple[Decision | 
     if not inbox_ask_gate.named_in(full, text):
         return None, "unmeasured"
     gaps = evidence.gap_ranges(ep_fm, text)
-    spans = evidence.turns(text, override=ep_fm.get("evidence_kind"), gaps=gaps)
+    spans = evidence.turns(text, override=authorship.of(ep_fm), gaps=gaps)
     saved = _saved_item(ep_fm, spans)    # a saved page's title, link or byline is no one's own words
     turns: list[tuple[bool, str]] = []   # (the person's own turn, its words), in order
     for t in spans:
@@ -860,7 +843,7 @@ def passing_rule(memory_path: Path, item_id: str, fm: dict) -> tuple[Decision | 
     if _owner_pages_name(memory_path, full):
         return None, "owners_page"
     if not code:
-        units = promotion.exchanges(text, override=ep_fm.get("evidence_kind"), gaps=gaps)
+        units = promotion.exchanges(text, override=authorship.of(ep_fm), gaps=gaps)
         if sum(1 for _p, whole in units if inbox_ask_gate.named_in(full, whole)) > PASSING_EXCHANGES:
             return None, "said_more"
     others = _other_conversations(memory_path, full, source)
@@ -984,7 +967,7 @@ def label_lines(memory_path: Path, fm: dict, options: list[dict]) -> list[LabelL
         if doc is None:
             continue
         ep_fm, text = doc
-        turns = person_turns({"content": text, "evidence_kind": ep_fm.get("evidence_kind"),
+        turns = person_turns({"content": text, authorship.KEY: authorship.of(ep_fm),
                               "gaps": evidence.gap_ranges(ep_fm, text), "source": ep_fm.get("source")})
         order = 0
         for turn in turns:
@@ -1374,7 +1357,7 @@ def person_turns(episode: dict) -> list[str]:
     if not text:
         return []
     out = []
-    for t in evidence.turns(text, override=episode.get("evidence_kind"), gaps=episode.get("gaps") or ()):
+    for t in evidence.turns(text, override=authorship.of_episode(episode), gaps=episode.get("gaps") or ()):
         if t.role == "user" and not _agent_note(episode.get("source"), t):
             line = text[t.content_start:t.end].strip()
             if line:
@@ -1512,7 +1495,7 @@ def persons_span(memory_path: Path, episode_id: str, quote: str):
     if doc is None:
         return None
     fm, text = doc
-    for t in evidence.turns(text, override=fm.get("evidence_kind"), gaps=evidence.gap_ranges(fm, text)):
+    for t in evidence.turns(text, override=authorship.of(fm), gaps=evidence.gap_ranges(fm, text)):
         if t.start <= ev.start < t.end:
             return None if _agent_note(fm.get("source"), t) else ev
     return None
@@ -1803,7 +1786,7 @@ def record_lines(memory_path: Path, fm: dict) -> list[tuple[str, str, str]]:
         if doc is None:
             continue
         ep_fm, text = doc
-        lines = person_turns({"content": text, "evidence_kind": ep_fm.get("evidence_kind"),
+        lines = person_turns({"content": text, authorship.KEY: authorship.of(ep_fm),
                               "gaps": evidence.gap_ranges(ep_fm, text), "source": ep_fm.get("source")})
         about = [ln for ln in lines if inbox_ask_gate.named_in(full, ln)]
         if not about or not inbox_ask_gate.relevant(full, "\n".join(about))[0]:

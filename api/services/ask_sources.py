@@ -31,7 +31,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from api.services import evidence, text_fold
+from api.services import authorship, evidence, text_fold
 
 MAX_EPISODES = 8
 MAX_EXCERPTS = 10
@@ -226,7 +226,7 @@ def gather(memory_path: Path, question: str, found: list[Pointer], *, owner_name
         spans = [p for p in by_episode[ep]["spans"]
                  if 0 <= p.start < p.end <= len(text)
                  and evidence.span_status(text, end=p.end, hash=p.hash) != evidence.SPAN_STALE]
-        turns = [t for t in evidence.turns(text, stamps=evidence.turn_stamps(fm), override=fm.get("evidence_kind"),
+        turns = [t for t in evidence.turns(text, stamps=evidence.turn_stamps(fm), override=authorship.of(fm),
                                            gaps=gaps) if t.role != evidence.GAP_KIND]
         docs[ep] = (fm, text, turns)
         extra = by_episode[ep]["terms"] - terms
@@ -1134,7 +1134,7 @@ def _whole_words_first(memory_path: Path, cands: list[str], own: set[str]) -> li
         if doc is None:
             return 0
         fm, text = doc
-        turns = evidence.turns(text, stamps=evidence.turn_stamps(fm), override=fm.get("evidence_kind"),
+        turns = evidence.turns(text, stamps=evidence.turn_stamps(fm), override=authorship.of(fm),
                                gaps=evidence.gap_ranges(fm, text))
         return max((len(own & text_fold.subject_terms(text[t.content_start:t.end])) for t in turns
                     if t.role != evidence.GAP_KIND), default=0)
@@ -1755,7 +1755,7 @@ def _meaning_turns(memory_path: Path, found: Searched, docs: dict, taken: set[tu
         if ep not in docs:
             gaps = evidence.gap_ranges(fm, text)
             docs[ep] = (fm, text, [t for t in evidence.turns(text, stamps=evidence.turn_stamps(fm),
-                                                             override=fm.get("evidence_kind"), gaps=gaps)
+                                                             override=authorship.of(fm), gaps=gaps)
                                    if t.role != evidence.GAP_KIND])
         for i, turn in enumerate(docs[ep][2]):
             if (any(turn.start < end and turn.end > at for at, end in spans) and (ep, i) not in taken
@@ -1788,7 +1788,7 @@ def _scored_turns(memory_path: Path, episodes: list[str], pattern, weights: dict
         if history_index.is_index_only(fm):
             continue
         gaps = evidence.gap_ranges(fm, text)
-        turns = [t for t in evidence.turns(text, stamps=evidence.turn_stamps(fm), override=fm.get("evidence_kind"),
+        turns = [t for t in evidence.turns(text, stamps=evidence.turn_stamps(fm), override=authorship.of(fm),
                                            gaps=gaps) if t.role != evidence.GAP_KIND]
         rank = len(docs)
         docs[ep] = (fm, text, turns)

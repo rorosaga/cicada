@@ -59,6 +59,7 @@ from api.models.schemas import (
 )
 from api.services import (
     agent_turns,
+    authorship,
     bank_index,
     episode_ids,
     episode_time,
@@ -152,7 +153,7 @@ def episode_document(
         raise SpanOutOfRange(f"span [{start}, {end}) is outside the document (length {length})")
 
     stamps = evidence.turn_stamps(fm) if is_episode else {}
-    override = (str(fm.get("evidence_kind") or "") or None) if is_episode else None
+    override = authorship.of(fm) if is_episode else None
     # Gate B2: the episode's own gap record, never the body's words.
     gaps = evidence.gap_ranges(fm, text) if is_episode else ()
     spans = evidence.turns(text, page=not is_episode, stamps=stamps, override=override, gaps=gaps)

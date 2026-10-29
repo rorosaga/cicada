@@ -39,7 +39,7 @@ from typing import Callable
 from loguru import logger
 
 from api.services import (
-    claims, entity_body, evidence, fact_policy, git_service, markdown_parser, page_lock, promotion,
+    authorship, claims, entity_body, evidence, fact_policy, git_service, markdown_parser, page_lock, promotion,
     section_provenance, summary_policy, write_admission,
 )
 
@@ -106,7 +106,7 @@ def _clears_bar(memory_path: Path, fm: dict, body: str, owner_ids: set[str], pag
     except Exception:
         return None, False
     text = claims.strip_claims_block(episode.body)
-    units = promotion.exchanges(text, override=str(episode.frontmatter.get("evidence_kind") or "") or None,
+    units = promotion.exchanges(text, override=authorship.of(episode.frontmatter),
                                 gaps=evidence.gap_ranges(episode.frontmatter, text))
     exchanges, named = promotion.measure(
         {"name": fm.get("name"), "aliases": fm.get("aliases") or [], "type": fm.get("type")}, units)

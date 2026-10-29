@@ -31,7 +31,7 @@ from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
 from api.models.schemas import EpisodeCitations, EpisodeSpan, EpisodeText
-from api.services import evidence, git_service, provenance, sync_service, video_state
+from api.services import authorship, evidence, git_service, provenance, sync_service, video_state
 
 router = APIRouter()
 
@@ -63,7 +63,7 @@ async def get_episode_span(
     status = evidence.span_status(text, end=end, hash=hash, appendable=is_episode)
     # R-LS7: a folder file's declared authorship; R-LS2: which turn, from the
     # episode's `turns` sidecar (R-PB4) — both read from the one parse above.
-    override = str(fm.get("evidence_kind") or "") or None
+    override = authorship.of(fm)
     gaps = evidence.gap_ranges(fm, text) if is_episode else ()   # gate B2: from the episode's own record
     turn = evidence.turn_at(text, start, evidence.turn_stamps(fm), gaps) if is_episode else None
     return EpisodeSpan(

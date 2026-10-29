@@ -32,7 +32,7 @@ import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 
-from api.services import evidence, promotion, workspace_identity
+from api.services import authorship, evidence, promotion, workspace_identity
 
 REPO, WORDS = "repo", "words"
 
@@ -316,7 +316,7 @@ def classify(memory_path: Path, stem: str, frontmatter: dict, *, documents=None,
             return Origin(kind=REPO, why=f"A conversation it cites was captured in the repository {repo['name']!r}.",
                           day=_day(efm, ep), episode=ep, repo=repo, episodes_read=seen)
         if words_hit is None:
-            span = said_project(entity, text, override=efm.get("evidence_kind"), gaps=evidence.gap_ranges(efm, text))
+            span = said_project(entity, text, override=authorship.of(efm), gaps=evidence.gap_ranges(efm, text))
             if span is not None:
                 words_hit = Origin(kind=WORDS, why="In a conversation it cites, you called it a project.",
                                    day=_day(efm, ep), episode=ep, episodes_read=seen,
