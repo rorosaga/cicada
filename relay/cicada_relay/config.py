@@ -52,6 +52,17 @@ class Config:
     max_unauthenticated: int = 256
     handshake_timeout_s: float = 10.0
     max_banks: int = 100_000
+    #: Relay-wide: every stored frame of every bank (streams included), kept as a running total by SQLite triggers,
+    #: and the database file itself. Either one full answers ``relay_full``; no bank evicts another's frames.
+    max_total_bytes: int = 16 * 1024 * MiB
+    max_db_bytes: int = 20 * 1024 * MiB
+    #: A flush reads at most this many bytes of frames per batch, one frame's bytes at a time as it is sent.
+    flush_batch_bytes: int = 4 * MiB
+    #: Creating a bank needs no credential (the home's own key is the bank's root of trust), so creation is limited:
+    #: one per connection by construction (one hello), and this many per remote address per hour. The address is
+    #: held in memory only for that count, never logged or stored.
+    creates_per_ip_per_hour: int = 5
+    max_unauthenticated_per_ip: int = 16
 
     @classmethod
     def from_env(cls, env: dict | None = None, **overrides) -> "Config":

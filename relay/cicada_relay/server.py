@@ -65,6 +65,8 @@ class Relay:
         self.online: dict[str, dict[str, Conn]] = {}
         self.pair_waiters: dict[str, object] = {}
         self.unauthenticated = 0
+        self._unauth_by_ip: dict[str, int] = {}
+        self._creates: dict[str, list[float]] = {}
         self._server = None
         self._purger: asyncio.Task | None = None
 
@@ -120,12 +122,40 @@ class Relay:
         return out
 
     # -- connections --------------------------------------------------------------------------------------------
+    @staticmethod
+    def _ip(ws) -> str:
+        addr = getattr(ws, "remote_address", None)
+        return str(addr[0]) if addr else "?"
+
+    def _may_create(self, ip: str) -> bool:
+        now = self.clock()
+        recent = [t for t in self._creates.get(ip, []) if now - t < 3600]
+        if len(recent) >= self.config.creates_per_ip_per_hour:
+            self._creates[ip] = recent
+            return False
+        self._creates[ip] = recent + [now]
+        if len(self._creates) > 100_000:      # bounded: forget the quietest addresses
+            for k in [k for k, v in self._creates.items() if not v or now - v[-1] >= 3600]:
+                del self._creates[k]
+        return True
+
     async def _handle(self, ws):
-        if self.unauthenticated >= self.config.max_unauthenticated:
+        ip = self._ip(ws)
+        if (self.unauthenticated >= self.config.max_unauthenticated
+                or self._unauth_by_ip.get(ip, 0) >= self.config.max_unauthenticated_per_ip):
             await ws.close(1013, "busy")
             return
         self.unauthenticated += 1
+        self._unauth_by_ip[ip] = self._unauth_by_ip.get(ip, 0) + 1
         authed = False
+
+        def release():
+            self.unauthenticated -= 1
+            left = self._unauth_by_ip.get(ip, 1) - 1
+            if left > 0:
+                self._unauth_by_ip[ip] = left
+            else:
+                self._unauth_by_ip.pop(ip, None)
         try:
             nonce = secrets.token_bytes(32)
             await ws.send(json.dumps({"t": "challenge", "nonce": wire.b64e(nonce)}))
@@ -140,24 +170,24 @@ class Relay:
             if first.get("t") == "pair":
                 await self._pair_device(ws, first)
                 return
-            conn = await self._hello(ws, first, nonce)
+            conn = await self._hello(ws, first, nonce, ip)
             if conn is None:
                 return
-            self.unauthenticated -= 1
+            release()
             authed = True
             await self._serve(conn)
         except ConnectionClosed:
             pass
         finally:
             if not authed:
-                self.unauthenticated -= 1
+                release()
 
     async def _error(self, ws, code: str, close_code: int = 4400):
         with contextlib.suppress(ConnectionClosed):
             await ws.send(json.dumps({"t": "error", "code": code}))
             await ws.close(close_code, code)
 
-    async def _hello(self, ws, msg: dict, nonce: bytes) -> Conn | None:
+    async def _hello(self, ws, msg: dict, nonce: bytes, ip: str = "?") -> Conn | None:
         mb, dev, sig = msg.get("mb"), msg.get("dev"), msg.get("sig")
         if (msg.get("t") != "hello" or not isinstance(mb, str) or not wire.MAILBOX_RE.match(mb)
                 or not isinstance(dev, str) or not wire.KEY_RE.match(dev) or not isinstance(sig, str)):
@@ -170,6 +200,10 @@ class Relay:
         if bank is None:
             if not msg.get("create"):
                 await self._error(ws, "unknown_mailbox", 4404)
+                return None
+            if not self._may_create(ip):
+                log.info("create refused: rate")
+                await self._error(ws, "rate_limited", 1013)
                 return None
             try:
                 frame = wire.parse(wire.b64d(msg["create"]))
@@ -229,11 +263,15 @@ class Relay:
     async def _flush(self, conn: Conn):
         async with conn.lock:
             while True:
+                # Sizes first, a bounded batch; each frame's bytes are read only as it is sent, so a flush holds about
+                # one frame however full the bank is.
                 rows = self.store.pending(conn.mb, conn.dev, after=conn.sent_upto)
                 if not rows:
                     return
-                for rseq, raw in rows:
-                    await conn.ws.send(struct.pack(">Q", rseq) + raw)
+                for rseq, _size in rows:
+                    raw = self.store.frame(rseq)
+                    if raw is not None:
+                        await conn.ws.send(struct.pack(">Q", rseq) + raw)
                     conn.sent_upto = rseq
 
     def _kick(self, mb: str, devs) -> None:

@@ -263,6 +263,7 @@ class MisbehavingRelay(Relay):
             rows = self.store.pending(conn.mb, conn.dev, after=conn.sent_upto)
             if not rows:
                 return
+            rows = [(rseq, self.store.frame(rseq)) for rseq, _ in rows]
             for rseq, raw in reversed(rows):
                 await conn.ws.send(struct.pack(">Q", rseq) + raw)
             for rseq, raw in rows:
@@ -355,6 +356,83 @@ def test_health_and_unknown_paths(tmp_path):
             assert body == b"ok\n"
             with pytest.raises(Exception):
                 await loop.run_in_executor(None, lambda: urllib.request.urlopen(base + "/other", timeout=5))
+        finally:
+            await relay.stop()
+
+    run(scenario())
+
+
+def test_a_full_banks_flush_holds_about_one_frame_in_memory(tmp_path):
+    """15 devices online on a bank holding 40 MiB each would once have read 256 frames apiece; now a flush reads sizes,
+    then one frame's bytes at a time."""
+    import tracemalloc
+
+    from _relay import Store
+
+    async def scenario():
+        clock = Clock()
+        relay = Relay(Config(db_path=str(tmp_path / "relay.db")), clock=clock)
+        store: Store = relay.store
+        store.create_bank("mb", {"home": "H", "epoch": 1, "devices": [{"ed": "H"}, {"ed": "A"}]}, b"e", 0)
+        for _ in range(40):
+            store.put("mb", sender="H", kind="delta", raw=b"\x07" * (1024 * 1024 - 100), created_at=clock.t,
+                      recipients=["A"], to_home=False)
+
+        class Sink:
+            sent = 0
+
+            async def send(self, data):
+                Sink.sent += len(data)
+
+        from cicada_relay.server import Conn
+        conn = Conn(Sink(), "mb", "A")
+        tracemalloc.start()
+        await relay._flush(conn)
+        _, peak = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+        store.close()
+        return Sink.sent, peak
+
+    sent, peak = run(scenario())
+    assert sent >= 40 * (1024 * 1024 - 100)
+    assert peak < 6 * 1024 * 1024, peak
+
+
+def test_bank_creation_is_limited_per_address(tmp_path):
+    async def scenario():
+        relay = await start(tmp_path, creates_per_ip_per_hour=2)
+        try:
+            for _ in range(2):
+                home = Home.create()
+                c = RelayClient(url(relay), home, create=home.epoch_frame())
+                await c.connect()
+                await c.close()
+            home = Home.create()
+            with pytest.raises(Refused) as exc:
+                await RelayClient(url(relay), home, create=home.epoch_frame()).connect()
+            assert exc.value.code == "rate_limited"
+        finally:
+            await relay.stop()
+
+    run(scenario())
+
+
+def test_unauthenticated_sockets_are_limited_per_address(tmp_path):
+    from websockets.asyncio.client import connect
+
+    async def scenario():
+        relay = await start(tmp_path, max_unauthenticated_per_ip=1)
+        try:
+            first = await connect(url(relay) + "/v1")
+            await first.recv()                                  # its challenge; it never answers
+            second = await connect(url(relay) + "/v1")
+            await asyncio.wait_for(second.wait_closed(), 5)
+            assert second.close_code == 1013
+            await first.close()
+            await asyncio.sleep(0.1)
+            third = await connect(url(relay) + "/v1")           # the slot is free again
+            assert "challenge" in await third.recv()
+            await third.close()
         finally:
             await relay.stop()
 

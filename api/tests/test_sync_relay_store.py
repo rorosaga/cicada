@@ -11,6 +11,7 @@ H, A, B = "home-key", "laptop-key", "phone-key"
 
 
 def make(tmp_path, **bounds):
+    tmp_path.mkdir(parents=True, exist_ok=True)
     clock = Clock()
     cfg = Config(**({"max_frame_bytes": 1000, "max_bank_bytes": 10_000, "tx_reserve_bytes": 4_000,
                      "max_bank_frames": 100, "max_stream_bytes": 3_000} | bounds))
@@ -200,3 +201,37 @@ def test_the_home_supersedes_only_its_own_deltas_for_one_device(tmp_path):
     assert [r[0] for r in store.pending("mb", A)] == [d3]
     assert [r[0] for r in store.pending("mb", B)] == [d1]          # the phone still needs the first
     assert len(store.pending("mb", H)) == 1                         # a transaction is never superseded
+
+
+def test_a_relay_wide_byte_budget_refuses_any_bank_and_its_count_follows_every_delete(tmp_path):
+    store, clock = make(tmp_path, max_total_bytes=3_000)
+    store.create_bank("mb2", {"home": H, "epoch": 1, "devices": [{"ed": H}, {"ed": A}]}, b"epoch-1", 0)
+    r1 = put(store, "tx", 1000)
+    put(store, "delta", 1000, sender=H, to=(A,))
+    store.put("mb2", sender=A, kind="tx", raw=b"x" * 1000, created_at=clock.t, recipients=[H], to_home=True)
+    assert store.total_bytes() == 3000
+    assert code(lambda: store.put("mb2", sender=A, kind="tx", raw=b"x", created_at=clock.t, recipients=[H],
+                                  to_home=True)) == "relay_full"
+    assert code(lambda: put(store, "delta", 10, sender=H, to=(A,))) == "relay_full"   # never evicts across banks
+    store.ack("mb", H, r1)                                         # every delete path moves the running total
+    assert store.total_bytes() == 2000
+    clock.t += 8 * DAY
+    store.purge()
+    assert store.total_bytes() == 0
+
+
+def test_the_database_file_has_a_cap_too(tmp_path):
+    store, _ = make(tmp_path, max_db_bytes=1)
+    assert code(lambda: put(store, "tx", 10)) == "relay_full"
+
+
+def test_a_flush_batch_is_capped_in_bytes_and_carries_only_sizes(tmp_path):
+    store, _ = make(tmp_path, flush_batch_bytes=2_500)
+    for _ in range(10):
+        put(store, "tx", 1000)
+    rows = store.pending("mb", H)
+    assert [size for _, size in rows] == [1000, 1000]
+    assert store.frame(rows[0][0]) == b"\x01" * 1000
+    big, _ = make(tmp_path / "big", flush_batch_bytes=10)
+    put(big, "tx", 1000)
+    assert len(big.pending("mb", H)) == 1                           # always at least one frame

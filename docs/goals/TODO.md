@@ -20,7 +20,9 @@
   host, account or domain. Measured on a synthetic owner-scale bank: a capture commit's bundle 1.1 KB p50, a day
   18.5 MB live / 11.2 MB coalesced, the bootstrap 53 MB (bound raised to 256 MiB; the real `.git` is 147 MB); a
   Sleep drain's decay commit rewrites thousands of pages (~10 MB), so the home coalesces (`supersede`). Relay
-  ~69 KB RAM per idle socket. Next: phase 3b wires it after phase 2 merges; going live waits on the owner.
+  ~69 KB RAM per idle socket. **Owner 2026-10-30: direct first** (LAN, tailnet, hole-punched), the relay only
+  the fallback, the sleeping home's mailbox and the connector's address; hosting waits. Next: phase 3b
+  wires it after phase 2 merges, with the direct transport (network.md lists what direct needs).
 - **2026-10-29 — a computer keeps a copy (ruling 51a/d/e2, G132 phase 1 PR B; branch `feat/g132-replica`).**
   Replica mode (`CICADA_REPLICA_OF` / `$CICADA_HOME/replica_of`, set by `PUT /sync/replica` with the home's pairing
   code; client wins when both are set): a read-only copy fast-forwarded from the home's pack (ancestry checked here,

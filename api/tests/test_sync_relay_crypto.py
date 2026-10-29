@@ -3,10 +3,16 @@ signed by their sender, refused when replayed, reordered, tampered with or forge
 the revoked device opens nothing sent afterwards. Synthetic keys only."""
 from __future__ import annotations
 
-import pytest
+import filecmp
+from pathlib import Path
 
-from api.services.sync_relay_crypto import (BUCKETS, MAX_PART_PLAIN, Endpoint, Home, Keys, Refused, bucket,
-                                            build_frame, framed_size, pad, parse_frame, unpad)
+import pytest
+from nacl.public import PublicKey, SealedBox
+
+from _relay import Config
+from api.services.sync_relay_crypto import (BUCKETS, MAX_PART_PLAIN, MAX_STREAM_BYTES, Endpoint, Home, Keys, MiB,
+                                            Refused, b64d, b64e, bucket, build_frame, canonical, framed_size, pad,
+                                            parse_frame, unpad)
 
 
 class Clock:
@@ -172,7 +178,7 @@ def test_a_transaction_older_than_the_idempotency_window_is_refused():
 def test_a_large_payload_is_split_into_consecutive_parts_and_a_gap_is_refused():
     home, (laptop, phone), _ = group()
     payload = bytes(range(256)) * (3 * MAX_PART_PLAIN // 256)
-    frames = home.seal("stream", payload, meta={"seq": 5})
+    frames = home.seal("delta", payload, meta={"seq": 5})
     assert len(frames) == 4 and all(len(f) <= 1024 * 1024 for f in frames)
     got = [laptop.open(f) for f in frames]
     assert got[:-1] == [None] * 3 and got[-1].payload == payload
@@ -183,12 +189,50 @@ def test_a_large_payload_is_split_into_consecutive_parts_and_a_gap_is_refused():
     assert framed_size(len(payload)) >= sum(len(f) for f in frames) - 4 * 400
 
 
+def test_a_bootstrap_over_80_mib_is_spooled_to_a_private_file_never_held_in_memory(tmp_path):
+    """The owner's bootstrap is estimated near 90 MB; the device's cap matches the relay's 256 MiB stream bound."""
+    import tracemalloc
+
+    home, (laptop, phone), _ = group()
+    bundle = tmp_path / "bootstrap.bundle"
+    with open(bundle, "wb") as fh:
+        for i in range(81):
+            fh.write(bytes([i]) * MiB)
+    laptop.spool_dir = str(tmp_path / "spool")
+    tracemalloc.start()
+    got = None
+    for frame in home.seal_stream(str(bundle), meta={"seq": 7}):
+        got = laptop.open(frame)
+    _, peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    assert got is not None and got.meta == {"seq": 7} and got.payload == b""
+    assert Path(got.path).stat().st_size == 81 * MiB and filecmp.cmp(got.path, bundle, shallow=False)
+    assert Path(got.path).parent == tmp_path / "spool" and (Path(got.path).stat().st_mode & 0o777) == 0o600
+    assert peak < 16 * MiB, peak                                 # a few parts in flight, never the whole bundle
+    # Without a spool directory a stream is refused, never assembled in memory.
+    with pytest.raises(Refused) as exc:
+        phone.open(next(iter(home.seal_stream(str(bundle), meta={"seq": 8}))))
+    assert exc.value.code == "no_spool"
+    assert MAX_STREAM_BYTES == Config().max_stream_bytes
+
+
+def test_a_bootstrap_with_a_gap_leaves_no_spool_file(tmp_path):
+    home, (laptop,), _ = group(1)
+    laptop.spool_dir = str(tmp_path / "spool")
+    frames = home.seal("stream", b"z" * (2 * MAX_PART_PLAIN), meta={"seq": 1})
+    laptop.open(frames[0])
+    assert len(list((tmp_path / "spool").iterdir())) == 1
+    with pytest.raises(Refused):
+        laptop.open(frames[2])
+    assert list((tmp_path / "spool").iterdir()) == []
+
+
 def test_the_home_moves_by_a_hand_off_its_devices_verify():
     home, (laptop, phone), clock = group()
-    frame = home.hand_off(laptop.me)
+    frame, record = home.hand_off(laptop.me)
     for dev in (laptop, phone):
         assert dev.open(frame).kind == "epoch" and dev.home == laptop.me
-    new_home = Home.take_over(laptop)
+    new_home = Home.take_over(laptop, record)
     rotate = new_home.revoke(home.me)
     assert phone.open(rotate).kind == "epoch"
     assert phone.open(new_home.seal("delta", b"from the new home", meta={"seq": 100})[0]).payload == \
@@ -198,6 +242,54 @@ def test_the_home_moves_by_a_hand_off_its_devices_verify():
     old_try.home = old_try.me
     with pytest.raises(Refused):
         phone.open(old_try.add_device(Keys.generate().public()))
+
+
+def test_after_a_hand_off_no_device_holds_a_key_older_than_the_epoch_it_joined():
+    clock = Clock()
+    home = Home.create(clock=clock)
+    ka, kb = Keys.generate(), Keys.generate()
+    a = Endpoint(keys=ka, mailbox=home.mailbox, home=home.me, clock=clock)
+    a.open(home.add_device(ka.public()))                                    # A joins epoch 2
+    before_b = home.seal("control", b"before B joined", meta={})[0]
+    b = Endpoint(keys=kb, mailbox=home.mailbox, home=home.me, clock=clock)
+    join = home.add_device(kb.public())                                     # B joins epoch 3
+    a.open(join)
+    b.open(join)
+    b_joined = b.epoch
+    frame, record = home.hand_off(a.me)
+    a.open(frame)
+    b.open(frame)
+    clock.t += 9 * 86_400                                                   # past the 8-day retention
+    new_home = Home.take_over(a, record)
+    assert new_home.joined[b.me] == b_joined and new_home.started[2] == home.started[2]
+    b.open(new_home.add_device(Keys.generate().public()))
+    assert min(b.epoch_keys) >= b_joined
+    b.hw.clear()
+    with pytest.raises(Refused) as exc:
+        b.open(before_b)
+    assert exc.value.code == "unknown_epoch"
+    # Retention is not restarted by the move: an epoch older than 8 days is not wrapped again.
+    c_keys = Keys.generate()
+    c = Endpoint(keys=c_keys, mailbox=home.mailbox, home=new_home.me, clock=clock)
+    c.open(new_home.add_device(c_keys.public()))
+    assert set(c.epoch_keys) == {new_home.epoch}
+
+
+def test_take_over_needs_the_old_homes_record():
+    home, (laptop, phone), _ = group()
+    frame, record = home.hand_off(laptop.me)
+    laptop.open(frame)
+    phone.open(frame)
+    with pytest.raises(TypeError):
+        Home.take_over(laptop)                                              # required, never defaulted
+    forged = SealedBox(PublicKey(b64d(laptop.keys.x_b64))).encrypt(canonical({"body": b64e(b"{}"), "sig": b64e(
+        b"\x00" * 64)}))
+    with pytest.raises(Refused) as exc:
+        Home.take_over(laptop, forged)
+    assert exc.value.code == "bad_handoff"
+    with pytest.raises(Refused) as exc:
+        Home.take_over(phone, record)                                        # not the device it names
+    assert exc.value.code == "not_home"
 
 
 def test_state_round_trips():

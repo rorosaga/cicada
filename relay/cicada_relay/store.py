@@ -50,6 +50,12 @@ CREATE TABLE IF NOT EXISTS slots (
     msgs INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS slot_msgs (
     id INTEGER PRIMARY KEY AUTOINCREMENT, slot TEXT NOT NULL, dir TEXT NOT NULL, body BLOB NOT NULL);
+CREATE TABLE IF NOT EXISTS totals (k TEXT PRIMARY KEY, bytes INTEGER NOT NULL);
+INSERT OR IGNORE INTO totals VALUES ('frames', 0);
+CREATE TRIGGER IF NOT EXISTS frames_in AFTER INSERT ON frames
+    BEGIN UPDATE totals SET bytes = bytes + NEW.size WHERE k = 'frames'; END;
+CREATE TRIGGER IF NOT EXISTS frames_out AFTER DELETE ON frames
+    BEGIN UPDATE totals SET bytes = bytes - OLD.size WHERE k = 'frames'; END;
 """
 
 
@@ -184,6 +190,9 @@ class Store:
             raise Refused("expired")
         evicted: dict[str, int] = {}
         with self._tx():
+            # Relay-wide first: a full relay refuses, it never evicts another bank's frames.
+            if self.total_bytes() + size > cfg.max_total_bytes or self.db_bytes() + size > cfg.max_db_bytes:
+                raise Refused("relay_full")
             use = self.usage(mb)
             if kind == "stream":
                 active = self.db.execute("SELECT DISTINCT stream FROM frames WHERE mb=? AND kind='stream'",
@@ -224,12 +233,33 @@ class Store:
         self.db.execute("DELETE FROM frames WHERE rseq=?", (row[0],))
         return True
 
-    def pending(self, mb: str, dev: str, after: int = 0, limit: int = 256) -> list[tuple[int, bytes]]:
-        now = self.clock()
-        return self.db.execute(
-            "SELECT f.rseq, f.raw FROM recips r JOIN frames f ON f.rseq = r.rseq "
+    def total_bytes(self) -> int:
+        return self.db.execute("SELECT bytes FROM totals WHERE k='frames'").fetchone()[0]
+
+    def db_bytes(self) -> int:
+        pages = self.db.execute("PRAGMA page_count").fetchone()[0]
+        return pages * self.db.execute("PRAGMA page_size").fetchone()[0]
+
+    def pending(self, mb: str, dev: str, after: int = 0, limit: int = 256,
+                max_bytes: int | None = None) -> list[tuple[int, int]]:
+        """``(relay seq, size)`` of what waits for ``dev``, oldest first, at most ``max_bytes`` of frames a batch
+        (always at least one). The bytes themselves are read one frame at a time by ``frame``."""
+        cap = self.config.flush_batch_bytes if max_bytes is None else max_bytes
+        rows = self.db.execute(
+            "SELECT f.rseq, f.size FROM recips r JOIN frames f ON f.rseq = r.rseq "
             "WHERE r.mb=? AND r.dev=? AND r.rseq>? AND f.expires>? ORDER BY r.rseq LIMIT ?",
-            (mb, dev, after, now, limit)).fetchall()
+            (mb, dev, after, self.clock(), limit)).fetchall()
+        out, total = [], 0
+        for rseq, size in rows:
+            if out and total + size > cap:
+                break
+            out.append((rseq, size))
+            total += size
+        return out
+
+    def frame(self, rseq: int) -> bytes | None:
+        row = self.db.execute("SELECT raw FROM frames WHERE rseq=?", (rseq,)).fetchone()
+        return None if row is None else row[0]
 
     def ack(self, mb: str, dev: str, upto: int) -> None:
         with self._tx():

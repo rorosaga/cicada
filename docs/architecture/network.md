@@ -577,12 +577,36 @@ choosing the host is the owner's (ruling 51c). Nothing in the backend imports th
 imports the device side, so a normal install starts no process and opens no connection
 (`test_sync_relay_isolation.py`). Phase 3b wires the device side into the follower and the outbox.
 
+**Direct first, the relay as fallback (owner, 2026-10-30: "cant we just connect between devices").** Devices talk to
+each other directly whenever they can: on the same LAN, over a tailnet, or through a hole-punched path. The relay is
+only (1) the fallback when no direct path exists, (2) the mailbox for a home that is asleep or a phone that was off, and
+(3) the public address the Claude and ChatGPT connector reaches (phase 4, TLS passthrough). Hosting and a domain wait;
+the direct transport is not in this build. **The frames are identical on either path:** the E2E layer below is
+transport-agnostic — a frame is signed and encrypted end to end before any transport sees it, and a receiver runs the
+same `Endpoint.open` (membership, signature, counter, epoch key) whether the bytes came over a direct socket or out of
+the relay's mailbox. A frame that arrives twice, once each way, is refused the second time by its counter, so a device
+may try both paths for the same frame. What direct needs, for 3b:
+
+- **Discovery.** On a LAN, mDNS/Bonjour (`_cicada._tcp`), advertising only the mailbox id's hash and a port, never a
+  name; on a tailnet, the address the person already gave (`CICADA_REPLICA_OF` / `api_base`, phase 1); otherwise each
+  device's candidate addresses, exchanged as an encrypted `control` frame through the relay (rendezvous only).
+- **NAT traversal**, in order of cost: (a) none — LAN and tailnet are already reachable; (b) our own UDP hole punching
+  with the relay as the rendezvous (it relays the encrypted candidate frames and never carries the session), with QUIC
+  or a websocket over the punched path; (c) iroh (QUIC with hole punching and its own relay fallback, Python 1.2.0 and
+  Swift bindings; 1.0 in June 2026; its FFI is "tier 2") if (b) proves fragile. Either way the punched path carries the
+  same frames.
+- **Authentication on a direct path** is the same challenge the relay uses — a fresh nonce signed by a key on the
+  home-signed membership — so a device admits a peer exactly as the relay admits a device, and no Cicada token crosses
+  the wire. TLS on a direct socket is transport hygiene, not the trust boundary.
+- **Choosing a path.** Try direct, fall back to the relay after a short timeout; queue through the relay whenever the
+  peer is offline. Acks are per path (the relay's relay seq, a direct session's own), the sender counter is shared.
+
 **What exists.** `relay/` is the relay (`cicada_relay`: `wire`, `config`, `store`, `server`, `health`), standalone —
 it imports nothing from the backend — with its own pinned, hashed `requirements.txt` (PyNaCl, websockets) and one
 `Dockerfile`. The backend side is three modules: `sync_relay_crypto` (keys, frames, epochs, the group),
 `sync_relay_pairing` (the QR and typed-code exchanges) and `sync_relay_client` (the device's outbound websocket).
 
-**The stack (gate g4): one small Python asyncio websocket relay with a SQLite mailbox,** the research's option (b)
+**The relay's stack (gate g4): one small Python asyncio websocket relay with a SQLite mailbox,** the research's option (b)
 (`reports/g132-relay-research.md`): no lock-in, the same image hosted and self-hosted, pytest runs it in-process, and
 in phase 4 the same process can own :443 and route the connector by SNI without terminating TLS. Measured on this Mac:
 an idle authenticated socket costs **~69 KB of relay RSS** (1,501 sockets on loopback, one process), so 30,000 sockets
@@ -609,7 +633,9 @@ device paired, a device revoked, the home handed off — is a new epoch: the hom
 (`crypto_box_seal` to its X25519 key) of the epoch keys it may hold — never one from before it joined, only those
 started within 8 days. A device accepts a membership only when the home it pinned at pairing signed it; a statement
 naming another home is the hand-off (phase 2's signed record, at the relay too), and the new home is pinned from then
-on. Revoking a device rotates the epoch: it opens nothing sent afterwards, what it sends is refused by every member,
+on. The old home's group record — who joined in which epoch, and when each epoch started — goes to the new home alone,
+signed by the old home and sealed to the new home's key; `Home.take_over` requires it, so a hand-off never wraps a key
+to a device older than the epoch it joined, nor restarts a key's retention. Revoking a device rotates the epoch: it opens nothing sent afterwards, what it sends is refused by every member,
 and the relay drops it, its socket, its queued frames and the frames waiting for it. **Revoking cannot take back the
 copy a device already holds;** it stops everything after.
 
@@ -643,8 +669,13 @@ start again"). A slot lives at most the code's ten minutes and carries at most 8
 | TTL | 7 days for transactions, control and deltas, counted from the frame's own signed time | under the home's 8-day key; the outbox expires at 7 |
 | Status | latest only per sender, 16 KiB, never queued | a status frame is one 4 KiB bucket |
 | Idle bank | purged after 30 days with no device connected | the home re-creates it from its signed membership |
+| Relay-wide | 16 GiB of frames (a running total kept by SQLite triggers) and a 20 GiB database file | a full relay answers `relay_full`; it never evicts another bank's frames |
+| A flush | reads sizes, then one frame's bytes at a time, ≤ 4 MiB a batch | a bank's 15 online devices cost ~15 frames of memory, not 15 × 256 MiB |
+| Bank creation | one per connection; 5 per remote address an hour; 16 unauthenticated sockets per address | creating needs no credential (the home's key is the bank's root), so it is rate-limited; the address is held in memory for the count only, never logged or stored |
 
-When the standing mailbox is full the oldest delta is evicted first (its recipients are told they missed some), never
+A device spools a bootstrap's parts to a 0600 file outside every bank (`Endpoint.spool_dir`, never in memory), up to
+the relay's 256 MiB; the home seals it from its bundle file a part at a time (`seal_stream`). Any other message is
+assembled in memory up to 64 MiB. When the standing mailbox is full the oldest delta is evicted first (its recipients are told they missed some), never
 a transaction; when only transactions are left a new one is refused `relay_full` and stays in its device's outbox.
 What is still on its way, per sending device, is the relay's `counts` (ruling 51d's "on its way").
 
@@ -656,7 +687,7 @@ statements (public keys only); that a pairing happened. *What it never holds:* a
 inbox answer, a Cicada token, the bank id, a pairing code on the QR path, or a key that opens a frame — the SQLite file
 and the logs are checked for a known plaintext marker (`test_sync_relay_e2e.py`). *What an attacker who controls the
 relay can do:* drop, delay or reorder frames, or refuse service (a device sees it is behind by the home's `seq` and
-says so: "Waiting for the home"); squat a purged mailbox id (the home makes a new one); see the metadata above; on the
+says so: "Waiting for the home"); squat a purged mailbox id (the home makes a new one); fill its own disk (bounded per bank and relay-wide); see the metadata above; on the
 typed-code path, try a man-in-the-middle that the six digits expose. *What it cannot do:* read any frame; forge one
 (every frame is signed by its sender, every membership by the pinned home); replay or reorder one past the counters;
 inject a delta, a bootstrap or a membership (home-only kinds, checked by every device); keep a revoked device in the

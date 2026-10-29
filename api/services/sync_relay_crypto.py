@@ -33,9 +33,11 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import secrets
 import struct
 import time
+import contextlib
 from dataclasses import dataclass, field
 
 from nacl import bindings
@@ -62,7 +64,12 @@ MAX_CLOCK_SKEW_S = 300
 #: Epoch keys a newly wrapped device receives: those started within this window (frames under them may still be in
 #: the mailbox, whose longest TTL is 7 days).
 KEY_RETAIN_S = 8 * 86_400
-MAX_MESSAGE_BYTES = 80 * MiB
+#: A message other than the bootstrap is assembled in memory, up to this. A Sleep drain's decay delta measured ~10 MB.
+MAX_MESSAGE_BYTES = 64 * MiB
+#: The bootstrap (``stream``) is never held in memory: its parts are spooled to a 0600 file outside every bank, up to
+#: the relay's own ``max_stream_bytes`` (``relay/cicada_relay/config.py``; ``test_sync_relay_crypto`` holds the two equal).
+MAX_STREAM_BYTES = 256 * MiB
+HANDOFF_DOMAIN = b"cicada-relay-handoff-v1\x00"
 
 
 class Refused(Exception):
@@ -216,6 +223,8 @@ class Message:
     meta: dict
     at: int
     ctr: int
+    #: A bootstrap's payload is not in memory: it is this spooled file (0600), the caller's to apply and delete.
+    path: str | None = None
 
 
 def _check_meta(kind: str, meta: dict) -> None:
@@ -243,6 +252,11 @@ class Endpoint:
     hw: dict[str, int] = field(default_factory=dict)
     revoked: bool = False
     clock: object = time.time
+    #: Where a bootstrap's parts are spooled (0700, outside every bank; 3b passes ``$CICADA_HOME/sync/<bank>/spool``).
+    #: Unset, a stream is refused.
+    spool_dir: str | None = None
+    #: The home before the last hand-off this device accepted: the only key a hand-off's group record may be signed by.
+    prev_home: str | None = None
     _partial: dict = field(default_factory=dict)
 
     @property
@@ -273,19 +287,42 @@ class Endpoint:
         inner = struct.pack(">I", len(mb)) + mb + bytes(payload)
         step = MAX_PART_PLAIN - 1
         chunks = [inner[i : i + step] for i in range(0, len(inner), step)] or [b""]
+        if kind == "stream" and len(inner) > MAX_STREAM_BYTES:
+            raise Refused("too_large")
         msg = self._next_ctr(len(chunks))
         at = int(self.clock())
-        key = self.epoch_keys[self.epoch]
-        frames = []
-        for i, chunk in enumerate(chunks):
-            header = {"v": 1, "mb": self.mailbox, "ep": self.epoch, "from": self.me, "ctr": msg + i, "kind": kind,
-                      "at": at, "msg": msg, "part": i, "parts": len(chunks), "to": to}
-            hb = canonical(header)
-            aad = MAGIC + struct.pack(">H", len(hb)) + hb
-            nonce = secrets.token_bytes(NONCE_LEN)
-            ct = bindings.crypto_aead_xchacha20poly1305_ietf_encrypt(pad(chunk), aad, nonce, key)
-            frames.append(build_frame(self.keys, header, nonce + ct))
-        return frames
+        return [self._part(kind, to, msg, i, len(chunks), at, chunk) for i, chunk in enumerate(chunks)]
+
+    def seal_stream(self, path: str, *, meta: dict | None = None, to="*"):
+        """The bootstrap from a file, one frame at a time: neither side ever holds the whole bundle in memory."""
+        if not self.is_home:
+            raise Refused("home_only")
+        if self.revoked or self.epoch not in self.epoch_keys:
+            raise Refused("no_epoch")
+        mb = canonical(dict(meta or {}))
+        size = os.path.getsize(path)
+        inner_len = 4 + len(mb) + size
+        if inner_len > MAX_STREAM_BYTES:
+            raise Refused("too_large")
+        step = MAX_PART_PLAIN - 1
+        parts = max(1, -(-inner_len // step))
+        msg = self._next_ctr(parts)
+        at = int(self.clock())
+        with open(path, "rb") as fh:
+            head = struct.pack(">I", len(mb)) + mb
+            for i in range(parts):
+                chunk = head + fh.read(step - len(head))
+                head = b""
+                yield self._part("stream", to, msg, i, parts, at, chunk)
+
+    def _part(self, kind: str, to, msg: int, i: int, parts: int, at: int, chunk: bytes) -> bytes:
+        header = {"v": 1, "mb": self.mailbox, "ep": self.epoch, "from": self.me, "ctr": msg + i, "kind": kind,
+                  "at": at, "msg": msg, "part": i, "parts": parts, "to": to}
+        hb = canonical(header)
+        aad = MAGIC + struct.pack(">H", len(hb)) + hb
+        nonce = secrets.token_bytes(NONCE_LEN)
+        ct = bindings.crypto_aead_xchacha20poly1305_ietf_encrypt(pad(chunk), aad, nonce, self.epoch_keys[self.epoch])
+        return build_frame(self.keys, header, nonce + ct)
 
     # -- receiving --------------------------------------------------------------------------------------------------
     def open(self, raw: bytes) -> Message | None:
@@ -327,37 +364,87 @@ class Endpoint:
         self.hw[sender] = h["ctr"]
         return self._assemble(h, sender, chunk)
 
-    def _assemble(self, h: dict, sender: str, chunk: bytes) -> Message | None:
-        k = (sender, h["msg"])
-        if h["parts"] == 1:
-            inner = chunk
-        else:
-            if h["part"] == 0:
-                self._partial = {kk: v for kk, v in self._partial.items() if kk[0] != sender}
-                self._partial[k] = [chunk]
-            else:
-                got = self._partial.get(k)
-                if got is None or len(got) != h["part"]:
-                    self._partial.pop(k, None)
-                    raise Refused("gap")
-                got.append(chunk)
-                if sum(len(c) for c in got) > MAX_MESSAGE_BYTES:
-                    self._partial.pop(k, None)
-                    raise Refused("too_large")
-            if h["part"] < h["parts"] - 1:
-                return None
-            inner = b"".join(self._partial.pop(k))
+    def _drop_partial(self, k) -> None:
+        got = self._partial.pop(k, None)
+        if isinstance(got, dict):
+            got["fh"].close()
+            with contextlib.suppress(OSError):
+                os.unlink(got["path"])
+
+    @staticmethod
+    def _meta(inner: bytes, kind: str) -> tuple[dict, int]:
         if len(inner) < 4:
             raise Refused("bad_meta")
         (mlen,) = struct.unpack(">I", inner[:4])
+        if 4 + mlen > len(inner):
+            raise Refused("bad_meta")
         try:
             meta = json.loads(inner[4 : 4 + mlen])
         except ValueError as exc:
             raise Refused("bad_meta") from exc
         if not isinstance(meta, dict):
             raise Refused("bad_meta")
-        _check_meta(h["kind"], meta)
-        return Message(kind=h["kind"], sender=sender, payload=inner[4 + mlen :], meta=meta, at=h["at"], ctr=h["msg"])
+        _check_meta(kind, meta)
+        return meta, 4 + mlen
+
+    def _spool(self, h: dict, sender: str, chunk: bytes) -> Message | None:
+        """A bootstrap part, appended to its 0600 spool file; the message on the last part names the file."""
+        k = (sender, h["msg"])
+        if h["part"] == 0:
+            for other in [kk for kk in self._partial if kk[0] == sender]:
+                self._drop_partial(other)
+            if not self.spool_dir:
+                raise Refused("no_spool")
+            meta, start = self._meta(chunk, h["kind"])
+            os.makedirs(self.spool_dir, mode=0o700, exist_ok=True)
+            path = os.path.join(self.spool_dir, f"stream-{secrets.token_hex(8)}.part")
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            got = {"fh": os.fdopen(fd, "wb"), "path": path, "parts": 0, "bytes": 0, "meta": meta}
+            self._partial[k] = got
+            chunk = chunk[start:]
+        else:
+            got = self._partial.get(k)
+            if not isinstance(got, dict) or got["parts"] != h["part"]:
+                self._drop_partial(k)
+                raise Refused("gap")
+        got["bytes"] += len(chunk)
+        if got["bytes"] > MAX_STREAM_BYTES:
+            self._drop_partial(k)
+            raise Refused("too_large")
+        got["fh"].write(chunk)
+        got["parts"] += 1
+        if h["part"] < h["parts"] - 1:
+            return None
+        self._partial.pop(k)
+        got["fh"].close()
+        return Message(kind="stream", sender=sender, payload=b"", meta=got["meta"], at=h["at"], ctr=h["msg"],
+                       path=got["path"])
+
+    def _assemble(self, h: dict, sender: str, chunk: bytes) -> Message | None:
+        if h["kind"] == "stream":
+            return self._spool(h, sender, chunk)
+        k = (sender, h["msg"])
+        if h["parts"] == 1:
+            inner = chunk
+        else:
+            if h["part"] == 0:
+                for other in [kk for kk in self._partial if kk[0] == sender]:
+                    self._drop_partial(other)
+                self._partial[k] = [chunk]
+            else:
+                got = self._partial.get(k)
+                if not isinstance(got, list) or len(got) != h["part"]:
+                    self._drop_partial(k)
+                    raise Refused("gap")
+                got.append(chunk)
+                if sum(len(c) for c in got) > MAX_MESSAGE_BYTES:
+                    self._drop_partial(k)
+                    raise Refused("too_large")
+            if h["part"] < h["parts"] - 1:
+                return None
+            inner = b"".join(self._partial.pop(k))
+        meta, start = self._meta(inner, h["kind"])
+        return Message(kind=h["kind"], sender=sender, payload=inner[start:], meta=meta, at=h["at"], ctr=h["msg"])
 
     def _open_epoch(self, p: Parsed) -> Message | None:
         verify_frame(p, self.home)   # only the pinned home may change the membership
@@ -390,6 +477,8 @@ class Endpoint:
             self.epoch_keys[int(e)] = b64d(k)
         self.members = devices
         self.epoch = st["epoch"]
+        if st["home"] != self.home:
+            self.prev_home = self.home
         self.home = st["home"]
         return Message(kind="epoch", sender=p.header["from"], payload=b"", meta={"statement": st},
                        at=p.header["at"], ctr=p.header["ctr"])
@@ -398,13 +487,14 @@ class Endpoint:
     def to_state(self) -> dict:
         return {"keys": self.keys.export(), "mailbox": self.mailbox, "home": self.home, "ctr": self.ctr,
                 "epoch": self.epoch, "epoch_keys": {str(e): b64e(k) for e, k in self.epoch_keys.items()},
-                "members": self.members, "hw": self.hw, "revoked": self.revoked}
+                "members": self.members, "hw": self.hw, "revoked": self.revoked, "prev_home": self.prev_home}
 
     @classmethod
     def from_state(cls, state: dict, **kw) -> "Endpoint":
         return cls(keys=Keys.load(state["keys"]), mailbox=state["mailbox"], home=state["home"], ctr=state["ctr"],
                    epoch=state["epoch"], epoch_keys={int(e): b64d(k) for e, k in state["epoch_keys"].items()},
-                   members=dict(state["members"]), hw=dict(state["hw"]), revoked=state["revoked"], **kw)
+                   members=dict(state["members"]), hw=dict(state["hw"]), revoked=state["revoked"],
+                   prev_home=state.get("prev_home"), **kw)
 
 
 @dataclass
@@ -467,26 +557,45 @@ class Home(Endpoint):
         self._new_epoch()
         return self.epoch_frame()
 
-    def hand_off(self, new_home_ed: str) -> bytes:
-        """The old home's last membership frame names the new home (phase 2's signed hand-off, at the relay). After
-        it, this endpoint is an ordinary device and the new home signs every later epoch."""
+    def hand_off(self, new_home_ed: str) -> tuple[bytes, bytes]:
+        """The old home's last membership frame names the new home (phase 2's signed hand-off, at the relay), and the
+        group record — who joined when, and when each epoch started — goes to the new home alone, signed by this home
+        and sealed to the new home's key, so the new home never wraps a key to a device that joined after it, nor
+        restarts a key's retention. After it, this endpoint is an ordinary device. Returns ``(epoch frame, record)``."""
         if new_home_ed not in self.members or new_home_ed == self.me:
             raise Refused("bad_device")
         self._new_epoch()
         frame = self.epoch_frame(home=new_home_ed)
-        self.home = new_home_ed
-        return frame
+        body = canonical({"mb": self.mailbox, "epoch": self.epoch, "to": new_home_ed, "joined": self.joined,
+                          "started": {str(e): t for e, t in self.started.items()}})
+        signed = canonical({"body": b64e(body), "sig": b64e(self.keys.ed.sign(HANDOFF_DOMAIN + body).signature)})
+        record = SealedBox(PublicKey(b64d(self.members[new_home_ed]))).encrypt(signed)
+        self.prev_home, self.home = self.me, new_home_ed
+        return frame, record
 
     @classmethod
-    def take_over(cls, device: Endpoint, joined: dict[str, int] | None = None) -> "Home":
-        """A device that accepted a hand-off naming it becomes the home, from the state it already holds."""
-        if device.home != device.me:
+    def take_over(cls, device: Endpoint, record: bytes) -> "Home":
+        """A device that accepted a hand-off naming it becomes the home, from the state it holds and the old home's
+        group record (required: without it the new home cannot know who joined when)."""
+        if device.home != device.me or not device.prev_home:
             raise Refused("not_home")
+        try:
+            outer = json.loads(SealedBox(device.keys.x).decrypt(record))
+            body = b64d(outer["body"])
+            VerifyKey(b64d(device.prev_home)).verify(HANDOFF_DOMAIN + body, b64d(outer["sig"]))
+            got = json.loads(body)
+        except (CryptoError, BadSignatureError, ValueError, KeyError, TypeError) as exc:
+            raise Refused("bad_handoff") from exc
+        if got.get("mb") != device.mailbox or got.get("epoch") != device.epoch or got.get("to") != device.me:
+            raise Refused("bad_handoff")
+        joined = {ed: int(e) for ed, e in got["joined"].items() if ed in device.members}
+        if set(joined) != set(device.members):
+            raise Refused("bad_handoff")
         home = cls(keys=device.keys, mailbox=device.mailbox, home=device.me, ctr=device.ctr, epoch=device.epoch,
                    epoch_keys=dict(device.epoch_keys), members=dict(device.members), hw=dict(device.hw),
-                   clock=device.clock)
-        home.joined = dict(joined or {ed: min(device.epoch_keys) for ed in device.members})
-        home.started = {e: home.clock() for e in device.epoch_keys}
+                   clock=device.clock, prev_home=device.prev_home)
+        home.joined = joined
+        home.started = {int(e): float(t) for e, t in got["started"].items() if int(e) in device.epoch_keys}
         return home
 
     def to_state(self) -> dict:
