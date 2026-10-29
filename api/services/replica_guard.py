@@ -36,8 +36,21 @@ class ReplicaReadOnly(PermissionError):
     code = "replica_read_only"
 
     def __init__(self, what: str = "write"):
-        super().__init__(TEXT)
+        moving = _moving()
+        super().__init__(moving or TEXT)
         self.what = what
+        if moving:
+            self.code = "home_moving"
+
+
+def _moving() -> str | None:
+    """G132 phase 2: the sentence when this computer is closed to writes because its home is moving (or moved) away."""
+    try:
+        from api.services import home_move
+
+        return home_move.closed_text() if home_move.writes_sealed() else None
+    except Exception:  # noqa: BLE001
+        return None
 
 
 #: The mode the backend STARTED in (review of #567): set by its lifespan, so writing or removing ``replica_of`` while it
@@ -154,7 +167,13 @@ def check(what: str = "write") -> None:
 
 
 def blocks() -> bool:
-    """True when a write would be refused right now (for a writer that turns the refusal into a no-op)."""
+    """True when a write would be refused right now (for a writer that turns the refusal into a no-op). G132 phase 2:
+    also on a home that is handing off, once it is sealed (``home_move.writes_sealed`` — one ``stat``): from then until
+    it follows the new home, nothing but the hand-off's own commits (inside :func:`applying`) writes the bank."""
     if is_applying():
         return False
-    return active() or active_bank_is_copy()
+    if active() or active_bank_is_copy():
+        return True
+    from api.services import home_move
+
+    return home_move.writes_sealed()

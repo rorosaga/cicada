@@ -1621,10 +1621,24 @@ def handle_tool(name: str, arguments: dict) -> str:
     # D7 (G202): this session was a server's client a call ago (the app moved `api_base`): say so, once.
     notice = tool_client.where_changed((tool_client.THIS_MACHINE, "", ""))
     if row is not None and row.mutates:
+        from api.services import admitted_log, home_move
+
+        if home_move.writes_closed():
+            # G132 phase 2: this computer's home is moving (or moved) away: the write is not made here.
+            return mcp_tools.Reply(home_move.closed_text(), code="refused")
+        before = admitted_log.seq_before(get_memory_path())
         # Owner, 2026-10-16 (backend hunt): an edit already uncommitted on a page this write takes is committed
         # apart, first, never under this agent's name (`agent_commits.setting_apart`, as the inbox routes do).
         with agent_commits.setting_apart(get_memory_path()):
             text = _handle_local_tool(name, arguments)
+        if before is not None and not tool_contract.is_error(getattr(text, "code", None)):
+            # G132 phase 2: a publishing home keeps what it admitted, to offer back if it is ever taken over.
+            admitted_log.record_tool(get_memory_path(), tool=name, arguments=arguments,
+                                     caller={"harness": SESSION.harness, "session_id": SESSION.session_id,
+                                             "project_dir": SESSION.project_dir,
+                                             "client_name": CLIENT_INFO.get("name") or None,
+                                             "client_version": CLIENT_INFO.get("version") or None},
+                                     surface="mcp", seq_before=before)
     else:
         text = _handle_local_tool(name, arguments)
     if notice and isinstance(text, str):

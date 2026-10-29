@@ -183,6 +183,11 @@ async def lifespan(app: FastAPI):
 
     from api.services import replica_guard, runtime_layout
 
+    # G132 phase 2: a hand-off cut short is finished (or a move that never committed its record undone) before this
+    # backend reads which part it plays — the home or a replica — so it never starts half one and half the other.
+    from api.services import home_move
+
+    home_move.finish_at_start()
     if runtime_layout.mode_conflict():
         logger.warning(runtime_layout.mode_conflict())
     # The mode this backend runs in is the one it started in: `replica_of` written or removed while it runs changes
@@ -319,6 +324,11 @@ async def lifespan(app: FastAPI):
 
     # Speed 2026-10-29: everything start-up made lives as long as the process; freeze it out of the cyclic collector
     # once, so a full collection in a request never walks the app itself (`gc_tuning`).
+    # G132 phase 2: a home that shares its memory asks the group, at its start and every minute, whether another device
+    # took over while it was away; a home closed by a move it already recorded goes on handing off. Nothing at all
+    # while it shares nothing.
+    await asyncio.to_thread(home_move.at_start, settings.memory_path)
+
     from api.services import gc_tuning
 
     gc_tuning.freeze_after_start()
@@ -326,6 +336,7 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        home_move.stop_peer_watch()
         replica_guard.thaw()
         await remote_listener.LISTENER.stop()
         await telegram_account.ACCOUNT.stop()

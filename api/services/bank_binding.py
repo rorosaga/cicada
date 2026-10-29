@@ -82,6 +82,8 @@ NO_BANK_WRITE = frozenset({
     ("POST", "/sync/replica/restart"),
     ("POST", "/sync/replica/recopy"),
     ("PUT", "/sync/publish"),
+    # G132 phase 2: a device of the group says where it is and how far its copy is — `$CICADA_HOME`'s devices.db.
+    ("POST", "/sync/devices/me"),
     # 2026-10-29 (owner, "Yes, one click"): the person's click runs one tailnet serve — Tailscale's state, no bank.
     ("POST", "/devices/reach/serve"),
     ("POST", "/agent-api/tokens"),

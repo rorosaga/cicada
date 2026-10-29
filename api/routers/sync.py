@@ -6,7 +6,7 @@ import json
 import os
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
@@ -391,7 +391,148 @@ async def post_recopy():
         timings = await run_in_threadpool(replica.recopy)
     except replica.NoDeviceToken:
         return JSONResponse(status_code=409, content={"code": "no_device_token", "detail": replica.TEXTS["no_token"]})
+    except replica.NoLongerACopy:
+        # Review of #567: "Stop keeping a copy" landed while this copy was being replaced — nothing was written.
+        return JSONResponse(status_code=409, content={"code": "no_longer_a_copy", "detail": replica.TEXTS["stopping"]})
     except replica.HomeError as exc:
         return JSONResponse(status_code=502, content={"code": "home_away" if exc.status is None else "home_refused",
                                                       "detail": replica.TEXTS["offline"]})
     return {"replica": replica.state(), "timings": timings}
+
+
+# --- G132 phase 2 (ruling 51a): moving the home -----------------------------------------------------------------------
+#
+# One concept, the home: the device that orders every write and runs Sleep. `GET /sync/home` is what the Sleep page
+# draws (the home with its state, every other device online or not and how far behind); a computer that shares nothing
+# answers `{"shared": false}` and nothing new is drawn. A move is asked of the home (`POST /sync/home/move`, the
+# person's own token or one of their full devices — a copy's Sleep page forwards it there); a take-over is this
+# computer's own act on the person's OK (`POST /sync/home/take-over`, this computer's token only). Devices tell their
+# home about themselves (`POST /sync/devices/me`) and mirror the group's registry (`GET /sync/devices`); any device
+# asks another which home it knows (`GET /sync/peer`, checked by the route itself).
+
+
+class MoveBody(BaseModel):
+    device: str
+
+
+class TakeOverBody(BaseModel):
+    #: How far behind the person was shown (the preview's ``behind``): a take-over goes ahead only on that number.
+    behind: int
+    confirm: bool = False
+
+
+class AnnounceBody(BaseModel):
+    signKey: dict | None = None
+    address: str | None = None
+    bankId: str | None = None
+    seq: int | None = None
+
+
+def _refused_move(exc) -> JSONResponse:
+    return JSONResponse(status_code=exc.status, content={"code": exc.code, "detail": exc.text})
+
+
+@router.get("/home")
+async def get_home(settings: Settings = Depends(get_settings)):
+    from api.services import home_move
+
+    return await run_in_threadpool(home_move.overview, settings.memory_path)
+
+
+@router.post("/home/move")
+async def post_home_move(body: MoveBody, settings: Settings = Depends(get_settings)):
+    """Make ``device`` the home: this computer closes to writes, parks Sleep, commits the signed record naming it as
+    its last commit, and follows it once it answers as the home. Answers at once (202) with the progress; the Sleep
+    page follows ``GET /sync/home``."""
+    from api.services import home_move
+
+    try:
+        progress = await run_in_threadpool(home_move.start_move, settings.memory_path, body.device.strip())
+    except home_move.MoveRefused as exc:
+        return _refused_move(exc)
+    return JSONResponse(status_code=202, content={"moving": progress})
+
+
+@router.get("/home/take-over")
+async def get_take_over(settings: Settings = Depends(get_settings)):
+    """What the person is shown before a take-over: how far behind this copy is of the last home it saw, and when."""
+    from api.services import home_move
+
+    return await run_in_threadpool(home_move.take_over_preview, settings.memory_path)
+
+
+@router.post("/home/take-over")
+async def post_take_over(body: TakeOverBody, settings: Settings = Depends(get_settings)):
+    """The person confirmed (``confirm`` and the ``behind`` they were shown): this copy becomes the home."""
+    from api.services import home_move
+
+    if not body.confirm:
+        return JSONResponse(status_code=400, content={"code": "not_confirmed",
+                                                      "detail": "A take-over needs your confirmation."})
+    try:
+        return await run_in_threadpool(lambda: home_move.take_over(settings.memory_path, behind_seen=body.behind))
+    except home_move.MoveRefused as exc:
+        return _refused_move(exc)
+
+
+async def _shared(settings: Settings) -> None:
+    from api.services import home_move
+
+    if await run_in_threadpool(home_move.role, settings.memory_path) == "local":
+        raise HTTPException(status_code=404)
+
+
+@router.get("/devices")
+async def get_sync_devices(settings: Settings = Depends(get_settings)):
+    """The group's registry, for a full device to mirror: ids, names, kinds, times, the sha256 of each token (never a
+    token), the public signing key, the address. Only while this memory is shared."""
+    from api.services import home_move
+
+    await _shared(settings)
+    rows = await run_in_threadpool(home_move.registry, settings.memory_path)
+    return {"devices": rows}
+
+
+@router.post("/devices/me")
+async def post_sync_devices_me(body: AnnounceBody, request: Request, settings: Settings = Depends(get_settings)):
+    """A device of the group says where it is reached, the key it signs a hand-off with (set once) and how far its
+    copy is. Its own token only; never this computer's own."""
+    from api.services import device_tokens, home_move, runtime_layout
+
+    await _shared(settings)
+    device = getattr(request.state, "device", None)
+    if device is None:
+        raise HTTPException(status_code=400, detail="Only a device of the group says this about itself.")
+    address = None
+    if body.address is not None:
+        if body.address.strip():
+            try:
+                address = runtime_layout._checked_base(body.address.strip(), "address")   # noqa: SLF001
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from None
+        else:
+            address = ""
+    try:
+        await run_in_threadpool(lambda: device_tokens.store().announce(
+            device.id, sign_jwk=body.signKey, address=address, bank_id=body.bankId, seq=body.seq))
+    except KeyError:
+        raise HTTPException(status_code=404, detail="No such device.") from None
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from None
+    rows = await run_in_threadpool(home_move.registry, settings.memory_path)
+    return {"ok": True, "term": await run_in_threadpool(home_move.term, settings.memory_path),
+            "registry": home_move.registry_digest(rows)}
+
+
+@router.get("/peer")
+async def get_peer(request: Request, settings: Settings = Depends(get_settings)):
+    """Another device of the group asks which home this computer knows (open path, checked here: the bearer must be a
+    device of this computer's store or of the registry it mirrored). Ids and numbers only."""
+    from api.services import auth, home_move
+
+    token = auth.credential(request.headers.get("authorization"))
+    if await run_in_threadpool(home_move.peer_caller, settings.memory_path, token) is None:
+        raise HTTPException(status_code=401, detail="missing or invalid bearer token")
+    if await run_in_threadpool(home_move.role, settings.memory_path) == "local":
+        raise HTTPException(status_code=404)
+    return await run_in_threadpool(home_move.peer_answer, settings.memory_path)

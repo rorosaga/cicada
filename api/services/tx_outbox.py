@@ -148,6 +148,16 @@ def verdict(entry: dict, status: int | None, body: dict | None) -> str:
     return "rejected"
 
 
+def keep(entry: dict, *, home: Path | None = None) -> bool:
+    """Keep ``entry`` without sending it now (G132 phase 2: what an old home offers back to the new one goes out on
+    the follower's next flush, in order). False when the outbox is full."""
+    with _locked(home):
+        if len(entries(home)) >= MAX_ENTRIES:
+            return False
+        _write(folder(home) / f"tx-{time.time_ns():020d}-{entry['id'][:12]}.json", entry)
+    return True
+
+
 def submit(entry: dict, send, *, home: Path | None = None, deadline_s: float = 30.0) -> tuple[str, int | None, dict]:
     """Keep ``entry``, then flush oldest first. ``(verdict, status, body)`` for ``entry`` itself — ``queued`` when it
     did not land in this flush (it waits, in order). ``send(entry) -> (status | None, body | None)``."""

@@ -759,3 +759,26 @@ async def my_captures(request: Request, settings: Settings = Depends(get_setting
         return mine
 
     return {"captures": await asyncio.to_thread(scan)}
+
+
+class OfferedEpisodeRequest(BaseModel):
+    """G132 phase 2: one episode an old home set aside after a take-over, offered back (``home_move.reconcile``)."""
+
+    episode: str = Field(..., min_length=1, max_length=2_000_000)
+    #: The offering device's id and the take-over's term — recorded on the episode, never trusted for anything else.
+    from_: str | None = Field(None, alias="from", max_length=16)
+    term: int | None = Field(None, ge=0)
+
+
+@router.post("/capture/offered", dependencies=[Depends(refuse_capture_into_demo)])
+async def capture_offered(req: OfferedEpisodeRequest, settings: Settings = Depends(get_settings)):
+    """Write an offered episode through this home's own writer (``offered_episode``): scrubbed, its id minted here,
+    waiting for Sleep — or ``already`` when its conversation or its words are here. Capture-shaped, like every Awake
+    writer: no admission, the episode lock only. One write by its own content (a resend answers ``already``)."""
+    from api.services import offered_episode
+
+    result = await asyncio.to_thread(offered_episode.write, settings.memory_path, req.episode,
+                                     from_device=req.from_, term=req.term)
+    if result.get("status") == "refused":
+        raise HTTPException(status_code=422, detail=result.get("reason"))
+    return result

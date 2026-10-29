@@ -1495,6 +1495,82 @@ def cmd_device_revoke(boot, args) -> Result:
                   data={"device": device}, warnings=_warn(boot))
 
 
+# --- G132 phase 2 (ruling 51a): the home, and moving it ---------------------------------------------------------------
+
+_NOT_SHARED_TEXT = ("This memory lives on this computer only: it is not shared with another of your computers, so "
+                    "there is no other home to move it to.")
+
+
+def _behind_text(d: dict) -> str:
+    if not d.get("keepsCopy"):
+        return "keeps no copy"
+    behind = d.get("behind")
+    if behind is None:
+        return "copy, how far behind not known yet"
+    return "up to date" if behind == 0 else f"{behind} change{'s' if behind != 1 else ''} behind"
+
+
+def cmd_home_status(boot, args) -> Result:
+    body = call(boot, "GET", "/sync/home")
+    if not body.get("shared"):
+        return Result(text=_NOT_SHARED_TEXT, data=body, warnings=_warn(boot))
+    home = body.get("home") or {}
+    sleep = (home.get("sleep") or {}).get("status") or "unknown"
+    lines = [f"Home (runs Sleep): {home.get('name')}" + (" — this computer" if home.get("me") else "")
+             + f", Sleep {sleep}" + ("" if home.get("online") else ", not answering")]
+    for d in body.get("devices") or []:
+        lines.append(f"  {d.get('name')} ({d.get('id')})" + (" — this computer" if d.get("me") else "")
+                     + f": {'online' if d.get('online') else 'offline'}, {_behind_text(d)}")
+    for key in ("moving", "takeOver", "setAside", "note"):
+        part = body.get(key)
+        if isinstance(part, dict) and part.get("text"):
+            lines.append(part["text"])
+    return Result(text="\n".join(lines), data=body, warnings=_warn(boot))
+
+
+def cmd_home_move(boot, args) -> Result:
+    require_person("Moving your memory to another device")
+    body = call(boot, "GET", "/sync/home")
+    if not body.get("shared"):
+        raise Refusal("refused", _NOT_SHARED_TEXT, _warn(boot))
+    wanted = args.device.strip()
+    devices = body.get("devices") or []
+    matches = [d for d in devices if d.get("id") == wanted] or [
+        d for d in devices if str(d.get("name") or "").casefold() == wanted.casefold()]
+    if not matches:
+        raise Refusal("not_found", f"No device of yours is called {wanted!r}. `cicada home status` lists them.",
+                      _warn(boot))
+    if len(matches) > 1:
+        raise UsageError(f"{len(matches)} devices are called {wanted!r}; give its id instead "
+                         f"({', '.join(d['id'] for d in matches)}).")
+    target = matches[0]
+    answer = call(boot, "POST", "/sync/home/move", body={"device": target["id"]})
+    moving = answer.get("moving") or {}
+    return Result(text=moving.get("text") or f"Moving your memory to {target.get('name')}.",
+                  data={"moving": moving, "device": target}, warnings=_warn(boot))
+
+
+def cmd_home_take_over(boot, args) -> Result:
+    require_person("Taking over your memory on this computer")
+    preview = call(boot, "GET", "/sync/home/take-over")
+    if not preview.get("possible"):
+        raise Refusal("refused", preview.get("text") or "This computer cannot take over now.", _warn(boot))
+    if not getattr(args, "yes", False):
+        if not _interactive():
+            raise Refusal("refused", f"{preview['text']} Run it again with --yes to take over.", _warn(boot))
+        import sys
+
+        print(preview["text"], file=sys.stderr)
+        sys.stderr.write("Take over on this computer? [y/N] ")
+        sys.stderr.flush()
+        if sys.stdin.readline().strip().lower() not in ("y", "yes"):
+            return Result(text="Nothing was changed.", data={"took": False, "preview": preview},
+                          warnings=_warn(boot))
+    answer = call(boot, "POST", "/sync/home/take-over", body={"behind": preview["behind"], "confirm": True})
+    return Result(text="This computer holds your memory now and runs Sleep; it starts again as the home in a "
+                       "moment.", data={**answer, "preview": preview}, warnings=_warn(boot))
+
+
 def cmd_device_pair(boot, args) -> Result:
     require_person("Making a pairing code")
     body: dict = {"url": args.url} if getattr(args, "url", None) else {}
@@ -1598,6 +1674,7 @@ COMMANDS = {
     "skills publish": cmd_skills_publish,
     "device add": cmd_device_add, "device list": cmd_device_list, "device revoke": cmd_device_revoke,
     "device pair": cmd_device_pair,
+    "home status": cmd_home_status, "home move": cmd_home_move, "home take-over": cmd_home_take_over,
     "setup": cmd_setup,
     "agent add": cmd_agent_add, "agent list": cmd_agent_list, "agent revoke": cmd_agent_revoke,
 }

@@ -434,6 +434,10 @@ def _vectors(memory_path: Path, stems: list[str], pages: bool) -> None:
         _VECTORS_LOCK.release()
 
 
+class Promoted(Exception):
+    """G132 phase 2: the history names this computer the home; it is starting again as the home."""
+
+
 def apply_once(*, rewrite: bool = False) -> dict:
     """One catch-up: ask for what is new since the copy's head and apply it. Returns the timings (empty when nothing
     was new). Raises :class:`HomeError` on the home's refusal or absence."""
@@ -455,18 +459,27 @@ def apply_once(*, rewrite: bool = False) -> dict:
     folder = Path(tempfile.mkdtemp(prefix="cicada-ff-"))
     os.chmod(folder, 0o700)
     try:
-        bundle, headers, timings = _fetch_pack(have, folder)
+        try:
+            bundle, headers, timings = _fetch_pack(have, folder)
+        except HomeError as exc:
+            if exc.status == 404 and (exc.body or {}).get("code") == "unknown_base" and not rewrite:
+                return _reconcile(mp, folder, exc)
+            raise
         seq = int(headers.get("X-Cicada-Seq") or headers.get("x-cicada-seq") or marker.get("seq") or 0)
         if bundle is None:
             if head and (marker.get("sha") != head or marker.get("seq") != seq):
                 _write_marker(mp, {**marker, "seq": seq, "sha": head, "appliedAt": time.time()})
             _set(status="following", seq=seq, sha=head or "", home_seq=seq, last_contact=time.time())
+            _after(mp, seq)
             return {}
         t0 = time.perf_counter()
-        with MODE_LOCK, replica_guard.applying():
-            _still_a_copy()
-            out = git_service.fast_forward_sync(mp, bundle, expect=headers.get("X-Cicada-Head") or None,
-                                                rewrite=rewrite)
+        try:
+            with MODE_LOCK, replica_guard.applying():
+                _still_a_copy()
+                out = git_service.fast_forward_sync(mp, bundle, expect=headers.get("X-Cicada-Head") or None,
+                                                    rewrite=rewrite)
+        except git_service.NotFastForward as exc:
+            return _reconcile(mp, folder, exc, bundle=bundle)
         timings["applyMs"] = round((time.perf_counter() - t0) * 1000, 1)
         timings["files"] = len(out["changed"]) + len(out["removed"])
         timings["ftsMs"] = round(_index_after(mp, changed=out["changed"]), 1)
@@ -474,9 +487,85 @@ def apply_once(*, rewrite: bool = False) -> dict:
         _set(status="following", seq=seq, sha=out["head"], home_seq=seq, applied_at=time.time(),
              last_contact=time.time(), last_apply=timings)
         _refresh_frame()
+        _after(mp, seq)
         return timings
     finally:
         shutil.rmtree(folder, ignore_errors=True)
+
+
+def _after(mp: Path, seq: int) -> None:
+    """G132 phase 2, after every catch-up: tell the home how far this copy is (and where it is reached, and the key it
+    signs with), and read the history's hand-off record — a record naming this computer makes it the home."""
+    _announce(seq)
+    _refresh_frame()
+    from api.services import home_move
+
+    if home_move.after_apply(mp) == "promoted":
+        raise Promoted()
+
+
+_ANNOUNCED: list = [None, 0.0]
+ANNOUNCE_EVERY_S = 60.0
+
+
+def _announce(seq: int | None, *, force: bool = False) -> None:
+    now = time.monotonic()
+    if not force and _ANNOUNCED[0] == seq and now - _ANNOUNCED[1] < ANNOUNCE_EVERY_S:
+        return
+    mp = copy_path()
+    if mp is None:
+        return
+    from api.services import home_move
+
+    try:
+        body = home_move.announce_body(mp, seq)
+        status, _h, answer = request("POST", "/sync/devices/me", body=json.dumps(body).encode("utf-8"),
+                                     headers={"Content-Type": "application/json"}, timeout=10)
+    except (NoDeviceToken, Exception):  # noqa: BLE001 — told again on the next catch-up
+        return
+    if status is not None and 200 <= status < 300:
+        _ANNOUNCED[0], _ANNOUNCED[1] = seq, now
+        digest = (answer or {}).get("registry") if isinstance(answer, dict) else None
+        if digest and digest != home_move.registry_digest(home_move.load_mirror(mp)):
+            home_move._refresh_mirror(mp)   # noqa: SLF001 — a device joined, moved or registered its key
+
+
+def _reconcile(mp: Path, folder: Path, exc: Exception, *, bundle: Path | None = None) -> dict:
+    """The home's history does not contain this copy's head. A newer home (a take-over) whose take-over point this copy
+    holds: what this copy has past that point is set aside, offered back, and the copy takes the home's history
+    (``home_move.reconcile``). Anything else stays the person's "Copy again"."""
+    from api.services import home_move, sync_service
+
+    headers: dict = {}
+    if bundle is None:
+        bundle, headers, _t = _fetch_pack(None, folder)
+        if bundle is None:
+            raise exc
+    with MODE_LOCK:
+        _still_a_copy()
+        summary = home_move.reconcile(mp, bundle)
+    if summary is None:
+        raise exc
+    head = sync_service.git_head(mp) or ""
+    seq = int(headers.get("X-Cicada-Seq") or headers.get("x-cicada-seq") or 0) or _first_parent_count(mp)
+    marker = read_marker(mp) or {}
+    _write_marker(mp, {**marker, "seq": seq, "sha": head, "appliedAt": time.time()})
+    _index_after(mp, changed=None)
+    _set(status="following", seq=seq, sha=head, home_seq=seq, applied_at=time.time(), last_contact=time.time())
+    _flush_outbox()
+    return {"setAside": summary}
+
+
+def _first_parent_count(mp: Path) -> int:
+    """A commit's seq is its first-parent position from the root (``sync_log``): counted here, a read."""
+    import subprocess
+
+    try:
+        out = subprocess.run(["git", "rev-list", "--first-parent", "--count", "HEAD"], cwd=str(mp),
+                             capture_output=True, timeout=60).stdout.decode().strip()
+        return int(out or 0)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return 0
 
 
 def recopy() -> dict:
@@ -501,6 +590,13 @@ def _refresh_frame(force: bool = False) -> None:
         return
     if status == 200 and isinstance(frame, dict):
         _set(home_frame=frame)
+    # G132 phase 2: the group's registry, so this copy can verify a hand-off record, reach a new home, and — if its
+    # home is lost — take over and still accept the other devices.
+    mp = copy_path()
+    if mp is not None:
+        from api.services import home_move
+
+        home_move._refresh_mirror(mp)   # noqa: SLF001
 
 
 # --- state, waking and waiting ----------------------------------------------------------------------------------------
@@ -633,6 +729,8 @@ _NOTIFIED: list[float | None] = [None]
 
 def _follower() -> None:
     delay = 1.0
+    offline_since: float | None = None
+    asked_peers_at = 0.0
     while not _STOP.is_set():
         from api.services import runtime_layout
 
@@ -650,6 +748,9 @@ def _follower() -> None:
                 _NOTIFIED[0] = None
             delay = 1.0
             wait = POLL_S
+            offline_since = None
+        except Promoted:
+            return                      # G132 phase 2: this computer is the home now; it is starting again as one
         except NoDeviceToken:
             _set(status="no_token")
             wait = BACKOFF_MAX_S
@@ -666,6 +767,11 @@ def _follower() -> None:
             elif exc.status == 404 and code == "unknown_base":
                 _set(status="diverged")
                 wait = BACKOFF_MAX_S
+            elif exc.status == 404:
+                # G132 phase 2: the computer it follows no longer shares this memory — it moved, or that computer
+                # follows another now. Treated as away: the group is asked who holds it.
+                _set(status="offline")
+                wait, delay = delay, min(delay * 2, BACKOFF_MAX_S)
             elif exc.status is None:
                 _set(status="offline")
                 wait, delay = delay, min(delay * 2, BACKOFF_MAX_S)
@@ -679,6 +785,21 @@ def _follower() -> None:
             logger.warning(f"replica: catch-up failed ({type(exc).__name__})")
             _set(status=status)
             wait, delay = (BACKOFF_MAX_S, delay) if status == "diverged" else (delay, min(delay * 2, BACKOFF_MAX_S))
+        if _STATE.status == "offline":
+            # G132 phase 2: a home that stays away may have been replaced (a take-over elsewhere): ask the group.
+            from api.services import home_move
+
+            now = time.monotonic()
+            offline_since = offline_since or now
+            wait_s = home_move.peer_after_offline_s()
+            if now - offline_since >= wait_s and now - asked_peers_at >= min(30.0, wait_s):
+                asked_peers_at = now
+                mp = copy_path()
+                try:
+                    if mp is not None and home_move.find_home(mp):
+                        delay, wait, offline_since = 1.0, 0.0, None
+                except Exception as exc:  # noqa: BLE001
+                    logger.info(f"replica: asking the group skipped ({type(exc).__name__})")
         if _STATE.status in ("revoked", "home_rewritten", "diverged", "no_token"):
             _STOP.wait(wait)          # stopped: only time (or the person) brings it back
             continue
@@ -719,8 +840,10 @@ def start() -> None:
 def stop(timeout: float = 2.0) -> None:
     _STOP.set()
     _WAKE.set()
+    me = threading.current_thread()
     for t in _THREADS:
-        t.join(timeout)
+        if t is not me:
+            t.join(timeout)
     _THREADS.clear()
 
 
@@ -736,7 +859,7 @@ def send(entry: dict) -> tuple[int | None, dict | None]:
         return None, None
 
 
-def _send(entry: dict) -> tuple[int | None, dict | None]:
+def _send(entry: dict, environ=os.environ) -> tuple[int | None, dict | None]:
     import base64
 
     headers = {"Idempotency-Key": entry["id"]}
@@ -750,13 +873,14 @@ def _send(entry: dict) -> tuple[int | None, dict | None]:
 
         status, rheaders, answer = request("POST", "/tools/call", body=json.dumps(body).encode("utf-8"),
                                            headers={**headers, "Content-Type": "application/json"},
-                                           timeout=tool_client.SLOW_TOOLS.get(entry.get("tool"), 60.0))
+                                           timeout=tool_client.SLOW_TOOLS.get(entry.get("tool"), 60.0),
+                                           environ=environ)
     else:
         path = entry["path"] + (f"?{entry['query']}" if entry.get("query") else "")
         if entry.get("contentType"):
             headers["Content-Type"] = entry["contentType"]
         status, rheaders, answer = request(entry["method"], path, body=base64.b64decode(entry.get("body") or ""),
-                                           headers=headers, timeout=120)
+                                           headers=headers, timeout=120, environ=environ)
         if isinstance(answer, dict):
             seq_header = {k.lower(): v for k, v in (rheaders or {}).items()}.get("x-cicada-seq")
             if seq_header and seq_header.isdigit():

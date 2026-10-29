@@ -105,6 +105,11 @@ async def trigger_sleep(
             message="A sleep cycle is already in progress",
             cycle_id=state.cycle_id,
         )
+    from api.services import home_move
+
+    if home_move.writes_closed():
+        # G132 phase 2: Sleep runs on the home only, and this computer's memory is moving (or moved) away.
+        raise HTTPException(status_code=409, detail=home_move.closed_text())
 
     cycle_id = f"sleep_{datetime.now().strftime('%Y-%m-%d_%H%M%S')}"
     record = sleep_paused.get_paused(settings.memory_path) if (body and body.continue_run) else None

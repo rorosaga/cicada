@@ -105,7 +105,15 @@ class ReplicaRouting:
             from api.services import sync_publish
 
             if sync_publish.enabled():
-                return await self.app(scope, receive, _with_seq(scope, send))
+                from api.services import home_move
+
+                if home_move.writes_closed() and not _open_while_closed(scope.get("path") or ""):
+                    # G132 phase 2: the home is moving (or moved): nothing is admitted here. A device's outbox and the
+                    # hooks' spool keep a 503 and send it again — to the new home, once they follow it.
+                    if _authorized(scope) or _device_authorized(scope):
+                        await _json(send, 503, {"code": "home_moving", "detail": home_move.closed_text()})
+                        return
+                return await _admitted(self.app, scope, receive, send)
         return await self.app(scope, receive, send)
 
     async def _replica(self, scope, receive, send) -> bool:
@@ -137,6 +145,73 @@ class ReplicaRouting:
             return True
         await _forward(scope, receive, send, queue=cls == replica_routes.CAPTURE)
         return True
+
+
+#: What a home that is handing off still answers: the hand-off's own routes, the device registry, cancelling Sleep, and
+#: the tool door (which refuses a write itself and still answers a read).
+def _open_while_closed(path: str) -> bool:
+    return (path.startswith("/sync/") or path in ("/tools/call", "/sleep/cancel", "/devices")
+            or path.startswith("/devices/"))
+
+
+def _device_authorized(scope) -> bool:
+    from api.services import auth, device_tokens
+
+    supplied = auth.credential(_header(scope, b"authorization"))
+    if not device_tokens.looks_like(supplied):
+        return False
+    try:
+        return device_tokens.store().verify(supplied) is not None
+    except Exception:  # noqa: BLE001
+        return False
+
+
+_NOT_JOURNALED = ("/sync/", "/sleep/", "/devices", "/banks")
+
+
+async def _admitted(app, scope, receive, send) -> None:
+    """A publishing home runs the write, adds ``X-Cicada-Seq``, and — for one of the app's writes the route table
+    sends to the home (``forward``) — keeps it in ``admitted_log`` once it landed (G132 phase 2: what is offered back
+    if this home is ever taken over while it was away)."""
+    from api.services import replica_routes
+
+    path = scope.get("path") or ""
+    # Changes to the memory only: never the tool door (it keeps its own), a hand-off, Sleep's controls or devices.
+    template = None if path == "/tools/call" or path.startswith(_NOT_JOURNALED) else _template(scope)
+    journal = template is not None and replica_routes.classify(scope["method"], template) == replica_routes.FORWARD
+    if not journal:
+        return await app(scope, receive, _with_seq(scope, send))
+    from api.config import get_settings
+    from api.services import admitted_log, sync_log
+
+    memory_path = get_settings().memory_path
+    try:
+        before = await asyncio.to_thread(sync_log.head_seq, memory_path)
+    except Exception:  # noqa: BLE001
+        before = None
+    chunks: list[bytes] = []
+    size = [0]
+    status: list[int | None] = [None]
+
+    async def tee():
+        message = await receive()
+        if message.get("type") == "http.request":
+            chunk = message.get("body", b"")
+            size[0] += len(chunk)
+            if size[0] <= admitted_log.MAX_BODY:
+                chunks.append(chunk)
+        return message
+
+    async def seen(message):
+        if message.get("type") == "http.response.start":
+            status[0] = message.get("status")
+        await send(message)
+
+    await app(scope, tee, _with_seq(scope, seen))
+    if status[0] is not None and 200 <= status[0] < 300 and size[0] <= admitted_log.MAX_BODY:
+        await asyncio.to_thread(admitted_log.record_rest, memory_path, method=scope["method"], path=scope["path"],
+                                query=scope.get("query_string", b"").decode("latin-1"), body=b"".join(chunks),
+                                content_type=_header(scope, b"content-type"), seq_before=before)
 
 
 def _with_seq(scope, send):

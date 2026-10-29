@@ -122,6 +122,15 @@ async def call_tool(req: ToolCallRequest, request: Request, settings: Settings =
 
     row = cli_map.by_tool().get(req.tool)
     mutates = bool(row is not None and row.mutates)
+    if mutates and sync_publish.enabled():
+        from api.services import home_move
+
+        if home_move.writes_closed():
+            # G132 phase 2: this home is moving (or moved): the write is not admitted here. A device's outbox keeps a
+            # 503 and sends it again — to the new home, once it follows it.
+            from fastapi.responses import JSONResponse
+
+            return JSONResponse(status_code=503, content={"code": "home_moving", "detail": home_move.closed_text()})
     # Off (the default), one environment read and one stat: no thread hop, no reply change.
     publishing = mutates and sync_publish.enabled() and await asyncio.to_thread(sync_publish.publishable, memory_path)
     # G132 phase 1 B: a replica's transaction (it names the seq it was based on) — its saved episode commits alone,
@@ -129,12 +138,22 @@ async def call_tool(req: ToolCallRequest, request: Request, settings: Settings =
     ctx.commits_saves = bool(publishing and req.base_seq is not None)
 
     async def work() -> tuple[int, dict]:
+        before = await asyncio.to_thread(sync_log.head_seq, memory_path) if publishing else None
         try:
             answer = await asyncio.to_thread(tool_door.run, req.tool, req.arguments, ctx=ctx, state=state,
                                              surface=req.surface, options=req.options,
                                              root=Path(settings.memory_root), bank_name=bank_name)
         except tool_door.DoorError as exc:
             raise HTTPException(status_code=exc.status, detail=str(exc)) from None
+        if mutates and (answer.error or tool_contract.is_error(answer.code)):
+            from api.services import home_move
+
+            if home_move.writes_closed():
+                # G132 phase 2: the home closed while this write was on its way in — the backstop refused it, so
+                # nothing was written. A 503 (never a 200 with an error, which an outbox reads as landed): a device's
+                # outbox keeps it and sends it again, to the new home once it follows it.
+                raise HTTPException(status_code=503, detail={"code": "home_moving",
+                                                             "detail": home_move.closed_text()})
         body = {"text": answer.text, "code": answer.code, "data": answer.data, "error": answer.error,
                 "segments": [list(seg) for seg in answer.segments] if answer.segments else None,
                 "state": state.wire(), "bank": bank_name, "bankId": pin.id if pin is not None else None}
@@ -145,6 +164,13 @@ async def call_tool(req: ToolCallRequest, request: Request, settings: Settings =
             if req.base_seq is not None:
                 await asyncio.to_thread(sync_log.note_base, memory_path,
                                         device.id if device is not None else "server", req.base_seq, body["seq"])
+            if answer.error is None and not tool_contract.is_error(answer.code):
+                # G132 phase 2: kept so it can be offered back if this home is ever taken over while away.
+                from api.services import admitted_log
+
+                await asyncio.to_thread(admitted_log.record_tool, memory_path, tool=req.tool,
+                                        arguments=req.arguments, caller=req.caller.model_dump(), surface=req.surface,
+                                        options=req.options, seq_before=before)
         return 200, body
 
     if not mutates:

@@ -12,6 +12,17 @@
 
 ## Current state and evidence
 
+- **2026-10-29 — the home moves (ruling 51a, G132 phase 2; branches `feat/g132-move-home`, backend, and
+  `feat/g132-move-home-app`, the Sleep page's strip).** The Sleep page names the device that runs consolidation and
+  every other device's lag; picking one and confirming (or `cicada home move <device>`) closes the home, parks Sleep,
+  carries what is uncommitted, commits a signed `_home.json` alone as its last commit; the target promotes, the old
+  home follows it, other replicas re-point from the record (an offline one asks the group). The device registry is
+  shared with every full device (token hashes, public signing keys, addresses; outside every bank) so the new home
+  accepts every device. Take-over only on a copy whose home does not answer, on the person's OK on the lag shown; a
+  returning old home sets its later commits aside (a ref, never merged) and offers them back as calls and episodes,
+  counted in words. Rail (1) of ruling 51 takes effect (CLAUDE.md, Headless). Three-machine test: the move, a queued
+  transaction re-targeting, a crash on each side mid-hand-off, a take-over, the old home's return. MEASURED_TODO
+  Report: `reports/g132-phase2.md`.
 - **2026-10-29 — a computer keeps a copy (ruling 51a/d/e2, G132 phase 1 PR B; branch `feat/g132-replica`).**
   Replica mode (`CICADA_REPLICA_OF` / `$CICADA_HOME/replica_of`, set by `PUT /sync/replica` with the home's pairing
   code; client wins when both are set): a read-only copy fast-forwarded from the home's pack (ancestry checked here,

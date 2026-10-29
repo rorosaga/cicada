@@ -558,6 +558,160 @@ Known limits of phase 1: a copy's media files and pictures posted from it live a
 are not copied; `cicada_continue` reads this computer's own continuity registry; `cicada_ask` uses this computer's
 engine; an interactive app write made while the home is away is refused, not queued (phases 4/5).
 
+## Moving the home (G132 phase 2, ruling 51a — built, only while a memory is shared)
+
+Owner, 2026-10-29: *"Changing the 'main machine' should be easy"*; *"Sleep page on the app should show the selected
+device running consolidation and you should be able to easily switch."* One concept, **the home**: the device that
+orders every write and runs Sleep. `home_move` moves both together, or neither. **Unset or off, nothing changes:** a
+computer that publishes nothing and keeps no copy writes none of the files below, starts no thread, and answers
+`GET /sync/home` with `{"shared": false}`; the app draws nothing new. **A demo bank never moves** (it is never published
+or copied, and a move on one is refused).
+
+**The record** (`home_record`, `_home.json` at the bank's root, committed alone through `commit_contents_sync` — exactly
+its bytes, nothing staged rides in — under `Cicada-Author: cicada`, trigger `sync/handoff`): `{v, bankId, term, kind:
+move|take-over, seq, after, from: {device, name}, to: {device, name}, at, signer, key, sig}`. `term` grows by one per
+hand-off (no record is term 0). `seq`/`after` are the last commit the old home ordered — on a take-over the taker's own
+head, the take-over point. `sig` is ES256 over the canonical JSON of the rest, by the signer's key; a reader accepts the
+record only when the signature holds **and** the key's thumbprint is the one the registry holds for that signer. Ids
+and the names the person gave, never an address or a token. Every device learns the new home **from the commit
+itself**, at the same seq.
+
+**The signing key** (`device_key`): a P-256 key in `$CICADA_HOME/sync/device_key.pem` (0600), made the first time this
+computer needs one; its public half is registered in the device registry (`sign_jwk`, set once, never moved). **Why a
+file and not the Keychain or the Secure Enclave:** the backend writes the record, and it runs headless too (a Linux
+server, the launchd agent with no app open), so a hand-off must not wait on the app; a Keychain item that a background
+process creates or reads raises the person's Keychain prompt; and the master token, which already lets its holder do
+anything on this computer, is a 0600 file in the same folder, so the key adds no weaker point. A full computer's
+*token* stays unbound (`FULL_DEVICE`, unchanged): its hooks are stdlib-only and cannot sign each request; the record
+needs one signature per hand-off, which the backend makes. The app may later wrap the key in its own Keychain item.
+
+**The registry moves with the home** (`device_tokens`, outside every bank). Tokens are issued by a home, so a new home
+must accept the devices the old one issued: every full device mirrors the group's registry from its home
+(`GET /sync/devices`, full devices and the server's own token, only while shared; kept in `$CICADA_HOME/sync/<bank
+key>/devices.json`, 0600) — ids, names, kinds, revocations, each token's **sha256** (a verifier of a 256-bit secret,
+never the token), the phone's bound-key thumbprint, the public signing key, the address, how far its copy is. A replica
+asks again whenever the home's answer to its announcement carries a different registry digest. A new home takes the
+mirror into its own store (`import_rows`: upserted by id, a revoke never undone, `is_self` only its own row), so every
+token keeps working there. **The home has its own row** (`is_self`, made on the first share, never listed among "your
+devices"): the id the record names, the key it signs with, and the token it sends once it follows another home
+(`$CICADA_HOME/sync/self_token`, 0600). Pairing codes are never shared: a new device pairs with the current home.
+
+**How a replica learns the new home's address (phase 2, before the relay):** from the registry, never from the bank.
+Each replica announces itself to its home after every catch-up (`POST /sync/devices/me`: its signing key, its address,
+the copy it keeps and its seq). Its address is `CICADA_DEVICE_URL` when set (checked like `CICADA_API_BASE`), else the
+address this computer serves on the person's tailnet (the Devices page's reach step, read at most every five minutes),
+else none — and a device with no address is never offered as the home. Addresses stay out of the bank's history, so
+phase 3's relay replaces them without a commit.
+
+**The move** (`POST /sync/home/move {device}` on the home — the person's own token or one of their full devices; a
+copy's Sleep page forwards it; `cicada home move <device>`). Checked first: shared, not a demo, this computer is the
+home, nothing pins its part in the environment (`CICADA_REPLICA_OF`, `CICADA_SYNC_PUBLISH`), the target keeps a copy of
+this memory, has an address, and answers `/sync/peer` with the home's own token. Then, in the background:
+
+1. The target catches up — to within 25 commits, for at most 5 s (a copy that streams forwarded saves never reaches the
+   head exactly; it takes the rest after the record anyway).
+2. **The doors close:** `$CICADA_HOME/sync/handoff.json` `leaving` (fsynced). From that instant no new write is admitted
+   here: the app's writes and the tool door's answer 503 `home_moving` with the sentence, Sleep starts no run, and the
+   stdio MCP door refuses a write in words. A device's outbox and the hooks' spool keep a 503 and send it again — to
+   the new home, once they follow it.
+3. **Sleep parked** (51a): a running Sleep is cancelled at its next safe point (never mid-write; what it filed stays
+   filed); a paused run is ended (its record lives on this computer only); the queue is untouched. Not at a safe point
+   within 10 minutes: the move is called off.
+4. Writers admitted before the close finish their whole write and commit (`write_admission.wait_for_writers`, Sleep's
+   own wait, ≤ 60 s) — as under Sleep's window, a write is never cut mid-way. **Then the bank is sealed**
+   (`handoff.json` `sealed`): every bank writer is refused (`replica_guard.blocks`, in the writers themselves) but the
+   hand-off's own commits.
+5. What is still uncommitted is carried: every capture record committed (`capture_commit.sweep(everything=True)`), then
+   any other uncommitted file — a save made on this computer, which stays uncommitted until Sleep, a hand edit, a tracked
+   root file changed by hand — in one commit of its own, **with no author** (`Uncommitted edits carried to the next
+   home`, trigger `sync/handoff-carry`, the kept-apart convention), so the next home has it and this computer's tree is
+   clean when it starts following. `_state.md` is put back to what HEAD holds instead (a cursor the next home
+   regenerates, which commits alone and never travels as an edit); the schedule and an untracked file at the root (a
+   migration's marker) stay this computer's.
+6. The record naming the target (term + 1), signed by this computer, **is the last commit this home makes**;
+   `handoff.json` says `left`.
+7. The target fast-forwards to it like any commit, verifies it (signature + the registry's thumbprint for the old home)
+   and **promotes** itself: `promote.json` first, then the registry taken into its own store, its copy made its own
+   bank (`replica: false`, the marker removed), publishing on, the old home's schedule adopted (Sleep moves with the
+   home), `replica_of` removed — and it starts again in place (`os.execv`), as the home. What it queued in its own
+   outbox while the old home was closed is then applied here, in order, through its own doors (each keyed once).
+8. The old home, once the target answers `/sync/peer` as the home of that term, **demotes** itself: `demote.json`
+   first, then its own token as `device_token`, its bank marked a copy (in place, with a marker), publishing off,
+   `replica_of` = the new home's address — and it starts again in place, following it.
+9. Every other replica re-points the moment the record reaches it (`home_move.after_apply`, after every catch-up):
+   the registry gives the new home's address, written to `replica_of` (read on every request), so its follower and its
+   queued transactions go there. A replica that was off finds the new home itself: its home answers 404 (it no longer
+   publishes) or not at all, and after `PEER_AFTER_OFFLINE_S` (20 s) it asks every device of the group with an address
+   (`GET /sync/peer`) which one is the home under a newer record.
+
+**One orderer at every instant.** A computer admits only while it is the home *by its own durable evidence*: local mode,
+publishing this bank, no `handoff.json`, and its history's last record not naming another device. Every step that
+changes that evidence is written before the step that depends on it, so a crash anywhere leaves at most one device that
+may admit: cut before the record committed, the old home's next start undoes `leaving`/`sealed` (`finish_at_start`,
+before its mode is read) and it is the home again — the target never saw a record, so it never promoted; cut after (or
+an error after the commit landed), the record names the target, the old home stays closed and goes on demoting
+(`resume_after_start`); the target cut mid-promotion, or the old home mid-demotion, finishes its journal first thing at
+its next start (idempotent), and until then it is still a replica and admits nothing. Between steps 2 and 7 nobody
+admits — that is the write downtime. **A target that never comes** (it died for good after the record): after a
+minute the old home's Sleep page offers to take the memory back — only while the target does not answer as the home,
+on the person's OK; nothing is behind (it made the last change), and it commits a take-over record of the next term
+naming itself, so a target that does come back later is fenced like any old home. **The person's
+confirmation stands in for a quorum Cicada does not have:** with two devices that cannot see each other, only the
+person can say the other is gone; the term makes sure the history never forks into two that are both kept.
+
+**A lost home** (`GET /sync/home/take-over` then `POST /sync/home/take-over {behind, confirm: true}`, this computer's own
+token only; `cicada home take-over`). Only on a copy, only while its home does not answer (a fresh 3 s ask; an answer
+means a move instead, said in words), and only on the person's OK after they were shown how far behind it is — "This
+computer is N changes behind the last home it saw, <home>, <when>" (the last seq it heard of minus its own; when it
+last heard, or caught up) — and only on that number (`behind`; a changed one is shown again, 409 `changed`). It commits
+the take-over record itself (term + 1, the take-over point = its own head, signed by its own key; the apply's
+exception) and promotes as in step 7.
+
+**The old home comes back.** While it publishes, a home asks every device of the group with an address, at its start
+and every minute, whether another holds this memory under a newer term (`check_peers`). The first that does: its doors
+close at once (`handoff.json` `superseding`), Sleep is parked, its admitted writers finish, it is sealed
+(`superseded`), carries what is uncommitted (step 5) and demotes.
+Its follower then meets a home whose history does not hold its head (404 `unknown_base`, or not a fast-forward) and
+**reconciles** (`home_move.reconcile`): when the home's record is newer than its own, verified, and its take-over point
+is in this copy's history, the commits past that point are **set aside** on `refs/cicada/set-aside/term-<n>` — never
+merged, never dropped — and the copy takes the home's history. They are **offered back as transactions**, in the
+outbox, applied by the new home through its own bodies:
+
+- **every other change as the call that made it** — the mutating tool calls and the app's writes this computer admitted
+  as the home after the take-over point, which a publishing home journals (`admitted_log`, `$CICADA_HOME/sync/<bank
+  key>/admitted.jsonl`, 0600, outside every bank, 8 days, only answers that landed; never the video or exploring
+  leases, a hand-off, Sleep's controls, devices or banks);
+- **every episode the range added or changed, as the episode** (`POST /capture/offered`, `offered_episode`): its file
+  through the new home's own writer — scrubbed, its id minted there under the id rule, `processed: false` for Sleep,
+  never into a demo bank, `offered_from`/`offered_term` recorded — once: its conversation (same `session_id` and
+  `source`) or its words already there answer `already`. Calls go first, so a save they make again is not written twice.
+
+What Sleep wrote from those conversations is not replayed: the new home writes it again when it reads them. A copy that
+was never that home (another replica that had received commits the taker had not) sets them aside the same way and
+offers their episodes; it has no calls to offer. **Counted in words** on the Sleep page and in `cicada home status`
+(`set_aside.json`): "N changes made on this computer after <home> took over are kept aside here, never merged. E
+conversations and notes and C other changes were sent to <home> to apply; what Sleep wrote from them, <home> writes
+again when it reads them."
+
+**Surfaces.** `GET /sync/home` (`home_move.overview`): `{shared, role, term, home: {id, name, me, online, seq, sleep},
+devices: [{id, name, me, online, keepsCopy, behind, lastSeenAt, canBeHome}], moving, takeOver, setAside, note}`.
+`GET /sync/peer` (an open path that checks the bearer itself against this computer's store and the registry it
+mirrored; ids and numbers only). The command line: `cicada home status`, `cicada home move <name or id>`, `cicada home
+take-over [--yes]` — ruling 21a's door (the backend's own routes after `/healthz`), refused from an agent's shell
+(`require_person`); a take-over shows the lag and asks, `--yes` confirms the number it showed. The app: the Sleep page's
+strip (`app.md`). `POST /sync/replica/recopy` that races "Stop keeping a copy" answers 409 `no_longer_a_copy` with a
+sentence (review of #567), never a 500.
+
+**Measured** (owner-scale synthetic bank, two real backends on loopback, this Mac at nice 10; see the PR):
+MEASURED_HANDOFF
+
+Known limits of phase 2: a phone paired with an old home keeps sending there; its captures reach the new home only
+while that computer is up and follows (a copy accepts only its own token for a write, so a phone's post is refused —
+phase 4 re-pairs the phone with the group). A transaction a copy queued and the old home applied after the take-over
+point is offered back by the old home only if it returns. The CLI's in-process writes on a home are not journaled (they
+are offered as episodes when they made one). Commits a lost home made that no device received are gone with it — the
+lag the person was shown.
+
 ## Decided, not built (G132, ruling 51)
 
 Everything above describes what ships (the home's publishing, just above, is phase 1's first half). This section
@@ -604,14 +758,7 @@ every device at the same sequence. "Sleep now" pressed anywhere is a transaction
 — this device's outbox, the relay mailbox's count per sending device — is shown beside the queue, never mixed into it.
 Ruling 4 is untouched: Sleep runs only on the home, a scheduled run under the person's switch as today.
 
-**Moving the home.** The Sleep page names the device that consolidates now, with its state, and every other device with
-how far behind it is and whether it is online; picking another and confirming (or `cicada home move <device>`) is a
-hand-off: the target catches up, the current home stops admitting transactions, finishes or parks a running Sleep and
-writes a signed hand-off record `{bank_id, seq, from, to, at}` as its last commit; the target fast-forwards to it,
-verifies it and starts admitting. Queued transactions carry `bank_id`, not an address, so they re-target by themselves.
-"Who consolidates" and "who orders writes" are one concept and never split. **A lost home** is taken over by another
-replica only after the person confirms, with the replication lag shown first; an old home that comes back sees the
-newer hand-off and becomes a replica, its later commits offered back as transactions, never merged.
+**Moving the home** is built (phase 2): see "Moving the home" above.
 
 **Reach and the phone.** Every device dials out to the relay (`network.md`, "Decided, not built"), or reaches the others
 directly on a LAN or tailnet; no device listens on a public port, and the backend's own loopback bind is unchanged.

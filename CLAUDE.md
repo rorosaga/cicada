@@ -456,7 +456,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   scraping; an unofficial client that breaks a service's terms or risks a ban never is (WhatsApp stays local, `network.md`).
 - **Credentials** live in `~/.cicada/secrets.env` (0600), or the keychain where the app holds them (a connection's
   session too, ruling 47) — never in a bank, a log or the repo.
-- **Headless (G181):** a server is its bank's one writer and binds 127.0.0.1 only; reach from another machine is an
+- **Headless (G181):** the bank's **home** (a server or any computer; ruling 51 (1), phase 2) is its one writer and binds 127.0.0.1 only; reach from another machine is an
   overlay the person runs (never a public port, never funnel — only the G135 listener may be, by the person, ruling 32), and no installer creates or copies a credential (`headless.md`).
   **One click (owner 2026-10-29, amends G132 (c)):** Settings → Devices may run exactly the shown `tailscale serve --bg
   --https=8443 <port>` (tailnet only) or that one mapping's off — argv built by the backend, 10 s, never `funnel` or `up` (`network.md`).
@@ -468,6 +468,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   Phase 1 A built: the home may publish its log (off by default, never a demo; a rewritten history freezes it).
   Phase 1 B built — rail (2) in effect: a client machine may instead run in **replica mode** (`replica_of`): a
   read-only copy it fast-forwards, every bank writer refused but the apply, its writes transactions to the home.
+  Phase 2 built — rail (1) in effect: the home moves (Sleep page, `cicada home move`): it closes, parks Sleep, commits a
+  signed `_home.json` alone as its last commit, then follows the target; the term fences two homes; a take-over only on
+  the person's OK with the lag shown; a returning old home's later commits set aside, offered back, never merged.
 - **Video:** only a provider's own player URL is loaded; an oEmbed response is read for its fields, never its HTML.
 
 ### Rulings
