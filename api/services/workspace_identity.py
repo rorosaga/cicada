@@ -2,6 +2,13 @@
 
 No workspace I/O, resolution or subprocess. All persisted values are hashes/times.
 Observed git identity associates repositories, never establishes task authority.
+
+D2 amended (owner, 2026-10-29): the hook may also send ``remote_hash`` — its origin URL, normalised and hashed with
+a per-install salt; the URL never reaches the backend. It keys a repository across a rename, a move and a fresh
+clone on this install: ``remote_hash`` is the repository, ``remote_checkout_hash`` one checkout's place inside it
+(the checkout top level relative to the folder holding the common git directory, lexically: ``.`` for the main
+checkout, ``.worktrees/x`` for a worktree inside it). Records written before carry only the path keys and keep
+matching by them; every comparison reads either key.
 """
 from __future__ import annotations
 
@@ -12,7 +19,8 @@ from datetime import datetime, timezone
 
 HASH = re.compile(r"^[0-9a-f]{16}$")
 HINT_AGE_S = 86400
-KEYS = ("family_hash", "checkout_hash", "cwd_hash", "observed_at")
+KEYS = ("family_hash", "checkout_hash", "cwd_hash", "observed_at", "remote_hash", "remote_checkout_hash")
+REMOTE_KEYS = ("remote_hash", "remote_checkout_hash")
 
 
 def digest(value: str) -> str:
@@ -42,7 +50,11 @@ def clean(raw) -> dict | None:
         return out  # A failed observation supersedes an older success.
     if not all(isinstance(v, str) and HASH.fullmatch(v) for v in (family, checkout)):
         return None
-    return {**out, "family_hash": family, "checkout_hash": checkout}
+    out = {**out, "family_hash": family, "checkout_hash": checkout}
+    remote = [raw.get(k) for k in REMOTE_KEYS]
+    if all(isinstance(v, str) and HASH.fullmatch(v) for v in remote):
+        out.update(zip(REMOTE_KEYS, remote))
+    return out
 
 
 def _path(value) -> str | None:
@@ -68,7 +80,12 @@ def parse(cwd, raw, *, now=None) -> dict | None:
         return base
     if posixpath.commonpath([posixpath.normpath(cwd), root]) != root:
         return base
-    return {**base, "family_hash": digest(scope + "\0" + common), "checkout_hash": digest(scope + "\0" + root)}
+    out = {**base, "family_hash": digest(scope + "\0" + common), "checkout_hash": digest(scope + "\0" + root)}
+    remote = raw.get("remote_hash")
+    if isinstance(remote, str) and HASH.fullmatch(remote):
+        place = posixpath.relpath(root, posixpath.dirname(common))
+        out.update(remote_hash=remote, remote_checkout_hash=digest(remote + "\0" + place))
+    return out
 
 
 def current(raw, cwd, *, now=None) -> dict | None:
@@ -79,7 +96,27 @@ def current(raw, cwd, *, now=None) -> dict | None:
     return value if -5 <= age <= HINT_AGE_S else None
 
 
-def same_checkout(left, right) -> bool:
+def same_path_checkout(left, right) -> bool:
+    """The same checkout at the same place on disk (the pair's path keys)."""
     a, b = clean(left), clean(right)
     return bool(a and b and a.get("family_hash") and a.get("family_hash") == b.get("family_hash")
                 and a.get("checkout_hash") == b.get("checkout_hash"))
+
+
+def same_checkout(left, right) -> bool:
+    """The same checkout: at the same path, or the same place in a repository with the same hashed remote — the
+    folder was renamed, moved or cloned again (D2 amended 2026-10-29)."""
+    if same_path_checkout(left, right):
+        return True
+    a, b = clean(left), clean(right)
+    return bool(a and b and a.get("remote_checkout_hash")
+                and a.get("remote_checkout_hash") == b.get("remote_checkout_hash"))
+
+
+def same_family(left, right) -> bool:
+    """The same repository: one git common directory, or one hashed remote."""
+    a, b = clean(left), clean(right)
+    if not (a and b):
+        return False
+    return bool((a.get("family_hash") and a.get("family_hash") == b.get("family_hash"))
+                or (a.get("remote_hash") and a.get("remote_hash") == b.get("remote_hash")))

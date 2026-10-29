@@ -2,12 +2,18 @@
 
 Two fixed plumbing commands, one 100ms deadline, bounded output and no shell.
 Hints keep only cwd hash/time; raw git paths travel once in the loopback body.
+
+D2 amended (owner, 2026-10-29: "Yes, hashed only"): a third fixed read, ``git config --get remote.origin.url``,
+inside the same deadline and bounds. The URL is normalised here (scheme, user, port, ``.git``, case, ssh vs https)
+and only a hash salted per install leaves this function — the URL itself is never stored, logged, sent or shown.
+A repository without an origin, or a read past the deadline, keeps the pair's observation without it.
 """
 from __future__ import annotations
 
 import hashlib
 import json
 import os
+import re
 import selectors
 import secrets
 import shutil
@@ -24,6 +30,10 @@ TIMEOUT_S = 0.1
 OUTPUT_MAX = 4096
 REAP_RESERVE_S = 0.02
 COMMANDS = (("common_dir", "--git-common-dir"), ("repo_root", "--show-toplevel"))
+REMOTE_ARGS = ("config", "--get", "remote.origin.url")
+#: The per-install salt the remote's hash is keyed with: 32 random hex characters in the hook's home, 0600.
+SALT_FILE = "remote-salt"
+_SCHEME = re.compile(r"^([A-Za-z][A-Za-z0-9+.-]*)://(.*)$")
 MAC_GIT = ("/Library/Developer/CommandLineTools/usr/bin/git",
            "/Applications/Xcode.app/Contents/Developer/usr/bin/git", "/opt/homebrew/bin/git", "/usr/local/bin/git")
 
@@ -106,6 +116,69 @@ def _path(raw: bytes | None) -> str | None:
     return value
 
 
+def normalise_remote(raw: bytes | None) -> str | None:
+    """One spelling per repository: ``git@host:Org/Repo.git``, ``ssh://git@host:22/org/repo`` and
+    ``https://user@HOST/org/repo/`` all read ``host/org/repo``. ``None`` for anything that is not one URL line."""
+    if not isinstance(raw, bytes) or len(raw) > OUTPUT_MAX:
+        return None
+    try:
+        url = raw.decode("utf-8").strip()
+    except UnicodeDecodeError:
+        return None
+    if not url or any(ord(c) < 32 or ord(c) == 127 for c in url):
+        return None
+    scheme = _SCHEME.match(url)
+    if scheme:
+        rest = scheme.group(2)
+        if scheme.group(1).lower() == "file":
+            host, path = "", rest
+        else:
+            authority, _, path = rest.partition("/")
+            host = authority.rpartition("@")[2]
+            host = host.partition("]")[0] + "]" if host.startswith("[") else host.partition(":")[0]
+    elif not url.startswith("/") and ":" in url and "/" not in url.partition(":")[0]:
+        authority, _, path = url.partition(":")   # scp-like: [user@]host:path
+        host = authority.rpartition("@")[2]
+    else:
+        host, path = "", url                      # a local path
+    path = re.sub(r"/+", "/", path).strip("/")
+    path = path[:-4] if path.lower().endswith(".git") else path
+    path = path.rstrip("/")
+    return (host + "/" + path).lower() if path else None
+
+
+def _salt(home: Path) -> str | None:
+    """This install's salt, made once (0600, no symlink followed). ``None`` when it cannot be read or made: the
+    remote is then left out, never hashed unsalted."""
+    path = home / SALT_FILE
+    for _ in range(2):
+        try:
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+            try:
+                raw = os.read(fd, 65)
+            finally:
+                os.close(fd)
+            value = raw.decode("ascii", "replace").strip()
+            return value if re.fullmatch(r"[0-9a-f]{32}", value) else None
+        except FileNotFoundError:
+            try:
+                home.mkdir(mode=0o700, parents=True, exist_ok=True)
+                fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+                with os.fdopen(fd, "w") as fh:
+                    fh.write(secrets.token_hex(16))
+            except FileExistsError:
+                continue   # another hook made it first: read theirs
+            except OSError:
+                return None
+        except OSError:
+            return None
+    return None
+
+
+def remote_hash(normalised: str, salt: str) -> str:
+    return _hash(salt + "\0" + normalised)
+
+
 def observe(cwd: str, *, home: Path, environ, run=None, clock=time.monotonic) -> dict:
     failed = {"cwd_hash": _hash(cwd), "observed_at": datetime.now(timezone.utc).isoformat()}
     executable = _executable(environ)
@@ -124,7 +197,14 @@ def observe(cwd: str, *, home: Path, environ, run=None, clock=time.monotonic) ->
             return failed
         values[key] = value
     scope = _hash(str(home.absolute()) + "\0" + socket.gethostname())
-    return {**failed, **values, "scope_hash": scope}
+    observed = {**failed, **values, "scope_hash": scope}
+    if clock() < deadline:
+        remote = normalise_remote(run([executable, "-c", "core.fsmonitor=false", *REMOTE_ARGS],
+                                      cwd, _environment(environ), deadline))
+        salt = _salt(home) if remote and clock() <= deadline else None
+        if salt:
+            observed["remote_hash"] = remote_hash(remote, salt)
+    return observed
 
 
 def _hint_path(home: Path, harness: str, session_id: str) -> Path:

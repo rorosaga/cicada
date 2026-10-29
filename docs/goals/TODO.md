@@ -12,6 +12,11 @@
 
 ## Current state and evidence
 
+- **2026-10-29 — a repository keeps its identity across rename, move and re-clone (ruling 22 D2a, G110/G141; branch
+  `feat/project-remote-identity`).** The hook adds a hashed, per-install-salted `remote.origin.url` to its D2
+  observation; continuity, project birth and project activity read it beside the path keys; a moved Claude Code notes
+  folder keeps its episodes (rename by content), a copied one adds none. Scratch-repo measurement: pointer found 0/3 →
+  3/3, moved repository (same name) duplicate project 1 → 0 (a renamed one goes to the judge, told they share an origin), moved notes folder 2 new + 2 tombstoned → 0 + 0 (2 repointed).
 - **2026-10-29 — recall nobody asked for (G149, G207, G105/ruling 43; branch `feat/recall-unasked`, Supermemory's
   lessons (d)1–3).** A prompt that names no page gets up to three current claims its rare words find, ending with
   `cicada_recall(query)` (labelled set 0/23 → 22/23, 0 unrelated lines, 0/16 coding asks noted; owner-bank copy: no
@@ -422,7 +427,7 @@
   "dropped" endings (seed), skills grounded only on conversations (`skill_grounding`, `inbox_tend.record_origin`),
   created pages counted (`change_timeline`, `git_service.CREATED_ACTIONS`), recent conversations without calendar
   entries (`state_dictionary`). The written-up findings (G209, G141, G21, G112) are on the G148 row.
-- **2026-10-22 — projects born from a repository or the person's words (G141, ruling 36 D4; branch `feat/projects-v2`).** Stage 2 mints a project page only on a birth record Stage 1 computed with no model: a harness session the hook observed in a checkout of that folder name, or one clause of the person's own turn calling it a project; `born:` is written once; six standard sections and the people involved ride the timeline wire (g141-5); `api.scripts.project_origins_dry_run` lists every existing project page as repo / words / neither, read only. The hook reads no git remote (G110 D2), so the folder name stands in — disclosed on the row. **Next:** the acting owner runs the dry run on the real bank and asks the owner before any review list; the SwiftUI page is specced in `app.md` (needs a Mac).
+- **2026-10-22 — projects born from a repository or the person's words (G141, ruling 36 D4; branch `feat/projects-v2`).** Stage 2 mints a project page only on a birth record Stage 1 computed with no model: a harness session the hook observed in a checkout of that folder name, or one clause of the person's own turn calling it a project; `born:` is written once; six standard sections and the people involved ride the timeline wire (g141-5); `api.scripts.project_origins_dry_run` lists every existing project page as repo / words / neither, read only. The hook reads no git remote (G110 D2), so the folder name stands in — disclosed on the row (since ruling 22 D2a, 2026-10-29, it also sends the remote's salted hash, and a renamed or moved repository keeps its page). **Next:** the acting owner runs the dry run on the real bank and asks the owner before any review list; the SwiftUI page is specced in `app.md` (needs a Mac).
 - **2026-10-22 — the redesign's decisions recorded (ruling 36; branch `docs/redesign-2026-10-22`).** The owner's answers D1–D6 are ruling 36: a key secured properly or the person's own Claude Code / Codex, never a local default (amends ruling 31); a quick read after each conversation, on by default only if measured better (amends the capture rail); the agent tiers plus an HTTP API for agents without MCP, served on the G135 listener; projects from a repository or the person's words; the person's-photo gate on with sources on people; Settings in six. Backlog: new G205–G207, G209, G210, G212, G213, G216 (done, #418) and G217 (the connection model — the briefs' "G204" was taken); G208, G211, G214, G215 fold into G61, G141, G91 + G135, G50 as redirects. `feature-status.md` tracks each line.
 - **2026-10-22 — the MCP error and argument contract (branch `mcp-error-contract`; G199, G200 A7/A9, Hyrum audit
   A1/A4/A6).** Both doors check a call against the schema they advertise, once, before a body runs
@@ -1579,11 +1584,36 @@ A whole row moves to DONE only after its remaining implementation and required a
     or objective can be continued; the Sleep cost is measured before shipping. **D2:** amends slice 1a's "no `.git`
     reading anywhere" for the hook alone: a bounded, read-only, fixed-command git identity observer may run harness-side
     and send plain values (repository root, worktree list); the backend never reads the person's folders and only parses
-    what is supplied. **Requirement restated:** no handoff prompts; a fresh session in Claude Code, Codex, Cursor or another
+    what is supplied (amended by D2a below).
+    **Requirement restated:** no handoff prompts; a fresh session in Claude Code, Codex, Cursor or another
     harness continues the role and the work (G110 row).
     **Why.** The owner's acceptance example is an orchestrator whose role came from a long first instruction and whose
     workers run in sibling worktrees; the 2k clip and exact-folder matching each break it.
     Revisit if the first-message exception is measured as a Sleep-cost or privacy problem.
+    **D2a — a repository is recognised by its git remote, stored only as a hash (owner, 2026-10-29: "Yes, hashed
+    only"; amends D2).** The hook — and only the hook — may add one read to D2's fixed pair:
+    `git -c core.fsmonitor=false config --get remote.origin.url`, inside the pair's one 100 ms deadline, ≤ 4 KB, no
+    shell, global/system config off. It normalises the URL (scheme, user, port, `.git`, case, ssh vs https: every
+    spelling of one repository reads `host/org/repo`) and sends only `sha256(salt ∥ url)[:16]`, the salt 32 random hex
+    characters made once per install (`$CICADA_HOME/remote-salt`, 0600, never followed through a symlink; no salt, no
+    hash — never unsalted). The URL is never stored, logged, sent or shown; the hint cache keeps only the cwd hash and
+    time; the backend never runs git and only validates the hash. It is the key wherever a repository's identity
+    matters — as evidence of the same *repository*, never by itself of the same *project* or checkout (review of
+    #558: a template cloned under a new name, an upstream-as-origin fork, two live clones). Continuity adopts another
+    checkout at the same place in the remote only when this one began after it went quiet (renamed, moved, cloned
+    again); clones active together are related choices. Only a repository's current remote counts (the one on its
+    latest session). Project birth (`born.repo.remote`) joins the page with no judge only when the page points at
+    that remote now and the folder name is the same; a different name or a remote the page only once had brings the
+    page to the judge, told they share an origin, and "different" stands (coordinator's call on #558); activity and
+    ties never follow a remote by itself, only the page's family and names (a judged rename adds its alias). Records written
+    before keep matching by their path keys; no
+    bank rewrite. Ruling 43's notes are recognised by their own bytes, not the remote: Claude Code names their folder
+    after the checkout's path, so a moved notes folder is repointed in place and a copied one is no second episode.
+    **Why.** Measured on scratch repositories (rename, move, re-clone under another URL spelling): before, the startup
+    pointer found the earlier session 0/3 times and a renamed repository minted a second project page; after, 3/3 and
+    one page. Hook p95 stays far inside the 100 ms bound (#558). A remote can be private, hence hash-only and salted.
+    **Revisit** if a hash is ever found to identify a repository off this install, or the third read is measured
+    pushing the hook past its deadline.
 
 23. **Memory-quality rulings (owner, 2026-10-09).** **Engine:** Sleep runs on the owner's Claude plan with Haiku 5.5 for extraction and disambiguation, at concurrency 10 (Sonnet measured ~15 min per 25-conversation batch, Haiku ~9). **Skills (G112):** a Stage 4 skill needs two or more conversations, a one-conversation skill is held in `skill_hold`; skill pages whose sources cannot be traced are archived (44 on the owner bank); no contradiction check on skill updates; possessive aliases ("my mom") are kept, a reference phrase is never an alias. **Pages (G194):** summary synthesis is on for the owner's install — one bounded summary per page and paraphrase folding, its calls overlapped (#258); the rule-based fact fold drops a fact only when it **equals** one already kept after trivial normalization — never containment, never stopword or preposition stripping. **Search:** EmbeddingGemma 2 is downloaded only when the person asks, never automatically.
     **Why.** Two review rounds showed every containment rule dropped a fact that said something different ("works at X" inside "works at X's competitor", a from/to swap, "1,200" vs "200"); a duplicate is cheaper than a lost fact. Synthesis-on costs ~1,000–1,500 calls per full run (clean run: 742 page updates) and is the only place paraphrases fold. An automatic 585 MB download would be a new automatic network behaviour.
