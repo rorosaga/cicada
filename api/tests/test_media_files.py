@@ -146,6 +146,8 @@ def test_a_lone_item_is_never_shown_for_free():
     assert image_index.clears(0.75, 0.75, 1, lift_min=0.12, lone_min=0.68) == 0.75, "a related one, by its cosine"
     assert image_index.clears(0.75, 0.75, 0, lift_min=0.12, lone_min=0.68) == 0.75, "an unknown count is lone"
     assert image_index.calibrated("google/embeddinggemma-2:768") and not image_index.calibrated("intfloat/e5:384")
+    assert not image_index.calibrated("google/embeddinggemma-2:256"), "the floors were measured at 768 only"
+    assert not image_index.calibrated("google/embeddinggemma-2") and not image_index.calibrated(None)
 
 
 def test_one_recording_answers_only_what_it_says(bank, monkeypatch):
