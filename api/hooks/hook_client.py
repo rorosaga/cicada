@@ -73,6 +73,30 @@ def is_client(environ) -> bool:
     return bool(raw_base(environ))
 
 
+def raw_replica(environ) -> str:
+    """``CICADA_REPLICA_OF``, else ``$CICADA_HOME/replica_of`` (G132 phase 1 B: this computer keeps a copy of a home
+    elsewhere) — ``runtime_layout._raw_replica``'s rule in stdlib, the same home rule as :func:`raw_base`."""
+    import os
+
+    raw = str(environ.get("CICADA_REPLICA_OF") or "").strip()
+    if raw:
+        return raw
+    home = str(environ.get("CICADA_HOME") or "").strip()
+    if environ is not os.environ and not home:
+        return ""
+    folder = Path(home).expanduser() if home else Path.home() / ".cicada"
+    try:
+        return (folder / "replica_of").read_bytes().decode("utf-8", "replace").strip()
+    except OSError:
+        return ""
+
+
+def captures_elsewhere(environ) -> bool:
+    """Does a capture go to another machine? A client's server, or — on a computer that keeps a copy — its home
+    (G132 phase 1 B: the copy never writes; recall still reads the copy here, through this computer's backend)."""
+    return is_client(environ) or bool(raw_replica(environ))
+
+
 def spool_module():
     """``hook_spool``: the sibling a hook already imported by path, else the package module (the backend's side — the
     stdio MCP server and the `cicada` command flush through here too). Both are the same file; its state is on disk."""
@@ -99,7 +123,7 @@ def target(environ) -> tuple[str | None, str, str | None]:
     """``(base, token, problem)``: ``problem`` is a short log phrase (never a value) when nothing can be sent now."""
     rl = layout()
     try:
-        base = rl.api_base(environ)
+        base = rl.api_base(environ) if is_client(environ) or not raw_replica(environ) else rl.replica_of(environ)
     except ValueError as exc:
         return None, "", f"bad CICADA_API_BASE ({exc})"
     token = rl.client_token(environ)

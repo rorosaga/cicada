@@ -1,0 +1,203 @@
+"""The route table, applied (G132 phase 1 B, ruling 51a): one ASGI middleware, inert unless it is needed.
+
+* **On a replica** (``replica_guard.active()``) every request that changes something is classified by
+  ``replica_routes`` before any handler runs: ``local`` runs here; ``refuse`` answers 409 ``replica_read_only``;
+  ``forward`` is sent to the same route at the home (this computer's server token checked first, the app's bank name
+  checked against this copy, the home's bank id named, an ``Idempotency-Key`` sent) and the home's answer comes back
+  — or 503 ``home_away`` when the home is not reachable, nothing changed; ``capture`` goes through the outbox and
+  answers 202 ``queued`` while the home is away. A route the table does not name is refused (fail closed). After a
+  write the home took, the reply waits up to about 2 s for this copy to reach the home's head (read-your-writes).
+  ``GET /sleep/status`` is the home's (§3a), with this device's outbox beside it.
+* **On a home that publishes** (``sync_publish.enabled()``) a write's answer carries ``X-Cicada-Seq``, the home's head
+  once it committed, so a replica knows which seq to wait for.
+* **Otherwise** nothing: one environment read and one ``stat`` per request, and the request passes untouched.
+"""
+from __future__ import annotations
+
+import asyncio
+import json
+import secrets
+from urllib.parse import unquote
+
+from starlette.routing import Match
+
+MUTATING = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+HOME_AWAY_TEXT = ("The computer that holds your memory is not reachable, so this was not changed. Reading works from "
+                  "this copy; try again when that computer is back.")
+QUEUED_TEXT = "Kept on this computer: it is sent to the computer that holds your memory as soon as it is reachable."
+MAX_FORWARD_BYTES = 64 * 1024 * 1024
+
+
+def _template(scope) -> str | None:
+    app = scope.get("app")
+    router = getattr(app, "router", None)
+    for route in getattr(router, "routes", []) or []:
+        try:
+            match, _child = route.matches(scope)
+        except Exception:  # noqa: BLE001
+            continue
+        if match == Match.FULL:
+            return getattr(route, "path", None)
+    return None
+
+
+async def _json(send, status: int, body: dict, headers: dict | None = None) -> None:
+    raw = json.dumps(body).encode("utf-8")
+    hdrs = [(b"content-type", b"application/json"), (b"content-length", str(len(raw)).encode())]
+    hdrs += [(k.lower().encode(), str(v).encode()) for k, v in (headers or {}).items()]
+    await send({"type": "http.response.start", "status": status, "headers": hdrs})
+    await send({"type": "http.response.body", "body": raw})
+
+
+async def _read_body(receive, limit: int) -> bytes | None:
+    chunks, size = [], 0
+    while True:
+        message = await receive()
+        if message["type"] == "http.disconnect":
+            return None
+        chunk = message.get("body", b"")
+        size += len(chunk)
+        if size > limit:
+            return None
+        chunks.append(chunk)
+        if not message.get("more_body"):
+            return b"".join(chunks)
+
+
+def _header(scope, name: bytes) -> str | None:
+    for k, v in scope.get("headers") or []:
+        if k.lower() == name:
+            return v.decode("latin-1")
+    return None
+
+
+def _authorized(scope) -> bool:
+    from api.services import auth
+
+    if not auth.auth_enabled():
+        return True
+    supplied = auth.credential(_header(scope, b"authorization"))
+    return bool(supplied) and secrets.compare_digest(supplied.encode(), auth.get_token().encode())
+
+
+class ReplicaRouting:
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") != "http":
+            return await self.app(scope, receive, send)
+        from api.services import replica_guard
+
+        if replica_guard.active():
+            if await self._replica(scope, receive, send):
+                return
+            return await self.app(scope, receive, send)
+        if scope.get("method") in MUTATING:
+            from api.services import sync_publish
+
+            if sync_publish.enabled():
+                return await self.app(scope, receive, _with_seq(scope, send))
+        return await self.app(scope, receive, send)
+
+    async def _replica(self, scope, receive, send) -> bool:
+        """True when the request was answered here (refused, forwarded, queued)."""
+        from api.services import replica_routes
+
+        method = scope.get("method", "GET")
+        template = _template(scope)
+        if method not in MUTATING:
+            if template is not None and f"{method} {template}" in replica_routes.GET_FROM_HOME:
+                if not _authorized(scope):
+                    return False   # the route's own auth answers it
+                await _sleep_status(scope, send)
+                return True
+            return False
+        if template is None:
+            return False           # no such route: FastAPI's own 404/405
+        cls = replica_routes.classify(method, template)
+        if cls == replica_routes.LOCAL:
+            return False
+        if not _authorized(scope):
+            await _json(send, 401, {"detail": "missing or invalid bearer token"})
+            return True
+        if cls in (None, replica_routes.REFUSE):
+            from api.services import replica_guard
+
+            await _json(send, 409, {"code": "replica_read_only", "detail": replica_guard.TEXT})
+            return True
+        await _forward(scope, receive, send, queue=cls == replica_routes.CAPTURE)
+        return True
+
+
+def _with_seq(scope, send):
+    """Add ``X-Cicada-Seq`` (the published head once the write committed) to a home's write answer."""
+    async def wrapped(message):
+        if message.get("type") == "http.response.start":
+            try:
+                from api.config import get_settings
+                from api.services import sync_log
+
+                seq = await asyncio.to_thread(sync_log.head_seq, get_settings().memory_path)
+            except Exception:  # noqa: BLE001 — a header never fails the write it describes
+                seq = None
+            if isinstance(seq, int):
+                message = {**message, "headers": [*message.get("headers", []), (b"x-cicada-seq", str(seq).encode())]}
+        await send(message)
+
+    return wrapped
+
+
+async def _forward(scope, receive, send, *, queue: bool) -> None:
+    from api.services import bank_registry, replica, tx_outbox
+    from api.config import get_settings
+
+    root = get_settings().memory_root
+    name, _path, bank_id = await asyncio.to_thread(bank_registry._active_record, root)  # noqa: SLF001
+    asked = _header(scope, b"x-cicada-bank")
+    if asked is not None and unquote(asked) != name:
+        from api.services import bank_binding
+
+        await _json(send, 409, {"code": bank_binding.CODE, "detail": bank_binding.DETAIL})
+        return
+    body = await _read_body(receive, MAX_FORWARD_BYTES)
+    if body is None:
+        await _json(send, 413, {"detail": "too large to send on"})
+        return
+    query = scope.get("query_string", b"").decode("latin-1")
+    key = _header(scope, b"idempotency-key")
+    try:
+        entry = tx_outbox.rest_entry(scope["method"], scope["path"], query, body, _header(scope, b"content-type"),
+                                     bank_id=bank_id, base_seq=replica.seq(), key=key)
+    except ValueError:
+        await _json(send, 413, {"detail": "too large to keep for later"})
+        return
+    if queue:
+        verdict, status, answer = await asyncio.to_thread(tx_outbox.submit, entry, replica.send)
+    else:
+        status, answer = await asyncio.to_thread(replica.send, entry)
+        verdict = tx_outbox.verdict(entry, status, answer)
+    if status is None or (queue and verdict not in ("landed", "rejected", "drop")):
+        if queue:
+            await _json(send, 202, {"status": "queued", "code": "queued", "detail": QUEUED_TEXT, "id": entry["id"]})
+        else:
+            await _json(send, 503, {"code": "home_away", "detail": HOME_AWAY_TEXT})
+        return
+    answer = dict(answer or {})
+    home_seq = answer.pop("_cicadaSeq", None)
+    if verdict == "landed":
+        await asyncio.to_thread(replica.wait_for_seq, home_seq)
+    answer.pop("raw", None)
+    await _json(send, status, answer)
+
+
+async def _sleep_status(scope, send) -> None:
+    from api.services import replica, sync_status
+
+    status, _h, body = await asyncio.to_thread(replica.request, "GET", "/sleep/status", timeout=5)
+    outbox = await asyncio.to_thread(sync_status.outbox_counts)
+    if status == 200 and isinstance(body, dict):
+        await _json(send, 200, {**body, "outbox": outbox, "replica": replica.state()})
+        return
+    await _json(send, 503, {"code": "home_away", "detail": HOME_AWAY_TEXT, "sleep": replica.home_sleep(),
+                            "outbox": outbox, "replica": replica.state()})

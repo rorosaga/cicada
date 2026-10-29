@@ -1561,14 +1561,14 @@ def _caller() -> dict:
             "client_name": CLIENT_INFO.get("name") or None, "client_version": CLIENT_INFO.get("version") or None}
 
 
-def _remote_call(name: str, arguments: dict, options: dict | None = None) -> dict:
+def _remote_call(name: str, arguments: dict, options: dict | None = None, *, local: bool = False) -> dict:
     """One tool call run on the server this machine is a client of (``CICADA_API_BASE``, G181 phase 2). The stdio
     process's per-session state rides along and comes back updated, so a skip, the once-per-conversation now-view and
     the revisions ``cicada_pending`` listed behave as they do on one machine."""
     global _STATE_HINT_SENT
     from api.services import tool_client
 
-    answer = tool_client.call(name, arguments, caller=_caller(), surface="mcp", options=options,
+    answer = tool_client.call(name, arguments, caller=_caller(), surface="mcp", options=options, local=local,
                               state={"skipped_inbox_ids": sorted(_SKIPPED_INBOX_IDS),
                                      "state_hint_sent": _STATE_HINT_SENT, "listed_revisions": dict(_LISTED_REVISIONS)})
     state = answer.get("state") if isinstance(answer.get("state"), dict) else {}
@@ -1584,9 +1584,10 @@ def _remote_call(name: str, arguments: dict, options: dict | None = None) -> dic
     return answer
 
 
-def _client_tool(name: str, arguments: dict) -> str:
+def _client_tool(name: str, arguments: dict, *, local: bool = False) -> str:
     """G181 phase 2: this machine is a client — the bank is on the server, so the call is run there. Files the agent
-    named are read here first; the repo context's git probe stays here."""
+    named are read here first; the repo context's git probe stays here. ``local`` (G132 phase 1 B, a replica): the
+    call goes to this computer's own backend, which sends it on to the home through its outbox."""
     from api.services import tool_client
 
     if name == "cicada_repo_context":
@@ -1595,7 +1596,7 @@ def _client_tool(name: str, arguments: dict) -> str:
     if isinstance(args, str):
         return args
     options = {"cwd": SESSION.project_dir or os.getcwd()} if name == "cicada_continue" else None
-    answer = _remote_call(name, args, options)
+    answer = _remote_call(name, args, options, local=local)
     data = answer.get("data") if isinstance(answer.get("data"), dict) else None
     text = str(answer.get("text") or "")
     raw = answer.get("segments")
@@ -1612,9 +1613,13 @@ def handle_tool(name: str, arguments: dict) -> str:
         return _client_tool(name, arguments)
     from api.services import cli_map, tool_client
 
+    row = cli_map.by_tool().get(name)
+    if row is not None and row.replica_side == "home" and runtime_layout.is_replica():
+        # G132 phase 1 B (ruling 51a): this computer keeps a copy; a write goes to the home as a transaction, through
+        # this computer's own backend (its outbox), never into the copy. Reads below stay local.
+        return _client_tool(name, arguments, local=True)
     # D7 (G202): this session was a server's client a call ago (the app moved `api_base`): say so, once.
     notice = tool_client.where_changed((tool_client.THIS_MACHINE, "", ""))
-    row = cli_map.by_tool().get(name)
     if row is not None and row.mutates:
         # Owner, 2026-10-16 (backend hunt): an edit already uncommitted on a page this write takes is committed
         # apart, first, never under this agent's name (`agent_commits.setting_apart`, as the inbox routes do).

@@ -466,6 +466,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   writes, mints, commits and runs Sleep; other devices (the phone a full one) hold replicas and send writes as
   transactions; all dial out to an E2E relay that never sees plaintext; nothing merged by git (`headless.md`).
   Phase 1 A built: the home may publish its log (off by default, never a demo; a rewritten history freezes it).
+  Phase 1 B built — rail (2) in effect: a client machine may instead run in **replica mode** (`replica_of`): a
+  read-only copy it fast-forwards, every bank writer refused but the apply, its writes transactions to the home.
 - **Video:** only a provider's own player URL is loaded; an oEmbed response is read for its fields, never its HTML.
 
 ### Rulings

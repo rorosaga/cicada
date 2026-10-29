@@ -549,6 +549,12 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     # G132 phase 1: the publishing switch ($CICADA_HOME/sync/settings.json) and "publish from here" (the log's sidecar).
     "PUT /sync/publish": (OUTSIDE, None),
     "POST /sync/publish/from-here": (OUTSIDE, None),
+    # G132 phase 1 B: this computer's copy — its `replica_of` and token ($CICADA_HOME), a restart of its own process,
+    # and "copy again", which rewrites the copy itself (the follower's apply, under the bank's write lock).
+    "PUT /sync/replica": (OUTSIDE, None),
+    "DELETE /sync/replica": (OUTSIDE, None),
+    "POST /sync/replica/restart": (OUTSIDE, None),
+    "POST /sync/replica/recopy": (BANKS, None),
     "POST /capture/hook-context": (OUTSIDE, None),   # G110: may refresh the continuity index in $CICADA_HOME
     "PUT /sources/connectors/{connector_id}/credentials": (OUTSIDE, None),
     "DELETE /sources/connectors/{connector_id}/credentials": (OUTSIDE, None),

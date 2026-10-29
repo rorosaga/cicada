@@ -398,6 +398,13 @@ def _unlink_quietly(path: str) -> None:
         pass
 
 
+def _replica_check() -> None:
+    """G132 phase 1 (ruling 51e2): a replica's pages are written only by the follower's apply."""
+    from api.services import replica_guard
+
+    replica_guard.check("page")
+
+
 def write(filepath: Path, frontmatter: dict, body: str) -> None:
     """Write a markdown file with YAML frontmatter — atomically (audit A02).
 
@@ -414,6 +421,7 @@ def write(filepath: Path, frontmatter: dict, body: str) -> None:
     An entity page's claims are split with its ledger (``claims_ledger``): lines the ledger gains are written before
     the page and lines it loses after it (``claims_ledger.write_plan``), so a crash between the two leaves a claim in
     both files, never in neither."""
+    _replica_check()
     frontmatter, body, ledger = _split_ledger(Path(filepath), frontmatter, body)
     before = after = None
     if ledger is not None:
@@ -476,6 +484,7 @@ def write_new(filepath: Path, frontmatter: dict, body: str) -> None:
     atomically, across processes, with no lock — so the page appears complete
     or not at all. A filesystem without hard links falls back to an
     ``O_EXCL`` create, which still never replaces a file."""
+    _replica_check()
     target = Path(filepath)
     data = _render(frontmatter, body)
     _forget(target)

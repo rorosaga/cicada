@@ -444,8 +444,88 @@ repository. Every route takes a full device token or the server's own; a capture
   adds `seq` — the home's head once the write committed — and a body's `base_seq` is recorded beside it in the sidecar
   (`bases`), never enforced. Off, the reply is byte-for-byte what it was.
 
-What PR B builds on this: replica mode, the follower (SSE `git_head` or a 10 s `/sync/log` poll, then `/sync/pack`
-and a fast-forward), the transaction outbox and the hand-written route table (the G132 row's phase 1).
+## A computer keeps a copy (G132 phase 1 B, ruling 51a/d/e2 — built, off unless set)
+
+**The mode.** `runtime_layout.mode()` is `local`, `client` or `replica`. Replica: `CICADA_REPLICA_OF` (else
+`$CICADA_HOME/replica_of`, one line, 0600 — `PUT /sync/replica` writes it with the device token after checking the
+home answers with that token and publishes a memory that is not a demo), the same address rule as `api_base` and the
+same device token (`device_token`). Both a client address and a home set: **client**, and `mode_conflict()` says so
+in words (logged at start, shown by `GET /sync/replica`). Unset, nothing changes (`test_replica_off_unchanged.py`): the
+mode is what it was, the lifespan schedules as before, the route table and the guard are inert, no thread starts, and
+a home that does not publish adds no header.
+
+**What a replica runs.** Its own backend on loopback, with a lifespan of its own (`main._replica_lifespan`): no
+scaffold, migration, owner seed, schedule, catch-up, poll, connector sync, remote listener, Telegram or reindex job —
+only the query embedder's warm-up, the words index and the follower. **The backstop** (`replica_guard`) refuses every
+bank writer outside the follower's apply (`replica_guard.applying()`): git's write subcommands and `.git` writers
+(`git_service._git_sync`, the private-index commit), `markdown_parser.write` / `write_new` (and so
+`episode_ids.create_episode` and every capture writer), with `ReplicaReadOnly` (a `PermissionError`; under git also
+a `GitError`, which every caller handles); `state_dictionary.refresh` is a no-op (`reason: replica`), so `GET /state`
+serves the home's `_state.md`. Every GET route walked on a copy writes nothing and none answers 500
+(`test_replica_get_routes_write_nothing.py`).
+
+**Bootstrap and follow** (`replica`). With no copy: the home's `/sync/status` (bank id and name), the whole
+`/sync/pack`, `git_service.bootstrap_from_bundle_sync` into `<root>/banks/<name>` (`-copy` when the name is taken),
+registered in `banks.yaml` **under the home's bank id** with `replica: true`, and made active; every other bank on the
+computer is left as it was, inactive. The marker `$CICADA_HOME/sync/<bank key>/replica.json` (`{home, bankId, seq,
+sha, appliedAt}`) is this computer's alone. Then a reader thread holds the home's `/sync/events` open: a `version`
+whose `git_head` is not the copy's wakes the follower, and each `sleep` event is kept as the home's frame. The follower
+also wakes every 10 s by itself, and on a write's `seq`. It asks `/sync/pack?have=<copy's sha>` and
+`git_service.fast_forward_sync` applies it under the bank's write lock: fetch into `refs/cicada/home` (`fetch` is now
+a write subcommand), **the ancestry checked by the copy itself** (`merge-base --is-ancestor`, never a seq trusted),
+a dirty tracked file refused, each changed file written atomically (a temp file beside it, fsynced, `os.replace`) and
+each removed one unlinked, then `update-ref HEAD <new> <old>` and the index brought to it. The page cache and
+`bank_index` are invalidated, the words index catches up inline (`ensure_fresh(wait=True, max_age_s=0)`), and the
+meaning index catches up in the background from the changed episode stems only (`index_episode_stems`; a changed
+entity page runs the hash-skipping sync). Offline it backs off 1 s doubling to 60 s. A 401/403 (a revoked device)
+stops it at once: status `revoked`, nothing more fetched or sent. A rewritten home (409 `history_rewritten`) or a
+head that does not descend stops it (`home_rewritten`, `diverged`) and says so; only the person's "Copy again"
+(`POST /sync/replica/recopy`) writes the home's tree over the copy. Only seqs, counts and timings are logged.
+
+**Writes are transactions** (`tx_outbox`, `$CICADA_HOME/spool/tx/`, 0700/0600, oldest first). Three doors:
+
+- **The tool door.** cli_map's `replica` column says where a tool runs on a copy: every `mutates` row and the reads
+  of the stores the home keeps outside every bank (`cicada_video_queue`, `cicada_reading_queue`,
+  `cicada_explore_queue`) are `home`, every other `local`. The stdio MCP server and the `cicada` command send a `home`
+  row to this computer's own backend (`tool_client.call(local=True)`; the CLI after its ruling 21a probe and
+  `require_person`), whose `/tools/call` keeps it in the outbox and sends it to the home's `/tools/call` with its
+  `Idempotency-Key` and the bank id. The home's answer comes back; its `seq` wakes the follower and the reply waits up
+  to about 2 s for the copy to reach it (read-your-writes). Unreachable: "Queued for the home…" (`code:
+  queued_for_home`), sent in order when the home answers again. A replica's transaction (it carries `base_seq`) that
+  saves an episode — a note, a link — commits alone at the home under its harness, as a remote save does (R-R11), so
+  the copy can read it back; a stdio save on the home itself stays uncommitted as before.
+- **The app's REST writes** (`replica_routes`, hand-written, every non-GET route; `replica_forward`, one ASGI
+  middleware): `forward` (the same route at the home, keyed, naming the home's bank id; 503 `home_away` when the home
+  is unreachable, nothing changed), `capture` (the same, but kept in the outbox and answered 202 `queued` while the
+  home is away), `refuse` (409 `replica_read_only`: bank lifecycle, devices, the remote listener, publishing,
+  maintenance runs, the home's source sign-ins), `local` (this computer's engine sign-ins, search model, skills
+  folders, sealed traces, reads computed here). The app's bank name is checked against the copy first; only this
+  computer's own token is accepted. A home that publishes adds `X-Cicada-Seq` to every write's answer, so a forwarded
+  write waits for the copy to catch up too. `test_replica_routes_inventory.py` fails on a route the table misses.
+- **The hooks.** On a copy, capture goes to the home the way a client's does (`hook_client.captures_elsewhere`,
+  the existing spool and its targets); recall reads this computer's own backend, the copy.
+
+The outbox keeps hook_spool's rules: no answer, 401/403, `sleep_writing` and 5xx wait (and stop the flush, so order
+holds); 400/404/405/413/422 are dropped and counted; 409 `bank_mismatch` is held aside and retried every 10 minutes;
+any other refusal (the item was answered elsewhere) leaves the outbox and is kept in `rejected.json` by id, tool or
+route and code, never its arguments (the G132 g1 gate's first answer: shown, never silently lost). An entry expires
+after 7 days, a day before the home's key.
+
+**Reads are local; §3a holds.** MCP read tools, the handshake (built from the copy, R12 and the budget unchanged), the
+app's pages and `/search` answer from the copy. `/sync/status` on a copy is the home's frame (Sleep from the home's
+own events, schedule, engine label, name) with the copy's seq and queue and an `outbox` block beside it (counts: this
+device's transactions, held, rejected, and its hooks' captures waiting); the SSE `sleep` event is the home's payload
+plus the same `outbox`; `GET /sleep/status` is the home's (503 `home_away` with the last frame when it is away); the
+inbox and the queue are the copy's files, so at the same seq they are the home's (`test_replica_two_machines.py`).
+"Sleep now" pressed on a copy is the home's `POST /sleep/trigger`.
+
+`GET /sync/replica` (a full device or this computer's own token) says the mode, the follower's words, seqs and how far
+behind it is, and the outbox counts; `PUT`/`DELETE /sync/replica` and `POST /sync/replica/recopy` are this computer's
+own token only (`auth.MASTER_ONLY_WRITE_PREFIXES`). A change of mode takes effect from the backend's next start.
+
+Known limits of phase 1: a copy's media files and pictures posted from it live at the home (outside every bank) and
+are not copied; `cicada_continue` reads this computer's own continuity registry; `cicada_ask` uses this computer's
+engine; an interactive app write made while the home is away is refused, not queued (phases 4/5).
 
 ## Decided, not built (G132, ruling 51)
 

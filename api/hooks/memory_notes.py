@@ -169,7 +169,7 @@ def save_state(home: Path | None, state: dict) -> None:
 
 def destination(environ) -> tuple[str | None, str, str | None]:
     """``(base, token, problem)`` — the server elsewhere with this device's token, or the loopback backend."""
-    if remote_client.is_client(environ):
+    if remote_client.captures_elsewhere(environ):   # a client's server, or a copy's home (G132 phase 1 B)
         return remote_client.target(environ)
     home = _home(environ)
     if home is None:

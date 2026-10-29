@@ -131,7 +131,7 @@ def schedule(memory_path: Path, debt) -> dict:
                                                   newest_unprocessed_at=debt.newest_unprocessed_at)}
 
 
-def frame(memory_path: Path, settings, state, debt, *, bank_id: str | None) -> dict:
+def frame(memory_path: Path, settings, state, debt, *, bank_id: str | None, bank: str | None = None) -> dict:
     """``GET /sync/status``: the home's state of this bank at its published seq."""
     from api.services import device_status, sync_log
 
@@ -139,6 +139,7 @@ def frame(memory_path: Path, settings, state, debt, *, bank_id: str | None) -> d
     _key, sleep = sleep_event(state, debt, memory_path)
     return {
         "bankId": bank_id,
+        "bank": bank,
         "seq": log.get("seq"),
         "log": log,
         "home": {"device": None, "name": device_status.machine_name()},
@@ -146,4 +147,41 @@ def frame(memory_path: Path, settings, state, debt, *, bank_id: str | None) -> d
         "schedule": schedule(memory_path, debt),
         "queue": queue(memory_path),
         "engine": {"label": engine_label(settings)},
+    }
+
+
+def outbox_counts() -> dict:
+    """What this device still has on its way to the home, counts only: its transactions and its hooks' captures."""
+    from api.services import runtime_layout, tx_outbox
+
+    try:
+        from api.hooks import hook_client
+
+        captures = hook_client.spool_module().pending(runtime_layout.cicada_home())
+    except Exception:  # noqa: BLE001
+        captures = 0
+    return {**tx_outbox.counts(), "captures": captures}
+
+
+def replica_frame(memory_path: Path, *, bank_id: str | None, bank: str | None) -> dict:
+    """``GET /sync/status`` on a replica (51d): the home's frame — its Sleep event (the home's own ``sleep`` events,
+    as the follower last heard them), schedule, engine label and name — with THIS copy's seq and queue, read from the
+    copy itself (so at the same seq they are the home's), plus what this device still has on its way (``outbox``,
+    counts only), shown beside the queue and never mixed into it."""
+    from api.services import replica
+
+    home = replica.home_frame() or {}
+    rstate = replica.state()
+    return {
+        "bankId": bank_id,
+        "bank": bank,
+        "seq": rstate["seq"],
+        "log": {"state": "replica", "seq": rstate["seq"], "homeSeq": rstate["homeSeq"]},
+        "home": home.get("home"),
+        "sleep": replica.home_sleep() or home.get("sleep"),
+        "schedule": home.get("schedule"),
+        "queue": queue(memory_path),
+        "engine": home.get("engine"),
+        "outbox": outbox_counts(),
+        "replica": rstate,
     }

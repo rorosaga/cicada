@@ -28,6 +28,18 @@ class GitError(Exception):
     pass
 
 
+def _replica_refusal():
+    """G132 phase 1 (ruling 51e2): on a replica a git write is refused unless the follower's apply makes it. A
+    ``GitError`` (every caller already handles one) that is also ``replica_guard.ReplicaReadOnly``."""
+    from api.services import replica_guard
+
+    class ReplicaGitRefused(GitError, replica_guard.ReplicaReadOnly):
+        def __init__(self):
+            replica_guard.ReplicaReadOnly.__init__(self, "git")
+
+    return ReplicaGitRefused()
+
+
 # Commit-author trailer (backlog A2). Every Cicada write records which agent
 # authored it as one or more ``Cicada-Author:`` lines in the commit body — a
 # model id (e.g. "gpt-5.4-mini") for sleep-cycle/agent writes, or "user" for
@@ -515,7 +527,12 @@ WRITE_SUBCOMMANDS = frozenset({
     # Git's own derived index of the history (`write_commit_graph_sync`): never a content commit, but a writer of
     # `.git/objects/info`, so it waits for the bank's lock like every other.
     "commit-graph",
+    # G132 phase 1: the replica's follower fetches the home's bundle into `refs/cicada/home` (its one write).
+    "fetch",
 })
+#: What the replica backstop refuses beside the write subcommands: commands that write `.git` itself.
+_REPLICA_GUARDED = WRITE_SUBCOMMANDS | {"config", "init", "gc", "prune", "repack", "notes", "hash-object",
+                                        "commit-tree", "write-tree", "remote", "tag", "branch", "worktree"}
 #: Waits between tries while ANOTHER process holds the index (R-B2): five tries
 #: in about two seconds. A terminal's `git add` takes milliseconds; an editor left
 #: open by `git commit` does not, and that case is R-B5's to keep.
@@ -551,6 +568,11 @@ def _git_sync(memory_path: Path, *args: str) -> str:
     """One git command, called with the bank's write lock held. Retries only git's
     index-lock refusal and never deletes the lock (R-B2): another process owns
     it, and removing it under a live commit corrupts the index."""
+    if args and args[0] in _REPLICA_GUARDED:
+        from api.services import replica_guard
+
+        if replica_guard.blocks():
+            raise _replica_refusal()
     for delay in (*INDEX_LOCK_BACKOFF_S, None):
         try:
             proc = _spawn(memory_path, args)
@@ -735,6 +757,10 @@ def _git_env_sync(memory_path: Path, env: dict, *args: str) -> str:
     """One git command against a PRIVATE index (``GIT_INDEX_FILE``), called with
     the bank's write lock held. Nothing else contends for that index, so there
     is no lock to retry."""
+    from api.services import replica_guard
+
+    if replica_guard.blocks():
+        raise _replica_refusal()
     try:
         proc = subprocess.run(["git", *args], cwd=str(memory_path), capture_output=True, env=env)
     except OSError as exc:
@@ -802,6 +828,132 @@ def commit_contents_sync(memory_path, contents: dict[str, bytes], message: str) 
         return False
     with write_lock(memory_path):
         return _commit_kept_apart_sync(memory_path, dict(contents), message)
+
+
+class NotFastForward(GitError):
+    """The home's head is not a descendant of the copy's: the copy never applies it (it is copied again on the
+    person's word)."""
+
+
+class DirtyCopy(GitError):
+    """A tracked file of the copy differs from its HEAD: something wrote it outside the apply; never overwritten."""
+
+
+#: The ref the home's bundle is fetched into on a replica (never a branch anything else moves).
+HOME_REF = "refs/cicada/home"
+
+
+def _blobs_at(memory_path: Path, rev: str, paths: list[str]) -> dict[str, bytes]:
+    """``{path: bytes}`` of ``paths`` at ``rev``, through one ``git cat-file --batch`` (a read)."""
+    if not paths:
+        return {}
+    proc = subprocess.run(["git", "cat-file", "--batch"], cwd=str(memory_path), capture_output=True,
+                          input="".join(f"{rev}:{p}\n" for p in paths).encode("utf-8"))
+    if proc.returncode != 0:
+        raise GitError("git cat-file --batch failed")
+    out, pos, got = proc.stdout, 0, {}
+    for p in paths:
+        nl = out.index(b"\n", pos)
+        header = out[pos:nl].split()
+        pos = nl + 1
+        if len(header) < 3 or header[1] != b"blob":
+            raise GitError(f"not a file at {rev}: {p}")
+        size = int(header[2])
+        got[p] = out[pos:pos + size]
+        pos += size + 1
+    return got
+
+
+def _write_atomically(path: Path, data: bytes) -> None:
+    """The page rule: a temp file beside it, then ``os.replace`` — a reader sees the old file or the new one."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.cicada-apply")
+    try:
+        with open(tmp, "wb") as fh:
+            fh.write(data)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def fast_forward_sync(memory_path, bundle: Path, *, expect: str | None = None, rewrite: bool = False) -> dict:
+    """The replica's apply (G132 phase 1, ruling 51a): bring this copy to the home's head in ``bundle``.
+
+    Under the bank's write lock: fetch the bundle into :data:`HOME_REF`; require the copy's HEAD to be an ancestor of
+    it (ancestry checked here, never a seq trusted alone) and every tracked file clean; write each changed file
+    atomically (``os.replace``, so no reader parses a torn page) and remove each removed one; then move HEAD
+    (compare-and-swap) and bring the index to it. ``rewrite`` is only the person's "copy again" after the home's
+    history was rewritten: the whole tree is written over and HEAD is moved without the ancestry test.
+    Returns ``{"head", "old", "changed", "removed"}``. Called inside ``replica_guard.applying()``."""
+    memory_path = Path(memory_path)
+    with write_lock(memory_path):
+        _git_sync(memory_path, "fetch", "-q", "--no-tags", "--no-write-fetch-head", str(bundle),
+                  f"+HEAD:{HOME_REF}")
+        new = _git_sync(memory_path, "rev-parse", "--verify", "-q", f"{HOME_REF}^{{commit}}").strip()
+        if expect and new != expect:
+            raise GitError("the bundle's head is not the one the home named")
+        try:
+            old = _git_sync(memory_path, "rev-parse", "--verify", "-q", "HEAD^{commit}").strip()
+        except GitError:
+            old = ""
+        if old == new:
+            return {"head": new, "old": old, "changed": [], "removed": []}
+        if old and not rewrite:
+            ancestor = subprocess.run(["git", "merge-base", "--is-ancestor", old, new], cwd=str(memory_path),
+                                      capture_output=True)
+            if ancestor.returncode != 0:
+                raise NotFastForward("the home's head does not descend from this copy's")
+            if _git_sync(memory_path, "status", "--porcelain", "-z", "--untracked-files=no").strip("\0").strip():
+                raise DirtyCopy("a tracked file of this copy was changed outside the apply")
+            listing = _git_sync(memory_path, "diff", "--name-status", "-z", "--no-renames", old, new)
+            fields = [f for f in listing.split("\0") if f]
+            changed, removed = [], []
+            for status, path in zip(fields[0::2], fields[1::2]):
+                (removed if status.startswith("D") else changed).append(path)
+        else:
+            changed = [p for p in _git_sync(memory_path, "ls-tree", "-r", "-z", "--name-only", new).split("\0") if p]
+            have = set()
+            if old:
+                have = {p for p in _git_sync(memory_path, "ls-tree", "-r", "-z", "--name-only", old).split("\0") if p}
+            removed = sorted(have - set(changed))
+        blobs = _blobs_at(memory_path, new, changed)
+        for rel in changed:
+            _write_atomically(memory_path / rel, blobs[rel])
+        for rel in removed:
+            (memory_path / rel).unlink(missing_ok=True)
+        if old and not rewrite:
+            _git_sync(memory_path, "update-ref", "HEAD", new, old)
+        else:
+            _git_sync(memory_path, "update-ref", "HEAD", new)
+        _git_sync(memory_path, "reset", "-q")
+    from api.services import bank_index, markdown_parser
+
+    markdown_parser.invalidate_pages(memory_path)
+    bank_index.invalidate(memory_path)
+    return {"head": new, "old": old, "changed": changed, "removed": removed}
+
+
+def bootstrap_from_bundle_sync(target: Path, bundle: Path) -> str:
+    """A replica's first copy: a new git repository at ``target`` (which must not exist) holding the bundle's history,
+    its tree checked out on ``main``. Returns the head. Called inside ``replica_guard.applying()``."""
+    target = Path(target)
+    if target.exists():
+        raise GitError("the copy's folder already exists")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    _git_sync(target.parent, "init", "-q", "-b", "main", target.name)
+    try:
+        with write_lock(target):
+            _git_sync(target, "fetch", "-q", "--no-tags", "--no-write-fetch-head", str(bundle), f"+HEAD:{HOME_REF}")
+            head = _git_sync(target, "rev-parse", "--verify", "-q", f"{HOME_REF}^{{commit}}").strip()
+            _git_sync(target, "reset", "-q", "--hard", head)
+    except BaseException:
+        import shutil
+
+        shutil.rmtree(target, ignore_errors=True)
+        raise
+    return head
 
 
 def head_blob_sync(memory_path, rel: str) -> bytes | None:

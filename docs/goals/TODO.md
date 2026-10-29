@@ -12,6 +12,13 @@
 
 ## Current state and evidence
 
+- **2026-10-29 — a computer keeps a copy (ruling 51a/d/e2, G132 phase 1 PR B; branch `feat/g132-replica`).**
+  Replica mode (`CICADA_REPLICA_OF` / `$CICADA_HOME/replica_of`, set by `PUT /sync/replica` with the home's pairing
+  code; client wins when both are set): a read-only copy fast-forwarded from the home's pack (ancestry checked here,
+  files written atomically, indexes caught up), every bank writer refused but the apply, writes as outbox
+  transactions (MCP/CLI/hooks through cli_map's `replica` column, the app through a hand-written route table), reads
+  local, the home's Sleep frame at the copy's seq. Rail (2) of ruling 51 takes effect (CLAUDE.md, Headless). The
+  app's two switches are their own PR. Numbers in `reports/g132-phase1-b.md` and the PR body.
 - **2026-10-29 — the home publishes its log, off by default (ruling 51a/d/e, G132 phase 1 PR A; branch
   `feat/g132-home-publishes`).** `CICADA_SYNC_PUBLISH=on` or `PUT /sync/publish` (the server's own token) turns on
   `/sync/log` (seq = first-parent position; a hand rewrite freezes it until "publish from here"), `/sync/pack` (a
