@@ -516,7 +516,7 @@ def _is_owner(entity: dict, owner: str | None) -> bool:
 
 
 def _application_pages(entities: list, episode: dict, episode_id: str, content: str, *, owner: str | None,
-                       day: str | None, gaps=()) -> list[tuple[dict, bool]]:
+                       day: str | None, gaps=(), on_record=None) -> list[tuple[dict, bool]]:
     """Ruling 42 at Stage 1 (`application_page`): mark each entity this conversation shows the person (or a harness
     agent, for them) acted on, write its application onto it, and move what the owner's extraction says about it
     there. The model's ``application`` field is consumed here and never reaches a page. Returns the status values to
@@ -536,9 +536,18 @@ def _application_pages(entities: list, episode: dict, episode_id: str, content: 
         if birth is not None:
             entity[application_page.KEY] = birth
             marked.append(entity)
+    owners = [e for e in entities if isinstance(e, dict) and _is_owner(e, owner)]
+    if on_record is not None and owners:
+        # An application already on its own page (`application_page.standing`): what the owner's extraction says about
+        # it goes there whichever conversation says it, an act in this one or not (2026-10-29).
+        said = " ".join(application_page.owner_text(o) for o in owners)
+        for entity in entities:
+            if (isinstance(entity, dict) and all(entity is not m for m in marked) and not _is_owner(entity, owner)
+                    and application_page.names_it(said, entity) and on_record(entity)):
+                for owner_entity in owners:
+                    application_page.move_from_owner(owner_entity, entity)
     if not marked:
         return []
-    owners = [e for e in entities if isinstance(e, dict) and _is_owner(e, owner)]
     values = []
     for entity in marked:
         for owner_entity in owners:
@@ -812,6 +821,10 @@ async def extract(
     from api.services import engine_select
 
     _engine = engine_select.engine_label(settings)
+    # Ruling 42 (2026-10-29): which things already hold their application on a page of their own.
+    from api.services import application_page as _application_page
+
+    on_record = _application_page.standing(getattr(settings, "memory_path", None))
     plan_name = engine_select.PLAN_NAMES.get(_engine, "Claude plan")
     from api.services import cli_engines
 
@@ -977,7 +990,7 @@ async def extract(
                                             persons=promotion.person_kinds(episode))
                 # Ruling 42: a specific event, program or application the person (or an agent, for them) acted on
                 # gets its page from this one conversation, and the application lives there, not on the owner's.
-                app_values = _application_pages(all_entities, episode, ep_id, content, owner=owner,
+                app_values = _application_pages(all_entities, episode, ep_id, content, owner=owner, on_record=on_record,
                                                 day=ep_day.isoformat() if ep_day and not untimed else None, gaps=gaps)
                 narration = 0
                 for entity in all_entities:
@@ -990,6 +1003,8 @@ async def extract(
                         narration += len(facts) - len(kept)
                         entity["key_facts"] = kept
                     entity["mention_exchanges"], entity["named_by_person"] = promotion.measure(entity, units)
+                    if promotion.label_only(entity, content):
+                        entity[promotion.LABEL_ONLY] = True   # named only by a folder, a list, a calendar
                     sanitize_entity_type(entity)
                     entity.pop("project_birth", None)   # computed here from the conversation, never the model's to say
                     if entity.get("type") == "project":

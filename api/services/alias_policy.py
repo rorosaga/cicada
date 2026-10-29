@@ -52,10 +52,36 @@ def is_reference(alias) -> bool:
     return not any(ch.isupper() or ch.isdigit() for ch in text)
 
 
+def admits(alias) -> bool:
+    """May an automatic writer add ``alias`` as a NEW name of a page? A non-empty string that is not a reference or a
+    pronoun (:func:`is_reference`). Every writer that adds a name — Sleep's merge of a mention, a page merge, an inbox
+    answer, a nickname, a card's spoken name — asks this one question (G169, 2026-10-29: "she" reached three person
+    pages through a merge that carried the merged page's aliases unfiltered)."""
+    return isinstance(alias, str) and bool(alias.strip()) and not is_reference(alias)
+
+
+def names_another_page(alias, page_id: str, entities_dir) -> bool:
+    """``alias`` is another live page's own name, by id (``entities/<id>.md`` exists and is not ``page_id``): a crossed
+    alias (2026-10-29: "<name-b>" on <name-a>'s page while <name-b> has a page of its own). Sleep never adds one: the
+    two pages are either one thing — a merge question, which the shared name already raises (`entity_resolver`) — or
+    two, and the alias would pull the other's mentions onto this page. Cheap: one file check."""
+    from pathlib import Path
+
+    from api.services.id_utils import sanitize_id
+
+    if not isinstance(alias, str) or not alias.strip():
+        return False
+    other = sanitize_id(alias)
+    if not other or other == page_id:
+        return False
+    path = Path(entities_dir) / f"{other}.md"
+    return path.is_file()
+
+
 def keep(aliases) -> list[str]:
     """``aliases`` without the references, order kept. A non-list is treated as no aliases."""
     if isinstance(aliases, str):
         aliases = [aliases]
     if not isinstance(aliases, (list, tuple)):
         return []
-    return [a for a in aliases if isinstance(a, str) and a.strip() and not is_reference(a)]
+    return [a for a in aliases if admits(a)]

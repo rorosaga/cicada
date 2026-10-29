@@ -735,3 +735,16 @@ def test_b3_every_git_call_has_a_deadline_and_a_failure_is_never_cached(tmp_path
     monkeypatch.setattr(page_blame, "GIT_TIMEOUT_S", 0.0001)
     assert asyncio.run(page_blame.blame(memory, "alpha-project"))["pending"] is True
     assert page_blame._CACHE == {}
+
+
+def test_a_pronoun_alias_sleep_once_wrote_is_removable_by_an_edit(bank):
+    """2026-10-29: a pronoun recorded as an alias before `alias_policy` refused it ("she") comes off through the same
+    door as any alias — the reference check guards only what is ADDED."""
+    page_editors.update({"claude-code": True})
+    parsed = _page(bank)
+    markdown_parser.write(bank / "entities/alpha-project.md",
+                          {**parsed.frontmatter, "aliases": [*parsed.frontmatter["aliases"], "she"]}, parsed.body)
+    _commit_all(bank)
+    out = mcp_tools.edit_page(_ctx(bank), "alpha-project", "A pronoun is never a name.", remove_aliases=["she"])
+    assert out.startswith("Edited alpha-project: removed the alias 'she'")
+    assert "she" not in _page(bank).frontmatter["aliases"]
