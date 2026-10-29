@@ -52,7 +52,6 @@ struct MergePageSheet: View {
                                 Text(node.name).font(CicadaTheme.rowFont).foregroundStyle(CicadaTheme.textPrimary)
                                 QualifierTag(qualifier: node.qualifier)
                                 Spacer(minLength: 0)
-                                Text(node.id).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
                             }
                             .padding(.vertical, CicadaTheme.scaled(4))
                             .contentShape(Rectangle())

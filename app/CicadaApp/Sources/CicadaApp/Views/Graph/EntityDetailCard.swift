@@ -426,7 +426,7 @@ struct EntityDetailCard: View {
         .sheet(isPresented: $merging) {
             MergePageSheet(entity: entity, close: { merging = false }, done: { id in
                 merging = false
-                afterJoin(open: id)
+                afterJoin(open: id, pageGone: true)
             })
         }
         .sheet(isPresented: $splitting) {
@@ -439,11 +439,16 @@ struct EntityDetailCard: View {
 
     /// After a merge or split: the graph again (pages came and went), then the page the person will want next — the
     /// page that stayed, or the new one.
-    private func afterJoin(open id: String) {
+    private func afterJoin(open id: String, pageGone: Bool = false) {
         let here = entity.id
         Task {
             await graphVM.loadGraph()
-            await graphVM.reloadEntity(id: here)
+            if pageGone, navigation == nil {
+                // A merge: this page folded into `id` — open that one fresh, so "Back" never names a page that is gone.
+                graphVM.selectEntity(id: id)
+                return
+            }
+            if !pageGone { await graphVM.reloadEntity(id: here) }
             navigate(to: id)
         }
     }
