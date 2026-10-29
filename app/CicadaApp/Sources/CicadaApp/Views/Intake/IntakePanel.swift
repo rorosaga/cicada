@@ -27,8 +27,12 @@ struct IntakePanel: View {
     @State private var newMemoryName = ""
 
     private var vendors: [ChatVendor] { vendor.map { [$0] } ?? ChatVendor.allCases }
+    /// CIC8 (2026-10-29) — a panel drawn inside a page (a Sources entry's detail) is a door, not a host: what its drop
+    /// or pick starts runs in the window overlay the router raises, so the page keeps its idle panel, offers no Cancel
+    /// of its own and takes no Return from the page around it.
+    private var inline: Bool { if case .emptyState = origin { true } else { false } }
     /// A panel shows the router's phase only when it is the host that phase belongs to.
-    private var phase: IntakePhase { intake.host == origin.host ? intake.phase : .idle }
+    private var phase: IntakePhase { !inline && intake.host == origin.host ? intake.phase : .idle }
 
     var body: some View {
         Group {
@@ -55,7 +59,7 @@ struct IntakePanel: View {
             }
             // The overlay's idle state needs its own way out for the keyboard and
             // VoiceOver (design I9); in the `+` sheet the sheet's back control is it.
-            if origin.host == .overlay {
+            if origin.host == .overlay && !inline {
                 HStack {
                     Spacer()
                     Button(Copy.intakeCancel) { intake.dismiss() }
@@ -79,7 +83,7 @@ struct IntakePanel: View {
                 .buttonStyle(.bordered)
                 // Overlay only: in the `+` sheet a default action here would take
                 // Return away from the tile grid's own Enter-opens-tile (R10).
-                .keyboardShortcut(origin.host == .overlay ? KeyboardShortcut.defaultAction : nil)
+                .keyboardShortcut(origin.host == .overlay && !inline ? KeyboardShortcut.defaultAction : nil)
         }
         .frame(maxWidth: .infinity)
         .padding(CicadaTheme.spacingLG)

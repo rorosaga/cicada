@@ -105,6 +105,8 @@ struct ConversationTarget: Equatable, Sendable {
 /// R-SU13 — the palette's verbs, each one the same call the page that owns it makes.
 enum PaletteAction: String, Codable, Sendable {
     case consolidate, stopConsolidating, zoomIn, zoomOut, actualSize, lightMode, darkMode
+    /// CIC8 — File → Import…'s own call (`IntakeRouter.present`).
+    case importFile
 }
 
 /// What a row opens. `ContentView.openFind(_:)` runs the navigating cases —

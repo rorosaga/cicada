@@ -18,7 +18,7 @@ but keyed on capture origin rather than authoring model.
 import copy
 from pathlib import Path
 
-from api.services import bank_index
+from api.services import bank_index, episode_time
 
 UNKNOWN_ORIGIN = "unknown"
 
@@ -61,7 +61,9 @@ def _aggregate(memory_path: Path) -> list[dict]:
         fm = f.frontmatter
         episode_id = str(fm.get("id") or f.stem)
         origin = str(fm.get("origin") or "").strip() or UNKNOWN_ORIGIN
-        timestamp = str(fm.get("timestamp") or "")
+        # CIC8 (ruling 39): `lastSeen` is when Cicada last got an episode of this origin — an import channel's
+        # `last_sync` — never the item's own date.
+        delivered = episode_time.delivered_at(fm)
 
         episode_origin[episode_id] = origin
 
@@ -69,8 +71,8 @@ def _aggregate(memory_path: Path) -> list[dict]:
             origin, {"episode_count": 0, "entity_ids": set(), "last_seen": ""}
         )
         state["episode_count"] += 1
-        if timestamp > state["last_seen"]:
-            state["last_seen"] = timestamp
+        if episode_time.is_later(delivered, state["last_seen"]):
+            state["last_seen"] = delivered
 
     for f in bank_index.files(memory_path, "entities"):
         fm = f.frontmatter

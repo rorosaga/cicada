@@ -27,6 +27,13 @@ enum IntakePicker {
     static let allowedContentTypes: [UTType] = [.zip, .json, .html, .folder, .commaSeparatedText, .plainText,
                                                 .xml, .propertyList]
 
+    /// CIC8 (2026-10-29) — where a chat export lands: every app's export link downloads a .zip into Downloads, so the
+    /// panel opens there. Only a path is computed: the panel draws the folder, so Cicada reads nothing in it and no
+    /// Files and Folders prompt is raised — what the person picks is the grant (their own act, the drop's rule).
+    static var startFolder: URL? {
+        FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+    }
+
     /// Runs the open panel. An empty list means the person cancelled.
     @MainActor
     static func choose() -> [URL] {
@@ -34,6 +41,7 @@ enum IntakePicker {
         panel.allowedContentTypes = allowedContentTypes
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = true
+        panel.directoryURL = startFolder
         panel.message = Copy.intakeDropTitle
         return panel.runModal() == .OK ? panel.urls : []
     }

@@ -32,6 +32,10 @@ enum QuickMatch {
         static let name = 1.0
         static let alias = 0.9
         static let keyword = 0.7
+        /// CIC8 (2026-10-29) — the words that name what an action is FOR ("chatgpt" for the import): an exact one
+        /// (5 × 0.82 = 4.1) beats a title's prefix (4.0) and every keyword or body match, and never a title typed in
+        /// full (5.0), so a page named exactly what was typed still leads.
+        static let intent = 0.82
         static let body = 0.4
     }
 

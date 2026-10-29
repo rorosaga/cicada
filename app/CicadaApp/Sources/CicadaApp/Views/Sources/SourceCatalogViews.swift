@@ -299,10 +299,12 @@ struct SourceCatalogDetail: View {
                 tileButton(Copy.Catalog.howToSetUp)
             }
         case "chat-exports":
+            // CIC8 (2026-10-29) — the import itself, here: this row used to say "each chat export sits on its agent's
+            // row" and send the person to Agents, whose *Import its chat export* sent them back to an empty Sources.
+            // The one intake's panel (drop, *Choose a file…* opening in Downloads, each app's export page and steps).
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                Text(Copy.Catalog.chatExportsHere)
-                    .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary)
-                NeutralButton(title: Copy.Catalog.openAgents, size: .compact) { router.routeToAgents() }
+                importHow
+                IntakePanel(origin: .emptyState(.sources))
             }
         case "spotify":
             // G32: where the file comes from, then the one intake's drop — the "files" row's controls, no new pattern.

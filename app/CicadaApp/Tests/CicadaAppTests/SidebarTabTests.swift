@@ -101,6 +101,31 @@ final class SidebarTabTests: XCTestCase {
         XCTAssertTrue(TracesPageVisibility.shown(settings: settings, status: status), "days still kept")
     }
 
+    /// CIC8 (2026-10-29) — the import is an action a person holding an export can find by typing what they hold, on
+    /// ⌘K and on Home's field (the same index), with File → Import…'s shortcut.
+    func testThePaletteFindsTheImportByWhatPeopleType() {
+        let docs = PaletteActions.docs(QuickIndexInputs())
+        let row = docs.first { $0.row.destination == .action(.importFile) }
+        XCTAssertNotNil(row)
+        XCTAssertEqual(row?.row.trailing, "⇧⌘I")
+        // Every door says one thing: the File menu, the menu-bar worm, the palette and Sources' header add.
+        let words = Copy.Catalog.importChatsOrFiles.lowercased()
+        XCTAssertEqual(Copy.intakeFileMenuItem.lowercased(), words + "…")
+        XCTAssertEqual(Copy.intakeMenuBarItem, Copy.intakeFileMenuItem)
+        XCTAssertEqual(row?.row.title.lowercased(), words + "…")
+        let index = QuickIndex.build(QuickIndexInputs())
+        for typed in ["chatgpt", "claude", "export", "chat export", "zip", "claude export", "import"] {
+            let top = FindMerge.fresh(query: typed, local: index.query(typed)).topHit
+            XCTAssertEqual(top?.destination, .action(.importFile), "\(typed): the import is the top hit")
+        }
+        // ...but never over a page named exactly what was typed.
+        var withPage = QuickIndexInputs()
+        withPage.nodes = [FindFixtures.node("chatgpt", "ChatGPT", type: .tool)]
+        let page = QuickIndex.build(withPage)
+        XCTAssertEqual(FindMerge.fresh(query: "chatgpt", local: page.query("chatgpt")).topHit?.destination,
+                       .entity(id: "chatgpt"))
+    }
+
     /// ⌘K offers only the pages the rail shows, each with its own digit.
     func testThePaletteGoesOnlyToShownPages() {
         let titles = { (traces: Bool) in

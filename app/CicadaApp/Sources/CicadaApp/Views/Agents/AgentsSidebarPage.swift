@@ -222,6 +222,7 @@ private struct AgentDetailColumn: View {
     let backLabel: String?
     let onClose: () -> Void
 
+    @Environment(IntakeRouter.self) private var intake: IntakeRouter?
     @Environment(AppRouter.self) private var router: AppRouter?
     @State private var editors = PageEditorsModel()
     @State private var copied = false
@@ -340,7 +341,11 @@ private struct AgentDetailColumn: View {
                                       systemImage: "doc.on.doc", size: .compact) { copySetup(harness) }
                     }
                     if let tile = exportTile {
-                        TextButton(title: Copy.AgentsPage.importExport) { router?.routeToAddSource(tile) }
+                        // CIC8 (2026-10-29) — the one intake, over this page: this used to stage the tile for
+                        // Sources, which had no entry for it, so the person landed on Sources with nothing open.
+                        TextButton(title: Copy.AgentsPage.importExport) {
+                            intake?.present(from: tile.chatVendor.map { .reminder($0) } ?? .menuBar)
+                        }
                     }
                 }
                 if umbrella.ways.contains(where: { $0.connects.contains("hooks") }) {

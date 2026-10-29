@@ -257,7 +257,11 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   for it and older episodes are not backfilled: a missing `received_at` is unknown. `test_both_dates.py` fails when a
   module that mints an episode id creates one without it. Surfaces show the received day only when it is at least two
   days after the item's own (`episode_time.received_shown` / `received_after`): the Reader's meta line, a Sources list
-  row's help and spoken label (`received`), recall's excerpt label.
+  row's help and spoken label (`received`), recall's excerpt label. **A source's recency is its receipt (CIC8,
+  2026-10-29):** every "connected · <when>" a source shows — the overview's `last_activity_at`, an import channel's
+  `last_sync` — reads `episode_time.delivered_at` (newest of `received_at`, `captured_at`, `last_turn_at`, else
+  `timestamp`), so an import of year-old chats reads "today"; `episode_time.is_later` compares one stamp shape as
+  strings and parses only a mixed pair (list-route p95 unchanged, measured on an 8,000-episode synthetic bank).
 - **Unique across processes, revision-safe against Sleep** (audit 2026-10-02 K01/A01). A new episode
   is created with `episode_ids.create_episode`, which never replaces a file: when another process
   (a stdio MCP server, the Stop hook, the backend) took the minted id first, it mints again. Dedup

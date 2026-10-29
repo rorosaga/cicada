@@ -12,6 +12,14 @@
 
 ## Current state and evidence
 
+- **2026-10-29 — chat exports findable (CIC8, G64; branch `feat/chat-exports-obvious`).** Every door to a chat export
+  opens the one intake (Sources' header *Import chats or files* and its Chat exports entry, Agents' *Import its chat
+  export*, a ⇧⌘I palette action Home's field finds by "chatgpt"/"chat export", the walkthrough's *I have the file…*);
+  the picker opens in Downloads. Fixed the Agents→Sources loop (a tile no entry owned) and the hand-off tile left staged
+  for Sleep. Relay gap unmeasurable on this bank: 0 relayed episodes vs 1,519 exported conversations (G64 row).
+  Noticing an export in Downloads waits on the owner (a grant and a new visual pattern). Round 3: the import is ⌘K's
+  top hit for "chatgpt"/"claude"/"export"/"zip" (never over an exact title); a source's "connected · <when>" reads its
+  receipt (`episode_time.delivered_at`, ruling 39), not an import's backdated chats — list p95 unchanged.
 - **2026-10-29 — every "All N" opens at once (G115; branch `fix/inbox-all-freeze`).** Home's *All 465 questions*
   froze the app for seconds: app-side, not the backend (`load_inbox` p95 52 ms on a bank copy, off the event loop). The
   Inbox page rebuilt its derived lists on every read, each sort building two `DateFormatter`s per comparison, and laid

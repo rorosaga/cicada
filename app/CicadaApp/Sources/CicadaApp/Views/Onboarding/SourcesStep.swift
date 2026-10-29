@@ -188,15 +188,12 @@ struct SourcesStep: View {
     }
 
     /// The file panel the old Import page ran: the URLs go to the one intake, which stages them while onboarding
-    /// shows (R-IB15). ⌘⇧I and the menu bar's *Import a file…* land here too (`welcomeChooseRequest`).
+    /// shows (R-IB15). ⌘⇧I and the menu bar's *Import Chats or Files…* land here too (`welcomeChooseRequest`).
     static func chooseFile(_ intake: IntakeRouter) {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.zip, .json, .html, .folder, .commaSeparatedText, .plainText, .xml, .propertyList]
-        panel.allowsMultipleSelection = true
-        panel.canChooseDirectories = true
-        panel.message = Copy.intakeDropTitle
-        guard panel.runModal() == .OK else { return }
-        intake.accept(urls: panel.urls, from: .welcome)
+        // CIC8 — the intake's one picker (its types, opening in Downloads), not a copy that could drift.
+        let urls = IntakePicker.choose()
+        guard !urls.isEmpty else { return }
+        intake.accept(urls: urls, from: .welcome)
     }
 }
 

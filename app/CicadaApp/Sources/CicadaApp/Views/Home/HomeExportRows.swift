@@ -83,11 +83,12 @@ extension ExportWaits {
 struct HomeWalkthroughLayer: View {
     let vendor: ChatVendor
     let onClose: () -> Void
+    var onHaveFile: (() -> Void)? = nil
 
     @FocusState private var focused: Bool
 
     var body: some View {
-        ExportWalkthroughSheet(vendor: vendor, onClose: onClose)
+        ExportWalkthroughSheet(vendor: vendor, onClose: onClose, onHaveFile: onHaveFile)
             .focusable()
             .focusEffectDisabled()
             .focused($focused)

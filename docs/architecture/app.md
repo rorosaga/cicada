@@ -92,7 +92,7 @@ Agents page, ⌘9, `AppTab.agents`, appended so no shortcut moved — DR-22).
 - **Agents page** (`AgentsSidebarPage`): one row per umbrella from `/providers` — `LogoTile` · name · where it was seen
   (never where it could connect: a row nothing has seen has no line) · last seen · conversations · a dot and one word (`/agents/live`, polled every 3 s while shown; conversations summed from
   `sourcesOverview` by harness). A row opens its detail (DR-74): products and how each connects (`AgentProducts`: a way with a `remoteLabel` is two lines — "Claude Desktop · on this machine" and "claude.ai · from anywhere · by export" — so the connector is never named after the Mac app), page edits as *Writes
-  at once* / *Proposes* (G198's list), *Copy setup prompt* (`/agents/setup`), *Import its chat export*, and *Remembers
+  at once* / *Proposes* (G198's list), *Copy setup prompt* (`/agents/setup`), *Import its chat export* (the intake overlay, CIC8), and *Remembers
   automatically* for a harness with hooks. *Add an agent token* (DR-75) makes a G213 token and shows its paragraph once;
   active tokens list with Revoke; the command-line tool closes the page. **Who is listed (owner 2026-10-26):** only a
   product that can actually reach Cicada, by its current name and its own mark — *Devin* (Windsurf became Devin Desktop
@@ -378,7 +378,8 @@ menu commands in `Support/FindCommands.swift` (`HiddenShortcutLintTests`); ⌘, 
 `Support/ShellCommands.swift`. Track P's audit removed the global Sleep button, because a cycle starts from the Sleep
 page's one Consolidate control (G125 R10) or the menu-bar bookworm.
 **One intake (Track I, spec decision 13).** Every way a file arrives — a drop anywhere on the
-window, the Dock icon, File → Import… (⌘⇧I), the menu-bar worm's *Import a file…*, an empty state,
+window, the Dock icon, File → Import Chats or Files… (⌘⇧I), the menu-bar worm's *Import Chats or Files…* (both
+*Import…* / *Import a file…* until CIC8, 2026-10-29: every door says one thing), an empty state,
 each `+` chat tile, the Sleep room's worm — goes through one `IntakeRouter`: sniff (`POST /intake/sniff`, stages nothing) →
 preview (counts, date range, new · grew · already here, skipped files by name, *Into* a memory) →
 import (`POST /intake/import`; a 202 and a job counter above 10 episodes) → a *what happens next*
@@ -391,7 +392,19 @@ resolves under `~/.claude`, `~/.codex` or `~/.cicada` (or `$CLAUDE_CONFIG_DIR`, 
 `$CICADA_HOME`) is refused before any folder is walked, a refused root met inside a dropped folder
 is never descended into and refuses the drop, a drop with nothing export-shaped in it is refused by
 name, and nothing is sent; `accept` answers (`IntakeAcceptance`) so the Sleep room tells a refusal
-in its worm's words while every other door shows it in the panel. Three pickers still sit outside
+in its worm's words while every other door shows it in the panel. **Chat exports, findable (CIC8, 2026-10-29;
+owner: "I didn't find super intuitive the way to add chat exports like files").** The intake's one picker
+(`IntakePicker.choose`, which onboarding's *Choose a file…* now calls too) opens in Downloads, where every chat app's
+export link saves its .zip — only a path is set: the panel draws the folder, so Cicada reads nothing there and no Files
+and Folders prompt is raised. Every door converges on the overlay: Sources' header add, its **Chat exports** entry (the
+export's where-from line and the intake panel itself — drop, *Choose a file…*, each app's export page, steps and *Remind
+me* — where it used to say "each chat export sits on its agent's row" and send the person to Agents), the Agents
+detail's *Import its chat export* (the overlay over that page; it used to stage a tile Sources had no entry for, so the
+person landed on an empty Sources), the palette's *Import chats or files…* action (⇧⌘I; the TOP hit for "chatgpt", "claude", "export", "chat export",
+"zip", on ⌘K and on Home's field, which is the same index — its intent words weigh `QuickMatch.Weight.intent`, 0.82:
+an exact one beats a title's prefix and any keyword, never a title typed in full), and the drawn walkthrough's *I have the
+file…* (Home: straight to the picker; the Welcome: its own picker). An intake panel inside a page (`.emptyState`
+origins) is a door, not a host: its drop or pick runs in the overlay, and it shows no Cancel and takes no Return. Three pickers still sit outside
 the router — the Add-source walkthrough's drop and *Choose file…*, its saved-content picker, and
 Settings' local-folder picker — and check only the chosen file or folder
 (`IntakeRouter.refusedRoot(of:)`); a watched folder that *contains* a refused root is still walked
@@ -1410,9 +1423,12 @@ agent reads (`agent_methods`), not an install.
   Instagram is offered with **Turn on** = the reading switch, saying the browser reader is still coming (G206) and
   offering the data export. Obsidian's entry is gone (a vault is a folder). Contacts stays (ruling 33).
 - **One catalogue (Hyrum mode B):** the *Add a source* grid opens from nowhere now. The eyebrow keeps DR-75's labelled
-  add as *Import a file* (opens Files and links); Sleep's `+`/⌘N opens the Sources page; `routeToAddSource(tile)` lands
-  on that tile's entry (was Sleep's sheet); a tile's flow still opens alone (`AddSourceSheet(flowOnly: true)`, leaving
-  the flow closes it). *Sync now* / *Poll now* read **Refresh** everywhere on these surfaces. The `.source(id)`
+  add, *Import chats or files* since CIC8 (2026-10-29; it read *Import a file* and opened Files and links, whose line
+  speaks of bookmarks): it opens the one intake's overlay (`IntakeRouter.present`). Sleep's `+`/⌘N opens the Sources
+  page; `routeToAddSource(tile)` lands on that tile's entry (was Sleep's sheet) — a chat-export tile on Chat exports
+  (`SourceCatalog.entry(for:in:)`) — and the hand-off is consumed even when no entry takes it (left staged, it opened its
+  sheet over the Sleep page whenever that page next appeared); a tile's flow still opens alone
+  (`AddSourceSheet(flowOnly: true)`, leaving the flow closes it). *Sync now* / *Poll now* read **Refresh** everywhere on these surfaces. The `.source(id)`
   selection and `routeToSourceDetail` still open the v4 detail; an overview id lands on its catalogue entry.
 - **Connectors that say what they do (2026-10-23, `fix/sources-connectors`).** A row reads Connected only while
   something will keep arriving: `SourceCatalog.status` takes `localReaders` (`LocalReaders.on`: Calendar, Contacts,
@@ -1428,8 +1444,11 @@ agent reads (`agent_methods`), not an install.
   `api/.env`). The overview files a nil-origin save (a bookmarks file imported through Files and links) under Files &
   links instead of a row called "unknown", and a phone's note reads *Phone*. Live test, same day: YouTube claims the
   overview's `youtube-history` and `youtube` rows, and an account's import that fed memory reads Connected (an overview
-  row no channel speaks for, so a reader turned off never returns through its episodes); a row's last sync is the newest
-  capture write (`captured_at` / `last_turn_at`), not a session's start; Instagram's line says what G206 shipped and a
+  row no channel speaks for, so a reader turned off never returns through its episodes); a row's last sync is when
+  Cicada last GOT something from it (`episode_time.delivered_at`: the newest of `received_at`, `captured_at`,
+  `last_turn_at`; an episode older than ruling 39 falls back to its `timestamp`), never a session's start or an
+  import's backdated conversations (CIC8, 2026-10-29: a chat export read "Connected · 1 yr. ago" right after its
+  import) — the overview's `last_activity_at` and an import channel's `last_sync` (`origin_stats`' `lastSeen`) alike; Instagram's line says what G206 shipped and a
   saved list switched on reads Connected.
 - **Lists on by default, where a file comes from, Google Calendar (owner 2026-10-26; G71, G206, G142).** *Lists:*
   the YouTube row's detail now holds its two list switches (`youtubeListToggle`, `YouTubeListWords`' titles and lines;
@@ -2528,7 +2547,7 @@ three of that pass's own leftovers:
   Every two-line row wears the 36 pt `SourceLogoTile` (`.row`) at the root and beside an open source alike — the size the
   detail head and onboarding draw — and only a title-only row the dense 24 pt (`SourceCatalogRowView.tileSize`).
 - **Sources, the header.** *Reading in your browser* is a compact `NeutralButton` with a `globe` glyph beside *Explore
-  saved sites* and *Import a file*; as bare text it read as a label (DR-40). Same words, help and sheet.
+  saved sites* and the labelled add (*Import chats or files* since CIC8); as bare text it read as a label (DR-40).
 - **Sources, the detail.** The head shows the source's mark, name and status once: the source's own row under it
   (`CalendarRow`, `ContactsRow`, `MessagesRow`, `WisprFlowRow`, a browser's row) draws only its line and buttons when
   `\.sourceDetailHeadShown` is set (`SourceCatalogDetail` sets it; `SourceRow(showsIdentity:)`), never a second, smaller

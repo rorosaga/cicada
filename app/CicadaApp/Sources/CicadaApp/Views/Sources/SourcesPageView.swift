@@ -12,6 +12,7 @@ struct SourcesPageView: View {
 
     @Environment(Store.self) private var store
     @Environment(AppRouter.self) private var router
+    @Environment(IntakeRouter.self) private var intake
     @Environment(ContributorsViewModel.self) private var contributorsVM
     @Environment(ProvenanceRouter.self) private var provenance
     @AppStorage(ShellMetrics.labelledKey) private var labelledSidebar = false
@@ -88,10 +89,12 @@ struct SourcesPageView: View {
                         NeutralButton(title: Copy.Explore.button, systemImage: "safari", size: .compact,
                                       help: Copy.Explore.buttonHelp) { showExploreSheet = true }
                     }
-                    // DR-75 — the page's one labelled add: a file or an export (Files and links); every other way in is
-                    // a row of the catalogue below.
-                    PageAddButton(title: Copy.Catalog.importFile, help: Copy.Catalog.dropHint) {
-                        select(.entry("files"))
+                    // DR-75 — the page's one labelled add; every other way in is a row of the catalogue below. CIC8
+                    // (2026-10-29): it opened Files and links, whose line speaks of bookmarks, so a person holding a
+                    // chat export read it as the wrong door. It opens the one intake — every export it reads, each
+                    // chat app's export page and steps, *Choose a file…* in Downloads — named for what people bring.
+                    PageAddButton(title: Copy.Catalog.importChatsOrFiles, help: Copy.Catalog.dropHint) {
+                        intake.present(from: .emptyState(.sources))
                     }
                 }
             }
@@ -255,10 +258,13 @@ struct SourcesPageView: View {
     }
 
     /// G217 — a hand-off naming one tile (Settings' old Integrations rows, a walkthrough) opens that tile's entry.
+    ///
+    /// CIC8 (2026-10-29) — a chat-export tile has no entry of its own: it lands on Chat exports. And a tile this page
+    /// cannot place is still consumed: left staged, it opened its Add-source sheet over the Sleep page the next time
+    /// that page appeared (`SleepView.consumePendingAddSource`), long after the click that staged it.
     private func consumeAddSource() {
-        guard let tile = router.pendingAddSource,
-              let entry = catalog.first(where: { $0.entry.tile == tile }) else { return }
-        router.consumeAddSource()
+        guard let tile = router.consumeAddSource(),
+              let entry = SourceCatalog.entry(for: tile, in: catalog.map(\.entry)) else { return }
         Instant.run { columns.open(.entry(entry.id)) }
     }
 }

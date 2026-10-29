@@ -116,12 +116,26 @@ final class SourceCatalogTests: XCTestCase {
         XCTAssertNil(SourceCatalog.line(row("rss", in: r)!, now: now))
     }
 
-    func testAnAgentsConversationsWithNoEntryGetTheirOwnRowAndChatExportsPointAtAgents() {
+    func testAnAgentsConversationsWithNoEntryGetTheirOwnRowAndChatExportsImportInPlace() {
         let overview = [SourceOverview(id: "harness:cursor", label: "Cursor", kind: .harness, mark: "cursor")]
         let r = rows(overview: overview)
         XCTAssertEqual(row("overview:harness:cursor", in: r)?.entry.group, .conversations)
         XCTAssertEqual(row("overview:harness:cursor", in: r)?.status, .connected)
-        XCTAssertEqual(row("chat-exports", in: r)?.entry.verb, .openAgents)
+        XCTAssertEqual(row("overview:harness:cursor", in: r)?.entry.verb, .openAgents)
+        // CIC8 (2026-10-29): Chat exports imports here; it no longer bounces the person to Agents.
+        XCTAssertEqual(row("chat-exports", in: r)?.entry.verb, .importFile)
+        XCTAssertNotNil(SourceCatalog.exportHow("chat-exports"))
+    }
+
+    /// CIC8 — a hand-off naming a chat-export tile (Agents, Settings, a walkthrough) lands on Chat exports; a tile
+    /// with its own entry lands on it; one with neither has nowhere to land (and is consumed, never left staged).
+    func testAChatExportTileLandsOnChatExports() {
+        let entries = SourceCatalog.entries(browsers: [], wisprPresent: false, overview: [])
+        for tile in [AddSourceTile.claudeExport, .chatgptExport, .geminiExport] {
+            XCTAssertEqual(SourceCatalog.entry(for: tile, in: entries)?.id, "chat-exports", "\(tile)")
+        }
+        XCTAssertEqual(SourceCatalog.entry(for: .rssFeed, in: entries)?.id, "rss")
+        XCTAssertNil(SourceCatalog.entry(for: .pasteLink, in: entries))
     }
 
     func testFoldersAreConnectedByAnyFolderChannel() {

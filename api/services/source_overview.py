@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from datetime import date as _date, datetime, timedelta, timezone
 from pathlib import Path
 
-from api.services import bank_index, folder_source
+from api.services import bank_index, episode_time, folder_source
 
 # G134: meetings and dictation are their own section, VOICE & MEETINGS (R-LS25).
 KIND_ORDER = ("harness", "browser", "social", "feed", "messaging", "voice", "import")
@@ -338,12 +338,12 @@ def build_overview(memory_path: Path, *, channels: list[dict], today: _date | No
         day = _activity_day(ts)
         if day is not None and window_start <= day <= window_end:
             state["activity"][day] = state["activity"].get(day, 0) + 1
-        # The row's last activity is the newest capture WRITE, not the conversation's first moment (2026-10-23, live
-        # test: Claude Code read "1 day ago" right after a capture, since one session is one episode and its
-        # `timestamp` is when it began). `captured_at` is the capture writer's stamp on every create and update,
-        # `last_turn_at` the last kept turn's own time; the activity buckets above stay on `timestamp`.
-        latest = max((str(fm.get(k) or "") for k in ("timestamp", "captured_at", "last_turn_at")), key=_sortable)
-        if _sortable(latest) > _sortable(state["last_activity_at"]):
+        # The row's last activity is when Cicada last GOT something from it, never the conversation's own date
+        # (2026-10-23: Claude Code read "1 day ago" right after a capture; CIC8 2026-10-29, ruling 39: a chat export
+        # read "1 yr. ago" right after its import). `episode_time.delivered_at` is the one rule; the activity
+        # buckets above stay on `timestamp`, which is when things were said.
+        latest = episode_time.delivered_at(fm)
+        if episode_time.is_later(latest, state["last_activity_at"]):
             state["last_activity_at"] = latest
 
     # Final review M1: the `files` card must count what its page renders. The

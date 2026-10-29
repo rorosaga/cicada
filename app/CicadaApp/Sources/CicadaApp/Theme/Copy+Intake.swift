@@ -31,8 +31,10 @@ extension Copy {
     static let intakeActiveSuffix = "(active)"
     static let intakeNewMemory = "New memory…"
     static let intakeNewMemoryPlaceholder = "Name the new memory"
-    static let intakeFileMenuItem = "Import…"
-    static let intakeMenuBarItem = "Import a file…"
+    /// CIC8 (2026-10-29, coordinator's call) — every door says one thing: the File menu, the menu-bar worm, the
+    /// palette and Sources' header add name what people arrive holding (menus in title case, as macOS menus are).
+    static let intakeFileMenuItem = "Import Chats or Files…"
+    static let intakeMenuBarItem = intakeFileMenuItem
     static let intakeBusy = "Finish the import in progress first."
     static let intakeNothingReadable = "Nothing here is an export Cicada can read."
     static let intakeUnreadable = "Cicada couldn't read this file."
