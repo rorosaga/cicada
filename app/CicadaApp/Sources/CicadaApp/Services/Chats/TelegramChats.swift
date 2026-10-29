@@ -28,6 +28,11 @@ final class TelegramChats {
     var connected: Bool { status.state == "connected" }
     var showsQR: Bool { status.state == "qr" && status.qrUrl != nil }
     var asksCode: Bool { status.state == "code_sent" }
+    /// The code field's cells: the length Telegram reported for the code it sent, else five (its usual login code).
+    var codeLength: Int {
+        guard let n = status.codeLength, (3...8).contains(n) else { return OneTimeCodeField.defaultLength }
+        return n
+    }
     var asksPassword: Bool { status.state == "password" }
 
     func refresh() async {
@@ -39,6 +44,9 @@ final class TelegramChats {
     }
 
     func bankChanged() async { await refresh() }
+
+    /// The person moved to another way in (QR or phone): the last way's refusal no longer applies.
+    func clearError() { error = nil }
 
     private func step(_ body: () async throws -> TelegramStatusAnswer) async {
         busy = true
@@ -81,13 +89,26 @@ final class TelegramChats {
         }
     }
 
+    /// Every sign-in step refuses while one is in flight: one ⏎ can reach both a field's submit and the sheet's
+    /// default button, and two sends would ask Telegram for two codes. `busy` is set before the first await, on the
+    /// main actor, so the second caller sees it (the call into `step` may itself suspend).
     func connect(phone: String) async {
+        guard !busy else { return }
+        busy = true   // before any await: a second caller in the same turn sees it
         signInWanted = true
         await step { try await api.telegramConnect(phone: phone) }
         if !signInWanted { await abandonSignIn() }
     }
-    func submit(code: String) async { await step { try await api.telegramCode(code) } }
-    func submit(password: String) async { await step { try await api.telegramPassword(password) } }
+    func submit(code: String) async {
+        guard !busy else { return }
+        busy = true
+        await step { try await api.telegramCode(code) }
+    }
+    func submit(password: String) async {
+        guard !busy else { return }
+        busy = true
+        await step { try await api.telegramPassword(password) }
+    }
 
     func disconnect() async {
         await step { try await api.telegramDisconnect() }

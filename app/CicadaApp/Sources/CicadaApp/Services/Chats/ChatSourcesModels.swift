@@ -58,8 +58,12 @@ struct TelegramStatusAnswer: Decodable, Equatable, Sendable {
     var listening = false
     /// While `state == "qr"`: the `tg://login` link the panel draws as a QR (owner 2026-10-29) — shown, never kept.
     var qrUrl: String?
+    /// While `state == "code_sent"`: how many digits the code Telegram sent has (`sent.type.length`); nil = unknown.
+    var codeLength: Int?
 
-    enum CodingKeys: String, CodingKey { case state, consent, consentAsk, credentials, error, listening, qrUrl }
+    enum CodingKeys: String, CodingKey {
+        case state, consent, consentAsk, credentials, error, listening, qrUrl, codeLength
+    }
 
     init(state: String = "off", consent: String = "", credentials: String? = nil, error: String? = nil,
          qrUrl: String? = nil) {
@@ -79,6 +83,7 @@ struct TelegramStatusAnswer: Decodable, Equatable, Sendable {
         error = try? c.decodeIfPresent(String.self, forKey: .error)
         listening = (try? c.decodeIfPresent(Bool.self, forKey: .listening)) ?? false
         qrUrl = try? c.decodeIfPresent(String.self, forKey: .qrUrl)
+        codeLength = try? c.decodeIfPresent(Int.self, forKey: .codeLength)
     }
 }
 

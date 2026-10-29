@@ -52,7 +52,7 @@ from loguru import logger
 
 from api.services import chat_live, runtime_layout, telegram_source
 from api.services.telegram_port import (CodeInvalid, NotAuthorized, PasswordInvalid, PasswordNeeded, PortFactory,
-                                        TelegramError, TelegramPort, TgDialog, TgEvent, TgMessage, TgQr)
+                                        TelegramError, TelegramPort, TgDialog, TgEvent, TgMessage, TgQr, TgSentCode)
 
 CONSENT = ("Cicada keeps a signed-in session of your Telegram; you can end it any time from Telegram's Active "
            "sessions or with one click here.")
@@ -209,6 +209,7 @@ class Account:
         self.state = "off"           # off | qr | code_sent | password | connected | ended
         self.error: str | None = None
         self._phone: str | None = None   # held only between "send code" and a signed-in session
+        self._code_length: int | None = None   # the digits of the code Telegram sent, while one is waiting
         self._code_hash: str | None = None
         self._qr: TgQr | None = None     # the QR on screen while ``state == "qr"`` — never logged, never kept
         self._qr_until = 0.0             # when the QR on screen expires, on this Mac's clock (for the app only)
@@ -240,6 +241,7 @@ class Account:
                 "credentials": creds[2] if creds else None,
                 "error": self.error, "listening": self._listen is not None and not self._listen.done(),
                 "qr_url": qr.url if qr else None,
+                "code_length": self._code_length if self.state == "code_sent" else None,
                 "qr_expires": _iso(self._qr_until) if qr else None}
 
     # The sign-in steps ---------------------------------------------------------------------------------------------
@@ -349,13 +351,17 @@ class Account:
             if self.port is None:
                 self.port = self._make()
             try:
-                self._code_hash = await self.port.send_code(phone)
+                sent = await self.port.send_code(phone)
             except TelegramError:
                 raise
             except Exception as exc:  # noqa: BLE001 — a sentence, never a 500
                 logger.warning(f"telegram: send code failed ({type(exc).__name__})")
                 await self._drop_unsigned_port()
                 raise TelegramError(UNREACHABLE) from exc
+            if isinstance(sent, TgSentCode):
+                self._code_hash, self._code_length = sent.hash, sent.length
+            else:   # a port that answers the bare hash: the length is unknown, the app sizes the field itself
+                self._code_hash, self._code_length = sent, None
             self._phone = phone
             self.state, self.error = "code_sent", None
         return self.status()
