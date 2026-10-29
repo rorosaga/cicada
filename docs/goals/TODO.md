@@ -41,6 +41,14 @@
   skills rail); a copied suggestion now installs only its reviewed bytes (`check_reviewed`). Traces context is not built:
   hoff keeps no walkthrough record and its marks cache carries titles and page text — the recommended event line waits
   on the owner, as does `sharingType = .none` in hoff's own repo. Numbers on the G220 and G138 rows.
+- **2026-10-29 — related is not the same (G21, G209; branch `fix/duplicate-questions-relations`).** Home's "Possible
+  duplicates" held 160 questions on the owner's bank, most of them a part and its whole, a product and its maker, an
+  alternative and the original or a version and its line. The judge now answers `related` with the relation; a
+  relation is a claim on the page, never a question; a project name with no birth judged a part of a page lands on it
+  (owner 2026-10-23's canoe rule); an organisation/tool alias lead meets the judge before it is asked; a pair the record
+  relates is never proposed; a public pair is looked up (each name alone) and settled with a cited relation, undoable
+  under "Settled by a check" — never merged. The backlog is a per-item dry run in the workspace; applying it waits on
+  the owner. Numbers on the G21 row.
 - **2026-10-29 — same name, different things (G227; branch `feat/same-name-qualifier`).** A title two pages share is
   shown "<name> (<qualifier>)" everywhere — the app, the API, recall, Ask, the CLI and `/v1` — from one derived function
   (`same_name`); links resolve by id; Stage 2 no longer joins an exact title of another kind on the name alone (the

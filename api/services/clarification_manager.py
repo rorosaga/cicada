@@ -95,6 +95,14 @@ class ClarificationManager:
                     entity_name, second,
                 )
                 return None
+            # 2026-10-29: the record already says the two are two things (a part and its whole, a product and its
+            # maker…, `entity_relations.known`) — never a person pair, whose identity takes the person's words.
+            from api.services import entity_relations
+
+            if (not str(suggested_classification or "").lower().startswith("person")
+                    and entity_relations.known(self.memory_path, sanitize_id(entity_name), second)):
+                logger.info("clarification: merge pair already related on the record — not proposing")
+                return None
         open_path = find_open(self.memory_path, kind, sanitize_id(entity_name), second)
         if open_path is not None:
             parsed = markdown_parser.parse(open_path)

@@ -50,7 +50,7 @@ from typing import Any, Callable
 
 from loguru import logger
 
-from api.services import web_settle
+from api.services import entity_relations, web_settle
 
 STAGE = "web_check"
 DEFAULT_PER_RUN = 8
@@ -109,6 +109,8 @@ class Answer:
     answer: str | None = None
     url: str = ""
     quote: str = ""
+    #: A pair's answer (2026-10-29): how the two are related (`entity_relations`), or ``different``.
+    relation: str | None = None
 
 
 @dataclass
@@ -129,7 +131,35 @@ class Report:
         self.skipped[why] = self.skipped.get(why, 0) + 1
 
 
+#: A "same as?" question about two public things (2026-10-29): each name searched alone, the relation answered.
+PAIR_SYSTEM_PROMPT = (
+    "You look up TWO public things on the web to tell how they are related. Use the web search tool with only the "
+    "queries you are given, word for word, one search each; never add, remove or change a word, and never search for "
+    "anything else. You may also be given the person's own notes about them: they are only for telling which result "
+    "is about the thing the person meant, never something to search for or to answer from.\n"
+    "Answer from what the search results say. Call the first thing B and the second A.\n"
+    "Answer {\"sure\": true, \"relation\": \"same\"} only when the results say B is simply another name for A.\n"
+    "Otherwise answer {\"sure\": true} with the relation of B to A:\n" + entity_relations.PROMPT_LINES +
+    "- \"different\": two different things with none of these relations.\n"
+    "Answer {\"sure\": false} when the results do not say, when a name belongs to several different things and the "
+    "notes do not say which, or when either could be a private person or someone's own file or project.\n"
+    "Reply with one JSON object and nothing else: {\"sure\": true, \"relation\": <one of the words above>, \"url\": "
+    "<the link of the result that says it>, \"quote\": <the words of that result that say it, as the search showed "
+    "them to you, at most 240 characters>}."
+)
+
+
 def build_messages(c: web_settle.Candidate, context: list[str] | None = None) -> list[dict]:
+    if c.kind == web_settle.PAIR:
+        lines = [f"B: {c.name}", f"A: {c.other_name}",
+                 "Search queries (use exactly these, one search each): " + " | ".join(web_settle.queries_for(c))]
+        if context:
+            lines.append("The person's own notes about B (only for telling which result is the one they meant; never "
+                         "search for these words):")
+            lines += [f"  {line}" for line in context]
+        lines.append(f"Question: is {c.name} the same thing as {c.other_name}? If not, how is {c.name} related to "
+                     f"{c.other_name}?")
+        return [{"role": "system", "content": PAIR_SYSTEM_PROMPT}, {"role": "user", "content": "\n".join(lines)}]
     query = web_settle.query_for(c)
     lines = [f"Subject: {c.name}", f"Search query (use exactly this): {query}"]
     if context:
@@ -192,10 +222,12 @@ def _norm(q: str) -> str:
     return " ".join(re.sub(r"[\"'`]", "", q or "").split()).lower()
 
 
-def queries_ok(queries: list[str], pinned: str) -> bool:
-    """At least one search, at most :data:`MAX_SEARCHES`, every one the pinned query word for word (case and quotes
-    aside). An answer from no search is no lookup; a search for anything else may have carried something else."""
-    return 0 < len(queries) <= MAX_SEARCHES and all(_norm(q) == _norm(pinned) for q in queries)
+def queries_ok(queries: list[str], pinned: str | tuple[str, ...]) -> bool:
+    """At least one search, at most :data:`MAX_SEARCHES`, every one a pinned query word for word (case and quotes
+    aside). An answer from no search is no lookup; a search for anything else may have carried something else.
+    ``pinned``: the one query, or a pair's two (`web_settle.queries_for`)."""
+    allowed = {_norm(q) for q in ((pinned,) if isinstance(pinned, str) else pinned)}
+    return 0 < len(queries) <= MAX_SEARCHES and all(_norm(q) in allowed for q in queries)
 
 
 def parse_answer(c: web_settle.Candidate, text: str) -> Answer:
@@ -212,6 +244,15 @@ def parse_answer(c: web_settle.Candidate, text: str) -> Answer:
     url, quote = str(data.get("url") or "").strip(), str(data.get("quote") or "").strip()
     if not url or not quote:
         return Answer(c.item_id, False, "no_citation")
+    if c.kind == web_settle.PAIR:
+        relation = entity_relations.clean(data.get("relation"))
+        if relation == "same":
+            return Answer(c.item_id, False, "same")   # never a merge by a check: the person's tap merges
+        if relation not in entity_relations.RELATIONS and relation != entity_relations.DIFFERENT:
+            return Answer(c.item_id, False, "no_relation")
+        if relation in entity_relations.RELATIONS and not entity_relations.plausible(relation, c.name, c.other_name):
+            return Answer(c.item_id, False, "reversed")   # the direction guard: one name carries the other's
+        return Answer(c.item_id, True, url=url, quote=quote, relation=relation)
     if c.kind == "conflict":
         key = str(data.get("option_key") or "").strip()
         if c.different_things and not web_settle.names_the_subject(dict(c.options).get(key, ""), c.subject_names):
@@ -440,7 +481,7 @@ async def look_up(fn: Callable[..., Any], todo: list[tuple[web_settle.Candidate,
         if model and model not in report.models:
             report.models.append(model)
         queries = searched_queries(resp)
-        if not queries_ok(queries, web_settle.query_for(c)):
+        if not queries_ok(queries, web_settle.queries_for(c)):
             parsed = parse_answer(c, _content(resp)) if not queries else None
             # No search and not sure: counted apart as ``no_search`` (2026-10-19: a real bank's 18 "unsure" could not
             # say whether the engine searched at all). Anything else — a search for something else, or a sure answer
@@ -503,11 +544,10 @@ async def run_tail(
             continue
         _snapshot(memory_path, report, [
             f"entities/{c.entity_id}.md", f"entities/{c.entity_id}.claims.jsonl", pending_store.PENDING_STORE_FILE,
-            f"inbox/{c.item_id}.md", f"inbox/{web_settle.SETTLED_DIR}/{c.item_id}.md"])
+            f"inbox/{c.item_id}.md", f"inbox/{web_settle.SETTLED_DIR}/{c.item_id}.md",
+            *([f"entities/{c.other_id}.md", f"entities/{c.other_id}.claims.jsonl"] if c.other_id else [])])
         try:
-            done = await asyncio.to_thread(
-                web_settle.settle, memory_path, c.item_id, ref=a.url, quote=a.quote, option_key=a.option_key,
-                answer=a.answer, checker=by, checker_kind="sleep", origin="sleep", engine=label, facts=facts)
+            done = await asyncio.to_thread(settle_answer, memory_path, c, a, by=by, label=label, facts=facts)
         except web_settle.NotSettleable:
             memo[c.item_id]["outcome"] = "refused"
             report.skip("refused")
@@ -524,6 +564,18 @@ async def run_tail(
                                 by_kind="sleep", engine=label)
     save_memo(memory_path, memo)
     return report
+
+
+def settle_answer(memory_path: Path, c: web_settle.Candidate, a: Answer, *, by: str, label: str | None,
+                  facts: web_settle.BankFacts | None = None) -> web_settle.Settled:
+    """One sure answer settled by its kind's writer: a pair's relation (`web_settle.settle_pair`), else the option or
+    the "what is it" answer (`web_settle.settle`)."""
+    if c.kind == web_settle.PAIR:
+        return web_settle.settle_pair(memory_path, c.item_id, ref=a.url, quote=a.quote, relation=a.relation or "",
+                                      checker=by, checker_kind="sleep", origin="sleep", engine=label, facts=facts)
+    return web_settle.settle(memory_path, c.item_id, ref=a.url, quote=a.quote, option_key=a.option_key,
+                             answer=a.answer, checker=by, checker_kind="sleep", origin="sleep", engine=label,
+                             facts=facts)
 
 
 def scope_name(cycle_id: str | None) -> str:
@@ -633,10 +685,7 @@ async def _settle_admitted(memory_path: Path, c: web_settle.Candidate, a: Answer
     def work() -> list[str]:
         with page_lock.page_lock(memory_path):
             before = git_service.snapshot_dirty_sync(memory_path)
-            done = web_settle.settle(
-                memory_path, c.item_id, ref=a.url, quote=a.quote, option_key=a.option_key, answer=a.answer,
-                checker=by, checker_kind="sleep", origin="sleep", engine=label,
-                facts=web_settle.bank_facts(memory_path))
+            done = settle_answer(memory_path, c, a, by=by, label=label, facts=web_settle.bank_facts(memory_path))
             message = web_settle.commit_message("Web check", done.lines, authors=[by], engine=label)
             web_settle.commit_sync(memory_path, message, done.paths, before=before)
             return done.paths

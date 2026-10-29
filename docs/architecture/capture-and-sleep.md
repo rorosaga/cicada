@@ -1777,6 +1777,32 @@ payloads merge), never only the chosen mention's (W4). A project mention with no
 exactly one project page — on disk, else born this batch — brings that page to the judge (W2): "same" makes it the
 page's update, "unsure" asks the person, "different" or a pair the person rejected leaves it a held mention. An alias
 brings its page to the judge, never a decision (owner 2026-10-08).
+**Related is not the same (owner 2026-10-29, G21; `entity_relations`).** The judge answers `same`, `different`,
+`unsure` — or `related` with a `relation` of B (the name) to A (the page): `part_of`, `has_part`, `made_by`, `makes`,
+`alternative_to`, `version_of`, `has_version` (both prompts, both structured-output schemas). A part, a product, an
+alternative or a version is never `same` and never `unsure`; two people are never related (a person's `related` reads
+as `different`). A related verdict is no match and no question: the name goes on by the usual rule, and Stage 2 returns
+the relation (`resolve(...)["relations"]`) as a Stage-1-shaped relationship that Stage 5.56 writes as ONE claim on A's
+page — `includes`, `part-of`, `creates`, `made-by`, `alternative-to`, `has-version` or `is-a`, B its object by id (or
+its slug while it waits, never a held endpoint), observer `agent`, origin `sleep`, `epistemic: abductive` (an
+inference, never a stated fact), evidence the conversation as `reasoning`. **One pair is never both** (review of #545):
+a pair the batch asks about or holds as possibly the same — `_never_cleared`'s close spelling with a shared alias
+included — writes no relation. **A direction guard** (`entity_relations.plausible`, no model): when one name carries the
+other's whole name ("<x> Head", "<x> Cloud" beside "<x>"), the longer is never the line, whole or maker of the shorter —
+a relation saying so is dropped (no claim, no question), here, in a landing and in a check's answer. **A part of a project lands on it** (`_settle_unborn`, only when nothing came back `same` or `unsure` — unsure about one page holds and asks, whatever another page read as): a project name with no birth the judge calls a part,
+feature, stage, task or pull request of a page is that page's mention, as the owner's canoe rule says ("a canoe, its
+hull, the hull build — is one thing"), its own other names never the page's aliases — never "Is <feature> the same as
+<project>?", never a page competing with it (measured 2026-10-29 on a copy of the owner's bank: 74 of 160 open
+duplicate questions were a project name with no birth asked against a page). **An organisation/tool alias lead** (G209,
+2026-10-27: a page that lists another page's name as an alias) now meets the judge once before it is asked; only `same`
+or `unsure` asks, a relation is written as above. No call for a lead whose pair the person rejected (never asked again), whose question is already open (bumped, as before) or that this process already judged on the same two page versions (a memo in memory, keyed by bank, pages and their files' modification times — never in a bank): on the bank copy 67 org/tool leads, 24 with an open question, so at most 43 calls in a drain's first batch that meets them all and none in its later batches, where before every batch could re-judge all 67. **The record remembers:** a pair one current claim already relates
+(`entity_relations.known`: those predicates and `uses`, `depends-on`, `runs-on`, `integrates-with`, `implements`,
+`hosts`, `contains`, `contrasts-with`, either page) is never proposed (`ClarificationManager.create`, never a person
+pair) and an alias lead between them makes no call. A public pair the judge could not tell is the web check's
+(`features.md`, "Settled by a check"). Cost: each judge prompt grows by ~1.36k characters (~340 tokens; one-pair 1,504 → 2,866, batch 1,691 → 3,099
+characters before the entries); no new call on the mention path (the same
+judge call answers); one call per new organisation/tool alias lead a batch meets, none once the record relates the pair.
+
 Stage 5 writes the record once, as the page's `born:` frontmatter (`storage.md`). A watched folder the person named as
 a project (`folder_source.ensure_project`) is born `{origin: words, via: folder}`. Pages that existed before the rule are
 never archived or deleted for it; `python -m api.scripts.project_origins_dry_run --bank <path> [--json] [--quotes]` lists
