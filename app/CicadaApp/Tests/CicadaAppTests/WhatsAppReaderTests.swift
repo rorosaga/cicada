@@ -295,4 +295,57 @@ final class WhatsAppReaderTests: XCTestCase {
         print("whatsapp app read+post p95 \(Int(p95 * 1000)) ms over \(took.count) (20,000-row store)")
         XCTAssertLessThan(p95, 1.0)
     }
+
+    // MARK: One person across sources — a participant's ONE Contacts card, by id (the Messages rule)
+
+    /// One pass over a ticked one-to-one chat and a ticked group, with Contacts faked (`ContactsTrap` is installed
+    /// too, so nothing here can reach this Mac's Contacts).
+    @MainActor
+    private func cardPass(allowed: Bool, cards: [String: MessagesContactCard]) async throws -> [[String: Any]] {
+        let friend = store.session(friendJid, name: "Bob Example")
+        let group = store.session(groupJid, name: "Weekend crew")
+        let alice = store.member(group, jid: "15550000003@s.whatsapp.net", name: "")
+        store.message(friend, "C1", at: now.timeIntervalSinceReferenceDate - 10, text: "lunch?")
+        store.message(group, "C2", at: now.timeIntervalSinceReferenceDate - 5, text: "hi all", member: alice)
+        let api = FakeChatSourcesAPI()
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "whatsapp-test-\(UUID().uuidString)"))
+        let watcher = WhatsAppWatcher(api: api, reader: reader(), defaults: defaults, folder: store.dir,
+                                      makeWatch: { _, _ in nil },
+                                      lookUpCards: { handles in cards.filter { handles.contains($0.key) } },
+                                      lookUpContactsAllowed: { allowed })
+        await watcher.loadList()
+        for chat in watcher.chats { try await watcher.setTicked(chat, true) }
+        for chat in watcher.chats { try await watcher.readHistory(chat) }
+        return api.posts.compactMap { $0["conversation"] as? [String: Any] }
+    }
+
+    func testACardIsPostedForTheOneCardHoldingAHandleAndNeverTheNumber() async throws {
+        let posted = try await cardPass(allowed: true, cards: [
+            "+15550000002": MessagesContactCard(name: "Bob Example", thumbnail: nil, id: "CARD-BOB"),
+            "+15550000003": MessagesContactCard(name: "Alice Example", thumbnail: nil, id: "CARD-ALICE")])
+        let one = try XCTUnwrap(posted.first { ($0["group"] as? Bool) == false })
+        XCTAssertEqual(one["contact"] as? String, "CARD-BOB")
+        let group = try XCTUnwrap(posted.first { ($0["group"] as? Bool) == true })
+        let member = try XCTUnwrap((group["members"] as? [[String: Any]])?.first)
+        XCTAssertEqual(member["contact"] as? String, "CARD-ALICE")
+        XCTAssertNil(group["contact"], "a group has no single card")
+        let text = posted.map { String(describing: $0) }.joined()
+        XCTAssertFalse(text.contains("5550000002") || text.contains("5550000003"), "a number never crosses")
+    }
+
+    func testSeveralCardsSayEmpty() async throws {
+        let several = try await cardPass(allowed: true, cards: [
+            "+15550000002": MessagesContactCard(name: "Bob Example", thumbnail: nil, id: nil)])
+        XCTAssertEqual(several.first { ($0["group"] as? Bool) == false }?["contact"] as? String, "",
+                       "looked up, none or several cards: the backend clears a stored card")
+        let group = several.first { ($0["group"] as? Bool) == true }
+        XCTAssertEqual((group?["members"] as? [[String: Any]])?.first?["contact"] as? String, "", "no card: cleared")
+    }
+
+    func testContactsUnreadSaysNothingAboutACard() async throws {
+        let unread = try await cardPass(allowed: false, cards: [:])
+        XCTAssertFalse(unread.isEmpty)
+        XCTAssertTrue(unread.allSatisfy { $0["contact"] == nil }, "not looked up: nothing said, the stored card kept")
+        XCTAssertTrue(unread.compactMap { $0["members"] as? [[String: Any]] }.joined().allSatisfy { $0["contact"] == nil })
+    }
 }

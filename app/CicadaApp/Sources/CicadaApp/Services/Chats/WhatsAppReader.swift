@@ -12,8 +12,11 @@ struct WhatsAppChat: Identifiable, Equatable, Sendable {
     let lastActivity: Date?
 
     /// The number in a one-to-one JID (`<digits>@s.whatsapp.net`) as a phone handle, for Contacts only.
-    var phoneHandle: String? {
-        guard !group, let at = jid.firstIndex(of: "@"), jid[at...] == "@s.whatsapp.net" else { return nil }
+    var phoneHandle: String? { group ? nil : Self.phoneHandle(jid: jid) }
+
+    /// A person's JID (`<digits>@s.whatsapp.net`) as a phone handle, for Contacts only — never posted.
+    static func phoneHandle(jid: String) -> String? {
+        guard let at = jid.firstIndex(of: "@"), jid[at...] == "@s.whatsapp.net" else { return nil }
         let digits = jid[..<at]
         return digits.allSatisfy(\.isNumber) && digits.count >= 6 ? "+" + digits : nil
     }
@@ -162,8 +165,10 @@ struct WhatsAppReader: Sendable {
     // MARK: A ticked chat
 
     /// One batch of a ticked chat past `cursor`, plus — when `recheck` — the bounded re-read of the recheck window.
+    /// `contact` is a one-to-one chat's card as posted, `memberCards` each group member's by JID (`postedCard`:
+    /// the ONE card's Contacts id, `""` when looked up and none or several hold the handle, absent when not looked up).
     func read(_ chat: WhatsAppChat, name: String, memberNames: [String: String], since cursor: Int64,
-              recheck: Bool = true) throws -> WhatsAppPass {
+              recheck: Bool = true, contact: String? = nil, memberCards: [String: String] = [:]) throws -> WhatsAppPass {
         try withCopy { db in
             let msg = try Self.columns("ZWAMESSAGE", db)
             let media = try Self.columns("ZWAMEDIAITEM", db)
@@ -199,6 +204,7 @@ struct WhatsAppReader: Sendable {
             let next = fresh.compactMap { Self.int($0["pk"]) }.max().map { max($0, cursor) } ?? cursor
             var messages: [[String: Any]] = []
             var members: [String: String] = [:]
+            var memberJids: [String: String] = [:]
             var mentionNames = memberNames
             if !chat.group, !name.isEmpty { mentionNames[chat.jid] = name }
             for row in rows {
@@ -215,6 +221,7 @@ struct WhatsAppReader: Sendable {
                     let key = Self.memberKey(chatJid: chat.jid, memberJid: jid)
                     message["member"] = key
                     members[key] = memberNames[jid] ?? ""
+                    memberJids[key] = jid
                 }
                 if let blob = row["metadata"] as? String { message["metadata"] = blob }
                 if row["media_pk"] != nil, !(row["media_pk"] is NSNull) {
@@ -231,7 +238,14 @@ struct WhatsAppReader: Sendable {
             }
             var conversation: [String: Any] = ["id": chat.id, "name": name, "group": chat.group]
             if chat.group {
-                conversation["members"] = members.sorted { $0.key < $1.key }.map { ["key": $0.key, "name": $0.value] }
+                conversation["members"] = members.sorted { $0.key < $1.key }.map { member -> [String: Any] in
+                    var out: [String: Any] = ["key": member.key, "name": member.value]
+                    // The member's address-book card by Contacts id (one person across sources), never the JID.
+                    if let jid = memberJids[member.key], let card = memberCards[jid] { out["contact"] = card }
+                    return out
+                }
+            } else if let contact {
+                conversation["contact"] = contact
             }
             let body: [String: Any] = ["conversation": conversation, "messages": messages]
             return WhatsAppPass(json: try JSONSerialization.data(withJSONObject: body), cursor: next,
@@ -259,6 +273,16 @@ struct WhatsAppReader: Sendable {
                 if let jid = row["jid"] as? String, let n = row["name"] as? String, !n.isEmpty { out[jid] = n }
             }
             return out
+        }
+    }
+
+    /// Every member JID of a group (named by WhatsApp or not) — for the app's own Contacts look-up, never posted.
+    func memberJids(_ chat: WhatsAppChat) throws -> [String] {
+        try withCopy { db in
+            let have = try Self.columns("ZWAGROUPMEMBER", db)
+            guard have.contains("ZMEMBERJID"), have.contains("ZCHATSESSION") else { return [] }
+            return try db.query("SELECT ZMEMBERJID AS jid FROM ZWAGROUPMEMBER WHERE ZCHATSESSION = ?1",
+                                binds: [.int(chat.sessionPk)]).compactMap { $0["jid"] as? String }.filter { !$0.isEmpty }
         }
     }
 
