@@ -45,7 +45,7 @@
   bespoke repair tooling ("apply fixes that make them generalizable"); the six vetted classes are closed in the live
   path instead: a belief that held and ended is never reopened by an older mention (`claim_reconciler._ended_span`);
   a filing label is `page` and no mention (`evidence.LABEL_FIELDS`, `promotion.label_only`); every alias writer asks
-  `alias_policy.admits` and Sleep adds no other page's name; an application on record takes the owner's lines from
+  `alias_policy.admits` and Sleep adds no other page's name; an in-flight application on record takes the owner's lines about it from
   any conversation (`application_page.standing`); the inbox dedup asks `distinct_names`. Saved-link words (#515) and
   the near-name join (#491) were already closed on dev. Nothing applied to the bank.
 - **2026-10-29 — chat exports findable (CIC8, G64; branch `feat/chat-exports-obvious`).** Every door to a chat export
