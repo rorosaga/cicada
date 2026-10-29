@@ -407,7 +407,8 @@ struct RunItemsView: View {
     @ViewBuilder
     private func rows(_ group: RunItemGroups.Group, _ items: SleepConsolidated) -> some View {
         let all = showingAll.contains(group.id)
-        VStack(alignment: .leading, spacing: 0) {
+        // Lazy, like every "All N" (inbox freeze, 2026-10-29).
+        LazyVStack(alignment: .leading, spacing: 0) {
             switch group.kind {
             case .conversations:
                 let list = all ? items.conversations : Array(items.conversations.prefix(RunItemGroups.preview))

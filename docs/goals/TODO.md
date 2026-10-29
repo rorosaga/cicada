@@ -12,6 +12,13 @@
 
 ## Current state and evidence
 
+- **2026-10-29 — every "All N" opens at once (G115; branch `fix/inbox-all-freeze`).** Home's *All 465 questions*
+  froze the app for seconds: app-side, not the backend (`load_inbox` p95 52 ms on a bank copy, off the event loop). The
+  Inbox page rebuilt its derived lists on every read, each sort building two `DateFormatter`s per comparison, and laid
+  out every row. Now the lists are kept per Store revision, the day parsed once, and every "All N" list is lazy (⌘Z on a
+  keeper outside the rows, R-DI4). Debug build at 465 questions: 2.4 s derivations + 1.5 s layout → 30 + 30 ms;
+  budgets at 2,000 rows in `InboxAllListBenchTests`. In a verify copy of the app with 540 questions: click to list
+  17–18 s → 0.85 s. Numbers on the G115 row and in `app.md`.
 - **2026-10-29 — Cicada ships with hoff (G220, CIC2; branch `feat/ship-with-hoff`).** The owner's show-me cursor is a
   reviewed catalog suggestion (rank 13), copied at a pinned commit with every file hashed and without hoff's hooks (the
   skills rail); a copied suggestion now installs only its reviewed bytes (`check_reviewed`). Traces context is not built:

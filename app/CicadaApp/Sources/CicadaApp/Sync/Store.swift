@@ -24,6 +24,7 @@ final class Store {
     var bank: String = "default" {
         didSet {
             if publishesBankScope { BankScope.onScreen = bank }
+            inboxRevision &+= 1   // `currentHeld` is per bank
             if oldValue != bank { onBankChanged?() }
         }
     }
@@ -31,7 +32,7 @@ final class Store {
     /// (`BankScope.onScreen`, G183(d)); a test's Store never touches that process-wide value.
     @ObservationIgnored private let publishesBankScope: Bool
     var graph = Snapshot<GraphResponse>()
-    var inbox = Snapshot<[InboxItem]>()
+    var inbox = Snapshot<[InboxItem]>() { didSet { inboxRevision &+= 1 } }
     var banks = Snapshot<BanksResponse>()
     var sources = Snapshot<[MediaFeedItem]>()
     var channels = Snapshot<[SourceChannel]>()
@@ -60,7 +61,7 @@ final class Store {
     /// dropped only once a refreshed snapshot no longer contains it — if a 304
     /// races the server-side delete, the item is still in `inbox.value` and
     /// un-hiding it here would flash the card back for one refresh cycle.
-    var hiddenInboxIds: Set<String> = []
+    var hiddenInboxIds: Set<String> = [] { didSet { inboxRevision &+= 1 } }
 
     /// G183(d) — the one bank switch in flight (`Store.activateBank`), reserved before its first await and released
     /// only by the switch that owns it (`generation`). While it is set every bank-scoped write is held back
@@ -85,8 +86,8 @@ final class Store {
     /// DR-42 (R-DI2) — the one answer inside its Undo window, and the ids whose held answer is on
     /// the wire. Both leave `visibleInbox`, so the rail badge, Home and the palette drop a question
     /// the moment it is tapped — not five seconds later, and not only on the Inbox.
-    var heldResolve: ResolveGrace?
-    var sendingInboxIds: Set<String> = []
+    var heldResolve: ResolveGrace? { didSet { inboxRevision &+= 1 } }
+    var sendingInboxIds: Set<String> = [] { didSet { inboxRevision &+= 1 } }
     @ObservationIgnored var graceTask: Task<Void, Never>?
     @ObservationIgnored var graceToken = 0
     /// How the window waits; tests replace it (it is the only seam `ResolveGraceTests` needs).
@@ -96,10 +97,25 @@ final class Store {
 
     /// The inbox as the UI should see it: the snapshot minus anything hidden by an in-flight or
     /// already-confirmed resolve, and minus an answer inside its Undo window (DR-42).
+    ///
+    /// Inbox freeze (2026-10-29): Home, the rail badge, the Inbox's every derived list and ⌘K each read this several
+    /// times per draw, and each read filtered the whole snapshot. It is kept per `inboxRevision`; the inputs are still
+    /// read on every call, so a view that asks is told when any of them changes.
     var visibleInbox: [InboxItem] {
+        let snapshot = inbox.value ?? []
+        let hidden = hiddenInboxIds
         let grace = graceHiddenIds
-        return (inbox.value ?? []).filter { !hiddenInboxIds.contains($0.id) && !grace.contains($0.id) }
+        if let memo = visibleInboxMemo, memo.revision == inboxRevision { return memo.items }
+        let items = snapshot.filter { !hidden.contains($0.id) && !grace.contains($0.id) }
+        visibleInboxMemo = (inboxRevision, items)
+        return items
     }
+
+    /// Moves on every change to what `visibleInbox` and the Inbox's derived lists read: the snapshot (its value, tag
+    /// or refresh flag), the hidden and sending ids, the held answer, the bank. A spurious move only costs a rebuild;
+    /// a missed one would serve a stale list, so every one of those properties bumps it in its `didSet`.
+    @ObservationIgnored private(set) var inboxRevision = 0
+    @ObservationIgnored private var visibleInboxMemo: (revision: Int, items: [InboxItem])?
 
     /// Transient one-line error surfaced by the UI. Set only when a refresh
     /// fails *and* we had nothing to show — a failed background refresh over

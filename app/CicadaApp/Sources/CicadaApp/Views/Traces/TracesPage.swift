@@ -707,7 +707,8 @@ struct TracesDaysView: View {
 
     private func spansSection(_ spans: [TraceStoredSpan]) -> some View {
         let capped = TracesPageLogic.capped(spans, limit: 40, expanded: expanded.contains("spans"))
-        return VStack(alignment: .leading, spacing: 0) {
+        // Lazy, like every "All N" (inbox freeze, 2026-10-29): a day's whole timeline can be thousands of spans.
+        return LazyVStack(alignment: .leading, spacing: 0) {
             SectionLabel(Copy.Traces.timelineSection).padding(.bottom, CicadaTheme.spacingXS)
             ForEach(capped.shown) { span in spanRow(span) }
             if capped.more > 0 { allLink(capped.more, key: "spans") }

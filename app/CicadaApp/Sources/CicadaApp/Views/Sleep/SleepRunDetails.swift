@@ -215,7 +215,8 @@ struct RunWaitingBlock: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.scaled(4)) {
+        // Lazy, like every "All N" (inbox freeze, 2026-10-29): "Show all" can open a queue of thousands.
+        LazyVStack(alignment: .leading, spacing: CicadaTheme.scaled(4)) {
             if ownerReady {
                 HStack(alignment: .top, spacing: CicadaTheme.scaled(10)) {
                     Image(systemName: "person.crop.circle")

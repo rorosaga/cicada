@@ -24,7 +24,14 @@ struct InboxColumns: Equatable {
     }
 
     static func visible(_ items: [InboxItem], filter: InboxKind?) -> [InboxItem] {
-        items.filter { filter == nil || $0.kind == filter }.sorted(by: precedes)
+        ordered(items.filter { filter == nil || $0.kind == filter })
+    }
+
+    /// `items` in the G115 order — `precedes`, with each question's day read once rather than twice per comparison.
+    static func ordered(_ items: [InboxItem]) -> [InboxItem] {
+        items.map { (item: $0, priority: $0.priority, day: $0.createdDateValue) }
+            .sorted { a, b in a.priority != b.priority ? a.priority > b.priority : a.day > b.day }
+            .map(\.item)
     }
 
     /// DR-29 — the Reader stays on a swap only when the new question cites its conversation.

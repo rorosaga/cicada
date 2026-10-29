@@ -4,8 +4,9 @@ import SwiftUI
 /// the two-line triage column beside an open question (STATE 1), titles only beside the question and
 /// the Reader (STATE 2). The held answer's Undo row sits where its question was (DR-42).
 ///
-/// The stack is deliberately not lazy: an Undo row's ⌘Z must stay realised while it is scrolled out
-/// of view (R-DI4), and an inbox is tens of rows, not thousands. Keys (DR-68, R-DI10): ↑/↓ move the
+/// The stack is lazy (inbox freeze, owner 2026-10-29: an inbox holds hundreds of questions, and building every row on
+/// the click froze the app); the held answer's ⌘Z is therefore the list's own `UndoShortcutKeeper`, never the row's,
+/// so it works while the Undo row is scrolled out of view (R-DI4). Keys (DR-68, R-DI10): ↑/↓ move the
 /// selection while the list has focus, ⏎ moves focus into the question, Esc is the page's.
 struct InboxQuestionList: View {
     let entries: [InboxRowEntry]
@@ -53,30 +54,21 @@ struct InboxQuestionList: View {
         let slots = InboxRowSlots.of(listUnits: width / CGFloat(CicadaTheme.uiScale))
         ScrollViewReader { proxy in
             ScrollView {
-                VStack(spacing: style == .triage ? CicadaTheme.scaled(RowMetrics.twoLineGap) : 0) {
+                // Inbox freeze (owner 2026-10-29): lazy, so "All 465 questions" builds the rows on screen, not every
+                // row, and the rest as they scroll in. Every row is the stack's own child (`InboxListDraw.items`) —
+                // a group's rows inside one nested stack would be one child, built whole. The ids stay on each row,
+                // so ⌘K's landing still scrolls to its question.
+                LazyVStack(spacing: style == .triage ? CicadaTheme.scaled(RowMetrics.twoLineGap) : 0) {
                     if style == .wide, let header { header }
                     if style == .wide, let lines {
-                        // Inbox v2: a kind's header, then its body as ONE block that grows out of the header and
-                        // fades in when the group opens (`disclosureReveal`), so the groups below ease down rather
-                        // than jump. The ids stay on each line, so ⌘K's landing still scrolls to its row.
-                        ForEach(InboxListBlock.blocks(lines)) { block in
-                            VStack(spacing: 0) {
-                                if let header = block.header {
-                                    self.line(header, slots: slots, now: now)
-                                        .padding(.top, block.isFirst ? 0 : CicadaTheme.spacingLG)
-                                        .id(header.id)
-                                }
-                                if !block.body.isEmpty {
-                                    VStack(spacing: 0) {
-                                        if let kind = block.kind {
-                                            InboxGroupExplainer(kind: kind)
-                                        }
-                                        ForEach(block.body) { line in
-                                            self.line(line, slots: slots, now: now).id(line.id)
-                                        }
-                                    }
-                                    .disclosureReveal()
-                                }
+                        ForEach(InboxListDraw.items(lines)) { item in
+                            switch item {
+                            case .line(let line, let leadsAGroup):
+                                self.line(line, slots: slots, now: now)
+                                    .padding(.top, leadsAGroup ? CicadaTheme.spacingLG : 0)
+                                    .id(line.id)
+                            case .explainer(let kind):
+                                InboxGroupExplainer(kind: kind)
                             }
                         }
                     } else {
@@ -97,6 +89,9 @@ struct InboxQuestionList: View {
                 Instant.run { proxy.scrollTo(openId, anchor: .center) }
             }
         }
+        // R-DI4 / R-DI25 — the held answer's ⌘Z lives here, outside the lazy stack, so it still works while its
+        // Undo row is scrolled out of view (and so unbuilt). The row draws its button without the shortcut.
+        .background { if undoShortcut && hasUndoRow { UndoShortcutKeeper(undo: undo) } }
         .focusable()
         .focusEffectDisabled()
         .onMoveCommand { direction in
@@ -137,10 +132,59 @@ struct InboxQuestionList: View {
             InboxRow(item: item, style: style, slots: slots, selected: item.id == openId,
                      now: now, nested: nested, showsGlyph: !grouped) { open(item) }
         case .undo(let held, let item):
-            InboxUndoRow(held: held, item: item, style: style,
-                         shortcutEnabled: undoShortcut, onUndo: undo)
+            // Its ⌘Z is the list's `UndoShortcutKeeper`: a lazy row scrolled away is not built, and its key with it.
+            InboxUndoRow(held: held, item: item, style: style, shortcutEnabled: false, onUndo: undo)
                 .transition(.opacity.animation(CicadaMotion.undoFade(reduceMotion: reduceMotion)))
         }
+    }
+
+    /// The held answer's Undo row is in this list (`entries` carries it exactly when `lines` does).
+    private var hasUndoRow: Bool {
+        entries.contains { if case .undo = $0 { true } else { false } }
+    }
+}
+
+/// R-DI4 / R-DI25 — the one ⌘Z for the held answer, an invisible button the lazy list keeps built whatever is
+/// scrolled into view (`BookmarkHistoryPanel`'s hidden ⌘1…⌘9 are the same shape). Exactly one is on screen: the list
+/// draws it only while its Undo row is in the list and no field has focus, and a hidden list (DR-27) draws nothing,
+/// so the question column's own Undo row owns ⌘Z then.
+struct UndoShortcutKeeper: View {
+    let undo: () -> Void
+
+    var body: some View {
+        Button("", action: undo)
+            .keyboardShortcut("z", modifiers: .command)
+            .opacity(0)
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+    }
+}
+
+/// The grouped list's lines as the lazy stack draws them, one child per line (inbox freeze, 2026-10-29): a kind's
+/// header (spaced from the group above it), the kind's one-sentence explainer under it, then its page headers and
+/// questions. A kind's tab has no header; its explainer leads. The ids are the lines' own, so a landing still scrolls
+/// to its row.
+enum InboxListDraw: Identifiable {
+    case line(InboxListLine, leadsAGroup: Bool)
+    case explainer(InboxKind)
+
+    var id: String {
+        switch self {
+        case .line(let line, _): line.id
+        case .explainer(let kind): "explainer:\(kind.rawValue)"
+        }
+    }
+
+    static func items(_ lines: [InboxListLine]) -> [InboxListDraw] {
+        var out: [InboxListDraw] = []
+        out.reserveCapacity(lines.count + 12)
+        for block in InboxListBlock.blocks(lines) {
+            if let header = block.header { out.append(.line(header, leadsAGroup: !block.isFirst)) }
+            guard !block.body.isEmpty else { continue }
+            if let kind = block.kind { out.append(.explainer(kind)) }
+            out += block.body.map { .line($0, leadsAGroup: false) }
+        }
+        return out
     }
 }
 
@@ -373,8 +417,25 @@ struct InboxUndoRow: View {
 /// doubt the name shows.
 enum InboxRowWords {
     static func namesItsPage(_ item: InboxItem) -> Bool {
-        repeats(name: item.displayName, in: item.questionText)
+        let (name, text) = (item.displayName, item.questionText)
+        let key = "\(name)\u{1}\(text)"
+        lock.lock()
+        let kept = memo[key]
+        lock.unlock()
+        if let kept { return kept }
+        let answer = repeats(name: name, in: text)
+        lock.lock()
+        if memo.count >= memoLimit { memo.removeAll(keepingCapacity: true) }
+        memo[key] = answer
+        lock.unlock()
+        return answer
     }
+
+    /// A row asks on every draw, and the answer compiles a pattern (~0.3 ms in a debug build): kept per name and
+    /// question, which never change the answer's inputs.
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var memo: [String: Bool] = [:]
+    static let memoLimit = 4096
 
     static func repeats(name: String, in text: String) -> Bool {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)

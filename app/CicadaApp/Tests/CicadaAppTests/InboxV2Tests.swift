@@ -53,7 +53,9 @@ final class InboxV2Tests: XCTestCase {
         let list = try String(contentsOf: root.appendingPathComponent("Views/Inbox/InboxQuestionList.swift"),
                               encoding: .utf8)
         XCTAssertFalse(list.contains("Instant.run { toggle() }"))
-        XCTAssertTrue(list.contains("disclosureReveal()"))
+        // Inbox freeze (2026-10-29): every group is open (ruling 48 (17)), so no group's body arrives as a fold; each
+        // line is the lazy stack's own child (`InboxListDraw`), which a group's one reveal block would defeat.
+        XCTAssertFalse(list.contains("disclosureReveal()"))
         // Ruling 48 (17), DR-81 — the settled groups and the link review's extra pages are no folds any more: open,
         // capped, "All N" to a sheet.
         for file in ["Views/Inbox/SettledChecksSection.swift", "Views/Inbox/InboxTopCards.swift"] {

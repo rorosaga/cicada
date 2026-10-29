@@ -536,10 +536,31 @@ struct InboxItem: Identifiable, Codable {
     /// One of a same-person chain of three names or more (asked once, answered pair by pair).
     var isChain: Bool { (chain?.count ?? 0) > 1 }
 
-    var createdDateValue: Date {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd"
-        return f.date(from: createdDate) ?? .now
+    /// The day the question was raised, read in the viewer's zone, parsed once per day (`InboxCreatedDay`). Inbox
+    /// freeze (2026-10-29): this built a fresh `DateFormatter` per call, and the G115 sort called it twice per
+    /// comparison — ~8,000 formatters per sort of a 465-question inbox, several sorts per draw.
+    var createdDateValue: Date { InboxCreatedDay.date(createdDate) ?? .now }
+}
+
+/// `createdDate` ("yyyy-MM-dd") as a date in the viewer's zone, parsed once per distinct day: an inbox holds a few
+/// hundred days at most. Its own memo, not `ISOStamp.remembered`'s, whose keys are stamps another reader parses its way.
+enum InboxCreatedDay {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var memo: [String: Date?] = [:]
+    static let memoLimit = 4096
+
+    static func date(_ raw: String, timeZone: TimeZone = .autoupdatingCurrent) -> Date? {
+        let key = "\(timeZone.identifier)\u{1}\(raw)"
+        lock.lock()
+        let kept = memo[key]
+        lock.unlock()
+        if let kept { return kept }
+        let value = ISOStamp.date(raw, format: "yyyy-MM-dd", timeZone: timeZone, posix: false)
+        lock.lock()
+        if memo.count >= memoLimit { memo.removeAll(keepingCapacity: true) }
+        memo[key] = .some(value)
+        lock.unlock()
+        return value
     }
 }
 
