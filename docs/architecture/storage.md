@@ -707,9 +707,9 @@ Round 4 (C2–C4):
 
 **Optional frontmatter keys**, each with a narrow meaning — don't conflate them:
 
-- `lat:` / `lon:` with `coordinates_by:` (`geocoder|person|none`) and `coordinates_at:` — a place's position, stored
+- `lat:` / `lon:` with `coordinates_by:` (`geocoder|person|unfound|none`) and `coordinates_at:` — a place's position, stored
   once (ruling 48 part 6, 2026-10-29; `place_coordinates`). The app resolves it with the Mac's own geocoder and posts
-  it; the backend never geocodes. `coordinates_by: none` (no match, or the person took the pin back) stops every
+  it; the backend never geocodes. `coordinates_by: unfound` (the geocoder found nothing; Cicada's upkeep) or `none` (the person took the pin back) stops every
   automatic resolve; only the person's click places it again. A private place (address-shaped, a home word, failing
   ruling 44's local test) is placed only on that click. The shared name rule (`org_sites.proper_name`) reads the
   particles da, do, das, dos, di, du, van, von, der and le as part of a name (owner, 2026-10-29), so "Jardim da Estrela"

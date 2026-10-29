@@ -184,7 +184,7 @@ enum PlaceBackfill {
                 if let c = found {
                     _ = try? await services.store(place.entityId, c.latitude, c.longitude, "geocoder")
                 } else {
-                    _ = try? await services.store(place.entityId, nil, nil, "none")
+                    _ = try? await services.store(place.entityId, nil, nil, "unfound")
                 }
             }
         }
@@ -331,7 +331,8 @@ struct PlaceMap: View {
         guard let state = try? await services.load(id), id == entity.id else { return }
         apply(state)
         if state.coordinates == nil, let g = state.geocode {
-            if g.allowed { await locate(by: "geocoder", query: g.query) } else { phase = .ask(reason: g.reason) }
+            if g.allowed { await locate(by: "geocoder", query: g.query) }
+            else { phase = g.reason == "not_found" ? .notFound : .ask(reason: g.reason) }
         }
     }
 
@@ -350,7 +351,7 @@ struct PlaceMap: View {
                 apply(state)
                 PlaceBackfill.runOnce(services)
             } else {
-                if by == "geocoder" { _ = try? await services.store(id, nil, nil, "none") }
+                if by == "geocoder" { _ = try? await services.store(id, nil, nil, "unfound") }
                 phase = .notFound
             }
         } catch {

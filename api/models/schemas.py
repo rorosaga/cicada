@@ -600,7 +600,8 @@ class PlaceState(CamelModel):
 
 class PlaceCoordinatesUpdate(CamelModel):
     """``PUT /entities/{id}/coordinates`` — what the app's geocoder (or the person's own click) found. ``by``:
-    ``geocoder`` (automatic, public places only), ``person`` (their click), ``none`` (no match: stop resolving)."""
+    ``geocoder`` (automatic, public places only), ``person`` (their click), ``unfound`` (no match: stop resolving
+    automatically). ``none`` (the person took the pin back) is written by ``DELETE`` only."""
 
     lat: Optional[float] = None
     lon: Optional[float] = None

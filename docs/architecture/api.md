@@ -89,10 +89,10 @@ bank (8,027 pages, 1,563 commits; 60 pages, 3 warm passes, baseline and branch a
 `lines`); `X-History-More: 1|0` says whether older rows exist. Pinned both sides by `fixtures/page_history.json`.
 *`blocks.summary`* is In short (`{text, writtenAt, by: "sleep", model, conversations}`, `in_short`; `SHAPE`
 `blocks-3`, after part A's `blocks-2`) and *`blocks.coordinates`* gains `by` (`geocoder|person`). *Places:* `GET /entities/{id}/place` — the
-stored coordinates with the places within 5 km (`nearby`), or with none stored `geocode: {allowed, reason, query}`;
+stored coordinates with the places within 5 km (`nearby`), or with none stored `geocode: {allowed, reason, query}` (the query adds the containing place only when it passes the same public test);
 read when the map draws, never on open. `PUT /entities/{id}/coordinates {lat, lon, by}` stores what the app's own
 geocoder found (`by: geocoder`, 409 for a private place or one taken back) or the person's click (`by: person`, any
-place); `by: none` records "no match, stop resolving". `DELETE` takes a pin back (`coordinates_by: none`). Both are
+place); `by: unfound` records the geocoder's "no match, stop resolving" (409s as `geocoder`; Cicada's upkeep). `DELETE` alone takes a pin back (`coordinates_by: none`, the person's act; a PUT of `none` is 422). Both are
 admitted writes (G183), committed alone: the person's as `user` (`user/place`), the geocoder's as `cicada`
 (`sync/geocoder`, upkeep in History). `GET /places/unplaced?limit=` lists public places the app's pass may resolve.
 The backend never geocodes (`place_coordinates`).

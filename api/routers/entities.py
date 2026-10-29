@@ -766,9 +766,11 @@ async def _write_coordinates(settings: Settings, entity_id: str, by: str, lat, l
         await run_in_threadpool(place_coordinates.check, settings.memory_path, entity_id, by)
         values = place_coordinates.fields(lat, lon, by)
     except place_coordinates.Refused as exc:
-        raise HTTPException(409 if by == "geocoder" else 422, str(exc)) from None
+        raise HTTPException(409 if by in ("geocoder", "unfound") else 422, str(exc)) from None
+    # Review of #521: only the person's own acts (their click, their DELETE) are `user`; the geocoder's results —
+    # a place found or not found — are Cicada's upkeep, so History never shows a miss under You.
     person = by in ("person", "none")
-    what = "coordinates removed" if by == "none" and lat is None else f"coordinates_by: {by}"
+    what = "coordinates removed" if by == "none" else f"coordinates_by: {by}"
     message = git_service.build_commit_message(
         f"Place on the map {date.today().isoformat()}",
         [f"entities/{entity_id}.md: updated ({what}, trigger: {'user/place' if person else 'sync/geocoder'})"],
@@ -785,9 +787,13 @@ async def put_entity_coordinates(entity_id: str, request: PlaceCoordinatesUpdate
                                  settings: Settings = Depends(get_settings)):
     """Store a place's coordinates once (ruling 48 part 6). ``by="geocoder"``: the app's automatic resolve on the
     person's first open or its background pass — public places only (409 for a private one, or one the person took
-    off the map). ``by="person"``: the person's own click, any place. ``by="none"``: the geocoder found nothing; stop
-    resolving it automatically. Commits this page alone: the person's click as ``user``, an automatic one as
-    ``cicada`` (upkeep in History)."""
+    off the map). ``by="person"``: the person's own click, any place. ``by="unfound"``: the geocoder found nothing;
+    stop resolving it automatically (the same 409s as ``geocoder``). ``none`` is ``DELETE``'s alone (422 here).
+    Commits this page alone: the person's click as ``user``, an automatic one as ``cicada`` (upkeep in History)."""
+    from api.services import place_coordinates
+
+    if request.by not in place_coordinates.PUT_VALUES:
+        raise HTTPException(422, f"by must be one of {', '.join(place_coordinates.PUT_VALUES)}")
     return await _write_coordinates(settings, entity_id, request.by, request.lat, request.lon)
 
 

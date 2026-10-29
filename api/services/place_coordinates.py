@@ -17,8 +17,10 @@ Who resolves a place, and when — **the backend never geocodes**:
   flat, apartment…). Anything else is private: the app shows a placeholder with *Place on the map* and resolves it
   only on that click (``by="person"``). A private place is never resolved automatically, and :func:`store` refuses an
   automatic result for one.
-* The person can take a pin back (:func:`clear`): the page then says ``coordinates_by: none`` and nothing resolves it
-  again automatically.
+* The person can take a pin back (``DELETE``): the page then says ``coordinates_by: none`` and nothing resolves it
+  again automatically. When the Mac's geocoder finds nothing, the app records ``coordinates_by: unfound`` (review of
+  #521) — upkeep, authored ``cicada``, never the person's act — and nothing retries it on its own either; the person's
+  click still may.
 
 Nearby places (:func:`nearby`) are every other place on the record within :data:`NEARBY_KM`, from one index of the
 pages' frontmatter (``bank_index``'s stat cache) — read when the map draws, never when the card opens.
@@ -34,7 +36,12 @@ from pathlib import Path
 from api.services import bank_index, page_blocks
 
 #: Stored once per place; ``none`` means "do not resolve automatically" (no match, or the person took the pin back).
-BY_VALUES = ("geocoder", "person", "none")
+#: ``none`` is the person taking a pin back (only ``DELETE`` writes it); ``unfound`` is the geocoder finding nothing.
+BY_VALUES = ("geocoder", "person", "unfound", "none")
+#: What a ``PUT`` may say: everything but ``none``, which is the person's own act and has its own route.
+PUT_VALUES = ("geocoder", "person", "unfound")
+#: Values that stop every automatic resolve, and the reason ``state`` gives for each.
+_STOPPED = {"none": "taken_back", "unfound": "not_found"}
 NEARBY_KM = 5.0
 MAX_NEARBY = 8
 MAX_UNPLACED = 20
@@ -78,10 +85,11 @@ def geocode_verdict(memory_path: Path, entity_id: str, *, facts=None) -> Verdict
     return Verdict(True, "public_place")
 
 
-def query_for(memory_path: Path, entity_id: str, fm: dict, claims: list) -> str:
-    """What the app asks the geocoder: the page's name, and the name of the public place the record says it is in
-    ("Example Park" → "Example Park, Example City"), when one relation says so. Never a person's or a project's name:
-    the containing place is itself a location page."""
+def query_for(memory_path: Path, entity_id: str, fm: dict, claims: list, *, facts=None) -> str:
+    """What the app asks the geocoder: the page's name, and the name of the place the record says it is in ("Example
+    Park" → "Example Park, Example City"), when one relation says so — only when that containing place passes the
+    same test (:func:`geocode_verdict`) as the page itself (review of #521): a public cafe "in" a private farm named for
+    a family sends the cafe's name alone, never the farm's."""
     name = " ".join(str(fm.get("name") or entity_id).split())
     for c in claims or []:
         if getattr(c, "object_kind", None) != "node" or not _WITHIN.search(str(c.predicate or "")):
@@ -90,7 +98,7 @@ def query_for(memory_path: Path, entity_id: str, fm: dict, claims: list) -> str:
         other = (entry.frontmatter or {}) if entry is not None else {}
         if str(other.get("type") or "").lower() == "location" and other.get("name"):
             within = " ".join(str(other["name"]).split())
-            if within.lower() not in name.lower() and not address_shaped(within) and not _HOME.search(within):
+            if within.lower() not in name.lower() and geocode_verdict(memory_path, str(c.object), facts=facts).allowed:
                 return f"{name}, {within}"
     return name
 
@@ -161,8 +169,8 @@ def state(memory_path: Path, entity_id: str) -> dict | None:
         claims = parse_claims(parsed.body or "")
     except Exception:  # noqa: BLE001 — an unreadable fence is no relation
         claims = []
-    out["geocode"] = {"allowed": verdict.allowed and by != "none", "reason": "taken_back" if by == "none"
-                      else verdict.reason, "query": query_for(memory_path, entity_id, fm, claims)}
+    out["geocode"] = {"allowed": verdict.allowed and by not in _STOPPED, "reason": _STOPPED.get(by, verdict.reason),
+                      "query": query_for(memory_path, entity_id, fm, claims)}
     return out
 
 
@@ -194,7 +202,7 @@ def unplaced(memory_path: Path, *, limit: int = MAX_UNPLACED) -> list[dict]:
         except Exception:  # noqa: BLE001
             claims = []
         out.append({"entityId": entity_id, "name": str(fm.get("name") or entity_id),
-                    "query": query_for(mp, entity_id, fm, claims)})
+                    "query": query_for(mp, entity_id, fm, claims, facts=facts)})
     return out
 
 
@@ -206,12 +214,13 @@ class Refused(ValueError):
 
 
 def fields(lat: float | None, lon: float | None, by: str, today: date | None = None) -> dict:
-    """The frontmatter keys one write sets. ``by="none"`` clears the coordinates and stops automatic resolving."""
+    """The frontmatter keys one write sets. ``none`` / ``unfound`` clear the coordinates and stop automatic
+    resolving."""
     today = today or date.today()
     if by not in BY_VALUES:
         raise Refused(f"by must be one of {', '.join(BY_VALUES)}")
-    if by == "none":
-        return {"lat": None, "lon": None, "coordinates_by": "none", "coordinates_at": today.isoformat()}
+    if by in _STOPPED:
+        return {"lat": None, "lon": None, "coordinates_by": by, "coordinates_at": today.isoformat()}
     la = page_blocks._coordinate(lat, 90.0)
     lo = page_blocks._coordinate(lon, 180.0)
     if la is None or lo is None:
@@ -241,7 +250,7 @@ def check(memory_path: Path, entity_id: str, by: str) -> None:
     fm = markdown_parser.parse(path, ledger=False).frontmatter
     if str(fm.get("type") or "").lower() != "location":
         raise Refused("Only a place page stores coordinates.")
-    if by == "geocoder":
+    if by in ("geocoder", "unfound"):   # the app's own, automatic results
         if str(fm.get("coordinates_by") or "") == "none":
             raise Refused("You took this place off the map; it is placed again only when you ask.")
         if not geocode_verdict(memory_path, entity_id).allowed:

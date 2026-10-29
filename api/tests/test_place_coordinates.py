@@ -125,6 +125,43 @@ def test_only_a_place_stores_coordinates_and_only_in_range(bank):
     assert client.put("/entities/nowhere/coordinates", json={"lat": 1, "lon": 1, "by": "person"}).status_code == 404
 
 
+def test_the_query_names_a_containing_place_only_when_it_is_public_too(bank):
+    """Review of #521 (ruling 44): a public cafe recorded as in a private farm named for a family asks the geocoder
+    for the cafe alone; the farm's name never reaches Apple. A public containing place is still added."""
+    _page(bank, "tester-farm", {"name": "Tester Farm", "type": "location"})   # carries the owner's surname
+    _page(bank, "example-cafe", {"name": "Example Cafe", "type": "location"},
+          [Claim(id="c2", text="Example Cafe is at Tester Farm.", subject="example-cafe", predicate="located-in",
+                 object="tester-farm", object_kind="node")])
+    _commit(bank, "cafe")
+    assert not place_coordinates.geocode_verdict(bank, "tester-farm").allowed
+    client = TestClient(main.app)
+    cafe = client.get("/entities/example-cafe/place").json()["geocode"]
+    assert cafe == {"allowed": True, "reason": "public_place", "query": "Example Cafe"}
+    assert {r["entityId"]: r["query"] for r in client.get("/places/unplaced").json()}["example-cafe"] == "Example Cafe"
+    assert client.get("/entities/example-park/place").json()["geocode"]["query"] == "Example Park, Example City"
+
+
+def test_a_geocoder_miss_is_upkeep_and_only_the_persons_delete_is_theirs(bank):
+    """Review of #521: the app's "found nothing" is `unfound`, committed as Cicada's upkeep (never under You, never
+    "taken back"); `none` is the person's DELETE alone, and a PUT cannot claim it."""
+    client = TestClient(main.app)
+    missed = client.put("/entities/example-park/coordinates", json={"by": "unfound"})
+    assert missed.status_code == 200
+    assert missed.json()["geocode"]["allowed"] is False and missed.json()["geocode"]["reason"] == "not_found"
+    message = _log(bank)
+    assert "trigger: sync/geocoder" in message and "Cicada-Author: cicada" in message and "user" not in message
+    assert markdown_parser.parse(bank / "entities" / "example-park.md").frontmatter["coordinates_by"] == "unfound"
+    assert client.put("/entities/example-park/coordinates", json={"by": "none"}).status_code == 422
+    # A private place's miss is refused like its hit: nothing automatic touches it.
+    assert client.put("/entities/my-apartment/coordinates", json={"by": "unfound"}).status_code == 409
+    # The person may still place it by hand, and take it back as their own act.
+    assert client.put("/entities/example-park/coordinates",
+                      json={"lat": 40.4, "lon": -3.7, "by": "person"}).status_code == 200
+    gone = client.delete("/entities/example-park/coordinates").json()
+    assert gone["geocode"]["reason"] == "taken_back"
+    assert "Cicada-Author: user" in _log(bank) and "trigger: user/place" in _log(bank)
+
+
 @pytest.mark.parametrize("name, proper", [
     ("Jardim da Estrela", True), ("Praça do Comércio", True), ("Rua dos Douradores", True),
     ("Museo di Roma", True), ("Jardin du Luxembourg", True), ("Museum van Loon", True),
