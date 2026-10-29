@@ -343,7 +343,8 @@ struct ProjectPagesBlock: View {
         return VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
             HStack(spacing: CicadaTheme.spacingSM) {
                 TypeDot(type: EntityType(rawValue: p.type ?? "") ?? .concept)
-                Text(p.shownName).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textPrimary).lineLimit(1)
+                Text(p.name).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textPrimary).lineLimit(1)
+                QualifierTag(qualifier: p.qualifier)   // G227
                 if !p.rolePhrase.isEmpty && !p.isProposed {
                     Text("· " + p.rolePhrase).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
                         .lineLimit(1)

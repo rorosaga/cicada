@@ -83,4 +83,45 @@ final class SameNameTests: XCTestCase {
         XCTAssertEqual(item.displayName, "Alpha (IDE)")
         XCTAssertEqual(item.sameTitle, ["alpha", "alpha-program"])
     }
+
+    // MARK: - the qualifier as a tag, and pick the page (owner 2026-10-29)
+
+    func test_paletteRowsShowThePlainName_withTheQualifierBesideIt() throws {
+        let response = try JSONDecoder().decode(MemorySearchResponse.self, from: Data(#"""
+        {"results": [{"id": "alpha", "name": "Alpha", "type": "tool", "status": "active", "kind": "entity",
+                      "qualifier": "IDE", "displayName": "Alpha (IDE)"},
+                     {"id": "alpha-program", "name": "Alpha", "type": "project", "status": "active", "kind": "entity",
+                      "qualifier": "program", "displayName": "Alpha (program)"}],
+         "totals": {}, "mode": "lexical", "indexState": "ready"}
+        """#.utf8))
+        let rows = FindServerRows.rows(response, query: "Alpha", context: .init())
+        XCTAssertEqual(rows.map(\.title), ["Alpha", "Alpha"], "searching the bare name finds both, titled plainly")
+        XCTAssertEqual(rows.map(\.qualifier), ["IDE", "program"])
+        XCTAssertTrue(FindRowText.accessibilityLabel(rows[0]).contains("IDE"), "VoiceOver hears which one")
+    }
+
+    func test_theRunCardSaysTheQualifierInsideThePagesTag() {
+        let page = SleepConsolidated.Page(id: "alpha", name: "Alpha", displayName: "Alpha (IDE)", qualifier: "IDE")
+        XCTAssertEqual(RunItemGroups.pageLabel(page, names: EntityNames.empty), "Alpha · IDE")
+    }
+
+    func test_aPickThePageOptionDecodesItsPage_andTheCatchUpAnswersWithItsKey() throws {
+        let item = try JSONDecoder().decode(InboxItem.self, from: Data(#"""
+        {"id": "inbox-002", "kind": "merge_suggestion", "requiredInput": "merge", "title": "Which Alpha is this?",
+         "entityId": "alpha", "entityName": "Alpha", "mergeTargetHint": "alpha", "sameTitle": ["alpha", "alpha-program"],
+         "options": [{"key": "page:alpha", "label": "Alpha (IDE)", "pageId": "alpha", "pageName": "Alpha",
+                      "qualifier": "IDE"},
+                     {"key": "page:alpha-program", "label": "Alpha (program)", "pageId": "alpha-program",
+                      "pageName": "Alpha", "qualifier": "program"},
+                     {"key": "none", "label": "None of these"}]}
+        """#.utf8))
+        XCTAssertEqual(item.options.map(\.pageName), ["Alpha", "Alpha", nil])
+        XCTAssertEqual(item.options.map(\.qualifier), ["IDE", "program", nil])
+        XCTAssertEqual(FocusCardVariant.of(item), .options, "one tap per page, never same/different")
+        let reading = CatchupTurnReply.Reading(optionKey: "page:alpha-program", answer: nil, quote: "the program one",
+                                               confirm: false)
+        let resolution = try XCTUnwrap(CatchupAnswers.resolution(item, reading))
+        XCTAssertEqual(resolution.action, "resolve")
+        XCTAssertEqual(resolution.optionKey, "page:alpha-program")
+    }
 }

@@ -138,7 +138,12 @@ async def resolve(
         name = e["frontmatter"].get("name", e["id"].replace("-", " ").title())
         if agent_engine.is_runtime_path(str(name)):
             continue  # an old leaked page: never a merge target, endpoint or judge candidate
-        existing_by_name[name.lower()] = e
+        held = existing_by_name.get(name.lower())
+        if held is None or str(held.get("id")) != sanitize_id(name):
+            # G227: two pages may share a title now (a new same-named page keeps the clean title, `_another_id`): the
+            # page whose own id the title spells keeps the name's key, so a join on the name never moves to the newer
+            # page by listing order.
+            existing_by_name[name.lower()] = e
         if str(e["frontmatter"].get("status") or "") != "dropped":
             # G227: every page by its title — two pages may share one, and `existing_by_name` keeps only the last.
             same_title.setdefault(str(name).lower(), []).append(e)
@@ -418,12 +423,13 @@ async def resolve(
                     created_by_id=resolved_creates,
                     aliases=aliases,
                     same_title=same_title,
+                    rejected=rejected_pairs,
                 )
             if match is None:
                 # G227: a title the name alone may not join (two pages share it, or none is of the mention's kind).
                 match = await _same_title_match(entity, same_title, llm_match_cache, settings,
                                                 gate=lookahead.gate if lookahead is not None else None,
-                                                stop=cancel_check)
+                                                stop=cancel_check, rejected=rejected_pairs)
                 if match is not None and match["decision"] == "different":
                     match = None
             if match is None:
@@ -612,13 +618,16 @@ async def resolve(
                      **({"same_title": match["same_title"]} if match.get("same_title") else {})},
                 ))
 
+            own_id: str | None = None   # G227: a page of its own under a name another page already spells
             taken = (should_promote and not ambiguous_match and card is None
                      and sanitize_id(name) in existing_ids)
             if taken:
                 page = next((e for e in existing if str(e.get("id")) == sanitize_id(name)), None)
                 if page is not None and _said_different(settings.memory_path, name, page["id"]):
-                    # The person said it is someone else: a page of its own beside the one with that name.
-                    entity = {**entity, "name": _another_title(name, existing_ids, resolved_creates)}
+                    # The person said it is someone else ("none of these", or "No, different"): a page of its own
+                    # beside the one with that name — the same clean title, a distinct id; the qualifier tells them
+                    # apart on every surface (G227, owner 2026-10-29: no stored "(another)").
+                    own_id = _another_id(name, existing_ids, resolved_creates)
                     taken = False
                 elif page is not None:
                     # 2026-10-27: the page with this exact id is another one it did not join (a name several people
@@ -633,7 +642,7 @@ async def resolve(
             if should_promote and not ambiguous_match:
                 if card is not None:
                     entity = _card_entity(entity, card)
-                entity_id = sanitize_id(entity["name"])
+                entity_id = own_id or sanitize_id(entity["name"])
                 name_to_id[name_lower] = entity_id
                 decided_names.add(name_lower)
                 resolved_creates[entity_id] = _create_change(entity_id, entity)
@@ -2101,6 +2110,7 @@ def _find_direct_candidate_match(
     created_by_id: dict[str, dict],
     aliases: dict[str, list[dict]] | None = None,
     same_title: dict[str, list[dict]] | None = None,
+    rejected: frozenset | set = frozenset(),
 ) -> dict | None:
     """A join on the name itself: the page titled exactly so, else a close spelling (``fuzz.ratio > 85``), else a
     create of this batch. ``same_title`` (G227; ``None`` keeps the old exact join): every page by its lower-cased title,
@@ -2114,7 +2124,10 @@ def _find_direct_candidate_match(
         # G227: a title two pages share, or a page of another kind than the mention, is never joined on the name
         # alone — the one page of the mention's kind is, and anything else goes to the same-title judge
         # (`_same_title_match`), which asks when it cannot tell.
-        existing_match = _same_title_pick(new_entity, same_title.get(new_name_lower) or [existing_match])
+        group = same_title.get(new_name_lower) or [existing_match]
+        # A page the person said this name is not (`merge_rejections`, e.g. "none of these") is never joined on it.
+        group = [p for p in group if not _rejected_pair(rejected, new_name, p.get("id"))]
+        existing_match = _same_title_pick(new_entity, group) if group else None
         if existing_match is None:
             return None
     if existing_match is not None and not (person and _shared_name(new_name, existing_match, aliases)):
@@ -2182,7 +2195,8 @@ _SAME_TITLE_NOTE = ("Note: entity A's page has exactly this name, and the record
 
 async def _same_title_match(entity: dict, same_title: dict[str, list[dict]], cache: dict[tuple[str, str], str],
                             settings: Settings, *, gate: asyncio.Semaphore | None = None,
-                            stop: Callable[[], bool] | None = None) -> dict | None:
+                            stop: Callable[[], bool] | None = None,
+                            rejected: frozenset | set = frozenset()) -> dict | None:
     """G227: a mention titled exactly as one or more pages that a join on the name may not take
     (:func:`_same_title_pick`) — each page weighed by the judge, the types allowed to differ.
 
@@ -2193,7 +2207,8 @@ async def _same_title_match(entity: dict, same_title: dict[str, list[dict]], cac
         return None
     name = (entity.get("name") or "").strip()
     key = name.lower()
-    group = [p for p in same_title.get(key) or () if p is not None]
+    # The pages the person said this name is not ("none of these", G227) are out: never judged, never asked again.
+    group = [p for p in same_title.get(key) or () if p is not None and not _rejected_pair(rejected, name, p.get("id"))]
     if not group or _same_title_pick(entity, group) is not None:
         return None
     new_type = (entity.get("type") or "concept").lower()
@@ -2239,14 +2254,15 @@ def _shared_name(new_name: str, page: dict, aliases: dict[str, list[dict]] | Non
                if str(other.get("id")) != str(page.get("id")) and _page_type(other) == "person") >= 2
 
 
-def _another_title(name: str, existing_ids: set[str], creates: dict[str, dict]) -> str:
-    """A title for someone the person said is not the page already called ``name`` ("Alex (another)")."""
-    n = 1
-    while True:
-        title = f"{name} (another)" if n == 1 else f"{name} (another {n})"
-        if sanitize_id(title) not in existing_ids and sanitize_id(title) not in creates:
-            return title
+def _another_id(name: str, existing_ids: set[str], creates: dict[str, dict]) -> str:
+    """The id for a page the person said is not the one already called ``name``: ``<slug>-2``, ``-3`` … (G227, owner
+    2026-10-29). The title stays ``name`` — clean, never "(another)" — and the qualifier (`same_name`) tells the
+    pages apart wherever the name shows; the id alone keeps them apart in links and on disk."""
+    base = sanitize_id(name)
+    n = 2
+    while f"{base}-{n}" in existing_ids or f"{base}-{n}" in creates:
         n += 1
+    return f"{base}-{n}"
 
 
 def _is_person(entity: dict) -> bool:

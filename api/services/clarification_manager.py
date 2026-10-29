@@ -96,6 +96,11 @@ class ClarificationManager:
                 )
                 return None
         open_path = find_open(self.memory_path, kind, sanitize_id(entity_name), second)
+        if open_path is None and is_duplicate and same_title and len(same_title) >= 2:
+            # G227 (owner 2026-10-29): one question per mention, never one per pair — a mention already asked about
+            # through another of the pages that share its name is the same question.
+            open_path = next((p for p in (find_open(self.memory_path, kind, sanitize_id(entity_name), str(pid))
+                                          for pid in same_title if str(pid) != second) if p is not None), None)
         if open_path is not None:
             parsed = markdown_parser.parse(open_path)
             parsed.frontmatter["updated_date"] = str(date.today())
@@ -138,7 +143,11 @@ class ClarificationManager:
                 frontmatter["merge_target_hint"] = target_hint
             if same_title:
                 frontmatter["same_title"] = [str(i) for i in same_title][:6]
-                if target_id:
+                if len(frontmatter["same_title"]) >= 2:
+                    # G227 (owner 2026-10-29, pick the page): one question for the mention, answered by picking one
+                    # of the pages (`same_name_pick` serves them as options at read) or "none of these".
+                    frontmatter["title"] = f"Which {entity_name} is this?"
+                elif target_id:
                     # G227: the stored title names the one page its answers act on, by its qualifier — every reader
                     # without the wording layer (an old client, a plain listing) asks the same yes/no question.
                     from api.services import same_name

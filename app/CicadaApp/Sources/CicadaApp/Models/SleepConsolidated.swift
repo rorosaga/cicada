@@ -48,9 +48,13 @@ struct SleepConsolidated: Codable, Equatable {
         var gone: Bool
         /// G227 (items-2) — the name to show when another page shares this title.
         var displayName: String? = nil
+        /// G227 — the qualifier alone (the run card says it inside the page's own `Tag`).
+        var qualifier: String? = nil
 
-        init(id: String, name: String? = nil, type: String? = nil, gone: Bool = false, displayName: String? = nil) {
+        init(id: String, name: String? = nil, type: String? = nil, gone: Bool = false, displayName: String? = nil,
+             qualifier: String? = nil) {
             self.id = id; self.name = name; self.type = type; self.gone = gone; self.displayName = displayName
+            self.qualifier = qualifier
         }
 
         init(from decoder: Decoder) throws {
@@ -60,6 +64,7 @@ struct SleepConsolidated: Codable, Equatable {
             type = (try? c.decodeIfPresent(String.self, forKey: .type)) ?? nil
             gone = ((try? c.decodeIfPresent(Bool.self, forKey: .gone)) ?? nil) ?? false
             displayName = (try? c.decodeIfPresent(String.self, forKey: .displayName)) ?? nil
+            qualifier = (try? c.decodeIfPresent(String.self, forKey: .qualifier)) ?? nil
         }
     }
 

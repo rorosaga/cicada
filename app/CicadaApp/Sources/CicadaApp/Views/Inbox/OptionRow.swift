@@ -26,10 +26,14 @@ struct OptionRow: View {
             HStack(spacing: CicadaTheme.spacingMD) {
                 RadioMark(on: highlighted)
                 VStack(alignment: .leading, spacing: CicadaTheme.scaled(1)) {
-                    Text(shownLabel)
-                        .font(CicadaTheme.font(size: 14, weight: .medium))
-                        .foregroundStyle(CicadaTheme.textPrimary)
-                        .lineLimit(1)
+                    HStack(spacing: CicadaTheme.spacingSM) {
+                        // G227: one of several pages with a name — the plain name and its qualifier as a `Tag`.
+                        Text(option.pageName ?? shownLabel)
+                            .font(CicadaTheme.font(size: 14, weight: .medium))
+                            .foregroundStyle(CicadaTheme.textPrimary)
+                            .lineLimit(1)
+                        if option.pageName != nil { QualifierTag(qualifier: option.qualifier) }
+                    }
                     if let description = option.description, !description.isEmpty {
                         Text(description)
                             .font(CicadaTheme.metaFont)

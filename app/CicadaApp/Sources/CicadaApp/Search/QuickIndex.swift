@@ -149,8 +149,8 @@ extension QuickIndex {
             if let summary = node.summary, !summary.isEmpty {
                 fields.append(QuickMatch.Field(summary, weight: QuickMatch.Weight.body))
             }
-            let row = FindRow(key: FindRowKey(kind: .entity, id: node.id), group: .entities, title: node.shownName,
-                              detail: node.summary.flatMap(firstLine), badge: node.type.label,
+            let row = FindRow(key: FindRowKey(kind: .entity, id: node.id), group: .entities, title: node.name,
+                              qualifier: node.qualifier, detail: node.summary.flatMap(firstLine), badge: node.type.label,
                               mark: .entity(id: node.id, name: node.name, type: node.type),
                               tieBreak: Double(node.degree), destination: .entity(id: node.id),
                               secondary: .entityInClusters(id: node.id))

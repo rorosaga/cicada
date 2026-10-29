@@ -1175,8 +1175,29 @@ descriptions decide"). `same` joins; `unsure` holds the name and asks — the it
 (`merge_target_hint`), keeps every page sharing the title (`same_title`), and asks about that ONE page, the one its
 same/different answers act on ("Is this the <name-a> IDE?", the others counted in the reason, `inbox_wording`; the
 stored title says the same); `different` on all goes on by the usual rule, and a new page whose id the title already
-holds is held and asked, as before. Picking among several pages waits on a resolver action (G227). A person mention keeps its own rules (G209). See the G227 row
+holds is held and asked, as before. A person mention keeps its own rules (G209). See the G227 row
 for the haiku replay.
+
+**Pick the page (G227, owner ruling 2026-10-29).** A mention that could be any of two or more same-titled pages is ONE
+question for the mention — never one per pair: `ClarificationManager.create` finds an open question about the same
+mention through any of its `same_title` pages before writing a second, and stores "Which <name> is this?". The question
+is served (`same_name_pick`, at read — the labels carry derived qualifiers) with one option per candidate page still on
+disk (`page:<id>`, labelled "<name> (<qualifier>)", plus `pageId`/`pageName`/`qualifier`) and `none` ("None of these").
+`page:<id>` is the inbox's own `merge` into that id (the held mention's claims land there, G209); `none` is a `reject`
+recorded against EVERY candidate (`merge_rejections`). Stage 2 then never joins the name to, judges it against or asks
+about a rejected page (`_find_direct_candidate_match` and `_same_title_match` drop them), and the mention, once over the
+promotion bar, gets a page of its own: **the same clean title and a distinct id** (`_another_id`: `<slug>-2`, `-3` …;
+no stored "(another)" — the qualifier tells the pages apart). A page whose own id the title spells keeps the name's key
+in `existing_by_name`, so a join on the name never moves to the newer page by listing order. A key that is not one of
+the question's pages is a 400, nothing written. Known limit (Needs the owner on the PR): a rejection is keyed on the
+mention's slug, which is also the first page's id, so after "none of these" a later mention of that page by its bare
+name is not joined to it either — the same rule a "No, different" has always had.
+
+**Sentences about a different same-named thing (G227, `same_name_split`).** A repair *plan*, never applied by Cicada on
+its own: for every page in a same-name group that is not a saved link (and any page id the caller names), the page's
+prose is split into numbered sentences and an injected judge lists only those *clearly* about another thing with the
+name — target a listed page id or `new` — with a reason; anything unsure stays. It writes nothing; the owner OKs a plan
+before a separate step applies it.
 
 **Claim preservation (G148 regression):** Stage 5 rewrites prose with the stored `claims` fences removed from section parsing, then reattaches those fences unchanged. Rebuilding `Related` cannot remove beliefs before the claim pipeline reconciles them; synthesis output never authors a claims fence.
 

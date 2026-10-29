@@ -4961,13 +4961,14 @@ def _format_inbox_blurb(
             fm, body, cause=cause, recommended_key=recommended_key, raw_excerpts=raw_excerpts,
             can_answer=can_answer,
         )
-    if kind == "merge_suggestion" and fm.get("same_title") and fm.get("merge_target_hint"):
-        # G227: a mention said as a title several pages share is asked about ONE page — the one its same/different
-        # answers act on — named by id; the others are counted, never offered.
-        target = str(fm["merge_target_hint"])
-        others = len([p for p in fm.get("same_title") or [] if str(p) != target])
-        return (f"- **{ename}** — {fm.get('title') or 'Is this the existing page?'} (page id `{target}`; "
-                f"{others + 1} pages are called {ename}; answer same or different for this page only)")
+    if kind == "merge_suggestion" and fm.get("same_title"):
+        # G227 (owner 2026-10-29): a mention said as a title pages share is asked WHICH page it is — each page by its
+        # name, qualifier and id, plus "none of these"; the answer is the option's key.
+        ids = [str(p) for p in fm.get("same_title") or [] if isinstance(p, str)]
+        pages = ", ".join(f"`{p}`" for p in ids)
+        return (f"- **{ename}** — {fm.get('title') or f'Which {ename} is this?'} ({len(ids)} page"
+                f"{'s' if len(ids) != 1 else ''} called {ename}: {pages}; answer with option_key=\"page:<id>\" "
+                f"or \"none\")")
     if kind in ("clarification", "merge_suggestion"):
         utype = fm.get("uncertainty_type", "unknown")
         suggestion = fm.get("suggested_classification", "unknown")
@@ -5147,6 +5148,14 @@ def _agent_question(
             )
             fm.update(question)
             options = inbox_questions.normalize_options(fm["options"])
+        if not options:
+            from api.services import same_name_pick
+
+            if picks := same_name_pick.options(memory_path, fm):
+                # G227: a name pages share is asked which page it is — the same options `GET /inbox` serves.
+                fm["question"] = str(fm.get("question") or same_name_pick.question(fm, len(picks) - 1))
+                fm["options"] = picks
+                options = inbox_questions.normalize_options(picks)
         if str(fm.get("kind") or "") == "followup":
             question, _ = inbox_service.followup_synthesis(fm, ctx.claims(entity_id), today,
                                                            verbatim_ok=verbatim_ok)
@@ -5745,12 +5754,15 @@ def catchup_nudges(ctx: ToolContext) -> str:
         if held:
             lines.append("  What Cicada has on it (to follow up from, never to read out): " + " ".join(held))
         options = inbox_questions.normalize_options(fm.get("options"))
-        if options and kind != "merge_suggestion":
+        picking = kind == "merge_suggestion" and bool(options)   # G227: which page a shared name is
+        if options and (kind != "merge_suggestion" or picking):
             lines.append("  Answers: " + "; ".join(f"{o.get('label')} (option_key={o.get('key')})" for o in options))
         guess = next((o for o in options if str(o.get("key")) == rec), None)
         if guess is not None:
             lines.append(f"  Cicada's current guess: {guess.get('label')}")
-        if kind == "merge_suggestion":
+        if picking:
+            how = "  Record which one they mean: " + _resolve_call(ctx, entry.ids[0], answer=True)
+        elif kind == "merge_suggestion":
             how = ("  If they say they are the same: say you noted it — Cicada joins them at its next consolidation, "
                    "from their own words in this conversation, never from yours. If they say different people: "
                    + "; ".join(_resolve_call(ctx, i, reject=True) for i in entry.ids)

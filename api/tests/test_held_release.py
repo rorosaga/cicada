@@ -189,7 +189,8 @@ def test_someone_else_dismiss_and_skip_release_nothing(bank, request_):
 
 def test_someone_else_keeps_the_claims_held_until_stage_2_gives_the_name_its_own_page(bank):
     """The promotion rail decides "someone new": the resolver never mints a page. A later cycle that does not decide
-    the name releases nothing onto the page that shares it; Stage 2's own "<name> (another)" page takes them."""
+    the name releases nothing onto the page that shares it; Stage 2's own page for it (same title, id ``<slug>-2``,
+    G227) takes them."""
     _answer(bank, "inbox-001", action="reject", merge_target="alex-kim")
     settings = type("S", (), {"memory_path": bank, "litellm_model": "m", "archive_threshold": 0.2,
                               "decay_nudge_threshold": 0.4})()
@@ -198,11 +199,11 @@ def test_someone_else_keeps_the_claims_held_until_stage_2_gives_the_name_its_own
                                               name_to_id={"alex": "alex"}, decided_names=[])
     assert later["claims_released"] == 0 and _claims(bank, "alex") == []
 
-    _page(bank, "alex-another", "Alex (another)", "person")   # what Stage 2 creates once the name qualifies
+    _page(bank, "alex-2", "Alex", "person")   # what Stage 2 creates once the name qualifies (G227)
     born = claim_pipeline.run_claim_pipeline([], [], bank, settings, now_date="2026-10-06",
-                                             name_to_id={"alex": "alex-another"}, decided_names=["alex"])
+                                             name_to_id={"alex": "alex-2"}, decided_names=["alex"])
     assert born["claims_released"] == 2
-    assert ("alex-another", "mentors", "mira-quell") in _claims(bank, "alex-another")
+    assert ("alex-2", "mentors", "mira-quell") in _claims(bank, "alex-2")
 
 
 # --------------------------------------------------------------------------- undo

@@ -142,6 +142,8 @@ struct FindRow: Identifiable, Equatable, Sendable {
     var id: FindRowKey { key }
     var group: FindGroupID
     let title: String
+    /// G227 — a page whose title another page shares: its qualifier, drawn as a `Tag` after the title (DR-44).
+    var qualifier: String? = nil
     /// Scalar ranges to bold in `title` (`ExcerptText.attributed`).
     var titleRanges: [[Int]] = []
     var detail: String? = nil

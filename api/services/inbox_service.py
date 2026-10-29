@@ -32,6 +32,7 @@ from api.services import (
     markdown_parser,
     predicates,
     quiet_pages,
+    same_name_pick,
     source_check,
     telemetry,
 )
@@ -137,6 +138,17 @@ def _item_from_file(
             question = synthesised["question"]
             raw_options = inbox_questions.normalize_options(synthesised["options"])
             allow_other, allow_defer = synthesised["allow_other"], synthesised["allow_defer"]
+        if not raw_options and same_name_pick.applies(fm):
+            # G227 (owner 2026-10-29): a mention said as a title pages share is asked which page it is — one option
+            # per candidate plus "none of these", served at read (the labels carry derived qualifiers).
+            def _lookup(pid: str) -> dict | None:
+                found = context.entity(pid)
+                return dict(found.frontmatter or {}) if found is not None else None
+
+            picks = same_name_pick.options(context.memory_path, fm, _lookup)
+            if picks:
+                raw_options = picks
+                question = question or same_name_pick.question(fm, len(picks) - 1)
         if kind == "decay" and not raw_options:
             # G115 R5: decay is SERVED as a question object and never written as
             # one — the age phrase is computed from the subject page's live
@@ -210,6 +222,9 @@ def _item_from_file(
                 label=str(raw.get("label", "")),
                 description=_opt_str(raw.get("description")),
                 claim_id=_opt_str(raw.get("claim_id")),
+                page_id=_opt_str(raw.get("page_id")),
+                page_name=_opt_str(raw.get("page_name")),
+                qualifier=_opt_str(raw.get("qualifier")),
                 observed_at=observed,
                 last_referenced=last_ref,
                 age_days=inbox_questions.age_days(last_ref, now),
@@ -840,6 +855,12 @@ def _action_label(kind: str, request: InboxResolveRequest, options: list[dict]) 
             return "answer"
         return action or "answer"
     # clarification / merge_suggestion
+    if kind == "merge_suggestion" and key:
+        # G227: a same-title question's picked page is a merge, "none of these" a reject (`same_name_pick`).
+        if key.startswith(same_name_pick.PAGE_PREFIX):
+            return "merge"
+        if key == same_name_pick.NONE_KEY:
+            return "reject"
     if key == "rather_not_say":
         return "rather_not_say"
     if action in ("answer", "resolve"):
@@ -1001,6 +1022,23 @@ def _normalize_decay_request(kind: str, request: InboxResolveRequest) -> InboxRe
             f"{sorted(inbox_questions.DECAY_OPTION_KEYS)}.",
         )
     return request.model_copy(update={"action": _DECAY_KEY_TO_ACTION[key]})
+
+
+def _normalize_pick_request(kind: str, fm: dict, request: InboxResolveRequest, memory_path) -> InboxResolveRequest:
+    """G227 (owner 2026-10-29): ``resolve`` + a same-title question's key → the inbox's own verb, before
+    :func:`_action_label`. ``page:<id>`` merges the mention into that page (``merge_target`` = the id, the page
+    surviving); ``none`` is a ``reject`` the clarification resolver applies to every candidate. A key that is not one
+    of this question's — a page dropped or merged away since it was served — is a 400, nothing written."""
+    if (kind != "merge_suggestion" or (request.action or "").strip().lower() not in ("resolve", "answer")
+            or not (request.option_key or "").strip() or not same_name_pick.applies(fm)):
+        return request
+    verb = same_name_pick.picked(fm, request.option_key, same_name_pick.bank_lookup(memory_path))
+    if verb is None:
+        raise HTTPException(400, f"Unknown optionKey {request.option_key!r} for this question: pick one of the pages "
+                                 f"it lists, or {same_name_pick.NONE_KEY!r}.")
+    if verb[0] == "merge":
+        return request.model_copy(update={"action": "merge", "merge_target": verb[1], "merge_survivor": None})
+    return request.model_copy(update={"action": "reject"})
 
 
 def _option_verdict(kind: str, key: str, fm: dict, options: list[dict]) -> str:
@@ -1364,6 +1402,7 @@ async def _resolve_admitted(item_id: str, request: InboxResolveRequest, settings
     # `resolve` + `archive|keep`; translate it into the legacy verb here, before
     # `_action_label`, so the G113 R1 commit triggers stay byte-identical.
     request = _normalize_decay_request(kind, request)
+    request = _normalize_pick_request(kind, parsed.frontmatter, request, settings.memory_path)
     # G141 PJ-6 (R-PJB3): a follow-up's "not now" is 30 days, whatever asked
     # for it — its explicit option, an MCP `defer`, or an older client's 7-day
     # button — so a quiet thread is never re-asked within the month.
@@ -2754,6 +2793,10 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
             raise HTTPException(status_code=400, detail="reject needs a merge target (hint or mergeTarget)")
         from api.services import merge_rejections
 
+        if (request.option_key or "").strip() == same_name_pick.NONE_KEY and same_name_pick.applies(parsed.frontmatter):
+            # G227 "none of these": apart from every page that shares the name, so Sleep neither joins nor asks again.
+            for pid in same_name_pick.rejected_ids(parsed.frontmatter):
+                merge_rejections.add_rejected(settings.memory_path, entity_id, pid)
         merge_rejections.add_rejected(settings.memory_path, entity_id, other)
         path.unlink()
         return (
