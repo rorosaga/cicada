@@ -345,7 +345,7 @@ G61 S3 an agent can CHECK a `checkable` item (recommend-only, below); nothing se
 /inbox/check-census` and `scripts/check-census.sh <bank>` report it as ids-free counts — the coverage
 gate for S3–S8.
 
-**Settled by a check (owner ruling 2026-10-16, TODO ruling 27).** A conflict or clarification about a **public thing** —
+**Settled by a check (owner ruling 2026-10-16, TODO ruling 27).** A conflict, clarification or "same as?" pair about a **public thing** —
 a film, a paper, a tool, a company, a public concept — is looked up on the web and settled with a cited answer:
 Sleep's tail does it on every run on the Claude plan (their plan's own search, the call's one tool) — the scheduled ones
 too, since the plan switch is on by default (rulings 4c, 27b, 2026-10-19: "That's not what the inbox is for") — or on a
@@ -374,6 +374,17 @@ claims that all came from the person's own words (`source_trust: user_stated` or
 accents folded), never on "both", never writing another thing's description onto the page; with no such option the
 question stays (`web_settle.different_things`, census `different_things`). The writer refuses a situation label as a
 description whatever the gate said.
+**A "same as?" question about two public things (2026-10-29, `merge_suggestion`).** Ruling 27's lookup never read the
+duplicate questions (`KINDS` was conflicts and clarifications): "Is <alternative> the same as <original>?" stayed for
+the person though two searches answer it. Now a pair is looked up when BOTH sides pass the filter — a company, tool,
+concept or work each; neither the owner, a person, a project page, a name carrying a project's whole name, a file, a
+path or a PR/G reference; never two pages sharing one title (G227) — each name searched ALONE (`queries_for`: two
+pinned queries, one search each, never one name sent with the other's words), the answer the relation of the name to
+the page (`entity_relations`) or `different`, with the result's link and words. `settle_pair` writes ONE cited claim on
+the page the name was weighed against (`includes`, `creates`, `alternative-to`, `has-version`…; `contrasts-with` for
+`different`), moves the question to `settled/` with the record Undo reads, and the claim on the record keeps the pair
+from being asked again. **A check never merges:** "they are the same" settles nothing — the question stays for the
+person's tap. Pairs come after clarifications and before conflicts in a run's eight (`KIND_ORDER`).
 The settled question moves to `inbox/settled/<id>.md` with a `settled:` block naming exactly what it wrote, and is
 served by `GET /inbox/settled` (not a Store domain). **The Inbox shows it under "Settled by a check"** (closed until
 asked for, below the questions and on the empty page): the answer, the quote and the site with when and who

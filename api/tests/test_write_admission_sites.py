@@ -493,6 +493,7 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /sources/whatsapp/conversations": (NONE, None),      # the person's tick per listed chat, stores nothing
     "PUT /sources/telegram/settings": (HELD, None),            # a history ask reads in the background (per write)
     # Ruling 47a: the sign-in steps and the log-out write only the session file outside every bank.
+    "POST /sources/telegram/qr": (OUTSIDE, None),         # owner 2026-10-29: the QR connect, the same session file
     "POST /sources/telegram/connect": (OUTSIDE, None),
     "POST /sources/telegram/code": (OUTSIDE, None),
     "POST /sources/telegram/password": (OUTSIDE, None),
@@ -535,6 +536,7 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /devices/pairing": (OUTSIDE, None),
     "DELETE /devices/pairing/{pairing_id}": (OUTSIDE, None),
     "POST /pair": (OUTSIDE, None),
+    "POST /devices/me/key": (OUTSIDE, None),   # 2026-10-29: a device binds its own key, in $CICADA_HOME
     "POST /devices": (OUTSIDE, None),
     "DELETE /devices/{device_id}": (OUTSIDE, None),
     "POST /capture/hook-context": (OUTSIDE, None),   # G110: may refresh the continuity index in $CICADA_HOME

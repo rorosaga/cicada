@@ -56,14 +56,18 @@ struct TelegramStatusAnswer: Decodable, Equatable, Sendable {
     var credentials: String?
     var error: String?
     var listening = false
+    /// While `state == "qr"`: the `tg://login` link the panel draws as a QR (owner 2026-10-29) — shown, never kept.
+    var qrUrl: String?
 
-    enum CodingKeys: String, CodingKey { case state, consent, consentAsk, credentials, error, listening }
+    enum CodingKeys: String, CodingKey { case state, consent, consentAsk, credentials, error, listening, qrUrl }
 
-    init(state: String = "off", consent: String = "", credentials: String? = nil, error: String? = nil) {
+    init(state: String = "off", consent: String = "", credentials: String? = nil, error: String? = nil,
+         qrUrl: String? = nil) {
         self.state = state
         self.consent = consent
         self.credentials = credentials
         self.error = error
+        self.qrUrl = qrUrl
     }
 
     init(from decoder: Decoder) throws {
@@ -74,6 +78,7 @@ struct TelegramStatusAnswer: Decodable, Equatable, Sendable {
         credentials = try? c.decodeIfPresent(String.self, forKey: .credentials)
         error = try? c.decodeIfPresent(String.self, forKey: .error)
         listening = (try? c.decodeIfPresent(Bool.self, forKey: .listening)) ?? false
+        qrUrl = try? c.decodeIfPresent(String.self, forKey: .qrUrl)
     }
 }
 
@@ -124,6 +129,7 @@ protocol ChatSourcesAPI: Sendable {
         -> ChatTickAnswer
     func postWhatsApp(_ json: Data) async throws -> ChatSyncAnswer
     func telegramStatus() async throws -> TelegramStatusAnswer
+    func telegramQR() async throws -> TelegramStatusAnswer
     func telegramConnect(phone: String) async throws -> TelegramStatusAnswer
     func telegramCode(_ code: String) async throws -> TelegramStatusAnswer
     func telegramPassword(_ password: String) async throws -> TelegramStatusAnswer

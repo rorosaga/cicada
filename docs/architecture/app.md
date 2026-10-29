@@ -66,6 +66,13 @@ Agents page, ⌘9, `AppTab.agents`, appended so no shortcut moved — DR-22).
   The QR's `url` is the backend's to fill (this machine's Tailscale name for the backend port, when it can tell); the
   app sends none. With it the sheet says the address and "Scan with Cicada on your phone"; without it, one line says
   which address to type.
+  **2026-10-29 (G212):** each device row's line adds what it may do (*Capture only* / *Full access*) and its key state
+  (*Key-bound since <day>* / *Not yet key-bound*); after a pairing, an older active row of the same name is offered for
+  revoking (an offer only, behind Revoke's confirmation); Revoke keeps its confirmation (DESIGN_RULES' destructive rule) and the next
+  request is refused. *Reach from your phone* (`DeviceReachSection`) sits in the list card above *Pair a device*: a
+  `StatusDot` and one line from `GET /devices/reach?check=true` (read on appear, never polled), the one next step in
+  words, the step's command in a `CommandBox` to copy (Cicada never runs it), *Get Tailscale* where it is missing, and
+  where the live check stopped (DR-19, DR-38, DR-39, DR-40, DR-51; no new visual pattern).
   *Memory on* and the folded *Apps outside this machine* (the remote connector, `page:remote`) follow.
 - **Privacy & data** gains Search & memory's one row (*Search runs on this Mac* and the sharper-model download); the
   fade card shows only while it holds a suggestion or a chosen pace. Watched folders are sources (`WatchedFoldersGroup`
@@ -921,8 +928,15 @@ JID. Telegram's chats post no card: the backend reads them through Telegram's AP
 
 **Telegram chats (ruling 47a, 2026-10-28).** The same row and sheet (`TelegramSourceRow`, `TelegramPanel`;
 `TelegramChats` holds the state, the backend the client). Not connected: the backend's consent sentence word for word,
-then the steps in native rounded fields (DR-76: setup sheets keep the native field) — phone number → the code Telegram
-sends → the two-step password when the account has one. Connected: the one-to-one chats only (no group, no channel),
+then — since ruling 49 (2026-10-29) — the sheet opens on a sign-in QR: Connect… was the person's act, so the panel asks
+`POST /sources/telegram/qr` at once and draws the returned `tg://login` link with Core Image (`TelegramQRCode`: dark
+modules on a light four-module quiet zone in both appearances, a 168 pt tile with the resting ring, DR-9, DR-12), the
+words beside it (Settings → Devices → Link Desktop Device; DR-13), and reads the status once a second only while the
+QR is up (`TelegramChats.followQR`), so a refreshed QR replaces itself and a scan lands on the chat list. Closing the
+sheet mid sign-in stops it at the backend (`abandonSignIn`): a QR on screen or still being asked for (stopped as it
+lands), a code or a two-step password waiting — never a connected session. *Use a phone number instead* (a `TextButton`, DR-40) keeps the old steps in native
+rounded fields (DR-76: setup sheets keep the native field) — phone number → the code Telegram sends; the two-step
+password when the account has one, after either path. Connected: the one-to-one chats only (no group, no channel),
 each with *Read history* and the tick; ticking opens a system alert (*Did they agree?*) carrying the backend's
 per-chat sentence with the chat's name — *They agreed* ticks, Cancel doesn't — and unticking withdraws it; *Disconnect*
 ends the session at Telegram.

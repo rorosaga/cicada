@@ -278,7 +278,7 @@ def test_complete_uses_the_registered_schema_for_disambiguation(agent_runner, ag
                           model="haiku", stage="disambiguation", want_json=True, runner=runner)
     argv = runner.calls[0]["argv"]
     schema = json.loads(argv[argv.index("--json-schema") + 1])
-    assert schema["properties"]["decision"]["enum"] == ["same", "different", "unsure"]
+    assert schema["properties"]["decision"]["enum"] == ["same", "different", "unsure", "related"]
 
 
 def test_complete_honours_the_timeout_it_is_given(agent_runner, agent_envelopes):

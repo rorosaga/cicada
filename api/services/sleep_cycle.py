@@ -3144,8 +3144,13 @@ async def _run_stages(
     try:
         from api.services.claim_pipeline import run_claim_pipeline
         from api.services.inbox_generator import write_claim_nudges
+        # 2026-10-29 (`entity_relations`): what Stage 2's judge said two names are to each other, written as claims by
+        # the same projection as Stage 1's relationships (origin ``sleep``: Cicada's reading, never the person's words).
+        judged = resolved_result.get("relations") or []
+        claim_input = [*extracted, {"episode_id": "", "origin": "sleep", "relationships": judged}] if judged \
+            else extracted
         claim_result = await asyncio.to_thread(
-            run_claim_pipeline, extracted, existing, memory_path, settings,
+            run_claim_pipeline, claim_input, existing, memory_path, settings,
             # G141 PJ-0: Stage 2's own map, so a claim lands where its edge did.
             name_to_id=resolved_result.get("name_to_id"),
             decided_names=resolved_result.get("decided_names"),

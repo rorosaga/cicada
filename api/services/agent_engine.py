@@ -41,6 +41,7 @@ from typing import Any, Callable
 from loguru import logger
 
 from api.services import agent_stream, engine_errors, engine_schemas, plan_limits
+from api.services.entity_relations import RELATIONS as _RELATIONS
 from api.services.auth import cicada_home
 from api.services.connections.base import CliResult
 
@@ -116,12 +117,16 @@ def system_prompt_for(system_prompt: str | None) -> str:
 #: field-stripping.
 #: Disambiguation answers one pair (``decision``) or, since 2026-10-20, several candidates in one call
 #: (``decisions``, `entity_resolver._llm_judge_batch`): both shapes are declared, neither required — the prompt asks
-#: for the one it needs and the parser reads a missing decision as ``unsure``.
+#: for the one it needs and the parser reads a missing decision as ``unsure``. ``related`` with its ``relation``
+#: (2026-10-29, `entity_relations`): two things, one a part, product, alternative or version of the other.
+_JUDGE_WORDS = ["same", "different", "unsure", "related"]
+_RELATION_WORDS = list(_RELATIONS)
 SCHEMA_BY_STAGE: dict[str, dict] = {
     "disambiguation": {
         "type": "object",
         "properties": {
-            "decision": {"type": "string", "enum": ["same", "different", "unsure"]},
+            "decision": {"type": "string", "enum": _JUDGE_WORDS},
+            "relation": {"type": "string", "enum": _RELATION_WORDS},
             "reason": {"type": "string"},
             "decisions": {
                 "type": "array",
@@ -129,7 +134,8 @@ SCHEMA_BY_STAGE: dict[str, dict] = {
                     "type": "object",
                     "properties": {
                         "entry": {"type": "integer"},
-                        "decision": {"type": "string", "enum": ["same", "different", "unsure"]},
+                        "decision": {"type": "string", "enum": _JUDGE_WORDS},
+                        "relation": {"type": "string", "enum": _RELATION_WORDS},
                         "reason": {"type": "string"},
                     },
                     "required": ["entry", "decision"],

@@ -40,9 +40,17 @@ extension Copy {
         static func meta(last: String?, group: Bool) -> String {
             [group ? Copy.Chats.group : nil, last].compactMap { $0 }.joined(separator: " · ")
         }
-        // Telegram's connect steps (ruling 47a).
+        // Telegram's connect steps (ruling 47a). The QR is the default (owner 2026-10-29): linking a device.
         static let connect = "Connect…"
-        static let connectHelp = "Sign in to your own Telegram account"
+        static let connectHelp = "Link Cicada to your own Telegram account"
+        static let qrHow = "Open Telegram on your phone, go to Settings → Devices → Link Desktop Device, and point "
+            + "the camera at this code."
+        static let qrRefreshes = "The code refreshes by itself until you scan it."
+        static let qrAccessibility = "Telegram sign-in code"
+        static let qrStarting = "Asking Telegram for a code…"
+        static let qrAgain = "Show a new code"
+        static let usePhone = "Use a phone number instead"
+        static let useQR = "Scan a code instead"
         static let phonePrompt = "Your Telegram phone number, with its country code"
         static let sendCode = "Send code"
         static let codePrompt = "The code Telegram sent to your Telegram app"

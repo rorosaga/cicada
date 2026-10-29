@@ -1,3 +1,4 @@
+import CoreImage
 import SQLite3
 import XCTest
 @testable import CicadaApp
@@ -96,11 +97,26 @@ final class FakeChatSourcesAPI: ChatSourcesAPI {
         return answer()
     }
 
-    func telegramStatus() async throws -> TelegramStatusAnswer { TelegramStatusAnswer() }
+    /// The statuses `telegramStatus` answers in order (the last repeats); empty = an empty status.
+    var telegramStatuses: [TelegramStatusAnswer] = []
+    func telegramStatus() async throws -> TelegramStatusAnswer {
+        telegramStatuses.count > 1 ? telegramStatuses.removeFirst() : (telegramStatuses.first ?? TelegramStatusAnswer())
+    }
+    func telegramQR() async throws -> TelegramStatusAnswer {
+        if holdQR { await withCheckedContinuation { qrGate = $0 } }
+        return TelegramStatusAnswer(state: "qr", qrUrl: "tg://login?token=PLACEHOLDER")
+    }
     func telegramConnect(phone: String) async throws -> TelegramStatusAnswer { TelegramStatusAnswer() }
     func telegramCode(_ code: String) async throws -> TelegramStatusAnswer { TelegramStatusAnswer() }
     func telegramPassword(_ password: String) async throws -> TelegramStatusAnswer { TelegramStatusAnswer() }
-    func telegramDisconnect() async throws -> TelegramStatusAnswer { TelegramStatusAnswer() }
+    private(set) var telegramDisconnects = 0
+    /// Held while set: `telegramQR` waits on it, as a QR request still in flight does.
+    var qrGate: CheckedContinuation<Void, Never>?
+    var holdQR = false
+    func telegramDisconnect() async throws -> TelegramStatusAnswer {
+        telegramDisconnects += 1
+        return TelegramStatusAnswer()
+    }
     func telegramChats() async throws -> TelegramChatsAnswer { TelegramChatsAnswer() }
     private(set) var telegramTicks: [(id: String, ticked: Bool, consent: Bool)] = []
     func telegramTick(id: String, name: String, ticked: Bool, consent: Bool) async throws -> ChatTickAnswer {
@@ -265,6 +281,52 @@ final class WhatsAppReaderTests: XCTestCase {
         XCTAssertEqual(api.telegramTicks.map(\.consent), [true, false], "an untick never carries consent")
         XCTAssertEqual(model.tickedIds, [])
         XCTAssertEqual(model.consentAsk(for: chat), "", "no sentence until the backend serves one")
+    }
+
+    /// Owner 2026-10-29: Telegram connects by a QR — the sheet draws the backend's link and follows the status until
+    /// the phone accepts it; the drawn code carries exactly the link, inside a quiet zone.
+    @MainActor
+    func testTelegramConnectsByQRAndFollowsTheStatusUntilScanned() async throws {
+        let api = FakeChatSourcesAPI()
+        let model = TelegramChats(api: api)
+        await model.startQR()
+        XCTAssertTrue(model.showsQR)
+        let link = try XCTUnwrap(model.status.qrUrl)
+        api.telegramStatuses = [TelegramStatusAnswer(state: "qr", qrUrl: "tg://login?token=NEXT"),
+                                TelegramStatusAnswer(state: "connected")]
+        await model.followQR(every: .milliseconds(1))
+        XCTAssertTrue(model.connected)
+        XCTAssertFalse(model.showsQR)
+        let image = try XCTUnwrap(TelegramQRCode.image(for: link))
+        let cg = try XCTUnwrap(image.cgImage(forProposedRect: nil, context: nil, hints: nil))
+        let found = try XCTUnwrap(CIDetector(ofType: CIDetectorTypeQRCode, context: nil, options: nil)?
+            .features(in: CIImage(cgImage: cg)).compactMap { ($0 as? CIQRCodeFeature)?.messageString })
+        XCTAssertEqual(found, [link], "the code says the link and nothing else")
+        XCTAssertEqual(image.size.width.truncatingRemainder(dividingBy: 8), 0, "whole modules, quiet zone included")
+    }
+
+    /// #547 review 2/3: closing the sheet while the QR is still being asked for stops it when it answers; closing at a
+    /// waiting password stops that too; a connected session is never touched.
+    @MainActor
+    func testClosingTheTelegramSheetMidSignInStopsItAtTheBackend() async throws {
+        let api = FakeChatSourcesAPI()
+        let model = TelegramChats(api: api)
+        api.holdQR = true
+        let asking = Task { await model.startQR() }
+        while api.qrGate == nil { await Task.yield() }
+        await model.abandonSignIn()                 // the sheet closed before the QR arrived
+        XCTAssertEqual(api.telegramDisconnects, 0, "nothing to stop yet")
+        api.qrGate?.resume()
+        await asking.value
+        XCTAssertEqual(api.telegramDisconnects, 1, "the late QR is stopped as it lands")
+        api.telegramStatuses = [TelegramStatusAnswer(state: "password")]
+        await model.refresh()
+        await model.abandonSignIn()
+        XCTAssertEqual(api.telegramDisconnects, 2, "a waiting password is a half sign-in too")
+        api.telegramStatuses = [TelegramStatusAnswer(state: "connected")]
+        await model.refresh()
+        await model.abandonSignIn()
+        XCTAssertEqual(api.telegramDisconnects, 2, "a connected session is never ended by closing the sheet")
     }
 
     /// File change → posted (the app's half; the backend's is `test_chat_live.test_live_update_cost_p95`): one new

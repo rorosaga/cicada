@@ -10,6 +10,8 @@ then every active device token the person issued. Ids, names, enums, times and c
   :data:`CONNECTED_WITHIN_S`.
 * **how** — ``local`` for this server; for a device, how its last request arrived (``agent_seen.HOW``: ``ssh``,
   ``tailscale``, ``lan``), read from the request, never from what the device says; ``None`` before any request.
+* **kind**, **keyBound**, **keyBoundAt** — a device only (2026-10-29): ``capture`` or ``full`` (``device_tokens.KINDS``), whether
+  its token works only with a proof of its own key (``device_proof``), and since when.
 * **queue** — conversations from that machine waiting for Sleep (an episode's ``device`` frontmatter, G181 phase 3;
   none = this server), counted from ``bank_index``'s cached headers, never a body.
 """
@@ -82,5 +84,7 @@ def snapshot(memory_path: Path, *, asking_device: str | None = None, now: dateti
         last = max((m for m in (_parse(device.last_used_at), _parse(sighting.get("lastSeen"))) if m), default=None)
         rows.append({"id": device.id, "name": device.name, "role": "device", "current": device.id == asking_device,
                      "connected": bool(last and (now - last).total_seconds() <= CONNECTED_WITHIN_S),
-                     "how": sighting.get("how"), "lastSeenAt": _iso(last), "queue": waiting.get(device.id, 0)})
+                     "how": sighting.get("how"), "lastSeenAt": _iso(last), "queue": waiting.get(device.id, 0),
+                     # 2026-10-29: what it may do (`capture` = send captures only) and whether its token needs its key.
+                     "kind": device.kind, "keyBound": device.key_bound, "keyBoundAt": device.key_bound_at})
     return {"devices": rows, "connectedWithinSeconds": CONNECTED_WITHIN_S}

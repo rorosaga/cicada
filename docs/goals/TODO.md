@@ -12,6 +12,19 @@
 
 ## Current state and evidence
 
+- **2026-10-29 — Telegram connects by a QR (ruling 49, G179; branch `feat/telegram-qr-connect`).** Connect… opens on a
+  sign-in QR the person scans in Telegram on their phone (Settings → Devices → Link Desktop Device); the backend
+  refreshes it as Telegram expires it (~30 s, 10 rounds) and the app follows the status; number → code is the
+  fallback. Typed fields 2–3 → 0–1 (a two-step password only); app switches to read a code 1 → 0. Stopping a sign-in
+  half way no longer "logs out" a session that never existed. **The real friction left is the app id:** no
+  `CICADA_TELEGRAM_API_ID` is set on the repo, so a release build has none and every person would have to make their
+  own at my.telegram.org — the owner sets it once (`docs/RELEASING.md`).
+- **2026-10-29 — seamless, secure devices (G212; branch `feat/seamless-devices`, cicada-app `feat/seamless-devices`).**
+  Settings → Devices guides the Mac onto the person's own tailnet (the next step and the command to copy; Cicada never
+  runs it) and checks the served address the way a phone would; a phone's token is bound to a Secure-Enclave key
+  (DPoP-style; a copied token alone is a 401), already-paired phones bind themselves, a phone pairs capture-only and can
+  only narrow its code. Proof verify p95 0.06 ms; hot paths within noise. Waits on the owner: whether a click may run
+  `tailscale serve`, and the on-phone checks. Numbers on the G212 row.
 - **2026-10-29 — T3 Code (G228; PR #543).** T3 Code drives the Claude Code, Codex and Cursor on the
   machine with their own settings, so Cicada's existing hooks, plugin and MCP server already run in its threads; one
   thread on one harness is that harness's one episode. New: the hook names the host from its own launch chain (exec paths only)
@@ -42,6 +55,14 @@
   hoff keeps no walkthrough record and its marks cache carries titles and page text — the recommended event line waits
   on the owner, as does `sharingType = .none` in hoff's own repo. Numbers on the G220 and G138 rows.
 - **2026-10-29 — G227 follow-ups (branch `feat/same-name-tag`; owner rulings recorded on the G227 row).** A mention several same-named pages could be is one question: which page, or "Another one" (owner: "none should probably just mean another one"). A pick merges by id. "Another" keeps THAT mention apart on its own pending line, never name-wide (#546 review: a name-keyed rejection kept later mentions of the page from joining it; "No, different" fixed the same way). Once the unchanged promotion rule allows, Sleep makes it a page with the clean title under a distinct id (no stored "(another)"). The app shows the qualifier as a `Tag` beside the plain name (DESIGN_RULES §9 2026-10-29); agent doors keep it in text. The IDE-page split is a per-sentence dry-run plan that waits for the owner's OK; nothing is applied.
+- **2026-10-29 — related is not the same (G21, G209; branch `fix/duplicate-questions-relations`).** Home's "Possible
+  duplicates" held 160 questions on the owner's bank, most of them a part and its whole, a product and its maker, an
+  alternative and the original or a version and its line. The judge now answers `related` with the relation; a
+  relation is a claim on the page, never a question; a project name with no birth judged a part of a page lands on it
+  (owner 2026-10-23's canoe rule); an organisation/tool alias lead meets the judge before it is asked; a pair the record
+  relates is never proposed; a public pair is looked up (each name alone) and settled with a cited relation, undoable
+  under "Settled by a check" — never merged. The backlog is a per-item dry run in the workspace; applying it waits on
+  the owner. Numbers on the G21 row.
 - **2026-10-29 — same name, different things (G227; branch `feat/same-name-qualifier`).** A title two pages share is
   shown "<name> (<qualifier>)" everywhere — the app, the API, recall, Ask, the CLI and `/v1` — from one derived function
   (`same_name`); links resolve by id; Stage 2 no longer joins an exact title of another kind on the name alone (the
@@ -2385,4 +2406,18 @@ A whole row moves to DONE only after its remaining implementation and required a
     view, every connected display and a low screenshot frequency under ruling 38's rails. New trace signals are
     "not yet". **Revisit** a part when its build shows a measured cost the mock hid (a p95 regression, a rail it
     cannot keep), on that part only.
+49. **Telegram is never read from the Mac's own store; connecting is "link a device" (owner, 2026-10-29; G179,
+    amends nothing in 47a).** The question was whether a local reader — Telegram for macOS's encrypted Postbox store,
+    decrypted with the app's default key — could replace the sign-in. The owner ran the read-only probe on his own
+    store (numbers only, nothing named): **59 one-to-one chats, a median of 1 message each, none older than a year** —
+    the Mac holds a cache, not the history (the probe's pre-registered criterion C failed). A local reader would add a
+    decrypt-another-app's-store posture, a macOS prompt, a native SQLCipher and a reverse-engineered format, and still
+    not remove Telegram's AI clause or the per-chat consent. Owner: *"With telegram sure lets keep whatever is less
+    friction for the user. If it can be done with a similar connect through browser that kind of lets cicada read your
+    telegram then awesome."* So: **no local reader**; 47a's official API stays the one Telegram path, and its connect
+    is a **QR the person scans in Telegram on their phone** (Settings → Devices → Link Desktop Device;
+    `auth.exportLoginToken`), number → code kept as the fallback, a two-step password typed once either way — every
+    47a rail unchanged (one-to-one only, per-chat consent, the session 0600 outside every bank, one-click log-out,
+    nothing read before a tick). **Revisit** if Telegram ships an official local export or API for personal archives,
+    or if Telegram withdraws QR login for third-party apps.
 

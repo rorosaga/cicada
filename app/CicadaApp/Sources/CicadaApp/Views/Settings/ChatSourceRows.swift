@@ -1,3 +1,4 @@
+import CoreImage
 import SwiftUI
 
 /// G179 (2026-10-28) — WhatsApp and Telegram on the Sources page → Messaging, drawn exactly as Messages is
@@ -7,6 +8,12 @@ import SwiftUI
 /// history" per ticked chat (a `.bordered` small button, as Messages' "Read again"), and for Telegram the sign-in
 /// steps in the same sheet with native rounded fields (DR-76: setup sheets keep the native field) and the consent
 /// sentence the backend serves, word for word (ruling 47a). No new visual pattern.
+///
+/// Owner 2026-10-29 — Telegram connects like linking a desktop: the sheet opens on a sign-in QR the person scans in
+/// Telegram on their phone (Settings → Devices → Link Desktop Device), nothing typed but a two-step password; "Use a
+/// phone number instead" (a `TextButton`, DR-40) keeps number → code. The QR is a picture inside the same sheet, drawn
+/// dark on light whatever the appearance (a scanner needs it), on a `cornerRadiusSmall` tile with the resting ring
+/// (DR-9: depth is a ring, never a shadow); its words sit beside it, never on it (DR-13).
 
 // MARK: - WhatsApp
 
@@ -154,6 +161,8 @@ struct TelegramPanel: View {
     @State private var phone = ""
     @State private var code = ""
     @State private var password = ""
+    /// The fallback: the person chose to type their number (the QR is the default).
+    @State private var usePhone = false
     /// The chat waiting for the person's confirmation that the other person agreed (ruling 47a amendment).
     @State private var asking: TelegramChatRow?
 
@@ -192,7 +201,7 @@ struct TelegramPanel: View {
                         await model.submit(code: code)
                         code = ""
                     }
-                } else {
+                } else if usePhone {
                     TextField(Copy.Chats.phonePrompt, text: $phone)
                         .textFieldStyle(.roundedBorder)
                         .onSubmit { Task { await model.connect(phone: phone) } }
@@ -200,14 +209,29 @@ struct TelegramPanel: View {
                         await model.connect(phone: phone)
                         phone = ""
                     }
+                    TextButton(title: Copy.Chats.useQR, flushLeading: true) {
+                        usePhone = false
+                        Task { await model.startQR() }
+                    }
+                } else {
+                    qrStep
                 }
             }
             ChatSheetFooter(error: model.error, onDone: onDone)
         }
         .task {
             await model.refresh()
-            await model.loadChats()
+            if model.connected {
+                await model.loadChats()
+            } else if !model.asksCode && !model.asksPassword && !model.showsQR {
+                await model.startQR()     // Connect… was the person's act: the sheet opens on the code to scan
+            }
         }
+        // One status read a second while a QR is on screen; it stops the moment the state moves on.
+        .task(id: model.status.state) { if model.status.state == "qr" { await model.followQR() } }
+        // Closing the sheet mid sign-in (a QR up or still being asked for, a code or password waiting) stops it at the
+        // backend: no unsigned client outlives the sheet that asked.
+        .onDisappear { Task { await model.abandonSignIn() } }
         .onChange(of: model.connected) { _, now in if now { Task { await model.loadChats() } } }
         // A system alert, the one confirmation pattern macOS has (no new visual pattern): the sentence, then
         // "They agreed" or Cancel. Nothing is ticked or read until the person confirms.
@@ -217,6 +241,48 @@ struct TelegramPanel: View {
             Button(Copy.Chats.consentCancel, role: .cancel) {}
         } message: { chat in
             Text(model.consentAsk(for: chat))
+        }
+    }
+
+    /// The default connect: the QR on its tile, how to scan it beside it, and the fallback beneath.
+    @ViewBuilder
+    private var qrStep: some View {
+        HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
+            let side = CicadaTheme.scaled(168)
+            Group {
+                if model.showsQR, let url = model.status.qrUrl, let image = TelegramQRCode.image(for: url) {
+                    Image(nsImage: image)
+                        .interpolation(.none)
+                        .resizable()
+                        .accessibilityLabel(Copy.Chats.qrAccessibility)
+                } else if model.busy {
+                    ProgressView().controlSize(.small)
+                } else {
+                    NeutralButton(title: Copy.Chats.qrAgain, size: .compact, help: Copy.Chats.connectHelp) {
+                        Task { await model.startQR() }
+                    }
+                }
+            }
+            .frame(width: side, height: side)
+            .overlay(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
+                .strokeBorder(CicadaTheme.ring(.resting), lineWidth: 1))
+            .clipShape(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                Text(model.showsQR || !model.busy ? Copy.Chats.qrHow : Copy.Chats.qrStarting)
+                    .font(CicadaTheme.bodyFont)
+                    .foregroundStyle(CicadaTheme.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if model.showsQR {
+                    Text(Copy.Chats.qrRefreshes)
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        TextButton(title: Copy.Chats.usePhone, flushLeading: true) {
+            usePhone = true
+            if model.showsQR { Task { await model.disconnect() } }   // stops the QR; nothing was signed in
         }
     }
 
@@ -253,6 +319,26 @@ struct TelegramPanel: View {
             }
             .frame(maxHeight: CicadaTheme.scaled(360))
         }
+    }
+}
+
+/// A `tg://login` link drawn as a QR with Core Image — on this Mac, no service asked. Dark modules on a light ground
+/// in both appearances: a phone's scanner reads that, and the generator's own colours are kept rather than tinted.
+enum TelegramQRCode {
+    static func image(for text: String, scale: CGFloat = 8) -> NSImage? {
+        guard let filter = CIFilter(name: "CIQRCodeGenerator") else { return nil }
+        filter.setValue(Data(text.utf8), forKey: "inputMessage")
+        filter.setValue("M", forKey: "inputCorrectionLevel")
+        guard let code = filter.outputImage else { return nil }
+        // The four-module quiet zone the QR spec asks for, in the code's own light ground — so the sheet's dark
+        // ground never touches the modules and a scanner finds the edge in either appearance.
+        let ground = CIImage(color: CIColor(red: 1, green: 1, blue: 1)).cropped(to: code.extent.insetBy(dx: -4, dy: -4))
+        let scaled = code.composited(over: ground).transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        let output = scaled.transformed(by: CGAffineTransform(translationX: -scaled.extent.minX, y: -scaled.extent.minY))
+        let rep = NSCIImageRep(ciImage: output)
+        let image = NSImage(size: rep.size)
+        image.addRepresentation(rep)
+        return image
     }
 }
 
