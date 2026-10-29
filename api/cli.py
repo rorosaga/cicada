@@ -736,13 +736,42 @@ def cmd_skills_create(boot: Boot, args) -> Result:
     return _typed(reply, warnings=_root_warnings(boot))
 
 
+def _page_join(tool: str):
+    """G227 follow-up (coordinator 2026-10-29): `page merge` / `page split` — the MCP bodies, G198's trust list deciding
+    as it does there (a listed harness applies under its own name, any other shell's call is an inbox proposal). An
+    edit already uncommitted on a page is committed apart first (`agent_commits.setting_apart`)."""
+    def handler(boot: Boot, args) -> Result:
+        from api.services import agent_commits, mcp_tools
+
+        row = cli_map.by_tool()[tool]
+        arguments = {a.prop: getattr(args, a.prop, None) for a in row.args if getattr(args, a.prop, None) is not None}
+        if boot.client:
+            return _typed(_door(boot, tool, arguments), warnings=_root_warnings(boot))
+        ctx = _tool_context(boot)
+        with agent_commits.setting_apart(boot.pin.path):
+            if tool == "cicada_undo_join":
+                reply = mcp_tools.undo_join(ctx, arguments.get("page", ""), arguments.get("reason", ""))
+            elif tool == "cicada_merge_pages":
+                reply = mcp_tools.merge_pages(ctx, arguments.get("page", ""), arguments.get("into", ""),
+                                              arguments.get("reason", ""))
+            else:
+                reply = mcp_tools.split_page(
+                    ctx, arguments.get("page", ""), arguments.get("reason", ""), arguments.get("sentences"),
+                    arguments.get("claims"), arguments.get("sources"), arguments.get("episodes"),
+                    arguments.get("references"), arguments.get("name"), arguments.get("page_type"),
+                    bool(arguments.get("preview", False)))
+        return _typed(reply, warnings=_root_warnings(boot))
+    return handler
+
+
 ON_SERVER_TEXT = ("This command reads the memory folder, and this shell is a client of a Cicada server "
                   "(CICADA_API_BASE): the folder is on the server. Run it there, or use the MCP tools here. "
                   "Nothing was read or written.")
 #: G181 phase 2: what a client shell runs, through the server's own routes — the tool mirrors (the tool door) and
 #: the read of the bank list; every `backend` command already goes to the backend's routes.
 CLIENT_DOOR_COMMANDS = frozenset({"recall", "get", "project", "continue", "save", "handshake", "timeline",
-                                  "skills list", "skills propose", "skills create", "status", "commands",
+                                  "skills list", "skills propose", "skills create", "page merge", "page split", "page undo",
+                                  "status", "commands",
                                   "bank list", "import"})
 
 
@@ -772,7 +801,10 @@ COMMANDS: dict[str, Callable] = {"recall": cmd_recall, "get": cmd_get, "project"
                                  "continue": cmd_continue, "save": cmd_save, "handshake": cmd_handshake,
                                  "status": cmd_status, "commands": cmd_commands, **cli_app.COMMANDS,
                                  "import": cmd_import, "skills list": cmd_skills_list,
-                                 "skills propose": cmd_skills_propose, "skills create": cmd_skills_create}
+                                 "skills propose": cmd_skills_propose, "skills create": cmd_skills_create,
+                                 "page merge": _page_join("cicada_merge_pages"),
+                                 "page split": _page_join("cicada_split_page"),
+                                 "page undo": _page_join("cicada_undo_join")}
 _NO_BOOT = {"commands"}
 
 

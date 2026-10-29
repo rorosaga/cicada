@@ -2719,6 +2719,17 @@ def _answer_page_edit(path: Path, fm: dict, memory_path: Path, label: str, befor
                 f"Inbox resolution (page_edit) {day}", lines, authors=["user"])
             git_service.commit_touched_sync(memory_path, message, touched, before=before, **kept)
             return
+        if fm.get("join"):
+            # G227 follow-up: an agent's proposed merge or split, applied as proposed (`page_join`), its own commit.
+            from api.services import page_join
+
+            try:
+                page_join.apply_proposal(memory_path, fm, rel_item=rel_item, trigger=page_edits.TRIGGER_APPLY,
+                                         before=before)
+            except page_join.JoinError as exc:
+                raise HTTPException(409, PAGE_EDIT_STALE.format(why=str(exc))) from exc
+            bank_index.invalidate(memory_path)
+            return
         page = resolve_entity_file(memory_path, str(fm.get("entity_id") or ""))
         if page is None:
             raise HTTPException(409, PAGE_EDIT_STALE.format(why="the page is gone."))

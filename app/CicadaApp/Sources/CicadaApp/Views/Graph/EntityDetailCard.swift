@@ -73,6 +73,8 @@ struct EntityDetailCard: View {
     /// (`pageMenu`) when the page has none yet, so an empty section is never drawn waiting for one.
     @State private var addingLink = false
     @State private var addingLook = false
+    /// G227 follow-up (owner 2026-10-29) — the page's Merge sheet; separating is handed to the person's agent.
+    @State private var merging = false
     /// `/provenance` was asked for this page: the History, Perspectives and Timeline tabs read it when opened — the
     /// Content tab never does (ruling 48: a card open is one request).
     @State private var provenanceAskedFor: String?
@@ -401,6 +403,9 @@ struct EntityDetailCard: View {
                 }
             }
             Divider()
+            Button(Copy.PageJoin.mergeMenu) { merging = true }
+            Button(Copy.PageJoin.separateMenu) { SeparateHandOff.copy(id: entity.id, name: entity.name, store: store) }
+            Divider()
             Menu("\(Copy.Pages.fades): \(fadesLabel)") {
                 ForEach(DecayClass.allCases) { option in
                     Button { setDecay(option) } label: {
@@ -425,6 +430,27 @@ struct EntityDetailCard: View {
             PageLookAdd(entityId: entity.id, unplaced: LooksCache.shared.unplaced)
                 .padding(CicadaTheme.spacingMD)
                 .frame(width: CicadaTheme.scaled(360), alignment: .leading)
+        }
+        .sheet(isPresented: $merging) {
+            MergePageSheet(entity: entity, close: { merging = false }, done: { id in
+                merging = false
+                afterJoin(open: id, pageGone: true)
+            })
+        }
+    }
+
+    /// After a merge: the graph again (a page went), then the page that stayed.
+    private func afterJoin(open id: String, pageGone: Bool = false) {
+        let here = entity.id
+        Task {
+            await graphVM.loadGraph()
+            if pageGone, navigation == nil {
+                // A merge: this page folded into `id` — open that one fresh, so "Back" never names a page that is gone.
+                graphVM.selectEntity(id: id)
+                return
+            }
+            if !pageGone { await graphVM.reloadEntity(id: here) }
+            navigate(to: id)
         }
     }
 

@@ -4605,6 +4605,18 @@ extension APIClient {
         try await getConditional(Self.provenancePath("/entities", entityId, "/links"), etag: etag)
     }
 
+    // MARK: G227 follow-up — merge two pages, split one, undo either (`page_joins`)
+
+    /// Fold `entityId` into `into` (the page that stays).
+    func mergePage(entityId: String, into: String) async throws -> PageJoinAnswer {
+        try await post(Self.provenancePath("/entities", entityId, "/merge"), body: ["into": into])
+    }
+
+    /// Take a merge or split back, from the page's History.
+    func undoJoin(entityId: String, commitHash: String) async throws -> PageJoinAnswer {
+        try await post(Self.provenancePath("/entities", entityId, "/history/\(commitHash)/undo"))
+    }
+
     /// One exact-words edit of a page as the person, pinned so Sleep's next rewrite keeps it (G198's corrections).
     /// The link-view switcher's door: `old` is the link's token, `new` the same link with its view word.
     func editPage(entityId: String, reason: String, old: String, new: String) async throws -> PageEditAnswer {

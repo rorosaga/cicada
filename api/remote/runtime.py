@@ -234,6 +234,12 @@ _DISPATCH: dict[str, Callable[[mcp_tools.ToolContext, dict], str]] = {
         c, str(a.get("project") or ""), str(a.get("entity") or ""), bool(a.get("remove", False)), a.get("reason")),
     "cicada_add_influence": lambda c, a: mcp_tools.add_influence(
         c, str(a.get("project") or ""), a.get("what"), a.get("url"), a.get("how"), a.get("evidence")),
+    "cicada_merge_pages": lambda c, a: mcp_tools.merge_pages(
+        c, str(a.get("page") or ""), str(a.get("into") or ""), str(a.get("reason") or "")),
+    "cicada_undo_join": lambda c, a: mcp_tools.undo_join(c, str(a.get("page") or ""), str(a.get("reason") or "")),
+    "cicada_split_page": lambda c, a: mcp_tools.split_page(
+        c, str(a.get("page") or ""), str(a.get("reason") or ""), a.get("sentences"), a.get("claims"), None,
+        a.get("episodes"), None, a.get("name"), None, bool(a.get("preview", False))),
     "cicada_record_watch": lambda c, a: mcp_tools.record_watch(
         c, str(a.get("url") or ""), str(a.get("summary") or ""), a.get("excerpts"), a.get("chapters"),
         basis=a.get("basis"), engine=a.get("engine"), duration=a.get("duration"), lease_token=a.get("lease_token")),

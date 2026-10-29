@@ -55,7 +55,7 @@ def test_build_carries_contract_state_and_capabilities(tmp_path):
     assert "in your own words" in text and "quote=<their exact words>" in text and 'mode="list"' in text
     assert "skip=true" in text and "Never guess an answer" in text
     assert "Recommended option" not in text and "quote the Cause" not in text
-    assert handshake.CONTRACT_VERSION == 22, ("G140 named its tools (3), bridge lines joined (G138, 4), then G141 named "
+    assert handshake.CONTRACT_VERSION == 23, ("G140 named its tools (3), bridge lines joined (G138, 4), then G141 named "
                                              "cicada_project (5) and cicada_note_progress (6); G149 item 8 (the "
                                              "From Cicada note) and G150's backlog tools both took 7 on parallel "
                                              "branches, so the merge moves past both (8, R-H13); G166's reading "
@@ -64,7 +64,8 @@ def test_build_carries_contract_state_and_capabilities(tmp_path):
                                              "G110 names cicada_continue (14), optional State guidance (15); "
                                              "questions come up naturally (16); G198 names cicada_edit_page, merged "
                                              "past both 16s (17); ruling 34's video hand-back names its lease_token (18); G200 A7 drops the HTTP routes and adds the "
-                                             "desktop variant (19)")
+                                             "desktop variant (19); G61 Where to check (20); the codex prelude (21); lean "
+                                             "reads (22); G227 names split / merge / undo of pages (23)")
     assert "cicada_edit_page(subject, reason, edits)" in text
     assert "cicada_write_claim" in text and "evidence" in text and "sources" in text
     assert state_dictionary.WORLD_FACTS_NOTE in text

@@ -111,6 +111,22 @@ with the query. Then one line names up to 5 held names that match a query word. 
 is unread, it is an ordinary block under `_fit_recall`'s budget, and it is Cicada's reading, not the person's
 verbatim words, so it follows the claim leg's scope.
 
+**Merge, split, undo — in the conversation (G227 follow-up; owner 2026-10-29: "the separation of entities should mainly
+happen by talking to an agent"; `page_join`, `storage.md`).** The agent is the primary door. When the person says "that's
+two different things": `cicada_split_page(page, preview=true)` lists the page's numbered sentences and beliefs; the agent
+picks those about the other thing and calls `preview=true` again with them — a plain-text proposal ("Proposal (nothing
+changed yet): 3 of 5 sentences … move to a new page also called …; links that would follow …") it shows the person;
+only on their yes does it call without `preview`, their own words as `reason` (the commit's `Reason:`). "Those are the
+same": `cicada_merge_pages(page, into, reason)` after asking. "Undo that split": `cicada_undo_join(page, reason?)` takes
+back the newest merge or split on the page still in place (`page_join.latest`; a merged-away id resolves). The
+handshake's item 4 and the skill's *Fixing what memory says* name all three and when to offer them (contract 23). The
+trust list is G198's (`page_editors`): a listed harness applies at once under its own `Cicada-Author`; any other — a
+remote app (`/v1` `page_merge`/`page_split`/`page_undo`, `record` scope) always — files a `page_edit` proposal with a
+`join` payload (`op` merge, split or undo) the person applies or leaves with one tap. **Scopes fail closed (R-R3, #552 review):** a preview answers with a page's prose, beliefs, sources, conversations and linking pages, so on a remote call it needs what `cicada_recall_detail` needs (`read`); a `record`-only token gets a refusal naming the scope and nothing of any page, and its merge, split and undo replies carry ids only. `cicada page merge|split|undo`
+are exposed in the CLI (`cli_map`, `cli.py`) with the same rule; an edit already uncommitted on a page is committed
+apart first. A refusal (no such page, nothing picked, nothing to undo, Sleep holding the pages, a demo bank) writes
+nothing.
+
 **Same name, different things (G227, 2026-10-29).** Every door names a page whose title another page shares by
 its qualifier (`same_name`): recall's heading is `### <name> (<qualifier>) (<type>, …) — id `<id>``;
 `cicada_recall_detail` with a name two pages share answers with each one, its qualifier and its id, instead of picking

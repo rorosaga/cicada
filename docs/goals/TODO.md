@@ -15,6 +15,14 @@
 - **2026-10-29 — the picture is the control (G146, owner; branch `feat/picture-click`).** The blue *Add a picture…* /
   *Use initials instead* / *Remove picture* words and the "Picture you added" caption under a page's name are gone; a click on the picture offers them
   (the picker at once when it is the only choice), a page with no picture adds one from its ••• menu.
+- **2026-10-29 — any join can be undone: merge, split, undo (G227 follow-up; branch `feat/merge-split-pages`, after
+  #546).** Owner: "the separation of entities should mainly happen by talking to an agent" — the agent shows a
+  plain-text proposal, splits on the person's yes, merges on "those are the same", undoes on "undo that"
+  (`cicada_split_page` / `cicada_merge_pages` / `cicada_undo_join`, named in the handshake and skill); the page menu
+  keeps a light Merge and a *Separate with your agent…* hand-off. Untrusted agents and remote apps propose in the inbox. Each is one commit undone from the page's History; a retired id keeps resolving
+  (`_redirects.yaml`, every merge and rename); a split pair is never re-joined by Sleep. Verified on a read-only copy of
+  the owner's bank: the same-name page split, undone, split, merged back, both undone — byte-identical.
+
 - **2026-10-29 — Telegram connects by a QR (ruling 49, G179; branch `feat/telegram-qr-connect`).** Connect… opens on a
   sign-in QR the person scans in Telegram on their phone (Settings → Devices → Link Desktop Device); the backend
   refreshes it as Telegram expires it (~30 s, 10 rounds) and the app follows the status; number → code is the

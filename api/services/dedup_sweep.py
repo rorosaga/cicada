@@ -99,7 +99,8 @@ def dedup_sweep(memory_path: Path, settings, *, judge_fn=None, embed_fn=None,
     # G113 slice 3b (R5) — a pair the user already told us are NOT duplicates
     # is skipped without ever calling the (paid) judge, mirroring
     # `clarification_manager.create`'s check on the Sleep-time producer side.
-    rejected = merge_rejections.load_rejected(memory_path)
+    # And a pair the person split apart (G227 follow-up): two pages under one title they said are two things.
+    rejected = merge_rejections.kept_apart(memory_path)
     skipped_rejected = 0
     stopped_for_sleep = False
     skipped_dirty, skipped_unsafe, failed = [], [], []

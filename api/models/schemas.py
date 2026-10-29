@@ -160,6 +160,10 @@ class EntityHistoryEntry(CamelModel):
     date: str
     change_type: str
     description: str
+    # G227 follow-up (owner 2026-10-29): ``merge`` / ``split`` / ``undo`` for a page join's commit (``page_join``),
+    # else None; ``undoable`` — a merge or split the History tab offers to take back (none later in the rows read).
+    join: Optional[str] = None
+    undoable: bool = False
     # Commit-level provenance (M3 / backlog A2). ``author`` is the model id that
     # wrote this commit (e.g. "gpt-5.4-mini") or "user" for manual/companion-app
     # writes, parsed from the commit's ``Cicada-Author:`` trailer; "unknown" for

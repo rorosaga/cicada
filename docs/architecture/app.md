@@ -203,6 +203,18 @@ the coordinator) and `dismantleNSView` suspends the page and removes its handler
 releases its graph. Regression nets: `Tests/graph/graph-lifecycle.test.js` and
 `GraphViewLifecycleTests`. Capture, SSE and the menu-bar worm are untouched by any of this.
 
+**Merge, separate, undo (G227 follow-up, owner 2026-10-29; `PageJoinSheets.swift`, `PageJoin.swift`).** Owner: "the
+separation of entities should mainly happen by talking to an agent." The page's menu (DR-81) has two quiet entries.
+*Merge into another page…* is one light sheet in the Add-skill sheet's shape: search the graph's pages (same-titled ones
+first, each with its `QualifierTag`, DR-44), one sentence saying what moves and that it can be undone, one primary
+Merge (DR-40); afterwards the page that stayed opens fresh. *Separate with your agent…* opens no checklist: it copies a
+ready sentence naming the page by title and id (`SeparateHandOff`, through `AppPasteboard`) and toasts "Copied — paste
+it to your agent"; the agent proposes the split in the conversation and applies it on the person's yes
+(`cicada_split_page`, `mcp.md`). History: a join's row says what it did (`HistoryRowWords`) and carries its own quiet
+**Undo** on the row (`HistoryUndoButton`, `POST …/history/{commit}/undo`); undoing a split from the new page's History
+goes back to the page it came from. A refusal shows the server's own sentence. The in-app catch-up chat does not split:
+it answers inbox items through fixed keys and has no tool loop, so giving it one is not a cheap change (report).
+
 **Same name, different things (G227, 2026-10-29).** `GraphNode`, `Entity`, `MemorySearchHit`, `ProjectPageRow`,
 `SleepConsolidated.Page` and `InboxItem` decode the backend's `qualifier`/`displayName` (decode-tolerant). **Owner
 2026-10-29: the qualifier is a tag, not parentheses.** The card header, Clusters' rows and grid, the find palette

@@ -343,6 +343,8 @@ def _merge_rule(memory_path: Path, item_id: str, fm: dict) -> tuple[Decision | N
         return None, "person"     # who someone is: only the person's own words settle it (move 1)
     if mention is not None and mention[0] == target[0]:
         return None, "same_page"
+    if mention is not None and _split_apart(memory_path, mention[0].stem, target[0].stem):
+        return None, "kept_apart"   # the person split these two pages: Sleep never joins them back (G227 follow-up)
     if mention_type and target_type and mention_type != target_type:
         return None, "judgement"
     name = _fold_name(fm.get("entity_name") or fm.get("entity_mention") or mention_fm.get("name"))
@@ -352,6 +354,15 @@ def _merge_rule(memory_path: Path, item_id: str, fm: dict) -> tuple[Decision | N
                         answer=f"Same as {target[1].get('name') or target[0].stem}",
                         guard=_guard(memory_path, str(fm.get("entity_id") or ""), target[0].stem)), ""
     return None, "needs_judge"
+
+
+def _split_apart(memory_path: Path, a: str, b: str) -> bool:
+    from api.services import merge_rejections
+
+    try:
+        return merge_rejections.is_split(memory_path, a, b)
+    except Exception:  # noqa: BLE001 — an unreadable list keeps nothing apart here; the rule asks as before
+        return False
 
 
 def _spelling(label: str) -> str:
@@ -1088,6 +1099,8 @@ async def judge_merge(memory_path: Path, path: Path, fm: dict, body: str, llm_fn
         return None, "no_target"
     guard = _guard(memory_path, str(fm.get("entity_id") or ""), target[0].stem)   # what the judge reads, as read
     mention = _page(memory_path, str(fm.get("entity_id") or ""))
+    if mention is not None and _split_apart(memory_path, mention[0].stem, target[0].stem):
+        return None, "kept_apart"   # never a judge call on two pages the person split
     mention_text = _page_text(mention, f"name: {fm.get('entity_name') or ''}\n"
                                        f"type: {fm.get('suggested_classification') or ''}\n{body}")
     prompt = (
@@ -2768,7 +2781,7 @@ def _reverse(memory_path: Path, current: bytes, after: bytes, before: bytes) -> 
     return proc.stdout if proc.returncode == 0 else None
 
 
-_LIST_FILES = frozenset({"_merge_rejected.yaml", "_predicates.yaml"})
+_LIST_FILES = frozenset({"_merge_rejected.yaml", "_predicates.yaml", "_redirects.yaml"})
 
 
 def _reverse_list(rel: str, current: bytes, after: bytes, before: bytes) -> bytes | None:
@@ -2784,11 +2797,23 @@ def _reverse_list(rel: str, current: bytes, after: bytes, before: bytes) -> byte
     if not all(isinstance(x, dict) for x in (b, a, c)):
         return None
     if rel == "_merge_rejected.yaml":
-        def pairs(x):
-            return [tuple(sorted(map(str, r))) for r in (x.get("rejected") or []) if isinstance(r, (list, tuple))]
-        added = set(pairs(a)) - set(pairs(b))
-        c["rejected"] = [list(p) for p in sorted(set(pairs(c)) - added)]
+        # Both lists (the person's "different" answers and their splits, G227 follow-up), each by meaning: what the
+        # change added leaves, what it removed (a join clears its pair) comes back, anything written since stays.
+        for key in ("rejected", "split"):
+            def pairs(x, key=key):
+                return [tuple(sorted(map(str, r))) for r in (x.get(key) or []) if isinstance(r, (list, tuple))]
+            added = set(pairs(a)) - set(pairs(b))
+            removed = set(pairs(b)) - set(pairs(a))
+            kept = (set(pairs(c)) - added) | removed
+            if kept or key == "rejected":
+                c[key] = [list(p) for p in sorted(kept)]
+            else:
+                c.pop(key, None)
         return yaml.safe_dump(c, allow_unicode=True, sort_keys=False).encode("utf-8")
+    if rel == "_redirects.yaml":
+        from api.services import page_redirects
+
+        return page_redirects.reverse(current, after, before)
     if rel == "_predicates.yaml":
         bf, af = dict(b.get("confirmed_folds") or {}), dict(a.get("confirmed_folds") or {})
         cf = dict(c.get("confirmed_folds") or {})

@@ -57,6 +57,17 @@ and every client takes one 200. All additive: the stored `name` never changes. *
 held mention apart from every candidate on its own pending line (never a name-wide rejection). Any other key is a 400.
 `same_name_pick.SHAPE` rides the inbox ETag beside `same_name.SHAPE`.
 
+**Merge, split, undo (G227 follow-up, owner 2026-10-29; `api/routers/page_joins.py`, `page_join`).**
+`POST /entities/{id}/merge` `{into, reason?}` folds the page into `into`; `GET /entities/{id}/split-plan?suggest=` serves
+the split sheet (camelCase: `sentences[{n, section, text, suggested, reason}]`, `claims`, `sources`, `conversations`,
+`references[{pageId, name, episodes}]`, `newId`, `newName`; `suggest=true` runs `same_name_split`'s judge for this page
+on the person's chosen engine, `[]` when it cannot); `POST /entities/{id}/split` `{sentences, claims, sources, episodes,
+references: {pageId: new|stay}, name?, type?, reason?}`; `POST /entities/{id}/history/{commit}/undo`. Each write route
+is one admitted transaction (409 while Sleep holds the pages) answering `{kind, entityId, otherId, commit, restored,
+repointed}`; 400 nothing picked or a type outside the set, 404 no such page or not a join, 409 the page changed since
+or already undone. History rows (`?summary=true`) add `join` and `undoable`. `GET /entities/{retired-id}` answers the
+page it became, `X-Cicada-Redirected-From: <retired-id>` (`page_redirects`).
+
 **The card's blocks and its ETag (vision item 5, 2026-10-28; `page_blocks`).** `GET /entities/{id}` carries
 `blocks: {shape, order, relevance, sources, coordinates, looks, ongoing, ongoingTotal, history}` — which blocks the
 page has (`order`, in the page order the redesign proposal draws: why it matters, where to check, the type block,

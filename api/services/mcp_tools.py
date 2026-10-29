@@ -3959,6 +3959,209 @@ def edit_page(ctx: ToolContext, subject: str, reason: str, edits=None, section: 
     return "\n".join(lines)
 
 
+# --- G227 follow-up: merge two pages, split one (owner 2026-10-29) ----------------------------------------------------
+
+JOIN_SLEEPING = ("Nothing changed — Cicada is consolidating memory right now, and a merge or split made now could be "
+                 "swept into its commit under the wrong name. Try again in a few minutes.")
+
+
+def _join_page_id(memory_path: Path, subject: str) -> str | None:
+    from api.services.id_utils import resolve_entity_file
+
+    page = resolve_entity_file(memory_path, (subject or "").strip()) if (subject or "").strip() else None
+    return page.stem if page is not None else None
+
+
+@_holding_pages
+def _join_locked(ctx: ToolContext, op: str, entity_id: str, payload: dict, reason: str) -> str:
+    """The write half of ``cicada_merge_pages`` / ``cicada_split_page``, under admission and the page lock through its
+    commit: a harness on the person's trust list (G198's ``page_editors``) applies it under its own name; any other
+    files a proposal the person applies or leaves with one tap."""
+    from api.services import agent_commits, page_editors, page_join
+
+    memory_path = ctx.memory_path()
+    if ctx.sleep_running():
+        return JOIN_SLEEPING
+    author = ctx.author
+    try:
+        if not page_editors.is_trusted(author, remote=ctx.is_remote):
+            rel = page_join.write_proposal(memory_path, op=op, entity_id=entity_id, payload=payload, reason=reason,
+                                           author=author, session=ctx.session_id or None)
+            agent_commits.commit_write(memory_path, subject=page_join.PROPOSAL_SUBJECT,
+                                       lines=[f"{rel}: created (trigger: {ctx.trigger})", "", f"Reason: {reason}"],
+                                       paths=[rel], author=author, session=ctx.session_id)
+            item = rel.removeprefix("inbox/").removesuffix(".md")
+            return (f"Proposed, not applied: {author} is not on the person's list of agents that change pages "
+                    f"directly, so the {op} of {entity_id} waits in their inbox ({item}) with your reason, for them "
+                    "to apply or leave with one tap. Nothing changed yet.")
+        before = agent_commits.before_for(memory_path)
+        if op == "undo":
+            out = page_join.undo(memory_path, payload["commit"], author=author, trigger=ctx.trigger, before=before,
+                                 session=ctx.session_id or None, reason=reason)
+            back = f" `{', '.join(out['restored'])}` is back." if out["restored"] else ""
+            gone = f" `{', '.join(out['removed'])}` is gone again." if out["removed"] else ""
+            return f"Undid the {out['kind']} on {entity_id} under {author}.{back}{gone}"
+        if op == "merge":
+            out = page_join.merge(memory_path, entity_id, payload["into"], author=author, trigger=ctx.trigger,
+                                  reason=reason, session=ctx.session_id or None, before=before)
+            return (f"Merged {out['loser']} into {out['winner']} under {author} with your reason; "
+                    f"`{out['loser']}` now resolves to `{out['winner']}`. The person can undo it from the page's "
+                    "history.")
+        out = page_join.split(memory_path, entity_id, sentences=payload.get("sentences") or (),
+                              claims=payload.get("claims") or (), sources=payload.get("sources") or (),
+                              episodes=payload.get("episodes") or (), references=payload.get("references") or None,
+                              name=payload.get("name"), entity_type=payload.get("type"), author=author,
+                              trigger=ctx.trigger, reason=reason, session=ctx.session_id or None, before=before)
+    except page_join.JoinError as exc:
+        return Reply(f"Nothing changed — {exc}", code="not_found" if exc.status == 404 else "refused")
+    moved = out["moved"]
+    linked = f" Re-pointed the links from {', '.join(out['repointed'])}." if out["repointed"] else ""
+    def n(count: int, word: str) -> str:
+        return f"{count} {word}{'' if count == 1 else 's'}"
+
+    return (f"Split {entity_id}: {n(moved['sentences'], 'sentence')}, {n(moved['claims'], 'belief')}, "
+            f"{n(moved['sources'], 'source')} and {n(moved['conversations'], 'conversation')} moved to `{out['new_id']}` ({out['new_name']}); the "
+            f"two are kept apart from now on.{linked} The person can undo it from the page's history.")
+
+
+#: A page-reading branch of a page-structure tool asked by a connection without the ``read`` scope.
+READ_SCOPE_REFUSAL = ("Nothing shown — previewing a page needs this connection to read memory (the read scope). Ask the "
+                      "person to allow reading, or propose the change from what they told you.")
+
+
+def _reads_pages(ctx: ToolContext) -> bool:
+    """May this caller see a page's contents? Locally always; a remote connection only with the tool `read` grants
+    (`cicada_recall_detail`), so every page-reading reply fails closed with the scope (R-R3)."""
+    return ctx.can("cicada_recall_detail")
+
+
+def _join_reason(reason) -> str:
+    return " ".join(str(reason or "").split())[:300]
+
+
+def merge_pages(ctx: ToolContext, page: str, into: str, reason: str) -> str:
+    """``cicada_merge_pages``: fold ``page`` into ``into`` — beliefs, evidence, sources, aliases, links and history move
+    by id, the old id keeps resolving. Trusted harness: at once; any other — a remote app always — an inbox
+    proposal. Refused for a demo bank."""
+    memory_path = ctx.memory_path()
+    if (refusal := _demo_refusal(memory_path)) is not None:
+        return refusal
+    clean = _join_reason(reason)
+    if not clean:
+        return Reply("Nothing changed — give a `reason` in one sentence; it becomes the commit message.",
+                     code="refused")
+    loser, winner = _join_page_id(memory_path, page), _join_page_id(memory_path, into)
+    if loser is None or winner is None:
+        return Reply(f"No page named '{page if loser is None else into}' — nothing changed. Use the page's id.",
+                     code="not_found")
+    return _join_locked(ctx, "merge", loser, {"into": winner}, clean)
+
+
+def _split_dry_run(memory_path: Path, entity_id: str, sentences, claims, episodes, references, name) -> str:
+    """The proposal an agent shows the person in chat before it splits anything (owner 2026-10-29: "the separation of
+    entities should mainly happen by talking to an agent"): which sentences and beliefs would move, to which page, and
+    which links would follow — plain text, nothing written."""
+    from api.services import page_join
+
+    plan = page_join.split_plan(memory_path, entity_id)
+    picked = {int(n) for n in sentences or () if str(n).isdigit()}
+    chosen_claims = {str(c) for c in claims or ()}
+    moving = [s for s in plan["sentences"] if s["n"] in picked]
+    beliefs = [c for c in plan["claims"] if c["id"] in chosen_claims]
+    new_name = " ".join(str(name or plan["name"]).split()) or plan["name"]
+    moved_eps = {str(e) for e in episodes or ()}
+    staying = {c["id"] for c in plan["conversations"]} - moved_eps
+    said = references if isinstance(references, dict) else {}
+    follow = [r["name"] for r in plan["references"]
+              if (said.get(r["page_id"]) or page_join.reference_choice(r["episodes"], moved_eps, staying)) == "new"]
+    unsure = [r["name"] for r in plan["references"]
+              if r["page_id"] not in said and page_join.reference_choice(r["episodes"], moved_eps, staying) == "ask"]
+    lines = [f"Proposal (nothing changed yet): {len(moving)} of {len(plan['sentences'])} sentences"
+             + (f" and {len(beliefs)} belief{'s' if len(beliefs) != 1 else ''}" if beliefs else "")
+             + f" on {plan['name']} move to a new page also called \"{new_name}\" (`{plan['new_id']}`); the rest stays."]
+    lines += [f"  - {s['text']}" for s in moving]
+    lines += [f"  - (belief) {c['text']}" for c in beliefs]
+    if follow:
+        lines.append("Links that would follow: " + ", ".join(follow) + ".")
+    if unsure:
+        lines.append("Links that stay unless the person says otherwise: " + ", ".join(unsure) + ".")
+    lines.append("Show this to the person in your own words and ask. Only on their yes, call cicada_split_page "
+                 "again without `preview`, with their own words as `reason`. It can be undone with cicada_undo_join.")
+    return "\n".join(lines)
+
+
+def undo_join(ctx: ToolContext, page: str, reason: str = "") -> str:
+    """``cicada_undo_join``: take back the newest merge or split on ``page`` ("undo that split") — the person's words as
+    ``reason``. Trusted harness: at once; any other (a remote app always): an inbox proposal."""
+    from api.services import page_join
+
+    memory_path = ctx.memory_path()
+    if (refusal := _demo_refusal(memory_path)) is not None:
+        return refusal
+    entity_id = _join_page_id(memory_path, page)
+    if entity_id is None:
+        return Reply(f"No page named '{page}' — nothing changed. Use the page's id.", code="not_found")
+    found = page_join.latest(memory_path, entity_id)
+    if found is None:
+        return Reply(f"Nothing to undo — {entity_id} has no merge or split that is still in place.", code="not_found")
+    clean = _join_reason(reason) or f"Undo the {found[1]}, as the person asked."
+    return _join_locked(ctx, "undo", entity_id, {"commit": found[0]}, clean)
+
+
+def split_page(ctx: ToolContext, page: str, reason: str = "", sentences=None, claims=None, sources=None,
+               episodes=None, references=None, name: str | None = None, page_type: str | None = None,
+               preview: bool = False) -> str:
+    """``cicada_split_page``: ``preview=true`` lists the page's numbered sentences, beliefs, sources, conversations
+    and the pages linking to it (with the conversations each link rests on); otherwise moves the picked ones to a new
+    page with the same clean title and its own id, the pair kept apart from now on."""
+    import json
+
+    from api.services import page_join
+
+    memory_path = ctx.memory_path()
+    if preview and not _reads_pages(ctx):
+        # R-R3 (#552 review): a preview answers with the page's prose, beliefs, sources, conversations and linking
+        # pages — what `cicada_recall_detail` needs `read` for. A remote token without `read` gets nothing, page or
+        # no page (scopes fail closed); it can still propose a split by sentence numbers it already holds.
+        return Reply(READ_SCOPE_REFUSAL, code="refused")
+    entity_id = _join_page_id(memory_path, page)
+    if entity_id is None:
+        return Reply(f"No page named '{page}' — nothing changed. Use the page's id.", code="not_found")
+    if preview and (sentences or claims):
+        return _split_dry_run(memory_path, entity_id, sentences, claims, episodes, references, name)
+    if preview:
+        plan = page_join.split_plan(memory_path, entity_id)
+        lines = [f"Split plan for {entity_id} ({plan['name']}). The new page would be `{plan['new_id']}`. Read the "
+                 "sentences, pick the ones about the OTHER thing, then call again with `preview: true` and your picks "
+                 "for a plain-text proposal to show the person.",
+                 "Sentences (pick by number):"]
+        lines += [f"  {s['n']}. [{s['section'] or 'Summary'}] {s['text']}" for s in plan["sentences"]]
+        lines.append("Beliefs (pick by id):")
+        lines += [f"  {c['id']}: {c['text']}" for c in plan["claims"]]
+        if plan["sources"]:
+            lines.append("Sources: " + ", ".join(s["ref"] for s in plan["sources"]))
+        if plan["conversations"]:
+            lines.append("Conversations: " + ", ".join(c["id"] for c in plan["conversations"]))
+        if plan["references"]:
+            lines.append("Pages linking to it, with the conversations each link rests on (say `new` or `stay` in "
+                         "`references`; unsaid, a link moves only when every one of them moves): "
+                         + json.dumps({r["page_id"]: r["episodes"] for r in plan["references"]}))
+        return "\n".join(lines)
+    if (refusal := _demo_refusal(memory_path)) is not None:
+        return refusal
+    clean = _join_reason(reason)
+    if not clean:
+        return Reply("Nothing changed — give a `reason` in one sentence; it becomes the commit message.",
+                     code="refused")
+    refs = references if isinstance(references, dict) else {}
+    payload = {"sentences": [int(n) for n in sentences or () if str(n).isdigit()],
+               "claims": [str(c) for c in claims or ()], "sources": [str(s) for s in sources or ()],
+               "episodes": [str(e) for e in episodes or ()],
+               "references": {str(k): str(v) for k, v in refs.items() if v in ("new", "stay")},
+               **({"name": str(name)} if name else {}), **({"type": str(page_type)} if page_type else {})}
+    return _join_locked(ctx, "split", entity_id, payload, clean)
+
+
 # --- ruling 45: projects the person starts, the conversations tied to them, what fed them -----------------------------
 
 PROJECT_SLEEPING = ("Nothing changed — Cicada is consolidating memory right now, and a change made now could be swept "

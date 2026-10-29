@@ -115,7 +115,8 @@ struct EntityHistoryView: View {
     private func row(_ entry: EntityHistoryEntry, first: Bool, last: Bool) -> some View {
         let id = entry.commitHash
         return HistoryRow(entry: entry, first: first, last: last, highlighted: hovered == id || pinned == id,
-                          openEpisode: openEpisode)
+                          openEpisode: openEpisode, entityId: entityId,
+                          onUndone: { Task { await loadFirst(force: true) } })
             .contentShape(Rectangle())
             .onHover { inside in
                 if inside { hovered = id } else if hovered == id { hovered = nil }
@@ -185,6 +186,9 @@ struct HistoryRow: View {
     let last: Bool
     var highlighted = false
     var openEpisode: [String: String] = [:]
+    /// G227 follow-up: a merge or split row carries its own Undo — on the row, one tap, never inside the hover card.
+    var entityId: String = ""
+    var onUndone: () -> Void = {}
 
     private var bucket: HistoryBucket { HistoryBucket.of(entry) }
 
@@ -205,12 +209,15 @@ struct HistoryRow: View {
                         .monospacedDigit()
                 }
                 let detail = HistoryRowWords.detail(entry)
-                if !detail.isEmpty || !entry.sessions.isEmpty {
+                if !detail.isEmpty || !entry.sessions.isEmpty || entry.undoable {
                     HStack(spacing: CicadaTheme.spacingMD) {
                         if !detail.isEmpty {
                             Text(detail).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
                         }
                         ShowInConversationLink(sessionIds: entry.sessions, openEpisode: openEpisode)
+                        if entry.undoable, !entityId.isEmpty {
+                            HistoryUndoButton(entry: entry, entityId: entityId, onUndone: onUndone)
+                        }
                     }
                 }
                 if bucket == .sleep, let lines = entry.summary?.lines, !lines.isEmpty {
@@ -328,4 +335,54 @@ struct HistoryHoverCard: View {
         diffFailed = false
         do { diff = try await loadDiff(entityId, entry.commitHash) } catch { diffFailed = true }
     }
+}
+
+/// G227 follow-up (owner 2026-10-29): a join's row offers its own Undo — a quiet text action on the row (DR-40: the
+/// page's one primary stays the page's), the server's own sentence when it refuses.
+struct HistoryUndoButton: View {
+    let entry: EntityHistoryEntry
+    let entityId: String
+    let onUndone: () -> Void
+
+    @Environment(Store.self) private var store: Store?
+    @Environment(GraphViewModel.self) private var graphVM: GraphViewModel?
+    @State private var undoing = false
+    @State private var undoProblem: String?
+
+    var body: some View {
+        HStack(spacing: CicadaTheme.spacingSM) {
+            TextButton(title: Copy.Graph.historyUndo) { undo() }
+                .disabled(undoing)
+                .help(Copy.Graph.historyUndoHelp)
+            if undoing { ProgressView().controlSize(.small) }
+            if let undoProblem {
+                Text(undoProblem).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func undo() {
+        undoing = true
+        undoProblem = nil
+        let kind = entry.join ?? ""
+        Task {
+            defer { undoing = false }
+            do {
+                let answer = try await APIClient.shared.undoJoin(entityId: entityId, commitHash: entry.commitHash)
+                store?.toast = Copy.Graph.historyUndone(kind)
+                await graphVM?.loadGraph()
+                if answer.removed.contains(entityId) {
+                    // The page itself was the split's new page: go back to the one it came from, never a dead card.
+                    if graphVM?.canGoBack == true { graphVM?.goBackEntity() } else { graphVM?.clearSelection() }
+                    return
+                }
+                await graphVM?.reloadEntity(id: entityId)
+                onUndone()
+            } catch {
+                undoProblem = PageJoinWords.problem(error)
+            }
+        }
+    }
+
 }

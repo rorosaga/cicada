@@ -23,7 +23,7 @@ import re
 from pathlib import Path
 
 from api.models.schemas import EntityHistoryEntry, HistorySummary, HistorySummaryLine
-from api.services import git_service
+from api.services import git_service, page_join
 
 #: The filter tabs, in the order the app draws them after All.
 BUCKETS = ("you", "agents", "sleep", "upkeep")
@@ -46,6 +46,7 @@ _ENDED = re.compile(r'"(?:superseded_by|valid_to)":\s*"[^"]|"retracted":\s*true|
 _FIELD = re.compile(r"^([a-z_][a-z0-9_]*):(?:\s|$)")
 _MD_NOISE = re.compile(r"\[\[([^\]|]+)(?:\|([^\]]+))?\]\]|[*`>#]+|\b_|_\b")
 _LIST_VALUE = re.compile(r"^- \S+$")
+_UNDOES = re.compile(r"^Undoes: ([0-9a-f]{40})$", re.MULTILINE)
 
 
 def bucket(trigger: str | None, via: str | None, author: str | None, author_kind: str | None) -> str:
@@ -153,9 +154,10 @@ async def page(entity_id: str, memory_path: Path, *, limit: int = DEFAULT_LIMIT,
         return [], False
     records = out.split("\x1e")[1:]
     more = len(records) > limit
-    own = re.compile(rf"^[ \t]*(?:entities/{re.escape(entity_id)}\.md:.*|Cicada-[A-Za-z]+:.*|Reason: .*)$",
+    own = re.compile(rf"^[ \t]*(?:entities/{re.escape(entity_id)}\.md:.*|Cicada-[A-Za-z]+:.*|Reason: .*|Undoes: .*)$",
                      re.MULTILINE)
     rows: list[EntityHistoryEntry] = []
+    undone: set[str] = set()   # newest first: an undo is read before the join it took back
     for record in records[:limit]:
         head, _, patch = record.partition("\x1d")
         parts = head.split("\x1f", 4)
@@ -170,7 +172,11 @@ async def page(entity_id: str, memory_path: Path, *, limit: int = DEFAULT_LIMIT,
         kind, provider = git_service.author_identity(author)
         trigger = git_service._parse_entity_trigger(body, entity_id)
         via = git_service.history_via(trigger)
+        join = page_join.kind_of(subject)
+        if join == "undo":
+            undone.update(m.group(1) for m in _UNDOES.finditer(body))
         rows.append(EntityHistoryEntry(
+            join=join, undoable=join in ("merge", "split") and commit not in undone,
             date=day, at=at, change_type=git_service._infer_change_type(subject, body, entity_id),
             description=git_service._build_description(subject, body, entity_id), author=author,
             author_kind=kind, author_provider=provider, commit_hash=commit,

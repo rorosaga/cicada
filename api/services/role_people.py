@@ -1157,6 +1157,8 @@ def _rename_footprint(memory_path: Path, page_id: str, new_name: str) -> list[st
     new_id = _free_id(entities, new_name, page_id)   # the id `rename` will write, a taken title's `-2` included
     paths = [f"entities/{page_id}.md", f"entities/{new_id}.md",
              *entity_picture.rename_footprint(memory_path, page_id, new_id, fm)]
+    if new_id != page_id:
+        paths.append("_redirects.yaml")   # the old id keeps resolving to the new one (`page_redirects`)
     if entity_merge._edges_name(memory_path, page_id):
         paths.append("graph_edges.yaml")
     old = entity_merge._names(page_id, old_name)

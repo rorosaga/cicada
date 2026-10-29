@@ -1215,7 +1215,16 @@ a join on the name never moves to the newer page by listing order. A key that is
 its own: for every page in a same-name group that is not a saved link (and any page id the caller names), the page's
 prose is split into numbered sentences and an injected judge lists only those *clearly* about another thing with the
 name — target a listed page id or `new` — with a reason; anything unsure stays. It writes nothing; the owner OKs a plan
-before a separate step applies it.
+before a separate step applies it. **Applying it is the person's split** (`page_join`, `storage.md`), mainly
+through their agent in conversation (owner 2026-10-29, `mcp.md`): the agent proposes in plain text and splits only on
+their yes. `GET /entities/{id}/split-plan?suggest=true` still serves the judge's picks for this one page to any client
+that asks (the person's chosen engine); nothing moves until a split is called.
+
+**Sleep never re-joins a split pair (G227 follow-up).** A split writes the pair to `_merge_rejected.yaml`'s `split:` list;
+the dedup sweep reads `kept_apart` (rejected ∪ split) and skips the pair without a judge call, and Sleep's inbox tending
+never settles or judges a duplicate question between them (`inbox_tend._merge_rule` / `judge_merge` →
+`kept_apart`). A new mention of the shared name still reaches either page through the same-title judge — the split
+keeps the pages apart, never the name from a page. Only the person (or a trusted agent) merges them back.
 
 **Claim preservation (G148 regression):** Stage 5 rewrites prose with the stored `claims` fences removed from section parsing, then reattaches those fences unchanged. Rebuilding `Related` cannot remove beliefs before the claim pipeline reconciles them; synthesis output never authors a claims fence.
 
