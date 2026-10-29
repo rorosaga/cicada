@@ -13,7 +13,8 @@ import SwiftUI
 /// binds 127.0.0.1 (G181) — the G135 listener's public address does not serve it, so the app never guesses one. With an
 /// address the sheet says it and "Scan with Cicada on your phone"; without one, one line says which address to type.
 struct PairDeviceSheet: View {
-    var onClose: () -> Void
+    /// The paired device's id when a device redeemed the code, nil when the sheet closed without one.
+    var onClose: (_ pairedDeviceId: String?) -> Void
 
     @State private var created: PairingCreated?
     /// #432: Phone (the default) mints a capture-only token; Computer a full device token.
@@ -129,7 +130,7 @@ struct PairDeviceSheet: View {
             try? await Task.sleep(for: .seconds(2))
             guard !Task.isCancelled, let answer = try? await APIClient.shared.pairingState(id) else { continue }
             state = answer.pairing.state
-            if state == "paired" { onClose(); return }
+            if state == "paired" { onClose(answer.pairing.deviceId); return }
         }
     }
 
@@ -137,7 +138,7 @@ struct PairDeviceSheet: View {
         if state == "waiting", let id = created?.pairing.id {
             Task { try? await APIClient.shared.cancelPairing(id) }
         }
-        onClose()
+        onClose(nil)
     }
 }
 

@@ -125,6 +125,8 @@ struct DevicesSettingsView: View {
     @State private var rows: [DeviceStatusRow] = []
     @State private var pairing = false
     @State private var pendingRevoke: DeviceStatusRow?
+    /// The device the pairing sheet just paired, so an older row of the same name can be offered for revoking.
+    @State private var justPaired: String?
     @State private var appsOpen = false
 
     var body: some View {
@@ -145,6 +147,20 @@ struct DevicesSettingsView: View {
                             }
                         }
                     }
+                }
+                if model.canManage, let twin = Self.olderTwins(rows, newDeviceId: justPaired).first {
+                    // Review 2026-10-29: the same phone paired again leaves its old row (its old token) behind; offer to
+                    // revoke it, behind the same confirmation as any Revoke. An offer only — nothing is revoked here.
+                    SettingsDivider()
+                    HStack(spacing: CicadaTheme.spacingSM) {
+                        Text(Copy.DevicesPage.olderTwin(twin.name))
+                            .font(CicadaTheme.captionFont)
+                            .foregroundStyle(CicadaTheme.textSecondary)
+                        Spacer(minLength: CicadaTheme.spacingSM)
+                        TextButton(title: Copy.DevicesPage.revokeOlder, inline: true) { pendingRevoke = twin }
+                            .accessibilityIdentifier("devices.revokeOlder")
+                    }
+                    .padding(CicadaTheme.spacingMD)
                 }
                 if model.canManage {
                     // 2026-10-29: the guided reach step sits right above the button it makes work.
@@ -192,7 +208,7 @@ struct DevicesSettingsView: View {
             }
         }
         .sheet(isPresented: $pairing) {
-            PairDeviceSheet { pairing = false; Task { await refresh() } }
+            PairDeviceSheet { paired in pairing = false; justPaired = paired; Task { await refresh() } }
         }
         .confirmationDialog(Copy.Devices.revokeTitle(pendingRevoke?.name ?? ""),
                             isPresented: Binding(get: { pendingRevoke != nil }, set: { if !$0 { pendingRevoke = nil } }),
@@ -220,6 +236,14 @@ struct DevicesSettingsView: View {
                 return row
             }
         }
+    }
+
+    /// The active rows that share the just-paired device's name (case and spaces aside), the new one excluded — the
+    /// same phone paired again; never the server row. Empty when nothing was just paired.
+    static func olderTwins(_ rows: [DeviceStatusRow], newDeviceId: String?) -> [DeviceStatusRow] {
+        guard let newDeviceId, let fresh = rows.first(where: { $0.deviceId == newDeviceId }) else { return [] }
+        let key = { (name: String) in name.split(whereSeparator: \.isWhitespace).joined(separator: " ").lowercased() }
+        return rows.filter { !$0.isServer && $0.deviceId != nil && $0.deviceId != newDeviceId && key($0.name) == key(fresh.name) }
     }
 
     static func symbol(_ row: DeviceStatusRow) -> String {
@@ -253,7 +277,13 @@ struct DevicesSettingsView: View {
             case "full": parts.append(Copy.DevicesPage.fullAccess)
             default: break
             }
-            if let bound = row.keyBound { parts.append(bound ? Copy.DevicesPage.keyBound : Copy.DevicesPage.notKeyBound) }
+            if let bound = row.keyBound {
+                if bound, let since = row.keyBoundAt.flatMap(ISODate.parse) {
+                    parts.append(Copy.DevicesPage.keyBoundSince(since))
+                } else {
+                    parts.append(bound ? Copy.DevicesPage.keyBound : Copy.DevicesPage.notKeyBound)
+                }
+            }
         }
         return parts.joined(separator: " · ")
     }

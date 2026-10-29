@@ -53,7 +53,21 @@ final class DeviceReachTests: XCTestCase {
         XCTAssertEqual(DevicesSettingsView.detail(phone, now: now), "Capture only · Key-bound")
         let laptop = DeviceStatusRow(deviceId: "d2", name: "laptop", kind: "full", keyBound: false)
         XCTAssertEqual(DevicesSettingsView.detail(laptop, now: now), "Full access · Not yet key-bound")
+        var since = phone
+        since.keyBoundAt = "2026-10-29T09:00:00+00:00"
+        XCTAssertTrue(DevicesSettingsView.detail(since, now: now).hasPrefix("Capture only · Key-bound since "))
         let server = DeviceStatusRow(deviceId: nil, name: "Studio", role: "server", kind: "full", keyBound: false)
         XCTAssertEqual(DevicesSettingsView.detail(server, now: now), "", "the server row carries no kind")
+    }
+
+    /// Review 2026-10-29: the same phone paired again leaves its old row; that row is offered for revoking, only it.
+    func testAnOlderRowOfTheSameNameIsOfferedOnlyAfterAPairing() {
+        let rows = [DeviceStatusRow(deviceId: nil, name: "Example Phone", role: "server"),
+                    DeviceStatusRow(deviceId: "old", name: "Example  phone"),
+                    DeviceStatusRow(deviceId: "new", name: "Example Phone"),
+                    DeviceStatusRow(deviceId: "other", name: "laptop")]
+        XCTAssertEqual(DevicesSettingsView.olderTwins(rows, newDeviceId: "new").map(\.deviceId), ["old"])
+        XCTAssertTrue(DevicesSettingsView.olderTwins(rows, newDeviceId: nil).isEmpty, "nothing without a pairing")
+        XCTAssertTrue(DevicesSettingsView.olderTwins(rows, newDeviceId: "other").isEmpty)
     }
 }

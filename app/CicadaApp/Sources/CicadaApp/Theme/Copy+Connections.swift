@@ -114,6 +114,12 @@ extension Copy {
         static let fullAccess = "Full access"
         static let keyBound = "Key-bound"
         static let notKeyBound = "Not yet key-bound"
+        static func keyBoundSince(_ date: Date) -> String {
+            "Key-bound since \(date.formatted(.dateTime.month(.abbreviated).day()))"
+        }
+        /// Review 2026-10-29: a device just paired under a name an older, still-active row carries.
+        static func olderTwin(_ name: String) -> String { "An older \u{201C}\(name)\u{201D} is still paired." }
+        static let revokeOlder = "Revoke the older one"
 
         /// 2026-10-29 — the guided reach step: one state line and one next step, never a tutorial. Tailscale is named
         /// because it is the person's own overlay (the row's own product), never as the one doing Cicada's job.

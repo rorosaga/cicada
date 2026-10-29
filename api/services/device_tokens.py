@@ -265,6 +265,8 @@ class DeviceStore:
             row = db.execute("SELECT * FROM devices WHERE id=?", (device_id,)).fetchone()
             if row is None or row["revoked_at"]:
                 raise KeyError(device_id)
+            if row["kind"] != "capture" and narrow_to != "capture":
+                raise FullDeviceKey()
             current = row["key_thumbprint"]
             if current and not hmac.compare_digest(current, key_thumbprint):
                 raise ValueError("This device is already bound to another key. Pair it again for a new key.")
@@ -345,6 +347,8 @@ class DeviceStore:
             kind = row["kind"] if row["kind"] in KINDS else "capture"
             if requested == "capture":
                 kind = "capture"
+            if key_thumbprint and kind == "full":
+                raise FullDeviceKey()   # raised inside the transaction: the code is not spent
             secret = secrets.token_urlsafe(32)
             while True:
                 device_id = "".join(secrets.choice(_ID_ALPHABET) for _ in range(8))
@@ -356,6 +360,10 @@ class DeviceStore:
                        (device_id, clean, _hash(secret), _now(), kind, key_thumbprint or None, bound_at))
             db.execute("UPDATE pairings SET device_id=? WHERE id=?", (device_id, row["id"]))
         return self.get(device_id), f"{PREFIX}{device_id}_{secret}"
+
+
+class FullDeviceKey(ValueError):
+    """A key binding asked for a ``full`` device (review 2026-10-29): refused until a computer's clients can all sign."""
 
 
 @dataclass(frozen=True)

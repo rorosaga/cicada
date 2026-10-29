@@ -138,6 +138,16 @@ def _first_use(jkt: str, jti: str, now: float) -> bool:
         return True
 
 
+def _no_constant(name: str):
+    raise ValueError(f"non-finite number {name}")
+
+
+def _strict_json(raw: bytes):
+    """A proof part's JSON with no NaN, Infinity or -Infinity (Python's ``json`` accepts all three by default; JSON
+    itself has none) — refused as malformed before any claim is read (review B1)."""
+    return json.loads(raw, parse_constant=_no_constant)
+
+
 def _same_path(htu: str, path: str) -> bool:
     try:
         parts = urlsplit(htu)
@@ -158,8 +168,8 @@ def verify(proof: str | None, *, method: str, path: str, token: str | None = Non
         raise ProofError("malformed")
     head_b64, body_b64, sig_b64 = proof.split(".")
     try:
-        header = json.loads(_b64url_decode(head_b64))
-        claims = json.loads(_b64url_decode(body_b64))
+        header = _strict_json(_b64url_decode(head_b64))
+        claims = _strict_json(_b64url_decode(body_b64))
     except (ValueError, UnicodeDecodeError):
         raise ProofError("malformed") from None
     if not isinstance(header, dict) or not isinstance(claims, dict) or header.get("typ") != TYP:
@@ -180,16 +190,24 @@ def verify(proof: str | None, *, method: str, path: str, token: str | None = Non
         key.verify(der, f"{head_b64}.{body_b64}".encode("ascii"), ec.ECDSA(hashes.SHA256()))
     except InvalidSignature:
         raise ProofError("bad_signature") from None
-    if str(claims.get("htm") or "") != method.upper() or not _same_path(str(claims.get("htu") or ""), path):
+    htm, htu = claims.get("htm"), claims.get("htu")
+    if not isinstance(htm, str) or not isinstance(htu, str) or htm != method.upper() or not _same_path(htu, path):
         raise ProofError("wrong_request")
+    # Review B1 (2026-10-29): `iat` is a whole number of seconds and nothing else. A float, a bool, a string — and
+    # above all NaN, which every comparison passes — is no time at all. NaN and ±Infinity are already refused by
+    # `_strict_json`; an int is finite by construction.
     iat = claims.get("iat")
+    # Bounded too: an int past 2^53 cannot meet a float clock (Python would raise OverflowError on the subtraction).
+    if isinstance(iat, bool) or not isinstance(iat, int) or not 0 <= iat <= 2**53:
+        raise ProofError("malformed")
     moment = time.time() if now is None else now
-    if isinstance(iat, bool) or not isinstance(iat, (int, float)) or abs(moment - float(iat)) > MAX_SKEW_S:
+    if abs(moment - iat) > MAX_SKEW_S:
         raise ProofError("stale")
     jti = claims.get("jti")
     if not isinstance(jti, str) or not 8 <= len(jti) <= 128:
         raise ProofError("malformed")
-    if token is not None and not secrets.compare_digest(str(claims.get("ath") or ""), token_hash(token)):
+    ath = claims.get("ath")
+    if token is not None and (not isinstance(ath, str) or not secrets.compare_digest(ath, token_hash(token))):
         raise ProofError("wrong_token")
     if not _first_use(jkt, jti, moment):
         raise ProofError("replayed")

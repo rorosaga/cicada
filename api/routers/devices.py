@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
@@ -147,8 +148,9 @@ async def create_pairing(req: PairingCreateRequest, settings: Settings = Depends
         from api.remote import reach
 
         found = await run_in_threadpool(reach.tailnet_backend, settings.port)
-        url = found.url
-        reach_info = {"tailscale": found.tailscale, "url": found.url, "public": found.public,
+        # A backend port that is also funnelled is open to the internet: no address goes in a QR until it is closed.
+        url = None if found.public else found.url
+        reach_info = {"tailscale": found.tailscale, "url": url, "public": found.public,
                       "serveCommand": None if found.url else reach.serve_command(settings.port)}
     try:
         pairing, code = await run_in_threadpool(lambda: device_tokens.store().create_pairing(kind=req.kind))
@@ -202,6 +204,9 @@ async def redeem_pairing(req: PairRequest, request: Request):
     try:
         device, token = await run_in_threadpool(
             lambda: device_tokens.store().redeem(req.code, req.name, key_thumbprint=jkt, kind=req.kind))
+    except device_tokens.FullDeviceKey:
+        # The code still waits (the redeem rolled back): pair the computer without a key, or the phone as capture.
+        return JSONResponse(status_code=409, content={"code": FULL_DEVICE, "detail": FULL_DEVICE_TEXT})
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
     except KeyError:
@@ -211,6 +216,11 @@ async def redeem_pairing(req: PairRequest, request: Request):
 
 
 # ── 2026-10-29: a device binds itself to its key; this machine's reach on the person's overlay ────────────────────
+
+#: A full device (a computer) is never key-bound yet: every one of its clients would have to sign, and they cannot.
+FULL_DEVICE = "full_device"
+FULL_DEVICE_TEXT = ("A computer's token can't be locked to a key yet: its hooks, agents and command line can't sign "
+                    "requests. Nothing changed; it keeps working with its token.")
 
 @router.post("/devices/me/key")
 async def bind_own_key(req: BindKeyRequest, request: Request):
@@ -224,6 +234,10 @@ async def bind_own_key(req: BindKeyRequest, request: Request):
     device = getattr(request.state, "device", None)
     if device is None:
         raise HTTPException(status_code=400, detail="Only a paired device binds its own key.")
+    if device.kind == "full" and req.narrow != "capture":
+        # Review 2026-10-29: a computer's hooks, MCP server and command line share its one token and cannot sign yet,
+        # so locking that token to a key could only break the computer's capture. Refused, nothing changed.
+        return JSONResponse(status_code=409, content={"code": FULL_DEVICE, "detail": FULL_DEVICE_TEXT})
     jkt = getattr(request.state, "device_jkt", None)
     if jkt is None:   # not yet bound: the gate checked no proof, so this route does
         try:
@@ -236,6 +250,8 @@ async def bind_own_key(req: BindKeyRequest, request: Request):
             lambda: device_tokens.store().bind_key(device.id, jkt, narrow_to=req.narrow))
     except KeyError:
         raise HTTPException(status_code=401, detail="missing or invalid bearer token") from None
+    except device_tokens.FullDeviceKey:
+        return JSONResponse(status_code=409, content={"code": FULL_DEVICE, "detail": FULL_DEVICE_TEXT})
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from None
     return {"device": bound.wire(), "changed": changed}

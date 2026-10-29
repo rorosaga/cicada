@@ -133,13 +133,114 @@ def test_a_proof_that_does_not_pass_at_pairing_spends_nothing(server):
     assert client.post("/pair", json={"code": made["code"], "name": "Example Phone"}, headers=fresh).status_code == 201
 
 
+def _bind_in_store(device_id: str, key) -> None:
+    """A full device bound in the store itself — the API refuses to make one (review 2026-10-29), but the gate must
+    still hold for a row that is bound however it got there."""
+    jkt = device_proof.thumbprint(device_proof.public_jwk(key))
+    db = sqlite3.connect(device_tokens.store().path)
+    db.execute("UPDATE devices SET key_thumbprint=?, key_bound_at='2026-10-29T00:00:00+00:00' WHERE id=?",
+               (jkt, device_id))
+    db.commit()
+    db.close()
+
+
 def test_healthz_says_more_to_a_bound_computer_only_with_its_proof(server):
     client, master = server
     key = _key()
-    _, token = _pair(client, master, key=key, kind="full", name="laptop")
+    device, token = _pair(client, master, kind="full", name="laptop")
+    _bind_in_store(device["id"], key)
     assert client.get("/healthz", headers=_bearer(token)).json().get("memoryPath") is None
     full = client.get("/healthz", headers=_signed(key, token, "GET", "/healthz")).json()
     assert full.get("memoryPath")
+
+
+# --- review 2026-10-29 -----------------------------------------------------------------------------------------------
+
+def _sign_raw(key, claims_json: str) -> str:
+    """A proof whose claims are exactly ``claims_json`` (so a test can put NaN in it), properly signed."""
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
+
+    header = {"typ": "dpop+jwt", "alg": "ES256", "jwk": device_proof.public_jwk(key)}
+    signing = device_proof.b64url(json.dumps(header).encode()) + "." + device_proof.b64url(claims_json.encode())
+    r, s_ = decode_dss_signature(key.sign(signing.encode(), ec.ECDSA(hashes.SHA256())))
+    return f"{signing}.{device_proof.b64url(r.to_bytes(32, 'big') + s_.to_bytes(32, 'big'))}"
+
+
+@pytest.mark.parametrize("iat", ["NaN", "Infinity", "-Infinity", "1800000000.5", '"1800000000"', "true",
+                                 "1" + "0" * 400])
+def test_a_proof_whose_time_is_not_a_whole_number_never_passes(iat):
+    """Review B1: `json` reads NaN, and NaN passes every comparison — a NaN proof would never expire."""
+    device_proof.reset()
+    key = _key()
+    claims = (f'{{"htm":"GET","htu":"{BASE}/capture/mine","iat":{iat},"jti":"jti-{abs(hash(iat))}"}}')
+    for moment in (time.time(), time.time() + 10**7):          # now, and 10^7 seconds later
+        with pytest.raises(device_proof.ProofError) as caught:
+            device_proof.verify(_sign_raw(key, claims), method="GET", path="/capture/mine", now=moment)
+        assert caught.value.reason == "malformed", iat
+    good = f'{{"htm":"GET","htu":"{BASE}/capture/mine","iat":{int(time.time())},"jti":"jti-good-1"}}'
+    assert device_proof.verify(_sign_raw(key, good), method="GET", path="/capture/mine")
+
+
+def test_a_non_string_method_or_url_or_ath_is_refused():
+    device_proof.reset()
+    key = _key()
+    now = int(time.time())
+    for claims, reason in (
+            (f'{{"htm":["GET"],"htu":"{BASE}/x","iat":{now},"jti":"jti-a-0001"}}', "wrong_request"),
+            (f'{{"htm":"GET","htu":7,"iat":{now},"jti":"jti-a-0002"}}', "wrong_request"),
+            (f'{{"htm":"GET","htu":"{BASE}/x","iat":{now},"jti":"jti-a-0003","ath":1}}', "wrong_token")):
+        with pytest.raises(device_proof.ProofError) as caught:
+            device_proof.verify(_sign_raw(key, claims), method="GET", path="/x", token="cic_dev_abcd1234_" + "x" * 43)
+        assert caught.value.reason == reason
+
+
+def test_a_computer_is_never_key_bound_yet_and_its_code_still_waits(server):
+    client, master = server
+    made = client.post("/devices/pairing", json={"kind": "full"}, headers=_bearer(master)).json()
+    proof = {"DPoP": device_proof.make_proof(_key(), "POST", f"{BASE}/pair")}
+    refused = client.post("/pair", json={"code": made["code"], "name": "laptop"}, headers=proof)
+    assert refused.status_code == 409 and refused.json()["code"] == "full_device"
+    assert "can't sign" in refused.json()["detail"]
+    # Nothing was spent: the computer pairs with the same code, without a key.
+    assert client.post("/pair", json={"code": made["code"], "name": "laptop"}).status_code == 201
+    # A computer paired the old way cannot lock itself either; narrowing to capture first is the one way in.
+    _, token = _pair(client, master, kind="full", name="laptop-2")
+    key = _key()
+    bind = client.post("/devices/me/key", json={}, headers=_signed(key, token, "POST", "/devices/me/key"))
+    assert bind.status_code == 409 and bind.json()["code"] == "full_device"
+    assert client.get("/graph", headers=_bearer(token)).status_code == 200      # it keeps working, unchanged
+
+
+def test_the_status_row_says_when_the_device_was_locked_to_its_key(server):
+    client, master = server
+    _pair(client, master, key=_key(), name="Example Phone")
+    row = next(r for r in client.get("/devices/status", headers=_bearer(master)).json()["devices"]
+               if r["name"] == "Example Phone")
+    assert row["keyBound"] is True and row["keyBoundAt"]
+
+
+def test_a_funnel_beside_a_tailnet_serve_is_never_hidden():
+    """Review 2026-10-29: the backend served to the tailnet on 8443 AND funnelled on 443 is open to the internet."""
+    both = {"Web": {"mac.example.ts.net:8443": {"Handlers": {"/": {"Proxy": "http://127.0.0.1:8000"}}},
+                    "mac.example.ts.net:443": {"Handlers": {"/": {"Proxy": "http://127.0.0.1:8000"}}}},
+            "AllowFunnel": {"mac.example.ts.net:443": True}}
+    assert reach.serve_url_for_port(both, 8000) == ("https://mac.example.ts.net:8443", True)
+    # Either order in the ServeConfig: the funnel listed first must not hide the serve's address, nor the reverse.
+    reordered = {"Web": dict(reversed(list(both["Web"].items()))), "AllowFunnel": both["AllowFunnel"]}
+    assert reach.serve_url_for_port(reordered, 8000) == ("https://mac.example.ts.net:8443", True)
+    kw, _ = _fake_tailscale({"BackendState": "Running", "Self": {"DNSName": "mac.example.ts.net."}}, both)
+    answer = reach.guide(8000, **kw)
+    assert answer["step"] == "unfunnel" and answer["url"] is None
+    assert answer["command"] == "tailscale funnel --https=443 off"
+
+
+def test_a_funnelled_backend_puts_no_address_in_a_qr_even_beside_a_serve(server, monkeypatch):
+    client, master = server
+    monkeypatch.setattr(reach, "tailnet_backend", lambda port, **kw: reach.TailnetBackend(
+        "running", "https://mac.example.ts.net:8443", True, 443))
+    made = client.post("/devices/pairing", json={}, headers=_bearer(master)).json()
+    assert made["qr"]["url"] is None and made["reach"]["public"] is True and made["reach"]["url"] is None
 
 
 # --- already-paired devices: they keep working, and bind themselves -------------------------------------------------

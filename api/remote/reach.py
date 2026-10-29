@@ -128,10 +128,13 @@ def serve_command(port: int) -> str:
 
 def serve_url_for_port(status: dict, port: int) -> tuple[str | None, bool]:
     """``(url, funnelled)``: an https serve whose ``/`` proxies to ``port`` on loopback. A tailnet-only serve is the
-    url; one the ServeConfig also funnels is reported as ``funnelled`` with no url — the backend never has a public
-    port (G181), so a QR never carries one."""
+    url; one the ServeConfig also funnels is reported as ``funnelled`` and is never the url — the backend never has a
+    public port (G181), so a QR never carries one. Every entry is read (review, 2026-10-29): a tailnet-only serve of
+    the port does not hide a funnel of the same port on another https port — both come back, and the caller treats
+    ``funnelled`` as the thing to fix first."""
     configs = [status] + [v for v in _dict(status.get("Foreground")).values() if isinstance(v, dict)]
     funnelled = False
+    url = None
     for config in configs:
         allowed = _dict(config.get("AllowFunnel"))
         for hostport, web in _dict(config.get("Web")).items():
@@ -142,9 +145,9 @@ def serve_url_for_port(status: dict, port: int) -> tuple[str | None, bool]:
                 funnelled = True
                 continue
             host, _, https_port = hostport.rpartition(":")
-            if host:
-                return (f"https://{host}" if https_port in ("443", "") else f"https://{host}:{https_port}"), False
-    return None, funnelled
+            if host and url is None:
+                url = f"https://{host}" if https_port in ("443", "") else f"https://{host}:{https_port}"
+    return url, funnelled
 
 
 def tailnet_backend(port: int, *, which=shutil.which, run=subprocess.run, exists=_is_executable) -> TailnetBackend:
@@ -252,11 +255,12 @@ def guide(port: int, *, state: TailnetState | None = None, backend: TailnetBacke
     if state.tailscale in steps:
         return {**out, "step": steps[state.tailscale]}
     backend = backend or tailnet_backend(port, which=which, run=run, exists=exists)
+    if backend.public:
+        # First, even beside a tailnet-only serve: the backend is open to the internet (G181: it never has a public
+        # port). Nothing is offered for a QR until the funnel is closed.
+        return {**out, "step": "unfunnel", "command": f"tailscale funnel --https={backend.public_port or 443} off"}
     if backend.url:
         return {**out, "step": "ready", "url": backend.url}
-    if backend.public:
-        # The funnelled address is never offered (G181: the backend has no public port); the step closes it.
-        return {**out, "step": "unfunnel", "command": f"tailscale funnel --https={backend.public_port or 443} off"}
     return {**out, "step": "serve", "command": serve_command(port)}
 
 

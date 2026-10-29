@@ -256,16 +256,24 @@ party: no relay, no account, no public port (the T3-Connect comparison is in the
   (no private member), claims `htm`, `htu`, `iat`, `jti`, `ath` (the token's sha256). Checked: the signature and the
   thumbprint, the method, **the path only** (the person's `tailscale serve` terminates TLS, so the authority a phone
   signed is the overlay's), `iat` within 300 s, `jti` unseen in that window (one in-process cache; the backend runs one
-  worker), `ath`. `Authorization` may say `Bearer` or `DPoP`. Never a fall back to bearer: a bound token with no proof
+  worker), `ath`. **Strict types (security review, 2026-10-29):** each part's JSON refuses NaN and ±Infinity outright;
+  `iat` must be a whole number (not a bool, float or string, within 0…2^53) — Python's `json` reads NaN and every
+  comparison with it passes, so a NaN proof would otherwise never expire; `htm`, `htu` and `ath` must be strings. `Authorization` may say `Bearer` or `DPoP`. Never a fall back to bearer: a bound token with no proof
   or a failing one is 401 `WWW-Authenticate: DPoP error="invalid_dpop_proof", error_description="<reason>"` (`missing`,
   `malformed`, `unsupported`, `bad_signature`, `wrong_request`, `stale`, `replayed`, `wrong_token`, `wrong_key`), checked
-  before the kind and master-only 403s. `/healthz` gives a bound computer its full answer only with its proof. Wires add
-  `keyBound` and `keyBoundAt` to a device and `kind`, `keyBound` to a `/devices/status` row; the thumbprint never.
+  before the kind and master-only 403s. `/healthz` gives a bound device its full answer only with its proof. Wires add
+  `keyBound` and `keyBoundAt` to a device and to a `/devices/status` row (with `kind`); the thumbprint never.
 - **Born bound, or bound later.** `POST /pair` with a `DPoP` proof (no `ath`: no token yet) mints a bound token; a
   proof that does not pass is 400 and spends nothing. `POST /devices/me/key {narrow?: "capture"}` (`auth.
   DEVICE_SELF_ROUTES`: any device token, about itself only; `NO_BANK_WRITE`) binds an unbound device once — the same key
   again is `changed: false`, another key 409 (a new key is a new pairing), the master token 400 — and may narrow it to
   capture-only. So an already-paired phone keeps working, reads "not yet key-bound", and upgrades by itself.
+  **A `full` device is never key-bound yet** (review 2026-10-29): its hooks, MCP server and CLI share its one token and
+  cannot sign, so binding it could only break that computer's capture. `/pair` with a proof that would mint `full`, and
+  `/devices/me/key` on a `full` device without `narrow: "capture"`, answer 409 `{code: "full_device", detail}`; the code
+  still waits and nothing changes. A token someone else bound first is a lockout only the person ends: the phone says
+  so ("revoke <name> on your Mac, then pair again"), and after a pairing the Mac offers to revoke an older active row of
+  the same name, behind Revoke's own confirmation.
 - **Narrower scopes.** `POST /pair` takes `kind`: a device may only narrow its code (a phone asks for `capture`, so a
   computer's code shown by mistake still mints a capture-only phone), never widen it. Audit 2026-10-29: `capture`
   reaches exactly `CAPTURE_ROUTES`, `/healthz`'s open answer and the self route; `/v1/*` refuses device tokens (a
@@ -275,7 +283,9 @@ party: no relay, no account, no public port (the T3-Connect comparison is in the
 - **The reach guide: `GET /devices/reach[?check=true]`** (master token, under `/devices`). `{tailscale, step, command,
   url, dnsName, check}`: `tailscale` from one bounded (2 s) read-only `tailscale status --json` (`BackendState`,
   `Self.DNSName`) — `missing | not-running | logged-out | stopped | running`; `step` one of `install, open, sign-in,
-  turn-on, serve, unfunnel, ready` (`reach.GUIDE_STEPS`); `command` the exact command to copy (`tailscale serve --bg
+  turn-on, serve, unfunnel, ready` (`reach.GUIDE_STEPS`; `unfunnel` comes first whenever the backend port is
+  funnelled, even beside a tailnet-only serve of it — every ServeConfig entry is read, and no address goes in a QR
+  while it is open); `command` the exact command to copy (`tailscale serve --bg
   --https=8443 <port>`, or `tailscale funnel --https=<p> off` for a funnelled backend port); `url` only at `ready`, from
   the ServeConfig read `tailnet_backend` already makes. `check=true` fetches this machine's own served `/healthz` the
   way a phone would — no token, no redirect, no proxy env, 3 s (`reach.self_check`) — and answers `{ok, failed, ms}`,

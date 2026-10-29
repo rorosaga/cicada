@@ -123,6 +123,8 @@ struct DeviceStatusRow: Decodable, Equatable, Identifiable {
     var kind: String?
     /// 2026-10-29 (additive): the token works only with a proof of the device's own key; false = not yet key-bound.
     var keyBound: Bool?
+    /// Review 2026-10-29 (additive): when its token was locked to its key.
+    var keyBoundAt: String?
     var id: String { deviceId ?? "server" }
     var isServer: Bool { role == "server" }
 
@@ -133,7 +135,9 @@ struct DeviceStatusRow: Decodable, Equatable, Identifiable {
         self.kind = kind; self.keyBound = keyBound
     }
 
-    enum CodingKeys: String, CodingKey { case id, name, role, current, connected, how, lastSeenAt, queue, kind, keyBound }
+    enum CodingKeys: String, CodingKey {
+        case id, name, role, current, connected, how, lastSeenAt, queue, kind, keyBound, keyBoundAt
+    }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         deviceId = c.lenient(.id)
@@ -146,6 +150,7 @@ struct DeviceStatusRow: Decodable, Equatable, Identifiable {
         queue = c.lenient(.queue, 0)
         kind = c.lenient(.kind)
         keyBound = c.lenient(.keyBound)
+        keyBoundAt = c.lenient(.keyBoundAt)
     }
 }
 

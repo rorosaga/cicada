@@ -67,7 +67,8 @@ Agents page, ⌘9, `AppTab.agents`, appended so no shortcut moved — DR-22).
   app sends none. With it the sheet says the address and "Scan with Cicada on your phone"; without it, one line says
   which address to type.
   **2026-10-29 (G212):** each device row's line adds what it may do (*Capture only* / *Full access*) and its key state
-  (*Key-bound* / *Not yet key-bound*); Revoke keeps its confirmation (DESIGN_RULES' destructive rule) and the next
+  (*Key-bound since <day>* / *Not yet key-bound*); after a pairing, an older active row of the same name is offered for
+  revoking (an offer only, behind Revoke's confirmation); Revoke keeps its confirmation (DESIGN_RULES' destructive rule) and the next
   request is refused. *Reach from your phone* (`DeviceReachSection`) sits in the list card above *Pair a device*: a
   `StatusDot` and one line from `GET /devices/reach?check=true` (read on appear, never polled), the one next step in
   words, the step's command in a `CommandBox` to copy (Cicada never runs it), *Get Tailscale* where it is missing, and
