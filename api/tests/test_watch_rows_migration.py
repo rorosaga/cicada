@@ -73,6 +73,59 @@ def test_a_record_after_the_move_writes_rows_beside_the_day_never_in_it(tmp_path
     assert watch_history.stored_rows(memory, day.frontmatter)[0]["url"].endswith(VID)
 
 
+def _watch(vid: str, at: str):
+    return watch_history.make(f"https://www.youtube.com/watch?v={vid}", at=at, title=f"Video {vid[:3]}", door="chrome")
+
+
+def _day_urls(memory: Path, day: str) -> list[str]:
+    for p in (memory / "episodes").glob("*.md"):
+        fm = markdown_parser.parse(p).frontmatter
+        if fm.get("source_id") == f"watch-history:youtube:{day}":
+            return sorted(r["url"][-11:] for r in watch_history.stored_rows(memory, fm))
+    return []
+
+
+def test_a_rows_write_that_fails_never_loses_a_days_videos(tmp_path, monkeypatch):
+    """Review of #533 (the blocker): staging drops a moved day's frontmatter copy, so its rows file is written FIRST.
+    Sync 1 fails writing the rows; sync 2 still holds every video sync 1 had — both for a day written before the move
+    (its frontmatter copy untouched) and for a new day (nothing staged, so the door's next sync brings it again)."""
+    memory = _bank(tmp_path)
+    _legacy_day(memory, "2026-10-14", [ROW])                       # video aaaaaaaaaaa, rows in frontmatter
+    real = watch_history.write_rows
+
+    def broken(*a, **k):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(watch_history, "write_rows", broken)
+    try:
+        watch_history.record(memory, [_watch("bbbbbbbbbbb", "2026-10-14T11:00:00Z"),
+                                      _watch("ccccccccccc", "2026-10-15T09:00:00Z")])
+    except OSError:
+        pass
+    monkeypatch.setattr(watch_history, "write_rows", real)
+    assert _day_urls(memory, "2026-10-14") == ["aaaaaaaaaaa"], "the failed sync dropped nothing"
+    watch_history.record(memory, [_watch("bbbbbbbbbbb", "2026-10-14T11:00:00Z"),
+                                  _watch("ccccccccccc", "2026-10-15T09:00:00Z")])
+    assert _day_urls(memory, "2026-10-14") == ["aaaaaaaaaaa", "bbbbbbbbbbb"]
+    assert _day_urls(memory, "2026-10-15") == ["ccccccccccc"]
+
+
+def test_the_rows_signature_moves_on_every_rewrite_even_with_its_mtime_put_back(tmp_path):
+    """Review of #533 (note 1): per file, with the inode — a coarse or put-back mtime never hides a rewrite."""
+    import os
+
+    memory = _bank(tmp_path)
+    day = watch_history.parse_day("2026-10-14")
+    watch_history.write_rows(memory, "youtube", day, [ROW])
+    path = watch_history.rows_path(memory, "youtube", day)
+    st = path.stat()
+    before = watch_history.rows_signature(memory)
+    watch_history.write_rows(memory, "youtube", day, [{**ROW, "title": "Bridge designs"}])
+    os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns))
+    os.utime(path.parent, ns=(path.parent.stat().st_atime_ns, path.parent.stat().st_mtime_ns))
+    assert watch_history.rows_signature(memory) != before
+
+
 def test_never_automatic_a_dry_run_names_counts_and_ids_and_apply_moves_on_the_persons_word(tmp_path, monkeypatch):
     """A bulk write to the person's bank waits for their OK: start-up and a bank switch move nothing; the route's GET
     is the dry run (counts and day ids, nothing written) and its POST is the person's --apply."""

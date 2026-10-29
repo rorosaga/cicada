@@ -1821,6 +1821,21 @@ def list_projects(memory_path: Path, *, tz_name: str | None, transcript_exists: 
     return out
 
 
+def owner_token(memory_path: Path) -> str:
+    """Which page is the owner's when no page says ``owner: true``: ``owner_identity.resolve_observer`` reads the
+    machine's ``owner.json`` (outside the bank, so no folder stamp sees it move). Its digest rides the list's key and
+    the Projects ETags (review of #533) — never the id itself."""
+    import hashlib
+
+    try:
+        from api.services import owner_identity
+
+        oid = owner_identity.resolve_observer(Path(memory_path), None)
+    except Exception:  # noqa: BLE001 — `_Bank.owner` reads the same and treats a failure as no owner
+        oid = ""
+    return hashlib.blake2b(str(oid).encode("utf-8"), digest_size=6).hexdigest()
+
+
 #: bank -> (the list's inputs, the list). Process-local and disposable.
 _LISTS: dict[str, tuple[tuple, ProjectsResponse]] = {}
 
@@ -1828,11 +1843,12 @@ _LISTS: dict[str, tuple[tuple, ProjectsResponse]] = {}
 def _list_inputs(memory_path: Path, tz_name: str | None) -> tuple:
     """Everything the list reads, as stamps: the zone and the code's shape, every page with its claims ledgers, every
     episode, the inbox (follow-ups), the provider groupings file, and the word index's files (the reverse layer:
-    ``search_index.claim_rows``). The `/projects` ETag's own components, plus the index and the ledgers."""
+    ``search_index.claim_rows``), and the owner page (:func:`owner_token`). The `/projects` ETag's own components,
+    plus the index and the ledgers."""
     from api.services import graph_builder, inbox_inputs
 
     mp = Path(memory_path)
-    return (tz_name or "UTC", PROJECT_SHAPE,
+    return (tz_name or "UTC", PROJECT_SHAPE, owner_token(mp),
             bank_index.dir_fingerprint(mp / "entities"), bank_index.ledger_fingerprint(mp / "entities"),
             bank_index.dir_fingerprint(mp / "episodes"), graph_builder.inbox_stamp(mp),
             inbox_inputs.file_stamp(mp / "project_groupings.yaml"),

@@ -384,18 +384,24 @@ def write_rows(memory_path: Path, platform: str, day: date, rows: list[dict]) ->
 
 
 def rows_signature(memory_path: Path) -> tuple:
-    """Each platform's rows folder as its ``(nanosecond mtime, size)``: a cache built from the rows moves when one
-    does (a day that only learnt a raw instant rewrites its rows file and not its episode). One stat per platform, not
-    one per day: every rows file arrives by a rename into its folder (:func:`write_rows`, or a restore's
-    unlink-and-create), and either moves the folder's mtime."""
+    """Every rows file's ``(platform, name, inode, nanosecond mtime, size)``: a cache built from the rows moves when one
+    does (a day that only learnt a raw instant rewrites its rows file and not its episode). Per file, not the folder's
+    mtime (review of #533): ext4 before Linux 6.13 stamps a folder coarsely, so a burst of writes could leave it
+    unmoved, and an in-place edit never moves it anywhere. :func:`write_rows` replaces the file, so its inode alone
+    moves on every write, from this process or another; an in-place edit moves mtime or size. One ``scandir`` a platform
+    (~2.5k stats on a heavy watcher's bank, a few ms)."""
     out = []
     root = Path(memory_path).joinpath(*ROWS_DIR)
     for platform in sorted(PLATFORMS):
         try:
-            st = os.stat(root / platform)
+            with os.scandir(root / platform) as it:
+                for e in it:
+                    if e.name.endswith(".json"):
+                        st = e.stat()
+                        out.append((platform, e.name, st.st_ino, st.st_mtime_ns, st.st_size))
         except OSError:
             continue
-        out.append((platform, st.st_mtime_ns, st.st_size))
+    out.sort()
     return tuple(out)
 
 
@@ -513,13 +519,15 @@ def record(memory_path: Path, watches: Iterable[Watch], *, bank: str | None = No
                     # Owner ruling 2026-10-18: a watched day is indexed, never read by a model.
                     queue_for_sleep=False, processed_by=history_index.INDEXED_BY,
                     writer=SCRUB_WRITER))
-            staged = episode_staging.stage(drafts, episodes_dir, bank=bank)
-            # Every day's rows, under the same locks: a day whose words did not move may still have learnt a raw
-            # instant (`seen`), which the next merge needs to be order-free — its rows file moves, its episode does
-            # not (never re-queued).
+            # Every day's rows FIRST, under the same locks (review of #533): staging drops a moved day's frontmatter
+            # copy, so a rows file written after it could be lost to a failure in between, and the next sync would
+            # re-render the day without those videos. Rows first, an interrupted sync leaves rows the next merge
+            # reads (the body catches up then). A day whose words did not move may still have learnt a raw instant
+            # (`seen`): its rows file moves, its episode does not (never re-queued).
             for (platform, day), rows in rows_by_day.items():
                 if write_rows(memory_path, platform, day, rows):
                     result.paths.append(str(rows_path(memory_path, platform, day).relative_to(Path(memory_path))))
+            staged = episode_staging.stage(drafts, episodes_dir, bank=bank)
         for verdict, draft in zip(staged.verdicts, drafts):
             if verdict == "created":
                 result.days_created += 1

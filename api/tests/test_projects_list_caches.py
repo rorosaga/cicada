@@ -245,6 +245,32 @@ def test_the_remembered_list_is_a_fresh_read_and_each_input_moving_rebuilds_it(t
     assert project_timeline.list_projects(bank, tz_name="Asia/Tokyo") and len(built) >= 4, "a zone is its own key"
 
 
+def test_the_owner_page_from_owner_json_is_in_the_lists_key_and_the_projects_etag(tmp_path, monkeypatch):
+    """Review of #533 (note 2): with no page saying `owner: true`, the owner is `owner.json`'s, outside the bank — so
+    its digest rides the remembered list's key and the Projects ETag, never the id itself."""
+    from fastapi.testclient import TestClient
+
+    from api import config, main
+    from api.services import owner_identity
+
+    monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
+    bank = demo(tmp_path)
+    owner_identity.save_owner({"entity_id": "alpha-owner"})
+    key = project_timeline._list_inputs(bank, TZ)
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(bank))
+    config.get_settings.cache_clear()
+    try:
+        client = TestClient(main.app)
+        etag = client.get("/projects").headers.get("etag")
+        owner_identity.save_owner({"entity_id": "beta-owner"})
+        assert project_timeline._list_inputs(bank, TZ) != key
+        assert "beta-owner" not in repr(project_timeline._list_inputs(bank, TZ))
+        moved = client.get("/projects").headers.get("etag")
+        assert etag and moved and moved != etag
+    finally:
+        config.get_settings.cache_clear()
+
+
 def test_the_episode_epoch_answers_as_a_fresh_read_and_drops_when_an_episode_moves(tmp_path):
     """Speed 2026-10-29: a claim's anchor day and conversations outlive the request while the episodes folder and the
     zone hold. A read from the epoch is a fresh read's, and a re-dated episode starts a new epoch."""
