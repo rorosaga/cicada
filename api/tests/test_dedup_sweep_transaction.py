@@ -114,7 +114,7 @@ def test_a_dirty_graph_the_merge_does_not_touch_stays_out_of_its_commit(bank):
 
     assert out["merged"] == [("esta", "esa")]
     files = set(_git(bank, "show", "--name-only", "--format=", "HEAD").split())
-    assert files == {"entities/esa.md", "entities/esta.md", "entities/bob-example.md"}
+    assert files == {"entities/esa.md", "entities/esta.md", "entities/bob-example.md", "_redirects.yaml"}
     assert (bank / "graph_edges.yaml").read_text() == edited, "the other writer's edit is untouched"
     assert _git(bank, "status", "--porcelain").strip() == "M graph_edges.yaml"
 
@@ -148,7 +148,7 @@ def test_a_clean_merge_commits_exactly_its_changes_under_cicada(bank):
     out = _sweep(bank, engine="litellm")
     assert out["merged"] == [("esta", "esa")]
     files = set(_git(bank, "show", "--name-only", "--format=", "HEAD").split())
-    assert files == {"entities/esa.md", "entities/esta.md", "entities/bob-example.md"}, "no untouched graph"
+    assert files == {"entities/esa.md", "entities/esta.md", "entities/bob-example.md", "_redirects.yaml"}, "no untouched graph"
     message = _git(bank, "log", "-1", "--format=%B").splitlines()
     assert "Cicada-Author: cicada" in message and "Cicada-Engine: litellm" in message
     assert _git(bank, "status", "--porcelain") == ""

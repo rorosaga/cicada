@@ -3938,6 +3938,135 @@ def edit_page(ctx: ToolContext, subject: str, reason: str, edits=None, section: 
     return "\n".join(lines)
 
 
+# --- G227 follow-up: merge two pages, split one (owner 2026-10-29) ----------------------------------------------------
+
+JOIN_SLEEPING = ("Nothing changed — Cicada is consolidating memory right now, and a merge or split made now could be "
+                 "swept into its commit under the wrong name. Try again in a few minutes.")
+
+
+def _join_page_id(memory_path: Path, subject: str) -> str | None:
+    from api.services.id_utils import resolve_entity_file
+
+    page = resolve_entity_file(memory_path, (subject or "").strip()) if (subject or "").strip() else None
+    return page.stem if page is not None else None
+
+
+@_holding_pages
+def _join_locked(ctx: ToolContext, op: str, entity_id: str, payload: dict, reason: str) -> str:
+    """The write half of ``cicada_merge_pages`` / ``cicada_split_page``, under admission and the page lock through its
+    commit: a harness on the person's trust list (G198's ``page_editors``) applies it under its own name; any other
+    files a proposal the person applies or leaves with one tap."""
+    from api.services import agent_commits, page_editors, page_join
+
+    memory_path = ctx.memory_path()
+    if ctx.sleep_running():
+        return JOIN_SLEEPING
+    author = ctx.author
+    try:
+        if not page_editors.is_trusted(author, remote=ctx.is_remote):
+            rel = page_join.write_proposal(memory_path, op=op, entity_id=entity_id, payload=payload, reason=reason,
+                                           author=author, session=ctx.session_id or None)
+            agent_commits.commit_write(memory_path, subject=page_join.PROPOSAL_SUBJECT,
+                                       lines=[f"{rel}: created (trigger: {ctx.trigger})", "", f"Reason: {reason}"],
+                                       paths=[rel], author=author, session=ctx.session_id)
+            item = rel.removeprefix("inbox/").removesuffix(".md")
+            return (f"Proposed, not applied: {author} is not on the person's list of agents that change pages "
+                    f"directly, so the {op} of {entity_id} waits in their inbox ({item}) with your reason, for them "
+                    "to apply or leave with one tap. Nothing changed yet.")
+        before = agent_commits.before_for(memory_path)
+        if op == "merge":
+            out = page_join.merge(memory_path, entity_id, payload["into"], author=author, trigger=ctx.trigger,
+                                  reason=reason, session=ctx.session_id or None, before=before)
+            return (f"Merged {out['loser']} into {out['winner']} under {author} with your reason; "
+                    f"`{out['loser']}` now resolves to `{out['winner']}`. The person can undo it from the page's "
+                    "history.")
+        out = page_join.split(memory_path, entity_id, sentences=payload.get("sentences") or (),
+                              claims=payload.get("claims") or (), sources=payload.get("sources") or (),
+                              episodes=payload.get("episodes") or (), references=payload.get("references") or None,
+                              name=payload.get("name"), entity_type=payload.get("type"), author=author,
+                              trigger=ctx.trigger, reason=reason, session=ctx.session_id or None, before=before)
+    except page_join.JoinError as exc:
+        return Reply(f"Nothing changed — {exc}", code="not_found" if exc.status == 404 else "refused")
+    moved = out["moved"]
+    linked = f" Re-pointed the links from {', '.join(out['repointed'])}." if out["repointed"] else ""
+    return (f"Split {entity_id}: {moved['sentences']} sentences, {moved['claims']} beliefs, {moved['sources']} "
+            f"sources and {moved['conversations']} conversations moved to `{out['new_id']}` ({out['new_name']}); the "
+            f"two are kept apart from now on.{linked} The person can undo it from the page's history.")
+
+
+def _join_reason(reason) -> str:
+    return " ".join(str(reason or "").split())[:300]
+
+
+def merge_pages(ctx: ToolContext, page: str, into: str, reason: str) -> str:
+    """``cicada_merge_pages``: fold ``page`` into ``into`` — beliefs, evidence, sources, aliases, links and history move
+    by id, the old id keeps resolving. Trusted harness: at once; any other: an inbox proposal. Refused for a remote app
+    and a demo bank."""
+    if ctx.is_remote:
+        return Reply("Merging pages isn't available to a remote app; tell the person, who can merge them in the app.",
+                     code="refused")
+    memory_path = ctx.memory_path()
+    if (refusal := _demo_refusal(memory_path)) is not None:
+        return refusal
+    clean = _join_reason(reason)
+    if not clean:
+        return Reply("Nothing changed — give a `reason` in one sentence; it becomes the commit message.",
+                     code="refused")
+    loser, winner = _join_page_id(memory_path, page), _join_page_id(memory_path, into)
+    if loser is None or winner is None:
+        return Reply(f"No page named '{page if loser is None else into}' — nothing changed. Use the page's id.",
+                     code="not_found")
+    return _join_locked(ctx, "merge", loser, {"into": winner}, clean)
+
+
+def split_page(ctx: ToolContext, page: str, reason: str = "", sentences=None, claims=None, sources=None,
+               episodes=None, references=None, name: str | None = None, page_type: str | None = None,
+               preview: bool = False) -> str:
+    """``cicada_split_page``: ``preview=true`` lists the page's numbered sentences, beliefs, sources, conversations
+    and the pages linking to it (with the conversations each link rests on); otherwise moves the picked ones to a new
+    page with the same clean title and its own id, the pair kept apart from now on."""
+    import json
+
+    from api.services import page_join
+
+    if ctx.is_remote:
+        return Reply("Splitting a page isn't available to a remote app; tell the person, who can split it in the "
+                     "app.", code="refused")
+    memory_path = ctx.memory_path()
+    entity_id = _join_page_id(memory_path, page)
+    if entity_id is None:
+        return Reply(f"No page named '{page}' — nothing changed. Use the page's id.", code="not_found")
+    if preview:
+        plan = page_join.split_plan(memory_path, entity_id)
+        lines = [f"Split plan for {entity_id} ({plan['name']}). The new page would be `{plan['new_id']}`.",
+                 "Sentences (pick by number):"]
+        lines += [f"  {s['n']}. [{s['section'] or 'Summary'}] {s['text']}" for s in plan["sentences"]]
+        lines.append("Beliefs (pick by id):")
+        lines += [f"  {c['id']}: {c['text']}" for c in plan["claims"]]
+        if plan["sources"]:
+            lines.append("Sources: " + ", ".join(s["ref"] for s in plan["sources"]))
+        if plan["conversations"]:
+            lines.append("Conversations: " + ", ".join(c["id"] for c in plan["conversations"]))
+        if plan["references"]:
+            lines.append("Pages linking to it, with the conversations each link rests on (say `new` or `stay` in "
+                         "`references`; unsaid, a link moves only when every one of them moves): "
+                         + json.dumps({r["page_id"]: r["episodes"] for r in plan["references"]}))
+        return "\n".join(lines)
+    if (refusal := _demo_refusal(memory_path)) is not None:
+        return refusal
+    clean = _join_reason(reason)
+    if not clean:
+        return Reply("Nothing changed — give a `reason` in one sentence; it becomes the commit message.",
+                     code="refused")
+    refs = references if isinstance(references, dict) else {}
+    payload = {"sentences": [int(n) for n in sentences or () if str(n).isdigit()],
+               "claims": [str(c) for c in claims or ()], "sources": [str(s) for s in sources or ()],
+               "episodes": [str(e) for e in episodes or ()],
+               "references": {str(k): str(v) for k, v in refs.items() if v in ("new", "stay")},
+               **({"name": str(name)} if name else {}), **({"type": str(page_type)} if page_type else {})}
+    return _join_locked(ctx, "split", entity_id, payload, clean)
+
+
 # --- ruling 45: projects the person starts, the conversations tied to them, what fed them -----------------------------
 
 PROJECT_SLEEPING = ("Nothing changed — Cicada is consolidating memory right now, and a change made now could be swept "

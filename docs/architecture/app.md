@@ -196,6 +196,18 @@ the coordinator) and `dismantleNSView` suspends the page and removes its handler
 releases its graph. Regression nets: `Tests/graph/graph-lifecycle.test.js` and
 `GraphViewLifecycleTests`. Capture, SSE and the menu-bar worm are untouched by any of this.
 
+**Merge and split a page (G227 follow-up, owner 2026-10-29; `PageJoinSheets.swift`, `PageJoin.swift`).** The page's
+menu (DR-81: actions live there, nothing folds) adds *Merge into another page…* and *Split this page…*. Both are sheets
+in the Add-skill sheet's shape — a heading, a lead, a checkbox list, Cancel and the one primary action (DR-40) — so no
+new visual pattern. Merge: a search over the graph's pages (same-titled ones first, each with its `QualifierTag`,
+DR-44), a sentence saying what moves and that it can be undone, Merge. Split: the new page's name (same title by
+default) and type, then the page's sentences, beliefs, sources, conversations and the pages linking here as
+checkboxes under `SectionLabel`s; *Suggest what to move* asks the backend's read (the person's engine) and only adds
+ticks; a linking page shows what its evidence says as conversations are ticked (`SplitLinkChoice`, the server's
+`reference_choice`) and a picker to say otherwise. After either, the graph reloads and the page that stayed (merge) or
+the new page (split) opens. History: a join's row says what it did (`HistoryRowWords`), and its hover card offers
+**Undo** (`POST …/history/{commit}/undo`); a refusal shows the server's own sentence.
+
 **Same name, different things (G227, 2026-10-29).** `GraphNode`, `Entity`, `MemorySearchHit`, `ProjectPageRow`,
 `SleepConsolidated.Page` and `InboxItem` decode the backend's `qualifier`/`displayName` (decode-tolerant). **Owner
 2026-10-29: the qualifier is a tag, not parentheses.** The card header, Clusters' rows and grid, the find palette

@@ -12,6 +12,13 @@
 
 ## Current state and evidence
 
+- **2026-10-29 — any join can be undone: merge, split, undo (G227 follow-up; branch `feat/merge-split-pages`, after
+  on #546).** The page's menu merges it into another page or splits off what is about another thing with the same name
+  (the split plan's sentences pre-ticked on the person's click); a trusted harness can do both over MCP, any other
+  agent proposes in the inbox. Each is one commit undone from the page's History; a retired id keeps resolving
+  (`_redirects.yaml`, every merge and rename); a split pair is never re-joined by Sleep. Verified on a read-only copy of
+  the owner's bank: the same-name page split, undone, split, merged back, both undone — byte-identical.
+
 - **2026-10-29 — Telegram connects by a QR (ruling 49, G179; branch `feat/telegram-qr-connect`).** Connect… opens on a
   sign-in QR the person scans in Telegram on their phone (Settings → Devices → Link Desktop Device); the backend
   refreshes it as Telegram expires it (~30 s, 10 rounds) and the app follows the status; number → code is the

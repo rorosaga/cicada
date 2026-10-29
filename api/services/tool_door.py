@@ -164,6 +164,10 @@ DISPATCH: dict[str, Callable[[mcp_tools.ToolContext, dict], str]] = {
     "cicada_edit_page": lambda c, a: mcp_tools.edit_page(
         c, _s(a, "subject"), _s(a, "reason"), a.get("edits"), a.get("section"), a.get("text"), a.get("add_aliases"),
         a.get("remove_aliases"), a.get("evidence"), a.get("resolves"), a.get("name"), a.get("description")),
+    "cicada_merge_pages": lambda c, a: mcp_tools.merge_pages(c, _s(a, "page"), _s(a, "into"), _s(a, "reason")),
+    "cicada_split_page": lambda c, a: mcp_tools.split_page(
+        c, _s(a, "page"), _s(a, "reason"), a.get("sentences"), a.get("claims"), a.get("sources"), a.get("episodes"),
+        a.get("references"), a.get("name"), a.get("page_type"), bool(a.get("preview", False))),
     "cicada_create_project": lambda c, a: mcp_tools.create_project(c, _s(a, "project"), a.get("description"),
                                                                    a.get("evidence"), a.get("repo")),
     "cicada_link_conversation": lambda c, a: mcp_tools.link_conversation(

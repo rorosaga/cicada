@@ -222,6 +222,53 @@ can mean. Stage 5.5's `mentions` edge from a bare `[[<name>]]` goes to the one p
 (`related:`), else nowhere — never to a page picked by listing order. An agent's link is written by id with its
 qualifier (`[[<id>|<name> (<qualifier>)]]`, `cicada_ask`'s citations); the app's link to a shared name asks which.
 
+### Any join can be undone — merge, split, undo (G227 follow-up, owner 2026-10-29; `page_join`)
+The owner: two things with one name that one page had absorbed "can be merged and stuff down the line, or entities can
+be separated if they were joined". One module, three moves, each **one commit** the person can take back:
+
+- **Merge** (`page_join.merge`): the one merge primitive (`entity_merge.merge_entities` — claims with their ids,
+  evidence spans and history, sources, aliases, pictures, looks, every backlink and edge), committed alone; any
+  "different" pair (`_merge_rejected.yaml`) or split between the two, and a held mention's "Another one" under either
+  name (`pending_store.clear_apart`, #546), is lifted — the person has now said they are one.
+- **Redirects** (`page_redirects`, `<bank>/_redirects.yaml`, `{redirects: {old_id: new_id}}`): **every** merge and
+  rename leaves one — `merge_entities` and `rename_references` write it, so the inbox's merges, the dedup sweep and
+  `role_people`'s retitle do too, and each commits it with its change (in its footprint). A page that exists always
+  wins over a redirect; a chain is followed (≤ 8 hops, never a loop). `id_utils.resolve_entity_file` falls back on it
+  (so every MCP tool and the CLI resolve an old id), and `GET /entities/{old}` answers the page it became with
+  `X-Cicada-Redirected-From`. Cached on the file's stat: a name miss costs one more `stat` (measured below).
+- **Split** (`page_join.split_plan`, `page_join.split`): the person picks sentences (numbered exactly as
+  `same_name_split.sentences` numbers them, so its judge's proposal is the starting selection, pre-ticked, never
+  applied by itself), claims, sources and conversations; they move to a new page with the **same clean title** and its
+  own id (`<slug>-2`, `entity_resolver._another_id`; the G227 qualifier tells them apart, derived on read) and a type
+  from the producible set. Moved claims keep their ids and provenance, re-subjected. Another page's link (a claim's node
+  object, a wikilink by id or title — rewritten `[[<new-id>|<title>]]` —, `related`, a source's `entity:`) moves only
+  where the person said so or its own evidence says which (`reference_choice`: every conversation it rests on moved →
+  the new page; every one stayed → this page; otherwise the person says, and unsaid it stays). Graph edges drawn from a
+  moved claim or between the two re-pointed pages follow. **A split records the pair as two things**
+  (`merge_rejections.add_split`: a `split:` list beside `rejected:` in `_merge_rejected.yaml`). It is read apart from
+  `rejected` on purpose — a `rejected` pair is also read as "this NAME is not that page" (`entity_resolver`), and after
+  a split the name must still reach either page through Stage 2's same-title judge. `kept_apart` (rejected ∪ split)
+  keeps the PAGES apart in the dedup sweep and the person-name review; Sleep's inbox tending never settles or judges a
+  split pair (`inbox_tend._merge_rule`, `judge_merge` → `kept_apart`).
+- **Undo** (`page_join.undo`): the reverse of the join's commit applied onto each file as it is now — the "Settled by
+  Sleep" machinery (`inbox_tend._changed`/`_reverse`/`_reverse_list`): a file unchanged since is put back, the bank's
+  lists (`_merge_rejected.yaml` both keys, `_redirects.yaml`) are reversed by meaning (what the join added leaves, what it
+  removed comes back), and a change since in the same place refuses the whole undo (409, nothing written, the sentence
+  says to merge or split again instead). The undo commit carries `Undoes: <sha>`; the History row of a join reads
+  `join` (`merge`/`split`/`undo`) and `undoable` (`page_history`).
+- **Who writes.** Every write holds the bank's admission and page lock (`page_joins` routes; `_join_locked` on MCP);
+  an edit already on a page is committed apart first (`before`). Commits: `Merged pages <day>` / `Split a page <day>` /
+  `Undid a page join <day>` under the person (`user/companion_app`) or a trusted harness (its own `Cicada-Author`);
+  any other agent's proposal is a `page_edit` inbox item with a `join` payload, applied by the person under
+  `[<agent>, user]` with the retired item in the same commit.
+
+**Measured (owner-scale bank copy, 8,079 pages, read-only copy; before = #546's head, after = this branch, two runs each,
+same machine):** card open p95 44–47 → 46–50 ms (noise band; the card read is unchanged when the page exists), inbox
+load p95 53–60 → 55 ms, a name miss p95 18–27 → 25–26 µs (+1 `stat`), `cicada_recall_detail` p95 116–127 → 116–121 ms.
+The split plan of a 32-sentence page: 1.4 s cold (one `git grep` finds the pages naming it; the conversation titles
+read the episode index), split 0.6 s, undo 0.4 s; split → undo, and split → merge → undo → undo, left the bank
+byte-identical.
+
 ### Decay classes (G66)
 One resolver, `api/services/decay_policy.py`. `resolve(fm)` returns `(class, rate)`: an explicit
 `decay_class:` wins; otherwise inferred from `type` (`media` → evergreen, `skill` → durable, else

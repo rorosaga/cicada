@@ -248,7 +248,7 @@ def nickname_candidates(memory_path: Path, report: NicknameReport | None = None)
         fm = f.frontmatter or {}
         if str(fm.get("kind") or "") == "merge_suggestion":
             open_pairs.add(dedup_key("merge_suggestion", fm))
-    rejected = merge_rejections.load_rejected(memory_path)
+    rejected = merge_rejections.kept_apart(memory_path)   # a split pair is never asked about as one person either
     by_first: dict[str, list[tuple[str, str, set[str]]]] = {}
     for row in people:
         first = _first(row[1])

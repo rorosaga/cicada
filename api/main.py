@@ -48,6 +48,7 @@ from api.routers import (
     memory,
     nudges,
     origins,
+    page_joins,
     projects,
     reading,
     remote,
@@ -335,6 +336,7 @@ app.include_router(status.router, tags=["status"])
 app.include_router(nudges.router, tags=["nudges"])
 app.include_router(clarifications.router, tags=["clarifications"])
 app.include_router(entities.router, tags=["entities"])
+app.include_router(page_joins.router, tags=["entities"])
 app.include_router(claims.router, tags=["claims"])
 app.include_router(projects.router, tags=["projects"])
 app.include_router(backlog.router, tags=["backlog"])

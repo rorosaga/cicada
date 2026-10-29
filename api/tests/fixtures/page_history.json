@@ -3,7 +3,7 @@
   "rows": [
     {"date": "2026-10-28", "changeType": "updated", "description": "entities/alpha-place.md: updated (trigger: user/companion_app)",
      "author": "user", "authorKind": "user", "authorProvider": null, "commitHash": "a000000000000000000000000000000000000001",
-     "diff": null, "sessions": [], "trigger": "user/companion_app", "via": "app", "at": "2026-10-28T14:14:00+01:00", "bucket": "you",
+     "diff": null, "sessions": [], "trigger": "user/companion_app", "via": "app", "at": "2026-10-28T14:14:00+01:00", "bucket": "you", "join": null, "undoable": false,
      "summary": {"plusClaims": 0, "endedClaims": 0, "removedClaims": 0, "changedClaims": 0, "fields": ["decay_class", "decay_rate"],
                  "proseAdded": 0, "proseRemoved": 0, "lines": []}},
     {"date": "2026-10-27", "changeType": "updated", "description": "entities/alpha-place.md: updated (trigger: sleep/extraction, sessions: ses_b, ses_c)",

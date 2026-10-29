@@ -72,6 +72,8 @@ TOOL_SCOPE: dict[str, str | None] = {
 # whether a remote app may ever edit a page is the owner's open question.
 NEVER_REMOTE = frozenset({"cicada_pending", "cicada_mark_processed", "cicada_repo_context", "cicada_continue",
                           "cicada_save_design", "cicada_design_search", "cicada_edit_page",
+                          # G227 follow-up: merging and splitting pages — the same seat as a page edit (G198).
+                          "cicada_merge_pages", "cicada_split_page",
                           # G166 exploring (2026-10-14): stdio only in slice 1 — the record reads image files the agent
                           # saved, and a run starts only from the person in a local conversation (D5: never remote).
                           "cicada_explore_queue", "cicada_explore_claim", "cicada_record_capture",

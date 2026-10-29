@@ -111,6 +111,17 @@ with the query. Then one line names up to 5 held names that match a query word. 
 is unread, it is an ordinary block under `_fit_recall`'s budget, and it is Cicada's reading, not the person's
 verbatim words, so it follows the claim leg's scope.
 
+**Merge and split pages (G227 follow-up, owner 2026-10-29; `page_join`, `storage.md`).** `cicada_merge_pages(page,
+into, reason)` folds `page` into `into`; `cicada_split_page(page, preview=true)` lists the page's numbered sentences,
+beliefs by id, sources, conversations and the pages linking to it with the conversations each link rests on, and
+`cicada_split_page(page, reason, sentences, claims, sources, episodes, references?, name?, page_type?)` moves the
+picked ones to a new page with the same clean title. The trust list is G198's (`page_editors`): a listed harness
+applies at once under its own `Cicada-Author`; any other files a `page_edit` proposal with a `join` payload that the
+person applies or leaves with one tap. Stdio and the command line only (`catalog.NEVER_REMOTE`, the same seat as
+`cicada_edit_page`), so neither is on `/v1`; the CLI rows (`page merge`, `page split`) are proposed spellings, not yet
+exposed (`cli_map`), like `page edit`. A refusal (no such page, nothing picked, Sleep holding the pages, a demo bank) writes
+nothing. Every join is one commit the person undoes from the page's History.
+
 **Same name, different things (G227, 2026-10-29).** Every door names a page whose title another page shares by
 its qualifier (`same_name`): recall's heading is `### <name> (<qualifier>) (<type>, …) — id `<id>``;
 `cicada_recall_detail` with a name two pages share answers with each one, its qualifier and its id, instead of picking

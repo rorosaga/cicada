@@ -116,6 +116,12 @@ enum HistoryRowWords {
     static func sentence(_ e: EntityHistoryEntry) -> String {
         let name = who(e)
         let s = e.summary ?? HistorySummary()
+        switch e.join {   // G227 follow-up: a page join says what it did, not what lines it touched
+        case "merge": return "\(name) \(Copy.Graph.historyMerged)"
+        case "split": return "\(name) \(Copy.Graph.historySplit)"
+        case "undo": return "\(name) \(Copy.Graph.historyUndidJoin)"
+        default: break
+        }
         if e.changeType == .created { return "\(name) \(Copy.Graph.historyWrotePage)" }
         if HistoryBucket.of(e) == .upkeep {
             if e.trigger.hasPrefix("sleep/decay") { return Copy.Graph.historyDecay }

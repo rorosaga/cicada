@@ -398,6 +398,10 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /entities/{entity_id}/sources/change": (ADMITTED, None),
     "DELETE /entities/{entity_id}/sources/{index}": (ADMITTED, None),
     "POST /entities/{entity_id}/edits": (ADMITTED, None),
+    # G227 follow-up: merge, split and undo a join — each one admitted transaction (`page_joins`).
+    "POST /entities/{entity_id}/merge": (ADMITTED, None),
+    "POST /entities/{entity_id}/split": (ADMITTED, None),
+    "POST /entities/{entity_id}/history/{commit_hash}/undo": (ADMITTED, None),
     "POST /projects/{project_id}/milestones": (ADMITTED, None),
     "PATCH /projects/{project_id}/milestones/{slug}": (ADMITTED, None),
     "POST /projects/{project_id}/happenings": (ADMITTED, None),
@@ -613,6 +617,8 @@ TOOLS: dict[str, tuple[str, str | None]] = {
     "cicada_add_backlog_note": (ADMITTED, "add_backlog_note"),
     "cicada_save_design": (ADMITTED, "save_design"),
     "cicada_edit_page": (ADMITTED, "_edit_page_locked"),        # G198: the page or the proposal, committed alone
+    "cicada_merge_pages": (ADMITTED, "_join_locked"),           # G227 follow-up: the join or the proposal, alone
+    "cicada_split_page": (ADMITTED, "_join_locked"),
     "cicada_save_url": (ADMITTED, "save_url"),                  # backend up: POST /sources/save admits itself
     "cicada_resolve_inbox": (ADMITTED, None),                   # posts to /inbox/{id}/resolve, which admits
     "cicada_save_episode": (CAPTURE, None),

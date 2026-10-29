@@ -4599,6 +4599,27 @@ extension APIClient {
         try await getConditional(Self.provenancePath("/entities", entityId, "/links"), etag: etag)
     }
 
+    // MARK: G227 follow-up — merge two pages, split one, undo either (`page_joins`)
+
+    /// Fold `entityId` into `into` (the page that stays).
+    func mergePage(entityId: String, into: String) async throws -> PageJoinAnswer {
+        try await post(Self.provenancePath("/entities", entityId, "/merge"), body: ["into": into])
+    }
+
+    /// What the split sheet shows; `suggest` asks the person's engine which sentences are about another thing.
+    func fetchSplitPlan(entityId: String, suggest: Bool) async throws -> SplitPlan {
+        try await get("/entities/\(encodedID(entityId))/split-plan?suggest=\(suggest)", timeout: suggest ? 180 : nil)
+    }
+
+    func splitPage(entityId: String, selection: SplitSelection) async throws -> PageJoinAnswer {
+        try await post(Self.provenancePath("/entities", entityId, "/split"), body: selection.body)
+    }
+
+    /// Take a merge or split back, from the page's History.
+    func undoJoin(entityId: String, commitHash: String) async throws -> PageJoinAnswer {
+        try await post(Self.provenancePath("/entities", entityId, "/history/\(commitHash)/undo"))
+    }
+
     /// One exact-words edit of a page as the person, pinned so Sleep's next rewrite keeps it (G198's corrections).
     /// The link-view switcher's door: `old` is the link's token, `new` the same link with its view word.
     func editPage(entityId: String, reason: String, old: String, new: String) async throws -> PageEditAnswer {

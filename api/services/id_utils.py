@@ -244,6 +244,13 @@ def resolve_entity_file(memory_path: Path, name_or_slug: str) -> Path | None:
     for key in (raw.lower(), sanitize_id(raw)):
         if key in index:
             return entities_dir / index[key]
+    # 4. an id a merge or a rename retired (`page_redirects`): the page it became.
+    from api.services import page_redirects
+
+    for key in dict.fromkeys((raw, sanitize_id(raw))):
+        moved = page_redirects.resolve(memory_path, key)
+        if moved is not None:
+            return entities_dir / f"{moved}.md"
     return None
 
 

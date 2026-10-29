@@ -126,7 +126,8 @@ struct EntityHistoryView: View {
             .popover(isPresented: Binding(get: { hovered == id || pinned == id },
                                           set: { if !$0 { if hovered == id { hovered = nil }; if pinned == id { pinned = nil } } }),
                      arrowEdge: .leading) {
-                HistoryHoverCard(entry: entry, entityId: entityId, showsChange: pinned == id, loadDiff: loadDiff)
+                HistoryHoverCard(entry: entry, entityId: entityId, showsChange: pinned == id, loadDiff: loadDiff,
+                                 onUndone: { Task { await loadFirst(force: true) } })
             }
             .accessibilityElement(children: .combine)
             .accessibilityLabel("\(HistoryRowWords.sentence(entry)), \(HistoryRowWords.when(entry, long: true))")
@@ -289,9 +290,15 @@ struct HistoryHoverCard: View {
     let entityId: String
     let showsChange: Bool
     let loadDiff: (String, String) async throws -> EntityDiff
+    /// G227 follow-up: a merge or split taken back from here — the tab reads its rows again.
+    var onUndone: () -> Void = {}
 
+    @Environment(Store.self) private var store: Store?
+    @Environment(GraphViewModel.self) private var graphVM: GraphViewModel?
     @State private var diff: EntityDiff?
     @State private var diffFailed = false
+    @State private var undoing = false
+    @State private var undoProblem: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
@@ -312,6 +319,18 @@ struct HistoryHoverCard: View {
             }
             Text(HistoryRowWords.when(entry, long: true))
                 .font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
+            if entry.undoable {
+                // G227 follow-up: a merge or split is one commit, taken back here — the "Settled by Sleep" undo.
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    NeutralButton(title: Copy.Graph.historyUndo, size: .compact, isDisabled: undoing) { undo() }
+                        .help(Copy.Graph.historyUndoHelp)
+                    if undoing { ProgressView().controlSize(.small) }
+                }
+                if let undoProblem {
+                    Text(undoProblem).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
             if showsChange {
                 Divider()
                 if let diff { DiffView(diff: diff).frame(maxHeight: CicadaTheme.scaled(320)) }
@@ -322,6 +341,24 @@ struct HistoryHoverCard: View {
         .padding(CicadaTheme.spacingMD)
         .frame(width: CicadaTheme.scaled(showsChange ? 520 : 320), alignment: .leading)
         .task(id: showsChange) { if showsChange, diff == nil { await fetch() } }
+    }
+
+    private func undo() {
+        undoing = true
+        undoProblem = nil
+        let kind = entry.join ?? ""
+        Task {
+            defer { undoing = false }
+            do {
+                _ = try await APIClient.shared.undoJoin(entityId: entityId, commitHash: entry.commitHash)
+                store?.toast = Copy.Graph.historyUndone(kind)
+                await graphVM?.loadGraph()
+                await graphVM?.reloadEntity(id: entityId)
+                onUndone()
+            } catch {
+                undoProblem = PageJoinWords.problem(error)
+            }
+        }
     }
 
     private func fetch() async {

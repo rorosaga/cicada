@@ -210,6 +210,10 @@ struct EntityHistoryEntry: Identifiable, Codable {
     var at: String = ""
     var bucket: String = ""
     var summary: HistorySummary?
+    /// G227 follow-up (owner 2026-10-29): `merge` / `split` / `undo` for a page join's commit (`page_join`), else nil;
+    /// `undoable` — a merge or split the History tab offers to take back. nil / false from an older backend.
+    var join: String?
+    var undoable = false
 
     var dateValue: Date {
         let f = DateFormatter()
@@ -219,7 +223,7 @@ struct EntityHistoryEntry: Identifiable, Codable {
 
     enum CodingKeys: String, CodingKey {
         case date, changeType, description, author, authorKind, authorProvider, commitHash, diff, sessions, trigger, via
-        case at, bucket, summary
+        case at, bucket, summary, join, undoable
     }
 
     init(from decoder: Decoder) throws {
@@ -238,6 +242,8 @@ struct EntityHistoryEntry: Identifiable, Codable {
         at = (try? c.decodeIfPresent(String.self, forKey: .at)) ?? ""
         bucket = (try? c.decodeIfPresent(String.self, forKey: .bucket)) ?? ""
         summary = (try? c.decodeIfPresent(HistorySummary.self, forKey: .summary)) ?? nil
+        join = (try? c.decodeIfPresent(String.self, forKey: .join)) ?? nil
+        undoable = (try? c.decodeIfPresent(Bool.self, forKey: .undoable)) ?? false
     }
 
     init(

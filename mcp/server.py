@@ -910,6 +910,34 @@ TOOLS = [
         },
     },
     {
+        # G227 follow-up (owner 2026-10-29): two pages that are one thing. Stdio and the command line only, as a page
+        # edit (`catalog.NEVER_REMOTE`); a proposal in the inbox when the person has not listed this app.
+        "name": "cicada_merge_pages",
+        "description": "Merge two pages that are the same thing, when the person says so or the record clearly shows it: `page` folds into `into` (the page that stays) — its beliefs, evidence, sources, aliases and links move, and its id keeps resolving to `into`. Give a `reason` in one sentence: it becomes the commit message the person sees. If the person has not listed your app as one that may change pages, it waits in their inbox for one tap instead. The person can undo it from the page's history.",
+        "inputSchema": {"type": "object", "required": ["page", "into", "reason"], "properties": {
+            "page": {"type": "string", "description": "The page that goes — its id (e.g. 'bob-ex') or name."},
+            "into": {"type": "string", "description": "The page that stays — its id or name."},
+            "reason": {"type": "string", "maxLength": 300, "description": "Why, in one sentence. It becomes the commit message."},
+        }},
+    },
+    {
+        # G227 follow-up (owner 2026-10-29): one page that holds two things with one name.
+        "name": "cicada_split_page",
+        "description": "Split off what a page says about a DIFFERENT thing that shares its name (a program and an app both called the same, two people with one name). First call with `preview: true`: it lists the page's numbered sentences, its beliefs by id, sources, conversations and the pages linking to it. Then call with what belongs to the other thing: `sentences` (numbers), `claims` (ids), `sources` (refs), `episodes` (conversation ids), and optionally `references` ({page id: 'new' or 'stay'}) for links you know the meaning of — a link you leave out moves only when every conversation it rests on moves. The new page gets the same clean title, its own id, and the two are kept apart from now on. Give a `reason`; it becomes the commit message. If the person has not listed your app as one that may change pages, it waits in their inbox for one tap. The person can undo it from the page's history.",
+        "inputSchema": {"type": "object", "required": ["page"], "properties": {
+            "page": {"type": "string", "description": "The page to split — its id or name."},
+            "preview": {"type": "boolean", "description": "List what can be picked; nothing changes."},
+            "reason": {"type": "string", "maxLength": 300, "description": "Why, in one sentence (required unless preview)."},
+            "sentences": {"type": "array", "items": {"type": "integer"}, "description": "Sentence numbers from the preview."},
+            "claims": {"type": "array", "items": {"type": "string"}, "description": "Belief ids from the preview."},
+            "sources": {"type": "array", "items": {"type": "string"}, "description": "Source refs from the preview."},
+            "episodes": {"type": "array", "items": {"type": "string"}, "description": "Conversation ids from the preview."},
+            "references": {"type": "object", "additionalProperties": {"type": "string", "enum": ["new", "stay"]}, "description": "Optional: {linking page id: 'new' | 'stay'}."},
+            "name": {"type": "string", "maxLength": 120, "description": "Optional: the new page's title (default: the same title)."},
+            "page_type": {"type": "string", "description": "Optional: the new page's type (person, project, company, concept, tool, skill, location, directory)."},
+        }},
+    },
+    {
         # Ruling 45 (2026-10-27): a project the person asked for. A harness on their trust list (G198) lands it in their
         # list; any other client's waits under Suggested as its proposal.
         "name": "cicada_create_project",
@@ -1755,6 +1783,15 @@ def _handle_local_tool(name: str, arguments: dict) -> str:
             arguments.get("section"), arguments.get("text"), arguments.get("add_aliases"),
             arguments.get("remove_aliases"), arguments.get("evidence"), arguments.get("resolves"),
             arguments.get("name"), arguments.get("description"))
+    elif name == "cicada_merge_pages":
+        return mcp_tools.merge_pages(_ctx(), arguments.get("page", ""), arguments.get("into", ""),
+                                     arguments.get("reason", ""))
+    elif name == "cicada_split_page":
+        return mcp_tools.split_page(
+            _ctx(), arguments.get("page", ""), arguments.get("reason", ""), arguments.get("sentences"),
+            arguments.get("claims"), arguments.get("sources"), arguments.get("episodes"),
+            arguments.get("references"), arguments.get("name"), arguments.get("page_type"),
+            bool(arguments.get("preview", False)))
     elif name == "cicada_create_project":
         return mcp_tools.create_project(_ctx(), arguments.get("project", ""), arguments.get("description"),
                                         arguments.get("evidence"), arguments.get("repo"))

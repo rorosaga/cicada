@@ -288,6 +288,10 @@ def merge_footprint(memory_path: Path, loser_id: str, winner_id: str) -> list[st
     paths += [p for p in design_refs.repoint_footprint(memory_path, loser_id, winner_id) if p not in paths]
     # Each page's claims ledger that exists: the merge folds it in and writes it back (the loser's is removed). A ledger
     # a write creates is committed with its page (`git_service`), never left behind.
+    # The loser's id keeps resolving to the winner (`page_redirects`): its table is always written by a merge.
+    from api.services import page_redirects
+
+    paths.append(page_redirects.FILE)
     from api.services import claims_ledger
 
     return claims_ledger.with_ledgers(memory_path, paths, existing_only=True)
@@ -381,6 +385,11 @@ def rename_references(memory_path: Path, old_id: str, old_name: str, new_id: str
     paths += entity_picture.carry_on_rename(memory_path, old_id, new_id, fm)
     if repoint_edges(memory_path, old_id, new_id) is not None:
         paths.append("graph_edges.yaml")
+    # The old id keeps resolving to the renamed page (`page_redirects`).
+    from api.services import page_redirects
+
+    if page_redirects.add(memory_path, old_id, new_id):
+        paths.append(page_redirects.FILE)
     return paths + repoint_references(memory_path, old_id, old_name, new_id, new_name)
 
 
@@ -541,6 +550,11 @@ def merge_entities(memory_path: Path, loser_id: str, winner_id: str,
 
     lp.unlink()
     paths.append(f"entities/{loser_id}.md")
+    # Old links and ids that name the loser keep resolving: to the winner (`page_redirects`).
+    from api.services import page_redirects
+
+    if page_redirects.add(memory_path, loser_id, winner_id):
+        paths.append(page_redirects.FILE)
     # The loser's ledger claims were read with its page (`markdown_parser.parse` folds them in) and now sit on the
     # winner's page or its ledger; git keeps the loser's file.
     from api.services import claims_ledger

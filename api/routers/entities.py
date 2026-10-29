@@ -122,10 +122,20 @@ async def get_entity(
     Part B (2026-10-29, ruling 48 part 14): the card open reads no git. Its ``git log`` was 130–300 ms p95 of every
     open on an owner-scale bank copy, for a tab most opens never show; the History tab reads ``/history`` when it
     opens. ``?history=true`` keeps the embedded rows (and the ``history`` block) for a caller that wants them in one
-    request."""
+    request.
+
+    An id a merge or a rename retired answers the page it became (``page_redirects``, G227 follow-up), its own id in
+    the body and the old one in ``X-Cicada-Redirected-From`` — an old link never opens on "not found"."""
     entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
     if not entity_path.exists():
-        raise HTTPException(404, f"Entity {entity_id} not found")
+        from api.services import page_redirects
+
+        moved = page_redirects.resolve(settings.memory_path, entity_id)
+        if moved is None:
+            raise HTTPException(404, f"Entity {entity_id} not found")
+        if response is not None:
+            response.headers["X-Cicada-Redirected-From"] = entity_id
+        return await get_entity(moved, settings=settings, request=request, response=response, history=history)
     # `request`/`response` are None only for an in-process caller (tests, the CLI's twin): no revalidation then.
     card = await run_in_threadpool(_card_read, settings, entity_id, entity_path,
                                    request.headers.get("if-none-match") if request is not None else None)

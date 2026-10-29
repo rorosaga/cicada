@@ -73,6 +73,9 @@ struct EntityDetailCard: View {
     /// (`pageMenu`) when the page has none yet, so an empty section is never drawn waiting for one.
     @State private var addingLink = false
     @State private var addingLook = false
+    /// G227 follow-up (owner 2026-10-29) — the page's Merge and Split sheets, opened from its menu.
+    @State private var merging = false
+    @State private var splitting = false
     /// `/provenance` was asked for this page: the History, Perspectives and Timeline tabs read it when opened — the
     /// Content tab never does (ruling 48: a card open is one request).
     @State private var provenanceAskedFor: String?
@@ -392,6 +395,9 @@ struct EntityDetailCard: View {
             Button(Copy.Pages.addLink) { addingLink = true }
             Button(Copy.Pages.addLook) { addingLook = true }
             Divider()
+            Button(Copy.PageJoin.mergeMenu) { merging = true }
+            Button(Copy.PageJoin.splitMenu) { splitting = true }
+            Divider()
             Menu("\(Copy.Pages.fades): \(fadesLabel)") {
                 ForEach(DecayClass.allCases) { option in
                     Button { setDecay(option) } label: {
@@ -416,6 +422,29 @@ struct EntityDetailCard: View {
             PageLookAdd(entityId: entity.id, unplaced: LooksCache.shared.unplaced)
                 .padding(CicadaTheme.spacingMD)
                 .frame(width: CicadaTheme.scaled(360), alignment: .leading)
+        }
+        .sheet(isPresented: $merging) {
+            MergePageSheet(entity: entity, close: { merging = false }, done: { id in
+                merging = false
+                afterJoin(open: id)
+            })
+        }
+        .sheet(isPresented: $splitting) {
+            SplitPageSheet(entity: entity, close: { splitting = false }, done: { id in
+                splitting = false
+                afterJoin(open: id)
+            })
+        }
+    }
+
+    /// After a merge or split: the graph again (pages came and went), then the page the person will want next — the
+    /// page that stayed, or the new one.
+    private func afterJoin(open id: String) {
+        let here = entity.id
+        Task {
+            await graphVM.loadGraph()
+            await graphVM.reloadEntity(id: here)
+            navigate(to: id)
         }
     }
 
