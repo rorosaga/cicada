@@ -462,10 +462,14 @@ def test_toggle_routes_and_refusals(home):
 def test_onboarding_offers_the_two_harnesses_ticked_and_the_video_one_not(home):
     offer = skill_actions.onboarding_offer()
     by_id = {s["id"]: s for s in offer["suggestions"]}
-    assert list(by_id) == ["browser-harness", "macos-harness", "watch"]
+    assert list(by_id) == ["browser-harness", "macos-harness", "watch", "hoff-harness"]
     assert by_id["browser-harness"]["default"] and by_id["macos-harness"]["default"]
-    assert not by_id["watch"]["default"]
-    assert [s["title"] for s in offer["suggestions"]] == ["Websites", "Mac apps", "Videos"]
+    assert not by_id["watch"]["default"] and not by_id["hoff-harness"]["default"]
+    assert [s["title"] for s in offer["suggestions"]] == ["Websites", "Mac apps", "Videos", "Show me"]
+    # hoff (G220): its permissions are said plainly, and Cicada is not the one asking for them.
+    assert "Accessibility and Screen Recording" in by_id["hoff-harness"]["asks"]
+    assert "Cicada never asks" in by_id["hoff-harness"]["asks"]
+    assert not by_id["hoff-harness"]["needsUv"]   # a pinned folder copy; uv is what the skill itself runs with
     assert "any page" in by_id["browser-harness"]["line"]
     assert "apps on this Mac" in by_id["macos-harness"]["line"]
     assert "Accessibility and Screen Recording" in by_id["macos-harness"]["asks"]
@@ -482,7 +486,7 @@ def test_no_thanks_is_recorded_and_installs_nothing(home):
     with TestClient(main.app) as client:
         answer = client.post("/skills/onboarding", json={"install": []}).json()
         assert answer["job"] is None
-        assert answer["answer"]["declined"] == ["browser-harness", "macos-harness", "watch"]
+        assert answer["answer"]["declined"] == ["browser-harness", "hoff-harness", "macos-harness", "watch"]
         assert client.get("/skills/onboarding").json()["answer"]["install"] == []
     assert not (home / ".claude/skills").exists()
 
@@ -499,7 +503,7 @@ def test_continuing_installs_what_stayed_ticked(home, tools):
                              json={"install": ["browser-harness", "macos-harness", "not-offered"],
                                    "agents": ["claude-code"]}).json()
         assert answer["answer"]["install"] == ["browser-harness", "macos-harness"]
-        assert answer["answer"]["declined"] == ["watch"]
+        assert answer["answer"]["declined"] == ["hoff-harness", "watch"]
         job = answer["job"]
         deadline = time.monotonic() + 10
         while job["state"] == "running" and time.monotonic() < deadline:
@@ -508,6 +512,51 @@ def test_continuing_installs_what_stayed_ticked(home, tools):
         assert job["state"] == "done" and job["result"]["installed"] == ["browser-harness", "macos-harness"]
     assert (home / ".claude/skills/macos-harness/SKILL.md").exists()
     assert (home / ".claude/skills/browser-harness/SKILL.md").exists()
+
+
+# --------------------------------------------------------------------------- a suggestion copied at its reviewed pin
+
+
+_PINNED_MD = "---\nname: release-notes\ndescription: Writes release notes from merged work.\n---\n\nRead the log.\n"
+_PINNED_SCRIPT = "#!/bin/sh\ngit log --oneline\n"
+
+
+def _pinned_entry(script_sha: str) -> dict:
+    """A copy-method suggestion shaped like hoff's (G220): a folder with a script, every file's hash pinned."""
+    import hashlib
+
+    return {"id": "release-notes", "kind": "skill", "rank": 99, "title": "Release notes",
+            "pin": {"repo": "alice-example/handy-skills", "ref": "main", "sha": SHA_OLD,
+                    "path": "skills/release-notes",
+                    "skillMdSha256": hashlib.sha256(_PINNED_MD.encode()).hexdigest(),
+                    "files": {"scripts/collect.sh": script_sha}},
+            "agents": {"claude-code": {"method": "skills-cli"}},
+            "detect": {"skillDirs": ["release-notes"]}}
+
+
+def test_a_suggestion_installs_its_reviewed_folder_with_scripts_runnable_and_no_hooks(home, gh, monkeypatch):
+    import hashlib
+
+    github_skill_repo(gh, ref=SHA_OLD, skill_md=_PINNED_MD)
+    entry = _pinned_entry(hashlib.sha256(_PINNED_SCRIPT.encode()).hexdigest())
+    monkeypatch.setattr(skill_actions, "catalog_entry", lambda _id: entry)
+    out = run(skill_actions.install_suggested("release-notes", ["claude-code"]))
+    assert out["agents"] == ["claude-code"] and out["commit"] == SHA_OLD
+    folder = home / ".claude/skills/release-notes"
+    assert (folder / "SKILL.md").read_text() == _PINNED_MD
+    assert (folder / "scripts/collect.sh").stat().st_mode & 0o111      # the script stays runnable
+    # The skills rail: a skill is text and its own files — no agent settings, no hooks (G138, G220).
+    assert not (home / ".claude/settings.json").exists()
+    assert not (home / ".claude/hooks").exists()
+
+
+def test_a_suggestion_whose_bytes_differ_from_the_review_installs_nothing(home, gh, monkeypatch):
+    github_skill_repo(gh, ref=SHA_OLD, skill_md=_PINNED_MD)
+    monkeypatch.setattr(skill_actions, "catalog_entry", lambda _id: _pinned_entry("0" * 64))
+    with pytest.raises(skill_store.StoreError, match="doesn't match the version Cicada reviewed"):
+        run(skill_actions.install_suggested("release-notes", ["claude-code"]))
+    assert not (home / ".claude/skills/release-notes").exists()
+    assert skill_store.library() == {}
 
 
 # --------------------------------------------------------------------------- agents: ask, draft, hold

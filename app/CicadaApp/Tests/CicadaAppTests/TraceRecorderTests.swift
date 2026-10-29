@@ -597,6 +597,28 @@ final class TraceRecorderTests: XCTestCase {
                                                regular: regular), [1])
     }
 
+    /// G220 (2026-10-29): hoff's cursor and bubble are click-through panels of a background Python process at the
+    /// assistive-technology window level, and hoff does not set `sharingType = .none` — so Cicada's own allow-list is
+    /// what keeps them out of a trace frame: only layer-0 windows of Dock apps are ever drawn, whatever the policy says.
+    func testAShowMeOverlayAboveEveryWindowIsNeverInAFrame() {
+        let overlayLevel = 1500   // kCGAssistiveTechHighWindowLevel, where hoff puts its panels
+        let windows = [
+            TraceScreenWindow(id: 1, bundleId: "com.example.Editor", pid: 10, layer: 0, onScreen: true,
+                              onThisScreen: true),
+            TraceScreenWindow(id: 2, bundleId: "org.python.python", pid: 700, layer: overlayLevel, onScreen: true,
+                              onThisScreen: true),   // the cursor panel
+            TraceScreenWindow(id: 3, bundleId: "org.python.python", pid: 700, layer: overlayLevel, onScreen: true,
+                              onThisScreen: true),   // the speech bubble
+        ]
+        let everything: (String) -> Bool = { _ in true }
+        // Even a policy that would show every app, and a process taken for a Dock app, leave the overlay out.
+        XCTAssertEqual(TraceScreenPick.allowed(windows, frontWindowID: 1, frontPid: 10, shown: everything,
+                                               regular: { _ in true }), [1])
+        // Nor can it pass as the vetted front window: that path is the front app's own window, by id and pid.
+        XCTAssertEqual(TraceScreenPick.allowed(windows, frontWindowID: 2, frontPid: 700, shown: everything,
+                                               regular: { _ in true }), [1])
+    }
+
     func testAnOlderBackendNeverTurnsEveryScreenOn() async {
         let recorder = makeRecorder { $0.consentVersion = 9 }
         await recorder.start()   // no all_screens_consent in the answer

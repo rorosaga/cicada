@@ -788,7 +788,9 @@ this Mac, with times — off by default, on only after the consent sheet (Source
     appeared since, an app launched mid-capture, or a system helper (Quick Look's preview of a Mail attachment, the
     open/save panel) is never named, so never drawn; a screen with nothing named gives no frame. A person on sheet 1 keeps
     front-window frames until they agree to sheet 2 (the Traces page offers it, "Review…"). Frames of one moment share
-    its instant and carry `display`/`displays`.
+    its instant and carry `display`/`displays`. Overlays above every window — hoff's cursor and bubble (G220), which
+    are a background process's click-through panels at the assistive-technology level and do not opt out of capture
+    themselves — are never named, so never in a frame (`testAShowMeOverlayAboveEveryWindowIsNeverInAFrame`).
   Either way the frame is dropped when, after capture, another app is in front or a browser's front tab changed or
   turned private (`TraceRecorder.stillShows`, B2). Downscaled to 1280 px at JPEG 0.6. **Cost, measured on this Mac
   (synthetic 1280×800 screen of dense text):** ≤ ~0.5 MB a frame (a mixed screen ~0.2–0.3 MB), encode ~10 ms, on-device

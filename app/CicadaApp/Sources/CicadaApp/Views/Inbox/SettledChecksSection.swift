@@ -60,19 +60,22 @@ private struct SettledGroup: View {
                 list(Array(rows.prefix(Self.cap)))
             }
             .sheet(isPresented: $showAll) {
-                FullListSheet(title: title) { list(rows) }
+                // The rows straight in the sheet's lazy stack: 895 settled questions open at once.
+                FullListSheet(title: title, spacing: CicadaTheme.spacingSM) { rowViews(rows) }
             }
         }
     }
 
     private func list(_ shown: [SettledCheck]) -> some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            ForEach(shown) { row in
-                SettledCheckRow(row: row, tracked: model.tracked.contains(row.id),
-                                busy: model.busy.contains(row.id),
-                                undo: { Task { await model.undo(row, then: onUndone) } },
-                                track: { Task { await model.track(row) } })
-            }
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) { rowViews(shown) }
+    }
+
+    private func rowViews(_ shown: [SettledCheck]) -> some View {
+        ForEach(shown) { row in
+            SettledCheckRow(row: row, tracked: model.tracked.contains(row.id),
+                            busy: model.busy.contains(row.id),
+                            undo: { Task { await model.undo(row, then: onUndone) } },
+                            track: { Task { await model.track(row) } })
         }
     }
 }

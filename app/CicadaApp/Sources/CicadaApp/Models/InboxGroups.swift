@@ -34,7 +34,7 @@ enum InboxGroups {
 
     /// `items` as sections: by kind when `byKind` (All), else one. `items` may be in any order.
     static func sections(_ items: [InboxItem], byKind: Bool) -> [Section] {
-        let ordered = items.sorted(by: InboxColumns.precedes)
+        let ordered = InboxColumns.ordered(items)
         guard byKind else { return [Section(kind: nil, pages: pages(ordered))] }
         var kinds: [InboxKind] = []
         var byKindItems: [InboxKind: [InboxItem]] = [:]

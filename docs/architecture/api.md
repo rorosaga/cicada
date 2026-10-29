@@ -679,11 +679,14 @@ skill_folder`). Nothing is written into a bank: agent folders, and `$CICADA_HOME
   cut notes) and a compare or release link. `auto` (the page opening) only past an hour; a click past a minute.
 - `POST /skills/preview {source, choose?}` → `{planId, name, description, skillMd, files, scripts, repo}` or
   `{choices}`; `POST /skills/install {planId | suggestion, agents, requestId?}` installs exactly the preview's files at
-  its commit (a plan lives 30 min in memory), or a catalog suggestion at its reviewed pin (a tool: a job).
+  its commit (a plan lives 30 min in memory), or a catalog suggestion at its reviewed pin (a tool: a job). A copied
+  suggestion installs only when what arrived matches the review — its SKILL.md hash and every file in `pin.files`
+  (`skill_actions.check_reviewed`, 2026-10-29); otherwise nothing is written and the reason says so.
 - `POST /skills/{name}/update` and `/skills/update-all` (jobs), `PUT /skills/{name}/agents/{agent} {on}`,
   `POST /skills/{name}/refresh`, `DELETE /skills/{name}`, `POST /skills/drafts/{name}/publish {agents}`,
   `DELETE /skills/drafts/{name}`, `POST /skills/requests/{id}/dismiss`, `GET /skills/jobs/{id}`.
-- `GET /skills/onboarding` (the three suggestions, their defaults, uv, the earlier answer) and `POST /skills/onboarding
+- `GET /skills/onboarding` (the four suggestions — the two harnesses ticked, the video skill and hoff not — their
+  defaults, uv, the earlier answer; the app's onboarding no longer shows this step, `app.md`) and `POST /skills/onboarding
   {install, agents}` — the answer is recorded (an empty list is "No thanks"), and the rest installs as a job.
 - **Fetches** go through `net_guard` (a hook on every hop), 4 s, ≤ 512 KB per response, no cookies, no token, ≤ 64
   files / 5 MB per skill; only on the person's click or the open page, never in Sleep, never an agent's call. A refusal
