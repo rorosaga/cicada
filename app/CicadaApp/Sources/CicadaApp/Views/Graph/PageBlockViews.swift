@@ -158,7 +158,8 @@ struct WhereToCheckBox: View {
 
     private func allRows(_ rows: [PageBlocks.Source]) -> some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 0) { ForEach(rows, id: \.ref) { row($0) } }
+            // Lazy, like every "All N" (inbox freeze, 2026-10-29): the popover opens at once however long the list.
+            LazyVStack(alignment: .leading, spacing: 0) { ForEach(rows, id: \.ref) { row($0) } }
                 .padding(.vertical, CicadaTheme.spacingXS)
         }
         .frame(width: CicadaTheme.scaled(520))

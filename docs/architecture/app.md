@@ -496,6 +496,23 @@ check* and *Settled by Sleep* show their first three, open, with *All N* opening
 day refreshes the inbox (`.NSCalendarDayChanged`), whose ETag moves with the date, so a reason's age is never
 yesterday's. Copy that named the Inbox tab or ⌘6 now says Home or "your questions". DR ids: DR-22, DR-40, DR-42, DR-48, DR-60, DR-66, DR-81.
 
+**Every "All N" opens at once (inbox freeze, owner 2026-10-29).** Home's *All 465 questions* froze the app: the
+click built the page's derived lists (questions, tabs, groups, lines, rows, reviews) on every read — each one a G115
+sort whose comparator built two `DateFormatter`s per comparison — and laid out every row of a non-lazy stack (debug
+build, `InboxAllListBenchTests`: 2.4 s derivations + 1.5 s layout at 465; 14.4 s + 8.3 s at 2,000). Now: a question's
+day is parsed once per day (`InboxCreatedDay`) and read once per sort (`InboxColumns.ordered`); `Store.visibleInbox` is
+kept per `Store.inboxRevision` (bumped by `didSet` on the snapshot, the hidden and sending ids, the held answer and the
+bank), and `InboxViewModel.derived` / `lines` / `rows` per revision and tab, so a draw reads kept values and the views
+still observe the Store's inputs; `InboxRowWords.namesItsPage` is memoised. The list is a `LazyVStack` with one child per
+line (`InboxListDraw`: kind header, its explainer, page headers, questions — the groups never fold, ruling 48 (17)), so
+the click builds the rows on screen. The held answer's ⌘Z moved off its (possibly unbuilt) Undo row to the list's
+`UndoShortcutKeeper` (R-DI4/R-DI25: one owner, none while a field has focus, none when DR-27 hides the list).
+`FullListSheet` is lazy too (pass a `ForEach` straight in; the settled groups' 895 rows do), as are a page's *Where to
+check* popover, the Sleep queue's *Show all*, a run card's groups and Traces' timeline. Budgets at 2,000 rows, always
+run: derivations first build < 600 ms and a kept read < 15 ms, the list's first frame < 400 ms, the sheet's < 300 ms
+(measured 65 / 1 / 38 / 6 ms, debug). The click changes no Store rule: the list still draws the disk-hydrated snapshot,
+never blank.
+
 **Onboarding v2 (G92, G217, ruling 36; 2026-10-22; replaces G145's seven pages).** Six steps of one verb each in
 one full-window layer, raised by `FirstRunGate` (unknown is never empty; never over the demo) or by the one door,
 `OnboardingState.reset` + `AppRouter.requestFirstRun` (Settings → General's *Run setup again*, the demo's *Finish setting
