@@ -2946,6 +2946,14 @@ class InboxItem(CamelModel):
     # older app draws `question`/`title` as before.
     spoken_question: Optional[str] = None
     spoken_reason: Optional[str] = None
+    # #501's same-person chains, at read (`inbox_catchup.groups`): when this duplicate question about people chains
+    # with others (A~B, B~C) into one person, every member carries the chain's item ids in served order, its one
+    # question ("Are A, B and C the same person?") and reason, and each pair's spoken names (`{id, a, b}`) so the app
+    # asks it once and answers it pair by pair — never joined by the question itself (ruling 41). Additive.
+    chain: Optional[list[str]] = None
+    chain_question: Optional[str] = None
+    chain_reason: Optional[str] = None
+    chain_pairs: Optional[list[dict]] = None
 
 
 class CatchupTurnRequest(CamelModel):

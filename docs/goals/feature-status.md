@@ -9,6 +9,7 @@ Status, in order: `proposed` → `building` (a branch exists) → `PR #n` (open 
 
 | ID | Feature | Status | PR | Updated |
 |---|---|---|---|---|
+| [G115](memory-evolution.md#g115) | Same-person chains in the app: `GET /inbox` serves #501's grouping; Home, a page's strip and the catch-up chat ask "Are A, B and C the same person?" once and answer it one tap per pair, never joined by one answer (ruling 41) | PR #536 | [#536](https://github.com/rorosaga/cicada/pull/536) | 2026-10-29 |
 | [G115](memory-evolution.md#g115) | Speed round 4: watched rows in their own per-day file (cold start −1.25 s, −64 MB), the start-up heap frozen out of the collector, `/projects` remembered (p95 110 ms walking, 14 ms with the app open) | PR #533 | [#533](https://github.com/rorosaga/cicada/pull/533) | 2026-10-29 |
 | [G115](memory-evolution.md#g115) | Speed round 3: Projects list (bench p95 58–62 → 33–41 ms), recall (p95 ~2× faster), `/status` (8 ms with the SSE gate open), the owner's id a digest in the inbox sync component | PR #530 | [#530](https://github.com/rorosaga/cicada/pull/530) | 2026-10-29 |
 | [G179](memory-evolution.md#g179) | Telegram chats live (ruling 47a, amended 2026-10-28): the person's own account through Telegram's client API (Telethon), one-to-one chats only (Telegram's peer decides), each ticked with the person's dated confirmation of the other person's consent; live, history on ask, disconnect logs out; wheels-only release (cryptg; pyaes vendored); stacked on #502 | PR #504 | [#504](https://github.com/rorosaga/cicada/pull/504) | 2026-10-29 |

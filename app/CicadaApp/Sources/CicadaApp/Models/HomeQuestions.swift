@@ -51,8 +51,18 @@ enum HomeQuestions {
         var catchUpPages: Int
     }
 
+    /// A same-person chain is ONE question (#501's grouping, "Are A, B and C the same person?"): only its first open
+    /// member stands for it; the others are its pairs, answered under it.
+    static func leads(_ items: [InboxItem]) -> [InboxItem] {
+        let open = Set(items.map(\.id))
+        return items.filter { item in
+            guard item.isChain, let chain = item.chain else { return true }
+            return chain.first(where: open.contains) == item.id
+        }
+    }
+
     static func figures(_ items: [InboxItem], limit: Int = rowLimit, now: Date = .now) -> Figures {
-        let asked = items.filter(askable)
+        let asked = leads(items.filter(askable))
         var perPage: [String: Int] = [:]
         for item in asked { perPage[pageKey(item), default: 0] += 1 }
         var seen = Set<String>()
@@ -63,7 +73,7 @@ enum HomeQuestions {
             let age = InboxRowAge.of(item, now: now)
             rows.append(Row(id: item.id, entityId: item.entityId, entityName: item.displayName,
                             entityType: item.entityType.flatMap(EntityType.init(rawValue:)),
-                            question: item.askText, reason: item.spokenReason, onPage: perPage[key] ?? 1,
+                            question: item.askText, reason: item.askReason, onPage: perPage[key] ?? 1,
                             age: age.text, ageHelp: age.help, kind: item.kind))
         }
         return Figures(rows: rows, total: items.count, catchUp: asked.map(\.id), catchUpPages: perPage.count)
@@ -86,7 +96,13 @@ enum HomeQuestions {
     /// in the server's order. The strip shows one at a time, "1 of N".
     static func onPage(_ items: [InboxItem], entityId: String) -> [InboxItem] {
         guard !entityId.isEmpty else { return [] }
-        return items.filter { askable($0) && ($0.entityId == entityId || $0.mergeTargetHint == entityId) }
+        let asked = items.filter(askable)
+        // A chain shows once, by its first open member, when any of its pairs touches the page.
+        let touching = Set(asked.filter { $0.entityId == entityId || $0.mergeTargetHint == entityId }
+            .flatMap { $0.isChain ? ($0.chain ?? [$0.id]) : [$0.id] })
+        return leads(asked).filter { lead in
+            touching.contains(lead.id) || (lead.chain ?? []).contains(where: touching.contains)
+        }
     }
 }
 
@@ -177,10 +193,15 @@ struct CatchupChip: Identifiable, Equatable {
     let role: Role
     /// nil for Skip: nothing is sent, the question stays in the list.
     let resolution: QuestionResolution?
+    /// The question this chip answers when it is not the one asked: one pair of a same-person chain.
+    var itemId: String? = nil
 }
 
 enum CatchupAnswers {
-    static func chips(_ item: InboxItem) -> [CatchupChip] {
+    /// `open`: the questions still waiting, for a chain's pairs (each answered on its own, by the person's tap — a
+    /// chain is never joined by one answer, ruling 41).
+    static func chips(_ item: InboxItem, open: [InboxItem] = []) -> [CatchupChip] {
+        if item.isChain { return chainChips(item, open: open) }
         var out: [CatchupChip] = []
         switch FocusCardVariant.of(item) {
         case .options:
@@ -207,6 +228,22 @@ enum CatchupAnswers {
         if item.allowDefer {
             out.append(CatchupChip(id: "later", label: Copy.Catchup.notNow, role: .notNow,
                                    resolution: QuestionResolution(action: "defer", remindDays: 7)))
+        }
+        out.append(CatchupChip(id: "skip", label: Copy.Catchup.skip, role: .skip, resolution: nil))
+        return out
+    }
+
+    /// One "same" and one "different" per open pair of the chain, then Skip.
+    static func chainChips(_ item: InboxItem, open: [InboxItem]) -> [CatchupChip] {
+        let byId = Dictionary(open.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        var out: [CatchupChip] = []
+        for pair in item.chainPairs ?? [] {
+            guard let member = byId[pair.id] ?? (pair.id == item.id ? item : nil),
+                  let same = merge(member, same: true), let different = merge(member, same: false) else { continue }
+            out.append(CatchupChip(id: "same:\(pair.id)", label: Copy.Catchup.pairSame(pair.a, pair.b), role: .answer,
+                                   resolution: same, itemId: pair.id))
+            out.append(CatchupChip(id: "different:\(pair.id)", label: Copy.Catchup.pairDifferent(pair.a, pair.b),
+                                   role: .answer, resolution: different, itemId: pair.id))
         }
         out.append(CatchupChip(id: "skip", label: Copy.Catchup.skip, role: .skip, resolution: nil))
         return out
@@ -262,7 +299,17 @@ enum CatchupAnswers {
     }
 
     /// A reading as a question for the person's tap ("Note it as “Paused”?"); never a claim that it was noted.
-    static func proposal(_ item: InboxItem, _ resolution: QuestionResolution) -> String {
+    /// `also`: the next pair of a chain the person's words already covered ("And B and C?").
+    static func proposal(_ item: InboxItem, _ resolution: QuestionResolution, also: Bool = false) -> String {
+        // A chain's pair is always named: a Yes joins (or parts) exactly these two, never "them" (#536 review).
+        if item.isChain, let pair = item.chainPairs?.first(where: { $0.id == item.id }),
+           ["merge", "reject"].contains(resolution.action) {
+            let same = resolution.action == "merge"
+            if also { return same ? Copy.Catchup.proposeAlsoSame(pair.a, pair.b)
+                                  : Copy.Catchup.proposeAlsoDifferent(pair.a, pair.b) }
+            return same ? Copy.Catchup.proposePairSame(pair.a, pair.b)
+                        : Copy.Catchup.proposePairDifferent(pair.a, pair.b)
+        }
         switch resolution.action {
         case "merge": return Copy.Catchup.proposeSame
         case "reject": return Copy.Catchup.proposeDifferent

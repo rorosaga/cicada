@@ -40,6 +40,9 @@ extension Copy {
         static let skip = "Skip"
         static let same = "Yes, the same"
         static let different = "No, different"
+        /// A same-person chain's pair, one tap each (ruling 41: one pair at a time, never the whole chain at once).
+        static func pairSame(_ a: String, _ b: String) -> String { "\(a) is \(b)" }
+        static func pairDifferent(_ a: String, _ b: String) -> String { "\(a) isn't \(b)" }
         static let undo = "Undo"
         static func noted(_ what: String) -> String { what.isEmpty ? "Noted" : "Noted: \(what)" }
         static let notedSame = "Noted: one and the same"
@@ -47,6 +50,10 @@ extension Copy {
         static let notedLater = "I'll ask another day"
         static func propose(_ what: String) -> String { "Note it as “\(what)”?" }
         static let proposeSame = "Join them as one?"
+        static func proposePairSame(_ a: String, _ b: String) -> String { "Join \(a) and \(b) as one?" }
+        static func proposePairDifferent(_ a: String, _ b: String) -> String { "Keep \(a) and \(b) apart?" }
+        static func proposeAlsoSame(_ a: String, _ b: String) -> String { "And \(a) and \(b), one too?" }
+        static func proposeAlsoDifferent(_ a: String, _ b: String) -> String { "And \(a) and \(b), apart too?" }
         static let proposeDifferent = "Keep them apart?"
         static let proposeLater = "Ask again another day?"
         static let yes = "Yes"

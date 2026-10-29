@@ -31,8 +31,11 @@ final class CatchupSession {
     struct Confirmation: Equatable {
         let itemId: String
         let resolution: QuestionResolution
-        /// The proposal in words: "Note it as “Paused”?"
+        /// The proposal in words: "Note it as “Paused”?", or for a chain's pair "Join A and B as one?"
         let label: String
+        /// A chain's typed answer covers its other pairs too: after this one, each remaining pair is proposed in turn
+        /// ("And C and B?"), still one tap each (#536 review).
+        var cascades = false
     }
 
     let sessionId = "catchup-" + UUID().uuidString.lowercased()
@@ -92,8 +95,17 @@ final class CatchupSession {
         return finished ? .idle : stored
     }
 
-    var current: InboxItem? { currentId.flatMap { id in items().first { $0.id == id } } }
-    var chips: [CatchupChip] { current.map(CatchupAnswers.chips) ?? [] }
+    /// The question being asked: for a same-person chain, its first pair still open.
+    var current: InboxItem? {
+        let open = items()
+        if let chain = currentChain {
+            return chain.lazy.compactMap { id in open.first { $0.id == id } }.first
+        }
+        return currentId.flatMap { id in open.first { $0.id == id } }
+    }
+    var chips: [CatchupChip] { current.map { CatchupAnswers.chips($0, open: items()) } ?? [] }
+    /// The same-person chain being asked (#501's grouping): asked once, answered pair by pair.
+    private(set) var currentChain: [String]?
     /// The answer still in its Undo window, if this chat made it.
     var undoableId: String? { heldId() }
     var position: Int { min(max(asked, 1), max(total, 1)) }
@@ -126,13 +138,14 @@ final class CatchupSession {
         }
         queue.removeAll { $0 == next }
         currentId = next
+        currentChain = item.isChain ? item.chain : nil
         asked += 1
         stored = .asking
         if !(alreadyAsked && preferred == next) { ask(item) }
     }
 
     private func ask(_ item: InboxItem) {
-        let reason = item.spokenReason.map { " " + $0 } ?? ""
+        let reason = item.askReason.map { " " + $0 } ?? ""
         say(item.askText + reason, itemId: item.id)
     }
 
@@ -144,14 +157,22 @@ final class CatchupSession {
 
     /// A tap on one of the question's answers (DR-42): the inbox's own resolution, held for Undo.
     func tap(_ chip: CatchupChip) {
-        guard let item = current, !waiting else { return }
+        guard let asked = current, !waiting else { return }
+        let item = chip.itemId.flatMap { id in items().first { $0.id == id } } ?? asked
         confirmation = nil
         lines.append(CatchupLine(.tap(chip.label, itemId: item.id)))
         if let resolution = chip.resolution {
             apply(item, resolution)
+            // A chain stays until each of its pairs is answered or skipped (one tap per pair, ruling 41).
+            if currentChain != nil, current != nil {
+                stored = .asking
+                keep()
+                return
+            }
         } else {
             say(Copy.Catchup.skipped, itemId: nil)
         }
+        currentChain = nil
         advance(preferred: nil, alreadyAsked: false)
         keep()
     }
@@ -164,7 +185,22 @@ final class CatchupSession {
         }
         confirmation = nil
         apply(item, pending.resolution)
-        if item.id == currentId { advance(preferred: nil, alreadyAsked: false) }
+        if currentChain != nil, let next = current {
+            // A chain stays until each pair is answered (#536 review): a typed "all the same" proposes the next pair,
+            // named, for its own tap; otherwise its chips wait.
+            if pending.cascades,
+               let resolution = CatchupAnswers.merge(next, same: pending.resolution.action == "merge") {
+                var carried = resolution
+                carried.quote = pending.resolution.quote
+                carried.sessionId = pending.resolution.sessionId
+                confirmation = Confirmation(itemId: next.id, resolution: carried,
+                                            label: CatchupAnswers.proposal(next, carried, also: true), cascades: true)
+            }
+            stored = .asking
+        } else if item.id == currentId || currentChain != nil {
+            currentChain = nil
+            advance(preferred: nil, alreadyAsked: false)
+        }
         keep()
     }
 
@@ -194,8 +230,11 @@ final class CatchupSession {
         if let i = lines.lastIndex(where: { if case .tap(_, heldId) = $0.kind { true } else { false } }) {
             lines.remove(at: i)
         }
-        if let currentId, currentId != item.id { queue.insert(currentId, at: 0) }
+        if let currentId, currentId != item.id, !(currentChain ?? []).contains(item.id) {
+            queue.insert(currentId, at: 0)
+        }
         currentId = item.id
+        currentChain = item.isChain ? item.chain : nil
         stored = .asking
         ask(item)
         keep()
@@ -250,7 +289,8 @@ final class CatchupSession {
         if let reading = reply.reading,
            let resolution = CatchupAnswers.resolution(item, reading, sessionId: sessionId) {
             confirmation = Confirmation(itemId: item.id, resolution: resolution,
-                                        label: CatchupAnswers.proposal(item, resolution))
+                                        label: CatchupAnswers.proposal(item, resolution),
+                                        cascades: item.isChain && ["merge", "reject"].contains(resolution.action))
         } else if reply.move == "later" {
             let later = QuestionResolution(action: "defer", remindDays: 7)
             confirmation = Confirmation(itemId: item.id, resolution: later, label: CatchupAnswers.proposal(item, later))
