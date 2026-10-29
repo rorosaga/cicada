@@ -84,7 +84,7 @@ STANDARD_USE = 4
 #: are the person's own.
 SCOPE_TYPES = frozenset({"person", "company", "tool", "location", "concept"})
 #: Personal channels: a conversation from one of these makes a person someone the owner knows.
-PERSONAL_SOURCES = frozenset({"imessage", "messages", "email", "gmail", "whatsapp", "contacts", "linkedin"})
+PERSONAL_SOURCES = frozenset({"imessage", "messages", "email", "gmail", "whatsapp", "telegram-chats", "contacts", "linkedin"})
 #: Acquaintance on the record (coordinator rule 2026-10-27): a relation, or a sentence naming the owner, that says the
 #: two know each other — met, talked or messaged, friend, family, partner, colleague or classmate, a contact, invited
 #: by, interviewed by, a shared chat, taught or supervised. Being inspired by, reading, watching, quoting, citing,

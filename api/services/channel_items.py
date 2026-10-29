@@ -115,6 +115,7 @@ _ORIGIN_CHANNELS = {
     "telegram": ("telegram",),
     "imessage": ("imessage",),
     "whatsapp": ("whatsapp",),
+    "telegram-chats": ("telegram-chats",),
     "notion": ("notion-export",),
     # Ruling 47 tier 2: what the person's own connection brought in (a Readwise document with a page lists as it).
     "notion-api": ("notion-api",),

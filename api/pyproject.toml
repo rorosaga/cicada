@@ -27,6 +27,12 @@ dependencies = [
     "rich>=13.7",
     "sentence-transformers>=5.0.0",
     "sqlite-vec>=0.1.9",
+    # Telegram chats on the person's own account (ruling 47a, G179): MTProto in pure Python, MIT; imported only once
+    # the person connects (api/services/telegram_port.py).
+    "telethon>=1.45,<2",
+    # Telethon's fast AES (a wheel); its pure-Python fallback pyaes is sdist-only, so a release carries it as source
+    # (api/vendor/pyaes, #504 review B5).
+    "cryptg>=0.6",
     "thefuzz[speedup]>=0.22.1",
     "tokenizers>=0.22.2",
     "tqdm>=4.66.0",

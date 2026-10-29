@@ -429,6 +429,28 @@ after Telegram. An adapter is a module in `ADAPTERS` with `TIER = 2`, so its Sou
 |---|---|---|---|
 | Readwise (`readwise.py`) | the person's access token, readwise.io/access_token (no read-only scope exists; only GETs are made) | `GET /api/v2/export/` (highlights with their books), `GET /api/v2/auth/` on Save | readwise.io/tos §8: "connect AI assistants and other tools to your content … through our APIs"; §3's scraper ban excepts the APIs |
 | Notion (`notion.py`) | an internal connection with Read content only, shared page by page; a personal access token is refused | `POST /v1/search` (pages, no query), `GET /v1/pages/{id}/markdown`, `GET /v1/data_sources/{id}` (a row's database title), `GET /v1/users/me` on Save; Notion-Version 2026-03-11 | developers.notion.com: internal connections are for "syncing data from external tools"; 180 requests a minute per connection outside Business plans, honoured through `Retry-After` |
+**47a amended — one-to-one chats only, each with the other person's consent (owner, 2026-10-28).** Telegram's terms, read the same day: API Terms §1.5 — "you are prohibited from using, accessing or aggregating data obtained from the Telegram platform to train … or otherwise engage in the development, enhancement or deployment of artificial intelligence, machine learning models" — and telegram.org/tos/content-licensing, "Large Language Models and AI": "Telegram firmly prohibits the scraping, indexing, harvesting, aggregation or use of data obtained from its platform to train, fine-tune, validate or otherwise engage in the development, enhancement, benchmarking or deployment of artificial intelligence, machine learning models and similar technologies. Exceptions may be granted in instances where all relevant users individually provide explicit, informed, affirmative and continued consent that is strictly limited to the specific content and chat, channel, or non-global context window for which it was requested." Sleep reads a sitting with a model, so the owner chose "1:1 with consent": group chats and channels are never offered and the backend refuses them; ticking a one-to-one chat needs the person to confirm, per chat and in plain words, that the other person agreed — explicitly, knowing what it means, for that chat only — said to be the person's responsibility, which Cicada cannot verify; the confirmation is kept with its date outside every bank (`$CICADA_HOME/telegram/consents.json`, 0600, a chat id and a time); unticking withdraws it and stops the reading. **Revisit** if Telegram grants Cicada an exception or changes those terms.
+
+**How 47a is built.** `telegram_port` is the one seam to Telegram (plain values out, a fake in every test): Telethon v1
+(MIT, pure Python, one hashed wheel for the Mac and a server, the whole login one `StringSession` string, no message
+database of its own) over TDLib (Boost, faster at a full sync, but a native `libtdjson` to sign per platform and its
+own encrypted message store — a second copy of the chats outside the bank). It is imported only when the person
+connects. Its AES runs on `cryptg` (CC0, a hashed wheel); Telethon also imports `pyaes` unconditionally, which PyPI
+ships as an sdist only while the release installs wheels only, so pyaes 1.6.1 (MIT) is carried as source in
+`api/vendor/pyaes` (byte for byte from PyPI's sdist, its sha256 in `api/vendor/__init__.py`), loaded under its own
+name by `telegram_port.load_telethon` when no installed one exists; the release lock is compiled `--only-binary :all:`
+with pyaes left out, `test_release_build` fails any locked package with no wheel for the target, and the build's
+import check loads the client (#504 review B5). **One-to-one is Telegram's peer, never a flag** (#504 review B4): a
+user's marked peer id is positive, a group's negative, a channel's `-100…`; the tick route accepts only a chat
+Telegram itself lists as one-to-one with a user, the flush drops any non-user peer's update, and the ingest refuses a
+batch whose peer is not a user or does not match the conversation. `telegram_account` keeps the session at `$CICADA_HOME/telegram/session` — 0600 in a 0700 folder, beside
+`secrets.env` but not in it, because `secrets.env` is projected into the environment every spawned `claude -p` and hook
+inherits; a file anyone else can read is refused. The number goes to Telegram once and is never kept; codes and
+passwords never. Disconnect logs the session out at Telegram, then deletes the file (a failed log-out still deletes
+it and says where to end it). Cicada's own `api_id`/`api_hash`: a release carries the owner's pair in
+`api/data/telegram_app.json`, written by `bundle.sh` from CI's `CICADA_TELEGRAM_API_ID` variable and
+`CICADA_TELEGRAM_API_HASH` secret (`docs/RELEASING.md`); a person's own pair in `secrets.env` wins. The only network
+peer is Telegram's own servers; no private name goes anywhere else.
 
 **The ToS rail — this one is not negotiable.** A fetched page is 4 s / ≤ 512 KB / no cookies / never
 behind auth. Consent interstitials and login walls are classified and retired as `junk` **without a

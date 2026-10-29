@@ -49,8 +49,9 @@ enum OriginIconography {
         "contacts-local",
         // G179: a ticked Messages conversation, one episode per sitting (`messages_source.ORIGIN`).
         "imessage",
-        // G179 (2026-10-28): a ticked WhatsApp chat (`whatsapp_source`), one episode per sitting.
-        "whatsapp",
+        // G179 (2026-10-28): a ticked WhatsApp chat (`whatsapp_source`) and a ticked Telegram chat on the person's own
+        // account (`telegram_source`, ruling 47a) — one episode per sitting each.
+        "whatsapp", "telegram-chats",
         // G219: a ticked Reminders list's reminder, and a Notion export's page or row.
         "reminders-local", "notion-export",
         // Ruling 47 tier 2: Readwise highlights and the live Notion connection (`connectors/readwise.py`, `notion.py`).
@@ -103,6 +104,7 @@ enum OriginIconography {
         case "readwise": "Readwise"
         case "imessage": "Messages"
         case "whatsapp": "WhatsApp"
+        case "telegram-chats": "Telegram chats"
         case "apple-notes": "Apple Notes"
         case "share-sheet": "Share Sheet"
         case "instagram-saved": "Instagram Saved"
@@ -178,6 +180,7 @@ enum OriginIconography {
         case "readwise": "highlighter"
         case "imessage": "message.fill"
         case "whatsapp": "phone.bubble.fill"
+        case "telegram-chats": "paperplane.fill"
         case "apple-notes": "note.text"
         case "share-sheet": "square.and.arrow.up"
         case "instagram-saved": "camera.fill"
@@ -224,7 +227,7 @@ enum OriginIconography {
         case "codex": Color(hex: 0x10A37F)
         case "chrome-bookmark": Color(hex: 0x4285F4)
         case "safari-bookmark", "safari-tab": Color(hex: 0x00A2E8)
-        case "telegram": Color(hex: 0x26A5E4)
+        case "telegram", "telegram-chats": Color(hex: 0x26A5E4)
         case "whatsapp": Color(hex: 0x25D366)
         case "rss": Color(hex: 0xEE802F)
         case "calendar", "calendar-local": Color(hex: 0xFF3B30)
@@ -285,7 +288,7 @@ enum OriginIconography {
         // installed icon and then a globe.
         case "brave-bookmark": "brave"
         case "rss": "rss"
-        case "telegram": "telegram"
+        case "telegram", "telegram-chats": "telegram"
         case "whatsapp": "whatsapp"
         case "pinterest": "pinterest"
         case "reddit-saved", "reddit": "reddit"

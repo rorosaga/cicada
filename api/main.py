@@ -256,10 +256,17 @@ async def lifespan(app: FastAPI):
 
     await remote_listener.start_if_enabled()
 
+    # Ruling 47a: a Telegram session the person connected resumes listening; with none kept, nothing at all happens
+    # (no import of the client, no socket). Never raises into boot.
+    from api.services import telegram_account
+
+    asyncio.get_running_loop().create_task(telegram_account.ACCOUNT.resume())
+
     try:
         yield
     finally:
         await remote_listener.LISTENER.stop()
+        await telegram_account.ACCOUNT.stop()
         scheduler.shutdown(wait=False)
         from api.services import bank_watch
 

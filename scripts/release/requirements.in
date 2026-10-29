@@ -24,6 +24,11 @@ pyyaml>=6.0.3
 questionary>=2.0
 rich>=13.7
 sqlite-vec>=0.1.9
+# Telegram chats on the person's own account (ruling 47a, G179): pure-Python MTProto, MIT.
+telethon>=1.45,<2
+# Telethon's AES as a wheel. Its other dependency, pyaes, has no wheel on PyPI: it is left out of the lock
+# (lock-requirements.sh --no-emit-package) and carried as source in api/vendor/pyaes (#504 review B5).
+cryptg>=0.6
 thefuzz[speedup]>=0.22.1
 tqdm>=4.66.0
 uvicorn[standard]>=0.44.0

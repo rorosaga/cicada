@@ -76,6 +76,7 @@ enum SourceBlurb {
         // Sources v4 (owner 2026-10-19: "just put what the source is").
         "imessage": "The Messages conversations you ticked, by chat.",
         "whatsapp": "The WhatsApp chats you ticked, by chat — groups included.",
+        "telegram-chats": "The Telegram chats you ticked, through your own account — groups included.",
         "calendar-local": "Events from the calendars on this Mac.",
         // G219.
         "reminders-local": "Reminders from the lists you ticked.",

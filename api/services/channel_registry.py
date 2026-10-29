@@ -448,10 +448,10 @@ def build_channels(
     if ticked or state.get(messages_source.CHANNEL_ID):
         rows.append(_switched(_local_channel(messages_source.CHANNEL_ID, messages_source.LABEL, state, "conversation"),
                               on=ticked, off_detail="No conversation ticked"))
-    # G179 (2026-10-28): WhatsApp chats, the Messages rule — a row once a chat is ticked or it ever synced.
-    from api.services import chat_live, whatsapp_source
+    # G179 (2026-10-28): WhatsApp and Telegram chats, the Messages rule — a row once a chat is ticked or it ever synced.
+    from api.services import chat_live, telegram_source, whatsapp_source
 
-    for spec in (whatsapp_source.SPEC,):
+    for spec in (whatsapp_source.SPEC, telegram_source.SPEC):
         on = chat_live.any_ticked(memory_path, spec)
         if on or state.get(spec.channel):
             rows.append(_switched(_local_channel(spec.channel, spec.label, state, "conversation"), on=on,

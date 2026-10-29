@@ -122,6 +122,8 @@ struct CicadaApp: App {
     /// G179 (2026-10-28): the WhatsApp chats the person ticked, read by the app from WhatsApp Desktop's store (a copy)
     /// and posted per memory; nothing is read before a tick, and a tick is live from then.
     @State private var whatsApp: WhatsAppWatcher
+    /// Ruling 47a: Telegram's row — the backend holds the person's session; the app shows the steps and the ticks.
+    @State private var telegram = TelegramChats()
     /// G218 — activity traces: off until the person agrees to the consent sheet; then the app captures and This Mac's
     /// backend keeps them sealed outside every bank. Never on a server connection.
     @State private var traceRecorder = TraceRecorder.live()
@@ -357,6 +359,7 @@ struct CicadaApp: App {
             // G179 — the new memory's ticked conversations, past their own cursors.
             Task { await messages.bankChanged() }
             Task { await whatsApp.bankChanged() }
+            Task { await telegram.bankChanged() }
             // Owner decision 5 (2026-10-16) — the new memory's bookmarks, past its own "what was synced".
             Task { await browserWatcher.bankChanged() }
         }
@@ -400,6 +403,7 @@ struct CicadaApp: App {
             .environment(contactsReader)
             .environment(messages)
             .environment(whatsApp)
+            .environment(telegram)
             .environment(traceRecorder)
             .environment(loginItems)
             .environment(backendAgent)

@@ -145,6 +145,10 @@ enum SourceCatalog {
                            channels: ["calendar"], tile: .calendar, verb: .connect(Copy.Catalog.addFeed)),
         SourceCatalogEntry(id: "telegram", group: .feeds, title: "Telegram", origin: "telegram",
                            channels: ["telegram"], tile: .telegram),
+        // Ruling 47a: the person's own Telegram chats, read through their own account by the backend.
+        SourceCatalogEntry(id: TelegramChats.channel, group: .accounts, title: Copy.Chats.telegramTitle,
+                           origin: "telegram-chats", channels: [TelegramChats.channel],
+                           verb: .connect(Copy.Chats.connect)),
     ]
 
     /// Every entry: the fixed ones, one per browser on this Mac (or one that synced before), Wispr Flow once it is

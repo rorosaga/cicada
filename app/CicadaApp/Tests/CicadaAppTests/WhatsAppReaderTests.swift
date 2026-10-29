@@ -96,6 +96,19 @@ final class FakeChatSourcesAPI: ChatSourcesAPI {
         return answer()
     }
 
+    func telegramStatus() async throws -> TelegramStatusAnswer { TelegramStatusAnswer() }
+    func telegramConnect(phone: String) async throws -> TelegramStatusAnswer { TelegramStatusAnswer() }
+    func telegramCode(_ code: String) async throws -> TelegramStatusAnswer { TelegramStatusAnswer() }
+    func telegramPassword(_ password: String) async throws -> TelegramStatusAnswer { TelegramStatusAnswer() }
+    func telegramDisconnect() async throws -> TelegramStatusAnswer { TelegramStatusAnswer() }
+    func telegramChats() async throws -> TelegramChatsAnswer { TelegramChatsAnswer() }
+    private(set) var telegramTicks: [(id: String, ticked: Bool, consent: Bool)] = []
+    func telegramTick(id: String, name: String, ticked: Bool, consent: Bool) async throws -> ChatTickAnswer {
+        telegramTicks.append((id, ticked, consent))
+        if ticked && consent { self.ticked.insert(id) } else { self.ticked.remove(id) }
+        return answer()
+    }
+
     func postWhatsApp(_ json: Data) async throws -> ChatSyncAnswer {
         posts.append(try XCTUnwrap(JSONSerialization.jsonObject(with: json) as? [String: Any]))
         return try JSONDecoder().decode(ChatSyncAnswer.self, from: Data(#"{"created": 1}"#.utf8))
@@ -235,6 +248,20 @@ final class WhatsAppReaderTests: XCTestCase {
         let messages = try XCTUnwrap((JSONSerialization.jsonObject(with: pass.json) as? [String: Any])?["messages"]
                                      as? [[String: Any]])
         XCTAssertEqual(messages.first?["text"] as? String, "@Bob Example and @someone, see you")
+    }
+
+    /// Ruling 47a amendment: a Telegram tick carries the consent the panel asked for; unticking withdraws it, and the
+    /// confirmation names the chat.
+    @MainActor
+    func testATelegramTickCarriesConsentAndTheAskNamesTheChat() async throws {
+        let api = FakeChatSourcesAPI()
+        let model = TelegramChats(api: api)
+        let chat = TelegramChatRow(id: String(repeating: "ab", count: 12), name: "Bob Example")
+        await model.setTicked(chat, true, consent: true)
+        await model.setTicked(chat, false, consent: true)
+        XCTAssertEqual(api.telegramTicks.map(\.consent), [true, false], "an untick never carries consent")
+        XCTAssertEqual(model.tickedIds, [])
+        XCTAssertEqual(model.consentAsk(for: chat), "", "no sentence until the backend serves one")
     }
 
     /// File change → posted (the app's half; the backend's is `test_chat_live.test_live_update_cost_p95`): one new

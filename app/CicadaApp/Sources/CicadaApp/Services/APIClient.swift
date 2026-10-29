@@ -2917,9 +2917,9 @@ actor APIClient {
         try await putData("/sources/messages/photos", json: try JSONEncoder().encode(["photos": photos]))
     }
 
-    // MARK: WhatsApp chats (G179, 2026-10-28)
+    // MARK: WhatsApp and Telegram chats (G179, 2026-10-28; Telegram on the person's own account, ruling 47a)
 
-    /// `GET /sources/whatsapp/settings` — the ticks of this memory.
+    /// `GET /sources/{whatsapp|telegram}/settings` — the ticks of this memory.
     func fetchChatTicks(source: String) async throws -> ChatTickAnswer {
         try await get("/sources/\(source)/settings")
     }
@@ -2930,7 +2930,7 @@ actor APIClient {
                        body: ["conversations": ids.map { ["id": $0.id, "group": $0.group] }])
     }
 
-    /// `PUT /sources/whatsapp/settings` — tick or untick one chat (live from now), or ask for its history.
+    /// `PUT /sources/{whatsapp|telegram}/settings` — tick or untick one chat (live from now), or ask for its history.
     func updateChat(source: String, id: String, name: String?, group: Bool?, ticked: Bool?, history: Bool?) async throws
         -> ChatTickAnswer {
         var conversation: [String: Any] = ["id": id]
@@ -2944,6 +2944,31 @@ actor APIClient {
     /// `POST /sources/whatsapp/sync` — one ticked chat's rows, read on this Mac.
     func postWhatsApp(_ json: Data) async throws -> ChatSyncAnswer {
         try await postData("/sources/whatsapp/sync", json: json)
+    }
+
+    func telegramStatus() async throws -> TelegramStatusAnswer { try await get("/sources/telegram/status") }
+
+    /// The number goes to Telegram through the backend once, and is never kept.
+    func telegramConnect(phone: String) async throws -> TelegramStatusAnswer {
+        try await post("/sources/telegram/connect", body: ["phone": phone])
+    }
+
+    func telegramCode(_ code: String) async throws -> TelegramStatusAnswer {
+        try await post("/sources/telegram/code", body: ["code": code])
+    }
+
+    func telegramPassword(_ password: String) async throws -> TelegramStatusAnswer {
+        try await post("/sources/telegram/password", body: ["password": password])
+    }
+
+    func telegramDisconnect() async throws -> TelegramStatusAnswer { try await post("/sources/telegram/disconnect") }
+
+    func telegramChats() async throws -> TelegramChatsAnswer { try await get("/sources/telegram/chats") }
+
+    func telegramTick(id: String, name: String, ticked: Bool, consent: Bool) async throws -> ChatTickAnswer {
+        var conversation: [String: Any] = ["id": id, "ticked": ticked, "consent": consent, "group": false]
+        if !name.isEmpty { conversation["name"] = name }
+        return try await put("/sources/telegram/settings", body: ["conversation": conversation])
     }
 
     /// `GET /entities/{id}/paper` — the paper card's two tiers (G133 / G121).

@@ -1,10 +1,12 @@
 import SwiftUI
 
-/// G179 (2026-10-28) — WhatsApp on the Sources page → Messaging, drawn exactly as Messages is
+/// G179 (2026-10-28) — WhatsApp and Telegram on the Sources page → Messaging, drawn exactly as Messages is
 /// (`MessagesRow`): the row with its mark, one status line, Refresh and Choose… (DR-40 `NeutralButton`s, DR-38 the head
 /// not repeated under a source detail), and a sheet (R-HS16) with the one sentence of what is read, then one row per
-/// chat — picture, name, last activity, the tick (`.switch`, mini). One addition, an existing control: "Read
-/// history" per ticked chat (a `.bordered` small button, as Messages' "Read again"). No new visual pattern.
+/// chat — picture, name, last activity, the tick (`.switch`, mini). Two additions, both existing controls: "Read
+/// history" per ticked chat (a `.bordered` small button, as Messages' "Read again"), and for Telegram the sign-in
+/// steps in the same sheet with native rounded fields (DR-76: setup sheets keep the native field) and the consent
+/// sentence the backend serves, word for word (ruling 47a). No new visual pattern.
 
 // MARK: - WhatsApp
 
@@ -103,6 +105,154 @@ struct WhatsAppPanel: View {
             ChatSheetFooter(error: error, onDone: onDone)
         }
         .task { await watcher.loadList() }
+    }
+}
+
+// MARK: - Telegram (ruling 47a)
+
+struct TelegramSourceRow: View {
+    let channel: SourceChannel?
+    @Environment(TelegramChats.self) private var model
+    @Environment(\.sourceDetailHeadShown) private var headShown
+    @State private var showPanel = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ChatSourceHead(origin: TelegramChats.channel, title: Copy.Chats.telegramTitle, headShown: headShown,
+                           line: line, problem: model.status.state == "ended") {
+                if model.connected {
+                    NeutralButton(title: Copy.Chats.choose, size: .compact, help: Copy.Chats.chooseHelp) { showPanel = true }
+                } else {
+                    NeutralButton(title: Copy.Chats.connect, size: .compact, help: Copy.Chats.connectHelp) { showPanel = true }
+                }
+            }
+            .sheet(isPresented: $showPanel) { TelegramPanel { showPanel = false } }
+            if channel?.connected == true {
+                CapturedItemsList(channel: TelegramChats.channel)
+                    .padding(.leading, headShown ? 0 : CicadaTheme.scaled(28) + CicadaTheme.spacingMD)
+            }
+        }
+        .padding(.horizontal, headShown ? 0 : CicadaTheme.spacingMD)
+        .padding(.vertical, CicadaTheme.spacingSM)
+        .settingsRow(.channel(TelegramChats.channel))
+        .task { await model.refresh() }
+    }
+
+    private var line: String {
+        switch model.status.state {
+        case "connected":
+            return model.tickedIds.isEmpty ? Copy.Chats.rowLineNone : Copy.Chats.rowLine(ticked: model.tickedIds.count)
+        case "ended": return model.status.error ?? Copy.Chats.sessionEnded
+        default: return Copy.Chats.notConnected
+        }
+    }
+}
+
+struct TelegramPanel: View {
+    let onDone: () -> Void
+    @Environment(TelegramChats.self) private var model
+    @State private var phone = ""
+    @State private var code = ""
+    @State private var password = ""
+    /// The chat waiting for the person's confirmation that the other person agreed (ruling 47a amendment).
+    @State private var asking: TelegramChatRow?
+
+    var body: some View {
+        SettingsSheet(title: Copy.Chats.telegramTitle, onClose: onDone) {
+            ChatSheetSentence(text: Copy.Chats.telegramWhatItReads)
+            if model.connected {
+                chatList
+                HStack {
+                    Spacer()
+                    Button(Copy.Chats.disconnect) { Task { await model.disconnect() } }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .help(Copy.Chats.disconnectHelp)
+                        .disabled(model.busy)
+                }
+            } else {
+                // The consent sentence is the backend's, word for word (ruling 47a).
+                Text(model.status.consent)
+                    .font(CicadaTheme.bodyFont)
+                    .foregroundStyle(CicadaTheme.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if model.asksPassword {
+                    SecureField(Copy.Chats.passwordPrompt, text: $password)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit { Task { await model.submit(password: password); password = "" } }
+                    step(Copy.Chats.signIn, disabled: password.isEmpty) {
+                        await model.submit(password: password)
+                        password = ""
+                    }
+                } else if model.asksCode {
+                    TextField(Copy.Chats.codePrompt, text: $code)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit { Task { await model.submit(code: code); code = "" } }
+                    step(Copy.Chats.signIn, disabled: code.isEmpty) {
+                        await model.submit(code: code)
+                        code = ""
+                    }
+                } else {
+                    TextField(Copy.Chats.phonePrompt, text: $phone)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit { Task { await model.connect(phone: phone) } }
+                    step(Copy.Chats.sendCode, disabled: phone.isEmpty) {
+                        await model.connect(phone: phone)
+                        phone = ""
+                    }
+                }
+            }
+            ChatSheetFooter(error: model.error, onDone: onDone)
+        }
+        .task {
+            await model.refresh()
+            await model.loadChats()
+        }
+        .onChange(of: model.connected) { _, now in if now { Task { await model.loadChats() } } }
+        // A system alert, the one confirmation pattern macOS has (no new visual pattern): the sentence, then
+        // "They agreed" or Cancel. Nothing is ticked or read until the person confirms.
+        .alert(Copy.Chats.consentTitle, isPresented: Binding(get: { asking != nil }, set: { if !$0 { asking = nil } }),
+               presenting: asking) { chat in
+            Button(Copy.Chats.consentYes) { Task { await model.setTicked(chat, true, consent: true) } }
+            Button(Copy.Chats.consentCancel, role: .cancel) {}
+        } message: { chat in
+            Text(model.consentAsk(for: chat))
+        }
+    }
+
+    private func step(_ title: String, disabled: Bool, _ action: @escaping () async -> Void) -> some View {
+        HStack {
+            Spacer()
+            Button(title) { Task { await action() } }
+                .buttonStyle(.borderedProminent)
+                .disabled(disabled || model.busy)
+        }
+    }
+
+    @ViewBuilder
+    private var chatList: some View {
+        if model.listing && model.chats.isEmpty {
+            ChatSheetLoading()
+        } else if model.chats.isEmpty {
+            Text(Copy.Chats.noneFound).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary)
+        } else {
+            ScrollView {
+                VStack(spacing: 2) {
+                    ForEach(model.chats) { chat in
+                        ChatTickRow(name: chat.name.isEmpty ? Copy.Chats.unnamed : chat.name, group: false,
+                                    last: chat.last.flatMap { ISO8601DateFormatter().date(from: $0) }
+                                        .flatMap { MessagesRowText.lastActivity($0) },
+                                    thumbnail: nil, ticked: model.tickedIds.contains(chat.id),
+                                    historyRead: model.historyIds.contains(chat.id),
+                                    onTick: { on in
+                                        if on { asking = chat } else { await model.setTicked(chat, false, consent: false) }
+                                    },
+                                    onHistory: { await model.readHistory(chat) })
+                    }
+                }
+            }
+            .frame(maxHeight: CicadaTheme.scaled(360))
+        }
     }
 }
 

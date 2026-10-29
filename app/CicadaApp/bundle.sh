@@ -164,6 +164,15 @@ if [ "$WITH_BACKEND" = "1" ]; then
   if [ -n "${CICADA_REPORT_EMAIL:-}" ]; then
     plutil -replace CicadaReportEmail -string "$CICADA_REPORT_EMAIL" "$APP/Contents/Info.plist"
   fi
+  # Cicada's own Telegram app id (ruling 47a, owner 2026-10-28): CI's CICADA_TELEGRAM_API_ID variable and
+  # CICADA_TELEGRAM_API_HASH secret, never in the repo (it is public; api/data/* is git-ignored). Unset, the file is
+  # absent and the Telegram row asks for the person's own pair from my.telegram.org.
+  if [ -n "${CICADA_TELEGRAM_API_ID:-}" ] && [ -n "${CICADA_TELEGRAM_API_HASH:-}" ]; then
+    TG_FILE="$APP/Contents/Resources/backend/app/api/data/telegram_app.json"
+    [ -d "$(dirname "$TG_FILE")" ] || { echo "✗ no api/data in the bundled backend" >&2; exit 1; }
+    /usr/bin/python3 -c 'import json, sys; json.dump({"api_id": int(sys.argv[1]), "api_hash": sys.argv[2]}, open(sys.argv[3], "w"))' \
+      "$CICADA_TELEGRAM_API_ID" "$CICADA_TELEGRAM_API_HASH" "$TG_FILE"
+  fi
   # Symbols are 60% of the binary and nothing on a tester's Mac reads them.
   strip -x "$APP/Contents/MacOS/CicadaApp"
   "$REPO_ROOT_DIR/scripts/release/sign-app.sh" "$APP"

@@ -177,6 +177,21 @@ gh variable set CICADA_REPORT_EMAIL --body "<the address>"
 and it applies from the next release. Unset (and in every developer build) the app has no Send: the sheet offers Copy
 and Save and says "Send this to the person who gave you Cicada". There is no fallback to public GitHub issues.
 
+## Cicada's own Telegram app id (ruling 47a, owner 2026-10-28)
+
+Telegram identifies a client app by an `api_id` / `api_hash` pair. Cicada's pair is the owner's, made once at
+my.telegram.org → API development tools, and never lives in this public repo: `CICADA_TELEGRAM_API_ID` is a repository
+**variable** and `CICADA_TELEGRAM_API_HASH` a repository **secret**; `release.yml` passes both to `bundle.sh`, which
+writes them into the bundled backend as `api/data/telegram_app.json` (git-ignored). Set them with:
+
+```sh
+gh variable set CICADA_TELEGRAM_API_ID --body "<the api_id>"
+gh secret set CICADA_TELEGRAM_API_HASH --body "<the api_hash>"
+```
+
+Unset (and in every developer build) the Telegram row asks for the person's own pair from my.telegram.org, kept as
+`CICADA_TELEGRAM_API_ID` / `CICADA_TELEGRAM_API_HASH` in `~/.cicada/secrets.env` — which also wins over the release's.
+
 ## Keeping macOS permissions across updates
 
 macOS (TCC) files every privacy grant — Full Disk Access, Contacts, Calendar, Automation, Screen Recording — against

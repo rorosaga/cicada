@@ -745,7 +745,7 @@ def _owner_pages_name(memory_path: Path, full: dict) -> bool:
 
 
 def _from_messages(ep_fm: dict) -> bool:
-    """A texted conversation — Messages or WhatsApp (`chat_live.CHAT_ORIGINS`)."""
+    """A texted conversation — Messages, WhatsApp or Telegram (`chat_live.CHAT_ORIGINS`)."""
     from api.services import chat_live
 
     return bool(chat_live.CHAT_ORIGINS & {str(ep_fm.get("source") or ""), str(ep_fm.get("origin") or "")})
