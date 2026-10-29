@@ -122,7 +122,7 @@ back the newest merge or split on the page still in place (`page_join.latest`; a
 handshake's item 4 and the skill's *Fixing what memory says* name all three and when to offer them (contract 23). The
 trust list is G198's (`page_editors`): a listed harness applies at once under its own `Cicada-Author`; any other — a
 remote app (`/v1` `page_merge`/`page_split`/`page_undo`, `record` scope) always — files a `page_edit` proposal with a
-`join` payload (`op` merge, split or undo) the person applies or leaves with one tap. `cicada page merge|split|undo`
+`join` payload (`op` merge, split or undo) the person applies or leaves with one tap. **Scopes fail closed (R-R3, #552 review):** a preview answers with a page's prose, beliefs, sources, conversations and linking pages, so on a remote call it needs what `cicada_recall_detail` needs (`read`); a `record`-only token gets a refusal naming the scope and nothing of any page, and its merge, split and undo replies carry ids only. `cicada page merge|split|undo`
 are exposed in the CLI (`cli_map`, `cli.py`) with the same rule; an edit already uncommitted on a page is committed
 apart first. A refusal (no such page, nothing picked, nothing to undo, Sleep holding the pages, a demo bank) writes
 nothing.
