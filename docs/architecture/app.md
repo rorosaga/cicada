@@ -1358,7 +1358,10 @@ five not-installed entries by rank, install state derived per request from `SKIL
 Claude Code plugin ids, never an agent's config. Since the Skills page (2026-10-15) **the app installs nothing and
 writes no skill folder**: `SkillInstaller` and its consent sheet are gone, Cicada's own `cicada`,
 `cicada-librarian` and `linkedin-people` rows and a skill's detail hand off to the page (`AppRouter.routeToSkills`), and every install is the
-backend's `skill_store` (`api.md`, "Skills"). Hosted MCP servers and agent-prompt texts stay copy-only. The handshake gains a capability line only for an installed, active bridge
+backend's `skill_store` (`api.md`, "Skills"). **hoff** (2026-10-29, G220), the show-me cursor, ships as a catalog
+suggestion at rank 13 (Discover, "Show me on screen"): copied at its reviewed commit with every file hashed and without
+hoff's own hooks; its row says what that loses and that Accessibility and Screen Recording are macOS's to ask,
+never Cicada's (its `reach` line, which the Discover row shows). No Swift changed for it: the page reads the catalog. Hosted MCP servers and agent-prompt texts stay copy-only. The handshake gains a capability line only for an installed, active bridge
 whose tool exists: papers (`cicada_save_url`), video (`cicada_record_watch`) and meetings
 (`cicada_save_episode`, one `speaker:<name>:` line per utterance, never `user:`) are active;
 documents stays off until something says who wrote a document (F2-back R-B14).
