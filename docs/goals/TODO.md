@@ -50,6 +50,10 @@
   per page; `cicada_recall_detail(include=["citations"])` words the same. Card open reads one page (no `/sources`,
   `/provenance` or fact claims on open; Clusters and the card share one read). The article writer marks an inferred
   claim and words it as one (prompt v2). **Next:** part B — the history line, maps, In short.
+- **2026-10-29 — Speed + quality round 2 (branch `fix/speed-quality-2`).** Requests answer from the SSE walk's
+  listings behind a watcher + local-writes gate; the inbox ETag covers the files beside the inbox and the claims
+  ledgers; recall, `/status`, `/origins` and the owner's card cut (G115 row); bench budgets also cap wall p95 at 4×;
+  the app's Swift lint tests run on every PR into dev (`swift-lint`, hosted macOS 26). Report: `speed-quality-2`.
 - **2026-10-29 — Speed + quality (branch `fix/speed-quality-1`).** dev's full-suite failures sorted: the writer
   inventory gained the twelve writers #492, #500, #501 and #508 added (each with its disposition); the four bench budgets
   that failed at load 30–55 pass at load 8–20 on the same commit (no regression from #496–#503) and now measure CPU time;

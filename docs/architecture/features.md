@@ -224,15 +224,18 @@ frontmatter, and it is the only source of `/status`'s `inbox.total`/`byKind` (th
 hub's pending count — on 2026-10-06 the raw file count said 49 while the inbox served 35.
 **A read of an unchanged inbox builds nothing (speed, 2026-10-29).** `load_inbox` keeps its built list per bank
 (and per `include_deferred`) on the stamps of every input it reads — the day, the fingerprints of `inbox/` (with the
-legacy folders), `entities/` and `episodes/`, and the `(inode, mtime, size)` of `_predicates.yaml`,
-`pending_entities.jsonl` and `_state.md` (`_built_inputs`); any of them moving rebuilds, and each caller gets its own
-list. `GET /inbox`'s ETag and the read share one listing per directory (`bank_index.shared_scans`), and an ETag computes
+legacy folders), `entities/` with its claims ledgers and `episodes/`, and the files beside them
+(`inbox_inputs.side_stamps`: `_predicates.yaml`, `pending_entities.jsonl`, the owner's id from `_state.md`); any of
+them moving rebuilds, and each caller gets its own list. The same side stamps ride the `inbox` sync component and a
+ledger's stamp the `entities` one (2026-10-29), so the ETag never 304s over a change the read would show; a bank
+without those files keeps its stamps byte for byte. `GET /inbox`'s ETag and the read share one listing per directory (`bank_index.shared_scans`), and an ETag computes
 only the components it names (`sync_service.components(keys=…)`). A rebuild re-parses only the item files that moved
 (`bank_index.file`), reads the predicate map once (the context's vocabulary), and reuses each cut excerpt while its
 episode's `(mtime, size)` and span inputs are unchanged (`inbox_context._excerpt`). At the owner's scale (423 questions,
 8k pages, 8.5k episodes, a read-only copy) the warm body went from ~515 ms to ~65 ms of CPU (the floor is the ETag's
-stat walk), a read after one changed item from ~445 ms to ~245 ms. Not watched: a claims ledger line written without
-its page (every writer rewrites the page).
+stat walk), a read after one changed item from ~445 ms to ~245 ms. `/status` counts the inbox from the built list
+when it is current (`served_counts`), and `/status`, `/origins` and the card read one listing per folder; `/origins`
+is remembered per state of both folders (`origin_stats`).
 
 **The read is one listing, not one per item (inbox lag, 2026-10-17).** Most hidden items name a subject with no page
 under any spelling (merged away, renamed), and `resolve_entity_file`'s case-insensitive rung used to glob `entities/`
