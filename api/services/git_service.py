@@ -792,6 +792,28 @@ def _commit_kept_apart_sync(memory_path: Path, contents: dict[str, bytes | None]
         index.unlink(missing_ok=True)
 
 
+def commit_contents_sync(memory_path, contents: dict[str, bytes], message: str) -> bool:
+    """Commit exactly ``contents`` — these bytes at these paths, never what the working tree holds by then, never
+    another path, never the index's other entries — under the bank's write lock (G132 phase 1's capture commit,
+    ``capture_commit``). Built in a private index like the kept-apart commit; the working tree is never touched.
+    Returns whether a commit was made (``False`` when HEAD already holds them)."""
+    memory_path = Path(memory_path)
+    if not contents:
+        return False
+    with write_lock(memory_path):
+        return _commit_kept_apart_sync(memory_path, dict(contents), message)
+
+
+def head_blob_sync(memory_path, rel: str) -> bytes | None:
+    """What HEAD holds at ``rel`` (memory-relative), or ``None`` when it holds nothing there. A read."""
+    try:
+        proc = subprocess.run(["git", "cat-file", "blob", f"HEAD:{rel}"], cwd=str(memory_path), capture_output=True,
+                              timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        raise GitError("git cat-file failed") from None
+    return proc.stdout if proc.returncode == 0 else None
+
+
 def commit_touched_sync(memory_path, message: str, paths, *, before: dict[str, bytes | None] | None = None,
                         kept_subject: str | None = None, kept_trigger: str = "kept-apart") -> None:
     """Commit exactly ``paths`` (memory-relative) — never ``git add -A`` — under the

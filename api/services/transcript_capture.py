@@ -42,7 +42,7 @@ from pathlib import Path
 from loguru import logger
 
 from api.services import (
-    agent_turns, continuity_sessions, demo_guard, episode_ids, episode_staging, episode_title, evidence, markdown_parser,
+    agent_turns, capture_commit, continuity_sessions, demo_guard, episode_ids, episode_staging, episode_title, evidence, markdown_parser,
     session_stats, telemetry,
 )
 from api.services.transcript_extract import HARNESSES, Conversation, extract
@@ -783,6 +783,17 @@ def capture_posted(
     return result
 
 
+def _bytes_if(memory_path: Path, path: Path) -> bytes | None:
+    """What ``path`` holds before this writer rewrites it — only while the home publishes its log (G132 51e1, the
+    capture commit's record); ``None`` otherwise, so the capture path is unchanged with publishing off."""
+    if not capture_commit.recording(memory_path):
+        return None
+    try:
+        return path.read_bytes()
+    except OSError:
+        return None
+
+
 def write_session(memory_path: Path, *, harness: str, session_id: str, conv: Conversation, existing: Path | None,
                   cwd: str | None, bank: str | None, effort: str | None, bank_paths, hook_event: str | None,
                   registry_workspace, read_bytes: int | None = None, source_path: Path | None = None,
@@ -839,6 +850,8 @@ def write_session(memory_path: Path, *, harness: str, session_id: str, conv: Con
         _place_turns(fm, _agent_fields(_turn_sidecar(conv, body), None, effort, _last_offset(conv, body)))
         episode_id = episode_ids.create_episode(episodes_dir, fm, body)
         path_out = episodes_dir / f"{episode_id}.md"
+        if capture_commit.recording(memory_path):
+            capture_commit.note_written(memory_path, path_out, before=None)   # G132 51e1: committed once settled
         _session_index(episodes_dir).found[session_id] = path_out.name
         _record(harness, session_id, "created", conv, bank, event=hook_event)
         logger.info(f"capture: created {episode_id} from {harness} session ({len(conv.turns)} turns)")
@@ -864,7 +877,10 @@ def write_session(memory_path: Path, *, harness: str, session_id: str, conv: Con
             if read_bytes is not None:
                 fm[EXTENT_KEY] = max(read_bytes, _stored_extent(fm) or 0)
             _place_turns(fm, previous)
+            before = _bytes_if(memory_path, existing)
             markdown_parser.write(existing, fm, stored.body)
+            if before is not None:
+                capture_commit.note_written(memory_path, existing, before=before)
             _record(harness, session_id, "metadata", conv, bank, event=hook_event)
             return CaptureResult("metadata", episode_id, kept["user"], kept["assistant"], conv.summary)
         _record(harness, session_id, "unchanged", conv, bank, event=hook_event)
@@ -887,7 +903,10 @@ def write_session(memory_path: Path, *, harness: str, session_id: str, conv: Con
     fm.update(extra)
     _place_turns(fm, _agent_fields(_turn_sidecar(conv, body), previous, effort, _last_offset(conv, body),
                                    previous_body=stored.body, chunks=_turn_chunks(conv)))
+    before = _bytes_if(memory_path, existing)
     markdown_parser.write(existing, fm, body)
+    if before is not None:
+        capture_commit.note_written(memory_path, existing, before=before)
     _record(harness, session_id, "updated", conv, bank, event=hook_event)
     logger.info(f"capture: updated {episode_id} from {harness} session ({len(conv.turns)} turns), re-queued")
     return CaptureResult("updated", episode_id, kept["user"], kept["assistant"], conv.summary)

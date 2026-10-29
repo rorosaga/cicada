@@ -12,6 +12,14 @@
 
 ## Current state and evidence
 
+- **2026-10-29 — the home publishes its log, off by default (ruling 51a/d/e, G132 phase 1 PR A; branch
+  `feat/g132-home-publishes`).** `CICADA_SYNC_PUBLISH=on` or `PUT /sync/publish` (the server's own token) turns on
+  `/sync/log` (seq = first-parent position; a hand rewrite freezes it until "publish from here"), `/sync/pack` (a
+  read-only bundle), `/sync/status` (the SSE `sleep` payload from one builder, plus schedule, waiting/parked ids, an
+  engine label, the home's name), the capture commit (51e1: only the bytes the capture writers recorded, settled 10 s,
+  ≤ 1 a minute per bank) and `seq` on `/tools/call` replies; mutating tool calls take an `Idempotency-Key` (8 days).
+  Off, nothing changes (`test_sync_off_unchanged.py`). Measured on a synthetic bank: tool write p95 unchanged off
+  (93.7 → 90.0 ms, interleaved), 92.9 ms on and keyed. Next: PR B, the replica (headless.md).
 - **2026-10-29 — one memory on every device is decided, not built (ruling 51, G132 phase 0; branch
   `docs/g132-phase0`, docs only).** The owner's sync-engine decisions are binding: one home applies every write and
   runs Sleep, every computer may hold a fast-forward-only replica, other devices' writes are idempotency-keyed

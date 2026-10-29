@@ -110,6 +110,8 @@ PROBE_SITES = {
                                   "provisional record's write admits itself and asks again",
     "api/services/connectors/tier2.py": "a scheduled sync's early skip before its network fetch (ruling 47); the "
                                         "staging and its commit admit themselves and refuse while Sleep writes",
+    "api/services/capture_commit.py": "the capture commit's early skip (G132 51e1) before it takes any lock; its "
+                                      "commit runs inside admitted() and asks again",
 }
 
 
@@ -544,6 +546,9 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /devices/reach/serve": (OUTSIDE, None),   # 2026-10-29: the person's click runs one tailnet serve, no bank
     "POST /devices": (OUTSIDE, None),
     "DELETE /devices/{device_id}": (OUTSIDE, None),
+    # G132 phase 1: the publishing switch ($CICADA_HOME/sync/settings.json) and "publish from here" (the log's sidecar).
+    "PUT /sync/publish": (OUTSIDE, None),
+    "POST /sync/publish/from-here": (OUTSIDE, None),
     "POST /capture/hook-context": (OUTSIDE, None),   # G110: may refresh the continuity index in $CICADA_HOME
     "PUT /sources/connectors/{connector_id}/credentials": (OUTSIDE, None),
     "DELETE /sources/connectors/{connector_id}/credentials": (OUTSIDE, None),
@@ -836,6 +841,7 @@ GET_ROUTES: dict[str, tuple[str, str]] = {
     "GET /banks/{name}/export": (OUTSIDE, "a temporary archive outside the bank, removed after it is sent"),
     "GET /sources/folders": (NONE, "builds response records"),
     "GET /maintenance/search-index": (OUTSIDE, "the derived search index (never tracked, never a page)"),
+    "GET /sync/pack": (OUTSIDE, "G132: a temporary bundle outside the bank, removed after it is sent (git reads only)"),
 }
 
 

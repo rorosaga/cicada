@@ -3,14 +3,17 @@ from __future__ import annotations
 
 import asyncio
 import json
+from pathlib import Path
 
-from fastapi import APIRouter, Depends
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
+from pydantic import BaseModel
+from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
-from api.services import sleep_cycle, sleep_drain, sleep_paused, sync_service, sync_ticker
-from api.services.sleep_cycle import get_sleep_state, progress_pct
+from api.services import sync_service, sync_status, sync_ticker
+from api.services.sleep_cycle import get_sleep_state
 
 router = APIRouter(prefix="/sync")
 POLL_SECONDS = 1.0
@@ -54,89 +57,13 @@ async def events(settings: Settings = Depends(get_settings)):
                 yield _event("version", {"version": info.version, "components": info.components})
                 since_ping = 0.0
             state = get_sleep_state()
-            # G106 amendment: Rested % and Progress % are both "SSE-driven,
-            # continuous" — computed fresh every tick alongside the existing
-            # status fields so the mascot screen never needs its own poll
-            # loop just to watch these two numbers move. The debt comes from
-            # the same shared tick as the version (audit A10): one
-            # `sleep_debt.compute` per bank per second, whatever the number
-            # of streams.
-            debt = tick.debt
-            progress = progress_pct(state)
-            # Sleep page v5: the run of THIS bank only (a lingering one of another is hidden), the
-            # paused record from its stat-keyed cache, and the drain's compact block with the live
-            # arrival count from the debt this tick already computed — no directory scan per tick.
-            ds = state.drain
-            if ds is not None and getattr(ds, "memory_path", None) not in (None, settings.memory_path):
-                ds = None
-            drain_sse = sleep_drain.to_sse(ds, debt.unprocessed_count)
-            # G177 — the write window the app's controls follow; it flips between batches with no status change.
-            writing = sleep_cycle.writing_of(state)
-            paused = (None if state.status == "running" and not getattr(state, "tail_only", False)
-                      else sleep_paused.get_paused(settings.memory_path))
-            paused_sse = ({
-                "runId": paused.get("run_id"), "reason": paused.get("reason"),
-                "engineKind": (paused.get("engine_kind") or "needs_fix") if paused.get("reason") == "engine" else None,
-                "autoArmed": bool((paused.get("auto_continue") or {}).get("armed")),
-                "autoLeft": (paused.get("auto_continue") or {}).get("left"),
-            } if paused else None)
-            # Devin PR #27 round 1, finding 4: the key used to omit
-            # `volume_pct`/`age_pct`/`has_run_before` entirely, and
-            # `hours_since_last_cycle` (a continuously-increasing float, so
-            # it can't go in RAW without firing an event every single tick
-            # and defeating the whole point of change-gating). When volume
-            # dominates `rested_pct = 100 - max(volume_pct, age_pct)`, `age_pct`
-            # can move — or `hours_since_last_cycle` can cross a UI threshold
-            # (the Swift side's 48h "hungry" read) — with NOTHING in the old
-            # key changing, so no event ever fires and a connected client
-            # holds stale data indefinitely. Every discrete debt field the
-            # payload carries is now in the key exactly (no approximation
-            # needed — they're already coarse integers/booleans); the one
-            # continuous field is rounded to 0.1h (6-minute) buckets, which
-            # bounds event frequency to something sane while guaranteeing
-            # ANY threshold a client might read off it — 48h or otherwise —
-            # is crossed within one bucket's width of the real moment,
-            # rather than hardcoding one specific threshold value here.
-            hours_bucket = (
-                round(debt.hours_since_last_cycle, 1)
-                if debt.hours_since_last_cycle is not None else None
-            )
-            sleep_key = (
-                state.status, state.cycle_id, state.stage, state.progress,
-                debt.rested_pct, debt.volume_pct, debt.age_pct, debt.has_run_before,
-                debt.unprocessed_count, progress, hours_bucket,
-                # G125 R3: `progress` is an integer PERCENT that can sit
-                # still for many episodes on a big queue (1/300 rounds to
-                # 0% same as 0/300) — the study list needs a per-episode
-                # tick, so the change key includes the raw counter too.
-                state.stage1_progress,
-                # A person-started run's batch / filed count moves between stage ticks.
-                drain_sse and tuple(drain_sse.items()),
-                # A pause appears, is armed or is cleared without any status change (Sleep page v5).
-                paused_sse and tuple(paused_sse.items()),
-                debt.parked_count,
-                writing,
-            )
+            # G106 amendment: Rested % and Progress % are SSE-driven, computed fresh every tick; the debt comes from
+            # the same shared tick as the version (audit A10). The event is built in one place (`sync_status`), so
+            # the home's published status frame (G132) carries the same keys by construction.
+            sleep_key, sleep_payload = sync_status.sleep_event(state, tick.debt, settings.memory_path)
             if sleep_key != last_sleep:
                 last_sleep = sleep_key
-                yield _event("sleep", {
-                    "status": state.status, "cycleId": state.cycle_id, "stage": state.stage,
-                    "totalStages": state.total_stages, "progress": state.progress, "error": state.error,
-                    "progressPct": progress,
-                    "restedPct": debt.rested_pct,
-                    "volumePct": debt.volume_pct,
-                    "agePct": debt.age_pct,
-                    "unprocessedCount": debt.unprocessed_count,
-                    "hasRunBefore": debt.has_run_before,
-                    "hoursSinceLastCycle": debt.hours_since_last_cycle,
-                    "queueByOrigin": dict(state.queue_by_origin),
-                    "readByOrigin": dict(state.read_by_origin),
-                    "drain": drain_sse,
-                    "parkedCount": debt.parked_count,
-                    "readableCount": debt.readable_count,
-                    "paused": paused_sse,
-                    "writing": writing,
-                })
+                yield _event("sleep", sleep_payload)
             if since_ping >= PING_SECONDS:
                 yield "event: ping\ndata: {}\n\n"
                 since_ping = 0.0
@@ -145,3 +72,136 @@ async def events(settings: Settings = Depends(get_settings)):
 
     return StreamingResponse(stream(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+# --- G132 phase 1 (ruling 51): the home publishes its log -------------------------------------------------------------
+#
+# Off by default (`sync_publish`): off, every route below but the switch answers a plain 404 and nothing is written.
+# A full device token or the server's own token; a capture-only device is refused by `require_token` (its exact route
+# list), the switch's writes are the server's own token only (`auth.MASTER_ONLY_WRITE_PREFIXES`). A demo bank is never
+# published. The log carries seq, sha, parent and time only; subjects and paths travel inside the pack alone.
+
+
+class PublishSwitch(BaseModel):
+    publish: bool
+
+
+def _published_bank(settings: Settings) -> Path:
+    from api.services import sync_publish
+
+    if not sync_publish.publishable(settings.memory_path):
+        raise HTTPException(status_code=404)
+    from api.services import capture_commit
+
+    capture_commit.resume(settings.memory_path)   # records a previous process left are committed once settled
+    return settings.memory_path
+
+
+def _bank_id() -> str | None:
+    from api.services import bank_registry
+
+    pin = bank_registry.pinned_bank()
+    return pin.id if pin is not None else None
+
+
+def _refused(exc: Exception) -> JSONResponse:
+    from api.services import sync_log
+
+    if isinstance(exc, sync_log.HistoryRewritten):
+        return JSONResponse(status_code=409, content=exc.body())
+    return JSONResponse(status_code=503, content={
+        "code": "unavailable", "detail": "This memory's history could not be read just now; nothing was changed."})
+
+
+async def _fresh_primer(memory_path: Path, settings: Settings) -> None:
+    """A replica never serves an older primer than the home's `_state.md`: bring it current before the log is read
+    (it commits alone, and is skipped while Sleep holds the pages — the run's tail refreshes it then)."""
+    from api.services import state_dictionary
+
+    await state_dictionary.refresh_admitted(memory_path, settings)
+
+
+def _switch_body(settings: Settings) -> dict:
+    from api.services import sync_log, sync_publish
+
+    on = sync_publish.enabled()
+    body = {"publish": on, "source": sync_publish.source(), "demo": False, "log": None}
+    if on:
+        from api.services import demo_guard
+
+        body["demo"] = demo_guard.is_demo(settings.memory_path)
+        if sync_publish.publishable(settings.memory_path):
+            body["log"] = sync_log.state(settings.memory_path)
+    return body
+
+
+@router.get("/publish")
+async def get_publish(settings: Settings = Depends(get_settings)):
+    return await run_in_threadpool(_switch_body, settings)
+
+
+@router.put("/publish")
+async def put_publish(body: PublishSwitch, settings: Settings = Depends(get_settings)):
+    from api.services import sync_publish
+
+    await run_in_threadpool(sync_publish.set_enabled, body.publish)
+    return await run_in_threadpool(_switch_body, settings)
+
+
+@router.post("/publish/from-here")
+async def publish_from_here(settings: Settings = Depends(get_settings)):
+    """The person's "publish from here" after a rewritten history (51e3): this history is published from now on, and
+    replicas copy the bank again."""
+    from api.services import sync_log
+
+    memory_path = _published_bank(settings)
+    try:
+        head = await run_in_threadpool(sync_log.publish_from_here, memory_path)
+    except (sync_log.HistoryRewritten, sync_log.Unavailable) as exc:
+        return _refused(exc)
+    return {"bankId": _bank_id(), "head": head.wire()}
+
+
+@router.get("/log")
+async def get_log(since: int = Query(0, ge=0), limit: int = Query(500, ge=1, le=1000),
+                  settings: Settings = Depends(get_settings)):
+    from api.services import sync_log
+
+    memory_path = _published_bank(settings)
+    await _fresh_primer(memory_path, settings)
+    try:
+        head, entries, more = await run_in_threadpool(sync_log.since, memory_path, since, limit)
+    except (sync_log.HistoryRewritten, sync_log.Unavailable) as exc:
+        return _refused(exc)
+    return {"bankId": _bank_id(), "head": head.wire(), "entries": entries, "more": more}
+
+
+@router.get("/pack")
+async def get_pack(have: str | None = Query(None, max_length=64), settings: Settings = Depends(get_settings)):
+    from api.services import sync_log, sync_pack
+
+    memory_path = _published_bank(settings)
+    try:
+        pack = await run_in_threadpool(sync_pack.build, memory_path, have)
+    except sync_pack.UnknownBase:
+        return JSONResponse(status_code=404, content={
+            "code": "unknown_base", "detail": "That commit is not one this memory published; ask without `have`."})
+    except sync_pack.TooLarge:
+        return JSONResponse(status_code=413, content={
+            "code": "too_large", "detail": "This memory's history is larger than one pack may be."})
+    except (sync_log.HistoryRewritten, sync_log.Unavailable) as exc:
+        return _refused(exc)
+    headers = {"X-Cicada-Seq": str(pack.seq), "X-Cicada-Head": pack.sha, "X-Cicada-Bank-Id": _bank_id() or ""}
+    if pack.path is None:
+        return Response(status_code=204, headers=headers)
+    return FileResponse(pack.path, media_type="application/x-git-bundle", headers=headers,
+                        background=BackgroundTask(pack.cleanup))
+
+
+@router.get("/status")
+async def get_status(settings: Settings = Depends(get_settings)):
+    memory_path = _published_bank(settings)
+    await _fresh_primer(memory_path, settings)
+    tick = await sync_ticker.current(memory_path, settings, max_age=SHARED_TICK_SECONDS)
+    return await run_in_threadpool(sync_status.frame, memory_path, settings, get_sleep_state(), tick.debt,
+                                   bank_id=_bank_id())

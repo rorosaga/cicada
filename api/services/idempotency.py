@@ -11,6 +11,10 @@ enough for an offline queue's retries, short enough to keep nothing about what w
 route, the key's sha256, the status and the answer's JSON (ids and titles, no request body). A request with no key
 runs as before. A key the client reuses for a different request gets the first answer — the key is the client's
 promise that it is the same request.
+
+**The tool door (G132 phase 1, ruling 51a).** ``POST /tools/call`` keys a mutating tool's call under the route
+``/tools/call:<tool>``, kept 8 days (:data:`TOOLS_TTL_S`: an outbox entry waits at most 7); its kept answer is the
+tool's reply (the confirmation the agent was shown), only when it was neither a refusal nor an error.
 """
 from __future__ import annotations
 
@@ -27,6 +31,14 @@ from api.services.auth import cicada_home
 
 HEADER = "Idempotency-Key"
 TTL_S = 24 * 3600
+#: G132 phase 1 (coordinator decision 4, 2026-10-29): a write another device sends through the tool door may wait in
+#: its outbox up to 7 days, so its key outlives that by a day. Every other route keeps :data:`TTL_S`.
+TOOLS_ROUTE_PREFIX = "/tools/call:"
+TOOLS_TTL_S = 8 * 24 * 3600
+
+
+def ttl_for(route: str) -> float:
+    return TOOLS_TTL_S if route.startswith(TOOLS_ROUTE_PREFIX) else TTL_S
 KEY_MAX = 200
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS keys (
@@ -78,7 +90,10 @@ def _hash(key: str) -> str:
 
 def _lookup(scope: str, route: str, key_hash: str, now: float) -> tuple[int, dict] | None:
     with _db() as db:
-        db.execute("DELETE FROM keys WHERE created < ?", (now - TTL_S,))
+        db.execute("DELETE FROM keys WHERE created < ? AND substr(route, 1, ?) != ?",
+                   (now - TTL_S, len(TOOLS_ROUTE_PREFIX), TOOLS_ROUTE_PREFIX))
+        db.execute("DELETE FROM keys WHERE created < ? AND substr(route, 1, ?) = ?",
+                   (now - TOOLS_TTL_S, len(TOOLS_ROUTE_PREFIX), TOOLS_ROUTE_PREFIX))
         row = db.execute("SELECT status, body FROM keys WHERE scope=? AND route=? AND key_hash=?",
                          (scope, route, key_hash)).fetchone()
     return (int(row[0]), json.loads(row[1])) if row is not None else None
@@ -90,10 +105,12 @@ def _remember(scope: str, route: str, key_hash: str, now: float, status: int, bo
                    (scope, route, key_hash, now, status, json.dumps(body)))
 
 
-async def run_once(scope: str, route: str, key: str | None, work, *, now=time.time) -> tuple[int, dict, bool]:
+async def run_once(scope: str, route: str, key: str | None, work, *, now=time.time,
+                   keep=None) -> tuple[int, dict, bool]:
     """``(status, body, replayed)``. ``await work()`` returns ``(status, body)``; only a 2xx answer is kept, so a
-    refused request (Sleep held the pages, a bad link) runs again when it is sent again. Without a key, ``work`` runs
-    as before."""
+    refused request (Sleep held the pages, a bad link) runs again when it is sent again. ``keep(status, body)`` narrows
+    that further for a door whose refusals answer 200 (``/tools/call``: a reply with a refusal code or an error).
+    Without a key, ``work`` runs as before."""
     key = clean_key(key)
     if key is None:
         status, body = await work()
@@ -106,7 +123,7 @@ async def run_once(scope: str, route: str, key: str | None, work, *, now=time.ti
             if seen is not None:
                 return seen[0], seen[1], True
             status, body = await work()
-            if 200 <= status < 300:
+            if 200 <= status < 300 and (keep is None or keep(status, body)):
                 await asyncio.to_thread(_remember, scope, route, key_hash, now(), status, body)
             return status, body, False
         finally:
