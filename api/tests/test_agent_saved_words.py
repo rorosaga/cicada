@@ -59,6 +59,12 @@ def test_an_agent_save_is_known_by_its_door_never_by_a_line():
     assert authorship.of(SESSION_FM) is None
     assert authorship.of({"source": "claude-export", "origin": "claude-export"}) is None
     assert authorship.of({"source": "companion_app", "origin": "progress"}) is None
+    # #559: a chat with oneself (notes to yourself over Messages, WhatsApp, Telegram) is the person's own words.
+    for chat in ("imessage", "whatsapp", "telegram-chats"):
+        own = {"source": chat, "origin": chat, "self_chat": True}
+        assert authorship.of(own) is None and not authorship.agent_saved(own), chat
+        assert evidence.verify(None, NOTE_ID, "note to me", text="user: note to me",
+                               kind_override=authorship.of(own)).kind == "user"
     # A declared kind always wins; another tool-door writer (a watch, a read) is a saved item by its own record.
     assert authorship.of({**NOTE_FM, "evidence_kind": "user"}) == "user"
     assert authorship.of({"source": "video-watch", "origin": "mcp", "url": "https://example.com/v",
