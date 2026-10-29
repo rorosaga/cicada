@@ -589,6 +589,17 @@ def _read_moments(conn: sqlite3.Connection, memory_path: Path, gen: str | None =
 # --------------------------------------------------------------------------- search
 
 
+def loo_lift(cos: float, mean: float, n: int) -> float:
+    """An item's lift over the mean of the *other* ``n − 1`` items (leave one out): ``cos − (n·mean − cos)/(n − 1)``.
+    Over many items it is the plain lift the floors were calibrated on; over a few it stops the item itself from
+    dragging the mean up (2 passages: the plain lift halves the gap, so the right one never cleared the floor —
+    found driving the app with two added files, 2026-10-29). A lone item has nothing to differ from: it is shown
+    (``inf``)."""
+    if n <= 1:
+        return float("inf")
+    return cos - (n * mean - cos) / (n - 1)
+
+
 def search(memory_path, query: str, *, top_k: int = 8, embed_fn=None) -> list[dict]:
     """Pictures for ``query``, best first: ``[{"key", "score" (the lift), "cosine", "metadata"}]``, only those at
     ``lift ≥ LIFT_MIN``, from the serving generation. ``[]`` with no picture table, no stored mean, or no text model
@@ -610,7 +621,7 @@ def search(memory_path, query: str, *, top_k: int = 8, embed_fn=None) -> list[di
         stats = _read_moments(conn, memory_path, gen)
         if stats is None:
             return []
-        _n, mu = stats
+        n, mu = stats
         model = stamps.get(f"model:{gen}")
         try:
             from api.services.vector_index import _cached_query_vector, _named
@@ -646,10 +657,10 @@ def search(memory_path, query: str, *, top_k: int = 8, embed_fn=None) -> list[di
     out = []
     for distance, key, meta in rows:
         cos = 1.0 - float(distance)
-        lift = cos - mean
+        lift = loo_lift(cos, mean, n)
         if lift < LIFT_MIN:
             break
-        out.append({"key": key, "score": round(lift, 4), "cosine": round(cos, 4),
+        out.append({"key": key, "score": round(lift if lift != float("inf") else cos, 4), "cosine": round(cos, 4),
                     "metadata": json.loads(meta) if meta else {}})
     return out
 

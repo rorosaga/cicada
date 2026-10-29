@@ -27,7 +27,7 @@ def text_embed(texts, *, is_query=False):
         v = np.zeros(DIM, dtype=np.float32)
         v[DIM - 1] = 1.0                                  # every text shares a direction, as real ones do
         rng = np.random.default_rng(zlib.crc32(t.encode()))
-        v[8:DIM - 1] = rng.standard_normal(DIM - 9) * 0.05
+        v[8:DIM - 1] = rng.standard_normal(DIM - 9) * 0.02
         for w in t.lower().replace(".", " ").split():
             if w in TOPICS:
                 v[TOPICS[w]] += 1.0
@@ -122,6 +122,23 @@ def test_a_query_finds_the_passage_and_its_time_and_nothing_for_an_absent_topic(
     assert media_files.search_text(bank, "invoice tax", embed_fn=text_embed) == []
     again = media_files.refresh_text(bank, embed_fn=text_embed)
     assert again["embedded"] == 0, "nothing changed, nothing embedded"
+
+
+def test_with_only_a_few_passages_the_right_one_still_clears_the_floor(bank):
+    """Found driving the app (2026-10-29): with two passages the plain lift halves the gap, so the right passage
+    never cleared the floor. The lift is over the other passages' mean (`image_index.loo_lift`)."""
+    media_files.record_media(bank, name="a.m4a", kind="audio", sha256=SHA, segments=_segments("budget", each=6))
+    media_files.record_media(bank, name="b.m4a", kind="audio", sha256="cd" * 32, segments=_segments("garden", each=6))
+    media_files.refresh_text(bank, embed_fn=text_embed)
+    hits = media_files.search_text(bank, "budget quarter", embed_fn=text_embed)
+    assert hits and {h["metadata"]["name"] for h in hits} == {"a.m4a"}
+
+
+def test_a_lone_item_is_shown_and_its_score_is_its_cosine():
+    from api.services import image_index
+
+    assert image_index.loo_lift(0.4, 0.4, 1) == float("inf")
+    assert image_index.loo_lift(0.7, 0.5, 2) == pytest.approx(0.4), "0.7 against the other's 0.3"
 
 
 def test_deleting_a_file_takes_its_words_out_of_search(bank):
