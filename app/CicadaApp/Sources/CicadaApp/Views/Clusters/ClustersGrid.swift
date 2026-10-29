@@ -205,10 +205,11 @@ struct ClusterShortCard: View {
                     HStack(spacing: CicadaTheme.spacingSM) {
                         EntityPicture(id: entity.id, name: entity.name, type: entity.type, size: 20,
                                       collapsesWhenEmpty: !reserves)
-                        Text(entity.shownName)
+                        Text(entity.name)
                             .font(CicadaTheme.bodyFont)
                             .foregroundStyle(CicadaTheme.textPrimary)
                             .lineLimit(1)
+                        QualifierTag(qualifier: entity.qualifier)   // G227
                         if let line = ClustersModel.line(entity) {
                             Text(line).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary).lineLimit(1)
                         }
@@ -218,7 +219,7 @@ struct ClusterShortCard: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.cicadaPlain)
-                .accessibilityLabel(Copy.Lists.entityRow(type: entity.type.label, name: entity.name, open: false))
+                .accessibilityLabel(Copy.Lists.entityRow(type: entity.type.label, name: entity.shownName, open: false))
                 .id(entity.id)
             }
         }
@@ -246,10 +247,13 @@ struct ClusterTile: View {
                 .opacity(entity.quiet ? CicadaTheme.quietPictureOpacity : 1)
             Button(action: open) {
                 VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
-                    Text(entity.shownName)
-                        .font(CicadaTheme.rowFont)
-                        .foregroundStyle(entity.quiet ? CicadaTheme.quietName : CicadaTheme.textPrimary)
-                        .lineLimit(1)
+                    HStack(spacing: CicadaTheme.spacingXS) {
+                        Text(entity.name)
+                            .font(CicadaTheme.rowFont)
+                            .foregroundStyle(entity.quiet ? CicadaTheme.quietName : CicadaTheme.textPrimary)
+                            .lineLimit(1)
+                        QualifierTag(qualifier: entity.qualifier)   // G227
+                    }
                     if let line = ClustersModel.line(entity) {
                         Text(line).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary).lineLimit(1)
                     }
@@ -258,7 +262,7 @@ struct ClusterTile: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.cicadaPlain)
-            .accessibilityLabel(Copy.Lists.entityRow(type: entity.type.label, name: entity.name, open: false))
+            .accessibilityLabel(Copy.Lists.entityRow(type: entity.type.label, name: entity.shownName, open: false))
             .accessibilityValue(entity.quiet ? Copy.Lists.quiet : "")
         }
         .padding(.horizontal, CicadaTheme.scaled(8))

@@ -115,6 +115,11 @@ struct InboxOption: Identifiable, Hashable {
     var ageDays: Int?
     var recommended: Bool = false
     var verdict: String? = nil
+    /// G227 (owner 2026-10-29, pick the page) — an option that IS one of several pages with a name: its id, its plain
+    /// name and its qualifier (drawn as a `Tag`); `label` keeps "<name> (<qualifier>)" for every reader without them.
+    var pageId: String? = nil
+    var pageName: String? = nil
+    var qualifier: String? = nil
 
     var id: String { key }
 
@@ -135,6 +140,7 @@ struct InboxOption: Identifiable, Hashable {
 extension InboxOption: Codable {
     enum CodingKeys: String, CodingKey {
         case key, label, description, claimId, observedAt, lastReferenced, ageDays, recommended, verdict
+        case pageId, pageName, qualifier
     }
 
     /// Tolerant on purpose: a `SnapshotCache` payload written before G115 has
@@ -151,6 +157,9 @@ extension InboxOption: Codable {
         ageDays = try c.decodeIfPresent(Int.self, forKey: .ageDays)
         recommended = try c.decodeIfPresent(Bool.self, forKey: .recommended) ?? false
         verdict = try c.decodeIfPresent(String.self, forKey: .verdict)
+        pageId = try? c.decodeIfPresent(String.self, forKey: .pageId)
+        pageName = try? c.decodeIfPresent(String.self, forKey: .pageName)
+        qualifier = try? c.decodeIfPresent(String.self, forKey: .qualifier)
     }
 }
 

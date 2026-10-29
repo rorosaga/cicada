@@ -49,7 +49,13 @@ page rows (`g141-9`), `GET /sleep/runs/{id}/items` page rows (`items-2`, in its 
 `entityDisplayName`, `mergeTargetDisplayName` (a duplicate question's mention is never named as a page) and
 `sameTitle` (the pages a question about a shared name names), and their spoken question uses them; `same_name.SHAPE`
 rides the inbox ETag's `extra`, so the client mapping (`VersionVector`'s `entities` → `.inbox`/`.graph`) is unchanged
-and every client takes one 200. All additive: the stored `name` never changes.
+and every client takes one 200. All additive: the stored `name` never changes. **Pick the page (owner 2026-10-29,
+`same_name_pick`):** a `merge_suggestion` with `sameTitle` is served with `question` ("Which <name> is this?") and
+`options` — one per candidate page still on disk (`key` `page:<id>`, `label` "<name> (<qualifier>)", additive
+`pageId`/`pageName`/`qualifier` on `InboxOption`) plus `another` ("Another one"; `none` accepted as an alias).
+`POST /inbox/{id}/resolve` with `action: resolve` and one of those keys is a `merge` into that id. `another` keeps that
+held mention apart from every candidate on its own pending line (never a name-wide rejection). Any other key is a 400.
+`same_name_pick.SHAPE` rides the inbox ETag beside `same_name.SHAPE`.
 
 **The card's blocks and its ETag (vision item 5, 2026-10-28; `page_blocks`).** `GET /entities/{id}` carries
 `blocks: {shape, order, relevance, sources, coordinates, looks, ongoing, ongoingTotal, history}` — which blocks the

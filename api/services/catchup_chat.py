@@ -105,8 +105,9 @@ def _item(memory_path: Path, item_id: str, today: str):
 def answer_keys(item) -> list[dict]:
     """``[{key, label}]`` the model may pick, in the item's own keys. A same-person pair has none stored: it is
     asked as ``same`` / ``different``, which the app turns into the inbox's merge / reject."""
-    if item.kind.value == "merge_suggestion":
+    if item.kind.value == "merge_suggestion" and not any(o.key and o.label for o in item.options):
         return [{"key": "same", "label": "Yes, the same"}, {"key": "different", "label": "No, different"}]
+    # G227: a name several pages share is answered by picking the page (or "none"), in the item's served keys.
     return [{"key": o.key, "label": o.label} for o in item.options if o.key and o.label]
 
 

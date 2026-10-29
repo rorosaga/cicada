@@ -283,7 +283,8 @@ enum CatchupAnswers {
     static let relayedBy = "cicada-catchup"
 
     private static func bare(_ item: InboxItem, _ reading: CatchupTurnReply.Reading) -> QuestionResolution? {
-        if item.kind == .mergeSuggestion {
+        // G227: a name several pages share is answered by its options (one page each, or "none"), below.
+        if item.kind == .mergeSuggestion && item.options.isEmpty {
             switch reading.optionKey {
             case "same": return merge(item, same: true)
             case "different": return merge(item, same: false)

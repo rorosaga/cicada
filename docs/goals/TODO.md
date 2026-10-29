@@ -54,6 +54,7 @@
   skills rail); a copied suggestion now installs only its reviewed bytes (`check_reviewed`). Traces context is not built:
   hoff keeps no walkthrough record and its marks cache carries titles and page text — the recommended event line waits
   on the owner, as does `sharingType = .none` in hoff's own repo. Numbers on the G220 and G138 rows.
+- **2026-10-29 — G227 follow-ups (branch `feat/same-name-tag`; owner rulings recorded on the G227 row).** A mention several same-named pages could be is one question: which page, or "Another one" (owner: "none should probably just mean another one"). A pick merges by id. "Another" keeps THAT mention apart on its own pending line, never name-wide (#546 review: a name-keyed rejection kept later mentions of the page from joining it; "No, different" fixed the same way). Once the unchanged promotion rule allows, Sleep makes it a page with the clean title under a distinct id (no stored "(another)"). The app shows the qualifier as a `Tag` beside the plain name (DESIGN_RULES §9 2026-10-29); agent doors keep it in text. The IDE-page split is a per-sentence dry-run plan that waits for the owner's OK; nothing is applied.
 - **2026-10-29 — related is not the same (G21, G209; branch `fix/duplicate-questions-relations`).** Home's "Possible
   duplicates" held 160 questions on the owner's bank, most of them a part and its whole, a product and its maker, an
   alternative and the original or a version and its line. The judge now answers `related` with the relation; a

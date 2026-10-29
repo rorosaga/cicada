@@ -114,7 +114,7 @@ enum FindRowText {
         // DR-56 — VoiceOver hears the same clean words the row shows, never `user:` or `**`.
         let quote = row.snippet.map { ExcerptText.stripMarkup($0, keepLines: false).text }
             .map { snippet in row.speaker.map { "\($0): \(snippet)" } ?? snippet }
-        return [kindLabel(row), row.title, row.detail, row.history, quote]
+        return [kindLabel(row), row.title, row.qualifier, row.detail, row.history, quote]
             .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ", ")
     }
 
