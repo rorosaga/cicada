@@ -493,6 +493,7 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /sources/whatsapp/conversations": (NONE, None),      # the person's tick per listed chat, stores nothing
     "PUT /sources/telegram/settings": (HELD, None),            # a history ask reads in the background (per write)
     # Ruling 47a: the sign-in steps and the log-out write only the session file outside every bank.
+    "POST /sources/telegram/qr": (OUTSIDE, None),         # owner 2026-10-29: the QR connect, the same session file
     "POST /sources/telegram/connect": (OUTSIDE, None),
     "POST /sources/telegram/code": (OUTSIDE, None),
     "POST /sources/telegram/password": (OUTSIDE, None),

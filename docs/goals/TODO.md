@@ -12,6 +12,13 @@
 
 ## Current state and evidence
 
+- **2026-10-29 — Telegram connects by a QR (ruling 49, G179; branch `feat/telegram-qr-connect`).** Connect… opens on a
+  sign-in QR the person scans in Telegram on their phone (Settings → Devices → Link Desktop Device); the backend
+  refreshes it as Telegram expires it (~30 s, 10 rounds) and the app follows the status; number → code is the
+  fallback. Typed fields 2–3 → 0–1 (a two-step password only); app switches to read a code 1 → 0. Stopping a sign-in
+  half way no longer "logs out" a session that never existed. **The real friction left is the app id:** no
+  `CICADA_TELEGRAM_API_ID` is set on the repo, so a release build has none and every person would have to make their
+  own at my.telegram.org — the owner sets it once (`docs/RELEASING.md`).
 - **2026-10-29 — seamless, secure devices (G212; branch `feat/seamless-devices`, cicada-app `feat/seamless-devices`).**
   Settings → Devices guides the Mac onto the person's own tailnet (the next step and the command to copy; Cicada never
   runs it) and checks the served address the way a phone would; a phone's token is bound to a Secure-Enclave key
@@ -2398,4 +2405,18 @@ A whole row moves to DONE only after its remaining implementation and required a
     view, every connected display and a low screenshot frequency under ruling 38's rails. New trace signals are
     "not yet". **Revisit** a part when its build shows a measured cost the mock hid (a p95 regression, a rail it
     cannot keep), on that part only.
+49. **Telegram is never read from the Mac's own store; connecting is "link a device" (owner, 2026-10-29; G179,
+    amends nothing in 47a).** The question was whether a local reader — Telegram for macOS's encrypted Postbox store,
+    decrypted with the app's default key — could replace the sign-in. The owner ran the read-only probe on his own
+    store (numbers only, nothing named): **59 one-to-one chats, a median of 1 message each, none older than a year** —
+    the Mac holds a cache, not the history (the probe's pre-registered criterion C failed). A local reader would add a
+    decrypt-another-app's-store posture, a macOS prompt, a native SQLCipher and a reverse-engineered format, and still
+    not remove Telegram's AI clause or the per-chat consent. Owner: *"With telegram sure lets keep whatever is less
+    friction for the user. If it can be done with a similar connect through browser that kind of lets cicada read your
+    telegram then awesome."* So: **no local reader**; 47a's official API stays the one Telegram path, and its connect
+    is a **QR the person scans in Telegram on their phone** (Settings → Devices → Link Desktop Device;
+    `auth.exportLoginToken`), number → code kept as the fallback, a two-step password typed once either way — every
+    47a rail unchanged (one-to-one only, per-chat consent, the session 0600 outside every bank, one-click log-out,
+    nothing read before a tick). **Revisit** if Telegram ships an official local export or API for personal archives,
+    or if Telegram withdraws QR login for third-party apps.
 
