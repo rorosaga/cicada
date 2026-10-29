@@ -399,9 +399,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   workspace state is not checked; the registry outside every bank holds ids, hashes and times only (`mcp.md`).
   D2 permits the hook alone to observe git identity with a bounded fixed read-only pair; the backend only parses
   supplied values, never inspects a declared workspace. Sibling workers never replace the root session's role (`mcp.md`).
-  Ruling 50 (owner 2026-10-29): the hook alone may also read `remote.origin.url` in the same bound and send only its
-  normalised, per-install-salted hash — the URL is never stored, logged, sent or shown; it keys a repository across a
-  rename, a move and a re-clone (`mcp.md`, "Identity").
+  D2a (ruling 22, owner 2026-10-29): the hook alone may also read `remote.origin.url` in the same bound and send
+  only its normalised, per-install-salted hash — the URL is never stored, logged, sent or shown; it keys a
+  repository across a rename, a move and a re-clone (`mcp.md`, "Identity").
   G228 permits the capture hook to observe its own launch chain to name a host app (T3 Code): parent pid and exec path
   only, bounded, in-process, never another process's arguments or environment (`capture-and-sleep.md`).
 

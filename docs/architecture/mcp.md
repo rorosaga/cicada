@@ -927,7 +927,7 @@ prompt or dynamic rule.
   macOS skips the `/usr/bin/git` install-dialog shim; the installed runtime's bundled git is the last fallback.
   Failure or malformed output leaves exact-cwd matching. `resume`, `compact` and `fork` carry their own history
   and get no startup block; they may still supply identity for requested reads.
-- **The remote, hashed (ruling 50, owner 2026-10-29).** After the pair, inside the same deadline and bounds, the hook
+- **The remote, hashed (ruling 22 D2a, owner 2026-10-29).** After the pair, inside the same deadline and bounds, the hook
   runs one more fixed read: `git -c core.fsmonitor=false config --get remote.origin.url`. `normalise_remote` makes
   every spelling of one repository the same `host/org/repo` (scheme, user, port, `.git`, trailing and doubled
   slashes, case; scp-style `git@host:org/repo` = `ssh://` = `https://`), and only

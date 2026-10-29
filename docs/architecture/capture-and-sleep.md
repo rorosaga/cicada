@@ -931,7 +931,7 @@ curated summaries, often a cleaner record than the raw turns. The transcripts be
   server with this device's token, and each device's notes are keyed under its own id
   (`agent-memory:<harness>:<device>:<project>/<file>`, `local` for the server's own token), so two machines never
   tombstone each other's.
-- **A repository renamed, moved or cloned again (ruling 50, 2026-10-29).** Claude Code names a project's notes folder
+- **A repository renamed, moved or cloned again (ruling 22 D2a, 2026-10-29).** Claude Code names a project's notes folder
   after the checkout's path, so a new path starts a new folder; notes the person brings along (moving or copying the
   folder) arrive under a new key. Each draft carries `content_sha` = sha256(file name + note bytes)[:16]: a note whose
   old key left a complete snapshot and whose bytes reappear under a new one is repointed by the stager's rename by
@@ -1799,7 +1799,7 @@ on the conversation it read (no model), a `project_birth` record and drops any t
   `family_hash`, bound to the stored `project_dir` by its `cwd_hash`; G110 D2), and the mention's name or an alias,
   folded (case, accents, punctuation), is the checkout's folder name: the last component of `project_dir`, or the one
   before a `.worktrees`/`worktrees` folder. Read from the two stored strings only — the backend never opens, stats or
-  runs git in the path. **The remote, hashed (ruling 50, 2026-10-29):** when the hook's observation carries
+  runs git in the path. **The remote, hashed (ruling 22 D2a, 2026-10-29):** when the hook's observation carries
   `remote_hash` (its origin URL normalised and salted per install; the URL never reaches the backend), the birth
   records it as `born.repo.remote`. Stage 2 then joins a repository birth to the one project page whose repository
   has that remote — its own `born.repo.remote`, or, for a page born before the remote was read, a remote a later
@@ -1807,7 +1807,7 @@ on the conversation it read (no model), a `project_birth` record and drops any t
   the judge, so a repository renamed, moved or cloned again is that page, never a second one
   (`entity_resolver._same_repository_match`; two pages on one remote join neither; a pair the person said were
   different is never joined). Project activity and conversation ties read the remote the same way
-  (`_Bank.page_repo_sessions`). A page born before ruling 50 whose repository was renamed before any later session
+  (`_Bank.page_repo_sessions`). A page born before ruling 22 D2a whose repository was renamed before any later session
   in the old folder carried the remote is not recognised — nothing is rewritten to recover it.
 - **words** — one sentence of a person's own turn (`user`, or a meeting `speaker`) names it within five words of
   *project* (or *proyecto*, *projet*, *Projekt*, *progetto*, *projeto*, plurals), inside one clause (no comma, colon,
