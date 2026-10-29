@@ -48,6 +48,7 @@ class JoinResult(CamelModel):
     other_id: Optional[str] = None
     commit: Optional[str] = None
     restored: list[str] = []
+    removed: list[str] = []
     repointed: list[str] = []
 
 
@@ -141,4 +142,5 @@ async def undo_join(entity_id: str, commit_hash: str, settings: Settings = Depen
     undone, or something since changed the same place (nothing written; the sentence says what to do instead)."""
     out = await run_in_threadpool(_run, settings.memory_path, lambda before: page_join.undo(
         settings.memory_path, commit_hash, before=before))
-    return JoinResult(kind="undo", entity_id=entity_id, commit=out["commit"], restored=out["restored"])
+    return JoinResult(kind="undo", entity_id=entity_id, commit=out["commit"], restored=out["restored"],
+                      removed=out["removed"])

@@ -626,7 +626,8 @@ def undone(memory_path, sha: str) -> bool:
 def undo(memory_path, sha: str, *, author: str = "user", trigger: str = TRIGGER_APP, before=None) -> dict:
     """Take one merge or split back: the reverse of its commit applied onto each file as it is now. Refused whole, with
     a sentence and nothing written, when anything since changed the same place (409), when it is not a join (404) or
-    was already taken back (409). ``{kind, commit, paths, restored}``."""
+    was already taken back (409). ``{kind, commit, paths, restored, removed}`` — ``removed``: pages the undo took away
+    (a split's new page), so the app leaves one it was showing."""
     from api.services import inbox_tend
 
     memory_path = Path(memory_path)
@@ -688,7 +689,9 @@ def undo(memory_path, sha: str, *, author: str = "user", trigger: str = TRIGGER_
                       removed={rel for rel, data in writes if data is None})
     lines += ["", f"{UNDOES}{full}"]
     commit = _commit(memory_path, SUBJECT_UNDO, lines, paths, authors=[author], session=None, before=before)
-    return {"kind": kind, "commit": commit, "undid": full, "paths": paths, "restored": restored}
+    removed = [Path(rel).stem for rel, data in writes
+               if data is None and rel.startswith("entities/") and rel.endswith(".md")]
+    return {"kind": kind, "commit": commit, "undid": full, "paths": paths, "restored": restored, "removed": removed}
 
 
 # --- an agent the person has not listed proposes ----------------------------------------------------------------------

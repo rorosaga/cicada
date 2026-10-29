@@ -151,7 +151,7 @@ def test_undo_a_split_puts_everything_back(bank):
     before = {p.name: p.read_bytes() for p in (bank / "entities").glob("*.md")}
     out = _split(bank)
     undone = page_join.undo(bank, out["commit"])
-    assert undone["kind"] == "split"
+    assert undone["kind"] == "split" and undone["removed"] == ["tool-x-2"]
     after = {p.name: p.read_bytes() for p in (bank / "entities").glob("*.md")}
     assert after == before
     assert not merge_rejections.is_split(bank, "tool-x", "tool-x-2")

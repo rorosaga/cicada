@@ -218,8 +218,10 @@ struct SplitPageSheet: View {
         let shown = selection.choice(for: ref, plan: plan)
         return HStack(spacing: CicadaTheme.spacingSM) {
             Text(ref.name).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textPrimary)
-            Text(Copy.PageJoin.linkRests(ref.episodes.count)).font(CicadaTheme.metaFont)
-                .foregroundStyle(CicadaTheme.textTertiary)
+            if !ref.episodes.isEmpty {
+                Text(Copy.PageJoin.linkRests(ref.episodes.count)).font(CicadaTheme.metaFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+            }
             Spacer(minLength: CicadaTheme.spacingSM)
             Picker("", selection: Binding(get: { shown }, set: { selection.references[ref.pageId] = $0 })) {
                 Text(Copy.PageJoin.linkStay).tag(SplitLinkChoice.stay)
