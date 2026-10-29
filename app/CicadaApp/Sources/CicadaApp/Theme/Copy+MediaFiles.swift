@@ -24,4 +24,12 @@ extension Copy {
     static let mediaNoSpeechModel =
         "Kept without its words: this Mac has no speech model for your language yet (turn on Dictation in System Settings → Keyboard)."
     static let mediaNoWords = "Kept without its words: no speech could be read from it on this Mac."
+
+    // MARK: Files in the app (2026-10-29)
+    /// File menu — macOS's own title case for a menu item; the twin of dropping a recording on the window.
+    static let mediaFileMenuItem = "Add Recording or Video…"
+    static let mediaPickerMessage = "Choose recordings or videos to search by what they say. They're read on this Mac."
+    /// A frame row's detail line in the find palette.
+    static let findFrameDetail = "a frame of a video you added"
+    static let mediaFileMoved = "Cicada doesn't know where that file is now. Add it again to open it from here."
 }

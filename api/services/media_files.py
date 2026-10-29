@@ -364,6 +364,7 @@ def search_text(memory_path, query: str, *, top_k: int = 8, embed_fn=None) -> li
     """Passages of added recordings for ``query``, best first: ``[{"key", "score" (lift), "cosine", "text",
     "metadata"}]``, only at ``lift ≥ TEXT_LIFT_MIN``. ``[]`` with no ``files`` table — never an error, never the
     query in a log."""
+    from api.services import image_index
     from api.services.vector_index import INDEX_DB_FILE, SqliteVecIndexer
 
     query = (query or "").strip()
@@ -381,6 +382,7 @@ def search_text(memory_path, query: str, *, top_k: int = 8, embed_fn=None) -> li
         if "mean" not in got:
             return []
         mu = np.frombuffer(got["mean"], dtype=np.float32)
+        n = int(got["n"].decode()) if "n" in got else 0
         try:
             qvec = np.asarray(indexer._query_vector(query, TEXT_KIND), dtype=np.float32).reshape(-1)
         except Exception as exc:  # noqa: BLE001 — the class only (K9)
@@ -396,12 +398,15 @@ def search_text(memory_path, query: str, *, top_k: int = 8, embed_fn=None) -> li
         return []
     finally:
         conn.close()
+    # A lone passage, or a count the stats don't record (n = 0), is never shown for free (review of #529): its cosine
+    # must reach the absolute floor measured for EmbeddingGemma 2, and on any other model it isn't shown at all.
+    lone_min = image_index.LONE_TEXT_COSINE_MIN if image_index.calibrated(indexer.kind_model(TEXT_KIND)) else None
     out = []
     for h in hits:
-        lift = float(h["score"]) - mean
-        if lift < TEXT_LIFT_MIN:
+        score = image_index.clears(float(h["score"]), mean, n, lift_min=TEXT_LIFT_MIN, lone_min=lone_min)
+        if score is None:
             break
-        out.append({"key": (h.get("metadata") or {}).get("file_id", ""), "score": round(lift, 4),
+        out.append({"key": (h.get("metadata") or {}).get("file_id", ""), "score": round(score, 4),
                     "cosine": round(float(h["score"]), 4), "text": h.get("text") or "",
                     "metadata": h.get("metadata") or {}})
     return out

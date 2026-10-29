@@ -390,7 +390,9 @@ Settings' local-folder picker — and check only the chosen file or folder
 (`IntakeRouter.refusedRoot(of:)`); a watched folder that *contains* a refused root is still walked
 (open, G125).
 
-**Recordings and videos (meaning index 2, 2026-10-28).** An audio or video file among a drop (by its type; a folder
+**Recordings and videos (meaning index 2, 2026-10-28).** **File → Add Recording or Video…** (2026-10-29) is the
+keyboard and VoiceOver twin: the intake's own open panel (`IntakePicker.chooseMedia`, audio and video types, no folders)
+hands what was chosen to `IntakeRouter.accept`, so the menu takes the drop's door and its rules. An audio or video file among a drop (by its type; a folder
 is never walked for them) leaves the import before the sniff and goes to `MediaFileIndexer` (`IntakeRouter.onMedia`,
 after `refusedRoot(of:)`): it transcribes the speech on this Mac and, for a video, keeps one frame per shot, and posts
 only those derivatives to `/files` (`storage.md`, "Recordings and videos the person adds"). One toast says it is being
@@ -2367,7 +2369,16 @@ pt, an opaque `bgMenu` floating surface over the panel scrim — that appears an
 answers every keystroke with no network; ~150 ms later `GET /search` (prefix, then hybrid) appends
 conversations, beliefs (superseded ones as history), backlog items (G150; the server tier only) and whatever
 the local tier missed — a shown row
-never moves. Ask is a mode (⌘⏎) hosting the `AskPanel` body — the one place the app draws an Ask answer (the palette
+never moves. **Files** (2026-10-29, meaning index 2): the hybrid pass alone also asks `file` and `image`
+(`FindServerRows.hybridKinds`; the prefix pass never does) and a **Files** group after Sources & papers holds a
+recording's or video's words — the conversation row's grammar: name, kind as the one `Tag` ("Recording" / "Video",
+DR-44), "the recording's words, at m:ss" as the detail, the passage in the quote face, a kind glyph (DR-48) — and a
+video's kept frames, each its own thumbnail (`FindStill`: the stored frame at the mark's height, 16:9, the Feed video
+frame's continuous corner, DR-12), or **no mark at all** while it isn't on this Mac, never a stand-in tile (the
+2026-10-28 "a page with no picture draws none" ruling, #512). No folds (DR-81): the group counts exactly what the server
+gave (it serves only what clears its floor), so it never offers a "More…" that fetches nothing. ⏎ opens the file where
+this Mac last saw it (`MediaFilePlaces`, the app's own record; the backend never has a path), ⌥⏎ shows it in Finder; a
+moved file says so in a toast. Other pictures (looks, previews, stills) are not in the palette yet. Ask is a mode (⌘⏎) hosting the `AskPanel` body — the one place the app draws an Ask answer (the palette
 and Home's field both host it). Under the page sources (chips, then each page's evidence chips) it lists **From
 conversations**: `POST /ask` `conversations` (2026-10-19), the conversations the answer used that no page cites. A row
 is a conversation glyph, the title ("A conversation" without one) and the day; the episode id only in `.help` (DR-54,

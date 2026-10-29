@@ -589,6 +589,40 @@ def _read_moments(conn: sqlite3.Connection, memory_path: Path, gen: str | None =
 # --------------------------------------------------------------------------- search
 
 
+#: A lone item (or a kind whose count is unknown) has no others to differ from, so it is judged by its cosine alone
+#: against these floors, calibrated on the real EmbeddingGemma 2 (2026-10-29, the review of #529; synthetic recordings
+#: and drawn pictures, as in `benchmarks.perf.image_index_build` and `media_index_build`): a query about a drawn
+#: picture reaches 0.74–0.81 on it, the best picture for a query about anything else 0.53–0.60; a topic said in a
+#: recording reaches 0.73–0.77 on its passage, a topic never said 0.55–0.62. Each floor sits between the two. Only
+#: EmbeddingGemma 2's scale was measured: for any other model a lone item is never shown.
+LONE_PICTURE_COSINE_MIN = 0.67
+LONE_TEXT_COSINE_MIN = 0.68
+
+
+def loo_lift(cos: float, mean: float, n: int) -> float | None:
+    """An item's lift over the mean of the *other* ``n − 1`` items (leave one out): ``cos − (n·mean − cos)/(n − 1)``.
+    Over many items it is the plain lift the floors were calibrated on; over a few it stops the item itself from
+    dragging the mean up (2 passages: the plain lift halves the gap, so the right one never cleared the floor —
+    found driving the app with two added files, 2026-10-29). ``None`` for a lone item or an unknown count: there is
+    no lift, and :func:`clears` judges it by its cosine instead."""
+    if n <= 1:
+        return None
+    return cos - (n * mean - cos) / (n - 1)
+
+
+def clears(cos: float, mean: float, n: int, *, lift_min: float, lone_min: float | None) -> float | None:
+    """The score a hit is shown with, or ``None`` when it isn't shown. Two or more items: its leave-one-out lift,
+    shown at ``lift_min``. A lone item (or an unknown count, ``n ≤ 1``): never shown for free (review of #529 — a
+    single look or recording answered every query) — its cosine must reach ``lone_min``, the absolute floor
+    calibrated for the kind's model, and with no calibrated floor (``None``) it isn't shown at all."""
+    lift = loo_lift(cos, mean, n)
+    if lift is not None:
+        return lift if lift >= lift_min else None
+    if lone_min is None or cos < lone_min:
+        return None
+    return cos
+
+
 def search(memory_path, query: str, *, top_k: int = 8, embed_fn=None) -> list[dict]:
     """Pictures for ``query``, best first: ``[{"key", "score" (the lift), "cosine", "metadata"}]``, only those at
     ``lift ≥ LIFT_MIN``, from the serving generation. ``[]`` with no picture table, no stored mean, or no text model
@@ -610,7 +644,7 @@ def search(memory_path, query: str, *, top_k: int = 8, embed_fn=None) -> list[di
         stats = _read_moments(conn, memory_path, gen)
         if stats is None:
             return []
-        _n, mu = stats
+        n, mu = stats
         model = stamps.get(f"model:{gen}")
         try:
             from api.services.vector_index import _cached_query_vector, _named
@@ -643,15 +677,23 @@ def search(memory_path, query: str, *, top_k: int = 8, embed_fn=None) -> list[di
         return []
     finally:
         conn.close()
+    lone_min = LONE_PICTURE_COSINE_MIN if calibrated(model) else None
     out = []
     for distance, key, meta in rows:
         cos = 1.0 - float(distance)
-        lift = cos - mean
-        if lift < LIFT_MIN:
+        score = clears(cos, mean, n, lift_min=LIFT_MIN, lone_min=lone_min)
+        if score is None:
             break
-        out.append({"key": key, "score": round(lift, 4), "cosine": round(cos, 4),
+        out.append({"key": key, "score": round(score, 4), "cosine": round(cos, 4),
                     "metadata": json.loads(meta) if meta else {}})
     return out
+
+
+def calibrated(model: str | None) -> bool:
+    """Whether the lone-item cosine floors were measured on ``model`` (EmbeddingGemma 2, at any width)."""
+    from api.services import onnx_embedder
+
+    return bool(model) and str(model).split(":", 1)[0] == onnx_embedder.PREFERRED_BASE
 
 
 def status(memory_path) -> dict:

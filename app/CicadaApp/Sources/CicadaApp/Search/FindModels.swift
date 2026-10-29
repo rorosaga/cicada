@@ -9,6 +9,8 @@ enum FindMode: String, Codable, Sendable { case find, ask }
 
 enum FindKind: String, Codable, Sendable {
     case ask, entity, conversation, belief, media, source, inbox, backlog, setting, action, bank, askedBefore
+    /// Meaning index 2 — a recording's or video's words, or a video's kept frame (`kinds=file` / `image`).
+    case file
 }
 
 /// A row's identity — the merge rule's dedupe key, `(kind, id)` (design §3.2),
@@ -24,8 +26,8 @@ struct FindRowKey: Hashable, Codable, Sendable {
 /// Raw values are only an order — a recent persists `FindRowKey`, whose kind is a
 /// string — so G150's Backlog group slots in after Inbox without a migration.
 enum FindGroupID: Int, CaseIterable, Comparable, Sendable {
-    case ask, topHit, recent, entities, conversations, beliefs, sources, inbox, backlog, settings, actions, askedBefore,
-         suggested
+    case ask, topHit, recent, entities, conversations, beliefs, sources, files, inbox, backlog, settings, actions,
+         askedBefore, suggested
 
     static func < (lhs: FindGroupID, rhs: FindGroupID) -> Bool { lhs.rawValue < rhs.rawValue }
 
@@ -38,6 +40,7 @@ enum FindGroupID: Int, CaseIterable, Comparable, Sendable {
         case .conversations: "Conversations"
         case .beliefs: "Beliefs"
         case .sources: "Sources & papers"
+        case .files: "Files"
         case .inbox: "Inbox"
         case .backlog: "Backlog"
         case .settings: "Settings"
@@ -56,6 +59,7 @@ enum FindGroupID: Int, CaseIterable, Comparable, Sendable {
         case .conversations: "bubble.left.and.bubble.right"
         case .beliefs: "text.quote"
         case .sources: "photo.stack"
+        case .files: "waveform"
         case .inbox: "tray.full"
         case .backlog: "checklist"
         case .settings: "gearshape"
@@ -74,6 +78,11 @@ enum FindMark: Equatable, Sendable {
     case origin(String)
     case savedLink(SavedLinkMarkModel.Mark)
     case symbol(String)
+    /// Meaning index 2 — a video frame's own thumbnail (the API path that serves it): the real picture or nothing,
+    /// never a stand-in tile (#512's rule).
+    case still(path: String)
+    /// No mark: a frame whose thumbnail isn't on this Mac draws none rather than a stand-in.
+    case blank
 }
 
 /// A span into an evidence document (G118): what the Reader opens at.
@@ -120,6 +129,10 @@ enum FindDestination: Equatable, Sendable {
     case bank(name: String)
     case ask(String)
     case askedBefore(question: String)
+    /// Meaning index 2 — a recording or video the person added, opened where this Mac last saw it
+    /// (`MediaFileIndexer.place(of:)`); ⌥⏎ shows it in Finder.
+    case addedFile(id: String, at: Double?)
+    case revealAddedFile(id: String)
 }
 
 struct FindRow: Identifiable, Equatable, Sendable {

@@ -95,6 +95,40 @@ struct FindMarkView: View {
                 .font(CicadaTheme.font(size: 13))
                 .foregroundStyle(CicadaTheme.textSecondary)
                 .frame(width: CicadaTheme.scaled(20), height: CicadaTheme.scaled(20))
+        case .still(let path):
+            FindStill(path: path)
+        case .blank:
+            EmptyView()
+        }
+    }
+}
+
+/// Meaning index 2 — a video frame's own thumbnail in a palette row: the Feed's video-frame pattern (2026-09-30
+/// video boards: a stored still, 16:9, `cornerRadius` 4 continuous, DR-12) at the row's mark height, loaded through
+/// the app's one picture store from Cicada's own API. A real picture or nothing — no stand-in tile while it loads or
+/// when it can't (#512's rule; the 2026-10-28 "a page with no picture draws none" ruling).
+struct FindStill: View {
+    let path: String
+
+    @Environment(Store.self) private var store: Store?
+    @State private var image: NSImage?
+
+    var body: some View {
+        Group {
+            if let image {
+                let height = CicadaTheme.scaled(20)
+                Image(nsImage: image).resizable().interpolation(.high).scaledToFill()
+                    .frame(width: height * 16 / 9, height: height)
+                    .clipShape(CicadaTheme.shape(CicadaTheme.scaled(4)))
+            } else {
+                // Nothing drawn and no space taken — but a view, so the load below runs (an empty `Group` never
+                // appears, and its `.task` never starts: found driving the app, 2026-10-29).
+                Color.clear.frame(width: 0, height: 0)
+            }
+        }
+        .accessibilityHidden(true)
+        .task(id: "\(store?.bank ?? "")|\(path)") {
+            image = await SourcePictureStore.shared.image(path: path, bank: store?.bank ?? "")
         }
     }
 }

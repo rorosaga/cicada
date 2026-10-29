@@ -290,6 +290,12 @@ struct CicadaApp: App {
             CommandGroup(after: .newItem) {
                 Button(Copy.intakeFileMenuItem) { intakeRouter.present(from: .fileMenu) }
                     .keyboardShortcut("i", modifiers: [.command, .shift])
+                // Meaning index 2 — the keyboard and VoiceOver twin of dropping a recording or video on the window:
+                // the same door (`accept`), so speech is asked only inside this, the person's own action.
+                Button(Copy.mediaFileMenuItem) {
+                    let urls = IntakePicker.chooseMedia()
+                    if !urls.isEmpty { intakeRouter.accept(urls: urls, from: .fileMenu) }
+                }
             }
         }
     }

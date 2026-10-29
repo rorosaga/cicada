@@ -106,6 +106,7 @@ enum FindRowText {
         case .action: "Action"
         case .bank: "Memory bank"
         case .askedBefore: "Asked before"
+        case .file: { if case .still = row.mark { return "Video frame" }; return "Recording" }()
         }
     }
 
@@ -160,6 +161,8 @@ enum FindRowText {
         case .bank: "Switch"
         case .ask: "Ask"
         case .askedBefore: "Show answer"
+        case .addedFile: "Open file"
+        case .revealAddedFile: "Show in Finder"
         }
     }
 
@@ -170,6 +173,7 @@ enum FindRowText {
         case .conversations?: "All from this app"
         case .evidence?: "Where it was said"
         case .ask?: "Ask again"
+        case .revealAddedFile?: "Show in Finder"
         default: nil
         }
     }

@@ -27,7 +27,7 @@ def text_embed(texts, *, is_query=False):
         v = np.zeros(DIM, dtype=np.float32)
         v[DIM - 1] = 1.0                                  # every text shares a direction, as real ones do
         rng = np.random.default_rng(zlib.crc32(t.encode()))
-        v[8:DIM - 1] = rng.standard_normal(DIM - 9) * 0.05
+        v[8:DIM - 1] = rng.standard_normal(DIM - 9) * 0.02
         for w in t.lower().replace(".", " ").split():
             if w in TOPICS:
                 v[TOPICS[w]] += 1.0
@@ -122,6 +122,62 @@ def test_a_query_finds_the_passage_and_its_time_and_nothing_for_an_absent_topic(
     assert media_files.search_text(bank, "invoice tax", embed_fn=text_embed) == []
     again = media_files.refresh_text(bank, embed_fn=text_embed)
     assert again["embedded"] == 0, "nothing changed, nothing embedded"
+
+
+def test_with_only_a_few_passages_the_right_one_still_clears_the_floor(bank):
+    """Found driving the app (2026-10-29): with two passages the plain lift halves the gap, so the right passage
+    never cleared the floor. The lift is over the other passages' mean (`image_index.loo_lift`)."""
+    media_files.record_media(bank, name="a.m4a", kind="audio", sha256=SHA, segments=_segments("budget", each=6))
+    media_files.record_media(bank, name="b.m4a", kind="audio", sha256="cd" * 32, segments=_segments("garden", each=6))
+    media_files.refresh_text(bank, embed_fn=text_embed)
+    hits = media_files.search_text(bank, "budget quarter", embed_fn=text_embed)
+    assert hits and {h["metadata"]["name"] for h in hits} == {"a.m4a"}
+
+
+def test_a_lone_item_is_never_shown_for_free():
+    """Review of #529: a lone item (or an unknown count) used to clear the floor for every query. Now it needs an
+    absolute cosine calibrated for its model, and with none it isn't shown at all."""
+    from api.services import image_index
+
+    assert image_index.loo_lift(0.4, 0.4, 1) is None and image_index.loo_lift(0.4, 0.4, 0) is None
+    assert image_index.loo_lift(0.7, 0.5, 2) == pytest.approx(0.4), "0.7 against the other's 0.3"
+    assert image_index.clears(0.99, 0.99, 1, lift_min=0.12, lone_min=None) is None, "no calibrated floor: never"
+    assert image_index.clears(0.60, 0.60, 1, lift_min=0.12, lone_min=0.68) is None, "an unrelated query"
+    assert image_index.clears(0.75, 0.75, 1, lift_min=0.12, lone_min=0.68) == 0.75, "a related one, by its cosine"
+    assert image_index.clears(0.75, 0.75, 0, lift_min=0.12, lone_min=0.68) == 0.75, "an unknown count is lone"
+    assert image_index.calibrated("google/embeddinggemma-2:768") and not image_index.calibrated("intfloat/e5:384")
+
+
+def test_one_recording_answers_only_what_it_says(bank, monkeypatch):
+    """The reviewer's repro: one recording about the budget, then "garden roses" — it used to come back (0.498)."""
+    from api.services import image_index
+
+    media_files.record_media(bank, name="a.m4a", kind="audio", sha256=SHA, segments=_segments("budget", each=3))
+    media_files.refresh_text(bank, embed_fn=text_embed)
+    assert media_files.search_text(bank, "garden roses", embed_fn=text_embed) == []
+    assert media_files.search_text(bank, "budget quarter", embed_fn=text_embed) == [], \
+        "the stand-in model has no calibrated floor: a lone passage is never shown"
+    monkeypatch.setattr(image_index, "calibrated", lambda model: True)   # as if EmbeddingGemma 2
+    monkeypatch.setattr(image_index, "LONE_TEXT_COSINE_MIN", 0.8)
+    assert media_files.search_text(bank, "garden roses", embed_fn=text_embed) == []
+    hits = media_files.search_text(bank, "budget quarter", embed_fn=text_embed)
+    assert hits and hits[0]["score"] == hits[0]["cosine"] >= 0.8
+
+
+def test_a_missing_count_never_turns_the_floor_off(bank):
+    """Stats written without `n` (an older or damaged row) read as n = 0: lone, never "every passage clears"."""
+    import sqlite3
+
+    media_files.record_media(bank, name="a.m4a", kind="audio", sha256=SHA,
+                             segments=_segments("guitar", "budget", "garden", each=20))
+    media_files.refresh_text(bank, embed_fn=text_embed)
+    conn = sqlite3.connect(bank / "vector_index.db")
+    conn.execute(f"DELETE FROM stats_{media_files.TEXT_KIND} WHERE name = 'n'")
+    conn.commit()
+    conn.close()
+    assert media_files.search_text(bank, "invoice tax", embed_fn=text_embed) == []
+    assert media_files.search_text(bank, "budget quarter", embed_fn=text_embed) == [], \
+        "with no calibrated floor for the stand-in model, an unknown count shows nothing"
 
 
 def test_deleting_a_file_takes_its_words_out_of_search(bank):

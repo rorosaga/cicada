@@ -5,6 +5,10 @@ enum FindServerRows {
     /// R-SU14 — Pass A's and Pass B's kinds; `inbox` is the local tier's already; `backlog` (G150) has no local
     /// tier — it is not a Store domain — so the server is its only tier.
     static let kinds = ["entity", "claim", "episode", "media", "backlog"]
+    /// Meaning index 2 — the Files group's kinds, asked by the hybrid pass only (the server serves them by meaning,
+    /// never by prefix): a recording's or video's words (`file`) and a video's kept frames (`image`, frames only).
+    static let fileKinds = ["file", "image"]
+    static var hybridKinds: [String] { kinds + fileKinds }
 
     static func group(forKind kind: String) -> FindGroupID? {
         switch kind {
@@ -13,6 +17,7 @@ enum FindServerRows {
         case "claim": .beliefs
         case "media": .sources
         case "backlog": .backlog
+        case "file", "image": .files
         default: nil
         }
     }
@@ -117,6 +122,26 @@ enum FindServerRows {
                                     badge: BacklogModel.triageLabel(hit.type), mark: .symbol("checklist"),
                                     trailing: date(hit.timestamp), score: hit.score,
                                     destination: .backlogItem(project: project, id: hit.id)))
+            case "file":
+                // Meaning index 2 — the recording's words (never the person's: the subtitle says so), drawn as a
+                // conversation row's passage (DR-48), its kind glyph and its kind as the one `Tag` (DR-44).
+                guard let fileId = hit.fileId else { continue }
+                rows.append(FindRow(key: FindRowKey(kind: .file, id: hit.id), group: .files, title: hit.name,
+                                    titleRanges: bold(hit.name), detail: hit.subtitle,
+                                    snippet: hit.snippet.isEmpty ? nil : hit.snippet,
+                                    snippetRanges: hit.snippetOffsets,
+                                    badge: hit.type == "video" ? "Video" : "Recording",
+                                    mark: .symbol(hit.type == "video" ? "film" : "waveform"), score: hit.score,
+                                    destination: .addedFile(id: fileId, at: hit.atSeconds),
+                                    secondary: .revealAddedFile(id: fileId)))
+            case "image" where hit.imageSource == "frame":
+                // A video's kept frame: its own thumbnail or no mark at all (#512), its time in the title.
+                guard let fileId = hit.fileId else { continue }
+                rows.append(FindRow(key: FindRowKey(kind: .file, id: hit.id), group: .files, title: hit.name,
+                                    titleRanges: bold(hit.name), detail: Copy.findFrameDetail, badge: "Video",
+                                    mark: hit.thumbnail.map { .still(path: $0) } ?? .blank, score: hit.score,
+                                    destination: .addedFile(id: fileId, at: hit.atSeconds),
+                                    secondary: .revealAddedFile(id: fileId)))
             default:
                 continue
             }
@@ -129,6 +154,13 @@ enum FindServerRows {
         var out: [FindGroupID: FindCount] = [:]
         for kind in kinds {
             guard let group = group(forKind: kind) else { continue }
+            if group == .files {
+                // Meaning index 2 — the server already shows only what clears its floor and has nothing more to
+                // give on "More…" (no prefix pass for files), so the group counts what it holds: never a "More…"
+                // that fetches nothing (R-SU15).
+                out[group] = .exact(rows.filter { $0.group == .files }.count)
+                continue
+            }
             let hits = response.results.filter { $0.kind == kind }
             let shown = rows.filter { $0.group == group }.count
             if hits.contains(where: { $0.matchedField == "semantic" }) {

@@ -37,6 +37,21 @@ enum IntakePicker {
         panel.message = Copy.intakeDropTitle
         return panel.runModal() == .OK ? panel.urls : []
     }
+
+    /// Meaning index 2 — the same panel for File → Add Recording or Video…: audio and video files only (no folders:
+    /// a folder is never walked for recordings). What it returns goes through `IntakeRouter.accept`, the one door a
+    /// drop takes, so the roots guard and the speech rule are the drop's own.
+    static let mediaContentTypes: [UTType] = [.audio, .movie, .audiovisualContent]
+
+    @MainActor
+    static func chooseMedia() -> [URL] {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = mediaContentTypes
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        panel.message = Copy.mediaPickerMessage
+        return panel.runModal() == .OK ? panel.urls : []
+    }
 }
 
 /// A chat vendor's real mark (Track L precedence through `OriginIconography`),

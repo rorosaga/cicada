@@ -39,6 +39,7 @@ final class FakeMediaAPI: MediaFilesAPI, @unchecked Sendable {
 @MainActor
 final class MediaFileIndexerTests: XCTestCase {
     private var dir: URL!
+    private let places = MediaFilePlaces(defaults: UserDefaults(suiteName: "media-places-\(UUID().uuidString)")!)
 
     override func setUp() async throws {
         dir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("media-\(UUID().uuidString)")
@@ -100,7 +101,7 @@ final class MediaFileIndexerTests: XCTestCase {
     func testOnlyTheDerivativesArePostedNeverThePathOrTheBytes() async throws {
         let api = FakeMediaAPI(), sampler = FakeSampler()
         let ix = MediaFileIndexer(api: api, speech: FakeSpeech(.authorized), transcriber: FakeTranscriber(),
-                                  sampler: sampler, locale: Locale(identifier: "en-US"))
+                                  sampler: sampler, locale: Locale(identifier: "en-US"), places: places)
         let out = await ix.add([try file("team sync.mov")])
         XCTAssertEqual(out, [.added(words: 2, frames: 2)])
         let body = try XCTUnwrap(api.bodies.first)
@@ -117,7 +118,7 @@ final class MediaFileIndexerTests: XCTestCase {
     func testSpeechIsAskedForOnlyByThePersonsOwnDrop() async throws {
         let speech = FakeSpeech(.notDetermined)
         let ix = MediaFileIndexer(api: FakeMediaAPI(), speech: speech, transcriber: FakeTranscriber(),
-                                  sampler: FakeSampler())
+                                  sampler: FakeSampler(), places: places)
         let router = IntakeRouter(api: FakeIntakeAPI())
         _ = router
         XCTAssertEqual(speech.requests, 0, "creating the reader or the router never asks")
@@ -133,7 +134,7 @@ final class MediaFileIndexerTests: XCTestCase {
         let transcriber = FakeTranscriber(), api = FakeMediaAPI()
         var said: [String] = []
         let ix = MediaFileIndexer(api: api, speech: FakeSpeech(.denied), transcriber: transcriber,
-                                  sampler: FakeSampler())
+                                  sampler: FakeSampler(), places: places)
         ix.say = { said.append($0) }
         let out = await ix.add([try file("memo.m4a")])
         XCTAssertEqual(transcriber.calls, 0)
@@ -146,9 +147,29 @@ final class MediaFileIndexerTests: XCTestCase {
         let transcriber = FakeTranscriber()
         transcriber.outcome = .noSpeechModel
         let ix = MediaFileIndexer(api: FakeMediaAPI(), speech: FakeSpeech(.authorized), transcriber: transcriber,
-                                  sampler: FakeSampler())
+                                  sampler: FakeSampler(), places: places)
         let out = await ix.add([try file("memo.m4a")])
         XCTAssertEqual(out, [.noWords(reason: Copy.mediaNoSpeechModel)])
+    }
+
+    func testAnAddedFileIsRememberedWhereItIsForThePalette() async throws {
+        let memo = try file("memo.m4a")
+        let ix = MediaFileIndexer(api: FakeMediaAPI(), speech: FakeSpeech(.authorized), transcriber: FakeTranscriber(),
+                                  sampler: FakeSampler(), places: places)
+        _ = await ix.add([memo])
+        XCTAssertEqual(places.url(of: "0123456789abcdef")?.path, memo.path, "the app's own record, never posted")
+    }
+
+    func testTheFileMenuTakesTheDropsOwnDoor() throws {
+        let api = FakeIntakeAPI()
+        let router = IntakeRouter(api: api, home: dir)
+        var handed: [URL] = []
+        router.onMedia = { handed += $0 }
+        let clip = try file("clip.mp4")
+        XCTAssertEqual(router.accept(urls: [clip], from: .fileMenu), .accepted)
+        XCTAssertEqual(handed, [clip])
+        XCTAssertTrue(api.sniffed.isEmpty)
+        XCTAssertTrue(IntakePicker.mediaContentTypes.contains(.audio) && IntakePicker.mediaContentTypes.contains(.movie))
     }
 
     func testTheRouterHandsMediaToTheReaderAndNeverSniffsThem() throws {
