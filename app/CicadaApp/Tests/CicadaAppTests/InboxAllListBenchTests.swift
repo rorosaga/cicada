@@ -208,6 +208,27 @@ final class InboxAllListBenchTests: XCTestCase {
         XCTAssertEqual(InboxColumns.ordered(items).map(\.id), items.sorted(by: InboxColumns.precedes).map(\.id))
     }
 
+    /// Review of #542 — a missing or malformed day is the newest, one fixed instant, never a fresh "now" per read: at one
+    /// priority the undated questions lead (the server's `_neg_date_key` puts an empty day first), keep the server's
+    /// order among themselves, and every rebuild draws them in the same places.
+    func testUndatedQuestionsSortAsNewestInTheServersOrderOnEveryRebuild() throws {
+        func item(_ id: String, created: String) throws -> InboxItem {
+            try JSONDecoder().decode(InboxItem.self, from: Data(#"{"id":"\#(id)","kind":"conflict","requiredInput":"choice","title":"\#(id)","priority":0.5,"createdDate":"\#(created)","entityId":"page-\#(id)","entityName":"Page \#(id)"}"#.utf8))
+        }
+        let served = [try item("dated-old", created: "2026-09-01"), try item("undated-a", created: ""),
+                      try item("dated-new", created: "2026-10-01"), try item("undated-b", created: "not-a-day"),
+                      try item("undated-c", created: "")]
+        let expected = ["undated-a", "undated-b", "undated-c", "dated-new", "dated-old"]
+        XCTAssertEqual(served[1].createdDateValue, served[3].createdDateValue, "one fixed instant, never a fresh now")
+        XCTAssertEqual(InboxColumns.ordered(served).map(\.id), expected)
+        for _ in 0..<20 { XCTAssertEqual(InboxColumns.ordered(served).map(\.id), expected, "a rebuild never swaps them") }
+        let held = store(served)
+        let vm = InboxViewModel(store: held)
+        XCTAssertEqual(vm.visible.map(\.id), expected)
+        held.inbox.value = served   // a refresh with the same questions
+        XCTAssertEqual(vm.visible.map(\.id), expected)
+    }
+
     // MARK: - The lazy list draws every line, once
 
     func testTheLazyListDrawsEachLineAsItsOwnChildWithTheExplainerUnderItsHeader() throws {

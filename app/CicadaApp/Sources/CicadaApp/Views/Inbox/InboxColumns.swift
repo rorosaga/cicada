@@ -28,9 +28,14 @@ struct InboxColumns: Equatable {
     }
 
     /// `items` in the G115 order — `precedes`, with each question's day read once rather than twice per comparison.
+    /// Ties (same priority and day, undated ones included) keep the order the server sent, as its stable sort does.
     static func ordered(_ items: [InboxItem]) -> [InboxItem] {
-        items.map { (item: $0, priority: $0.priority, day: $0.createdDateValue) }
-            .sorted { a, b in a.priority != b.priority ? a.priority > b.priority : a.day > b.day }
+        items.enumerated().map { (item: $1, at: $0, priority: $1.priority, day: $1.createdDateValue) }
+            .sorted { a, b in
+                if a.priority != b.priority { return a.priority > b.priority }
+                if a.day != b.day { return a.day > b.day }
+                return a.at < b.at
+            }
             .map(\.item)
     }
 

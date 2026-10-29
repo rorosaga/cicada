@@ -539,7 +539,11 @@ struct InboxItem: Identifiable, Codable {
     /// The day the question was raised, read in the viewer's zone, parsed once per day (`InboxCreatedDay`). Inbox
     /// freeze (2026-10-29): this built a fresh `DateFormatter` per call, and the G115 sort called it twice per
     /// comparison — ~8,000 formatters per sort of a 465-question inbox, several sorts per draw.
-    var createdDateValue: Date { InboxCreatedDay.date(createdDate) ?? .now }
+    ///
+    /// A missing or malformed day is the newest, and always the same instant (review of #542): a fresh `.now` per call
+    /// put undated questions in reverse and let them swap on a rebuild. The server sorts an empty day first too
+    /// (`inbox_service._neg_date_key`), and `InboxColumns.ordered` keeps their arrival order among themselves.
+    var createdDateValue: Date { InboxCreatedDay.date(createdDate) ?? .distantFuture }
 }
 
 /// `createdDate` ("yyyy-MM-dd") as a date in the viewer's zone, parsed once per distinct day: an inbox holds a few
