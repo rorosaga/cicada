@@ -72,8 +72,15 @@ QR_ROUNDS = 10
 #: A QR is replaced this long before Telegram's own expiry, and never waited on for less than the floor — so a Mac
 #: whose clock is off (or a token Telegram issues short) can't burn the rounds in a few seconds.
 QR_MARGIN_S, QR_FLOOR_S = 2.0, 10.0
+#: The status long-poll (`Account.wait_change`): at most this long per ask, re-read in process this often.
+STATUS_WAIT_MAX_S, STATUS_STEP_S = 25.0, 0.05
 UNREACHABLE = "Couldn't reach Telegram — try again."
 DIALOG_LIMIT = 200
+#: chats-ux-v2 — profile photos kept beside the session (ids only), re-asked after a week; Telegram's small photo is
+#: ~160 px, a few KB.
+PHOTO_DIR = "photos"
+PHOTO_TTL_S = 7 * 24 * 3600
+PHOTO_MAX_BYTES = 256 * 1024
 HISTORY_CAP = 20_000
 HISTORY_BATCH = 500
 
@@ -142,19 +149,22 @@ def consents() -> dict[str, dict]:
         raw = json.loads((folder() / CONSENTS_FILE).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
-    return {k: {"at": str(v.get("at") or "")} for k, v in raw.items()
+    return {k: {"at": str(v.get("at") or ""), **({"self": True} if v.get("self") is True else {})}
+            for k, v in raw.items()
             if chat_live.ID_RE.match(str(k)) and isinstance(v, dict)} if isinstance(raw, dict) else {}
 
 
-def set_consent(cid: str, given: bool, *, at: str | None = None) -> dict[str, dict]:
-    """Keep or withdraw one chat's confirmation, with its date. Ids and times only, 0600, outside every bank."""
+def set_consent(cid: str, given: bool, *, at: str | None = None, own: bool = False) -> dict[str, dict]:
+    """Keep or withdraw one chat's confirmation, with its date. Ids and times only, 0600, outside every bank. ``own``:
+    Saved Messages, the person's chat with themselves — their tick is the only consent there is (ruling 47a
+    amendment 2026-10-29), recorded as ``self`` so the ingest stages it as their own notes."""
     from api.services import episode_ids
 
     if not chat_live.ID_RE.match(str(cid)):
         raise ValueError("a conversation id")
     current = consents()
     if given:
-        current[cid] = {"at": at or episode_ids.utc_now_iso()}
+        current[cid] = {"at": at or episode_ids.utc_now_iso(), **({"self": True} if own else {})}
     else:
         current.pop(cid, None)
     path = _private_dir() / CONSENTS_FILE
@@ -167,11 +177,20 @@ def set_consent(cid: str, given: bool, *, at: str | None = None) -> dict[str, di
 
 
 def forget_session() -> None:
+    import shutil
+
     for name in (SESSION_FILE, CURSOR_FILE):
         try:
             (folder() / name).unlink()
         except FileNotFoundError:
             pass
+    # The picker's profile photos go with the session (a ticked chat's page picture lives in `messages_photos`).
+    shutil.rmtree(folder() / PHOTO_DIR, ignore_errors=True)
+    # A Saved Messages tick belongs to the account that was signed in (#559 review): the next account's chat with that
+    # person is not its own notes. Other people's dated consents stay (they agreed to a chat, not to a session).
+    for cid, entry in consents().items():
+        if entry.get("self"):
+            set_consent(cid, False)
 
 
 def _cursors() -> dict[str, int]:
@@ -219,6 +238,8 @@ class Account:
         self._pending: dict[int | None, list[TgEvent]] = {}
         self._dialogs: dict[str, TgDialog] = {}
         self._lock = asyncio.Lock()
+        #: At most two profile photos asked of Telegram at once (a picker lists up to 200 chats).
+        self._photos = asyncio.Semaphore(2)
         #: How long each flush took, file event → staged, for the area doc's number (seconds, the last 200).
         self.flush_seconds: list[float] = []
 
@@ -237,12 +258,35 @@ class Account:
     def status(self) -> dict:
         creds = credentials()
         qr = self._qr if self.state == "qr" else None
-        return {"state": self.state, "consent": CONSENT, "consent_ask": CONSENT_ASK,
-                "credentials": creds[2] if creds else None,
-                "error": self.error, "listening": self._listen is not None and not self._listen.done(),
-                "qr_url": qr.url if qr else None,
-                "code_length": self._code_length if self.state == "code_sent" else None,
-                "qr_expires": _iso(self._qr_until) if qr else None}
+        out = {"state": self.state, "consent": CONSENT, "consent_ask": CONSENT_ASK,
+               "credentials": creds[2] if creds else None,
+               "error": self.error, "listening": self._listen is not None and not self._listen.done(),
+               "qr_url": qr.url if qr else None,
+               "code_length": self._code_length if self.state == "code_sent" else None,
+               "qr_expires": _iso(self._qr_until) if qr else None}
+        out["version"] = self._signature()
+        return out
+
+    def _signature(self) -> str:
+        """What the app compares to know the status moved: the state, its sentence, the QR on screen, the code's
+        length, whether it listens. Reads only this object."""
+        import hashlib
+
+        qr = self._qr.url if self._qr is not None and self.state == "qr" else ""
+        listening = self._listen is not None and not self._listen.done()
+        key = f"{self.state}|{self.error or ''}|{qr}|{self._code_length if self.state == 'code_sent' else ''}|{listening}"
+        return hashlib.sha256(key.encode("utf-8")).hexdigest()[:12]
+
+    async def wait_change(self, since: str, timeout: float) -> dict:
+        """chats-ux-v2 (owner 2026-10-29: "it took a bit to change status to connected") — the status as soon as it
+        differs from the one the app holds (``since``, its ``version``), or after ``timeout`` seconds. The app's QR
+        step asks this instead of reading the status once a second, so a scan shows as Connected the moment the
+        sign-in lands. In-process reads only (no Telegram call), every :data:`STATUS_STEP_S`."""
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + max(0.0, min(float(timeout), STATUS_WAIT_MAX_S))
+        while self._signature() == since and loop.time() < deadline:
+            await asyncio.sleep(STATUS_STEP_S)
+        return self.status()
 
     # The sign-in steps ---------------------------------------------------------------------------------------------
 
@@ -500,6 +544,56 @@ class Account:
         dialog = await self._dialog(cid)
         return dialog is not None and telegram_source.is_user_peer(dialog.chat) and not dialog.group
 
+    async def photo(self, cid: str) -> bytes | None:
+        """chats-ux-v2 (owner 2026-10-29: "why the pfp are not there") — a listed one-to-one chat's small profile
+        photo, asked of Telegram once and kept outside every bank (``$CICADA_HOME/telegram/photos/<id>.jpg``, ids
+        only; "none" remembered too) for :data:`PHOTO_TTL_S`. Picker display for any listed chat; a ticked chat's
+        is also its page's picture (`messages_photos`, the route). Never raises past a sentence; None = no photo."""
+        import time
+
+        if not chat_live.ID_RE.match(str(cid)):
+            return None
+        folder_path = _private_dir() / PHOTO_DIR
+        folder_path.mkdir(exist_ok=True)
+        os.chmod(folder_path, 0o700)
+        jpg, none = folder_path / f"{cid}.jpg", folder_path / f"{cid}.none"
+        for path in (jpg, none):
+            try:
+                if time.time() - path.stat().st_mtime < PHOTO_TTL_S:
+                    return path.read_bytes() if path is jpg else None
+            except OSError:
+                pass
+        if self.state != "connected" or self.port is None:
+            return jpg.read_bytes() if jpg.exists() else None
+        dialog = await self._dialog(cid)
+        if dialog is None:
+            return None
+        async with self._photos:
+            try:
+                data = await self.port.profile_photo(dialog.chat)
+            except Exception as exc:  # noqa: BLE001 — a face without a photo draws its monogram
+                logger.warning(f"telegram: profile photo failed ({type(exc).__name__})")
+                return jpg.read_bytes() if jpg.exists() else None
+        if not data or len(data) > PHOTO_MAX_BYTES:
+            jpg.unlink(missing_ok=True)
+            none.write_bytes(b"")
+            return None
+        tmp = jpg.with_name(f".{jpg.name}.tmp")
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+        os.replace(tmp, jpg)
+        none.unlink(missing_ok=True)
+        return data
+
+    async def own_chat(self, cid: str) -> bool:
+        """Whether Telegram itself lists ``cid`` as the person's Saved Messages — decided from Telegram's dialog,
+        never a client's flag (the #504 review B4 rule)."""
+        if self.state != "connected" or self.port is None:
+            return False
+        dialog = await self._dialog(cid)
+        return dialog is not None and dialog.is_self and telegram_source.is_user_peer(dialog.chat)
+
     async def _dialog(self, cid: str) -> TgDialog | None:
         if cid not in self._dialogs and self.port is not None:
             await self.chats()
@@ -606,7 +700,10 @@ class Account:
                  "group": dialog.group if dialog else bool(
                      chat_live.load_settings(memory_path, telegram_source.SPEC)["conversations"].get(cid, {})
                      .get("group")),
-                 "bot": dialog.bot if dialog else None}
+                 "bot": dialog.bot if dialog else None,
+                 # Saved Messages only as Telegram lists it NOW, for this account (#559 review): never the consent
+                 # file's word alone.
+                 "own": bool(dialog and dialog.is_self)}
 
         async def body():
             out = await run_in_threadpool(telegram_source.ingest, memory_path, entry, messages, deleted=list(deleted),

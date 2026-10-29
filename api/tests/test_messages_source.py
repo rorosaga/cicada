@@ -533,3 +533,18 @@ def test_a_sitting_that_cannot_be_rebuilt_is_left_as_it_is(bank, chat):
     assert out["tombstoned"] == 0
     kept = markdown_parser.parse(Path(first.path))
     assert kept.body.endswith("a line someone typed in")          # never overwritten with a partial sitting
+
+
+def test_a_note_to_self_is_the_persons_own_words_with_no_correspondent(bank, chat):
+    """chats-ux-v2 (owner 2026-10-29) — Messages' note to self, as WhatsApp's "You": every line the person's (a copy
+    from another of their devices arrives as received), no correspondent, no card, named for what it is."""
+    _tick(bank, chat.chat_guid(chat.instinct), name="Notes to yourself")
+    rows = read_rows(chat.path, chat.instinct)
+    body = payload(chat.chat_guid(chat.instinct), rows, name="Notes to yourself")
+    body["conversation"].update({"selfChat": True, "contact": "PLACEHOLDER-ME-CARD"})
+    _ingest(bank, body)
+    eps = _episodes(bank)
+    assert eps and all(e.frontmatter.get("self_chat") is True and "correspondent" not in e.frontmatter for e in eps)
+    assert all(e.frontmatter["title"].startswith("Messages · notes to yourself · ") for e in eps)
+    assert all(line.startswith("user: ") for e in eps for line in e.body.splitlines()), eps[0].body
+    assert not any("PLACEHOLDER-ME-CARD" in e.path.read_text() for e in eps)

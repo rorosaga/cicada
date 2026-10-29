@@ -2948,6 +2948,20 @@ actor APIClient {
 
     func telegramStatus() async throws -> TelegramStatusAnswer { try await get("/sources/telegram/status") }
 
+    /// chats-ux-v2 — waits server-side (≤ `wait` s) for the status to move past `since`.
+    func telegramStatus(since: String, wait: Int) async throws -> TelegramStatusAnswer {
+        try await get("/sources/telegram/status?since=\(since.filter(\.isHexDigit))&wait=\(max(0, min(wait, 25)))")
+    }
+
+    /// chats-ux-v2 — `GET /sources/telegram/chats/{id}/photo`: the chat's small profile photo; 404 → nil (a monogram).
+    func telegramChatPhoto(id: String) async throws -> Data? {
+        var request = makeRequest("/sources/telegram/chats/\(id.filter(\.isHexDigit))/photo", method: "GET", json: false)
+        request.timeoutInterval = 20
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200, !data.isEmpty else { return nil }
+        return data
+    }
+
     /// The default connect (owner 2026-10-29): a QR the person scans in Telegram on their phone. The status that
     /// answers carries the `tg://login` link to draw; the backend replaces it as Telegram expires it.
     func telegramQR() async throws -> TelegramStatusAnswer { try await post("/sources/telegram/qr") }

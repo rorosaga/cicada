@@ -100,6 +100,21 @@ def test_a_tick_is_live_from_then_and_history_only_on_the_persons_ask(bank):
     assert [h["kind"] for h in log] == ["ticked", "history"]
 
 
+def test_a_secret_in_a_chats_name_is_stored_scrubbed_and_an_unchanged_sync_writes_nothing(bank):
+    """Review of #560: the re-record compared the raw name with the scrubbed one on disk and rewrote every sync."""
+    secret = "ghp_" + "Q1w2E3r4T5y6U7i8O9p0A1s2D3"
+    name = f"Bob {secret}"
+    tick(bank)
+    rows = [row("S1", T0, "hello"), row("S2", T0 + 60, "hi", me=True)]
+    ingest(bank, rows, name=name)
+    [(sid, ep)] = episodes(bank).items()
+    path = bank / "episodes" / f"{ep.frontmatter['id']}.md"
+    before = path.read_bytes()
+    assert secret.encode() not in before
+    out = ingest(bank, rows, name=name)
+    assert path.read_bytes() == before and out.get("recorded", 0) == 0
+
+
 def test_history_needs_a_tick_first(bank):
     with pytest.raises(chat_live.NotSelected):
         chat_live.update_settings(bank, SPEC, {"id": CHAT, "history": True})
@@ -325,6 +340,101 @@ def test_a_reply_into_an_earlier_sitting_resolves_through_the_key_index(bank):
     index = turn_signals.KeyIndex(bank_index.files(bank, "episodes"))
     found = turn_signals.signals(later.frontmatter, later.body, lookup=index.lookup_for(later.frontmatter))
     assert any(s.kind == "reply" and "The launch is on the 3rd." in s.line for s in found)
+
+
+# --- chats-ux-v2 (owner 2026-10-29) -----------------------------------------------------------------------------------
+
+SELF = chat_live.hash_id("15550000001@s.whatsapp.net")         # the person's own placeholder JID, hashed
+
+
+def test_a_chat_with_yourself_is_your_own_words_with_no_correspondent(bank):
+    """"He ticked the chat 'You' … got 'Couldn't send the chat to Cicada.'" A self-chat has no other person: every line
+    is the person's, no correspondent record, no card, named for what it is."""
+    tick(bank, SELF, history=True)
+    payload = {"conversation": {"id": SELF, "name": "You", "selfChat": True, "contact": "PLACEHOLDER-ME-CARD"},
+               "messages": [row("S1", T0, "idea: alpha-project onboarding in one screen", me=True),
+                            row("S2", T0 + 60, "https://example.com/a-long-read", me=True, type=whatsapp_source.LINK_TYPE,
+                                media={"title": "A long read", "size": 0}),
+                            row("S3", T0 + 90, "sent from my other device")]}
+    from api.routers.chat_sources import WhatsAppSyncRequest
+    out = whatsapp_source.ingest(bank, WhatsAppSyncRequest(**payload).model_dump(by_alias=False))
+    bank_index.invalidate()
+    assert out["kept"] == 3 and out["attachments"] == 0, "a link's preview is no attachment"
+    (ep,) = episodes(bank).values()
+    fm = ep.frontmatter
+    assert fm["self_chat"] is True and "correspondent" not in fm
+    assert fm["title"].startswith("WhatsApp · notes to yourself · ")
+    assert all(line.startswith("user: ") for line in ep.body.splitlines()), ep.body
+    assert not any("PLACEHOLDER-ME-CARD" in p.read_text() for p in (bank / "episodes").iterdir())
+
+
+def test_a_chat_recorded_again_as_your_notes_keeps_no_stale_correspondent(bank):
+    """#559 review: a sitting first stored with a correspondent (the chat not yet known to be the person's own) and then
+    re-recorded as `self_chat` merged keys and kept the old `correspondent`. Both the unchanged-words re-record and a
+    changed sitting now drop it."""
+    tick(bank, SELF, history=True)
+    rows = [row("N1", T0, "idea one", me=True), row("N2", T0 + 30, "idea two", me=True)]
+    ingest(bank, rows, cid=SELF, name="Placeholder Self")
+    (before,) = episodes(bank).values()
+    assert "correspondent" in before.frontmatter
+    whatsapp_source.ingest(bank, {"conversation": {"id": SELF, "name": "You", "self_chat": True},
+                                  "messages": [{**r, "from_me": r.pop("fromMe")} for r in rows]})
+    bank_index.invalidate()
+    (after,) = episodes(bank).values()
+    assert after.frontmatter["self_chat"] is True and "correspondent" not in after.frontmatter
+    whatsapp_source.ingest(bank, {"conversation": {"id": SELF, "name": "You", "self_chat": True},
+                                  "messages": [{"stanza": "N3", "date": apple(T0 + 60), "from_me": True,
+                                                "text": "idea three"}]})
+    bank_index.invalidate()
+    (grown,) = episodes(bank).values()
+    assert "correspondent" not in grown.frontmatter and grown.body.count("user: ") == 3
+
+
+def test_one_oversized_field_never_refuses_the_whole_batch(client, bank):
+    """The class behind the self-chat failure: a quoted-reply blob over 16 KB (a link preview's or a quoted picture's
+    thumbnail rides in it), a long title or a long pasted note answered 422 for all 500 rows of the batch."""
+    client.put("/sources/whatsapp/settings", json={"conversation": {"id": SELF, "name": "You", "ticked": True}})
+    client.put("/sources/whatsapp/settings", json={"conversation": {"id": SELF, "history": True}})
+    huge = base64.b64encode(b"\x0a" * 30_000).decode()
+    r = client.post("/sources/whatsapp/sync", json={"conversation": {"id": SELF, "name": "You", "selfChat": True},
+                                                    "messages": [
+        {"stanza": "L1", "date": apple(T0), "text": "x" * 70_000, "fromMe": True},
+        {"stanza": "L2", "date": apple(T0 + 5), "text": "see this", "fromMe": True, "metadata": huge},
+        {"stanza": "L3", "date": apple(T0 + 9), "text": "", "fromMe": True, "type": 8,
+         "media": {"title": "t" * 900, "file": "f" * 900 + ".pdf", "size": 10}}]})
+    assert r.status_code == 200, r.text
+    assert r.json()["kept"] == 3 and r.json()["replies"] == 0
+    (ep,) = episodes(bank).values()
+    assert "…" in ep.body.splitlines()[0] and len(ep.body.splitlines()[0]) < 66_000
+
+
+def test_every_chat_source_lists_one_row_per_chat_with_its_counts(client, bank):
+    """"So much repetition": two chats read as thirteen identical rows ("Telegram with <name>", every one "4mo"). One
+    row per chat now — its name, newest day, how many conversations and messages — for WhatsApp as for Messages; the
+    conversations are one click in (`chat_sittings`)."""
+    from api.services import channel_items
+
+    tick(bank, history=True)
+    tick(bank, GROUP, group=True, history=True)
+    chat_live.update_settings(bank, SPEC, {"id": GROUP, "name": "Weekend crew"})
+    tick(bank, SELF, history=True)
+    ingest(bank, [row("A1", T0, "first", me=True), row("A2", T0 + 60, "reply")])
+    ingest(bank, [row("A3", T0 + 86_400 * 3, "three days later", me=True)])
+    ingest(bank, [row("G1", T0 + 100, "hi all", member=MEMBER_A)], cid=GROUP, group=True,
+           members=[{"key": MEMBER_A, "name": "Carol Example"}], name="Weekend crew")
+    whatsapp_source.ingest(bank, {"conversation": {"id": SELF, "name": "You", "self_chat": True},
+                                  "messages": [{"stanza": "S1", "date": apple(T0 + 200), "from_me": True,
+                                                "text": "note"}]})
+    bank_index.invalidate()
+    page = channel_items.items(bank, "whatsapp")
+    rows = {r["id"]: r for r in page["items"]}
+    assert page["total"] == 3 and all(r["kind"] == "chat" for r in rows.values())
+    assert (rows[CHAT]["title"], rows[CHAT]["sittings"], rows[CHAT]["messages"]) == ("Bob Example", 2, 3)
+    assert rows[CHAT]["day"] > rows[GROUP]["day"], "each chat says its own newest day"
+    assert rows[GROUP]["title"] == "Weekend crew" and rows[GROUP]["group"] is True
+    assert rows[SELF]["title"] == channel_items.SELF_CHAT_TITLE
+    r = client.get(f"/sources/messages/chats/{CHAT}/sittings")
+    assert r.status_code == 200 and [s["messages"] for s in r.json()["sittings"]] == [1, 2]
 
 
 def test_live_update_cost_p95(bank):

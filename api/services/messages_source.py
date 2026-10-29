@@ -619,14 +619,16 @@ UNKNOWN_MEMBER = "speaker:member"
 
 
 def sitting_draft(cid: str, source_id: str, messages: list[Message], actor: Actor, service: str,
-                  group: Group | None = None, contact: str | None = None) -> EpisodeDraft:
+                  group: Group | None = None, contact: str | None = None, own: bool = False) -> EpisodeDraft:
     """One sitting's episode: a line per message said, and beside the words (`turn_extras`) each message's reactions,
     reply target, attachments and edit, and where an unsent message was. ``messages`` are in order; at least one was
-    said. ``group``: each member's lines under their own marker, and who each marker is recorded beside the words."""
+    said. ``group``: each member's lines under their own marker, and who each marker is recorded beside the words.
+    ``own`` (chats-ux-v2, 2026-10-29): the person's note to self — every line theirs, whichever device sent it, no
+    correspondent and no card (their own card belongs to their own page, G169)."""
     counterpart = _counterpart_marker(actor)
 
     def who(from_me: bool, sender: str | None) -> str:
-        if from_me:
+        if from_me or own:
             return "user"
         if group is None:
             return counterpart
@@ -659,6 +661,9 @@ def sitting_draft(cid: str, source_id: str, messages: list[Message], actor: Acto
         who_is = [p for p in group.record if p["marker"] in said]
         record = {"group": True, "participants": who_is}
         title = f"Messages · {group.name} · {first[:10]}" if group.name else f"Messages · group · {first[:10]}"
+    elif own:
+        record = {"self_chat": True}
+        title = f"Messages · notes to yourself · {first[:10]}"
     else:
         # A person's one address-book card, by id (`contact_identity`): their page across every source.
         card = contact if actor.kind == agent_detectors.PERSON else None
@@ -800,7 +805,8 @@ def _stage(drafts: list[EpisodeDraft], episodes_dir: Path, index: dict[str, epis
         if entry is None:
             continue
         wanted = {k: v for k, v in (("correspondent", draft.extra.get("correspondent")), ("title", draft.title),
-                                    ("participants", draft.extra.get("participants"))) if v is not None}
+                                    ("participants", draft.extra.get("participants")),
+                                    ("self_chat", draft.extra.get("self_chat"))) if v is not None}
         # As stored (review of #560): a scrubbed value compared raw would read as changed on every sync.
         wanted = episode_staging.stored_meta(wanted)
         if all(entry.fm.get(k) == wanted[k] for k in wanted):
@@ -808,6 +814,9 @@ def _stage(drafts: list[EpisodeDraft], episodes_dir: Path, index: dict[str, epis
         if episode_staging.reattribute(entry.path, extra=wanted, queue_for_sleep=draft.queue_for_sleep):
             recorded += 1
             staged.paths.append(f"{episodes_dir.name}/{entry.path.name}")
+    from api.services import chat_live   # lazy: chat_live imports this module
+
+    recorded += chat_live.drop_stale_correspondents(drafts, episodes_dir, index, staged)
     return staged, recorded
 
 
@@ -880,7 +889,9 @@ def ingest(memory_path: Path, payload: dict, *, bank: str | None = None) -> dict
             contact = next((contact_identity.clean_card_id((e.fm.get("correspondent") or {}).get("contact"))
                             for e in mine.values() if isinstance(e.fm.get("correspondent"), dict)
                             and (e.fm.get("correspondent") or {}).get("contact")), None)
-        drafts = [sitting_draft(cid, sid, msgs, actor, service, group, contact) for sid, msgs in planned]
+        own = group is None and bool(conversation.get("self_chat"))
+        drafts = [sitting_draft(cid, sid, msgs, actor, service, group, None if own else contact, own=own)
+                  for sid, msgs in planned]
         staged, recorded = _stage(drafts, episodes_dir, index, deleted=gone, bank=bank)
     return {"conversation": cid, "messages_seen": counts.seen, "kept": sum(1 for m in incoming if not m.unsent),
             "reactions": counts.reactions, "reactions_kept": counts.reactions_kept,
@@ -922,7 +933,8 @@ def reattribute(memory_path: Path, cid: str, *, bank: str | None = None) -> dict
             ordered = sorted(sitting.messages, key=lambda m: (_instant(m.ts), m.order))
             drafts.append(sitting_draft(cid, sitting.source_id, ordered, actor,
                                         str(e.fm.get("service") or entry.get("service") or "iMessage"),
-                                        contact=contact_identity.clean_card_id(stored_actor.get("contact"))))
+                                        contact=contact_identity.clean_card_id(stored_actor.get("contact")),
+                                        own=bool(e.fm.get("self_chat"))))
         staged, recorded = _stage(drafts, episodes_dir, mine, bank=bank)
     return {"updated": staged.updated, "recorded": recorded, "skipped": staged.skipped - recorded,
             "paths": staged.paths}
