@@ -566,8 +566,120 @@ the certificate and the decryption live on the device — **never by terminating
 replica, writes are transactions queued for the home. The person's own funnel to the listener stays an option.
 
 **Open, decided in the build (the G132 row's phase gates):** how a device gets a TLS certificate for a relay-issued
-hostname under TLS passthrough; the mailbox's bounds and expiry; how the device-group key is distributed at pairing and
-rotated on revoke; the relay's stack (a Durable Object per bank, a small Python/Go websocket relay, or iroh — measured in
-phase 3); what happens to a transaction the home rejects while its device is offline; the phone's partial-replica scope.
+hostname under TLS passthrough; what happens to a transaction the home rejects while its device is offline; the phone's
+partial-replica scope. The mailbox's bounds and expiry, the device-group key and the relay's stack were decided in phase
+3a, below.
+
+## The relay: built on localhost, not deployed (G132 phase 3a, ruling 51c)
+
+Built 2026-10-29 and tested on 127.0.0.1 only. **Nothing is deployed, no account or domain exists, nothing is spent**;
+choosing the host is the owner's (ruling 51c). Nothing in the backend imports the relay server, nothing at startup
+imports the device side, so a normal install starts no process and opens no connection
+(`test_sync_relay_isolation.py`). Phase 3b wires the device side into the follower and the outbox.
+
+**What exists.** `relay/` is the relay (`cicada_relay`: `wire`, `config`, `store`, `server`, `health`), standalone —
+it imports nothing from the backend — with its own pinned, hashed `requirements.txt` (PyNaCl, websockets) and one
+`Dockerfile`. The backend side is three modules: `sync_relay_crypto` (keys, frames, epochs, the group),
+`sync_relay_pairing` (the QR and typed-code exchanges) and `sync_relay_client` (the device's outbound websocket).
+
+**The stack (gate g4): one small Python asyncio websocket relay with a SQLite mailbox,** the research's option (b)
+(`reports/g132-relay-research.md`): no lock-in, the same image hosted and self-hosted, pytest runs it in-process, and
+in phase 4 the same process can own :443 and route the connector by SNI without terminating TLS. Measured on this Mac:
+an idle authenticated socket costs **~69 KB of relay RSS** (1,501 sockets on loopback, one process), so 30,000 sockets
+(10,000 people, three devices each) is ~2 GB — the research's estimate holds.
+
+**How a device meets the relay.** It dials out over a websocket to `/v1` (`wss://` always; `ws://` only on loopback),
+answers a fresh challenge with an Ed25519 signature, and names its bank only by a **random mailbox id** (never derived
+from the bank id or a name). The relay admits only keys on the bank's latest membership, which **the bank's home
+signed**; it verifies signatures and mints nothing — no Cicada token, bank id or pairing code ever reaches it. A
+socket of a device the membership drops is closed at once (`4403 revoked`), and the device cannot reconnect.
+
+**Frames.** `MAGIC || u16 header length || canonical-JSON header || body || Ed25519 signature`. The header (signed, and
+the AEAD's associated data) is `{v, mb, ep, from, ctr, kind, at, msg, part, parts, to}`: the mailbox, the epoch, the
+sender's key, its counter, the kind (`tx`, `control`, `delta`, `status`, `stream`, `epoch`), its own creation time, the
+message and part numbers, and the recipients (`*`, `home`, or a list of keys). The body is
+`nonce || XChaCha20-Poly1305(K_epoch, padded part)`; plaintext is padded to buckets (4 KiB doubling to 512 KiB, then
+1 MiB less the header room), so the relay learns a bucket, not a length. A payload larger than one part is consecutive
+parts of one message. Inside, encrypted, the metadata ties a frame to what already de-duplicates it: a transaction
+carries its `Idempotency-Key` and `base_seq`, a delta its `seq` (the follower still checks ancestry before applying).
+
+**The group key (gate g3).** The home holds one 32-byte epoch key and the membership. Every membership change — a
+device paired, a device revoked, the home handed off — is a new epoch: the home draws a new key and posts one signed
+`epoch` frame carrying the statement `{v, mb, epoch, home, devices: [{ed, x}], at}` and, per device, a sealed box
+(`crypto_box_seal` to its X25519 key) of the epoch keys it may hold — never one from before it joined, only those
+started within 8 days. A device accepts a membership only when the home it pinned at pairing signed it; a statement
+naming another home is the hand-off (phase 2's signed record, at the relay too), and the new home is pinned from then
+on. Revoking a device rotates the epoch: it opens nothing sent afterwards, what it sends is refused by every member,
+and the relay drops it, its socket, its queued frames and the frames waiting for it. **Revoking cannot take back the
+copy a device already holds;** it stops everything after.
+
+**Anti-replay and anti-reorder.** A sender's counter only grows; every receiver (and the relay) refuses a counter at or
+below the highest it accepted from that sender, so a replayed frame and a reordered one are both refused, and the
+parts of one message must arrive consecutively. A transaction whose signed creation time is more than 7 days old is
+refused, one day inside the home's 8-day idempotency key, so a transaction replayed after its key expired cannot run
+twice. A lost delta is noticed by its `seq` and the device asks for `cursor..HEAD`.
+
+**Pairing.** *QR (primary):* the QR carries `{v: 2, code, relay, slot, home: {ed, x}}` (plus today's `url` when the
+home is reachable directly). The slot is random, so the relay never learns the code; the device seals
+`{code, name, ed, x, nonce}` to the home's key from the QR, and the welcome (the device token, the mailbox id and the
+epoch frame that admits the device) comes back sealed to the device and signed by the key the QR pinned. *Typed code
+(no camera):* the slot is `Argon2id(code)`, and the exchange is a numeric comparison with a commitment — the home's offer
+commits to its nonce before it sees the device's, reveals it after — so both screens show the same six digits
+(`123 456`) only when nobody stood between them; a relay in the middle matches with probability 10⁻⁶. The home
+releases the welcome only after the person confirms the digits on the home's screen, the device accepts it only after
+the same confirmation on its own, and a slot that receives a second request is void ("Two devices answered this code;
+start again"). A slot lives at most the code's ten minutes and carries at most 8 messages of ≤ 16 KiB.
+
+**The mailbox (gate g2).** Every bound is a `RELAY_*` variable (`cicada_relay/config.py`) and tested
+(`test_sync_relay_store.py`, `test_sync_relay_e2e.py`):
+
+| Bound | Default | Basis (measured 2026-10-29, `benchmarks/scale/relay_bundles.py`) |
+|---|---|---|
+| Frame | 1 MiB (header + ciphertext + signature) | a capture commit's bundle is 1.1 KB p50, 13 KB p95, 21 KB max (n = 30; 4.5 / 16.8 KB framed, the 4 KiB bucket dominating); a Sleep batch's own commits 28 KB to 1.7 MB; a drain's decay commit ~10 MB, about ten parts |
+| Standing mailbox per bank | 128 MiB | a day of use (48 captures, two batches of 25, 54 commits) is 18.5 MB as per-commit deltas to a device that stays online, 11.2 MB as one coalesced `cursor..HEAD`; a week offline uncoalesced (~130 MB) passes the 112 MiB delta room, so the home coalesces (`supersede`, below) |
+| Transactions reserve | 16 MiB of it, never taken by deltas | a transaction pads to 4 KiB plus ~0.4 KB of framing: ~3,700 queued writes |
+| Frames per bank | 20,000 | a day is ~75 frames (54 commits, the decay delta in ~11 parts): a flood guard, not a working limit |
+| Bootstrap | one stream per bank at a time, 256 MiB, 24 h | the synthetic bank's full bundle is 53 MB (its `.git` 89 MB); the owner's real `.git` is 147 MB (a read-only `du`), so its bundle is estimated near 90 MB. The research's 64 MiB was too small; 256 MiB. Beyond it the app says to copy on the same network |
+| TTL | 7 days for transactions, control and deltas, counted from the frame's own signed time | under the home's 8-day key; the outbox expires at 7 |
+| Status | latest only per sender, 16 KiB, never queued | a status frame is one 4 KiB bucket |
+| Idle bank | purged after 30 days with no device connected | the home re-creates it from its signed membership |
+
+When the standing mailbox is full the oldest delta is evicted first (its recipients are told they missed some), never
+a transaction; when only transactions are left a new one is refused `relay_full` and stays in its device's outbox.
+What is still on its way, per sending device, is the relay's `counts` (ruling 51d's "on its way").
+
+**The research's cost model, against these numbers.** The basis is `benchmarks/scale/relay_bundles.py` on a synthetic owner-scale bank (8,001 pages, 9,850 episodes, a 5.2 MB owner page; episode sizes drawn from the owner bank's measured quantiles, p50 859 B, p90 8.2 KB, p99 64 KB, by a read-only `stat`), each bundle made exactly as `sync_pack` makes it. The research assumed ~50 KB a commit and ~6 MB a day out for a heavy user. Capture commits are far smaller (1.1 KB p50), but **every Sleep drain ends with a decay commit that rewrites each decaying page's `confidence` and `decayed_through`**: 7,200 pages, ~10 MB, on the synthetic bank (weeks behind, so each drain catches up a week). On the owner's real bank 1,694 pages carry today's `decayed_through` (a read-only frontmatter count), so its decay commit is estimated near 2.4 MB at the synthetic ~1.4 KB a page. A heavy day is therefore ~12–19 MB to each receiving device (11 MB coalesced), ~25–40 MB out with two other devices — 3–6× the research's estimate. At 10,000 users, a third of them heavy, that is ~6 TB a month, up to ~12 TB if all were: still inside one EU box's included 20 TB, so the research's cost table holds and only its traffic line moves. With coalescing the standing mailbox stays ~10–20 MB per bank, as it planned. The home coalesces with `{"t":"supersede","dev","upto"}` (home only, its own deltas only, never a transaction): the deltas still waiting for an offline device are dropped and one `cursor..HEAD` delta sent instead.
+
+**Threat model.** *What the relay learns:* each device's IP address and online times; how many devices a mailbox has
+and which key is the home's; each frame's kind, bucketed size, timing, sender key and recipients; the membership
+statements (public keys only); that a pairing happened. *What it never holds:* a page, a transcript, a claim, an
+inbox answer, a Cicada token, the bank id, a pairing code on the QR path, or a key that opens a frame — the SQLite file
+and the logs are checked for a known plaintext marker (`test_sync_relay_e2e.py`). *What an attacker who controls the
+relay can do:* drop, delay or reorder frames, or refuse service (a device sees it is behind by the home's `seq` and
+says so: "Waiting for the home"); squat a purged mailbox id (the home makes a new one); see the metadata above; on the
+typed-code path, try a man-in-the-middle that the six digits expose. *What it cannot do:* read any frame; forge one
+(every frame is signed by its sender, every membership by the pinned home); replay or reorder one past the counters;
+inject a delta, a bootstrap or a membership (home-only kinds, checked by every device); keep a revoked device in the
+group; or make a transaction run twice. *A member device* can read what the group reads — every full device already
+holds the bank — but cannot forge another member's frames or the home's. Forward secrecy is per epoch, not per frame:
+a device's compromise exposes what that device could already read.
+
+**Self-hosting the relay.** One container on a machine with a public address (a VPS, or a home server with a port
+forward); its URL is what the person pastes in Settings once 3b ships:
+
+```sh
+docker build -t cicada-relay relay
+docker run -d --name cicada-relay -p 8443:8443 -v cicada-relay-data:/data \
+  --read-only --cap-drop ALL --security-opt no-new-privileges \
+  -v /etc/cicada-relay/tls:/tls:ro -e RELAY_TLS_CERT=/tls/fullchain.pem -e RELAY_TLS_KEY=/tls/privkey.pem \
+  cicada-relay
+```
+
+It runs as uid 10001 on `python:3.12.11-slim-bookworm` with only its two hashed dependencies, answers `GET /healthz`
+(the image's `HEALTHCHECK`), keeps its mailbox in `/data` (a cache the devices can rebuild, except transactions still
+in flight, which also stay in their device's outbox), and terminates TLS for its own name only. Without the TLS
+variables it serves plain `ws://`, which devices accept only on loopback (a TLS proxy on the same machine). Its logs
+carry hashed ids, sizes, counts and timings, never a body, a key, an address or a slot. Without Docker:
+`PYTHONPATH=relay python -m cicada_relay` with the same variables.
 
 ---
