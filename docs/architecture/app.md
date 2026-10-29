@@ -101,6 +101,12 @@ Agents page, ⌘9, `AppTab.agents`, appended so no shortcut moved — DR-22).
   with Muse's own mark (Meta's agent; umbrella id `meta` kept), and xAI's three ways (Grok Build, the Grok app's custom
   connector, Grok Bot asked in chat). Cline, Goose, Kiro and Poke left the table and the logo set; a person who had
   connected one still lights *Another agent* and an old sign-in request reads "An agent" (`agent_catalog`'s docstring).
+  **T3 Code (G228, 2026-10-29)** is a host row: umbrella `t3`, way `t3code`, tier 2, the monogram until its own mark
+  joins the set. It has no pill; its detail's connect steps are the agents it drives (`AgentProducts.entries`: a way
+  with no pill offers the pills its `setup` ids name — `claude-code`, `codex`, `cursor` — the same rule that gives a
+  generic-prompt way *Another agent*), so Connect for me, the copied prompt and the wiring status are those agents'
+  own. The row lights *Connected* once a capture hook named T3 Code (`agent_seen` via `hook`; never *Another agent*),
+  and its conversations are the episodes labelled `host: t3code` (their own Sources row).
 - **Marks:** one per provider umbrella from the curated set (`app/assets/logo-set/`, `scripts/build-logo-set.py`, origin
   `set` in `logos.manifest.json`); `codex`/`chatgpt` draw OpenAI's mark and `gemini-cli` Gemini's through `BrandMark`.
   A listed connection's mark sits in `LogoTile` (26 pt in a 36 pt ring tile; `.dense` 18 in 24); a status is

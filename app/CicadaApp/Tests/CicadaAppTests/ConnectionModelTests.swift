@@ -89,6 +89,21 @@ final class ConnectionModelTests: XCTestCase {
         XCTAssertEqual(AgentProducts.lines([older]).map(\.name), ["Claude app"])
     }
 
+    /// G228: a host app (T3 Code) has no pill of its own; its detail offers the connect steps of the agents it
+    /// drives, in the table's order, while every other way keeps what it offered before.
+    func testAHostAppOffersTheConnectStepsOfTheAgentsItDrives() {
+        let t3 = ProviderWay(id: "t3code", label: "T3 Code", connects: ["hooks", "stdio"], tier: 2,
+                             setup: ["claude-code", "codex", "cursor"])
+        XCTAssertEqual(AgentProducts.entries([t3]).map(\.id), ["claude-code", "codex", "cursor"])
+        let zed = ProviderWay(id: "zed", label: "Zed", connects: ["stdio"], tier: 2, setup: ["other"])
+        XCTAssertEqual(AgentProducts.entries([zed]).map(\.id), ["other"], "the generic prompt, as before")
+        let code = ProviderWay(id: "claude-code", label: "Claude Code", setup: ["claude-code"])
+        let claude = ProviderWay(id: "claude", label: "Claude Desktop", setup: ["claude-desktop", "claude"])
+        XCTAssertEqual(AgentProducts.entries([code, claude]).map(\.id), ["claude-code", "claude"])
+        XCTAssertEqual(AgentProducts.entries([code, t3]).map(\.id), ["claude-code", "codex", "cursor"], "once each")
+        XCTAssertTrue(AgentProducts.entries([ProviderWay(id: "grok-build", label: "Grok Build")]).isEmpty)
+    }
+
     func testAPastedProfileLinkIsKeptAsIsWithItsServicesMark() {
         XCTAssertEqual(ProfileLink.normalized("linkedin.com/in/bob-example"), "https://linkedin.com/in/bob-example")
         XCTAssertNil(ProfileLink.normalized("not a link"))

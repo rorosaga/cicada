@@ -199,6 +199,17 @@ enum AgentProducts {
 
     static let remoteConnects: Set<String> = ["remote", "export"]
 
+    /// The connect steps an umbrella's detail offers, pure (tested): each way's own pill, else the pills its setup ids
+    /// name, in order and once each.
+    static func entries(_ ways: [ProviderWay]) -> [AgentCatalogEntry] {
+        var out: [AgentCatalogEntry] = []
+        for way in ways {
+            let found = AgentCatalog.entry(for: way.id).map { [$0] } ?? way.setup.compactMap { AgentCatalog.entry(for: $0) }
+            for entry in found where !out.contains(where: { $0.id == entry.id }) { out.append(entry) }
+        }
+        return out
+    }
+
     static func lines(_ ways: [ProviderWay]) -> [Line] {
         ways.flatMap { way -> [Line] in
             guard let remote = way.remoteLabel, !remote.isEmpty else {
@@ -233,16 +244,10 @@ private struct AgentDetailColumn: View {
     @State private var linkFor: RemoteApp?
     private let runtime = CicadaRuntime.current
 
-    /// The catalog's pills this umbrella's products are (Claude Code, the Claude app …), else Another agent for a
-    /// product that connects through the generic prompt.
-    private var entries: [AgentCatalogEntry] {
-        var out: [AgentCatalogEntry] = []
-        for way in umbrella.ways {
-            let entry = AgentCatalog.entry(for: way.id) ?? (way.setup.contains("other") ? AgentCatalog.entry(for: "other") : nil)
-            if let entry, !out.contains(where: { $0.id == entry.id }) { out.append(entry) }
-        }
-        return out
-    }
+    /// The catalog's pills this umbrella's products are (Claude Code, the Claude app …); for a product with no pill,
+    /// the pills its setup ids name — Another agent for one that connects through the generic prompt, the agents a
+    /// host app drives for T3 Code (G228: connecting Claude Code, Codex or Cursor is what connects its threads).
+    private var entries: [AgentCatalogEntry] { AgentProducts.entries(umbrella.ways) }
     private var entry: AgentCatalogEntry? { entries.first { $0.id == product } ?? entries.first }
 
     private var setupHarness: String? { umbrella.ways.lazy.compactMap(\.setup.first).first }

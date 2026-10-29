@@ -173,6 +173,9 @@ class TranscriptCaptureRequest(BaseModel):
     effort: str | None = Field(default=None, max_length=32)
     # D2: plain hook-observed git values; only parsed/hashed, never opened.
     workspace: Any = None
+    # G228, additive: the app that launched the harness (T3 Code), read by the hook from its own ancestors. Free text
+    # on the wire — an unknown value is dropped by the writer, never a refused capture.
+    host: str | None = Field(default=None, max_length=32)
 
 
 @router.post("/capture/transcript")
@@ -216,6 +219,7 @@ async def capture_transcript_endpoint(
             effort=req.effort,
             hook_event=req.hook_event,
             workspace=req.workspace,
+            host=req.host,
             # G110: the continuity registry's every-bank guard needs the root and
             # every configured bank — resolved once, off the event loop.
             bank_paths=continuity_sessions.bank_paths_for(settings.memory_root),
@@ -262,6 +266,8 @@ class SessionCaptureRequest(BaseModel):
     #: gave); when no bank of this server's memory has that id it is refused (409 ``bank_mismatch``) and the client
     #: holds it for its own memory. Absent (every live post): filed where a capture goes now, as before.
     bank_id: str | None = Field(None, max_length=128)
+    #: G228, additive: the app that launched the harness on the client (an unknown value is dropped).
+    host: str | None = Field(None, max_length=32)
 
 
 def _filed_in(settings: Settings, target, claimed: str | None) -> str | None:
@@ -299,7 +305,8 @@ async def capture_session_endpoint(req: SessionCaptureRequest, request: Request,
             keep_assistant=settings.capture_assistant_replies, bank=memory_path.name, effort=req.effort,
             hook_event=req.hook_event, workspace=req.workspace,
             bank_paths=continuity_sessions.bank_paths_for(settings.memory_root),
-            device=device.id if device is not None else None, utc_offset_minutes=req.utc_offset_minutes)
+            device=device.id if device is not None else None, utc_offset_minutes=req.utc_offset_minutes,
+            host=req.host)
 
     result = await asyncio.to_thread(_capture)
     if target is None or result.status == "refused":
@@ -343,10 +350,13 @@ class TurnCaptureRequest(BaseModel):
     #: gave); when no bank of this server's memory has that id it is refused (409 ``bank_mismatch``) and the client
     #: holds it for its own memory. Absent (every live post): filed where a capture goes now, as before.
     bank_id: str | None = Field(None, max_length=128)
+    #: G228, additive: the app that launched the harness (T3 Code driving Cursor); an unknown value is dropped.
+    host: str | None = Field(None, max_length=32)
 
 
 @router.post("/capture/turn")
-async def capture_turn_endpoint(req: TurnCaptureRequest, settings: Settings = Depends(get_settings)):
+async def capture_turn_endpoint(req: TurnCaptureRequest, request: Request,
+                                settings: Settings = Depends(get_settings)):
     """Capture-everywhere: a harness whose hook carries each turn's text (Cursor,
     Gemini CLI) instead of a transcript path. Bearer-authed like
     ``/capture/transcript``, the same one-episode-per-session write
@@ -364,7 +374,8 @@ async def capture_turn_endpoint(req: TurnCaptureRequest, settings: Settings = De
             turn_id=req.turn_id, retry=req.retry, model=req.model, cwd=req.cwd,
             keep_assistant=settings.capture_assistant_replies, bank=memory_path.name,
             bank_paths=continuity_sessions.bank_paths_for(settings.memory_root), hook_event=req.hook_event,
-            utc_offset_minutes=req.utc_offset_minutes)
+            utc_offset_minutes=req.utc_offset_minutes, host=req.host,
+            device=getattr(getattr(request.state, "device", None), "id", None))
 
     result = await asyncio.to_thread(_capture)
     if target is None or result.status == "refused":

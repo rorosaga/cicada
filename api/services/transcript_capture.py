@@ -502,6 +502,7 @@ def capture_transcript(
     bank_paths: tuple | None = None,
     hook_event: str | None = None,
     workspace=None,
+    host: str | None = None,
 ) -> CaptureResult:
     """Validate (R2), extract, and write or update the session's one episode (R3).
 
@@ -517,6 +518,11 @@ def capture_transcript(
     ``hook_event``: the hook that ran this capture — ``Stop``, or a
     ``PreCompact``/``SessionEnd`` flush (G110 gate A); the ledger row names it
     as an enum. The write is the same whichever event fired.
+
+    ``host`` (G228): the app that launched the harness (``agent_catalog.HOSTS``,
+    T3 Code), as the hook read it from its ancestors. It is a label on the
+    harness's one episode (``host:``, outside the hash, kept once written) and a
+    sighting of that app; an unknown value is dropped.
 
     G110 slice 1a: every write also records :func:`capture_meta` and, once,
     ``continues`` from the continuity registry (``bank_paths`` — the memory
@@ -550,7 +556,8 @@ def capture_transcript(
             for raw in fh:
                 read_bytes += len(raw)
                 yield raw.decode("utf-8", "replace")
-        conv = extract(harness, lines(), keep_assistant=keep_assistant)
+        conv = extract(harness, lines(), keep_assistant=keep_assistant,
+                       host=envelope_host(host, memory_path / "episodes", harness, session_id))
     from api.services import workspace_identity
     observed = workspace_identity.parse(cwd, workspace)
     if observed and bank_paths is not None and conv.turns:
@@ -567,9 +574,71 @@ def capture_transcript(
     # session, G104) and fences the update against Sleep's retirement.
     with _lock, episode_ids.episode_lock(episodes_dir):
         existing = _find_session_episode(episodes_dir, harness, session_id) if conv.turns else None
-        return write_session(memory_path, harness=harness, session_id=session_id, conv=conv, existing=existing,
-                             cwd=cwd, bank=bank, effort=effort, bank_paths=bank_paths, hook_event=hook_event,
-                             registry_workspace=registry_workspace, read_bytes=read_bytes, source_path=path)
+        result = write_session(memory_path, harness=harness, session_id=session_id, conv=conv, existing=existing,
+                               cwd=cwd, bank=bank, effort=effort, bank_paths=bank_paths, hook_event=hook_event,
+                               registry_workspace=registry_workspace, read_bytes=read_bytes, source_path=path,
+                               extra=host_extra(host))
+    saw_host(host, result)
+    return result
+
+
+#: How much of an episode's head :func:`stored_host` reads looking for its ``host:`` line.
+_HOST_SCAN_BYTES = 256 * 1024
+
+
+def stored_host(path: Path | None) -> str | None:
+    """G228: the ``host`` an episode already carries, read from its frontmatter's top-level lines (never YAML-parsed:
+    a long session's sidecar made that too slow for the Stop hook's budget), stopping at the sidecar or the fence."""
+    from api.services import agent_catalog
+
+    if path is None:
+        return None
+    try:
+        with path.open("rb") as fh:
+            head = fh.read(_HOST_SCAN_BYTES).decode("utf-8", "replace")
+    except OSError:
+        return None
+    lines = head.split("\n")
+    if not lines or lines[0].strip() != "---":
+        return None
+    for line in lines[1:]:
+        if line.strip() == "---" or line.startswith(("turns:", "hook_turns:")):
+            return None
+        if line.startswith("host:"):
+            return agent_catalog.clean_host(line[5:].strip().strip("'\""))
+    return None
+
+
+def envelope_host(host: str | None, episodes_dir: Path, harness: str, session_id: str) -> str | None:
+    """G228: the host whose turn envelopes a capture unwraps — the one the hook named, else the one the session's
+    episode already carries (a later firing that could not read its launch chain), else none."""
+    from api.services import agent_catalog
+
+    known = agent_catalog.clean_host(host)
+    if known:
+        return known
+    try:
+        return stored_host(_find_session_episode(episodes_dir, harness, session_id))
+    except OSError:
+        return None
+
+
+def host_extra(host: str | None) -> dict | None:
+    """G228: the episode's ``host`` field for a known host, else nothing (an older episode is never cleared)."""
+    from api.services import agent_catalog
+
+    known = agent_catalog.clean_host(host)
+    return {"host": known} if known else None
+
+
+def saw_host(host: str | None, result: "CaptureResult", device: str | None = None) -> None:
+    """G228: a host app is seen only through the hook that names it (``agent_seen`` via ``hook``), after a write that
+    kept something — never for a refusal or an empty session. Outside the episode lock; never raises."""
+    from api.services import agent_catalog, agent_seen
+
+    known = agent_catalog.clean_host(host)
+    if known and result.status not in ("refused", "empty"):
+        agent_seen.stamp_agent(known, via="hook", device=device)
 
 
 def capture_posted(
@@ -589,6 +658,7 @@ def capture_posted(
     workspace=None,
     device: str | None = None,
     utc_offset_minutes: int | None = None,
+    host: str | None = None,
 ) -> CaptureResult:
     """A session read on another machine by Cicada's own extractor and posted as turns (G181 phase 2, owner ruling 2,
     2026-10-16): the transcript rail amended, never relaxed. Nothing here opens a path. What arrived is re-checked
@@ -630,12 +700,14 @@ def capture_posted(
     episodes_dir = memory_path / "episodes"
     with _lock, episode_ids.episode_lock(episodes_dir):
         existing = _find_session_episode(episodes_dir, harness, sid) if conv.turns else None
-        return write_session(memory_path, harness=harness, session_id=sid, conv=conv, existing=existing,
-                             cwd=cwd, bank=bank, effort=effort, bank_paths=bank_paths, hook_event=hook_event,
-                             registry_workspace=registry_workspace, read_bytes=transcript_bytes,
-                             source_size=max(transcript_size, transcript_bytes),
-                             extra={"device": device} if device else None,
-                             utc_offset_minutes=utc_offset_minutes)
+        result = write_session(memory_path, harness=harness, session_id=sid, conv=conv, existing=existing,
+                               cwd=cwd, bank=bank, effort=effort, bank_paths=bank_paths, hook_event=hook_event,
+                               registry_workspace=registry_workspace, read_bytes=transcript_bytes,
+                               source_size=max(transcript_size, transcript_bytes),
+                               extra={**({"device": device} if device else {}), **(host_extra(host) or {})} or None,
+                               utc_offset_minutes=utc_offset_minutes)
+    saw_host(host, result, device=device)
+    return result
 
 
 def write_session(memory_path: Path, *, harness: str, session_id: str, conv: Conversation, existing: Path | None,
