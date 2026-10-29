@@ -2757,6 +2757,11 @@ class InboxOption(CamelModel):
     label: str
     description: Optional[str] = None
     claim_id: Optional[str] = None
+    # G227 (additive): a same-title question's option names one page — its id, its plain name and its qualifier, so
+    # the app draws the name with the qualifier as a tag; ``label`` keeps "<name> (<qualifier>)" for every other reader.
+    page_id: Optional[str] = None
+    page_name: Optional[str] = None
+    qualifier: Optional[str] = None
     observed_at: Optional[str] = None
     last_referenced: Optional[str] = None
     age_days: Optional[int] = None

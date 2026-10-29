@@ -6,6 +6,8 @@ import Foundation
 /// here; a run's plan usage or cost is `CycleUsageText`'s, with its basis.
 extension Copy {
     enum RunCard {
+        /// G227 — a page whose title another page shares, inside its own `Tag`: "<name-a> · IDE".
+        static func qualified(_ name: String, _ qualifier: String) -> String { "\(name) · \(qualifier)" }
         static func count(_ n: Int, _ locale: Locale) -> String { UsageFormat.count(n, locale: locale) }
         private static func noun(_ n: Int, _ one: String, _ many: String, _ locale: Locale) -> String {
             "\(count(n, locale)) \(n == 1 ? one : many)"

@@ -10,10 +10,20 @@ Registered by ``install.sh`` under ``hooks.Stop`` — and, as a flush,
 The harness pipes its hook JSON to stdin (``session_id``, ``transcript_path``,
 ``cwd``, ``hook_event_name``); this script POSTs exactly those fields — and,
 when the harness sends one, ``effort.level`` as ``effort`` (round 4 C1) — to
-``POST /capture/transcript`` and exits 0 — always, within 3 s, printing
+``POST /capture/transcript`` and exits 0 — always, within 4 s, printing
 nothing to stdout (a Stop hook's stdout is parsed by the harness). It never
 opens the transcript: the backend validates the path against the harness
 root and does the one read (R2).
+
+No answer is not an error (2026-10-29): the backend answers within 2 s —
+``202 accepted`` when the write takes longer, and it finishes on its own — so
+a request that still gets no answer in :data:`TIMEOUT_S` (backend down, hung,
+or starved) logs ``no answer (timed out at 3s)``, and the request itself (the
+fields above: a path, never the transcript's words) waits in the same spool a
+client uses (``hook_spool``, one entry per session, the newest). The session's
+own next landed firing drops it; any other session's landed firing sends it
+while this firing's budget lasts. So a session's last turn is never left to a
+Stop that may not come. Every answered line carries the round trip in ms.
 
 Why ``Stop`` and not ``SessionEnd`` (R1): ``SessionEnd`` only fires on a
 graceful exit and shares a 1.5 s budget with every other SessionEnd hook; a
@@ -35,7 +45,7 @@ bounded by that request timeout plus interpreter start, not by 1.5 s. A
 concurrent or delayed capture never overwrites a newer one: the writer refuses
 a read of fewer transcript bytes than the episode stores (``superseded``).
 Every log line names its event, so ruling 7's revisit
-signal (a Stop ``error:`` line) never mixes with a flush's.
+signal (a Stop ``no answer`` line, and the ``in <n>ms`` figure) never mixes with a flush's.
 
 Stdlib only, run by path: a hook has no cwd guarantee and no venv on its
 ``sys.path``, so nothing here imports ``api.*`` (R14) — with one exception,
@@ -338,6 +348,79 @@ def _log(path: Path, message: str) -> None:
         pass
 
 
+def _ms(since: float) -> str:
+    return f"{round((time.monotonic() - since) * 1000)}ms"
+
+
+def _no_answer(exc: BaseException, timeout: float) -> str:
+    """What the log says when the backend did not answer: a timeout by its budget, anything else by its class and
+    reason (``Connection refused``) — never a path or a body."""
+    reason = getattr(exc, "reason", None)
+    if isinstance(exc, TimeoutError) or isinstance(reason, TimeoutError):
+        return f"timed out at {timeout:g}s"
+    return f"{type(exc).__name__}: {reason if reason is not None else exc}"
+
+
+#: The route a local capture's spooled request goes back to; a client's ``/capture/session`` entries are never sent
+#: by :func:`_flush_local`.
+LOCAL_ROUTE = "/capture/transcript"
+#: At most this many waiting sessions are sent by one firing: after a long outage the backlog drains over a few
+#: replies instead of holding one reply's hook for its whole budget.
+LOCAL_FLUSH_MAX = 3
+
+
+def _spool_local(home: Path, fields: dict, *, key: str, base: str) -> None:
+    """Keep a local capture request that got no answer (one entry per session, the newest — ``hook_spool``). The
+    entry holds the hook's own fields: the transcript's path, never its words."""
+    try:
+        spool.put(home, LOCAL_ROUTE, fields, key=key, target={"base": base, "bank_id": None})
+    except OSError:
+        pass
+
+
+def _flush_local(home: Path, post, token: str, *, base: str, key: str, event: str, started: float) -> str:
+    """After a local capture landed: its own waiting entry is obsolete, and any other session's that waits is sent
+    while the firing's budget lasts (never on SessionEnd, whose budget is the harness's exit). Returns the log suffix."""
+    if not (Path(home) / "spool" / "capture").is_dir():
+        return ""             # nothing ever waited: no folder is made on a machine that never needed one
+    try:
+        spool.drop(home, key, base)
+        if event == "SessionEnd":
+            return ""
+        paths = [p for p in spool.entries(home) if p.name.startswith("s-")]
+    except OSError:
+        return ""
+    sent = left = 0
+    for path in paths:
+        try:
+            entry = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        target = entry.get("target") if isinstance(entry, dict) else None
+        if entry.get("route") != LOCAL_ROUTE or not isinstance(target, dict) \
+                or not spool.same_server(target.get("base"), base):
+            continue          # a client's entry, or one for another port: never sent from here
+        remaining = started + CLIENT_BUDGET_S - time.monotonic()
+        if remaining <= 0.5 or sent >= LOCAL_FLUSH_MAX:
+            left += 1
+            continue
+        try:
+            status, _text = post(base + LOCAL_ROUTE, json.dumps(entry.get("body") or {}).encode("utf-8"), token,
+                                 min(TIMEOUT_S, remaining - 0.3))
+        except Exception:  # noqa: BLE001 - still no answer: it keeps waiting
+            left += 1
+            break
+        if remote_client.landed(status) or not remote_client.keep(status):
+            sent += 1 if remote_client.landed(status) else 0
+            try:
+                path.unlink()      # landed, or refused for good (the transcript is gone): never resent
+            except OSError:
+                pass
+        else:
+            left += 1
+    return f"; spool: sent {sent}, {left} waiting" if sent or left else ""
+
+
 def _outcome(text: str) -> str:
     try:
         parsed = json.loads(text)
@@ -482,10 +565,28 @@ def main(argv=None, *, stdin=None, stdout=None, environ=None, post=None, log_pat
             # not. Only this one field is added; the backend validates it.
             fields["effort"] = level.strip()[:32]
         body = json.dumps(fields).encode("utf-8")
-        status, text = post(url, body, token, SESSION_END_TIMEOUT_S if event == "SessionEnd" else TIMEOUT_S)
-        if status == 200:
-            remember(home, harness, session_id, workspace, environ=environ)
-        _log(log_path, f"{tag} http {status} {_outcome(text)}".rstrip())
+        timeout = SESSION_END_TIMEOUT_S if event == "SessionEnd" else TIMEOUT_S
+        base = f"http://127.0.0.1:{port}"
+        key = f"{harness}:{session_id}"
+        sent_at = time.monotonic()
+        try:
+            status, text = post(url, body, token, timeout)
+        except Exception as exc:  # noqa: BLE001 - refused, unreachable or timed out: no answer, never a crash
+            # 2026-10-29: a timeout is "no answer", not an error — the backend often finished the write a moment
+            # later. Either way the request (a path, never the transcript) waits in the spool and a later firing of
+            # any session sends it again, so a session's last turn is not left to a Stop that may never come.
+            _spool_local(home, fields, key=key, base=base)
+            _log(log_path, f"{tag} no answer ({_no_answer(exc, timeout)}) after {_ms(sent_at)}; spooled for a later "
+                           "firing")
+        else:
+            line = f"{tag} http {status} {_outcome(text)}".rstrip() + f" in {_ms(sent_at)}"
+            if remote_client.landed(status):
+                remember(home, harness, session_id, workspace, environ=environ)
+                line += _flush_local(home, post, token, base=base, key=key, event=event, started=started)
+            elif status is not None and status >= 500:
+                _spool_local(home, fields, key=key, base=base)   # the backend failed this one: a later firing resends
+                line += "; spooled for a later firing"
+            _log(log_path, line)
         _memory_notes(environ, harness=harness, event=event, tag=tag, log_path=log_path, spawn=memory_spawn)
     except Exception as exc:  # noqa: BLE001 - the harness must never see a failure
         _log(log_path, f"{tag} error: {type(exc).__name__}: {exc}")

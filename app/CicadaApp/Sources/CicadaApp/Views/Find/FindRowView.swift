@@ -46,6 +46,7 @@ struct FindRowView: View {
                 .font(CicadaTheme.rowFont)
                 .foregroundStyle(row.history == nil ? CicadaTheme.textPrimary : CicadaTheme.textTertiary)
                 .lineLimit(1)
+            QualifierTag(qualifier: row.qualifier)   // G227: which of the pages with this name
             // DR-44 — the row's type is the one pill, `Tag` (round 3, 2026-10-20: it was a 10 pt capsule of its own in
             // the hover fill, so on a hovered row it vanished into the row).
             if let badge = row.badge { Tag(text: badge) }

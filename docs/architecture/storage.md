@@ -206,6 +206,15 @@ owner's bank (8,067 pages, 5,722 live): 33 live collision groups, 76 pages (38 /
 two saved links of one title, 15 a saved link or a concept beside a tool, company or project. Held map 0.006 ms;
 rebuild after a write ~35 ms p50 on a warm index.
 
+**A tag in the app, text at the doors (owner 2026-10-29).** "If I search <name-a> I should get both results. But for
+the agent there has to be distinction. I guess the parenthesis is not really needed." The stored title is the plain
+name and so is every title the app draws; the qualifier is a `Tag` beside it (DESIGN_RULES §9 2026-10-29, DR-44).
+Searching the bare name returns every page with it, each with its `qualifier`. Agent doors (recall, `recall_detail`,
+Ask, the CLI, `/v1`, inbox lines) keep "<name> (<qualifier>)" and the id in text. A page Stage 2 makes for a mention the
+person said is none of the existing pages keeps the clean title under a distinct id (`<slug>-2`), never
+"<name> (another)" (`entity_resolver._another_id`); a relation-only person's role title ("<role> (another)",
+`role_people`) is unchanged.
+
 **Links resolve by id (G227).** `id_utils.build_name_index` lets a page's own id win its key over another page's name
 (a saved link titled like a tool once took the tool's id by listing order) and records every name two or more pages
 answer to in `NameIndex.ambiguous`; `resolve_entity_id` never resolves such a name, `link_targets` names every page it

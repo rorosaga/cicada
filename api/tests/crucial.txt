@@ -13,6 +13,9 @@ test_capture_hook.py::test_cicada_cli_spawns_carry_capture_off
 test_capture_hook.py::test_hook_module_imports_nothing_from_api
 # G207 (ruling 36 D2): the job after capture only queues in the capture's thread; its quick read is provisional
 test_awake_read.py::test_after_capture_only_queues_and_debounces
+# 2026-10-29: a slow write answers accepted inside the hook's budget and still lands once; no answer waits, never lost
+test_capture_answer.py::test_a_slow_write_answers_accepted_and_still_lands
+test_capture_answer.py::test_a_timeout_is_no_answer_and_waits_for_a_later_firing
 test_awake_read.py::test_quick_read_writes_a_provisional_record_and_nothing_else
 
 ## Capture: a transcript is read only under the harness root as <session_id>.jsonl within the cap (G105)

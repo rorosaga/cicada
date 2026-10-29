@@ -81,12 +81,16 @@ struct EntityCardHeader: View {
                     EntityPicture(id: entity.id, name: entity.name, type: entity.type, size: 40, held: entity.pictureRef,
                                   heldInputs: pictureInputs, editing: .tile, collapsesWhenEmpty: true)
                     // Wraps rather than truncates: a selectable name cut short opened over the Summary on a click.
-                    Text(entity.isOwner ? Copy.Graph.ownerName(entity.name) : entity.shownName)
-                        .font(CicadaTheme.displayFont(size: 22))
-                        .tracking(CicadaTheme.displayTracking(size: 22))
-                        .foregroundStyle(CicadaTheme.textPrimary)
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
+                    // G227: the plain name; a shared one carries its qualifier as a `Tag` beside it (DR-44).
+                    HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingSM) {
+                        Text(entity.isOwner ? Copy.Graph.ownerName(entity.name) : entity.name)
+                            .font(CicadaTheme.displayFont(size: 22))
+                            .tracking(CicadaTheme.displayTracking(size: 22))
+                            .foregroundStyle(CicadaTheme.textPrimary)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                        if !entity.isOwner { QualifierTag(qualifier: entity.qualifier) }
+                    }
                 }
                 .padding(.top, CicadaTheme.spacingSM)
                 if let summary {

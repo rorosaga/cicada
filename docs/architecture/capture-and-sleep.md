@@ -114,8 +114,23 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   (`transcript_bytes`, outside `content_hash`), and under `episode_lock` a capture that read fewer bytes than the
   episode stores — while the file now holds at least that much — writes nothing and answers `superseded` (a flush that
   stalled while a later Stop committed). A transcript that really shrank is still captured. Every `~/.cicada/logs/capture.log` line names its event
-  (`<harness> <sid8> Stop|PreCompact|SessionEnd|other …`), so ruling 7's revisit signal — a Stop `error:` line — is
-  never confused with a flush's; the capture ledger row carries the same enum as `event`. `autosave` in
+  (`<harness> <sid8> Stop|PreCompact|SessionEnd|other …`), so ruling 7's revisit signal — a Stop `no answer` line,
+  and since 2026-10-29 the `in <n>ms` round trip on every answered line — is never confused with a flush's; the capture
+  ledger row carries the same enum as `event`. **The answer never waits on a slow write (2026-10-29):**
+  `/capture/transcript` and `/capture/session` run the writer off the event loop and answer within `CAPTURE_ANSWER_S`
+  (2 s, `routers/capture.answer_within`); a write still running then answers `202 {"status": "accepted"}` (bank and
+  `bankId` named, no episode id yet) and finishes on its own — same lock, same find-or-create, same refusals — and the
+  awake read is queued when it lands. Finding a session's episode reads no episode it has read before: a per-bank index
+  (`transcript_capture._SessionIndex`) keeps each file's `session_id` from its frontmatter lines and re-reads only a file
+  whose mtime or size moved (a stat sweep, ~30 ms at 8,700 episodes); a live session's later Stops check only their own
+  file. Before, every new session's first Stop read every episode in full under the capture lock (0.45 s warm, 1.4 s
+  cold at 8,700), serialised across sessions firing together. **A local post that gets no answer** in the hook's 3 s
+  (backend down, hung or starved) logs `no answer (timed out at 3s) … spooled for a later firing` — never `error:` — and
+  its request (the hook's fields: a path, never the transcript's words) waits in the client's spool (`hook_spool`, one
+  entry per session, `route: /capture/transcript`, target the loopback port); a 5xx waits the same way. The session's
+  own next landed firing drops it, and any other session's landed firing sends up to three waiting ones within its 4 s
+  budget (never on SessionEnd); a client's `/capture/session` entries are never sent to the local port. No spool folder
+  is made on a machine where nothing waited. `autosave` in
   `/agents/wiring` stays the Stop hook alone, so an install from before the flush is never shown as broken; `make doctor`
   passes an absent flush with a note and fails only a half-registered or stale one. **The backend reads the transcript**, and
   only after the path resolves under the harness root as `<session_id>.jsonl` within the size cap —
@@ -1175,8 +1190,32 @@ descriptions decide"). `same` joins; `unsure` holds the name and asks — the it
 (`merge_target_hint`), keeps every page sharing the title (`same_title`), and asks about that ONE page, the one its
 same/different answers act on ("Is this the <name-a> IDE?", the others counted in the reason, `inbox_wording`; the
 stored title says the same); `different` on all goes on by the usual rule, and a new page whose id the title already
-holds is held and asked, as before. Picking among several pages waits on a resolver action (G227). A person mention keeps its own rules (G209). See the G227 row
+holds is held and asked, as before. A person mention keeps its own rules (G209). See the G227 row
 for the haiku replay.
+
+**Pick the page (G227, owner ruling 2026-10-29).** A mention that could be any of two or more same-titled pages is ONE
+question for the mention — never one per pair: `ClarificationManager.create` finds an open question about the same
+mention through any of its `same_title` pages before writing a second, and stores "Which <name> is this?". The question
+is served (`same_name_pick`, at read — the labels carry derived qualifiers) with one option per candidate page still on
+disk (`page:<id>`, labelled "<name> (<qualifier>)", plus `pageId`/`pageName`/`qualifier`) and `another` ("Another one" — owner on #546: "none should probably just mean another one"; the key `none` it first had is still accepted).
+`page:<id>` is the inbox's own `merge` into that id (the held mention's claims land there, G209, and the answer lifts
+any earlier "apart" for that page). `another` means **this mention is its own thing with the name**. It is recorded on
+the mention's own pending line with the conversations it holds (`pending_store.mark_apart`, `apart`), **never as a
+name→page rejection**. The mention's slug is usually a candidate's own id, so a name-keyed pair kept every later
+mention of that page from joining it (#546 review). The same holds for "No, different" and dismiss on any question
+about a held mention (`inbox_service._keep_apart`); a page-pair question keeps `merge_rejections`. A join on the name itself drops the `apart` pages only on a re-read of those conversations (`_apart_here`), so a new conversation naming one of those pages still joins it. The judge, a lead and a question honour the line's verdict whatever the conversation (`_said_different`, `ClarificationManager.create`), so that mention is never weighed against, or asked about, them again. The line's claims never follow the
+name onto an `apart` page (`pending_store.ready`). Once the unchanged promotion bar is met and a later mention is not
+one of those pages, the line gets a page of its own: **the same clean title and a distinct id** (`_another_id`:
+`<slug>-2`, `-3` …; no stored "(another)" — the qualifier tells the pages apart). The record dies with the line, so a
+later merge has nothing to lift. A page whose own id the title spells keeps the name's key in `existing_by_name`, so
+a join on the name never moves to the newer page by listing order. A key that is not one of the question's pages is a
+400, nothing written. `_merge_rejected.yaml` pairs written by an older "No, different" stay as they were.
+
+**Sentences about a different same-named thing (G227, `same_name_split`).** A repair *plan*, never applied by Cicada on
+its own: for every page in a same-name group that is not a saved link (and any page id the caller names), the page's
+prose is split into numbered sentences and an injected judge lists only those *clearly* about another thing with the
+name — target a listed page id or `new` — with a reason; anything unsure stays. It writes nothing; the owner OKs a plan
+before a separate step applies it.
 
 **Claim preservation (G148 regression):** Stage 5 rewrites prose with the stored `claims` fences removed from section parsing, then reattaches those fences unchanged. Rebuilding `Related` cannot remove beliefs before the claim pipeline reconciles them; synthesis output never authors a claims fence.
 

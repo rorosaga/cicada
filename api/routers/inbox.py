@@ -7,7 +7,7 @@ from loguru import logger
 from api.config import Settings, get_settings
 from api.models.schemas import (CatchupRecordRequest, CatchupTurnRequest, CheckCensus, InboxItem,
                                 InboxResolveRequest, SettledCheck)
-from api.services import inbox_service, same_name, source_check, sync_service, sync_ticker
+from api.services import inbox_service, same_name, same_name_pick, source_check, sync_service, sync_ticker
 
 router = APIRouter()
 
@@ -40,8 +40,9 @@ async def list_inbox(
     with sync_ticker.request_scans(settings.memory_path):
         # G227: `same_name.SHAPE` — items gained `entityDisplayName`, `mergeTargetDisplayName` and `sameTitle`,
         # derived from the entity files this ETag already covers; the bump makes every client take one 200.
+        # `same_name_pick.SHAPE`: a same-title question is served with one option per page plus "none" (2026-10-29).
         etag = sync_service.etag_for(settings.memory_path, "inbox", "entities", "episodes",
-                                     extra=f"{kind or ''}|{_served_day()}|{same_name.SHAPE}")
+                                     extra=f"{kind or ''}|{_served_day()}|{same_name.SHAPE}|{same_name_pick.SHAPE}")
         if (early := sync_service.conditional(request, response, etag)) is not None:
             return early
         # Off the event loop (inbox lag, 2026-10-17): the read parses every inbox file and the pages they name, and a

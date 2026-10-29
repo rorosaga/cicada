@@ -209,7 +209,10 @@ enum RunItemGroups {
 
     /// A page's label: its name as the bank has it now, else the graph's name for the id, else the id verbatim.
     static func pageLabel(_ page: SleepConsolidated.Page, names: EntityNames) -> String {
-        if let shown = page.displayName, !shown.isEmpty { return shown }   // G227: a shared title, qualified
+        // G227 (owner 2026-10-29): a page here IS a `Tag`, so a shared title's qualifier rides inside it after a
+        // middle dot — the plain name first, never a parenthesis.
+        if let name = page.name, !name.isEmpty, let q = page.qualifier, !q.isEmpty { return Copy.RunCard.qualified(name, q) }
+        if let shown = page.displayName, !shown.isEmpty { return shown }
         if let name = page.name, !name.isEmpty { return name }
         return names.display(page.id)
     }

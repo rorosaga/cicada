@@ -565,8 +565,11 @@ def test_a_held_common_names_edges_and_claims_follow_the_hold(bank, monkeypatch)
 def test_the_person_saying_it_is_someone_else_gives_it_a_page_of_its_own(bank, monkeypatch):
     merge_rejections.add_rejected(bank, "alex", "alex")
     result = _resolve(bank, monkeypatch, _six_alexes(), [_mention("Alex", 1), _mention("Alex", 2)], _Judge("different"))
-    assert _creates(result) == ["alex-(another)"]
-    assert result["name_to_id"]["alex"] == "alex-(another)"
+    # G227 (owner 2026-10-29): the same clean title and a distinct id — never a stored "(another)".
+    assert _creates(result) == ["alex-2"]
+    assert result["name_to_id"]["alex"] == "alex-2"
+    created = next(c for c in result["changes"] if c["action"] == "create")
+    assert created["entity"]["name"] == "Alex"
 
 
 def test_a_held_common_name_keeps_its_pending_line_with_the_indexer_on(tmp_path, monkeypatch):

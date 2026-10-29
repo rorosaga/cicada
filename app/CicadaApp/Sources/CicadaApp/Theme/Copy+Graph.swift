@@ -64,6 +64,8 @@ extension Copy.Graph {
     static func whichPage(_ name: String) -> String { "Which \(name)?" }
     static let whichPageMessage = "More than one page has this name."
     static let whichPageCancel = "Cancel"
+    /// G227 — the qualifier `Tag`'s hover: why the name carries one.
+    static let qualifierHelp = "Another page has this name"
     static let tabContent = "Content"
     static let tabPerspectives = "Perspectives"
     static let tabHistory = "History"

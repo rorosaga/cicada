@@ -157,6 +157,10 @@ def test_the_card_and_search_carry_it(bank, monkeypatch):
     hits = search_service.search(bank, "alpha", kinds=("entity",), mode="prefix").results
     shown = {h.id: h.display_name for h in hits}
     assert shown.get("alpha") == "Alpha (IDE)" and shown.get("alpha-program") == "Alpha (program)"
+    # Owner 2026-10-29: searching the bare name returns every page with it, each with its qualifier (the app's tag).
+    hits = search_service.search(bank, "Alpha", kinds=("entity",), mode="lexical").results
+    assert {(h.id, h.name, h.qualifier) for h in hits} >= {("alpha", "Alpha", "IDE"),
+                                                           ("alpha-program", "Alpha", "program")}
 
 
 # --------------------------------------------------------------------------- links by id
@@ -279,9 +283,9 @@ def test_the_judge_prompt_lets_the_descriptions_decide_when_types_may_differ(mon
 # --------------------------------------------------------------------------- asked in plain words
 
 
-def test_the_question_names_exactly_the_one_page_its_answers_act_on():
-    """The item's answers are same / different on ``merge_target_hint`` alone (the app card, the catch-up keys, the
-    agent's resolve call), so the question names that one page — never a choice the answers cannot make."""
+def test_a_name_pages_share_is_asked_which_page_and_one_page_yes_or_no():
+    """Owner 2026-10-29 (pick the page): one question per mention over every page with the name — answered by the
+    page's option or "none" (`same_name_pick`) — and, with one page, the yes/no question about it."""
     from api.services import inbox_wording
 
     fm = {"kind": "merge_suggestion", "entity_id": "alpha", "entity_name": "Alpha", "merge_target_hint": "alpha"}
@@ -290,19 +294,15 @@ def test_the_question_names_exactly_the_one_page_its_answers_act_on():
               {"id": "media-alpha", "name": "Alpha", "type": "media", "qualifier": "example.com"}]
     same = {"alpha": "IDE", "alpha-program": "program", "media-alpha": "example.com"}
     said = inbox_wording.spoken(fm, "2026-10-29", other_fm={"name": "Alpha", "type": "tool"}, same=same, titled=titled)
-    assert said.question == "Is this the Alpha IDE?"
-    assert "3 things are called Alpha" in said.reason and "say no" in said.reason
-    for other in ("program", "example.com"):
-        assert other not in said.question
-    # Whatever the target, the question names it and only it.
-    for target, words in (("media-alpha", "the Alpha saved from example.com"), ("alpha-program", "the Alpha program")):
-        q = inbox_wording.spoken({**fm, "merge_target_hint": target}, "2026-10-29", same=same, titled=titled).question
-        assert q == f"Is this {words}?"
-        assert " or " not in q
+    assert said.question == "Which Alpha is this: the program, the IDE or the one saved from example.com?"
+    assert "3 things are called Alpha" in said.reason and "another one" in said.reason
+    # Whatever the merge target, it is the same one question.
+    assert inbox_wording.spoken({**fm, "merge_target_hint": "media-alpha"}, "2026-10-29", same=same,
+                                titled=titled).question == said.question
     # One page with the name.
     said = inbox_wording.spoken(fm, "2026-10-29", other_fm={"name": "Alpha", "type": "tool"}, same={})
     assert said.question == "Is this the Alpha tool?" and "a page already has that name" in said.reason
-    # The answers the question is put to are same / different only.
+    # An item served without options (no candidate left, an older item) keeps same / different.
     assert set(inbox_catchup_keys()) <= {"same", "different"}
     # Different names keep the old pair question.
     other = {**fm, "entity_name": "Alfa"}
@@ -336,12 +336,12 @@ def test_a_same_title_question_points_at_the_page_by_id(tmp_path):
                           target_id="alpha-program")
     fm = parse(manager.dir / f"{item}.md").frontmatter
     assert fm["merge_target_hint"] == "alpha-program" and fm["same_title"] == ["alpha", "alpha-program"]
-    assert fm["title"] == "Is this Alpha (project)?"       # one page, the one the answers act on
+    assert fm["title"] == "Which Alpha is this?"       # one question for the mention (pick the page)
 
     from api.services import mcp_tools
 
     line = mcp_tools._format_inbox_blurb(fm, "")
-    assert "page id `alpha-program`" in line and "2 pages are called Alpha" in line and " or " not in fm["title"]
+    assert "`alpha`, `alpha-program`" in line and "2 pages called Alpha" in line and "page:<id>" in line
 
 
 def test_the_inbox_serves_display_names_and_the_question(bank):
@@ -357,7 +357,9 @@ def test_the_inbox_serves_display_names_and_the_question(bank):
     item = items[0]
     assert item.same_title == ["alpha", "alpha-program"]
     assert item.merge_target_display_name == "Alpha (IDE)"
-    assert item.spoken_question == "Is this the Alpha IDE?"
+    assert item.spoken_question == "Which Alpha is this: the IDE or the program?"
+    assert [(o.key, o.page_name, o.qualifier) for o in item.options] == [
+        ("page:alpha", "Alpha", "IDE"), ("page:alpha-program", "Alpha", "program"), ("another", None, None)]
 
 
 # --------------------------------------------------------------------------- the agent doors

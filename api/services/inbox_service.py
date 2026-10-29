@@ -32,6 +32,7 @@ from api.services import (
     markdown_parser,
     predicates,
     quiet_pages,
+    same_name_pick,
     source_check,
     telemetry,
 )
@@ -137,6 +138,17 @@ def _item_from_file(
             question = synthesised["question"]
             raw_options = inbox_questions.normalize_options(synthesised["options"])
             allow_other, allow_defer = synthesised["allow_other"], synthesised["allow_defer"]
+        if not raw_options and same_name_pick.applies(fm):
+            # G227 (owner 2026-10-29): a mention said as a title pages share is asked which page it is — one option
+            # per candidate plus "Another one", served at read (the labels carry derived qualifiers).
+            def _lookup(pid: str) -> dict | None:
+                found = context.entity(pid)
+                return dict(found.frontmatter or {}) if found is not None else None
+
+            picks = same_name_pick.options(context.memory_path, fm, _lookup)
+            if picks:
+                raw_options = picks
+                question = question or same_name_pick.question(fm, len(picks) - 1)
         if kind == "decay" and not raw_options:
             # G115 R5: decay is SERVED as a question object and never written as
             # one — the age phrase is computed from the subject page's live
@@ -210,6 +222,9 @@ def _item_from_file(
                 label=str(raw.get("label", "")),
                 description=_opt_str(raw.get("description")),
                 claim_id=_opt_str(raw.get("claim_id")),
+                page_id=_opt_str(raw.get("page_id")),
+                page_name=_opt_str(raw.get("page_name")),
+                qualifier=_opt_str(raw.get("qualifier")),
                 observed_at=observed,
                 last_referenced=last_ref,
                 age_days=inbox_questions.age_days(last_ref, now),
@@ -840,6 +855,12 @@ def _action_label(kind: str, request: InboxResolveRequest, options: list[dict]) 
             return "answer"
         return action or "answer"
     # clarification / merge_suggestion
+    if kind == "merge_suggestion" and key:
+        # G227: a same-title question's picked page is a merge, "Another one" a reject (`same_name_pick`).
+        if key.startswith(same_name_pick.PAGE_PREFIX):
+            return "merge"
+        if same_name_pick.is_another(key):
+            return "reject"
     if key == "rather_not_say":
         return "rather_not_say"
     if action in ("answer", "resolve"):
@@ -1001,6 +1022,23 @@ def _normalize_decay_request(kind: str, request: InboxResolveRequest) -> InboxRe
             f"{sorted(inbox_questions.DECAY_OPTION_KEYS)}.",
         )
     return request.model_copy(update={"action": _DECAY_KEY_TO_ACTION[key]})
+
+
+def _normalize_pick_request(kind: str, fm: dict, request: InboxResolveRequest, memory_path) -> InboxResolveRequest:
+    """G227 (owner 2026-10-29): ``resolve`` + a same-title question's key → the inbox's own verb, before
+    :func:`_action_label`. ``page:<id>`` merges the mention into that page (``merge_target`` = the id, the page
+    surviving); ``none`` is a ``reject`` the clarification resolver applies to every candidate. A key that is not one
+    of this question's — a page dropped or merged away since it was served — is a 400, nothing written."""
+    if (kind != "merge_suggestion" or (request.action or "").strip().lower() not in ("resolve", "answer")
+            or not (request.option_key or "").strip() or not same_name_pick.applies(fm)):
+        return request
+    verb = same_name_pick.picked(fm, request.option_key, same_name_pick.bank_lookup(memory_path))
+    if verb is None:
+        raise HTTPException(400, f"Unknown optionKey {request.option_key!r} for this question: pick one of the pages "
+                                 f"it lists, or {same_name_pick.ANOTHER_KEY!r}.")
+    if verb[0] == "merge":
+        return request.model_copy(update={"action": "merge", "merge_target": verb[1], "merge_survivor": None})
+    return request.model_copy(update={"action": "reject"})
 
 
 def _option_verdict(kind: str, key: str, fm: dict, options: list[dict]) -> str:
@@ -1364,6 +1402,7 @@ async def _resolve_admitted(item_id: str, request: InboxResolveRequest, settings
     # `resolve` + `archive|keep`; translate it into the legacy verb here, before
     # `_action_label`, so the G113 R1 commit triggers stay byte-identical.
     request = _normalize_decay_request(kind, request)
+    request = _normalize_pick_request(kind, parsed.frontmatter, request, settings.memory_path)
     # G141 PJ-6 (R-PJB3): a follow-up's "not now" is 30 days, whatever asked
     # for it — its explicit option, an MCP `defer`, or an older client's 7-day
     # button — so a quiet thread is never re-asked within the month.
@@ -2709,6 +2748,7 @@ def _release_answered(memory_path: Path, mention: str, target_id: str, settings,
 
     if not mention or not target_id:
         return []
+    pending_store.clear_apart(memory_path, mention, target_id)   # G227: the person's join lifts their own "apart"
     release = pending_store.answered(memory_path, mention, target_id, subject_page=subject_page)
     if release is None:
         return []
@@ -2716,6 +2756,24 @@ def _release_answered(memory_path: Path, mention: str, target_id: str, settings,
     if pending_store.drop_released(memory_path, release.name, landed):
         written.append(pending_store.PENDING_STORE_FILE)
     return [f"{rel}: updated (trigger: inbox/merge_suggestion/resolved:merge)" for rel in written]
+
+
+def _keep_apart(settings, fm: dict, pages: list[str]) -> list[str] | None:
+    """G227 (#546 review): "Another one" / "No, different" / dismiss on a question about a mention Sleep HELD keeps
+    THAT mention apart — on its pending line, with the conversations it holds (`pending_store.mark_apart`) — never as a
+    name→page rejection. The mention's slug is often a page's own id (the page it was held against), so a name-keyed
+    pair kept every later mention of that page from joining it. Returns the manifest lines, or ``None`` for a question
+    about a page (a page pair, a fold-page question, an older unflagged one), which keeps the page-pair rejection."""
+    from api.services import pending_store
+    from api.services.entity_resolver import HELD_MENTION_KEY
+
+    if fm.get(HELD_MENTION_KEY) is not True or fm.get("fold_page") is True:
+        return None
+    mention = str(fm.get("entity_name") or fm.get("entity_mention") or "").strip()
+    episode = str(fm.get("source_episode") or "").strip()
+    if pending_store.mark_apart(settings.memory_path, mention, pages, [episode] if episode else []):
+        return [f"{pending_store.PENDING_STORE_FILE}: updated (trigger: inbox/merge_suggestion/rejected)"]
+    return []   # nothing held under the name any more: a later mention is a new question, never a name-wide verdict
 
 
 async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, bool, list[str]]:
@@ -2754,6 +2812,11 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
             raise HTTPException(status_code=400, detail="reject needs a merge target (hint or mergeTarget)")
         from api.services import merge_rejections
 
+        none = same_name_pick.is_another(request.option_key) and same_name_pick.applies(parsed.frontmatter)
+        pages = same_name_pick.rejected_ids(parsed.frontmatter) if none else [other]
+        if (kept := _keep_apart(settings, parsed.frontmatter, pages)) is not None:
+            path.unlink()
+            return entity_id, False, kept
         merge_rejections.add_rejected(settings.memory_path, entity_id, other)
         path.unlink()
         return (
@@ -2888,6 +2951,9 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
             # Sleep raises the same question again (G209 W1, a held name re-read from the pending store).
             from api.services import merge_rejections
 
+            if (kept := _keep_apart(settings, parsed.frontmatter, [other])) is not None:
+                path.unlink()
+                return entity_id, False, kept
             merge_rejections.add_rejected(settings.memory_path, entity_id, other)
             path.unlink()
             return entity_id, False, [f"{merge_rejections.FILE}: updated (source: {path.stem}, "

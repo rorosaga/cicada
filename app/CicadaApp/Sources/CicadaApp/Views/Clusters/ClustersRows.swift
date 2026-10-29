@@ -183,10 +183,13 @@ struct ClusterRow: View {
     }
 
     private var name: some View {
-        Text(ExcerptText.attributed(entity.shownName, bold: highlight))
-            .font(CicadaTheme.font(size: 13, weight: selected ? .medium : .regular))
-            .foregroundStyle(nameColor)
-            .lineLimit(1)
+        HStack(spacing: CicadaTheme.spacingXS) {
+            Text(ExcerptText.attributed(entity.name, bold: highlight))
+                .font(CicadaTheme.font(size: 13, weight: selected ? .medium : .regular))
+                .foregroundStyle(nameColor)
+                .lineLimit(1)
+            QualifierTag(qualifier: entity.qualifier)   // G227: a shared name's qualifier, as a `Tag` (DR-44)
+        }
     }
 
     @ViewBuilder
