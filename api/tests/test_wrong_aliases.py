@@ -212,6 +212,8 @@ def test_the_extraction_prompt_says_a_related_name_is_no_alias():
 
     prompt = " ".join(entity_extractor.EXTRACTION_SYSTEM_PROMPT.split())
     assert "nor of the larger thing it belongs to, its maker or an alternative to it" in prompt
+    # A placeholder, never a real product (the prompt names no proper noun of its own: test_owner_name_portability).
+    assert '"<product>" is not an alias of "<product> Desktop"' in prompt
 
 
 # ---------- the person's own agent settles a public pair with a relation ----------

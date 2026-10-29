@@ -970,8 +970,8 @@
    ],
    "dark_variant": null,
    "replaces_bundled": [],
-   "license": "Vendor’s own published asset; no licence beyond nominative use",
-   "trademark": "Mark of T3 Code (the pingdotgg/t3code project); nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
+   "license": "MIT (T3 Tools Inc., the repository's LICENSE at the pinned commit); the mark stays its owner's trademark",
+   "trademark": "Trademark of T3 Tools Inc.; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
    "note": "G228 follow-up: the vendor's own repository, pinned to a commit."
   }
  ]

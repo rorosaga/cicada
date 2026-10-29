@@ -537,9 +537,9 @@
     {
       "file": "t3.png",
       "id": "t3",
-      "licence": "Vendor’s own published asset; no licence beyond nominative use",
+      "licence": "MIT (T3 Tools Inc., the repository's LICENSE at the pinned commit); the mark stays its owner's trademark",
       "origin": "set",
-      "restrictions": "Mark of T3 Code (the pingdotgg/t3code project); nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
+      "restrictions": "Trademark of T3 Tools Inc.; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
       "setFile": "app/assets/logo-set/t3.svg",
       "sha256": "22d72da51798fcdd58162c9520fde1ef74cb7208cb53c472e296b59b335068a9",
       "sourceTier": "official GitHub assets",

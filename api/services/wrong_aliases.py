@@ -162,5 +162,7 @@ def remember_kept(page_path: Path, aliases) -> bool:
     if not added:
         return False
     fm[KEPT] = have + added
+    # Section provenance: preserve (frontmatter guarded). `fm` is the page's own parsed frontmatter, copied whole, plus
+    # one key, and the body is written back as read — every section record and claim stays exactly as it was.
     markdown_parser.write(page_path, fm, parsed.body)
     return True
