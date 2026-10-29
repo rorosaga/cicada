@@ -12,7 +12,7 @@
 
 ## Current state and evidence
 
-- **2026-10-29 — T3 Code (G228; branch `feat/t3-code`).** T3 Code drives the Claude Code, Codex and Cursor on the
+- **2026-10-29 — T3 Code (G228; PR #543).** T3 Code drives the Claude Code, Codex and Cursor on the
   machine with their own settings, so Cicada's existing hooks, plugin and MCP server already run in its threads; one
   thread on one harness is that harness's one episode. New: the hook names the host from its own ancestors and the
   episode is labelled `host: t3code` (its own Sources row, an Agents-page umbrella whose connect steps are the agents
