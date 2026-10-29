@@ -128,3 +128,77 @@ def test_body_reuses_the_cached_frontmatter_and_folds_a_ledger(tmp_path, monkeyp
     _write(plain, "id: beta-example\nname: Beta Example", body="Beta's new body, longer.")
     assert entries["beta-example"].body() == "Beta's new body, longer."   # moved since listed: parsed whole
     assert loads == [1]
+
+
+# --- derived indexes and the same listing (source page speed, 2026-10-29) -------------------------------------------
+
+
+def test_derived_is_built_once_per_state_of_the_folder(tmp_path):
+    bank_index.invalidate()
+    d = tmp_path / "episodes"; d.mkdir()
+    _write(d / "ep1.md", "id: ep1\norigin: a")
+    builds = []
+
+    def build(entries):
+        builds.append(1)
+        return sorted(f.frontmatter.get("origin") for f in entries)
+
+    assert bank_index.derived(tmp_path, "episodes", "t", build) == ["a"]
+    assert bank_index.derived(tmp_path, "episodes", "t", build) == ["a"]
+    assert len(builds) == 1   # nothing changed: the kept value
+
+    _write(d / "ep2.md", "id: ep2\norigin: b")   # added
+    assert bank_index.derived(tmp_path, "episodes", "t", build) == ["a", "b"]
+    time.sleep(0.01)
+    _write(d / "ep1.md", "id: ep1\norigin: c")   # changed
+    os.utime(d / "ep1.md", None)
+    assert bank_index.derived(tmp_path, "episodes", "t", build) == ["b", "c"]
+    (d / "ep2.md").unlink()                        # removed
+    assert bank_index.derived(tmp_path, "episodes", "t", build) == ["c"]
+    bank_index.invalidate(tmp_path)                # dropped: rebuilt from a fresh parse
+    assert bank_index.derived(tmp_path, "episodes", "t", build) == ["c"]
+    assert len(builds) == 5
+
+
+def test_the_same_listing_is_not_compared_twice_but_a_newer_entry_is_never_skipped(tmp_path):
+    bank_index.invalidate()
+    d = tmp_path / "episodes"; d.mkdir()
+    _write(d / "ep1.md", "id: ep1\nprocessed: false")
+    _write(d / "ep2.md", "id: ep2\nprocessed: false")
+    listing = bank_index._scan_uncached(d)
+    with bank_index.shared_scans(seed={str(d): listing}):
+        first = bank_index.files(tmp_path, "episodes")
+        again = bank_index.files(tmp_path, "episodes")
+        assert [f.stem for f in again] == ["ep1", "ep2"] and again is not first   # a copy: a caller may mutate its own
+        assert all(a is b for a, b in zip(first, again))
+        # `file()` stores a newer copy than the (seeded) listing knows: the generation moves, so the next read compares
+        # again and keeps that newer entry rather than answering from the remembered listing.
+        time.sleep(0.01)
+        _write(d / "ep2.md", "id: ep2\nprocessed: true")
+        os.utime(d / "ep2.md", None)
+        assert bank_index.file(tmp_path, "episodes", "ep2.md").frontmatter["processed"] is True
+        assert {f.stem: f.frontmatter["processed"] for f in bank_index.files(tmp_path, "episodes")} == {
+            "ep1": False, "ep2": True}
+
+
+def test_a_file_that_moved_while_parsed_is_compared_again_on_the_same_listing(tmp_path, monkeypatch):
+    bank_index.invalidate()
+    d = tmp_path / "episodes"; d.mkdir()
+    _write(d / "ep1.md", "id: ep1\nprocessed: false")
+    listing = bank_index._scan_uncached(d)
+    real = bank_index.markdown_parser.header
+    calls = []
+
+    def moving(path):
+        calls.append(path)
+        out = real(path)
+        if len(calls) == 1:
+            _write(path, "id: ep1\nprocessed: true\nnote: moved while it was parsed")
+        return out
+
+    monkeypatch.setattr(bank_index.markdown_parser, "header", moving)
+    with bank_index.shared_scans(seed={str(d): listing}):
+        assert bank_index.files(tmp_path, "episodes") == []   # not stored: its stamp moved under the parse
+        bank_index.files(tmp_path, "episodes")
+        assert len(calls) == 2   # the same listing was compared again, never remembered as reconciled
+    assert [f.frontmatter["processed"] for f in bank_index.files(tmp_path, "episodes")] == [True]
