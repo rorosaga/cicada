@@ -390,8 +390,12 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   deleted book tombstones all its units; `media_entity_id` names an existing page only on the same saved URL or a
   unique exact title (never a person page, never a page made). *Notion:* a shared page is `notion:<id>` — the export's
   key, so the live read rewrites an exported page in place — split by H2 like the export, dated when created, a row
-  with its database's title and properties; trash tombstones; unsharing keeps the page as it was; pages created by more
-  than one Notion user are `assistant`, never the person's own on a guess (origin `notion-api`).
+  with its database's title and properties; trash tombstones; unsharing keeps the page as it was (origin
+  `notion-api`). A page is the person's words only when Notion names the connection's owner and that user created
+  it; otherwise `assistant` + `notion_by_other`, never the person's on a guess. A unit stored as someone else's
+  (`assistant` or an export's `*_by_other`) is never moved back to `user` by any later tier-2 read. The first sync
+  walks the whole history (Notion's own cursor, 150 pages a sync, "Reading your shared pages: N so far"); the
+  high-water mark moves only when nothing older is left.
   Chrome's open tab groups (round 4, G160 first slice): the app reads the default profile's
   `Sessions/Session_<n>` (SNSS; only a clear version-3 file carrying its initial-state marker, never `Tabs_*`, never
   the encrypted directory; commands 25/27 and each member tab's current navigation — never the page state after its

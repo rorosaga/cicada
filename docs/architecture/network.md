@@ -420,7 +420,9 @@ after Telegram. An adapter is a module in `ADAPTERS` with `TIER = 2`, so its Sou
   token (`sync_state.json` is in the bank and committed).
 - **Credentials** — `CICADA_READWISE_TOKEN`, `CICADA_NOTION_TOKEN` in `secrets.env` (0600); every connector secret (the
   saved-content connectors' too) is in `connections.base.CONNECTOR_SECRET_ENV`, stripped from every engine child, so a
-  model with tools never holds a key to the person's accounts. No remote door reaches these routes (the G135 listener
+  model with tools never holds a key to the person's accounts. `CICADA_SECRET_ENV` (the master `CICADA_API_TOKEN`,
+  the Telegram bot token and webhook secret) is stripped the same way, and the embedding worker and the PDF page
+  reader start from `secretless_env()`, never a copy of the backend's environment. No remote door reaches these routes (the G135 listener
   serves `/mcp` and `/v1` only).
 
 | Connector | Token | What is read | Terms |

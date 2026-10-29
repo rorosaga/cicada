@@ -23,11 +23,17 @@ tombstoned; a page moved to the trash is tombstoned and kept. A page unshared fr
 and is kept as it was (unsharing deletes nothing). A database row is one episode with its properties as facts, dated
 when it was created (read on time); a plain page likewise.
 
-Whose words: a page is the person's own (``user``) while every page and row the connection has read was created by
-one Notion user. Once the shared pages were written by more than one person, none is credited to the person on a
-guess: every page is ``assistant`` (someone's words, not certainly theirs), the row says so, and the next sync reads
-everything again so pages read before carry it too. Creator ids are kept in the cursor outside the bank; no name is
-read or sent.
+Whose words: a page is the person's own (``user``) only when Notion says who owns the connection
+(``GET /v1/users/me``: ``bot.owner`` of type ``user``) and that user created the page. Otherwise — an internal
+connection is usually owned by the workspace, and a page's single creator may be a colleague — no page is credited to
+the person on a guess: it is ``assistant`` with ``notion_by_other`` (someone's words, not certainly theirs), and the
+Sources row says so. A page stored as someone else's is never moved back to the person's words by a later read
+(``tier2._stage``), whichever door stored it. Only ids are compared; no name is read or sent.
+
+The first sync walks every shared page, newest edit first, ``MAX_PAGES_PER_SYNC`` at a time, carrying on from Notion's
+own cursor (``walk``); the high-water mark moves only when the walk is done, to the newest edit seen when it began, so
+nothing older is ever skipped. After that a sync lists the pages edited since the mark; if more changed than one
+listing holds, it walks everything again rather than miss any.
 """
 
 from __future__ import annotations
@@ -38,7 +44,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from api.services import episode_ids, episode_staging, notion_export
-from api.services.connectors import tier2
+from api.services.connectors import base, tier2
 
 CHANNEL_ID = "notion-api"
 LABEL = "Notion"
@@ -62,7 +68,8 @@ REFUSED_WORDS = ("Notion refused the token. Check the connection in Notion's dev
 PERSONAL_TOKEN_WORDS = ("That token acts as you, with every page you can open. Cicada reads only what you choose to "
                         "share: create an internal connection with Read content only, share pages with it, and paste "
                         "its token instead. Nothing was saved.")
-SHARED_WORDS = "These pages were written by more than one person, so none is counted as your own words."
+UNKNOWN_AUTHOR_WORDS = ("Notion does not say which of these pages you wrote, so they are kept as pages you shared, "
+                        "not as your own words.")
 
 PAGE_SIZE = 100
 MAX_LIST_PAGES = 20
@@ -126,29 +133,61 @@ def _trashed(page: dict) -> bool:
     return bool(page.get("in_trash") or page.get("archived") or page.get("is_archived"))
 
 
-async def _changed_pages(client: tier2.Client, high_water: str | None) -> list[dict]:
-    """Pages edited since ``high_water`` (newest first from Notion, returned oldest first)."""
+def _search_body(start: str | None) -> dict:
+    body = {"filter": {"property": "object", "value": "page"}, "page_size": PAGE_SIZE,
+            "sort": {"direction": "descending", "timestamp": "last_edited_time"}}
+    if start:
+        body["start_cursor"] = start
+    return body
+
+
+def _pages_of(listing: dict) -> list[dict]:
+    return [p for p in (listing.get("results") or []) if isinstance(p, dict) and p.get("object") == "page"]
+
+
+async def _changed_pages(client: tier2.Client, high_water: str) -> list[dict] | None:
+    """Pages edited since ``high_water``, oldest first — or ``None`` when ``MAX_LIST_PAGES`` listing pages did not
+    reach it (more changed than one listing holds: the caller walks the whole history instead, never skipping)."""
     out: list[dict] = []
     start = None
     for _ in range(MAX_LIST_PAGES):
-        body = {"filter": {"property": "object", "value": "page"}, "page_size": PAGE_SIZE,
-                "sort": {"direction": "descending", "timestamp": "last_edited_time"}}
-        if start:
-            body["start_cursor"] = start
-        page = await client.post("search", body) or {}
-        stop = False
-        for item in page.get("results") or []:
-            if not isinstance(item, dict) or item.get("object") != "page":
-                continue
-            if high_water and str(item.get("last_edited_time") or "") < high_water:
-                stop = True
-                break
+        listing = await client.post("search", _search_body(start)) or {}
+        for item in _pages_of(listing):
+            if str(item.get("last_edited_time") or "") < high_water:
+                return sorted(out, key=lambda p: (str(p.get("last_edited_time") or ""), _hex(p.get("id"))))
             out.append(item)
-        start = page.get("next_cursor")
-        if stop or not page.get("has_more") or not start:
-            break
-    out.sort(key=lambda p: (str(p.get("last_edited_time") or ""), _hex(p.get("id"))))
-    return out
+        start = listing.get("next_cursor")
+        if not listing.get("has_more") or not start:
+            return sorted(out, key=lambda p: (str(p.get("last_edited_time") or ""), _hex(p.get("id"))))
+    return None
+
+
+async def _walk(client: tier2.Client, walk: dict) -> tuple[list[dict], dict, bool]:
+    """The next part of a walk through every shared page, newest edit first, whole listing pages at a time until
+    ``MAX_PAGES_PER_SYNC`` are in hand. ``walk`` is ``{"next": Notion's start_cursor, "top": the newest edit time when
+    the walk began, "read": pages so far}``. Returns (pages, the walk to resume, finished). A cursor Notion no longer
+    takes restarts the walk from the top (pages already read are a hash skip)."""
+    walk = dict(walk)
+    pages: list[dict] = []
+    while len(pages) < MAX_PAGES_PER_SYNC:
+        try:
+            listing = await client.post("search", _search_body(walk.get("next"))) or {}
+        except tier2.Refused:
+            raise
+        except base.ConnectorError:
+            if not walk.get("next"):
+                raise
+            walk = {"next": None, "top": None, "read": 0}      # an expired cursor: start again from the top
+            continue
+        found = _pages_of(listing)
+        if walk.get("top") is None and found:
+            walk["top"] = str(found[0].get("last_edited_time") or "") or None
+        pages.extend(found)
+        walk["read"] = int(walk.get("read") or 0) + len(found)
+        walk["next"] = listing.get("next_cursor") if listing.get("has_more") else None
+        if not walk["next"]:
+            return pages, walk, True
+    return pages, walk, False
 
 
 async def _trashed_pages(client: tier2.Client) -> list[dict]:
@@ -189,18 +228,30 @@ async def _database_title(client: tier2.Client, db_id: str, cache: dict) -> str:
     return title
 
 
+def owner_of(me: dict) -> str | None:
+    """The Notion user who owns this connection, when Notion says so (``bot.owner`` of type ``user``). An internal
+    connection is usually owned by the workspace, and then nobody is known to be the person."""
+    owner = ((me or {}).get("bot") or {}).get("owner") or {}
+    if owner.get("type") == "user":
+        return str((owner.get("user") or {}).get("id") or "") or None
+    return None
+
+
 async def fetch(client: tier2.Client, cursor: dict, memory_path: Path) -> tier2.Batch:
-    creators: set[str] = set(cursor.get("creators") or [])
-    shared_before = len(creators) > 1
     db_titles: dict = dict(cursor.get("databases") or {})
     high_water = cursor.get("high_water")
-    changed = await _changed_pages(client, high_water)
-    capped = len(changed) > MAX_PAGES_PER_SYNC
-    todo = changed[:MAX_PAGES_PER_SYNC]
-    for page in changed:
-        if (who := (page.get("created_by") or {}).get("id")):
-            creators.add(str(who))
-    shared = len(creators) > 1
+    walk = cursor.get("walk")
+    owner = owner_of(await client.get("users/me") or {})
+    finished = True
+    if high_water and not walk:
+        todo = await _changed_pages(client, high_water)
+        if todo is None:
+            walk = {"next": None, "top": None, "read": 0}     # too many changed to list: walk everything instead
+        elif len(todo) > MAX_PAGES_PER_SYNC:
+            todo = todo[:MAX_PAGES_PER_SYNC]
+            finished = False
+    if walk is not None or not high_water:
+        todo, walk, finished = await _walk(client, walk or {"next": None, "top": None, "read": 0})
     batch = tier2.Batch()
     unreadable = 0
     for page in todo:
@@ -217,23 +268,29 @@ async def fetch(client: tier2.Client, cursor: dict, memory_path: Path) -> tier2.
             continue
         db_id = _database_of(page)
         db_title = await _database_title(client, db_id, db_titles) if db_id else None
-        batch.drafts.extend(drafts_for(page, md, db_title=db_title, shared=shared))
+        mine = owner is not None and str((page.get("created_by") or {}).get("id") or "") == owner
+        batch.drafts.extend(drafts_for(page, md, db_title=db_title, mine=mine))
         batch.replaced.append(sid)
         batch.seen += 1
     for page in await _trashed_pages(client):
         batch.deleted.append(SOURCE_PREFIX + _hex(page.get("id")))
-    if shared and not shared_before:
-        new_high = None      # everything again, so pages read before carry the shared rule too
-    elif capped and todo:
-        new_high = str(todo[-1].get("last_edited_time") or "") or high_water
-    else:
-        new_high = max([str(p.get("last_edited_time") or "") for p in changed] + [high_water or ""]) or None
-    batch.cursor = {"high_water": new_high, "creators": sorted(creators), "databases": db_titles}
     words = []
-    if shared:
-        words.append(SHARED_WORDS)
-    if capped:
-        words.append("Part of your pages came in; the next sync brings the rest.")
+    if walk is not None:
+        # A walk through the whole history: the high-water mark moves only once nothing older is left to read.
+        if finished:
+            batch.cursor = {"high_water": walk.get("top") or high_water, "databases": db_titles}
+        else:
+            batch.cursor = {"high_water": high_water, "walk": walk, "databases": db_titles}
+            words.append(f"Reading your shared pages: {walk.get('read', 0)} so far; the next sync carries on.")
+    else:
+        if finished:
+            new_high = max([str(p.get("last_edited_time") or "") for p in todo] + [high_water or ""]) or None
+        else:
+            new_high = str(todo[-1].get("last_edited_time") or "") or high_water
+            words.append("Part of your edited pages came in; the next sync brings the rest.")
+        batch.cursor = {"high_water": new_high, "databases": db_titles}
+    if owner is None:
+        words.append(UNKNOWN_AUTHOR_WORDS)
     if unreadable:
         words.append(f"{unreadable} page(s) could not be read; share them with the connection again.")
     batch.words = " ".join(words) or None
@@ -301,7 +358,7 @@ def page_text(md: dict) -> str:
     return notion_export._links(text)
 
 
-def drafts_for(page: dict, md: dict, *, db_title: str | None, shared: bool) -> list[episode_staging.EpisodeDraft]:
+def drafts_for(page: dict, md: dict, *, db_title: str | None, mine: bool) -> list[episode_staging.EpisodeDraft]:
     hex_id = _hex(page.get("id"))
     sid = SOURCE_PREFIX + hex_id
     title = title_of(page)
@@ -319,8 +376,8 @@ def drafts_for(page: dict, md: dict, *, db_title: str | None, shared: bool) -> l
     content = page_text(md)
     if md.get("truncated"):
         content += "\n\n(Part of this page could not be read.)"
-    extra = {"notion_kind": "row" if db_title is not None else "page", "notion_by_other": shared,
-             "evidence_kind": "assistant" if shared else "user",
+    extra = {"notion_kind": "row" if db_title is not None else "page", "notion_by_other": not mine,
+             "evidence_kind": "user" if mine else "assistant",
              "notion_last_edited": str(page.get("last_edited_time") or "") or None}
     episodes = notion_export._sections(sid, title, head, content, when, extra)
     out = []

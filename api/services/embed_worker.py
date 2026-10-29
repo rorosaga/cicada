@@ -145,7 +145,9 @@ class _Worker:
         return self._proc.pid if self._proc is not None else None
 
     def _start(self) -> subprocess.Popen:
-        env = dict(os.environ)
+        from api.services.connections.base import secretless_env
+
+        env = secretless_env()
         # `api` resolves in the child exactly as here: this checkout (or the release's bundle) first.
         root = str(Path(__file__).resolve().parents[2])
         env["PYTHONPATH"] = os.pathsep.join(p for p in (root, env.get("PYTHONPATH", "")) if p)
@@ -300,7 +302,9 @@ def warm_in_child(folder: Path, timeout_s: float = 30 * 60) -> None:
     compile is cached by macOS for every process that later loads the model from that path, this one included.
     Raises ``RuntimeError`` when the child could not load it."""
     root = str(Path(__file__).resolve().parents[2])
-    env = dict(os.environ)
+    from api.services.connections.base import secretless_env
+
+    env = secretless_env()
     env["PYTHONPATH"] = os.pathsep.join(p for p in (root, env.get("PYTHONPATH", "")) if p)
     done = subprocess.run([sys.executable, "-m", "api.services.embed_worker", "--warm", str(folder)],
                           stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, env=env, timeout=timeout_s,

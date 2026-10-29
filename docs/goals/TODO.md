@@ -20,8 +20,10 @@
   request while Sleep writes; Sleep's tail never runs one. Readwise: a document episode plus one per highlight day
   (quotes as `page` evidence, the person's notes as `user`), linked to an existing page only on an exact URL or a
   unique exact title, never a page made. Notion: an internal connection only (a personal token is refused at Save),
-  pages keyed `notion:<id>` like the export, in place on edit, trash tombstoned, shared pages by more than one person
-  never credited to the person. Connector tokens are stripped from every engine child. Doors: the API and `cicada
+  pages keyed `notion:<id>` like the export, in place on edit, trash tombstoned; a page is the person's words only when
+  Notion names the connection's owner and that user created it (else `assistant`), and a unit stored as someone
+  else's is never moved back to the person's; the first sync walks the whole history before the mark moves. Engine
+  children, the embedding worker and the PDF reader also lose the master API token and the Telegram bot secrets. Connector tokens are stripped from every engine child. Doors: the API and `cicada
   connector list|connect|disconnect|sync` (token from stdin only); no remote door. p95 on a copy of the owner's bank
   (8.5k episodes, fake servers): 6.2 ms per Readwise unit, 22 ms per Notion page per incremental sync.
 - **2026-10-29 — Pages v2, part A (ruling 48 (3), (4), (7), (16), (17); DR-78…DR-81; G217; branch `feat/pages-v2`).**

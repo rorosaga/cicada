@@ -286,6 +286,27 @@ def _live_units(index: dict, channel: str) -> set[str]:
             if entry.fm.get("connector") == channel and not entry.fm.get("source_deleted_at")}
 
 
+def _others(fm: dict) -> bool:
+    return fm.get("evidence_kind") == "assistant" or any(
+        k.endswith("_by_other") and v is True for k, v in fm.items())
+
+
+def _keep_others_words(index: dict, batch: Batch) -> None:
+    """A unit stored as someone else's words (``assistant``, or an export's ``*_by_other``) is never moved to the
+    person's by a later read — whatever door stored it and whatever this read believes. Group-wide: one unit of a page
+    marked as another's keeps every unit of that page so (a page that grew past the split is still that page)."""
+    marked = {g for g in batch.replaced
+              if any(in_group(sid, g) and _others(entry.fm) for sid, entry in index.items())}
+    for draft in batch.drafts:
+        sid = draft.source_id or ""
+        entry = index.get(sid)
+        if (entry is not None and _others(entry.fm)) or any(in_group(sid, g) for g in marked):
+            extra = {**(draft.extra or {}), "evidence_kind": "assistant"}
+            for key in {k for k in [*extra, *(entry.fm if entry else {})] if k.endswith("_by_other")}:
+                extra[key] = True
+            draft.extra = extra
+
+
 def _stage(adapter: ModuleType, memory_path: Path, batch: Batch, bank: str | None) -> dict:
     episodes_dir = Path(memory_path) / "episodes"
     episodes_dir.mkdir(parents=True, exist_ok=True)
@@ -294,6 +315,7 @@ def _stage(adapter: ModuleType, memory_path: Path, batch: Batch, bank: str | Non
     wanted = {d.source_id for d in batch.drafts if d.source_id}
     with episode_staging.STAGE_LOCK:
         index, _ = episode_staging.scan(episodes_dir)
+        _keep_others_words(index, batch)
         live = _live_units(index, adapter.CHANNEL_ID)
         groups = [*batch.replaced, *batch.deleted]
         gone = sorted(sid for sid, entry in index.items()

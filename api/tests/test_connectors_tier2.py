@@ -402,7 +402,10 @@ def test_notion_pages_become_episodes_keyed_by_page_id(bank):
     assert result["status"] == "ok" and result["new"] == 2, result
     eps = _episodes(bank)
     page = eps["notion:11111111222233334444555555555555"]
-    assert page["fm"]["origin"] == "notion-api" and page["fm"]["evidence_kind"] == "user"
+    assert page["fm"]["origin"] == "notion-api"
+    # A workspace-owned connection never says who the person is: no page is credited to them (B1).
+    assert page["fm"]["evidence_kind"] == "assistant" and page["fm"]["notion_by_other"] is True
+    assert notion.UNKNOWN_AUTHOR_WORDS in sync_state.read_sync_state(bank)["notion-api"]["words"]
     assert "Ship the first slice." in page["body"] and "A child page" in page["body"] and "<page" not in page["body"]
     assert page["fm"]["timestamp"].startswith("2026-08-01")                     # created, read on time
     row = eps["notion:aaaaaaaabbbbccccddddeeeeeeeeeeee"]["body"]
@@ -445,16 +448,110 @@ def test_notion_updates_an_exported_page_in_place_never_a_second_copy(bank):
     assert len(list((bank / "episodes").glob("*.md"))) == 2
 
 
-def test_notion_pages_by_more_than_one_person_are_never_credited_on_a_guess(bank):
-    shared = json.loads(json.dumps(NO["search"]))
-    shared["results"][1]["created_by"] = {"object": "user", "id": "user-0002"}
+def _owned_by(user_id):
+    return {"object": "user", "id": "bot-0001", "type": "bot",
+            "bot": {"owner": {"type": "user", "user": {"object": "user", "id": user_id}}}}
+
+
+def _with_me(routes, me):
+    def wrapped(method, url, params, body):
+        if url.endswith("/users/me"):
+            return 200, me, {}
+        return routes(method, url, params, body)
+    return wrapped
+
+
+def test_a_notion_page_is_the_persons_words_only_when_notion_says_they_wrote_it(bank):
     _connect(notion)
-    asyncio.run(notion.sync(bank, http_fn=FakeServer(_notion_routes(search=shared))))
+    asyncio.run(notion.sync(bank, http_fn=FakeServer(_with_me(_notion_routes(), _owned_by("user-0001")))))
+    assert {e["fm"]["evidence_kind"] for e in _episodes(bank).values()} == {"user"}
+    assert "words" not in sync_state.read_sync_state(bank)["notion-api"]
+
+
+def test_a_single_other_creator_is_never_the_person(bank):
+    """B1's repro: every page created by one colleague, the connection owned by the person — never `user`."""
+    other = json.loads(json.dumps(NO["search"]))
+    for page in other["results"]:
+        page["created_by"] = {"object": "user", "id": "user-colleague"}
+    _connect(notion)
+    me = _owned_by("user-0001")
+    asyncio.run(notion.sync(bank, http_fn=FakeServer(_with_me(_notion_routes(search=other), me))))
+    assert {e["fm"]["evidence_kind"] for e in _episodes(bank).values()} == {"assistant"}
+
+
+def test_the_live_read_never_turns_an_exported_others_row_into_the_persons(bank):
+    """B2's repro: the export marked a row as someone else's; the live read (which believes it is the person's) keeps it
+    someone else's."""
+    draft = episode_staging.EpisodeDraft(
+        title="Idea: a reading log", source_id="notion:aaaaaaaabbbbccccddddeeeeeeeeeeee", source="notion-export",
+        origin="notion-export", body="# Idea: a reading log\n\nOld", writer="notion",
+        timestamp="2026-07-01T09:00:00+00:00", extra={"evidence_kind": "assistant", "notion_by_other": True})
+    episode_staging.stage([draft], bank / "episodes")
+    _connect(notion)
+    asyncio.run(notion.sync(bank, http_fn=FakeServer(_with_me(_notion_routes(), _owned_by("user-0001")))))
     eps = _episodes(bank)
-    assert {e["fm"]["evidence_kind"] for e in eps.values()} == {"assistant"}
+    row = eps["notion:aaaaaaaabbbbccccddddeeeeeeeeeeee"]
+    assert "Keep a log of what I read." in row["body"]                      # the live read did land
+    assert row["fm"]["evidence_kind"] == "assistant" and row["fm"]["notion_by_other"] is True
+    assert eps["notion:11111111222233334444555555555555"]["fm"]["evidence_kind"] == "user"
+
+
+def _many_pages(n):
+    out = []
+    for i in range(n):
+        out.append({"object": "page", "id": f"{i:08x}-0000-0000-0000-000000000000",
+                    "created_time": "2026-01-01T00:00:00.000Z",
+                    "last_edited_time": f"2026-10-{28 - i // 2:02d}T{23 - i % 24:02d}:00:00.000Z",
+                    "created_by": {"id": "user-0001"}, "parent": {"type": "workspace"},
+                    "properties": {"t": {"type": "title", "title": [{"plain_text": f"Page {i}"}]}}})
+    return out
+
+
+def _paged_routes(pages, size):
+    def routes(method, url, params, body):
+        path = url[len(notion.API_BASE):]
+        if path == "users/me":
+            return 200, NO["users_me_bot"], {}
+        if path == "search":
+            if body["filter"].get("in_trash"):
+                return 200, NO["trash"], {}
+            start = int(body.get("start_cursor") or 0)
+            chunk = pages[start:start + size]
+            more = start + size < len(pages)
+            return 200, {"results": chunk, "has_more": more, "next_cursor": str(start + size) if more else None}, {}
+        if path.endswith("/markdown"):
+            return 200, {"markdown": "Text."}, {}
+        return 404, {}, {}
+    return routes
+
+
+def test_the_first_sync_walks_the_whole_history_before_the_mark_moves(bank, monkeypatch):
+    """Review should-fix: more shared pages than one sync takes are read across syncs, oldest included; the high-water
+    mark moves only once the walk is done, and the Sources row says how far it got."""
+    monkeypatch.setattr(notion, "MAX_PAGES_PER_SYNC", 4)
+    pages = _many_pages(10)
+    routes = _paged_routes(pages, 2)
+    _connect(notion)
+    asyncio.run(notion.sync(bank, http_fn=FakeServer(routes)))
     cursor = tier2.read_cursor("notion-api", bank)
-    assert cursor["high_water"] is None and cursor["creators"] == ["user-0001", "user-0002"]
-    assert notion.SHARED_WORDS in sync_state.read_sync_state(bank)["notion-api"]["words"]
+    assert cursor["high_water"] is None and cursor["walk"]["read"] == 4
+    assert "so far" in sync_state.read_sync_state(bank)["notion-api"]["words"]
+    asyncio.run(notion.sync(bank, http_fn=FakeServer(routes)))
+    asyncio.run(notion.sync(bank, http_fn=FakeServer(routes)))
+    cursor = tier2.read_cursor("notion-api", bank)
+    assert "walk" not in cursor and cursor["high_water"] == pages[0]["last_edited_time"]
+    assert len([e for e in _episodes(bank) if e.startswith("notion:")]) == 10       # the oldest too
+
+
+def test_more_edits_than_one_listing_walk_everything_rather_than_skip(bank, monkeypatch):
+    monkeypatch.setattr(notion, "MAX_LIST_PAGES", 1)
+    pages = _many_pages(6)
+    _connect(notion)
+    tier2.write_cursor("notion-api", bank, {"high_water": "2026-01-01T00:00:00.000Z"})
+    sync_state.record_sync(bank, "notion-api", count=1)       # a bank that holds the connector's pages already
+    asyncio.run(notion.sync(bank, http_fn=FakeServer(_paged_routes(pages, 2))))
+    assert len([e for e in _episodes(bank) if e.startswith("notion:")]) == 6
+    assert tier2.read_cursor("notion-api", bank)["high_water"] == pages[0]["last_edited_time"]
 
 
 def test_a_page_the_connection_cannot_read_is_skipped_not_the_sync(bank):
@@ -478,3 +575,15 @@ def test_a_new_bank_reads_the_whole_history_whatever_the_cursor_says(bank):
     server = FakeServer(_readwise_routes())
     result = asyncio.run(readwise.sync(bank, http_fn=server))
     assert result["new"] == 5 and not any("updatedAfter" in c["params"] for c in server.calls)
+
+
+def test_cicadas_own_secrets_never_reach_a_child(monkeypatch):
+    for name in ("CICADA_API_TOKEN", "CICADA_TELEGRAM_BOT_TOKEN", "CICADA_TELEGRAM_WEBHOOK_SECRET",
+                 readwise.TOKEN_ENV, "REDDIT_PASSWORD"):
+        monkeypatch.setenv(name, "placeholder-secret")
+        assert name not in connections_base.scrubbed_env() and name not in connections_base.secretless_env()
+    # The helper children start from the secretless environment, never a copy of the backend's.
+    root = Path(__file__).resolve().parents[1] / "services"
+    for module in ("embed_worker.py", "pdf_page.py"):
+        source = (root / module).read_text()
+        assert "dict(os.environ)" not in source and "secretless_env()" in source, module
