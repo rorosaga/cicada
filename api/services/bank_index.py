@@ -101,17 +101,52 @@ def _scan(directory: Path) -> dict[str, tuple[int, int]]:
 
 def _scan_uncached(directory: Path) -> dict[str, tuple[int, int]]:
     out: dict[str, tuple[int, int]] = {}
+    ledgers: dict[str, tuple[int, int]] = {}
     try:
         with os.scandir(directory) as it:
             for entry in it:
-                if entry.is_file() and entry.name.endswith(".md"):
+                name = entry.name
+                if name.endswith(".md"):
+                    if entry.is_file():
+                        st = entry.stat()
+                        out[name] = (st.st_mtime_ns, st.st_size)
+                elif name.endswith(LEDGER_SUFFIX) and entry.is_file():
                     st = entry.stat()
-                    out[entry.name] = (st.st_mtime_ns, st.st_size)
+                    ledgers[name] = (st.st_mtime_ns, st.st_size)
     except OSError:
         # Missing, a plain file, unreadable: an empty listing, never a raise into
         # /sync/version or an ETag (the old max-mtime stamp's contract).
         pass
+    with _lock:
+        seen = _LEDGERS.setdefault(str(directory), [])
+        seen.append((out, ledgers))
+        del seen[:-_LEDGERS_KEPT]
     return out
+
+
+#: ``claims_ledger.SUFFIX``: a page's claims past 64k characters (`entities/<id>.claims.jsonl`).
+LEDGER_SUFFIX = ".claims.jsonl"
+#: directory -> the last few (listing, {ledger file: (mtime_ns, size)}) the scan saw together. The same scan stats both,
+#: so a listing shared under :func:`shared_scans` — or seeded from the SSE tick's walk — has its ledgers for free.
+_LEDGERS: dict[str, list[tuple[dict, dict[str, tuple[int, int]]]]] = {}
+_LEDGERS_KEPT = 4
+
+
+def ledger_fingerprint(directory: Path) -> str:
+    """The folder's claims ledgers as a change stamp (``""`` for none), seen by the same scan as its pages.
+
+    A page write moves the page first and shrinks its ledger just after (``markdown_parser.write``: lines the ledger
+    loses go after the page, so a crash never loses a claim). A read between the two folds a line the page now holds,
+    and a cache keyed on the page's stamp alone would keep that read (review of #518). A key that holds this stamp
+    moves when the ledger does."""
+    listing = _scan(Path(directory))
+    with _lock:
+        ledgers = next((led for seen, led in _LEDGERS.get(str(directory), ()) if seen is listing), None)
+    if ledgers is None:
+        _scan_uncached(Path(directory))   # a listing too old to have its ledgers kept: read them now
+        with _lock:
+            ledgers = (_LEDGERS.get(str(directory)) or [({}, {})])[-1][1]
+    return fingerprint((n, m, size) for n, (m, size) in ledgers.items()) if ledgers else ""
 
 
 def files(memory_path: Path, subdir: str) -> list[IndexedFile]:

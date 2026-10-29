@@ -205,7 +205,11 @@ def _builders(mp: Path, sleep_state, reuse: dict) -> dict:
             # G205: agent requests live outside the bank; a bank that never had one keeps its old stamp (and ETags).
             # Requests expire after days, not seconds, so today's date covers an expiry with nothing written.
             out += f":r{requests_mtime:.6f}:{date.today().isoformat()}"
-        return out
+        # The predicate map, the held names and the owner's id change what `GET /inbox` serves with nothing in
+        # `inbox/` moving (review of #518): the same stamps as the built list's key (`inbox_inputs`).
+        from api.services import inbox_inputs
+
+        return out + inbox_inputs.side_component(mp)
 
     # Ruling 45: `project_groupings.yaml` (dismissed ChatGPT groupings, imported provider ids) changes what the Projects
     # list says without touching a page, so it rides the `entities` component — every read keyed on it (`/projects`,
@@ -216,6 +220,10 @@ def _builders(mp: Path, sleep_state, reuse: dict) -> dict:
         out = bank_index.dir_fingerprint(mp / "entities")
         if groupings.exists():
             out += f":g{file_mtime(groupings):.6f}"
+        # A page's claims past 64k characters live in its ledger, and a write shrinks the ledger just after the page
+        # (review of #518): its stamp rides here, from the same scan. A bank with no ledger keeps its stamp.
+        if ledgers := bank_index.ledger_fingerprint(mp / "entities"):
+            out += f":l{ledgers}"
         return out
 
     return {
@@ -376,7 +384,15 @@ def etag_for(memory_path: Path, *keys: str, extra: str = "") -> str:
     into the digest — for varying request state (query params, filters) that
     changes the response body but isn't reflected in any filesystem component.
     """
-    parts: dict = components(memory_path, keys=keys)
+    if bank_index._SCAN_MEMO.get() is None:
+        # Speed 2026-10-29: an ETag outside a request's own block answers from the SSE tick's last walk when its gate
+        # allows (`sync_ticker.reusable_listings`), else lists each directory once, as before.
+        from api.services import sync_ticker
+
+        with sync_ticker.request_scans(memory_path):
+            parts: dict = components(memory_path, keys=keys)
+    else:
+        parts = components(memory_path, keys=keys)
     if extra:
         parts["_extra"] = extra
     return '"' + _digest(parts) + '"'
