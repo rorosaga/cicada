@@ -79,7 +79,9 @@ from api.services.auth import cicada_home
 #     no longer asks an agent to set an MCP env it cannot reach).
 # 22: lean reads (2026-10-27) — item 1 sends a direct factual question straight to cicada_ask (no recall first)
 #     and names cicada_sources for a conversation an answer names.
-CONTRACT_VERSION = 22
+# 23: G227 follow-up (owner 2026-10-29) — item 4 names cicada_split_page / cicada_merge_pages / cicada_undo_join:
+#     "that's two different things" / "those are the same" are offered and settled in the conversation.
+CONTRACT_VERSION = 23
 MAX_TOKENS = 1800
 VARIANTS = ("claude-code", "codex", "desktop", "generic")
 
@@ -362,7 +364,9 @@ _CONTRACT = (
     "`cicada_retract_claim(subject, claim_id, reason)`. Where to check (links to re-check a page by): "
     "`cicada_add_source` for one the person names, `inferred=true` + `evidence` for one you found; "
     "`cicada_change_source` to fix or drop your own. Fix a "
-    "page's text: `cicada_edit_page(subject, reason, edits)`.\n"
+    "page's text: `cicada_edit_page(subject, reason, edits)`; two things on one page: "
+    "`cicada_split_page(page, preview)`, apply on their yes; two pages, one thing: `cicada_merge_pages(page, into, "
+    "reason)`; undo: `cicada_undo_join(page)`.\n"
     f"5. {state_dictionary.WORLD_FACTS_NOTE}\n"
     "6. Ask before assuming: a pending clarification on an entity you are about to use means the person has "
     "not settled it — ask in flow, do not guess.\n"

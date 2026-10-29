@@ -73,9 +73,8 @@ struct EntityDetailCard: View {
     /// (`pageMenu`) when the page has none yet, so an empty section is never drawn waiting for one.
     @State private var addingLink = false
     @State private var addingLook = false
-    /// G227 follow-up (owner 2026-10-29) — the page's Merge and Split sheets, opened from its menu.
+    /// G227 follow-up (owner 2026-10-29) — the page's Merge sheet; separating is handed to the person's agent.
     @State private var merging = false
-    @State private var splitting = false
     /// `/provenance` was asked for this page: the History, Perspectives and Timeline tabs read it when opened — the
     /// Content tab never does (ruling 48: a card open is one request).
     @State private var provenanceAskedFor: String?
@@ -396,7 +395,7 @@ struct EntityDetailCard: View {
             Button(Copy.Pages.addLook) { addingLook = true }
             Divider()
             Button(Copy.PageJoin.mergeMenu) { merging = true }
-            Button(Copy.PageJoin.splitMenu) { splitting = true }
+            Button(Copy.PageJoin.separateMenu) { SeparateHandOff.copy(id: entity.id, name: entity.name, store: store) }
             Divider()
             Menu("\(Copy.Pages.fades): \(fadesLabel)") {
                 ForEach(DecayClass.allCases) { option in
@@ -429,16 +428,9 @@ struct EntityDetailCard: View {
                 afterJoin(open: id, pageGone: true)
             })
         }
-        .sheet(isPresented: $splitting) {
-            SplitPageSheet(entity: entity, close: { splitting = false }, done: { id in
-                splitting = false
-                afterJoin(open: id)
-            })
-        }
     }
 
-    /// After a merge or split: the graph again (pages came and went), then the page the person will want next — the
-    /// page that stayed, or the new one.
+    /// After a merge: the graph again (a page went), then the page that stayed.
     private func afterJoin(open id: String, pageGone: Bool = false) {
         let here = entity.id
         Task {

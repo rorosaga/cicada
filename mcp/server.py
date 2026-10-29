@@ -913,7 +913,7 @@ TOOLS = [
         # G227 follow-up (owner 2026-10-29): two pages that are one thing. A proposal in the inbox when the person has
         # not listed this app — always from a remote app (coordinator 2026-10-29).
         "name": "cicada_merge_pages",
-        "description": "Merge two pages that are the same thing, when the person says so or the record clearly shows it: `page` folds into `into` (the page that stays) — its beliefs, evidence, sources, aliases and links move, and its id keeps resolving to `into`. Give a `reason` in one sentence: it becomes the commit message the person sees. If the person has not listed your app as one that may change pages, it waits in their inbox for one tap instead. The person can undo it from the page's history.",
+        "description": "When the person says two pages are the same thing (\"those are the same\"), offer to merge them; on their yes, `page` folds into `into` (the page that stays) — its beliefs, evidence, sources, aliases and links move, and its id keeps resolving to `into`. Give the person's own words as `reason`; it becomes the commit message. If the person has not listed your app as one that may change pages, it waits in their inbox for one tap instead. Undo with cicada_undo_join.",
         "inputSchema": {"type": "object", "required": ["page", "into", "reason"], "properties": {
             "page": {"type": "string", "description": "The page that goes — its id (e.g. 'bob-ex') or name."},
             "into": {"type": "string", "description": "The page that stays — its id or name."},
@@ -921,9 +921,18 @@ TOOLS = [
         }},
     },
     {
+        # G227 follow-up (owner 2026-10-29): "undo that split" — the newest join on a page, taken back.
+        "name": "cicada_undo_join",
+        "description": "When the person asks to undo a merge or a split (\"undo that split\", \"put them back together\"), take back the newest one on that page: the pages return to how they were before it. Give their words as `reason`. Refused, nothing written, when something since changed the same place. A proposal in their inbox when your app is not on their list.",
+        "inputSchema": {"type": "object", "required": ["page"], "properties": {
+            "page": {"type": "string", "description": "A page the merge or split touched (id or name; a merged-away id still works)."},
+            "reason": {"type": "string", "maxLength": 300, "description": "The person's words, in one sentence."},
+        }},
+    },
+    {
         # G227 follow-up (owner 2026-10-29): one page that holds two things with one name.
         "name": "cicada_split_page",
-        "description": "Split off what a page says about a DIFFERENT thing that shares its name (a program and an app both called the same, two people with one name). First call with `preview: true`: it lists the page's numbered sentences, its beliefs by id, sources, conversations and the pages linking to it. Then call with what belongs to the other thing: `sentences` (numbers), `claims` (ids), `sources` (refs), `episodes` (conversation ids), and optionally `references` ({page id: 'new' or 'stay'}) for links you know the meaning of — a link you leave out moves only when every conversation it rests on moves. The new page gets the same clean title, its own id, and the two are kept apart from now on. Give a `reason`; it becomes the commit message. If the person has not listed your app as one that may change pages, it waits in their inbox for one tap. The person can undo it from the page's history.",
+        "description": "When the person says one page holds two different things that share a name (\"that's two different things\", \"the app and the programme got mixed up\"), separate them by talking it through. 1) `preview: true` lists the page's numbered sentences and beliefs. 2) Pick what is about the OTHER thing and call `preview: true` again with `sentences`/`claims` (and `name` if the new page should be titled differently): it returns a plain-text proposal — show it to the person and ask. 3) Only on their yes, call without `preview`, with their own words as `reason`. The new page keeps the same clean title and its own id; the two are kept apart from now on. `references` ({linking page id: 'new' | 'stay'}) settles links the person spoke about; others move only when every conversation they rest on moves. If the person has not listed your app as one that may change pages, it waits in their inbox for one tap. Undo with cicada_undo_join.",
         "inputSchema": {"type": "object", "required": ["page"], "properties": {
             "page": {"type": "string", "description": "The page to split — its id or name."},
             "preview": {"type": "boolean", "description": "List what can be picked; nothing changes."},
@@ -1786,6 +1795,8 @@ def _handle_local_tool(name: str, arguments: dict) -> str:
     elif name == "cicada_merge_pages":
         return mcp_tools.merge_pages(_ctx(), arguments.get("page", ""), arguments.get("into", ""),
                                      arguments.get("reason", ""))
+    elif name == "cicada_undo_join":
+        return mcp_tools.undo_join(_ctx(), arguments.get("page", ""), arguments.get("reason", ""))
     elif name == "cicada_split_page":
         return mcp_tools.split_page(
             _ctx(), arguments.get("page", ""), arguments.get("reason", ""), arguments.get("sentences"),

@@ -147,6 +147,8 @@ ROWS: tuple[Row, ...] = (
     # G227 follow-up (owner 2026-10-29): merge two pages or split one (a proposal when not trusted, as page edits).
     Row(("page", "merge"), "cicada_merge_pages", "Merge a page into another one, with your reason.",
         (_p("page"), _p("into"), _p("reason")), mutates=True, exposed=True),
+    Row(("page", "undo"), "cicada_undo_join", "Take back the newest merge or split on a page.",
+        (_p("page"), _f("reason")), mutates=True, exposed=True),
     Row(("page", "split"), "cicada_split_page", "Split what is about another thing off a page, with your reason.",
         (_p("page"), _f("reason"), _f("sentences", "json"), _f("claims", "list", flag_name="claim"),
          _f("sources", "list", flag_name="source"),

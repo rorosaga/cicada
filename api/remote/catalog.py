@@ -61,6 +61,7 @@ TOOL_SCOPE: dict[str, str | None] = {
     # never on the G198 trust list (`page_editors.is_trusted(remote=True)` is False), so it applies nothing itself.
     "cicada_merge_pages": "record",
     "cicada_split_page": "record",
+    "cicada_undo_join": "record",
     # Ruling 32 (owner 2026-10-19): a hookless app (claude.ai, ChatGPT, their phone apps) relays each turn.
     # Remote only: a stdio harness is captured by its own hook (G105), never by a model's call.
     "cicada_capture_turns": "record",
@@ -101,7 +102,8 @@ WRITE_TOOLS = frozenset({"cicada_save_episode", "cicada_capture_turns", "cicada_
                          "cicada_change_source",
                          "cicada_note_progress", "cicada_add_backlog_item", "cicada_add_backlog_note",
                          "cicada_video_claim", "cicada_create_project", "cicada_link_conversation",
-                         "cicada_link_entity", "cicada_add_influence", "cicada_merge_pages", "cicada_split_page"})
+                         "cicada_link_entity", "cicada_add_influence", "cicada_merge_pages", "cicada_split_page",
+                         "cicada_undo_join"})
 READ_TOOLS = frozenset({"cicada_recall", "cicada_open_hub", "cicada_recall_detail", "cicada_get_perspective",
                         "cicada_check_nudges", "cicada_timeline", "cicada_project", "cicada_sources",
                         "cicada_ask", "cicada_backlog", "cicada_reading_queue", "cicada_video_queue"})

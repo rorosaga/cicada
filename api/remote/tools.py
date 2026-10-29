@@ -502,6 +502,12 @@ REMOTE_TOOLS: dict[str, dict] = {t["name"]: t for t in (
            "episodes": {"type": "array", "items": {"type": "string"}},
            "name": {"type": "string", "maxLength": 120}},
           ("page",), read_only=False),
+    _tool("cicada_undo_join",
+          "Propose taking back the newest merge or split on a page, when the person asks. It waits in their inbox for "
+          "one tap.",
+          {"page": {"type": "string", "description": "The page (id or name)."},
+           "reason": {"type": "string", "maxLength": 300, "description": "The person's words, in one sentence."}},
+          ("page",), read_only=False),
     _tool("cicada_resolve_inbox",
           "Record the person's own answer to one of Cicada's questions: the option_key they chose, defer=true "
           "to ask again later, reject=true when two names are NOT the same, or skip=true when they did not "

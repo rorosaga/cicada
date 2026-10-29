@@ -15,7 +15,6 @@ extension Copy {
     enum PageJoin {
         // The page menu
         static let mergeMenu = "Merge into another page…"
-        static let splitMenu = "Split this page…"
 
         // Merge
         static func mergeTitle(_ name: String) -> String { "Merge \(name) into…" }
@@ -28,27 +27,14 @@ extension Copy {
         static let mergeAction = "Merge"
         static func merged(_ into: String) -> String { "Merged into \(into)" }
 
-        // Split
-        static func splitTitle(_ name: String) -> String { "Split \(name)" }
-        static let splitExplain = "Tick what is about the other thing. It moves to a new page with the same name; "
-            + "the two are kept apart from now on, and you can undo it from the page's history."
-        static let splitSuggest = "Suggest what to move"
-        static let splitSuggesting = "Reading the page…"
-        static let splitSuggestNone = "Nothing here reads as another thing — tick what moves yourself."
-        static let newName = "New page's name"
-        static let newType = "It is a"
-        static let sentences = "Sentences"
-        static let beliefs = "Beliefs"
-        static let sources = "Where to check"
-        static let conversations = "Conversations"
-        static let links = "Pages that link here"
-        static let linkNew = "the new page"
-        static let linkStay = "this page"
-        static let linkAsk = "say which"
-        static func linkRests(_ n: Int) -> String { n == 1 ? "rests on 1 conversation" : "rests on \(n) conversations" }
-        static let splitAction = "Split"
-        static func split(_ name: String) -> String { "Split off a new \(name)" }
-        static let nothingPicked = "Tick at least one sentence or belief"
+        // Separating is the person's agent's job (owner 2026-10-29): the page hands it a ready sentence.
+        static let separateMenu = "Separate with your agent…"
+        static func separatePrompt(_ name: String, _ id: String) -> String {
+            "In Cicada, the page \"\(name)\" (`\(id)`) seems to mix two different things that share the name. "
+                + "Use cicada_split_page with preview to show me which sentences are about the other thing, and split it "
+                + "only after I say yes."
+        }
+        static let separateCopied = "Copied — paste it to your agent"
         static let loading = "Reading the page…"
         static let failed = "The page could not be read."
         static let cancel = "Cancel"

@@ -331,3 +331,50 @@ def test_the_routes_split_merge_undo_and_redirect(bank, monkeypatch):
         assert _clean(bank)
     finally:
         config.get_settings.cache_clear()
+
+
+# --------------------------------------------------------------------------- talking it through (owner 2026-10-29)
+
+
+def test_the_agent_shows_a_proposal_first_and_nothing_changes(bank):
+    from api.services import mcp_tools
+
+    text = mcp_tools.split_page(_ctx(bank), "tool-x", preview=True, sentences=[2, 3], claims=["clm_applied"],
+                                episodes=["ep_2026-06-01_001"])
+    assert text.startswith("Proposal (nothing changed yet): 2 of 4 sentences and 1 belief")
+    assert PROGRAM_1 in text and PROGRAM_2 in text and EDITOR not in text
+    assert "Links that would follow: Bob Example." in text
+    assert "Only on their yes" in text
+    assert not (bank / "entities" / "tool-x-2.md").exists() and _clean(bank)
+
+
+def test_undo_that_split_takes_back_the_newest_join_on_the_page(bank):
+    from api.services import mcp_tools
+
+    mcp_tools.split_page(_ctx(bank), "tool-x", "the person: the programme is another thing", sentences=[2, 3])
+    assert page_join.latest(bank, "tool-x")[1] == "split"
+    out = mcp_tools.undo_join(_ctx(bank), "tool-x", "undo that split")
+    assert "Undid the split on tool-x" in out and "`tool-x-2` is gone again" in out
+    assert not (bank / "entities" / "tool-x-2.md").exists()
+    assert page_join.latest(bank, "tool-x") is None
+    assert "Nothing to undo" in mcp_tools.undo_join(_ctx(bank), "tool-x")
+    assert "Reason: undo that split" in _git(bank, "log", "-1", "--format=%B")
+    assert _clean(bank)
+
+
+def test_an_unlisted_agents_undo_is_a_proposal_the_person_applies(bank):
+    import asyncio
+    from types import SimpleNamespace
+
+    from api.models.schemas import InboxResolveRequest
+    from api.services import inbox_service, mcp_tools
+
+    _split(bank)
+    out = mcp_tools.undo_join(_ctx(bank, harness="cursor"), "tool-x", "put it back")
+    assert "Proposed, not applied" in out and (bank / "entities" / "tool-x-2.md").exists()
+    item = next((bank / "inbox").glob("inbox-*.md"))
+    assert markdown_parser.parse(item).frontmatter["join"]["op"] == "undo"
+    asyncio.run(inbox_service.resolve(item.stem, InboxResolveRequest(action="resolve", option_key="apply"),
+                                      SimpleNamespace(memory_path=bank, inbox_defer_days=30)))
+    assert not (bank / "entities" / "tool-x-2.md").exists() and not item.exists()
+    assert _clean(bank)

@@ -111,18 +111,21 @@ with the query. Then one line names up to 5 held names that match a query word. 
 is unread, it is an ordinary block under `_fit_recall`'s budget, and it is Cicada's reading, not the person's
 verbatim words, so it follows the claim leg's scope.
 
-**Merge and split pages (G227 follow-up, owner 2026-10-29; `page_join`, `storage.md`).** `cicada_merge_pages(page,
-into, reason)` folds `page` into `into`; `cicada_split_page(page, preview=true)` lists the page's numbered sentences,
-beliefs by id, sources, conversations and the pages linking to it with the conversations each link rests on, and
-`cicada_split_page(page, reason, sentences, claims, sources, episodes, references?, name?, page_type?)` moves the
-picked ones to a new page with the same clean title. The trust list is G198's (`page_editors`): a listed harness
-applies at once under its own `Cicada-Author`; any other files a `page_edit` proposal with a `join` payload that the
-person applies or leaves with one tap. **Coordinator 2026-10-29:** a remote app (the G135 connector, `/v1`
-`page_merge`/`page_split`) may call both under `record` scope but only ever proposes — `page_editors.is_trusted(remote=True)`
-is False — and its split takes sentences, claims and conversations (no links, no type). `cicada page merge` and
-`cicada page split` are exposed in the CLI (`cli_map`, `cli.py`): G198's trust list decides as on MCP, and an edit already
-uncommitted on a page is committed apart first. A refusal (no such page, nothing picked, Sleep holding the pages, a demo bank) writes
-nothing. Every join is one commit the person undoes from the page's History.
+**Merge, split, undo — in the conversation (G227 follow-up; owner 2026-10-29: "the separation of entities should mainly
+happen by talking to an agent"; `page_join`, `storage.md`).** The agent is the primary door. When the person says "that's
+two different things": `cicada_split_page(page, preview=true)` lists the page's numbered sentences and beliefs; the agent
+picks those about the other thing and calls `preview=true` again with them — a plain-text proposal ("Proposal (nothing
+changed yet): 3 of 5 sentences … move to a new page also called …; links that would follow …") it shows the person;
+only on their yes does it call without `preview`, their own words as `reason` (the commit's `Reason:`). "Those are the
+same": `cicada_merge_pages(page, into, reason)` after asking. "Undo that split": `cicada_undo_join(page, reason?)` takes
+back the newest merge or split on the page still in place (`page_join.latest`; a merged-away id resolves). The
+handshake's item 4 and the skill's *Fixing what memory says* name all three and when to offer them (contract 23). The
+trust list is G198's (`page_editors`): a listed harness applies at once under its own `Cicada-Author`; any other — a
+remote app (`/v1` `page_merge`/`page_split`/`page_undo`, `record` scope) always — files a `page_edit` proposal with a
+`join` payload (`op` merge, split or undo) the person applies or leaves with one tap. `cicada page merge|split|undo`
+are exposed in the CLI (`cli_map`, `cli.py`) with the same rule; an edit already uncommitted on a page is committed
+apart first. A refusal (no such page, nothing picked, nothing to undo, Sleep holding the pages, a demo bank) writes
+nothing.
 
 **Same name, different things (G227, 2026-10-29).** Every door names a page whose title another page shares by
 its qualifier (`same_name`): recall's heading is `### <name> (<qualifier>) (<type>, …) — id `<id>``;

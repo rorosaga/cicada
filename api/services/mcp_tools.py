@@ -3974,6 +3974,12 @@ def _join_locked(ctx: ToolContext, op: str, entity_id: str, payload: dict, reaso
                     f"directly, so the {op} of {entity_id} waits in their inbox ({item}) with your reason, for them "
                     "to apply or leave with one tap. Nothing changed yet.")
         before = agent_commits.before_for(memory_path)
+        if op == "undo":
+            out = page_join.undo(memory_path, payload["commit"], author=author, trigger=ctx.trigger, before=before,
+                                 session=ctx.session_id or None, reason=reason)
+            back = f" `{', '.join(out['restored'])}` is back." if out["restored"] else ""
+            gone = f" `{', '.join(out['removed'])}` is gone again." if out["removed"] else ""
+            return f"Undid the {out['kind']} on {entity_id} under {author}.{back}{gone}"
         if op == "merge":
             out = page_join.merge(memory_path, entity_id, payload["into"], author=author, trigger=ctx.trigger,
                                   reason=reason, session=ctx.session_id or None, before=before)
@@ -4016,6 +4022,57 @@ def merge_pages(ctx: ToolContext, page: str, into: str, reason: str) -> str:
     return _join_locked(ctx, "merge", loser, {"into": winner}, clean)
 
 
+def _split_dry_run(memory_path: Path, entity_id: str, sentences, claims, episodes, references, name) -> str:
+    """The proposal an agent shows the person in chat before it splits anything (owner 2026-10-29: "the separation of
+    entities should mainly happen by talking to an agent"): which sentences and beliefs would move, to which page, and
+    which links would follow — plain text, nothing written."""
+    from api.services import page_join
+
+    plan = page_join.split_plan(memory_path, entity_id)
+    picked = {int(n) for n in sentences or () if str(n).isdigit()}
+    chosen_claims = {str(c) for c in claims or ()}
+    moving = [s for s in plan["sentences"] if s["n"] in picked]
+    beliefs = [c for c in plan["claims"] if c["id"] in chosen_claims]
+    new_name = " ".join(str(name or plan["name"]).split()) or plan["name"]
+    moved_eps = {str(e) for e in episodes or ()}
+    staying = {c["id"] for c in plan["conversations"]} - moved_eps
+    said = references if isinstance(references, dict) else {}
+    follow = [r["name"] for r in plan["references"]
+              if (said.get(r["page_id"]) or page_join.reference_choice(r["episodes"], moved_eps, staying)) == "new"]
+    unsure = [r["name"] for r in plan["references"]
+              if r["page_id"] not in said and page_join.reference_choice(r["episodes"], moved_eps, staying) == "ask"]
+    lines = [f"Proposal (nothing changed yet): {len(moving)} of {len(plan['sentences'])} sentences"
+             + (f" and {len(beliefs)} belief{'s' if len(beliefs) != 1 else ''}" if beliefs else "")
+             + f" on {plan['name']} move to a new page also called \"{new_name}\" (`{plan['new_id']}`); the rest stays."]
+    lines += [f"  - {s['text']}" for s in moving]
+    lines += [f"  - (belief) {c['text']}" for c in beliefs]
+    if follow:
+        lines.append("Links that would follow: " + ", ".join(follow) + ".")
+    if unsure:
+        lines.append("Links that stay unless the person says otherwise: " + ", ".join(unsure) + ".")
+    lines.append("Show this to the person in your own words and ask. Only on their yes, call cicada_split_page "
+                 "again without `preview`, with their own words as `reason`. It can be undone with cicada_undo_join.")
+    return "\n".join(lines)
+
+
+def undo_join(ctx: ToolContext, page: str, reason: str = "") -> str:
+    """``cicada_undo_join``: take back the newest merge or split on ``page`` ("undo that split") — the person's words as
+    ``reason``. Trusted harness: at once; any other (a remote app always): an inbox proposal."""
+    from api.services import page_join
+
+    memory_path = ctx.memory_path()
+    if (refusal := _demo_refusal(memory_path)) is not None:
+        return refusal
+    entity_id = _join_page_id(memory_path, page)
+    if entity_id is None:
+        return Reply(f"No page named '{page}' — nothing changed. Use the page's id.", code="not_found")
+    found = page_join.latest(memory_path, entity_id)
+    if found is None:
+        return Reply(f"Nothing to undo — {entity_id} has no merge or split that is still in place.", code="not_found")
+    clean = _join_reason(reason) or f"Undo the {found[1]}, as the person asked."
+    return _join_locked(ctx, "undo", entity_id, {"commit": found[0]}, clean)
+
+
 def split_page(ctx: ToolContext, page: str, reason: str = "", sentences=None, claims=None, sources=None,
                episodes=None, references=None, name: str | None = None, page_type: str | None = None,
                preview: bool = False) -> str:
@@ -4030,9 +4087,13 @@ def split_page(ctx: ToolContext, page: str, reason: str = "", sentences=None, cl
     entity_id = _join_page_id(memory_path, page)
     if entity_id is None:
         return Reply(f"No page named '{page}' — nothing changed. Use the page's id.", code="not_found")
+    if preview and (sentences or claims):
+        return _split_dry_run(memory_path, entity_id, sentences, claims, episodes, references, name)
     if preview:
         plan = page_join.split_plan(memory_path, entity_id)
-        lines = [f"Split plan for {entity_id} ({plan['name']}). The new page would be `{plan['new_id']}`.",
+        lines = [f"Split plan for {entity_id} ({plan['name']}). The new page would be `{plan['new_id']}`. Read the "
+                 "sentences, pick the ones about the OTHER thing, then call again with `preview: true` and your picks "
+                 "for a plain-text proposal to show the person.",
                  "Sentences (pick by number):"]
         lines += [f"  {s['n']}. [{s['section'] or 'Summary'}] {s['text']}" for s in plan["sentences"]]
         lines.append("Beliefs (pick by id):")

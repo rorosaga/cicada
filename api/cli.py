@@ -749,7 +749,9 @@ def _page_join(tool: str):
             return _typed(_door(boot, tool, arguments), warnings=_root_warnings(boot))
         ctx = _tool_context(boot)
         with agent_commits.setting_apart(boot.pin.path):
-            if tool == "cicada_merge_pages":
+            if tool == "cicada_undo_join":
+                reply = mcp_tools.undo_join(ctx, arguments.get("page", ""), arguments.get("reason", ""))
+            elif tool == "cicada_merge_pages":
                 reply = mcp_tools.merge_pages(ctx, arguments.get("page", ""), arguments.get("into", ""),
                                               arguments.get("reason", ""))
             else:
@@ -768,7 +770,7 @@ ON_SERVER_TEXT = ("This command reads the memory folder, and this shell is a cli
 #: G181 phase 2: what a client shell runs, through the server's own routes — the tool mirrors (the tool door) and
 #: the read of the bank list; every `backend` command already goes to the backend's routes.
 CLIENT_DOOR_COMMANDS = frozenset({"recall", "get", "project", "continue", "save", "handshake", "timeline",
-                                  "skills list", "skills propose", "skills create", "page merge", "page split",
+                                  "skills list", "skills propose", "skills create", "page merge", "page split", "page undo",
                                   "status", "commands",
                                   "bank list", "import"})
 
@@ -801,7 +803,8 @@ COMMANDS: dict[str, Callable] = {"recall": cmd_recall, "get": cmd_get, "project"
                                  "import": cmd_import, "skills list": cmd_skills_list,
                                  "skills propose": cmd_skills_propose, "skills create": cmd_skills_create,
                                  "page merge": _page_join("cicada_merge_pages"),
-                                 "page split": _page_join("cicada_split_page")}
+                                 "page split": _page_join("cicada_split_page"),
+                                 "page undo": _page_join("cicada_undo_join")}
 _NO_BOOT = {"commands"}
 
 

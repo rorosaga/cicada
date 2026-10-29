@@ -619,6 +619,7 @@ TOOLS: dict[str, tuple[str, str | None]] = {
     "cicada_edit_page": (ADMITTED, "_edit_page_locked"),        # G198: the page or the proposal, committed alone
     "cicada_merge_pages": (ADMITTED, "_join_locked"),           # G227 follow-up: the join or the proposal, alone
     "cicada_split_page": (ADMITTED, "_join_locked"),
+    "cicada_undo_join": (ADMITTED, "_join_locked"),
     "cicada_save_url": (ADMITTED, "save_url"),                  # backend up: POST /sources/save admits itself
     "cicada_resolve_inbox": (ADMITTED, None),                   # posts to /inbox/{id}/resolve, which admits
     "cicada_save_episode": (CAPTURE, None),

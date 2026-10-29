@@ -34,13 +34,16 @@ it).
 | `cicada save "<content>"` | Stage a note for the next Sleep (content `-` reads stdin). |
 | `cicada handshake` | The contract and the current state, for an agent arriving cold. |
 | `cicada timeline` | What changed in memory, day by day. |
+| `cicada page merge <page> <into> <reason>` | Merge a page into another one, with your reason. |
+| `cicada page undo <page>` | Take back the newest merge or split on a page. |
+| `cicada page split <page>` | Split what is about another thing off a page, with your reason. |
 | `cicada skills list` | Agent skills on this Mac, per agent, with updates and requests. |
 | `cicada skills propose <action> <reason>` | Ask the person to install or update a skill (on/off/refresh apply at once if you're trusted). |
 | `cicada skills create <skill> <description> <body>` | Draft a skill for a workflow; held until the person publishes it. |
 | `cicada status` | Which memory this command uses, and whether the app's backend agrees. |
 | `cicada commands` | Every command, and the MCP tool each one mirrors. |
 
-- **Options:** get: `--start`, `--include`, `--from`, `--count`, `--line-numbers`; project: `--since`, `--tz`; continue: `--session`, `--before`; save: `--title`; timeline: `--since`; skills propose: `--source`, `--skill`, `--agent`; skills create: `--reason`. `get` also takes `<entity-id>:<start>[:<end>]`; `save` reads the
+- **Options:** get: `--start`, `--include`, `--from`, `--count`, `--line-numbers`; project: `--since`, `--tz`; continue: `--session`, `--before`; save: `--title`; timeline: `--since`; page undo: `--reason`; page split: `--reason`, `--sentences`, `--claim`, `--source`, `--episode`, `--references`, `--name`, `--page-type`, `--preview`; skills propose: `--source`, `--skill`, `--agent`; skills create: `--reason`. `get` also takes `<entity-id>:<start>[:<end>]`; `save` reads the
   text from stdin when it is `-`.
 - **`--json`** (before or after the command) prints one envelope: `{schema, command, ok, code, bank, data,
   text, warnings, version}`. `text` is what the matching MCP tool says; `data` is the structured part.
@@ -190,6 +193,15 @@ trailers) and dedup hold.
   message; the claims on the page are never touched. If the person has not
   listed your app as one that may edit pages, the change waits in their inbox
   for one tap, and the reply says so.
+- One page holds two different things with one name ("that's two different
+  things", "the app and the programme got mixed up") -> separate them in the
+  conversation: `cicada_split_page(page, preview=true)`, pick the sentences
+  about the other thing, call `preview=true` again with them to get a
+  plain-text proposal, show it and ask; only on their yes, call it without
+  `preview`, their own words as `reason`.
+- Two pages are one thing ("those are the same") -> offer
+  `cicada_merge_pages(page, into, reason)`; on their yes, apply.
+- "Undo that split / merge" -> `cicada_undo_join(page)`.
 - A fact is wrong or new -> `cicada_write_claim` (quote the evidence);
   withdraw a claim you wrote with `cicada_retract_claim`.
 - An open question the person just answered -> `cicada_resolve_inbox`.

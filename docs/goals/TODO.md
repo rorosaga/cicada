@@ -13,9 +13,10 @@
 ## Current state and evidence
 
 - **2026-10-29 — any join can be undone: merge, split, undo (G227 follow-up; branch `feat/merge-split-pages`, after
-  on #546).** The page's menu merges it into another page or splits off what is about another thing with the same name
-  (the split plan's sentences pre-ticked on the person's click); a trusted harness can do both over MCP, any other
-  agent proposes in the inbox. Each is one commit undone from the page's History; a retired id keeps resolving
+  on #546).** Owner: "the separation of entities should mainly happen by talking to an agent" — the agent shows a
+  plain-text proposal, splits on the person's yes, merges on "those are the same", undoes on "undo that"
+  (`cicada_split_page` / `cicada_merge_pages` / `cicada_undo_join`, named in the handshake and skill); the page menu
+  keeps a light Merge and a *Separate with your agent…* hand-off. Untrusted agents and remote apps propose in the inbox. Each is one commit undone from the page's History; a retired id keeps resolving
   (`_redirects.yaml`, every merge and rename); a split pair is never re-joined by Sleep. Verified on a read-only copy of
   the owner's bank: the same-name page split, undone, split, merged back, both undone — byte-identical.
 

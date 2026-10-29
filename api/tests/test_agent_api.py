@@ -351,7 +351,7 @@ def test_new_operations_take_the_cli_command_spelled_with_underscores():
                         # Decision 10 (2026-10-28): pages tied by hand.
                         "projects_tie_page",
                         # G227 follow-up (coordinator 2026-10-29): a remote merge or split is a proposal.
-                        "page_merge", "page_split"}
+                        "page_merge", "page_split", "page_undo"}
 
 
 def test_each_operation_needs_exactly_its_tool_s_scope():

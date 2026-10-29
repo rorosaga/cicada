@@ -1,7 +1,7 @@
 import SwiftUI
 
 // G227 follow-up (owner 2026-10-29): "this should be something that can be merged and stuff down the line, or entities
-// can be separated if they were joined like what happened now." Two sheets from the page's menu (DR-81: actions live
+// can be separated if they were joined like what happened now." Merge is one sheet from the page's menu (DR-81: actions live
 // in the page menu, never a fold), built only from patterns the app already has — the Add-skill sheet's shape (a
 // heading, a lead, a checkbox list, Cancel + the one primary action, DR-40), `Tag` for a qualifier (DR-44), a
 // `SectionLabel` per group. No disclosure, nothing folds (owner taste; DR-81). Each join is one commit the person can
@@ -101,173 +101,15 @@ struct MergePageSheet: View {
     }
 }
 
-/// Split this page: tick what is about the other thing (the read's suggestions pre-ticked), name it, Split.
-struct SplitPageSheet: View {
-    let entity: Entity
-    let close: () -> Void
-    let done: (String) -> Void
+/// Owner 2026-10-29: "the separation of entities should mainly happen by talking to an agent." The page's quiet way in
+/// copies a ready sentence for the person's own agent, which proposes the split in the conversation and applies it on
+/// their yes (`cicada_split_page`); the app holds no checklist of its own.
+enum SeparateHandOff {
+    static func prompt(id: String, name: String) -> String { Copy.PageJoin.separatePrompt(name, id) }
 
-    @Environment(Store.self) private var store
-    @State private var plan: SplitPlan?
-    @State private var selection = SplitSelection()
-    @State private var failed = false
-    @State private var suggesting = false
-    @State private var working = false
-    @State private var problem: String?
-    @FocusState private var nameFocused: Bool
-
-    private static let types = ["person", "project", "company", "concept", "tool", "skill", "location", "directory"]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-            Text(Copy.PageJoin.splitTitle(entity.name)).font(CicadaTheme.headingFont)
-            Text(Copy.PageJoin.splitExplain).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-            if let plan {
-                content(plan)
-            } else if failed {
-                Text(Copy.PageJoin.failed).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
-            } else {
-                SectionLoading(text: Copy.PageJoin.loading)
-            }
-            if let problem {
-                Label(problem, systemImage: "exclamationmark.circle")
-                    .font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            HStack(spacing: CicadaTheme.spacingSM) {
-                if plan != nil {
-                    NeutralButton(title: suggesting ? Copy.PageJoin.splitSuggesting : Copy.PageJoin.splitSuggest,
-                                  size: .compact, isDisabled: suggesting || working) { Task { await load(suggest: true) } }
-                }
-                if working { ProgressView().controlSize(.small) }
-                Spacer()
-                TextButton(title: Copy.PageJoin.cancel, action: close).keyboardShortcut(.cancelAction)
-                PrimaryActionButton(title: Copy.PageJoin.splitAction) { split() }
-                    .disabled(plan == nil || selection.isEmpty || working)
-                    .help(selection.isEmpty ? Copy.PageJoin.nothingPicked : "")
-            }
-        }
-        .padding(CicadaTheme.spacingXL)
-        .frame(width: CicadaTheme.scaled(680))
-        .task { await load(suggest: false) }
-    }
-
-    @ViewBuilder
-    private func content(_ plan: SplitPlan) -> some View {
-        HStack(spacing: CicadaTheme.spacingMD) {
-            TextField("", text: $selection.name)
-                .focused($nameFocused)
-                .cicadaField(isFocused: nameFocused, prompt: Copy.PageJoin.newName, isEmpty: selection.name.isEmpty)
-            Picker(Copy.PageJoin.newType, selection: $selection.type) {
-                ForEach(Self.types, id: \.self) { Text(EntityType(rawValue: $0)?.label ?? $0).tag($0) }
-            }
-            .fixedSize()
-        }
-        ScrollView {
-            VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-                group(Copy.PageJoin.sentences, plan.sentences) { s in
-                    check(s.text, detail: s.reason, on: bind(\.sentences, s.n))
-                }
-                group(Copy.PageJoin.beliefs, plan.claims) { c in
-                    check(c.text, detail: nil, on: bind(\.claims, c.id))
-                }
-                group(Copy.PageJoin.sources, plan.sources) { s in
-                    check(s.label ?? s.ref, detail: s.label == nil ? nil : s.ref, on: bind(\.sources, s.ref))
-                }
-                group(Copy.PageJoin.conversations, plan.conversations) { c in
-                    check(c.title ?? c.id, detail: c.date, on: bind(\.episodes, c.id))
-                }
-                group(Copy.PageJoin.links, plan.references) { ref in linkRow(ref, plan: plan) }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .frame(maxHeight: CicadaTheme.scaled(420))
-        if plan.suggested, plan.sentences.allSatisfy({ !$0.suggested }) {
-            Text(Copy.PageJoin.splitSuggestNone).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
-        }
-    }
-
-    @ViewBuilder
-    private func group<Item: Identifiable, Row: View>(_ title: String, _ items: [Item],
-                                                       @ViewBuilder row: @escaping (Item) -> Row) -> some View {
-        if !items.isEmpty {
-            VStack(alignment: .leading, spacing: CicadaTheme.scaled(4)) {
-                SectionLabel(title)
-                ForEach(items) { row($0) }
-            }
-        }
-    }
-
-    private func check(_ text: String, detail: String?, on: Binding<Bool>) -> some View {
-        Toggle(isOn: on) {
-            VStack(alignment: .leading, spacing: CicadaTheme.scaled(1)) {
-                Text(text).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textPrimary)
-                    .fixedSize(horizontal: false, vertical: true)
-                if let detail, !detail.isEmpty {
-                    Text(detail).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
-                }
-            }
-        }
-        .toggleStyle(.checkbox)
-    }
-
-    /// A link: which page it means — what its evidence says as conversations are ticked, until the person says.
-    private func linkRow(_ ref: SplitPlan.Reference, plan: SplitPlan) -> some View {
-        let shown = selection.choice(for: ref, plan: plan)
-        return HStack(spacing: CicadaTheme.spacingSM) {
-            Text(ref.name).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textPrimary)
-            if !ref.episodes.isEmpty {
-                Text(Copy.PageJoin.linkRests(ref.episodes.count)).font(CicadaTheme.metaFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-            }
-            Spacer(minLength: CicadaTheme.spacingSM)
-            Picker("", selection: Binding(get: { shown }, set: { selection.references[ref.pageId] = $0 })) {
-                Text(Copy.PageJoin.linkStay).tag(SplitLinkChoice.stay)
-                Text(Copy.PageJoin.linkNew).tag(SplitLinkChoice.new)
-                if shown == .ask { Text(Copy.PageJoin.linkAsk).tag(SplitLinkChoice.ask) }
-            }
-            .labelsHidden()
-            .fixedSize()
-        }
-    }
-
-    private func bind<T: Hashable>(_ key: WritableKeyPath<SplitSelection, Set<T>>, _ value: T) -> Binding<Bool> {
-        Binding(get: { selection[keyPath: key].contains(value) },
-                set: { on in if on { selection[keyPath: key].insert(value) } else { selection[keyPath: key].remove(value) } })
-    }
-
-    private func load(suggest: Bool) async {
-        if suggest { suggesting = true }
-        defer { suggesting = false }
-        do {
-            let fresh = try await APIClient.shared.fetchSplitPlan(entityId: entity.id, suggest: suggest)
-            if plan == nil {
-                selection = SplitSelection.starting(from: fresh)
-            } else {
-                // Suggestions add ticks; what the person already ticked or unticked stays theirs.
-                selection.sentences.formUnion(fresh.sentences.filter(\.suggested).map(\.n))
-            }
-            plan = fresh
-        } catch {
-            if plan == nil { failed = true } else { problem = PageJoinWords.problem(error) }
-        }
-    }
-
-    private func split() {
-        working = true
-        problem = nil
-        let chosen = selection
-        Task {
-            defer { working = false }
-            do {
-                let answer = try await APIClient.shared.splitPage(entityId: entity.id, selection: chosen)
-                store.toast = Copy.PageJoin.split(chosen.name.isEmpty ? entity.name : chosen.name)
-                done(answer.otherId ?? answer.entityId)
-            } catch {
-                problem = PageJoinWords.problem(error)
-            }
-        }
+    @MainActor static func copy(id: String, name: String, store: Store) {
+        AppPasteboard.copy(prompt(id: id, name: name))
+        store.toast = Copy.PageJoin.separateCopied
     }
 }
 

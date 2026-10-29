@@ -4606,15 +4606,6 @@ extension APIClient {
         try await post(Self.provenancePath("/entities", entityId, "/merge"), body: ["into": into])
     }
 
-    /// What the split sheet shows; `suggest` asks the person's engine which sentences are about another thing.
-    func fetchSplitPlan(entityId: String, suggest: Bool) async throws -> SplitPlan {
-        try await get("/entities/\(encodedID(entityId))/split-plan?suggest=\(suggest)", timeout: suggest ? 180 : nil)
-    }
-
-    func splitPage(entityId: String, selection: SplitSelection) async throws -> PageJoinAnswer {
-        try await post(Self.provenancePath("/entities", entityId, "/split"), body: selection.body)
-    }
-
     /// Take a merge or split back, from the page's History.
     func undoJoin(entityId: String, commitHash: String) async throws -> PageJoinAnswer {
         try await post(Self.provenancePath("/entities", entityId, "/history/\(commitHash)/undo"))

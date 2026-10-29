@@ -30,7 +30,7 @@ def _home(tmp_path, monkeypatch):
 
 
 def test_the_contract_versions_moved():
-    assert (handshake.CONTRACT_VERSION, handshake.REMOTE_CONTRACT_VERSION) == (22, 15)  # 22 / 15: lean reads (2026-10-27) — a factual question goes straight to cicada_ask, cicada_sources reads an ep_ id; 21: the codex prelude names its AGENTS.md block; 20 / 14: G61 "Where to check" (ruling 36 D5) defines it and names inferred/evidence; 19: G200 A7 (no HTTP route, a desktop variant); 18 / 13: ruling 34, the video hand-back names its lease_token; remote 12: ruling 32 capture; 17: G198 cicada_edit_page merged past 16 (questions come up naturally)
+    assert (handshake.CONTRACT_VERSION, handshake.REMOTE_CONTRACT_VERSION) == (23, 15)  # 23: G227 follow-up — item 4 names split / merge / undo of pages; 22 / 15: lean reads (2026-10-27) — a factual question goes straight to cicada_ask, cicada_sources reads an ep_ id; 21: the codex prelude names its AGENTS.md block; 20 / 14: G61 "Where to check" (ruling 36 D5) defines it and names inferred/evidence; 19: G200 A7 (no HTTP route, a desktop variant); 18 / 13: ruling 34, the video hand-back names its lease_token; remote 12: ruling 32 capture; 17: G198 cicada_edit_page merged past 16 (questions come up naturally)
 
 
 def test_the_parser_reads_the_reading_calls():
@@ -110,7 +110,7 @@ def test_a_full_bank_primer_with_item_9_stays_inside_the_budget(tmp_path, varian
 
 def test_an_empty_state_primer_is_far_inside_the_budget_with_item_9():
     for variant in handshake.VARIANTS:
-        assert len(handshake.build(None, variant=variant, bank="memory", reading=True)) // 4 < 1386  # ~1,381 with lean reads (2026-10-27: ask first for a factual question, cicada_sources for an ep_ id); ~1,368 with "Where to check" (ruling 36 D5, 2026-10-22); ~1,361 before, with G198's edit line and ruling 34's lease_token; MAX_TOKENS (1,800) is the hard budget
+        assert len(handshake.build(None, variant=variant, bank="memory", reading=True)) // 4 < 1430  # ~1,425 with item 4's split / merge / undo line (G227 follow-up, 2026-10-29); ~1,381 with lean reads (2026-10-27: ask first for a factual question, cicada_sources for an ep_ id); ~1,368 with "Where to check" (ruling 36 D5, 2026-10-22); ~1,361 before, with G198's edit line and ruling 34's lease_token; MAX_TOKENS (1,800) is the hard budget
 
 
 @pytest.mark.parametrize("scopes", SUBSETS, ids=lambda s: "+".join(sorted(s)))

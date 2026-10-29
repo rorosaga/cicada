@@ -623,7 +623,30 @@ def undone(memory_path, sha: str) -> bool:
     return out.returncode == 0 and bool(out.stdout.strip())
 
 
-def undo(memory_path, sha: str, *, author: str = "user", trigger: str = TRIGGER_APP, before=None) -> dict:
+def latest(memory_path, page_id: str) -> tuple[str, str] | None:
+    """``(commit, kind)`` of the newest merge or split on ``page_id``'s page not yet taken back — what "undo that split"
+    means when the person names the page, not the change. ``None`` when there is none (or no git)."""
+    memory_path = Path(memory_path)
+    if not (memory_path / ".git").exists():
+        return None
+    out = subprocess.run(["git", "-C", str(memory_path), "log", "-n200", "--format=%x1e%H%x1f%s%x1f%b",
+                          "--", f"entities/{page_id}.md"], capture_output=True, text=True)
+    if out.returncode != 0:
+        return None
+    taken_back: set[str] = set()
+    for record in out.stdout.split("\x1e")[1:]:
+        sha, _, rest = record.partition("\x1f")
+        subject, _, body = rest.partition("\x1f")
+        kind = kind_of(subject)
+        if kind == "undo":
+            taken_back.update(line[len(UNDOES):].strip() for line in body.splitlines() if line.startswith(UNDOES))
+        elif kind in ("merge", "split") and sha.strip() not in taken_back:
+            return sha.strip(), kind
+    return None
+
+
+def undo(memory_path, sha: str, *, author: str | list[str] = "user", trigger: str = TRIGGER_APP, before=None,
+         session: str | None = None, reason: str | None = None, extra_paths=(), extra_lines=()) -> dict:
     """Take one merge or split back: the reverse of its commit applied onto each file as it is now. Refused whole, with
     a sentence and nothing written, when anything since changed the same place (409), when it is not a join (404) or
     was already taken back (409). ``{kind, commit, paths, restored, removed}`` — ``removed``: pages the undo took away
@@ -687,8 +710,11 @@ def undo(memory_path, sha: str, *, author: str = "user", trigger: str = TRIGGER_
     _invalidate(memory_path)
     lines = _manifest(paths, trigger, created={f"entities/{r}.md" for r in restored},
                       removed={rel for rel, data in writes if data is None})
-    lines += ["", f"{UNDOES}{full}"]
-    commit = _commit(memory_path, SUBJECT_UNDO, lines, paths, authors=[author], session=None, before=before)
+    lines += [*extra_lines, "", f"{UNDOES}{full}"]
+    if reason:
+        lines.append(f"Reason: {_clean_reason(reason)}")
+    commit = _commit(memory_path, SUBJECT_UNDO, lines, [*paths, *extra_paths], authors=_authors(author),
+                     session=session, before=before)
     removed = [Path(rel).stem for rel, data in writes
                if data is None and rel.startswith("entities/") and rel.endswith(".md")]
     return {"kind": kind, "commit": commit, "undid": full, "paths": paths, "restored": restored, "removed": removed}
@@ -711,7 +737,11 @@ def write_proposal(memory_path, *, op: str, entity_id: str, payload: dict, reaso
     page = _page(memory_path, entity_id)
     fm0 = markdown_parser.parse(page).frontmatter or {}
     name = str(fm0.get("name") or entity_id)
-    if op == "merge":
+    if op == "undo":
+        what = "merge" if kind_of(_subject(memory_path, str(payload.get("commit") or ""))) == "merge" else "split"
+        title = f"Undo the {what} on {name}?"
+        lines = [f"- Put **{name}** (`{entity_id}`) back as it was before that {what}."]
+    elif op == "merge":
         into = _page(memory_path, str(payload.get("into") or ""))
         into_name = str((markdown_parser.parse(into).frontmatter or {}).get("name") or into.stem)
         title = f"Merge {name} into {into_name}?"
@@ -731,7 +761,7 @@ def write_proposal(memory_path, *, op: str, entity_id: str, payload: dict, reaso
         "kind": page_edits.KIND, "required_input": "choice", "status": "pending", "priority": 0.5,
         "entity_id": entity_id, "entity_name": name, "title": title, "created_date": date.today().isoformat(),
         "question": f"An agent suggests this: {reason}",
-        "options": [{"key": "apply", "label": "Merge them" if op == "merge" else "Split it"},
+        "options": [{"key": "apply", "label": {"merge": "Merge them", "undo": "Undo it"}.get(op, "Split it")},
                     {"key": "dismiss", "label": "Leave the page as it is"}],
         "allow_other": False, "allow_defer": True,
         "proposed_by": author, "reason": reason, "join": {"op": op, **payload},
@@ -762,8 +792,8 @@ def apply_proposal(memory_path, fm: dict, *, rel_item: str, trigger: str, before
     reason = str(fm.get("reason") or "") or None
     extra = dict(extra_paths=[rel_item], extra_lines=[f"{rel_item}: removed (trigger: {trigger})"])
     entity_id = str(fm.get("entity_id") or "")
-    if op not in ("merge", "split"):
-        raise JoinError("This proposal is not a merge or a split.", 409)
+    if op not in ("merge", "split", "undo"):
+        raise JoinError("This proposal is not a merge, a split or an undo.", 409)
     item = Path(memory_path) / rel_item
     held = item.read_bytes() if item.is_file() else None
     item.unlink(missing_ok=True)   # retired in the join's own commit
@@ -771,6 +801,9 @@ def apply_proposal(memory_path, fm: dict, *, rel_item: str, trigger: str, before
         if op == "merge":
             return merge(memory_path, entity_id, str(join.get("into") or ""), author=authors, trigger=trigger,
                          reason=reason, session=session, before=before, **extra)
+        if op == "undo":
+            return undo(memory_path, str(join.get("commit") or ""), author=authors, trigger=trigger, before=before,
+                        session=session, reason=reason, **extra)
         return split(memory_path, entity_id, sentences=join.get("sentences") or (), claims=join.get("claims") or (),
                      sources=join.get("sources") or (), episodes=join.get("episodes") or (),
                      references=join.get("references") or None, name=join.get("name"),
