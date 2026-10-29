@@ -77,7 +77,8 @@ def big(tmp_path_factory):
 
 def test_the_detail_and_the_list_fit_their_budgets(big):
     detail = _p95(lambda: project_timeline.build(big, "proj-00", tz_name="UTC"))
-    listing = _p95(lambda: project_timeline.list_projects(big, tz_name="UTC"))
+    # The list is remembered while nothing it reads moved (speed 2026-10-29): this budget is the build's, every run.
+    listing = _p95(lambda: (project_timeline._LISTS.clear(), project_timeline.list_projects(big, tz_name="UTC")))
     _within("project detail", detail, 0.150)
     _within("project list", listing, 0.080)
 

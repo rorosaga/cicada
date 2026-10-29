@@ -1326,6 +1326,11 @@ def handle_handshake() -> str:
 def main():
     """Main loop: read JSON-RPC requests from stdin, write responses to stdout."""
     _warn_if_transcript_missing()
+    # Speed 2026-10-29: the server's start-up heap lives as long as the conversation; frozen out of the cyclic
+    # collector once, so a full collection inside a recall never walks it (`gc_tuning`, as the backend does).
+    from api.services import gc_tuning
+
+    gc_tuning.freeze_after_start()
     for line in sys.stdin:
         line = line.strip()
         if not line:

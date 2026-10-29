@@ -1263,14 +1263,6 @@
       "disposition": "preserve_frontmatter_guarded"
     }
   ],
-  "services/watch_history.py": [
-    {
-      "function": "_refresh_seen",
-      "method": "write",
-      "frontmatter": "fm",
-      "disposition": "preserve_frontmatter_guarded"
-    }
-  ],
   "services/inbox_actor.py": [
     {
       "function": "write_record",
@@ -1418,6 +1410,14 @@
   "services/in_short.py": [
     {
       "function": "write",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "preserve_frontmatter_guarded"
+    }
+  ],
+  "services/watch_rows_migration.py": [
+    {
+      "function": "_move",
       "method": "write",
       "frontmatter": "fm",
       "disposition": "preserve_frontmatter_guarded"

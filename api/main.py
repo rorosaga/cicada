@@ -262,6 +262,12 @@ async def lifespan(app: FastAPI):
 
     asyncio.get_running_loop().create_task(telegram_account.ACCOUNT.resume())
 
+    # Speed 2026-10-29: everything start-up made lives as long as the process; freeze it out of the cyclic collector
+    # once, so a full collection in a request never walks the app itself (`gc_tuning`).
+    from api.services import gc_tuning
+
+    gc_tuning.freeze_after_start()
+
     try:
         yield
     finally:

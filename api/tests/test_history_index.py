@@ -126,8 +126,11 @@ def test_a_watched_day_and_its_month_land_read_by_the_index(tmp_path):
     assert "## Came back to across weeks\n- alice-example — in 2 different weeks" in body
     assert "## Watched on more than one day\n- Bridges, part one — alice-example · 2 days: 2026-09-01, 2026-09-09" in body
     assert "- 2026-09-01 Tuesday · 2 videos" in body
+    # Each day's rows ride beside it in their own file (`sources/watched/`), never in its cached header.
     assert sorted(result.paths) == sorted({f"episodes/{p.name}" for p in (memory / "episodes").glob("ep_2026-*")
-                                           if p.stem not in ("ep_2026-09-01_001", "ep_2026-09-02_001")})
+                                           if p.stem not in ("ep_2026-09-01_001", "ep_2026-09-02_001")}
+                                          | {f"sources/watched/youtube/{p.name}"
+                                             for p in (memory / "sources" / "watched" / "youtube").glob("*.json")})
     # Nothing new waits for a model: only the fixture's own conversation does.
     assert [e["id"] for e in sleep_cycle._get_unprocessed_episodes(memory)] == ["ep_2026-09-01_001"]
     # A re-read writes nothing, the summary included.

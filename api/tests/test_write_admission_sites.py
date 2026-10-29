@@ -545,6 +545,8 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /maintenance/dedup-sweep": (PER_WRITE, "api.services.dedup_sweep._merge_and_commit"),
     "POST /maintenance/enrich-links": (PROBE, None),
     "POST /maintenance/link-sources": (ADMITTED, None),
+    # Speed 2026-10-29: the person's --apply of the watched-rows move (episodes and their rows files, one commit).
+    "POST /maintenance/watched-rows": (ADMITTED, None),
     "POST /maintenance/verify-sites": (PROBE, None),
     # G61, ruling 26: the read runs before admission; the write and its commit (or the cadence / "asked") are admitted.
     "POST /entities/{entity_id}/sources/refresh": (ADMITTED, None),

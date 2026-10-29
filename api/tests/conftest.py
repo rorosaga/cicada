@@ -272,6 +272,12 @@ def _disable_telemetry(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_gc_freeze(monkeypatch):
+    """Every TestClient lifespan would freeze the suite's heap once (`gc_tuning`): off, its own test turns it on."""
+    monkeypatch.setenv("CICADA_GC_FREEZE", "off")
+
+
+@pytest.fixture(autouse=True)
 def _stdio_client_info_isolated():
     """The stdio server is one module object shared by the whole run (`_stdio_server`), and `initialize_result` records
     the client's name in its module-level ``CLIENT_INFO``: a test that initialises as a client left it for every later
@@ -303,6 +309,8 @@ def _fresh_inbox_build():
         episode_time._UNTIMED.clear()
         origin_stats._MEMO.clear()
         project_timeline._EPOCHS.clear()
+        project_timeline._ENTITY_EPOCHS.clear()
+        project_timeline._LISTS.clear()
         status_router._EPISODE_COUNTS.clear()
         mcp_tools._PAGE_CLAIMS.clear()
 
