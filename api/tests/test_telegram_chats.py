@@ -119,6 +119,13 @@ class FakePort:
     async def disconnect(self):
         self.calls.append("disconnect")
 
+    #: chats-ux-v2 — the profile photo each peer answers (bytes, or None for none).
+    photos: dict = {}
+
+    async def profile_photo(self, chat):
+        self.calls.append("profile_photo")
+        return self.photos.get(chat)
+
 
 @pytest.fixture
 def home(tmp_path, monkeypatch):
@@ -687,3 +694,129 @@ def test_the_status_route_carries_the_code_length(home, made, monkeypatch):
     from api.routers.chat_sources import TelegramStatus
     body = TelegramStatus(**account.status()).model_dump(by_alias=True)
     assert body["codeLength"] == 6
+
+
+# --- chats-ux-v2 (owner 2026-10-29) -----------------------------------------------------------------------------------
+
+
+def test_a_scan_shows_as_connected_at_once_through_the_status_long_poll(home, bank, made):
+    """"It took a bit to change status to connected": the QR step read the status once a second. It now waits on the
+    status's `version` and answers the moment the sign-in lands. Measured on the fake client: scan → answered."""
+    ports, factory = made
+
+    async def go():
+        account = telegram_account.Account(factory)
+        status = await account.start_qr()
+        held = status["version"]
+        assert held and (await account.wait_change(held, 0.05))["version"] == held, "nothing moved: same answer"
+        waiter = asyncio.get_running_loop().create_task(account.wait_change(held, 10))
+        await asyncio.sleep(0.2)
+        assert not waiter.done(), "a QR still on screen keeps the ask open"
+        scanned = time.perf_counter()
+        ports[-1].qr_answers = [True]
+        answer = await waiter
+        took = time.perf_counter() - scanned
+        await account.stop()
+        return answer, took
+    answer, took = run(go())
+    assert answer["state"] == "connected" and answer["version"]
+    assert took < 0.5, f"scan → connected took {took:.3f} s"
+
+
+def test_the_status_route_waits_for_a_change_only_when_asked(home, made, monkeypatch):
+    ports, factory = made
+    account = telegram_account.Account(factory)
+    monkeypatch.setattr(telegram_account, "ACCOUNT", account)
+    client = TestClient(main.app)
+    first = client.get("/sources/telegram/status").json()
+    assert first["state"] == "off" and first["version"]
+    started = time.perf_counter()
+    again = client.get("/sources/telegram/status", params={"since": first["version"], "wait": 0.2}).json()
+    assert again["version"] == first["version"] and time.perf_counter() - started >= 0.2
+    assert client.get("/sources/telegram/status", params={"wait": 99}).status_code == 422
+
+
+def test_a_chats_profile_photo_is_asked_once_kept_outside_the_bank_and_gone_on_disconnect(home, bank, live_account):
+    cid = telegram_source.conversation_id(FRIEND)
+    live_account.port.photos = {FRIEND: b"\xff\xd8\xff\xe0PLACEHOLDER-JPEG"}
+    client = TestClient(main.app)
+    r = client.get(f"/sources/telegram/chats/{cid}/photo")
+    assert r.status_code == 200 and r.content.startswith(b"\xff\xd8") and r.headers["content-type"] == "image/jpeg"
+    assert client.get(f"/sources/telegram/chats/{cid}/photo",
+                      headers={"If-None-Match": r.headers["etag"]}).status_code == 304
+    assert live_account.port.calls.count("profile_photo") == 1, "asked of Telegram once, then kept"
+    kept = home / "telegram" / "photos" / f"{cid}.jpg"
+    assert kept.exists() and oct(kept.stat().st_mode & 0o777) == "0o600"
+    assert not any(p.suffix == ".jpg" for p in bank.rglob("*")), "never in a bank"
+    none = telegram_source.conversation_id(OTHER)
+    assert client.get(f"/sources/telegram/chats/{none}/photo").status_code == 404
+    assert client.get(f"/sources/telegram/chats/{none}/photo").status_code == 404
+    assert live_account.port.calls.count("profile_photo") == 2, "a chat with no photo is remembered too"
+    assert client.get("/sources/telegram/chats/not-an-id/photo").status_code == 404
+    run(live_account.disconnect())
+    assert not (home / "telegram" / "photos").exists()
+
+
+def test_saved_messages_is_ticked_with_no_consent_question_and_kept_as_your_notes(home, bank, live_account):
+    """Ruling 47a amendment (2026-10-29): the consent rule protects the OTHER participants; Saved Messages has none, so
+    the person's tick is the whole consent — decided from Telegram's own dialog, never the client's word."""
+    me = 1009
+    real = live_account.port.dialogs
+
+    async def dialogs(limit):
+        return [*await real(limit), TgDialog(me, "Placeholder Self", False, bot=False, last=T0, is_self=True)]
+    live_account.port.dialogs = dialogs
+    client = TestClient(main.app)
+    rows = {r["id"]: r for r in client.get("/sources/telegram/chats").json()["chats"]}
+    own, friend = telegram_source.conversation_id(me), telegram_source.conversation_id(FRIEND)
+    assert rows[own]["own"] is True and rows[friend]["own"] is False
+    assert client.put("/sources/telegram/settings",
+                      json={"conversation": {"id": friend, "ticked": True}}).status_code == 409, "others still ask"
+    r = client.put("/sources/telegram/settings", json={"conversation": {"id": own, "ticked": True}})
+    assert r.status_code == 200, r.text
+    assert telegram_account.consents()[own].get("self") is True
+    note = msg(1, me, "idea for alpha-project", out=True, at=time.time() + 5)     # live from the tick
+    out = run(live_account.flush({me: [TgEvent(kind="new", chat=me, message=note)]}))
+    assert own in out
+    (ep,) = episodes(bank).values()
+    assert ep.frontmatter["self_chat"] is True and "correspondent" not in ep.frontmatter
+    assert ep.body.splitlines() == ["user: idea for alpha-project"]
+
+
+def test_a_saved_messages_tick_belongs_to_its_account_never_the_next(home, bank, live_account):
+    """#559 review: the `self` consent outlived a disconnect, so after another account signed in, a one-to-one chat
+    with the old account's id would have been stored as the person's notes. The disconnect drops `self` consents and
+    the ingest stages a `self` chat only while Telegram lists it as this account's own."""
+    me = 1009
+    cid = telegram_source.conversation_id(me)
+    chat_live.update_settings(bank, telegram_source.SPEC, {"id": cid, "ticked": True}, now="2026-01-01T00:00:00+00:00")
+    telegram_account.set_consent(cid, True, own=True)
+    friend = tick(bank, FRIEND)
+    note = msg(1, me, "now the old account, texting the new one", at=T0 + 10)
+    with pytest.raises(telegram_source.NoConsent):      # Telegram doesn't list it as this account's own any more
+        telegram_source.ingest(bank, {"id": cid, "chat": me, "name": "Old account", "group": False, "own": False},
+                               [note])
+    assert not episodes(bank)
+    run(live_account.disconnect())
+    assert cid not in telegram_account.consents(), "a Saved Messages tick goes with its session"
+    assert friend in telegram_account.consents(), "another person's dated agreement stays"
+
+
+def test_a_ticked_chats_photo_becomes_its_pages_picture_and_goes_on_untick(home, bank, live_account):
+    from api.services import logo_service, messages_photos
+
+    messages_photos._MEMO.clear()
+    cid = telegram_source.conversation_id(FRIEND)
+    import struct
+
+    app0 = b"\xff\xe0" + struct.pack(">H", 16) + b"JFIF\x00" + b"\x00" * 9
+    jpeg = b"\xff\xd8" + app0 + b"\xff\xc0" + struct.pack(">HBHH", 17, 8, 160, 160) + b"\x03" + b"\x00" * 9 + b"\xff\xd9"
+    live_account.port.photos = {FRIEND: jpeg}
+    client = TestClient(main.app)
+    r = client.put("/sources/telegram/settings", json={"conversation": {"id": cid, "ticked": True, "consent": True}})
+    assert r.status_code == 200, r.text
+    meta = messages_photos.read_meta(logo_service.bank_name(bank))
+    assert cid in meta, "the tick kept the chat's photo in the one chat-photo store"
+    r = client.put("/sources/telegram/settings", json={"conversation": {"id": cid, "ticked": False}})
+    assert r.status_code == 200
+    assert cid not in messages_photos.read_meta(logo_service.bank_name(bank))

@@ -148,6 +148,7 @@ final class MessagesWatcher {
     /// The name the backend may keep: never the handle (a phone number or an address never leaves the app). Empty when
     /// nothing better is known — the backend then says "Unnamed conversation".
     func postedName(of conversation: MessagesConversation) -> String {
+        if conversation.isSelf { return Copy.Chats.selfChat }   // chats-ux-v2: its card is the person's own
         if let card = cards[conversation.id], !card.name.isEmpty { return card.name }
         if !conversation.displayName.isEmpty { return conversation.displayName }
         if conversation.isGroup {

@@ -29,6 +29,10 @@ final class WhatsAppWatcher {
     private(set) var tickedIds: Set<String> = []
     private(set) var historyIds: Set<String> = []
     private(set) var cards: [String: MessagesContactCard] = [:]
+    /// chats-ux-v2 — the profile picture WhatsApp keeps for each listed chat, ≤ 128 px, in memory only.
+    private(set) var pictures: [String: Data] = [:]
+    /// The photo last posted per ticked chat (its bytes' hash), so an unchanged one is never posted again.
+    @ObservationIgnored private var postedPhotos: [String: Int] = [:]
     private(set) var listing = false
     /// File change → posted, seconds, the last 50 live passes — the area doc's number.
     private(set) var liveSeconds: [Double] = []
@@ -113,7 +117,9 @@ final class WhatsAppWatcher {
     }
 
     /// The name the backend may keep: the Contacts card's, else WhatsApp's own partner or group name — never the number.
+    /// The person's own chat is named for what it is (its card is the person's own, never a correspondent's).
     func postedName(of chat: WhatsAppChat) -> String {
+        if chat.isSelf { return Copy.Chats.selfChat }
         if let card = cards[chat.id], !card.name.isEmpty { return card.name }
         return chat.partnerName.allSatisfy({ $0.isNumber || "+ ()-".contains($0) }) ? "" : chat.partnerName
     }
@@ -121,6 +127,15 @@ final class WhatsAppWatcher {
     func name(of chat: WhatsAppChat) -> String {
         let posted = postedName(of: chat)
         return posted.isEmpty ? (chat.phoneHandle ?? Copy.Chats.unnamed) : posted
+    }
+
+    /// chats-ux-v2 — the picker's picture: the Contacts card's photo, else the one WhatsApp keeps for the chat.
+    func thumbnail(of chat: WhatsAppChat) -> Data? { cards[chat.id]?.thumbnail ?? pictures[chat.id] }
+
+    /// chats-ux-v2 (owner 2026-10-29: "why I can't search my chats") — the chats a search keeps, most recent first (the
+    /// list's own order): a name fragment (case and accents ignored) or a fragment of a one-to-one chat's number.
+    func filtered(_ query: String) -> [WhatsAppChat] {
+        ChatSearch.filter(chats, query: query, name: { self.name(of: $0) }, digits: \.searchDigits)
     }
 
     // MARK: The list
@@ -140,7 +155,8 @@ final class WhatsAppWatcher {
             status = .failed(Copy.Chats.whatsAppUnreadable)
             return
         }
-        let phones = chats.compactMap(\.phoneHandle)
+        // The person's own number is no correspondent: never looked up as one (its card is their own).
+        let phones = chats.filter { !$0.isSelf }.compactMap(\.phoneHandle)
         let found = await lookUp(phones)
         cards = Dictionary(uniqueKeysWithValues: chats.compactMap { chat in
             chat.phoneHandle.flatMap { found[$0] }.map { (chat.id, $0) } })
@@ -148,6 +164,11 @@ final class WhatsAppWatcher {
             tickedIds = answer.tickedIds.union(tickedIds.subtracting(chats.map(\.id)))
             historyIds = Set(answer.conversations.filter(\.history).map(\.id))
         }
+        // chats-ux-v2 — pictures last: the rows and their ticks never wait on them (≈80 ms for 300, measured).
+        let listed = chats
+        pictures = await Task.detached(priority: .userInitiated) {
+            Dictionary(uniqueKeysWithValues: listed.compactMap { chat in reader.picture(chat).map { (chat.id, $0) } })
+        }.value
     }
 
     private var isNeedsAccess: Bool { if case .needsAccess = status { true } else { false } }
@@ -239,7 +260,7 @@ final class WhatsAppWatcher {
                         memberPosted[jid] = posted
                     }
                 }
-            } else if let handle = chat.phoneHandle {
+            } else if !chat.isSelf, let handle = chat.phoneHandle {
                 if cards[chat.id] == nil, !lookedUp.contains(handle),
                    let card = await lookUp([handle])[handle] { cards[chat.id] = card }
                 contact = MessagesWatcher.postedCard(cards[chat.id], looked: lookedUp.contains(handle))
@@ -261,7 +282,23 @@ final class WhatsAppWatcher {
                 if pass.cursor <= since { throw WhatsAppReadError.stalled }
             }
         }
+        await postPhotos(found)
         return posted > 0 ? Copy.Chats.synced(posted) : Copy.Chats.upToDate
+    }
+
+    /// chats-ux-v2 — a ticked chat's WhatsApp picture, posted like a Messages chat's shared photo (`messages_photos`:
+    /// outside every bank, the page's picture through the chat's correspondent — never for a group or the person's own
+    /// chat, which have none). Posted only when it changed; a failure leaves the face a monogram, never the sync.
+    private func postPhotos(_ ticked: [WhatsAppChat]) async {
+        let reader = self.reader
+        let pairs = await Task.detached(priority: .utility) {
+            ticked.map { chat in (chat.id, chat.group || chat.isSelf ? nil : reader.picture(chat)) }
+        }.value
+        let changed = pairs.filter { id, data in postedPhotos[id] != data?.hashValue ?? 0 }
+        guard !changed.isEmpty else { return }
+        if (try? await api.putChatPhotos(changed.map { MessagesPhotoPayload(conversation: $0.0, photo: $0.1) })) != nil {
+            for (id, data) in changed { postedPhotos[id] = data?.hashValue ?? 0 }
+        }
     }
 
     // MARK: Watching
@@ -305,14 +342,7 @@ final class WhatsAppWatcher {
 
     static func failureMessage(_ error: Error) -> String {
         if let read = error as? WhatsAppReadError { return read.errorDescription ?? Copy.Chats.whatsAppUnreadable }
-        if error is URLError { return Copy.sourceBackendDown }
-        guard let api = error as? APIError else { return Copy.Chats.syncFailed }
-        switch api {
-        case .httpError(409, let body): return ProjectWriteFailure.detail(body) ?? Copy.Chats.syncFailed
-        case .httpError(404, _), .httpError(405, _): return Copy.sourceNeedsUpdate
-        case .serverUnreachable: return Copy.sourceBackendDown
-        default: return Copy.Chats.syncFailed
-        }
+        return Copy.Chats.failure(error)
     }
 
     private static func status(for error: BrowserFileError) -> Status {

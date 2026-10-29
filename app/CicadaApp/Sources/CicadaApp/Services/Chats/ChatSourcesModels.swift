@@ -60,9 +60,12 @@ struct TelegramStatusAnswer: Decodable, Equatable, Sendable {
     var qrUrl: String?
     /// While `state == "code_sent"`: how many digits the code Telegram sent has (`sent.type.length`); nil = unknown.
     var codeLength: Int?
+    /// chats-ux-v2 — changes whenever the status does; passed back as `since` to wait for the next change (nil from an
+    /// older backend, which the QR step then reads once a second).
+    var version: String?
 
     enum CodingKeys: String, CodingKey {
-        case state, consent, consentAsk, credentials, error, listening, qrUrl, codeLength
+        case state, consent, consentAsk, credentials, error, listening, qrUrl, codeLength, version
     }
 
     init(state: String = "off", consent: String = "", credentials: String? = nil, error: String? = nil,
@@ -84,6 +87,7 @@ struct TelegramStatusAnswer: Decodable, Equatable, Sendable {
         listening = (try? c.decodeIfPresent(Bool.self, forKey: .listening)) ?? false
         qrUrl = try? c.decodeIfPresent(String.self, forKey: .qrUrl)
         codeLength = try? c.decodeIfPresent(Int.self, forKey: .codeLength)
+        version = try? c.decodeIfPresent(String.self, forKey: .version)
     }
 }
 
@@ -98,16 +102,24 @@ struct TelegramChatRow: Decodable, Equatable, Identifiable, Sendable {
     var history = false
     /// When the person confirmed the other person agreed (ruling 47a amendment).
     var consentedAt: String?
+    /// Saved Messages, the person's chat with themselves: ticked with no consent question — there is no other person
+    /// (ruling 47a amendment 2026-10-29; the backend decides it from Telegram's own dialog).
+    var own = false
 
-    enum CodingKeys: String, CodingKey { case id, name, group, bot, last, ticked, history, consentedAt }
+    enum CodingKeys: String, CodingKey { case id, name, group, bot, last, ticked, history, consentedAt, own }
 
-    init(id: String, name: String = "", group: Bool = false, ticked: Bool = false, history: Bool = false) {
+    init(id: String, name: String = "", group: Bool = false, ticked: Bool = false, history: Bool = false,
+         own: Bool = false) {
         self.id = id
         self.name = name
         self.group = group
         self.ticked = ticked
         self.history = history
+        self.own = own
     }
+
+    /// The name the picker shows: Saved Messages is named for what it is.
+    var shownName: String { own ? Copy.Chats.selfChat : (name.isEmpty ? Copy.Chats.unnamed : name) }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -119,6 +131,7 @@ struct TelegramChatRow: Decodable, Equatable, Identifiable, Sendable {
         ticked = (try? c.decodeIfPresent(Bool.self, forKey: .ticked)) ?? false
         history = (try? c.decodeIfPresent(Bool.self, forKey: .history)) ?? false
         consentedAt = try? c.decodeIfPresent(String.self, forKey: .consentedAt)
+        own = (try? c.decodeIfPresent(Bool.self, forKey: .own)) ?? false
     }
 }
 
@@ -143,6 +156,42 @@ protocol ChatSourcesAPI: Sendable {
     /// Tick a one-to-one Telegram chat with the person's confirmation that the other person agreed, or untick it
     /// (which withdraws that confirmation) — ruling 47a amendment.
     func telegramTick(id: String, name: String, ticked: Bool, consent: Bool) async throws -> ChatTickAnswer
+    /// chats-ux-v2 — the status as soon as it moves past `since` (or after `wait` seconds): the QR step's way to see a
+    /// scan land at once.
+    func telegramStatus(since: String, wait: Int) async throws -> TelegramStatusAnswer
+    /// chats-ux-v2 — a listed Telegram chat's small profile photo (JPEG), nil when it has none.
+    func telegramChatPhoto(id: String) async throws -> Data?
+    /// chats-ux-v2 — ticked WhatsApp chats' pictures, into the one chat-photo store (`PUT /sources/messages/photos`).
+    func putChatPhotos(_ photos: [MessagesPhotoPayload]) async throws
 }
 
-extension APIClient: ChatSourcesAPI {}
+extension ChatSourcesAPI {
+    func telegramStatus(since: String, wait: Int) async throws -> TelegramStatusAnswer { try await telegramStatus() }
+    func telegramChatPhoto(id: String) async throws -> Data? { nil }
+    func putChatPhotos(_ photos: [MessagesPhotoPayload]) async throws {}
+}
+
+extension APIClient: ChatSourcesAPI {
+    func putChatPhotos(_ photos: [MessagesPhotoPayload]) async throws { _ = try await putMessagesPhotos(photos) }
+}
+
+/// chats-ux-v2 (owner 2026-10-29: "why I can't search my chats like I can inside WhatsApp and Telegram") — the chat
+/// pickers' one search: a name fragment, case and accents ignored, or digits matched against a number the app holds
+/// (never sent anywhere). The list keeps its own order — most recent first, as the apps list them.
+enum ChatSearch {
+    static func filter<T>(_ items: [T], query: String, name: (T) -> String, digits: (T) -> String = { _ in "" }) -> [T] {
+        let words = query.split(whereSeparator: \.isWhitespace).map(String.init)
+        guard !words.isEmpty else { return items }
+        let typedDigits = query.filter(\.isNumber)
+        return items.filter { item in
+            let folded = fold(name(item))
+            if words.allSatisfy({ folded.contains(fold($0)) }) { return true }
+            return typedDigits.count >= 3 && typedDigits.count == query.filter({ !$0.isWhitespace && $0 != "+" && $0 != "-" }).count
+                && digits(item).contains(typedDigits)
+        }
+    }
+
+    static func fold(_ text: String) -> String {
+        text.folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: nil)
+    }
+}

@@ -14,6 +14,9 @@ struct MessagesConversation: Identifiable, Equatable, Sendable {
     let fromMe: Int
     let fromThem: Int
     var isGroup = false
+    /// chats-ux-v2 — a note to self: the chat's handle is one of the person's own (`last_addressed_handle` or an
+    /// account login on this Mac) — app-only finding, the handle never posted.
+    var isSelf = false
     /// A group's members' handles — app-only, never posted.
     var members: [String] = []
 
