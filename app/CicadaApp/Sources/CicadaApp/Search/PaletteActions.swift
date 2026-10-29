@@ -29,6 +29,10 @@ enum PaletteActions {
             add("tab.\(tab.rawValue)", "Go to \(tab.title)", keywords: ["open", "page", "show"], symbol: tab.icon,
                 trailing: key.isEmpty ? nil : key, destination: .tab(tab), order: 10 + i)
         }
+        // CIC8 (2026-10-29) — File → Import…, findable by what a person holding an export types, on Home's field too.
+        add("import", Copy.Catalog.importChatsOrFiles + "…",
+            keywords: ["chat export", "chatgpt", "claude", "gemini", "conversations", "zip", "upload", "add", "import"],
+            symbol: "tray.and.arrow.down", trailing: "⇧⌘I", destination: .action(.importFile), order: 20)
         if inputs.appearance == .dark {
             add("appearance.light", "Switch to light", keywords: ["appearance", "theme", "day"],
                 symbol: "sun.max", destination: .action(.lightMode), order: 30)

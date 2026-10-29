@@ -56,6 +56,9 @@ extension Copy {
             + "becomes one entry, and your liked songs, albums and podcasts become saved items."
         static let howLinkedIn = "From LinkedIn: Settings → Data privacy → Get a copy of your data → Saved items. "
             + "Unzip the archive and drop Saved Items.csv here."
+        /// CIC8 — where a chat export comes from, and where its conversations show once imported.
+        static let howChatExports = "ChatGPT, Claude and Gemini each email a link to a .zip of your chats. Drop it "
+            + "here as it is, without unzipping. Imported chats also show on their app's row on the Agents page."
         static let howBookmarksFile = "A bookmarks file any browser exports (HTML or JSON) — in Chrome, Bookmarks → "
             + "Bookmark manager → ⋮ → Export bookmarks."
         static let whatCameIn = "What came in"
@@ -74,8 +77,10 @@ extension Copy {
             default: "Read my Saved in my browser"
             }
         }
-        static let chatExportsHere = "Each chat export sits on its agent's row."
-        static let dropHint = "Drop an export or a bookmarks file here."
+        /// CIC8 (2026-10-29) — the Sources header's one add, named for what people arrive holding.
+        static let importChatsOrFiles = "Import chats or files"
+        static let dropHint = "A chat export from ChatGPT, Claude or Gemini, a bookmarks file or another export. "
+            + "You can also drop one anywhere on the window."
         static func eyebrow(_ connected: Int) -> String { "\(connected) connected" }
 
         // 2026-10-23 — connectors that work, said as they work.

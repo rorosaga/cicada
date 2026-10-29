@@ -527,6 +527,12 @@ final class IntakeRouterTests: XCTestCase {
         XCTAssertFalse(IntakeLayer.showsVeil(windowTargeted: false, nearerDrop: nil))
     }
 
+    /// CIC8 (2026-10-29) — the picker opens where every chat app's export link downloads to. Only a path: the panel
+    /// draws the folder, so nothing in it is read by Cicada and no Files and Folders prompt is raised.
+    func testThePickerOpensInDownloads() {
+        XCTAssertEqual(IntakePicker.startFolder?.lastPathComponent, "Downloads")
+    }
+
     /// Z-B17 — one picker, one list of types, for every door.
     func testOneFilePickerForEveryIntakeDoor() throws {
         XCTAssertEqual(IntakePicker.allowedContentTypes,

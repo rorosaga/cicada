@@ -115,7 +115,9 @@ struct OnboardingView: View {
                     card(size: geo.size)
                 }
                 if let vendor = seeHow {
-                    ExportWalkthroughSheet(vendor: vendor) { seeHow = nil }
+                    // CIC8 — the Welcome's own picker (`welcomeChooseRequest`), which stages what is picked here.
+                    ExportWalkthroughSheet(vendor: vendor, onClose: { seeHow = nil },
+                                           onHaveFile: { seeHow = nil; intake.present(from: .welcome) })
                 }
             }
         }

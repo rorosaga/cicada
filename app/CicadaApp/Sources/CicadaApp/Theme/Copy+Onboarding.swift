@@ -64,6 +64,8 @@ extension Copy {
     static let seeHowTitle = "Ask for your chat history"
     static let seeHowReplay = "Replay"
     static let seeHowDone = "Done"
+    /// CIC8 (2026-10-29) — the walkthrough is for asking; someone already holding the .zip picks it from here.
+    static let seeHowHaveFile = "I have the file…"
     static let seeHowClaudePath = "Settings → Privacy"
     static let seeHowChatGPTPath = "Settings → Data controls"
     static let seeHowGeminiPath = "My Activity → Gemini Apps"

@@ -547,6 +547,7 @@ struct ContentView: View {
         case .actualSize: CicadaTheme.resetZoom()
         case .lightMode: colorSchemeRaw = AppColorScheme.light.rawValue
         case .darkMode: colorSchemeRaw = AppColorScheme.dark.rawValue
+        case .importFile: intake.present(from: .fileMenu)
         }
     }
 

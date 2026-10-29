@@ -47,7 +47,7 @@ enum SourceCatalogVerb: Equatable {
     case turnOn
     /// A one-shot import: the export's own walkthrough.
     case importFile
-    /// Chat exports live on their agent's row.
+    /// An agent's conversations live on its row of the Agents page.
     case openAgents
 }
 
@@ -142,7 +142,7 @@ enum SourceCatalog {
         SourceCatalogEntry(id: "chat-exports", group: .exports, title: Copy.Catalog.chatExports,
                            origin: "claude-export",
                            channels: ["chat-export:claude", "chat-export:chatgpt", "chat-export:gemini"],
-                           verb: .openAgents),
+                           verb: .importFile),
         SourceCatalogEntry(id: "rss", group: .feeds, title: "RSS", origin: "rss", channels: ["rss"], tile: .rssFeed,
                            verb: .connect(Copy.Catalog.addFeed)),
         SourceCatalogEntry(id: "calendar", group: .feeds, title: Copy.Catalog.calendarFeeds, origin: "calendar",
@@ -186,7 +186,7 @@ enum SourceCatalog {
     }
 
     /// 2026-10-26 — where the file an entry imports comes from, said before its Import a file button. Every entry that
-    /// offers a file import has one (Notion says its own in `notionHow`; chat exports live on the Agents page); an
+    /// offers a file import has one (Notion says its own in `notionHow`); an
     /// entry with no line imports no file.
     static func exportHow(_ id: String) -> String? {
         switch id {
@@ -196,8 +196,16 @@ enum SourceCatalog {
         case "spotify": Copy.Catalog.howSpotify
         case "linkedin": Copy.Catalog.howLinkedIn
         case "files": Copy.Catalog.howBookmarksFile
+        case "chat-exports": Copy.Catalog.howChatExports
         default: nil
         }
+    }
+
+    /// CIC8 — the entry a hand-off naming `tile` opens: the entry that owns the tile, else Chat exports for an export
+    /// tile (ChatGPT, Claude, Gemini share that one entry). Pure; tested.
+    static func entry(for tile: AddSourceTile, in entries: [SourceCatalogEntry]) -> SourceCatalogEntry? {
+        if let own = entries.first(where: { $0.tile == tile }) { return own }
+        return tile.chatVendor == nil ? nil : entries.first { $0.id == "chat-exports" }
     }
 
     /// The overview row an entry's "what came in" reads, when there is one.

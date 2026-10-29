@@ -71,8 +71,10 @@ final class SourcesListTests: XCTestCase {
     func testTheWayInStaysInTheEyebrowRow() throws {
         let page = try source("Views/Sources/SourcesPageView.swift")
         // DR-75 (2026-10-20, round 2) — the labelled add button every page shares. G217 (ruling 36 D6): the page is the
-        // one catalogue, so its add imports a file (Files and links) and it presents no second catalogue.
-        XCTAssertTrue(page.contains("PageAddButton(title: Copy.Catalog.importFile"))
+        // one catalogue, so it presents no second catalogue. CIC8 (2026-10-29): its add opens the one intake, named for
+        // what people bring (a chat export first), not Files and links' bookmarks line.
+        XCTAssertTrue(page.contains("PageAddButton(title: Copy.Catalog.importChatsOrFiles"))
+        XCTAssertTrue(page.contains("intake.present(from: .emptyState(.sources))"))
         XCTAssertEqual(page.components(separatedBy: "AddSourceSheet(").count - 1, 0)
     }
 }

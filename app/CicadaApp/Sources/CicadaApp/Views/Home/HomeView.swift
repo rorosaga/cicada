@@ -28,6 +28,7 @@ struct HomeView: View {
     /// runner's revision is what makes a record write re-render Home.
     @Environment(SetupRunner.self) private var runner
     @Environment(Store.self) private var store
+    @Environment(IntakeRouter.self) private var intake
     @Environment(SleepViewModel.self) private var sleepVM
     @Environment(TourController.self) private var tour
     @AppStorage(AppearanceTipPolicy.armedKey) private var tipArmed = false
@@ -124,7 +125,12 @@ struct HomeView: View {
         // Review #1 — onboarding's drawn walkthrough, over Home, from a vendor row's "See how ›".
         .overlay {
             if let vendor = seeHow {
-                HomeWalkthroughLayer(vendor: vendor) { seeHow = nil }
+                HomeWalkthroughLayer(vendor: vendor, onClose: { seeHow = nil }, onHaveFile: {
+                    // CIC8 — straight to the intake's picker (it opens in Downloads); what is picked previews over Home.
+                    seeHow = nil
+                    let urls = IntakePicker.choose()
+                    if !urls.isEmpty { intake.accept(urls: urls, from: .home) }
+                })
             }
         }
         .onAppear { tour.adoptOffer() }

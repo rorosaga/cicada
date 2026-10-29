@@ -12,6 +12,12 @@
 
 ## Current state and evidence
 
+- **2026-10-29 — chat exports findable (CIC8, G64; branch `feat/chat-exports-obvious`).** Every door to a chat export
+  opens the one intake (Sources' header *Import chats or files* and its Chat exports entry, Agents' *Import its chat
+  export*, a ⇧⌘I palette action Home's field finds by "chatgpt"/"chat export", the walkthrough's *I have the file…*);
+  the picker opens in Downloads. Fixed the Agents→Sources loop (a tile no entry owned) and the hand-off tile left staged
+  for Sleep. Relay gap unmeasurable on this bank: 0 relayed episodes vs 1,519 exported conversations (G64 row).
+  Noticing an export in Downloads waits on the owner (a grant and a new visual pattern).
 - **2026-10-29 — same name, different things (G227; branch `feat/same-name-qualifier`).** A title two pages share is
   shown "<name> (<qualifier>)" everywhere — the app, the API, recall, Ask, the CLI and `/v1` — from one derived function
   (`same_name`); links resolve by id; Stage 2 no longer joins an exact title of another kind on the name alone (the

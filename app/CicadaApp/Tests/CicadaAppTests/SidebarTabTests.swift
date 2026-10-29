@@ -101,6 +101,19 @@ final class SidebarTabTests: XCTestCase {
         XCTAssertTrue(TracesPageVisibility.shown(settings: settings, status: status), "days still kept")
     }
 
+    /// CIC8 (2026-10-29) — the import is an action a person holding an export can find by typing what they hold, on
+    /// ⌘K and on Home's field (the same index), with File → Import…'s shortcut.
+    func testThePaletteFindsTheImportByWhatPeopleType() {
+        let docs = PaletteActions.docs(QuickIndexInputs())
+        let row = docs.first { $0.row.destination == .action(.importFile) }
+        XCTAssertNotNil(row)
+        XCTAssertEqual(row?.row.trailing, "⇧⌘I")
+        let index = QuickIndex.build(QuickIndexInputs())
+        for typed in ["chatgpt", "claude export", "chat export", "import", "zip"] {
+            XCTAssertTrue(index.query(typed).rows.contains { $0.destination == .action(.importFile) }, typed)
+        }
+    }
+
     /// ⌘K offers only the pages the rail shows, each with its own digit.
     func testThePaletteGoesOnlyToShownPages() {
         let titles = { (traces: Bool) in

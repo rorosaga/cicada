@@ -10,6 +10,8 @@ import SwiftUI
 struct ExportWalkthroughSheet: View {
     @State var vendor: ChatVendor
     let onClose: () -> Void
+    /// CIC8 (2026-10-29) — the person already holds the .zip: the host closes this and opens the intake's picker.
+    var onHaveFile: (() -> Void)? = nil
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var start = Date()
@@ -114,6 +116,7 @@ struct ExportWalkthroughSheet: View {
         HStack(spacing: CicadaTheme.spacingMD) {
             TextButton(title: Copy.seeHowDone, action: onClose)
             ExportReminderMenu(vendor: scene.vendor)
+            if let onHaveFile { TextButton(title: Copy.seeHowHaveFile, action: onHaveFile) }
             Spacer()
             // Through Copy: a `Text("\(…)")` in Views/Onboarding/ trips CountLiteralLintTests (its scope).
             Text(Copy.seeHowWhere(host: scene.host, path: scene.path)).font(CicadaTheme.metaFont)
