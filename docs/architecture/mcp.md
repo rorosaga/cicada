@@ -1680,7 +1680,9 @@ the CLI.
     - Provenance comes from the harness (`session_identity.cli_identity`, never minted, ruling 21):
       `session_id`/`harness` only when given, `project_dir` the folder above, `source: cli` (with `origin: mcp`, G9's
       closed vocabulary), default title `Agent note`. A shell only a harness's own variables mark (Codex's sandbox,
-      `cli_app.agent_shell`) records that harness too. **Ruling 50:** a save from an agent's shell (a harness or
+      `cli_app.agent_shell`) records that harness too — one caller identity (`cli_app.caller`) for the local path and
+      a client machine's door, so a client's `cicada save` names the same harness. A shell stamped `codex` is therefore
+      on the G198 trust list (Codex by default): its CLI page edits write at once rather than proposing. **Ruling 50:** a save from an agent's shell (a harness or
       session on record) is the agent's words, like every `cicada_save_episode` note over stdio or the remote
       connector (`authorship.agent_saved`, `storage.md`); one from the person's own terminal stays theirs.
     - With no session id the reply says so (`warnings: ["no_session"]`). A duplicate is `ok: true, code: duplicate`.

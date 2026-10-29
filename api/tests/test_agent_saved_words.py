@@ -155,18 +155,44 @@ def test_ask_names_the_note_by_its_agent_and_the_persons_cli_note_as_theirs():
 
 # ---------- the command line stamps the shell's harness ----------
 
-def test_a_cli_save_from_an_agents_shell_names_its_harness(monkeypatch, tmp_path):
-    from api import cli, cli_app
+SESSION_KEYS = ("CLAUDE_CODE_SESSION_ID", "CLAUDE_PROJECT_DIR", "CICADA_SESSION_ID", "CICADA_SESSION_HARNESS",
+                "CODEX_THREAD_ID", "CODEX_SESSION_ID", "CODEX_SANDBOX")
+BOOT = SimpleNamespace(pin=SimpleNamespace(path=None, name="alpha", bank_id="b-1"), backend_url="http://127.0.0.1:1",
+                       caller_cwd=None)
 
-    boot = SimpleNamespace(pin=SimpleNamespace(path=tmp_path), backend_url="http://127.0.0.1:1", caller_cwd=None)
-    none = SimpleNamespace(session_id=None, harness=None, project_dir=None)
-    monkeypatch.setattr(cli, "_identity", lambda: none)
+
+def _shell(monkeypatch, **env):
+    for key in SESSION_KEYS:
+        monkeypatch.delenv(key, raising=False)
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+
+
+def test_a_cli_save_from_an_agents_shell_names_its_harness(monkeypatch, tmp_path):
+    from api import cli
+
     monkeypatch.setattr(cli, "_backend_headers", lambda: {})
-    monkeypatch.setattr(cli_app, "agent_shell", lambda environ=None: "codex")
+    boot = SimpleNamespace(**{**vars(BOOT), "pin": SimpleNamespace(path=tmp_path)})
+    _shell(monkeypatch, CODEX_THREAD_ID="t-1")
     ctx = cli._tool_context(boot)
-    assert ctx.session_frontmatter() == {"harness": "codex"}
+    assert ctx.session_frontmatter().get("harness") == "codex"
     assert authorship.agent_saved({"source": "cli", **ctx.session_frontmatter()})
-    monkeypatch.setattr(cli_app, "agent_shell", lambda environ=None: None)
+    _shell(monkeypatch)
     ctx = cli._tool_context(boot)
-    assert ctx.session_frontmatter() == {}
+    assert "harness" not in ctx.session_frontmatter() and "session_id" not in ctx.session_frontmatter()
     assert not authorship.agent_saved({"source": "cli", **ctx.session_frontmatter()})
+
+
+def test_a_client_machines_door_sends_the_same_caller(monkeypatch):
+    """Client mode (`CICADA_API_BASE`): `cicada save` goes through the server's door, which records what the client
+    names as its caller — an agent's shell must name its harness there too, or its note is stored as the person's."""
+    from api import cli_app
+
+    sent = []
+    monkeypatch.setattr(cli_app, "call", lambda boot, method, path, **kw: sent.append(kw["body"]) or {"text": "ok"})
+    _shell(monkeypatch, CODEX_THREAD_ID="t-1")
+    cli_app.door(BOOT, "cicada_save_episode", {"content": "a note"})
+    _shell(monkeypatch)
+    cli_app.door(BOOT, "cicada_save_episode", {"content": "a note"})
+    assert [(b["caller"]["session_id"], b["caller"]["harness"]) for b in sent] == [("", "codex"), ("", "unknown")]
+    assert cli_app.caller({"CODEX_THREAD_ID": "t-1"}) == ("", "codex")
