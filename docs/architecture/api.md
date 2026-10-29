@@ -863,6 +863,11 @@ skill_folder`). Nothing is written into a bank: agent folders, and `$CICADA_HOME
   on generated banks (1,900 entities):
   - 10,000 episodes: 42 → 24 ms per tick for one stream, and 169 → 25 ms for four.
   - 2,000 episodes: 12 → 6 ms for one stream, and 50 → 6 ms for four.
+- **A folder's headers carry a generation (2026-10-29).** `bank_index` takes a new number whenever a folder's cached
+  headers change (a parse stored, a file dropped, an invalidation); `files()` sorts once per generation, and the same
+  listing object again (a `shared_scans` memo, the SSE walk's seed) at the same generation is not compared a second time
+  (1.7 ms → ~0 at 8.9k episodes). `bank_index.derived(memory_path, subdir, name, build)` keeps a per-folder index until
+  the generation moves — `channel_items`' episodes by origin is the first (`app.md`, the items route's speed line).
 - **The start-up heap is frozen out of the cyclic collector (2026-10-29, owner's call).** After the lifespan's
   start-up, the backend runs `gc.collect()` then `gc.freeze()` once (`gc_tuning`), and the stdio MCP server does
   the same before its loop: a full collection never walks the app's own ~450k start-up objects again. Once per

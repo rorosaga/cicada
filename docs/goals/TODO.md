@@ -12,6 +12,12 @@
 
 ## Current state and evidence
 
+- **2026-10-29 — dev suite after #556–#562, and the source page's list at the cost of its own source (G161; branch
+  `fix/dev-suite-5-speed`).** Full suites: backend 3 failures, one real — `test_mcp_stdio_golden` pinned recall before
+  #560's rare-word excerpt leg (fixture re-recorded), and `test_cli_reads`' CLI-equals-MCP recall raced the words
+  index #560's leg reads (now built inline; the CLI's dropped "read one whole" pointer stripped); two wall-clock tests
+  failed only under the parallel Swift build and pass alone. Swift 4,291 tests, 0 failures. `GET /sources/channels/{id}/items` no longer walks every episode:
+  empty source 86 → 1.4 ms p95, largest 97 → 8.4, Sources page open 399 → 90 (owner's bank copy, stream open).
 - **2026-10-29 — a repository keeps its identity across rename, move and re-clone (ruling 22 D2a, G110/G141; branch
   `feat/project-remote-identity`).** The hook adds a hashed, per-install-salted `remote.origin.url` to its D2
   observation; continuity, project birth and project activity read it beside the path keys; a moved Claude Code notes
