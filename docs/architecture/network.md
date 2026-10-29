@@ -476,7 +476,13 @@ or `password` for a two-step account, the one thing still typed. The wait is Tel
 whose clock is off cannot burn the rounds; a refresh that finds the last token already scanned (`loginTokenSuccess`, or
 a DC move then the import) is a sign-in, kept like any other. Any failure from the client in a sign-in step — a flood
 wait, a socket error — answers a sentence (422), never a 500, and an unsigned client is closed. The link is held in memory only while shown, never
-logged or kept. Number → code (`/connect`, `/code`) stays as the fallback. Stopping a sign-in half way (Disconnect while
+logged or kept. The status carries a `version`; `GET /sources/telegram/status?since=<version>&wait=≤25` answers as soon
+as it moves (in-process reads every 50 ms, nothing asked of Telegram), which is how the QR step sees a scan land
+(chats-ux-v2, 2026-10-29). **Chat pictures (chats-ux-v2):** `GET /sources/telegram/chats/{id}/photo` asks Telegram's API
+for a listed one-to-one chat's small profile photo (`telegram_port.profile_photo`), two at a time, and keeps it — or
+that it has none — a week at `$CICADA_HOME/telegram/photos/<id>.jpg` (0600, ids only, deleted on disconnect); the only
+peer is Telegram itself. A tick also stores it in the chat-photo store (`messages_photos`), where it is the page's
+picture through the chat's correspondent; an untick forgets it. Number → code (`/connect`, `/code`) stays as the fallback. Stopping a sign-in half way (Disconnect while
 `qr`, `code_sent` or `password` with no kept session) closes the client without a log-out — there is no session to
 end. The session appears in Telegram → Devices as "Cicada", the OS family and Cicada's version
 (`telegram_port.device_label`), never the Mac's name. **No local reader (ruling 49):** Telegram for macOS's own store

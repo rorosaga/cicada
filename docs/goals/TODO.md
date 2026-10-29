@@ -12,6 +12,14 @@
 
 ## Current state and evidence
 
+- **2026-10-29 — chats feel like the apps, chat-specific half (G179, owner's live test; branch `feat/chats-ux-v2`).**
+  Telegram's QR step waits on the status's `version` (long-poll) instead of reading once a second; a WhatsApp chat
+  with yourself is your notes (`self_chat`: no correspondent, no card) and one oversized field no longer refuses a whole
+  batch (422 → clipped/dropped), with errors that say what failed and what to do; chat pictures from WhatsApp's own
+  data and Telegram's API (picker, and a ticked one-to-one chat's is its page's picture); pickers search by name or
+  number; `/sources/channels/{whatsapp|telegram-chats}/items` serves one row per chat for the shared source-page
+  design another worker builds (the "what came in" UI is theirs).
+
 - **2026-10-29 — the picture is the control (G146, owner; branch `feat/picture-click`).** The blue *Add a picture…* /
   *Use initials instead* / *Remove picture* words and the "Picture you added" caption under a page's name are gone; a click on the picture offers them
   (the picker at once when it is the only choice), a page with no picture adds one from its ••• menu.

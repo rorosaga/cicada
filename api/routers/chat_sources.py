@@ -14,8 +14,8 @@ Every write is demo-gated (409 in the demo bank) and held under the bank's write
 
 from __future__ import annotations
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from pydantic import Field
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response
+from pydantic import Field, field_validator
 from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
@@ -89,12 +89,40 @@ class WhatsAppConversation(CamelModel):
     members: list[WhatsAppMember] = Field(default_factory=list, max_length=chat_live.MAX_MEMBERS)
     #: A one-to-one chat's other side: their ONE address-book card, by its Contacts id.
     contact: str | None = Field(None, max_length=200)
+    #: chats-ux-v2 (2026-10-29) — the person's chat with themselves (WhatsApp's "message yourself"): every word is
+    #: theirs and there is no other side, so no correspondent and no card (`chat_live.cast_for`).
+    self_chat: bool = False
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def _name(cls, v):
+        return _clip(v, 200)
+
+
+#: chats-ux-v2 (the owner's self-chat, 2026-10-29: "Couldn't send the chat to Cicada.") — a field longer than the
+#: backend keeps used to refuse the WHOLE batch (422), and the app said only "couldn't". A row's optional field the
+#: backend cannot use is now clipped or dropped, never the batch: words past `TEXT_CAP` end in "…", a title or a file
+#: name past 400 characters is clipped, and a quoted-reply blob past `METADATA_CAP` (a link preview's or a quoted
+#: picture's thumbnail rides in it) is dropped — that one row loses its reply link, nothing else.
+TEXT_CAP = 65536
+METADATA_CAP = 16384
+
+
+def _clip(value, cap: int):
+    if isinstance(value, str) and len(value) > cap:
+        return value[: cap - 1] + "…"
+    return value
 
 
 class WhatsAppMedia(CamelModel):
-    title: str | None = Field(None, max_length=400)
-    file: str | None = Field(None, max_length=400)
+    title: str | None = None
+    file: str | None = None
     size: int | None = None
+
+    @field_validator("title", "file", mode="before")
+    @classmethod
+    def _names(cls, v):
+        return _clip(v, 400)
 
 
 class WhatsAppRow(CamelModel):
@@ -102,12 +130,22 @@ class WhatsAppRow(CamelModel):
     stanza: str = Field(max_length=128)
     date: float
     from_me: bool = False
-    text: str | None = Field(None, max_length=65536)
+    text: str | None = None
     type: int = 0
     member: str | None = Field(None, max_length=64)
-    metadata: str | None = Field(None, max_length=16384)
+    metadata: str | None = None
     media: WhatsAppMedia | None = None
     edited: bool = False
+
+    @field_validator("text", mode="before")
+    @classmethod
+    def _text(cls, v):
+        return _clip(v, TEXT_CAP)
+
+    @field_validator("metadata", mode="before")
+    @classmethod
+    def _metadata(cls, v):
+        return None if isinstance(v, str) and len(v) > METADATA_CAP else v
 
 
 class WhatsAppReaction(CamelModel):
@@ -172,6 +210,8 @@ class TelegramStatus(CamelModel):
     qr_expires: str | None = None
     #: While ``state == "code_sent"``: how many digits the code Telegram sent has (``None``: unknown, the app uses 5).
     code_length: int | None = None
+    #: What changes whenever the status does — the app passes it back as ``since`` to wait for the next change.
+    version: str | None = None
 
 
 class TelegramPhone(CamelModel):
@@ -225,6 +265,12 @@ async def _update(memory_path, spec, req: ChatSettingsUpdate) -> ChatSettingsRes
         raise HTTPException(409, str(exc))
     except chat_live.PayloadError as exc:
         raise HTTPException(422, str(exc))
+    if c.ticked is False:
+        # Unticking takes the chat's photo with it, the Messages rule (nothing of an unticked chat is kept outside the
+        # bank either); every saved sitting stays.
+        from api.services import messages_photos
+
+        await run_in_threadpool(messages_photos.forget, memory_path, c.id)
     await folder_source.commit_paths_for(memory_path, [f"sources/{spec.settings_filename}"],
                                          subject=f"{spec.label} settings", trigger="user/companion_app",
                                          channel=spec.channel)
@@ -295,8 +341,12 @@ def _telegram_error(exc: TelegramError) -> HTTPException:
 
 
 @router.get("/sources/telegram/status", response_model=TelegramStatus)
-async def telegram_status():
-    """Whether Telegram is connected, the consent sentence the connect step shows, and whose app id is in use."""
+async def telegram_status(since: str | None = Query(None, max_length=32), wait: float = Query(0, ge=0, le=25)):
+    """Whether Telegram is connected, the consent sentence the connect step shows, and whose app id is in use. With
+    ``since`` (the ``version`` the app holds) and ``wait`` seconds, it answers as soon as the status moves — the QR
+    step's way to see a scan land at once (chats-ux-v2) instead of reading once a second."""
+    if since and wait > 0:
+        return TelegramStatus(**await telegram_account.ACCOUNT.wait_change(since, wait))
     return TelegramStatus(**telegram_account.ACCOUNT.status())
 
 
@@ -392,7 +442,44 @@ async def put_telegram_settings(req: ChatSettingsUpdate, background: BackgroundT
         telegram_account.set_consent(c.id, False)
     if req.conversation.history:
         background.add_task(_read_history, req.conversation.id)
+    if c.ticked is True:
+        # chats-ux-v2 — a ticked chat's profile photo is its page's picture, the Messages rung (`messages_photos`).
+        background.add_task(_keep_photo, settings.memory_path, c.id)
     return out
+
+
+async def _keep_photo(memory_path, cid: str) -> None:
+    import base64
+
+    from loguru import logger
+
+    from api.services import messages_photos
+
+    try:
+        data = await telegram_account.ACCOUNT.photo(cid)
+        if data:
+            await run_in_threadpool(messages_photos.store, memory_path,
+                                    [{"conversation": cid, "photo_b64": base64.b64encode(data).decode()}])
+    except Exception as exc:  # noqa: BLE001 — a page without this photo draws the next rung
+        logger.warning(f"telegram: keeping a chat photo failed ({type(exc).__name__})")
+
+
+@router.get("/sources/telegram/chats/{cid}/photo")
+async def telegram_chat_photo(cid: str, request: Request):
+    """chats-ux-v2 — a listed one-to-one chat's small profile photo for the tick list, asked of Telegram once and kept
+    outside every bank (`telegram_account.photo`). 404 = draw the monogram."""
+    import hashlib
+
+    if not chat_live.ID_RE.match(cid or ""):
+        raise HTTPException(404, "no photo for this chat")
+    data = await telegram_account.ACCOUNT.photo(cid)
+    if not data:
+        raise HTTPException(404, "no photo for this chat")
+    etag = '"' + hashlib.sha1(data).hexdigest()[:16] + '"'
+    headers = {"ETag": etag, "Cache-Control": "max-age=86400"}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+    return Response(content=data, media_type="image/jpeg", headers=headers)
 
 
 async def _read_history(cid: str) -> None:

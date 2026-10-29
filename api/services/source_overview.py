@@ -465,12 +465,11 @@ def _note_chat(by_chat: dict[str, tuple[float, str]], fm: dict) -> None:
 
 def _chat_photos(memory_path: Path) -> dict[str, str]:
     """Each ticked chat's stored photo hash (`messages_photos`, outside every bank) — the face's `?v=`."""
-    from api.services import logo_service, messages_photos, messages_source
+    from api.services import logo_service, messages_photos
 
     try:
         meta = messages_photos.read_meta(logo_service.bank_name(memory_path))
-        ticked = {cid for cid, e in messages_source.load_settings(memory_path)["conversations"].items()
-                  if e.get("ticked")}
+        ticked = messages_photos.ticked_chats(memory_path) if meta else set()
     except Exception:  # noqa: BLE001 — a face without a photo draws its monogram
         return {}
     return {cid: str(e["sha"]) for cid, e in meta.items()

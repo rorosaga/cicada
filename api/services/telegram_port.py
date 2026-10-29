@@ -115,6 +115,8 @@ class TelegramPort(Protocol):
     async def listen(self, handler: Callable[[TgEvent], Awaitable[None]]) -> None: ...
     async def log_out(self) -> None: ...
     async def disconnect(self) -> None: ...
+    #: chats-ux-v2 — a one-to-one chat's small profile photo (Telegram's own ~160 px JPEG), or None when it has none.
+    async def profile_photo(self, chat: int) -> bytes | None: ...
 
 
 PortFactory = Callable[[int, str, str], TelegramPort]
@@ -349,6 +351,12 @@ class TelethonPort:  # pragma: no cover — the real network adapter; every call
     async def log_out(self) -> None:
         await self._connect()
         await self._client.log_out()
+
+    async def profile_photo(self, chat: int) -> bytes | None:
+        """The chat's small profile photo, in memory (``file=bytes``), from Telegram itself — nothing else is asked."""
+        await self._connect()
+        data = await self._client.download_profile_photo(chat, file=bytes, download_big=False)
+        return bytes(data) if data else None
 
     async def disconnect(self) -> None:
         result = self._client.disconnect()

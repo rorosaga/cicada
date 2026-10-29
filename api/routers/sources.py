@@ -1488,8 +1488,7 @@ async def get_messages_chat_photo(conversation: str, request: Request, settings:
     memory_path = settings.memory_path
     if not messages_source.CONVERSATION_ID_RE.match(conversation or ""):
         raise HTTPException(404, "no photo for this chat")
-    ticked = await run_in_threadpool(lambda: {
-        cid for cid, e in messages_source.load_settings(memory_path)["conversations"].items() if e.get("ticked")})
+    ticked = await run_in_threadpool(messages_photos.ticked_chats, memory_path)
     entry = messages_photos.read_meta(logo_service.bank_name(memory_path)).get(conversation)
     if conversation not in ticked or not isinstance(entry, dict):
         raise HTTPException(404, "no photo for this chat")

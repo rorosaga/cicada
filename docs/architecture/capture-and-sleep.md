@@ -617,7 +617,15 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   `actor` on the settings PUT), so Stage 2 lands them on the same page whichever app they texted through; a group
   records `group: true` and `participants: [{key, marker, name?, kind}]` — the Messages group slice's shape (#499) —
   each member under their own `speaker:<label>:`, at most one `assistant`. `chat_live.CHAT_ORIGINS` is what "a texted
-  conversation" means to every reader that asks (`inbox_tend`). Measured on fixtures (2026-10-28): file change → posted,
+  conversation" means to every reader that asks (`inbox_tend`). **chats-ux-v2 (2026-10-29):** a chat with yourself
+  (WhatsApp's "message yourself": its JID is the account's own `OwnJabberID`, read by the app from WhatsApp's shared
+  preferences in the container, never posted) posts `selfChat`; `chat_live.cast_for` makes every line `user:`, writes
+  no correspondent and no card, records `self_chat: true` and titles it "notes to yourself". A link-preview row
+  (type 7) is words only. One row's optional field the backend cannot use no longer refuses the batch: words past 64k
+  end in "…", a title or file name past 400 is clipped, a `ZMETADATA` blob past 16 KB is dropped (that row loses its
+  reply link). The picker draws each chat's picture from `ZWAPROFILEPICTUREITEM` (a file inside the container only,
+  ≤ 128 px, in memory) and a ticked one-to-one chat's is posted to the chat-photo store (`messages_photos`, now every
+  chat source's). The Sources list serves one row per chat for WhatsApp and Telegram too (`channel_items`). Measured on fixtures (2026-10-28): file change → posted,
   the app's read of a 20,000-row store plus the post, p95 9 ms over 20 (`WhatsAppReaderTests`); the backend's stage
   into a chat of 40 sittings, p95 11 ms over 30 (`test_chat_live`) — the 3 s debounce dominates.
 - **Telegram chats the person ticks (ruling 47a and its amendment, 2026-10-28).** The backend's own client

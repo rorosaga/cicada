@@ -277,6 +277,8 @@ class Cast:
     record: list[dict] = field(default_factory=list)
     #: A one-to-one chat's other side: their ONE address-book card, by Contacts id (`contact_identity`).
     contact: str | None = None
+    #: chats-ux-v2 — the person's chat with themselves: every line is theirs, there is no other side.
+    self_chat: bool = False
 
     def marker(self, from_me: bool, sender: str | None) -> str:
         if from_me:
@@ -315,6 +317,11 @@ def cast_for(spec: ChatSpec, entry: dict, conversation: dict, stored: list[dict]
     member keeps their marker when a pass names nobody new."""
     title = messages_source._clean_name(conversation.get("name")) or entry.get("name") or ""
     members = [m for m in conversation.get("members") or [] if isinstance(m, dict)][:MAX_MEMBERS]
+    if not conversation.get("group") and conversation.get("self_chat"):
+        # chats-ux-v2 (owner 2026-10-29: "he sends himself a lot") — the person's notes to themselves: every line is
+        # the person's own words, whichever of their devices sent it; no correspondent, no card (their own card belongs
+        # to their own page, G169), nobody else's consent to ask.
+        return Cast(group=False, title=title, markers={"": "user"}, self_chat=True)
     if not conversation.get("group"):
         other = members[0] if members else {}
         bot = other.get("agent")
@@ -533,6 +540,9 @@ def sitting_draft(spec: ChatSpec, cid: str, source_id: str, messages: list[ChatM
             cast.marker(bool(r.get("from_me")), r.get("sender")) for m in messages for r in m.reactions}
         record = {"group": True, "participants": [p for p in cast.record if p["marker"] in said]}
         title = f"{spec.label} · {cast.title or 'group'} · {first[:10]}"
+    elif cast.self_chat:
+        record = {"self_chat": True}
+        title = f"{spec.label} · notes to yourself · {first[:10]}"
     else:
         actor = cast.actor or one_to_one_actor(cast.title, None, agent=None)
         record = {"correspondent": {**actor.to_dict(), **({"contact": cast.contact} if cast.contact else {})}}
@@ -549,7 +559,7 @@ def sitting_draft(spec: ChatSpec, cid: str, source_id: str, messages: list[ChatM
 
 
 #: What a sitting's draft decides beyond its words: re-recorded even when the words did not move (`messages_source`).
-RECORD_KEYS = ("correspondent", "title", "participants")
+RECORD_KEYS = ("correspondent", "title", "participants", "self_chat")
 
 
 def _stage(drafts: list[EpisodeDraft], episodes_dir: Path, index: dict, *, deleted: list[str] = (),
