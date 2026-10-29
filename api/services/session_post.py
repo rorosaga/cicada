@@ -69,7 +69,8 @@ def to_wire(conv: Conversation) -> dict:
     return {"kept": turns, "gap": gap, "last_seen_at": conv.last_seen_at, "summary": dict(conv.summary)}
 
 
-def read_local(harness: str, session_id: str, transcript_path: str) -> tuple[dict, int]:
+def read_local(harness: str, session_id: str, transcript_path: str,
+               host: str | None = None) -> tuple[dict, int]:
     """Read this machine's transcript the way the backend reads its own: ``(conversation wire, bytes read)``.
     ``transcript_capture.TranscriptRefused`` (an enum reason) when the path is not the harness's own file for this
     session — nothing is read then. The agent's replies are always kept here; the server drops them when its
@@ -85,7 +86,7 @@ def read_local(harness: str, session_id: str, transcript_path: str) -> tuple[dic
             for raw in fh:
                 read_bytes += len(raw)
                 yield raw.decode("utf-8", "replace")
-        conv = extract(harness, lines(), keep_assistant=True)
+        conv = extract(harness, lines(), keep_assistant=True, host=host)   # G228: the hook-named host only
     return to_wire(conv), read_bytes
 
 

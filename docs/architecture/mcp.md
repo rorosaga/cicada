@@ -783,7 +783,7 @@ the owner on G228). A Claude instance T3 Code points at another `CLAUDE_CONFIG_D
 Cicada must be connected there too (and its transcripts sit outside the root the backend accepts, so they are
 refused unread, `outside_root`). Nothing is installed in T3 Code and nothing of T3 Code's is read; the agent's
 `clientInfo` names the harness, so its writes carry the harness as `Cicada-Author` and its page-edit trust is the
-harness's (G198). The capture label is the hook's (`host: t3code`, `capture-and-sleep.md`). **T3 Chat** (the hosted
+harness's (G198). The capture label is the hook's (`host: t3code`, read from its own launch chain's exec paths only, `capture-and-sleep.md`). **T3 Chat** (the hosted
 chat app) documents no MCP connector — its FAQ, read 2026-10-29, names none — so it cannot reach the remote connector
 and is not listed; its link to T3 Code is T3 Code's own account relay, not MCP.
 

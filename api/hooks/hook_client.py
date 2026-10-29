@@ -154,7 +154,8 @@ def keep(status: int | None) -> bool:
     return not landed(status) and status not in FINAL_STATUSES
 
 
-def read_session(harness: str, session_id: str, transcript_path: str) -> tuple[dict | None, int, str | None]:
+def read_session(harness: str, session_id: str, transcript_path: str,
+                 host: str | None = None) -> tuple[dict | None, int, str | None]:
     """Cicada's own extractor on this machine's transcript: ``(conversation, bytes read, refusal)``. A refusal is the
     backend's own enum (``outside_root``, ``stem_mismatch``…): the path is not the harness's file for this session,
     and nothing was read."""
@@ -163,7 +164,7 @@ def read_session(harness: str, session_id: str, transcript_path: str) -> tuple[d
     from api.services.transcript_capture import TranscriptRefused
 
     try:
-        wire, read_bytes = session_post.read_local(harness, session_id, transcript_path)
+        wire, read_bytes = session_post.read_local(harness, session_id, transcript_path, host=host)
     except TranscriptRefused as exc:
         return None, 0, exc.reason
     return wire, read_bytes, None

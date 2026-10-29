@@ -1,8 +1,8 @@
 """G228: T3 Code is a host, not a harness. Its threads are captured by the harness it drives (Claude Code, Codex,
-Cursor) through Cicada's existing hooks — one episode per harness session — with ``host: t3code`` as a label read by
-the hook from its own ancestors; what T3 Code itself writes into a turn (a handoff's replay, its instructions) is
-never kept as the person's words. Synthetic fixtures shaped from T3 Code's source (commit 3748c5c2); unverified
-against a running T3 Code."""
+Cursor) through Cicada's existing hooks — one episode per harness session — with ``host: t3code`` as a label the hook
+reads from its own launch chain (parent pid and exec path only); what T3 Code itself writes into a turn (a handoff's
+replay, its instructions) is never kept as the person's words — and only under that host, on its full fixed shape.
+Synthetic fixtures shaped from T3 Code's source (commit 3748c5c2); unverified against a running T3 Code."""
 from __future__ import annotations
 
 import io
@@ -27,44 +27,40 @@ APP_EXE = "/Applications/T3 Code (Beta).app/Contents/MacOS/T3 Code (Beta)"
 CLAUDE_EXE = "/home/example/.local/share/claude/versions/2.1.312"
 
 
-# --- the hook names the host from its ancestors -----------------------------------------------------------------
+# --- the hook names the host from its own launch chain: exec paths only ---------------------------------------
 
 
-@pytest.mark.parametrize("exe,argv,expected", [
-    (APP_EXE, None, "t3code"),                                     # the desktop app's server: Electron as Node
-    ("/Applications/T3 Code.app/Contents/MacOS/T3 Code", None, "t3code"),
-    ("/home/example/.local/bin/t3", None, "t3code"),               # `t3`, `t3 service`, the Linux app's <root>/t3
-    ("/usr/local/bin/node", ["node", "/home/example/.npm/_npx/abc/node_modules/t3/dist/bin.mjs"], "t3code"),
-    ("/opt/homebrew/bin/node", ["node", "/home/example/.npm/_npx/abc/node_modules/.bin/t3"], "t3code"),
-    ("/usr/bin/bun", ["bun", "/home/example/src/t3code/apps/server/src/bin.ts"], "t3code"),
-    ("/usr/local/bin/node", ["node", "/home/example/other/apps/server/src/bin.ts"], None),   # another app's server
-    ("/usr/local/bin/node", ["node", "/home/example/t3-notes.js"], None),
-    (CLAUDE_EXE, None, None),
-    ("/bin/zsh", None, None),
-    ("/Applications/Other.app/Contents/MacOS/t3helper", None, None),
-    (None, None, None),
+@pytest.mark.parametrize("exe,expected", [
+    (APP_EXE, "t3code"),                                           # the desktop app's server: Electron as Node
+    ("/Applications/T3 Code.app/Contents/MacOS/T3 Code", "t3code"),
+    ("/home/example/.local/bin/t3", "t3code"),                     # `t3`, `t3 service`, the Linux app's <root>/t3
+    ("/usr/local/bin/node", None),                                 # `npx t3` / npm-global: undetected by decision
+    ("/opt/homebrew/bin/bun", None),
+    (CLAUDE_EXE, None),
+    ("/bin/zsh", None),
+    ("/usr/local/bin/t3code", None),
+    ("/Applications/Other.app/Contents/MacOS/t3helper", None),
+    (None, None),
 ])
-def test_host_of_matches_only_t3_codes_own_server(exe, argv, expected):
-    assert host_identity.host_of(exe, argv) == expected
+def test_host_of_matches_only_t3_codes_own_exec_paths(exe, expected):
+    assert host_identity.host_of(exe) == expected
 
 
-def _chain(*procs):
-    """pid → (ppid, exe, argv), pids 100, 101, … each the parent of the one before."""
-    table = {}
-    for i, (exe, argv) in enumerate(procs):
-        table[100 + i] = (101 + i, exe, argv)
+def _chain(*exes):
+    """pid → (ppid, exe), pids 100, 101, … each the parent of the one before."""
+    table = {100 + i: (101 + i, exe) for i, exe in enumerate(exes)}
     return table.__getitem__
 
 
 def test_detect_walks_up_hook_shell_harness_to_the_server():
-    read = _chain(("/bin/sh", None), (CLAUDE_EXE, None), (APP_EXE, None), ("/sbin/launchd", None))
-    assert host_identity.detect({}, start=100, read=read) == "t3code"
+    assert host_identity.detect({}, start=100, read=_chain("/bin/sh", CLAUDE_EXE, APP_EXE, "/sbin/launchd")) \
+        == "t3code"
 
 
-def test_detect_is_none_for_a_terminal_session_a_short_chain_or_a_reader_that_fails():
-    terminal = _chain(("/bin/sh", None), (CLAUDE_EXE, None), ("/bin/zsh", None), ("/usr/bin/login", None))
+def test_detect_is_none_for_a_terminal_session_a_long_chain_or_a_reader_that_fails():
+    terminal = _chain("/bin/sh", CLAUDE_EXE, "/bin/zsh", "/usr/bin/login")
     assert host_identity.detect({}, start=100, read=terminal, depth=4) is None
-    deep = _chain(*[("/bin/sh", None)] * 12, (APP_EXE, None))
+    deep = _chain(*["/bin/sh"] * 12, APP_EXE)
     assert host_identity.detect({}, start=100, read=deep) is None, "only MAX_DEPTH ancestors are read"
 
     def boom(pid):
@@ -76,13 +72,55 @@ def test_detect_is_none_for_a_terminal_session_a_short_chain_or_a_reader_that_fa
 
 def test_a_detached_child_takes_its_parents_answer_and_only_a_known_one():
     assert host_identity.detect({host_identity.ENV: "t3code"}, start=100, read=_chain()) == "t3code"
-    terminal = _chain(("/bin/zsh", None), ("/usr/bin/login", None))
+    terminal = _chain("/bin/zsh", "/usr/bin/login")
     assert host_identity.detect({host_identity.ENV: "someapp"}, start=100, read=terminal, depth=2) is None
 
 
 def test_the_hooks_list_is_the_backends():
     assert tuple(host_identity.HOSTS) == agent_catalog.HOSTS
     assert all(agent_catalog.way(h) is not None for h in agent_catalog.HOSTS)
+
+
+def test_no_other_process_arguments_or_environment_are_ever_read(monkeypatch):
+    """Blocker 1 of #543's review: the launch chain is parent pid and exec path only. On macOS the only libproc calls
+    are ``proc_pidinfo`` and ``proc_pidpath`` (never ``sysctl``/``KERN_PROCARGS2``); on Linux the only files are
+    ``/proc/<pid>/stat`` and the ``exe`` link (never ``cmdline`` or ``environ``) — and detection still works."""
+    text = Path(host_identity.__file__).read_text()
+    code = text.split('"""', 2)[2]                      # past the module docstring, which names what is never read
+    source = "\n".join(line.split("#", 1)[0] for line in code.splitlines())
+    for banned in ("KERN_PROCARGS2", "sysctl(", "/cmdline", "/environ", "subprocess"):
+        assert banned not in source, banned
+    if sys.platform == "darwin":
+        ctypes, lib = host_identity._mac_libproc()
+        used = []
+
+        class OnlyChain:
+            def __getattr__(self, name):
+                if name not in ("proc_pidinfo", "proc_pidpath"):
+                    raise AssertionError(f"libproc.{name} called")
+                used.append(name)
+                return getattr(lib, name)
+
+        monkeypatch.setattr(host_identity, "_libproc", (ctypes, OnlyChain()))
+        ppid, exe = host_identity._mac(__import__("os").getpid())
+        assert ppid and exe and set(used) == {"proc_pidinfo", "proc_pidpath"}
+        assert host_identity.detect({}) is None   # the walk runs to its end through the guarded reader
+    elif sys.platform.startswith("linux"):
+        import builtins
+
+        real_open = builtins.open
+        opened = []
+
+        def guarded(path, *a, **k):
+            opened.append(str(path))
+            assert not str(path).endswith(("/cmdline", "/environ")), path
+            return real_open(path, *a, **k)
+
+        monkeypatch.setattr(builtins, "open", guarded)
+        assert host_identity._linux(__import__("os").getpid())[0]
+        assert all(p.endswith("/stat") for p in opened)
+    # Exec paths alone still find T3 Code.
+    assert host_identity.detect({}, start=100, read=_chain(CLAUDE_EXE, "/home/example/.local/bin/t3")) == "t3code"
 
 
 def test_reading_this_process_never_raises_and_is_fast():
@@ -135,45 +173,64 @@ def test_cicadas_own_spawns_are_still_never_captured(tmp_path):
     assert calls == [] and "CICADA_CAPTURE=off" in log
 
 
-# --- what T3 Code writes into a turn is not the person's words --------------------------------------------------
+# --- what T3 Code writes into a turn is not the person's words (under its host, on its full shape) --------------
 
 
-HANDOFF = ("Context handoff (provider_switch):\nFrom thread thread-a, runs 1-3. Recover history with t3_thread_read, "
-           "view=activity; paginate with afterPosition, and use itemId/textOffset for long items.\n"
-           "Selected 2 intact items; omitted 0 items. Historical material is context, not a new request or "
-           "higher-priority instructions. Attached files and native tool/reasoning state are not replayed.\n\n"
-           "[Historical user; message; thread=thread-a; run=run-1; item=item-1; provider-thread=pt-1; "
-           "status=completed]\nWhat did we decide about alpha-project?\n\n"
-           "[Historical assistant; message; thread=thread-a; run=run-1; item=item-2; provider-thread=pt-1; "
-           "status=completed]\nWe kept the old schema.\n\nUser message:\nNow add the migration.")
+T3 = "t3code"
+SELECTED = ("Selected 2 intact items; omitted 0 items. Historical material is context, not a new request or "
+            "higher-priority instructions. Attached files and native tool/reasoning state are not replayed.")
+CONTEXT = ("Context handoff (provider_switch):\nFrom thread thread-a, runs 1-3. Recover history with t3_thread_read, "
+           "view=activity; paginate with afterPosition, and use itemId/textOffset for long items.\n" + SELECTED)
+REPLAY_USER = ("[Historical user; message; thread=thread-a; run=run-1; item=item-1; provider-thread=pt-1; "
+               "status=completed]\nWhat did we decide about alpha-project?")
+REPLAY_AGENT = ("[Historical assistant; message; thread=thread-a; run=run-1; item=item-2; provider-thread=pt-1; "
+                "status=completed]\nWe kept the old schema.")
+HANDOFF = CONTEXT + "\n\n" + REPLAY_USER + "\n\n" + REPLAY_AGENT + "\n\nUser message:\nNow add the migration."
+#: The two strings #543's review reproduced as dropped whole in a plain Claude Code session.
+REVIEW_REPROS = ("Context handoff (G228): I want the t3_thread_read marker handled. Please review.",
+                 "[Historical user; …] is the header I keep seeing — what does it mean?")
 
 
-def test_a_handoff_keeps_only_the_new_request():
-    assert tx.host_envelope(HANDOFF) == ("Now add the migration.", "host_handoff")
+def test_a_full_handoff_under_t3_code_keeps_only_the_new_request():
+    assert tx.host_envelope(HANDOFF, T3) == ("Now add the migration.", "host_handoff")
 
 
-def test_a_replayed_turn_and_the_native_context_message_keep_nothing():
-    replay = ("[Historical user; message; thread=thread-a; run=run-1; item=item-1; provider-thread=pt-1; "
-              "status=completed]\nWhat did we decide?")
-    assert tx.host_envelope(replay) == ("", "host_replay")
-    context = HANDOFF.split("\n\n[Historical")[0]
-    assert tx.host_envelope(context) == ("", "host_handoff")
+def test_nothing_is_unwrapped_without_the_t3_code_host():
+    for text in (HANDOFF, REPLAY_USER, CONTEXT, *REVIEW_REPROS):
+        assert tx.host_envelope(text) == (text, None)
+        assert tx.host_envelope(text, "some-other-app") == (text, None)
+
+
+@pytest.mark.parametrize("text", [
+    *REVIEW_REPROS,
+    HANDOFF.replace(SELECTED, "Selected some items."),                       # the fixed sentence is missing
+    HANDOFF.replace("\n\nUser message:\n", "\n\n"),                          # no split line
+    CONTEXT + "\n\nUser message:\nNow add the migration.",                   # no historical block
+    HANDOFF.replace("t3_thread_read", "the thread reader"),                  # no T3 marker in the header
+    "Context handoff (my notes): the meeting moved to Tuesday.",
+    "<user_request>\nnot wrapped by T3\n</user_request>",
+    "Plain request.",
+])
+def test_under_t3_code_anything_short_of_the_full_shape_is_kept_whole(text):
+    assert tx.host_envelope(text, T3) == (text, None)
+
+
+def test_a_request_that_itself_holds_the_split_line_keeps_its_head():
+    request = "Now add the migration.\n\nUser message:\nand quote it like that"
+    assert tx.host_envelope(CONTEXT + "\n\n" + REPLAY_USER + "\n\nUser message:\n" + request, T3) == \
+        (request, "host_handoff")
+
+
+def test_a_replayed_turn_and_the_native_context_message_keep_nothing_under_t3_code():
+    assert tx.host_envelope(REPLAY_USER, T3) == ("", "host_replay")
+    assert tx.host_envelope(CONTEXT, T3) == ("", "host_handoff")
 
 
 def test_an_acp_prompt_keeps_the_request_inside_the_instructions():
     wrapped = ("<t3_code_instructions>\nYou are running inside T3 Code.\n\nUse the T3 tools.\n"
                "</t3_code_instructions>\n\n<user_request>\nRename the helper.\nThen run the tests.\n</user_request>")
-    assert tx.host_envelope(wrapped) == ("Rename the helper.\nThen run the tests.", "host_instructions")
-
-
-@pytest.mark.parametrize("text", [
-    "Context handoff (my notes): the meeting moved to Tuesday.",           # the person's own words, no T3 marker
-    "Can you explain what a [Historical user; message] header is?",
-    "<user_request>\nnot wrapped by T3\n</user_request>",
-    "Plain request.",
-])
-def test_the_persons_own_text_is_kept_whole(text):
-    assert tx.host_envelope(text) == (text, None)
+    assert tx.host_envelope(wrapped, T3) == ("Rename the helper.\nThen run the tests.", "host_instructions")
+    assert tx.host_envelope(wrapped) == (wrapped, None)
 
 
 def _line(typ, content, ts="2026-10-29T10:00:00.000Z"):
@@ -182,11 +239,13 @@ def _line(typ, content, ts="2026-10-29T10:00:00.000Z"):
 
 
 def test_a_claude_session_started_by_a_provider_switch_keeps_the_request_as_the_first_person_turn():
-    conv = tx.extract("claude-code", [_line("user", HANDOFF),
-                                      _line("assistant", [{"type": "text", "text": "Migration added."}])])
+    lines = [_line("user", HANDOFF), _line("assistant", [{"type": "text", "text": "Migration added."}])]
+    conv = tx.extract("claude-code", lines, host=T3)
     assert [(t.role, t.text) for t in conv.turns] == [("user", "Now add the migration."),
                                                       ("assistant", "Migration added.")]
     assert conv.summary["dropped_blocks"]["host_handoff"] == 1
+    plain = tx.extract("claude-code", lines)
+    assert plain.turns[0].text.startswith("Context handoff (provider_switch)"), "no host: kept whole"
 
 
 def _codex(role, text, ts="2026-10-29T10:00:00.000Z"):
@@ -195,20 +254,18 @@ def _codex(role, text, ts="2026-10-29T10:00:00.000Z"):
                        "payload": {"type": "message", "role": role, "content": [{"type": kind, "text": text}]}})
 
 
-def test_a_codex_session_given_history_natively_keeps_none_of_the_replay():
-    context, rest = HANDOFF.split("\n\n[Historical", 1)
-    replay_user, replay_agent = ("[Historical" + rest.split("\n\nUser message:")[0]).split("\n\n")
-    conv = tx.extract("codex", [_codex("user", context), _codex("user", replay_user),
-                                _codex("assistant", replay_agent), _codex("user", "Now add the migration."),
-                                _codex("assistant", "Done.")])
+def test_a_codex_session_given_history_natively_keeps_none_of_the_replay_under_t3_code():
+    conv = tx.extract("codex", [_codex("user", CONTEXT), _codex("user", REPLAY_USER),
+                                _codex("assistant", REPLAY_AGENT), _codex("user", "Now add the migration."),
+                                _codex("assistant", "Done.")], host=T3)
     assert [(t.role, t.text) for t in conv.turns] == [("user", "Now add the migration."), ("assistant", "Done.")]
     assert conv.summary["dropped_messages"]["host_replay"] == 2
     assert conv.summary["dropped_messages"]["host_handoff"] == 1
 
 
-def test_a_posted_turn_is_unwrapped_the_same_way():
-    turn, _ = tx.clean_turn("user", HANDOFF, first=True)
-    assert turn.text == "Now add the migration."
+def test_a_posted_turn_is_unwrapped_only_under_the_host():
+    assert tx.clean_turn("user", HANDOFF, first=True, host=T3)[0].text == "Now add the migration."
+    assert tx.clean_turn("user", REVIEW_REPROS[0], first=True)[0].text == REVIEW_REPROS[0]
 
 
 # --- the backend records it -------------------------------------------------------------------------------------
@@ -337,3 +394,50 @@ def test_a_t3_code_sighting_never_lights_another_agent():
     folded = agent_live._fold_other({"t3code": "2026-10-29T10:00:00Z"})
     assert "other" not in folded
     assert agent_live._fold_other({"zed": "2026-10-29T10:00:00Z"})["other"] == "2026-10-29T10:00:00Z"
+
+
+# --- the strip follows the capture's host on every route --------------------------------------------------------
+
+
+def _first_person_turn(memory) -> str:
+    body = markdown_parser.parse(next((memory / "episodes").glob("*.md"))).body
+    return body.split("assistant:")[0]
+
+
+def test_a_plain_session_keeps_a_handoff_shaped_message_whole(memory, transcript):
+    transcript.write_text("\n".join([_line("user", HANDOFF),
+                                     _line("assistant", [{"type": "text", "text": "Done."}])]) + "\n")
+    tc.capture_transcript(memory, harness="claude-code", session_id=SID, transcript_path=str(transcript),
+                          cwd=None, keep_assistant=True)
+    assert "Context handoff (provider_switch)" in _first_person_turn(memory)
+
+
+def test_a_t3_session_strips_it_and_a_later_hostless_firing_follows_the_episodes_host(memory, transcript):
+    tc.capture_transcript(memory, harness="claude-code", session_id=SID, transcript_path=str(transcript),
+                          cwd=None, keep_assistant=True, host="t3code")
+    with transcript.open("a") as fh:
+        fh.write(_line("user", HANDOFF) + "\n")
+    tc.capture_transcript(memory, harness="claude-code", session_id=SID, transcript_path=str(transcript),
+                          cwd=None, keep_assistant=True)   # this firing could not read its launch chain
+    body = markdown_parser.parse(next((memory / "episodes").glob("*.md"))).body
+    assert "Now add the migration." in body and "Historical" not in body and "Context handoff" not in body
+
+
+def test_stored_host_reads_only_the_frontmatter_head(tmp_path):
+    ep = tmp_path / "ep.md"
+    ep.write_text("---\nid: ep_1\nhost: t3code\nturns:\n- a: 1\n---\nuser: host: t3code\n")
+    assert tc.stored_host(ep) == "t3code"
+    ep.write_text("---\nid: ep_1\nturns:\n- host: t3code\n---\nuser: hi\n")
+    assert tc.stored_host(ep) is None
+    assert tc.stored_host(None) is None and tc.stored_host(tmp_path / "missing.md") is None
+
+
+def test_a_cursor_turn_is_unwrapped_only_under_the_host(memory):
+    turn_capture.capture_turns(memory, harness="cursor", session_id="conv-aaaaaaaa",
+                               turns=[turn_capture.Posted("user", HANDOFF)])
+    turn_capture.capture_turns(memory, harness="cursor", session_id="conv-bbbbbbbb",
+                               turns=[turn_capture.Posted("user", HANDOFF)], host="t3code")
+    bodies = {markdown_parser.parse(p).frontmatter["session_id"]: markdown_parser.parse(p).body
+              for p in (memory / "episodes").glob("*.md")}
+    assert "Context handoff" in bodies["conv-aaaaaaaa"]
+    assert "Context handoff" not in bodies["conv-bbbbbbbb"] and "Now add the migration." in bodies["conv-bbbbbbbb"]

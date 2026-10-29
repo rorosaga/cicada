@@ -46,7 +46,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from api.services import continuity_sessions, demo_guard, episode_ids, markdown_parser
+from api.services import agent_catalog, continuity_sessions, demo_guard, episode_ids, markdown_parser
 from api.services import transcript_capture as tc
 from api.services.transcript_extract import (
     _NOTE_LINE_RE, Conversation, Gap, Turn, clean_turn, window,
@@ -158,7 +158,7 @@ def _load_strict(stored):
 
 
 def _merge(turns: list[Turn], ids: list[str | None], posted: list[Posted], *, turn_id: str | None, retry: bool,
-           now: str, model: str | None, counts: dict) -> bool:
+           now: str, model: str | None, counts: dict, host: str | None = None) -> bool:
     """Fold the posted turns into ``turns``/``ids`` in place; True when anything moved.
 
     Keyed (Cursor): a turn with the same id and speaker is replaced when its
@@ -169,7 +169,7 @@ def _merge(turns: list[Turn], ids: list[str | None], posted: list[Posted], *, tu
     reply, anything else is appended."""
     def cleaned(p: Posted, first: bool) -> Turn | None:
         turn, c = clean_turn(p.speaker, p.text, first=first, ts=now,
-                             model=model if p.speaker == "assistant" else None)
+                             model=model if p.speaker == "assistant" else None, host=host)
         counts["scrubbed"] += c["scrubbed"]
         counts["truncated_turns"] += c["truncated_turns"]
         if turn is not None and c["first_request_clipped"]:
@@ -305,7 +305,12 @@ def capture_turns(
             kept, ids, gap, clipped = [], [], None, False
         counts = {"scrubbed": 0, "truncated_turns": 0, "first_request_clipped": clipped}
         now = episode_ids.utc_now_iso()
-        _merge(kept, ids, posted, turn_id=turn_id, retry=retry, now=now, model=model, counts=counts)
+        # G228: T3 Code's envelopes are unwrapped only under its host — the hook's word, else the episode's own.
+        strip_host = None if relay is not None else (
+            agent_catalog.clean_host(host)
+            or agent_catalog.clean_host(stored.frontmatter.get("host") if stored is not None else None))
+        _merge(kept, ids, posted, turn_id=turn_id, retry=retry, now=now, model=model, counts=counts,
+               host=strip_host)
         key = {id(t): k for t, k in zip(kept, ids)}
         kept, gap = window(kept, gap)
         ids = [key[id(t)] for t in kept]

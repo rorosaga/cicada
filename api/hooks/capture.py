@@ -70,7 +70,8 @@ Codex (R9): its Stop payload is unverified, so a payload without
 
 A host app (G228, ``host_identity``): when an app such as T3 Code launched the
 harness, the same firing names it — ``host: t3code`` in the body and ``via t3code``
-in the log line — read from this process's ancestors, never from the app's files.
+in the log line — read from this process's own launch chain (parent pid and exec path
+only; never another process's arguments or environment), never from the app's files.
 The session is still the harness's one episode; the host is a label on it.
 
 One line per firing goes to ``~/.cicada/logs/capture.log`` (0600): a
@@ -216,7 +217,8 @@ def _client_capture(payload: dict, *, harness: str, session_id: str, event: str,
         if not transcript_path:
             _log(log_path, f"{tag} skipped: no transcript_path")
             return 0
-        conversation, read_bytes, refused = remote_client.read_session(harness, session_id, str(transcript_path))
+        conversation, read_bytes, refused = remote_client.read_session(harness, session_id, str(transcript_path),
+                                                                       host=host)
         if refused:
             _log(log_path, f"{tag} refused: {refused}")
             return 0

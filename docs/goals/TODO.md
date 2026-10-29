@@ -14,11 +14,12 @@
 
 - **2026-10-29 — T3 Code (G228; PR #543).** T3 Code drives the Claude Code, Codex and Cursor on the
   machine with their own settings, so Cicada's existing hooks, plugin and MCP server already run in its threads; one
-  thread on one harness is that harness's one episode. New: the hook names the host from its own ancestors and the
-  episode is labelled `host: t3code` (its own Sources row, an Agents-page umbrella whose connect steps are the agents
+  thread on one harness is that harness's one episode. New: the hook names the host from its own launch chain (exec paths only)
+  and the episode is labelled `host: t3code` (its own Sources row, an Agents-page umbrella whose connect steps are the agents
   it drives, seen via the new `hook` sighting); what T3 Code writes into a turn (a provider switch's replay, its ACP
-  instructions) is never kept as the person's words. Nothing read from T3 Code's database. T3 Chat documents no MCP
-  connector, so it is not listed. Stop firing p95 61.5 → 61.2 ms. Unverified against a live T3 Code; Codex under T3
+  instructions) is not kept as the person's words — only under that host, on its full shape. Nothing read from T3
+  Code's database; `npx t3` goes unlabelled. T3 Chat documents no MCP
+  connector, so it is not listed. Stop firing p95 within spread (57.3 → 57.7 ms). Unverified against a live T3 Code; Codex under T3
   Code's managed sign-in is not captured (Needs the owner on the G228 row).
 - **2026-10-29 — chat exports findable (CIC8, G64; branch `feat/chat-exports-obvious`).** Every door to a chat export
   opens the one intake (Sources' header *Import chats or files* and its Chat exports entry, Agents' *Import its chat

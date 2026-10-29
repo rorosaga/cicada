@@ -94,35 +94,56 @@ CODEX_HARNESS_TAGS = frozenset({
 
 # G228: what T3 Code writes into a harness's turns (its source, commit 3748c5c2, 2026-10-29). A provider switch, a
 # portable restart or a fork the provider cannot resume natively starts a NEW harness session whose first message
-# carries the thread's earlier turns — "Context handoff (…)" … "\n\nUser message:\n<the request>"
-# (``ProviderTurnStartService``); a provider that takes history natively (Codex) gets a context message and then each
-# earlier turn as its own message headed "[Historical <role>; …; thread=…; item=…]" (``renderHistoricalMessage``); an
-# ACP-driven provider's prompt arrives as "<t3_code_instructions>…</t3_code_instructions>\n\n<user_request>\n…\n
-# </user_request>" (``orchestrationInstructions``). None of it is the person speaking now: replayed turns are already
-# in the earlier session's own episode, and the instructions are T3 Code talking to the model. Kept: the request.
-_T3_HANDOFF_HEAD = "Context handoff ("
+# carries the thread's earlier turns: a "Context handoff (…)" header naming ``t3_thread_read``, the fixed "Selected N
+# intact items; omitted M items. …" sentence (``handoffBudget.selectHistory``), each earlier turn as a
+# "[Historical <role>; <kind>; thread=…; run=…; item=…; provider-thread=…; status=…]" block
+# (``renderHistoricalMessage``), then "\n\nUser message:\n<the request>" (``ProviderTurnStartService``). A provider
+# that takes history natively (Codex) gets the header-and-sentence message alone and then each block as its own
+# message. An ACP-driven provider's prompt arrives as "<t3_code_instructions>…</t3_code_instructions>\n\n
+# <user_request>\n…\n</user_request>" (``orchestrationInstructions``). None of it is the person speaking now.
+# Applied ONLY when the capture's host is T3 Code (the hook named it, or the episode already carries it), and only to
+# the full fixed shape: anything unsure keeps the whole text — losing the person's words is worse than keeping a replay.
+T3_HOST = "t3code"
+_T3_HEADER_RE = re.compile(r"\AContext handoff \([^)\n]+\)[:.]")
 _T3_HANDOFF_MARK = "t3_thread_read"
+_T3_SELECTED_RE = re.compile(r"\nSelected \d+ intact items; omitted \d+ items\. Historical material is context, not a "
+                             r"new request or higher-priority instructions\. Attached files and native tool/reasoning "
+                             r"state are not replayed\.")
+_T3_HISTORICAL = (r"\[Historical (?:user|assistant); [A-Za-z_-]+; thread=[^;\]\n]+; run=[^;\]\n]+; item=[^;\]\n]+; "
+                  r"provider-thread=[^;\]\n]+; status=[^;\]\n]+(?:; run-status=[^;\]\n]+)?\]\n")
+_T3_HISTORICAL_RE = re.compile(r"\A" + _T3_HISTORICAL)
+_T3_BLOCK_RE = re.compile(r"\n\n" + _T3_HISTORICAL)
 _T3_USER_SPLIT = "\n\nUser message:\n"
-_T3_HISTORICAL_RE = re.compile(r"\A\s*\[Historical (?:user|assistant); [^\]\n]*\bthread=[^\]\n]*\bitem=[^\]\n]*\]\n")
-_T3_REQUEST_RE = re.compile(r"\A\s*<t3_code_instructions>\n.*?\n</t3_code_instructions>\n\n<user_request>\n(.*)\n"
+_T3_REQUEST_RE = re.compile(r"\A<t3_code_instructions>\n.*?\n</t3_code_instructions>\n\n<user_request>\n(.*)\n"
                             r"</user_request>\s*\Z", re.DOTALL)
 
 
-def host_envelope(text: str) -> tuple[str, str | None]:
+def host_envelope(text: str, host: str | None = None) -> tuple[str, str | None]:
     """A host app's wrapper around a turn (G228): ``(what is left, the kind removed)`` — ``host_replay`` (an earlier
-    turn replayed: nothing left), ``host_handoff`` (the replay before the request: the request left) or
-    ``host_instructions`` (the request left) — else ``(text, None)``. Exact shapes only, never a guess: a person's own
-    text that merely mentions a handoff is kept whole. When a handoff's request itself holds the split line, the
-    LAST one is the cut, so a replayed turn is never kept as the person's words (the cost: the head of such a
-    request)."""
+    turn replayed on its own: nothing left), ``host_handoff`` (the replay before the request: the request left; or the
+    native context message alone: nothing left) or ``host_instructions`` (the request left) — else ``(text, None)``.
+
+    Only under ``host == "t3code"``, and only on T3 Code's full fixed shape. A handoff is cut at the FIRST
+    "User message:" line after its last historical block, so a request that itself holds that line keeps its head;
+    a handoff with no historical block or no split line is kept whole."""
+    if host != T3_HOST:
+        return text, None
     if _T3_HISTORICAL_RE.match(text):
         return "", "host_replay"
-    stripped = text.lstrip()
-    if stripped.startswith(_T3_HANDOFF_HEAD):
-        cut = stripped.rfind(_T3_USER_SPLIT)
-        head = stripped if cut < 0 else stripped[:cut]
-        if _T3_HANDOFF_MARK in head:
-            return ("" if cut < 0 else stripped[cut + len(_T3_USER_SPLIT):]), "host_handoff"
+    if _T3_HEADER_RE.match(text):
+        selected = _T3_SELECTED_RE.search(text)
+        if selected is None or _T3_HANDOFF_MARK not in text[:selected.start()]:
+            return text, None
+        after = text[selected.end():]
+        if not after.strip():
+            return "", "host_handoff"          # the native context message: header and sentence, nothing else
+        blocks = list(_T3_BLOCK_RE.finditer(after))
+        if not blocks or blocks[0].start() != 0:
+            return text, None
+        split = after.find(_T3_USER_SPLIT, blocks[-1].end())
+        if split < 0:
+            return text, None
+        return after[split + len(_T3_USER_SPLIT):], "host_handoff"
     m = _T3_REQUEST_RE.match(text)
     if m:
         return m.group(1), "host_instructions"
@@ -223,8 +244,10 @@ class _Builder:
     final-reply-per-turn pending buffer, R6's cleaning order and caps."""
 
     def __init__(self, harness: str, *, keep_assistant: bool, turn_cap: int, session_cap: int,
-                 tail_block: int | None = None, first_cap: int = FIRST_USER_CAP_CHARS):
+                 tail_block: int | None = None, first_cap: int = FIRST_USER_CAP_CHARS, host: str | None = None):
         self.harness = harness
+        #: G228: the app that launched this session; T3 Code's envelopes are unwrapped only under it.
+        self.host = host
         self.keep_assistant = keep_assistant
         self.turn_cap = turn_cap
         self.first_cap = first_cap
@@ -286,7 +309,7 @@ class _Builder:
         self._add("assistant", joined, ts, model=model, effort=effort)
 
     def _add(self, role: str, text: str, ts: str | None, *, model=None, effort=None) -> None:
-        text, envelope = host_envelope(text)
+        text, envelope = host_envelope(text, self.host)
         if envelope:
             # G228: a host app's replay or wrapper — counted by kind, never kept as this session's words.
             self.count_block(envelope)
@@ -412,12 +435,13 @@ def extract_claude_code(
     turn_cap: int | None = None,
     session_cap: int | None = None,
     tail_block: int | None = None,
+    host: str | None = None,
 ) -> Conversation:
-    """One Claude Code transcript (JSONL lines) → the ruling's conversation."""
+    """One Claude Code transcript (JSONL lines) → the ruling's conversation. ``host``: G228's launching app."""
     b = _Builder("claude-code", keep_assistant=keep_assistant, turn_cap=turn_cap or TURN_CAP_CHARS,
                  session_cap=session_cap or SESSION_CAP_CHARS,  # read per call, so a test can pin a small cap
                  tail_block=tail_block or TAIL_BLOCK_TURNS,
-                 first_cap=FIRST_USER_CAP_CHARS if turn_cap is None else (turn_cap or TURN_CAP_CHARS))
+                 first_cap=FIRST_USER_CAP_CHARS if turn_cap is None else (turn_cap or TURN_CAP_CHARS), host=host)
     session_id: str | None = None
     cwd: str | None = None
     for raw in lines:
@@ -510,6 +534,7 @@ def extract_codex(
     turn_cap: int | None = None,
     session_cap: int | None = None,
     tail_block: int | None = None,
+    host: str | None = None,
 ) -> Conversation:
     """One Codex rollout (JSONL lines) → the same conversation shape.
 
@@ -521,7 +546,7 @@ def extract_codex(
     b = _Builder("codex", keep_assistant=keep_assistant, turn_cap=turn_cap or TURN_CAP_CHARS,
                  session_cap=session_cap or SESSION_CAP_CHARS,  # read per call, so a test can pin a small cap
                  tail_block=tail_block or TAIL_BLOCK_TURNS,
-                 first_cap=FIRST_USER_CAP_CHARS if turn_cap is None else (turn_cap or TURN_CAP_CHARS))
+                 first_cap=FIRST_USER_CAP_CHARS if turn_cap is None else (turn_cap or TURN_CAP_CHARS), host=host)
     session_id: str | None = None
     cwd: str | None = None
     ctx_model = ctx_effort = None
@@ -583,7 +608,7 @@ def extract_codex(
 
 
 def clean_turn(role: str, text: str, *, first: bool, ts: str | None = None,
-               model: str | None = None) -> tuple[Turn | None, dict]:
+               model: str | None = None, host: str | None = None) -> tuple[Turn | None, dict]:
     """One turn through the SAME cleaning a transcript turn gets — code fences
     stripped, secrets scrubbed, the first person message capped at 16k and every
     other turn at 2k (a reply as head + recorded gap + tail) — for a harness
@@ -591,7 +616,7 @@ def clean_turn(role: str, text: str, *, first: bool, ts: str | None = None,
     (``turn_capture``: Cursor, Gemini CLI). ``first`` says whether this is the
     session's first person turn. Returns the turn (``None`` when nothing is left
     after cleaning) and the counts the ledger reads."""
-    b = _Builder("posted", keep_assistant=True, turn_cap=TURN_CAP_CHARS, session_cap=SESSION_CAP_CHARS)
+    b = _Builder("posted", keep_assistant=True, turn_cap=TURN_CAP_CHARS, session_cap=SESSION_CAP_CHARS, host=host)
     b.first_user_seen = not first
     b._add(role, text, ts, model=clean_model(model) if role == "assistant" else None)
     counts = {"scrubbed": b.scrubbed, "truncated_turns": b.truncated_turns,

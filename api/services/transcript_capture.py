@@ -556,7 +556,8 @@ def capture_transcript(
             for raw in fh:
                 read_bytes += len(raw)
                 yield raw.decode("utf-8", "replace")
-        conv = extract(harness, lines(), keep_assistant=keep_assistant)
+        conv = extract(harness, lines(), keep_assistant=keep_assistant,
+                       host=envelope_host(host, memory_path / "episodes", harness, session_id))
     from api.services import workspace_identity
     observed = workspace_identity.parse(cwd, workspace)
     if observed and bank_paths is not None and conv.turns:
@@ -579,6 +580,47 @@ def capture_transcript(
                                extra=host_extra(host))
     saw_host(host, result)
     return result
+
+
+#: How much of an episode's head :func:`stored_host` reads looking for its ``host:`` line.
+_HOST_SCAN_BYTES = 256 * 1024
+
+
+def stored_host(path: Path | None) -> str | None:
+    """G228: the ``host`` an episode already carries, read from its frontmatter's top-level lines (never YAML-parsed:
+    a long session's sidecar made that too slow for the Stop hook's budget), stopping at the sidecar or the fence."""
+    from api.services import agent_catalog
+
+    if path is None:
+        return None
+    try:
+        with path.open("rb") as fh:
+            head = fh.read(_HOST_SCAN_BYTES).decode("utf-8", "replace")
+    except OSError:
+        return None
+    lines = head.split("\n")
+    if not lines or lines[0].strip() != "---":
+        return None
+    for line in lines[1:]:
+        if line.strip() == "---" or line.startswith(("turns:", "hook_turns:")):
+            return None
+        if line.startswith("host:"):
+            return agent_catalog.clean_host(line[5:].strip().strip("'\""))
+    return None
+
+
+def envelope_host(host: str | None, episodes_dir: Path, harness: str, session_id: str) -> str | None:
+    """G228: the host whose turn envelopes a capture unwraps — the one the hook named, else the one the session's
+    episode already carries (a later firing that could not read its launch chain), else none."""
+    from api.services import agent_catalog
+
+    known = agent_catalog.clean_host(host)
+    if known:
+        return known
+    try:
+        return stored_host(_find_session_episode(episodes_dir, harness, session_id))
+    except OSError:
+        return None
 
 
 def host_extra(host: str | None) -> dict | None:
