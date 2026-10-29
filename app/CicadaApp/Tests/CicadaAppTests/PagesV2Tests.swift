@@ -128,6 +128,9 @@ final class PagesV2Tests: XCTestCase {
         XCTAssertEqual(PageWords.closing(.init(total: 11, conversations: 9, web: 2)),
                        "9 conversations and 2 web pages in all")
         XCTAssertEqual(PageWords.closing(.init(total: 1, conversations: 1)), "1 conversation in all")
+        XCTAssertEqual(PageWords.closingLine(.init(total: 2, conversations: 2)),
+                       "2 conversations in all · who wrote each change is in History")
+        XCTAssertNil(PageWords.closingLine(.init()))
     }
 
     func testWhatEndedAndWhatWasInferredAreSaidInTheSentence() {

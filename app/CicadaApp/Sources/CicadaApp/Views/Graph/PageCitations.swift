@@ -53,14 +53,15 @@ struct CiteKey: Hashable, Identifiable {
 }
 
 enum CitationMarks {
-    /// The superscripts after a line: one per source, `labelFont`-sized, `textTertiary` (DR-80), each a link to its
-    /// popover. A thin space keeps them off the full stop.
+    /// The superscripts after a line: one per source, at the caption size (11 pt, the section label's size without its
+    /// weight — the label face has one reader, `SectionLabel`), `textTertiary` (DR-80), each a link to its popover. A
+    /// thin space keeps them off the full stop.
     static func text(_ keys: [CiteKey]) -> Text {
         guard !keys.isEmpty else { return Text(verbatim: "") }
         var out = AttributedString()
         for (i, key) in keys.enumerated() {
             var run = AttributedString((i == 0 ? "\u{2009}" : "\u{2009}") + String(key.n))
-            run.font = CicadaTheme.labelFont
+            run.font = CicadaTheme.captionFont
             run.baselineOffset = CicadaTheme.scaled(5)
             run.foregroundColor = CicadaTheme.textTertiary
             run.link = key.url
@@ -119,7 +120,7 @@ struct CitationChips: View {
         HStack(spacing: CicadaTheme.scaled(2)) {
             ForEach(keys) { key in
                 Text(verbatim: String(key.n))
-                    .font(CicadaTheme.labelFont.monospacedDigit())
+                    .font(CicadaTheme.captionFont.monospacedDigit())
                     .foregroundStyle(focused == key || open == key ? CicadaTheme.textPrimary : CicadaTheme.textTertiary)
                     .frame(minWidth: CicadaTheme.scaled(18), minHeight: CicadaTheme.scaled(18))
                     .background(CicadaTheme.shape(CicadaTheme.radiusXS)
@@ -200,7 +201,8 @@ struct CitationPopover: View {
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .lineLimit(1)
             Spacer(minLength: 0)
-            Text(verbatim: String(d.n)).font(CicadaTheme.labelFont).foregroundStyle(CicadaTheme.textTertiary)
+            Text(verbatim: String(d.n)).font(CicadaTheme.captionFont.monospacedDigit())
+                .foregroundStyle(CicadaTheme.textTertiary)
         }
         if let span = d.span, !span.excerpt.isEmpty {
             let parts = QuoteBlock.parts(excerpt: span.excerpt, mentionOffsets: span.mentionOffsets)
