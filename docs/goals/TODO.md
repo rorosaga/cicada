@@ -12,7 +12,7 @@
 
 ## Current state and evidence
 
-- **2026-10-29 — one person across sources (G209, G179; branch `feat/one-person-across-sources`, PR #PRNUM).** A
+- **2026-10-29 — one person across sources (G209, G179; branch `feat/one-person-across-sources`, PR #527).** A
   chat participant's ONE address-book card (by Contacts id, never a handle) rides on the sitting's records; Stage 2
   joins the participant to that card's page before any name, a waiting card only once the usual rules promote. A
   first name heard outside a chat is asked about in plain words, never joined. Read-only counts on a bank copy:
