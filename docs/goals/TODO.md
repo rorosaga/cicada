@@ -30,7 +30,7 @@
 - **2026-10-29 — one source page for every source (G161, owner; branch `feat/source-page-v3`).** Status line
   (*Connected · last item today*), *What Cicada reads* one tap away, one search (backend `q`, the words index
   included), the list in the source's unit with *All N* and groups opening in the column, settings last; the duplicate
-  *What came in* fold is gone for every source row. WhatsApp/Telegram one-row-per-chat waits on chats-ux-v2's backend.
+  *What came in* fold is gone for every source row. WhatsApp and Telegram list one row per chat (picture, message count, newest day, a Group tag) on #559's rows.
 
 - **2026-10-29 — the picture is the control (G146, owner; branch `feat/picture-click`).** The blue *Add a picture…* /
   *Use initials instead* / *Remove picture* words and the "Picture you added" caption under a page's name are gone; a click on the picture offers them
