@@ -100,6 +100,21 @@ def test_a_tick_is_live_from_then_and_history_only_on_the_persons_ask(bank):
     assert [h["kind"] for h in log] == ["ticked", "history"]
 
 
+def test_a_secret_in_a_chats_name_is_stored_scrubbed_and_an_unchanged_sync_writes_nothing(bank):
+    """Review of #560: the re-record compared the raw name with the scrubbed one on disk and rewrote every sync."""
+    secret = "ghp_" + "Q1w2E3r4T5y6U7i8O9p0A1s2D3"
+    name = f"Bob {secret}"
+    tick(bank)
+    rows = [row("S1", T0, "hello"), row("S2", T0 + 60, "hi", me=True)]
+    ingest(bank, rows, name=name)
+    [(sid, ep)] = episodes(bank).items()
+    path = bank / "episodes" / f"{ep.frontmatter['id']}.md"
+    before = path.read_bytes()
+    assert secret.encode() not in before
+    out = ingest(bank, rows, name=name)
+    assert path.read_bytes() == before and out.get("recorded", 0) == 0
+
+
 def test_history_needs_a_tick_first(bank):
     with pytest.raises(chat_live.NotSelected):
         chat_live.update_settings(bank, SPEC, {"id": CHAT, "history": True})

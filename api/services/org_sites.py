@@ -275,7 +275,7 @@ def _own_line_hits(memory_path: Path, fm: dict, keys: set[str]) -> list[Candidat
             continue
         ep_fm, text = doc
         for turn in evidence.turns(text, override=authorship.of(ep_fm), gaps=evidence.gap_ranges(ep_fm, text)):
-            if turn.role != "user" or inbox_tend._agent_note(ep_fm.get("source"), turn):
+            if turn.role != "user":   # an agent's saved note is `assistant` (ruling 50, `authorship.of`)
                 continue
             pos = turn.content_start
             for line in text[turn.content_start:turn.end].split("\n"):

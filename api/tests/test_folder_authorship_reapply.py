@@ -212,3 +212,19 @@ def test_while_sleep_runs_the_paper_step_waits(bank, client, monkeypatch):
     assert _episode(bank, folder, "refs.md")[1].frontmatter["evidence_kind"] == "assistant"
     assert fs.get_folder(bank, folder["id"])["papers_pending"] is True
     assert (bank / "entities" / f"{ALPHA}.md").read_text(encoding="utf-8") == before
+
+
+def test_a_path_with_a_year_and_a_hex_id_survives_a_sync_and_the_rule_still_matches(bank):
+    """Re-check of #560: the stager's frontmatter scrub turned "Advent of Code 2024/…" and a Notion file's 32-hex id
+    into "[redacted]", so the authorship rule's glob missed the file. Keys and paths are never altered."""
+    folder = _folder(bank)
+    year = "Advent of Code 2024/day one.md"
+    notion = "Page Title " + "0123456789abcdef0123456789abcdef" + ".md"
+    _stage(bank, folder, _file(year, "Day one notes."), _file(notion, "A page."))
+    for rel in (year, notion):
+        assert _episode(bank, folder, rel)[1].frontmatter["relpath"] == rel
+    fs.sync(bank, folder, [_file(year, "Day one notes."), _file(notion, "A page.")], [])   # a second sync
+    assert _git(bank, "status", "--porcelain") == "", "an unchanged file rewrites nothing"
+    assert fs.live_file_count(bank, folder["id"]) == 2
+    fs.update(bank, folder["id"], authorship=[{"glob": "Advent of Code 2024/*.md", "authorship": "agent"}])
+    assert fs.reapply_authorship(bank, folder["id"])["to_agent"] == 1

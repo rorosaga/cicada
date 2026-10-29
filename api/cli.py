@@ -237,10 +237,11 @@ def _project_dir(boot: Boot) -> str | None:
 def _tool_context(boot: Boot):
     from api.services import mcp_tools
 
-    path, ident = boot.pin.path, _identity()
-    # Ruling 21: no id from the harness → no session at all (never minted); a named harness is kept.
-    return mcp_tools.ToolContext(memory_path=lambda: path, session_id=ident.session_id or "",
-                                 harness=ident.harness or "unknown", project_dir=_project_dir(boot),
+    path = boot.pin.path
+    # Ruling 21 / ruling 50: the one caller identity, shared with a client's door (`cli_app.caller`).
+    session_id, harness = cli_app.caller()
+    return mcp_tools.ToolContext(memory_path=lambda: path, session_id=session_id,
+                                 harness=harness, project_dir=_project_dir(boot),
                                  read_surface="cli", available=cli_map.exposed_tools(),
                                  headers=lambda: {"Content-Type": "application/json", **_backend_headers()},
                                  backend_url=boot.backend_url)

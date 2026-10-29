@@ -30,7 +30,7 @@ from __future__ import annotations
 import re
 import unicodedata
 
-from api.services import evidence
+from api.services import authorship, evidence
 
 #: "more than 3 exchanges" — the rule's own number.
 MIN_EXCHANGES = 3
@@ -179,8 +179,10 @@ def conversation_keys(episode_ids, memory_path=None) -> set[str]:
 
     A captured harness session counts as ``session:<id>``; an agent's memory note counts as the session that wrote it
     (``session:<origin_session_id>``, else its ``origin_episode``'s key) — so a session and its notes, two notes of one
-    session, or a note and its project's index never make two — and a note with no session counts as nothing. Every
-    other id is its own conversation, as before; an id with no readable episode (an older pending line's) too."""
+    session, or a note and its project's index never make two — and a note with no session counts as nothing. An
+    agent's saved note (ruling 50, ``authorship.agent_saved``) is the same: its session's key, else nothing — three
+    notes one agent saved in one session are one conversation, never three. Every other id is its own conversation,
+    as before; an id with no readable episode (an older pending line's) too."""
     from pathlib import Path
 
     from api.services import bank_index
@@ -207,6 +209,8 @@ def conversation_keys(episode_ids, memory_path=None) -> set[str]:
         sid = str(fm.get("session_id") or "").strip()
         if sid and fm.get("capture_kind") == "transcript":
             return f"session:{sid}"
+        if authorship.agent_saved(fm):
+            return f"session:{sid}" if sid else None
         return eid
 
     out: set[str] = set()

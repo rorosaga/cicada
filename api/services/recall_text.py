@@ -20,6 +20,11 @@ RECALL_HEADER = INJECTION_PREFIX + " by Cicada's hook, not typed by them) — wh
 PRIMER_HEADER = (INJECTION_PREFIX + " at session start by Cicada's hook) — the primer its MCP server also sends "
                  "when it connects.")
 RECALL_FOOTER = "More on any page: `cicada_recall_detail(entity_id)`."
+#: The topic note (2026-10-29): the message named no page, so these lines were found by its words. It always ends
+#: with the pointer to the search tool — a note found by words is a sample, never the whole of what Cicada holds.
+TOPIC_HEADER = (INJECTION_PREFIX + " by Cicada's hook, not typed by them) — no page is named in this message; "
+                "these beliefs share its words:")
+TOPIC_FOOTER = ("More on this topic: `cicada_recall(query)`; a page whole: `cicada_recall_detail(entity_id)`.")
 
 
 def is_injection(text: str | None) -> bool:

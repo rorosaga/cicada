@@ -601,6 +601,8 @@ def _episode_hit(ctx: _Ctx, ep: _Episode, score: float, chunk: str = "") -> Sear
             kind = "page"   # a filing label (a folder, a list) is never anyone's words, as in `evidence.kind_for`
         elif override in evidence.OVERRIDE_KINDS:
             kind = override
+        elif override == evidence.AGENT_KIND:
+            kind = evidence.agent_words(kind)   # ruling 50: an agent's saved note is never the person's words
     snippet, offsets = snippet_window(src, ctx.tokens)
     return SearchHit(
         id=ep.doc.ref,

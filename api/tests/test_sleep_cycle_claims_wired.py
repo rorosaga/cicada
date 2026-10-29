@@ -33,7 +33,7 @@ def _seed_bank(tmp_path):
     # One unprocessed episode so the cycle does not early-return.
     markdown_parser.write(
         memory / "episodes" / "ep_2026-06-17_001.md",
-        {"id": "ep_2026-06-17_001", "processed": False, "source": "mcp",
+        {"id": "ep_2026-06-17_001", "processed": False, "source": "claude-code",
          "timestamp": "2026-06-17T10:00:00"},
         "Cicada uses sqlite-vec for retrieval.",
     )

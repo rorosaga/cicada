@@ -76,7 +76,9 @@ DB_FILE = "search_index.db"
 # a bookmark's conversation row with the site's own mark, never the browser's; the bump rebuilds every index once.
 # "8": a saved item's `docs.meta` carries `evidence_kind: save` (`authorship.of`), so a hit in a bookmark's fetched
 # description is the page's words, never the person's; the bump rebuilds every index once.
-SCHEMA_VERSION = "8"
+# "9": an agent's saved note's `docs.meta` carries `evidence_kind: agent` (ruling 50, `authorship.of`), so a hit in it
+# is the agent's words, never the person's; the bump rebuilds every index once.
+SCHEMA_VERSION = "9"
 TOKENIZER = "unicode61 remove_diacritics 2"
 # Prefix indexes for 2-, 3- and 4-character prefixes: type-as-you-go queries
 # are mostly that short, and a prefix with no index is a range scan over
