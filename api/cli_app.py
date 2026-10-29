@@ -325,8 +325,9 @@ def door(boot, tool: str, arguments: dict, options: dict | None = None, *, proje
     from api.services import mcp_tools, session_identity
 
     ident = session_identity.cli_identity()
+    session_id, harness = caller()   # ruling 50: the same caller as the local path, an agent's shell included
     body = {"tool": tool, "arguments": arguments, "surface": "cli", "options": options or {},
-            "caller": {"session_id": ident.session_id or "", "harness": ident.harness or "unknown",
+            "caller": {"session_id": session_id, "harness": harness,
                        "project_dir": project_dir or ident.project_dir or boot.caller_cwd}}
     answer = call(boot, "POST", "/tools/call", body=body, timeout=180)
     if answer.get("error"):
@@ -400,6 +401,19 @@ def agent_shell(environ=None) -> str | None:
         if (environ.get(key) or "").strip():
             return harness
     return None
+
+
+def caller(environ=None) -> tuple[str, str]:
+    """``(session id, harness)`` a CLI call records as its caller — ONE answer for the local path (`cli._tool_context`)
+    and a client's door (:func:`door`). Ruling 21: the session only when the harness gives one, never minted. Ruling 50:
+    a shell only its harness's own variables mark (Codex's sandbox, :func:`agent_shell`) names that harness, so a note
+    saved from it is the agent's (`authorship.agent_saved`); the person's own terminal names none (``"unknown"``)."""
+    from api.services import session_identity
+
+    environ = os.environ if environ is None else environ
+    ident = session_identity.cli_identity(environ)
+    harness = ident.harness or (None if ident.session_id else agent_shell(environ))
+    return ident.session_id or "", harness or "unknown"
 
 
 def require_person(what: str) -> None:

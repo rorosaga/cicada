@@ -15,9 +15,6 @@ from pathlib import Path
 
 #: Harnesses whose session id resumes the conversation in that harness (the handshake promises `claude --resume`).
 RESUMABLE = {"claude-code": "claude --resume", "codex": "codex resume"}
-#: Episode ``source`` values an agent wrote through a tool door (``ask_sources.AGENT_SOURCES``): a saved note, not a
-#: captured conversation.
-SAVED_NOTE_SOURCES = frozenset({"mcp", "mcp-remote", "cli"})
 #: Export origins: the person's own downloaded history from a chat app — the other side is that app's assistant.
 EXPORT_APPS = {"chatgpt-export": "ChatGPT", "claude-export": "Claude"}
 EXPORT_SUFFIX = ", from the person's exported conversations"
@@ -59,9 +56,12 @@ def actor(fm: dict | None, *, ids: bool = True) -> str | None:
     origin = str(fm.get("origin") or "").strip()
     if isinstance(fm.get("relay"), dict):
         return f"{_label(harness) if harness else 'an app'}, relayed through the remote connector"
-    if harness and harness != "unknown" and (session or source in SAVED_NOTE_SOURCES):
+    from api.services import authorship
+
+    saved_note = authorship.agent_saved(fm)   # ruling 50: an agent's saved note, by its own record
+    if harness and harness != "unknown" and (session or saved_note):
         label = _label(harness)
-        if source in SAVED_NOTE_SOURCES:
+        if saved_note:
             return f"an agent's saved note from a {label} session" + (f" (id {session})" if session and ids else "")
         if not ids:
             return f"a {label} session"
@@ -83,7 +83,7 @@ def actor(fm: dict | None, *, ids: bool = True) -> str | None:
         return f"{name} (an AI agent){over}" if kind == "agent" else f"{name}{over}"
     if origin in EXPORT_APPS:
         return f"{EXPORT_APPS[origin]}{EXPORT_SUFFIX}"
-    if source in SAVED_NOTE_SOURCES:
+    if saved_note:
         return "an agent's saved note"
     return None
 

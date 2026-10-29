@@ -651,7 +651,16 @@ origin/source: `authorship.is_saved`, never by what a line says) — reads as `p
 a turn marker inside it (an agent's `assistant:` note) still reads as a marker. It is never stored: `authorship.of(fm)`
 returns the declared `evidence_kind`, else `evidence.SAVE_KIND`, and every reader passes that as `override` (Stage 1,
 promotion, project birth, ruling 42, the card rule, the Reader, search hits, the inbox tend). Spans already stored keep
-their kind; the repair is a dry run awaiting the owner. One marker grammar, `evidence._marker`, reads
+their kind; the repair is a dry run awaiting the owner.
+**An agent's saved note is the agent's words (ruling 50, owner 2026-10-29).** A note an agent saved through a tool door
+— `cicada_save_episode` over stdio (`source: mcp`), the remote connector (`mcp-remote`), or `cicada save` from an
+agent's shell (`cli` with the harness or session it ran in; the CLI stamps a Codex sandbox's harness too) — is known by
+its own record (`authorship.agent_saved`) and read as `evidence.AGENT_KIND`: every span the markers would give the
+person (an unmarked line, a `user:` line the agent wrote) is `assistant`; a `speaker:`, timed video or `attachment`
+line keeps its kind. Derived on read like a saved item, so the existing notes read right on the next consolidation;
+the person's own `cicada save` in their own terminal (no harness, no session) stays theirs. A claim resting on it is
+`external:<harness>` (`entity_extractor.assistant_observer`); a quote of the person located in a captured conversation
+still points at that conversation's own `user` span (G118). One marker grammar, `evidence._marker`, reads
 both line families, plus the chat importer's `attachment [<file name>]:` turn — the text Claude extracted from an
 upload, every line quoted (`> `) so it can open no turn — which is `page`, never the person's words. One module, `api/services/evidence.py`, does the work for every writer: locate
 is exact → whitespace-normalised → case-insensitive and **never fuzzy**; an unlocatable quote

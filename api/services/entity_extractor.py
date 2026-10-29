@@ -453,13 +453,30 @@ def _agent_name(episode: dict) -> str | None:
     """The agent whose words are an episode's ``assistant:`` lines, from the episode's own record: the harness that
     captured the session (``claude-code``, ``codex``…), else a chat export's app (``chatgpt-export`` → ``chatgpt``).
     ``None`` for a message conversation (its correspondent says who), a relayed one (``evidence_kind``: stored as
-    relayed, its own rail) and anything else."""
+    relayed, its own rail) and anything else. An agent's saved note (ruling 50) is the harness or app that saved it,
+    named by its own record, so a claim resting on it is that agent's (``external:<harness>``)."""
     if isinstance(episode.get("correspondent"), dict) or episode.get("evidence_kind"):
         return None
     from api.services.episode_title import assistant_of
 
     harness = str(episode.get("harness") or "").strip().lower()
+    if authorship.of_episode(episode) == evidence.AGENT_KIND:
+        return assistant_of(harness) or (harness if harness not in ("", "unknown") else None)
     return assistant_of(harness) or assistant_of(episode.get("origin"))
+
+
+def agent_save_note(episode: dict) -> str | None:
+    """Ruling 50: the note for an agent's saved note — its words are the agent's account, never the person's own
+    words, while what it records about the person is still worth keeping. ``None`` for every other episode."""
+    if authorship.of_episode(episode) != evidence.AGENT_KIND:
+        return None
+    from api.services.episode_title import PRODUCT
+
+    harness = str(episode.get("harness") or "").strip().lower()
+    who = PRODUCT.get(harness, harness) if harness not in ("", "unknown") else "an AI agent"
+    return (f"[Source: a note {who} saved to the person's memory. All of it is the agent's account, never the "
+            "person's own words: \"I\" or \"we\" in it is the agent (a \"speaker:\" line is that speaker). "
+            "Keep what it records about the person as the agent's statement.]\n\n")
 
 
 def agent_session_note(episode: dict) -> str | None:
@@ -902,7 +919,8 @@ async def extract(
             date_note = source_dates.date_note(ep_day, today)
         # G179: a message conversation says who its other side is, before every chunk.
         # A harness session says whose its assistant lines are, and that their acts are not the person's.
-        source_note = correspondent_note(episode.get("correspondent")) or agent_session_note(episode)
+        source_note = (correspondent_note(episode.get("correspondent")) or agent_session_note(episode)
+                       or agent_save_note(episode))
         # Ruling 45 addendum: the provider's project grouping, or the relaying app's word on it, as context.
         if (in_project := project_note(episode)) is not None:
             source_note = (source_note or "") + in_project

@@ -18,6 +18,10 @@
   new note on 20 coding asks, hook p50 +7 ms); recall's word leg finds today's conversation by a plain-words question
   (2/5 → 4/5 phrasings, first hit ~1.3 s after capture); `feedback`/`user` agent notes join *How to work with me* as
   the agent's words (≤ 2 rows, primer 1,690 tokens).
+- **2026-10-29 — an agent's saved note is the agent's words (ruling 50, G118; branch `fix/agent-saved-words`).**
+  `authorship.of` reads a `cicada_save_episode` note (stdio, remote, an agent's shell) as `evidence.AGENT_KIND`:
+  `assistant` spans, no promotion exchange, its session's one conversation, claims `external:<harness>`. The ad-hoc
+  `AGENT_SOURCES` / `_agent_note` checks in Ask and the inbox tend are gone into the one rule. Search index schema 9.
 - **2026-10-29 — chats feel like the apps, chat-specific half (G179, owner's live test; branch `feat/chats-ux-v2`).**
   Telegram's QR step waits on the status's `version` (long-poll) instead of reading once a second; a WhatsApp chat
   with yourself is your notes (`self_chat`: no correspondent, no card) and one oversized field no longer refuses a whole
@@ -2493,4 +2497,26 @@ A whole row moves to DONE only after its remaining implementation and required a
     47a rail unchanged (one-to-one only, per-chat consent, the session 0600 outside every bank, one-click log-out,
     nothing read before a tick). **Revisit** if Telegram ships an official local export or API for personal archives,
     or if Telegram withdraws QR login for third-party apps.
+50. **An agent's saved note is the agent's words, not the person's (owner, 2026-10-29: "yes" to the recommendation in
+    #548's report; G118, G105; amends nothing; branch `fix/agent-saved-words`).** A note an agent writes through
+    `cicada_save_episode` — over stdio (`source: mcp`), the remote connector (`mcp-remote`) or `cicada save` from an
+    agent's shell (`cli` with a harness or session on record) — carries no turn marker, so R4's default read it as the
+    person's own writing: each paragraph an exchange "in the person's own words" (promotion), its spans `user`
+    evidence, and one note could mint a page. #548 found agent notes had created event pages that way. **Now:** such a
+    note is known by its own record (`authorship.agent_saved`) and read as `evidence.AGENT_KIND` on every reader that
+    passes `authorship.of` (Stage 1, promotion, project birth, ruling 42, the Contacts-card rule, ruling 29's own-words
+    settle and `persons_span`, Ask, the Reader, search hits): a span the markers would give the person is `assistant`;
+    a `speaker:`, timed video or `attachment` line keeps its kind. Stage 1 is told whose note it is and gives a claim
+    resting on it `external:<harness>`; promotion's "2+ conversations" counts it as its session (none without one, as
+    ruling 43's memory notes). The other agent-authored saves already were the agent's (`cicada_save_url` notes and
+    `cicada_record_check`/`record_profile`/source re-checks under `assistant:`, `cicada_record_watch`/`record_read` as
+    saved items, an inbox quote as a relay episode, `cicada_note_progress` and backlog notes write no episode). The
+    person's own words keep theirs: hook transcripts, chat exports, the app's notes, a typed reason on a save, and
+    `cicada save` in their own terminal. **Exception (G118):** an agent's quote of the person, located in a captured
+    conversation (`cicada_write_claim` evidence), still points at that conversation's own `user` span. Derived on read,
+    never stored, so the fresh re-consolidation reads the existing notes right; no bank repair (owner). **Measured** on
+    a read-only copy of the active bank: 18 agent-saved notes of 8,914 episodes (7 sessions, none with a turn marker);
+    71 pages cite one, 6 rest on them alone, 14 lose the "2+ conversations" rung under the new count; 114 of 18,645
+    located claims rest only on them and 130 carry a stored `user` span inside one. **Revisit** if an agent gets a way
+    to mark a line as the person's verbatim words that Cicada can verify.
 

@@ -153,13 +153,9 @@ def _clip(text: str, at: int | None, limit: int) -> str:
     return " ".join(_clip_around(text, at, limit).split())
 
 
-#: Episodes an agent wrote through a tool door (``mcp_tools`` stamps ``source``): a block with no turn marker is the
-#: agent's note, not the person speaking — ``evidence`` reads an unmarked block as the person's (R4), Ask may not.
-AGENT_SOURCES = frozenset({"mcp", "mcp-remote", "cli"})
-
-
 def _who(turn, fm: dict, owner_name: str | None) -> str:
-    if turn.role == "user" and turn.marker is None and str(fm.get("source") or "") in AGENT_SOURCES:
+    if turn.marker is None and authorship.agent_saved(fm):
+        # Ruling 50: an agent's saved note (its turns are `assistant`), under the label Ask always gave it.
         return "an agent's saved note (not the person's own words)"
     if turn.role == "user":
         return f"{owner_name} (the person this memory belongs to)" if owner_name else "the person this memory belongs to"
@@ -1740,9 +1736,10 @@ def _names(name: str, words: frozenset[str]) -> bool:
 
 
 def _turn_asked(turn, fm: dict, asked: Asked) -> bool:
-    """Whether ``turn`` is said by someone ``asked`` names. An agent's saved note is nobody's."""
+    """Whether ``turn`` is said by someone ``asked`` names. An agent's saved note is the agent's (ruling 50: its turns
+    are ``assistant``, ``authorship.of``), never the person's."""
     if turn.role == "user":
-        return asked.person and not (turn.marker is None and str(fm.get("source") or "") in AGENT_SOURCES)
+        return asked.person
     if turn.role == "assistant":
         return asked.agent
     if turn.role == "speaker":
