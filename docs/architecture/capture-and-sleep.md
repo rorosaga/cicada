@@ -488,9 +488,19 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   gains their link and facts then, and nothing is ever said about anyone without one. Nothing is fetched: the link is
   where to look the person up; the profile-photo rung may use it only once the person takes the source (its own
   off-by-default gate, `person_photo`, unchanged).
-- **Messages conversations the person ticks (G179, 2026-10-15).** The app lists `chat.db`'s 200 most recent one-to-one
-  chats for the Settings picker (names, last activity, per-side counts — `MessagesReader.conversations`; group chats are
-  out of this slice; a ticked chat below that cap is appended so it can be unticked). Every pass reads the ticked
+- **Messages conversations the person ticks (G179, 2026-10-15).** The app lists `chat.db`'s 200 most recent chats for
+  the Settings picker (names, last activity, per-side counts — `MessagesReader.conversations`; a ticked chat below that
+  cap is appended so it can be unticked). **Group chats (2026-10-28):** `chat.style` 43 is listed too, with its
+  members' handles kept in the app for its own Contacts look-up; a ticked group posts `group: true` and `members:
+  [{key, name, direct?}]`, each row its `sender` — a **participant key**, `MessagesReader.memberKey` = sha256 of the
+  chat's id and the handle, stable per chat, never the handle and never shared across chats. The backend
+  (`messages_source.members_of`) gives each member one marker, `speaker:<label>:` (their Contacts name, else
+  `member-<key prefix>`; a phone- or address-shaped name is dropped, never kept), or `assistant:` for the ONE member
+  whose own one-to-one chat (`direct`) the person marked an agent; two such members both stay `speaker:`. A group
+  sitting records `group: true` and `participants: [{key, marker, name?, kind}]` — who each marker is — and no
+  `correspondent` (a group is nobody's page; its members reach pages only by the promotion rules). A later pass that
+  names nobody keeps every marker from the stored record. Reactions are one per reactor by `(from_me, sender)`. A
+  person's mark on a one-to-one chat re-renders that chat only; a group picks up a member's new mark at its next pass. Every pass reads the ticked
   conversations by their own id (`conversations(ids:)`, the chats' guids hashed in the app), never through that list, so
   a ticked chat syncs whatever its rank. It reads only a ticked conversation's rows (`message` id, guid, time,
   direction, `text`, `attributedBody` as base64, the reaction/event/edit/unsend columns and its attachments' names and
@@ -1193,6 +1203,41 @@ said and what day it is now (`api/services/source_dates.py`).
   gets observer `external:<name>` (`correspondent_observer`; any other assistant's: `assistant_observer`, *Facts keep
   their context*); one the person's words also back stays `agent`
   (`entities_to_claims` resets it when chunks disagree). Never `user_stated` either way.
+  **A group chat** gets `group_note` instead: which member each `speaker:<label>:` (or `assistant:`) marker is, and
+  that a member's words and "I" are theirs. A claim resting only on ONE member's lines has observer
+  `external:<member>`; one resting on several members' lines (or on a member Cicada cannot name) `external:group` —
+  one stable observer, since joined names would split one belief per combination and the spans already say who; a
+  group claim is the default reading only when the person's own line backs it; and in a group only the
+  person's own `user:` lines count as "the person's own words" for promotion, project birth and an application
+  (`promotion.person_kinds`) — a meeting still counts every speaker; the same rule holds for a waiting Contacts card
+  (`entity_resolver._said_in_person_turn`), a project's conversations (`project_conversations.person_named`) and the
+  inbox tend. `promotion.person_said` and `promotion.claim_cites_person` never count a claim Stage 1 gave to someone
+  else (`external:`), so a member's line never reads as the person's words to `page_relevance`, `web_context`'s
+  protected claims or `quiet_pages`, nor to `page_quality_repair`'s link rung. The same holds for a one-to-one chat
+  with a friend: a claim resting only on their lines is `external:<friend>` and never counts as the person's words on
+  pages.
+  **Interaction signals (owner 2026-10-28, `turn_signals`).** The extras every chat writer stores beside the words
+  (`turn_extras`: `reply_to`, `reactions`, `forwarded_from`; `unsent_turns`) reach Stage 1 as one note per chunk,
+  after the source note and before the conversation (the model sees it; evidence is verified against the stored body,
+  so no offset moves). `r<n>` names the message a reply answers — quoted from this body, or from the earlier sitting
+  of the same `conversation` that holds it (found by `message_keys`, indexed once per Sleep load, `KeyIndex`), or said
+  to be unknown, never guessed; a reply reading order already explains (the line above, or the last thing anyone else
+  said with only the replier's own lines between) is not noted. `s<n>` is a reaction: who reacted, with what, on which
+  turn — a signal, never the reactor's sentence; an agent's routine like is not noted (its doubt or emphasis is).
+  `f<n>` says a forwarded line's words are the original sender's; `u<n>` that something unsent was there, never what.
+  Edits and attachments need no note (the body holds the final words and the attachment's name). The model may tag a
+  relationship or value with the label it rests on (`"signal": "r2"`): the tag is consumed and the quote located inside
+  that turn first, so a short "yes" lands on its own line (exact → whitespace → case-insensitive, never fuzzy); the
+  tag grants nothing by itself — a quote outside the tagged turn rests on no signal. The person's own reaction on the
+  one turn a claim's located spans sit in is read from the stored extras, never the model's word or tag
+  (`turn_signals.person_stance`): agreement (❤️ 👍 ‼️) lifts its confidence by 0.1 (capped at 0.95; a 👍 often only
+  means "got it"), doubt (❓ 👎) halves it, and the claim records it (`reactions: [{by: user, stance, kind, episode,
+  turn}]` — `turn` the reacted turn's offset, the reaction's own key in `turn_extras`, so the reaction is its evidence
+  by turn id). **A reaction never changes the observer** (#499 review): a texted agent's claim stays
+  `external:<agent>` whatever the person tapped. Measured on the owner's bank 2026-10-28 (76 sittings of one chat,
+  read-only, counts only): 828 replies (741 in the same sitting, 87 in an earlier one, none unfound), 195 reactions
+  (all the agent's like or emoji), 4 edits, 0 unsends; after the skips, 308 noted signals, ~194 tokens per sitting
+  (median 138), ~14.7k in all — about +3.5 % on a call whose system prompt is ~4,750 tokens.
   The system prompt's TIME rules say:
   - write as of the conversation's date;
   - name the month and year for anything changeable from old material, and for every plan or intention;

@@ -339,8 +339,9 @@ def test_an_unticked_conversation_is_refused_and_unticking_keeps_what_was_saved(
     assert len(_episodes(bank)) == 2
 
 
-def test_group_chats_and_bad_ids_are_refused(bank):
-    with pytest.raises(messages_source.PayloadError):
+def test_an_unticked_group_and_bad_ids_are_refused(bank):
+    # Group chats are read since 2026-10-28 (`test_turn_signals`), only once ticked like any other.
+    with pytest.raises(messages_source.NotSelected):
         messages_source.ingest(bank, {"conversation": {"id": "a" * 24, "group": True}, "messages": []})
     with pytest.raises(messages_source.PayloadError):
         messages_source.ingest(bank, {"conversation": {"id": "+15550000001"}, "messages": []})

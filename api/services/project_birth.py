@@ -147,7 +147,8 @@ def _close(sentence: str, a: tuple[int, int], b: tuple[int, int]) -> bool:
     return not _CLAUSE_BREAK.search(between) and len(_WORD.findall(between)) <= MAX_GAP_WORDS
 
 
-def said_project(entity: dict, text: str, *, override: str | None = None, gaps=()) -> evidence.Evidence | None:
+def said_project(entity: dict, text: str, *, override: str | None = None, gaps=(),
+                 persons: frozenset[str] = promotion.PERSON_KINDS) -> evidence.Evidence | None:
     """The first sentence of a person's own turn that names the entity beside a project word, as a span into
     ``text`` (the episode's evidence text), or ``None``. Exact and case-insensitive, never fuzzy; the model's
     turns, a video's and a quoted page's never count (``promotion.PERSON_KINDS``)."""
@@ -155,7 +156,7 @@ def said_project(entity: dict, text: str, *, override: str | None = None, gaps=(
     if pattern is None or not text:
         return None
     for turn in evidence.turns(text, override=override, gaps=gaps):
-        if turn.role not in promotion.PERSON_KINDS:
+        if turn.role not in persons:
             continue
         words = text[turn.content_start:turn.end]
         for s in _SENTENCE.finditer(words):
@@ -184,7 +185,7 @@ def at_extraction(entity: dict, *, episode_id: str, frontmatter: dict, text: str
     repo = repo_match(entity, frontmatter)
     if repo is not None:
         return {"origin": REPO, **base, "repo": repo}
-    span = said_project(entity, text, override=override, gaps=gaps)
+    span = said_project(entity, text, override=override, gaps=gaps, persons=promotion.person_kinds(frontmatter))
     if span is not None:
         return {"origin": WORDS, **base,
                 "span": {"start": span.start, "end": span.end, "hash": span.hash, "kind": span.kind}}
@@ -316,7 +317,8 @@ def classify(memory_path: Path, stem: str, frontmatter: dict, *, documents=None,
             return Origin(kind=REPO, why=f"A conversation it cites was captured in the repository {repo['name']!r}.",
                           day=_day(efm, ep), episode=ep, repo=repo, episodes_read=seen)
         if words_hit is None:
-            span = said_project(entity, text, override=authorship.of(efm), gaps=evidence.gap_ranges(efm, text))
+            span = said_project(entity, text, override=authorship.of(efm), gaps=evidence.gap_ranges(efm, text),
+                                persons=promotion.person_kinds(efm))
             if span is not None:
                 words_hit = Origin(kind=WORDS, why="In a conversation it cites, you called it a project.",
                                    day=_day(efm, ep), episode=ep, episodes_read=seen,

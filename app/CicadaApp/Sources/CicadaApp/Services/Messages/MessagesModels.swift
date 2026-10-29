@@ -1,8 +1,9 @@
 import Foundation
 
-/// G179 — one 1:1 conversation in the Messages database, as the Settings list shows it. App-side only: `handle` (the
-/// phone number or address) is used to find the contact's name and photo on this Mac and never leaves the app; the
-/// backend knows the conversation by `id`, a hash of `chat.guid`.
+/// G179 — one conversation in the Messages database, as the Settings list shows it: one-to-one, or a group
+/// (2026-10-28). App-side only: `handle` and a group's `members` (phone numbers or addresses) are used to find names
+/// and photos on this Mac and never leave the app; the backend knows the conversation by `id`, a hash of `chat.guid`,
+/// and a member by `MessagesReader.memberKey`.
 struct MessagesConversation: Identifiable, Equatable, Sendable {
     let id: String
     let chatRowId: Int64
@@ -12,8 +13,26 @@ struct MessagesConversation: Identifiable, Equatable, Sendable {
     let lastActivity: Date?
     let fromMe: Int
     let fromThem: Int
+    var isGroup = false
+    /// A group's members' handles — app-only, never posted.
+    var members: [String] = []
 
     var messageCount: Int { fromMe + fromThem }
+}
+
+/// One group member as posted: its participant key, the name the person sees for them (their Contacts card, else
+/// nothing — never the handle), and the id of the person's one-to-one chat with them when there is one (so a member
+/// the person marked an AI agent there stays one here).
+struct MessagesMemberPayload: Equatable, Sendable {
+    let key: String
+    let name: String
+    let direct: String?
+
+    var json: [String: Any] {
+        var out: [String: Any] = ["key": key, "name": name]
+        if let direct { out["direct"] = direct }
+        return out
+    }
 }
 
 /// Where a ticked conversation's reading stopped, per memory: the highest `message.ROWID` posted, and, per posted row
@@ -225,7 +244,7 @@ struct MessagesConversationPayload: Encodable, Equatable, Sendable {
         self.name = name
         displayName = conversation.displayName
         service = conversation.service
-        group = false
+        group = conversation.isGroup
         fromMe = conversation.fromMe
         fromThem = conversation.fromThem
     }

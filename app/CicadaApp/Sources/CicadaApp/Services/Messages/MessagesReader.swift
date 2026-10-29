@@ -13,9 +13,10 @@ enum MessagesReadError: Error, LocalizedError, Equatable {
 /// G179 — reads the Messages database the way the Awake rail allows: the APP opens `~/Library/Messages/chat.db`
 /// (Full Disk Access is the only way in; the launchd backend never opens it), read-only, inside one read transaction.
 ///
-/// **What it reads.** For the list: each one-to-one chat's id, its handle (to find the contact's name and photo on
-/// this Mac — never sent), its own display name, the last message's time and how many messages each side sent. Group
-/// chats (`chat.style` 43) are left out of this slice. For a TICKED chat only: each message row's id, guid, time,
+/// **What it reads.** For the list: each chat's id, its handle (to find the contact's name and photo on this Mac —
+/// never sent), its own display name, the last message's time and how many messages each side sent. A group chat
+/// (`chat.style` 43, 2026-10-28) is listed too, with its members' handles — kept in the app, used only to find their
+/// Contacts names; each member crosses as a participant key (`memberKey`), never the handle. For a TICKED chat only: each message row's id, guid, time,
 /// direction, `text` and `attributedBody` (the archived words, sent as base64 for the backend to decode), its
 /// reaction/event columns, its edit and unsend times, and its attachments' *names* and types — never
 /// `attachment.filename` (a path) and never an attachment's bytes. No other column, no other chat. Since 2026-10-20
@@ -76,7 +77,7 @@ struct MessagesReader: Sendable {
 
     static let conversationsSelect = """
         SELECT c.ROWID AS chat, c.guid AS guid, c.chat_identifier AS handle, COALESCE(c.display_name, '') AS name,
-               COALESCE(c.service_name, '') AS service,
+               COALESCE(c.service_name, '') AS service, COALESCE(c.style, 45) AS style,
                (SELECT MAX(j.message_date) FROM chat_message_join j WHERE j.chat_id = c.ROWID) AS last,
                (SELECT COUNT(*) FROM chat_message_join j JOIN message m ON m.ROWID = j.message_id
                  WHERE j.chat_id = c.ROWID AND m.is_from_me = 1 AND COALESCE(m.associated_message_type, 0) = 0
@@ -85,23 +86,50 @@ struct MessagesReader: Sendable {
                  WHERE j.chat_id = c.ROWID AND m.is_from_me = 0 AND COALESCE(m.associated_message_type, 0) = 0
                    AND COALESCE(m.item_type, 0) = 0) AS from_them
         FROM chat c
-        WHERE COALESCE(c.style, 45) = 45
+        WHERE COALESCE(c.style, 45) IN (45, 43)
         """
     static let conversationsSQL = conversationsSelect + " ORDER BY last DESC"
 
-    /// Every one-to-one conversation, most recent first, at most `listLimit` — the Settings picker's list only.
+    /// Every conversation, one-to-one and group, most recent first, at most `listLimit` — the Settings picker's list
+    /// only.
     func conversations() throws -> [MessagesConversation] {
         let db = try open()
         defer { db.close() }
-        let rows: [[String: Any]]
         do {
             try db.exec("BEGIN")
             defer { try? db.exec("COMMIT") }
-            rows = try db.query(Self.conversationsSQL + " LIMIT \(listLimit)", binds: [])
+            let rows = try db.query(Self.conversationsSQL + " LIMIT \(listLimit)", binds: [])
+            return try Self.withMembers(rows.compactMap(Self.conversation), in: db)
         } catch {
             throw MessagesReadError.unreadable(String(describing: error))
         }
-        return rows.compactMap(Self.conversation)
+    }
+
+    /// Each group's members' handles (`chat_handle_join`), for the app's own Contacts look-up — never sent.
+    static func withMembers(_ list: [MessagesConversation], in db: SQLiteReadOnly) throws -> [MessagesConversation] {
+        let groups = list.filter(\.isGroup).map(\.chatRowId)
+        guard !groups.isEmpty else { return list }
+        let marks = Array(repeating: "?", count: groups.count).joined(separator: ", ")
+        var members: [Int64: [String]] = [:]
+        for row in try db.query("SELECT j.chat_id AS chat, h.id AS handle FROM chat_handle_join j "
+                                + "JOIN handle h ON h.ROWID = j.handle_id WHERE j.chat_id IN (\(marks)) "
+                                + "ORDER BY j.chat_id, h.ROWID", binds: groups.map { .int($0) }) {
+            if let chat = int(row["chat"]), let handle = row["handle"] as? String, !handle.isEmpty {
+                members[chat, default: []].append(handle)
+            }
+        }
+        return list.map { c in
+            var c = c
+            if c.isGroup { c.members = members[c.chatRowId] ?? [] }
+            return c
+        }
+    }
+
+    /// A group member's participant key: stable per chat, a hash of the chat's id and the member's handle — so it
+    /// never carries the phone number or address, and never links two chats by itself (G179 groups).
+    static func memberKey(conversationId: String, handle: String) -> String {
+        SHA256.hash(data: Data("member:\(conversationId):\(handle)".utf8)).map { String(format: "%02x", $0) }.joined()
+            .prefix(24).description
     }
 
     /// The one-to-one conversations with these ids, whatever their rank: what every pass reads, so a ticked chat
@@ -115,7 +143,8 @@ struct MessagesReader: Sendable {
         do {
             try db.exec("BEGIN")
             defer { try? db.exec("COMMIT") }
-            let chats = try db.query("SELECT ROWID AS chat, guid FROM chat WHERE COALESCE(style, 45) = 45", binds: [])
+            let chats = try db.query("SELECT ROWID AS chat, guid FROM chat WHERE COALESCE(style, 45) IN (45, 43)",
+                                     binds: [])
             let wanted = chats.compactMap { row -> Int64? in
                 guard let chat = Self.int(row["chat"]), let guid = row["guid"] as? String, !guid.isEmpty,
                       ids.contains(Self.conversationId(chatGuid: guid)) else { return nil }
@@ -125,10 +154,10 @@ struct MessagesReader: Sendable {
             let marks = Array(repeating: "?", count: wanted.count).joined(separator: ", ")
             rows = try db.query(Self.conversationsSelect + " AND c.ROWID IN (\(marks)) ORDER BY last DESC",
                                 binds: wanted.map { .int($0) })
+            return try Self.withMembers(rows.compactMap(Self.conversation), in: db)
         } catch {
             throw MessagesReadError.unreadable(String(describing: error))
         }
-        return rows.compactMap(Self.conversation)
     }
 
     private static func conversation(_ row: [String: Any]) -> MessagesConversation? {
@@ -138,7 +167,8 @@ struct MessagesReader: Sendable {
         return MessagesConversation(
             id: conversationId(chatGuid: guid), chatRowId: chat, handle: (row["handle"] as? String) ?? "",
             displayName: (row["name"] as? String) ?? "", service: service(row["service"] as? String),
-            lastActivity: int(row["last"]).flatMap(date), fromMe: fromMe, fromThem: fromThem)
+            lastActivity: int(row["last"]).flatMap(date), fromMe: fromMe, fromThem: fromThem,
+            isGroup: int(row["style"]) == 43)
     }
 
     /// The optional `message` columns a pass reads when this Mac's database has them — ids and an emoji, never words.
@@ -154,8 +184,9 @@ struct MessagesReader: Sendable {
                    m.attributedBody AS attributed_body, \(optional)
                    COALESCE(m.associated_message_type, 0) AS associated_message_type, COALESCE(m.item_type, 0) AS item_type,
                    COALESCE(m.is_system_message, 0) AS is_system_message, COALESCE(m.date_edited, 0) AS date_edited,
-                   COALESCE(m.date_retracted, 0) AS date_retracted
+                   COALESCE(m.date_retracted, 0) AS date_retracted, COALESCE(h.id, '') AS sender_handle
             FROM message m JOIN chat_message_join j ON j.message_id = m.ROWID
+            LEFT JOIN handle h ON h.ROWID = m.handle_id
             WHERE j.chat_id = ?1 AND (m.ROWID > ?2\(changed))
             ORDER BY m.ROWID
             """
@@ -177,8 +208,10 @@ struct MessagesReader: Sendable {
         return max(1, Int64(seconds * 1_000_000_000))
     }
 
-    /// One batch of a ticked conversation's rows past `cursor`, serialised as the sync request.
-    func read(_ conversation: MessagesConversation, name: String, since cursor: MessagesCursor) throws -> MessagesPass {
+    /// One batch of a ticked conversation's rows past `cursor`, serialised as the sync request. `members` is a group's
+    /// members as posted (participant key, the name the person sees, their own one-to-one chat's id) — never a handle.
+    func read(_ conversation: MessagesConversation, name: String, members: [MessagesMemberPayload] = [],
+              since cursor: MessagesCursor) throws -> MessagesPass {
         let db = try open()
         defer { db.close() }
         var rows: [[String: Any]] = []
@@ -248,6 +281,11 @@ struct MessagesReader: Sendable {
                 "attachments": attachments[rowid] ?? [],
             ]
             if let text = row["text"] as? String { message["text"] = text }
+            // A group row's sender, as its participant key — never the handle (G179 groups).
+            if conversation.isGroup, !(Self.int(row["is_from_me"]).map { $0 != 0 } ?? false),
+               let handle = row["sender_handle"] as? String, !handle.isEmpty {
+                message["sender"] = Self.memberKey(conversationId: conversation.id, handle: handle)
+            }
             if let body = row["attributed_body"] as? String { message["attributedBody"] = body }
             // A tapback's target and emoji, an inline reply's target: ids, never words (2026-10-20).
             for (column, key) in [("associated_message_guid", "associatedMessageGuid"),
@@ -257,12 +295,11 @@ struct MessagesReader: Sendable {
             }
             messages.append(message)
         }
-        let body: [String: Any] = [
-            "conversation": ["id": conversation.id, "name": name, "displayName": conversation.displayName,
-                             "service": conversation.service, "group": false,
-                             "fromMe": conversation.fromMe, "fromThem": conversation.fromThem],
-            "messages": messages,
-        ]
+        var conv: [String: Any] = ["id": conversation.id, "name": name, "displayName": conversation.displayName,
+                                   "service": conversation.service, "group": conversation.isGroup,
+                                   "fromMe": conversation.fromMe, "fromThem": conversation.fromThem]
+        if conversation.isGroup { conv["members"] = members.map(\.json) }
+        let body: [String: Any] = ["conversation": conv, "messages": messages]
         return MessagesPass(json: try JSONSerialization.data(withJSONObject: body), cursor: next,
                             count: messages.count, hasMore: rows.count == batchLimit)
     }

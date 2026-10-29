@@ -125,7 +125,7 @@ def at_extraction(entity: dict, *, episode_id: str, frontmatter: dict, text: str
     if mark is None or str(entity.get("type") or "") in NOT_AN_APPLICATION:
         return None
     agent = agent_of(frontmatter)
-    span = _acted(entity, text, roles=promotion.PERSON_KINDS, override=override, gaps=gaps)
+    span = _acted(entity, text, roles=promotion.person_kinds(frontmatter), override=override, gaps=gaps)
     by = "user"
     if mark["by"] == "assistant" and agent:
         agent_span = _acted(entity, text, roles=frozenset({"assistant"}), override=override, gaps=gaps)

@@ -985,7 +985,8 @@ def _said_in_person_turn(memory_path: Path | None, episode_id: str, card: dict) 
         return False
     keys = contacts_local.name_keys(card.get("given_name"), card.get("family_name"))
     for turn in evidence.turns(text, override=authorship.of(fm)):
-        if turn.marker is None or turn.role not in promotion.PERSON_KINDS:
+        # In a group only the person's own lines are theirs (`promotion.person_kinds`, #499 review).
+        if turn.marker is None or turn.role not in promotion.person_kinds(fm):
             continue
         said = f" {people_directory.fold(text[turn.content_start:turn.end])} "
         if any(f" {key} " in said for key in keys):

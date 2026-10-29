@@ -62,6 +62,28 @@ final class SyntheticChatDB {
         return c
     }
 
+    /// A group chat (`style` 43) with these members' handles.
+    @discardableResult
+    func group(_ handles: [String], name: String = "") -> Int64 {
+        exec("INSERT INTO chat (guid, style, chat_identifier, service_name, display_name) VALUES (?, 43, ?, 'iMessage', ?)",
+             ["iMessage;+;chat\(handles.count)\(guidCounter)", "chat\(handles.count)\(guidCounter)", name])
+        let c = lastRow
+        for handle in handles {
+            exec("INSERT INTO handle (id, service) VALUES (?, 'iMessage')", [handle])
+            exec("INSERT INTO chat_handle_join (chat_id, handle_id) VALUES (?, ?)", [c, lastRow])
+        }
+        return c
+    }
+
+    /// A member's row in a group: the message's `handle_id` is that member's handle.
+    @discardableResult
+    func message(_ chat: Int64, minute: Int, from handle: String, text: String) -> Int64 {
+        let m = message(chat, minute: minute, fromMe: false, text: text)
+        exec("UPDATE message SET handle_id = (SELECT ROWID FROM handle WHERE id = ? ORDER BY ROWID DESC LIMIT 1) "
+             + "WHERE ROWID = ?", [handle, m])
+        return m
+    }
+
     /// `NSArchiver` of an `NSMutableAttributedString` — how Messages keeps a message's words in `attributedBody`.
     static func archived(_ text: String) -> Data {
         let string = NSMutableAttributedString(string: text)

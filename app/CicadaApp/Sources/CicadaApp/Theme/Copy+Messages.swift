@@ -24,8 +24,17 @@ extension Copy {
         static let tryAgain = "Try again"
         static let done = "Done"
         static let loading = "Looking for conversations…"
-        static let noneFound = "No one-to-one conversations on this Mac yet."
-        static let groupsLater = "Group chats aren't read yet."
+        static let noneFound = "No conversations on this Mac yet."
+        /// A group's title when it has no name of its own: its members' names, else how many people are in it.
+        static func groupTitle(_ names: [String], count: Int) -> String {
+            switch names.count {
+            case 0: return count > 0 ? "Group of \(count + 1)" : "Group chat"
+            case 1, 2, 3: return names.joined(separator: ", ")
+            default: return names.prefix(3).joined(separator: ", ") + " and \(names.count - 3) more"
+            }
+        }
+        static let groupTag = "Group"
+        static let groupHelp = "Everyone's messages are kept as theirs — only yours are your own words."
         static let unreadable = "Cicada couldn't read Messages on this Mac."
         static let syncFailed = "Couldn't send the conversation to Cicada."
         static let tickFirst = "Tick a conversation first — nothing is read until you do."

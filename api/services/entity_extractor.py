@@ -13,7 +13,7 @@ from loguru import logger
 from tqdm import tqdm
 
 from api.config import Settings
-from api.services import (act_object, authorship, correspondents, decay_policy, engine_errors, entity_types, episode_time,
+from api.services import (act_object, authorship, turn_signals, correspondents, decay_policy, engine_errors, entity_types, episode_time,
                           evidence, fact_policy, participation, project_birth, promotion, section_provenance, source_dates)
 from api.services.json_parse import parse_json_object
 
@@ -549,6 +549,97 @@ def _application_pages(entities: list, episode: dict, episode_id: str, content: 
     return values
 
 
+#: How the person's own reaction on the turn a claim rests on moves its confidence: agreement a little up (a 👍 often
+#: only means "got it"), doubt (❓, 👎) by half.
+AGREE_BONUS = 0.1
+AGREE_CAP = 0.95
+DOUBT_FACTOR = 0.5
+
+
+def _weigh_reaction(item: dict, episode: dict, content: str, episode_id: str) -> None:
+    """The person's own reaction on the one turn a claim rests on, read from the stored extras (`turn_signals`), never
+    from the model's word: it adjusts confidence and is recorded on the claim (``reactions``: who, stance, kind, and the
+    reacted turn's offset in the episode — the reaction's own key in ``turn_extras``, so its evidence by turn id). It
+    never changes the observer (#499 review): a texted agent's claim stays ``external:<agent>`` whatever the person
+    tapped. Never a claim by itself."""
+    found = turn_signals.person_stance(episode, content, item)
+    if found is None:
+        return
+    try:
+        confidence = float(item.get("confidence", 0.6) or 0.6)
+    except (TypeError, ValueError):
+        confidence = 0.6
+    if found["stance"] == "agree":
+        item["confidence"] = round(min(AGREE_CAP, max(confidence, confidence + AGREE_BONUS)), 2)
+    else:
+        item["confidence"] = round(confidence * DOUBT_FACTOR, 2)
+    item["reactions"] = [{**found, "episode": episode_id}]
+
+
+def group_members(episode: dict) -> list[dict]:
+    """A group chat's members as its episode records them (``participants``: ``[{marker, name?, kind?}]``), the
+    person excluded; ``[]`` for anything that is not a group."""
+    if not episode.get("group"):
+        return []
+    out = []
+    for p in episode.get("participants") or []:
+        if isinstance(p, dict) and str(p.get("marker") or "").startswith(("speaker:", "assistant")):
+            out.append({"marker": str(p["marker"]), "name": " ".join(str(p.get("name") or "").split())[:80],
+                        "kind": str(p.get("kind") or "person")})
+    return out
+
+
+def group_note(members: list[dict]) -> str:
+    """G179 groups: who each line's speaker is — each member's words are their own, never the person's."""
+    who = "; ".join(f'"{m["marker"]}:" is {m["name"] or "a member Cicada has no name for"}'
+                    + (", an AI agent" if m["kind"] == "agent" else "") for m in members[:30]) \
+        or "Cicada has no names for them"
+    return (f"{SOURCE_NOTE_PREFIX[:-1]} with several people (a group chat). Lines starting \"user:\" are the "
+            f"person's own messages; every other line is another member's: {who}. A member's words, and their "
+            "\"I\", are theirs, never the person's. Attribute a fact to the person only from their own lines.]\n\n")
+
+
+def _member_of(content: str, start: int) -> str | None:
+    """The marker of the last turn opened at or before ``start``."""
+    hit = None
+    for turn in evidence.turns(content):
+        if turn.start > start:
+            break
+        if turn.marker is not None:
+            hit = turn.marker
+    return hit
+
+
+#: A group claim resting on several members' lines (#499 re-check). One stable observer rather than the members'
+#: names joined: a joined name would mint a new observer for every combination and split one belief across them,
+#: while the evidence spans already say exactly who said what. It is never the person's.
+GROUP_OBSERVER = "external:group"
+
+
+def _observer_for(item: dict, their_observer: str | None, members: list[dict], content: str, *,
+                  group: bool = False) -> str | None:
+    """Who a claim is ``external:`` to, or ``None`` for the default reading. In a group, a claim with no span in the
+    person's own lines is never the default: one member's lines make it that member's, several members' (or a member
+    Cicada cannot name) :data:`GROUP_OBSERVER`. Otherwise the other side's when only their words carry it. A reaction
+    never changes it (`_weigh_reaction`). ``group`` is the episode's own flag: a group sitting that recorded no
+    members (unknown senders) is still a group (#499 re-check)."""
+    if group or members:
+        spans = [e for e in item.get("evidence") or [] if isinstance(e, dict) and e.get("kind") != "reasoning"]
+        if not spans or any(e.get("kind") not in ("assistant", "speaker") for e in spans):
+            return None   # unlocated, or the person's own words back it
+        markers = {_member_of(content, int(e.get("start", 0))) for e in spans}
+        member = next((m for m in members if m["marker"] == next(iter(markers))), None) if len(markers) == 1 else None
+        if member is None:
+            return GROUP_OBSERVER
+        from api.services.id_utils import sanitize_id
+
+        slug = sanitize_id(member["name"] or member["marker"].partition(":")[2] or member["marker"])
+        return f"external:{slug}" if slug and slug != "unnamed" else GROUP_OBSERVER
+    if their_observer and _only_their_words(item):
+        return their_observer
+    return None
+
+
 def _only_their_words(rel: dict) -> bool:
     """Every located span of ``rel`` sits in the other side's turns (``assistant`` or ``speaker``), and there is one."""
     spans = [e for e in rel.get("evidence") or [] if isinstance(e, dict) and e.get("kind") != "reasoning"]
@@ -801,8 +892,15 @@ async def extract(
         # Ruling 45 addendum: the provider's project grouping, or the relaying app's word on it, as context.
         if (in_project := project_note(episode)) is not None:
             source_note = (source_note or "") + in_project
+        # G179 groups: who each member is, before every chunk; a claim resting on one member's lines is theirs.
+        members = group_members(episode)
+        in_group = bool(episode.get("group"))
+        if in_group:
+            source_note = group_note(members) + (source_note or "")
         their_observer = assistant_observer(episode)
         session_id = str(episode.get("session_id") or "").strip() or None
+        # The owner, 2026-10-28: replies, reactions, forwards and unsends, told to each chunk they fall in.
+        signals = list(episode.get("signals") or [])
 
         async with semaphore:
             # Sleep-control checkpoint 2: this task may have waited a while
@@ -824,6 +922,8 @@ async def extract(
                 held_participation = 0
                 for ci, chunk in enumerate(chunks):
                     note = _gap_note(gaps, *spans[ci])
+                    signal_note = turn_signals.chunk_note(signals, *spans[ci]) if signals else None
+                    chunk_note = (source_note or "") + (signal_note or "")
                     parsed = await _extract_chunk(
                         ep_id, chunk, ci, len(chunks), settings,
                         # Only a memory episode carries a note; every other call keeps its shape.
@@ -831,7 +931,7 @@ async def extract(
                         **({"gap_note": note} if note else {}),
                         **({"date_note": date_note} if date_note else {}),
                         **({"owner": owner} if owner else {}),
-                        **({"source_note": source_note} if source_note else {}),
+                        **({"source_note": chunk_note} if chunk_note else {}),
                         **({"stage": stage} if stage != "extraction" else {}),
                     )
                     all_entities.extend(parsed.get("entities", []))
@@ -840,7 +940,9 @@ async def extract(
                     # chunk came from, preferring the chunk window (R11). The
                     # quote is consumed here — nothing downstream sees it.
                     for rel in chunk_rels:
-                        evidence.attach_relationship_evidence(rel, ep_id, content, window=spans[ci], kind_override=authorship.of_episode(episode),
+                        # A relationship tagged with a reply or a reaction is located in that turn first (`turn_signals`).
+                        window, _ = turn_signals.anchor(rel, signals, content, spans[ci])
+                        evidence.attach_relationship_evidence(rel, ep_id, content, window=window, kind_override=authorship.of_episode(episode),
                                                               gaps=gaps)
                         # 2026-10-27: "competed in", "won", "worked at"… need the located words to say that role;
                         # "a story about", a topic or a mention stays a mention (`participation`).
@@ -849,7 +951,8 @@ async def extract(
                     all_relationships.extend(chunk_rels)
                     chunk_values = [v for v in (parsed.get("values", []) or []) if isinstance(v, dict)]
                     for value in chunk_values:
-                        evidence.attach_relationship_evidence(value, ep_id, content, window=spans[ci],
+                        window, _ = turn_signals.anchor(value, signals, content, spans[ci])
+                        evidence.attach_relationship_evidence(value, ep_id, content, window=window,
                                                               kind_override=authorship.of_episode(episode), gaps=gaps)
                     all_values.extend(chunk_values)
 
@@ -870,7 +973,8 @@ async def extract(
                 ep_origin = episode.get("origin", "unknown")
                 # The promotion rule's "more than 3 exchanges" and "the person's own words", counted on the
                 # conversation itself (`promotion`), never guessed from what the model wrote about it.
-                units = promotion.exchanges(content, override=authorship.of_episode(episode), gaps=gaps)
+                units = promotion.exchanges(content, override=authorship.of_episode(episode), gaps=gaps,
+                                            persons=promotion.person_kinds(episode))
                 # Ruling 42: a specific event, program or application the person (or an agent, for them) acted on
                 # gets its page from this one conversation, and the application lives there, not on the owner's.
                 app_values = _application_pages(all_entities, episode, ep_id, content, owner=owner,
@@ -919,15 +1023,19 @@ async def extract(
                     # words is theirs (`external:<name>`), never the person's and never Cicada's own reading —
                     # a texted agent's, a harness session's agent's or a chat export's assistant's alike.
                     rel.pop("observer", None)
-                    if their_observer and _only_their_words(rel):
-                        rel["observer"] = their_observer
+                    if signals:
+                        _weigh_reaction(rel, episode, content, ep_id)
+                    if (observer := _observer_for(rel, their_observer, members, content, group=in_group)) is not None:
+                        rel["observer"] = observer
                 for value in all_values:
                     value["source_episode"] = ep_id
                     value["source_episode_timestamp"] = episode.get("timestamp")
                     value["origin"] = ep_origin
                     value.pop("observer", None)
-                    if their_observer and _only_their_words(value):
-                        value["observer"] = their_observer
+                    if signals:
+                        _weigh_reaction(value, episode, content, ep_id)
+                    if (observer := _observer_for(value, their_observer, members, content, group=in_group)) is not None:
+                        value["observer"] = observer
                 for value, by_agent in app_values:
                     value["source_episode"] = ep_id
                     value["source_episode_timestamp"] = episode.get("timestamp")
@@ -1091,7 +1199,7 @@ def entities_to_claims(
     id is ``sanitize_id(name)`` — the pre-PJ-0 key every hermetic caller keeps.
     """
     from api.services import predicates
-    from api.services.claims import Claim, Evidence
+    from api.services.claims import Claim, Evidence, clean_reactions
     from api.services.id_utils import sanitize_id
 
     to_id = resolve_id or sanitize_id
@@ -1153,6 +1261,7 @@ def entities_to_claims(
                 for ev in rel_evidence:
                     if ev not in first.evidence:
                         first.evidence.append(ev)
+                first.reactions = clean_reactions(first.reactions + list(rel.get("reactions") or []))
                 if first.observer != observer:
                     # G179: the person's own words (or Cicada's reading) back it too — no longer only theirs.
                     first.observer = "agent"
@@ -1176,6 +1285,7 @@ def entities_to_claims(
                 evidence=rel_evidence,
                 expected_end=expected_end,
                 session_ids=list(sessions),
+                reactions=clean_reactions(rel.get("reactions")),
             )
             # The pre-normalization label (for the Stage-3 normalization audit).
             setattr(claim, "predicate_raw", raw_label)
@@ -1206,7 +1316,7 @@ def _value_claim(value: dict, episode_id: str, origin: str, to_id: Callable[[str
     ``claims.value_predicate(attribute)``, object the value as stated. A value predicate is single-valued
     (``claims.is_value_claim``), so a later value of the same thing supersedes the earlier one in Stage 3 instead of
     sitting beside it in prose — the LongMemEval knowledge-update misses of 2026-10-17 had no claim to supersede."""
-    from api.services.claims import Claim, Evidence, value_predicate
+    from api.services.claims import Claim, Evidence, clean_reactions, value_predicate
 
     entity = str(value.get("entity", "") or "").strip()
     attribute = str(value.get("attribute", "") or "").strip()
@@ -1228,6 +1338,7 @@ def _value_claim(value: dict, episode_id: str, origin: str, to_id: Callable[[str
         context="general", epistemic="explicit", source_trust="agent_extracted", confidence=0.6,
         valid_from=valid_from or None, source_episodes=[ep] if ep else [], origin=origin,
         evidence=[Evidence.from_dict(e) for e in (value.get("evidence") or []) if isinstance(e, dict)],
+        reactions=clean_reactions(value.get("reactions")),
     )
 
 

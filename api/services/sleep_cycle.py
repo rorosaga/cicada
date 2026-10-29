@@ -3429,9 +3429,11 @@ def _get_unprocessed_episodes(
     episode timestamps to set ``created`` and ``last_referenced``.
     """
     results: list[dict] = []
-    from api.services import history_index
+    from api.services import history_index, turn_extras, turn_signals
 
-    for f in bank_index.files(memory_path, "episodes"):
+    files = bank_index.files(memory_path, "episodes")
+    keys: turn_signals.KeyIndex | None = None
+    for f in files:
         fm = f.frontmatter
         # Owner ruling 2026-10-18: watch history and list saves are indexed, never read by a model.
         if not history_index.waits_for_model(fm):
@@ -3440,6 +3442,13 @@ def _get_unprocessed_episodes(
         if only_ids is not None and str(fm.get("id", f.stem)) not in only_ids:
             continue
         content = f.body() if with_body else ""
+        # The owner, 2026-10-28: replies, reactions, forwards and unsends are read by Sleep (`turn_signals`). A reply
+        # into another sitting is looked up in the conversation's own record, indexed once per load.
+        lookup = None
+        if with_body and turn_signals.needs_keys(fm):
+            keys = keys or turn_signals.KeyIndex(files)
+            lookup = keys.lookup_for(fm)
+        signals = turn_signals.signals(fm, content, lookup=lookup) if with_body else []
         results.append({
             "id": fm.get("id", f.stem),
             "content": content,
@@ -3473,6 +3482,10 @@ def _get_unprocessed_episodes(
             "gaps": evidence.gap_ranges(fm, content) if with_body else (),
             # G179: who the other side of a message conversation is (an agent's turns are never the person's).
             "correspondent": fm.get("correspondent") if isinstance(fm.get("correspondent"), dict) else None,
+            # G179 groups: who each member is; in a group only the person's own lines are theirs (`promotion`).
+            "participants": fm.get("participants") if isinstance(fm.get("participants"), list) else None,
+            "group": bool(fm.get("group")),
+            **({"signals": signals, turn_extras.EXTRAS_KEY: fm.get(turn_extras.EXTRAS_KEY)} if signals else {}),
             # Ruling 36 D4: the hook's own observation of the checkout a harness session ran in (`project_birth`
             # reads the two stored values; nothing opens the path).
             "project_dir": fm.get("project_dir") if isinstance(fm.get("project_dir"), str) else None,

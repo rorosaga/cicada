@@ -236,11 +236,7 @@ def _cites_the_person(claim) -> bool:
 
     if str(getattr(claim, "source_trust", "") or "") == "user_stated" or is_persons_words(claim):
         return True
-    for ev in getattr(claim, "evidence", None) or []:
-        start = getattr(ev, "start", None)
-        if getattr(ev, "kind", None) in promotion.PERSON_KINDS and isinstance(start, int) and start >= 0:
-            return True
-    return False
+    return promotion.claim_cites_person(claim)
 
 
 def _is_protected(claim, page: "Page | None" = None) -> bool:

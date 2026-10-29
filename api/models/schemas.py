@@ -5336,6 +5336,20 @@ class MessagesConversationIn(CamelModel):
     group: bool = False
     from_me: int = 0
     from_them: int = 0
+    #: A group's members (2026-10-28): each one's participant key, the name the person sees for them, and the id of
+    #: their own one-to-one chat when there is one — never a handle.
+    members: list["MessagesMemberIn"] = []
+
+
+class MessagesMemberIn(CamelModel):
+    """One group member: ``key`` is the app's hash of the chat and the member's handle — never the handle itself."""
+
+    key: str
+    name: str = ""
+    direct: Optional[str] = None
+
+
+MessagesConversationIn.model_rebuild()
 
 
 class MessagesAttachmentIn(CamelModel):
@@ -5370,6 +5384,8 @@ class MessagesRowIn(CamelModel):
     associated_message_emoji: Optional[str] = None
     #: An inline reply's target message (``thread_originator_guid``).
     thread_originator_guid: Optional[str] = None
+    #: A group row's sender, as its participant key (``MessagesMemberIn.key``); absent for the person's own row.
+    sender: Optional[str] = None
 
 
 class MessagesSyncRequest(CamelModel):
@@ -5401,6 +5417,7 @@ class MessagesSyncResponse(CamelModel):
     skipped: int = 0
     tombstoned: int = 0
     actor: dict[str, Any] = {}
+    group: bool = False
     bank: str = ""
 
 

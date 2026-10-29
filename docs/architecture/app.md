@@ -799,7 +799,13 @@ the handle — shown in the app only, never sent), last activity and message cou
 agent", "AI agent · suggested", "A person" — the person's own mark, `marked`, wins; "· suggested" only for a
 detector's own answer; the free-form `actor` block keeps the backend's `decided_by`, which the app reads in either
 spelling), *Is <name> an AI agent?* with Yes/No when the detectors are unsure, a menu
-(This is an AI agent · This is a person · Let Cicada suggest) and the tick. `MessagesWatcher` (environment, started
+(This is an AI agent · This is a person · Let Cicada suggest) and the tick. **A group chat** (2026-10-28) is the
+same row (DR-48, DR-34: no new pattern): its title is the chat's own name, else its members' Contacts names ("Alice,
+Bob and 2 more"), else "Group of N" (`Copy.Messages.groupTitle`), the one pill `Tag` reads "Group" (DR-44) with the
+who-is-who line as its help, and it has no *Who is this?* menu or question — a member keeps the mark of their own
+one-to-one chat. Its members' handles stay in the app (`MessagesConversation.members`), looked up in Contacts only
+when Contacts is already allowed; a pass posts each member as `MessagesReader.memberKey` with their Contacts name.
+`MessagesWatcher` (environment, started
 on launch, `bankChanged` on a switch) owns the list, the per-memory ROWID cursors (`cicada.messages.cursor.<bank>.<id>`
 in UserDefaults), the FSEvents watch on `~/Library/Messages` and the waiting bubbles; `MessagesReader` is the one SQL
 reader (`SQLiteReadOnly`, read-only, one transaction; a BLOB projected only from a column named in `base64Blobs`).
