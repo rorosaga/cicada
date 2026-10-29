@@ -121,7 +121,37 @@ def test_the_chats_shared_photo_lands_on_the_cards_page(bank):
     assert set(messages_photos.links(bank)) == {"robert-example"}
 
 
-@pytest.mark.parametrize("raw",["+1 555 000 0001", "bob@example.com", "x" * 201, "a b"])
+def test_whatsapp_keeps_the_same_cards_on_the_same_records(tmp_path):
+    """The live chat sources (#502 WhatsApp; Telegram next) fill the same two records through `chat_live`."""
+    from test_chat_live import CHAT, GROUP, MEMBER_A, row, tick
+    from test_chat_live import ingest as wa_ingest
+
+    memory = tmp_path / "wa"
+    for sub in ("episodes", "entities", "sources"):
+        (memory / sub).mkdir(parents=True)
+    bank_index.invalidate()
+    from test_chat_live import SPEC
+
+    from api.services import chat_live
+
+    tick(memory, CHAT)
+    chat_live.update_settings(memory, SPEC, {"id": CHAT, "actor": {"kind": "person"}})
+    tick(memory, GROUP, group=True)
+    wa_ingest(memory, [row("S1", 1_790_000_000, "hi")], cid=CHAT,
+              members=[{"key": MEMBER_A, "name": "Bob Example", "contact": "CARD-B"}])
+    wa_ingest(memory, [row("S2", 1_790_000_100, "hello all", member=MEMBER_A)], cid=GROUP, group=True,
+              members=[{"key": MEMBER_A, "name": "Alice Example", "contact": "CARD-A"},
+                       {"key": "c" * 24, "name": "Carol Example", "contact": "+1 555 000 0009"}])
+    fms = [markdown_parser.parse(p).frontmatter for p in sorted((memory / "episodes").glob("*.md"))]
+    one = next(f for f in fms if not f.get("group"))
+    grp = next(f for f in fms if f.get("group"))
+    assert one["correspondent"].get("contact") == "CARD-B"
+    by_key = {p["key"]: p for p in grp["participants"]}
+    assert by_key[MEMBER_A]["contact"] == "CARD-A"
+    assert "555" not in str(grp)                                    # a number posted as a card is refused
+
+
+@pytest.mark.parametrize("raw", ["+1 555 000 0001", "bob@example.com", "x" * 201, "a b"])
 def test_a_handle_is_never_kept_as_a_card(raw):
     assert contact_identity.clean_card_id(raw) is None
 
