@@ -284,7 +284,7 @@ def split_plan(memory_path, page_id: str, moves=()) -> dict:
     its evidence says (``episodes``; the sheet applies :func:`reference_choice` as conversations are ticked). Reads
     only; the new page's proposed id and title come with it."""
     from api.services import bank_index, fact_sources, same_name_split
-    from api.services.claims import parse_claims
+    from api.services.claims import is_event, is_record, parse_claims
 
     memory_path = Path(memory_path)
     page = _page(memory_path, page_id)
@@ -296,7 +296,10 @@ def split_plan(memory_path, page_id: str, moves=()) -> dict:
                   "reason": suggested.get(s.n) or None}
                  for s in same_name_split.sentences(parsed.body)]
     claims = [{"id": c.id, "text": c.text, "predicate": c.predicate, "object": c.object,
-               "episodes": list(c.source_episodes or []), "current": c.valid_to is None and not c.superseded_by}
+               "episodes": list(c.source_episodes or []),
+               # R-PJ3: a done happening is born closed — a dated event, never a belief "no longer current".
+               "event": is_event(c), "record": is_record(c),
+               "current": is_event(c) or (c.valid_to is None and not c.superseded_by)}
               for c in parse_claims(parsed.body)]
     sources = [{"ref": str(s.get("ref") or ""), "predicate": str(s.get("predicate") or "") or None,
                 "label": str(s.get("label") or s.get("title") or "") or None}

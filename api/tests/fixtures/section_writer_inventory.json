@@ -1442,5 +1442,31 @@
       "frontmatter": "fm",
       "disposition": "preserve_frontmatter_guarded"
     }
+  ],
+  "services/page_join.py": [
+    {
+      "function": "split",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "split",
+      "method": "write_new",
+      "frontmatter": "nfm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "_repoint_one",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "write_proposal",
+      "method": "write_new",
+      "frontmatter": "fm",
+      "disposition": "fresh_frontmatter_untracked"
+    }
   ]
 }

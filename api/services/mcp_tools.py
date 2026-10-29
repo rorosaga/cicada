@@ -4124,6 +4124,8 @@ def split_page(ctx: ToolContext, page: str, reason: str = "", sentences=None, cl
         # pages — what `cicada_recall_detail` needs `read` for. A remote token without `read` gets nothing, page or
         # no page (scopes fail closed); it can still propose a split by sentence numbers it already holds.
         return Reply(READ_SCOPE_REFUSAL, code="refused")
+    if not preview and (refusal := _demo_refusal(memory_path)) is not None:
+        return refusal
     entity_id = _join_page_id(memory_path, page)
     if entity_id is None:
         return Reply(f"No page named '{page}' — nothing changed. Use the page's id.", code="not_found")
@@ -4147,8 +4149,6 @@ def split_page(ctx: ToolContext, page: str, reason: str = "", sentences=None, cl
                          "`references`; unsaid, a link moves only when every one of them moves): "
                          + json.dumps({r["page_id"]: r["episodes"] for r in plan["references"]}))
         return "\n".join(lines)
-    if (refusal := _demo_refusal(memory_path)) is not None:
-        return refusal
     clean = _join_reason(reason)
     if not clean:
         return Reply("Nothing changed — give a `reason` in one sentence; it becomes the commit message.",
