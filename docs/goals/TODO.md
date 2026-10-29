@@ -10,6 +10,16 @@
 
 ## Current state and evidence
 
+- **2026-10-29 — pages v2, part B: History, maps, In short (ruling 48 parts 5, 6 and 14; DR-77; G217, G121; branch
+  `feat/pages-v2-b`).** The card open reads no git any more (on an owner-scale bank copy, 13 pages × 12 opens:
+  p95 260 → 58 ms); the History tab reads 30 rows with who, what changed and when from one `git log -p` when it opens
+  (p95 229 ms, of which the bare git walk is 174 ms; 142 ms with a commit-graph's changed-path filters — not written,
+  a follow-up). Places store coordinates once: the app's own Apple geocoder on first open or a five-place pass, a
+  private place (address, home word, the person's own thing, a person's name) only on the person's click; the card
+  draws a cached `MKMapSnapshotter` still with nearby places and a live native map on click. In short: Sleep's tail on
+  the engine's small tier, ≤ 10 pages a run; on the copy 32 pages qualify, ~4.2k tokens in and 80–600 out per page on
+  haiku, 2.6–4.5 s each.
+
 - **2026-10-29 — ruling 47 tier 2 built: the connector framework, Readwise and Notion live (G223, G219; branch
   `feat/connectors-tier2`).** `api/services/connectors/tier2.py` is the one framework: the person's own token in
   `secrets.env`, checked with the service on Save (a refused or unchecked token is never written), what it reads said in

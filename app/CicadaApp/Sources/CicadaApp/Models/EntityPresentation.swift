@@ -136,7 +136,7 @@ enum EntityTabs {
     }
 
     /// The full page carries its history; an empty embedded list is "not fetched yet" until a fetch says 0
-    /// (`HistoryTabState`'s rule — a count must never say 0 while the tab says "Reading git history…").
+    /// (a count must never say 0 while the tab is still reading).
     static func historyCount(embedded: [EntityHistoryEntry], fetched: [EntityHistoryEntry]?) -> Int? {
         if let fetched { return fetched.count }
         return embedded.isEmpty ? nil : embedded.count

@@ -209,3 +209,52 @@ extension Copy.Graph {
     /// A closed section's count, after its name ("What Cicada believes · 4,770").
     static func sectionCount(_ n: Int) -> String { "· \(UsageFormat.count(n))" }
 }
+
+// Part B (ruling 48 parts 5, 6 and 14; DR-77; 2026-10-29) — History rows, the place map, In short.
+extension Copy.Graph {
+    static let historyYou = "You"
+    static let historyAgents = "Agents"
+    static let historySleep = "Sleep"
+    static let historyUpkeep = "Upkeep"
+    static let historyToday = "Today"
+    static let historyYesterday = "Yesterday"
+    static let historyBeforeProvenance = "Before provenance"
+    static let historyWrotePage = "wrote this page"
+    static let historyWroteInShort = "wrote In short"
+    static let historyEditedPage = "edited the page"
+    static let historyChangedStatus = "changed its status"
+    static let historyUpdatedBeliefs = "updated its beliefs"
+    static let historyUpdatedPage = "updated the page"
+    static let historyDecay = "Faded with time"
+    static func historyPlaced(_ who: String) -> String { "\(who) placed it on the map" }
+    static let historyRelayed = "Relayed from a connected app"
+    static let historyFromAgent = "From an agent"
+    static let historyFromInbox = "From the inbox"
+    static let historyInCicada = "In Cicada"
+    static let historyNoLineChanges = "No line changes"
+    static let historyLoading = "Reading this page's history…"
+    static let historyOlder = "Older changes"
+    static let historyNoneHere = "Nothing under this tab in the changes read so far."
+    static let historyShowChange = "Show the change"
+    static let historyLineHelp = "Each dot is one change, newest at the top"
+
+    static let placeOnMap = "Place on the map"
+    static let placeOnMapHelp = "Look this place up with your Mac's own maps and keep its position on the page"
+    static let placePrivate = "This looks like a private place, so it was not looked up."
+    static let placeNotFound = "Your Mac's maps found no place by this name."
+    static let placeLooking = "Finding it on the map…"
+    static let openInMaps = "Open in Maps"
+    static let removePin = "Not this place"
+    static let removePinHelp = "Take the pin off; it is placed again only when you ask"
+    static func placeCaption(nearby: Int) -> String {
+        nearby == 0 ? "Drawn from the position on this page"
+            : "Drawn from the position on this page and \(UsageFormat.count(nearby)) \(nearby == 1 ? "place" : "places") near it on your record"
+    }
+
+    static let inShort = "In short"
+    static func inShortTag(_ day: String?) -> String { day.map { "Sleep · \($0)" } ?? "Sleep" }
+    static func inShortBasis(_ n: Int) -> String {
+        "\(UsageFormat.count(n)) \(n == 1 ? "conversation" : "conversations") in the last 30 days"
+    }
+    static let inShortHelp = "Written by Sleep for a long page you talk about often; rewritten when the page changes"
+}

@@ -949,7 +949,9 @@ saved resources.
 ---
 
 **The page's blocks for an agent (vision item 5, 2026-10-28).** `cicada_recall_detail` takes an optional `include`
-(a list from `page_blocks.INCLUDE`: `relevance`, `sources`, `coordinates`, `looks`, `ongoing`, `citations`,
+(a list from `page_blocks.INCLUDE`: `relevance`, `summary` — In short, the 2–3 sentences Sleep writes for a long page
+the person talks about often, on both doors (2026-10-29, `in_short`) — `sources`, `coordinates`, `looks`, `ongoing`,
+`citations`,
 `history`, or `blocks` for all): the same `page_blocks.build` data `GET /entities/{id}` serves the app, worded after the page under
 `## Page blocks` in page order, one line per block and one per row (a source's state and when it was checked, an
 event's status and day with its claim id, each contributor's change count), and as `data.blocks` for the command

@@ -204,6 +204,12 @@ struct EntityHistoryEntry: Identifiable, Codable {
     /// "" / "unknown" from an older backend.
     var trigger: String = ""
     var via: String = "unknown"
+    /// Ruling 48 part 14 / DR-77 (part B, 2026-10-29), from `GET /entities/{id}/history?summary=true` only: the commit's
+    /// time (ISO 8601), its filter tab (you | agents | sleep | upkeep, `page_history.bucket`) and what it changed.
+    /// "" / nil from the plain route or an older backend.
+    var at: String = ""
+    var bucket: String = ""
+    var summary: HistorySummary?
 
     var dateValue: Date {
         let f = DateFormatter()
@@ -213,6 +219,7 @@ struct EntityHistoryEntry: Identifiable, Codable {
 
     enum CodingKeys: String, CodingKey {
         case date, changeType, description, author, authorKind, authorProvider, commitHash, diff, sessions, trigger, via
+        case at, bucket, summary
     }
 
     init(from decoder: Decoder) throws {
@@ -228,6 +235,9 @@ struct EntityHistoryEntry: Identifiable, Codable {
         sessions = try c.decodeIfPresent([String].self, forKey: .sessions) ?? []
         trigger = (try? c.decodeIfPresent(String.self, forKey: .trigger)) ?? ""
         via = (try? c.decodeIfPresent(String.self, forKey: .via)) ?? "unknown"
+        at = (try? c.decodeIfPresent(String.self, forKey: .at)) ?? ""
+        bucket = (try? c.decodeIfPresent(String.self, forKey: .bucket)) ?? ""
+        summary = (try? c.decodeIfPresent(HistorySummary.self, forKey: .summary)) ?? nil
     }
 
     init(
@@ -267,6 +277,9 @@ struct EntityHistoryEntry: Identifiable, Codable {
         try c.encode(sessions, forKey: .sessions)
         try c.encode(trigger, forKey: .trigger)
         try c.encode(via, forKey: .via)
+        try c.encode(at, forKey: .at)
+        try c.encode(bucket, forKey: .bucket)
+        try c.encodeIfPresent(summary, forKey: .summary)
     }
 }
 
@@ -804,7 +817,8 @@ struct Entity: Identifiable, Codable {
     /// `rawMarkdown` frontmatter, see `init`).
     var media: MediaBlock? = nil
     var history: [EntityHistoryEntry]
-    /// #244 — `history` is the newest `HistoryPaging.window` changes and there are older ones (`?skip=N`).
+    /// #244 — `history` is the newest 500 changes and there are older ones (`?skip=N`). Since part B (2026-10-29) the card
+    /// open reads no git: both are empty unless `?history=true` asked; the History tab reads `/history?summary=true`.
     var historyTruncated: Bool = false
     /// G117 — mirrors `GraphNode.isOwner` (same `owner:` frontmatter key) on
     /// the detail response, so `EntityDetailCard` can render "Name (you)"

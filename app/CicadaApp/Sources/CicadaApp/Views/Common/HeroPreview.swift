@@ -332,124 +332,18 @@ private struct CompactSiteHero: View {
     }
 }
 
-// MARK: - Location hero (single-pin MapKit map)
+// MARK: - Location hero (ruling 48 part 6: a still of the native map, from stored coordinates)
 //
-// A `location`-type entity's hero: a small MapKit map centered on the entity,
-// one pin. Geocoding (`CLGeocoder`) is async and can fail or take a moment,
-// so this always renders SOMETHING — an icon+name placeholder while
-// resolving or on failure, the map once resolved — never an empty slot
-// (mirrors `HeroPreview.hasPreviewableAsset` always returning true for
-// `.location`). Results are cached in-memory per entity id (`resolveCache`)
-// so re-renders (tab switches, scroll, parent re-layout) never re-geocode.
+// A `location` page's hero is `PlaceMap`: a still drawn from the coordinates the page stores, never a geocode on open
+// (until 2026-10-29 this view geocoded the page's NAME through Apple on every first open). It always renders
+// something — a quiet placeholder until the still is drawn — so `HeroPreview.hasPreviewableAsset` keeps returning true
+// for `.location`.
 
 struct LocationHero: View {
     let entity: Entity
 
-    @State private var coordinate: CLLocationCoordinate2D?
-    @State private var isResolved = false
-
-    /// entity id → resolved coordinate, or `nil` for "geocoded and failed".
-    /// The outer `Optional` from the dictionary lookup distinguishes "never
-    /// attempted" (cache miss) from "attempted, no result" (cached `nil`).
-    @MainActor
-    private static var resolveCache: [String: CLLocationCoordinate2D?] = [:]
-
     var body: some View {
-        Group {
-            if let coordinate {
-                mapView(coordinate)
-            } else {
-                placeholder
-            }
-        }
-        .task(id: entity.id) {
-            await resolve()
-        }
-    }
-
-    @MainActor
-    private func resolve() async {
-        if let cached = Self.resolveCache[entity.id] {
-            coordinate = cached
-            isResolved = true
-            return
-        }
-
-        // Prefer a lat/lon declared directly in frontmatter — no geocoding
-        // round-trip needed, and immune to geocoder ambiguity. The backend
-        // doesn't emit these keys today, but frontmatter is user/agent
-        // editable, so honor them opportunistically if present.
-        if let declared = Self.declaredCoordinate(from: entity.rawMarkdown) {
-            coordinate = declared
-            Self.resolveCache[entity.id] = declared
-            isResolved = true
-            return
-        }
-
-        do {
-            let placemarks = try await CLGeocoder().geocodeAddressString(entity.name)
-            let resolved = placemarks.first?.location?.coordinate
-            coordinate = resolved
-            Self.resolveCache[entity.id] = resolved
-        } catch {
-            coordinate = nil
-            Self.resolveCache[entity.id] = nil
-        }
-        isResolved = true
-    }
-
-    private func mapView(_ coordinate: CLLocationCoordinate2D) -> some View {
-        LocationMap(name: entity.name, coordinate: coordinate)
-            .overlay(alignment: .bottomTrailing) {
-                openInMapsButton(coordinate)
-                    .padding(CicadaTheme.spacingSM)
-            }
-    }
-
-    private func openInMapsButton(_ coordinate: CLLocationCoordinate2D) -> some View {
-        Button {
-            let query = entity.name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? entity.name
-            let urlString = "https://maps.apple.com/?ll=\(coordinate.latitude),\(coordinate.longitude)&q=\(query)"
-            if let url = URL(string: urlString) {
-                NSWorkspace.shared.open(url)
-            }
-        } label: {
-            Image(systemName: "arrow.up.forward.app")
-                .font(CicadaTheme.font(size: 11, weight: .medium))
-                .foregroundStyle(CicadaTheme.textPrimary)
-                .padding(6)
-                .background(.ultraThinMaterial, in: Circle())
-        }
-        .buttonStyle(.cicadaPlain)
-        .help("Open in Maps")
-    }
-
-    /// Icon + name shown while resolving or when geocoding produced no
-    /// coordinate — the "hide the map on failure" fallback. Not a loading
-    /// spinner-only state: a location card without a pin is still worth
-    /// showing the name in, so this doubles as the failure state too.
-    private var placeholder: some View {
-        VStack(spacing: CicadaTheme.spacingSM) {
-            if isResolved {
-                Image(systemName: "mappin.slash.circle")
-                    .font(CicadaTheme.font(size: 28))
-                    .foregroundStyle(CicadaTheme.textTertiary)
-            } else {
-                ProgressView().controlSize(.small)
-            }
-            Text(entity.name)
-                .font(CicadaTheme.captionFont)
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .lineLimit(1)
-        }
-        .frame(maxWidth: .infinity)
-        .frame(height: HeroPreview.maxHeight)
-        .background(CicadaTheme.surfaceHover.opacity(0.5))
-        .clipShape(CicadaTheme.shape(CicadaTheme.cornerRadius))
-        .overlay(
-            CicadaTheme.shape(CicadaTheme.cornerRadius)
-                .stroke(CicadaTheme.border, lineWidth: 1)
-        )
+        PlaceMap(entity: entity)
     }
 
     /// Best-effort `lat:`/`lon:` (or `latitude:`/`longitude:`) top-level
@@ -494,30 +388,5 @@ struct LocationHero: View {
         }
         guard let lat, let lon else { return nil }
         return CLLocationCoordinate2D(latitude: lat, longitude: lon)
-    }
-}
-
-/// A location page's map (`LocationHero`): one pin, the region around it.
-struct LocationMap: View {
-    let name: String
-    let coordinate: CLLocationCoordinate2D
-
-    var body: some View {
-        Map(initialPosition: .region(
-            MKCoordinateRegion(
-                center: coordinate,
-                span: MKCoordinateSpan(latitudeDelta: 0.08, longitudeDelta: 0.08)
-            )
-        ), interactionModes: []) {
-            Marker(name, coordinate: coordinate)
-        }
-        .allowsHitTesting(false)
-        .frame(maxWidth: .infinity)
-        .frame(height: HeroPreview.maxHeight)
-        .clipShape(CicadaTheme.shape(CicadaTheme.cornerRadius))
-        .overlay(
-            CicadaTheme.shape(CicadaTheme.cornerRadius)
-                .stroke(CicadaTheme.border, lineWidth: 1)
-        )
     }
 }

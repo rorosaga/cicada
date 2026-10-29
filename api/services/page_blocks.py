@@ -31,11 +31,12 @@ from pathlib import Path
 from api.services import bank_index, design_refs, page_citations
 
 #: The wire's version; it rides the card's ETag, so a new shape revalidates every held card.
-SHAPE = "blocks-2"
+SHAPE = "blocks-3"
 #: Every block, in the order a page reads them — the redesign proposal's page order (2026-10-28 §0/§1): why it matters,
-#: where to check, the type block (a map from stored coordinates, a look), what is ongoing, the article's citations
-#: (ruling 48 (16), ``page_citations``: its markers, References and belief sentences), then who changed it.
-KINDS = ("relevance", "sources", "coordinates", "looks", "ongoing", "citations", "history")
+#: In short (part B, 2026-10-29: Sleep's summary of a long, busy page, ``in_short``), where to check, the type block
+#: (a map from stored coordinates, a look), what is ongoing, the article's citations (ruling 48 (16),
+#: ``page_citations``: its markers, References and belief sentences), then who changed it.
+KINDS = ("relevance", "summary", "sources", "coordinates", "looks", "ongoing", "citations", "history")
 MAX_ONGOING = 8
 MAX_SOURCES = 12
 MAX_LOOKS = 6
@@ -91,7 +92,30 @@ def coordinates(fm: dict, label: str = "") -> dict | None:
     lon = _coordinate(fm.get("lon", fm.get("longitude")), 180.0)
     if lat is None or lon is None:
         return None
-    return {"lat": lat, "lon": lon, "label": label, "source": "page"}
+    # Part B (2026-10-29): `by` — who placed it (`place_coordinates`: the Mac's geocoder or the person), None when the
+    # coordinates were written by hand or by an older build.
+    by = str(fm.get("coordinates_by") or "") or None
+    return {"lat": lat, "lon": lon, "label": label, "source": "page", "by": by}
+
+
+# ---- In short ------------------------------------------------------------------------------------------------------
+
+
+def summary(fm: dict) -> dict | None:
+    """"In short" as Sleep stored it on the page (``in_short``: ruling 48 part 5), or None. Never derived here — the
+    text is what Sleep's tail wrote; this only serves it."""
+    raw = fm.get("in_short")
+    if not isinstance(raw, dict):
+        return None
+    text = " ".join(str(raw.get("text") or "").split())
+    if not text:
+        return None
+    try:
+        conversations = int(raw.get("conversations") or 0)
+    except (TypeError, ValueError):
+        conversations = 0
+    return {"text": text, "writtenAt": str(raw.get("written_at") or "")[:10], "by": "sleep",
+            "model": str(raw.get("model") or "") or None, "conversations": conversations}
 
 
 # ---- looks ---------------------------------------------------------------------------------------------------------
@@ -225,8 +249,9 @@ def build(memory_path: Path, entity_id: str, *, fm: dict, claims: list, relevanc
     included), which the citations are numbered from; ``None`` leaves them out."""
     today = today or date.today()
     page_type = str(fm.get("type") or "concept").strip().lower()
-    out: dict = {"shape": SHAPE, "order": [], "relevance": relevance, "ongoing": [], "ongoingTotal": 0,
-                 "coordinates": None, "looks": [], "sources": None, "citations": None, "history": None}
+    out: dict = {"shape": SHAPE, "order": [], "relevance": relevance, "summary": summary(fm), "ongoing": [],
+                 "ongoingTotal": 0, "coordinates": None, "looks": [], "sources": None, "citations": None,
+                 "history": None}
     try:
         open_events = ongoing(claims)
         out["ongoing"], out["ongoingTotal"] = open_events[:MAX_ONGOING], len(open_events)
@@ -247,7 +272,8 @@ def build(memory_path: Path, entity_id: str, *, fm: dict, claims: list, relevanc
         except Exception:  # noqa: BLE001
             pass
     out["history"] = history(history_entries or [], history_truncated)
-    present = {"relevance": bool(relevance) and relevance.get("tense") != "self", "ongoing": bool(out["ongoing"]),
+    present = {"relevance": bool(relevance) and relevance.get("tense") != "self", "summary": out["summary"] is not None,
+               "ongoing": bool(out["ongoing"]),
                "coordinates": out["coordinates"] is not None, "looks": bool(out["looks"]), "sources": out["sources"] is not None,
                "citations": out["citations"] is not None, "history": out["history"] is not None}
     out["order"] = [k for k in KINDS if present[k]]
@@ -375,7 +401,8 @@ def for_caller(blocks: dict, kinds: tuple[str, ...], *, verbatim: bool) -> dict:
     without ``sources`` (``verbatim=False``), every ongoing item worded in the person's own sentence masked. A copy:
     the input is never changed."""
     out = {"shape": blocks.get("shape", SHAPE), "order": [k for k in blocks.get("order") or [] if k in kinds]}
-    empty = {"relevance": None, "sources": None, "coordinates": None, "looks": [], "ongoing": [], "citations": None,
+    empty = {"relevance": None, "summary": None, "sources": None, "coordinates": None, "looks": [], "ongoing": [],
+             "citations": None,
              "history": None}
     for kind in KINDS:
         out[kind] = blocks.get(kind, empty[kind]) if kind in kinds else empty[kind]
@@ -398,6 +425,10 @@ def words(blocks: dict, kinds: tuple[str, ...], *, verbatim: bool = True) -> str
             lines.append(f"- {kind}: none on this page")
         elif kind == "relevance":
             lines.append(f"- relevance ({blocks['relevance'].get('tense')}): {blocks['relevance'].get('line')}")
+        elif kind == "summary":
+            s = blocks["summary"]
+            lines.append(f"- in short (written by Sleep{', ' + s['model'] if s.get('model') else ''}"
+                         f"{', ' + s['writtenAt'] if s.get('writtenAt') else ''}): {s['text']}")
         elif kind == "sources":
             s = blocks["sources"]
             lines.append(f"- sources: {s['total']} ({s.get('proposed', 0)} proposed, {s.get('tracked', 0)} tracked)")

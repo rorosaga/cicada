@@ -39,7 +39,9 @@ def _claims() -> list[Claim]:
 
 _FM = {
     "name": "Alpha Place", "type": "location", "status": "active", "confidence": 0.8, "created": "2026-09-01",
-    "last_referenced": "2026-10-20", "lat": 40.4168, "lon": -3.7038,
+    "last_referenced": "2026-10-20", "lat": 40.4168, "lon": -3.7038, "coordinates_by": "geocoder",
+    "in_short": {"text": "Alpha Place is where you build the prototype. You go most weeks.", "written_at":
+                 "2026-10-27T03:02:00+00:00", "model": "claude-haiku-4-5", "conversations": 6, "article": "abc"},
     "sources": [
         {"ref": "https://example.org/alpha", "kind": "url", "added_by": "user", "added_at": "2026-09-01"},
         {"ref": "https://example.com/alpha", "kind": "url", "added_by": "claude-code", "proposed": True,
@@ -84,10 +86,13 @@ def test_the_blocks_match_the_shared_fixture(tmp_path, monkeypatch):
 
 def test_what_each_block_holds(tmp_path, monkeypatch):
     b = _build(tmp_path, monkeypatch)
-    assert b["order"] == ["relevance", "sources", "coordinates", "looks", "ongoing", "citations", "history"]
+    assert b["order"] == ["relevance", "summary", "sources", "coordinates", "looks", "ongoing", "citations", "history"]
+    assert b["summary"] == {"text": "Alpha Place is where you build the prototype. You go most weeks.",
+                            "writtenAt": "2026-10-27", "by": "sleep", "model": "claude-haiku-4-5", "conversations": 6}
     assert [o["claimId"] for o in b["ongoing"]] == ["c-planned", "c-ongoing"], "open heads only, newest first"
     assert b["ongoing"][1]["verbatim"] is True and b["ongoing"][0]["target"] == "2026-12-01"
-    assert b["coordinates"] == {"lat": 40.4168, "lon": -3.7038, "label": "Alpha Place", "source": "page"}
+    assert b["coordinates"] == {"lat": 40.4168, "lon": -3.7038, "label": "Alpha Place", "source": "page",
+                                "by": "geocoder"}
     states = {s["ref"]: s["state"] for s in b["sources"]["items"]}
     assert states == {"https://example.org/alpha": "unchecked", "https://example.com/alpha": "proposed",
                       "https://example.net/alpha": "checked", "https://example.io/alpha": "stale"}
@@ -197,7 +202,8 @@ def test_recall_detail_include_words_the_same_blocks(tmp_path, monkeypatch):
     assert "## Page blocks" in reply
     assert "- coordinates: 40.4168, -3.7038" in reply and "proposed: https://example.com/alpha" in reply
     assert "milestone planned, planned for 2026-12-01" in reply
-    assert reply.data["blocks"]["order"][:2] == ["relevance", "sources"]
+    assert reply.data["blocks"]["order"][:3] == ["relevance", "summary", "sources"]
+    assert "- in short (written by Sleep, claude-haiku-4-5, 2026-10-27): Alpha Place is where you build" in reply
     only = mcp_tools.recall_detail(_ctx(memory), "alpha-place", include=["coordinates", "looks"])
     assert "- looks: none on this page" in only and "sources:" not in only.split("## Page blocks")[1]
 

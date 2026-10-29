@@ -429,7 +429,15 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   matched card stops waiting. Right after it, the tail's **Where to check** step (`_where_to_check_safely` →
   `source_proposals.propose`, ruling 36 D5, 2026-10-22) proposes the profile links and own repositories already on the
   record as sources and keeps one question per page about them — engine-free, no fetch, its own `cicada` commit
-  (`sleep/where-to-check`), dirty pages skipped, undone on a failed commit (`storage.md`, "Where to check"). **Stopping Contacts forgets them (review of #391):** Disconnect, or the app finding
+  (`sleep/where-to-check`), dirty pages skipped, undone on a failed commit (`storage.md`, "Where to check"). Then
+  **In short** (`_in_short_safely` → `in_short.run_tail`, ruling 48 part 5, 2026-10-29): pages with ≥ 400 words of
+  article and ≥ 5 conversations in the last 30 days (by each conversation id's own day; a feed item or a watched day
+  is none), busiest first, at most `in_short_per_run` (10; 0 is off), only when the article's hash changed, get 2–3
+  sentences in `in_short:` on the engine the person's choice resolves to, at its small tier (haiku on the Claude plan),
+  a scheduled run on a plan only through ruling 4b's switch; no qualifying page resolves no engine; a plan limit pauses
+  it; one commit as the model (`In short <day>`); demo banks included (nothing comes from outside); skipped when the
+  run stopped at the plan's limit. Measured on an owner-scale copy: 32 pages qualify, ~4.2k tokens in and 80–600 out
+  per page, 2.6–4.5 s each; the candidate scan is 1.9–3.4 s. **Stopping Contacts forgets them (review of #391):** Disconnect, or the app finding
   access refused or taken away in System Settings, calls `DELETE /sources/contacts-local/waiting`, which deletes every
   bank's `contacts.json` and thumbnails (Contacts is app-wide; token-gated like every route; counts only), so no first
   mention and no tail rematch uses a card again; what matched pages already gained stays. LinkedIn's kept export has

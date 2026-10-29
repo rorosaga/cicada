@@ -80,6 +80,23 @@ relevance line's two listings of `entities/` became one. Measured in process (Te
 bank (8,027 pages, 1,563 commits; 60 pages, 3 warm passes, baseline and branch alternated twice): warm p50 237–248 →
 190 ms, p95 440–446 → 301–311 ms (most of what is left is the page's `git log`); a 304 p50 1.0 ms, p95 1.4 ms.
 
+**Part B (2026-10-29, ruling 48 parts 5, 6 and 14).** *The card open reads no git:* `history` is `[]` and the
+`history` block absent unless `?history=true` asks for the old rows (in process on the owner-scale copy, 13 pages ×
+12 opens: p95 260 → 58 ms). *The History tab* reads `GET /entities/{id}/history?summary=true&limit=30&skip=N`
+(`page_history.page`, one `git log -p --unified=0`, never blame): each row gains `at` (ISO time), `bucket`
+(`you|agents|sleep|upkeep`, `page_history.bucket` — decay and Cicada's housekeeping are upkeep) and `summary`
+(`plusClaims`, `endedClaims`, `removedClaims`, `changedClaims`, `fields`, `proseAdded`, `proseRemoved`, up to four
+`lines`); `X-History-More: 1|0` says whether older rows exist. Pinned both sides by `fixtures/page_history.json`.
+*`blocks.summary`* is In short (`{text, writtenAt, by: "sleep", model, conversations}`, `in_short`; `SHAPE`
+`blocks-3`, after part A's `blocks-2`) and *`blocks.coordinates`* gains `by` (`geocoder|person`). *Places:* `GET /entities/{id}/place` — the
+stored coordinates with the places within 5 km (`nearby`), or with none stored `geocode: {allowed, reason, query}`;
+read when the map draws, never on open. `PUT /entities/{id}/coordinates {lat, lon, by}` stores what the app's own
+geocoder found (`by: geocoder`, 409 for a private place or one taken back) or the person's click (`by: person`, any
+place); `by: none` records "no match, stop resolving". `DELETE` takes a pin back (`coordinates_by: none`). Both are
+admitted writes (G183), committed alone: the person's as `user` (`user/place`), the geocoder's as `cicada`
+(`sync/geocoder`, upkeep in History). `GET /places/unplaced?limit=` lists public places the app's pass may resolve.
+The backend never geocodes (`place_coordinates`).
+
 **Where a page's knowledge comes from (owner 2026-10-14, G61).** `GET /entities/{id}/sources/overview`
 (`page_sources.overview`) answers the card's one section in one read: `sources[]` (each the `/sources` entry plus
 `site`, a `title` (the page's `## Links` title for that URL, else the name of the saved page `entity:` links it to —

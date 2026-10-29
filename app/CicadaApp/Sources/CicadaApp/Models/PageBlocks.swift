@@ -53,6 +53,8 @@ struct PageBlocks: Codable, Equatable {
         var lon: Double
         var label: String?
         var source: String?
+        /// Part B (2026-10-29): who placed it — `geocoder` (the Mac's own) or `person`; nil when written by hand.
+        var by: String?
     }
 
     struct Look: Codable, Equatable {
@@ -226,6 +228,8 @@ struct PageBlocks: Codable, Equatable {
     var shape: String
     var order: [String]
     var relevance: EntityRelevance?
+    /// "In short" (ruling 48 part 5): Sleep's 2–3 sentences on a long, busy page (`in_short`). Never hand-edited.
+    var summary: InShort?
     var ongoing: [Ongoing]
     var ongoingTotal: Int
     var coordinates: Coordinates?
@@ -235,7 +239,7 @@ struct PageBlocks: Codable, Equatable {
     var history: History?
 
     enum CodingKeys: String, CodingKey {
-        case shape, order, relevance, ongoing, ongoingTotal, coordinates, looks, sources, citations, history
+        case shape, order, relevance, summary, ongoing, ongoingTotal, coordinates, looks, sources, citations, history
     }
 
     init(from decoder: Decoder) throws {
@@ -243,6 +247,7 @@ struct PageBlocks: Codable, Equatable {
         shape = (try? c.decodeIfPresent(String.self, forKey: .shape)) ?? ""
         order = (try? c.decodeIfPresent([String].self, forKey: .order)) ?? []
         relevance = (try? c.decodeIfPresent(EntityRelevance.self, forKey: .relevance)) ?? nil
+        summary = (try? c.decodeIfPresent(InShort.self, forKey: .summary)) ?? nil
         ongoing = (try? c.decodeIfPresent([Ongoing].self, forKey: .ongoing)) ?? []
         ongoingTotal = (try? c.decodeIfPresent(Int.self, forKey: .ongoingTotal)) ?? ongoing.count
         coordinates = (try? c.decodeIfPresent(Coordinates.self, forKey: .coordinates)) ?? nil

@@ -138,7 +138,9 @@ final class RelatedLinksRowTests: XCTestCase {
     func testEveryRawMarkdownReaderIsKnown() throws {
         // APIClient.swift reads `/raw`'s own answer, the whole file.
         let known: Set<String> = ["APIClient.swift", "Entity.swift", "EntityDetailCard.swift", "EntityProse.swift",
-                                  "HeroPreview.swift"]
+                                  "HeroPreview.swift",
+                                  // Part B: the map's fallback reads the frontmatter's declared lat/lon only.
+                                  "PlaceMap.swift"]
         for file in try ThemeTokenTests.swiftSources() {
             let text = try String(contentsOf: file, encoding: .utf8)
             if text.contains(".rawMarkdown") || text.contains("rawMarkdown:") {

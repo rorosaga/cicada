@@ -74,12 +74,14 @@ REMOTE_TOOLS: dict[str, dict] = {t["name"]: t for t in (
                                                      "part names the next call. Omit for the beginning."},
            # Vision item 5 (2026-10-28): the page's blocks — never its per-commit history, which no remote scope
            # covers (`page_blocks.REMOTE_INCLUDE`).
-           "include": {"type": "array", "maxItems": 7,
+           "include": {"type": "array", "maxItems": 8,
                        "items": {"type": "string",
-                                 "enum": ["blocks", "relevance", "sources", "coordinates", "looks", "ongoing",
-                                          "citations"]},
+                                 "enum": ["blocks", "relevance", "summary", "sources", "coordinates", "looks",
+                                          "ongoing", "citations"]},
                        "description": "Also return what the page holds, as short blocks after it: `relevance` (why it "
-                                      "matters to the person), `sources` (where to check, each with its state), "
+                                      "matters to the person), `summary` (the 2-3 sentence In short Sleep writes for "
+                                      "a long page the person talks about often), `sources` (where to check, each "
+                                      "with its state), "
                                       "`coordinates` (a place's stored position), `looks` (colours and type of a "
                                       "saved design), `ongoing` (open happenings and planned milestones), "
                                       "`citations` (the article's numbered sources), or "

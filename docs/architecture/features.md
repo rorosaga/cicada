@@ -47,6 +47,21 @@ on a settled graph is a push of its own kind: every node but the dragged page an
 anchors; `graph-zones.bench.js` measures their strength (no overlap at rest at any strength; stronger = more separate
 zones, same settle time).
 
+**Pages v2, part B (2026-10-29; ruling 48 parts 5, 6 and 14; DR-77).** *History* is `EntityHistoryView`: DR-45 tabs
+All · You · Agents · Sleep · Upkeep (All leaves upkeep out; counts once every change is read), rows grouped Today /
+Yesterday / the day, a thin line down the leading edge with one node per change in its writer's picture
+(`ContributorAvatar`: the model's mark, an agent's own mark, a face), Sleep a `Tag` beside the sentence, a Sleep row's
+up to four changed lines always shown (DR-81: nothing folds), hover or focus showing who, what changed and when, a click
+pinning that card with the change itself (`DiffView`). It reads 30 rows when the tab is first shown and 30 more per
+*Older changes*; the card open reads none (`api.md`, part B). *Places:* `LocationHero` is `PlaceMap` — a muted
+`MKMapSnapshotter` still (page pin bold and labelled, nearby places small; memory and `Caches/Cicada/place-stills`,
+outside every bank) drawn after first paint, *Open in Maps* / a click opening a live SwiftUI `Map` sheet, *Not this
+place* under the still. A place with no coordinates is resolved once by `MKLocalSearch` when `GET …/place` says it is
+public (then up to five more public places, 1.2 s apart, once a session, so the nearby pins fill in); a private place
+says so and waits for *Place on the map*. No Location Services: nothing asks where the Mac is. *In short*
+(`InShortBlock`) leads the Content tab with a `Sleep · <day>` Tag and its basis line; part A's layout owns its final
+slot.
+
 **The entity card (DS-3a).** One component, `EntityDetailCard` — the Graph's column, Clusters' card. Header:
 the type as a `Tag`, status and confidence in words ("Active · very confident", the number in `.help`) — or, when
 the page's `lastReferenced` is more than 90 days before the viewer's today, the status and when it was last mentioned
@@ -117,13 +132,13 @@ tab at the page's own `## Related` heading (DR-38, DR-5 link); a page with no su
 A page sent `rawOmitted` (its fence withheld, or for a page with a ledger its frontmatter alone) is never shown,
 copied or reconstructed from that head — Source and Copy read `/raw` (`RawFile`); the app has no flow that writes a
 page body back. Beliefs are rows — the sentence, its evidence chip and its age, the rest in
-`.help`. A location page's map is a picture of where it is, never a scroll trap: it takes no pointer events, so
-the column scrolls with the pointer over it, and *Open in Maps* is the way to pan (`LocationMap`). A page with
+`.help`. A location page's map is a picture of where it is, never a scroll trap: since part B it is a still image
+(`PlaceMap`), so the column scrolls with the pointer over it, and a click or *Open in Maps* opens the live map. A page with
 thousands of beliefs stays usable: what the tabs show from the claims is derived once per load,
 off the main actor (`ClaimDigest`), Perspectives builds its rows lazily, and a belief list grows twenty rows per
-"Show N more" (`BeliefPaging`), never all at once. History: newest first, Show in conversation (straight to the Reader when one conversation maps here) and What
-changed; when the page left older changes out (`historyTruncated`, #244) its last row is *Older changes*, which reads
-the next page with `?skip=N` (`HistoryPaging`; the window is pinned to `MAX_PROVENANCE_COMMITS` by a test). Timeline: contested beliefs inline; a belief's clock opens its own.
+"Show N more" (`BeliefPaging`), never all at once. History: DR-77's line and rows (part B above), 30 at a time;
+*Older changes* reads the next 30 with `?skip=N` (`HistoryPager.pageSize`, pinned to `page_history.DEFAULT_LIMIT` by
+a test). Timeline: contested beliefs inline; a belief's clock opens its own.
 
 **Pictures and the person card (G146, round 4).** Every entity avatar is `EntityPicture` over the one picture
 precedence (`entity_picture.resolve` and its Swift twin `EntityPictureResolver`, one fixture): the person's own upload
