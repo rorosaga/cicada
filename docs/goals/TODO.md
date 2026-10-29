@@ -12,6 +12,12 @@
 
 ## Current state and evidence
 
+- **2026-10-29 — recall nobody asked for (G149, G207, G105/ruling 43; branch `feat/recall-unasked`, Supermemory's
+  lessons (d)1–3).** A prompt that names no page gets up to three current claims its rare words find, ending with
+  `cicada_recall(query)` (labelled set 0/23 → 22/23, 0 unrelated lines, 0/16 coding asks noted; owner-bank copy: no
+  new note on 20 coding asks, hook p50 +7 ms); recall's word leg finds today's conversation by a plain-words question
+  (2/5 → 4/5 phrasings, first hit ~1.3 s after capture); `feedback`/`user` agent notes join *How to work with me* as
+  the agent's words (≤ 2 rows, primer 1,690 tokens).
 - **2026-10-29 — an agent's saved note is the agent's words (ruling 50, G118; branch `fix/agent-saved-words`).**
   `authorship.of` reads a `cicada_save_episode` note (stdio, remote, an agent's shell) as `evidence.AGENT_KIND`:
   `assistant` spans, no promotion exchange, its session's one conversation, claims `external:<harness>`. The ad-hoc

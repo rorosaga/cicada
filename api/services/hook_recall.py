@@ -81,7 +81,28 @@ SEMANTIC_K = 30
 SEMANTIC_CHARS = 2_000
 
 REASONS = ("injected", "primer", "no_terms", "no_match", "recently_shown", "index_not_ready", "no_bank",
-           "timeout", "error", "reading")
+           "timeout", "error", "reading", "topic")
+# The topic leg (2026-10-29): a message that names no page gets at most TOPIC_LINES current claims its words find.
+TOPIC_LINES = 3
+TOPIC_PER_PAGE = 2
+#: The message's own subject words read for the leg, from its end (the question closes a message).
+TOPIC_TERMS = 16
+#: Rows counted per word for its rarity: past this the word is common in any bank that has it.
+TOPIC_DF_CAP = 2_000
+#: A word held by more than this share of the bank's claims finds nothing (the person's own name, "project").
+TOPIC_COMMON_SHARE = 0.02
+#: …never fewer claims than this: in a small bank no word is common.
+TOPIC_COMMON_FLOOR = 5
+#: Rare subject words a claim must share with the message (its own words, its page's name, its predicate/object):
+#: every one when the message has two or three, :data:`TOPIC_FULL` of them when it has more — "fix the failing test in
+#: the parser" is not about a belief that holds "test" and "parser".
+TOPIC_MIN_SHARED = 2
+TOPIC_FULL = 3
+#: …and the share of the message's rare-word weight they must carry: two incidental words of a long paste are not
+#: what it is about.
+TOPIC_MIN_COVER = 0.4
+#: Candidates read for text and payload, best-scored first.
+TOPIC_CANDIDATES = 40
 # G110 slice 1a (plan C4): where the last session in this folder stopped.
 #: SessionStart sources that get a continuity block; resume/compact/fork carry their
 #: own history, and a missing or unknown source is treated as unknown — no block
@@ -482,6 +503,218 @@ def _semantic_ranks(memory_path: Path, prompt: str) -> dict[str, int] | None:
     return {Path(str((r.get("metadata") or {}).get("file_path") or "")).stem: i for i, r in enumerate(rows)}
 
 
+@dataclass(frozen=True)
+class TopicLine:
+    """One current claim a message's words found, on the page it is about."""
+
+    page: str
+    name: str
+    text: str
+    since: str | None
+    claim_id: str | None = None
+
+
+def topic_stems(prompt: str) -> list[str]:
+    """The message's subject words for the topic leg: the hook's own content terms (from the end, R-H3) folded to
+    ``text_fold.stem`` — the form ``text_fold.subject_terms`` gives a claim — distinct, at most :data:`TOPIC_TERMS`."""
+    _words, terms = prompt_terms(prompt)
+    out: list[str] = []
+    for w in terms:
+        if w in text_fold.SUBJECT_STOPWORDS:
+            continue
+        s = text_fold.stem(w)
+        if s not in out:
+            out.append(s)
+        if len(out) == TOPIC_TERMS:
+            break
+    return out
+
+
+def _topic_weights(reader: "search_index.Reader", stems: list[str]) -> tuple[dict[str, float], dict[str, set[int]]]:
+    """Each stem's rarity over the bank's claims (``log(n / df)``) and the claim rows holding it — in the claim's
+    own words, its page's name or its predicate/object, as a whole word or its suffixed form. A stem past
+    :data:`TOPIC_COMMON_SHARE` of the claims weighs nothing and finds nothing."""
+    import math
+
+    n = int(reader.conn.execute("SELECT count(*) FROM clm").fetchone()[0])
+    weights: dict[str, float] = {}
+    rows: dict[str, set[int]] = {}
+    if not n:
+        return weights, rows
+    for s in stems:
+        found = {int(r) for (r,) in reader.conn.execute(
+            f"SELECT rowid FROM clm WHERE clm MATCH ? LIMIT {TOPIC_DF_CAP}", (f'{{title aliases keywords}} : "{s}"*',))}
+        if not found or len(found) >= TOPIC_DF_CAP or len(found) > max(TOPIC_COMMON_FLOOR, TOPIC_COMMON_SHARE * n):
+            continue
+        weights[s] = math.log((n + 1) / (len(found) + 0.5))
+        rows[s] = found
+    return weights, rows
+
+
+def topic_lines(reader: "search_index.Reader", memory_path: Path, prompt: str, *,
+                recent: frozenset[str] = frozenset(), deadline: float | None = None,
+                clock=time.monotonic) -> list[TopicLine]:
+    """At most :data:`TOPIC_LINES` current claims a message that names no page is about (2026-10-29, the topic leg).
+
+    Engine-free and lexical: a claim rides only when it shares the message's RARE subject words — all of them up to
+    :data:`TOPIC_FULL`, never fewer than :data:`TOPIC_MIN_SHARED` — (rarity over the bank's claims, :func:`_topic_weights`) and those carry :data:`TOPIC_MIN_COVER` of the
+    message's rare-word weight — checked again on the claim's own folded words, never on a prefix alone. The order is
+    that score, then the stored vectors' order when the bank's embedder is already warm on this Mac (R-H4: the
+    vectors order what the words found, never add a line), then the newest. The page must be live and of a type a
+    note shows; the person's own page counts (what they said about themselves is about them); a page the session was
+    just shown steps aside (R-H7). A page changed on disk since the index read it is read again, so a claim closed
+    since then never rides (:func:`_current_ids_if_changed`)."""
+    stems = topic_stems(prompt)
+    if len(stems) < TOPIC_MIN_SHARED:
+        return []
+    weights, rows = _topic_weights(reader, stems)
+    if len(weights) < TOPIC_MIN_SHARED:
+        return []
+    total = sum(weights.values())
+    need = min(TOPIC_FULL, len(weights))
+    score: dict[int, float] = {}
+    held: dict[int, int] = {}
+    for s, found in rows.items():
+        for r in found:
+            score[r] = score.get(r, 0.0) + weights[s]
+            held[r] = held.get(r, 0) + 1
+    floor = TOPIC_MIN_COVER * total
+    cands = sorted((r for r in score if held[r] >= need and score[r] >= floor),
+                   key=lambda r: (-score[r], -r))[:TOPIC_CANDIDATES]
+    if not cands:
+        return []
+    import json
+
+    marks = ",".join("?" * len(cands))
+    texts = {int(r): (str(t or ""), str(a or ""), str(k or ""), p) for r, t, a, k, p in reader.conn.execute(
+        f"SELECT rowid, title, aliases, keywords, payload FROM clm WHERE rowid IN ({marks})", cands)}
+    docs = reader.docs(list({r >> search_index.ROW_BITS for r in cands}))
+    picked: list[tuple[float, int, search_index.Doc, str, dict]] = []
+    for r in cands:
+        row = texts.get(r)
+        doc = docs.get(r >> search_index.ROW_BITS)
+        if row is None or doc is None or doc.ref in recent:
+            continue
+        if not (doc.kind == "entity" and str(doc.meta.get("status") or "active") in LIVE_STATUSES
+                and str(doc.meta.get("type") or "concept") not in SKIP_TYPES):
+            continue
+        text, name, keywords, raw = row
+        try:
+            payload = json.loads(raw or "{}")
+        except ValueError:
+            continue
+        if not text.strip() or not is_current(payload):
+            continue
+        own = text_fold.subject_terms(f"{text} {name} {keywords}")
+        shared = [s for s in weights if s in own]
+        exact = sum(weights[s] for s in shared)
+        if len(shared) < need or exact < floor:
+            continue
+        picked.append((exact, r, doc, text, payload))
+    if not picked:
+        return []
+    picked.sort(key=lambda p: str(p[4].get("valid_from") or ""), reverse=True)   # newest first among equals
+    picked.sort(key=lambda p: -round(p[0], 6))
+    if len(picked) > 1 and deadline is not None and deadline - clock() >= HYBRID_RESERVE_S:
+        ranks = _semantic_claim_ranks(memory_path, prompt)
+        if ranks:
+            picked.sort(key=lambda p: (-round(p[0], 6), ranks.get(str(p[4].get("id") or ""), len(ranks))))
+    out: list[TopicLine] = []
+    per_page: dict[str, int] = {}
+    live: dict[str, set[str] | None] = {}
+    for _score, _r, doc, text, payload in picked:
+        if per_page.get(doc.ref, 0) >= TOPIC_PER_PAGE:
+            continue
+        if doc.ref not in live:
+            live[doc.ref] = _current_ids_if_changed(memory_path, doc)
+        current = live[doc.ref]
+        if current is not None and str(payload.get("id") or text) not in current:
+            continue
+        per_page[doc.ref] = per_page.get(doc.ref, 0) + 1
+        out.append(TopicLine(doc.ref, clip(str(doc.meta.get("name") or doc.ref), NAME_CHARS), clip(text, CLAIM_CHARS),
+                             str(payload.get("valid_from") or "")[:10] or None, payload.get("id")))
+        if len(out) == TOPIC_LINES:
+            break
+    return out
+
+
+def _current_ids_if_changed(memory_path: Path, doc: "search_index.Doc") -> set[str] | None:
+    """``None`` when the page on disk is the one the index read (its stamp, and no claims ledger written since): the
+    indexed payload stands. Otherwise the page is read (``_live_claim_rows``) and its current claims' ids (or texts)
+    are returned — empty when it is gone or dropped. A stat per page, so the person's own page (the largest, often
+    with a ledger) is parsed only when it changed since the index read it."""
+    path = memory_path / "entities" / f"{doc.ref}.md"
+    try:
+        st = path.stat()
+    except OSError:
+        return set()
+    stamp = (st.st_mtime_ns, st.st_size)
+    if doc.stamp is not None and tuple(doc.stamp) == stamp:
+        try:
+            ledger = path.with_name(f"{doc.ref}.claims.jsonl").stat().st_mtime_ns
+        except OSError:
+            ledger = None
+        if ledger is None or ledger <= st.st_mtime_ns:
+            return None
+    rows_now = _live_claim_rows(memory_path, doc.ref)
+    if rows_now is None:
+        return set()
+    return {str(p.get("id") or t) for t, p in rows_now if isinstance(p, dict) and is_current(p)}
+
+
+def _semantic_claim_ranks(memory_path: Path, prompt: str) -> dict[str, int] | None:
+    """Each current claim's rank by the stored claim vectors, or ``None`` unless the bank's embedder runs on this Mac
+    and is already loaded (R-H4) — the topic leg's re-rank, never a load."""
+    from api.services import providers
+
+    embed = providers.warm_local_embed_fn(_recorded_model(memory_path))
+    if embed is None:
+        return None
+    from api.services.vector_index import SqliteVecIndexer
+
+    try:
+        rows = SqliteVecIndexer(memory_path, embed_fn=embed, model_name=_recorded_model(memory_path)).search_kinds(
+            prompt_window(prompt)[:SEMANTIC_CHARS], {"claims": SEMANTIC_K}).get("claims", [])
+    except Exception:  # noqa: BLE001 — the lexical order stands
+        return None
+    return {str((r.get("metadata") or {}).get("claim_id") or ""): i for i, r in enumerate(rows)}
+
+
+def compose_topic(lines: list[TopicLine]) -> str:
+    out = [recall_text.TOPIC_HEADER]
+    out += [f"- {ln.text} — {ln.name} (`{ln.page}`" + (f", since {ln.since}" if ln.since else "") + ")"
+            for ln in lines]
+    out.append(recall_text.TOPIC_FOOTER)
+    return "\n".join(out)
+
+
+def fit_topic(lines: list[TopicLine]) -> tuple[str, list[TopicLine]]:
+    """The topic note within ``MAX_TOKENS``: the last line goes first; ``("", [])`` when none fits."""
+    lines = list(lines)
+    while lines and len(compose_topic(lines)) // 4 > MAX_TOKENS:
+        lines.pop()
+    return (compose_topic(lines), lines) if lines else ("", [])
+
+
+def _topic_injection(reader, memory_path: Path, prompt: str, *, recent: frozenset[str],
+                     deadline: float | None, clock) -> Injection:
+    if deadline is not None and deadline - clock() < TOPIC_RESERVE_S:
+        return Injection.none("no_match")
+    try:
+        lines = topic_lines(reader, memory_path, prompt, recent=recent, deadline=deadline, clock=clock)
+    except Exception as exc:  # noqa: BLE001 — K9: the class, never the message; the named note's miss stands
+        logger.warning(f"hook-context: topic leg failed ({type(exc).__name__})")
+        return Injection.none("no_match")
+    text, shown = fit_topic(lines)
+    if not text:
+        return Injection.none("no_match")
+    return Injection(text, tuple(dict.fromkeys(ln.page for ln in shown)), "topic")
+
+
+#: The least of the route's budget the topic leg starts with (one FTS pass per word plus at most three page reads).
+TOPIC_RESERVE_S = 0.08
+
+
 def prompt_context(memory_path: Path, prompt: str, *, recent: frozenset[str] = frozenset(),
                    deadline: float | None = None, clock=time.monotonic) -> Injection:
     """The UserPromptSubmit note for one message, or ``Injection.none(reason)``.
@@ -513,7 +746,8 @@ def prompt_context(memory_path: Path, prompt: str, *, recent: frozenset[str] = f
             if strength:
                 ranked.append((_rank_key(doc.meta, strength, bm25), strength, doc))
         if not ranked:
-            return Injection.none("no_match")
+            # Nothing named: the topic leg — a few current claims the message's words find (2026-10-29).
+            return _topic_injection(reader, memory_path, prompt, recent=recent, deadline=deadline, clock=clock)
         ranked.sort(key=lambda r: r[0])
         fresh = [(strength, doc) for _key, strength, doc in ranked if doc.ref not in recent]
         if not fresh:

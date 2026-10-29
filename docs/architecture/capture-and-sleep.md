@@ -964,6 +964,12 @@ curated summaries, often a cleaner record than the raw turns. The transcripts be
   captured session is `session:<id>`, a note is its `origin_session_id`'s session (else its `origin_episode`'s key), a
   note with neither counts as none — so a session and its notes, two notes of one session, or a note and its index
   never make two. `heard_in` keeps the raw episode ids: they are the page's source credits.
+- **The note's `type` (2026-10-29).** Claude Code types each note `user`, `feedback`, `project` or `reference`;
+  `feedback` (guidance on how to work) and `user` (who the person is) notes are candidates for the handshake's *How to
+  work with me* — at most two rows, `feedback` first, newest first, never a tombstoned note — each shown as the
+  agent's ("… (an agent's note, `ep_…`)"), never the person's words; the row is the note's episode id and its own
+  description (`state_dictionary._agent_note_rows`, `storage.md`). `project` and `reference` notes are read by Sleep as
+  before and never ride the handshake.
 - **The index.** `MEMORY.md` is mostly one link per note, each captured on its own; a line that links to a note file
   is dropped (its note says it, or the note was deleted and the pointer is stale), and an index with nothing else is no
   episode.

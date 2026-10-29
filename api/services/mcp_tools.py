@@ -4555,6 +4555,29 @@ def _lexical_search_episodes(memory_path: Path, query: str, top_k: int) -> list[
                 body = evidence.mask_gaps(doc[1], evidence.gap_ranges(doc[0], doc[1]))
                 text = body[max(0, h.start - 100): h.start + 300] or text
         out.append({"text": text, "score": h.score, "metadata": {"episode_id": ep_id}})
+    if len(out) < top_k:
+        out += _rare_word_episodes(memory_path, query, top_k - len(out), {r["metadata"]["episode_id"] for r in out})
+    return out
+
+
+def _rare_word_episodes(memory_path: Path, query: str, k: int, have: set[str]) -> list[dict]:
+    """The word leg's second read, after the every-word one: the passages that hold the query's rarer words together
+    (``ask_sources.rare_word_conversations``), so a query in plain words — "what did we decide about the deploy
+    pipeline?" — finds the conversation from today that says "deploy pipeline" but not "what" or "decide"
+    (2026-10-29). Each row is that passage, from the stored body (the vector leg's ~400 characters). Never raises."""
+    from api.services import ask_sources, evidence
+
+    out: list[dict] = []
+    for ep_id, start, _end in ask_sources.rare_word_conversations(memory_path, query, k + len(have)):
+        if ep_id in have:
+            continue
+        doc = evidence.source_document(memory_path, ep_id)
+        if doc is None:
+            continue
+        body = evidence.mask_gaps(doc[1], evidence.gap_ranges(doc[0], doc[1]))
+        out.append({"text": body[start: start + 400], "score": 0.0, "metadata": {"episode_id": ep_id}})
+        if len(out) == k:
+            break
     return out
 
 

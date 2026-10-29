@@ -1030,6 +1030,80 @@ def _lexical(memory_path: Path, terms: set[str], *, common_share: float = COMMON
     return weights, ranked, held
 
 
+#: The query's words a passage must hold together for recall's word leg (all of them when it has fewer).
+RECALL_WORDS_HELD = 3
+#: A word in more than this share of the passages finds nothing for that leg ("what", "user", the person's name).
+RECALL_COMMON_SHARE = 0.05
+#: …never fewer passages than this.
+RECALL_COMMON_FLOOR = 20
+#: Passages read per word; past it the word is common in any bank.
+RECALL_DF_CAP = 5000
+
+
+def rare_word_conversations(memory_path: Path, query: str, k: int) -> list[tuple[str, int, int]]:
+    """``[(episode id, start, end)]`` of the passage that best holds ``query``'s words together, one per conversation,
+    best first, at most ``k`` — recall's second word read (2026-10-29). Recall's first read asks every word of the
+    query to match, so a question in plain words ("what did we decide about the deploy pipeline?") missed the
+    conversation captured a minute ago that says "deploy pipeline" but not "what" or "decide". Here the query's
+    subject words (:func:`search_terms`) are weighed by their rarity over the passages, a word past
+    :data:`RECALL_COMMON_SHARE` of them drops out, and a passage counts only when it holds every remaining word, up
+    to :data:`RECALL_WORDS_HELD` of them — in one passage, so a long export that says each word somewhere is not a
+    match. An index-only record (ruling 30) is never one. Never raises; the query is never logged."""
+    import math
+
+    from api.services import search_index
+
+    terms = sorted(search_terms(query))
+    if not terms:
+        return []
+    try:
+        if search_index.ensure_fresh(memory_path) not in ("ready", "stale"):
+            return []
+        bits = search_index.ROW_BITS
+        with search_index.Reader(memory_path) as reader:
+            conn = reader.conn
+            n = int(conn.execute("SELECT count(*) FROM pas").fetchone()[0])
+            weights: dict[str, float] = {}
+            rows: dict[str, set[int]] = {}
+            # One row past "common" is enough to know; a small bank has no common word (a share of 40 passages is 2).
+            cap = min(RECALL_DF_CAP, int(max(RECALL_COMMON_SHARE * n, RECALL_COMMON_FLOOR)) + 1)
+            for t in terms:
+                found = {int(r) for (r,) in conn.execute(
+                    "SELECT rowid FROM pas WHERE pas MATCH ? LIMIT ?", (f'"{t}"*', cap))}
+                if found and len(found) < cap:
+                    weights[t] = math.log((n + 1) / (len(found) + 0.5))
+                    rows[t] = found
+            need = min(RECALL_WORDS_HELD, len(weights))
+            if not need:
+                return []
+            score: dict[int, float] = {}
+            held: dict[int, int] = {}
+            for t, found in rows.items():
+                for r in found:
+                    score[r] = score.get(r, 0.0) + weights[t]
+                    held[r] = held.get(r, 0) + 1
+            best: dict[int, int] = {}
+            for r in (r for r in score if held[r] >= need):
+                doc = r >> bits
+                if doc not in best or score[r] > score[best[doc]]:
+                    best[doc] = r
+            order = sorted(best, key=lambda d: (-score[best[d]], -d))
+            docs = reader.docs(order[: max(0, k) * 4])
+            out: list[tuple[str, int, int]] = []
+            for d in order:
+                doc = docs.get(d)
+                if doc is None or doc.kind != "episode" or doc.meta.get("index_only"):
+                    continue
+                s, e = conn.execute("SELECT s, e FROM pas WHERE rowid = ?", (best[d],)).fetchone()
+                out.append((doc.ref, int(s), int(e)))
+                if len(out) == k:
+                    break
+            return out
+    except Exception as exc:  # noqa: BLE001 — a missing index is a leg fewer
+        logger.debug(f"recall word leg: word index unavailable ({type(exc).__name__})")
+        return []
+
+
 def _reserve(order: list[str], kept: list[str], window: int) -> list[str]:
     """``order`` with ``kept`` inside its first ``window`` places: the best of the rest fill what is left, in order."""
     kept = [ep for ep in dict.fromkeys(kept) if ep in order][:window]

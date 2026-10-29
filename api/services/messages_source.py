@@ -807,6 +807,8 @@ def _stage(drafts: list[EpisodeDraft], episodes_dir: Path, index: dict[str, epis
         wanted = {k: v for k, v in (("correspondent", draft.extra.get("correspondent")), ("title", draft.title),
                                     ("participants", draft.extra.get("participants")),
                                     ("self_chat", draft.extra.get("self_chat"))) if v is not None}
+        # As stored (review of #560): a scrubbed value compared raw would read as changed on every sync.
+        wanted = episode_staging.stored_meta(wanted)
         if all(entry.fm.get(k) == wanted[k] for k in wanted):
             continue
         if episode_staging.reattribute(entry.path, extra=wanted, queue_for_sleep=draft.queue_for_sleep):

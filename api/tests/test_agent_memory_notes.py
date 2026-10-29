@@ -409,3 +409,89 @@ def test_a_note_and_a_different_real_conversation_promote(bank, monkeypatch):
     _episode(bank, "ep_2026-10-21_002", NOTE)
     _episode(bank, "ep_2026-10-22_001", {"source": "telegram"}, "user: Delta Rig again\n")
     assert len(_resolve(bank, monkeypatch, ["ep_2026-10-21_002", "ep_2026-10-22_001"])) == 1
+
+
+# --- the note's type: "How to work with me" (ruling 43, 2026-10-29) --------------------------------------------------
+
+def _typed(name, kind, description, modified="2026-10-21T18:04:05.000Z"):
+    return _note(name=name, description=description, modified=modified).replace("  type: project", f"  type: {kind}")
+
+
+def _how_to_work(bank, n=5):
+    from api.services import handshake, state_dictionary
+
+    bank_index.invalidate()
+    rows = state_dictionary._preferences(bank, n)
+    state = {"preferences": rows, "projects": []}
+    line = next((ln for ln in handshake._now_block(state, "default").splitlines() if "How to work with me" in ln), "")
+    return rows, line
+
+
+def test_feedback_and_user_notes_are_how_to_work_with_me_candidates_in_the_agents_words(bank):
+    _ingest(bank, [
+        _post("squash.md", _typed("squash", "feedback", "Squash-merge every PR into dev")),
+        _post("role.md", _typed("role", "user", "Works as a placeholder researcher", modified="2026-10-22T09:00:00Z")),
+        _post("alpha.md", _typed("alpha", "project", "alpha-project status")),
+        _post("ref.md", _typed("ref", "reference", "Where the alpha docs live")),
+    ])
+    rows, line = _how_to_work(bank)
+    assert [r["one_liner"] for r in rows] == ["Squash-merge every PR into dev", "Works as a placeholder researcher"], \
+        "feedback first (how to work), then user; project and reference notes never"
+    assert all(r["agent_note"] and r["id"].startswith("ep_") for r in rows)
+    assert "Squash-merge every PR into dev (an agent's note, `ep_" in line, "said as the agent's, with where from"
+
+
+def test_agent_notes_take_at_most_two_rows_between_tagged_and_other_skills(bank):
+    from _synthetic_bank import _entity
+
+    _entity(bank, "ask-first", type="skill", decay_class="durable", confidence=0.4, tags=["autonomy"])
+    for i in range(4):
+        _entity(bank, f"skill-{i}", type="skill", decay_class="durable", confidence=0.5 + i / 10)
+    _ingest(bank, [_post(f"fb-{i}.md", _typed(f"fb-{i}", "feedback", f"Feedback {i}",
+                                             modified=f"2026-10-2{i}T10:00:00Z")) for i in range(3)])
+    rows, _line = _how_to_work(bank)
+    assert [r["id"] for r in rows][:1] == ["ask-first"]
+    assert [r["one_liner"] for r in rows[1:3]] == ["Feedback 2", "Feedback 1"], "newest first, two at most"
+    assert [r["id"] for r in rows[3:]] == ["skill-3", "skill-2"]
+
+
+def test_a_deleted_note_leaves_how_to_work_with_me(bank):
+    _ingest(bank, [_post("squash.md", _typed("squash", "feedback", "Squash-merge every PR into dev")), _post()])
+    _ingest(bank, [_post()])          # a complete listing without it: tombstoned
+    rows, _line = _how_to_work(bank)
+    assert rows == []
+
+
+TOKEN = "ghp_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4"
+
+
+def test_a_secret_in_a_notes_head_never_reaches_the_frontmatter_the_primer_or_state(bank, monkeypatch):
+    """Review of #560: the head's description rode the frontmatter raw and the primer printed it into every session."""
+    from api.services import handshake, state_dictionary
+
+    monkeypatch.setenv("CICADA_HOME", str(bank.parent / "home"))
+    _ingest(bank, [_post("deploy.md", _typed(f"deploy {TOKEN}", "feedback", f"Use token {TOKEN} for deploys"))])
+    [ep] = _episodes(bank).values()
+    raw = (bank / "episodes" / f"{ep.frontmatter['id']}.md").read_text(encoding="utf-8")
+    assert TOKEN not in raw, "body, title and agent_memory.description all scrubbed by the real writer"
+    assert "[redacted]" in ep.frontmatter["agent_memory"]["description"]
+    fm, body = state_dictionary.build(bank, git_runner=lambda *a, **k: "", repo_resolver=lambda *a, **k: None)
+    primer = handshake.build(fm, variant="claude-code", bank="default")
+    assert "Use token [redacted] for deploys (an agent's note" in primer
+    assert TOKEN not in primer and TOKEN not in state_dictionary.render(fm, body)
+
+
+def test_a_secret_stored_raw_before_the_scrub_is_scrubbed_at_read(bank):
+    """A bank written before the stager scrubbed extras: the row and the render scrub it again."""
+    from api.services import handshake
+
+    markdown_parser.write(bank / "episodes" / "ep_2026-10-21_001.md",
+                          {"id": "ep_2026-10-21_001", "source": "agent-memory", "title": f"Agent memory: {TOKEN}",
+                           "timestamp": "2026-10-21T10:00:00+00:00", "processed": True, "evidence_kind": "assistant",
+                           "agent_memory": {"type": "feedback", "description": f"Use token {TOKEN} for deploys"}},
+                          "assistant: x\n")
+    rows, line = _how_to_work(bank)
+    assert rows and TOKEN not in str(rows) and TOKEN not in line
+    stale = {"preferences": [{"id": "ep_x", "name": "n", "one_liner": f"token {TOKEN}", "agent_note": True}],
+             "projects": []}
+    assert TOKEN not in handshake._now_block(stale, "default"), "a `_state.md` written raw is scrubbed at render"
