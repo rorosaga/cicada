@@ -353,7 +353,7 @@ I think. But for some specific things if we can do api integration that is aweso
   tier) and the app's Mac readers. Every rail above is unchanged: the person's own signed-in session, Cicada never signs
   in on their behalf there, ticked or allowed sites only, the read limits, no backend scraping.
 - **Tier 2 — an official API for a specific high-value source where one exists.** Telegram first (47a); candidates
-  Spotify, Notion, Readwise, Google, YouTube, Letterboxd. "Cicada never signs in" is amended for this tier only: a
+  Notion, Readwise, Google, YouTube, Letterboxd (Spotify was one; it is export-only, see the table). "Cicada never signs in" is amended for this tier only: a
   connection is an API client the person authorised, never a browser session, cookie or profile, and the backend still
   never fetches a login-walled page. The existing Reddit, X and Pinterest connectors (`api/services/connectors/`) are
   of this kind.
@@ -365,7 +365,7 @@ way. As applied on 2026-10-28:
 | Source | Path | Why |
 |---|---|---|
 | Telegram | API (47a) | full chat history and live updates; no harness sees them |
-| Spotify | API, plus the extended-history export for earlier years | listening history and track metadata; the harness sees only what is playing |
+| Spotify | export only: the person's own "Extended streaming history" download (Spotify's privacy page), through G32's import; no API connector | Spotify's Developer Terms (v10, 15 May 2025) forbid it: §IV.2(b)(i) bars "using the Spotify Platform or any Spotify Content to train a machine learning or AI model or otherwise ingesting Spotify Content into a machine learning or AI model", and §IV.3(a) says "you may not store, aggregate or create compilations or databases of Spotify Content" and "Do not store Spotify Content indefinitely" — the bank is a lasting compilation that agents read, so the ToS rail rules the API out (2026-10-29). The download is the person's own data, given to them, not taken through the Spotify Platform. Capturing what is playing through the macOS harness waits on an owner ruling (G223) |
 | Notion | API | a workspace's pages as structured blocks; a harness sees one page at a time |
 | Readwise | API | highlights with their sources, complete |
 | Google | Calendar on the Mac reader; API only for what the Mac cannot read (Drive, Docs), on ask | the Mac already reads Calendar |

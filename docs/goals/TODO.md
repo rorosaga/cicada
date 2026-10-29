@@ -12,6 +12,11 @@
 
 ## Current state and evidence
 
+- **2026-10-29 — Spotify is export-only (ruling 47's path table amended; G223, G32; branch `docs/spotify-export-only`).**
+  Spotify's Developer Terms (v10) bar ingesting Spotify Content into an AI model (§IV.2(b)(i)) and storing or
+  compiling it (§IV.3(a)), so the ToS rail rules out an API connector. The way in is the person's own Extended
+  streaming history download through G32's import (not built yet). Capturing what is playing through the harness waits
+  on the owner's ruling.
 - **2026-10-28 — Messages interactions reach Sleep; group chats are read (G179, G29, G113; branch
   `feat/messages-replies-groups`, PR #499).** Replies, reactions, forwards and unsends stored in `turn_extras` reach
   Stage 1 as one note per chunk (`turn_signals`), source-agnostic; the person's own reaction moves that claim's
@@ -144,7 +149,8 @@
   through the browser and macOS harnesses, G166/G206/G218 rails unchanged. Tier 2: an official API for a specific
   high-value source where it gives what the harness cannot (history, metadata, reliability) — the person connects
   each one, off by default, read-only, credentials 0600, the normal capture path. "Cicada never signs in" is amended
-  for tier 2 only. Paths chosen: Telegram (47a), Spotify, Notion, Readwise → API; YouTube, Letterboxd → harness (plus
+  for tier 2 only. Paths chosen: Telegram (47a), Notion, Readwise → API; Spotify → export only (2026-10-29: its
+  Developer Terms §IV.2(b)(i) and §IV.3(a) bar storing or AI ingestion of API data); YouTube, Letterboxd → harness (plus
   Letterboxd's RSS); WhatsApp → local database; Google Calendar → Mac reader (`network.md`).
 - **2026-10-28 — vision PR 1: measure pictures and sources, better logos, logo freshness, an image-vector stamp (G159,
   G61, G217, G195; branch `feat/vision-measure-pictures`).** `cicada coverage pictures|sources` and
@@ -2268,8 +2274,9 @@ A whole row moves to DONE only after its remaining implementation and required a
     path on purpose — an API when it gives clean, complete, structured data the harness cannot (history, metadata,
     reliability); otherwise harness consumption is the default. An export stays a way in either way. **Applied to the
     candidates (2026-10-28):** Telegram → API (47a: the full chat history and live updates, which no harness sees);
-    Spotify → API (listening history and track metadata; the harness sees only what is playing), its extended-history
-    export for the years before; Notion → API (a workspace's pages as structured blocks; a harness sees one page at a
+    Spotify → **export only (amended 2026-10-29, coordinator on the ToS rail):** the person's own "Extended
+    streaming history" download through G32's import, no API connector — Spotify's Developer Terms (v10, 15 May 2025) forbid an API
+    connector: §IV.2(b)(i) bars "using the Spotify Platform or any Spotify Content to train a machine learning or AI model or otherwise ingesting Spotify Content into a machine learning or AI model", and §IV.3(a) says "you may not store, aggregate or create compilations or databases of Spotify Content" and "Do not store Spotify Content indefinitely"; capturing what plays through the macOS harness waits on the owner's ruling (G223); Notion → API (a workspace's pages as structured blocks; a harness sees one page at a
     time); Readwise → API (highlights with their sources, complete); Google → Calendar stays on the Mac reader, an API
     only for a Google source the person asks for that the Mac cannot read (Drive, Docs); YouTube → harness (watch
     history comes from the browser's history, G71, and Watch later through the person's agent; the official API does
