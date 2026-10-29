@@ -462,6 +462,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   --https=8443 <port>` (tailnet only) or that one mapping's off — argv built by the backend, 10 s, never `funnel` or `up` (`network.md`).
   Another machine is a client (`CICADA_API_BASE`, or the app's `api_base` file, ruling 28) with its own revocable device
   token and no bank of its own; what it posts records `device` (`headless.md`).
+  **Ruling 51 (owner 2026-10-29, G132; decided, not built — amends this rail as each phase ships):** one movable home
+  writes, mints, commits and runs Sleep; other devices (the phone a full one) hold replicas and send writes as
+  transactions; all dial out to an E2E relay that never sees plaintext; nothing merged by git (`headless.md`).
 - **Video:** only a provider's own player URL is loaded; an oEmbed response is read for its fields, never its HTML.
 
 ### Rulings
