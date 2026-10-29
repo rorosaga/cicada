@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cicada-memory-tool"
+version = "0.1.0"
+description = "A person's Cicada memory as the backend for Claude's memory tool, over Cicada's agent API (/v1)."
+requires-python = ">=3.10"
+license = "MIT"
+dependencies = []
+
+[project.optional-dependencies]
+sdk = ["anthropic>=2.3"]
+
+[tool.setuptools]
+packages = ["cicada_memory_tool"]
