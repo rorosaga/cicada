@@ -605,7 +605,7 @@ def _preference(p: dict) -> str:
         # Scrubbed again at render (review of #560): a `_state.md` written before the scrub may hold it raw.
         from api.services import episode_scrub
 
-        return f"{episode_scrub.scrub_value(text)[0]} ({state_dictionary.AGENT_NOTE_MARK}, `{p['id']}`)"
+        return f"{episode_scrub.scrub(text)[0]} ({state_dictionary.AGENT_NOTE_MARK}, `{p['id']}`)"
     return text
 
 

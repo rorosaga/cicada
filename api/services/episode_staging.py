@@ -404,14 +404,25 @@ def relay_for(draft: EpisodeDraft, candidates: dict[tuple[str, str], list[IndexE
     return near[0] if len(near) == 1 else None
 
 
+def stored_meta(values: dict) -> dict:
+    """Writer frontmatter as it is stored: named secret shapes scrubbed from its strings, keys, paths and ids never
+    touched (``episode_scrub.scrub_value``; review of #560). A writer that compares what it would write with what is
+    on disk compares THIS with it, or a scrubbed value reads as changed on every sync."""
+    return episode_scrub.scrub_value(dict(values))[0]
+
+
+def stored_title(title: str | None) -> str:
+    return episode_scrub.scrub_value(title or "", key="title")[0]
+
+
 def _extra(draft: EpisodeDraft) -> dict:
-    """``draft.extra`` with every string in it scrubbed like the body (review of #560): no writer's frontmatter — a
-    note's description, a chat's title — keeps a secret its words lost. The one way extras reach a file."""
-    return episode_scrub.scrub_value(dict(draft.extra))[0]
+    """``draft.extra`` as stored (:func:`stored_meta`) — the one way extras reach a file, so no writer's frontmatter
+    (a note's description, a chat's title) keeps a named secret its words lost."""
+    return stored_meta(draft.extra)
 
 
 def _title(draft: EpisodeDraft) -> str:
-    return episode_scrub.scrub_value(draft.title or "")[0]
+    return stored_title(draft.title)
 
 
 def _apply_common(fm: dict, draft: EpisodeDraft, stamps: list[dict], body: str | None = None) -> None:
@@ -574,7 +585,7 @@ def reattribute(path: Path, *, extra: dict, queue_for_sleep: bool) -> bool:
         parsed = markdown_parser.parse(path)
         fm = dict(parsed.frontmatter)
         before = dict(fm)
-        fm.update(extra)
+        fm.update(stored_meta(extra))
         _requeue_for_authorship(fm, EpisodeDraft(queue_for_sleep=queue_for_sleep))
         if fm == before:
             return False
@@ -714,7 +725,7 @@ def _set_meta(path: Path, values: dict) -> None:
     the queue are untouched."""
     parsed = markdown_parser.parse(path)
     fm = dict(parsed.frontmatter)
-    fm.update(values)
+    fm.update(stored_meta(values))
     markdown_parser.write(path, fm, parsed.body)
 
 
@@ -893,7 +904,8 @@ def _stage_locked(drafts: list[EpisodeDraft], episodes_dir: Path, *,
                     entry.fm["content_sha"] = draft.content_sha
                     result.restamped += 1
                     result.paths.append(_rel(entry.path, episodes_dir))
-                grouping = draft.extra.get(PROVIDER_PROJECT_KEY)
+                grouping = stored_meta({PROVIDER_PROJECT_KEY: draft.extra.get(PROVIDER_PROJECT_KEY)})[
+                    PROVIDER_PROJECT_KEY]   # as stored, or a scrubbed name rewrites every sync
                 if grouping and entry.fm.get(PROVIDER_PROJECT_KEY) != grouping:
                     # Ruling 45: the provider's project grouping arrived (or moved) and no word did: frontmatter only.
                     if write:

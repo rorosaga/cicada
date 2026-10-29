@@ -111,3 +111,22 @@ def test_every_string_a_writer_passes_beside_the_body_is_scrubbed_by_the_stager(
     assert fm["memo"]["description"] == "use [redacted] now" and fm["memo"]["tags"] == ["[redacted]"]
     assert fm["hash_id"] == sha, "a one-token identifier is never mistaken for a secret"
     assert fm["title"] == "About [redacted]"
+
+
+@pytest.mark.parametrize("title", ["Advent of Code 2024 day 3", "Pin 2025 roadmap", "OTP 2023 notes",
+                                   "Page Title 0123456789abcdef0123456789abcdef"])
+def test_a_title_keeps_its_year_and_its_id(title):
+    """Re-check of #560: titles and extras get the named secret shapes only — never the one-time-code rule (it ate
+    years) or the bare hex run (it ate Notion's file ids)."""
+    assert episode_scrub.scrub_value(title, key="title") == (title, 0)
+    assert episode_scrub.scrub_value({"memo": {"note": title}}) == ({"memo": {"note": title}}, 0)
+
+
+def test_keys_and_paths_are_never_altered_and_a_url_loses_only_a_named_secret_in_its_query():
+    rel = f"Advent of Code 2024/{SECRET_EXTRA}.md"
+    value = {"relpath": rel, "message_keys": [SECRET_EXTRA], "source_id": SECRET_EXTRA,
+             "url": f"https://example.com/{SECRET_EXTRA}?access_token={SECRET_EXTRA}&a=1"}
+    out, _n = episode_scrub.scrub_value(value)
+    assert out["relpath"] == rel and out["message_keys"] == [SECRET_EXTRA] and out["source_id"] == SECRET_EXTRA
+    assert out["url"].startswith(f"https://example.com/{SECRET_EXTRA}?") and out["url"].endswith("&a=1")
+    assert out["url"].count(SECRET_EXTRA) == 1

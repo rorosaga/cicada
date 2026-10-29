@@ -328,8 +328,8 @@ def _agent_note_rows(memory_path: Path, n: int) -> list[dict]:
             continue
         # Scrubbed at read too (review of #560): a bank written before the stager scrubbed extras holds them raw, and
         # this row reaches every primer and `_state.md`.
-        title = episode_scrub.scrub_value(str(fm.get("title") or "").removeprefix("Agent memory: ").strip())[0]
-        line = " ".join(episode_scrub.scrub_value(str(memo.get("description") or "") or title)[0].split())
+        title = episode_scrub.scrub(str(fm.get("title") or "").removeprefix("Agent memory: ").strip())[0]
+        line = " ".join(episode_scrub.scrub(str(memo.get("description") or "") or title)[0].split())
         if not line:
             continue
         if len(line) > ONE_LINER_LIMIT:
