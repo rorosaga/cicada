@@ -365,7 +365,7 @@ class BankFacts:
     #: Every project page's name and aliases, and its distinctive head word ("Alpha" for "Alpha Project"), folded: a
     #: conflict that names one is about the person's own work.
     project_names: frozenset[str] = frozenset()
-    #: Every project page's own name and aliases, folded — no head words (a pair, :func:`_own_work`).
+    #: Every project page's own name and aliases as folded words, " w1 w2 " — no head words (a pair, :func:`_own_work`).
     project_titles: frozenset[str] = frozenset()
     #: The owner's aliases under 3 characters ("DQ"), in their own case: matched only as a whole token.
     owner_short_aliases: frozenset[str] = frozenset()
@@ -468,7 +468,8 @@ def bank_facts(memory_path: Path) -> BankFacts:
     facts.person_names = frozenset(names)
     facts.owner_names = frozenset(text_fold.fold(n) for n in owner if n)
     facts.project_names = frozenset(text_fold.fold(n) for n in projects if n)
-    facts.project_titles = frozenset(text_fold.fold(n) for n in titles if n)
+    facts.project_titles = frozenset(f" {' '.join(w)} " for w in (_folded_words(n) for n in titles if n)
+                                     if len(" ".join(w)) >= 3)
     facts.owner_short_aliases = frozenset(short)
     try:
         lines = pending_store.load(Path(memory_path))
@@ -578,7 +579,7 @@ def _own_work(name: str, facts: BankFacts) -> bool:
     Never a project's head word alone: a project named after a tool ("<tool> plugin") must not make the tool private
     (measured 2026-10-29: head words kept 100 of 160 pairs home, most of them public tools)."""
     words = f" {' '.join(_folded_words(name))} "
-    return any(f" {' '.join(_folded_words(t))} " in words for t in facts.project_titles if len(t) >= 3)
+    return any(t in words for t in facts.project_titles)
 
 
 def _classify_pair(fm: dict, body: str, facts: BankFacts, name: str, page: dict | None) -> tuple[str | None, str]:
