@@ -186,6 +186,8 @@ struct DevicesSettingsView: View {
                     }
                 }
             }
+            // G132 phase 1: share this memory with the person's other computers, or keep a full copy of another's here.
+            MemoryCopySetting()
             // Hyrum audit B1 / D6: the remote connector, unchanged, folded (DR-39) under the old page's anchor.
             SettingsGroupCard {
                 DisclosureGroup(isExpanded: $appsOpen) {

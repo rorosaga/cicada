@@ -402,6 +402,16 @@ one quiet word (`DeviceOrigin`, names from `DeviceDirectory`, read on demand): *
 "Saved from" line (`FeedSourceLine.text(_:device:)`), in the Reader's meta line (`ReaderHeader.meta(_:device:)`) and on
 each conversation under *Where this came from*; on a server's client, the server's own writes read *from this server*;
 on This Mac, this Mac's own say nothing. The bank picker's menu leads with *on <host>* on a server.
+**One memory on your computers** (G132 phase 1, ruling 51; `MemoryCopySetting`, `MemoryCopyModel`; not a Store domain,
+read on appear and every 30 s while open; drawn only when this app is not a server's client): on the computer that
+holds the memory, *Share this memory with my other computers* (`PUT /sync/publish`; never offered for a demo, fixed
+when the environment sets it); on another computer, *Keep a full copy here* — that computer's address and the
+one-time code its *Pair a device* shows (a computer's code), checked and redeemed by this computer's backend
+(`PUT /sync/replica`), which then starts again in place (`POST /sync/replica/restart`) as a copy. While it keeps a copy
+the row says what it follows, how many changes are still to copy and how many made here are on their way (counts
+only), with *Copy again* when the home's history changed; switching it off stops the copy (the copy stays on disk,
+inactive). The app keeps talking to this Mac's own backend in both cases (`headless.md`, "A computer keeps a copy").
+DR-40, DR-59, DR-76.
 Agents' last card holds *Command-line tool* (G180, ruling 21; on General's Setup card until B11; `CommandLineTool`,
 `CommandLineToolRow`): one neutral *Install the command-line tool* button (DR-40) that links `~/.local/bin/cicada`
 with no admin.

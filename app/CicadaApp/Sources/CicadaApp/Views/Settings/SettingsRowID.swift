@@ -30,6 +30,9 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
     // Devices (G181 phase 3): the server this app uses (in Where your memory lives), and the person's devices
     static let devicesConnection = SettingsRowID("devicesConnection")
     static let devicesList = SettingsRowID("devicesList")
+    // Devices → One memory on your computers (G132 phase 1): share this memory, keep a full copy here
+    static let memoryShare = SettingsRowID("memoryShare")
+    static let memoryCopy = SettingsRowID("memoryCopy")
     // Agents → Command-line tool (G180, TODO ruling 21; on General's Setup card until the Hyrum audit's B11)
     static let commandLineTool = SettingsRowID("commandLineTool")
     // General → Getting to know Cicada (G152, G117 round 4)
