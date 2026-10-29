@@ -175,26 +175,107 @@ def record_facts(entity: dict, birth: dict, *, owner: str | None) -> dict | None
             "evidence": [evidence.reasoning(birth["episode"], hash=birth["span"]["hash"]).to_dict()]}
 
 
+#: The value claim an application's status is kept under (:func:`record_facts`' ``application status``).
+STATUS_PREDICATE = "value-of-application-status"
+#: Statuses after which nothing about the application is still in flight: a page holding one of these takes no more of
+#: the owner's lines (review of #548: a 2025 rejection must not pull a 2027 job start off the owner's page).
+FINAL = frozenset({"accepted", "rejected", "attended"})
+#: The words a line must carry to be ABOUT the application, not merely name the thing: the act and the paperwork
+#: (applied, registered, signed up, enrolled, submitted, the application, the form, the registration, an RSVP, a
+#: deadline to apply) — never "joined", "started", "works at", "lives", which are the owner's own life.
+ABOUT_APPLICATION = re.compile(
+    r"(?<!\w)(?:appl(?:y|ies|ied|ying|ication|icant)s?|regist(?:er|ers|ered|ering|ration)s?|sign(?:ed|s|ing)?[ -]?up|"
+    r"enrol(?:l)?(?:s|ed|ing|ment)?|submi(?:t|ts|tted|tting|ssion)|forms?|rsvp'?d?|waitlist(?:ed)?|"
+    r"inscri(?:b|p)\w*|solicitud\w*|postul\w*|formulario\w*)(?!\w)", re.IGNORECASE)
+
+
+def about_application(text: str) -> bool:
+    """Is ``text`` about an application (:data:`ABOUT_APPLICATION`), rather than only naming the thing?"""
+    return bool(ABOUT_APPLICATION.search(str(text or "")))
+
+
+def standing(memory_path):
+    """``on_record(entity) -> bool``: does a page this entity's name (or an alias) spells by id already hold an
+    application still in flight (an open status value, :data:`STATUS_PREDICATE`, that is not :data:`FINAL`)? Read once
+    per page, cached for the extraction. Only lines ABOUT the application then move (``move_from_owner(...,
+    about_only=True)``): the owner's own life — a job start, where they live — never leaves the owner's page.
+
+    Why (2026-10-29, the vetted facts-keep-context re-run): the owner-page move ran only when THIS conversation showed
+    the act, so every later conversation about an application already on its page — the agent's saved notes, a texted
+    reminder, the person mentioning it — wrote its "<owner>'s application to X lists …" lines onto the owner's page
+    again. Once the thing holds its application, what the owner's extraction says about it belongs there, whichever
+    conversation says it. A thing with no page yet keeps them on the owner's page: nothing is held away from a page."""
+    from pathlib import Path
+
+    from api.services import claims as claims_mod, markdown_parser
+    from api.services.id_utils import sanitize_id
+
+    entities = Path(memory_path) / "entities" if memory_path else None
+    seen: dict[str, bool] = {}
+
+    def holds(page_id: str) -> bool:
+        if page_id not in seen:
+            path = entities / f"{page_id}.md" if entities is not None and page_id else None
+            found = False
+            if path is not None and path.is_file():
+                try:
+                    found = any(c.predicate == STATUS_PREDICATE and c.valid_to is None and not claims_mod.is_event(c)
+                                and str(c.object or "").strip().lower() not in FINAL
+                                for c in claims_mod.parse_claims(markdown_parser.parse(path).body))
+                except Exception:  # noqa: BLE001 — an unreadable page holds nothing here
+                    found = False
+            seen[page_id] = found
+        return seen[page_id]
+
+    def on_record(entity: dict) -> bool:
+        if not isinstance(entity, dict) or str(entity.get("type") or "") in NOT_AN_APPLICATION:
+            return False
+        names = [entity.get("name"), *(entity.get("aliases") or [])]
+        return any(holds(sanitize_id(str(n))) for n in names if isinstance(n, str) and len(n.strip()) >= 3)
+
+    return on_record
+
+
+def owner_text(owner_entity: dict) -> str:
+    """Everything :func:`move_from_owner` could move out of the owner's extraction, as one text (a cheap pre-check)."""
+    facts = [f for f in owner_entity.get("key_facts") or [] if isinstance(f, str)]
+    history = [str(h.get("event") or "") for h in owner_entity.get("history_entries") or [] if isinstance(h, dict)]
+    return " ".join([*facts, str(owner_entity.get("summary") or ""), str(owner_entity.get("description") or ""),
+                     *history])
+
+
+def names_it(text: str, entity: dict) -> bool:
+    """Does ``text`` name ``entity`` (its name or an alias, three letters or more) the way the move reads it?"""
+    names = [str(n).strip() for n in [entity.get("name"), *(entity.get("aliases") or [])] if n]
+    return _names_it(text, [n for n in names if len(n) >= 3])
+
+
 def _names_it(text: str, names: list[str]) -> bool:
     folded = str(text or "").lower()
     return any(n and (f"[[{n.lower()}" in folded or re.search(rf"(?<!\w){re.escape(n.lower())}(?!\w)", folded))
                for n in names)
 
 
-def move_from_owner(owner_entity: dict, target: dict) -> int:
+def move_from_owner(owner_entity: dict, target: dict, *, about_only: bool = False) -> int:
     """Move what the owner's extraction says about ``target`` (an application entity) onto it: key facts, summary
     sentences (each standing alone, `fact_policy.standalone`) and history entries that name it. The owner keeps its
-    relationship to the thing (the link); nothing is dropped. Returns how many items moved."""
+    relationship to the thing (the link); nothing is dropped. ``about_only`` (an application already on record, no act
+    in this conversation): only lines that are about the application (:func:`about_application`). Returns how many
+    items moved."""
     from api.services import fact_policy
 
     names = [str(target.get("name") or "").strip(), *(str(a) for a in target.get("aliases") or [] if a)]
     names = [n for n in names if len(n) >= 3]
     if not names:
         return 0
+
+    def hit(text) -> bool:
+        return _names_it(text, names) and (not about_only or about_application(text))
+
     moved: list[str] = []
     facts = [f for f in owner_entity.get("key_facts") or [] if isinstance(f, str)]
-    keep = [f for f in facts if not _names_it(f, names)]
-    moved += [f for f in facts if _names_it(f, names)]
+    keep = [f for f in facts if not hit(f)]
+    moved += [f for f in facts if hit(f)]
     if len(keep) != len(facts):
         owner_entity["key_facts"] = keep
     owner_names = [owner_entity.get("name"), *(owner_entity.get("aliases") or [])]
@@ -203,11 +284,13 @@ def move_from_owner(owner_entity: dict, target: dict) -> int:
         if not text or not _names_it(text, names):
             continue
         parts = fact_policy.standalone(text, owner_names)
-        about = [p for p in parts if _names_it(p, names)]
+        about = [p for p in parts if hit(p)]
+        if not about:
+            continue
         owner_entity[field] = " ".join(p for p in parts if p not in about)
         moved += [p for p in about if p not in moved]
     history = [h for h in owner_entity.get("history_entries") or [] if isinstance(h, dict)]
-    hits = [h for h in history if _names_it(h.get("event"), names)]
+    hits = [h for h in history if hit(h.get("event"))]
     if hits:
         owner_entity["history_entries"] = [h for h in history if h not in hits]
         target["history_entries"] = [*(target.get("history_entries") or []), *hits]

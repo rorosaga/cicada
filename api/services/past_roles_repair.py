@@ -23,7 +23,8 @@ same for the claims already on a page.
   at", "studied at" in a bank seeded before the synonym): moved under the canonical and closed the same way.
 * ``start`` — an open claim under a ``starts`` label ("started working at") between the declared page types (a person and a
   company for ``works-at``): moved under the canonical, nothing else touched. Kept, counted, when the page already
-  holds that belief current (``already_current``) or the types do not fit (``types``).
+  holds that belief current (``already_current``), held it and it ended after the start was said (``ended_since``, the
+  reconciler's departure rule — never reopened), or the types do not fit (``types``).
 
 A start never closes another place, and nothing here closes a current belief because a newer one exists — a person
 holds several places at once (2026-10-14); which one wins is the owner's ruling to make, not this script's.
@@ -48,7 +49,7 @@ from typing import Callable
 
 from api.services import (claim_recovery, decay_policy, evidence, git_service, markdown_parser, page_lock, predicates,
                           write_admission)
-from api.services.claim_reconciler import is_human, open_, same_object
+from api.services.claim_reconciler import ended_since, is_human, open_, same_object
 from api.services.claims import (
     Claim,
     MalformedClaimsBlockError,
@@ -213,6 +214,10 @@ def classify(c: Claim, page_claims: list[Claim], vocab: _Vocabulary, type_of: Ca
     if any(o is not c and open_(o) and not o.superseded_by and o.predicate == start.canonical
            and o.context == c.context and o.observer == c.observer and same_object(o, c) for o in page_claims):
         return None, "already_current", start.canonical
+    if ended_since(c, page_claims, start.canonical, c.valid_from):
+        # The belief it starts held and ended after it was said ("enrolled at" before "graduated"): writing it under
+        # the canonical would reopen what finished — the live reconciler's departure rule (2026-10-29).
+        return None, "ended_since", start.canonical
     return START, "start_label", start.canonical
 
 

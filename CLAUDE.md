@@ -279,6 +279,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **Evidence spans, not copies (G118):** offsets into the source's evidence text with a hash; locate is exact →
   whitespace → case-insensitive, **never fuzzy**; an unlocatable quote becomes `reasoning` and **the claim is still
   written — provenance never blocks memory**. Six evidence kinds; every claim on the wire is built by one function.
+  A record's filing label (a folder, a list, a calendar) is never anyone's words nor a conversation for the 2+ rule
+  (owner 2026-10-29, `storage.md`).
 - **Events (G141):** only `progress.py` writes `happened`/`milestone`; a done happening is born closed; nothing relative is
   stored.
 - **Sources (G61) are a living set:** many per fact; an agent changes or removes only what it added; a removal is

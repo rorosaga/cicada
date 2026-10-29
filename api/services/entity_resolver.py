@@ -216,6 +216,11 @@ async def resolve(
             if agent_engine.is_runtime_path(name):
                 logger.debug("Stage 2: dropped an entity named for the engine runtime path")
                 continue
+            if entity.pop(promotion.LABEL_ONLY, False):
+                # Owner 2026-10-29: a name the conversation carries only as a filing label (a bookmark's folder, a
+                # reminder's list) is no mention: never a conversation for the 2+ rule, never a held line.
+                logger.debug("Stage 2: dropped a name only a filing label carried")
+                continue
             # A texted person saved under a relation ("Mom") is `role_people`'s: one relation page, a person already.
             if (correspondents.from_mark(entity.get(correspondents.MARK)) is not None
                     and not entity.get(role_people.UNNAMED_KEY)):
@@ -954,7 +959,7 @@ def _resolve_correspondents(
                        or any(linked(str(e.get("name") or "")) for e in group))
             if promote:
                 entity = {**best, "name": ident.name, "type": ident.page_type}
-                if str(best.get("name") or "") != ident.name:
+                if str(best.get("name") or "") != ident.name and alias_policy.admits(best.get("name")):
                     entity["aliases"] = [*(best.get("aliases") or []), best.get("name")]
                 creates_by_id[page_id] = {
                     "id": page_id,
@@ -1185,7 +1190,8 @@ def _card_entity(entity: dict, card: dict) -> dict:
     name = contacts_local.card_name(card)
     aliases = [a for a in entity.get("aliases") or [] if a]
     said = str(entity.get("name") or "")
-    if said and people_directory.fold(said) != people_directory.fold(name) and said not in aliases:
+    if said and people_directory.fold(said) != people_directory.fold(name) and said not in aliases \
+            and alias_policy.admits(said):
         aliases.append(said)
     aliases = [a for a in aliases if people_directory.fold(a) != people_directory.fold(name)]
     return {**entity, "name": name, "aliases": aliases}

@@ -106,7 +106,15 @@ final class FakeChatSourcesAPI: ChatSourcesAPI {
         if holdQR { await withCheckedContinuation { qrGate = $0 } }
         return TelegramStatusAnswer(state: "qr", qrUrl: "tg://login?token=PLACEHOLDER")
     }
-    func telegramConnect(phone: String) async throws -> TelegramStatusAnswer { TelegramStatusAnswer() }
+    private(set) var telegramConnects = 0
+    /// Held while set: `telegramConnect` waits on it, as a send still in flight does.
+    var holdConnect = false
+    var connectGate: CheckedContinuation<Void, Never>?
+    func telegramConnect(phone: String) async throws -> TelegramStatusAnswer {
+        telegramConnects += 1
+        if holdConnect { await withCheckedContinuation { connectGate = $0 } }
+        return TelegramStatusAnswer(state: "code_sent")
+    }
     func telegramCode(_ code: String) async throws -> TelegramStatusAnswer { TelegramStatusAnswer() }
     func telegramPassword(_ password: String) async throws -> TelegramStatusAnswer { TelegramStatusAnswer() }
     private(set) var telegramDisconnects = 0

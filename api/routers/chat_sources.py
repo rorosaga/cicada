@@ -170,6 +170,8 @@ class TelegramStatus(CamelModel):
     #: While ``state == "qr"``: the ``tg://login`` link the app draws as a QR, and when Telegram expires it (ISO).
     qr_url: str | None = None
     qr_expires: str | None = None
+    #: While ``state == "code_sent"``: how many digits the code Telegram sent has (``None``: unknown, the app uses 5).
+    code_length: int | None = None
 
 
 class TelegramPhone(CamelModel):

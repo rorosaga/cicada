@@ -1904,6 +1904,17 @@ summary and for every relationship); "an explicit link" was any relationship the
   thing — key facts, summary sentences (each standing alone), history entries naming it — moves onto it
   (`move_from_owner`); the owner keeps its relationship claim (the link). A thing the model typed `project` with no D4
   birth is written as the fallback `concept` (ruling 36 D4 still holds). Its decay is the event page's own.
+  **Once the thing holds its application, any conversation's owner lines about it move (2026-10-29).** The move used to
+  run only in a conversation that itself showed the act, so the agent's saved notes, a texted reminder or the person
+  mentioning the event later wrote "<owner>'s application to [[X]] lists …" back onto the owner's page (the vetted
+  re-run found such lines for an event whose page and status already existed). Stage 1 now also moves the owner
+  extraction's lines **about the application** (the act and the paperwork: applied, registered, signed up, enrolled,
+  submitted, the application, the form — `application_page.ABOUT_APPLICATION`) that name a thing whose page holds an
+  open, **not final** status (`value-of-application-status` other than accepted, rejected or attended;
+  `application_page.standing`, read once per page per extraction, only for names the owner's lines mention). The
+  owner's own life never moves: "joined <company>", "started a job at <company>", "lives next to its office" stay on
+  the owner's page whatever the page holds (review of #548). No new status or birth is written without an act, and a
+  thing with no page keeps the lines.
 - **The act's object is the event, never its venue or organiser (2026-10-28, `api/services/act_object.py`).** "I
   signed up for an <event> at the <venue>" gave both "<person> signed up for <event>" and "<person> signed up for
   <venue>", the second shown as the person's own words. After every chunk's spans are located, `act_object.hold`
@@ -2283,7 +2294,9 @@ for every case, measured on the owner's bank copy (numbers in the report, never 
   refuses a pair when a word on one side has no spelling of it on the other, or the numbers differ; spacing, case,
   accents and punctuation never count, a word spelt two ways is one word (`_variant_words`: a 4+ letter prefix, one
   edit at 5+ letters, two at 8+, a plural), and a word hyphen-joined to a shared word is part of its spelling
-  ("browser-use harness" / "browser-harness"). The entity then goes to the judge with the pages it shares a word with
+  ("browser-use harness" / "browser-harness"). The inbox's question dedup asks the same rule since 2026-10-29
+  (`clarification_manager._same_mention`): "<x>stack" / "stack", "GDPR" / "DPR", "G1" / "Go2" are two questions,
+  never one the person answers for both. The entity then goes to the judge with the pages it shares a word with
   (`_existing_llm_candidates` no longer skips such a page as "the direct match's"); an edge endpoint resolves to
   nothing, so its claim is held page-less, never landed on the wrong page (`fuzzy_same`).
 - **Organisations, labs, projects and tools get people's alias lead.** One lab lived on three pages (company, company,
@@ -2299,9 +2312,16 @@ thing; a phrase that only points at it inside one conversation ("the lock", "thi
 demonstrative (English or Spanish) — or, since 2026-10-27, one all-lowercase personal pronoun ("she", "her", "ella";
 "Ella" stays a name). Titles and names keep a capital at least at the start ("La casa de papel", "The
 Economist"), a number makes a name ("The 100", "El 47"), and a possessive ("my mom", "mi mamá") is how the person
-refers to one thing consistently, so none of those is a reference. It is used in ONE place: `apply_changes` drops
-references from the aliases Sleep adds (a create's, and only the new ones of an update); what a page already lists —
-a person's merge records the losing page's name there — stays, and the #249 alias index reads every alias as before. A
+refers to one thing consistently, so none of those is a reference. Since 2026-10-29 it guards **every automatic
+writer of a new alias** through one predicate, `alias_policy.admits`: Sleep's update and create (`apply_changes`), a
+page merge (the loser's aliases and name — "she" reached three person pages through merges that carried the merged
+page's aliases unfiltered), an inbox answer folding a page-less mention, a relation page's nickname, a correspondent's
+or a card's spoken name. Sleep also never adds an alias that is **another live page's own name** by id
+(`alias_policy.names_another_page`, a file check): the two are either one thing — a merge question the shared name
+already raises — or two, and the alias pulled the other's mentions over (284 such aliases sit on the owner's bank
+copy; none is removed — they wait for the merge questions or the fresh consolidation). What a page already lists stays,
+and the #249 alias index reads every alias as before; removing one is the person's edit (`cicada page edit
+--remove-alias`, a pronoun included). A
 real name typed all lowercase and article-led is the accepted false positive: it is only not recorded as a new alias,
 and a lowercase spelling of a page's own name already matches by name. The extraction prompt no longer shows `"the db"`
 as an example alias and says a part, product, dataset, format or version of a thing is not its alias. An alias a page

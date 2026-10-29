@@ -911,6 +911,8 @@ def apply_changes(changes: list[dict], memory_path) -> None:
             # Merge new aliases
             # Only Sleep's NEW aliases are filtered: what the page already lists (a hand-added one too) stays.
             new_aliases = _new_aliases(memory_path, entity_id, new_entity.get("aliases", []) or [])
+            # 2026-10-29: never another live page's own name (a crossed alias; `alias_policy.names_another_page`).
+            new_aliases = [a for a in new_aliases if not alias_policy.names_another_page(a, entity_id, entities_dir)]
             # G198: an alias an edit removed stays removed (`aliases_removed`, like `sources_removed`).
             new_aliases = page_edits.keep_aliases(parsed.frontmatter, new_aliases)
             if new_aliases or parsed.frontmatter.get("aliases"):

@@ -93,8 +93,10 @@ def exchanges(text: str, *, override: str | None = None, gaps=(),
     ``evidence.SAVE_KIND``, from ``authorship.of``): its title, site and
     fetched description are the page's, and only its reason or note sections
     are an exchange of the person's. ``persons`` (:func:`person_kinds`) narrows whose
-    turns open one: in a group chat only the person's own."""
-    turns = evidence.turns(text or "", override=override, gaps=gaps)
+    turns open one: in a group chat only the person's own. A record's filing labels (a folder, a list, a calendar —
+    `evidence.label_ranges`) are blanked first: a label is never an exchange (owner 2026-10-29)."""
+    text = evidence.mask_labels(text or "")
+    turns = evidence.turns(text, override=override, gaps=gaps)
     if not turns:
         return []
     if len(turns) == 1 and turns[0].marker is None and turns[0].role in PERSON_KINDS:
@@ -124,6 +126,21 @@ def measure(entity: dict, units: list[tuple[str, str]]) -> tuple[int, bool]:
             if person and pattern.search(_fold(person)):
                 named = True
     return count, named
+
+
+#: Stage 1's mark on an entity this conversation names only in a filing label (:func:`label_only`): no mention at
+#: all — Stage 2 drops it before anything counts a conversation (owner 2026-10-29).
+LABEL_ONLY = "label_only"
+
+
+def label_only(entity: dict, text: str) -> bool:
+    """The conversation names ``entity`` only in its record's filing labels (`evidence.label_ranges`) — a bookmark's or
+    a note's folder, a reminder's list, an event's calendar: a label the person filed things under, never their words
+    and never a conversation for the 2+ rule (owner 2026-10-29)."""
+    pattern = _pattern(_names(entity))
+    if pattern is None or not evidence.label_ranges(text or ""):
+        return False
+    return bool(pattern.search(_fold(text))) and not pattern.search(_fold(evidence.mask_labels(text)))
 
 
 def substantive(entity: dict) -> bool:
