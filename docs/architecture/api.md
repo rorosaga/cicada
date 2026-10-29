@@ -354,6 +354,14 @@ are 401 there. Any `Origin` is refused. The same API rides the G135 listener (`n
 (ruling 38): an MCP client uses `/mcp`; everything else uses `/v1` and `/v1/openapi.json`. A scope-denied or malformed
 call answers the same sentence and `code` on both doors (one `RemoteRuntime.call`, one `tool_contract`); `sources`
 gates every verbatim word on `/v1` as on `/mcp` (`ToolContext.raw_excerpts`).
+**Clients of `/v1` are not doors (ruling 38a, 2026-10-29).** A library that runs in an agent's own process and speaks
+only `/v1` with an agent token adds no route and no power. The first is `clients/memory-tool` (Python and TypeScript):
+Claude's API memory tool (`memory_20250818`) with `/memories` mapped onto `/v1` — `README.md` (`GET /v1/me`),
+`recent.md` (`timeline`), `hubs/` (`hub`), `search/<words>.md` (`recall`), `pages/<id>.md` (`page`, `view_range` →
+`start`), `sources/` (`source_list`), each listed only when the token's scopes reach it; writes only to `notes/` via
+`save_note` (a revision is a new note, never an overwrite); delete and rename refused with a sentence; paths checked
+client-side before any request. Its README is the setup. A client that needs more than `/v1` offers gets a `/v1`
+operation (and its remote tool), never its own reach into the bank.
 **Agent tokens:** `POST /agent-api/tokens` `{name, scopes?, expiresInDays?, baseUrl?}` (master only:
 `MASTER_ONLY_WRITE_PREFIXES`) makes a connector row with `auth: "api"` and answers once `{token, agent, prompt,
 baseUrl}` — `cic_api_<id>_<secret>`, scoped (default `search`/`read`/`record`), expiring 7/30/90, revocable at
