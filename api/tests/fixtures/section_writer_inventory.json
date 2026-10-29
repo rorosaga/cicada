@@ -1414,5 +1414,13 @@
       "frontmatter": "parsed.frontmatter",
       "disposition": "preserve_frontmatter_guarded"
     }
+  ],
+  "services/in_short.py": [
+    {
+      "function": "write",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "preserve_frontmatter_guarded"
+    }
   ]
 }
