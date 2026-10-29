@@ -57,7 +57,7 @@ from pathlib import Path
 from loguru import logger
 
 from api.services import (authorship, bank_index, bank_registry, episode_ids, evidence, fact_sources, history_index,
-                          inbox_questions, markdown_parser)
+                          inbox_questions, markdown_parser, text_fold)
 from api.services.claims import is_event, is_record, parse_claims, strip_claims_block
 from api.services.graph_builder import summarize
 
@@ -943,6 +943,35 @@ def pages_citing(memory_path: Path, episode_id: str) -> list[str] | None:
     except sqlite3.Error:
         return None
     return sorted({d.ref for d in docs.values()})
+
+
+#: source-page-v3 — at most this many episodes answer one source's word search (newest written first): a source page
+#: lists a page of rows, so a broader word is narrowed by typing more, never by a slower read.
+EPISODE_WORDS_CAP = 2000
+
+
+def episodes_with_words(memory_path: Path, q: str | None) -> set[str] | None:
+    """The episodes whose title or words hold every token of ``q`` (prefix terms, AND) — the ids a source page's
+    search widens its title match with (owner 2026-10-29: "searching and what comes from the sources"). Read off
+    rowids, never a column; newest written first, capped at :data:`EPISODE_WORDS_CAP`. ``set()`` for a query with no
+    usable token; ``None`` when no usable index answers (the caller then matches titles alone). The query is never
+    logged or stored."""
+    tokens = text_fold.query_tokens(q)
+    if not tokens:
+        return set()
+    if ensure_fresh(memory_path) not in ("ready", "stale"):
+        return None
+    match = match_expression(tokens)
+    sql = (
+        f"SELECT DISTINCT d.ref FROM docs d JOIN (SELECT rowid >> {ROW_BITS} AS id FROM pas WHERE pas MATCH ?1 "
+        f"UNION SELECT rowid >> {ROW_BITS} FROM epi WHERE epi MATCH ?1) m ON m.id = d.id "
+        f"WHERE d.kind = 'episode' ORDER BY d.id DESC LIMIT ?2"
+    )
+    try:
+        with Reader(memory_path) as reader:
+            return {str(ref) for (ref,) in reader.conn.execute(sql, (match, EPISODE_WORDS_CAP))}
+    except sqlite3.Error:
+        return None
 
 
 def pages_citing_many(memory_path: Path, episode_ids: list[str]) -> dict[str, list[str]] | None:

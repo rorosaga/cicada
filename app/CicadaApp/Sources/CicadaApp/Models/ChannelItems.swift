@@ -112,11 +112,16 @@ struct ChannelItemsPage: Codable, Hashable, Sendable {
     let total: Int
     let offset: Int
     let items: [ChannelItem]
+    /// source-page-v3 — the channel's whole count whatever the search (`total` is the matches' count under one).
+    var all: Int? = nil
+    /// source-page-v3 — the day (`YYYY-MM-DD`) the newest item came in (ruling 39: the received day when later).
+    var latest: String? = nil
 
-    enum CodingKeys: String, CodingKey { case channel, total, offset, items }
+    enum CodingKeys: String, CodingKey { case channel, total, offset, items, all, latest }
 
-    init(channel: String, total: Int, offset: Int = 0, items: [ChannelItem]) {
+    init(channel: String, total: Int, offset: Int = 0, items: [ChannelItem], all: Int? = nil, latest: String? = nil) {
         self.channel = channel; self.total = total; self.offset = offset; self.items = items
+        self.all = all; self.latest = latest
     }
 
     init(from decoder: Decoder) throws {
@@ -125,6 +130,8 @@ struct ChannelItemsPage: Codable, Hashable, Sendable {
         items = try c.decodeIfPresent([ChannelItem].self, forKey: .items) ?? []
         total = try c.decodeIfPresent(Int.self, forKey: .total) ?? items.count
         offset = try c.decodeIfPresent(Int.self, forKey: .offset) ?? 0
+        all = try? c.decodeIfPresent(Int.self, forKey: .all)
+        latest = try? c.decodeIfPresent(String.self, forKey: .latest)
     }
 }
 
@@ -132,6 +139,9 @@ struct ChannelItemsPage: Codable, Hashable, Sendable {
 struct ChannelItemsList: Equatable, Sendable {
     var items: [ChannelItem]
     var total: Int
+    /// source-page-v3 — the channel's whole count and the day its newest item came in (nil from an older backend).
+    var all: Int? = nil
+    var latest: String? = nil
 
     var hasMore: Bool { items.count < total }
 }

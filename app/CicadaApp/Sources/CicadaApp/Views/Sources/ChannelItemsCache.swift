@@ -34,9 +34,18 @@ final class ChannelItemsCache {
 
     init(api: any ChannelItemsAPI = APIClient.shared) { self.api = api }
 
-    func list(_ channel: String) -> ChannelItemsList? { lists[channel] }
-    func phase(_ channel: String) -> Phase { phases[channel] ?? .idle }
-    func isLoadingMore(_ channel: String) -> Bool { loadingMore.contains(channel) }
+    /// source-page-v3 — a search is its own list, held beside the channel's (the search field clears back to the held
+    /// list instantly). The separator never occurs in a channel id.
+    nonisolated static func key(_ channel: String, query: String) -> String {
+        let words = SourceSearch.normalized(query)
+        return words.isEmpty ? channel : channel + "\u{1F}" + words
+    }
+
+    func list(_ channel: String, query: String = "") -> ChannelItemsList? { lists[Self.key(channel, query: query)] }
+    func phase(_ channel: String, query: String = "") -> Phase { phases[Self.key(channel, query: query)] ?? .idle }
+    func isLoadingMore(_ channel: String, query: String = "") -> Bool {
+        loadingMore.contains(Self.key(channel, query: query))
+    }
     func day(_ episode: String) -> WatchedDay? { days[episode] }
     func dayFailed(_ episode: String) -> Bool { failedDays.contains(episode) && days[episode] == nil }
     func sittings(_ chat: String) -> ChatSittings? { chats[chat] }
@@ -93,49 +102,62 @@ final class ChannelItemsCache {
 
     /// Re-read the rows already shown (at least the first page), sending the tag only when it covers the same rows —
     /// a 304 then keeps the list exactly as it is.
-    func refresh(_ channel: String) async {
+    /// source-page-v3: `query` narrows the read to a source page's search; its list is held under its own key.
+    func refresh(_ channel: String, query: String = "") async {
         let started = epoch
-        let cached = lists[channel]
+        let key = Self.key(channel, query: query)
+        let cached = lists[key]
         let limit = CapturedItems.refreshLimit(shown: cached?.items.count ?? 0)
-        if cached == nil { phases[channel] = .loading }
-        let etag = cached == nil ? nil : tags[channel].flatMap { $0.limit == limit ? $0.etag : nil }
+        if cached == nil { phases[key] = .loading }
+        let etag = cached == nil ? nil : tags[key].flatMap { $0.limit == limit ? $0.etag : nil }
         do {
-            let answer = try await api.fetchChannelItems(channel: channel, offset: 0, limit: limit, etag: etag)
+            let answer = try await fetch(channel, query: query, offset: 0, limit: limit, etag: etag)
             guard started == epoch else { return }
             if let page = answer.value {
-                lists[channel] = ChannelItemsList(items: page.items, total: page.total)
-                tags[channel] = answer.etag.map { Tag(limit: limit, etag: $0) }
+                lists[key] = ChannelItemsList(items: page.items, total: page.total, all: page.all, latest: page.latest)
+                tags[key] = answer.etag.map { Tag(limit: limit, etag: $0) }
             }
-            phases[channel] = .loaded
+            phases[key] = .loaded
         } catch APIError.httpError(404, _) {
             guard started == epoch else { return }
-            lists[channel] = nil
-            tags[channel] = nil
-            phases[channel] = .gone
+            lists[key] = nil
+            tags[key] = nil
+            phases[key] = .gone
         } catch {
             guard started == epoch else { return }
-            phases[channel] = lists[channel] == nil ? .failed(Copy.capturedLoadFailed) : .loaded
+            phases[key] = lists[key] == nil ? .failed(Copy.capturedLoadFailed) : .loaded
         }
     }
 
     /// "Show more" — the next page, appended in place. A row the list already holds (new items arrived at the top
     /// since the last read and shifted the pages) is never shown twice.
-    func loadMore(_ channel: String) async {
-        guard let current = lists[channel], current.hasMore, !loadingMore.contains(channel) else { return }
+    func loadMore(_ channel: String, query: String = "") async {
+        let key = Self.key(channel, query: query)
+        guard let current = lists[key], current.hasMore, !loadingMore.contains(key) else { return }
         let started = epoch
-        loadingMore.insert(channel)
-        defer { if started == epoch { loadingMore.remove(channel) } }
+        loadingMore.insert(key)
+        defer { if started == epoch { loadingMore.remove(key) } }
         do {
-            let answer = try await api.fetchChannelItems(channel: channel, offset: current.items.count,
-                                                         limit: CapturedItems.pageSize, etag: nil)
-            guard started == epoch, let page = answer.value, var list = lists[channel] else { return }
+            let answer = try await fetch(channel, query: query, offset: current.items.count,
+                                         limit: CapturedItems.pageSize, etag: nil)
+            guard started == epoch, let page = answer.value, var list = lists[key] else { return }
             let held = Set(list.items.map { "\($0.kind.rawValue)|\($0.id)" })
             list.items += page.items.filter { !held.contains("\($0.kind.rawValue)|\($0.id)") }
             // A short page is the end, whatever the total said a moment ago (a list can shrink between reads).
             list.total = page.items.count < CapturedItems.pageSize ? list.items.count : page.total
-            lists[channel] = list
+            lists[key] = list
         } catch {
             // The rows already shown stay; the button stays for another try.
         }
+    }
+
+    /// The channel's own read when there is no search (the fakes' and an older backend's door), the search's when there is.
+    private func fetch(_ channel: String, query: String, offset: Int, limit: Int, etag: String?) async throws
+        -> Conditional<ChannelItemsPage> {
+        let words = SourceSearch.normalized(query)
+        if words.isEmpty {
+            return try await api.fetchChannelItems(channel: channel, offset: offset, limit: limit, etag: etag)
+        }
+        return try await api.fetchChannelItems(channel: channel, offset: offset, limit: limit, query: words, etag: etag)
     }
 }

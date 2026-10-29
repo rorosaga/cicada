@@ -1298,9 +1298,15 @@ async def list_channel_items(
     response: Response,
     offset: int = Query(0, ge=0),
     limit: int = Query(channel_items.LIMIT_DEFAULT, ge=1, le=channel_items.LIMIT_MAX),
+    q: str | None = Query(None, max_length=channel_items.Q_MAX),
     settings: Settings = Depends(get_settings),
 ):
     """What a channel brought in, by name (G161): each item's title and day, newest first, a page at a time.
+
+    source-page-v3 (owner 2026-10-29): `q` narrows the page to what a source page's one search finds — titles, a
+    chat's name, a saved link's host, and the words of the episodes behind the rows where the words index has them
+    (`channel_items._search`); the body carries `all` (the channel's whole count) and `latest` (the day the newest
+    item came in). The query rides only the ETag's digest, never a log.
 
     Derived at read from the set the row's count means (`channel_items`' docstring names it per channel) —
     titles only, never a body; for Contacts, the matched page's name only. Engine-free and read-only, and NOT a
@@ -1314,12 +1320,12 @@ async def list_channel_items(
     # Sources v4 (review of #358): `photos` too — a Messages row carries its chat photo's hash.
     etag = sync_service.etag_for(
         memory_path, "sources", "episodes", "entities", "photos",
-        extra=f"{channel_items.SHAPE}|{channel_id}|{offset}|{limit}",
+        extra=f"{channel_items.SHAPE}|{channel_id}|{offset}|{limit}|{q or ''}",
     )
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     # Off the event loop: a cold `bank_index` re-parses every frontmatter (the `/sources/channels` reason).
-    page = await run_in_threadpool(channel_items.items, memory_path, channel_id, offset=offset, limit=limit)
+    page = await run_in_threadpool(channel_items.items, memory_path, channel_id, offset=offset, limit=limit, q=q)
     if page is None:
         raise HTTPException(status_code=404, detail="Unknown channel")
     return page
