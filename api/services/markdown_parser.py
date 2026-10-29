@@ -425,6 +425,7 @@ def write(filepath: Path, frontmatter: dict, body: str) -> None:
     _replace(filepath, _render(frontmatter, body))
     if after == b"":   # the writer kept no line in the ledger: the page holds them all now
         _unlink_quietly(str(claims_ledger.path_for(filepath)))
+        _wrote()
     elif after:
         _replace(claims_ledger.path_for(filepath), after)
 
@@ -444,6 +445,7 @@ def _replace(filepath: Path, data: bytes) -> tuple[int, int, int]:
     if target != Path(filepath):
         _forget(target)
     tmp = _stage(target, data)
+    _wrote()
     try:
         try:
             os.chmod(tmp, os.stat(target).st_mode & 0o7777)
@@ -454,7 +456,16 @@ def _replace(filepath: Path, data: bytes) -> tuple[int, int, int]:
     except BaseException:
         _unlink_quietly(tmp)
         raise
+    finally:
+        _wrote()
     return (st.st_ino, st.st_mtime_ns, st.st_size)
+
+
+def _wrote() -> None:
+    """This process changed a file (``local_writes``: the gate on reusing the SSE tick's listings for an ETag)."""
+    from api.services import local_writes
+
+    local_writes.bump()
 
 
 def write_new(filepath: Path, frontmatter: dict, body: str) -> None:
@@ -469,6 +480,7 @@ def write_new(filepath: Path, frontmatter: dict, body: str) -> None:
     data = _render(frontmatter, body)
     _forget(target)
     tmp = _stage(target, data)
+    _wrote()
     try:
         os.link(tmp, target)
     except FileExistsError:
@@ -481,6 +493,7 @@ def write_new(filepath: Path, frontmatter: dict, body: str) -> None:
             fh.write(data)
     finally:
         _unlink_quietly(tmp)
+        _wrote()
 
 
 def _normalize_dates(fm: dict) -> None:

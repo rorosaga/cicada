@@ -9,8 +9,9 @@ or when its last full walk is :data:`FALLBACK_S` old: the safety net for an even
 **Never trusted alone.** A watcher is used only while it is :attr:`BankWatch.healthy` — its notifier started and its
 thread is running — and only for the root it was started on (a bank directory deleted and made again is a new
 watcher). Without ``watchfiles``, on a notifier error, or with ``CICADA_SYNC_WATCH=off``, :func:`for_bank` answers
-``None`` and the tick walks the bank every second exactly as before. ``/sync/version``, every ETag and every read path
-stay exact per request: only the stream's idle tick reads the count.
+``None`` and the tick walks the bank every second exactly as before. ``/sync/version`` stays exact per request. A
+request's ETag and read may answer from the tick's last walk only through ``sync_ticker.reusable_listings``' gate (the
+count unchanged, and this process's own writes counted by ``local_writes``; speed 2026-10-29).
 
 **What counts.** Any change under the bank except git's own bookkeeping (``.git/``, read separately each tick through
 ``git_head``) and the derived index databases at the bank's root (written in the background, read by no component).
@@ -129,6 +130,18 @@ _watches: dict[str, BankWatch] = {}
 RETRY_S = 60.0
 _failed_at: dict[str, float] = {}
 _guard = threading.Lock()
+
+
+def running(memory_path: Path) -> BankWatch | None:
+    """The bank's watcher if one is already running and healthy on the same root — never started here (a request's
+    ETag gate asks this; only the stream's tick starts a watcher)."""
+    if not enabled():
+        return None
+    with _guard:
+        watch = _watches.get(os.path.realpath(os.fspath(memory_path)))
+    if watch is None or not watch.healthy or not watch.same_root():
+        return None
+    return watch
 
 
 def for_bank(memory_path: Path) -> BankWatch | None:
