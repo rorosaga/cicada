@@ -492,7 +492,8 @@ REMOTE_TOOLS: dict[str, dict] = {t["name"]: t for t in (
           ("page", "into", "reason"), read_only=False),
     _tool("cicada_split_page",
           "Propose splitting off what a page says about a DIFFERENT thing with the same name. First `preview: true` "
-          "(numbered sentences, beliefs by id, conversations); then name what belongs to the other thing. It waits in "
+          "(numbered sentences, beliefs by id, conversations — only on a connection that may read memory); then name "
+          "what belongs to the other thing. It waits in "
           "the person's inbox for one tap; nothing changes until they apply it.",
           {"page": {"type": "string", "description": "The page (id or name)."},
            "preview": {"type": "boolean", "description": "List what can be picked; nothing changes."},

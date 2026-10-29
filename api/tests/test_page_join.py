@@ -378,3 +378,58 @@ def test_an_unlisted_agents_undo_is_a_proposal_the_person_applies(bank):
                                       SimpleNamespace(memory_path=bank, inbox_defer_days=30)))
     assert not (bank / "entities" / "tool-x-2.md").exists() and not item.exists()
     assert _clean(bank)
+
+
+# --------------------------------------------------------------------------- remote scopes fail closed (R-R3)
+
+
+def _remote(bank, monkeypatch):
+    from api import config
+    from api.remote.runtime import RemoteRuntime
+
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(bank))
+    config.get_settings.cache_clear()
+    return RemoteRuntime(post=lambda path, payload: {"status": "resolved"}, sleep_running=lambda: False)
+
+
+def _conn(scopes):
+    from api.remote import catalog
+
+    return catalog.Connector(id="ab12cd34", label="Phone", app="claude", scopes=frozenset(scopes),
+                             created_at="2026-09-01T00:00:00+00:00", last_client="claude-ai")
+
+
+@pytest.mark.parametrize("args", [{"page": "tool-x", "preview": True},
+                                  {"page": "tool-x", "preview": True, "sentences": [2, 3]},
+                                  {"page": "no-such-page", "preview": True}])
+def test_a_record_only_connection_never_sees_a_page_through_a_preview(bank, monkeypatch, args):
+    from api import config
+
+    runtime = _remote(bank, monkeypatch)
+    try:
+        text, _status = runtime.call(_conn({"record"}), "cicada_split_page", args)
+    finally:
+        config.get_settings.cache_clear()
+    assert "read scope" in text
+    for leak in (EDITOR, PROGRAM_1, "clm_applied", "bob-example", "ep_2026-", "tool-x-2"):
+        assert leak not in text, leak
+    assert _clean(bank)
+
+
+def test_with_read_the_preview_answers_and_a_record_only_call_only_ever_proposes(bank, monkeypatch):
+    from api import config
+
+    runtime = _remote(bank, monkeypatch)
+    try:
+        text, _ = runtime.call(_conn({"read", "record"}), "cicada_split_page", {"page": "tool-x", "preview": True})
+        assert PROGRAM_1 in text
+        text, _ = runtime.call(_conn({"record"}), "cicada_split_page",
+                               {"page": "tool-x", "reason": "the person said so", "sentences": [2, 3]})
+        assert "Proposed, not applied" in text and EDITOR not in text and PROGRAM_1 not in text
+        for tool, args in (("cicada_merge_pages", {"page": "bob-example", "into": "alpha-project", "reason": "same"}),
+                           ("cicada_undo_join", {"page": "tool-x", "reason": "undo"})):
+            text, _ = runtime.call(_conn({"record"}), tool, args)
+            assert EDITOR not in text and PROGRAM_1 not in text and "clm_" not in text
+    finally:
+        config.get_settings.cache_clear()
+    assert not (bank / "entities" / "tool-x-2.md").exists()

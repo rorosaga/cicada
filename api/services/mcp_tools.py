@@ -4003,6 +4003,17 @@ def _join_locked(ctx: ToolContext, op: str, entity_id: str, payload: dict, reaso
             f"two are kept apart from now on.{linked} The person can undo it from the page's history.")
 
 
+#: A page-reading branch of a page-structure tool asked by a connection without the ``read`` scope.
+READ_SCOPE_REFUSAL = ("Nothing shown — previewing a page needs this connection to read memory (the read scope). Ask the "
+                      "person to allow reading, or propose the change from what they told you.")
+
+
+def _reads_pages(ctx: ToolContext) -> bool:
+    """May this caller see a page's contents? Locally always; a remote connection only with the tool `read` grants
+    (`cicada_recall_detail`), so every page-reading reply fails closed with the scope (R-R3)."""
+    return ctx.can("cicada_recall_detail")
+
+
 def _join_reason(reason) -> str:
     return " ".join(str(reason or "").split())[:300]
 
@@ -4087,6 +4098,11 @@ def split_page(ctx: ToolContext, page: str, reason: str = "", sentences=None, cl
     from api.services import page_join
 
     memory_path = ctx.memory_path()
+    if preview and not _reads_pages(ctx):
+        # R-R3 (#552 review): a preview answers with the page's prose, beliefs, sources, conversations and linking
+        # pages — what `cicada_recall_detail` needs `read` for. A remote token without `read` gets nothing, page or
+        # no page (scopes fail closed); it can still propose a split by sentence numbers it already holds.
+        return Reply(READ_SCOPE_REFUSAL, code="refused")
     entity_id = _join_page_id(memory_path, page)
     if entity_id is None:
         return Reply(f"No page named '{page}' — nothing changed. Use the page's id.", code="not_found")
