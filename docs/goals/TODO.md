@@ -19,7 +19,14 @@
   data and Telegram's API (picker, and a ticked one-to-one chat's is its page's picture); pickers search by name or
   number; `/sources/channels/{whatsapp|telegram-chats}/items` serves one row per chat for the shared source-page
   design another worker builds (the "what came in" UI is theirs).
-
+- **2026-10-29 — Claude's memory tool backed by Cicada, as a client of `/v1` (ruling 38a, G213; branch
+  `feat/memory-tool-adapter`).** `clients/memory-tool` (Python, stdlib core + an SDK `BetaAbstractMemoryTool`; a
+  TypeScript twin for `betaMemoryTool`) maps `/memories` onto `/v1`: `README.md`, `recent.md`, `hubs/`, `search/`,
+  `pages/`, `sources/` read-only by scope; `notes/` the agent's own, saved through `save_note`; delete and rename
+  refused with a sentence. No backend change. On a scratch backend after a haiku Sleep: a fixed 8-question set
+  answered 8/8 with a `search`+`read` token, 0/8 record-only, 0/8 with no adapter (an empty memory directory);
+  writes refused for read-only. The SDKs' own tool runners drove it end to end with the Messages API mocked — no
+  metered call was made (`reports/memory-tool-adapter.md`, outside the repo).
 - **2026-10-29 — the picture is the control (G146, owner; branch `feat/picture-click`).** The blue *Add a picture…* /
   *Use initials instead* / *Remove picture* words and the "Picture you added" caption under a page's name are gone; a click on the picture offers them
   (the picker at once when it is the only choice), a page with no picture adds one from its ••• menu.
@@ -2085,6 +2092,15 @@ A whole row moves to DONE only after its remaining implementation and required a
     would have put a wider token on the device most easily lost; a two-way sync is a second source of truth.
     **Revisit** 1 if an operation ever has to differ between `/mcp` and `/v1`; 2 if the AI apps' connector reads prove
     unusable on the phone; 3's order on a new user's measured intake; 4 only through the G218 row's own triggers.
+    **38a — a client library over `/v1` is not a door (owner, 2026-10-29: "Yes, as a client of /v1"; G213; branch
+    `feat/memory-tool-adapter`).** A package that runs in an agent's own process and speaks only `POST /v1/<op>` /
+    `GET /v1/me` with a scoped agent token adds no route, no listener and no power: the token's scopes, expiry and
+    revoke, the G199 contract, the Sleep and demo gates and every provenance rule are Cicada's, checked on each call.
+    The first is `clients/memory-tool` — Claude's API memory tool (`memory_20250818`) answered from `/v1`: reads are
+    Cicada's replies (fence kept), writes go only to the agent's `notes/` through `save_note` (the agent's words, never
+    the person's), nothing is deleted or renamed, every path is checked before a byte is sent. **Revisit** if a client
+    ever needs something `/v1` does not offer — that is a `/v1` operation (and its remote tool), never a client-side
+    reach into the bank.
 39. **Both dates recorded for everything; trace watch history stays on; app wording to the coordinator (owner,
     2026-10-24; the trigger was the connectors report's open question "RSS items dated when polled", `connectors.md`,
     kept outside the repo with the redesign research; G218; branch `feat/both-dates`).** The owner's words: "have both
