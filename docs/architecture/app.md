@@ -910,8 +910,14 @@ JID. Telegram's chats post no card: the backend reads them through Telegram's AP
 
 **Telegram chats (ruling 47a, 2026-10-28).** The same row and sheet (`TelegramSourceRow`, `TelegramPanel`;
 `TelegramChats` holds the state, the backend the client). Not connected: the backend's consent sentence word for word,
-then the steps in native rounded fields (DR-76: setup sheets keep the native field) — phone number → the code Telegram
-sends → the two-step password when the account has one. Connected: the one-to-one chats only (no group, no channel),
+then — since ruling 49 (2026-10-29) — the sheet opens on a sign-in QR: Connect… was the person's act, so the panel asks
+`POST /sources/telegram/qr` at once and draws the returned `tg://login` link with Core Image (`TelegramQRCode`: dark
+modules on a light four-module quiet zone in both appearances, a 168 pt tile with the resting ring, DR-9, DR-12), the
+words beside it (Settings → Devices → Link Desktop Device; DR-13), and reads the status once a second only while the
+QR is up (`TelegramChats.followQR`), so a refreshed QR replaces itself and a scan lands on the chat list. Closing the
+sheet on an unscanned QR stops it. *Use a phone number instead* (a `TextButton`, DR-40) keeps the old steps in native
+rounded fields (DR-76: setup sheets keep the native field) — phone number → the code Telegram sends; the two-step
+password when the account has one, after either path. Connected: the one-to-one chats only (no group, no channel),
 each with *Read history* and the tick; ticking opens a system alert (*Did they agree?*) carrying the backend's
 per-chat sentence with the chat's name — *They agreed* ticks, Cancel doesn't — and unticking withdraws it; *Disconnect*
 ends the session at Telegram.

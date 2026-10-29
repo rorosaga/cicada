@@ -84,7 +84,16 @@ class TgEvent:
     reactions: list[dict] | None = None
 
 
+@dataclass
+class TgQr:
+    """A sign-in QR: the ``tg://login`` link the person's phone scans, and when Telegram expires it (unix seconds)."""
+    url: str
+    expires: float
+
+
 class TelegramPort(Protocol):
+    async def qr_start(self) -> TgQr: ...
+    async def qr_wait(self, timeout: float) -> bool: ...
     async def send_code(self, phone: str) -> str: ...
     async def sign_in(self, phone: str, code: str, code_hash: str) -> None: ...
     async def sign_in_password(self, password: str) -> None: ...
@@ -147,17 +156,55 @@ def _reactions(message, me: int | None) -> list[dict] | None:
     return out
 
 
+def device_label() -> tuple[str, str, str]:
+    """``(device_model, system_version, app_version)`` — what Telegram → Settings → Devices shows for this session:
+    "Cicada", the OS family (never the Mac's name, never a serial) and Cicada's version. Honest and nothing more."""
+    import platform
+    from pathlib import Path
+
+    system = {"Darwin": "macOS"}.get(platform.system(), platform.system() or "")
+    try:
+        version = (Path(__file__).resolve().parents[2] / "VERSION").read_text(encoding="utf-8").strip()
+    except OSError:
+        version = ""
+    return "Cicada", system, version or "cicada"
+
+
 class TelethonPort:  # pragma: no cover — the real network adapter; every caller is tested against a fake
     def __init__(self, api_id: int, api_hash: str, session: str = ""):
         load_telethon()
         from telethon import TelegramClient
         from telethon.sessions import StringSession
 
+        model, system, version = device_label()
         self._client = TelegramClient(StringSession(session or None), api_id, api_hash,
-                                      device_model="Cicada", app_version="cicada", system_version="",
+                                      device_model=model, app_version=version, system_version=system,
                                       receive_updates=True)
         self._me: int | None = None
         self._phone: str | None = None
+        self._qr = None
+
+    async def qr_start(self) -> TgQr:
+        """``auth.exportLoginToken`` (Telethon's ``qr_login``): a fresh token, or a new one for the same login."""
+        await self._connect()
+        if self._qr is None:
+            self._qr = await self._client.qr_login()
+        else:
+            await self._qr.recreate()
+        return TgQr(url=self._qr.url, expires=self._qr.expires.timestamp())
+
+    async def qr_wait(self, timeout: float) -> bool:
+        """``True`` once the person's phone accepted the QR; ``False`` when it expired unscanned. A two-step account
+        raises :class:`PasswordNeeded` — its password is the one thing still typed."""
+        from telethon import errors
+
+        try:
+            await self._qr.wait(timeout=timeout)
+        except asyncio.TimeoutError:
+            return False
+        except errors.SessionPasswordNeededError as exc:
+            raise PasswordNeeded("This account has two-step verification: enter its password.") from exc
+        return True
 
     async def _connect(self) -> None:
         if not self._client.is_connected():

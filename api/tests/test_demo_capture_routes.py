@@ -62,6 +62,7 @@ GATED = {
     ("PUT", "/sources/whatsapp/settings"): "/sources/whatsapp/settings",
     ("POST", "/sources/whatsapp/conversations"): "/sources/whatsapp/conversations",
     ("PUT", "/sources/telegram/settings"): "/sources/telegram/settings",
+    ("POST", "/sources/telegram/qr"): "/sources/telegram/qr",
     ("POST", "/sources/telegram/connect"): "/sources/telegram/connect",
     ("POST", "/sources/telegram/code"): "/sources/telegram/code",
     ("POST", "/sources/telegram/password"): "/sources/telegram/password",

@@ -1,7 +1,8 @@
 """Ruling 47a, G179 (2026-10-28) — Telegram chats on the person's own account, against a FAKE client only.
 
 No test signs in to Telegram or opens a socket: :class:`FakePort` stands in for `telegram_port.TelethonPort`. Covers
-the rails: nothing happens without a kept session; the sign-in steps (code, two-step password) keep the session 0600
+the rails: nothing happens without a kept session; the QR connect (owner 2026-10-29: nothing typed, refreshed as it
+expires, stops after its rounds, a two-step password, stopping it logs nothing out); the sign-in steps (code, two-step password) keep the session 0600
 outside every bank and never the number, code or password; a session file others can read is refused; credentials
 (the person's own over the release build's, none → a sentence); one-to-one chats only, each with the person's dated
 confirmation that the other person agreed (ruling 47a amendment, owner 2026-10-28) — a group never listed or staged,
@@ -21,7 +22,7 @@ from fastapi.testclient import TestClient
 from api import config, main
 from api.services import (bank_index, chat_live, episode_staging, markdown_parser, telegram_account, telegram_source,
                           turn_extras)
-from api.services.telegram_port import PasswordNeeded, TelegramError, TgDialog, TgEvent, TgMessage
+from api.services.telegram_port import PasswordNeeded, TelegramError, TgDialog, TgEvent, TgMessage, TgQr
 
 T0 = 1_788_000_000.0
 FRIEND, BOT, GROUP, OTHER = 1001, 1002, -100777, 1003     # placeholder peer ids
@@ -37,6 +38,25 @@ class FakePort:
         self.authorized_ok = True
         self.fail_log_out = False
         self.two_step = False
+        self.qr_tokens = 0
+        #: What each ``qr_wait`` answers, in order: ``True`` scanned, ``False`` expired; empty = wait forever.
+        self.qr_answers: list[bool] = []
+
+    async def qr_start(self):
+        self.calls.append("qr_start")
+        self.qr_tokens += 1
+        return TgQr(url=f"tg://login?token=PLACEHOLDER-TOKEN-{self.qr_tokens}", expires=time.time() + 30)
+
+    async def qr_wait(self, timeout):
+        self.calls.append("qr_wait")
+        while not self.qr_answers:
+            await asyncio.sleep(0)
+        ok = self.qr_answers.pop(0)
+        if ok and self.two_step:
+            raise PasswordNeeded("two-step")
+        if ok:
+            self.session = "SESSION-STRING-PLACEHOLDER"
+        return ok
 
     async def send_code(self, phone):
         self.calls.append("send_code")
@@ -175,6 +195,113 @@ def test_sign_in_keeps_only_the_session_0600_outside_the_bank(home, bank, made):
     everything = "".join(p.read_text(errors="ignore") for p in home.rglob("*") if p.is_file())
     assert "555" not in everything and "placeholder-password" not in everything and "12345" not in everything
     assert not any("SESSION-STRING" in p.read_text(errors="ignore") for p in bank.rglob("*") if p.is_file())
+
+
+# --- The QR connect (owner 2026-10-29): "link a device", nothing typed --------------------------------------------------
+
+
+async def settle(account, until):
+    for _ in range(500):
+        if until(account):
+            return
+        await asyncio.sleep(0)
+    raise AssertionError(f"stuck in {account.state}")
+
+
+def test_the_qr_connect_signs_in_with_nothing_typed_and_keeps_only_the_session(home, bank, made):
+    ports, factory = made
+
+    async def go():
+        account = telegram_account.Account(factory)
+        status = await account.start_qr()
+        assert status["state"] == "qr" and status["qr_url"] == "tg://login?token=PLACEHOLDER-TOKEN-1"
+        assert status["qr_expires"].startswith("20")
+        ports[-1].qr_answers = [True]
+        await settle(account, lambda a: a.state == "connected")
+        after = account.status()
+        assert after["qr_url"] is None and after["listening"]
+        await account.stop()
+        return ports[-1]
+    port = run(go())
+    assert port.calls[:2] == ["qr_start", "qr_wait"] and "send_code" not in port.calls
+    path = home / "telegram" / "session"
+    assert path.read_text().strip() == "SESSION-STRING-PLACEHOLDER" and oct(path.stat().st_mode & 0o777) == "0o600"
+    everything = "".join(p.read_text(errors="ignore") for p in home.rglob("*") if p.is_file())
+    assert "PLACEHOLDER-TOKEN" not in everything      # the login link is shown, never kept
+
+
+def test_an_expired_qr_is_replaced_then_stops_after_its_rounds_without_a_log_out(home, made, monkeypatch):
+    ports, factory = made
+    monkeypatch.setattr(telegram_account, "QR_ROUNDS", 3)
+
+    async def go():
+        account = telegram_account.Account(factory)
+        await account.start_qr()
+        port = ports[-1]
+        port.qr_answers = [False]
+        await settle(account, lambda a: (a.status()["qr_url"] or "").endswith("-2"))
+        port.qr_answers = [False, False]
+        await settle(account, lambda a: a.state == "off")
+        return account, port
+    account, port = run(go())
+    assert port.qr_tokens == 3 and "log_out" not in port.calls and "disconnect" in port.calls
+    assert "expired" in account.error and account.port is None and account.status()["qr_url"] is None
+    assert not (home / "telegram" / "session").exists()
+
+
+def test_a_two_step_account_types_only_its_password_after_the_qr(home, bank, made):
+    ports, factory = made
+
+    async def go():
+        account = telegram_account.Account(factory)
+        await account.start_qr()
+        ports[-1].two_step = True
+        ports[-1].qr_answers = [True]
+        await settle(account, lambda a: a.state == "password")
+        status = await account.submit_password("placeholder-password")
+        await account.stop()
+        return status, ports[-1]
+    status, port = run(go())
+    assert status["state"] == "connected" and port.calls.count("password") == 1 and "send_code" not in port.calls
+    assert "placeholder-password" not in "".join(p.read_text(errors="ignore") for p in home.rglob("*") if p.is_file())
+
+
+def test_stopping_a_sign_in_half_way_logs_nothing_out_and_says_nothing_wrong(home, made):
+    ports, factory = made
+
+    async def go():
+        account = telegram_account.Account(factory)
+        await account.start_qr()
+        await asyncio.sleep(0)
+        first = account._qr_task
+        again = await account.start_qr()                 # "Show a new QR": the old wait is cancelled
+        await asyncio.sleep(0)
+        assert again["qr_url"].endswith("-2") and first.done()
+        status = await account.disconnect()
+        await asyncio.sleep(0)
+        return account, status, ports[-1]
+    account, status, port = run(go())
+    assert status["state"] == "off" and status["error"] is None and status["qr_url"] is None
+    assert "log_out" not in port.calls and "disconnect" in port.calls and account._qr_task is None
+
+
+def test_the_qr_needs_an_app_id_and_says_where_before_any_socket(home, monkeypatch, tmp_path, made):
+    ports, factory = made
+    monkeypatch.delenv(telegram_account.ID_ENV)
+    monkeypatch.setattr(telegram_account, "APP_FILE", tmp_path / "none.json")
+    with pytest.raises(TelegramError, match="my.telegram.org"):
+        run(telegram_account.Account(factory).start_qr())
+    assert ports == []
+
+
+def test_the_qr_route_answers_the_link_to_draw(home, bank, made, monkeypatch):
+    _, factory = made
+    account = telegram_account.Account(factory)
+    monkeypatch.setattr(telegram_account, "ACCOUNT", account)
+    client = TestClient(main.app)
+    body = client.post("/sources/telegram/qr").json()
+    assert body["state"] == "qr" and body["qrUrl"].startswith("tg://login?token=") and body["qrExpires"]
+    assert client.post("/sources/telegram/disconnect").json()["state"] == "off"
 
 
 def test_a_session_file_others_can_read_is_refused(home, made):

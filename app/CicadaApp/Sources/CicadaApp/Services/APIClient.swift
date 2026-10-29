@@ -2948,7 +2948,11 @@ actor APIClient {
 
     func telegramStatus() async throws -> TelegramStatusAnswer { try await get("/sources/telegram/status") }
 
-    /// The number goes to Telegram through the backend once, and is never kept.
+    /// The default connect (owner 2026-10-29): a QR the person scans in Telegram on their phone. The status that
+    /// answers carries the `tg://login` link to draw; the backend replaces it as Telegram expires it.
+    func telegramQR() async throws -> TelegramStatusAnswer { try await post("/sources/telegram/qr") }
+
+    /// The fallback: the number goes to Telegram through the backend once, and is never kept.
     func telegramConnect(phone: String) async throws -> TelegramStatusAnswer {
         try await post("/sources/telegram/connect", body: ["phone": phone])
     }

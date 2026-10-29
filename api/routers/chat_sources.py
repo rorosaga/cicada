@@ -3,7 +3,8 @@
 * **WhatsApp** (``/sources/whatsapp/*``): the app reads WhatsApp Desktop's store on this Mac from a copy and posts
   ticked chats' rows; the backend parses and stages them (`whatsapp_source`). Never a path, never a file read here.
 * **Telegram** (``/sources/telegram/*``): the backend's own client on the person's own account (ruling 47a,
-  `telegram_account`): connect (number → code → two-step password), the tick list (one-to-one chats only), a tick
+  `telegram_account`): connect (a QR scanned in Telegram on the phone — the default, owner 2026-10-29 —
+  or number → code; a two-step password either way), the tick list (one-to-one chats only), a tick
   that carries the person's confirmation that the other person agreed (ruling 47a amendment, owner 2026-10-28),
   history on ask, disconnect.
 
@@ -166,6 +167,9 @@ class TelegramStatus(CamelModel):
     credentials: str | None = None
     error: str | None = None
     listening: bool = False
+    #: While ``state == "qr"``: the ``tg://login`` link the app draws as a QR, and when Telegram expires it (ISO).
+    qr_url: str | None = None
+    qr_expires: str | None = None
 
 
 class TelegramPhone(CamelModel):
@@ -294,6 +298,17 @@ async def telegram_status():
     return TelegramStatus(**telegram_account.ACCOUNT.status())
 
 
+@router.post("/sources/telegram/qr", response_model=TelegramStatus, dependencies=_DEMO_GATE)
+async def telegram_qr():
+    """The default connect (owner 2026-10-29): a QR the person scans in Telegram on their phone (Settings → Devices →
+    Link Desktop Device). Answers ``state: qr`` with the link to draw; status polls show each refreshed QR, then
+    ``connected`` — or ``password`` for a two-step account. Calling it again shows a new QR."""
+    try:
+        return TelegramStatus(**await telegram_account.ACCOUNT.start_qr())
+    except TelegramError as exc:
+        raise _telegram_error(exc)
+
+
 @router.post("/sources/telegram/connect", response_model=TelegramStatus, dependencies=_DEMO_GATE)
 async def telegram_connect(req: TelegramPhone):
     """Step 1: Telegram sends a code to the person's own Telegram app. The number is passed on, never stored."""
@@ -322,7 +337,8 @@ async def telegram_password(req: TelegramPassword):
 
 @router.post("/sources/telegram/disconnect", response_model=TelegramStatus)
 async def telegram_disconnect():
-    """Log the session out at Telegram and forget it here. Every saved sitting stays."""
+    """Log the session out at Telegram and forget it here. Every saved sitting stays. Mid sign-in (a QR on screen, a
+    code or password asked) it only stops the sign-in: nothing was signed in, so nothing is logged out."""
     return TelegramStatus(**await telegram_account.ACCOUNT.disconnect())
 
 

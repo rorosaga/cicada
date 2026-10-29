@@ -175,7 +175,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **Two ways in for what the person consumes (ruling 47, owner 2026-10-28):** by default their own browser and Mac,
   through the browser and macOS harnesses (G166, G206, G218 rails unchanged); an official API only for a specific source
   where it gives what the harness cannot (history, metadata, reliability) — the person connects each one (off by default,
-  said in words, one-click revoke), read-only, the normal capture path, no private name sent. 47a: Telegram (`network.md`).
+  said in words, one-click revoke), read-only, the normal capture path, no private name sent. 47a: Telegram (`network.md`);
+  ruling 49: never from the Mac's own store, connected by a QR the phone scans.
 - **Capture never depends on a model calling a tool (G105).** Claude Code and Codex sessions are captured by the
   harness's own Stop hook; the backend reads a transcript only when it resolves under the harness root as
   `<session_id>.jsonl` within the size cap. Only the person's turns and the agent's final reply are kept, plus each agent
