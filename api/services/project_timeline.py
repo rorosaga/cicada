@@ -1739,6 +1739,13 @@ def _followup_counts(bank: _Bank) -> Counter:
 
 
 def list_projects(memory_path: Path, *, tz_name: str | None, transcript_exists: Callable | None = None) -> ProjectsResponse:
+    """:func:`_list_projects` under one listing per folder (speed 2026-10-29: its readers listed `entities/` and
+    `episodes/` three times a call)."""
+    with bank_index.shared_scans():
+        return _list_projects(memory_path, tz_name=tz_name, transcript_exists=transcript_exists)
+
+
+def _list_projects(memory_path: Path, *, tz_name: str | None, transcript_exists: Callable | None = None) -> ProjectsResponse:
     """Every live project, lighter than the detail and honest about it
     (R-PJB19): each project page, the owner page and the FTS claim payloads
     whose object resolves to a tree page — never a member page. `partial`
