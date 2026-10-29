@@ -142,6 +142,35 @@ final class MessagesWatcherTests: XCTestCase {
     }
 
     /// 250 chats, the ticked one the oldest: the Settings list stops at 200, the pass reads it by its own id anyway.
+    /// #527 review B3: at launch the first pass runs before the list or the bubbles read any card. It looks the
+    /// one-to-one handle up itself, and says "" (none or several cards) only for a handle it really looked up.
+    private func launchContact(allowed: Bool, card: MessagesContactCard?) async -> (posts: Int, contact: Any?) {
+        let api = FakeMessagesAPI()
+        api.ticked = [instinctId]
+        let w = watcher(api, cards: card.map { ["+15550000001": $0] } ?? [:])
+        w.lookUpContactsAllowed = { allowed }
+        await w.bankChanged()
+        return (api.posts.count, (api.posts.first?["conversation"] as? [String: Any])?["contact"])
+    }
+
+    func testTheLaunchPassKeepsTheStoredCardWhenContactsCannotBeRead() async {
+        let out = await launchContact(allowed: false, card: nil)
+        XCTAssertEqual(out.posts, 1)
+        XCTAssertNil(out.contact, "not looked up: nothing said about a card, so the backend keeps the stored one")
+    }
+
+    func testTheLaunchPassLooksTheHandleUpBeforePosting() async {
+        let out = await launchContact(allowed: true, card: MessagesContactCard(name: "Instinct", thumbnail: nil,
+                                                                               id: "CARD-1"))
+        XCTAssertEqual(out.contact as? String, "CARD-1")
+    }
+
+    func testTheLaunchPassClearsOnlyAHandleItLookedUp() async {
+        // Several cards hold it (no single id), and it WAS looked up: "" clears the stored one.
+        let out = await launchContact(allowed: true, card: MessagesContactCard(name: "Instinct", thumbnail: nil, id: nil))
+        XCTAssertEqual(out.contact as? String, "")
+    }
+
     func testATickedChatBelowTheListCapStillSyncs() async throws {
         for i in 0..<248 {
             let chat = synthetic.chat(String(format: "+1555100%04d", i))
