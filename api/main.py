@@ -97,6 +97,19 @@ logging.getLogger("openai").setLevel(logging.WARNING)
 # uvicorn configures its loggers before it imports this module, so the
 # filter attached here is never replaced.
 _QUERY_PATHS = frozenset({"/search", "/conversations/recent"})
+#: source-page-v3 review (#561): the class, not a list of paths — ANY request whose query names a parameter that
+#: carries the person's words (`q`/`query`: a search, a source page's search; `focus`: the Reader's quote to land on)
+#: or a credential (`code`: an OAuth landing's authorization code) is logged with its query cut, whatever route took
+#: it. A new route that takes a person's words names its parameter one of these (`test_main_access_log`'s gate walks
+#: every route's query parameters and refuses another word-like name).
+_REDACTED_PARAMS = frozenset({"q", "query", "focus", "code"})
+
+
+def _redacts(path: str, query: str) -> bool:
+    """Whether an access-log line's query string is cut: a word or credential parameter anywhere in it, a search
+    path, or an OAuth landing."""
+    names = {part.split("=", 1)[0].strip().lower() for part in query.split("&") if part}
+    return bool(names & _REDACTED_PARAMS) or path in _QUERY_PATHS or _is_callback(path)
 
 
 def _is_callback(path: str) -> bool:
@@ -112,8 +125,8 @@ class _RedactQueryString(logging.Filter):
         args = record.args
         # uvicorn's access record: (client, method, path?query, http_version, status)
         if isinstance(args, tuple) and len(args) == 5 and isinstance(args[2], str):
-            path, sep, _query = args[2].partition("?")
-            if sep and (path in _QUERY_PATHS or _is_callback(path)):
+            path, sep, query = args[2].partition("?")
+            if sep and _redacts(path, query):
                 record.args = (args[0], args[1], f"{path}?…", args[3], args[4])
         return True
 

@@ -40,6 +40,21 @@ final class SourcePageV3Tests: XCTestCase {
                        "Connected · nothing in yet")
     }
 
+    func testWestOfUTCInTheEveningTheLastItemIsTodayNeverTomorrow() {
+        // 2026-10-29 20:30 at UTC−5 is 2026-10-30 01:30 UTC: the backend dates the item the 30th (its UTC day).
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: -5 * 3600)!
+        let instant = ISO8601DateFormatter().date(from: "2026-10-30T01:30:00Z")!
+        let localToday = ISODay.today(now: instant, calendar: calendar)
+        XCTAssertEqual(localToday, ISODay(year: 2026, month: 10, day: 29))
+        let status = SourcePageStatus.connected(lastItem: "2026-10-30")
+        XCTAssertEqual(status.line(today: localToday, locale: us), "Connected · last item today")
+        XCTAssertEqual(SourcePageStatus.off(lastItem: "2026-10-30").line(today: localToday, locale: us),
+                       "Off · last item today")
+        XCTAssertEqual(SourcePageStatus.connected(lastItem: "2026-10-28").line(today: localToday, locale: us),
+                       "Connected · last item yesterday", "a past day is untouched")
+    }
+
     func testARunningReadIsSyncingWithTheReadersOwnWords() {
         let status = SourcePageStatus.of(row: .connected, run: .syncing(detail: "12 of 40", fraction: 0.3,
                                                                          cancellable: true), latest: nil)
@@ -74,6 +89,15 @@ final class SourcePageV3Tests: XCTestCase {
         let long = String(repeating: "x", count: 300)
         XCTAssertTrue(APIClient.channelItemsPath("notes", offset: 0, limit: 20, query: long)
                         .hasSuffix("&q=" + String(repeating: "x", count: SourceSearch.maxLength)))
+    }
+
+    func testTheSearchIsCutByCodePointsLikeTheBackendNeverMidCharacter() {
+        let family = "👨‍👩‍👧‍👦"   // one character, seven code points
+        let long = String(repeating: family, count: 40)   // 40 characters, 280 code points
+        let cut = SourceSearch.normalized(long)
+        XCTAssertLessThanOrEqual(cut.unicodeScalars.count, SourceSearch.maxLength, "the backend counts code points")
+        XCTAssertEqual(cut, String(repeating: family, count: 28), "whole characters only")
+        XCTAssertEqual(SourceSearch.normalized("  short  "), "short")
     }
 
     func testASearchIsHeldBesideTheChannelsOwnList() async {

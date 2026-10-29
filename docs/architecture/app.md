@@ -1790,8 +1790,10 @@ and read-only; titles only (scrubbed, one line), never a body, and for Contacts 
 `?q=` (≤ 200 characters) narrows the list to the rows whose title, chat name or saved link's host holds every word
 (folded), or whose episode's words do where the words index answers (`search_index.episodes_with_words`, newest 2,000
 episodes, a chat found by any sitting); the page then carries `all` (the channel's whole count) and `latest` (the day the
-newest item came in, ruling 39's received day when later, never a day ahead). The query rides the ETag's digest only,
-never a log. It ETags over
+newest item came in, ruling 39's received day when later, never a day ahead — a UTC day, which the app clamps to its
+local today, `SourcePageStatus.cameIn`). The query rides the ETag's digest only, never a log: the access log cuts the
+query of any request naming `q`, `query`, `focus` or `code` (`api/main.py` `_REDACTED_PARAMS`, gated over every route
+by `test_main_access_log`). The app cuts a search at 200 code points, whole characters only — the backend's count. It ETags over
 `sources`+`episodes`+`entities`+`photos` with the shape, channel, page and query in `extra`, and is **not** a Store domain: `ChannelItemsCache`
 keeps it in memory, revalidates when the list opens or the channels move, and empties on a bank switch. A row opens its
 episode in the Reader, a saved item in Sleep › Saved, a person in Clusters.

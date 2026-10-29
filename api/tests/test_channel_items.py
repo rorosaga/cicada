@@ -436,6 +436,10 @@ def test_route_takes_q_and_tags_each_search_apart(client):
                        headers={"If-None-Match": first.headers["etag"]})
     assert other.status_code == 200, "another search is another tag"
     assert client.get("/sources/channels/notes/items", params={"q": "x" * 201}).status_code == 422
+    # The app cuts a search at 200 CODE POINTS, whole characters only (`SourceSearch.normalized`): its longest emoji
+    # search is accepted, never a 422 (#561 review).
+    family = "\U0001F468‍\U0001F469‍\U0001F467‍\U0001F466"   # one character, seven code points
+    assert client.get("/sources/channels/notes/items", params={"q": family * 28}).status_code == 200
 
 
 def test_latest_never_names_a_day_still_ahead(bank):

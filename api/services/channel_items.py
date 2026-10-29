@@ -692,7 +692,9 @@ def _latest(rows: list[dict]) -> str | None:
     """The day the newest item came in — the source page's "last item <day>" (owner 2026-10-29: "a better status for
     when it's connected"). Ruling 39: when Cicada received an item days after its own date (``received``), that day
     counts, so an old chat's history read today says today, and a feed's back catalogue never reads as stale. A day
-    still ahead (a calendar's coming event) is not an item that came in: it is never the answer."""
+    still ahead (a calendar's coming event) is not an item that came in: it is never the answer. Days here are UTC
+    days, so west of UTC in the evening this can be the person's tomorrow; the app clamps it to its local today
+    (`SourcePageStatus.cameIn`, #561 review) — the body stays one answer for every viewer, so the ETag needs no clock."""
     today = datetime.now(timezone.utc).date().isoformat()
     days = [d for r in rows for d in (r.get("received"), r.get("day")) if d and d <= today]
     return max(days) if days else None

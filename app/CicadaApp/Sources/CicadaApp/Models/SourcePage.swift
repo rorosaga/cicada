@@ -14,8 +14,21 @@ enum SourceSearch {
         return set
     }()
 
+    /// Trimmed and cut at `maxLength` **code points** — what the backend's `max_length` counts (Python's `len`), not
+    /// Swift's characters: one emoji character can be several code points, so a character cut could still be refused
+    /// (#561 review). Whole characters only: a cut never splits one.
     nonisolated static func normalized(_ query: String) -> String {
-        String(query.trimmingCharacters(in: .whitespacesAndNewlines).prefix(maxLength))
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.unicodeScalars.count > maxLength else { return trimmed }
+        var out = ""
+        var scalars = 0
+        for character in trimmed {
+            let n = character.unicodeScalars.count
+            if scalars + n > maxLength { break }
+            out.append(character)
+            scalars += n
+        }
+        return out
     }
 }
 
@@ -69,13 +82,20 @@ enum SourcePageStatus: Equatable {
         switch self {
         case .connected(let latest):
             guard let day = ISODay(latest) else { return Copy.SourcePage.nothingYet }
-            return Copy.SourcePage.lastItem(Self.dayWord(day, today: today, locale: locale))
+            return Copy.SourcePage.lastItem(Self.dayWord(Self.cameIn(day, today: today), today: today, locale: locale))
         case .syncing(let detail): return detail
         case .needsYou(let action): return action
         case .off(let latest):
-            return ISODay(latest).map { Copy.SourcePage.lastItem(Self.dayWord($0, today: today, locale: locale)) }
+            return ISODay(latest).map {
+                Copy.SourcePage.lastItem(Self.dayWord(Self.cameIn($0, today: today), today: today, locale: locale))
+            }
         }
     }
+
+    /// #561 review — the backend dates by the UTC day (and caps there), so west of UTC in the evening the newest
+    /// item's day is already "tomorrow" on the server. Something that came in is never ahead of the person's own today:
+    /// the line clamps to the local day, so it reads "last item today", never "Tomorrow".
+    static func cameIn(_ day: ISODay, today: ISODay) -> ISODay { min(day, today) }
 
     /// "today", "yesterday", a weekday, "Oct 3" — `RelativeDay`'s phrase, lower-cased where it is a common word mid-line.
     static func dayWord(_ day: ISODay, today: ISODay, locale: Locale = .autoupdatingCurrent) -> String {
