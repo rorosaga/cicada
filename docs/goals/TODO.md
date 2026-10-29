@@ -33,6 +33,8 @@
   panel and the drop's door, so Speech Recognition is asked only inside the person's own act. Driving the app found two
   defects, both fixed. First, the lift is now taken over the other items' mean: with two files, the right one never
   cleared the floor. Second, a frame's thumbnail never loaded, because an empty view's `.task` never runs.
+- **2026-10-29 — Speed + quality round 3 (branch `fix/speed-quality-3`).** Projects list, recall and `/status` cut;
+  the owner's id hashed in the `inbox` sync component (G115 row). Report: `speed-quality-3`.
 - **2026-10-28 — Messages interactions reach Sleep; group chats are read (G179, G29, G113; branch
   `feat/messages-replies-groups`, PR #499).** Replies, reactions, forwards and unsends stored in `turn_extras` reach
   Stage 1 as one note per chunk (`turn_signals`), source-agnostic; the person's own reaction moves that claim's
