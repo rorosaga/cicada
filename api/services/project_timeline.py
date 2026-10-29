@@ -354,18 +354,16 @@ class _Bank:
 
     def page_repo_families(self, page: str, fm: dict) -> tuple[set[str], frozenset[str]]:
         """``(families, folded names)`` of a project page's repository: the family it was born from and the
-        checkouts named for it, plus — G110 D2a, 2026-10-29 — a family with the same hashed remote that began only
-        after those went quiet (`project_birth.moved_families`: renamed or moved). A same-remote checkout active
-        alongside them (a template clone, a fork, a second clone) is another checkout and never counted."""
-        sessions = self.repo_sessions()
+        page's own names and aliases, which a checkout's folder name must fold to.
+
+        G110 D2a (review of #558, round 3): a shared hashed remote never lends a page activity on its own. It proves
+        the same repository, not the same project — a template reused under another name looks exactly like a
+        rename — so a page's activity follows its judged identity: a checkout renamed and judged the same is joined
+        by Sleep, which adds the new name as an alias, and the name rule here then brings its sessions."""
         family = str(project_birth.born_repo(fm).get("family") or "")
         folds = frozenset(project_birth.name_folds({"name": fm.get("name") or page,
                                                     "aliases": fm.get("aliases") or []}))
-        own = {s[0] for s in sessions if (family and s[0] == family) or (s[1] & folds)} | ({family} - {""})
-        remote = str(project_birth.born_repo(fm).get("remote") or "")
-        moved = project_birth.moved_families(own, [(s[0], s[3], s[4], s[5]) for s in sessions],
-                                             remotes={remote} - {""})
-        return moved, folds
+        return {family} - {""}, folds
 
     def page_repo_sessions(self, page: str, fm: dict) -> list[tuple]:
         """The sessions that ran in a project page's repository (:meth:`page_repo_families`)."""

@@ -292,6 +292,8 @@ def test_a_renamed_repository_goes_to_the_judge_told_the_remote_matched(tmp_path
                    verdict=verdict)
     assert [(c["action"], c["id"]) for c in out["changes"]] == [expected]
     assert any("same git repository" in c for c in out["judged"])
+    if verdict == "same":   # the new name rides on as an alias, which is what lends the page that checkout's days
+        assert "alpha-renamed" in repr(out["changes"][0]).lower()
 
 
 def test_a_page_born_before_the_remote_was_read_is_found_through_a_later_session(tmp_path, monkeypatch):
@@ -407,11 +409,34 @@ def test_a_birth_records_the_remote_and_the_repository_keeps_its_activity(tmp_pa
     born = project_birth.at_extraction({"name": "alpha-project"}, episode_id=EP_A, frontmatter=fm_a, text="",
                                        day="2026-10-20")
     assert born["repo"] == {"name": "alpha-project", "family": "a" * 16, "remote": REMOTE}
-    markdown_parser.write(memory / "entities" / "alpha-project.md",
-                          {"name": "alpha-project", "type": "project", "status": "active", "born": born}, "")
+    page = {"name": "alpha-project", "type": "project", "status": "active", "born": born}
+    markdown_parser.write(memory / "entities" / "alpha-project.md", page, "")
+    bank = project_timeline._Bank(memory, None)
+    # Not judged the same: the shared remote lends no activity (it could be a reused template).
+    assert project_timeline._repo_days(bank, ["alpha-project"]) == {"2026-10-20"}
+    # Judged the same, Sleep keeps the new name as an alias: the name rule brings the renamed checkout's sessions.
+    markdown_parser.write(memory / "entities" / "alpha-project.md", {**page, "aliases": ["alpha-renamed"]}, "")
     bank = project_timeline._Bank(memory, None)
     assert len(bank.page_repo_sessions("alpha-project", bank.fm("alpha-project"))) == 2
     assert project_timeline._repo_days(bank, ["alpha-project"]) == {"2026-10-20", "2026-10-21"}
+
+
+def test_a_reused_template_judged_different_lends_no_days_or_conversations(tmp_path):
+    """The reviewer's case: alpha's checkout went quiet, then bravo — a template reuse, same current remote, another
+    folder name — began; the judge said "different", so bravo has its own page and alpha borrows nothing."""
+    from api.services import project_conversations
+
+    memory = _bank(tmp_path)
+    _session(memory, EP_A, OLD_DIR, "a" * 16, TS_A)
+    _session(memory, EP_B, "/home/someone/code/bravo", "b" * 16, TS_B)
+    for eid, family, ep in (("alpha-project", "a" * 16, EP_A), ("bravo", "b" * 16, EP_B)):
+        markdown_parser.write(memory / "entities" / f"{eid}.md", {
+            "name": eid, "type": "project", "status": "active", "born": _repo_birth(eid, family, ep=ep)}, "")
+    bank = project_timeline._Bank(memory, None)
+    assert project_timeline._repo_days(bank, ["alpha-project"]) == {"2026-10-20"}
+    assert project_timeline._repo_days(bank, ["bravo"]) == {"2026-10-21"}
+    ties, _ = project_conversations.tie_reasons(memory, "alpha-project", tz_name=None, bank=bank)
+    assert set(ties) == {EP_A}
 
 
 # --- ruling 43's notes: a moved notes folder is the same notes -------------------------------------------------------

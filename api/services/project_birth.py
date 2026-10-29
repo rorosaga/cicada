@@ -183,35 +183,6 @@ def remote_sessions(memory_path: Path | None) -> list[RemoteSession]:
     return out
 
 
-def moved_families(own: set[str], sessions, *, remotes: set[str] = frozenset()) -> set[str]:
-    """``own`` plus every family that is the same repository *moved*: it carries a remote ``own`` carried, and its
-    first session began no earlier than ``own``'s last one ended — the old place went quiet, then the new one started
-    (a rename, a move, a fresh clone after the old one was left). A family active alongside ``own`` (a template cloned
-    under a new name, a fork whose origin is the upstream, a second clone) is another checkout, never absorbed: a remote
-    is evidence of the same repository, not of the same project.
-
-    Only a family's CURRENT remote counts (:func:`current_remotes`): a project re-pointed from a template to its own
-    repository no longer answers to the template's remote, so a later clone of the template is not it. ``remotes``
-    stands in for an ``own`` family that has no session with a remote (a page's ``born.repo.remote``)."""
-    own = set(own)
-    current = current_remotes(sessions)
-    span: dict[str, list] = {}
-    for family, _remote, first, last in sessions:
-        entry = span.setdefault(family, ["~", ""])
-        if first:
-            entry[0] = min(entry[0], first)
-        if last:
-            entry[1] = max(entry[1], last)
-    known = {current[f] for f in own if f in current} or set(remotes)
-    quiet = max((span[f][1] for f in own if f in span), default="")
-    for family in sorted((f for f in span if f not in own), key=lambda f: span[f][0]):
-        first, last = span[family]
-        if current.get(family) in known and first != "~" and first >= quiet:
-            own.add(family)
-            quiet = max(quiet, last)
-    return own
-
-
 def current_remotes(sessions) -> dict[str, str]:
     """``family → remote`` on its latest session that carried one (by last, then first instant): the origin the
     checkout points at now. An earlier remote — a template the project was cloned from, then re-pointed away — is

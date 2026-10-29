@@ -1588,7 +1588,7 @@ A whole row moves to DONE only after its remaining implementation and required a
     latest session). Project birth (`born.repo.remote`) joins the page with no judge only when the page points at
     that remote now and the folder name is the same; a different name or a remote the page only once had brings the
     page to the judge, told they share an origin, and "different" stands (coordinator's call on #558); activity and
-    ties count a same-remote checkout only after the page's went quiet. Records written
+    ties never follow a remote by itself, only the page's family and names (a judged rename adds its alias). Records written
     before keep matching by their path keys; no
     bank rewrite. Ruling 43's notes are recognised by their own bytes, not the remote: Claude Code names their folder
     after the checkout's path, so a moved notes folder is repointed in place and a copied one is no second episode.

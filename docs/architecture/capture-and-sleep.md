@@ -1812,10 +1812,10 @@ on the conversation it read (no model), a `project_birth` record and drops any t
   for a new project, even after the old checkout went quiet — or a remote the page only once had brings the page to
   the judge as a candidate (the W2 precedent) with a note that both share an origin, and its "different" stands
   (`entity_resolver._same_repository_candidate`; two pages on one remote join neither; a pair the person said were
-  different is never joined). Project activity and conversation ties count a checkout on the page's current remote
-  only when it began after the page's checkout went quiet (`project_birth.moved_families`,
-  `_Bank.page_repo_families`), so a checkout active alongside it, or one on a remote it left, never lends it days or
-  conversations. A page born before ruling 22 D2a whose repository was renamed before any later session
+  different is never joined). Project activity and conversation ties never follow a shared remote by itself
+  (`_Bank.page_repo_families`): they follow the page's judged identity — its born family and a checkout whose folder
+  name folds to one of the page's names or aliases. A rename the judge called the same is merged with the new name
+  as an alias, so its sessions count; a reused template judged different lends the page nothing. A page born before ruling 22 D2a whose repository was renamed before any later session
   in the old folder carried the remote is not recognised — nothing is rewritten to recover it.
 - **words** — one sentence of a person's own turn (`user`, or a meeting `speaker`) names it within five words of
   *project* (or *proyecto*, *projet*, *Projekt*, *progetto*, *projeto*, plurals), inside one clause (no comma, colon,
