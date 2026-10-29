@@ -122,11 +122,14 @@ def bank_in(text: str) -> str | None:
 def target(environ) -> tuple[str | None, str, str | None]:
     """``(base, token, problem)``: ``problem`` is a short log phrase (never a value) when nothing can be sent now."""
     rl = layout()
+    copy = not is_client(environ) and bool(raw_replica(environ))
     try:
-        base = rl.api_base(environ) if is_client(environ) or not raw_replica(environ) else rl.replica_of(environ)
+        base = rl.replica_of(environ) if copy else rl.api_base(environ)
     except ValueError as exc:
         return None, "", f"bad CICADA_API_BASE ({exc})"
-    token = rl.client_token(environ)
+    # G132 phase 1 B: a copy sends its home only the device token the home issued for it — never CICADA_API_TOKEN
+    # (this computer's own master token can live there) and never the master token (fail closed: spooled instead).
+    token = rl.replica_token(environ) if copy else rl.client_token(environ)
     if not token:
         return base, "", f"no device token (CICADA_API_TOKEN or {rl.DEVICE_TOKEN_FILE})"
     return base, token, None

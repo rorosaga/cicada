@@ -49,7 +49,7 @@ TIMEOUT_S = 30.0
 PACK_TIMEOUT_S = 600.0
 
 #: What the follower is doing, for the Devices page and ``/sync/replica``.
-STATES = ("starting", "copying", "following", "offline", "revoked", "home_rewritten", "diverged", "error")
+STATES = ("starting", "copying", "following", "offline", "revoked", "home_rewritten", "diverged", "error", "no_token")
 TEXTS = {
     "starting": "Starting to follow the computer that holds your memory.",
     "copying": "Making this computer's copy of your memory.",
@@ -62,6 +62,8 @@ TEXTS = {
     "diverged": "This copy no longer matches the history of the computer that holds your memory. Choose \"Copy "
                 "again\" to replace it.",
     "error": "This copy could not be updated just now; it tries again.",
+    "no_token": "This computer has no device code from the computer that holds your memory, so it does not copy or "
+                "send anything. Pair it again from that computer's Devices page.",
 }
 
 
@@ -103,15 +105,26 @@ def home_base(environ=os.environ) -> str:
 
 
 def _token(environ=os.environ) -> str:
+    """The device token the home issued for this copy (``runtime_layout.replica_token``) — never
+    ``CICADA_API_TOKEN`` or this computer's own master token."""
     from api.services import runtime_layout
 
-    return runtime_layout.client_token(environ)
+    return runtime_layout.replica_token(environ)
+
+
+class NoDeviceToken(Exception):
+    """This copy holds no device token of its own: it sends nothing to the home (fail closed)."""
 
 
 def request(method: str, path: str, *, body: bytes | None = None, headers: dict | None = None,
-            timeout: float = TIMEOUT_S, to_file: Path | None = None, environ=os.environ):
-    """One request to the home with this device's token. ``(status, headers, body)``: body is decoded JSON (or the file
-    path for ``to_file``). ``status`` None when the home was not reached. Never follows a redirect."""
+            timeout: float = TIMEOUT_S, to_file: Path | None = None, environ=os.environ,
+            token: str | None = None, open_route: bool = False):
+    """One request to the home with this copy's device token. ``(status, headers, body)``: body is decoded JSON (or
+    the file path for ``to_file``). ``status`` None when the home was not reached. Never follows a redirect.
+
+    ``token`` is the person's setup only (``PUT /sync/replica`` checking a token before it is saved); ``open_route``
+    (the home's ``/pair``) sends no credential at all. Otherwise the token is :func:`_token` and nothing else; with
+    none, nothing is sent (:class:`NoDeviceToken`)."""
     import urllib.error
     import urllib.request
 
@@ -121,8 +134,13 @@ def request(method: str, path: str, *, body: bytes | None = None, headers: dict 
         base = home_base(environ)
     except ValueError:
         return None, {}, None
-    token = _token(environ)
-    h = {"Authorization": f"Bearer {token}", "Accept": "application/json", **(headers or {})}
+    h = {"Accept": "application/json", **(headers or {})}
+    h.pop("Authorization", None)
+    if not open_route:
+        credential = token if token is not None else _token(environ)
+        if not credential or not credential.startswith(runtime_layout.DEVICE_TOKEN_PREFIX):
+            raise NoDeviceToken()
+        h["Authorization"] = f"Bearer {credential}"
     req = urllib.request.Request(f"{base}{path}", data=body, method=method, headers=h)
     try:
         with runtime_layout.opener().open(req, timeout=timeout) as resp:
@@ -379,7 +397,10 @@ def _refresh_frame(force: bool = False) -> None:
     if not force and time.monotonic() - _FRAME_AT[0] < FRAME_EVERY_S:
         return
     _FRAME_AT[0] = time.monotonic()
-    status, _h, frame = request("GET", "/sync/status", timeout=10)
+    try:
+        status, _h, frame = request("GET", "/sync/status", timeout=10)
+    except NoDeviceToken:
+        return
     if status == 200 and isinstance(frame, dict):
         _set(home_frame=frame)
 
@@ -459,8 +480,13 @@ def _events_reader() -> None:
         except ValueError:
             _STOP.wait(BACKOFF_MAX_S)
             continue
+        token = _token()
+        if not token:
+            _set(status="no_token")          # fail closed: nothing is sent without this copy's own device token
+            _STOP.wait(BACKOFF_MAX_S)
+            continue
         req = urllib.request.Request(f"{base}/sync/events", headers={
-            "Authorization": f"Bearer {_token()}", "Accept": "text/event-stream"})
+            "Authorization": f"Bearer {token}", "Accept": "text/event-stream"})
         try:
             with runtime_layout.opener().open(req, timeout=45) as resp:
                 delay = 1.0
@@ -519,6 +545,9 @@ def _follower() -> None:
                 _NOTIFIED[0] = None
             delay = 1.0
             wait = POLL_S
+        except NoDeviceToken:
+            _set(status="no_token")
+            wait = BACKOFF_MAX_S
         except HomeError as exc:
             code = (exc.body or {}).get("code")
             if exc.status in (401, 403):
@@ -543,7 +572,7 @@ def _follower() -> None:
             logger.warning(f"replica: catch-up failed ({type(exc).__name__})")
             _set(status=status)
             wait, delay = (BACKOFF_MAX_S, delay) if status == "diverged" else (delay, min(delay * 2, BACKOFF_MAX_S))
-        if _STATE.status in ("revoked", "home_rewritten", "diverged"):
+        if _STATE.status in ("revoked", "home_rewritten", "diverged", "no_token"):
             _STOP.wait(wait)          # stopped: only time (or the person) brings it back
             continue
         _WAKE.wait(wait)
@@ -566,6 +595,9 @@ def start() -> None:
     if any(t.is_alive() for t in _THREADS):
         return
     _STOP.clear()
+    if not _token():
+        _set(status="no_token")
+        logger.warning("replica: no device token for this copy; it follows and sends nothing until paired")
     mp = copy_path()
     if mp is not None:
         marker = read_marker(mp) or {}
@@ -588,7 +620,16 @@ def stop(timeout: float = 2.0) -> None:
 # --- writes go to the home ------------------------------------------------------------------------------------------
 
 def send(entry: dict) -> tuple[int | None, dict | None]:
-    """``tx_outbox``'s sender: one transaction to the home, keyed by its id, naming the home's bank id."""
+    """``tx_outbox``'s sender: one transaction to the home, keyed by its id, naming the home's bank id. With no
+    device token of this copy's own, nothing is sent: no answer (the entry waits), status ``no_token``."""
+    try:
+        return _send(entry)
+    except NoDeviceToken:
+        _set(status="no_token")
+        return None, None
+
+
+def _send(entry: dict) -> tuple[int | None, dict | None]:
     import base64
 
     headers = {"Idempotency-Key": entry["id"]}

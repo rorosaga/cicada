@@ -195,7 +195,10 @@ async def _forward(scope, receive, send, *, queue: bool) -> None:
 async def _sleep_status(scope, send) -> None:
     from api.services import replica, sync_status
 
-    status, _h, body = await asyncio.to_thread(replica.request, "GET", "/sleep/status", timeout=5)
+    try:
+        status, _h, body = await asyncio.to_thread(replica.request, "GET", "/sleep/status", timeout=5)
+    except replica.NoDeviceToken:
+        status, body = None, None   # fail closed: nothing sent without this copy's own device token
     outbox = await asyncio.to_thread(sync_status.outbox_counts)
     if status == 200 and isinstance(body, dict):
         await _json(send, 200, {**body, "outbox": outbox, "replica": replica.state()})

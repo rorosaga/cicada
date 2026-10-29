@@ -293,17 +293,18 @@ async def put_replica(body: ReplicaSetup):
         status, _h, paired = await run_in_threadpool(
             replica.request, "POST", "/pair",
             body=json.dumps({"code": body.code.strip(), "name": device_status.machine_name(), "kind": "full"}).encode(),
-            headers={"Content-Type": "application/json"}, environ=env, timeout=10)
+            headers={"Content-Type": "application/json"}, environ=env, timeout=10, open_route=True)
         if status is None:
             raise HTTPException(status_code=502, detail="That computer did not answer. Check its address.")
         if status not in (200, 201) or not isinstance(paired, dict) or not paired.get("token"):
             detail = paired.get("detail") if isinstance(paired, dict) else None
             raise HTTPException(status_code=400, detail=detail or "That code was not accepted.")
         token = paired["token"]
-    if not token:
+    if not token.startswith(runtime_layout.DEVICE_TOKEN_PREFIX):
+        # Only a device token the home issued is ever saved or sent — never this computer's own master token.
         raise HTTPException(status_code=400, detail="Give the code that computer shows, or its device token.")
-    env["CICADA_API_TOKEN"] = token
-    status, _h, frame = await run_in_threadpool(replica.request, "GET", "/sync/status", environ=env, timeout=10)
+    status, _h, frame = await run_in_threadpool(replica.request, "GET", "/sync/status", environ=env, timeout=10,
+                                                token=token)
     if status is None:
         raise HTTPException(status_code=502, detail="That computer did not answer. Check its address.")
     if status in (401, 403):
@@ -366,6 +367,8 @@ async def post_recopy():
         raise HTTPException(status_code=404)
     try:
         timings = await run_in_threadpool(replica.recopy)
+    except replica.NoDeviceToken:
+        return JSONResponse(status_code=409, content={"code": "no_device_token", "detail": replica.TEXTS["no_token"]})
     except replica.HomeError as exc:
         return JSONResponse(status_code=502, content={"code": "home_away" if exc.status is None else "home_refused",
                                                       "detail": replica.TEXTS["offline"]})

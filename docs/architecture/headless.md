@@ -449,7 +449,13 @@ repository. Every route takes a full device token or the server's own; a capture
 **The mode.** `runtime_layout.mode()` is `local`, `client` or `replica`. Replica: `CICADA_REPLICA_OF` (else
 `$CICADA_HOME/replica_of`, one line, 0600 — `PUT /sync/replica` writes it with the device token after checking the
 home answers with that token and publishes a memory that is not a demo), the same address rule as `api_base` and the
-same device token (`device_token`). Both a client address and a home set: **client**, and `mode_conflict()` says so
+device token in `$CICADA_HOME/device_token`. **A copy sends its home that device token and nothing else**
+(`runtime_layout.replica_token`): never `CICADA_API_TOKEN`, which can hold this computer's own master token, and never
+the master token itself — the follower, its event stream, the outbox, the forwarded app writes, `GET /sleep/status` and
+the hooks' capture all read the one function. With no device token (or one that is not a `cic_dev_` token, or is the
+master token) the copy fails closed: status `no_token`, in words, and nothing is copied or sent
+(`test_replica_tokens.py`, set up by environment and by file). Both a client address and a home set: **client**, and
+`mode_conflict()` says so
 in words (logged at start, shown by `GET /sync/replica`). Unset, nothing changes (`test_replica_off_unchanged.py`): the
 mode is what it was, the lifespan schedules as before, the route table and the guard are inert, no thread starts, and
 a home that does not publish adds no header.
@@ -492,8 +498,10 @@ head that does not descend stops it (`home_rewritten`, `diverged`) and says so; 
   `Idempotency-Key` and the bank id. The home's answer comes back; its `seq` wakes the follower and the reply waits up
   to about 2 s for the copy to reach it (read-your-writes). Unreachable: "Queued for the home…" (`code:
   queued_for_home`), sent in order when the home answers again. A replica's transaction (it carries `base_seq`) that
-  saves an episode — a note, a link — commits alone at the home under its harness, as a remote save does (R-R11), so
-  the copy can read it back; a stdio save on the home itself stays uncommitted as before.
+  saves an episode — a note, a link — commits alone at the home under its harness, as a remote save does (R-R11
+  widened to a copy's writes: **ruling 51e4**, acting owner 2026-10-29, pending the owner's confirmation), so the copy
+  can read it back; a save made on the home itself (its stdio MCP, its own command line) stays uncommitted until
+  Sleep, byte for byte.
 - **The app's REST writes** (`replica_routes`, hand-written, every non-GET route; `replica_forward`, one ASGI
   middleware): `forward` (the same route at the home, keyed, naming the home's bank id; 503 `home_away` when the home
   is unreachable, nothing changed), `capture` (the same, but kept in the outbox and answered 202 `queued` while the

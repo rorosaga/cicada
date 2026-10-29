@@ -174,6 +174,29 @@ def replica_of(environ=os.environ) -> str:
     return _checked_base(_raw_replica(environ), REPLICA_ENV)
 
 
+DEVICE_TOKEN_PREFIX = "cic_dev_"
+NO_DEVICE_TOKEN_TEXT = ("This computer has no device code from the computer that holds your memory, so it does not "
+                        "copy or send anything. Pair it again from that computer's Devices page.")
+
+
+def replica_token(environ=os.environ) -> str:
+    """The ONE credential a copy sends to its home: the device token the home issued for it, read from
+    ``$CICADA_HOME/device_token`` alone — never ``CICADA_API_TOKEN`` (which also names this computer's own master
+    token) and never the master token itself. "" when there is none, or when what is there is not a device token or
+    is this computer's own master token: the copy then fails closed (it follows and sends nothing)."""
+    try:
+        token = (cicada_home(environ) / DEVICE_TOKEN_FILE).read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+    if not token.startswith(DEVICE_TOKEN_PREFIX):
+        return ""
+    try:
+        master = (cicada_home(environ) / "api_token").read_text(encoding="utf-8").strip()
+    except OSError:
+        master = ""
+    return "" if master and token == master else token
+
+
 def client_token(environ=os.environ) -> str:
     """This device's token: ``CICADA_API_TOKEN``, else ``$CICADA_HOME/device_token``; "" when neither holds one.
     Never the server's master token, which never leaves the server (owner ruling 1, 2026-10-16)."""
