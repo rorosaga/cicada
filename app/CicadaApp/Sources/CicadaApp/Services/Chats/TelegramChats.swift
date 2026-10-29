@@ -51,8 +51,24 @@ final class TelegramChats {
         }
     }
 
+    /// Whether the sheet that asked for a sign-in is still open: a QR answered after it closed is stopped at once.
+    @ObservationIgnored private var signInWanted = false
+
     /// The default connect: the backend asks Telegram for a sign-in QR and answers with the link to draw.
-    func startQR() async { await step { try await api.telegramQR() } }
+    func startQR() async {
+        signInWanted = true
+        await step { try await api.telegramQR() }
+        if !signInWanted { await abandonSignIn() }
+    }
+
+    /// The sheet closed: a sign-in half done — a QR on screen, one still being asked for, a code or a two-step
+    /// password waiting — is stopped at the backend, which closes its unsigned client (no log-out: nothing was signed
+    /// in). A connected session is never touched.
+    func abandonSignIn() async {
+        signInWanted = false
+        guard ["qr", "code_sent", "password"].contains(status.state) else { return }
+        await step { try await api.telegramDisconnect() }
+    }
 
     /// While a QR is on screen: the backend swaps in a fresh one as Telegram expires it, and moves to `connected`
     /// (or `password`) the moment the phone accepts it. One status read a second, only while the sheet shows a QR.
@@ -65,7 +81,11 @@ final class TelegramChats {
         }
     }
 
-    func connect(phone: String) async { await step { try await api.telegramConnect(phone: phone) } }
+    func connect(phone: String) async {
+        signInWanted = true
+        await step { try await api.telegramConnect(phone: phone) }
+        if !signInWanted { await abandonSignIn() }
+    }
     func submit(code: String) async { await step { try await api.telegramCode(code) } }
     func submit(password: String) async { await step { try await api.telegramPassword(password) } }
 

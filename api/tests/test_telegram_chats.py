@@ -41,14 +41,27 @@ class FakePort:
         self.qr_tokens = 0
         #: What each ``qr_wait`` answers, in order: ``True`` scanned, ``False`` expired; empty = wait forever.
         self.qr_answers: list[bool] = []
+        #: What the next ``qr_start`` calls do instead of a fresh token: a ``TgQr`` to answer or an exception to raise.
+        self.qr_starts: list = []
+        self.qr_ttl = 30.0
+        self.qr_timeouts: list[float] = []
+        self.fail_send_code: Exception | None = None
 
     async def qr_start(self):
         self.calls.append("qr_start")
+        if self.qr_starts:
+            nxt = self.qr_starts.pop(0)
+            if isinstance(nxt, BaseException):
+                raise nxt
+            if nxt.signed_in:
+                self.session = "SESSION-STRING-PLACEHOLDER"
+            return nxt
         self.qr_tokens += 1
-        return TgQr(url=f"tg://login?token=PLACEHOLDER-TOKEN-{self.qr_tokens}", expires=time.time() + 30)
+        return TgQr(url=f"tg://login?token=PLACEHOLDER-TOKEN-{self.qr_tokens}", ttl=self.qr_ttl)
 
     async def qr_wait(self, timeout):
         self.calls.append("qr_wait")
+        self.qr_timeouts.append(timeout)
         while not self.qr_answers:
             await asyncio.sleep(0)
         ok = self.qr_answers.pop(0)
@@ -60,6 +73,8 @@ class FakePort:
 
     async def send_code(self, phone):
         self.calls.append("send_code")
+        if self.fail_send_code is not None:
+            raise self.fail_send_code
         return "hash-1"
 
     async def sign_in(self, phone, code, code_hash):
@@ -283,6 +298,89 @@ def test_stopping_a_sign_in_half_way_logs_nothing_out_and_says_nothing_wrong(hom
     account, status, port = run(go())
     assert status["state"] == "off" and status["error"] is None and status["qr_url"] is None
     assert "log_out" not in port.calls and "disconnect" in port.calls and account._qr_task is None
+
+
+def test_a_scan_between_two_qrs_is_a_sign_in_not_an_error(home, bank, made):
+    """#547 review 1: the token request that should refresh the QR answers loginTokenSuccess — the phone accepted the
+    last one in the gap. That is a live session: kept, never an orphan in Telegram → Devices."""
+    ports, factory = made
+
+    async def go():
+        account = telegram_account.Account(factory)
+        await account.start_qr()
+        port = ports[-1]
+        port.qr_starts = [TgQr(url="", ttl=0.0, signed_in=True)]
+        port.qr_answers = [False]
+        await settle(account, lambda a: a.state != "qr")
+        await account.stop()
+        return account, port
+    account, port = run(go())
+    assert account.state == "connected" and account.error is None
+    assert (home / "telegram" / "session").read_text().strip() == "SESSION-STRING-PLACEHOLDER"
+
+
+def test_a_skewed_clock_never_burns_the_rounds(home, made):
+    """#547 review 1: the wait comes from Telegram's own lifetime minus a margin, with a floor — a token that looks
+    already expired on this Mac's clock is still waited on, never replaced at once."""
+    ports, factory = made
+
+    async def go():
+        account = telegram_account.Account(factory)
+        await account.start_qr()
+        factory_port = ports[-1]
+        factory_port.qr_ttl = -300.0            # the Mac's clock five minutes ahead of Telegram's
+        factory_port.qr_answers = [False]
+        await settle(account, lambda a: len(factory_port.qr_timeouts) >= 2)
+        await account.disconnect()
+        return factory_port
+    port = run(go())
+    assert port.qr_timeouts[0] == 30.0 - telegram_account.QR_MARGIN_S
+    assert port.qr_timeouts[1] == telegram_account.QR_FLOOR_S
+
+
+def test_closing_at_the_password_step_closes_the_unsigned_client(home, made):
+    """#547 review 3: after a scan, a two-step account waits on its password; closing there ends the half sign-in
+    (no log-out — nothing was signed in), by either path."""
+    ports, factory = made
+
+    async def go(phone):
+        account = telegram_account.Account(factory)
+        if phone:
+            await account.send_code("+1 555 000 0000")
+            ports[-1].two_step = True
+            await account.submit_code("12345")
+        else:
+            await account.start_qr()
+            ports[-1].two_step = True
+            ports[-1].qr_answers = [True]
+            await settle(account, lambda a: a.state == "password")
+        status = await account.disconnect()
+        return account, status, ports[-1]
+    for phone in (False, True):
+        account, status, port = run(go(phone))
+        assert status["state"] == "off" and status["error"] is None and account.port is None
+        assert "log_out" not in port.calls and "disconnect" in port.calls
+
+
+def test_a_network_failure_in_a_sign_in_step_is_a_sentence(home, bank, made, monkeypatch):
+    """#547 review 4: a flood wait, a socket error or anything else from the client answers a sentence (422), never a
+    500, and the unsigned client is closed."""
+    ports, factory = made
+    account = telegram_account.Account(factory)
+    monkeypatch.setattr(telegram_account, "ACCOUNT", account)
+
+    def failing(api_id, api_hash, session):
+        port = factory(api_id, api_hash, session)
+        port.qr_starts = [OSError("network down")]
+        port.fail_send_code = ConnectionError("network down")
+        return port
+    account._factory = failing
+    client = TestClient(main.app)
+    r = client.post("/sources/telegram/qr")
+    assert r.status_code == 422 and "reach Telegram" in r.json()["detail"] and account.port is None
+    r = client.post("/sources/telegram/connect", json={"phone": "+1 555 000 0000"})
+    assert r.status_code == 422 and "reach Telegram" in r.json()["detail"] and account.port is None
+    assert all("disconnect" in p.calls and "log_out" not in p.calls for p in ports)
 
 
 def test_the_qr_needs_an_app_id_and_says_where_before_any_socket(home, monkeypatch, tmp_path, made):

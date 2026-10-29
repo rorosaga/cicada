@@ -450,7 +450,11 @@ inherits; a file anyone else can read is refused. **Connecting is "link a device
 `telegram_port.qr_start`/`qr_wait`) and answers `state: qr` with its `tg://login?token=…` link and expiry; a background
 task waits for the person's phone to accept it (Telegram → Settings → Devices → Link Desktop Device), swaps in a fresh
 token each time Telegram expires one (≈30 s; `QR_ROUNDS` = 10, then `off` with a sentence), and moves to `connected` —
-or `password` for a two-step account, the one thing still typed. The link is held in memory only while shown, never
+or `password` for a two-step account, the one thing still typed. The wait is Telegram's own lifetime for the token
+(measured on Telegram's clock through the client's time offset) less `QR_MARGIN_S`, never under `QR_FLOOR_S`, so a Mac
+whose clock is off cannot burn the rounds; a refresh that finds the last token already scanned (`loginTokenSuccess`, or
+a DC move then the import) is a sign-in, kept like any other. Any failure from the client in a sign-in step — a flood
+wait, a socket error — answers a sentence (422), never a 500, and an unsigned client is closed. The link is held in memory only while shown, never
 logged or kept. Number → code (`/connect`, `/code`) stays as the fallback. Stopping a sign-in half way (Disconnect while
 `qr`, `code_sent` or `password` with no kept session) closes the client without a log-out — there is no session to
 end. The session appears in Telegram → Devices as "Cicada", the OS family and Cicada's version

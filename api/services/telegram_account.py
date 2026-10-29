@@ -69,6 +69,10 @@ ID_ENV, HASH_ENV = "CICADA_TELEGRAM_API_ID", "CICADA_TELEGRAM_API_HASH"
 FLUSH_S = 1.0
 #: How many QR tokens one Connect shows before it stops (Telegram expires each after ~30 s): about five minutes.
 QR_ROUNDS = 10
+#: A QR is replaced this long before Telegram's own expiry, and never waited on for less than the floor — so a Mac
+#: whose clock is off (or a token Telegram issues short) can't burn the rounds in a few seconds.
+QR_MARGIN_S, QR_FLOOR_S = 2.0, 10.0
+UNREACHABLE = "Couldn't reach Telegram — try again."
 DIALOG_LIMIT = 200
 HISTORY_CAP = 20_000
 HISTORY_BATCH = 500
@@ -207,6 +211,7 @@ class Account:
         self._phone: str | None = None   # held only between "send code" and a signed-in session
         self._code_hash: str | None = None
         self._qr: TgQr | None = None     # the QR on screen while ``state == "qr"`` — never logged, never kept
+        self._qr_until = 0.0             # when the QR on screen expires, on this Mac's clock (for the app only)
         self._qr_task: asyncio.Task | None = None
         self._listen: asyncio.Task | None = None
         self._flush: asyncio.Task | None = None
@@ -235,7 +240,7 @@ class Account:
                 "credentials": creds[2] if creds else None,
                 "error": self.error, "listening": self._listen is not None and not self._listen.done(),
                 "qr_url": qr.url if qr else None,
-                "qr_expires": _iso(qr.expires) if qr else None}
+                "qr_expires": _iso(self._qr_until) if qr else None}
 
     # The sign-in steps ---------------------------------------------------------------------------------------------
 
@@ -246,24 +251,46 @@ class Account:
             if self.state == "connected":
                 return self.status()
             self._stop_qr()
+            self._phone = self._code_hash = None
             if self.port is None:
                 self.port = self._make()
-            self._qr = await self.port.qr_start()
-            self._phone = self._code_hash = None
+            try:
+                qr = await self.port.qr_start()
+            except PasswordNeeded:
+                self.state, self.error = "password", None
+                return self.status()
+            except TelegramError:
+                await self._drop_unsigned_port()
+                raise
+            except Exception as exc:  # noqa: BLE001 — a network or library failure is a sentence, never a 500
+                logger.warning(f"telegram: QR start failed ({type(exc).__name__})")
+                await self._drop_unsigned_port()
+                raise TelegramError(UNREACHABLE) from exc
+            if qr.signed_in:
+                await self._signed_in()
+                return self.status()
+            self._show(qr)
             self.state, self.error = "qr", None
             self._qr_task = asyncio.get_running_loop().create_task(self._run_qr())
         return self.status()
 
-    async def _run_qr(self) -> None:
+    def _show(self, qr: TgQr) -> None:
         import time
 
+        self._qr, self._qr_until = qr, time.time() + max(qr.ttl, 0.0)
+
+    @staticmethod
+    def _wait_for(qr: TgQr) -> float:
+        return max(QR_FLOOR_S, qr.ttl - QR_MARGIN_S)
+
+    async def _run_qr(self) -> None:
         rounds = 1
         try:
             while True:
                 port, qr = self.port, self._qr
                 if port is None or qr is None:
                     return
-                if await port.qr_wait(max(1.0, qr.expires - time.time())):
+                if await port.qr_wait(self._wait_for(qr)):
                     async with self._lock:
                         self._qr_task = None
                         self._qr = None
@@ -276,7 +303,14 @@ class Account:
                         self._qr_task = None
                     return
                 rounds += 1
-                self._qr = await port.qr_start()
+                qr = await port.qr_start()
+                if qr.signed_in:           # scanned between two tokens: Telegram answered loginTokenSuccess
+                    async with self._lock:
+                        self._qr_task = None
+                        self._qr = None
+                        await self._signed_in()
+                    return
+                self._show(qr)
         except asyncio.CancelledError:
             raise
         except PasswordNeeded:
@@ -286,7 +320,7 @@ class Account:
             logger.warning(f"telegram: QR sign-in stopped ({type(exc).__name__})")
             self._qr_task = None
             await self._drop_unsigned_port()
-            self.state, self.error = "off", "Couldn't reach Telegram — try again."
+            self.state, self.error = "off", UNREACHABLE
 
     def _stop_qr(self) -> None:
         task, self._qr_task = self._qr_task, None
@@ -314,7 +348,14 @@ class Account:
             self._stop_qr()
             if self.port is None:
                 self.port = self._make()
-            self._code_hash = await self.port.send_code(phone)
+            try:
+                self._code_hash = await self.port.send_code(phone)
+            except TelegramError:
+                raise
+            except Exception as exc:  # noqa: BLE001 — a sentence, never a 500
+                logger.warning(f"telegram: send code failed ({type(exc).__name__})")
+                await self._drop_unsigned_port()
+                raise TelegramError(UNREACHABLE) from exc
             self._phone = phone
             self.state, self.error = "code_sent", None
         return self.status()
@@ -330,6 +371,11 @@ class Account:
                 return self.status()
             except CodeInvalid:
                 raise
+            except TelegramError:
+                raise
+            except Exception as exc:  # noqa: BLE001 — a sentence, never a 500; the step can be tried again
+                logger.warning(f"telegram: sign-in step failed ({type(exc).__name__})")
+                raise TelegramError(UNREACHABLE) from exc
             await self._signed_in()
         return self.status()
 
@@ -341,6 +387,11 @@ class Account:
                 await self.port.sign_in_password(str(password or ""))
             except PasswordInvalid:
                 raise
+            except TelegramError:
+                raise
+            except Exception as exc:  # noqa: BLE001 — a sentence, never a 500; the step can be tried again
+                logger.warning(f"telegram: sign-in step failed ({type(exc).__name__})")
+                raise TelegramError(UNREACHABLE) from exc
             await self._signed_in()
         return self.status()
 

@@ -915,7 +915,8 @@ then — since ruling 49 (2026-10-29) — the sheet opens on a sign-in QR: Conne
 modules on a light four-module quiet zone in both appearances, a 168 pt tile with the resting ring, DR-9, DR-12), the
 words beside it (Settings → Devices → Link Desktop Device; DR-13), and reads the status once a second only while the
 QR is up (`TelegramChats.followQR`), so a refreshed QR replaces itself and a scan lands on the chat list. Closing the
-sheet on an unscanned QR stops it. *Use a phone number instead* (a `TextButton`, DR-40) keeps the old steps in native
+sheet mid sign-in stops it at the backend (`abandonSignIn`): a QR on screen or still being asked for (stopped as it
+lands), a code or a two-step password waiting — never a connected session. *Use a phone number instead* (a `TextButton`, DR-40) keeps the old steps in native
 rounded fields (DR-76: setup sheets keep the native field) — phone number → the code Telegram sends; the two-step
 password when the account has one, after either path. Connected: the one-to-one chats only (no group, no channel),
 each with *Read history* and the tick; ticking opens a system alert (*Did they agree?*) carrying the backend's

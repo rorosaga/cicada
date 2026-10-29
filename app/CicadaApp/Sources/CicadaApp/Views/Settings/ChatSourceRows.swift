@@ -229,8 +229,9 @@ struct TelegramPanel: View {
         }
         // One status read a second while a QR is on screen; it stops the moment the state moves on.
         .task(id: model.status.state) { if model.status.state == "qr" { await model.followQR() } }
-        // Closing the sheet on an unscanned QR stops it at the backend: no socket outlives the sheet that asked.
-        .onDisappear { if model.status.state == "qr" { Task { await model.disconnect() } } }
+        // Closing the sheet mid sign-in (a QR up or still being asked for, a code or password waiting) stops it at the
+        // backend: no unsigned client outlives the sheet that asked.
+        .onDisappear { Task { await model.abandonSignIn() } }
         .onChange(of: model.connected) { _, now in if now { Task { await model.loadChats() } } }
         // A system alert, the one confirmation pattern macOS has (no new visual pattern): the sentence, then
         // "They agreed" or Cancel. Nothing is ticked or read until the person confirms.

@@ -86,9 +86,12 @@ class TgEvent:
 
 @dataclass
 class TgQr:
-    """A sign-in QR: the ``tg://login`` link the person's phone scans, and when Telegram expires it (unix seconds)."""
+    """A sign-in QR: the ``tg://login`` link the person's phone scans and how long Telegram keeps it (seconds, measured
+    on Telegram's clock — a Mac whose clock is off never shortens it). ``signed_in``: asking for a new token found the
+    last one already scanned (``auth.loginTokenSuccess``) — the session is live, there is nothing to draw."""
     url: str
-    expires: float
+    ttl: float
+    signed_in: bool = False
 
 
 class TelegramPort(Protocol):
@@ -185,13 +188,33 @@ class TelethonPort:  # pragma: no cover — the real network adapter; every call
         self._qr = None
 
     async def qr_start(self) -> TgQr:
-        """``auth.exportLoginToken`` (Telethon's ``qr_login``): a fresh token, or a new one for the same login."""
+        """``auth.exportLoginToken`` (Telethon's ``qr_login``): a fresh token, or a new one for the same login. A scan
+        that landed between two tokens answers ``loginTokenSuccess`` (or a DC move to import it) instead of a token:
+        that is a signed-in session, finished here like ``QRLogin.wait`` does."""
+        import time
+
+        from telethon import errors, functions, types
+
         await self._connect()
         if self._qr is None:
-            self._qr = await self._client.qr_login()
-        else:
-            await self._qr.recreate()
-        return TgQr(url=self._qr.url, expires=self._qr.expires.timestamp())
+            from telethon.tl.custom.qrlogin import QRLogin
+
+            self._qr = QRLogin(self._client, [])
+        try:
+            resp = await self._client(self._qr._request)
+            if isinstance(resp, types.auth.LoginTokenMigrateTo):
+                await self._client._switch_dc(resp.dc_id)
+                resp = await self._client(functions.auth.ImportLoginTokenRequest(resp.token))
+        except errors.SessionPasswordNeededError as exc:
+            raise PasswordNeeded("This account has two-step verification: enter its password.") from exc
+        except errors.FloodWaitError as exc:
+            raise TelegramError(f"Telegram asked to wait {exc.seconds} seconds before another code.") from exc
+        if isinstance(resp, types.auth.LoginTokenSuccess):
+            await self._client._on_login(resp.authorization.user)
+            return TgQr(url="", ttl=0.0, signed_in=True)
+        self._qr._resp = resp
+        offset = getattr(getattr(self._client._sender, "_state", None), "time_offset", 0) or 0
+        return TgQr(url=self._qr.url, ttl=self._qr.expires.timestamp() - (time.time() + offset))
 
     async def qr_wait(self, timeout: float) -> bool:
         """``True`` once the person's phone accepted the QR; ``False`` when it expired unscanned. A two-step account
