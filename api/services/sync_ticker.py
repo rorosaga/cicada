@@ -83,6 +83,7 @@ async def current(memory_path: Path, settings, *, max_age: float) -> Tick:
         now = time.monotonic()
         if (watch is not None and tick is not None and tick.seq is not None and tick.listings is not None
                 and watch.generation == tick.watch_gen and watch.seq == tick.seq
+                and local_writes.current() == tick.local_gen   # this process wrote: walk now, never wait for the OS
                 and now - tick.walked_at < bank_watch.FALLBACK_S):
             # Nothing in the bank moved since the last walk: its listings answer, everything else is read now.
             reuse = {k: tick.info.components[k] for k in sync_service.WALKED_OUTSIDE_INDEX
