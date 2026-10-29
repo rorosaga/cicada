@@ -114,8 +114,23 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   (`transcript_bytes`, outside `content_hash`), and under `episode_lock` a capture that read fewer bytes than the
   episode stores — while the file now holds at least that much — writes nothing and answers `superseded` (a flush that
   stalled while a later Stop committed). A transcript that really shrank is still captured. Every `~/.cicada/logs/capture.log` line names its event
-  (`<harness> <sid8> Stop|PreCompact|SessionEnd|other …`), so ruling 7's revisit signal — a Stop `error:` line — is
-  never confused with a flush's; the capture ledger row carries the same enum as `event`. `autosave` in
+  (`<harness> <sid8> Stop|PreCompact|SessionEnd|other …`), so ruling 7's revisit signal — a Stop `no answer` line,
+  and since 2026-10-29 the `in <n>ms` round trip on every answered line — is never confused with a flush's; the capture
+  ledger row carries the same enum as `event`. **The answer never waits on a slow write (2026-10-29):**
+  `/capture/transcript` and `/capture/session` run the writer off the event loop and answer within `CAPTURE_ANSWER_S`
+  (2 s, `routers/capture.answer_within`); a write still running then answers `202 {"status": "accepted"}` (bank and
+  `bankId` named, no episode id yet) and finishes on its own — same lock, same find-or-create, same refusals — and the
+  awake read is queued when it lands. Finding a session's episode reads no episode it has read before: a per-bank index
+  (`transcript_capture._SessionIndex`) keeps each file's `session_id` from its frontmatter lines and re-reads only a file
+  whose mtime or size moved (a stat sweep, ~30 ms at 8,700 episodes); a live session's later Stops check only their own
+  file. Before, every new session's first Stop read every episode in full under the capture lock (0.45 s warm, 1.4 s
+  cold at 8,700), serialised across sessions firing together. **A local post that gets no answer** in the hook's 3 s
+  (backend down, hung or starved) logs `no answer (timed out at 3s) … spooled for a later firing` — never `error:` — and
+  its request (the hook's fields: a path, never the transcript's words) waits in the client's spool (`hook_spool`, one
+  entry per session, `route: /capture/transcript`, target the loopback port); a 5xx waits the same way. The session's
+  own next landed firing drops it, and any other session's landed firing sends up to three waiting ones within its 4 s
+  budget (never on SessionEnd); a client's `/capture/session` entries are never sent to the local port. No spool folder
+  is made on a machine where nothing waited. `autosave` in
   `/agents/wiring` stays the Stop hook alone, so an install from before the flush is never shown as broken; `make doctor`
   passes an absent flush with a note and fails only a half-registered or stale one. **The backend reads the transcript**, and
   only after the path resolves under the harness root as `<session_id>.jsonl` within the size cap —

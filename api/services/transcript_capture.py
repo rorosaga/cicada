@@ -32,6 +32,7 @@ transcript (or, for the last reply, the Stop hook) recorded them.
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import threading
 from dataclasses import dataclass
@@ -56,16 +57,84 @@ PRODUCT = episode_title.PRODUCT
 
 _SESSION_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$")
 _lock = threading.Lock()
-# (episodes_dir, harness, session_id) -> episode path, so a Stop firing on a
-# long session does not rescan every episode file. Keyed by the episodes dir
-# because the active bank can change under a running backend
-# (``POST /banks/{name}/activate``) — a key without it would hand one bank's
-# episode path to another bank's capture (plan critic 2026-09-03: the
-# un-keyed cache also bled across the test suite's tmp banks). A hit is
-# re-verified by parsing the one cached file — it must still be a transcript
-# episode for this session, since a bank rename, duplicate or restore can
-# leave a stale path behind.
-_episode_cache: dict[tuple[str, str, str], Path] = {}
+# resolved episodes dir -> :class:`_SessionIndex`, so finding a session's episode never reads every episode file
+# again. Keyed by the episodes dir because the active bank can change under a running backend
+# (``POST /banks/{name}/activate``) — a key without it would hand one bank's episode path to another bank's capture
+# (plan critic 2026-09-03: the un-keyed cache also bled across the test suite's tmp banks). A hit is re-verified by
+# parsing the one file — it must still be a transcript episode for this session, since a bank rename, duplicate or
+# restore can leave a stale path behind.
+_episode_cache: dict[str, "_SessionIndex"] = {}
+_episode_cache_guard = threading.Lock()
+
+_FM_SESSION_RE = re.compile(r"^session_id:[ \t]*['\"]?([^'\"\r\n]*?)['\"]?[ \t]*$", re.M)
+_FM_KIND_RE = re.compile(r"^capture_kind:[ \t]*['\"]?([^'\"\r\n]*?)['\"]?[ \t]*$", re.M)
+
+
+def _head_session(fp: Path) -> str | None:
+    """The ``session_id`` of a transcript episode, read from its frontmatter's top-level lines (a regex, never a YAML
+    parse), or ``None`` when the file is no transcript episode. A lookup confirms a hit with a real parse."""
+    text = fp.read_text(encoding="utf-8", errors="replace")
+    if not text.startswith("---"):
+        return None
+    end = text.find("\n---", 3)
+    head = text[: end if end != -1 else len(text)]
+    kind = _FM_KIND_RE.search(head)
+    if kind is None or kind.group(1).strip() != CAPTURE_KIND:
+        return None
+    sid = _FM_SESSION_RE.search(head)
+    return sid.group(1).strip() if sid else None
+
+
+class _SessionIndex:
+    """One episodes dir's ``session_id -> files`` map, kept current by a stat of each file (≈30 ms at 8,700 files):
+    only a file that is new or whose mtime/size moved is read again. Before it, every new session's first Stop read
+    every episode in full under the capture lock — 0.45 s warm, 1.4 s cold at 8,700 episodes, serialised across every
+    session firing at once (7-9 s answers measured 2026-10-29, the hook's 3 s timeout)."""
+
+    def __init__(self) -> None:
+        self.files: dict[str, tuple[int, int, str | None]] = {}   # name -> (mtime_ns, size, session_id)
+        self.found: dict[str, str] = {}   # session_id -> the name a lookup or a create last returned
+        self.lock = threading.Lock()
+
+    def refresh(self, episodes_dir: Path) -> None:
+        with self.lock:
+            seen: dict[str, tuple[int, int, str | None]] = {}
+            try:
+                it = os.scandir(episodes_dir)
+            except OSError:
+                self.files = {}
+                return
+            with it:
+                for entry in it:
+                    name = entry.name
+                    if not (name.startswith("ep_") and name.endswith(".md")):
+                        continue
+                    try:
+                        st = entry.stat()
+                    except OSError:
+                        continue
+                    old = self.files.get(name)
+                    if old is not None and old[0] == st.st_mtime_ns and old[1] == st.st_size:
+                        seen[name] = old
+                        continue
+                    try:
+                        sid = _head_session(Path(entry.path))
+                    except OSError:
+                        continue
+                    seen[name] = (st.st_mtime_ns, st.st_size, sid)
+            self.files = seen
+
+    def candidates(self, session_id: str) -> list[str]:
+        return sorted(name for name, (_m, _s, sid) in self.files.items() if sid == session_id)
+
+
+def _session_index(episodes_dir: Path) -> _SessionIndex:
+    key = str(episodes_dir.resolve())
+    with _episode_cache_guard:
+        index = _episode_cache.get(key)
+        if index is None:
+            index = _episode_cache[key] = _SessionIndex()
+        return index
 
 
 class TranscriptRefused(Exception):
@@ -429,14 +498,18 @@ def _is_session_episode(fp: Path, session_id: str) -> bool:
 
 
 def _find_session_episode(episodes_dir: Path, harness: str, session_id: str) -> Path | None:
-    key = (str(episodes_dir.resolve()), harness, session_id)
-    cached = _episode_cache.get(key)
-    if cached is not None and cached.is_file() and _is_session_episode(cached, session_id):
-        return cached
-    _episode_cache.pop(key, None)
-    for fp in sorted(episodes_dir.glob("ep_*.md")):
+    """The session's one transcript episode, or ``None``. The index is brought current first (a stat per file, a read
+    only of what changed), so a file another writer or process made since is seen; the hit is confirmed by a parse."""
+    index = _session_index(episodes_dir)
+    known = index.found.get(session_id)
+    if known is not None and _is_session_episode(episodes_dir / known, session_id):
+        return episodes_dir / known   # a live session's every later Stop: one read of its own file, no stat sweep
+    index.found.pop(session_id, None)
+    index.refresh(episodes_dir)
+    for name in index.candidates(session_id):
+        fp = episodes_dir / name
         if _is_session_episode(fp, session_id):
-            _episode_cache[key] = fp
+            index.found[session_id] = name
             return fp
     return None
 
@@ -766,7 +839,7 @@ def write_session(memory_path: Path, *, harness: str, session_id: str, conv: Con
         _place_turns(fm, _agent_fields(_turn_sidecar(conv, body), None, effort, _last_offset(conv, body)))
         episode_id = episode_ids.create_episode(episodes_dir, fm, body)
         path_out = episodes_dir / f"{episode_id}.md"
-        _episode_cache[(str(episodes_dir.resolve()), harness, session_id)] = path_out
+        _session_index(episodes_dir).found[session_id] = path_out.name
         _record(harness, session_id, "created", conv, bank, event=hook_event)
         logger.info(f"capture: created {episode_id} from {harness} session ({len(conv.turns)} turns)")
         return CaptureResult("created", episode_id, kept["user"], kept["assistant"], conv.summary)
