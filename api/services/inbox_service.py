@@ -439,12 +439,31 @@ def served_counts(memory_path: Path) -> tuple[int, dict[str, int]]:
     """
     today = str(date.today())
     # Speed 2026-10-29: when the built list is current (Home and the Inbox read it), the count IS that list's — no
-    # second walk of every item's subject. Otherwise the header walk below, as before.
+    # second walk of every item's subject. Otherwise the header walk below, remembered on the same inputs as the
+    # built list's (what it reads is what `load_inbox` reads) plus the agent requests'.
+    from api.services import agent_requests
+
     with bank_index.shared_scans():
         built = _built_if_current(memory_path, today)
+        key = None if built is not None else (_built_inputs(memory_path, today), agent_requests.mtime(memory_path))
     if built is not None:
         items = agent_request_items(memory_path) + built
         return len(items), dict(Counter(i.kind.value for i in items))
+    with _BUILT_LOCK:
+        hit = _COUNTS.get(str(memory_path))
+    if hit is not None and hit[0] == key:
+        return hit[1][0], dict(hit[1][1])
+    out = _served_counts_walk(memory_path, today)
+    with _BUILT_LOCK:
+        _COUNTS[str(memory_path)] = (key, (out[0], dict(out[1])))
+    return out
+
+
+#: bank -> (the walk's inputs, (total, by kind)) for :func:`served_counts` (speed 2026-10-29).
+_COUNTS: dict[str, tuple[tuple, tuple[int, dict[str, int]]]] = {}
+
+
+def _served_counts_walk(memory_path: Path, today: str) -> tuple[int, dict[str, int]]:
     requests = len(agent_request_items(memory_path))
     total = requests
     by_kind: Counter = Counter({"agent_request": requests} if requests else {})
@@ -554,9 +573,10 @@ def _built_if_current(memory_path: Path, today: str) -> list[InboxItem] | None:
 
 
 def reset_built() -> None:
-    """Forget every built list (tests)."""
+    """Forget every built list and remembered count (tests)."""
     with _BUILT_LOCK:
         _BUILT.clear()
+        _COUNTS.clear()
 
 
 def _build_inbox(memory_path: Path, *, today: str, include_deferred: bool) -> list[InboxItem]:

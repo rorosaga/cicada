@@ -141,6 +141,16 @@ def test_served_counts_from_a_current_built_list_are_the_walks(memory):
     assert inbox_service.served_counts(memory) == fresh
 
 
+def test_a_remembered_count_moves_with_what_it_counts(memory):
+    inbox_service.reset_built()
+    total, _ = inbox_service.served_counts(memory)          # the walk, remembered
+    assert inbox_service.served_counts(memory)[0] == total
+    _write(memory / "inbox" / "inbox-003.md",
+           {"kind": "clarification", "status": "pending", "priority": 0.5, "entity_id": "gamma-example",
+            "entity_name": "Gamma Example", "title": "Who is Gamma Example?", "created_date": "2026-08-20"}, "ctx")
+    assert inbox_service.served_counts(memory)[0] == total + 1
+
+
 def test_origins_are_remembered_only_while_both_folders_hold(memory):
     from api.services import origin_stats
 
