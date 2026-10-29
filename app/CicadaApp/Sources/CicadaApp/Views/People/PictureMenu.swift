@@ -120,6 +120,91 @@ enum PictureActions {
     }
 }
 
+/// Owner 2026-10-29 ("you change the picture by pressing on the picture itself") — a click on an editable picture
+/// offers what the source line's blue words used to: with nothing to choose but a file it opens the picker at once,
+/// otherwise the same choices as the right-click menu drop down under the picture. A native `NSMenu`, so a keyboard
+/// press (Space, VoiceOver's default action) opens it under the picture too, where the pointer is not.
+@MainActor
+enum PictureChoices {
+    /// The click's plan: the picker straight away, or a menu of these choices.
+    enum Plan: Equatable { case pick, menu([PictureMenuModel.Option]) }
+
+    /// One choice (*Add a picture…*, or *Change picture…* with nothing to go back to) is the picker itself.
+    nonisolated static func plan(_ options: [PictureMenuModel.Option]) -> Plan {
+        options.count <= 1 ? .pick : .menu(options)
+    }
+
+    static func open(id: String, name: String, type: EntityType, held: EntityPictureRef?, heldInputs: PictureInputs?,
+                     store: Store, anchor: NSView?) {
+        let inputs = store.pictureInputs(for: id, held: heldInputs)
+        let detected = inputs.flatMap { EntityPictureResolver.detected(id: id, $0) }
+        let current = store.picture(for: id, held: held)
+        let options = PictureMenuModel.options(current: current, detected: detected)
+        switch plan(options) {
+        case .pick:
+            PictureActions.change(id: id, name: name, type: type, store: store, inputs: inputs)
+        case .menu(let options):
+            let menu = NSMenu()
+            menu.autoenablesItems = false
+            if let source = current?.source {
+                // Where the picture came from, as the menu's quiet first line (owner 2026-10-29: never a caption).
+                let origin = NSMenuItem(title: Copy.People.sourceLine(source), action: nil, keyEquivalent: "")
+                origin.isEnabled = false
+                menu.addItem(origin)
+                menu.addItem(.separator())
+            }
+            for option in options {
+                menu.addItem(ClosureMenuItem(title: Copy.People.optionLabel(option)) {
+                    PictureActions.run(option, id: id, name: name, type: type, store: store, inputs: inputs)
+                })
+            }
+            if let anchor, anchor.window != nil {
+                menu.popUp(positioning: nil, at: NSPoint(x: 0, y: anchor.bounds.height + 4), in: anchor)
+            } else {
+                menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+            }
+        }
+    }
+}
+
+/// An `NSMenuItem` that runs a closure; the menu holds it for as long as it is open.
+private final class ClosureMenuItem: NSMenuItem {
+    private let run: () -> Void
+
+    init(title: String, run: @escaping () -> Void) {
+        self.run = run
+        super.init(title: title, action: #selector(fire), keyEquivalent: "")
+        target = self
+    }
+
+    @available(*, unavailable)
+    required init(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    @objc private func fire() { run() }
+}
+
+/// The picture's own view in AppKit, so its choices drop down under it whichever way the click came.
+final class PictureMenuAnchor {
+    weak var view: NSView?
+}
+
+struct PictureMenuAnchorView: NSViewRepresentable {
+    let anchor: PictureMenuAnchor
+
+    func makeNSView(context: Context) -> NSView {
+        let view = FlippedView()
+        anchor.view = view
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) { anchor.view = nsView }
+
+    private final class FlippedView: NSView {
+        override var isFlipped: Bool { true }
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    }
+}
+
 /// The right-click menu on every editable picture (R-PE15).
 struct PictureMenuItems: View {
     let id: String
@@ -133,7 +218,12 @@ struct PictureMenuItems: View {
     var body: some View {
         let inputs = store.pictureInputs(for: id, held: heldInputs)
         let detected = inputs.flatMap { EntityPictureResolver.detected(id: id, $0) }
-        ForEach(PictureMenuModel.options(current: store.picture(for: id, held: held), detected: detected), id: \.self) { option in
+        let current = store.picture(for: id, held: held)
+        if let source = current?.source {
+            Text(Copy.People.sourceLine(source))
+            Divider()
+        }
+        ForEach(PictureMenuModel.options(current: current, detected: detected), id: \.self) { option in
             Button(Copy.People.optionLabel(option)) {
                 PictureActions.run(option, id: id, name: name, type: type, store: store, inputs: inputs)
             }

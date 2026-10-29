@@ -3,7 +3,8 @@ import SwiftUI
 
 /// F-12 (G146 plan R-PE16) — mock C's top of a person's card: the picture at 88 pt (a button: pick, drop, right-click),
 /// the name in the display face at 24 (C-09 had 28, R-09 22 — 24 keeps the display role and matches Home's headline),
-/// the Summary as a two-line standfirst (a click shows all of it), where the picture came from, and the facts strip.
+/// the Summary as a two-line standfirst (a click shows all of it) and the facts strip. Where the picture came from is the
+/// picture's own help, VoiceOver value and the first line of its menu — never a caption under the name (owner 2026-10-29).
 struct PersonHero: View {
     let entity: Entity
     let summary: String?
@@ -28,8 +29,6 @@ struct PersonHero: View {
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                     if let summary { EntitySummaryText(text: summary, isStub: isStub, lineLimit: 2, expanded: summaryExpanded) }
-                    PictureSourceLine(id: entity.id, name: entity.name, type: .person, held: entity.pictureRef,
-                                      inputs: inputs)
                 }
             }
             if !facts.isEmpty { FactsStrip(facts: facts, onOpenEntity: onOpenEntity) }
@@ -141,65 +140,5 @@ private struct FactCell: View {
         } else {
             words
         }
-    }
-}
-
-/// F-12 / R-PE15 — where the picture came from, in words, and what can be done about it: "Photo from your Contacts ·
-/// Use initials instead". `quietWhenEmpty` (the lighter header) shows nothing on a page with no picture.
-struct PictureSourceLine: View {
-    let id: String
-    let name: String
-    let type: EntityType
-    let held: EntityPictureRef?
-    let inputs: PictureInputs?
-    var quietWhenEmpty = false
-
-    @Environment(Store.self) private var store
-
-    var body: some View {
-        let current = store.picture(for: id, held: held)
-        let resolvedInputs = store.pictureInputs(for: id, held: inputs)
-        let detected = resolvedInputs.flatMap { EntityPictureResolver.detected(id: id, $0) }
-        let options = PictureMenuModel.options(current: current, detected: detected).filter { $0 != .change }
-        if current != nil || !quietWhenEmpty {
-            HStack(spacing: CicadaTheme.scaled(6)) {
-                if current?.source == .contacts { ContactsMark(size: 14) }
-                if current != nil {
-                    Text(Copy.People.sourceLine(current?.source))
-                        .font(CicadaTheme.metaFont)
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                }
-                ForEach(Array(options.enumerated()), id: \.element) { index, option in
-                    if current != nil || index > 0 {
-                        Text(Copy.People.dot).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
-                    }
-                    InlineLink(title: Copy.People.optionLabel(option)) {
-                        PictureActions.run(option, id: id, name: name, type: type, store: store, inputs: resolvedInputs)
-                    }
-                }
-            }
-            .lineLimit(1)
-        }
-    }
-}
-
-/// R-PE7 — the Contacts app's own icon from this Mac (Track L's R-L1: an Apple mark is never committed), else its SF
-/// Symbol. Becomes `OriginMark(origin: "contacts-local")` once T-Sources maps that origin.
-struct ContactsMark: View {
-    var size: CGFloat = 14
-
-    var body: some View {
-        let points = CicadaTheme.scaled(size)
-        Group {
-            if let icon = InstalledAppIcon.image(bundleId: "com.apple.AddressBook", size: points) {
-                Image(nsImage: icon).resizable().interpolation(.high).scaledToFit()
-            } else {
-                Image(systemName: "person.crop.circle")
-                    .font(CicadaTheme.font(size: size * 0.8))
-                    .foregroundStyle(CicadaTheme.textSecondary)
-            }
-        }
-        .frame(width: points, height: points)
-        .accessibilityHidden(true)
     }
 }
