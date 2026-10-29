@@ -2103,6 +2103,16 @@ prompts is G78.
 
 ### Git — versioning and provenance
 
+**The commit-graph (owner via the coordinator, 2026-10-29; `git_service.write_commit_graph_sync`).** Sleep's
+engine-free tail ends by rewriting git's own `.git/objects/info/commit-graph` with changed-path Bloom filters
+(`git commit-graph write --reachable --changed-paths`, `_commit_graph_safely`), on every exit path, under the bank's
+git write lock (`commit-graph` is a `WRITE_SUBCOMMANDS` member, not a tree writer). It is a git-internal derived file:
+never tracked, never a commit, rebuilt from the history at any time, ignored by git when missing or stale, and a
+failure only logs. Every path-limited history read uses it — the History tab, `entity_history`, the provenance strip.
+On an owner-scale bank copy (8.0k pages, 1.6k commits; 17 pages × 6): History tab p95 224 → 128 ms (p50 137 → 48),
+`entity_history` p95 203 → 105 ms, `entity_commit_authors` p95 174 → 75 ms; the first write 423 ms, a rewrite with
+nothing new 24 ms.
+
 Every Sleep cycle commits with a **machine-parseable message**:
 
 ```

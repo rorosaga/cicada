@@ -250,15 +250,36 @@ struct HistoryRow: View {
                     .frame(width: HistoryLine.width)
                     .frame(maxHeight: .infinity)
             }
-            ContributorAvatar(author: entry.author,
-                              kind: ContributorIdentity.kind(author: entry.author, serverKind: entry.authorKind),
-                              provider: entry.authorProvider, size: HistoryLine.node)
+            HistoryWriterMark(entry: entry, size: HistoryLine.node)
                 .padding(.top, CicadaTheme.scaled(10))
                 .help(Copy.Graph.historyLineHelp)
         }
         .frame(width: HistoryLine.gutter)
         .frame(maxHeight: .infinity, alignment: .top)
         .accessibilityHidden(true)
+    }
+}
+
+/// DR-77's writer picture. The person's own changes wear their face — the owner page's picture by G146's precedence
+/// (`EntityPicture`: their choice, Contacts, a public profile, then their monogram), never a generic glyph; every
+/// other writer keeps its mark (`ContributorAvatar`: the model's, the agent's own, Cicada's for upkeep). Before the
+/// graph has named the owner page, the person's row falls back to the contributor avatar.
+struct HistoryWriterMark: View {
+    let entry: EntityHistoryEntry
+    let size: CGFloat
+
+    @Environment(Store.self) private var store
+
+    private var kind: String { ContributorIdentity.kind(author: entry.author, serverKind: entry.authorKind) }
+
+    static func ownerNode(_ nodes: [GraphNode]?) -> GraphNode? { nodes?.first { $0.isOwner } }
+
+    var body: some View {
+        if kind == "user", let owner = Self.ownerNode(store.graph.value?.nodes) {
+            EntityPicture(id: owner.id, name: owner.name, type: .person, size: size)
+        } else {
+            ContributorAvatar(author: entry.author, kind: kind, provider: entry.authorProvider, size: size)
+        }
     }
 }
 
@@ -275,9 +296,7 @@ struct HistoryHoverCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
             HStack(spacing: CicadaTheme.spacingSM) {
-                ContributorAvatar(author: entry.author,
-                                  kind: ContributorIdentity.kind(author: entry.author, serverKind: entry.authorKind),
-                                  provider: entry.authorProvider, size: CicadaTheme.scaled(18))
+                HistoryWriterMark(entry: entry, size: CicadaTheme.scaled(18))
                 Text(HistoryRowWords.who(entry)).font(CicadaTheme.rowFont).foregroundStyle(CicadaTheme.textPrimary)
                 if HistoryBucket.of(entry) == .sleep { Tag(text: Copy.Graph.historySleep) }
             }

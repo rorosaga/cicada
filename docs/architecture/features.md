@@ -50,7 +50,7 @@ zones, same settle time).
 **Pages v2, part B (2026-10-29; ruling 48 parts 5, 6 and 14; DR-77).** *History* is `EntityHistoryView`: DR-45 tabs
 All · You · Agents · Sleep · Upkeep (All leaves upkeep out; counts once every change is read), rows grouped Today /
 Yesterday / the day, a thin line down the leading edge with one node per change in its writer's picture
-(`ContributorAvatar`: the model's mark, an agent's own mark, a face), Sleep a `Tag` beside the sentence, a Sleep row's
+(`HistoryWriterMark`: the model's mark, an agent's own mark, Cicada's for upkeep, and for the person the owner page's picture by G146's ladder), Sleep a `Tag` beside the sentence, a Sleep row's
 up to four changed lines always shown (DR-81: nothing folds), hover or focus showing who, what changed and when, a click
 pinning that card with the change itself (`DiffView`). It reads 30 rows when the tab is first shown and 30 more per
 *Older changes*; the card open reads none (`api.md`, part B). *Places:* `LocationHero` is `PlaceMap` — a muted

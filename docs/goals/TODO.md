@@ -10,6 +10,12 @@
 
 ## Current state and evidence
 
+- **2026-10-29 — git's commit-graph kept current by Sleep's tail (G217 follow-up; branch `perf/commit-graph`).** The
+  last tail step rewrites `.git/objects/info/commit-graph` with changed-path filters under the bank's git lock — a
+  derived git file, never a commit. On an owner-scale bank copy: History tab p95 224 → 128 ms, a page's history p95
+  203 → 105 ms, the provenance strip p95 174 → 75 ms; the first write 423 ms, a nightly rewrite with nothing new
+  24 ms. The person's own history rows now wear the owner page's picture (G146's ladder).
+
 - **2026-10-29 — pages v2, part B: History, maps, In short (ruling 48 parts 5, 6 and 14; DR-77; G217, G121; branch
   `feat/pages-v2-b`).** The card open reads no git any more (on an owner-scale bank copy, 13 pages × 12 opens:
   p95 260 → 58 ms); the History tab reads 30 rows with who, what changed and when from one `git log -p` when it opens

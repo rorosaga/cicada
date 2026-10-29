@@ -57,6 +57,17 @@ final class PageHistoryTests: XCTestCase {
         XCTAssertTrue(HistoryRowWords.changed(rows[0]).contains("how fast it fades"))
     }
 
+    /// The person's rows wear the owner page's picture (G146's precedence through `EntityPicture`); with no owner page
+    /// named yet there is no face to borrow, and the contributor avatar stands in.
+    func testThePersonsRowsWearTheOwnersPage() throws {
+        let decode = { (json: String) in try JSONDecoder().decode(GraphNode.self, from: Data(json.utf8)) }
+        let owner = try decode(#"{"id":"bob-example","name":"Bob Example","type":"person","status":"active","confidence":0.9,"isOwner":true}"#)
+        let other = try decode(#"{"id":"alpha-project","name":"Alpha Project","type":"project","status":"active","confidence":0.5}"#)
+        XCTAssertEqual(HistoryWriterMark.ownerNode([other, owner])?.id, "bob-example")
+        XCTAssertNil(HistoryWriterMark.ownerNode([other]))
+        XCTAssertNil(HistoryWriterMark.ownerNode(nil))
+    }
+
     func testThePagerAppendsOlderPagesOnce() throws {
         let rows = try Self.rows()
         var pager = HistoryPager()
