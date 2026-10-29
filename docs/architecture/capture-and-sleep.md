@@ -1880,14 +1880,18 @@ summary and for every relationship); "an explicit link" was any relationship the
   an exchange opens at each turn of a person (the owner, or a `speaker:` in a meeting) and runs through the replies;
   a document with no turn markers is the person's own writing, one exchange per paragraph — **except a saved item**
   (2026-10-29, `authorship.of`): its title, header lines and fetched description are the page's words and no exchange
-  of the person's; only its reason or note section is (`evidence.PERSON_SECTIONS`). The name or an alias (a
+  of the person's; only its reason or note section is (`evidence.PERSON_SECTIONS`) — **nor an agent's saved note**
+  (ruling 50, `authorship.agent_saved`: a `cicada_save_episode` note is the agent's words, `assistant` throughout;
+  Stage 1 is told so and gives its claims the agent as observer). The name or an alias (a
   person's first name too) must come up in more than 3 exchanges **and** in a person's own words at least once
   (`mention_exchanges`, `named_by_person` ride on the extraction; never written to a page).
 - **An explicit link** is a relationship to an existing page at ≥ 0.6 (never the owner's) whose evidence is located in
   a person's own words (`promotion.person_said`: kind `user` or `speaker`) — not one only the model's answer made or
   one it inferred.
 - **2+ conversations** counts the batch's and the pending line's conversations together, so a resumed conversation
-  read again (G104) is not a second one.
+  read again (G104) is not a second one. An agent's saved note counts as the session that saved it, and one with no
+  session as none (ruling 50, `promotion.conversation_keys`, like ruling 43's memory notes): three notes one agent
+  saved in one session are one conversation.
 - **A waiting Contacts card (owner ruling 2026-10-20)** is a fourth rung, on its own: a `person` mention **the person
   made in their own words** — Stage 1 measured it `named_by_person`, in a conversation (not a save, a watch or Cicada's
   own check — `quiet_pages.episode_kind`), and the card's full name stands in one of the person's own *marked* turns

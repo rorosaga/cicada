@@ -43,7 +43,7 @@ def _bank(tmp_path: Path) -> Path:
 
 def _episode(memory: Path, ep: str, ts: str, body: str) -> None:
     markdown_parser.write(memory / "episodes" / f"{ep}.md",
-                          {"id": ep, "processed": False, "source": "mcp", "timestamp": ts}, body)
+                          {"id": ep, "processed": False, "source": "claude-code", "timestamp": ts}, body)
 
 
 def _entity(name: str, kind: str, ep: str, ts: str) -> dict:
