@@ -12,6 +12,14 @@
 
 ## Current state and evidence
 
+- **2026-10-29 — one memory on every device is decided, not built (ruling 51, G132 phase 0; branch
+  `docs/g132-phase0`, docs only).** The owner's sync-engine decisions are binding: one home applies every write and
+  runs Sleep, every computer may hold a fast-forward-only replica, other devices' writes are idempotency-keyed
+  transactions through the same tool bodies, the home moves from the Sleep page, the phone becomes a full device
+  (reverses ruling 38 §2), and devices meet at an end-to-end-encrypted relay (hosting, account, domain and spend wait on
+  the owner). Plan: [`docs/plans/2026-10-29-g132-sync-engine.md`](../plans/2026-10-29-g132-sync-engine.md); phases 1–5
+  and their open gates are on the G132 row; `headless.md` and `network.md` carry "Decided, not built". Nothing in
+  today's code changes.
 - **2026-10-29 — a repository keeps its identity across rename, move and re-clone (ruling 22 D2a, G110/G141; branch
   `feat/project-remote-identity`).** The hook adds a hashed, per-install-salted `remote.origin.url` to its D2
   observation; continuity, project birth and project activity read it beside the path keys; a moved Claude Code notes
@@ -2554,4 +2562,67 @@ A whole row moves to DONE only after its remaining implementation and required a
     71 pages cite one, 6 rest on them alone, 14 lose the "2+ conversations" rung under the new count; 114 of 18,645
     located claims rest only on them and 130 carry a stored `user` span inside one. **Revisit** if an agent gets a way
     to mark a line as the person's verbatim words that Cicada can verify.
-
+51. **One memory on every device: one home orders every write, every computer holds a replica, the phone is a full
+    device, and the devices meet at an end-to-end-encrypted relay (owner, 2026-10-29: every decision in §6–§7 of
+    [`docs/plans/2026-10-29-g132-sync-engine.md`](../plans/2026-10-29-g132-sync-engine.md); G132, amends G181's
+    headless rail, ruling 28's "no bank of its own", ruling 32's tunnel line and ruling 38 §2; phase 0 records it,
+    nothing is built).** Owner: *"Changing the 'main machine' should be easy and all machines should have the same copy
+    of memory … for avg user that wants to just download the cicada app, also downloading tailscale might be friction …
+    My phone should be another device in the network, not one that independently syncs to [each computer]
+    separately."* **a — The home and its replicas.** Every computer may hold a full replica of the bank and answers
+    reads from it. **Exactly one replica, the home, applies writes, mints ids, commits and runs Sleep**; its history
+    only grows (no rebase, no force). Every other device's write is a **transaction** — `{idempotency key, device,
+    bank_id, base_seq, tool, args}` — kept in that device's outbox and applied by the home **through the same tool body
+    it runs today** (`/tools/call`), so the id rule, write admission, scrub and staging, the demo guard and authorship
+    hold by construction; a transaction is a tool call, never a file diff. A transaction that no longer applies is
+    rejected with a reason. A replica only fast-forwards and never commits; **nothing is ever merged by git or a file
+    syncer.** The home is switched from **the Sleep page**, which names the device that consolidates now, with every
+    other device's lag and whether it is online (and `cicada home move <device>`): a signed hand-off record is the old
+    home's last commit. **Take-over from a lost home needs the person's confirmation, with the replication lag shown
+    first**; an old home that returns becomes a replica and its later commits are offered back as transactions, never
+    merged. "Who consolidates" and "who orders writes" are one concept and are never split. Ruling 4 is untouched: Sleep
+    runs only on the home, scheduled runs under the person's switch as today. **Unset/off, nothing changes:** a
+    single-machine install has no relay, no replica mode and no new process. **b — The phone is a full device (reverses
+    ruling 38 §2).** It holds a partial replica, answers the inbox and holds conversations — first through the Claude and
+    ChatGPT apps over the G135 connector, then optionally a chat in the Cicada app on the person's own plan — every
+    write a transaction like a computer's. Its token stays bound to its Secure-Enclave key (G212's `device_proof`), now
+    with a full device's scope; **revoking any device removes it from the device group and rotates the device-group
+    key.** **c — The relay (amends the G181 rail).** Every device dials **out**; nothing on a device listens on a public
+    port. The relay is **end-to-end encrypted**: it sees only ciphertext, sizes, timing and device ids — never a page, a
+    transcript or a token — and it cannot read or forge memory. Its mailbox stores and forwards, bounded and expiring,
+    for a home that is asleep and a phone that was off. Devices talk directly on a LAN or tailnet when they can;
+    Tailscale stays supported and optional. The relay is **hosted by default and self-hostable** (one container on a
+    machine with a public address, its URL pasted in Settings). **Choosing a host, an account, a domain or any spend is
+    the owner's decision, and nothing goes live without the owner's OK.** The G135 connector's public address may live
+    at the relay, forwarded to the person's devices over their outbound connection; the relay stays blind there by
+    **TLS passthrough** (it routes on the server name; the certificate and decryption live on the device), **never by
+    terminating TLS**. **d — The bank's state is the bank's.** The consolidation queue (the replica's `processed: false`
+    episodes), the inbox and Sleep's status (running, stage, last run, schedule — a status frame the home publishes) are
+    the same on every device at the same sequence; "Sleep now" pressed anywhere is a transaction to the home. What is
+    still on its way (this device's outbox, the relay mailbox's count per sending device) is shown beside the queue,
+    never mixed into it. **Rails amended, old words → new (each takes effect when the phase that builds it ships;
+    until then the old words describe the code):** (1) CLAUDE.md, Headless: *"a server is its bank's one writer"* →
+    the bank's **home** is its one writer (a server or any computer), and every other computer may hold a read-only
+    replica it fast-forwards. (2) *"Another machine is a client (`CICADA_API_BASE`, or the app's `api_base` file, ruling
+    28) with its own revocable device token and no bank of its own"* → another machine keeps its own revocable device
+    token and may hold **a replica** of the bank; its writes are transactions to the home; it never has a second
+    writable bank of the same memory. (3) *"reach from another machine is an overlay the person runs (never a public
+    port, never funnel — only the G135 listener may be, by the person, ruling 32)"* → reach is the end-to-end-encrypted
+    relay every device dials out to, or directly on a LAN or tailnet the person runs; still **no device listens on a
+    public port**, and the G135 listener's public address may be the relay's, by TLS passthrough — the person's own
+    funnel (ruling 32: *"The person runs a public tunnel with a stable hostname (Tailscale Funnel or ngrok) **to the
+    G135 listener only**"*) stays an option, never a requirement. (4) Ruling 38 §2: *"**2 — Phone.** Stays
+    capture-only."* and *"Reading memory on the phone goes through the Claude and ChatGPT apps over the G135 connector,
+    or a Shortcut calling `/v1` with an agent token."* → the phone is a full device with a partial replica; it reads
+    and writes like a computer, and the AI apps over G135 are its first conversation path. **Open, decided in the
+    build, never assumed (G132's phase gates):** how a device gets a TLS certificate for a relay-issued hostname under
+    TLS passthrough; the mailbox's bounds and expiry; how the device-group key is distributed at pairing and rotated on
+    revoke; the phone's partial-replica scope; the relay's stack (measured in phase 3); what happens to a transaction the
+    home rejects while its device is offline. **Why.** In practice the owner ran two unrelated banks — two inboxes, two
+    queues, two graphs that nothing converges (G202 row 6) — because a client of G181's single primary loses its memory
+    whenever the primary sleeps, and reaching it needs a VPN on every device, the phone included. Linear's sync engine
+    keeps one orderer and moves everything else to the edges; Cicada's invariants (the id rule, write admission, Sleep's
+    single mind, "contradictory facts can merge cleanly") all assume one orderer, so the plan keeps it and makes it
+    movable. **Revisit** a if a measured workload needs two devices to apply writes while partitioned; b if a lost phone's
+    replica is found readable by anyone but the person; c if the relay is ever found to see plaintext or to need TLS
+    termination to work.

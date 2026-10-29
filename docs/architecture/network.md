@@ -307,7 +307,8 @@ fetch of this machine's own served `/healthz` (no token, no redirect, no proxy e
 read from their ServeConfig, never a URL a request names, so it is not a `net_guard` fetch of someone else's page and no
 fetch gate applies; it runs only on the page's open or the person's click. No hosted relay sits in the path: a relay
 (T3 Connect's shape) would put a third party in front of the bank, give it a stable public hostname, and let it mint
-credentials. A paired phone's token is bound to a key in its Secure Enclave (`api.md`, "Key-bound device tokens"), so a
+credentials (the end-to-end-encrypted relay decided for G132, which sees only ciphertext and mints nothing, is a
+different shape — "Decided, not built", below). A paired phone's token is bound to a key in its Secure Enclave (`api.md`, "Key-bound device tokens"), so a
 token copied off the overlay is useless.
 
 **A failed poll is recorded, not raised** (`sync_state.record_error`) and surfaces per-channel as
@@ -526,5 +527,47 @@ X and Instagram stay external. A video's picture is the backend's stored preview
 longer loads it from the provider. The app itself makes **no** network call to classify: oEmbed runs
 only on the ingest/enrich path, under the gates that path already has, and the three new
 provider calls take the rail's own 4 s / ≤ 512 KB numbers rather than the older, looser `_TIMEOUT`.
+
+## Decided, not built (G132, ruling 51)
+
+Everything above describes what ships. The owner decided on 2026-10-29 ([TODO ruling 51](../goals/TODO.md),
+[the plan](../plans/2026-10-29-g132-sync-engine.md)) how the person's devices will reach each other without a VPN;
+none of it is built, and until G132's phase 3 ships, reach is the overlay described above. The topology it serves — one
+home, replicas, transactions — is in [`headless.md`](headless.md), "Decided, not built".
+
+**Every device dials out.** Each device (the home, every other computer, the phone) opens an outbound connection to a
+relay, which forwards frames between that person's own devices. **Nothing on a device listens on a public port**; the
+backend's loopback bind is unchanged. NATs and captive networks do not matter, because no device is ever dialled.
+**Direct when possible:** on the same LAN or tailnet the devices talk directly and the relay is the fallback (the way
+Tailscale's own DERP is). Tailscale stays supported and optional; it stops being required.
+
+**The relay's trust model: untrusted by design.** Frames are **end-to-end encrypted** to the person's devices with the
+bank's device-group key, carried by pairing (the QR that exists today). The relay sees **only ciphertext, sizes, timing
+and device ids** — never a page, a transcript or a token — and it **cannot read or forge memory**: a frame it alters or
+invents fails to decrypt or verify on the device, and the home still checks every transaction's token and applies it
+through the tool bodies. No plaintext memory leaves the person's devices. Revoking a device removes it from the device
+group and **rotates the group key**, so a revoked device's key opens nothing sent afterwards. The relay mints no
+credential: pairing, device tokens and the phone's Secure-Enclave key binding (`api.md`) stay between the devices.
+
+**The mailbox.** For a home that is asleep and a phone that was off, the relay stores and forwards: a device's
+transactions wait there, encrypted, and are delivered when the home reconnects; deltas wait the same way. The mailbox is
+**bounded and expiring**. Its count per sending device is metadata the relay already sees, and the queue view on every
+device shows it beside the consolidation queue, never as content.
+
+**Hosted by default, self-hostable.** Cicada is to run one relay so that downloading the app is the whole setup, and
+anyone can run the same relay themselves — one container on a machine with a public address — and paste its URL in
+Settings; either way a self-hosted relay is where the devices meet, not a VPN. **Choosing a host, an account, a domain or
+any spend is the owner's decision, and nothing goes live without the owner's OK.**
+
+**The remote connector through the relay.** The G135 listener's public address (what claude.ai and ChatGPT call,
+ruling 32) may live at the relay and be forwarded to the person's devices over their outbound connection, so the person
+needs no funnel and no Tailscale. The relay stays blind here by **TLS passthrough** — it routes on the server name, and
+the certificate and the decryption live on the device — **never by terminating TLS**. Reads are answered by any online
+replica, writes are transactions queued for the home. The person's own funnel to the listener stays an option.
+
+**Open, decided in the build (the G132 row's phase gates):** how a device gets a TLS certificate for a relay-issued
+hostname under TLS passthrough; the mailbox's bounds and expiry; how the device-group key is distributed at pairing and
+rotated on revoke; the relay's stack (a Durable Object per bank, a small Python/Go websocket relay, or iroh — measured in
+phase 3); what happens to a transaction the home rejects while its device is offline; the phone's partial-replica scope.
 
 ---

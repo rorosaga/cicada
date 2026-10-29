@@ -10,6 +10,8 @@ ships.
 **One primary.** The server's backend is its bank's only git writer and runs its Sleep. Every other device is a
 client of its API (phase 2: hooks, MCP and CLI; phase 3: the app). Nothing syncs a bank by git merge or by a file syncer: two writers break the episode
 id rule (max-suffix+1 per local directory), the read-modify-write state files and Sleep's single mind.
+What the owner decided next — a movable home, replicas on every computer, a relay — is not built; it is at the end of
+this page ("Decided, not built").
 
 **Nothing listens beyond loopback.** The service binds `127.0.0.1` only. Reaching it from another machine is an
 overlay the person runs and Cicada never configures: on a tailnet, `tailscale serve --bg --https=443
@@ -382,3 +384,53 @@ posts its workspace observations with each capture); a client command that reads
 Linux gaps: `sips` is macOS-only, so image decode and site-capture thumbnails fail with `DecodeError` and those
 features degrade. The Neural Engine model is Apple-only. Every app-side reader (browsers, Notes, Calendar, Contacts,
 Messages, watched folders) stays on the Mac by design.
+
+## Decided, not built (G132, ruling 51)
+
+Everything above describes what ships. This section records what the owner decided on 2026-10-29
+([TODO ruling 51](../goals/TODO.md), [the plan](../plans/2026-10-29-g132-sync-engine.md), the G132 row's phases); none of
+it is built, and until each phase ships the topology above is the one that runs. Unset or off, nothing here changes a
+single-machine install: no relay, no replica mode, no new process.
+
+**The home and its replicas.** The "one primary" above becomes **the home**: exactly one replica of the bank applies
+writes, mints ids (the id rule unchanged — at apply time, under the same lock), commits and runs Sleep. It may be a
+server or any of the person's computers. Every other computer may hold **a full replica** — the bank's git checkout and
+its derived index — and answers reads from it (recall, the graph, `cicada_ask`'s retrieval, the app's pages, the MCP
+read tools), so memory keeps working with the home asleep or the network gone. A replica only **fast-forwards**: it
+asks for the home's commits since its own sequence number and never commits, so a fast-forward always succeeds and
+nothing is ever merged by git or a file syncer. Its derived index updates from the changed paths, as it is rebuilt from
+files today.
+
+**Writes are transactions.** On a device that is not the home, every write — a capture, a save, an inbox answer, a
+claim written or withdrawn, a page edit, a backlog item — is `{idempotency key, device, bank_id, base_seq, tool, args}`,
+kept in that device's outbox (the hook spool and the app's outbox, generalised) and applied by the home **through the
+same tool body it runs today** (`/tools/call`). Scrub, staging, the demo guard, authorship and write admission therefore
+apply at the home by construction; a transaction is a tool call, never a file diff. One that no longer applies (the
+inbox item was answered elsewhere) is rejected with a reason. Capture never blocks on the network: an unreachable home
+queues, it does not fail.
+
+**The bank's state is the bank's.** The consolidation queue (the replica's `processed: false` episodes), the inbox and
+Sleep's status (running, its stage, the last run, the schedule — a small frame the home publishes) read the same on
+every device at the same sequence. "Sleep now" pressed anywhere is a transaction to the home. What is still on its way
+— this device's outbox, the relay mailbox's count per sending device — is shown beside the queue, never mixed into it.
+Ruling 4 is untouched: Sleep runs only on the home, a scheduled run under the person's switch as today.
+
+**Moving the home.** The Sleep page names the device that consolidates now, with its state, and every other device with
+how far behind it is and whether it is online; picking another and confirming (or `cicada home move <device>`) is a
+hand-off: the target catches up, the current home stops admitting transactions, finishes or parks a running Sleep and
+writes a signed hand-off record `{bank_id, seq, from, to, at}` as its last commit; the target fast-forwards to it,
+verifies it and starts admitting. Queued transactions carry `bank_id`, not an address, so they re-target by themselves.
+"Who consolidates" and "who orders writes" are one concept and never split. **A lost home** is taken over by another
+replica only after the person confirms, with the replication lag shown first; an old home that comes back sees the
+newer hand-off and becomes a replica, its later commits offered back as transactions, never merged.
+
+**Reach and the phone.** Every device dials out to the relay (`network.md`, "Decided, not built"), or reaches the others
+directly on a LAN or tailnet; no device listens on a public port, and the backend's own loopback bind is unchanged.
+The phone becomes a full device with a partial replica (its scope is open; the plan proposes the inbox, the entity
+index and recently opened pages, the rest on open), its writes transactions like a computer's, its token still bound to
+its Secure-Enclave key; revoking any device rotates the device-group key.
+
+**Open, decided in the build (the G132 row's phase gates):** what happens to a transaction the home rejects while its
+device is offline; the mailbox's bounds and expiry; how the device-group key is distributed at pairing and rotated on
+revoke; the relay's stack (measured in phase 3); how a device gets a TLS certificate for a relay-issued hostname under
+TLS passthrough; the phone's partial-replica scope.

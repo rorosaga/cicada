@@ -206,7 +206,8 @@ spent by the first redeem in the statement that checks it, is kept only as its s
 bank (`NO_BANK_WRITE`). **Hyrum, mode A:** stable — the paths, `qr`'s three keys and `v: 1`, the code's alphabet and
 `XXXX-XXXX` spelling, `state`'s four words; not stable — the 10-minute life, the five-code cap, the rate.
 
-**A phone is capture-only; the QR knows this machine's tailnet name (G212, owner 2026-10-22).**
+**A phone is capture-only; the QR knows this machine's tailnet name (G212, owner 2026-10-22).** (TODO ruling 51,
+2026-10-29, makes the phone a full device in G132's phase 4 — decided, not built; until then this is what runs.)
 - **Kinds.** `POST /devices/pairing` takes `kind: "capture"` (the default — a phone) or `"full"` (another computer);
   the answer adds `kind` and the pairing and device wires carry it. `cicada device add` and `POST /devices` issue
   `full`, as before; a store from before the column reads every device as `full`. A **capture** token reaches exactly
