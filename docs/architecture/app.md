@@ -934,8 +934,12 @@ QR is up (`TelegramChats.followQR`), so a refreshed QR replaces itself and a sca
 sheet mid sign-in stops it at the backend (`abandonSignIn`): a QR on screen or still being asked for (stopped as it
 lands), a code or a two-step password waiting — never a connected session. *Use phone number instead* (a `TextButton`, DR-40) keeps the old steps: a country button (flag + dial
 code; `PhoneCountry`, defaulting to `Locale.current.region`) opening a searchable country list as a page of the sheet,
-the national number in the native setup field (DR-76) grouped as typed, sent as `+<dial><digits>` (a trunk `0`
-dropped); then the code Telegram sends in five cells (`OneTimeCodeField`, `.oneTimeCode`, the fifth digit submits);
+the national number in the native setup field (DR-76) grouped as typed, sent as `+<dial><digits>` — a trunk `0`
+dropped, except where the zero is part of the number (CI, BJ, CG, IT, SM, VA); a pasted or autofilled "+34…" or
+"0034…" re-picks the country from its code and keeps the national part. ⏎ is the sheet's default button alone, and
+`TelegramChats` refuses a second send while one is in flight. Then the code Telegram sends, one cell per digit
+(`OneTimeCodeField`, `.oneTimeCode`, the last digit submits) sized by the status's `codeLength` — the backend reads
+it from Telegram's answer (`TgSentCode.length`, `sent.type.length`) — else five;
 the two-step password when the account has one, after either path. Switching between QR and phone clears the last
 way's refusal (`TelegramChats.clearError`). Connected: "Connected. Tick the chats Cicada may read.", the one-to-one chats only (no group, no channel),
 each with *Read history* and the tick; ticking opens a system alert (*Did they agree?*) carrying the backend's

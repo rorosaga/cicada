@@ -32,9 +32,41 @@ final class ConnectSheetTests: XCTestCase {
         XCTAssertEqual(uk.international("07700 900123"), "+447700900123")
     }
 
+    func testAnInternationalNumberRepicksTheCountry() throws {
+        let us = PhoneCountry.default(region: "US")
+        for typed in ["+34 612 345 678", "0034 612 345 678", "+34612345678"] {
+            let (country, rest) = try XCTUnwrap(PhoneCountry.international(typed, preferring: us), typed)
+            XCTAssertEqual(country.region, "ES", typed)
+            XCTAssertEqual(PhoneCountry.digits(rest), "612345678", typed)
+            // Composed from any country, never "+3434…".
+            XCTAssertEqual(us.international(typed), "+34612345678", typed)
+        }
+        XCTAssertNil(PhoneCountry.international("612 345 678"))
+        // A shared code keeps the current country; otherwise its main region; the longest code wins.
+        let canada = PhoneCountry.default(region: "CA")
+        XCTAssertEqual(PhoneCountry.international("+1 416 555 0100", preferring: canada)?.0.region, "CA")
+        XCTAssertEqual(PhoneCountry.international("+1 212 555 0100")?.0.region, "US")
+        XCTAssertEqual(PhoneCountry.international("+44 7700 900123")?.0.region, "GB")
+        XCTAssertEqual(PhoneCountry.international("+1 268 555 0100")?.0.region, "AG")
+        XCTAssertEqual(PhoneCountry.international("+351 912 345 678")?.0.region, "PT")
+    }
+
+    func testTheLeadingZeroIsKeptOnlyWhereItIsPartOfTheNumber() {
+        XCTAssertEqual(PhoneCountry.default(region: "CI").international("07 01 02 03 04"), "+2250701020304")
+        XCTAssertEqual(PhoneCountry.default(region: "BJ").international("01 97 00 00 00"), "+2290197000000")
+        XCTAssertEqual(PhoneCountry.default(region: "CG").international("06 123 4567"), "+242061234567")
+        XCTAssertEqual(PhoneCountry.default(region: "IT").international("06 1234 5678"), "+390612345678")
+        XCTAssertEqual(PhoneCountry.default(region: "SM").international("0549 123456"), "+3780549123456")
+        XCTAssertEqual(PhoneCountry.default(region: "VA").international("06 6982"), "+39066982")
+        XCTAssertEqual(PhoneCountry.default(region: "IT").international("312 345 6789"), "+393123456789")
+        // Elsewhere the zero is a trunk prefix.
+        XCTAssertEqual(PhoneCountry.default(region: "GB").international("07700 900123"), "+447700900123")
+        XCTAssertEqual(PhoneCountry.default(region: "FR").international("06 12 34 56 78"), "+33612345678")
+    }
+
     func testTheNationalNumberIsLightlyGrouped() {
         XCTAssertEqual(PhoneCountry.formatNational("612345678"), "612 345 678")
-        XCTAssertEqual(PhoneCountry.formatNational("+34 (612)-34"), "346 123 4")
+        XCTAssertEqual(PhoneCountry.formatNational("(612)-34"), "612 34")
         XCTAssertEqual(PhoneCountry.formatNational(String(repeating: "9", count: 20)).filter(\.isNumber).count, 15)
         XCTAssertFalse(PhoneCountry.plausible("12"))
         XCTAssertTrue(PhoneCountry.plausible("612 3"))
@@ -53,7 +85,40 @@ final class ConnectSheetTests: XCTestCase {
     func testTheCodeFieldKeepsOnlyDigitsUpToItsLength() {
         XCTAssertEqual(OneTimeCodeField.accept("12a34", length: 5), "1234")
         XCTAssertEqual(OneTimeCodeField.accept("Code: 12345 678", length: 5), "12345")
-        XCTAssertEqual(OneTimeCodeField.telegramLength, 5)
+        XCTAssertEqual(OneTimeCodeField.defaultLength, 5)
+    }
+
+    @MainActor
+    func testTheCodeFieldTakesTheLengthTelegramReported() async throws {
+        let six = try JSONDecoder().decode(TelegramStatusAnswer.self,
+                                             from: Data(#"{"state": "code_sent", "codeLength": 6}"#.utf8))
+        XCTAssertEqual(six.codeLength, 6)
+        let api = FakeChatSourcesAPI()
+        api.telegramStatuses = [six]
+        let model = TelegramChats(api: api)
+        await model.refresh()
+        XCTAssertEqual(model.codeLength, 6)
+        api.telegramStatuses = [TelegramStatusAnswer(state: "code_sent")]
+        await model.refresh()
+        XCTAssertEqual(model.codeLength, 5)
+    }
+
+    /// One ⏎ can reach a field's submit and the default button: the second send is refused while the first is in
+    /// flight, so Telegram is asked for one code.
+    @MainActor
+    func testOneReturnSendsThePhoneOnce() async {
+        let api = FakeChatSourcesAPI()
+        api.holdConnect = true
+        let model = TelegramChats(api: api)
+        // The two calls one Return makes: each spawns its task in the same turn, as the field's submit and the
+        // default button do.
+        let first = Task { await model.connect(phone: "+34612345678") }
+        let second = Task { await model.connect(phone: "+34612345678") }
+        while api.connectGate == nil { await Task.yield() }
+        await second.value
+        api.connectGate?.resume()
+        await first.value
+        XCTAssertEqual(api.telegramConnects, 1)
     }
 
     func testAConnectorStepHasOnePrimary() {

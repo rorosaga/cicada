@@ -239,23 +239,21 @@ struct TelegramPanel: View {
             SecureField(Copy.Chats.passwordPrompt, text: $password)
                 .textFieldStyle(.roundedBorder)
                 .controlSize(.large)
-                .onSubmit(sendPassword)
             footer
             ConnectSheetActions(primary: Copy.Connect.continueStep, primaryDisabled: password.isEmpty || model.busy,
                                 onPrimary: sendPassword, onCancel: onDone)
         } else if model.asksCode {
             stepLine(Copy.Chats.codeHow)
-            OneTimeCodeField(code: $code) { _ in sendCode() }
+            OneTimeCodeField(code: $code, length: model.codeLength) { _ in sendCode() }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, CicadaTheme.spacingSM)
             footer
             ConnectSheetActions(primary: Copy.Connect.continueStep,
-                                primaryDisabled: code.count < OneTimeCodeField.telegramLength || model.busy,
+                                primaryDisabled: code.count < model.codeLength || model.busy,
                                 onPrimary: sendCode, onCancel: onDone)
         } else if usePhone {
             stepLine(Copy.Chats.phoneHow)
-            PhoneNumberEntry(country: $country, national: $national, onPickCountry: { page = .countries },
-                             onSubmit: sendPhone)
+            PhoneNumberEntry(country: $country, national: $national, onPickCountry: { page = .countries })
             footer
             ConnectSheetActions(leading: AnyView(TextButton(title: Copy.Chats.useQR, flushLeading: true) {
                                     usePhone = false
@@ -343,7 +341,7 @@ struct TelegramPanel: View {
     }
 
     private func sendCode() {
-        guard code.count >= OneTimeCodeField.telegramLength, !model.busy else { return }
+        guard code.count >= model.codeLength, !model.busy else { return }
         let typed = code
         code = ""
         Task { await model.submit(code: typed) }

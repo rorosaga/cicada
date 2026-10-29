@@ -24,12 +24,47 @@ struct PhoneCountry: Identifiable, Hashable, Sendable {
 
     var dialLabel: String { "+\(dial)" }
 
-    /// The full international number the backend is handed: `+`, the dial code, the national digits (a leading
-    /// trunk `0` dropped — it is never dialled from abroad).
+    /// The full international number the backend is handed: `+`, the dial code, the national digits. A leading `0`
+    /// is a trunk prefix, never dialled from abroad, and is dropped — except where the zero belongs to the number
+    /// itself (`keepsLeadingZero`). Text that is already international ("+34…", "0034…") is read as such.
     func international(_ national: String) -> String {
+        if let (country, rest) = Self.international(national, preferring: self) {
+            return country.international(rest)
+        }
         var digits = Self.digits(national)
-        if digits.hasPrefix("0") { digits.removeFirst() }
+        if digits.hasPrefix("0"), !Self.keepsLeadingZero.contains(region) { digits.removeFirst() }
         return "+\(dial)\(digits)"
+    }
+
+    /// Regions whose numbers keep their leading zero in international form: Côte d'Ivoire (10 digits since 2021),
+    /// Benin (the 01 prefix since 2024), Congo-Brazzaville, and Italy's, San Marino's and the Vatican's landlines (no
+    /// trunk prefix there). Elsewhere a leading 0 is the national trunk prefix.
+    static let keepsLeadingZero: Set<String> = ["CI", "BJ", "CG", "IT", "SM", "VA"]
+
+    /// Shared calling codes resolve to their main region unless the current country already has that code.
+    private static let primaryRegion: [String: String] = [
+        "1": "US", "7": "RU", "44": "GB", "39": "IT", "47": "NO", "61": "AU", "212": "MA", "262": "RE", "290": "SH",
+        "358": "FI", "590": "GP", "599": "CW",
+    ]
+
+    /// Text typed, pasted or autofilled with an international prefix ("+" or "00"): the country its calling code
+    /// names (the longest code that matches, the current country when it shares that code) and the national digits
+    /// after it. nil when the text is not international or no code matches.
+    static func international(_ text: String, preferring current: PhoneCountry? = nil) -> (PhoneCountry, String)? {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        let all = digits(trimmed)
+        let rest: String
+        if trimmed.hasPrefix("+") { rest = all } else if all.hasPrefix("00") { rest = String(all.dropFirst(2)) } else { return nil }
+        for n in stride(from: min(4, rest.count), through: 1, by: -1) {
+            let code = String(rest.prefix(n))
+            let matches = table.filter { $0.dial == code }
+            guard !matches.isEmpty else { continue }
+            let picked = matches.first { $0 == current }
+                ?? primaryRegion[code].flatMap { r in matches.first { $0.region == r } }
+                ?? matches[0]
+            return (picked, String(rest.dropFirst(n)))
+        }
+        return nil
     }
 
     // MARK: - The list

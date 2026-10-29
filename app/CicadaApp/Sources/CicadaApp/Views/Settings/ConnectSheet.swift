@@ -14,7 +14,8 @@ import SwiftUI
 ///   its own native field (DR-76: setup sheets keep the native field), grouped as typed; the country list is a page of
 ///   the same sheet (`CountryList`), searchable, defaulting to the Mac's region (`PhoneCountry`).
 /// - **One-time codes as cells.** `OneTimeCodeField`: one real field (`.oneTimeCode`, paste and autofill work) drawn
-///   as five cells; the next empty cell carries the focus ring (DR-5, use 1), and the last digit submits.
+///   as one cell per digit (the length the service reported, else five); the next empty cell carries the focus ring
+///   (DR-5, use 1), and the last digit submits.
 
 // MARK: - Actions
 
@@ -82,7 +83,6 @@ struct PhoneNumberEntry: View {
     @Binding var country: PhoneCountry
     @Binding var national: String
     let onPickCountry: () -> Void
-    var onSubmit: () -> Void = {}
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -96,9 +96,15 @@ struct PhoneNumberEntry: View {
                 .monospacedDigit()
                 .textContentType(.telephoneNumber)
                 .focused($focused)
-                .onSubmit(onSubmit)
-                // Grouped as typed; formatting in the binding's setter does not reach a field being edited.
+                // ⏎ is the sheet's default button alone — no onSubmit, so one press sends once.
+                // Grouped as typed; formatting in the binding's setter does not reach a field being edited. A number
+                // pasted or autofilled with its "+34" or "0034" re-picks the country and keeps the national part.
                 .onChange(of: national) { _, typed in
+                    if let (picked, rest) = PhoneCountry.international(typed, preferring: country) {
+                        country = picked
+                        national = PhoneCountry.formatNational(rest)
+                        return
+                    }
                     let grouped = PhoneCountry.formatNational(typed)
                     if grouped != typed { national = grouped }
                 }
@@ -176,11 +182,11 @@ private struct CountryRow: View {
 /// One field drawn as `length` cells. Typing, pasting or autofill fill the cells left to right; a backspace steps
 /// back; the last digit calls `onComplete`.
 struct OneTimeCodeField: View {
-    /// Telegram's login codes are five digits.
-    static let telegramLength = 5
+    /// When the service does not say how long its code is (Telegram's login codes are usually five digits).
+    static let defaultLength = 5
 
     @Binding var code: String
-    var length = telegramLength
+    var length = defaultLength
     let onComplete: (String) -> Void
     @FocusState private var focused: Bool
 
