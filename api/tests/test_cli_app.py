@@ -334,6 +334,9 @@ PERSON_ARGV = {
     "device add": ["device", "add", "laptop"],
     "device revoke": ["device", "revoke", "ab12cd34"],
     "device pair": ["device", "pair"],
+    # G132 phase 2: moving the home and taking it over act as the person.
+    "home move": ["home", "move", "bravo-laptop"],
+    "home take-over": ["home", "take-over", "--yes"],
     "agent add": ["agent", "add", "Texting Agent"],
     "setup": ["setup"],
     "agent revoke": ["agent", "revoke", "ab12cd34"],

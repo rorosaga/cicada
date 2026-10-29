@@ -928,7 +928,7 @@ def promote(memory_path: Path, rec) -> None:
     _write_json(_sync_root(create=True) / PROMOTE, {
         "bank": name, "bankPath": str(path), "bankId": bank_id, "term": rec.term, "me": my_device_id(),
         "schedule": frame.get("schedule"), "rows": registry(memory_path), "at": time.time()})
-    replica.stop(timeout=5)
+    replica.stop(timeout=0.2)   # the process is started again in a moment: no thread needs waiting for
     _finish_promote()
     restart_in_place()
 
@@ -1181,7 +1181,7 @@ def take_over(memory_path: Path, *, behind_seen: int | None) -> dict:
     rec_now = record(memory_path)
     lost = rec_now.to if rec_now is not None else (next((r.get("id") for r in load_mirror(memory_path)
                                                           if r.get("is_self")), None))
-    replica.stop(timeout=5)
+    replica.stop(timeout=0.2)   # the process is started again in a moment: no thread needs waiting for
     with replica.MODE_LOCK, replica_guard.applying():
         seq = sync_log.head_seq(memory_path) or 0
         rec = home_record.make(bank_id=pin.id if pin is not None else "", term=term(memory_path) + 1,

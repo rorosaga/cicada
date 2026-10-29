@@ -703,7 +703,16 @@ strip (`app.md`). `POST /sync/replica/recopy` that races "Stop keeping a copy" a
 sentence (review of #567), never a 500.
 
 **Measured** (owner-scale synthetic bank, two real backends on loopback, this Mac at nice 10; see the PR):
-MEASURED_HANDOFF
+12 hand-offs alternating between two computers on an 8,000-entity / 9,000-episode / 470-question bank, a save posted
+every 100 ms to each computer's own door throughout. **Hand-off, the request to the new home admitting: p50 6.0 s, p95
+6.6 s** (max 7.8) — closing, parking, carrying and committing the record p50 1.1 s / p95 2.5 s; the new home's
+fast-forward, check, promotion and restart p50 3.8 s / p95 4.0 s (most of it the backend starting again). **Write
+downtime, no write admitted anywhere: p50 8.7 s, p95 10.5 s** (max 11.3) — longer than the hand-off because the copy's
+own door is also restarting and its first forwarded saves wait for read-your-writes; through the old home's door p50
+8.0 s / p95 9.2 s, its own restart included. Nothing is lost in that window: the doors answer 503 and the outboxes and
+spools send again. A write on a publishing home pays for its journal line: `/tools/call` (a backlog item, commits alone)
+p50 88.2 / p95 104.9 ms with the journal vs 87.5 / 102.8 without it, 85.0 / 98.3 ms with publishing off (interleaved,
+n=80 each, in process).
 
 Known limits of phase 2: a phone paired with an old home keeps sending there; its captures reach the new home only
 while that computer is up and follows (a copy accepts only its own token for a write, so a phone's post is refused —

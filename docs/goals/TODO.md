@@ -21,7 +21,7 @@
   accepts every device. Take-over only on a copy whose home does not answer, on the person's OK on the lag shown; a
   returning old home sets its later commits aside (a ref, never merged) and offers them back as calls and episodes,
   counted in words. Rail (1) of ruling 51 takes effect (CLAUDE.md, Headless). Three-machine test: the move, a queued
-  transaction re-targeting, a crash on each side mid-hand-off, a take-over, the old home's return. MEASURED_TODO
+  transaction re-targeting, a crash on each side mid-hand-off, a take-over, the old home's return. Hand-off p50 6.0 s / p95 6.6 s; write downtime p50 8.7 s / p95 10.5 s (owner-scale synthetic bank, loopback).
   Report: `reports/g132-phase2.md`.
 - **2026-10-29 — a computer keeps a copy (ruling 51a/d/e2, G132 phase 1 PR B; branch `feat/g132-replica`).**
   Replica mode (`CICADA_REPLICA_OF` / `$CICADA_HOME/replica_of`, set by `PUT /sync/replica` with the home's pairing
