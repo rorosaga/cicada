@@ -1405,11 +1405,32 @@ agent reads (`agent_methods`), not an install.
   asks? Notify me*, at the first request; posted ids are remembered per viewer (`cicada.agentRequests.notified`). The
   review: per row the link-kind glyph (`LinkKindGlyph`), the link, its page (opens it), where it was found on hover
   (never an episode id), **Yes / No** answered alone (`POST /inbox/{id}/resolve` with `row`), optimistic with a toast.
-- **Entity card chips (G61):** `WhereToCheckChips` at the top of Content — the page's taken links (not proposals, not
-  notes) as chips: the site's own icon only where `iconSite` says the existing rule serves one (never on a person's page,
-  G159), else the link kind's glyph; click opens, right-click removes (`EntitySourceWrite .remove`), *Add* pastes one
-  (`EntitySourceAdd`). Read from `GET /entities/{id}/sources` when the card opens, held on the card. A `?` beside them
-  says how pages fade (Settings' Memory explainer moved here).
+- **The entity page, v2 (ruling 48 (3), (4), (7), (16), (17); DR-78…DR-81; part A, 2026-10-29).** The Content tab
+  draws `GET /entities/{id}`'s `blocks` top to bottom, the same for every type, and nothing folds: *In short*
+  (`PageInShort` — the served why-it-matters line and, under it, what a person's facts strip repeated: "N conversations
+  · the latest …"; Sleep's summary lands here in part B), *Where to check* (`WhereToCheckBox`, DR-79: one box of mention
+  rows — site in `textTertiary`, the link's own words in primary ink, its state in words on the trailing edge — a
+  person's rows drawing the link kind's glyph, never a site icon (G159); proposals one "N suggested links · Review" line
+  whose popover takes or drops each; at most five rows, then *All N* in a popover; a right-click removes; *Add a link*),
+  the type block (the brand block, `PageBrandBlock`, above the article when looks are what the page is about — two or
+  more, or no article — then the look tiles; a folder, a repository), *Ongoing* (`PageOngoing`, open happenings and
+  planned milestones on the Projects band's hollow node, at most five), the article carrying its beliefs, and
+  *References* (`PageReferences`, at most six numbered lines, then "N conversations and M web pages in all · who wrote
+  each change is in History", with a History link). **The article carries the beliefs (DR-80):** every line the
+  page's write-time provenance cites ends with a superscript per source (`CitationMarks`, `labelFont`, `textTertiary`,
+  a `cicada://cite/<n>?at=<offset>` link); a click opens a popover (`CitationPopover`: the kind — *You said*,
+  *<agent> replied*, *Looked up*, *From this conversation*, *Inferred* — when, where, the located words through
+  `QuoteBlock` (DR-18) and *Show in conversation* into the Reader, DR-31), read lazily from
+  `GET /entities/{id}/citations/{n}` and held in `CitationDetailCache`. Keys and VoiceOver: each cited line keeps its
+  sources as focusable chips in the gutter (the 🔗's place; ⏎ opens, Esc closes) and as named actions "Source N" on
+  the line. A page whose prose cites nothing yet draws its beliefs as one paragraph of sentences
+  (`PageBeliefSentences`): an inference worded "It seems that …", an ended one "(until March 2025)"; past twelve, "N
+  more in Perspectives". **Gone from the page:** the beliefs list, *Where this came from*, the person's *How you know*
+  and *What's happening*, the facts strip, *Details* and the empty *Looks* fold; *How it fades*, *Add a link* and *Add
+  a look…* live in the header's "…" menu. **One request on open:** the card no longer reads `/sources`, `/provenance`
+  or a person's fact claims when it opens — `/provenance` is read when History, Perspectives or Timeline opens — and
+  the Clusters column reads its page through the Store's memo, which now shares one read in flight per page
+  (`Store.entity`).
 - **Sleep's machines strip (G212):** under the room, `GET /devices/status` polled every `CicadaTiming.machinePoll`
   (30 s) while the page shows, held in memory: each machine by its own name (this server's Computer Name), a green dot
   while connected, how (Local · Tailscale · SSH · Local network), *N waiting*. A click opens that machine's queue in

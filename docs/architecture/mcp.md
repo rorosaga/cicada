@@ -949,8 +949,8 @@ saved resources.
 ---
 
 **The page's blocks for an agent (vision item 5, 2026-10-28).** `cicada_recall_detail` takes an optional `include`
-(a list from `page_blocks.INCLUDE`: `relevance`, `sources`, `coordinates`, `looks`, `ongoing`, `history`, or `blocks`
-for all): the same `page_blocks.build` data `GET /entities/{id}` serves the app, worded after the page under
+(a list from `page_blocks.INCLUDE`: `relevance`, `sources`, `coordinates`, `looks`, `ongoing`, `citations`,
+`history`, or `blocks` for all): the same `page_blocks.build` data `GET /entities/{id}` serves the app, worded after the page under
 `## Page blocks` in page order, one line per block and one per row (a source's state and when it was checked, an
 event's status and day with its claim id, each contributor's change count), and as `data.blocks` for the command
 line (`cicada get <entity> --include blocks`; `cli_map` row `get`). Additive (Hyrum): omitted, the reply is byte for
@@ -959,7 +959,11 @@ segment (G199 fencing). R12: the argument is in both doors' schemas. `history` i
 `history` is not offered** — the remote schema's enum leaves it out (G199 refuses it by schema), because no remote
 scope covers a page's per-commit history: `read`'s `cicada_timeline` is bank-wide ids and counts, and the per-page rows
 name models, sessions and commit words. Blame is not a block on either door. Without `sources`, an ongoing item in
-the person's own words is named, never quoted (`claims.is_persons_words`, R-PJ23).
+the person's own words is named, never quoted (`claims.is_persons_words`, R-PJ23). **`citations` (ruling 48 (16)):**
+the article's numbered sources as the app draws them — `[n] kind "title" (app, first – last)` for the first six, the
+counts, and on a page whose prose cites nothing yet its beliefs as sentences (an inference marked, an ended one with
+its day); without `sources`, a conversation's title (often its first words) and a belief in the person's own sentence
+are masked (`page_citations.for_caller`). Offered on both doors.
 
 **Prose item metadata (G118 sections, 1a-i).** `cicada_recall_detail` still returns
 the raw markdown, including compact scalar `section_provenance` frontmatter when

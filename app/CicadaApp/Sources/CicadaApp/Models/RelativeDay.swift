@@ -94,6 +94,11 @@ enum RelativeDay {
         format(day, template: "MMMd", locale: locale)
     }
 
+    /// "March 2025" — when something ended, inside a sentence (ruling 48 (16): what ended is said in its sentence).
+    static func fullMonthYear(_ day: ISODay, locale: Locale = .autoupdatingCurrent) -> String {
+        format(day, template: "yMMMM", locale: locale)
+    }
+
     /// "September 23" — what VoiceOver says ("You are here, today, September 23").
     static func spoken(_ day: ISODay, locale: Locale = .autoupdatingCurrent) -> String {
         format(day, template: "MMMMd", locale: locale)

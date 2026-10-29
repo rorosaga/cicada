@@ -17,6 +17,7 @@ from api import config, main
 from api.models.schemas import EntityResponse, PageBlocks
 from api.services import git_service, markdown_parser, mcp_tools, page_blocks
 from api.services.claims import Claim, write_claims
+from api.tests import page_citation_fixture as cites
 
 FIXTURE = Path(__file__).parent / "fixtures" / "page_blocks.json"
 TODAY = date(2026, 10, 28)
@@ -64,8 +65,11 @@ def _build(tmp_path: Path, monkeypatch) -> dict:
     monkeypatch.setattr(page_blocks, "looks", lambda mp, eid: [
         {"id": "2026-10-14-alpha-site", "title": "Alpha site", "site": "example.org", "day": "2026-10-14",
          "palette": ["#112233", "#F4F1EA"], "fonts": ["Inter"], "image": "/design/2026-10-14-alpha-site/image"}])
-    return page_blocks.build(tmp_path, "alpha-place", fm=_FM, claims=_claims(), relevance=_RELEVANCE,
-                             history_entries=_HISTORY, today=TODAY)
+    # Ruling 48 (16): the article's lines carry their write-time provenance, which the citations number.
+    cites.write_episodes(tmp_path)
+    fm = dict(_FM, section_provenance=cites.records(cites.BODY, tmp_path))
+    return page_blocks.build(tmp_path, "alpha-place", fm=fm, claims=_claims(), relevance=_RELEVANCE,
+                             history_entries=_HISTORY, today=TODAY, body=cites.BODY)
 
 
 def test_the_blocks_match_the_shared_fixture(tmp_path, monkeypatch):
@@ -80,7 +84,7 @@ def test_the_blocks_match_the_shared_fixture(tmp_path, monkeypatch):
 
 def test_what_each_block_holds(tmp_path, monkeypatch):
     b = _build(tmp_path, monkeypatch)
-    assert b["order"] == ["relevance", "sources", "coordinates", "looks", "ongoing", "history"]
+    assert b["order"] == ["relevance", "sources", "coordinates", "looks", "ongoing", "citations", "history"]
     assert [o["claimId"] for o in b["ongoing"]] == ["c-planned", "c-ongoing"], "open heads only, newest first"
     assert b["ongoing"][1]["verbatim"] is True and b["ongoing"][0]["target"] == "2026-12-01"
     assert b["coordinates"] == {"lat": 40.4168, "lon": -3.7038, "label": "Alpha Place", "source": "page"}

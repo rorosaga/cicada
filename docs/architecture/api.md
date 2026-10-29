@@ -53,7 +53,21 @@ type and the screenshot route, indexed once per `design` stamp), `ongoing` (open
 heads only, `verbatim` when the words are the person's own) and `history` (contributors with change counts and last
 day, `bySleep`; the rows are `history[]`, which gains `trigger` — the page's own manifest-line trigger — and `via`,
 the door it names: `sleep|app|agent|remote|inbox|sync|cicada|unknown`, so Sleep is a tag and the author the picture).
-Blame stays lazy (`/blame`); beliefs are not on open (the 2026-10-09 speed ruling). The wire is pinned on both sides
+Blame stays lazy (`/blame`); beliefs are not on open (the 2026-10-09 speed ruling). **`citations` (ruling 48 (16),
+`page_citations`, shape `blocks-2`):** `markers` as `[offset, n, …]` — one per article line or Key Fact the page's
+write-time G118 provenance (`section_provenance`, matched under each line's exact text guard) cites, `offset` the
+line's end in the served prose (Python `str` offsets, the app's `WikiRow` ranges), at most 3,000 (`markersTotal` the
+real count) — the first six `refs` (`n`, `kind` `conversation|web|page`, `title`, `origin`, `harness`,
+`correspondent`, `first`/`last` said, `episodeId`, `conversationId`; one reference per conversation, a session's or an
+import's episodes together, numbered in reading order), the counts behind References' closing line (`total`,
+`conversations`, `web`, `pages`), and — only when the prose cites nothing — up to twelve `beliefs` as sentences
+(`claimId`, `text`, `refs`, `until`, `inferred`, `verbatim`; `beliefsTotal` null when part of them is in the claims
+ledger, which the card never reads). Nothing is matched by similarity: which line a source backs was decided when the
+page was written; the numbering is derived on read and cached per page by its file, ledger and `episodes` stamps (cold
+p50 0.21 ms / p95 1.4 ms, held 0.03 ms on an owner-scale copy). **`GET /entities/{id}/citations/{n}?at=|claim=`** is
+a marker's popover, read when it opens: the reference plus the best evidence row's `evidenceKind`, its located words
+(`span`, a `ProvenanceSpan`) and `status`, and `lines` (how many lines cite it); 404 for a number the page does not
+have. The wire is pinned on both sides
 by `api/tests/fixtures/page_blocks.json` (`test_page_blocks.py`, `PageBlocksTests.swift`). **The route now has an
 ETag** (`page_blocks.card_etag`): a handful of `stat` calls — this page and its ledger, the owner page and its ledger,
 the `entities`, `episodes` and `design` directories by their own mtime (every bank write is a rename, which moves it),

@@ -704,11 +704,26 @@ final class Store {
     /// invalidated by a mutation. The answer is checked against both after the await: one from another bank is
     /// dropped (nil, nothing cached — a caller under the new bank asks again), and one that started before an
     /// invalidation is fetched again, so a pre-mutation body never repopulates the memo.
+    ///
+    /// Ruling 48 (a card open is one request): two readers of the same page at once — the Clusters column and the card
+    /// it hosts both ask as the column opens — share one read in flight instead of each fetching it.
     func entity(_ id: String) async -> Entity? {
         if let cached = entities[id] {
             touchEntity(id)
             return cached
         }
+        if let running = entityReads[id] { return await running.value }
+        let read = Task { @MainActor in await self.readEntity(id) }
+        entityReads[id] = read
+        let value = await read.value
+        entityReads[id] = nil
+        return value
+    }
+
+    /// The pages being read now, by id (`entity(_:)`'s one read in flight per page). Not observed: bookkeeping only.
+    @ObservationIgnored private var entityReads: [String: Task<Entity?, Never>] = [:]
+
+    private func readEntity(_ id: String) async -> Entity? {
         for _ in 0..<3 {
             let startBank = bank
             let startGeneration = entityGeneration

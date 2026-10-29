@@ -74,13 +74,15 @@ REMOTE_TOOLS: dict[str, dict] = {t["name"]: t for t in (
                                                      "part names the next call. Omit for the beginning."},
            # Vision item 5 (2026-10-28): the page's blocks — never its per-commit history, which no remote scope
            # covers (`page_blocks.REMOTE_INCLUDE`).
-           "include": {"type": "array", "maxItems": 6,
+           "include": {"type": "array", "maxItems": 7,
                        "items": {"type": "string",
-                                 "enum": ["blocks", "relevance", "sources", "coordinates", "looks", "ongoing"]},
+                                 "enum": ["blocks", "relevance", "sources", "coordinates", "looks", "ongoing",
+                                          "citations"]},
                        "description": "Also return what the page holds, as short blocks after it: `relevance` (why it "
                                       "matters to the person), `sources` (where to check, each with its state), "
                                       "`coordinates` (a place's stored position), `looks` (colours and type of a "
-                                      "saved design), `ongoing` (open happenings and planned milestones), or "
+                                      "saved design), `ongoing` (open happenings and planned milestones), "
+                                      "`citations` (the article's numbered sources), or "
                                       "`blocks` for all of them."}},
           ("entity_id",), read_only=True),
     _tool("cicada_get_perspective",

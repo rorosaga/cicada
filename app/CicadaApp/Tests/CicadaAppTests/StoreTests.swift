@@ -752,6 +752,26 @@ final class StoreTests: XCTestCase {
         XCTAssertEqual(api.entityFetches, 1)
     }
 
+    /// Ruling 48 — two readers of the same page at once (the Clusters column and the card it hosts) share one read.
+    func testConcurrentReadsOfOnePageShareOneFetch() async throws {
+        let api = FakeSyncAPI()
+        api.entities["n1"] = try decodeFixture("""
+        {"id":"n1","name":"Cicada","type":"project","status":"active","confidence":0.9,
+         "created":"2026-01-01","lastReferenced":"2026-01-02","decayRate":0.05,
+         "markdownContent":"# Cicada"}
+        """) as Entity
+        api.gateEntityFetch = true
+        let store = Store(cache: tempCache(), api: api)
+        async let first = store.entity("n1")
+        async let second = store.entity("n1")
+        await api.waitForParkedEntityFetch()
+        api.releaseEntityGate()
+        let (a, b) = await (first, second)
+        XCTAssertEqual(a?.id, "n1")
+        XCTAssertEqual(b?.id, "n1")
+        XCTAssertEqual(api.entityFetches, 1)
+    }
+
     // MARK: - Final review fixes
 
     /// (F1) Entity ids are only unique *within* a bank, so a memoised body must

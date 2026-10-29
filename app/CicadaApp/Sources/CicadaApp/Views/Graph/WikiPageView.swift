@@ -3,8 +3,8 @@ import SwiftUI
 
 /// The entity card's article: the page's prose as rows (`WikiArticle`), drawn lazily — only the rows on screen are laid
 /// out — from `WikiArticleCache`, so a reopen or a re-render never parses again. Until the whole article is read (off
-/// the main actor) the first screen is drawn, never a blank. Every line offers "Where this came from" on hover and as
-/// an accessibility action (one click from any line, owner 2026-10-09).
+/// the main actor) the first screen is drawn, never a blank. On an entity page (ruling 48 (16), DR-80) each cited line
+/// ends with its sources' markers and keeps them in its gutter for the keys (`PageCitations`).
 struct WikiPageView: View {
     let key: WikiArticleCache.Key
     /// Opens a line's provenance in the Reader (`LineProvenance`); nil hides the affordance.
@@ -12,13 +12,16 @@ struct WikiPageView: View {
     /// The page the article is (owner rulings 2026-10-14): its link facts draw the link cards and its edit route
     /// takes the person's view switch. Nil: links draw from their own words and nothing can be switched.
     var entityId: String? = nil
+    /// The page's citations (`PageBlocks.citations`): a row draws the markers whose line ends inside it. Nil: none.
+    var citations: PageBlocks.Citations? = nil
 
     var body: some View {
         let article = WikiArticleCache.shared.article(key)
         LazyVStack(alignment: .leading, spacing: 0) {
             // Identified by its scroll anchor, so the card can scroll a lazy row into view (`anchor`).
             ForEach(article.rows, id: \.anchor) { row in
-                WikiRowView(row: row, onSource: onLineSource, entityId: entityId)
+                WikiRowView(row: row, onSource: onLineSource, entityId: entityId,
+                            cites: Self.cites(row, in: citations), citesGutter: citations != nil)
                     .padding(.top, row.id == 0 ? 0 : WikiRowView.gap(above: row, after: article.rows[row.id - 1]))
             }
         }
@@ -28,6 +31,15 @@ struct WikiPageView: View {
             // A page's link facts, only when its prose links to the web (an ETag makes an unchanged page a 304).
             guard let entityId, Self.linksTheWeb(article) else { return }
             await LinkFactsCache.shared.refresh(entityId)
+        }
+    }
+
+    /// A text row's markers: the sources of the line that ends inside it (a heading, a code block or a card has none).
+    static func cites(_ row: WikiRow, in citations: PageBlocks.Citations?) -> [CiteKey] {
+        guard let citations, !citations.markers.isEmpty else { return [] }
+        switch row.kind {
+        case .paragraph, .item, .quote: return CitationMarks.keys(citations.markers(endingIn: row.source))
+        default: return []
         }
     }
 
@@ -63,8 +75,13 @@ struct WikiRowView: View {
     let row: WikiRow
     let onSource: ((WikiRow) -> Void)?
     var entityId: String? = nil
+    /// DR-80 — the line's citation markers, drawn after its last word and in its gutter for the keys.
+    var cites: [CiteKey] = []
+    /// The article is cited: every text row keeps the gutter, so cited and uncited lines share one measure.
+    var citesGutter = false
     @Environment(Store.self) private var store: Store?
     @State private var hovering = false
+    @State private var openCite: CiteKey?
     @State private var showLinks = false
     @FocusState private var linksFocused: Bool
     /// The site icons of the row's mentions, by link URL (`MentionIcon`), loaded once the page's link facts say the
@@ -86,6 +103,14 @@ struct WikiRowView: View {
         switch row.kind {
         case .rule, .embed, .image, .link: false
         default: onSource != nil
+        }
+    }
+
+    /// The gutter's width is kept for every text row of a cited article, so cited and uncited lines share one measure.
+    private var hasGutter: Bool {
+        switch row.kind {
+        case .rule, .embed, .image, .link: false
+        default: hasSource || citesGutter
         }
     }
 
@@ -112,7 +137,7 @@ struct WikiRowView: View {
                     .foregroundStyle(CicadaTheme.textTertiary)
             }
         }
-        .padding(.trailing, CicadaTheme.scaled(28) * CGFloat((hasSource ? 1 : 0) + (hasLinks ? 1 : 0)))
+        .padding(.trailing, CicadaTheme.scaled(28) * CGFloat((hasGutter ? 1 : 0) + (hasLinks ? 1 : 0)))
         .overlay(alignment: .topTrailing) {
             HStack(spacing: 0) {
                 if hasLinks {
@@ -123,13 +148,20 @@ struct WikiRowView: View {
                             LinkLinePopover(refs: row.links, entityId: entityId)
                         }
                 }
-                if hasSource, hovering, let onSource {
+                if !cites.isEmpty, let entityId {
+                    CitationChips(keys: cites, entityId: entityId, visible: hovering)
+                } else if hasSource, hovering, let onSource {
                     IconButton(systemName: "text.quote", help: Copy.Graph.lineSource) { onSource(row) }
                 }
             }
             .offset(y: -CicadaTheme.scaled(5))
         }
         .onHover { hovering = $0 }
+        .modifier(CitationLinkHandler(open: $openCite))
+        .modifier(CitationActions(keys: cites, open: $openCite))
+        .popover(item: $openCite, arrowEdge: .bottom) { key in
+            if let entityId { CitationPopover(entityId: entityId, key: key) }
+        }
         .modifier(LineLinksAction(enabled: hasLinks) { showLinks = true })
         .contextMenu {
             if let entityId, !switchable.isEmpty {
@@ -165,12 +197,14 @@ struct WikiRowView: View {
         }
     }
 
-    /// The row's text in the current theme, each mention led by its site's icon (`WikiInline.composed`).
+    /// The row's text in the current theme, each mention led by its site's icon (`WikiInline.composed`), then its
+    /// citation markers (DR-80).
     private func text(_ font: Font) -> Text {
-        guard !row.links.isEmpty, WikiInline.hasSitePart(row.text) else { return Text(row.text) }
+        let marks = CitationMarks.text(cites)
+        guard !row.links.isEmpty, WikiInline.hasSitePart(row.text) else { return Text(row.text) + marks }
         return WikiInline.composed(WikiInline.themed(row.text, font: font)) { url in
             MentionIcon.text(icons[url])
-        }
+        } + marks
     }
 
     @ViewBuilder

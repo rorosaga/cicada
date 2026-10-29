@@ -10,6 +10,14 @@
 
 ## Current state and evidence
 
+- **2026-10-29 — Pages v2, part A (ruling 48 (3), (4), (7), (16), (17); DR-78…DR-81; G217; branch `feat/pages-v2`).**
+  The entity page reads top to bottom with no folds: In short, Where to check as one box of mention rows with their
+  state and proposals as one Review line, the brand block above the article on pages about their look, Ongoing on
+  any page, the article carrying its beliefs as citation markers with a lazy popover, References closing the page.
+  The markers number the page's write-time line provenance (`page_citations`; nothing matched by similarity), cached
+  per page; `cicada_recall_detail(include=["citations"])` words the same. Card open reads one page (no `/sources`,
+  `/provenance` or fact claims on open; Clusters and the card share one read). The article writer marks an inferred
+  claim and words it as one (prompt v2). **Next:** part B — the history line, maps, In short.
 - **2026-10-29 — Speed + quality (branch `fix/speed-quality-1`).** dev's full-suite failures sorted: the writer
   inventory gained the twelve writers #492, #500, #501 and #508 added (each with its disposition); the four bench budgets
   that failed at load 30–55 pass at load 8–20 on the same commit (no regression from #496–#503) and now measure CPU time;

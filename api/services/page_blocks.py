@@ -28,13 +28,14 @@ import threading
 from datetime import date
 from pathlib import Path
 
-from api.services import bank_index, design_refs
+from api.services import bank_index, design_refs, page_citations
 
 #: The wire's version; it rides the card's ETag, so a new shape revalidates every held card.
-SHAPE = "blocks-1"
+SHAPE = "blocks-2"
 #: Every block, in the order a page reads them — the redesign proposal's page order (2026-10-28 §0/§1): why it matters,
-#: where to check, the type block (a map from stored coordinates, a look), what is ongoing, then who changed it.
-KINDS = ("relevance", "sources", "coordinates", "looks", "ongoing", "history")
+#: where to check, the type block (a map from stored coordinates, a look), what is ongoing, the article's citations
+#: (ruling 48 (16), ``page_citations``: its markers, References and belief sentences), then who changed it.
+KINDS = ("relevance", "sources", "coordinates", "looks", "ongoing", "citations", "history")
 MAX_ONGOING = 8
 MAX_SOURCES = 12
 MAX_LOOKS = 6
@@ -217,13 +218,15 @@ def history(entries: list, truncated: bool) -> dict | None:
 
 
 def build(memory_path: Path, entity_id: str, *, fm: dict, claims: list, relevance: dict | None,
-          history_entries: list | None = None, history_truncated: bool = False, today: date | None = None) -> dict:
+          history_entries: list | None = None, history_truncated: bool = False, today: date | None = None,
+          body: str | None = None) -> dict:
     """The page's blocks. ``order`` lists the blocks present, in :data:`KINDS` order; an absent block's key is null or
-    an empty list. Never raises for one bad block: that block is left out."""
+    an empty list. Never raises for one bad block: that block is left out. ``body``: the page's raw body (claims fence
+    included), which the citations are numbered from; ``None`` leaves them out."""
     today = today or date.today()
     page_type = str(fm.get("type") or "concept").strip().lower()
     out: dict = {"shape": SHAPE, "order": [], "relevance": relevance, "ongoing": [], "ongoingTotal": 0,
-                 "coordinates": None, "looks": [], "sources": None, "history": None}
+                 "coordinates": None, "looks": [], "sources": None, "citations": None, "history": None}
     try:
         open_events = ongoing(claims)
         out["ongoing"], out["ongoingTotal"] = open_events[:MAX_ONGOING], len(open_events)
@@ -238,10 +241,15 @@ def build(memory_path: Path, entity_id: str, *, fm: dict, claims: list, relevanc
         out["sources"] = sources(fm, page_type, today)
     except Exception:  # noqa: BLE001
         pass
+    if body is not None:
+        try:
+            out["citations"] = page_citations.block(memory_path, entity_id, fm=fm, body=body, claims=claims)
+        except Exception:  # noqa: BLE001
+            pass
     out["history"] = history(history_entries or [], history_truncated)
     present = {"relevance": bool(relevance) and relevance.get("tense") != "self", "ongoing": bool(out["ongoing"]),
                "coordinates": out["coordinates"] is not None, "looks": bool(out["looks"]), "sources": out["sources"] is not None,
-               "history": out["history"] is not None}
+               "citations": out["citations"] is not None, "history": out["history"] is not None}
     out["order"] = [k for k in KINDS if present[k]]
     return out
 
@@ -353,7 +361,8 @@ def for_page(memory_path: Path, entity_id: str, kinds: tuple[str, ...]) -> dict:
         except Exception:  # noqa: BLE001 — a history git cannot read is no history block
             entries, truncated = [], False
     return build(memory_path, entity_id, fm=parsed.frontmatter, claims=claims, relevance=relevance,
-                 history_entries=entries, history_truncated=truncated)
+                 history_entries=entries, history_truncated=truncated,
+                 body=(parsed.body or "") if "citations" in kinds else None)
 
 
 #: What an ongoing item in the person's own words reads as for a caller that may not see their words.
@@ -366,13 +375,15 @@ def for_caller(blocks: dict, kinds: tuple[str, ...], *, verbatim: bool) -> dict:
     without ``sources`` (``verbatim=False``), every ongoing item worded in the person's own sentence masked. A copy:
     the input is never changed."""
     out = {"shape": blocks.get("shape", SHAPE), "order": [k for k in blocks.get("order") or [] if k in kinds]}
-    empty = {"relevance": None, "sources": None, "coordinates": None, "looks": [], "ongoing": [], "history": None}
+    empty = {"relevance": None, "sources": None, "coordinates": None, "looks": [], "ongoing": [], "citations": None,
+             "history": None}
     for kind in KINDS:
         out[kind] = blocks.get(kind, empty[kind]) if kind in kinds else empty[kind]
     out["ongoingTotal"] = blocks.get("ongoingTotal", 0) if "ongoing" in kinds else 0
     if not verbatim:
         out["ongoing"] = [dict(item, text=OWN_WORDS) if item.get("verbatim") else dict(item)
                           for item in out["ongoing"]]
+    out["citations"] = page_citations.for_caller(out["citations"], verbatim=verbatim)
     return out
 
 
@@ -411,6 +422,19 @@ def words(blocks: dict, kinds: tuple[str, ...], *, verbatim: bool = True) -> str
                 when = (f", planned for {item['target']}" if item.get("target")
                         else f", since {item['since']}" if item.get("since") else "")
                 lines.append(f"  - {item['kind']} {item['status']}{when}: {text} [{item['claimId']}]")
+        elif kind == "citations":
+            c = page_citations.for_caller(blocks["citations"], verbatim=verbatim)
+            lines.append(f"- citations: {c['total']} sources ({c.get('conversations', 0)} conversations, "
+                         f"{c.get('web', 0)} looked up, {c.get('pages', 0)} pages), {c.get('markersTotal', 0)} "
+                         "cited lines; each source is a reference [n] in the article")
+            for ref in c.get("refs") or []:
+                lines.append(f"  - {page_citations.ref_words(ref)}")
+            if c.get("beliefs"):
+                total = c.get("beliefsTotal")
+                lines.append(f"  - as sentences ({len(c['beliefs'])} of "
+                             f"{total if total is not None else 'more'} beliefs):")
+                for belief in c["beliefs"]:
+                    lines.append(f"    - {page_citations.belief_words(belief)}")
         elif kind == "history":
             h = blocks["history"]
             lines.append(f"- history: {h['changes']} changes{' (more not shown)' if h.get('truncated') else ''}, "

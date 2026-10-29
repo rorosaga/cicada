@@ -2877,6 +2877,18 @@ actor APIClient {
         try await get("/entities/\(encodedID(id))/paper")
     }
 
+    /// Ruling 48 (16), DR-80 — one citation marker's popover: reference `n` as cited by the line ending at `at`, or by
+    /// the belief sentence `claim`. Read when the marker opens, never on card open.
+    func fetchCitation(entityId: String, n: Int, at: Int?, claim: String?) async throws -> PageCitationDetail {
+        var query: [String] = []
+        if let at { query.append("at=\(at)") }
+        if let claim, let escaped = claim.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+            query.append("claim=\(escaped)")
+        }
+        let suffix = query.isEmpty ? "" : "?" + query.joined(separator: "&")
+        return try await get("/entities/\(encodedID(entityId))/citations/\(n)\(suffix)")
+    }
+
     // MARK: - RSS feed subscriptions (G9)
 
     /// `GET /sources/feeds` → every subscribed RSS/Atom feed, in subscription order.

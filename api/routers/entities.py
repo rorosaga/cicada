@@ -36,6 +36,7 @@ from api.models.schemas import (
     PageEditRequest,
     PageEditResponse,
     PageBlocks,
+    PageCitationDetail,
     PageLinksResponse,
     PaperDetailResponse,
     PictureInputsModel,
@@ -179,7 +180,8 @@ def _card_read(settings: Settings, entity_id: str, entity_path: Path, if_none_ma
         except Exception:  # noqa: BLE001 — an unreadable fence reads as a page with no claims
             claims = []
         relevance = page_relevance.for_page(memory_path, entity_id, fm=fm, body=parsed.body, claims=claims).to_dict()
-        blocks = page_blocks.build(memory_path, entity_id, fm=fm, claims=claims, relevance=relevance)
+        blocks = page_blocks.build(memory_path, entity_id, fm=fm, claims=claims, relevance=relevance,
+                                   body=parsed.body or "")
         return {
             "etag": etag,
             "blocks": blocks,
@@ -617,6 +619,40 @@ async def get_entity_blame(entity_id: str, lines: bool = False, settings: Settin
     if result is None:
         raise HTTPException(404, f"Entity {entity_id} not found")
     return PageBlameResponse(**result)
+
+
+@router.get("/entities/{entity_id}/citations/{n}", response_model=PageCitationDetail,
+            response_model_exclude_none=True)
+async def get_entity_citation(entity_id: str, n: int, at: int | None = None, claim: str | None = None,
+                              settings: Settings = Depends(get_settings)):
+    """A citation marker's popover (ruling 48 (16), DR-80), read when the person hovers or opens it — never on card
+    open: reference ``n`` as cited by the article line ending at ``at`` (or by belief ``claim``), with who, when and the
+    located words. The numbering is the card's own (``page_citations``, cached per page), so a marker and its popover
+    can never disagree."""
+    from api.services import page_citations
+    from api.services.claims import parse_claims
+
+    entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
+    if not entity_path.is_file():
+        raise HTTPException(404, f"Entity {entity_id} not found")
+
+    def read() -> dict | None:
+        parsed = markdown_parser.parse(entity_path, ledger=False)
+        try:
+            claims = parse_claims(parsed.body or "")
+        except Exception:  # noqa: BLE001
+            claims = []
+        return page_citations.detail(settings.memory_path, entity_id, n, at=at, claim_id=claim,
+                                     fm=parsed.frontmatter, body=parsed.body or "", claims=claims)
+
+    try:
+        found = await run_in_threadpool(read)
+    except page_citations.StaleMarker:
+        # The page was renumbered since the card drew this marker: never another source's details in its place.
+        raise HTTPException(409, f"That line no longer cites {n}; reopen the page") from None
+    if found is None:
+        raise HTTPException(404, f"No reference {n} on {entity_id}")
+    return PageCitationDetail(**found)
 
 
 @router.get("/entities/{entity_id}/history/{commit_hash}/diff", response_model=EntityDiff)

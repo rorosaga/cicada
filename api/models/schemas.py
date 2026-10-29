@@ -592,7 +592,56 @@ class PageBlocks(CamelModel):
     coordinates: Optional[PageBlockCoordinates] = None
     looks: list[PageBlockLook] = []
     sources: Optional[PageBlockSources] = None
+    citations: Optional["PageBlockCitations"] = None
     history: Optional[PageBlockHistory] = None
+
+
+class PageCitationRef(CamelModel):
+    """One numbered source of a page's article (``page_citations``): a conversation (a session's or an import's
+    episodes together), a looked-up page (``web``) or another page of the bank (``page``); who and when, in fields."""
+
+    n: int
+    kind: str
+    title: str = ""
+    origin: Optional[str] = None
+    harness: Optional[str] = None
+    correspondent: Optional[str] = None
+    first: Optional[str] = None
+    last: Optional[str] = None
+    episode_id: Optional[str] = None
+    conversation_id: Optional[str] = None
+
+
+class PageCitationBelief(CamelModel):
+    """A current or ended belief drawn as a sentence on a page whose prose cites nothing yet (DR-80): ``until`` is the
+    day it ended, ``inferred`` an agent's inference — both worded in the sentence by the client."""
+
+    claim_id: str
+    text: str
+    refs: list[int] = []
+    until: Optional[str] = None
+    inferred: bool = False
+    verbatim: bool = False
+
+
+class PageBlockCitations(CamelModel):
+    """Ruling 48 (16): the article's citation markers (``[offset in the served prose, n, …]``, one per cited line),
+    the first six References, the counts behind References' closing line, and belief sentences. A marker's popover is
+    read lazily (``GET /entities/{id}/citations/{n}``)."""
+
+    markers: list[list[int]] = []
+    markers_total: int = 0
+    refs: list[PageCitationRef] = []
+    total: int = 0
+    conversations: int = 0
+    web: int = 0
+    pages: int = 0
+    beliefs: list[PageCitationBelief] = []
+    #: None: the page keeps part of its beliefs in its claims ledger, which the card never reads — "more" without a count.
+    beliefs_total: Optional[int] = 0
+
+
+PageBlocks.model_rebuild()
 
 
 class EntityBands(CamelModel):
@@ -1401,6 +1450,18 @@ class ProvenanceSpan(CamelModel):
     stale: bool = False
     grown: bool = False
     derived: bool = False
+
+
+class PageCitationDetail(PageCitationRef):
+    """A citation marker's popover (DR-80): the reference, the best evidence row's kind (``user`` | ``assistant`` |
+    ``page`` | ``reasoning`` …), its located words with the cited span (``span``, DR-18) and the span's ``status``;
+    ``lines`` is how many lines of the page cite it."""
+
+    evidence_kind: Optional[str] = None
+    status: Optional[str] = None
+    span: Optional[ProvenanceSpan] = None
+    conversations: int = 0
+    lines: int = 0
 
 
 class ProvenanceModel(CamelModel):

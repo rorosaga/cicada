@@ -22,12 +22,15 @@ struct EntityCardHeader: View {
     @Binding var selection: EntityCardTab
     /// Units — the column's 28, the Clusters card's 16 (`EntityCardStyle.inset`).
     var inset: CGFloat = 28
-    /// F-12 — a person's facts strip; empty for every other type.
+    /// F-12 — a person's facts strip. Ruling 48 (3): the entity page no longer passes one — Works at and Role are the
+    /// standfirst's, Known since and Conversations In short's line (it repeated both, DR-38).
     var facts: [PersonFact] = []
     /// C11 — the page's rung inputs, for the picture's menu and source line.
     var pictureInputs: PictureInputs? = nil
     /// "Show on the graph" — the card style only; on the Graph the node is already beside it.
     var onShowOnGraph: (() -> Void)? = nil
+    /// Ruling 48 — the page's menu ("…": add a link or a look, how it fades), beside ×. Nil: none (a stub, a render).
+    var pageMenu: AnyView? = nil
     /// A fact that names a page opens it (the card's wikilink navigation).
     var onOpenEntity: ((String) -> Void)? = nil
     /// The page's Rendered/Source switch and Copy, at the end of the tab row while Content is shown — one row of
@@ -62,6 +65,7 @@ struct EntityCardHeader: View {
                     IconButton(systemName: "point.3.connected.trianglepath.dotted", help: Copy.People.showOnGraphHelp,
                                action: onShowOnGraph)
                 }
+                if let pageMenu { pageMenu }
                 if showsClose {
                     IconButton(systemName: "xmark", help: Copy.Graph.closeHelp(entity.name), action: onClose)
                 }
@@ -71,7 +75,6 @@ struct EntityCardHeader: View {
                 PersonHero(entity: entity, summary: summary, isStub: isStub, inputs: pictureInputs, facts: facts,
                            onOpenEntity: onOpenEntity)
                     .padding(.top, CicadaTheme.spacingMD)
-                relevanceLine
             } else {
                 HStack(alignment: .center, spacing: CicadaTheme.spacingMD) {
                     // Owner 2026-10-28: no picture, no tile — the name starts the line; *Add picture* is in the line below.
@@ -89,7 +92,6 @@ struct EntityCardHeader: View {
                 if let summary {
                     EntitySummaryText(text: summary, isStub: isStub).padding(.top, CicadaTheme.scaled(6))
                 }
-                relevanceLine
                 PictureSourceLine(id: entity.id, name: entity.name, type: entity.type, held: entity.pictureRef,
                                   inputs: pictureInputs, quietWhenEmpty: !PictureActions.canEdit(entity.type))
                     .padding(.top, CicadaTheme.scaled(4))
@@ -118,23 +120,6 @@ struct EntityCardHeader: View {
         .padding(.leading, CicadaTheme.scaled(inset))
         .padding(.trailing, CicadaTheme.scaled(20))
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    /// Owner ruling 44 (G121) — "why it matters to you", the backend's one derived line (`EntityRelevance.shownLine`),
-    /// under the summary in the meta style (DR-2 `textTertiary`, DR-16 `metaFont`): one line of text, no card around
-    /// it (DR-37), none on the owner's own page (DR-38) or on a graph stub, whose page has not landed yet.
-    @ViewBuilder
-    private var relevanceLine: some View {
-        if !isStub, let line = entity.relevance?.shownLine {
-            Text(line)
-                .font(CicadaTheme.metaFont)
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
-                .textSelection(.enabled)
-                .padding(.top, CicadaTheme.scaled(4))
-                .accessibilityIdentifier("entity-relevance")
-        }
     }
 
     private var tabRow: some View {

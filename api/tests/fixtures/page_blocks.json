@@ -1,13 +1,14 @@
 {
   "_comment": "Shared by test_page_blocks.py and PageBlocksTests.swift: the `blocks` of GET /entities/{id} (page_blocks.build). Regenerate with CICADA_REGEN_FIXTURES=1.",
   "blocks": {
-    "shape": "blocks-1",
+    "shape": "blocks-2",
     "order": [
       "relevance",
       "sources",
       "coordinates",
       "looks",
       "ongoing",
+      "citations",
       "history"
     ],
     "relevance": {
@@ -110,6 +111,71 @@
           "iconSite": null
         }
       ]
+    },
+    "citations": {
+      "markers": [
+        [
+          132,
+          1
+        ],
+        [
+          188,
+          2
+        ],
+        [
+          225,
+          2
+        ],
+        [
+          246,
+          3
+        ]
+      ],
+      "markersTotal": 4,
+      "refs": [
+        {
+          "n": 1,
+          "kind": "conversation",
+          "title": "Studio plan",
+          "origin": "claude-code",
+          "harness": null,
+          "correspondent": null,
+          "first": "2026-10-01T09:00:00+00:00",
+          "last": "2026-10-05T09:00:00+00:00",
+          "episodeId": "ep_2026-10-05_001",
+          "conversationId": "sess-a"
+        },
+        {
+          "n": 2,
+          "kind": "conversation",
+          "title": "Market walk",
+          "origin": "messages",
+          "harness": null,
+          "correspondent": "Bob Example",
+          "first": "2026-10-02T18:00:00+00:00",
+          "last": "2026-10-02T18:00:00+00:00",
+          "episodeId": "ep_2026-10-02_001",
+          "conversationId": null
+        },
+        {
+          "n": 3,
+          "kind": "web",
+          "title": "Opening hours",
+          "origin": "web-check",
+          "harness": null,
+          "correspondent": null,
+          "first": "2026-10-03T12:00:00+00:00",
+          "last": "2026-10-03T12:00:00+00:00",
+          "episodeId": "ep_2026-10-03_001",
+          "conversationId": null
+        }
+      ],
+      "total": 3,
+      "conversations": 2,
+      "web": 1,
+      "pages": 0,
+      "beliefs": [],
+      "beliefsTotal": 0
     },
     "history": {
       "changes": 3,

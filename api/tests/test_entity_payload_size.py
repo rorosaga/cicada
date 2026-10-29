@@ -4,13 +4,14 @@ one ```claims fence, and `GET /entities/{id}` shipped it twice (`markdown_conten
 the app strips the fence from the prose in every view and reads the claims from `/claims`. Placeholder names only."""
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 from api import config, main
 from api.routers import entities as entities_router
-from api.services import bank_index, markdown_parser
+from api.services import bank_index, markdown_parser, page_citations
 from api.services.claims import Claim, write_claims
 
 
@@ -53,7 +54,13 @@ def test_a_page_too_large_to_inline_is_served_on_demand(tmp_path, monkeypatch):
     data = page.json()
     assert data["rawOmitted"] is True
     assert raw.startswith(data["rawMarkdown"]) and "```claims" not in data["rawMarkdown"] and data["rawMarkdown"]
-    assert len(page.content) < 2_000, "the card's payload is the prose, not the fence"
+    # Ruling 48 (16): a page whose prose cites nothing carries a bounded handful of its beliefs as sentences
+    # (`page_citations.MAX_BELIEFS`) — never the fence, never all two hundred.
+    cites = data["blocks"]["citations"]
+    assert len(cites["beliefs"]) == page_citations.MAX_BELIEFS
+    assert cites["beliefsTotal"] is None, "part of them is in the ledger the card never reads: no count is a guess"
+    without = len(page.content) - len(json.dumps(cites, separators=(",", ":")).encode())
+    assert without < 2_000, "the card's payload is the prose, not the fence"
     assert source.status_code == 200 and source.json() == {"id": "owner-example", "rawMarkdown": raw}
     assert missing.status_code == 404
 
