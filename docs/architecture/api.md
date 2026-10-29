@@ -769,6 +769,12 @@ skill_folder`). Nothing is written into a bank: agent folders, and `$CICADA_HOME
   on generated banks (1,900 entities):
   - 10,000 episodes: 42 → 24 ms per tick for one stream, and 169 → 25 ms for four.
   - 2,000 episodes: 12 → 6 ms for one stream, and 50 → 6 ms for four.
+- **The start-up heap is frozen out of the cyclic collector (2026-10-29, owner's call).** After the lifespan's
+  start-up, the backend runs `gc.collect()` then `gc.freeze()` once (`gc_tuning`), and the stdio MCP server does
+  the same before its loop: a full collection never walks the app's own ~450k start-up objects again. Once per
+  process only — a later freeze would pin every cache entry replaced afterwards. Owner's bank copy, 2,400 real
+  requests: RSS 465–472 MB frozen against 656–660 MB not, flat across the run. `CICADA_GC_FREEZE=off` turns it off
+  (the test suite does).
 - **A request may answer from the tick's walk (2026-10-29, the coordinator's call on item (e)).** `GET /inbox`,
   `/origins`, `/status`, the card and every `etag_for` outside a request's own block list the bank through
   `sync_ticker.request_scans`: the last tick's listings when `reusable_listings` opens — the same running watcher has

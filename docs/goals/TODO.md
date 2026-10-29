@@ -17,6 +17,8 @@
   tests leave (~234 ms) landed inside a 15 ms timed call. `_bench.Timer` now freezes the heap like `measure()` (#530),
   budgets unchanged; the route itself is unchanged since before #518 (cold p50 ~101 ms, warm ~11 ms). Sources'
   `spotify-listening` card is "Spotify history" (16-character name rule, like YouTube's and TikTok's).
+- **2026-10-29 — Speed + quality round 4 (branch `fix/speed-quality-4`).** Watched rows out of the cached headers (cold scan −1.25 s),
+  a start-up `gc.freeze()`, `/projects` remembered (G115 row). Report: `speed-quality-4`.
 - **2026-10-29 — G32 built: Spotify's own download imported (branch `feat/spotify-export-import`).** Both downloads
   (Extended streaming history, Account data) through the one file import: plays as one index-only listening day each
   (ruling 30), never doubled between the two files; the library as index-only saved items, never fetched. Sources
