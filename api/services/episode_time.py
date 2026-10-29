@@ -18,6 +18,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 
 from api.services import bank_index
@@ -78,6 +79,58 @@ def received_shown(frontmatter: dict | None) -> str | None:
     fm = frontmatter or {}
     parsed = episode_ids.parse_episode_id(str(fm.get("id") or ""))
     return received_after(fm.get("timestamp") or (parsed[0] if parsed else None), fm.get(episode_ids.RECEIVED_KEY))
+
+
+#: CIC8 (2026-10-29) — the stamps that say when Cicada GOT an episode: ``received_at`` (ruling 39, stamped once at
+#: create), the capture writer's ``captured_at`` (every create and update) and a session's ``last_turn_at``.
+DELIVERY_KEYS = ("received_at", "captured_at", "last_turn_at")
+
+
+def instant(ts) -> float:
+    """An ISO stamp as epoch seconds, ``0.0`` when absent or unreadable. Stamps compare lexically only within one shape
+    (``Z`` against ``+00:00``, a bare date against a time), so every recency comparison goes through this. A naive
+    stamp reads as UTC."""
+    if not ts:
+        return 0.0
+    try:
+        parsed = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+    except ValueError:
+        return 0.0
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.timestamp()
+
+
+def is_later(a, b) -> bool:
+    """Whether stamp ``a`` is a later instant than ``b`` (an empty ``b`` is never later). Two stamps of one shape —
+    the same length and the same offset suffix, which is nearly every pair in a bank — compare as strings; any other
+    pair is parsed (:func:`instant`). The fast path keeps list routes from parsing a date per episode."""
+    if not a:
+        return False
+    if not b:
+        return True
+    a, b = str(a), str(b)
+    if len(a) == len(b) and a[-6:] == b[-6:] and (a[-6] in "+-" or a.endswith("Z")):
+        return a > b
+    return instant(a) > instant(b)
+
+
+def delivered_at(frontmatter: dict | None) -> str:
+    """When a source last DELIVERED this episode — the one rule behind every "connected · 3 min ago" a source shows
+    (the overview's ``last_activity_at``, an import channel's ``last_sync``). Ruling 39: an import's recency is when
+    Cicada received it, never the conversation's own date, so a year-old chat imported today reads "today". The
+    newest of :data:`DELIVERY_KEYS`; an episode written before ``received_at`` existed, with none of them, falls back
+    to its ``timestamp`` (nothing better is known). ``""`` when there is nothing."""
+    fm = frontmatter or {}
+    stamps = [s for s in (fm.get(k) for k in DELIVERY_KEYS) if s]
+    if not stamps:
+        return str(fm.get("timestamp") or "")
+    # One stamp (the usual case) needs no parse: this runs once per episode on every list route.
+    best = str(stamps[0])
+    for s in stamps[1:]:
+        if is_later(s, best):
+            best = str(s)
+    return best
 
 
 def received_after(own, received) -> str | None:

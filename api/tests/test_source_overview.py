@@ -103,6 +103,32 @@ def test_a_harness_rows_last_activity_is_its_newest_capture_write_not_the_sessio
     assert row["activity"] == {} or "2026-10-22" in row["activity"], "the activity day stays the session's start"
 
 
+def test_an_imports_recency_is_when_cicada_received_it_never_the_chats_own_date(tmp_path):
+    """CIC8 (2026-10-29, ruling 39): a chat export read "Connected · 1 yr. ago" right after its import, because the
+    row's recency was the conversations' own (backdated) dates. Both recency lines — the overview's and the import
+    channel's — read `received_at`; an episode from before ruling 39 keeps its timestamp."""
+    from api.services import origin_stats
+
+    memory = tmp_path / "memory"
+    (memory / "episodes").mkdir(parents=True)
+    for i, (said, received) in enumerate((("2025-10-09T10:00:00+00:00", "2026-10-29T13:10:00+00:00"),
+                                          ("2025-10-10T10:00:00+00:00", "2026-10-29T13:10:01+00:00"))):
+        (memory / "episodes" / f"ep_{said[:10]}_001.md").write_text(
+            f"---\nid: ep_{said[:10]}_001\ntimestamp: '{said}'\ntitle: T{i}\nprocessed: false\n"
+            f"origin: chatgpt-export\nsource: chatgpt\nsource_id: chatgpt:gpt-{i}\nreceived_at: '{received}'\n---\n\nbody",
+            encoding="utf-8")
+    # An episode from before ruling 39 (no received_at): its own date is all that is known.
+    _episode(memory, "ep_2024-01-01_001", timestamp="2024-01-01T09:00:00+00:00", origin="claude-export")
+
+    rows = _rows(memory)
+    assert rows["chat-export:chatgpt"]["last_activity_at"] == "2026-10-29T13:10:01+00:00"
+    assert rows["chat-export:claude"]["last_activity_at"] == "2024-01-01T09:00:00+00:00"
+    origin_stats._MEMO.clear()
+    channels = {c["id"]: c for c in channel_registry.build_channels(memory, telegram_enabled=False)}
+    assert channels["chat-export:chatgpt"]["last_sync"] == "2026-10-29T13:10:01+00:00"
+    assert channels["chat-export:claude"]["last_sync"] == "2024-01-01T09:00:00+00:00"
+
+
 def test_a_phone_note_reads_as_phone_never_its_raw_id(tmp_path):
     memory = tmp_path / "memory"
     memory.mkdir()

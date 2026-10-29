@@ -6,12 +6,13 @@ import Foundation
 enum PaletteActions {
     static func docs(_ inputs: QuickIndexInputs) -> [QuickIndex.Doc] {
         var docs: [QuickIndex.Doc] = []
-        func add(_ id: String, _ title: String, keywords: [String], symbol: String, trailing: String? = nil,
-                 destination: FindDestination, kind: FindKind = .action, order: Int) {
+        func add(_ id: String, _ title: String, keywords: [String], intents: [String] = [], symbol: String,
+                 trailing: String? = nil, destination: FindDestination, kind: FindKind = .action, order: Int) {
             let row = FindRow(key: FindRowKey(kind: kind, id: id), group: .actions, title: title,
                               mark: .symbol(symbol), trailing: trailing, tieBreak: -Double(order),
                               destination: destination)
             docs.append(QuickIndex.Doc(row: row, fields: [QuickMatch.Field(title, weight: QuickMatch.Weight.name)]
+                + intents.map { QuickMatch.Field($0, weight: QuickMatch.Weight.intent) }
                 + keywords.map { QuickMatch.Field($0, weight: QuickMatch.Weight.keyword) }))
         }
         if inputs.isSleeping {
@@ -31,7 +32,8 @@ enum PaletteActions {
         }
         // CIC8 (2026-10-29) — File → Import…, findable by what a person holding an export types, on Home's field too.
         add("import", Copy.Catalog.importChatsOrFiles + "…",
-            keywords: ["chat export", "chatgpt", "claude", "gemini", "conversations", "zip", "upload", "add", "import"],
+            keywords: ["conversations", "upload", "add"],
+            intents: ["chatgpt", "claude", "gemini", "chat export", "export", "zip", "import"],
             symbol: "tray.and.arrow.down", trailing: "⇧⌘I", destination: .action(.importFile), order: 20)
         if inputs.appearance == .dark {
             add("appearance.light", "Switch to light", keywords: ["appearance", "theme", "day"],

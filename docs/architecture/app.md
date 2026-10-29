@@ -400,8 +400,9 @@ and Folders prompt is raised. Every door converges on the overlay: Sources' head
 export's where-from line and the intake panel itself — drop, *Choose a file…*, each app's export page, steps and *Remind
 me* — where it used to say "each chat export sits on its agent's row" and send the person to Agents), the Agents
 detail's *Import its chat export* (the overlay over that page; it used to stage a tile Sources had no entry for, so the
-person landed on an empty Sources), the palette's *Import chats or files…* action (⇧⌘I; found by "chatgpt", "claude",
-"chat export", "zip", on ⌘K and on Home's field, which is the same index), and the drawn walkthrough's *I have the
+person landed on an empty Sources), the palette's *Import chats or files…* action (⇧⌘I; the TOP hit for "chatgpt", "claude", "export", "chat export",
+"zip", on ⌘K and on Home's field, which is the same index — its intent words weigh `QuickMatch.Weight.intent`, 0.82:
+an exact one beats a title's prefix and any keyword, never a title typed in full), and the drawn walkthrough's *I have the
 file…* (Home: straight to the picker; the Welcome: its own picker). An intake panel inside a page (`.emptyState`
 origins) is a door, not a host: its drop or pick runs in the overlay, and it shows no Cancel and takes no Return. Three pickers still sit outside
 the router — the Add-source walkthrough's drop and *Choose file…*, its saved-content picker, and
@@ -1423,8 +1424,11 @@ agent reads (`agent_methods`), not an install.
   `api/.env`). The overview files a nil-origin save (a bookmarks file imported through Files and links) under Files &
   links instead of a row called "unknown", and a phone's note reads *Phone*. Live test, same day: YouTube claims the
   overview's `youtube-history` and `youtube` rows, and an account's import that fed memory reads Connected (an overview
-  row no channel speaks for, so a reader turned off never returns through its episodes); a row's last sync is the newest
-  capture write (`captured_at` / `last_turn_at`), not a session's start; Instagram's line says what G206 shipped and a
+  row no channel speaks for, so a reader turned off never returns through its episodes); a row's last sync is when
+  Cicada last GOT something from it (`episode_time.delivered_at`: the newest of `received_at`, `captured_at`,
+  `last_turn_at`; an episode older than ruling 39 falls back to its `timestamp`), never a session's start or an
+  import's backdated conversations (CIC8, 2026-10-29: a chat export read "Connected · 1 yr. ago" right after its
+  import) — the overview's `last_activity_at` and an import channel's `last_sync` (`origin_stats`' `lastSeen`) alike; Instagram's line says what G206 shipped and a
   saved list switched on reads Connected.
 - **Lists on by default, where a file comes from, Google Calendar (owner 2026-10-26; G71, G206, G142).** *Lists:*
   the YouTube row's detail now holds its two list switches (`youtubeListToggle`, `YouTubeListWords`' titles and lines;

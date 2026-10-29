@@ -114,9 +114,16 @@ final class SidebarTabTests: XCTestCase {
         XCTAssertEqual(Copy.intakeMenuBarItem, Copy.intakeFileMenuItem)
         XCTAssertEqual(row?.row.title.lowercased(), words + "…")
         let index = QuickIndex.build(QuickIndexInputs())
-        for typed in ["chatgpt", "claude export", "chat export", "import", "zip"] {
-            XCTAssertTrue(index.query(typed).rows.contains { $0.destination == .action(.importFile) }, typed)
+        for typed in ["chatgpt", "claude", "export", "chat export", "zip", "claude export", "import"] {
+            let top = FindMerge.fresh(query: typed, local: index.query(typed)).topHit
+            XCTAssertEqual(top?.destination, .action(.importFile), "\(typed): the import is the top hit")
         }
+        // ...but never over a page named exactly what was typed.
+        var withPage = QuickIndexInputs()
+        withPage.nodes = [FindFixtures.node("chatgpt", "ChatGPT", type: .tool)]
+        let page = QuickIndex.build(withPage)
+        XCTAssertEqual(FindMerge.fresh(query: "chatgpt", local: page.query("chatgpt")).topHit?.destination,
+                       .entity(id: "chatgpt"))
     }
 
     /// ⌘K offers only the pages the rail shows, each with its own digit.

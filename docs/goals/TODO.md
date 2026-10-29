@@ -17,7 +17,9 @@
   export*, a ⇧⌘I palette action Home's field finds by "chatgpt"/"chat export", the walkthrough's *I have the file…*);
   the picker opens in Downloads. Fixed the Agents→Sources loop (a tile no entry owned) and the hand-off tile left staged
   for Sleep. Relay gap unmeasurable on this bank: 0 relayed episodes vs 1,519 exported conversations (G64 row).
-  Noticing an export in Downloads waits on the owner (a grant and a new visual pattern).
+  Noticing an export in Downloads waits on the owner (a grant and a new visual pattern). Round 3: the import is ⌘K's
+  top hit for "chatgpt"/"claude"/"export"/"zip" (never over an exact title); a source's "connected · <when>" reads its
+  receipt (`episode_time.delivered_at`, ruling 39), not an import's backdated chats — list p95 unchanged.
 - **2026-10-29 — same name, different things (G227; branch `feat/same-name-qualifier`).** A title two pages share is
   shown "<name> (<qualifier>)" everywhere — the app, the API, recall, Ask, the CLI and `/v1` — from one derived function
   (`same_name`); links resolve by id; Stage 2 no longer joins an exact title of another kind on the name alone (the
