@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import functools
 import json
+import os
 import re
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
@@ -4628,14 +4629,36 @@ def _age_days(value, today: date) -> int | None:
 
 
 def _page_claims(path: Path) -> list:
-    """The page's claims block — the source of truth, not the index (Q-R2)."""
+    """The page's claims block — the source of truth, not the index (Q-R2). Parsed once per state of the page and its
+    claims ledger (speed 2026-10-29: recall parsed the same few pages' claims on every call); callers read them."""
     from api.services import markdown_parser
     from api.services.claims import parse_claims
 
+    stamp = (_stat_or_none(path), _stat_or_none(Path(str(path)[:-len(".md")] + ".claims.jsonl")))
+    hit = _PAGE_CLAIMS.get(str(path))
+    if hit is not None and hit[0] == stamp and stamp[0] is not None:
+        return list(hit[1])
     try:
-        return parse_claims(markdown_parser.parse(path).body)
+        claims = parse_claims(markdown_parser.parse(path).body)
     except Exception:  # noqa: BLE001 — history is garnish; a bad page shows none
         return []
+    if len(_PAGE_CLAIMS) >= _PAGE_CLAIMS_MAX:
+        _PAGE_CLAIMS.clear()
+    _PAGE_CLAIMS[str(path)] = (stamp, tuple(claims))
+    return claims
+
+
+#: page path -> ((page stamp, ledger stamp), its claims) for :func:`_page_claims`. Process-local, bounded.
+_PAGE_CLAIMS: dict[str, tuple[tuple, tuple]] = {}
+_PAGE_CLAIMS_MAX = 512
+
+
+def _stat_or_none(path: Path) -> tuple[int, int, int] | None:
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return (st.st_ino, st.st_mtime_ns, st.st_size)
 
 
 def _is_record(claim) -> bool:
@@ -5229,7 +5252,7 @@ def _relevant_inbox(memory_path: Path, query: str, *, raw_excerpts: bool = True,
     for filepath in _inbox_files(memory_path):
         if filepath.stem in skipped:
             continue
-        fm, body = read_inbox_item(filepath)
+        fm, body_of = _inbox_header(filepath)
         named = inbox_ask_gate.with_page_names(memory_path, fm)
         if str(fm.get("kind") or "") in inbox_ask_gate.NEVER_ASKED or not inbox_ask_gate.named_in(named, query):
             continue
@@ -5244,8 +5267,23 @@ def _relevant_inbox(memory_path: Path, query: str, *, raw_excerpts: bool = True,
         if not inbox_ask_gate.relevant(full, query, everyday=inbox_ask_gate.everyday(memory_path, full))[0]:
             continue
         blurbs.append(_format_inbox_blurb(
-            fm, body, cause=cause, recommended_key=rec, raw_excerpts=raw_excerpts, can_answer=can_answer))
+            fm, body_of(), cause=cause, recommended_key=rec, raw_excerpts=raw_excerpts, can_answer=can_answer))
     return blurbs
+
+
+def _inbox_header(filepath: Path):
+    """``read_inbox_item``'s frontmatter now and its body only when asked (speed 2026-10-29: recall reads every item's
+    header to gate it, and the body of the few it shows)."""
+    from api.services import bank_index
+
+    try:
+        entry = bank_index.file(filepath.parent.parent, filepath.parent.name, filepath.name)
+    except Exception:  # noqa: BLE001 — the reader below says what an unreadable item holds
+        entry = None
+    if entry is not None and isinstance(entry.frontmatter, dict) and entry.frontmatter:
+        return dict(entry.frontmatter), entry.body
+    fm, body = read_inbox_item(filepath)
+    return fm, lambda: body
 
 
 def save_episode(ctx: ToolContext, content: str, title: str | None) -> str:

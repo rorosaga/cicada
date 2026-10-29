@@ -53,8 +53,15 @@ MAX_TOKENS = 8
 
 def fold(text: str | None) -> str:
     """NFD, combining marks dropped, ``lower`` — "Zürich" → "zurich", and
-    "Hauptstraße" stays "hauptstraße", as ``unicode61`` indexes it."""
-    decomposed = unicodedata.normalize("NFD", text or "")
+    "Hauptstraße" stays "hauptstraße", as ``unicode61`` indexes it.
+
+    ASCII — most of a bank — is its own NFD with no combining marks, so it folds to ``lower()`` (speed 2026-10-29: a
+    per-character pass over every recalled page's sections was a sixth of a recall)."""
+    if text is None:
+        return ""
+    if text.isascii():
+        return text.lower()
+    decomposed = unicodedata.normalize("NFD", text)
     return "".join(c for c in decomposed if not unicodedata.combining(c)).lower()
 
 
