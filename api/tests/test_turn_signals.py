@@ -396,6 +396,30 @@ def test_a_group_claim_on_several_members_lines_is_the_groups_never_the_persons(
         == "external:group"
 
 
+def test_a_group_with_no_recorded_members_is_still_a_group(bank, monkeypatch):
+    body = "speaker:member: alpha-corp is hiring\nuser: ok"
+    rel = {"evidence": _spans(body, "alpha-corp is hiring")}
+    assert entity_extractor._observer_for(dict(rel), None, [], body) is None          # not a group: the old default
+    rel["observer"] = entity_extractor._observer_for(rel, None, [], body, group=True)
+    assert rel["observer"] == "external:group" and not promotion.person_said(rel)
+    assert "Cicada has no names for them" in entity_extractor.group_note([])
+    # Through Stage 1: a sitting flagged a group with `participants: []` is told it is one and its claim is the group's.
+    episode = {"id": "ep_2026-09-05_001", "content": body, "timestamp": "2026-09-05T10:00:00Z", "origin": "imessage",
+               "source": "imessage", "group": True, "participants": []}
+    answer = {"entities": [], "relationships": [{"source": "alpha-corp", "target": "hiring", "label": "is",
+                                                 "evidence_quote": "alpha-corp is hiring"}]}
+    prompts = []
+
+    async def fake(**kw):
+        prompts.append(kw["messages"][1]["content"])
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps(answer)))])
+
+    monkeypatch.setattr(entity_extractor.litellm, "acompletion", fake)
+    (out,) = asyncio.run(entity_extractor.extract([episode], Settings(litellm_model="fake-engine", memory_path=bank)))
+    assert "a group chat" in prompts[0]
+    assert out["relationships"][0]["observer"] == "external:group"
+
+
 def test_a_group_claim_never_links_a_first_mention_to_a_page():
     from api.services import entity_resolver
 

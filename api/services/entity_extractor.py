@@ -592,7 +592,8 @@ def group_members(episode: dict) -> list[dict]:
 def group_note(members: list[dict]) -> str:
     """G179 groups: who each line's speaker is — each member's words are their own, never the person's."""
     who = "; ".join(f'"{m["marker"]}:" is {m["name"] or "a member Cicada has no name for"}'
-                    + (", an AI agent" if m["kind"] == "agent" else "") for m in members[:30])
+                    + (", an AI agent" if m["kind"] == "agent" else "") for m in members[:30]) \
+        or "Cicada has no names for them"
     return (f"{SOURCE_NOTE_PREFIX[:-1]} with several people (a group chat). Lines starting \"user:\" are the "
             f"person's own messages; every other line is another member's: {who}. A member's words, and their "
             "\"I\", are theirs, never the person's. Attribute a fact to the person only from their own lines.]\n\n")
@@ -615,12 +616,14 @@ def _member_of(content: str, start: int) -> str | None:
 GROUP_OBSERVER = "external:group"
 
 
-def _observer_for(item: dict, their_observer: str | None, members: list[dict], content: str) -> str | None:
+def _observer_for(item: dict, their_observer: str | None, members: list[dict], content: str, *,
+                  group: bool = False) -> str | None:
     """Who a claim is ``external:`` to, or ``None`` for the default reading. In a group, a claim with no span in the
     person's own lines is never the default: one member's lines make it that member's, several members' (or a member
     Cicada cannot name) :data:`GROUP_OBSERVER`. Otherwise the other side's when only their words carry it. A reaction
-    never changes it (`_weigh_reaction`)."""
-    if members:
+    never changes it (`_weigh_reaction`). ``group`` is the episode's own flag: a group sitting that recorded no
+    members (unknown senders) is still a group (#499 re-check)."""
+    if group or members:
         spans = [e for e in item.get("evidence") or [] if isinstance(e, dict) and e.get("kind") != "reasoning"]
         if not spans or any(e.get("kind") not in ("assistant", "speaker") for e in spans):
             return None   # unlocated, or the person's own words back it
@@ -891,7 +894,8 @@ async def extract(
             source_note = (source_note or "") + in_project
         # G179 groups: who each member is, before every chunk; a claim resting on one member's lines is theirs.
         members = group_members(episode)
-        if members:
+        in_group = bool(episode.get("group"))
+        if in_group:
             source_note = group_note(members) + (source_note or "")
         their_observer = assistant_observer(episode)
         session_id = str(episode.get("session_id") or "").strip() or None
@@ -1021,7 +1025,7 @@ async def extract(
                     rel.pop("observer", None)
                     if signals:
                         _weigh_reaction(rel, episode, content, ep_id)
-                    if (observer := _observer_for(rel, their_observer, members, content)) is not None:
+                    if (observer := _observer_for(rel, their_observer, members, content, group=in_group)) is not None:
                         rel["observer"] = observer
                 for value in all_values:
                     value["source_episode"] = ep_id
@@ -1030,7 +1034,7 @@ async def extract(
                     value.pop("observer", None)
                     if signals:
                         _weigh_reaction(value, episode, content, ep_id)
-                    if (observer := _observer_for(value, their_observer, members, content)) is not None:
+                    if (observer := _observer_for(value, their_observer, members, content, group=in_group)) is not None:
                         value["observer"] = observer
                 for value, by_agent in app_values:
                     value["source_episode"] = ep_id
