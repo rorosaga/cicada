@@ -123,3 +123,34 @@ def test_only_a_place_stores_coordinates_and_only_in_range(bank):
     assert client.put("/entities/example-park/coordinates",
                       json={"lat": 1, "lon": 1, "by": "satellite"}).status_code == 422
     assert client.put("/entities/nowhere/coordinates", json={"lat": 1, "lon": 1, "by": "person"}).status_code == 404
+
+
+@pytest.mark.parametrize("name, proper", [
+    ("Jardim da Estrela", True), ("Praça do Comércio", True), ("Rua dos Douradores", True),
+    ("Museo di Roma", True), ("Jardin du Luxembourg", True), ("Museum van Loon", True),
+    ("Schloss von Example", True), ("Haus der Kunst", True), ("Musée le Example", True),
+    ("Belém riverside", False), ("the lab at my school", False), ("da van der", False),
+])
+def test_name_particles_read_as_part_of_a_proper_name(name, proper):
+    from api.services import org_sites
+
+    assert org_sites.proper_name(name) is proper
+
+
+def test_a_place_with_a_particle_is_public_and_a_person_with_one_never_is_on_its_own(bank):
+    """Owner (via the coordinator, 2026-10-29): the particles widen the name rule for places; a person whose name
+    carries one still never passes as public without the encyclopedia test — the local test answers at most "ask the
+    encyclopedia", never public."""
+    from api.services import web_context, web_settle
+
+    _page(bank, "jardim-da-estrela", {"name": "Jardim da Estrela", "type": "location"})
+    _page(bank, "ana-da-example", {"name": "Ana da Example", "type": "person",
+                                   "description": "Founder of a robotics company and author of a book."})
+    _page(bank, "rui-van-example", {"name": "Rui van Example", "type": "person"})
+    _commit(bank, "particles")
+    assert place_coordinates.geocode_verdict(bank, "jardim-da-estrela") == \
+        place_coordinates.Verdict(True, "public_place")
+    facts = web_settle.bank_facts(bank)
+    for person in ("ana-da-example", "rui-van-example"):
+        verdict = web_context.local_verdict(bank, web_context.load_page(bank, person), facts)
+        assert verdict.public is not True, (person, verdict)

@@ -711,7 +711,9 @@ Round 4 (C2–C4):
   once (ruling 48 part 6, 2026-10-29; `place_coordinates`). The app resolves it with the Mac's own geocoder and posts
   it; the backend never geocodes. `coordinates_by: none` (no match, or the person took the pin back) stops every
   automatic resolve; only the person's click places it again. A private place (address-shaped, a home word, failing
-  ruling 44's local test) is placed only on that click. `page_blocks.coordinates` serves the pair; the long forms
+  ruling 44's local test) is placed only on that click. The shared name rule (`org_sites.proper_name`) reads the
+  particles da, do, das, dos, di, du, van, von, der and le as part of a name (owner, 2026-10-29), so "Jardim da Estrela"
+  is a public place; a person with a particle still needs the encyclopedia test (the local test never says public). `page_blocks.coordinates` serves the pair; the long forms
   `latitude:`/`longitude:` are read too and dropped when a write stores `lat`/`lon`.
 - `in_short:` — `{text, written_at, model, conversations, article}`: "In short", the 2–3 sentences Sleep's tail
   writes for a page with ≥ 400 words of article and ≥ 5 conversations in 30 days (ruling 48 part 5, `in_short`).
