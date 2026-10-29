@@ -630,7 +630,7 @@ _CITING: dict[str, tuple] = {}
 
 def added(memory_path: Path, *, limit: int = 200) -> dict:
     """What traces added: every belief and progress note whose only evidence is a ``traces-day`` digest."""
-    from api.services.claims import EVENT_PREDICATES, parse_claims
+    from api.services.claims import is_event, parse_claims
 
     digests = digest_episodes(memory_path)
     items: list[dict] = []
@@ -645,7 +645,7 @@ def added(memory_path: Path, *, limit: int = 200) -> dict:
         for c in claims:
             if not _from_traces_only(c, set(digests)):
                 continue
-            is_progress = c.predicate in EVENT_PREDICATES
+            is_progress = is_event(c)   # a done happening is born closed and is still what traces added (R-PJ3)
             progress += is_progress
             beliefs += not is_progress
             if len(items) < limit:

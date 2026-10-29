@@ -255,7 +255,7 @@ async def delete_traces(req: DeleteRequest):
 async def preview_digest(day: str | None = None, settings: Settings = Depends(get_settings)):
     """Exactly the digest Sleep would read for a day (yesterday by default), counted here with no model — shown
     before "Learn from my day" is on, so turning it on is informed. Reads the bank only for the person's projects."""
-    yesterday = trace_store.local_day(datetime.now(timezone.utc)) - timedelta(days=1)
+    yesterday = trace_store.local_day(trace_store._now()) - timedelta(days=1)   # the traces clock
     return await run_in_threadpool(trace_memory.preview, settings.memory_path, _store(), _day(day, yesterday))
 
 
