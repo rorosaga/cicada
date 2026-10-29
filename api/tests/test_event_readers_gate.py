@@ -30,6 +30,7 @@ EXEMPT = {
     "api/services/inbox_service.py": "a resolver: closes the claims a question names",
     "api/services/entity_merge.py": "a merge: carries every claim — events and records too — unchanged but its subject",
     "api/services/linkedin_people.py": "writes its own external:linkedin claims; reads only works-at/role/connected-on",
+    "api/services/entity_relations.py": "current-only: `known` reads open claims (valid_to unset) of relation predicates (RECORD_PREDICATES); no event has one",
 }
 HISTORY_READERS = ("api/services/mcp_tools.py", "api/routers/claims.py", "api/services/provenance.py",
                    "api/services/search_service.py", "api/services/search_index.py")

@@ -15,7 +15,7 @@ import subprocess
 import pytest
 
 from api.scripts import repair_correspondent_pages
-from api.services import correspondent_repair, correspondents, markdown_parser
+from api.services import correspondent_repair, correspondents, entity_resolver, markdown_parser
 from api.services.claims import Claim, parse_claims, write_claims
 from api.tests.test_correspondent_identity import _run_sleep
 from api.tests.test_messages_sleep_attribution import MODEL_ANSWER, _conversation, _page
@@ -71,6 +71,9 @@ def _bad_bank(tmp_path, monkeypatch, *, git=True):
                                     "evidence_quote": "alpha-project launches next week"})
     with monkeypatch.context() as m:
         m.setattr(correspondents, "identity", lambda record: None)   # Stage 2 before the fix: by name alone
+        # …and before G227 (#539): an exact title joined its one page whatever its kind, so the `tool` mention
+        # landed on the `concept` page. Today that pair goes to the same-title judge and is held, never joined.
+        m.setattr(entity_resolver, "_same_title_pick", lambda entity, group: group[0] if len(group) == 1 else None)
         _run_sleep(memory, monkeypatch, answer)
     if git:
         _commit(memory, "Sleep cycle (the bad one)")
