@@ -25,6 +25,10 @@ struct CapturedItemsList: View {
     @Environment(ProvenanceRouter.self) private var provenance: ProvenanceRouter?
     @Environment(AppRouter.self) private var router: AppRouter?
     @Environment(Store.self) private var store: Store?
+    /// source-page-v3 — inside a source's page the page's own list is the one list: a source row's fold (Messages,
+    /// WhatsApp, Telegram, Calendar, Contacts, a folder, a browser…) draws nothing there, so "What came in" is never
+    /// said twice (owner 2026-10-29: a fold above a heading saying the same thing).
+    @Environment(\.sourceDetailHeadShown) private var onSourcePage
     @AppStorage private var remembered: Bool
 
     init(channel: String, interactive: Bool = true, style: Style = .disclosure) {
@@ -51,7 +55,7 @@ struct CapturedItemsList: View {
     }
 
     var body: some View {
-        if let cache {
+        if let cache, !(style == .disclosure && onSourcePage) {
             VStack(alignment: .leading, spacing: 0) {
                 switch style {
                 case .disclosure: disclosure
@@ -169,7 +173,7 @@ struct CapturedItemsList: View {
 
 /// One captured item: its title and compact age on one 36 pt line (DR-34), the full date in `.help` (DR-58). A row
 /// that opens something is a button with the row hover (DR-48: a fill, never a lift); a preview row is plain text.
-private struct CapturedItemRow: View {
+struct CapturedItemRow: View {
     let item: ChannelItem
     let today: ISODay
     let route: CapturedItemRoute?

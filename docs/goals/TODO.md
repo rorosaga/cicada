@@ -42,6 +42,11 @@
   answered 8/8 with a `search`+`read` token, 0/8 record-only, 0/8 with no adapter (an empty memory directory);
   writes refused for read-only. The SDKs' own tool runners drove it end to end with the Messages API mocked — no
   metered call was made (`reports/memory-tool-adapter.md`, outside the repo).
+- **2026-10-29 — one source page for every source (G161, owner; branch `feat/source-page-v3`).** Status line
+  (*Connected · last item today*), *What Cicada reads* one tap away, one search (backend `q`, the words index
+  included), the list in the source's unit with *All N* and groups opening in the column, settings last; the duplicate
+  *What came in* fold is gone for every source row. WhatsApp and Telegram list one row per chat (picture, message count, newest day, a Group tag) on #559's rows.
+
 - **2026-10-29 — the picture is the control (G146, owner; branch `feat/picture-click`).** The blue *Add a picture…* /
   *Use initials instead* / *Remove picture* words and the "Picture you added" caption under a page's name are gone; a click on the picture offers them
   (the picker at once when it is the only choice), a page with no picture adds one from its ••• menu.

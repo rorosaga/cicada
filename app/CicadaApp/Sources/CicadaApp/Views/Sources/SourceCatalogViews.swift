@@ -185,14 +185,100 @@ struct SourceCatalogDetail: View {
     @State private var browsers = BrowserInventory.empty
     /// G218 (owner 2026-10-26) — the Traces page is on the rail.
     @AppStorage(TracesPageVisibility.key) private var tracesPage = false
+    /// source-page-v3 — the page's one search, and which of its lists fills the column instead of the page.
+    @State private var query = ""
+    @State private var drill: SourceDrill?
+    @Environment(ChannelItemsCache.self) private var itemsCache: ChannelItemsCache?
+    @Environment(BrowserWatcher.self) private var watcher
+    @Environment(SyncActivity.self) private var activity: SyncActivity?
+    @Environment(InboxViewModel.self) private var inboxVM
 
     private var channels: [SourceChannel] { store.channels.value ?? [] }
+
+    // MARK: - source-page-v3: what the template reads
+
+    /// The lists this page shows: the overview row's own list (Messages by chat, watched days, a saved source's saves,
+    /// a harness's conversations), else each connected channel's.
+    private var listChannels: [(id: String, label: String?)] {
+        if let overview, overview.kind != .harness { return [(overview.itemsListId, nil)] }
+        if overview != nil { return [] }
+        let on = mine.filter(\.connected)
+        return on.map { ($0.id, on.count > 1 ? $0.label : nil) }
+    }
+
+    private var savedStyle: Bool { overview?.intent == .saved }
+
+    /// The status: the catalogue's word, the first channel's run (a read in progress, a failure, missing access) and
+    /// the day the newest item came in.
+    private var pageStatus: SourcePageStatus {
+        let channel = mine.first
+        let watch = channel.flatMap { watcher.state(for: $0.id) }
+        let run = SourceRowText.status(channel: channel, watch: watch, run: channel.flatMap { activity?.run(for: $0.id) })
+        return SourcePageStatus.of(row: row.status, run: run, latest: latest)
+    }
+
+    private var latest: String? {
+        if let overview, overview.kind == .harness {
+            return overview.lastActivityDate.map { ISODay.today(now: $0).description }
+        }
+        return listChannels.compactMap { itemsCache?.list($0.id)?.latest }.max()
+    }
+
+    /// Everything that used to be a paragraph on the page, one tap away (owner: "not so much text"): what the source is,
+    /// what Cicada reads from it, where an export comes from, and the one honest limit.
+    private var facts: [String] {
+        let entry = row.entry
+        var out: [String] = []
+        if let overview { out.append(SourceBlurb.text(for: overview)) }
+        else if let blurb = entry.channels.lazy.compactMap(SourceBlurb.text(id:)).first { out.append(blurb) }
+        switch entry.id {
+        case MessagesWatcher.channel: out.append(Copy.Messages.whatItReads)
+        case WhatsAppWatcher.channel: out.append(Copy.Chats.whatsAppWhatItReads)
+        case TelegramChats.channel: out.append(Copy.Chats.telegramWhatItReads)
+        case "telegram": out.append(Copy.Catalog.telegramHonest)
+        case "notion": out.append(Copy.Catalog.notionHow)
+        default:
+            if entry.verb == .turnOn, entry.overviewId == nil { out.append(Copy.Catalog.instagramHonest) }
+        }
+        if let how = SourceCatalog.exportHow(entry.id) { out.append(how) }
+        if row.status == .waitingForAgent { out.append(Copy.Catalog.waitingForAgentHelp) }
+        var seen = Set<String>()
+        return out.filter { !$0.isEmpty && seen.insert($0).inserted }
+    }
+
+    private func takeConversationQuery() {
+        guard overview?.kind == .harness, let q = router.consumeConversationQuery() else { return }
+        drill = nil
+        query = q
+    }
+
+    private func removalsEmpty(_ overview: SourceOverview) -> Bool {
+        guard let id = overview.channelId else { return true }
+        return InboxItem.openRemovals(in: store.visibleInbox, channelId: id).isEmpty
+            && inboxVM.heldRemoval(channel: id) == nil
+    }
+
+    /// The total the search's prompt names: the channel's whole count when the backend sent it.
+    private var searchPrompt: String {
+        guard let first = listChannels.first else { return Copy.SourcePage.searchPrompt(total: nil, noun: ("item", "items")) }
+        let list = itemsCache?.list(first.id)
+        // The prompt names the rows the list draws: chats, days, else the channel's own noun.
+        let noun: (one: String, many: String) = switch list?.items.first {
+        case let item? where item.kind == .chat: ("chat", "chats")
+        case let item? where item.videos != nil: ("day", "days")
+        default: CapturedItems.noun(channel: first.id, countNoun: channels.first { $0.id == first.id }?.countNoun)
+        }
+        let total = listChannels.count == 1 ? (list?.all ?? list?.total) : nil
+        return Copy.SourcePage.searchPrompt(total: total, noun: noun)
+    }
     private var mine: [SourceChannel] { SourceCatalog.channelsOf(row.entry, in: channels) }
     private var overview: SourceOverview? {
         SourceCatalog.overviewRow(for: row.entry, in: store.sourcesOverview.value ?? [])
     }
 
     var body: some View {
+        // source-page-v3 — the one template (`SourcePageViews.swift`): head, one status line, one search, what came
+        // in, the source's settings last.
         VStack(alignment: .leading, spacing: 0) {
             DetailHeader(title: row.entry.title, backLabel: hiddenListCount.map { Copy.Lists.sourcesBack($0) },
                          onShowList: onShowList, closeHelp: Copy.Lists.closeSource,
@@ -200,31 +286,35 @@ struct SourceCatalogDetail: View {
                 SourceLogoTile(origin: row.entry.origin)
             }
             .padding(.horizontal, CicadaTheme.spacingXL)
-            HStack(spacing: CicadaTheme.spacingMD) {
-                StatusWord(word: row.status.word, tone: row.status.tone)
-                if let line = SourceCatalog.line(row, now: .now) {
-                    Text(line).font(CicadaTheme.metaFont).monospacedDigit().foregroundStyle(CicadaTheme.textTertiary)
+            SourceStatusLine(status: pageStatus, facts: facts, title: row.entry.title)
+                .padding(.horizontal, CicadaTheme.spacingXL)
+                .padding(.bottom, CicadaTheme.spacingMD)
+            ScrollView {
+                VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
+                    if let drill {
+                        drilled(drill)
+                    } else {
+                        if let overview, overview.kind != .harness, !removalsEmpty(overview) {
+                            ChannelRemovals(source: overview)
+                        }
+                        cameIn
+                        if row.entry.id == TabGroupWatcher.channel { TabGroupsOpenNow() }
+                        SourcePageSettings {
+                            VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
+                                importHow
+                                controls
+                                if let site = row.entry.site { readingToggle(site) }
+                                if let site = row.entry.site, SourceCatalog.savedListSites.contains(site) {
+                                    savedListToggle(site)
+                                }
+                            }
+                            .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
                 }
+                .padding(.horizontal, CicadaTheme.spacingXL)
+                .padding(.bottom, CicadaTheme.spacingXL)
             }
-            .padding(.horizontal, CicadaTheme.spacingXL)
-            .padding(.bottom, row.status == .waitingForAgent ? CicadaTheme.spacingXS : CicadaTheme.spacingMD)
-            if row.status == .waitingForAgent {
-                // Tester readiness (2026-10-26): on, but nothing reads it until an agent on this Mac is connected.
-                Text(Copy.Catalog.waitingForAgentHelp)
-                    .font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, CicadaTheme.spacingXL)
-                    .padding(.bottom, CicadaTheme.spacingMD)
-            }
-            VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-                controls.environment(\.sourceDetailHeadShown, true)
-                if let site = row.entry.site { readingToggle(site) }
-                if let site = row.entry.site, SourceCatalog.savedListSites.contains(site) { savedListToggle(site) }
-            }
-            .padding(.horizontal, CicadaTheme.spacingXL)
-            .padding(.bottom, CicadaTheme.spacingLG)
-            .fixedSize(horizontal: false, vertical: true)
-            cameIn
         }
         .frame(maxWidth: CicadaTheme.scaled(ColumnLayout.questionMaxWidth + 64), maxHeight: .infinity,
                alignment: .topLeading)
@@ -233,6 +323,9 @@ struct SourceCatalogDetail: View {
             AddSourceSheet(initialTile: tile, onClose: { flowTile = nil }, flowOnly: true)
         }
         .task { await reading.loadSettings() }
+        // G136 R-SU18 — a palette conversation row lands on its agent's page with the search filled.
+        .onAppear { takeConversationQuery() }
+        .onChange(of: router.pendingConversationQuery) { _, _ in takeConversationQuery() }
         .sheet(item: $consentYouTube) { list in
             SettingsSheet(title: Copy.Reading.sheetTitle, onClose: { consentYouTube = nil }) {
                 ReadingFirstUseSheet(model: reading, site: nil, label: nil, youtubeList: list) { consentYouTube = nil }
@@ -285,7 +378,6 @@ struct SourceCatalogDetail: View {
                     WatchHistoryRow(channel: mine.first, now: context.date)
                 }
                 ForEach(YouTubeList.allCases) { youtubeListToggle($0) }
-                importHow
                 tileButton(Copy.Catalog.importFile)
             }
         case AppleNotesWatcher.channel:
@@ -293,9 +385,7 @@ struct SourceCatalogDetail: View {
         case "telegram":
             // 2026-10-23: the detail drew the channel's actions — Telegram has none — so it showed nothing at all.
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                Text(Copy.Catalog.telegramHonest)
-                    .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                offLine(Copy.Catalog.telegramHonest)
                 tileButton(Copy.Catalog.howToSetUp)
             }
         case "chat-exports":
@@ -303,18 +393,15 @@ struct SourceCatalogDetail: View {
             // row" and send the person to Agents, whose *Import its chat export* sent them back to an empty Sources.
             // The one intake's panel (drop, *Choose a file…* opening in Downloads, each app's export page and steps).
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                importHow
                 IntakePanel(origin: .emptyState(.sources))
             }
         case "spotify":
             // G32: where the file comes from, then the one intake's drop — the "files" row's controls, no new pattern.
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                importHow
                 IntakePanel(origin: .emptyState(.sources), compact: true)
             }
         case "files":
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                importHow
                 IntakePanel(origin: .emptyState(.sources), compact: true)
                 tileButton(Copy.Catalog.importFile)
             }
@@ -326,9 +413,7 @@ struct SourceCatalogDetail: View {
             // Ruling 47 tier 2: the live connection first, in the same panel the accounts use.
             ConnectorSetupPanel(connectorId: "notion-api", vendors: [], vendor: $vendor)
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                Text(Copy.Catalog.notionHow)
-                    .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                offLine(Copy.Catalog.notionHow)
                 IntakePanel(origin: .emptyState(.sources), compact: true)
             }
         default:
@@ -341,10 +426,7 @@ struct SourceCatalogDetail: View {
                 NeutralButton(title: Copy.Catalog.openAgents, size: .compact) { router.routeToAgents() }
             } else if entry.verb == .turnOn {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                    Text(Copy.Catalog.instagramHonest)
-                        .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    importHow
+                    offLine(Copy.Catalog.instagramHonest)
                     tileButton(Copy.Catalog.importFile)
                 }
             } else if !mine.isEmpty {
@@ -357,7 +439,6 @@ struct SourceCatalogDetail: View {
                 }
             } else {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                    importHow
                     tileButton(verbTitle(entry.verb))
                 }
             }
@@ -366,10 +447,18 @@ struct SourceCatalogDetail: View {
 
     /// 2026-10-26 (owner: "For TikTok there's an 'Import a file' option. Is this true?") — every source that imports a
     /// file says, before the button, exactly where the platform hands that file out (`SourceCatalog.exportHow`).
+    /// source-page-v3: said in the settings only while the source is off (the first step); once on it lives behind
+    /// "What Cicada reads" with the rest of the source's words.
     @ViewBuilder
     private var importHow: some View {
-        if let how = SourceCatalog.exportHow(row.entry.id) {
-            Text(how)
+        if let how = SourceCatalog.exportHow(row.entry.id) { offLine(how) }
+    }
+
+    /// A source's how-to or honest limit, drawn in its settings only while it is off; always in its full words.
+    @ViewBuilder
+    private func offLine(_ text: String) -> some View {
+        if row.status == .off {
+            Text(text)
                 .font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -484,26 +573,50 @@ struct SourceCatalogDetail: View {
 
     // MARK: - What came in
 
-    /// The source's own list as Sources v4 drew it (Messages by chat, watched days, a saved source's saves) when the
-    /// overview has a row for it; else each connected channel's items. Calendar and Contacts list theirs in their row.
+    /// source-page-v3 — the one search, then what came in, in the source's own unit: a harness's conversations, else
+    /// each list channel's rows (a chat, a watched day, a saved thing, a note…). Nothing at all — no search, no empty
+    /// heading — for a source with no list yet (DR-81: an empty section is not drawn); its settings say how to start.
     @ViewBuilder
     private var cameIn: some View {
-        let ownsList = [CalendarRow.channelId, ContactsReader.channel].contains(row.entry.id)
-        if !ownsList, let overview {
-            switch overview.kind {
-            case .harness: HarnessConversationsView(source: overview, onSelectEntity: onSelectEntity)
-            default: ChannelSourceView(source: overview)
+        if let overview, overview.kind == .harness {
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                SourceSearchHeader(query: $query, prompt: Copy.conversationsFind)
+                HarnessConversationsView(source: overview, onSelectEntity: onSelectEntity, query: query,
+                                         cap: SourceItemsRules.cap, onAll: { drill = .conversations })
             }
-        } else if !ownsList, mine.contains(where: \.connected) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
-                    ForEach(mine.filter(\.connected)) { CapturedItemsList(channel: $0.id, style: .open) }
+        } else if !listChannels.isEmpty {
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                SourceSearchHeader(query: $query, prompt: searchPrompt)
+                ForEach(listChannels, id: \.id) { list in
+                    SourceItemsSection(channel: list.id, saved: savedStyle, query: query, label: list.label) {
+                        drill = $0
+                    }
                 }
-                .padding(.horizontal, CicadaTheme.spacingXL)
-                .padding(.bottom, CicadaTheme.spacingXL)
             }
-        } else {
-            Spacer(minLength: 0)
+        }
+    }
+
+    /// A list opened in the page's place (DR-81): "‹ <source>" and Esc return.
+    @ViewBuilder
+    private func drilled(_ drill: SourceDrill) -> some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+            SourceDrillHead(source: row.entry.title, title: drill.title) { self.drill = nil }
+            switch drill {
+            case .all(let channel):
+                SourceSearchHeader(query: $query, prompt: searchPrompt)
+                SourceItemsSection(channel: channel, saved: savedStyle, query: query, cap: nil) { self.drill = $0 }
+            case .chat(let item):
+                SourceChatConversations(item: item)
+            case .day(let item):
+                Text(WatchedDayText.day(item, today: ISODay.today()).help)
+                    .font(CicadaTheme.headingFont).foregroundStyle(CicadaTheme.textPrimary)
+                SourceDayVideos(item: item)
+            case .conversations:
+                if let overview {
+                    SourceSearchHeader(query: $query, prompt: Copy.conversationsFind)
+                    HarnessConversationsView(source: overview, onSelectEntity: onSelectEntity, query: query)
+                }
+            }
         }
     }
 }

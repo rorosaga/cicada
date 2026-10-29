@@ -198,7 +198,7 @@ struct InPlaceDisclosureRow<Leading: View, Content: View>: View {
 }
 
 /// A note under an opened row: reading, failed, empty — in words alone (DR-43: no spinner; "Reading…" says it).
-private struct InPlaceNote: View {
+struct InPlaceNote: View {
     let text: String
 
     var body: some View {
@@ -341,7 +341,7 @@ enum ChatSittingsText {
 }
 
 /// One sitting under its chat: a one-line row that opens it in the Reader.
-private struct CapturedSittingRow: View {
+struct CapturedSittingRow: View {
     let text: String
     let help: String
     let action: () -> Void

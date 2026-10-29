@@ -1468,12 +1468,26 @@ agent reads (`agent_methods`), not an install.
   A row is a `LogoTile` (through the `SourceLogoTile` adapter: an origin key or an umbrella logo slug in), the name, the
   last sync only while on, and a dot with one word: **Connected · Needs sign-in · Off** (`SourceCatalog.status`: a
   channel whose last failure reads as a lapsed sign-in, else any connected channel, an allowed site for Instagram, a
-  harness with conversations). Its detail (`SourceCatalogDetail`, DR-74's head) holds the source's own control — the
-  very rows Settings drew (`CalendarRow`, `ContactsRow`, `MessagesRow`, `BrowsersSection`, `WatchHistoryRow`,
-  `FolderChannelRow` + *Add a folder*, `WisprFlowRow`), or `ChannelActionsBar` (Connect / Refresh / Manage) for a
-  registry channel, or a tile's flow — then the per-site reading switch for a walled site (x, instagram, linkedin,
-  reddit, tiktok; `PUT /reading/settings` `{sites}`, turning a site on also turns reading on with its acknowledgement:
-  Reading the web left Settings, default on), then what came in (the source's v4 list when the overview has a row).
+  harness with conversations). **Its detail is one template for every source (source-page-v3, owner 2026-10-29;
+  `SourcePageViews.swift`, DESIGN_RULES §9 2026-10-29):** DR-74's head; **one status line** (`SourcePageStatus`, pure:
+  *Connected · last item <day>* / *Syncing · <the reader's words>* / *Needs you · <one action>* / *Off*, which also says
+  its last item when it holds any — the day is the items route's `latest`, ruling 39's received day when later, never a
+  day still ahead) with *What Cicada reads* as a quiet text button opening the source's full words (its blurb, what it
+  reads, where an export comes from, its honest limit) as a `ConnectFactsPage` sheet; **one search**
+  (`CicadaSearchField`, "Search 6 chats") that replaces the "What came in" heading and narrows the list on the backend
+  (`q`); **what came in** (`SourceItemsSection`) in the source's own unit — a chat (face, name, *N conversations*, its
+  newest day), a watched day (*N videos*), a saved thing (`SavedItemRow`), an item, an agent's conversation
+  (`HarnessConversationsView`'s embedded mode) — at most 12 rows then a plain *All N*; a group row and *All N* open in the
+  column's place (`SourceDrill`) with *‹ <source>* and Esc to return, never in place (DR-81); then the removals proposed
+  against the channel and, for tab groups, the groups open now; and **Settings** last (`SourcePageSettings`): the
+  source's own control — the very rows Settings drew (`CalendarRow`, `ContactsRow`, `MessagesRow`, `BrowsersSection`,
+  `WatchHistoryRow`, `FolderChannelRow` + *Add a folder*, `WisprFlowRow`), or `ChannelActionsBar` (Connect / Refresh /
+  Manage) for a registry channel, or a tile's flow — then the per-site reading switch for a walled site (x, instagram,
+  linkedin, reddit, tiktok; `PUT /reading/settings` `{sites}`, turning a site on also turns reading on with its
+  acknowledgement: Reading the web left Settings, default on). Under the page those rows run with
+  `sourceDetailHeadShown`, so their own *What came in* fold draws nothing (`CapturedItemsList`): the page's list is the
+  one list. A how-to or honest limit (an export's *where the file comes from*, Telegram's, Instagram's, Notion's) shows
+  in Settings only while the source is Off; otherwise it is one tap away under *What Cicada reads*.
   Instagram is offered with **Turn on** = the reading switch, saying the browser reader is still coming (G206) and
   offering the data export. Obsidian's entry is gone (a vault is a folder). Contacts stays (ruling 33).
 - **One catalogue (Hyrum mode B):** the *Add a source* grid opens from nowhere now. The eyebrow keeps DR-75's labelled
@@ -1760,8 +1774,10 @@ Home's Getting started rows use it. `BrowserWatcher`, `TabGroupWatcher` and `Con
 **What came in, by name (G161).** Under a source row, a "What came in" disclosure (collapsed, remembered per viewer
 per channel, `cicada.sources.capturedOpen.<channel>`) lists the items that source brought in by their own title and
 day, newest first, twenty at a time with "Show more" (`CapturedItemsList`): under onboarding's Import rows (a preview —
-the rows open nothing there), under every Integrations row, and as the Sources detail column's content for a source
-whose items are not saved links (a saved source's column is the same list in its `.saved` style, above).
+the rows open nothing there) and under every Integrations row. On a source's own page the list is the template's
+`SourceItemsSection` instead (source-page-v3, above) and a row's fold draws nothing there. `ChannelItemsCache` holds a
+search's list under its own key (`ChannelItemsCache.key(channel, query:)`) beside the channel's, so clearing the field
+shows the held list at once; a search settles 180 ms before it asks (`SourceSearch.debounce`).
 **Both dates (TODO ruling 39, 2026-10-24):** a row's line shows the item's own day only; when the item came in days
 later (a feed's back catalogue, an old bookmark) its help and spoken label add "· added <day>"
 (`CapturedItems.withReceived`), and the Reader's meta line reads "May 1, 2023 · added Oct 24, 2026"
@@ -1770,8 +1786,15 @@ later (a feed's back catalogue, an old bookmark) its help and spoken label add "
 derives it at read from the same set the row's count means — the notes index, the calendar and tab-group episodes (never
 a tombstoned one), the bookmark seen-set joined to the url index, a channel's media pages, a folder's files — engine-free
 and read-only; titles only (scrubbed, one line), never a body, and for Contacts the matched page's name only; a saved link's row adds `host` (its bare host, never the URL), `site` (the key its mark is asked under, `reading_hosts.site_of`) and `why` (the newest *Ask why* answer: reason labels and the person's words, one line ≤ 160 characters), read only for the page served. A channel-less saved import (Instagram, YouTube, LinkedIn, TikTok) is listed by its Sources row id. Its
-`total` is its own count, not a promise to equal the row's (a notes index keeps a deleted note). It ETags over
-`sources`+`episodes`+`entities` with the channel and page in `extra`, and is **not** a Store domain: `ChannelItemsCache`
+`total` is its own count, not a promise to equal the row's (a notes index keeps a deleted note). **source-page-v3:**
+`?q=` (≤ 200 characters) narrows the list to the rows whose title, chat name or saved link's host holds every word
+(folded), or whose episode's words do where the words index answers (`search_index.episodes_with_words`, newest 2,000
+episodes, a chat found by any sitting); the page then carries `all` (the channel's whole count) and `latest` (the day the
+newest item came in, ruling 39's received day when later, never a day ahead — a UTC day, which the app clamps to its
+local today, `SourcePageStatus.cameIn`). The query rides the ETag's digest only, never a log: the access log cuts the
+query of any request naming `q`, `query`, `focus` or `code` (`api/main.py` `_REDACTED_PARAMS`, gated over every route
+by `test_main_access_log`). The app cuts a search at 200 code points, whole characters only — the backend's count. It ETags over
+`sources`+`episodes`+`entities`+`photos` with the shape, channel, page and query in `extra`, and is **not** a Store domain: `ChannelItemsCache`
 keeps it in memory, revalidates when the list opens or the channels move, and empties on a bank switch. A row opens its
 episode in the Reader, a saved item in Sleep › Saved, a person in Clusters.
 

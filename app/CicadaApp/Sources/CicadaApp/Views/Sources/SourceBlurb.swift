@@ -15,6 +15,9 @@ enum SourceBlurb {
         return byId[source.id] ?? fallback(kind: source.kind, label: source.label)
     }
 
+    /// source-page-v3 — the sentence for a catalogue entry's channel id when the overview has no row for it yet.
+    static func text(id: String) -> String? { byId[id] }
+
     private static func fallback(kind: SourceKind, label: String) -> String {
         switch kind {
         case .harness:

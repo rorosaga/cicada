@@ -87,6 +87,7 @@ from api.services import (
     saved_why,
     source_overview,
     tab_groups,
+    text_fold,
     watch_history,
     wispr_flow,
 )
@@ -103,7 +104,9 @@ from api.services.channel_registry import CHANNEL_IDS
 #: `g161-8`: ruling 47 tier 2 — the Readwise and live Notion rows list their episodes.
 #: `g161-9`: G32 — the Spotify listening row lists its days.
 #: `g161-10`: chats-ux-v2 — WhatsApp and Telegram list one row per chat too; a chat row carries `messages` and `group`.
-SHAPE = "g161-10"
+#: `g161-11`: source-page-v3, on top of `g161-10` — a page carries `all` and `latest`, and `q` narrows it (the route
+#: folds `q` into the ETag's extra).
+SHAPE = "g161-11"
 LIMIT_DEFAULT = 50
 LIMIT_MAX = 200
 TITLE_CAP = 120
@@ -681,17 +684,77 @@ def _enrich(memory_path: Path, row: dict) -> dict:
     return out
 
 
-def items(memory_path: Path, channel_id: str, *, offset: int = 0, limit: int = LIMIT_DEFAULT) -> dict | None:
-    """One page of what `channel_id` brought in, newest first — or None for a channel this bank does not know."""
+#: source-page-v3 — the longest search a source page sends; past it the words are cut, never refused.
+Q_MAX = 200
+
+
+def _latest(rows: list[dict]) -> str | None:
+    """The day the newest item came in — the source page's "last item <day>" (owner 2026-10-29: "a better status for
+    when it's connected"). Ruling 39: when Cicada received an item days after its own date (``received``), that day
+    counts, so an old chat's history read today says today, and a feed's back catalogue never reads as stale. A day
+    still ahead (a calendar's coming event) is not an item that came in: it is never the answer. Days here are UTC
+    days, so west of UTC in the evening this can be the person's tomorrow; the app clamps it to its local today
+    (`SourcePageStatus.cameIn`, #561 review) — the body stays one answer for every viewer, so the ETag needs no clock."""
+    today = datetime.now(timezone.utc).date().isoformat()
+    days = [d for r in rows for d in (r.get("received"), r.get("day")) if d and d <= today]
+    return max(days) if days else None
+
+
+def _haystack(row: dict) -> str:
+    """What a source page's search reads of a row without opening anything: its title, a chat's name and the bare
+    host of a saved link (never the URL's path or query)."""
+    chat = row.get("chat") if isinstance(row.get("chat"), dict) else {}
+    host = reading_hosts.display_host(reading_hosts.host_of(str(row.get("_url") or ""))) if row.get("_url") else ""
+    return " ".join(str(x) for x in (row.get("title"), chat.get("label"), host) if x)
+
+
+def _search(memory_path: Path, rows: list[dict], q: str) -> list[dict]:
+    """The rows ``q`` finds (source-page-v3): every word in the row's own words (:func:`_haystack`, folded, AND), or —
+    where the words index has them — in the words of the episode the row is (a note, a watched day, a sitting, a
+    conversation), the saved link's episode, or any sitting of a chat. Order is kept; the query is never logged."""
+    from api.services import search_index
+
+    hits = search_index.episodes_with_words(memory_path, q) or set()
+    chats: set[str] = set()
+    if hits and any(r.get("kind") == "chat" for r in rows):
+        for ep in hits:   # a chat row stands for its sittings: a sitting that matched finds its chat
+            f = bank_index.file(memory_path, "episodes", f"{ep}.md")
+            if f is not None and (cid := str((f.frontmatter or {}).get("conversation") or "")):
+                chats.add(cid)
+    out = []
+    for r in rows:
+        if text_fold.contains_all(_haystack(r), q):
+            out.append(r)
+        elif r.get("kind") == "chat":
+            if r.get("id") in chats:
+                out.append(r)
+        elif r.get("id") in hits or (r.get("_episode") and r.get("_episode") in hits):
+            out.append(r)
+    return out
+
+
+def items(memory_path: Path, channel_id: str, *, offset: int = 0, limit: int = LIMIT_DEFAULT,
+          q: str | None = None) -> dict | None:
+    """One page of what `channel_id` brought in, newest first — or None for a channel this bank does not know.
+
+    source-page-v3 (owner 2026-10-29): ``q`` narrows the list to what it finds (:func:`_search`); ``total`` is then
+    the matches' count and ``all`` the channel's whole count, and ``latest`` is the day the newest item came in
+    (:func:`_latest`, over the whole channel whatever ``q`` says)."""
     memory_path = Path(memory_path)
     if not known(memory_path, channel_id):
         return None
     offset = max(0, int(offset))
     limit = max(1, min(int(limit), LIMIT_MAX))
     rows = _collect(memory_path, channel_id)
+    everything = len(rows)
+    latest = _latest(rows)
+    query = str(q or "").strip()[:Q_MAX]
+    if text_fold.fold(query).strip():
+        rows = _search(memory_path, rows, query)
     rows.sort(key=lambda r: (-r["_sort"], r["title"].casefold(), r["id"]))
     page = [_enrich(memory_path, r) for r in rows[offset:offset + limit]]
-    return {"channel": channel_id, "total": len(rows), "offset": offset, "limit": limit, "items": page}
+    return {"channel": channel_id, "total": len(rows), "all": everything, "latest": latest, "offset": offset,
+            "limit": limit, "items": page}
 
 
 def saved_episode_site(memory_path: Path, episode_id: str) -> str | None:

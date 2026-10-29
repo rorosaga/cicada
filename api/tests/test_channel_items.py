@@ -39,6 +39,15 @@ def _json(bank, rel, data):
     path.write_text(json.dumps(data), encoding="utf-8")
 
 
+@pytest.fixture(autouse=True)
+def _no_words_index(monkeypatch):
+    """A search here matches titles alone unless a test says what the words index answers (its own behaviour is
+    `test_search_index`'s): no index is built in the background of a list test."""
+    from api.services import search_index
+
+    monkeypatch.setattr(search_index, "episodes_with_words", lambda memory_path, q: None)
+
+
 @pytest.fixture
 def bank(tmp_path):
     b = tmp_path / "memory"
@@ -220,8 +229,8 @@ def test_paging(bank):
 
 def test_an_unknown_channel_is_none_and_an_empty_known_one_is_empty(bank):
     assert channel_items.items(bank, "nope") is None
-    assert channel_items.items(bank, "reddit") == {"channel": "reddit", "total": 0, "offset": 0,
-                                                   "limit": channel_items.LIMIT_DEFAULT, "items": []}
+    assert channel_items.items(bank, "reddit") == {"channel": "reddit", "total": 0, "all": 0, "latest": None,
+                                                   "offset": 0, "limit": channel_items.LIMIT_DEFAULT, "items": []}
 
 
 def test_every_listed_channel_is_known(bank):
@@ -357,3 +366,105 @@ def test_a_walled_sites_mark_is_asked_under_its_family_name(bank):
     one = next(r for r in channel_items.items(bank, "chrome-bookmarks")["items"] if r["id"] == "media-one")
     assert one["host"] == "linkedin.com" and one["site"] == "linkedin"
     assert "someone" not in json.dumps(one)
+
+
+# --- source-page-v3: one search, and the day the newest item came in ---------------------------------------------
+
+
+def test_latest_is_the_day_the_newest_item_came_in_whatever_q_says(bank):
+    page = channel_items.items(bank, "notes")
+    assert page["latest"] == "2026-09-03" and page["all"] == 2
+    assert channel_items.items(bank, "notes", q="garden")["latest"] == "2026-09-03"
+
+
+def test_latest_counts_the_day_an_old_item_was_received(bank):
+    """Ruling 39: history read today says today, not the item's own months-old day."""
+    _episode(bank, "ep_2026-09-13_001", title="Old chat", origin="claude-export", original_date="2026-01-01",
+             timestamp="2026-09-13T08:00:00+00:00", received_at="2026-09-13T08:00:00+00:00")
+    bank_index.invalidate()
+    assert channel_items.items(bank, "chat-export:claude")["latest"] == "2026-09-13"
+
+
+def test_q_matches_titles_folded_and_every_word(bank):
+    page = channel_items.items(bank, "notes", q="  READING ")
+    assert _ids(page) == ["ep_2026-09-03_001"] and page["total"] == 1 and page["all"] == 2
+    assert channel_items.items(bank, "notes", q="reading garden")["total"] == 0, "every word must match"
+    assert channel_items.items(bank, "notes", q="")["total"] == 2, "an empty search is no search"
+
+
+def test_q_matches_a_saved_links_host_never_its_path(bank):
+    assert channel_items.items(bank, "chrome-bookmarks", q="example.com")["total"] == 2
+    assert channel_items.items(bank, "chrome-bookmarks", q="/1")["total"] == 0
+
+
+def test_q_widens_with_the_words_index_where_it_answers(bank, monkeypatch):
+    from api.services import search_index
+
+    monkeypatch.setattr(search_index, "episodes_with_words", lambda memory_path, q: {"ep_2026-09-01_001"})
+    page = channel_items.items(bank, "notes", q="tomatoes")
+    assert _ids(page) == ["ep_2026-09-01_001"], "a note whose words match is found though its title does not"
+
+
+def test_q_finds_a_chat_by_a_sitting_that_matched(bank, monkeypatch):
+    from api.services import search_index
+
+    chat = "a" * 32
+    for n, day in ((1, "2026-09-14"), (2, "2026-09-15")):
+        _episode(bank, f"ep_{day}_00{n}", title=f"Messages with Person A · {day}", origin="imessage",
+                 conversation=chat, correspondent={"name": "Person A"}, timestamp=f"{day}T08:00:00+00:00")
+    bank_index.invalidate()
+    monkeypatch.setattr(search_index, "episodes_with_words", lambda memory_path, q: {"ep_2026-09-14_001"})
+    rows = channel_items.items(bank, "imessage", q="thursday")["items"]
+    assert [r["id"] for r in rows] == [chat]
+    monkeypatch.setattr(search_index, "episodes_with_words", lambda memory_path, q: set())
+    assert channel_items.items(bank, "imessage", q="person a")["total"] == 1, "a chat is found by its name"
+    assert channel_items.items(bank, "imessage", q="thursday")["total"] == 0
+
+
+def test_q_with_no_words_index_matches_titles_alone(bank, monkeypatch):
+    from api.services import search_index
+
+    monkeypatch.setattr(search_index, "episodes_with_words", lambda memory_path, q: None)
+    assert _ids(channel_items.items(bank, "notes", q="garden")) == ["ep_2026-09-01_001"]
+
+
+def test_route_takes_q_and_tags_each_search_apart(client):
+    first = client.get("/sources/channels/notes/items", params={"q": "garden"})
+    assert first.status_code == 200, first.text
+    assert [r["id"] for r in first.json()["items"]] == ["ep_2026-09-01_001"]
+    other = client.get("/sources/channels/notes/items", params={"q": "reading"},
+                       headers={"If-None-Match": first.headers["etag"]})
+    assert other.status_code == 200, "another search is another tag"
+    assert client.get("/sources/channels/notes/items", params={"q": "x" * 201}).status_code == 422
+    # The app cuts a search at 200 CODE POINTS, whole characters only (`SourceSearch.normalized`): its longest emoji
+    # search is accepted, never a 422 (#561 review).
+    family = "\U0001F468‍\U0001F469‍\U0001F467‍\U0001F466"   # one character, seven code points
+    assert client.get("/sources/channels/notes/items", params={"q": family * 28}).status_code == 200
+
+
+def test_latest_never_names_a_day_still_ahead(bank):
+    """A calendar's coming event is not an item that came in."""
+    _episode(bank, "ep_2026-09-13_002", title="Far future", origin="calendar-local", source_id="calendar-local:e9",
+             timestamp="2026-09-13T08:00:00+00:00", event_start="2999-01-01T09:00:00+00:00")
+    bank_index.invalidate()
+    page = channel_items.items(bank, "calendar-local")
+    assert page["items"][0]["day"] == "2999-01-01" and page["latest"] == "2026-10-01"
+
+
+@pytest.mark.parametrize("channel,origin", [("whatsapp", "whatsapp"), ("telegram-chats", "telegram-chats")])
+def test_q_finds_a_live_chat_sources_chat_row(bank, monkeypatch, channel, origin):
+    """#559 lists WhatsApp and Telegram one row per chat; the source page's search finds that row by its name or by a
+    sitting whose words matched, and `latest` is its newest sitting's day."""
+    from api.services import search_index
+
+    chat = "b" * 32
+    for n, day in ((1, "2026-09-16"), (2, "2026-09-17")):
+        _episode(bank, f"ep_{day}_00{n}", title=f"Chat · {day}", origin=origin, conversation=chat,
+                 correspondent={"name": "Person C"}, message_count=3, timestamp=f"{day}T08:00:00+00:00")
+    bank_index.invalidate()
+    page = channel_items.items(bank, channel)
+    assert [(r["kind"], r["id"], r["sittings"], r.get("messages")) for r in page["items"]] == [("chat", chat, 2, 6)]
+    assert page["latest"] == "2026-09-17"
+    assert channel_items.items(bank, channel, q="person c")["total"] == 1
+    monkeypatch.setattr(search_index, "episodes_with_words", lambda memory_path, q: {"ep_2026-09-16_001"})
+    assert [r["id"] for r in channel_items.items(bank, channel, q="climbing")["items"]] == [chat]

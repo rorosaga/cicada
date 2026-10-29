@@ -31,9 +31,13 @@ struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
     /// Ruling 39 — the day Cicada received the item, sent only when it is days after `day` (the item's own date: a
     /// feed's back catalogue, an old bookmark). Nil for every other row and from an older backend.
     var received: String? = nil
+    /// chats-ux-v2 (#559) — a chat row's message count over its sittings (absent for sittings written before counts
+    /// were kept) and whether it is a group chat. Nil for every other row and from an older backend.
+    var messages: Int? = nil
+    var group: Bool? = nil
 
     enum CodingKeys: String, CodingKey {
-        case kind, id, title, day, left, host, site, why, chat, videos, sittings, video, received
+        case kind, id, title, day, left, host, site, why, chat, videos, sittings, video, received, messages, group
     }
 
     init(kind: Kind, id: String, title: String, day: String? = nil, left: String? = nil, host: String? = nil,
@@ -60,6 +64,8 @@ struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
         sittings = try? c.decodeIfPresent(Int.self, forKey: .sittings)
         video = try? c.decodeIfPresent(Bool.self, forKey: .video)
         received = try? c.decodeIfPresent(String.self, forKey: .received)
+        messages = try? c.decodeIfPresent(Int.self, forKey: .messages)
+        group = try? c.decodeIfPresent(Bool.self, forKey: .group)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -77,6 +83,8 @@ struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
         try c.encodeIfPresent(sittings, forKey: .sittings)
         try c.encodeIfPresent(video, forKey: .video)
         try c.encodeIfPresent(received, forKey: .received)
+        try c.encodeIfPresent(messages, forKey: .messages)
+        try c.encodeIfPresent(group, forKey: .group)
     }
 }
 
@@ -112,11 +120,16 @@ struct ChannelItemsPage: Codable, Hashable, Sendable {
     let total: Int
     let offset: Int
     let items: [ChannelItem]
+    /// source-page-v3 — the channel's whole count whatever the search (`total` is the matches' count under one).
+    var all: Int? = nil
+    /// source-page-v3 — the day (`YYYY-MM-DD`) the newest item came in (ruling 39: the received day when later).
+    var latest: String? = nil
 
-    enum CodingKeys: String, CodingKey { case channel, total, offset, items }
+    enum CodingKeys: String, CodingKey { case channel, total, offset, items, all, latest }
 
-    init(channel: String, total: Int, offset: Int = 0, items: [ChannelItem]) {
+    init(channel: String, total: Int, offset: Int = 0, items: [ChannelItem], all: Int? = nil, latest: String? = nil) {
         self.channel = channel; self.total = total; self.offset = offset; self.items = items
+        self.all = all; self.latest = latest
     }
 
     init(from decoder: Decoder) throws {
@@ -125,6 +138,8 @@ struct ChannelItemsPage: Codable, Hashable, Sendable {
         items = try c.decodeIfPresent([ChannelItem].self, forKey: .items) ?? []
         total = try c.decodeIfPresent(Int.self, forKey: .total) ?? items.count
         offset = try c.decodeIfPresent(Int.self, forKey: .offset) ?? 0
+        all = try? c.decodeIfPresent(Int.self, forKey: .all)
+        latest = try? c.decodeIfPresent(String.self, forKey: .latest)
     }
 }
 
@@ -132,6 +147,9 @@ struct ChannelItemsPage: Codable, Hashable, Sendable {
 struct ChannelItemsList: Equatable, Sendable {
     var items: [ChannelItem]
     var total: Int
+    /// source-page-v3 — the channel's whole count and the day its newest item came in (nil from an older backend).
+    var all: Int? = nil
+    var latest: String? = nil
 
     var hasMore: Bool { items.count < total }
 }
