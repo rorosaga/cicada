@@ -178,7 +178,7 @@ final class MessagesWatcher {
 
     /// What a pass posts as a handle's card: its id when exactly ONE card holds it; `""` when Contacts was read and
     /// none or several cards hold it (the backend clears a stored card); nil when Contacts was not read (it keeps it).
-    static func postedCard(_ card: MessagesContactCard?, looked: Bool) -> String? {
+    nonisolated static func postedCard(_ card: MessagesContactCard?, looked: Bool) -> String? {
         if let id = card?.id { return id }
         return looked ? "" : nil
     }
