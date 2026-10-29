@@ -745,9 +745,10 @@ def _owner_pages_name(memory_path: Path, full: dict) -> bool:
 
 
 def _from_messages(ep_fm: dict) -> bool:
-    from api.services import messages_source
+    """A texted conversation — Messages or WhatsApp (`chat_live.CHAT_ORIGINS`)."""
+    from api.services import chat_live
 
-    return messages_source.SOURCE in (str(ep_fm.get("source") or ""), str(ep_fm.get("origin") or ""))
+    return bool(chat_live.CHAT_ORIGINS & {str(ep_fm.get("source") or ""), str(ep_fm.get("origin") or "")})
 
 
 def _search(memory_path: Path, names: list[str], per_name: int) -> list[str] | None:

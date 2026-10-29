@@ -28,7 +28,7 @@ WINDOW = 200
 MIN_CONVERSATIONS = 20
 TTL_S = 600.0
 #: Episode origins that are conversations; a harness session is one too (its ``harness`` is set).
-CONVERSATION_ORIGINS = frozenset({"chatgpt-export", "claude-export", "imessage", "telegram", "mcp", "codex",
+CONVERSATION_ORIGINS = frozenset({"chatgpt-export", "claude-export", "imessage", "whatsapp", "telegram", "mcp", "codex",
                                   "cursor", "gemini-cli", "claude-code", "relay"})
 _NOT_CONVERSATIONS = frozenset({"saved-link", "inbox"})
 

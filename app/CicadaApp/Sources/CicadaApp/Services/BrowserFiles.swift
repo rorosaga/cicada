@@ -26,6 +26,9 @@ enum BrowserFile: CaseIterable {
     /// G71 (2026-10-16): Chrome's default-profile `History` database — copied, never opened in place, and only its
     /// YouTube video pages read (`ChromeWatchHistoryReader`), after the person turned it on.
     case chromeHistory
+    /// G179 (2026-10-28): WhatsApp Desktop's `ChatStorage.sqlite` — copied, never opened in place, and only the chats the
+    /// person ticked read (`WhatsAppReader`).
+    case whatsAppStore
 
     /// Round 4 (C9): a browser's bookmarks file by its `BrowserInventory` id.
     static func bookmarks(forBrowser id: String) -> BrowserFile? {
@@ -76,6 +79,8 @@ enum BrowserFile: CaseIterable {
             return [MessagesReader.standardDatabase]
         case .chromeHistory:
             return [ChromeWatchHistoryReader.standardHistory]
+        case .whatsAppStore:
+            return [WhatsAppReader.standardStore]
         }
     }
 
@@ -92,6 +97,7 @@ enum BrowserFile: CaseIterable {
         case .chromeSessions: "Chrome's open tabs"
         case .messagesDatabase: "Messages"
         case .chromeHistory: "Chrome's history"
+        case .whatsAppStore: "WhatsApp"
         }
     }
 
@@ -163,6 +169,8 @@ enum BrowserFileError: Error, Equatable, LocalizedError {
                 return "Messages hasn't kept any conversations on this Mac yet."
             case .chromeHistory:
                 return "Chrome isn't installed, or has no history in its main profile yet."
+            case .whatsAppStore:
+                return "WhatsApp for Mac isn't installed, or hasn't kept any chats on this Mac yet."
             }
         }
     }

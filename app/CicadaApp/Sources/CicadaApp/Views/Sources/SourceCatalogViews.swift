@@ -265,6 +265,8 @@ struct SourceCatalogDetail: View {
             RemindersRow(channel: mine.first)
         case MessagesWatcher.channel:
             MessagesRow(channel: mine.first)
+        case WhatsAppWatcher.channel:
+            WhatsAppSourceRow(channel: mine.first)
         case SourceCatalog.tracesId:
             // Owner 2026-10-26 — once traces were ever on they have their own page; Sources keeps a link to it.
             if tracesPage { TracesSourcesLink() } else { TracesControls() }

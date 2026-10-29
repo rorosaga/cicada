@@ -487,6 +487,10 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "PUT /sources/messages/settings": (CAPTURE, None),         # G179: the registry file + a re-attributed sitting
     "POST /sources/messages/conversations": (NONE, None),      # G179: detection over names and counts, stores nothing
     "PUT /sources/messages/photos": (OUTSIDE, None),           # 2026-10-16: a chat's shared photo, a cache outside every bank
+    # G179 (2026-10-28): WhatsApp chats — the sittings and the tick registry, held through their commit.
+    "POST /sources/whatsapp/sync": (HELD, None),
+    "PUT /sources/whatsapp/settings": (HELD, None),
+    "POST /sources/whatsapp/conversations": (NONE, None),      # the person's tick per listed chat, stores nothing
     "POST /capture/telegram": (INTAKE, None),
     "POST /capture/transcript": (CAPTURE, None),
     "POST /capture/turn": (CAPTURE, None),   # capture-everywhere: the same writer as the Stop hook

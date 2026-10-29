@@ -8,6 +8,8 @@
 
 **Pick up here (2026-10-22, redesign):** read ruling 36 (the owner's answers D1–D6 to the redesign proposal), then [`feature-status.md`](feature-status.md) for what is building. Branches in flight: `feat/awake-read` (G207), `fix/people-dedup` (G209), `feat/update-sources` (G61); queued: connection model and providers (G217, G50), agent API (G213), app (G217's pages, needs a Mac). **Decided after review (2026-10-22, in ruling 36):** a new install's Auto uses a signed-in plan, a key offered as an equal option; ruling 4c stays and the quick read follows it; G213's API rides the G135 listener; "Where to check" as one grouped inbox review; `rich` + `questionary` approved. Nothing waits on the owner from this ruling. **Ruling 38 (2026-10-23)** decides the follow-ups: `/v1` from the tool table (G213), a capture-only phone (G91), one-way syncs (G219), traces with screenshots (G218).
 
+**Chats (2026-10-28, G179):** WhatsApp live chats in their PR (`feat/chats-live-whatsapp-telegram`; the source-agnostic `chat_live` engine). Telegram under ruling 47a is its own PR (`feat/telegram-live`), one-to-one chats only with the person's per-chat confirmation of the other side's consent (the owner, 2026-10-28, after Telegram's AI terms).
+
 ## Current state and evidence
 
 - **2026-10-28 — Messages interactions reach Sleep; group chats are read (G179, G29, G113; branch

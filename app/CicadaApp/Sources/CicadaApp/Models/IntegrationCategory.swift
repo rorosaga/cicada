@@ -60,7 +60,7 @@ enum IntegrationCategory: String, CaseIterable, Identifiable {
         case "rss", "calendar", "calendar-local", "contacts-local", "reminders-local":
             return .feedsAndCalendars
         // G179: the Messages conversations the person ticked, drawn by `MessagesRow`.
-        case "telegram", MessagesWatcher.channel:
+        case "telegram", MessagesWatcher.channel, WhatsAppWatcher.channel:
             return .messaging
         // R-LS25: Apple Notes moves beside the watched folders — both are notes.
         case "notes":

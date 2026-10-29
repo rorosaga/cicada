@@ -49,6 +49,8 @@ enum OriginIconography {
         "contacts-local",
         // G179: a ticked Messages conversation, one episode per sitting (`messages_source.ORIGIN`).
         "imessage",
+        // G179 (2026-10-28): a ticked WhatsApp chat (`whatsapp_source`), one episode per sitting.
+        "whatsapp",
         // G219: a ticked Reminders list's reminder, and a Notion export's page or row.
         "reminders-local", "notion-export",
         // Ruling 47 tier 2: Readwise highlights and the live Notion connection (`connectors/readwise.py`, `notion.py`).
@@ -100,6 +102,7 @@ enum OriginIconography {
         case "notion-export", "notion-api": "Notion"
         case "readwise": "Readwise"
         case "imessage": "Messages"
+        case "whatsapp": "WhatsApp"
         case "apple-notes": "Apple Notes"
         case "share-sheet": "Share Sheet"
         case "instagram-saved": "Instagram Saved"
@@ -174,6 +177,7 @@ enum OriginIconography {
         case "notion-export", "notion-api": "doc.text"
         case "readwise": "highlighter"
         case "imessage": "message.fill"
+        case "whatsapp": "phone.bubble.fill"
         case "apple-notes": "note.text"
         case "share-sheet": "square.and.arrow.up"
         case "instagram-saved": "camera.fill"
@@ -221,6 +225,7 @@ enum OriginIconography {
         case "chrome-bookmark": Color(hex: 0x4285F4)
         case "safari-bookmark", "safari-tab": Color(hex: 0x00A2E8)
         case "telegram": Color(hex: 0x26A5E4)
+        case "whatsapp": Color(hex: 0x25D366)
         case "rss": Color(hex: 0xEE802F)
         case "calendar", "calendar-local": Color(hex: 0xFF3B30)
         case "apple-notes": Color(hex: 0xFFCC00)
@@ -281,6 +286,7 @@ enum OriginIconography {
         case "brave-bookmark": "brave"
         case "rss": "rss"
         case "telegram": "telegram"
+        case "whatsapp": "whatsapp"
         case "pinterest": "pinterest"
         case "reddit-saved", "reddit": "reddit"
         case "x-bookmarks", "x-likes", "x": "x"
@@ -335,6 +341,7 @@ enum OriginIconography {
         case "reminders-local": "com.apple.reminders"
         // G179 — Cicada reads the Messages app's own database, so the app is here; Apple's marks are never committed.
         case "imessage": "com.apple.MobileSMS"
+        case "whatsapp": "net.whatsapp.WhatsApp"
         default: nil
         }
     }
