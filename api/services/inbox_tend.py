@@ -843,7 +843,7 @@ def passing_rule(memory_path: Path, item_id: str, fm: dict) -> tuple[Decision | 
     if _owner_pages_name(memory_path, full):
         return None, "owners_page"
     if not code:
-        units = promotion.exchanges(text, override=authorship.of(ep_fm), gaps=gaps)
+        units = promotion.exchanges(text, override=authorship.of(ep_fm), gaps=gaps, persons=promotion.person_kinds(ep_fm))
         if sum(1 for _p, whole in units if inbox_ask_gate.named_in(full, whole)) > PASSING_EXCHANGES:
             return None, "said_more"
     others = _other_conversations(memory_path, full, source)

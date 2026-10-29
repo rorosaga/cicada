@@ -107,7 +107,8 @@ def _clears_bar(memory_path: Path, fm: dict, body: str, owner_ids: set[str], pag
         return None, False
     text = claims.strip_claims_block(episode.body)
     units = promotion.exchanges(text, override=authorship.of(episode.frontmatter),
-                                gaps=evidence.gap_ranges(episode.frontmatter, text))
+                                gaps=evidence.gap_ranges(episode.frontmatter, text),
+                                persons=promotion.person_kinds(episode.frontmatter))
     exchanges, named = promotion.measure(
         {"name": fm.get("name"), "aliases": fm.get("aliases") or [], "type": fm.get("type")}, units)
     if exchanges > promotion.MIN_EXCHANGES and named:

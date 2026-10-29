@@ -447,6 +447,52 @@ def test_page_repair_never_counts_a_group_claim_as_the_persons_link(bank):
     assert page_quality_repair._clears_bar(bank, fm, body("agent"), set(), pages) == ("link", True)
 
 
+SAVE_BODY = ("# alpha-tool: a tool for things\n**URL:** https://example.com/alpha\n## Description\n"
+             "alpha-tool does the first thing.\nalpha-tool does the second thing.\nalpha-tool does the third thing.\n"
+             "alpha-tool does the fourth thing.\n## Why it was saved\nto try alpha-tool on alpha-project")
+
+
+def test_a_group_sitting_and_a_save_both_keep_whose_words_they_are(bank, monkeypatch):
+    """#499 over #515: one Sleep load and one Stage 1 pass over a group sitting and a saved link. The group's member
+    lines stay the members' (person_kinds, external:<member>) and the save's fetched text stays the page's (authorship),
+    neither dropped by the other."""
+    from api.services import authorship
+
+    _group(bank)
+    markdown_parser.write(bank / "episodes" / "ep_2026-10-01_001.md",
+                          {"id": "ep_2026-10-01_001", "source": "article", "url": "https://example.com/alpha",
+                           "media_entity_id": "media-alpha", "origin": "chrome-bookmark", "processed": False,
+                           "timestamp": "2026-10-01T10:00:00+00:00"}, SAVE_BODY)
+    bank_index.invalidate()
+    episodes = sleep_cycle._get_unprocessed_episodes(bank)
+    group = next(e for e in episodes if e.get("group"))
+    save = next(e for e in episodes if e["id"] == "ep_2026-10-01_001")
+    assert authorship.of_episode(save) == evidence.SAVE_KIND and not save["group"]
+    answer = {"entities": [{"name": "alpha-hall", "type": "place", "confidence": 0.8, "summary": "A hall."},
+                           {"name": "alpha-tool", "type": "tool", "confidence": 0.8, "summary": "A tool."}],
+              "relationships": [
+                  {"source": "Alice Example", "target": "alpha-hall", "label": "thinks too small",
+                   "evidence_quote": "alpha-hall is too small"},
+                  {"source": "alpha-tool", "target": "first thing", "label": "does",
+                   "evidence_quote": "alpha-tool does the first thing"}]}
+
+    async def fake(**kw):
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps(answer)))])
+
+    monkeypatch.setattr(entity_extractor.litellm, "acompletion", fake)
+    out = asyncio.run(entity_extractor.extract([group, save], Settings(litellm_model="fake-engine", memory_path=bank)))
+    by_ep = {o["episode_id"]: o for o in out}
+    g, s = by_ep[group["id"]], by_ep["ep_2026-10-01_001"]
+    alice = next(r for r in g["relationships"] if r["label"] == "thinks too small")
+    assert alice["observer"] == "external:alice-example" and not promotion.person_said(alice)
+    assert next(e for e in g["entities"] if e["name"] == "alpha-hall")["named_by_person"] is False
+    does = next(r for r in s["relationships"] if r["label"] == "does")
+    assert does["evidence"][0]["kind"] == "page" and not promotion.person_said(does)
+    tool = next(e for e in s["entities"] if e["name"] == "alpha-tool")
+    # The page's text is one block, never four exchanges in the person's words; the reason is still theirs.
+    assert tool["mention_exchanges"] <= promotion.MIN_EXCHANGES and tool["named_by_person"] is True
+
+
 def test_a_meeting_still_counts_every_speaker():
     text = "speaker:alice-example: alpha-hall is lovely\nuser: ok"
     assert promotion.exchanges(text)[0][0] == "alpha-hall is lovely"
