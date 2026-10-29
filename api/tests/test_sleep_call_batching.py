@@ -96,10 +96,10 @@ def test_the_schemas_take_both_answer_shapes():
     from api.services import agent_engine, engine_schemas
 
     claude = agent_engine.SCHEMA_BY_STAGE["disambiguation"]
-    assert claude["properties"]["decision"]["enum"] == ["same", "different", "unsure"]
+    assert claude["properties"]["decision"]["enum"] == ["same", "different", "unsure", "related"]
     assert claude["properties"]["decisions"]["items"]["required"] == ["entry", "decision"]
     strict = engine_schemas.disambiguation_schema(strict=True)
-    assert set(strict["required"]) == {"decision", "reason", "decisions"}
+    assert set(strict["required"]) == {"decision", "relation", "reason", "decisions"}
     assert None in strict["properties"]["decision"]["enum"]
 
 

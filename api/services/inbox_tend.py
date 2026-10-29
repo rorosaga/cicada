@@ -1093,7 +1093,9 @@ async def judge_merge(memory_path: Path, path: Path, fm: dict, body: str, llm_fn
     prompt = (
         "Two entries in one person's memory may name the SAME real-world thing. Read both and decide. "
         "Say \"same\" only when they are clearly one thing, \"different\" only when they are clearly two, and "
-        "\"unsure\" otherwise. Reply JSON {\"verdict\":\"same|different|unsure\",\"confidence\":0..1,"
+        "\"unsure\" otherwise. A part, feature, stage or pull request of the other, a product of the other's maker, "
+        "an alternative to it, or one version, model or unit of it is two things: \"different\", never \"same\" "
+        "(2026-10-29, `entity_relations`). Reply JSON {\"verdict\":\"same|different|unsure\",\"confidence\":0..1,"
         "\"reason\":\"<one short line>\"}.\n\n"
         f"ENTRY A:\n{mention_text}\n\nENTRY B:\n{_page_text(target)}"
     )

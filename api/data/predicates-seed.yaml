@@ -56,6 +56,9 @@ canonical:
   - relates-to        # GENERIC fallback association (multi-valued, never a contradiction key)
   - compares-against  # benchmark/comparison relation
   - contrasts-with    # opposition / differs-from
+  - alternative-to    # does the same job as another product (a fork, a reimplementation, a competitor; 2026-10-29)
+  - made-by           # product -> its maker (inverse of creates; 2026-10-29; in neither cardinality list, as before)
+  - has-version       # a line -> one version, model, edition or unit of it (inverse of is-a; 2026-10-29)
   - inspired-by       # provenance of an idea
   - references        # cites / points to
   - creates           # produces/generates an artifact
@@ -235,6 +238,8 @@ multi_valued:
   - references
   - compares-against
   - contrasts-with
+  - alternative-to
+  - has-version
   - inspired-by
   - sponsors
   - hosts
