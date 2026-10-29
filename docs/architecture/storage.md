@@ -1232,8 +1232,9 @@ Round 4 (C2–C4):
   committed alone as `user`, 409 while Sleep runs; never by an agent. A merge or a rename to a new id carries the
   choice and moves the file with it (2026-10-21, "A merge keeps both claim sets" above). The app shrinks a picture to ≤ 512 px before
   it leaves the Mac; the server keeps only a PNG or JPEG ≤ 512 KB (no Pillow). `entity_picture.resolve` is the one
-  precedence (the person's choice → a person's Contacts photo → the photo a ticked Messages chat shares, on its
-  `person`/`tool` page → a person's public-profile photo → a brand's logo → a media page's preview → a ring monogram),
+  precedence (the person's choice → a person's Contacts photo → the photo a ticked chat holds — Messages' shared
+  photo, WhatsApp's own picture, Telegram's profile photo since chats-ux-v2 (2026-10-29), one store keyed by chat —
+  on its `person`/`tool` page → a person's public-profile photo → a brand's logo → a media page's preview → a ring monogram),
   resolved at read onto `/graph` nodes and the entity; the app's
   `EntityPictureResolver` is its twin over `api/tests/fixtures/entity_picture.json`. A person never gets a logo and no
   service is sent a private person's name (G159). **A project's mark** (owner 2026-10-28, E) is the `logo` rung: its

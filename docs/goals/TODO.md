@@ -16,6 +16,13 @@
   `authorship.of` reads a `cicada_save_episode` note (stdio, remote, an agent's shell) as `evidence.AGENT_KIND`:
   `assistant` spans, no promotion exchange, its session's one conversation, claims `external:<harness>`. The ad-hoc
   `AGENT_SOURCES` / `_agent_note` checks in Ask and the inbox tend are gone into the one rule. Search index schema 9.
+- **2026-10-29 — chats feel like the apps, chat-specific half (G179, owner's live test; branch `feat/chats-ux-v2`).**
+  Telegram's QR step waits on the status's `version` (long-poll) instead of reading once a second; a WhatsApp chat
+  with yourself is your notes (`self_chat`: no correspondent, no card) and one oversized field no longer refuses a whole
+  batch (422 → clipped/dropped), with errors that say what failed and what to do; chat pictures from WhatsApp's own
+  data and Telegram's API (picker, and a ticked one-to-one chat's is its page's picture); pickers search by name or
+  number; `/sources/channels/{whatsapp|telegram-chats}/items` serves one row per chat for the shared source-page
+  design another worker builds (the "what came in" UI is theirs).
 - **2026-10-29 — Claude's memory tool backed by Cicada, as a client of `/v1` (ruling 38a, G213; branch
   `feat/memory-tool-adapter`).** `clients/memory-tool` (Python, stdlib core + an SDK `BetaAbstractMemoryTool`; a
   TypeScript twin for `betaMemoryTool`) maps `/memories` onto `/v1`: `README.md`, `recent.md`, `hubs/`, `search/`,
@@ -2450,7 +2457,10 @@ A whole row moves to DONE only after its remaining implementation and required a
     `feat/telegram-live`, which cites 47a. **47a amended — one-to-one chats only, each with the other person's consent (owner, 2026-10-28).** Telegram's terms, read the same day: API Terms §1.5 — "you are prohibited from using, accessing or aggregating data obtained from the Telegram platform to train … or otherwise engage in the development, enhancement or deployment of artificial intelligence, machine learning models" — and telegram.org/tos/content-licensing, "Large Language Models and AI": "Telegram firmly prohibits the scraping, indexing, harvesting, aggregation or use of data obtained from its platform to train, fine-tune, validate or otherwise engage in the development, enhancement, benchmarking or deployment of artificial intelligence, machine learning models and similar technologies. Exceptions may be granted in instances where all relevant users individually provide explicit, informed, affirmative and continued consent that is strictly limited to the specific content and chat, channel, or non-global context window for which it was requested." Sleep reads a sitting with a model, so the owner chose "1:1 with consent": group chats and channels are never offered and the backend refuses them; ticking a one-to-one chat needs the person to confirm, per chat and in plain words, that the other person agreed — explicitly, knowing what it means, for that chat only — said to be the person's responsibility, which Cicada cannot verify; the confirmation is kept with its date outside every bank (`$CICADA_HOME/telegram/consents.json`, 0600, a chat id and a time); unticking withdraws it and stops the reading. **Revisit** if Telegram grants Cicada an exception or changes those terms. **Revisit** a candidate's path when the harness proves unable
     to read it reliably (tier 1 → 2) or its API's terms or access change (tier 2 → 1); the ruling itself if a
     connection is ever wanted for anything but ingestion, or a person's account is restricted for a connection Cicada
-    made.
+    made. **47a amended — Saved Messages (coordinator on the owner's behalf, 2026-10-29, G179 `feat/chats-ux-v2`):** the
+    consent rule protects the other participants; the person's chat with themselves has none, so their tick is the
+    whole consent — no question asked, decided from Telegram's own dialog (`is_self`), recorded `self` in
+    `consents.json`, staged as their own notes (`self_chat`).
 48. **The redesign is accepted; the rulings live in DESIGN_RULES (owner, 2026-10-28; amends rulings 38 and 39b in
     direction only).** The owner answered the redesign proposal's decisions item by item; every accepted change is a
     numbered part of the dated ruling in `docs/design/DESIGN_RULES.md` §9 (2026-10-28) and new rows DR-77…DR-81, with

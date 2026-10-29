@@ -26,12 +26,37 @@ extension Copy {
         static let whatsAppUnreadable = "Cicada couldn't read WhatsApp's chats on this Mac."
         static let whatsAppStalled = "Cicada stopped reading a WhatsApp chat: its newest messages couldn't be reached. "
             + "Refresh to try again."
-        static let syncFailed = "Couldn't send the chat to Cicada."
+        /// chats-ux-v2 (owner 2026-10-29: a bare "Couldn't send the chat to Cicada." over his self-chat) — what failed
+        /// and what to do, never a bare "couldn't": the backend's own sentence when it gave one, else these.
+        static let syncFailed = "Cicada couldn't save this chat's messages. Refresh to try again; if it fails again, "
+            + "update Cicada — this version may not read something in the chat."
+        static func saveFailed(_ status: Int) -> String {
+            "Cicada's backend refused this chat's messages (error \(status)). Refresh to try again; if it fails "
+                + "again, update Cicada."
+        }
+
+        /// One reading of a chat failure for WhatsApp and Telegram alike: the backend's own sentence (`detail`) for any
+        /// refusal that carries one, the backend-down and needs-update lines, else a sentence with the status.
+        static func failure(_ error: Error) -> String {
+            if error is URLError { return Copy.sourceBackendDown }
+            guard let api = error as? APIError else { return syncFailed }
+            switch api {
+            case .httpError(404, _), .httpError(405, _): return Copy.sourceNeedsUpdate
+            case .httpError(let status, let body): return ProjectWriteFailure.detail(body) ?? saveFailed(status)
+            case .serverUnreachable: return Copy.sourceBackendDown
+            default: return syncFailed
+            }
+        }
         static let tickFirst = "Tick a chat first."
         static let reading = "Reading chats…"
         static let upToDate = "Up to date"
         static func synced(_ n: Int) -> String { n == 1 ? "1 message read" : "\(n) messages read" }
         static let unnamed = "Unnamed chat"
+        /// chats-ux-v2 — the person's chat with themselves (WhatsApp's "message yourself").
+        static let selfChat = "Notes to yourself"
+        static let searchPrompt = "Search chats"
+        static let searchPromptNumber = "Search by name or number"
+        static func noMatches(_ query: String) -> String { "No chat matches “\(query)”." }
         static let group = "Group"
         static let readHistory = "Read history"
         static let readHistoryHelp = "Read what this chat already holds, back to its first message"

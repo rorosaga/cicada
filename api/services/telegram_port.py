@@ -52,6 +52,7 @@ class TgDialog:
     bot: bool | None = None   # a one-to-one chat with a bot
     last: float = 0.0         # unix seconds of the last message
     broadcast: bool = False   # a channel: never listed (nobody's conversation)
+    is_self: bool = False     # Saved Messages: the person's chat with themselves (ruling 47a amendment 2026-10-29)
 
 
 @dataclass
@@ -115,6 +116,8 @@ class TelegramPort(Protocol):
     async def listen(self, handler: Callable[[TgEvent], Awaitable[None]]) -> None: ...
     async def log_out(self) -> None: ...
     async def disconnect(self) -> None: ...
+    #: chats-ux-v2 — a one-to-one chat's small profile photo (Telegram's own ~160 px JPEG), or None when it has none.
+    async def profile_photo(self, chat: int) -> bytes | None: ...
 
 
 PortFactory = Callable[[int, str, str], TelegramPort]
@@ -292,7 +295,8 @@ class TelethonPort:  # pragma: no cover — the real network adapter; every call
             entity = d.entity
             out.append(TgDialog(chat=d.id, name=d.name or "", group=bool(d.is_group),
                                 bot=bool(getattr(entity, "bot", False)) if d.is_user else None,
-                                last=d.date.timestamp() if d.date else 0.0, broadcast=bool(d.is_channel and not d.is_group)))
+                                last=d.date.timestamp() if d.date else 0.0, broadcast=bool(d.is_channel and not d.is_group),
+                                is_self=bool(d.is_user and getattr(entity, "is_self", False))))
         return out
 
     async def history(self, chat: int, *, min_id: int = 0, limit: int | None = None) -> AsyncIterator[TgMessage]:
@@ -349,6 +353,12 @@ class TelethonPort:  # pragma: no cover — the real network adapter; every call
     async def log_out(self) -> None:
         await self._connect()
         await self._client.log_out()
+
+    async def profile_photo(self, chat: int) -> bytes | None:
+        """The chat's small profile photo, in memory (``file=bytes``), from Telegram itself — nothing else is asked."""
+        await self._connect()
+        data = await self._client.download_profile_photo(chat, file=bytes, download_big=False)
+        return bytes(data) if data else None
 
     async def disconnect(self) -> None:
         result = self._client.disconnect()

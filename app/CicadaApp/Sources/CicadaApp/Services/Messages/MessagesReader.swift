@@ -84,7 +84,11 @@ struct MessagesReader: Sendable {
                    AND COALESCE(m.item_type, 0) = 0) AS from_me,
                (SELECT COUNT(*) FROM chat_message_join j JOIN message m ON m.ROWID = j.message_id
                  WHERE j.chat_id = c.ROWID AND m.is_from_me = 0 AND COALESCE(m.associated_message_type, 0) = 0
-                   AND COALESCE(m.item_type, 0) = 0) AS from_them
+                   AND COALESCE(m.item_type, 0) = 0) AS from_them,
+               (COALESCE(c.style, 45) = 45 AND COALESCE(c.chat_identifier, '') <> ''
+                 AND (c.chat_identifier = c.last_addressed_handle
+                      OR c.chat_identifier IN (SELECT substr(o.account_login, 3) FROM chat o
+                                               WHERE o.account_login LIKE '_:%'))) AS own
         FROM chat c
         WHERE COALESCE(c.style, 45) IN (45, 43)
         """
@@ -168,7 +172,7 @@ struct MessagesReader: Sendable {
             id: conversationId(chatGuid: guid), chatRowId: chat, handle: (row["handle"] as? String) ?? "",
             displayName: (row["name"] as? String) ?? "", service: service(row["service"] as? String),
             lastActivity: int(row["last"]).flatMap(date), fromMe: fromMe, fromThem: fromThem,
-            isGroup: int(row["style"]) == 43)
+            isGroup: int(row["style"]) == 43, isSelf: (int(row["own"]) ?? 0) != 0)
     }
 
     /// The optional `message` columns a pass reads when this Mac's database has them — ids and an emoji, never words.
@@ -299,7 +303,11 @@ struct MessagesReader: Sendable {
                                    "service": conversation.service, "group": conversation.isGroup,
                                    "fromMe": conversation.fromMe, "fromThem": conversation.fromThem]
         if conversation.isGroup { conv["members"] = members.map(\.json) }
-        if !conversation.isGroup, let contact { conv["contact"] = contact }
+        if conversation.isSelf {
+            conv["selfChat"] = true        // chats-ux-v2: a note to self — every line the person's, no card
+        } else if !conversation.isGroup, let contact {
+            conv["contact"] = contact
+        }
         let body: [String: Any] = ["conversation": conv, "messages": messages]
         return MessagesPass(json: try JSONSerialization.data(withJSONObject: body), cursor: next,
                             count: messages.count, hasMore: rows.count == batchLimit)

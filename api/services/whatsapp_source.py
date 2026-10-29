@@ -46,6 +46,8 @@ DELETED_TYPE = 14
 STICKER_TYPE = 15
 CONTACT_TYPE = 4
 LOCATION_TYPE = 5
+#: A message with a link preview (chats-ux-v2): its preview is a media row (title, thumbnail), not an attachment.
+LINK_TYPE = 7
 _MEDIA_KIND = {1: "image", 2: "video", 3: "audio", STICKER_TYPE: "sticker"}
 STANZA_KEY_CHARS = 16
 #: A group @mention as WhatsApp stores it — the member's number in the words. The app replaces each with the member's
@@ -156,6 +158,8 @@ def parse_rows(cid: str, rows: list, counts: chat_live.Counts, *, group: bool) -
         elif kind == LOCATION_TYPE:
             named.append("[location]")
             words = ""                     # never coordinates or a place name the row carries
+        elif kind == LINK_TYPE:
+            pass                           # a link's preview rides a media row: the words carry the link, no file
         elif media is not None or kind in _MEDIA_KIND:
             entry = _file(media or {}, _MEDIA_KIND.get(kind))
             files.append(entry)
