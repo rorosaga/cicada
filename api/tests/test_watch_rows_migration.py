@@ -110,20 +110,53 @@ def test_a_rows_write_that_fails_never_loses_a_days_videos(tmp_path, monkeypatch
     assert _day_urls(memory, "2026-10-15") == ["ccccccccccc"]
 
 
-def test_the_rows_signature_moves_on_every_rewrite_even_with_its_mtime_put_back(tmp_path):
-    """Review of #533 (note 1): per file, with the inode — a coarse or put-back mtime never hides a rewrite."""
+def test_the_rows_signature_moves_on_every_rewrite_even_with_every_timestamp_put_back(tmp_path):
+    """Review of #533 (note 1): per file, with the inode — a coarse or put-back mtime never hides a rewrite. The
+    rewrite keeps the file's size, and the file's AND the folder's timestamps are put back to what they were, as a
+    coarse folder clock (ext4 before 6.13) or an in-place edit would leave them: a folder-mtime signature reads the
+    same; only the rows file's inode moved."""
     import os
 
     memory = _bank(tmp_path)
     day = watch_history.parse_day("2026-10-14")
     watch_history.write_rows(memory, "youtube", day, [ROW])
     path = watch_history.rows_path(memory, "youtube", day)
-    st = path.stat()
+    file_st, folder_st = path.stat(), path.parent.stat()
     before = watch_history.rows_signature(memory)
-    watch_history.write_rows(memory, "youtube", day, [{**ROW, "title": "Bridge designs"}])
-    os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns))
-    os.utime(path.parent, ns=(path.parent.stat().st_atime_ns, path.parent.stat().st_mtime_ns))
-    assert watch_history.rows_signature(memory) != before
+    watch_history.write_rows(memory, "youtube", day, [{**ROW, "title": "Bridge desigN"}])   # the same size
+    assert path.stat().st_size == file_st.st_size
+    os.utime(path, ns=(file_st.st_atime_ns, file_st.st_mtime_ns))
+    os.utime(path.parent, ns=(folder_st.st_atime_ns, folder_st.st_mtime_ns))
+    assert (path.parent.stat().st_mtime_ns, path.parent.stat().st_size) == (folder_st.st_mtime_ns, folder_st.st_size), \
+        "the folder reads as it did before the rewrite"
+    after = watch_history.rows_signature(memory)
+    assert after != before
+    [(_, _, ino_before, mtime_before, size_before)] = before
+    [(_, _, ino_after, mtime_after, size_after)] = after
+    assert (mtime_after, size_after) == (mtime_before, size_before) and ino_after != ino_before, "the inode told"
+
+
+def test_a_new_days_rows_survive_a_staging_that_failed(tmp_path, monkeypatch):
+    """Review of #533 (follow-up a): a brand-new day's rows file is written first; if staging then fails there is no
+    episode yet, and the next sync must merge with that rows file, never with an empty list."""
+    from api.services import episode_staging
+
+    memory = _bank(tmp_path)
+    real = episode_staging.stage
+
+    def broken(*a, **k):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(episode_staging, "stage", broken)
+    try:
+        watch_history.record(memory, [_watch("aaaaaaaaaaa", "2026-10-20T09:00:00Z")])
+    except OSError:
+        pass
+    monkeypatch.setattr(episode_staging, "stage", real)
+    assert watch_history.rows_path(memory, "youtube", watch_history.parse_day("2026-10-20")).exists()
+    assert _day_urls(memory, "2026-10-20") == [], "no episode was staged"
+    watch_history.record(memory, [_watch("bbbbbbbbbbb", "2026-10-20T11:00:00Z")])
+    assert _day_urls(memory, "2026-10-20") == ["aaaaaaaaaaa", "bbbbbbbbbbb"]
 
 
 def test_never_automatic_a_dry_run_names_counts_and_ids_and_apply_moves_on_the_persons_word(tmp_path, monkeypatch):

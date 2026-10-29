@@ -506,7 +506,10 @@ def record(memory_path: Path, watches: Iterable[Watch], *, bank: str | None = No
             for platform, day in step:
                 sid = source_id(platform, day)
                 entry = index.get(sid)
-                rows, added = merge(day_rows(memory_path, entry.fm) if entry else [], groups[(platform, day)])
+                # A day with no episode yet may still have its rows file: a sync that wrote the rows and then failed to
+                # stage (rows go first) — those rows are kept, never merged over (review of #533).
+                rows, added = merge(day_rows(memory_path, entry.fm if entry else {"source_id": sid}),
+                                    groups[(platform, day)])
                 result.added += added
                 rows_by_day[(platform, day)] = rows
                 # The rows go to their own file (`write_rows`); a day written before the move drops its copy.
