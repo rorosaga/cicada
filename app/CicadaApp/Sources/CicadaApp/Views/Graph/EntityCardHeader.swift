@@ -97,8 +97,6 @@ struct EntityCardHeader: View {
                 if let summary {
                     EntitySummaryText(text: summary, isStub: isStub).padding(.top, CicadaTheme.scaled(6))
                 }
-                PictureSourceLine(id: entity.id, held: entity.pictureRef)
-                    .padding(.top, CicadaTheme.scaled(4))
             }
             // DR-45 — a tab label is never truncated: the tools share the tab row when it all fits; at a narrow column
             // (the 440 pt floor with every count showing) they step down to their own line, trailing, under the tabs.

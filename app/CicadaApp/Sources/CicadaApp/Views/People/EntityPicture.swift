@@ -53,7 +53,7 @@ struct EntityPicture: View {
     private var drawn: some View {
         content
             .task(id: loadKey) { image = await load() }
-            .help(editable ? Copy.People.changeHelp(name) : Copy.People.sourceLine(picture?.source))
+            .help(editable ? Copy.People.changeHelp(name, source: picture?.source) : Copy.People.sourceLine(picture?.source))
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(editable ? Copy.People.changePictureLabel(name) : name)
             .accessibilityValue(Copy.People.sourceLine(picture?.source))

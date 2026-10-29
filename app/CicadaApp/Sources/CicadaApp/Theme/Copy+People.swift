@@ -101,6 +101,11 @@ extension Copy {
         }
 
         static func changeHelp(_ name: String) -> String { "Change the picture for \(name) — or drop one here" }
+        /// The picture's hover: where it came from first (owner 2026-10-29: never a caption under the name), then how to
+        /// change it.
+        static func changeHelp(_ name: String, source: PictureSource?) -> String {
+            source.map { "\(sourceLine($0)). \(changeHelp(name))" } ?? changeHelp(name)
+        }
         /// VoiceOver's name for an editable picture (owner 2026-10-29: the picture is the control).
         static func changePictureLabel(_ name: String) -> String { "Change picture for \(name)" }
         static func pickMessage(_ name: String) -> String {

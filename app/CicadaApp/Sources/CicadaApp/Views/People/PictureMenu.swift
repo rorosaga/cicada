@@ -138,13 +138,21 @@ enum PictureChoices {
                      store: Store, anchor: NSView?) {
         let inputs = store.pictureInputs(for: id, held: heldInputs)
         let detected = inputs.flatMap { EntityPictureResolver.detected(id: id, $0) }
-        let options = PictureMenuModel.options(current: store.picture(for: id, held: held), detected: detected)
+        let current = store.picture(for: id, held: held)
+        let options = PictureMenuModel.options(current: current, detected: detected)
         switch plan(options) {
         case .pick:
             PictureActions.change(id: id, name: name, type: type, store: store, inputs: inputs)
         case .menu(let options):
             let menu = NSMenu()
             menu.autoenablesItems = false
+            if let source = current?.source {
+                // Where the picture came from, as the menu's quiet first line (owner 2026-10-29: never a caption).
+                let origin = NSMenuItem(title: Copy.People.sourceLine(source), action: nil, keyEquivalent: "")
+                origin.isEnabled = false
+                menu.addItem(origin)
+                menu.addItem(.separator())
+            }
             for option in options {
                 menu.addItem(ClosureMenuItem(title: Copy.People.optionLabel(option)) {
                     PictureActions.run(option, id: id, name: name, type: type, store: store, inputs: inputs)
@@ -210,7 +218,12 @@ struct PictureMenuItems: View {
     var body: some View {
         let inputs = store.pictureInputs(for: id, held: heldInputs)
         let detected = inputs.flatMap { EntityPictureResolver.detected(id: id, $0) }
-        ForEach(PictureMenuModel.options(current: store.picture(for: id, held: held), detected: detected), id: \.self) { option in
+        let current = store.picture(for: id, held: held)
+        if let source = current?.source {
+            Text(Copy.People.sourceLine(source))
+            Divider()
+        }
+        ForEach(PictureMenuModel.options(current: current, detected: detected), id: \.self) { option in
             Button(Copy.People.optionLabel(option)) {
                 PictureActions.run(option, id: id, name: name, type: type, store: store, inputs: inputs)
             }

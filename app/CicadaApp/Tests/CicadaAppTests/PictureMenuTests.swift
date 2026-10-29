@@ -34,17 +34,20 @@ final class PictureMenuTests: XCTestCase {
         XCTAssertEqual(PictureChoices.plan([.change, .useDetected(.logo)]), .menu([.change, .useDetected(.logo)]))
     }
 
-    /// The blue words under a page's name are gone (owner 2026-10-29): the source line says where the picture came
-    /// from and carries no action.
-    func testTheSourceLineCarriesNoAction() throws {
-        let file = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().appendingPathComponent("Sources/CicadaApp/Views/People/PersonHero.swift")
-        let text = try String(contentsOf: file, encoding: .utf8)
-        let line = try XCTUnwrap(text.range(of: "struct PictureSourceLine")).upperBound
-        let next = text.range(of: "\nstruct ", range: line..<text.endIndex)?.lowerBound ?? text.endIndex
-        let body = text[line..<next]
-        XCTAssertFalse(body.contains("InlineLink"), "the picture's choices live on the picture, never as blue words")
-        XCTAssertFalse(body.contains("PictureActions.run"))
+    /// No standing line under a page's name (owner 2026-10-29: the blue words, then the "Picture you added" caption):
+    /// where the picture came from lives on the picture's help, VoiceOver value and menu.
+    func testThePageHeaderCarriesNoPictureCaption() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("Sources/CicadaApp")
+        for path in ["Views/People/PersonHero.swift", "Views/Graph/EntityCardHeader.swift"] {
+            let text = try String(contentsOf: root.appendingPathComponent(path), encoding: .utf8)
+            XCTAssertFalse(text.contains("Copy.People.sourceLine"), path)
+            XCTAssertFalse(text.contains("Copy.People.optionLabel"), path)
+            XCTAssertFalse(text.contains("PictureActions.run"), path)
+        }
+        XCTAssertEqual(Copy.People.changeHelp("Bob Example", source: .upload),
+                       "Picture you added. Change the picture for Bob Example — or drop one here")
+        XCTAssertEqual(Copy.People.changeHelp("Bob Example", source: nil), Copy.People.changeHelp("Bob Example"))
     }
 
     func testEveryOptionHasPlainWords() {

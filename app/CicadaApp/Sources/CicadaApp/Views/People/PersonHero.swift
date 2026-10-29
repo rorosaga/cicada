@@ -3,7 +3,8 @@ import SwiftUI
 
 /// F-12 (G146 plan R-PE16) — mock C's top of a person's card: the picture at 88 pt (a button: pick, drop, right-click),
 /// the name in the display face at 24 (C-09 had 28, R-09 22 — 24 keeps the display role and matches Home's headline),
-/// the Summary as a two-line standfirst (a click shows all of it), where the picture came from, and the facts strip.
+/// the Summary as a two-line standfirst (a click shows all of it) and the facts strip. Where the picture came from is the
+/// picture's own help, VoiceOver value and the first line of its menu — never a caption under the name (owner 2026-10-29).
 struct PersonHero: View {
     let entity: Entity
     let summary: String?
@@ -28,7 +29,6 @@ struct PersonHero: View {
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                     if let summary { EntitySummaryText(text: summary, isStub: isStub, lineLimit: 2, expanded: summaryExpanded) }
-                    PictureSourceLine(id: entity.id, held: entity.pictureRef)
                 }
             }
             if !facts.isEmpty { FactsStrip(facts: facts, onOpenEntity: onOpenEntity) }
@@ -140,48 +140,5 @@ private struct FactCell: View {
         } else {
             words
         }
-    }
-}
-
-/// F-12 / R-PE15 — where the picture came from, in words: "Photo from your Contacts". Nothing on a page with no
-/// picture. What can be done about it lives on the picture itself (owner 2026-10-29: "you change the picture by
-/// pressing on the picture itself"; `PictureChoices`), never as blue words here.
-struct PictureSourceLine: View {
-    let id: String
-    let held: EntityPictureRef?
-
-    @Environment(Store.self) private var store
-
-    var body: some View {
-        if let current = store.picture(for: id, held: held) {
-            HStack(spacing: CicadaTheme.scaled(6)) {
-                if current.source == .contacts { ContactsMark(size: 14) }
-                Text(Copy.People.sourceLine(current.source))
-                    .font(CicadaTheme.metaFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-            }
-            .lineLimit(1)
-        }
-    }
-}
-
-/// R-PE7 — the Contacts app's own icon from this Mac (Track L's R-L1: an Apple mark is never committed), else its SF
-/// Symbol. Becomes `OriginMark(origin: "contacts-local")` once T-Sources maps that origin.
-struct ContactsMark: View {
-    var size: CGFloat = 14
-
-    var body: some View {
-        let points = CicadaTheme.scaled(size)
-        Group {
-            if let icon = InstalledAppIcon.image(bundleId: "com.apple.AddressBook", size: points) {
-                Image(nsImage: icon).resizable().interpolation(.high).scaledToFit()
-            } else {
-                Image(systemName: "person.crop.circle")
-                    .font(CicadaTheme.font(size: size * 0.8))
-                    .foregroundStyle(CicadaTheme.textSecondary)
-            }
-        }
-        .frame(width: points, height: points)
-        .accessibilityHidden(true)
     }
 }

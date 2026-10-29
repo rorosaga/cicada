@@ -13,7 +13,7 @@
 ## Current state and evidence
 
 - **2026-10-29 — the picture is the control (G146, owner; branch `feat/picture-click`).** The blue *Add a picture…* /
-  *Use initials instead* / *Remove picture* words under a page's name are gone; a click on the picture offers them
+  *Use initials instead* / *Remove picture* words and the "Picture you added" caption under a page's name are gone; a click on the picture offers them
   (the picker at once when it is the only choice), a page with no picture adds one from its ••• menu.
 - **2026-10-29 — Telegram connects by a QR (ruling 49, G179; branch `feat/telegram-qr-connect`).** Connect… opens on a
   sign-in QR the person scans in Telegram on their phone (Settings → Devices → Link Desktop Device); the backend
