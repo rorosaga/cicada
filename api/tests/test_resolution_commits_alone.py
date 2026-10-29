@@ -123,8 +123,9 @@ def test_a_merge_answer_commits_every_page_it_rewrote_and_nothing_else(tmp_path)
 
     _resolve(repo, "inbox-002", action="merge", merge_target="alpha-tool-build", merge_survivor="alpha tool")
 
-    assert _files(repo) == ["entities/alpha-tool-build.md", "entities/alpha-tool.md", "entities/gamma.md",
-                            "inbox/inbox-002.md"]
+    # G227 (#552): the merged-away id keeps resolving through `_redirects.yaml`, which the merge writes and commits.
+    assert _files(repo) == ["_redirects.yaml", "entities/alpha-tool-build.md", "entities/alpha-tool.md",
+                            "entities/gamma.md", "inbox/inbox-002.md"]
     assert _git(repo, "status", "--porcelain", "--untracked-files=all").split() == [
         "??", "episodes/ep_2026-10-05_002.md"]
 
