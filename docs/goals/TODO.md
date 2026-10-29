@@ -12,6 +12,12 @@
 
 ## Current state and evidence
 
+- **2026-10-29 — seamless, secure devices (G212; branch `feat/seamless-devices`, cicada-app `feat/seamless-devices`).**
+  Settings → Devices guides the Mac onto the person's own tailnet (the next step and the command to copy; Cicada never
+  runs it) and checks the served address the way a phone would; a phone's token is bound to a Secure-Enclave key
+  (DPoP-style; a copied token alone is a 401), already-paired phones bind themselves, a phone pairs capture-only and can
+  only narrow its code. Proof verify p95 0.06 ms; hot paths within noise. Waits on the owner: whether a click may run
+  `tailscale serve`, and the on-phone checks. Numbers on the G212 row.
 - **2026-10-29 — T3 Code (G228; PR #543).** T3 Code drives the Claude Code, Codex and Cursor on the
   machine with their own settings, so Cicada's existing hooks, plugin and MCP server already run in its threads; one
   thread on one harness is that harness's one episode. New: the hook names the host from its own launch chain (exec paths only)

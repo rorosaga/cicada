@@ -223,6 +223,13 @@ capture-only (`api.md`, "A phone is capture-only"). The QR names this machine's 
 when the person already serves the backend port to their tailnet themselves, e.g. `tailscale serve --bg --https=8443
 8000` — tailnet only, never funnel; the backend still binds 127.0.0.1 and Cicada runs no tunnel command.
 
+**Guided, checked and key-bound (G212, 2026-10-29).** Settings → Devices reads the overlay's state (`GET
+/devices/reach`: Tailscale missing, not running, signed out, off, serving or funnelled) and shows the one next step,
+the serve as a command to copy; *Check again* fetches the served address the way a phone would and names the step that
+failed (the name, the overlay, the backend, something else answering). A phone pairs with a proof of its Secure-Enclave
+key, so its token is useless off the phone (`api.md`, "Key-bound device tokens"). A computer client stays unbound for
+now: its hooks, MCP server and CLI share one token and the hooks are stdlib-only, so none of them can sign yet.
+
 Owner rulings 2026-10-16 (TODO ruling 28): per-device tokens; the transcript rail amended; a tailnet device of the
 person's counts as local for the G198 trust list.
 

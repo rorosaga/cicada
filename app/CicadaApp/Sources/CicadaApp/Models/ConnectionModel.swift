@@ -119,16 +119,25 @@ struct DeviceStatusRow: Decodable, Equatable, Identifiable {
     var how: String?
     var lastSeenAt: String?
     var queue = 0
+    /// 2026-10-29 (additive; nil from an older backend): `capture` (sends captures only) or `full`.
+    var kind: String?
+    /// 2026-10-29 (additive): the token works only with a proof of the device's own key; false = not yet key-bound.
+    var keyBound: Bool?
+    /// Review 2026-10-29 (additive): when its token was locked to its key.
+    var keyBoundAt: String?
     var id: String { deviceId ?? "server" }
     var isServer: Bool { role == "server" }
 
     init(deviceId: String?, name: String, role: String = "device", current: Bool = false, connected: Bool = false,
-         how: String? = nil, lastSeenAt: String? = nil, queue: Int = 0) {
+         how: String? = nil, lastSeenAt: String? = nil, queue: Int = 0, kind: String? = nil, keyBound: Bool? = nil) {
         self.deviceId = deviceId; self.name = name; self.role = role; self.current = current
         self.connected = connected; self.how = how; self.lastSeenAt = lastSeenAt; self.queue = queue
+        self.kind = kind; self.keyBound = keyBound
     }
 
-    enum CodingKeys: String, CodingKey { case id, name, role, current, connected, how, lastSeenAt, queue }
+    enum CodingKeys: String, CodingKey {
+        case id, name, role, current, connected, how, lastSeenAt, queue, kind, keyBound, keyBoundAt
+    }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         deviceId = c.lenient(.id)
@@ -139,7 +148,48 @@ struct DeviceStatusRow: Decodable, Equatable, Identifiable {
         how = c.lenient(.how)
         lastSeenAt = c.lenient(.lastSeenAt)
         queue = c.lenient(.queue, 0)
+        kind = c.lenient(.kind)
+        keyBound = c.lenient(.keyBound)
+        keyBoundAt = c.lenient(.keyBoundAt)
     }
+}
+
+/// `GET /devices/reach` (G212, 2026-10-29): where this Mac stands on the person's own overlay, the one next step, and
+/// — with `check=true` — whether its served address answers the way a phone would see it.
+struct DeviceReach: Decodable, Equatable {
+    /// `missing` | `not-running` | `logged-out` | `stopped` | `running`.
+    var tailscale: String = "missing"
+    /// `install` | `open` | `sign-in` | `turn-on` | `serve` | `unfunnel` | `ready` (`reach.GUIDE_STEPS`).
+    var step: String = "install"
+    /// The exact command to copy when a command is the step; Cicada never runs it.
+    var command: String?
+    /// The served address a QR carries (`ready` only).
+    var url: String?
+    var dnsName: String?
+    var check: ReachCheck?
+
+    enum CodingKeys: String, CodingKey { case tailscale, step, command, url, dnsName, check }
+    init(tailscale: String = "missing", step: String = "install", command: String? = nil, url: String? = nil,
+         dnsName: String? = nil, check: ReachCheck? = nil) {
+        self.tailscale = tailscale; self.step = step; self.command = command; self.url = url
+        self.dnsName = dnsName; self.check = check
+    }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        tailscale = c.lenient(.tailscale, "missing")
+        step = c.lenient(.step, "install")
+        command = c.lenient(.command)
+        url = c.lenient(.url)
+        dnsName = c.lenient(.dnsName)
+        check = c.lenient(.check)
+    }
+}
+
+struct ReachCheck: Decodable, Equatable {
+    var ok = false
+    /// `dns` | `overlay` | `backend` | `not-cicada` | `other-cicada` (`reach.CHECK_FAILURES`), nil when it passed.
+    var failed: String?
+    var ms: Int?
 }
 
 /// `POST /devices/pairing` and `GET /devices/pairing/{id}` (G212).

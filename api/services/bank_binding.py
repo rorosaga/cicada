@@ -73,6 +73,8 @@ NO_BANK_WRITE = frozenset({
     ("POST", "/devices/pairing"),
     ("DELETE", "/devices/pairing/{pairing_id}"),
     ("POST", "/pair"),
+    # 2026-10-29: a device binding its own key — $CICADA_HOME's devices.db too.
+    ("POST", "/devices/me/key"),
     ("POST", "/agent-api/tokens"),
     ("DELETE", "/agent-api/tokens/{token_id}"),
 })
