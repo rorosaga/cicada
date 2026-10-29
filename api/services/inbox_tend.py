@@ -836,7 +836,7 @@ def passing_rule(memory_path: Path, item_id: str, fm: dict) -> tuple[Decision | 
     saved = _saved_item(ep_fm, spans)    # a saved page's title, link or byline is no one's own words
     turns: list[tuple[bool, str]] = []   # (the person's own turn, its words), in order
     for t in spans:
-        mine = t.role in promotion.person_kinds(ep_fm) and not _agent_note(ep_fm.get("source"), t) and not saved
+        mine = t.role in promotion.person_kinds(ep_fm) and not saved   # an agent's note is `assistant` (ruling 50)
         turns.append((mine, text[t.content_start:t.end]))
     named = [i for i, (_mine, words) in enumerate(turns) if inbox_ask_gate.named_in(full, words)]
     code = code_identifier(name) and typ not in _PERSON_LIKE
@@ -1356,17 +1356,9 @@ async def judge_item(memory_path: Path, path: Path, fm: dict, body: str, llm_fn)
 # --------------------------------------------------------------------------- move 1: answered in conversation
 
 
-def _agent_note(source, turn) -> bool:
-    """An unmarked block of an episode an agent saved through a tool door (``ask_sources.AGENT_SOURCES``): the
-    evidence reader calls it the person's (R4), but it is the agent's note — never the person's own words here."""
-    from api.services import ask_sources
-
-    return str(source or "") in ask_sources.AGENT_SOURCES and getattr(turn, "marker", None) is None
-
-
 def person_turns(episode: dict) -> list[str]:
     """The person's own turns of one conversation (``kind: user``), never an agent's, someone else's, or an agent's
-    saved note (an unmarked block of an episode a tool door wrote)."""
+    saved note (ruling 50: its turns are ``assistant``, ``authorship.of``)."""
     from api.services import evidence
 
     text = str(episode.get("content") or "")
@@ -1374,7 +1366,7 @@ def person_turns(episode: dict) -> list[str]:
         return []
     out = []
     for t in evidence.turns(text, override=authorship.of_episode(episode), gaps=episode.get("gaps") or ()):
-        if t.role == "user" and not _agent_note(episode.get("source"), t):
+        if t.role == "user":
             line = text[t.content_start:t.end].strip()
             if line:
                 out.append(line)
@@ -1499,7 +1491,8 @@ def _question_prompt(memory_path: Path, fm: dict, lines: list[str], *,
 
 def persons_span(memory_path: Path, episode_id: str, quote: str):
     """The person's own words, located: ``evidence.verify`` exact → whitespace → case (never fuzzy), in a ``user``
-    turn that is not an agent's saved note. ``None`` otherwise."""
+    turn — never an agent's saved note, whose turns are ``assistant`` (ruling 50, ``authorship.of``). ``None``
+    otherwise."""
     from api.services import evidence
 
     if not quote or not episode_id:
@@ -1507,14 +1500,7 @@ def persons_span(memory_path: Path, episode_id: str, quote: str):
     ev = evidence.verify(memory_path, episode_id, quote)
     if ev is None or not ev.is_span() or ev.kind != "user":
         return None
-    doc = evidence.source_document(Path(memory_path), episode_id)
-    if doc is None:
-        return None
-    fm, text = doc
-    for t in evidence.turns(text, override=authorship.of(fm), gaps=evidence.gap_ranges(fm, text)):
-        if t.start <= ev.start < t.end:
-            return None if _agent_note(fm.get("source"), t) else ev
-    return None
+    return ev
 
 
 #: Words an answer may carry that its quote need not ("a soldering station" ← "the soldering station on the desk").

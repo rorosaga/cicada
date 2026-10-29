@@ -238,9 +238,12 @@ def _tool_context(boot: Boot):
     from api.services import mcp_tools
 
     path, ident = boot.pin.path, _identity()
-    # Ruling 21: no id from the harness → no session at all (never minted); a named harness is kept.
+    # Ruling 21: no id from the harness → no session at all (never minted); a named harness is kept. Ruling 50: a
+    # shell only its harness's variables mark (Codex's sandbox) names that harness too, so a note saved from it is the
+    # agent's (`authorship.agent_saved`); the person's own terminal names none and their `cicada save` stays theirs.
+    harness = ident.harness or (None if ident.session_id else cli_app.agent_shell())
     return mcp_tools.ToolContext(memory_path=lambda: path, session_id=ident.session_id or "",
-                                 harness=ident.harness or "unknown", project_dir=_project_dir(boot),
+                                 harness=harness or "unknown", project_dir=_project_dir(boot),
                                  read_surface="cli", available=cli_map.exposed_tools(),
                                  headers=lambda: {"Content-Type": "application/json", **_backend_headers()},
                                  backend_url=boot.backend_url)
