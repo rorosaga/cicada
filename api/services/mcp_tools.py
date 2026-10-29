@@ -3995,8 +3995,11 @@ def _join_locked(ctx: ToolContext, op: str, entity_id: str, payload: dict, reaso
         return Reply(f"Nothing changed — {exc}", code="not_found" if exc.status == 404 else "refused")
     moved = out["moved"]
     linked = f" Re-pointed the links from {', '.join(out['repointed'])}." if out["repointed"] else ""
-    return (f"Split {entity_id}: {moved['sentences']} sentences, {moved['claims']} beliefs, {moved['sources']} "
-            f"sources and {moved['conversations']} conversations moved to `{out['new_id']}` ({out['new_name']}); the "
+    def n(count: int, word: str) -> str:
+        return f"{count} {word}{'' if count == 1 else 's'}"
+
+    return (f"Split {entity_id}: {n(moved['sentences'], 'sentence')}, {n(moved['claims'], 'belief')}, "
+            f"{n(moved['sources'], 'source')} and {n(moved['conversations'], 'conversation')} moved to `{out['new_id']}` ({out['new_name']}); the "
             f"two are kept apart from now on.{linked} The person can undo it from the page's history.")
 
 
