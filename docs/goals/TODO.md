@@ -19,6 +19,13 @@
   half way no longer "logs out" a session that never existed. **The real friction left is the app id:** no
   `CICADA_TELEGRAM_API_ID` is set on the repo, so a release build has none and every person would have to make their
   own at my.telegram.org — the owner sets it once (`docs/RELEASING.md`).
+- **2026-10-29 — capture answers in time (G105, ruling 7; branch `fix/capture-post-latency`).** The Stop hook's
+  `error: TimeoutError` lines (32 of the owner's last ~340 firings) were captures that landed late: a new session's
+  first Stop read all ~8,700 episodes under the capture lock, serialised across sessions. Now an index finds the
+  episode, `/capture/transcript` and `/capture/session` answer within 2 s (`202 accepted` past it, the write finishing
+  on its own), and a local post with no answer logs `no answer`, waits in the spool and is sent by a later firing.
+  Reproduced on a scratch copy under load: route p99 10.96 s → 2.01 s, hook firing p95 3.12 s → 0.88 s, timeouts
+  22/126 → 0/147.
 - **2026-10-29 — seamless, secure devices (G212; branch `feat/seamless-devices`, cicada-app `feat/seamless-devices`).**
   Settings → Devices guides the Mac onto the person's own tailnet (the next step and the command to copy; Cicada never
   runs it) and checks the served address the way a phone would; a phone's token is bound to a Secure-Enclave key
@@ -1047,6 +1054,14 @@ A whole row moves to DONE only after its remaining implementation and required a
    short-circuit makes per-turn firing idempotent. Revisit only if `capture.log` starts showing
    timeout `error:` lines (the hook's 3 s budget, `TIMEOUT_S` in `api/hooks/capture.py`) on the live
    bank — the hook logs no timing, so a blown budget surfaces as an `error:` line, not a latency figure.
+   **Trigger fired and answered (2026-10-29, `fix/capture-post-latency`):** 32 of the last ~340 Stop
+   firings logged `error: TimeoutError`; the cause was the backend's answer, not the trigger — every new
+   session's first Stop read every episode under the capture lock, and a long transcript read while other
+   sessions, a notes sweep or Sleep shared the process ran past 3 s. The route now answers within 2 s
+   (`202 accepted` when the write runs longer; it finishes on its own) and finds a session's episode from an
+   index; under the reproduced load the hook went from 22/126 timeouts (p95 3.12 s) to 0/147 (p95 0.88 s).
+   Stop stays the trigger. The signal is now a Stop `no answer` line (spooled, sent by a later firing) and
+   the `in <n>ms` on every answered line — a latency figure at last.
 8. **The Sleep page shows the ACTIVE stage, and there is one translation** (Track Z R-Z14). The
    wire's `stage` counts completed stages (`sleep_cycle.py` sets 1 only after Stage 1 returns);
    three derivations clamped it without adding one, so the worm, the bracket line and VoiceOver
