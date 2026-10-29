@@ -409,6 +409,18 @@ apply at the home by construction; a transaction is a tool call, never a file di
 inbox item was answered elsewhere) is rejected with a reason. Capture never blocks on the network: an unreachable home
 queues, it does not fail.
 
+**Capture commits on the home, replicas are a mode, history only grows (ruling 51e).** Today the session, turn and
+relay capture paths write the episode file and leave the commit to Sleep's batch or a poll's sweep; a replica follows
+commits, so while the home publishes its log a debounced background step commits new or changed `episodes/ep_*.md`
+only — each settled ≥ 10 s, as `cicada` with trigger `sync/capture`, holding write admission shared, skipped while
+Sleep is writing, never another path and never `_state.md`. The capture path itself still makes no commit and runs no
+model; with publishing off, nothing changes. **Replica mode** is a third runtime mode beside local and client:
+read-only, never Sleep or a schedule, never a commit of its own, with a backstop guard that refuses every bank writer;
+reads write nothing there, so `GET /state`'s refresh-and-commit is a no-op on a replica and refreshes at the home. If
+the home's published history is ever rewritten (a hand amend or reset in the bank), publishing freezes and says so in
+words; only the person's "publish from here" resumes it, and the replicas re-copy. **A demo bank is never published or
+replicated.**
+
 **The bank's state is the bank's.** The consolidation queue (the replica's `processed: false` episodes), the inbox and
 Sleep's status (running, its stage, the last run, the schedule — a small frame the home publishes) read the same on
 every device at the same sequence. "Sleep now" pressed anywhere is a transaction to the home. What is still on its way

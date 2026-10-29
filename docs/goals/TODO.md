@@ -2600,12 +2600,26 @@ A whole row moves to DONE only after its remaining implementation and required a
     episodes), the inbox and Sleep's status (running, stage, last run, schedule — a status frame the home publishes) are
     the same on every device at the same sequence; "Sleep now" pressed anywhere is a transaction to the home. What is
     still on its way (this device's outbox, the relay mailbox's count per sending device) is shown beside the queue,
-    never mixed into it. **Rails amended, old words → new (each takes effect when the phase that builds it ships;
+    never mixed into it. **e — What phase 1 needs (acting owner, 2026-10-29, on the read-only phase-1 planner's
+    findings).** **e1 — Capture commits on the home.** Today the session, turn and relay capture paths
+    (`transcript_capture`, `turn_capture`, `relay_capture`) write the episode file without committing; Sleep's batch
+    `add -A` or a poll's sweep commits it later. A replica follows commits, so the queue would differ between devices
+    and break d. So, **while the home publishes its log**, a debounced background step commits new or changed
+    `episodes/ep_*.md` only, each settled ≥ 10 s, as `cicada` with trigger `sync/capture`; it holds write admission
+    shared and is skipped while Sleep is writing; it never sweeps another path and never commits `_state.md`. With
+    publishing off, nothing changes. This amends nothing in the capture rail: no model, and the capture path itself
+    still makes no commit. **e2 — Replica mode is a third runtime mode**, beside local and client: read-only, never
+    runs Sleep or a schedule, never commits on its own; a backstop guard refuses every bank writer there. Reads on a
+    replica write nothing, so `GET /state`'s refresh-and-commit is a no-op on a replica and refreshes at the home.
+    **e3 — The history only grows.** If the home's published history is ever rewritten (a hand amend or reset in the
+    bank), publishing freezes and says so in words; the person chooses "publish from here" and the replicas re-copy —
+    never automatic. **A demo bank is never published or replicated.** **Rails amended, old words → new (each takes effect when the phase that builds it ships;
     until then the old words describe the code):** (1) CLAUDE.md, Headless: *"a server is its bank's one writer"* →
     the bank's **home** is its one writer (a server or any computer), and every other computer may hold a read-only
     replica it fast-forwards. (2) *"Another machine is a client (`CICADA_API_BASE`, or the app's `api_base` file, ruling
     28) with its own revocable device token and no bank of its own"* → another machine keeps its own revocable device
-    token and may hold **a replica** of the bank; its writes are transactions to the home; it never has a second
+    token and may run in **replica mode** (e2: read-only, no Sleep, no commit of its own) holding **a replica** of
+    the bank; its writes are transactions to the home; it never has a second
     writable bank of the same memory. (3) *"reach from another machine is an overlay the person runs (never a public
     port, never funnel — only the G135 listener may be, by the person, ruling 32)"* → reach is the end-to-end-encrypted
     relay every device dials out to, or directly on a LAN or tailnet the person runs; still **no device listens on a
