@@ -343,8 +343,7 @@ async def delete_replica(settings: Settings = Depends(get_settings)):
     token stays. Takes effect from the backend's next start (the app restarts it)."""
     from api.services import replica, runtime_layout
 
-    (runtime_layout.cicada_home() / runtime_layout.REPLICA_FILE).unlink(missing_ok=True)
-    back_to = await run_in_threadpool(replica.leave_copy, Path(settings.memory_root))
+    back_to = await run_in_threadpool(replica.stop_keeping_a_copy, Path(settings.memory_root))
     return {"mode": runtime_layout.mode(), "restart": True, "bank": back_to}
 
 

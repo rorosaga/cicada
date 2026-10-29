@@ -231,6 +231,33 @@ def copy_path() -> Path | None:
     return path if read_marker(path) is not None else None
 
 
+#: Held by "Stop keeping a copy" (removing `replica_of` and reopening the previous bank) and by the follower's first
+#: copy and every apply while they write: the follower checks `replica_of` again under it, so a stop that lands
+#: between its check and its write never sees the copy made active again (review of #567).
+MODE_LOCK = threading.Lock()
+
+
+class NoLongerACopy(Exception):
+    """`replica_of` was removed while the follower was on its way to write: it writes nothing."""
+
+
+def _still_a_copy() -> None:
+    from api.services import runtime_layout
+
+    if not runtime_layout.is_replica():
+        _set(status="stopping")
+        raise NoLongerACopy()
+
+
+def stop_keeping_a_copy(root: Path) -> str | None:
+    """`DELETE /sync/replica`: remove `replica_of` and reopen the previous bank, as one step under :data:`MODE_LOCK`."""
+    from api.services import runtime_layout
+
+    with MODE_LOCK:
+        (runtime_layout.cicada_home() / runtime_layout.REPLICA_FILE).unlink(missing_ok=True)
+        return leave_copy(root)
+
+
 def leave_copy(root: Path) -> str | None:
     """Outside replica mode the copy is never the active bank (review of #567): it would run Sleep and capture and
     drift from its home. When the active bank is a copy, switch back to the bank this computer had open before it kept
@@ -323,7 +350,8 @@ def bootstrap() -> Path:
                      if isinstance(r, dict) and r.get("replica") and r.get("id") == bank_id), None)
         slug = slug or _free_name(root, str(name))
         target = root / bank_registry.BANKS_SUBDIR / slug
-        with replica_guard.applying():
+        with MODE_LOCK, replica_guard.applying():
+            _still_a_copy()
             if (target / ".git").exists():
                 head = git_service.fast_forward_sync(target, bundle, rewrite=True)["head"]
             else:
@@ -435,7 +463,8 @@ def apply_once(*, rewrite: bool = False) -> dict:
             _set(status="following", seq=seq, sha=head or "", home_seq=seq, last_contact=time.time())
             return {}
         t0 = time.perf_counter()
-        with replica_guard.applying():
+        with MODE_LOCK, replica_guard.applying():
+            _still_a_copy()
             out = git_service.fast_forward_sync(mp, bundle, expect=headers.get("X-Cicada-Head") or None,
                                                 rewrite=rewrite)
         timings["applyMs"] = round((time.perf_counter() - t0) * 1000, 1)
@@ -624,6 +653,8 @@ def _follower() -> None:
         except NoDeviceToken:
             _set(status="no_token")
             wait = BACKOFF_MAX_S
+        except NoLongerACopy:
+            return                      # "Stop keeping a copy" landed mid-way: nothing written, nothing more followed
         except HomeError as exc:
             code = (exc.body or {}).get("code")
             if exc.status in (401, 403):
