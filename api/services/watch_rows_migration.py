@@ -11,9 +11,15 @@ rows file as they are (raw, never re-derived); the episode keeps everything else
 body, ``content_hash`` and ``processed`` are untouched, so nothing re-queues and no span moves. A rows file that
 already exists for that day is left as it is (the newer writer's) and only the frontmatter copy goes.
 
-Marker-guarded (``.watch_rows_v1``), under the stager's lock and the episode lock (the order ``watch_history.record``
-takes), committed as ``cicada`` with exactly the paths it wrote. Refuses while Sleep writes (``write_admission``):
-the next bank switch or start tries again. Never raises.
+**Never automatic.** A bulk write to the person's bank waits for their OK (standing rule): nothing calls
+:func:`move_rows` at start or on a bank switch. The person runs ``cicada maintenance move-watched-rows`` in their
+own terminal — a dry run (:func:`survey`: counts and a few day ids) — and then the same with ``--apply``
+(``POST /maintenance/watched-rows``; refused from an agent's shell, it acts as the person). Until then every reader
+takes either form and every new or updated day already writes its rows file.
+
+Marker-guarded (``.watch_rows_v1``: a second apply is a no-op), admitted (``write_admission``: refused while Sleep
+writes), under the stager's lock and the episode lock (the order ``watch_history.record`` takes), committed as
+``cicada`` with exactly the paths it wrote. Never raises into its caller.
 """
 from __future__ import annotations
 
@@ -27,10 +33,39 @@ from api.services import (episode_ids, episode_staging, git_service, markdown_pa
 
 _MARKER = ".watch_rows_v1"
 TRIGGER = "maintenance/watch-rows"
+#: How many day ids a dry run names.
+SAMPLE = 5
+
+
+def _legacy(fm) -> bool:
+    return (isinstance(fm, dict) and str(fm.get("source") or "") == watch_history.SOURCE
+            and isinstance(fm.get("watched"), list) and watch_history._day_key(fm) is not None)
+
+
+def survey(memory_path) -> dict:
+    """What an apply would do, writing nothing: ``{days, rows, rows_files_kept, applied, sample}`` — counts, and the
+    first few day ids (``ep_…``, never a title)."""
+    from api.services import bank_index
+
+    memory_path = Path(memory_path)
+    days = rows = kept = 0
+    sample: list[str] = []
+    for f in bank_index.files(memory_path, "episodes"):
+        fm = f.frontmatter
+        if not _legacy(fm):
+            continue
+        days += 1
+        rows += len(fm["watched"])
+        kept += watch_history.rows_path(memory_path, *watch_history._day_key(fm)).exists()
+        if len(sample) < SAMPLE:
+            sample.append(f.stem)
+    return {"days": days, "rows": rows, "rows_files_kept": kept, "applied": (memory_path / _MARKER).exists(),
+            "sample": sample}
 
 
 def move_rows(memory_path) -> int:
-    """Move one bank's watched rows. Returns how many days moved."""
+    """Move one bank's watched rows — the person's ``--apply``, never automatic. Returns how many days moved; raises
+    ``write_admission.SleepHolding`` while Sleep holds the pages (the route answers 409)."""
     memory_path = Path(memory_path)
     episodes_dir = memory_path / "episodes"
     marker = memory_path / _MARKER
@@ -51,7 +86,7 @@ def move_rows(memory_path) -> int:
                     logger.warning(f"Watched-rows move commit skipped ({type(exc).__name__})")
                     return days
     except write_admission.SleepHolding:
-        return 0   # Sleep holds the pages: the next start or bank switch moves them
+        raise
     except Exception as exc:  # noqa: BLE001 — a migration never fails a start or a bank switch
         logger.error(f"Watched-rows move failed — left as it was ({type(exc).__name__})")
         return 0
@@ -67,12 +102,9 @@ def _move(memory_path: Path, episodes_dir: Path) -> list[Path]:
         except Exception:  # noqa: BLE001 — an unreadable episode is left for its own reader to report
             continue
         fm = parsed.frontmatter
-        if (not isinstance(fm, dict) or str(fm.get("source") or "") != watch_history.SOURCE
-                or not isinstance(fm.get("watched"), list)):
+        if not _legacy(fm):
             continue
         key = watch_history._day_key(fm)
-        if key is None:
-            continue
         rows_file = watch_history.rows_path(memory_path, *key)
         if not rows_file.exists():
             watch_history.write_rows(memory_path, key[0], key[1], fm["watched"])

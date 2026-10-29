@@ -545,6 +545,8 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /maintenance/dedup-sweep": (PER_WRITE, "api.services.dedup_sweep._merge_and_commit"),
     "POST /maintenance/enrich-links": (PROBE, None),
     "POST /maintenance/link-sources": (ADMITTED, None),
+    # Speed 2026-10-29: the person's --apply of the watched-rows move (episodes and their rows files, one commit).
+    "POST /maintenance/watched-rows": (ADMITTED, None),
     "POST /maintenance/verify-sites": (PROBE, None),
     # G61, ruling 26: the read runs before admission; the write and its commit (or the cadence / "asked") are admitted.
     "POST /entities/{entity_id}/sources/refresh": (ADMITTED, None),
@@ -950,8 +952,6 @@ MIGRATION = ("migration: a one-shot, marker-guarded rewrite at boot or bank acti
              "refused only during a person-started drain, so a plain or scheduled cycle can overlap it (disclosed)")
 MIGRATIONS: dict[str, tuple[str, str | None]] = {
     "dedup_normalization_items": (ADMITTED, "api.services.inbox_migration._dedup_normalization_locked"),
-    # Speed 2026-10-29: a watched day's rows move from its frontmatter to `sources/watched/` (episodes and rows files)
-    "move_rows": (ADMITTED, "api.services.watch_rows_migration.move_rows"),
     "migrate_to_inbox": (MIGRATION, None),
     "dedup_open_items": (MIGRATION, None),
     "dedup_decay_items": (MIGRATION, None),

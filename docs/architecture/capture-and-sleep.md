@@ -717,8 +717,10 @@ API gives no one Watch later or watch history, so there are three doors, and the
   video is one row (`url, title, channel, times, via, seen`) in the day's own rows file,
   `sources/watched/<platform>/<day>.json`, committed with the day and never in its frontmatter: every episode header
   is cached for the backend's life, and a heavy watcher's rows there cost every cold start ~1.3 s (2026-10-29, the
-  shape #528 gave Spotify; a day written earlier keeps its frontmatter copy until the one-shot `watch_rows_migration`
-  moves it, and `watch_history.stored_rows` reads either); a watch less than 30 minutes
+  shape #528 gave Spotify; a day written earlier keeps its frontmatter copy until the person moves it —
+  `cicada maintenance move-watched-rows` is the dry run (counts, a few day ids), `--apply` the move in one
+  `cicada` commit, from their own terminal only, never automatic — and `watch_history.stored_rows` reads either);
+  a watch less than 30 minutes
   after the last one kept is the same watch, a later one a re-watch whose time is added. **`times` is derived, every
   merge, from `seen`** — every instant a door reported, distinct, the earliest 48 (`MAX_SEEN`) — so the order doors
   arrive in never changes a day (owner 2026-10-16, from the backend hunt: thinning only the kept times made Chrome,

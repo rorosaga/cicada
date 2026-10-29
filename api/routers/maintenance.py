@@ -273,6 +273,34 @@ def _built_at(memory_path: Path) -> str | None:
     return datetime.fromtimestamp(db.stat().st_mtime, tz=timezone.utc).isoformat()
 
 
+@router.get("/maintenance/watched-rows")
+async def watched_rows_survey(settings: Settings = Depends(get_settings)):
+    """What moving the watched days' rows out of their frontmatter would do (`watch_rows_migration.survey`): counts and
+    a few day ids, nothing written. The dry run behind ``cicada maintenance move-watched-rows``."""
+    from api.services import watch_rows_migration
+
+    return await run_in_threadpool(watch_rows_migration.survey, settings.memory_path)
+
+
+@router.post("/maintenance/watched-rows")
+async def watched_rows_apply(settings: Settings = Depends(get_settings)):
+    """Move them, on the person's word (``--apply``): one `cicada` commit, a second apply a no-op. 409 while Sleep holds
+    the pages. Counts only in the body."""
+    from api.services import watch_rows_migration, write_admission
+
+    memory_path = settings.memory_path
+    busy = lambda: SleepWriting("a Sleep cycle is running and writes the same episodes — retry when it finishes")  # noqa: E731
+
+    async def transaction():
+        return await asyncio.to_thread(watch_rows_migration.move_rows, memory_path)
+
+    try:
+        moved = await write_admission.run_admitted(memory_path, transaction, refuse=busy)
+    except write_admission.SleepHolding:
+        raise busy()
+    return {"moved": moved, **await run_in_threadpool(watch_rows_migration.survey, memory_path)}
+
+
 @router.get("/maintenance/search-index", response_model=SearchIndexStatus)
 async def search_index_status(settings: Settings = Depends(get_settings)):
     """Settings → Privacy & data (G139): how fresh the derived FTS5 index is. Deleting

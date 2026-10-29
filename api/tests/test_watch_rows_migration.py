@@ -71,3 +71,31 @@ def test_a_record_after_the_move_writes_rows_beside_the_day_never_in_it(tmp_path
              if markdown_parser.parse(p).frontmatter.get("source") == "watch-history"]
     assert "watched" not in day.frontmatter and day.frontmatter["videos"] == 1
     assert watch_history.stored_rows(memory, day.frontmatter)[0]["url"].endswith(VID)
+
+
+def test_never_automatic_a_dry_run_names_counts_and_ids_and_apply_moves_on_the_persons_word(tmp_path, monkeypatch):
+    """A bulk write to the person's bank waits for their OK: start-up and a bank switch move nothing; the route's GET
+    is the dry run (counts and day ids, nothing written) and its POST is the person's --apply."""
+    from fastapi.testclient import TestClient
+
+    from api import config, main
+    from api.services import bank_migrations
+
+    memory = _bank(tmp_path)
+    page = _legacy_day(memory, "2026-10-14", [ROW, {**ROW, "url": "https://www.youtube.com/watch?v=bbbbbbbbbbb"}])
+    bank_migrations.run_bank_migrations(memory)
+    assert "watched" in markdown_parser.parse(page).frontmatter, "never at start or on a bank switch"
+
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(memory))
+    config.get_settings.cache_clear()
+    try:
+        client = TestClient(main.app)
+        plan = client.get("/maintenance/watched-rows").json()
+        assert plan == {"days": 1, "rows": 2, "rows_files_kept": 0, "applied": False, "sample": [page.stem]}
+        assert "watched" in markdown_parser.parse(page).frontmatter, "a dry run writes nothing"
+        done = client.post("/maintenance/watched-rows").json()
+        assert done["moved"] == 1 and done["days"] == 0 and done["applied"] is True
+        assert "watched" not in markdown_parser.parse(page).frontmatter
+        assert client.post("/maintenance/watched-rows").json()["moved"] == 0, "a second apply is a no-op"
+    finally:
+        config.get_settings.cache_clear()

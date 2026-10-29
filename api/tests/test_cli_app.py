@@ -341,6 +341,7 @@ PERSON_ARGV = {
     "connector connect": ["connector", "connect", "readwise"],
     "connector disconnect": ["connector", "disconnect", "readwise"],
     "connector sync": ["connector", "sync", "readwise"],
+    "maintenance move-watched-rows": ["maintenance", "move-watched-rows", "--apply"],
 }
 
 
@@ -373,6 +374,15 @@ def test_reading_a_person_row_without_changing_it_is_allowed_from_an_agents_shel
     with _backend(env, monkeypatch, {("GET", "/sleep/engine"): (200, {"mode": "byok", "model": "m"})}):
         code, out = _run(["sleep", "engine"], capsys)
     assert code == 0 and out["ok"] is True
+
+
+def test_the_watched_rows_dry_run_reads_and_names_only_ids_and_counts(env, monkeypatch, capsys):
+    """Speed 2026-10-29: the move waits for the person's --apply; the dry run is a read, allowed from any shell."""
+    monkeypatch.setenv("CICADA_SESSION_HARNESS", "codex")
+    plan = {"days": 3, "rows": 40, "rows_files_kept": 1, "applied": False, "sample": ["ep_2026-10-14_002"]}
+    with _backend(env, monkeypatch, {("GET", "/maintenance/watched-rows"): (200, plan)}) as server:
+        code, out = _run(["maintenance", "move-watched-rows"], capsys)
+    assert code == 0 and out["data"] == plan and [r["method"] for r in server.seen] == ["GET"]
 
 
 # --- imports and pictures send the file's bytes -------------------------------------------------------------

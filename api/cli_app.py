@@ -792,6 +792,27 @@ def cmd_index_rebuild(boot, args) -> Result:
                   warnings=_warn(boot))
 
 
+def cmd_maintenance_move_watched_rows(boot, args) -> Result:
+    """The dry run by default; ``--apply`` moves the rows, from the person's own terminal only."""
+    if getattr(args, "apply", False):
+        require_person("Moving the watched days' rows")
+        done = call(boot, "POST", "/maintenance/watched-rows", timeout=600)
+        return Result(text=f"Moved {done.get('moved', 0)} watched day(s)' rows into sources/watched/ in one commit.",
+                      data=done, warnings=_warn(boot))
+    plan = call(boot, "GET", "/maintenance/watched-rows")
+    if plan.get("applied") and not plan.get("days"):
+        return Result(text="Nothing to move: every watched day keeps its rows in sources/watched/.", data=plan,
+                      warnings=_warn(boot))
+    lines = [f"{plan.get('days', 0)} watched day(s) keep {plan.get('rows', 0)} row(s) in their episode's frontmatter "
+             f"({plan.get('rows_files_kept', 0)} already have a rows file, which is kept).",
+             "Moving them writes each day's rows to sources/watched/<platform>/<day>.json and drops the frontmatter "
+             "copy, in one commit; nothing is re-queued for Sleep."]
+    if plan.get("sample"):
+        lines.append("For example: " + ", ".join(plan["sample"]))
+    lines.append("Run again with --apply to move them.")
+    return Result(text="\n".join(lines), data=plan, warnings=_warn(boot))
+
+
 def cmd_index_use(boot, args) -> Result:
     require_person("Switching the search model")
     model = None if args.model == "default" else args.model
@@ -1545,6 +1566,7 @@ COMMANDS = {
     "sleep status": cmd_sleep_status, "sleep start": cmd_sleep_start, "sleep stop": cmd_sleep_stop,
     "sleep end": cmd_sleep_end, "sleep schedule": cmd_sleep_schedule, "sleep engine": cmd_sleep_engine,
     "sleep options": cmd_sleep_options, "sleep history": cmd_sleep_history,
+    "maintenance move-watched-rows": cmd_maintenance_move_watched_rows,
     "index status": cmd_index_status, "index rebuild": cmd_index_rebuild, "index use": cmd_index_use,
     "index install": cmd_index_install,
     "projects new": cmd_projects_new,

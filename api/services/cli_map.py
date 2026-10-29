@@ -285,6 +285,10 @@ ROWS: tuple[Row, ...] = (
          person=True),
     _app(("sleep", "history"), "Past Sleep runs, newest first.", (_f("limit", "int"),)),
     # The search index and model.
+    # Speed 2026-10-29: the watched days' rows out of their frontmatter — a dry run, then the person's --apply.
+    _app(("maintenance", "move-watched-rows"), "Move each watched day's rows out of its episode into its own file: a "
+                                               "dry run (counts, a few day ids); --apply moves them in one commit.",
+         (_f("apply", "bool"),), via="backend", mutates=True, person=True),
     _app(("index", "status"), "The word index and the search model: state, re-embedding, downloads.", via="backend"),
     _app(("index", "rebuild"), "Rebuild the word index now.", via="backend", mutates=True),
     _app(("index", "use"), "Use another installed search model (`default` for the default); re-embeds in the "
