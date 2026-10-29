@@ -63,11 +63,46 @@ def test_picking_a_page_merges_the_held_mention_into_that_page_by_id(picked_bank
     assert not (picked_bank / "inbox" / "inbox-002.md").exists()
 
 
-def test_none_of_these_keeps_it_apart_from_every_page_and_releases_nothing(picked_bank):
+def _line(bank):
+    from api.services import pending_store
+
+    return next(e for e in pending_store.load(bank) if e.name == "Alex")
+
+
+def test_none_of_these_keeps_this_mention_apart_never_the_name(picked_bank):
     _answer(picked_bank, "inbox-002", action="resolve", option_key="none")
-    assert merge_rejections.is_rejected(picked_bank, "alex", "alex")
-    assert merge_rejections.is_rejected(picked_bank, "alex", "alex-2")
+    line = _line(picked_bank)
+    assert line.apart_pages() == {"alex", "alex-2"} and EP1 in line.apart_episodes()
+    # #546 review: no name→page pair — the mention's slug is the first page's own id, and such a pair kept every later
+    # mention of that page from joining it.
+    assert not merge_rejections.is_rejected(picked_bank, "alex", "alex")
+    assert not merge_rejections.is_rejected(picked_bank, "alex", "alex-2")
     assert _claims(picked_bank, "alex-2") == [] and _line_claims(picked_bank, "Alex"), "held for Sleep to place"
+
+
+def test_after_none_a_later_mention_of_an_existing_page_still_joins_it_and_the_held_claims_stay(picked_bank):
+    from api.services import entity_resolver as er
+    from api.services import pending_store
+
+    _answer(picked_bank, "inbox-002", action="resolve", option_key="none")
+
+    class _Indexer:
+        def pending_by_name(self, name):
+            return next((e for e in pending_store.load(picked_bank) if e.name.lower() == name.lower()), None)
+
+    later = er._apart_here(_Indexer(), "Alex", {"ep_2026-10-20_001"})          # a new conversation
+    assert later == frozenset()
+    tool = {"name": "Alex", "type": "tool"}
+    tool_page = {"id": "alex", "frontmatter": {"name": "Alex", "type": "tool"}, "body": ""}
+    hit = er._find_direct_candidate_match(tool, {"alex": tool_page}, {}, same_title={"alex": [tool_page]},
+                                          rejected=later)
+    assert hit is not None and hit["candidate"]["id"] == "alex", "a later mention still joins the page"
+    reread = er._apart_here(_Indexer(), "Alex", {EP1})                        # the same conversation read again
+    assert reread == frozenset({("alex", "alex"), ("alex", "alex-2")})
+    assert er._find_direct_candidate_match(tool, {"alex": tool_page}, {}, same_title={"alex": [tool_page]},
+                                           rejected=reread) is None
+    # The later mention joining "alex" never carries the held mention's claims there.
+    assert pending_store.ready(picked_bank, lambda _n, _s: "alex", decided=["alex"]) == []
 
 
 def test_a_key_that_is_not_one_of_its_pages_is_refused(picked_bank):
@@ -102,7 +137,7 @@ def test_one_question_per_mention_never_one_per_pair(picked_bank):
     assert len(list((picked_bank / "inbox").glob("inbox-*.md"))) == 1
 
 
-def test_the_judge_and_the_name_never_bring_back_a_page_the_person_said_it_is_not():
+def test_a_re_read_of_the_answered_conversation_never_brings_back_a_page_it_is_not():
     from api.services import entity_resolver as er
 
     ide = {"id": "alpha", "frontmatter": {"name": "Alpha", "type": "tool"}, "body": ""}

@@ -184,7 +184,10 @@ def test_someone_else_dismiss_and_skip_release_nothing(bank, request_):
     line = next(e for e in pending_store.load(bank) if e.name == "Alex")
     assert [d["id"] for d in line.held_claims] == ["clm_held_1", "clm_held_2"] and line.held_against == "alex"
     if request_["action"] != "skip":
-        assert merge_rejections.is_rejected(bank, "alex", "alex-kim")
+        # G227 (#546 review): kept apart on the held mention's own line, never as a name→page pair — a later mention
+        # that IS that page still joins it.
+        assert line.apart_pages() == {"alex-kim"} and EP1 in line.apart_episodes()
+        assert not merge_rejections.is_rejected(bank, "alex", "alex-kim")
 
 
 def test_someone_else_keeps_the_claims_held_until_stage_2_gives_the_name_its_own_page(bank):

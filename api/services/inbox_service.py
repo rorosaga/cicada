@@ -2757,6 +2757,24 @@ def _release_answered(memory_path: Path, mention: str, target_id: str, settings,
     return [f"{rel}: updated (trigger: inbox/merge_suggestion/resolved:merge)" for rel in written]
 
 
+def _keep_apart(settings, fm: dict, pages: list[str]) -> list[str] | None:
+    """G227 (#546 review): "None of these" / "No, different" / dismiss on a question about a mention Sleep HELD keeps
+    THAT mention apart — on its pending line, with the conversations it holds (`pending_store.mark_apart`) — never as a
+    name→page rejection. The mention's slug is often a page's own id (the page it was held against), so a name-keyed
+    pair kept every later mention of that page from joining it. Returns the manifest lines, or ``None`` for a question
+    about a page (a page pair, a fold-page question, an older unflagged one), which keeps the page-pair rejection."""
+    from api.services import pending_store
+    from api.services.entity_resolver import HELD_MENTION_KEY
+
+    if fm.get(HELD_MENTION_KEY) is not True or fm.get("fold_page") is True:
+        return None
+    mention = str(fm.get("entity_name") or fm.get("entity_mention") or "").strip()
+    episode = str(fm.get("source_episode") or "").strip()
+    if pending_store.mark_apart(settings.memory_path, mention, pages, [episode] if episode else []):
+        return [f"{pending_store.PENDING_STORE_FILE}: updated (trigger: inbox/merge_suggestion/rejected)"]
+    return []   # nothing held under the name any more: a later mention is a new question, never a name-wide verdict
+
+
 async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, bool, list[str]]:
     """Port of the clarifications.py logic (answer / dismiss / merge / reject / skip).
 
@@ -2793,10 +2811,12 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
             raise HTTPException(status_code=400, detail="reject needs a merge target (hint or mergeTarget)")
         from api.services import merge_rejections
 
-        if (request.option_key or "").strip() == same_name_pick.NONE_KEY and same_name_pick.applies(parsed.frontmatter):
-            # G227 "none of these": apart from every page that shares the name, so Sleep neither joins nor asks again.
-            for pid in same_name_pick.rejected_ids(parsed.frontmatter):
-                merge_rejections.add_rejected(settings.memory_path, entity_id, pid)
+        none = ((request.option_key or "").strip() == same_name_pick.NONE_KEY
+                and same_name_pick.applies(parsed.frontmatter))
+        pages = same_name_pick.rejected_ids(parsed.frontmatter) if none else [other]
+        if (kept := _keep_apart(settings, parsed.frontmatter, pages)) is not None:
+            path.unlink()
+            return entity_id, False, kept
         merge_rejections.add_rejected(settings.memory_path, entity_id, other)
         path.unlink()
         return (
@@ -2931,6 +2951,9 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
             # Sleep raises the same question again (G209 W1, a held name re-read from the pending store).
             from api.services import merge_rejections
 
+            if (kept := _keep_apart(settings, parsed.frontmatter, [other])) is not None:
+                path.unlink()
+                return entity_id, False, kept
             merge_rejections.add_rejected(settings.memory_path, entity_id, other)
             path.unlink()
             return entity_id, False, [f"{merge_rejections.FILE}: updated (source: {path.stem}, "

@@ -92,9 +92,14 @@ class PendingEntity:
     # G209 (2026-10-27): the existing page this name was held AGAINST — a page bears its name (and its slug) but Stage 2
     # did not decide it is that page. Its held claims are released onto that page only on Stage 2's own verdict.
     held_against: str = ""
+    # G227 (2026-10-29, #546 review): the person said THIS held mention is none of these pages ("None of these", or
+    # "No, different") — ``{"pages": [ids], "episodes": [the conversations the line held when they answered]}``. Scoped
+    # to the mention, never to the name: a later conversation naming one of those pages still joins it; only a re-read
+    # of these conversations is kept apart, and the line's claims never follow the name onto one of these pages.
+    apart: dict = field(default_factory=dict)
 
     _OPTIONAL = ("summary", "key_facts", "links", "open_questions", "aliases", "item_inputs", "heard_in",
-                 "correspondent", "held_against")
+                 "correspondent", "held_against", "apart")
 
     def to_dict(self) -> dict:
         data = {
@@ -152,7 +157,24 @@ class PendingEntity:
             heard_in=[d for d in dicts("heard_in") if d.get("episode")],
             correspondent=data.get("correspondent") if isinstance(data.get("correspondent"), dict) else {},
             held_against=str(data.get("held_against") or ""),
+            apart=_apart(data.get("apart")),
         )
+
+    def apart_pages(self) -> set[str]:
+        """The pages the person said this held mention is not (G227)."""
+        return set((self.apart or {}).get("pages") or ())
+
+    def apart_episodes(self) -> set[str]:
+        """The conversations that answer covered — a re-read of one of them is the same mention."""
+        return set((self.apart or {}).get("episodes") or ())
+
+
+def _apart(raw) -> dict:
+    if not isinstance(raw, dict):
+        return {}
+    pages = [str(p) for p in raw.get("pages") or [] if isinstance(p, str) and p.strip()]
+    episodes = [str(e) for e in raw.get("episodes") or [] if isinstance(e, str) and e.strip()]
+    return {"pages": pages, "episodes": episodes} if pages else {}
 
 
 def _texts(*lists) -> list[str]:
@@ -217,6 +239,9 @@ def _carry(prior: PendingEntity, entity: PendingEntity) -> None:
     entity.source_episode = prior.source_episode or entity.source_episode
     entity.confidence = max(float(prior.confidence or 0), float(entity.confidence or 0))
     entity.correspondent = entity.correspondent or prior.correspondent
+    if prior.apart:   # the person's answer about this mention outlives a re-park (G227)
+        entity.apart = _apart({"pages": [*prior.apart_pages(), *entity.apart_pages()],
+                               "episodes": [*prior.apart_episodes(), *entity.apart_episodes()]})
 
 
 class HoldOutcome(NamedTuple):
@@ -468,6 +493,10 @@ def ready(memory_path: Path, target_of: Callable[[str, str], str],
         target = target_of(line.name, own) or own
         if line.held_against and target == line.held_against and line.name.lower() not in decided_names:
             continue
+        if target in line.apart_pages():
+            # G227: the person said this held mention is not that page; another mention of the name joining it this
+            # cycle carries none of these claims there.
+            continue
         page = bank_file(entities_dir, target)
         if page is None or not page.is_file():
             continue
@@ -516,6 +545,25 @@ def answered(memory_path: Path, name: str, target: str, *, subject_page: str = "
             return None
         return Release(line.name, target, _repoint(claims, sanitize_id(line.name), target))
     return None
+
+
+def mark_apart(memory_path: Path, name: str, pages: Iterable[str], episodes: Iterable[str] = ()) -> bool:
+    """G227 (#546 review): the person said the mention held under ``name`` is none of ``pages`` — recorded on ITS line,
+    with the conversations it holds now (plus ``episodes``, the question's own), never as a name→page rejection. False
+    when no line holds the name (nothing is recorded: a later mention is a new question)."""
+    key = (name or "").strip().lower()
+    pages = [str(p) for p in pages if str(p or "").strip()]
+    if not key or not pages:
+        return False
+    entries = load(memory_path)
+    for line in entries:
+        if line.name.lower() != key:
+            continue
+        line.apart = _apart({"pages": [*line.apart_pages(), *pages],
+                             "episodes": [*line.apart_episodes(), *line.episodes(), *episodes]})
+        save(memory_path, entries)
+        return True
+    return False
 
 
 def held_against(memory_path: Path, name: str) -> str:

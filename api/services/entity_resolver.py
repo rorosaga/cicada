@@ -416,6 +416,9 @@ async def resolve(
                        if _is_person(entity) and not any(e.get(role_people.UNNAMED_KEY) for e in (entity, *siblings))
                        else None)
             match = _card_match(card_id, card_page_ids, existing_by_id, owner_page_id)
+            # G227 (#546 review): the pages the person said THIS mention is not — only on a re-read of the conversations
+            # their answer covered (its pending line's `apart`), never for every later mention of the name.
+            apart_here = _apart_here(indexer, name, episode_mentions.get(name_lower, set()))
             if match is None:
                 match = _find_direct_candidate_match(
                     new_entity=entity,
@@ -423,13 +426,13 @@ async def resolve(
                     created_by_id=resolved_creates,
                     aliases=aliases,
                     same_title=same_title,
-                    rejected=rejected_pairs,
+                    rejected=apart_here,
                 )
             if match is None:
                 # G227: a title the name alone may not join (two pages share it, or none is of the mention's kind).
                 match = await _same_title_match(entity, same_title, llm_match_cache, settings,
                                                 gate=lookahead.gate if lookahead is not None else None,
-                                                stop=cancel_check, rejected=rejected_pairs)
+                                                stop=cancel_check, rejected=apart_here)
                 if match is not None and match["decision"] == "different":
                     match = None
             if match is None:
@@ -447,7 +450,7 @@ async def resolve(
                     connections=connections.get(name_lower, ""),
                     prejudged=await lookahead.take(done_names) if lookahead is not None else None,
                     gate=lookahead.gate if lookahead is not None else None,
-                    rejected=rejected_pairs,
+                    rejected=rejected_pairs | apart_here,
                     index=name_index,
                 )
                 # One person across sources (owner 2026-10-28): a one-word name heard outside a chat that the judge
@@ -623,7 +626,8 @@ async def resolve(
                      and sanitize_id(name) in existing_ids)
             if taken:
                 page = next((e for e in existing if str(e.get("id")) == sanitize_id(name)), None)
-                if page is not None and _said_different(settings.memory_path, name, page["id"]):
+                apart_line = page is not None and pending_entry is not None and page["id"] in pending_entry.apart_pages()
+                if page is not None and (apart_line or _said_different(settings.memory_path, name, page["id"])):
                     # The person said it is someone else ("none of these", or "No, different"): a page of its own
                     # beside the one with that name — the same clean title, a distinct id; the qualifier tells them
                     # apart on every surface (G227, owner 2026-10-29: no stored "(another)").
@@ -1418,6 +1422,22 @@ def _rejected_pair(rejected, name: str, page_id: str) -> bool:
     return bool(rejected) and tuple(sorted((sanitize_id(name), str(page_id)))) in rejected
 
 
+def _apart_here(indexer, name: str, heard_now: set[str]) -> frozenset:
+    """G227: ``(slug, page)`` pairs — in `_rejected_pair`'s shape — for the pages the person said the mention held under
+    ``name`` is not, ONLY when this read is one of the conversations that answer covered. A new conversation naming the
+    same thing is a new mention: it joins, is judged and is asked as any other."""
+    if indexer is None:
+        return frozenset()
+    try:
+        line = indexer.pending_by_name(name)
+    except Exception:  # noqa: BLE001
+        return frozenset()
+    if line is None or not line.apart_pages() or not (set(heard_now) & line.apart_episodes()):
+        return frozenset()
+    slug = sanitize_id(name)
+    return frozenset(tuple(sorted((slug, p))) for p in line.apart_pages())
+
+
 def _said_different(memory_path, name: str, page_id: str) -> bool:
     """The person answered that ``name`` and ``page_id`` are not the same (`merge_rejections`)."""
     from api.services import merge_rejections
@@ -2125,7 +2145,8 @@ def _find_direct_candidate_match(
         # alone — the one page of the mention's kind is, and anything else goes to the same-title judge
         # (`_same_title_match`), which asks when it cannot tell.
         group = same_title.get(new_name_lower) or [existing_match]
-        # A page the person said this name is not (`merge_rejections`, e.g. "none of these") is never joined on it.
+        # A page the person said THIS mention is not (its line's `apart`, on a re-read of the same conversation) is never
+        # joined on the name; a name→page rejection never stands in for that (#546 review).
         group = [p for p in group if not _rejected_pair(rejected, new_name, p.get("id"))]
         existing_match = _same_title_pick(new_entity, group) if group else None
         if existing_match is None:
@@ -2207,7 +2228,7 @@ async def _same_title_match(entity: dict, same_title: dict[str, list[dict]], cac
         return None
     name = (entity.get("name") or "").strip()
     key = name.lower()
-    # The pages the person said this name is not ("none of these", G227) are out: never judged, never asked again.
+    # The pages the person said THIS mention is not (`_apart_here`) are out: never judged, never asked again.
     group = [p for p in same_title.get(key) or () if p is not None and not _rejected_pair(rejected, name, p.get("id"))]
     if not group or _same_title_pick(entity, group) is not None:
         return None
