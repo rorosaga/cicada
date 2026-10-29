@@ -77,7 +77,8 @@ struct EntityCardHeader: View {
                     .padding(.top, CicadaTheme.spacingMD)
             } else {
                 HStack(alignment: .center, spacing: CicadaTheme.spacingMD) {
-                    // Owner 2026-10-28: no picture, no tile — the name starts the line; *Add picture* is in the line below.
+                    // Owner 2026-10-28: no picture, no tile — the name starts the line; *Add a picture…* is in the page menu
+                    // (owner 2026-10-29: no blue words; a drawn picture is itself the control).
                     EntityPicture(id: entity.id, name: entity.name, type: entity.type, size: 40, held: entity.pictureRef,
                                   heldInputs: pictureInputs, editing: .tile, collapsesWhenEmpty: true)
                     // Wraps rather than truncates: a selectable name cut short opened over the Summary on a click.
@@ -96,8 +97,7 @@ struct EntityCardHeader: View {
                 if let summary {
                     EntitySummaryText(text: summary, isStub: isStub).padding(.top, CicadaTheme.scaled(6))
                 }
-                PictureSourceLine(id: entity.id, name: entity.name, type: entity.type, held: entity.pictureRef,
-                                  inputs: pictureInputs, quietWhenEmpty: !PictureActions.canEdit(entity.type))
+                PictureSourceLine(id: entity.id, held: entity.pictureRef)
                     .padding(.top, CicadaTheme.scaled(4))
             }
             // DR-45 — a tab label is never truncated: the tools share the tab row when it all fits; at a narrow column

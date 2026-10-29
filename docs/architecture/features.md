@@ -149,9 +149,14 @@ fill — any other page with none draws nothing, never a type glyph (owner 2026-
 other rows have pictures, else no slot, `EntityPictureLayout.isEmpty` / `anyDrawn`); `PictureStore` holds uploads, Contacts photos, public-profile photos and media previews by URL — all on Cicada's own API with the bearer
 (a media page's picture is the backend's stored `/entities/{id}/preview?v=…`, and `MediaPreview`, `HeroPreview` and
 `VideoThumb` draw the same stored copy through `StoredPreview`; no view loads a provider's thumbnail) —, `LogoStore` the
-logos. Any editable picture opens the image picker on a click (a saved item's also takes a PDF: the backend draws its
-first page, `POST /entities/{id}/picture/pdf`, and nothing is painted before that answer), takes a dropped image,
-dims under a camera on hover and offers "Use initials instead" / "Remove picture" on right-click; the app shrinks the
+logos. **The picture is the control (owner 2026-10-29, "you change the picture by pressing on the picture itself"):**
+a click on any editable picture offers its choices (`PictureChoices`) — the image picker at once when a file is the only
+choice, else a menu under the picture with the right-click menu's own items (*Change picture…*, *Remove picture*, *Use
+initials instead*, *Use the logo*…); a saved item's picker also takes a PDF (the backend draws its first page,
+`POST /entities/{id}/picture/pdf`, and nothing is painted before that answer); it takes a dropped image, dims under a
+camera with a link cursor on hover, and is a button VoiceOver names "Change picture for <name>". No blue words under a
+page's name: the source line says only where the picture came from, and a non-person page that draws none is given
+*Add a picture…* in its page menu (•••), never an empty spot. The app shrinks the
 picture (ImageIO, ≤ 512 px) and `EntityPictureWrite` paints the answer before the server gives it. A `person` opens
 with mock C's top (F-12): an 88 pt picture, the name at 24, the Summary as a two-line standfirst (a click unfolds it and the header grows; *Show less* folds it —
 a capped Summary or name is never selectable, since a selectable field opens over its neighbours on a click), the

@@ -101,6 +101,8 @@ extension Copy {
         }
 
         static func changeHelp(_ name: String) -> String { "Change the picture for \(name) — or drop one here" }
+        /// VoiceOver's name for an editable picture (owner 2026-10-29: the picture is the control).
+        static func changePictureLabel(_ name: String) -> String { "Change picture for \(name)" }
         static func pickMessage(_ name: String) -> String {
             "Choose a picture for \(name). Cicada keeps a small copy in your memory."
         }

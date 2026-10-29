@@ -28,8 +28,7 @@ struct PersonHero: View {
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                     if let summary { EntitySummaryText(text: summary, isStub: isStub, lineLimit: 2, expanded: summaryExpanded) }
-                    PictureSourceLine(id: entity.id, name: entity.name, type: .person, held: entity.pictureRef,
-                                      inputs: inputs)
+                    PictureSourceLine(id: entity.id, held: entity.pictureRef)
                 }
             }
             if !facts.isEmpty { FactsStrip(facts: facts, onOpenEntity: onOpenEntity) }
@@ -144,39 +143,22 @@ private struct FactCell: View {
     }
 }
 
-/// F-12 / R-PE15 — where the picture came from, in words, and what can be done about it: "Photo from your Contacts ·
-/// Use initials instead". `quietWhenEmpty` (the lighter header) shows nothing on a page with no picture.
+/// F-12 / R-PE15 — where the picture came from, in words: "Photo from your Contacts". Nothing on a page with no
+/// picture. What can be done about it lives on the picture itself (owner 2026-10-29: "you change the picture by
+/// pressing on the picture itself"; `PictureChoices`), never as blue words here.
 struct PictureSourceLine: View {
     let id: String
-    let name: String
-    let type: EntityType
     let held: EntityPictureRef?
-    let inputs: PictureInputs?
-    var quietWhenEmpty = false
 
     @Environment(Store.self) private var store
 
     var body: some View {
-        let current = store.picture(for: id, held: held)
-        let resolvedInputs = store.pictureInputs(for: id, held: inputs)
-        let detected = resolvedInputs.flatMap { EntityPictureResolver.detected(id: id, $0) }
-        let options = PictureMenuModel.options(current: current, detected: detected).filter { $0 != .change }
-        if current != nil || !quietWhenEmpty {
+        if let current = store.picture(for: id, held: held) {
             HStack(spacing: CicadaTheme.scaled(6)) {
-                if current?.source == .contacts { ContactsMark(size: 14) }
-                if current != nil {
-                    Text(Copy.People.sourceLine(current?.source))
-                        .font(CicadaTheme.metaFont)
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                }
-                ForEach(Array(options.enumerated()), id: \.element) { index, option in
-                    if current != nil || index > 0 {
-                        Text(Copy.People.dot).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
-                    }
-                    InlineLink(title: Copy.People.optionLabel(option)) {
-                        PictureActions.run(option, id: id, name: name, type: type, store: store, inputs: resolvedInputs)
-                    }
-                }
+                if current.source == .contacts { ContactsMark(size: 14) }
+                Text(Copy.People.sourceLine(current.source))
+                    .font(CicadaTheme.metaFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
             }
             .lineLimit(1)
         }

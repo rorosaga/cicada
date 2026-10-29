@@ -230,8 +230,8 @@ struct ClusterShortCard: View {
     }
 }
 
-/// A tile (F-11): the picture, the name, one line in words. The words open the card; a click on the picture opens the
-/// image picker (R-PE15 — the hover "Change picture…" button repeated it and is gone, owner 2026-09-30). Hover is a fill (DR-63).
+/// A tile (F-11): the picture, the name, one line in words. The words open the card; a click on the picture offers its
+/// choices (`PictureChoices`; R-PE15, owner 2026-09-30 and 2026-10-29). Hover is a fill (DR-63).
 struct ClusterTile: View {
     let entity: Entity
     /// Some tile in this card has a picture: keep the slot so every name starts at one edge (owner 2026-10-28).

@@ -33,6 +33,7 @@ struct EntityPicture: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var hovering = false
     @State private var dropTargeted = false
+    @State private var anchor = PictureMenuAnchor()
 
     private var editable: Bool { editing != .none && PictureActions.canEdit(type) }
 
@@ -54,19 +55,20 @@ struct EntityPicture: View {
             .task(id: loadKey) { image = await load() }
             .help(editable ? Copy.People.changeHelp(name) : Copy.People.sourceLine(picture?.source))
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(name)
+            .accessibilityLabel(editable ? Copy.People.changePictureLabel(name) : name)
             .accessibilityValue(Copy.People.sourceLine(picture?.source))
-            .accessibilityActions {
-                if editable { Button(Copy.People.changePicture) { change() } }
-            }
+            .accessibilityAddTraits(editable ? .isButton : [])
+            .accessibilityAction { if editable { openChoices() } }
     }
 
-    /// R-PE15 — a click opens the picker, a hover dims under a camera, a dropped image uploads, a right-click offers the
-    /// rest. A drag that is not an image passes through to the window's intake drop (`ContentView`).
+    /// R-PE15, owner 2026-10-29 — the picture is the control: a click offers its choices (`PictureChoices`: the picker
+    /// at once when a file is the only choice), a hover dims under a camera with a link cursor, a dropped image uploads,
+    /// a right-click offers the same choices. A drag that is not an image passes through to the window's intake drop
+    /// (`ContentView`).
     @ViewBuilder
     private var content: some View {
         if editable {
-            Button(action: change) {
+            Button(action: openChoices) {
                 surface.overlay {
                     if hovering || dropTargeted {
                         EntityPictureVeil(showsWord: editing == .hero, units: units)
@@ -76,7 +78,9 @@ struct EntityPicture: View {
                 }
             }
             .buttonStyle(.cicadaPlain)
+            .background(PictureMenuAnchorView(anchor: anchor))
             .onHover { hovering = $0 }
+            .roomLinkCursor()
             .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering || dropTargeted)
             .onDrop(of: [UTType.image], isTargeted: $dropTargeted, perform: drop)
             .contextMenu { PictureMenuItems(id: id, name: name, type: type, held: held, heldInputs: heldInputs) }
@@ -85,9 +89,9 @@ struct EntityPicture: View {
         }
     }
 
-    private func change() {
-        PictureActions.change(id: id, name: name, type: type, store: store,
-                              inputs: store.pictureInputs(for: id, held: heldInputs))
+    private func openChoices() {
+        PictureChoices.open(id: id, name: name, type: type, held: held, heldInputs: heldInputs, store: store,
+                            anchor: anchor.view)
     }
 
     private func drop(_ providers: [NSItemProvider]) -> Bool {
