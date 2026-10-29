@@ -1573,9 +1573,13 @@ A whole row moves to DONE only after its remaining implementation and required a
     characters made once per install (`$CICADA_HOME/remote-salt`, 0600, never followed through a symlink; no salt, no
     hash — never unsalted). The URL is never stored, logged, sent or shown; the hint cache keeps only the cwd hash and
     time; the backend never runs git and only validates the hash. It is the key wherever a repository's identity
-    matters: continuity (same checkout = same path *or* same place in the same remote; the related-checkouts tier
-    reads either key), project birth (`born.repo.remote`; a birth from a renamed, moved or re-cloned repository is the
-    page that remote already has) and project activity. Records written before keep matching by their path keys; no
+    matters — as evidence of the same *repository*, never by itself of the same *project* or checkout (review of
+    #558: a template cloned under a new name, an upstream-as-origin fork, two live clones). Continuity adopts another
+    checkout at the same place in the remote only when this one began after it went quiet (renamed, moved, cloned
+    again); clones active together are related choices. Project birth (`born.repo.remote`) joins the page that remote
+    already has only when the folder name matches it or its checkout went quiet first; otherwise the remote brings
+    the page to the judge and "different" stands; activity and ties follow the same moved rule. Records written
+    before keep matching by their path keys; no
     bank rewrite. Ruling 43's notes are recognised by their own bytes, not the remote: Claude Code names their folder
     after the checkout's path, so a moved notes folder is repointed in place and a copied one is no second episode.
     **Why.** Measured on scratch repositories (rename, move, re-clone under another URL spelling): before, the startup

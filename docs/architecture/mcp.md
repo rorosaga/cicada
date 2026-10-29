@@ -937,8 +937,12 @@ prompt or dynamic rule.
   without it. The URL is never stored, logged, sent or shown, and the hint cache stays cwd hash + time. The parser
   keeps `remote_hash` and derives `remote_checkout_hash` = digest(remote + the checkout top level relative to the
   folder holding the common git directory, lexically: `.` for the main checkout, `.worktrees/x` for one inside it).
-  `same_checkout` is the path keys *or* `remote_checkout_hash`; `same_family` is `family_hash` *or* `remote_hash`, so
-  a renamed, moved or re-cloned main checkout is the same checkout and its worker worktrees stay related choices.
+  `same_checkout` is the path keys *or* `remote_checkout_hash`; `same_family` is `family_hash` *or* `remote_hash`.
+  A remote proves the same repository, not the same checkout: selection takes this checkout's own path-keyed rows
+  first, and another checkout at the same place in the remote only when it can be this one renamed, moved or cloned
+  again — its last activity is no later than this checkout's first registered start (`continuity._moved_here`). Two
+  clones active alongside each other are two checkouts (listed as related choices), and worker worktrees stay
+  related choices.
   A selection made through the remote alone adds one disclosed line ("another folder of this repository … renamed,
   moved or cloned again"). The salt is per install, so two machines never share a hash: it is not cross-device repo
   equivalence. Records written before keep their path keys and keep matching by them; nothing is rewritten.

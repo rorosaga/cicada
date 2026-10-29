@@ -1801,13 +1801,17 @@ on the conversation it read (no model), a `project_birth` record and drops any t
   before a `.worktrees`/`worktrees` folder. Read from the two stored strings only — the backend never opens, stats or
   runs git in the path. **The remote, hashed (ruling 22 D2a, 2026-10-29):** when the hook's observation carries
   `remote_hash` (its origin URL normalised and salted per install; the URL never reaches the backend), the birth
-  records it as `born.repo.remote`. Stage 2 then joins a repository birth to the one project page whose repository
+  records it as `born.repo.remote`. A remote proves the same repository, **not the same project** (a template
+  cloned under a new name, a fork whose origin is the upstream). Stage 2 finds the one project page whose repository
   has that remote — its own `born.repo.remote`, or, for a page born before the remote was read, a remote a later
-  session in its `born.repo.family` carried (`project_birth.remote_families`, the cached frontmatter index) — before
-  the judge, so a repository renamed, moved or cloned again is that page, never a second one
-  (`entity_resolver._same_repository_match`; two pages on one remote join neither; a pair the person said were
-  different is never joined). Project activity and conversation ties read the remote the same way
-  (`_Bank.page_repo_sessions`). A page born before ruling 22 D2a whose repository was renamed before any later session
+  session in its `born.repo.family` carried (`project_birth.remote_sessions`, the cached frontmatter index) — and
+  joins it before the judge only when it can be that repository renamed or moved: the new folder's name is the
+  page's repository name, or the page's checkout went quiet before the new one began (`project_birth.moved_families`).
+  Otherwise the page is brought to the judge as a candidate (the W2 precedent) and its "different" stands
+  (`entity_resolver._same_repository_candidate`; two pages on one remote join neither; a pair the person said were
+  different is never joined). Project activity and conversation ties count a same-remote checkout by the same moved
+  rule only (`_Bank.page_repo_families`), so a checkout active alongside the page's never lends it days or
+  conversations. A page born before ruling 22 D2a whose repository was renamed before any later session
   in the old folder carried the remote is not recognised — nothing is rewritten to recover it.
 - **words** — one sentence of a person's own turn (`user`, or a meeting `speaker`) names it within five words of
   *project* (or *proyecto*, *projet*, *Projekt*, *progetto*, *projeto*, plurals), inside one clause (no comma, colon,

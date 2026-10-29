@@ -137,11 +137,36 @@ def born_repo(frontmatter: dict | None) -> dict:
     return repo if isinstance(repo, dict) else {}
 
 
-def remote_families(memory_path: Path | None) -> dict[str, set[str]]:
-    """``family → remotes`` from every episode the hook observed with both keys (the cached frontmatter index; no
-    episode is parsed or written). It lets a page born before the remote was read — ``born.repo`` with a family only —
-    be recognised by its remote once any later session in that same checkout carried both."""
-    out: dict[str, set[str]] = {}
+def utc_instant(value) -> str:
+    """An aware moment as a sortable UTC ISO string, else ``""`` (a naive or unreadable value is never guessed)."""
+    from datetime import datetime, timezone
+
+    if isinstance(value, datetime):
+        moment = value
+    elif isinstance(value, str) and value.strip():
+        try:
+            moment = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+        except ValueError:
+            return ""
+    else:
+        return ""
+    return moment.astimezone(timezone.utc).isoformat() if moment.tzinfo else ""
+
+
+#: One observed session for the remote rule: ``(family, remote or "", first instant, last instant)``.
+RemoteSession = tuple[str, str, str, str]
+
+
+def session_span(frontmatter: dict) -> tuple[str, str]:
+    """A session's first and last instant (``timestamp``, ``last_turn_at``), or ``("", "")``."""
+    stamps = [s for s in (utc_instant(frontmatter.get(k)) for k in ("timestamp", "last_turn_at")) if s]
+    return (min(stamps), max(stamps)) if stamps else ("", "")
+
+
+def remote_sessions(memory_path: Path | None) -> list[RemoteSession]:
+    """Every episode the hook observed in a checkout, as :data:`RemoteSession` (the cached frontmatter index; no
+    episode is parsed or written)."""
+    out: list[RemoteSession] = []
     if memory_path is None:
         return out
     from api.services import bank_index
@@ -151,33 +176,73 @@ def remote_families(memory_path: Path | None) -> dict[str, set[str]]:
     except OSError:
         return out
     for f in entries:
-        seen = workspace_identity.clean((f.frontmatter or {}).get("workspace_identity"))
-        if seen and seen.get("family_hash") and seen.get("remote_hash"):
-            out.setdefault(seen["family_hash"], set()).add(seen["remote_hash"])
+        fm = f.frontmatter or {}
+        seen = workspace_identity.clean(fm.get("workspace_identity"))
+        if seen and seen.get("family_hash"):
+            out.append((seen["family_hash"], seen.get("remote_hash") or "", *session_span(fm)))
     return out
 
 
-def page_remotes(frontmatter: dict | None, families: dict[str, set[str]]) -> set[str]:
+def moved_families(own: set[str], sessions, *, remotes: set[str] = frozenset()) -> set[str]:
+    """``own`` plus every family that is the same repository *moved*: it carries a remote ``own`` carried, and its
+    first session began no earlier than ``own``'s last one ended — the old place went quiet, then the new one started
+    (a rename, a move, a fresh clone after the old one was left). A family active alongside ``own`` (a template cloned
+    under a new name, a fork whose origin is the upstream, a second clone) is another checkout, never absorbed: a remote
+    is evidence of the same repository, not of the same project."""
+    own = set(own)
+    by_family: dict[str, list] = {}
+    for family, remote, first, last in sessions:
+        entry = by_family.setdefault(family, [set(), "~", ""])
+        if remote:
+            entry[0].add(remote)
+        if first:
+            entry[1] = min(entry[1], first)
+        if last:
+            entry[2] = max(entry[2], last)
+    known = set(remotes) | {r for f in own for r in by_family.get(f, [set()])[0]}
+    quiet = max((by_family[f][2] for f in own if f in by_family), default="")
+    for family in sorted((f for f in by_family if f not in own), key=lambda f: by_family[f][1]):
+        carried, first, last = by_family[family]
+        if carried & known and first != "~" and first >= quiet:
+            own.add(family)
+            known |= carried
+            quiet = max(quiet, last)
+    return own
+
+
+def page_remotes(frontmatter: dict | None, sessions) -> set[str]:
     """The hashed remotes a project page's repository is known by: its own ``born.repo.remote``, and the remotes
     sessions in its ``born.repo.family`` carried."""
     repo = born_repo(frontmatter)
     out = {str(repo["remote"])} if repo.get("remote") else set()
     if repo.get("family"):
-        out |= families.get(str(repo["family"]), set())
+        out |= {r for f, r, _a, _b in sessions if r and f == str(repo["family"])}
     return out
 
 
-def same_repository_page(birth: dict | None, pages, *, families: dict[str, set[str]] | None = None) -> str | None:
-    """The one project page whose repository has the same hashed remote as a repository ``birth`` — the folder was
-    renamed, moved or cloned again — else ``None`` (no remote, no page, or two pages answer to it).
+def same_repository_page(birth: dict | None, pages, *, sessions=()) -> tuple[str, bool] | None:
+    """``(page id, sure)`` for the one project page whose repository has the same hashed remote as a repository
+    ``birth``, else ``None`` (no remote, no page, or two pages answer to it).
 
-    ``pages`` yields ``(id, frontmatter)``. Only a page born from a repository is ever matched; a remote is the
-    repository's identity, so the match is a fact, never a guess from a name."""
-    remote = ((birth or {}).get("repo") or {}).get("remote") if (birth or {}).get("origin") == REPO else None
+    A remote proves the same repository, not the same project. ``sure`` only when it can be that repository renamed
+    or moved: the checkout's folder name is the page's repository name, or the page's own checkout went quiet before
+    this one began (:func:`moved_families`). Otherwise the page is only a candidate for the judge, whose "different"
+    stands — a template cloned under a new name keeps its own page. ``pages`` yields ``(id, frontmatter)``."""
+    repo = ((birth or {}).get("repo") or {}) if (birth or {}).get("origin") == REPO else {}
+    remote = repo.get("remote")
     if not remote:
         return None
-    hits = {pid for pid, fm in pages if remote in page_remotes(fm, families or {})}
-    return next(iter(hits)) if len(hits) == 1 else None
+    hits = {pid: fm for pid, fm in pages if remote in page_remotes(fm, sessions)}
+    if len(hits) != 1:
+        return None
+    pid, fm = next(iter(hits.items()))
+    page_repo = born_repo(fm)
+    names = {fold(str(n)) for n in (page_repo.get("name"), fm.get("name"), *(fm.get("aliases") or [])) if n}
+    sure = fold(str(repo.get("name") or "")) in names
+    if not sure and page_repo.get("family") and repo.get("family"):
+        sure = str(repo["family"]) in moved_families({str(page_repo["family"])}, sessions,
+                                                     remotes={str(page_repo.get("remote") or "")} - {""})
+    return pid, sure
 
 
 # --- the person's words ---------------------------------------------------------------------------------------------

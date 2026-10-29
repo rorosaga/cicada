@@ -361,6 +361,39 @@ def activity(row: dict, registry_row: dict | None) -> str:
     return max((s for s in stamps if s), default="")
 
 
+def _path_key(workspace) -> tuple | None:
+    value = workspace_identity.clean(workspace)
+    return (value["family_hash"], value["checkout_hash"]) if value and value.get("family_hash") else None
+
+
+def _moved_here(snapshot: Snapshot, registry_rows: dict[str, dict], workspace: dict,
+                exclude_session: str | None) -> list:
+    """Rows of another checkout at the same place in the same hashed remote (G110 D2a) — only when it can be this
+    checkout renamed, moved or cloned again: that checkout's last activity is no later than this one's first
+    registered start. Two clones active alongside each other are two checkouts (the related tier lists them)."""
+    mine = _path_key(workspace)
+    starts = [r.get("started_at") or "" for r in registry_rows.values()
+              if _path_key(r.get("workspace_identity")) == mine and r.get("started_at")]
+    first = min(starts, default="")
+    last: dict[tuple, str] = {}
+    for row in [*snapshot.rows.values(), *registry_rows.values()]:
+        key = _path_key(row.get("workspace_identity"))
+        if key is not None and key != mine:
+            reg = registry_rows.get(f"{row.get('harness')}:{row.get('session_id')}") if "id" in row else row
+            stamp = activity(row, reg) if "id" in row else max(row.get("started_at") or "",
+                                                                 row.get("last_prompt_at") or "")
+            last[key] = max(last.get(key, ""), stamp)
+    return [(n, r) for n, r in snapshot.rows.items() if r.get("session_id") != exclude_session
+            and workspace_identity.same_checkout(workspace, r.get("workspace_identity"))
+            and (key := _path_key(r.get("workspace_identity"))) != mine
+            and (not first or _before(last.get(key, ""), first))]
+
+
+def _before(a: str, b: str) -> bool:
+    ta, tb = _parse_time(a), _parse_time(b)
+    return ta is not None and tb is not None and ta <= tb
+
+
 def select(snapshot: Snapshot, registry_rows: dict[str, dict], *, cwd: str | None, exclude_session: str | None,
            session: str | None = None, workspace: dict | None = None) -> Selection:
     """The total selection of plan C1: an exact ``session`` (episode id or full
@@ -386,7 +419,9 @@ def select(snapshot: Snapshot, registry_rows: dict[str, dict], *, cwd: str | Non
     match = "latest"
     if not here and workspace:
         here = [(n, r) for n, r in snapshot.rows.items() if r.get("session_id") != exclude_session
-                and workspace_identity.same_checkout(workspace, r.get("workspace_identity"))]
+                and workspace_identity.same_path_checkout(workspace, r.get("workspace_identity"))]
+        if not here:
+            here = _moved_here(snapshot, registry_rows, workspace, exclude_session)
         match = "same_checkout"
         if not here:
             related = [(n, r) for n, r in snapshot.rows.items() if r.get("session_id") != exclude_session

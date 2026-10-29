@@ -174,6 +174,25 @@ def test_the_startup_pointer_follows_the_repository(env, tmp_path, how):
     assert "renamed, moved or cloned again" in continuity.full_text(ctx)
 
 
+def test_two_clones_active_together_are_two_checkouts(env, tmp_path):
+    """Clone B was in use before clone A's session: A is not B renamed or moved, so B never adopts A's history."""
+    mod = observer()
+    git_env = {"HOME": str(tmp_path), "PATH": os.environ["PATH"]}
+    hook_home = tmp_path / "hook-home"
+    clone_a = _repo(tmp_path, tmp_path / "work" / "alpha-project")
+    clone_b = _repo(tmp_path, tmp_path / "clones" / "alpha-project")
+    start(env, "claude-code", clone_b, mod.observe(str(clone_b), home=hook_home, environ=git_env), session=5)
+    ws_a = mod.observe(str(clone_a), home=hook_home, environ=git_env)
+    start(env, "claude-code", clone_a, ws_a, session=1)
+    source = stop(env, "claude-code", 1, clone_a, ws_a, role="clone a role sentinel")
+    note = start(env, "claude-code", clone_b, mod.observe(str(clone_b), home=hook_home, environ=git_env), session=6)
+    assert "related" in note.lower() and "clone a role sentinel" not in note
+    ctx = continuity.assemble(env["memory"], bank_paths=(env["memory"],), harness=None, session_id=None,
+                              cwd=str(clone_b))
+    assert ctx.chosen is None and ctx.selection.reason == "related_checkouts"
+    assert source["episodeId"] in continuity.full_text(ctx)
+
+
 def test_a_worker_worktree_of_the_moved_repository_is_still_only_a_choice(env, tmp_path):
     mod = observer()
     git_env = {"HOME": str(tmp_path), "PATH": os.environ["PATH"]}
@@ -208,17 +227,37 @@ def _page(eid, name, born):
                                        "born": born}, "body": f"## Summary\n{name} is a synthetic project."}
 
 
-def _resolve(memory, mention, pages, monkeypatch):
-    async def judge(*_a, **_k):
-        return "different"
+OLD_DIR, NEW_DIR = "/home/someone/code/alpha-project", "/home/someone/elsewhere/alpha-renamed"
+
+
+def _session(memory, ep, cwd, family, start, last=None, remote=REMOTE):
+    """One harness session the hook observed: hashes and times only, bound to its stored folder."""
+    ws = {"cwd_hash": workspace_identity.digest(cwd), "family_hash": family, "checkout_hash": "f" * 16,
+          "observed_at": start}
+    if remote:
+        ws.update(remote_hash=remote, remote_checkout_hash="9" * 16)
+    markdown_parser.write(memory / "episodes" / f"{ep}.md", {
+        "id": ep, "harness": "claude-code", "source": "claude-code", "timestamp": start,
+        "last_turn_at": last or start, "project_dir": cwd, "workspace_identity": ws}, "user: synthetic")
+
+
+def _resolve(memory, mention, pages, monkeypatch, verdict="different"):
+    judged = []
+
+    async def judge(*_a, **k):
+        judged.append(1)
+        return verdict
 
     async def batch(new_name, new_type, new_description, entries, settings, *, new_connections=""):
-        return ["different" for _ in entries]
+        judged.extend(1 for _ in entries)
+        return [verdict for _ in entries]
     monkeypatch.setattr(entity_resolver.SqliteVecIndexer, "_rebuild_pending_index", lambda self, entries: None)
     monkeypatch.setattr(entity_resolver, "_llm_judge_same_entity", judge)
     monkeypatch.setattr(entity_resolver, "_llm_judge_batch", batch)
-    return asyncio.run(entity_resolver.resolve([{"episode_id": EP_B, "entities": [mention], "relationships": []}],
-                                               pages, _settings(memory)))
+    out = asyncio.run(entity_resolver.resolve([{"episode_id": EP_B, "entities": [mention], "relationships": []}],
+                                              pages, _settings(memory)))
+    out["judged"] = judged
+    return out
 
 
 def _mention(name, birth):
@@ -228,7 +267,10 @@ def _mention(name, birth):
 
 
 def test_a_renamed_repository_is_the_project_page_it_already_has(tmp_path, monkeypatch):
+    """The old folder went quiet, then the new one began: a rename or a move — joined without asking the judge."""
     memory = _bank(tmp_path)
+    _session(memory, EP_A, OLD_DIR, "a" * 16, TS_A)
+    _session(memory, EP_B, NEW_DIR, "b" * 16, TS_B)
     page = _page("alpha-project", "alpha-project", _repo_birth("alpha-project", "a" * 16, ep=EP_A))
     out = _resolve(memory, _mention("alpha-renamed", _repo_birth("alpha-renamed", "b" * 16)), [page], monkeypatch)
     assert [(c["action"], c["id"]) for c in out["changes"]] == [("update", "alpha-project")]
@@ -237,15 +279,54 @@ def test_a_renamed_repository_is_the_project_page_it_already_has(tmp_path, monke
 def test_a_page_born_before_the_remote_was_read_is_found_through_a_later_session(tmp_path, monkeypatch):
     """The page's birth holds a family only; a later session in that same checkout carried family and remote."""
     memory = _bank(tmp_path)
-    cwd = "/home/someone/code/alpha-project"
-    markdown_parser.write(memory / "episodes" / f"{EP_A}.md", {
-        "id": EP_A, "harness": "claude-code", "timestamp": TS_A, "project_dir": cwd,
-        "workspace_identity": {"cwd_hash": workspace_identity.digest(cwd), "family_hash": "a" * 16,
-                               "checkout_hash": "f" * 16, "observed_at": TS_A, "remote_hash": REMOTE,
-                               "remote_checkout_hash": "9" * 16}}, "user: synthetic")
+    _session(memory, EP_A, OLD_DIR, "a" * 16, TS_A)
+    _session(memory, EP_B, NEW_DIR, "b" * 16, TS_B)
     page = _page("alpha-project", "alpha-project", _repo_birth("alpha-project", "a" * 16, remote=None, ep=EP_A))
     out = _resolve(memory, _mention("alpha-renamed", _repo_birth("alpha-renamed", "b" * 16)), [page], monkeypatch)
     assert [(c["action"], c["id"]) for c in out["changes"]] == [("update", "alpha-project")]
+
+
+TEMPLATE_DIR = "/home/someone/code/beta-app"
+
+
+def _template_clone(memory):
+    """A starter repository cloned under a new name without changing its origin: both checkouts stay active."""
+    _session(memory, EP_A, OLD_DIR, "a" * 16, TS_A, last="2026-10-23T10:00:00+00:00")
+    _session(memory, EP_B, TEMPLATE_DIR, "b" * 16, TS_B, last="2026-10-22T10:00:00+00:00")
+
+
+def test_a_template_cloned_under_another_name_is_its_own_page(tmp_path, monkeypatch):
+    memory = _bank(tmp_path)
+    _template_clone(memory)
+    page = _page("alpha-project", "alpha-project", _repo_birth("alpha-project", "a" * 16, ep=EP_A))
+    out = _resolve(memory, _mention("beta-app", _repo_birth("beta-app", "b" * 16)), [page], monkeypatch)
+    assert [(c["action"], c["id"]) for c in out["changes"]] == [("create", "beta-app")]
+    assert out["judged"]    # the remote brought the page to the judge; its "different" stood
+
+
+def test_the_judge_may_still_join_a_same_remote_page(tmp_path, monkeypatch):
+    memory = _bank(tmp_path)
+    _template_clone(memory)
+    page = _page("alpha-project", "alpha-project", _repo_birth("alpha-project", "a" * 16, ep=EP_A))
+    out = _resolve(memory, _mention("beta-app", _repo_birth("beta-app", "b" * 16)), [page], monkeypatch,
+                   verdict="same")
+    assert [(c["action"], c["id"]) for c in out["changes"]] == [("update", "alpha-project")]
+
+
+def test_a_template_clone_lends_neither_page_its_days_or_conversations(tmp_path):
+    from api.services import project_conversations
+
+    memory = _bank(tmp_path)
+    _template_clone(memory)
+    for eid, name, family, ep in (("alpha-project", "alpha-project", "a" * 16, EP_A),
+                                  ("beta-app", "beta-app", "b" * 16, EP_B)):
+        markdown_parser.write(memory / "entities" / f"{eid}.md", {
+            "name": name, "type": "project", "status": "active", "born": _repo_birth(name, family, ep=ep)}, "")
+    bank = project_timeline._Bank(memory, None)
+    assert project_timeline._repo_days(bank, ["alpha-project"]) == {"2026-10-20", "2026-10-23"}
+    assert project_timeline._repo_days(bank, ["beta-app"]) == {"2026-10-21", "2026-10-22"}
+    ties, _ = project_conversations.tie_reasons(memory, "alpha-project", tz_name=None, bank=bank)
+    assert set(ties) == {EP_A}
 
 
 @pytest.mark.parametrize("other", [

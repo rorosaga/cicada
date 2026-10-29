@@ -114,8 +114,9 @@ def tie_reasons(memory_path: Path, stem: str, *, tz_name: str | None, bank: _Ban
     entity = {"name": fm.get("name") or stem, "aliases": fm.get("aliases") or []}
     born = fm.get("born") if isinstance(fm.get("born"), dict) else {}
     family = str(((born or {}).get("repo") or {}).get("family") or "")
-    # D2 amended 2026-10-29: the same hashed remote is the same repository, renamed, moved or cloned again.
-    remotes = {s[3] for s in bank.page_repo_sessions(stem, fm) if s[3]}
+    # G110 D2a, 2026-10-29: a same-remote checkout that began after the page's went quiet is that repository moved;
+    # one active alongside it is another checkout and is never tied (`_Bank.page_repo_families`).
+    families = bank.page_repo_families(stem, fm)[0] if bank.repo_sessions() else set()
     for ep, f in bank.episodes.items():
         efm = f.frontmatter or {}
         if "workspace_identity" not in efm:
@@ -124,7 +125,7 @@ def tie_reasons(memory_path: Path, stem: str, *, tz_name: str | None, bank: _Ban
         if repo is None:
             continue
         if (family and str(repo["family"]) == family) or project_birth.repo_match(entity, efm) is not None \
-                or repo.get("remote") in remotes:
+                or str(repo["family"]) in families:
             add(ep, "repo")
     # claims: what Sleep (or an agent) wrote about the project, citing the conversation.
     for page in tree:
