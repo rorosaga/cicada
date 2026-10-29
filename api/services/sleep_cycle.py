@@ -361,6 +361,22 @@ def _cycle_cancelled() -> "_StageOutcome":
     return _StageOutcome()
 
 
+async def _commit_graph_safely(memory_path: Path) -> None:
+    """Keep git's commit-graph (with changed-path filters) current after the run's last commit, so the History tab
+    and every per-page history read skip the commits that never touched their page (`git_service.
+    write_commit_graph_sync`). A git-internal derived file, written under the bank's git lock — never a commit, never
+    a page. On every exit path; never raises (git simply reads without it)."""
+    import time
+
+    try:
+        started = time.perf_counter()
+        wrote = await asyncio.to_thread(git_service.write_commit_graph_sync, memory_path)
+        if wrote:
+            logger.info(f"Commit graph refreshed in {(time.perf_counter() - started) * 1000:.0f} ms")
+    except Exception as exc:  # noqa: BLE001 — a derived index never fails a run
+        logger.warning(f"Commit graph not refreshed: {type(exc).__name__}")
+
+
 async def _warm_logos_safely(memory_path: Path) -> None:
     """G59: warm the logo cache for the busiest company/tool pages so the
     common marks are on disk before the user opens the graph. Bounded,
@@ -1609,6 +1625,8 @@ async def _run_engine_independent_tail(
         # reached Stage 5.56 must still escalate questions everyone stopped
         # talking about (and clear ones answered organically).
         await _refresh_questions_safely(memory_path, settings)
+    # Last: after every commit the tail made, git's commit-graph covers tonight's history (derived, never a commit).
+    await _commit_graph_safely(memory_path)
 
 
 async def _index_without_model_safely(memory_path: Path) -> None:

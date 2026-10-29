@@ -512,6 +512,9 @@ def _user_avatar_url(handle: str | None) -> str | None:
 WRITE_SUBCOMMANDS = frozenset({
     "add", "apply", "checkout", "cherry-pick", "clean", "commit", "merge", "mv",
     "reset", "restore", "revert", "rm", "stash", "update-index", "update-ref", "read-tree",
+    # Git's own derived index of the history (`write_commit_graph_sync`): never a content commit, but a writer of
+    # `.git/objects/info`, so it waits for the bank's lock like every other.
+    "commit-graph",
 })
 #: Waits between tries while ANOTHER process holds the index (R-B2): five tries
 #: in about two seconds. A terminal's `git add` takes milliseconds; an editor left
@@ -587,7 +590,24 @@ def run_git_write_sync(memory_path, *args: str) -> str:
 
 #: Write subcommands that can change a working-tree file (``add``, ``commit``, ``update-index`` and ``update-ref`` never
 #: touch one).
-_TREE_WRITERS = WRITE_SUBCOMMANDS - {"add", "commit", "update-index", "update-ref"}
+_TREE_WRITERS = WRITE_SUBCOMMANDS - {"add", "commit", "update-index", "update-ref", "commit-graph"}
+
+
+def write_commit_graph_sync(memory_path) -> bool:
+    """Keep git's commit-graph current, with changed-path Bloom filters (owner via the coordinator, 2026-10-29).
+
+    Every per-page history read — the History tab (``page_history``), ``entity_history``, the provenance strip's
+    ``entity_commit_authors`` — is a path-limited ``git log`` that walks the whole history; the filters let git skip
+    commits that never touched the path. Measured on an owner-scale bank copy in PR ``perf/commit-graph``. The file
+    is git-internal and derived (``.git/objects/info/commit-graph``): never tracked, never a commit, rebuilt from the
+    history at any time, and git ignores it when it is missing or stale. One full rewrite, under the bank's write lock
+    (R-B1): git reuses the filters it already has, so a night's rewrite costs the new commits. ``False`` for a bank
+    with no git."""
+    mp = Path(memory_path)
+    if not (mp / ".git").exists():
+        return False
+    run_git_write_sync(mp, "commit-graph", "write", "--reachable", "--changed-paths")
+    return True
 
 
 #: The commit identity a bank falls back to when none is configured (G181, G203): placeholder values, never the
