@@ -48,8 +48,8 @@ struct WhatsAppPass: Sendable {
 /// Re-posting an unchanged row is free: the backend's stager skips it. The cursor moves past every row a batch saw,
 /// readable or not, so a run of rows with no stanza id cannot stall it.
 ///
-/// **Mentions.** WhatsApp stores a group @mention as the member's number in the words; it is replaced here with the
-/// member's name when WhatsApp or Contacts knows it, else "@someone", so no number is posted (the backend's scrub has
+/// **Mentions.** WhatsApp stores an @mention as the person's number in the words, in groups and one-to-one chats
+/// alike; it is replaced here with their name when WhatsApp or Contacts knows it, else "@someone", so no number is posted (the backend's scrub has
 /// its own phone rule as a second line).
 struct WhatsAppReader: Sendable {
     let store: URL
@@ -199,6 +199,8 @@ struct WhatsAppReader: Sendable {
             let next = fresh.compactMap { Self.int($0["pk"]) }.max().map { max($0, cursor) } ?? cursor
             var messages: [[String: Any]] = []
             var members: [String: String] = [:]
+            var mentionNames = memberNames
+            if !chat.group, !name.isEmpty { mentionNames[chat.jid] = name }
             for row in rows {
                 guard let pk = Self.int(row["pk"]), let stanza = row["stanza"] as? String, !stanza.isEmpty,
                       let date = row["date"] as? NSNumber else { continue }
@@ -206,7 +208,8 @@ struct WhatsAppReader: Sendable {
                                               "fromMe": (Self.int(row["from_me"]) ?? 0) != 0,
                                               "type": Self.int(row["type"]) ?? 0]
                 if let text = row["text"] as? String {
-                    message["text"] = chat.group ? Self.namingMentions(text, names: memberNames) : text
+                    // Every chat, not only groups: a one-to-one chat's @mention of the other side reads as their name.
+                    message["text"] = Self.namingMentions(text, names: mentionNames)
                 }
                 if let jid = row["member_jid"] as? String, !jid.isEmpty, chat.group {
                     let key = Self.memberKey(chatJid: chat.jid, memberJid: jid)

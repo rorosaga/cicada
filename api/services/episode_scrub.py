@@ -140,19 +140,21 @@ PHONE_WRITERS = frozenset({"imessage", "whatsapp", "telegram-chats"})
 #     at most 15 digits); a ``+`` before a digit run is not how a price, a year or an id is written.
 #  2. ``@`` then 6–15 digits — a WhatsApp mention, which stores the member's number in the words.
 #  3. ``tel:`` / ``wa.me/`` then digits — a link that IS a number.
-#  4. A grouped national number: 2–4 digit groups joined by spaces or hyphens (an optional bracketed area code first),
-#     9–15 digits in all — "555 010 1234", "(555) 010-1234", "06 12 34 56 78". Dates (2026-10-28: 8 digits), times,
-#     prices (1 299, 12,50), versions and IPs (dots) stay below the count or outside the shape.
+#  4. A bracketed area code then two groups — "(555) 010-1234", "(020) 7946 0958": the bracket is the phone's own
+#     layout, which no date, time, year list, price, SKU or room list has.
 #  5. The North American dotted form, exactly 3.3.4 — "555.010.1234" (an IP's 3.3.1.3 is not it).
-# A bare unseparated run of digits is never treated as a number: in a chat it is as often an order id, a tracking
-# code or a timestamp (1788000000 is ten digits), and redacting those would lose real content. So a phone written as a
-# bare run with no "+" or separators is the one form this misses, by choice.
+# **False negatives over lost words** (#502 re-check, 2026-10-29). A scrub runs before storage, so a wrong redaction
+# destroys the person's words for good. An unbracketed grouped number ("555 010 1234", "06 12 34 56 78") is therefore
+# NOT treated as a phone: the same shape is a timestamp ("2026-10-28 10:30"), a year list ("2024 2025 2026"), a range
+# ("1999-2003-2010"), a price ("1 299 000 000"), a SKU ("123-456-789"), a room list or a card-style code, and the
+# reviewer's examples all lost real content to it. Nor is a bare run of digits (an order id, a tracking code, a unix
+# timestamp). A number written that way in a chat stays; every form a person or WhatsApp writes unambiguously as a
+# phone — international "+", a mention, a tel:/wa.me link, a bracketed area code, the dotted NANP form — is caught.
 _PHONE_RES: tuple[re.Pattern[str], ...] = (
     re.compile(r"(?<![\w+])\+\(?\d[\d ().\-]{5,22}\d(?!\w)"),
     re.compile(r"(?<![\w@])@\d{6,15}(?!\w)"),
     re.compile(r"(?i)\b(?:tel:|wa\.me/)\+?\d[\d\-]{5,17}\d\b"),
-    re.compile(r"(?<![\w+@.\-])(?:\(\d{2,4}\)[ \-]?\d{2,4}(?:[ \-]\d{2,4}){1,4}|\d{2,4}(?:[ \-]\d{2,4}){2,5})"
-               r"(?![\w.\-])"),
+    re.compile(r"(?<![\w+@.\-])\(\d{2,4}\)[ \-]?\d{3,4}[ \-]\d{3,4}(?![\w.\-])"),
     re.compile(r"(?<![\w.])\d{3}\.\d{3}\.\d{4}(?![\w.])"),
 )
 

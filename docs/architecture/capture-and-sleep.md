@@ -578,11 +578,12 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   of a pass also re-reads, as a separate bounded read (newest first, at most 500), the already-posted rows of the last
   48 h (a delete for everyone rewrites its row in place; an unchanged row is a stager skip) — so a busy chat's window
   never crowds its new rows out (#502 review B1); the cursor moves past every row seen, and a full batch that left it
-  where it was stops with "its newest messages couldn't be reached" rather than spinning. A group @mention (stored as
-  the member's number) is posted as the member's name, else "@someone"; the backend neutralises any left, and every
+  where it was stops with "its newest messages couldn't be reached" rather than spinning. An @mention in any chat
+  (stored as the number) is posted as that person's name, else "@someone"; the backend neutralises any left, and every
   chat writer's words (`episode_scrub.PHONE_WRITERS`: Messages, WhatsApp, Telegram) pass a phone rule — `+`-prefixed,
-  `@`-mention, `tel:`/`wa.me/`, grouped national (9–15 digits in 2–4 digit groups) and North American dotted forms;
-  a bare unseparated digit run is left alone (ids, timestamps), by choice. FSEvents on the container, 3 s debounce,
+  `@`-mention, `tel:`/`wa.me/`, a bracketed area code and the North American dotted form. **False negatives over lost
+  words** (#502 re-check): the scrub runs before storage, so an unbracketed grouped number ("555 010 1234") and a bare
+  digit run are left alone — the same shapes are timestamps, year lists, ranges, prices, SKUs, room lists and ids. FSEvents on the container, 3 s debounce,
   15 s floor; every read is `Task.detached`. The backend (`whatsapp_source` → `chat_live`): type 6 is a group
   event (skipped), 14 a delete for everyone (its place kept in `unsent_turns`, its words never), 4 and 5 a contact card
   and a location (named only), a media row an attachment named and described; a quoted reply is `ZMETADATA`'s

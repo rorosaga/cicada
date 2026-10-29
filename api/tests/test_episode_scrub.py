@@ -57,8 +57,8 @@ def test_scrub_body_records_a_count_and_a_writer_never_the_text(monkeypatch):
     ("+34 600 000 000", "[redacted]"),
     ("@15550001234 can you bring the slides?", "@someone can you bring the slides?"),
     ("(555) 010-1234", "[redacted]"),
+    ("call (020) 7946 0958 today", "call [redacted] today"),
     ("555.010.1234", "[redacted]"),
-    ("06 12 34 56 78", "[redacted]"),
     ("tel:+15550001234", "tel:[redacted]"),
     ("wa.me/15550001234", "[redacted]"),
 ])
@@ -70,6 +70,11 @@ def test_a_phone_number_in_a_chat_is_redacted(text, expected):
     "in 2026 it cost $1,299.00", "meet 2026-10-28 at 10:30", "order 1788000000 shipped", "ip 192.168.1.100",
     "version 1.45.0", "12 345 678", "room 4 at 5", "price 1 299 000", "score 3-2 then 4-1",
     "ISBN 978-0-13-468599-1", "+5 points", "@alice-example said hi",
+    # The #502 re-check's examples (2026-10-29): each lost real words to a grouped-number rule, now gone.
+    "2026-10-28 10:30", "2024 2025 2026", "years 1999-2003-2010", "€1 299 000 000", "SKU 123-456-789",
+    "rooms 101 102 103", "code 1234 5678 9012",
+    # Unbracketed national layouts are left too, by choice: false negatives over destroyed words.
+    "06 12 34 56 78", "555 010 1234",
 ])
 def test_ordinary_numbers_are_left_alone(text):
     assert episode_scrub.scrub_phones(text) == (text, 0)

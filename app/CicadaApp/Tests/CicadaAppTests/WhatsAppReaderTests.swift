@@ -224,6 +224,19 @@ final class WhatsAppReaderTests: XCTestCase {
         XCTAssertEqual(WhatsAppReader.namingMentions("email me@example.com, 2026", names: names), "email me@example.com, 2026")
     }
 
+    /// #502 re-check: a one-to-one chat's @mentions are named at the source too, never posted as digits.
+    func testAOneToOneMentionIsNamedAtTheSource() throws {
+        let friend = store.session(friendJid, name: "Bob Example")
+        store.message(friend, "M1", at: 799_000_000, text: "@15550000002 and @15550009999, see you", fromMe: true)
+        let chat = try XCTUnwrap(reader().chats().first)
+        let pass = try reader().read(chat, name: "Bob Example", memberNames: [:], since: 0)
+        let text = String(decoding: pass.json, as: UTF8.self)
+        XCTAssertFalse(text.contains("1555"))
+        let messages = try XCTUnwrap((JSONSerialization.jsonObject(with: pass.json) as? [String: Any])?["messages"]
+                                     as? [[String: Any]])
+        XCTAssertEqual(messages.first?["text"] as? String, "@Bob Example and @someone, see you")
+    }
+
     /// File change → posted (the app's half; the backend's is `test_chat_live.test_live_update_cost_p95`): one new
     /// message in a ticked chat of a 20,000-row store, read from an APFS clone.
     @MainActor
