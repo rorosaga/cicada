@@ -856,6 +856,12 @@ a *Group* `Tag` (DR-44), last activity, *Read history* once ticked (a small `.bo
 again*; "History read" after) and the tick. No new visual pattern. `WhatsAppWatcher` (environment, started on launch,
 `bankChanged` on a switch) owns the list, the per-memory `Z_PK` cursors (`cicada.whatsapp.cursor.<bank>.<id>`), the
 FSEvents watch on the group container and every read off the main actor; `WhatsAppReader` is the one SQL reader.
+**One person across sources (2026-10-29):** it posts a participant's ONE address-book card by Contacts id, the
+Messages rule (`MessagesWatcher.postedCard`) — `conversation.contact` for a one-to-one chat, `members[].contact` for
+each group member (every member JID, `WhatsAppReader.memberJids`, looked up by its number in the app only) — and `""`
+only for a number it looked up this session (`lookedUp`) that no card or several cards hold; never the number or the
+JID. Telegram's chats post no card: the backend reads them through Telegram's API and never sees a phone number
+(ruling 47a), so there is no handle the app could look up.
 
 **Telegram chats (ruling 47a, 2026-10-28).** The same row and sheet (`TelegramSourceRow`, `TelegramPanel`;
 `TelegramChats` holds the state, the backend the client). Not connected: the backend's consent sentence word for word,

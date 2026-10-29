@@ -44,6 +44,13 @@ final class WhatsAppWatcher {
     @ObservationIgnored private let makeWatch: FolderWatchFactory
     @ObservationIgnored private let bank: @MainActor () -> String
     @ObservationIgnored private let lookUpCards: @Sendable ([String]) async -> [String: MessagesContactCard]
+    /// Whether Contacts may be read (a test passes a fake; `MessagesContacts`' one door otherwise).
+    @ObservationIgnored private let lookUpContactsAllowed: @Sendable () -> Bool
+    /// The phone handles this session actually looked up in Contacts: only for one of them can "no single card" be
+    /// said (`MessagesWatcher.postedCard`, the Messages rule).
+    @ObservationIgnored private(set) var lookedUp: Set<String> = []
+    /// Group members' cards, by phone handle (only when Contacts is allowed) — never posted, only their ids.
+    @ObservationIgnored private var memberCards: [String: MessagesContactCard] = [:]
     @ObservationIgnored private var watch: FSEventsWatch?
     @ObservationIgnored private var pending: Task<Void, Never>?
     @ObservationIgnored private var running: Task<String, Error>?
@@ -54,7 +61,8 @@ final class WhatsAppWatcher {
          lights: BrowserWatcher? = nil, activity: SyncActivity? = nil, defaults: UserDefaults = .standard,
          folder: URL = WhatsAppReader.container, debounce: Duration = .seconds(3), minimumInterval: Duration = .seconds(15),
          makeWatch: FolderWatchFactory? = nil, bank: @escaping @MainActor () -> String = { "default" },
-         lookUpCards: @escaping @Sendable ([String]) async -> [String: MessagesContactCard] = { await MessagesContacts.cards(for: $0) }) {
+         lookUpCards: @escaping @Sendable ([String]) async -> [String: MessagesContactCard] = { await MessagesContacts.cards(for: $0) },
+         lookUpContactsAllowed: @escaping @Sendable () -> Bool = { MessagesContacts.allowed }) {
         self.api = api
         self.reader = reader
         self.lights = lights
@@ -66,6 +74,16 @@ final class WhatsAppWatcher {
         self.makeWatch = makeWatch ?? { path, onChange in FSEventsWatch(path: path, handler: onChange) }
         self.bank = bank
         self.lookUpCards = lookUpCards
+        self.lookUpContactsAllowed = lookUpContactsAllowed
+    }
+
+    /// Look these handles up, and remember them as looked up only when Contacts could really be read.
+    private func lookUp(_ handles: [String]) async -> [String: MessagesContactCard] {
+        guard !handles.isEmpty else { return [:] }
+        let allowed = lookUpContactsAllowed()
+        let found = await lookUpCards(handles)
+        if allowed { lookedUp.formUnion(handles) }
+        return found
     }
 
     private func cursorKey(_ bank: String, _ id: String) -> String {
@@ -123,7 +141,7 @@ final class WhatsAppWatcher {
             return
         }
         let phones = chats.compactMap(\.phoneHandle)
-        let found = await lookUpCards(phones)
+        let found = await lookUp(phones)
         cards = Dictionary(uniqueKeysWithValues: chats.compactMap { chat in
             chat.phoneHandle.flatMap { found[$0] }.map { (chat.id, $0) } })
         if let answer = try? await api.describeChats(source: Self.source, ids: chats.map { ($0.id, $0.group) }) {
@@ -207,14 +225,31 @@ final class WhatsAppWatcher {
         for chat in found {
             let name = postedName(of: chat)
             var names: [String: String] = [:]
+            var memberPosted: [String: String] = [:]
+            var contact: String?
             if chat.group {
                 names = try await Task.detached(priority: .utility) { try reader.memberNames(chat) }.value
+                // One person across sources: each member's ONE card by Contacts id, the Messages rule.
+                let jids = try await Task.detached(priority: .utility) { try reader.memberJids(chat) }.value
+                let handles = jids.compactMap { jid in WhatsAppChat.phoneHandle(jid: jid).map { (jid, $0) } }
+                let missing = handles.map(\.1).filter { memberCards[$0] == nil && !lookedUp.contains($0) }
+                for (handle, card) in await lookUp(missing) { memberCards[handle] = card }
+                for (jid, handle) in handles {
+                    if let posted = MessagesWatcher.postedCard(memberCards[handle], looked: lookedUp.contains(handle)) {
+                        memberPosted[jid] = posted
+                    }
+                }
+            } else if let handle = chat.phoneHandle {
+                if cards[chat.id] == nil, !lookedUp.contains(handle),
+                   let card = await lookUp([handle])[handle] { cards[chat.id] = card }
+                contact = MessagesWatcher.postedCard(cards[chat.id], looked: lookedUp.contains(handle))
             }
             var cursor = self.cursor(bank: bank, id: chat.id) ?? 0
             for batch in 0..<20 {   // bounded catch-up: at most 20 batches per pass; the window is re-read once
                 let since = cursor
                 let pass = try await Task.detached(priority: .utility) {
-                    try reader.read(chat, name: name, memberNames: names, since: since, recheck: batch == 0)
+                    try reader.read(chat, name: name, memberNames: names, since: since, recheck: batch == 0,
+                                    contact: contact, memberCards: memberPosted)
                 }.value
                 try Task.checkCancellation()
                 if pass.count > 0 { _ = try await api.postWhatsApp(pass.json) }
