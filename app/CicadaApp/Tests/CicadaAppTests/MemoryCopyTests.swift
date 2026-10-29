@@ -25,6 +25,23 @@ final class MemoryCopyTests: XCTestCase {
         XCTAssertTrue(publish.publish)
     }
 
+    /// Review of #567: a demo with sharing off (`{publish: false, demo: true}`) is never offered the share switch, and
+    /// the Store's own view of the open bank counts too.
+    @MainActor
+    func testADemoIsNeverOfferedSharing() throws {
+        let model = MemoryCopyModel()
+        model.replica = try JSONDecoder().decode(ReplicaState.self, from: Data(
+            #"{"mode": "local", "conflict": null, "replica": null, "outbox": null}"#.utf8))
+        model.publish = try JSONDecoder().decode(PublishState.self, from: Data(
+            #"{"publish": false, "source": "default", "demo": true, "log": null}"#.utf8))
+        XCTAssertFalse(model.canShare(isDemo: false))
+        XCTAssertTrue(model.isDemoMemory(isDemo: false))
+        model.publish = try JSONDecoder().decode(PublishState.self, from: Data(
+            #"{"publish": false, "source": "default", "demo": false, "log": null}"#.utf8))
+        XCTAssertTrue(model.canShare(isDemo: false))
+        XCTAssertFalse(model.canShare(isDemo: true))     // the Store says the open bank is the demo
+    }
+
     func testTheBackendsOwnSentenceIsShown() {
         XCTAssertEqual(MemoryCopyModel.detail(#"{"detail": "That code was not accepted."}"#), "That code was not accepted.")
         XCTAssertNil(MemoryCopyModel.detail("not json"))

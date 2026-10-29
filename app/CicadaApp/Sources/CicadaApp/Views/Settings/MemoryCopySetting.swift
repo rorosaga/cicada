@@ -11,12 +11,18 @@ import SwiftUI
 struct MemoryCopySetting: View {
     @State private var model = MemoryCopyModel()
     @State private var formOpen = false
+    @Environment(Store.self) private var store
+
+    /// The open memory is a demo (the Store's roster, beside the backend's own answer): it is never shared.
+    private var inDemo: Bool { model.isDemoMemory(isDemo: DemoMode.isShowing(store.banks.value, bank: store.bank)) }
+    /// Changing where the memory lives waits while Sleep runs here (DR-41, review of #567): the switch is off, and why.
+    private var sleeping: Bool { ProjectWriteGate.sleepRunning(store.status.value) }
 
     var body: some View {
         Group {
             if model.shown {
                 SettingsGroupCard {
-                    if model.canShare {
+                    if model.canShare(isDemo: inDemo) {
                         shareRow
                         SettingsDivider()
                     }
@@ -46,6 +52,9 @@ struct MemoryCopySetting: View {
         }
     }
 
+    /// This computer shares its own memory: it is a home, so it does not also keep a copy of another's.
+    private var sharing: Bool { model.publish?.publish ?? false }
+
     private var copyRow: some View {
         let isCopy = model.replica?.isReplica ?? false
         return SettingsRow(.memoryCopy, title: Copy.MemoryCopy.copyTitle,
@@ -55,11 +64,17 @@ struct MemoryCopySetting: View {
             }))
             .labelsHidden()
             .toggleStyle(.switch)
-            .disabled(model.busy || model.restarting || (model.publish?.publish ?? false))
+            .disabled(model.busy || model.restarting || sharing || inDemo || sleeping)
         } below: {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                 if model.restarting {
                     caption(Copy.MemoryCopy.restarting)
+                } else if sleeping {
+                    caption(Copy.MemoryCopy.waitForSleep)
+                } else if inDemo && !isCopy {
+                    caption(Copy.MemoryCopy.notForDemo)
+                } else if sharing && !isCopy {
+                    caption(Copy.MemoryCopy.whileSharing)
                 } else if isCopy, let copy = model.replica?.replica {
                     caption(copy.text)
                     if let host = model.replica?.home, copy.status == "following" {

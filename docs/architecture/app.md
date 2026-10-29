@@ -409,8 +409,11 @@ when the environment sets it); on another computer, *Keep a full copy here* — 
 one-time code its *Pair a device* shows (a computer's code), checked and redeemed by this computer's backend
 (`PUT /sync/replica`), which then starts again in place (`POST /sync/replica/restart`) as a copy. While it keeps a copy
 the row says what it follows, how many changes are still to copy and how many made here are on their way (counts
-only), with *Copy again* when the home's history changed; switching it off stops the copy (the copy stays on disk,
-inactive). The app keeps talking to this Mac's own backend in both cases (`headless.md`, "A computer keeps a copy").
+only), with *Copy again* when the home's history changed; switching it off stops the copy and reopens the memory this
+Mac had before (the copy stays on disk, inactive, never written). *Keep a full copy here* is off, with the reason in
+words, while Sleep runs here, for a demo memory and while this Mac shares its own; the share switch is never offered for
+a demo (the backend's `demo` and the Store's roster both ask). A failed refresh keeps what the card last showed. The app
+keeps talking to this Mac's own backend in both cases (`headless.md`, "A computer keeps a copy").
 DR-40, DR-59, DR-76.
 Agents' last card holds *Command-line tool* (G180, ruling 21; on General's Setup card until B11; `CommandLineTool`,
 `CommandLineToolRow`): one neutral *Install the command-line tool* button (DR-40) that links `~/.local/bin/cicada`

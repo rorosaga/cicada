@@ -63,14 +63,20 @@ final class MemoryCopyModel {
 
     /// Shown only on a computer that keeps its own memory or a copy — never while this app uses a server.
     var shown: Bool { replica.map { $0.mode != "client" } ?? false }
-    var canShare: Bool { replica?.mode == "local" && publish?.demo == false }
+    /// Sharing is offered only on this computer's own memory, and never for a demo (review of #567: `demo` is the
+    /// backend's real answer, and `isDemo` — the Store's own view of the open bank — is asked too).
+    func canShare(isDemo: Bool) -> Bool { replica?.mode == "local" && publish?.demo == false && !isDemo }
+    func isDemoMemory(isDemo: Bool) -> Bool { isDemo || publish?.demo == true }
 
+    /// A failed read keeps what the card last showed (review of #567): the card never drops to nothing mid-page.
     func refresh() async {
-        replica = try? await APIClient.shared.fetchReplica()
-        if replica?.mode == "local" {
-            publish = try? await APIClient.shared.fetchPublish()
+        if let fresh = try? await APIClient.shared.fetchReplica() {
+            replica = fresh
+            restarting = false
         }
-        if replica != nil { restarting = false }
+        if replica?.mode == "local", let fresh = try? await APIClient.shared.fetchPublish() {
+            publish = fresh
+        }
     }
 
     func setShare(_ on: Bool) async {
