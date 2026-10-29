@@ -500,6 +500,11 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /sources/traces/wipe": (OUTSIDE, None),     # what was already promoted stays the bank's, untouched
     "POST /sources/traces/search": (NONE, None),      # a POST only so the words never reach an access log
     "POST /sources/traces/delete": (OUTSIDE, None),   # the person's pick from one day; what joined memory stays
+    # Meaning index 2: an added recording's words and frames, in $CICADA_HOME/files only — Sleep never reads them
+    # (G195), and their vectors are written later by the background refresher, never by the route.
+    "POST /files/media": (OUTSIDE, None),
+    "POST /files/{file_id}/frames": (OUTSIDE, None),
+    "DELETE /files/{file_id}": (OUTSIDE, None),
     # 2026-10-28 "Remove from memory": closes the claims whose only evidence is a traces-day digest (and Undo reopens
     # them) — entity pages, so the bank's admission through the one commit, 409 while Sleep holds the pages.
     "POST /sources/traces/remove-from-memory": (ADMITTED, "api.services.trace_memory.remove"),

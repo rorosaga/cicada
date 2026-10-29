@@ -91,7 +91,7 @@ def recipe() -> str | None:
 class Picture:
     """One picture Cicada holds, and where it came from (all ids, never a path, on the wire)."""
     key: str                       # "<source>:<id>", the row's stable key
-    source: str                    # look | capture | preview | still
+    source: str                    # look | capture | preview | still | frame
     path: Path
     title: str = ""
     entity_id: str | None = None
@@ -102,13 +102,17 @@ class Picture:
     day: str | None = None
     thumb: str = ""                # the API path the app (or a local agent) loads it from
     sha: str | None = None         # the content hash when the source already recorded one
+    file_id: str | None = None     # a frame: the added video it was kept from (``media_files``)
+    at: float | None = None        # a frame: its time in that video, seconds
 
     def meta(self) -> dict:
         out = {"source": self.source, "title": self.title, "thumb": self.thumb}
-        for name in ("entity_id", "episode_id", "video_id", "capture_id", "look_id", "day"):
+        for name in ("entity_id", "episode_id", "video_id", "capture_id", "look_id", "day", "file_id"):
             value = getattr(self, name)
             if value:
                 out[name] = value
+        if self.at is not None:
+            out["at"] = self.at
         return out
 
 
@@ -218,6 +222,9 @@ def sources(memory_path) -> list[Picture]:
     media, names = _media(memory_path)
     pictures = [*_looks(memory_path), *_captures(memory_path, names), *media]
     pictures += _watched(memory_path, {p.key for p in pictures})
+    from api.services import media_files
+
+    pictures += media_files.pictures(memory_path)   # frames kept from videos the person added (meaning index 2)
     seen: dict[str, Picture] = {}
     for p in pictures:
         seen.setdefault(p.key, p)
@@ -366,13 +373,27 @@ def refresh(memory_path, embedder: tuple[Callable[[list[bytes]], np.ndarray], st
             todo = todo[: max(0, int(limit))]
         if not embedder:
             todo = []   # no encoder here: keep what is stored, only drop what is gone
+        if target != serving:
+            # Review of #506: a picture gone leaves the generation search reads NOW, before any embed (a stop for
+            # Sleep, or a new generation that never fills, must not keep a deleted picture's title and path).
+            served = _rows(conn, serving)
+            stale = [k for k in served if k not in wanted]
+            if stale:
+                with _write_lock(_db(memory_path)):
+                    for k in stale:
+                        conn.execute(f"DELETE FROM vec_{serving} WHERE rowid = ?", (served[k][0],))
+                        conn.execute(f"DELETE FROM meta_{serving} WHERE rowid = ?", (served[k][0],))
+                    conn.commit()
+                _write_moments(conn, memory_path, serving)
+                counts["removed"] += len(stale)
         _embed_into(conn, memory_path, target, todo, wanted, have, embedder, model, tag, counts, should_stop)
         with _write_lock(_db(memory_path)):
             for k in gone:
                 rowid = have[k][0]
                 conn.execute(f"DELETE FROM vec_{target} WHERE rowid = ?", (rowid,))
                 conn.execute(f"DELETE FROM meta_{target} WHERE rowid = ?", (rowid,))
-            counts["removed"] = len(gone)
+            if target == serving:
+                counts["removed"] += len(gone)
             # Metadata moves without its picture moving (a page renamed): refreshed in place, no embed.
             if _has_table(conn, target):
                 for k, (p, h) in wanted.items():
@@ -383,8 +404,10 @@ def refresh(memory_path, embedder: tuple[Callable[[list[bytes]], np.ndarray], st
         if target != serving:
             # Complete = every picture that can be embedded is in the new generation (one that failed is not waited
             # for; one a ``limit`` left out is).
+            # Nothing left to embed (no pictures left, or every one fails under the new decoder) completes it too,
+            # so the old generation never outlives what it describes.
             needed = set(wanted) - set(counts.get("_failed_keys", []))
-            if _has_table(conn, target) and set(_rows(conn, target)) >= needed:
+            if not needed or (_has_table(conn, target) and set(_rows(conn, target)) >= needed):
                 _swap(conn, memory_path, serving, target)
                 counts["rebuilding"] = 0
         elif _has_table(conn, target) and (counts["embedded"] or counts["removed"]):
@@ -398,13 +421,37 @@ def refresh(memory_path, embedder: tuple[Callable[[list[bytes]], np.ndarray], st
     return counts
 
 
+def _look_vectors(memory_path: Path, todo: list[str], wanted, model, tag) -> dict[str, np.ndarray]:
+    """``{content hash: vector}`` for the looks in ``todo`` whose current picture vector the design board already
+    holds (``design_index.read_rows``: same bytes, a stamp current for EmbeddingGemma 2 and this fingerprint)."""
+    from api.services import onnx_embedder, vision_embedder
+
+    looks = [k for k in todo if k.startswith("look:")]
+    if not looks or tag is None or model != onnx_embedder.PREFERRED_ID:
+        return {}
+    from api.services import design_index
+
+    rows = design_index.read_rows(memory_path)
+    out: dict[str, np.ndarray] = {}
+    for key in looks:
+        got = rows.get((key[len("look:"):], "image"))
+        if got is None or str(got[0])[:32] != wanted[key][1]:
+            continue
+        if any(vision_embedder.stamp_current(got[1], base, tag)
+               for base in (onnx_embedder.PREFERRED_BASE, onnx_embedder.PREFERRED_ID)):
+            out[wanted[key][1]] = np.asarray(got[2], dtype=np.float32)
+    return out
+
+
 def _embed_into(conn, memory_path: Path, gen: str, todo: list[str], wanted, have, embedder, model, tag, counts,
                 should_stop) -> None:
     from api.services.vector_index import _blob
 
     failed: list[str] = counts.setdefault("_failed_keys", [])
-    # Pictures with the same bytes under two keys (a still saved and watched) are embedded once.
-    by_hash: dict[str, np.ndarray] = {}
+    # Pictures with the same bytes under two keys (a still saved and watched) are embedded once, and a look the
+    # design board already embedded with this model and fingerprint is never embedded twice (meaning index 2).
+    by_hash: dict[str, np.ndarray] = _look_vectors(memory_path, todo, wanted, model, tag)
+    counts["reused_looks"] = len(by_hash)
     for start in range(0, len(todo), STEP):
         if should_stop is not None and should_stop():
             raise RefreshStopped("Sleep started")
@@ -648,14 +695,17 @@ def _sleep_running() -> bool:
     return sleep_cycle.get_sleep_state().status == "running"
 
 
-def start_refresh(memory_path, *, delay_s: float = 0.0) -> bool:
-    """Refresh the picture index in the background: one run per bank at a time (a trigger during a run runs once
-    more after it), never while Sleep runs (the end of the run triggers it again), and only where the image
-    encoder is installed. ``delay_s`` waits first, folding a burst of triggers into one run. Never raises."""
+def start_refresh(memory_path, *, delay_s: float = 0.0, even_empty: bool = False) -> bool:
+    """Refresh the meaning index's pictures — and the words of added recordings (``media_files``) — in the
+    background: one run per bank at a time (a trigger during a run runs once more after it), never while Sleep runs
+    (the end of the run triggers it again), and only where there is something to do here: the image encoder is
+    installed, or the person added a recording. ``delay_s`` waits first, folding a burst of triggers into one run.
+    Never raises."""
     try:
-        from api.services import vision_embedder
+        from api.services import media_files, vision_embedder
 
-        if vision_embedder.folder() is None:
+        # ``even_empty``: the last added file was just deleted — its vectors still need to leave.
+        if not even_empty and vision_embedder.folder() is None and not media_files.any_files(memory_path):
             return False
     except Exception:  # noqa: BLE001
         return False
@@ -685,11 +735,21 @@ def _run(memory_path: Path, runner: _Runner) -> None:
     while True:
         runner.again = False
         try:
+            from api.services import media_files
+            from api.services.vector_index import IndexSyncStopped
+
             runner.last = refresh(memory_path, should_stop=_sleep_running)
             if runner.last.get("embedded") or runner.last.get("removed"):
                 logger.info(f"image_index: {runner.last['embedded']} picture(s) embedded, "
                             f"{runner.last['removed']} removed, {runner.last['total']} in all "
                             f"({time.monotonic() - started:.0f}s)")
+            try:
+                words = media_files.refresh_text(memory_path, should_stop=_sleep_running)
+            except IndexSyncStopped:
+                raise RefreshStopped("Sleep started") from None
+            if words.get("embedded") or words.get("removed"):
+                logger.info(f"image_index: {words['embedded']} passage(s) of added recordings embedded, "
+                            f"{words['removed']} removed")
         except RefreshStopped:
             logger.info("image_index: gave way to Sleep; it goes on when the run ends")
             return

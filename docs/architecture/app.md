@@ -390,6 +390,17 @@ Settings' local-folder picker — and check only the chosen file or folder
 (`IntakeRouter.refusedRoot(of:)`); a watched folder that *contains* a refused root is still walked
 (open, G125).
 
+**Recordings and videos (meaning index 2, 2026-10-28).** An audio or video file among a drop (by its type; a folder
+is never walked for them) leaves the import before the sniff and goes to `MediaFileIndexer` (`IntakeRouter.onMedia`,
+after `refusedRoot(of:)`): it transcribes the speech on this Mac and, for a video, keeps one frame per shot, and posts
+only those derivatives to `/files` (`storage.md`, "Recordings and videos the person adds"). One toast says it is being
+read and one what landed — the Store's existing toast (DR-59 sentence case; no new visual pattern) — including that
+the words are the recording's, not the person's, and why a file was kept without its words (speech recognition off, or
+no speech model for the language: the toast names Dictation's own setting; Cicada never downloads one). The only
+Speech Recognition request is inside the person's own drop; nothing on launch or in the background asks.
+`MediaFileIndexer.swift` is the one more file allowed to import AVFoundation (`AVImportLintTests`), every call behind
+`Transcribing` / `FrameSampling` seams its tests fake.
+
 **Home (G108; Direction D, DS-3b; F-09, round 4).** The front door at ⌘1. The painted band is gone (off since G189(a),
 2026-10-06; retired with every painting on 2026-10-16, owner: "Remove it from everywhere"), so the first content is
 "What would you like to remember?" as a `PageTitle` at the room pages' 24 pt top inset (`HomeLayout.headlineTop`) — then the palette's own `FindPanelBody` in `.page` placement in a 640 pt block: a second

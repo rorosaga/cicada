@@ -8,6 +8,7 @@ The real encoder's numbers are ``benchmarks.perf.image_index_build``'s.
 from __future__ import annotations
 
 import json
+import zlib
 import sqlite3
 from pathlib import Path
 
@@ -40,8 +41,8 @@ def text_embed(texts, *, is_query=False):
 
 def picture_vec(data: bytes) -> np.ndarray:
     colour, _, salt = data.decode().partition(":")
-    rng = np.random.default_rng(abs(hash(salt)) % (2**32))
-    v = rng.standard_normal(DIM).astype(np.float32) * 0.05
+    rng = np.random.default_rng(zlib.crc32(salt.encode()))
+    v = rng.standard_normal(DIM).astype(np.float32) * 0.02
     v[IMAGE_AXIS] += 1.0
     if colour in WORDS:
         v[WORDS[colour]] += 0.6
@@ -159,6 +160,36 @@ def test_search_keeps_the_old_pictures_until_the_rebuild_commits(bank, tmp_path,
     serving = stamps["serving:images"]
     assert stamps[f"recipe:{serving}"] == "fp-new"
     assert [h["key"] for h in image_index.search(bank, "red", top_k=5, embed_fn=text_embed)] == before
+
+
+def test_a_picture_deleted_during_a_rebuild_leaves_what_search_reads_at_once(bank, tmp_path, monkeypatch):
+    """Review of #506: a deletion reaches the serving generation even when the rebuild stops before any embed."""
+    pics = _pictures(tmp_path / "pics", _board(tmp_path))
+    image_index.refresh(bank, EMBEDDER, pictures=pics)
+    monkeypatch.setattr(image_index, "recipe", lambda: "fp-new")
+    kept = [p for p in pics if not p.key.startswith("preview:red")]
+    with pytest.raises(image_index.RefreshStopped):
+        image_index.refresh(bank, EMBEDDER, pictures=kept, should_stop=lambda: True)
+    assert image_index.search(bank, "red", top_k=5, embed_fn=text_embed) == []
+    assert image_index.status(bank)["pictures"] == 9
+    assert len(image_index.search(bank, "blue", top_k=5, embed_fn=text_embed)) == 3, "the rest still answer"
+
+
+@pytest.mark.parametrize("case", ["no pictures left", "every picture fails"])
+def test_a_rebuild_with_nothing_to_embed_still_swaps(bank, tmp_path, monkeypatch, case):
+    pics = _pictures(tmp_path / "pics", _board(tmp_path))
+    image_index.refresh(bank, EMBEDDER, pictures=pics)
+    monkeypatch.setattr(image_index, "recipe", lambda: "fp-new")
+    if case == "no pictures left":
+        got = image_index.refresh(bank, EMBEDDER, pictures=[])
+    else:
+        for p in pics:
+            p.path.write_bytes(b"bad picture " + p.key.encode())
+        got = image_index.refresh(bank, EMBEDDER, pictures=pics)
+    assert got["rebuilding"] == 0 and got["total"] == 0
+    assert image_index.search(bank, "red", top_k=5, embed_fn=text_embed) == [], "no deleted picture outlives it"
+    stamps = dict(sqlite3.connect(bank / "vector_index.db").execute("SELECT key, value FROM index_meta").fetchall())
+    assert not any(k.startswith("recipe:") and v != "fp-new" for k, v in stamps.items()), "the old generation is gone"
 
 
 def test_a_limited_rebuild_never_swaps_in_half_a_table(bank, tmp_path, monkeypatch):
@@ -435,3 +466,23 @@ def test_the_prompt_hook_never_reaches_the_picture_index(tmp_path, monkeypatch):
     from api.services import hook_recall
 
     assert "image_index" not in inspect.getsource(hook_recall)
+    assert "media_files" not in inspect.getsource(hook_recall)
+
+
+def test_a_look_the_design_board_already_embedded_is_reused_not_embedded_twice(bank, tmp_path, monkeypatch):
+    """Meaning index 2: one store for looks — the board's current picture vector is the picture index's too."""
+    from api.services import design_index, onnx_embedder, vision_embedder
+
+    path = tmp_path / "look.png"
+    path.write_bytes(b"red:look")
+    sha = "f" * 64
+    pic = image_index.Picture("look:look-1", "look", path, title="A look", look_id="look-1", sha=sha)
+    vec = picture_vec(b"red:look")
+    stamp = vision_embedder.stamp_for(onnx_embedder.PREFERRED_BASE, "fp-test")
+    monkeypatch.setattr(design_index, "read_rows", lambda mp: {("look-1", "image"): (sha, stamp, vec)})
+    got = image_index.refresh(bank, (picture_embed, onnx_embedder.PREFERRED_ID), pictures=[pic])
+    assert got["embedded"] == 1 and got["reused_looks"] == 1 and CALLS == [], "nothing was embedded again"
+    monkeypatch.setattr(design_index, "read_rows", lambda mp: {("look-1", "image"): (sha, "old-stamp", vec)})
+    pic.sha = "e" * 64
+    image_index.refresh(bank, (picture_embed, onnx_embedder.PREFERRED_ID), pictures=[pic])
+    assert CALLS == [1], "a stale stamp or other bytes embed as usual"

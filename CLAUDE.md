@@ -329,7 +329,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   2026-10-28; behind "Learn from my day", off, a counted day digest with no title or address, the one thing a model may
   read, removable from memory as one undoable commit) (`storage.md`, `capture-and-sleep.md`).
 - **Design references (2026-10-14):** one markdown file plus its screenshot per look, in the bank, one writer
-  (`design_refs`), never an entity page; palette and vectors are computed here, the index lives outside the bank.
+  (`design_refs`), never an entity page; palette and vectors are computed here; since 2026-10-28 the index is the
+  `look_vectors` table of the bank's derived `vector_index.db` (git-ignored, never copied or exported; `storage.md`).
   **Owner 2026-10-20:** a look lives on the page of the thing it shows — the record's `entity:` plus a `## Looks` section
   on that page that only `design_refs` writes (never a page invented); the Looks page is gone (`storage.md`, `app.md`).
 - **`_state.md` is a cursor, never a copy**; it commits ALONE, the read path too (the G85-class smear). **The handshake is
@@ -337,7 +338,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **Derived indexes are disposable** (vectors, FTS): rebuilt, never an error; never tracked by git; **the query is never
   logged**. The caller always passes the active bank (the split-brain rule). **Pictures are a kind of the same index
   (2026-10-28):** only pictures already on this Mac, embedded outside Sleep in the picture child, never on a search;
-  a search embeds words only; the remote connector never sees picture hits (`image_index`, `storage.md`).
+  a search embeds words only; the remote connector never sees picture hits (`image_index`, `storage.md`). So are the
+  words and kept frames of a recording or video the person adds — read by the app, posted as derivatives, stored
+  outside every bank, the recording's words and never the person's, never read by Sleep (`media_files`).
 - **The telemetry ledger is ids and enums only, never text, never in a bank or git.** Nothing learned from it is
   auto-applied.
 - **Git:** every Sleep commit is machine-parseable, with three trailer families (`Cicada-Author`, `Cicada-Engine` — omitted

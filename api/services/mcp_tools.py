@@ -2109,6 +2109,11 @@ def _recall(ctx: ToolContext, query: str) -> str:
         if picture_lines:
             output_parts.append("**Pictures that match (by meaning; each names where it came from):**\n"
                                 + "\n".join(picture_lines))
+        # Meaning index 2: the words of recordings and videos the person added — the recording's words, not theirs.
+        file_lines = _file_lines(memory_path, query)
+        if file_lines:
+            output_parts.append("**From recordings and videos you added (the recording's words, not yours; by "
+                                "meaning):**\n" + "\n".join(file_lines))
 
     # G180: a graph with no page at all is an empty graph whether or not `entities/` was
     # scaffolded; the text is unchanged, the refusal is typed (never matched on the sentence).
@@ -2127,7 +2132,8 @@ def _recall(ctx: ToolContext, query: str) -> str:
 
 RECALL_PICTURES_SHOWN = 3
 _PICTURE_FROM = {"look": "a look you saved", "capture": "a screenshot of the saved site",
-                 "preview": "the saved link's own picture", "still": "the video's still"}
+                 "preview": "the saved link's own picture", "still": "the video's still",
+                 "frame": "a frame of a video you added"}
 
 
 def _picture_lines(memory_path: Path, query: str, more_call) -> list[str]:
@@ -2149,12 +2155,41 @@ def _picture_lines(memory_path: Path, query: str, more_call) -> list[str]:
         where = _PICTURE_FROM.get(str(meta.get("source") or ""), "a picture")
         if meta.get("source") == "still" and meta.get("episode_id") and not meta.get("entity_id"):
             where = f"the still of a video watched on {meta.get('day') or 'a day'} ({meta['episode_id']})"
+        elif meta.get("source") == "frame" and meta.get("at") is not None:
+            from api.services import media_files
+
+            where += f", at {media_files.clock(meta['at'])}"
         elif meta.get("day"):
             where += f", {meta['day']}"
         page = meta.get("entity_id")
         tail = f" — page `{page}`" + (f", {more_call(page)}" if more_call else "") if page else ""
         lines.append(f"- {str(meta.get('title') or 'A picture')[:RECALL_HOP_CHARS]} ({where}) · picture "
                      f"`{meta.get('thumb') or ''}`{tail}")
+    return lines
+
+
+RECALL_FILE_LINES = 3
+
+
+def _file_lines(memory_path: Path, query: str) -> list[str]:
+    """At most ``RECALL_FILE_LINES`` passages of added recordings (``media_files``): the file's name, where in it,
+    and a short excerpt of its words — hits only (G195: an agent sees a hit; the whole file only on the person's ask).
+    None when nothing clears the floor."""
+    from api.services import media_files
+
+    try:
+        rows = media_files.search_text(memory_path, query, top_k=RECALL_FILE_LINES)
+    except Exception as exc:  # noqa: BLE001 — never fails a recall
+        from loguru import logger
+
+        logger.debug(f"recall: file leg skipped ({type(exc).__name__})")
+        return []
+    lines = []
+    for row in rows:
+        meta = row.get("metadata") or {}
+        words = " ".join(str(row.get("text") or "").split())[:RECALL_EXCERPT_CHARS]
+        lines.append(f"- {str(meta.get('name') or 'A recording')[:RECALL_HOP_CHARS]} ({meta.get('kind') or 'audio'}, "
+                     f"at {media_files.clock(meta.get('start'))}): {words}")
     return lines
 
 

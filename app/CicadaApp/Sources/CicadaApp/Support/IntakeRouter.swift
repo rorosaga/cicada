@@ -400,6 +400,10 @@ final class IntakeRouter {
     /// export someone was waiting for has arrived, whatever door it came in by.
     /// A closure, not state — nothing observes it.
     @ObservationIgnored var onVendorSniffed: ((String) -> Void)?
+    /// Meaning index 2 — where a dropped recording or video goes: never the import (an export it is not), always the
+    /// app's own reader (`MediaFileIndexer`), which transcribes and samples it here and posts only the derivatives.
+    /// A closure so the router's tests see the hand-off without reading a file.
+    @ObservationIgnored var onMedia: (([URL]) -> Void)?
 
     init(api: any IntakeAPI = APIClient.shared,
          sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
@@ -412,7 +416,16 @@ final class IntakeRouter {
     }
 
     /// Strong, like `BrowserWatcher.store` — the app owns both for its lifetime.
-    func attach(store: Store) { self.store = store }
+    func attach(store: Store) {
+        self.store = store
+        if onMedia == nil {
+            onMedia = { [weak store] urls in
+                let indexer = MediaFileIndexer.shared
+                indexer.say = { store?.toast = $0 }
+                Task { await indexer.add(urls) }
+            }
+        }
+    }
 
     /// R-OB10 — where a staged export's import reports in `SyncActivity`. Never cancellable: nothing can be
     /// un-imported (`cancel()`'s rule), so its row shows progress and no ×.
@@ -442,6 +455,14 @@ final class IntakeRouter {
     /// (Z-B6) and is discardable everywhere else.
     @discardableResult
     func accept(urls: [URL], from origin: IntakeOrigin) -> IntakeAcceptance {
+        // Meaning index 2: recordings and videos go to search, read on this Mac — after the roots guard a door that
+        // never walks passes (`refusedRoot`, Z-B5), so nothing under `~/.claude`, `~/.codex` or `~/.cicada` is read.
+        let media = MediaFileIndexer.media(in: urls)
+        if !media.isEmpty, let onMedia, Self.refusedRoot(of: media, home: home, env: env) == nil {
+            onMedia(media)
+            let rest = urls.filter { !media.contains($0) }
+            return rest.isEmpty ? .accepted : accept(urls: rest, from: origin)
+        }
         guard !isImporting else {
             if !origin.answersInPlace { store?.toast = Copy.intakeBusy }
             return .busy
