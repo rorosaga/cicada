@@ -121,7 +121,10 @@ final class WhatsAppReaderTests: XCTestCase {
     let groupJid = "120363000000000000@g.us"
     let now = Date(timeIntervalSinceReferenceDate: 800_000_000)
 
-    override func setUpWithError() throws { store = try SyntheticWhatsAppStore() }
+    override func setUpWithError() throws {
+        ContactsTrap.install()   // never this Mac's Contacts service (#527 review)
+        store = try SyntheticWhatsAppStore()
+    }
     override func tearDown() { store.close() }
 
     private func reader() -> WhatsAppReader {

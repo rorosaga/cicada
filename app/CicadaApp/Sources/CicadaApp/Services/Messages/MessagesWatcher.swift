@@ -56,7 +56,7 @@ final class MessagesWatcher {
     @ObservationIgnored private let bank: @MainActor () -> String
     @ObservationIgnored private let lookUpCards: @Sendable ([String]) async -> [String: MessagesContactCard]
     /// Whether Contacts may be read (a test replaces it); never asks.
-    @ObservationIgnored var lookUpContactsAllowed: @Sendable () -> Bool = { MessagesContacts.allowed }
+    @ObservationIgnored var lookUpContactsAllowed: @Sendable () -> Bool
     /// nil when the key store could not be read — never taken as "shares no photo".
     @ObservationIgnored private let lookUpSharedPhotos: @Sendable ([String]) async -> [String: Data]?
     /// When each ticked chat's shared photo was last looked up (found or not): at most once per `sharedRecheck`, so a
@@ -78,6 +78,7 @@ final class MessagesWatcher {
          minimumInterval: Duration = .seconds(60), makeWatch: FolderWatchFactory? = nil,
          bank: @escaping @MainActor () -> String = { "default" },
          lookUpCards: @escaping @Sendable ([String]) async -> [String: MessagesContactCard] = { await MessagesContacts.cards(for: $0) },
+         lookUpContactsAllowed: @escaping @Sendable () -> Bool = { MessagesContacts.allowed },
          lookUpSharedPhotos: (@Sendable ([String]) async -> [String: Data]?)? = nil,
          sharedRecheck: Duration = .seconds(3600)) {
         self.api = api
@@ -91,6 +92,7 @@ final class MessagesWatcher {
         self.makeWatch = makeWatch ?? { path, onChange in FSEventsWatch(path: path, handler: onChange) }
         self.bank = bank
         self.lookUpCards = lookUpCards
+        self.lookUpContactsAllowed = lookUpContactsAllowed
         // The shared photos live under the same Messages folder the watcher reads (a test's synthetic folder there).
         let nicknames = folder.appendingPathComponent(MessagesSharedPhotos.folderName, isDirectory: true)
         self.lookUpSharedPhotos = lookUpSharedPhotos ?? { handles in

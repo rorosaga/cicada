@@ -85,6 +85,7 @@ final class MessagesWatcherTests: XCTestCase {
     private var bank = "alpha"
 
     override func setUp() async throws {
+        ContactsTrap.install()   // never this Mac's Contacts service (#527 review)
         synthetic = try SyntheticChatDB()
         defaults = UserDefaults(suiteName: "Messages-\(UUID().uuidString)")!
         instinct = synthetic.chat("+15550000001")
@@ -101,7 +102,24 @@ final class MessagesWatcherTests: XCTestCase {
         MessagesWatcher(api: api, reader: MessagesReader(database: synthetic.url), defaults: defaults,
                         folder: synthetic.dir, debounce: .milliseconds(10), minimumInterval: .zero,
                         makeWatch: { _, _ in nil }, bank: { [unowned self] in self.bank },
-                        lookUpCards: { handles in cards.filter { handles.contains($0.key) } })
+                        lookUpCards: { handles in cards.filter { handles.contains($0.key) } },
+                        lookUpContactsAllowed: { false })
+    }
+
+    /// The guard (#527 review): a watcher built as the app builds it — every default — reaches Contacts only through
+    /// `MessagesContacts`' doors, which the trap answers, so no test here can touch `contactsd` or the address book.
+    func testNoWatcherReachesThisMacsContacts() async throws {
+        let api = FakeMessagesAPI()
+        api.ticked = [instinctId]
+        let defaulted = MessagesWatcher(api: api, reader: MessagesReader(database: synthetic.url), defaults: defaults,
+                                        folder: synthetic.dir, debounce: .milliseconds(10), minimumInterval: .zero,
+                                        makeWatch: { _, _ in nil }, bank: { [unowned self] in self.bank })
+        await defaulted.bankChanged()
+        await defaulted.loadList()
+        XCTAssertGreaterThan(ContactsTrap.knocks, 0, "the default look-ups go through the trapped doors")
+        XCTAssertFalse(MessagesContacts.allowed, "the trap, never this Mac's answer")
+        let cards = await MessagesContacts.cards(for: ["+15550000001"])
+        XCTAssertTrue(cards.isEmpty)
     }
 
     private var instinctId: String { MessagesReader.conversationId(chatGuid: "iMessage;-;+15550000001") }

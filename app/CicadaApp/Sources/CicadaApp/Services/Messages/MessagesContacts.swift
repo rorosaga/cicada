@@ -13,11 +13,26 @@ struct MessagesContactCard: Equatable, Sendable {
 }
 
 enum MessagesContacts {
-    static var allowed: Bool { CNContactStore.authorizationStatus(for: .contacts) == .authorized }
+    /// The ONE door to this Mac's Contacts service for Messages: whether it may be read. A test replaces it, so no test
+    /// ever reaches `contactsd` or the person's address book (#527 review).
+    nonisolated(unsafe) static var authorization: @Sendable () -> Bool = {
+        CNContactStore.authorizationStatus(for: .contacts) == .authorized
+    }
+    /// The look-up itself, behind the same door (a test replaces it too).
+    nonisolated(unsafe) static var lookUp: @Sendable ([String]) async -> [String: MessagesContactCard] = { handles in
+        await systemCards(for: handles)
+    }
+
+    static var allowed: Bool { authorization() }
 
     /// The cards for `handles`, keyed by handle. Empty when Contacts is not allowed.
     static func cards(for handles: [String]) async -> [String: MessagesContactCard] {
         guard allowed, !handles.isEmpty else { return [:] }
+        return await lookUp(handles)
+    }
+
+    private static func systemCards(for handles: [String]) async -> [String: MessagesContactCard] {
+        guard !handles.isEmpty else { return [:] }
         return await Task.detached(priority: .utility) { () -> [String: MessagesContactCard] in
             let store = CNContactStore()
             let keys: [CNKeyDescriptor] = [CNContactFormatter.descriptorForRequiredKeys(for: .fullName),
