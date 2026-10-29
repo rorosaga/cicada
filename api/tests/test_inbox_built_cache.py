@@ -125,3 +125,39 @@ def test_an_etag_computes_only_what_it_names_each_as_the_full_map_does(memory, m
     assert walked == [], "a component the ETag does not name is never computed"
     with pytest.raises(KeyError):
         sync_service.etag_for(memory, "no-such-component")
+
+
+def test_served_counts_from_a_current_built_list_are_the_walks(memory):
+    inbox_service.reset_built()
+    walked = inbox_service.served_counts(memory)            # no built list yet: the header walk
+    inbox_service.load_inbox(memory)
+    assert inbox_service.served_counts(memory) == walked     # answered from the built list
+    item = memory / "inbox" / "inbox-001.md"
+    parsed = markdown_parser.parse(item)
+    markdown_parser.write(item, {**parsed.frontmatter, "status": "resolved"}, parsed.body)
+    inbox_service.reset_built()
+    fresh = inbox_service.served_counts(memory)
+    inbox_service.load_inbox(memory)
+    assert inbox_service.served_counts(memory) == fresh
+
+
+def test_origins_are_remembered_only_while_both_folders_hold(memory):
+    from api.services import origin_stats
+
+    first = origin_stats.aggregate_origins(memory)
+    first[0]["episodeCount"] = -1                            # a caller's edit never reaches the next answer
+    assert origin_stats.aggregate_origins(memory) == origin_stats._aggregate(memory)
+    _write(memory / "episodes" / "ep_2026-08-21_001.md",
+           {"id": "ep_2026-08-21_001", "timestamp": "2026-08-21T10:00:00+00:00", "origin": "mcp"}, "user: hi\n")
+    assert origin_stats.aggregate_origins(memory) == origin_stats._aggregate(memory)
+    assert any(r["origin"] == "mcp" for r in origin_stats.aggregate_origins(memory))
+
+
+def test_the_card_reads_the_page_file_exactly_as_a_parse(memory):
+    from api.routers import entities
+
+    page = memory / "entities" / "alpha-project.md"
+    for _ in range(2):   # cold (bank_index parses it), then warm (its cached header)
+        parsed, raw = entities._page_file(memory, page)
+        want = markdown_parser.parse(page, ledger=False)
+        assert (parsed.frontmatter, parsed.body, raw) == (want.frontmatter, want.body, page.read_text())

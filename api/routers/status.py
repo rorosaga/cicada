@@ -28,6 +28,7 @@ from api.services import (
     sleep_debt,
     sleep_scheduler,
     sync_service,
+    sync_ticker,
     telemetry,
 )
 from api.services.sleep_cycle import get_sleep_state
@@ -126,6 +127,13 @@ def _leann_present(memory_path: Path) -> bool:
 
 @router.get("/status", response_model=StatusResponse)
 async def get_status(settings: Settings = Depends(get_settings)):
+    # Speed 2026-10-29: one listing per directory for the whole answer — the inbox count, the episode scan and the
+    # debt read each listed `episodes/` (and the count `entities/`) again; the worker threads copy this context.
+    with sync_ticker.request_scans(settings.memory_path):
+        return await _status(settings)
+
+
+async def _status(settings: Settings) -> StatusResponse:
     state = get_sleep_state()
     total, by_kind, unprocessed, last_ingested = await run_in_threadpool(
         _scan_bank, settings.memory_path

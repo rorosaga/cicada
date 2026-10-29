@@ -438,6 +438,13 @@ def served_counts(memory_path: Path) -> tuple[int, dict[str, int]]:
     ``"decay"`` default; a malformed file is absent from both paths.
     """
     today = str(date.today())
+    # Speed 2026-10-29: when the built list is current (Home and the Inbox read it), the count IS that list's — no
+    # second walk of every item's subject. Otherwise the header walk below, as before.
+    with bank_index.shared_scans():
+        built = _built_if_current(memory_path, today)
+    if built is not None:
+        items = agent_request_items(memory_path) + built
+        return len(items), dict(Counter(i.kind.value for i in items))
     requests = len(agent_request_items(memory_path))
     total = requests
     by_kind: Counter = Counter({"agent_request": requests} if requests else {})
@@ -519,32 +526,31 @@ _BUILT: dict[tuple[str, bool], tuple[tuple, list[InboxItem]]] = {}
 _BUILT_LOCK = threading.Lock()
 
 
-def _file_stamp(path: Path) -> tuple[int, int, int] | None:
-    try:
-        st = path.stat()
-    except OSError:
-        return None
-    return (st.st_ino, st.st_mtime_ns, st.st_size)
-
-
 def _built_inputs(memory_path: Path, today: str) -> tuple:
-    """Everything :func:`_build_inbox` reads, as stamps: the day (deferral, ages), the inbox, every page and every
-    episode (subjects, causes, claims, quiet pages, page use — fingerprints of name, size and nanosecond mtime, the
-    ETag's own), and the three files beside them it reads: the predicate map (``informational``, the check vocabulary),
-    the held names (a merge question about a parked name, G209) and ``_state.md`` (the owner, for page use). The seed
-    vocabulary ships with the code."""
-    from api.services import graph_builder, pending_store
+    """Everything :func:`_build_inbox` reads, as stamps: the day (deferral, ages), the inbox, every page and its claims
+    ledger, every episode (subjects, causes, claims, quiet pages, page use — fingerprints of name, size and nanosecond
+    mtime, the ETag's own), and the files beside them (``inbox_inputs.side_stamps``: the predicate map, the held names,
+    the owner's id). The seed vocabulary ships with the code."""
+    from api.services import graph_builder, inbox_inputs
 
     mp = Path(memory_path)
     return (
         today,
         graph_builder.inbox_stamp(mp),
         bank_index.dir_fingerprint(mp / "entities"),
+        bank_index.ledger_fingerprint(mp / "entities"),
         bank_index.dir_fingerprint(mp / "episodes"),
-        _file_stamp(mp / predicates.RUNTIME_FILE),
-        _file_stamp(pending_store.store_path(mp)),
-        _file_stamp(mp / "_state.md"),
+        inbox_inputs.side_stamps(mp),
     )
+
+
+def _built_if_current(memory_path: Path, today: str) -> list[InboxItem] | None:
+    """The built list (deferred items hidden) when every input it was built from is unchanged, else ``None``."""
+    with _BUILT_LOCK:
+        hit = _BUILT.get((str(memory_path), False))
+    if hit is None or hit[0] != _built_inputs(memory_path, today):
+        return None
+    return list(hit[1])
 
 
 def reset_built() -> None:
