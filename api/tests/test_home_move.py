@@ -322,6 +322,21 @@ def test_the_take_over_preview_says_how_far_behind_and_when(home, monkeypatch):
     assert home_move.take_over_preview(home)["code"] == "home_reachable"          # not lost: a move instead
 
 
+def test_a_copy_reports_the_move_its_home_is_making(home, monkeypatch):
+    """Review of #570: a move pressed on a copy runs at the home; the copy's overview says so from the home's words."""
+    from api.services import replica
+
+    monkeypatch.setattr(home_move, "role", lambda _p: "replica")
+    monkeypatch.setattr(home_move, "my_device_id", lambda: "cccccccc")
+    monkeypatch.setattr(home_move, "registry", lambda _p: [])
+    monkeypatch.setattr(replica, "state", lambda: {"status": "following", "seq": 3, "homeSeq": 3, "behind": 0})
+    moving = {"phase": "leaving", "text": "Your memory is moving to bravo-laptop."}
+    monkeypatch.setattr(replica, "request", lambda *a, **k: (200, {}, {"moving": moving}))
+    assert home_move.overview(home)["moving"] == moving
+    monkeypatch.setattr(replica, "request", lambda *a, **k: (None, {}, None))      # the home is restarting
+    assert home_move.overview(home)["moving"] is None
+
+
 def test_the_set_aside_words_count_what_was_kept_and_what_was_sent():
     text = home_move.set_aside_text({"commits": 3, "home": "desk", "episodes": 2, "calls": 1, "wasHome": True})
     assert text.startswith("3 changes made on this computer after desk took over are kept aside here, never merged.")

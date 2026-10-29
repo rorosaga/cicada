@@ -1551,6 +1551,10 @@ def overview(memory_path: Path) -> dict:
                             "text": f"{to_name} has not taken over yet. If it is lost, this computer can take your "
                                     f"memory back; it made the last change, so nothing is behind."}
     if me_role == "replica":
+        # Review of #570: a move pressed on a copy runs at the home, so this process's progress knows nothing of it —
+        # the home's own words are asked for (3 s; away, the app keeps its own "moving" until a poll shows the new home).
+        if body["moving"] is None:
+            body["moving"] = _home_moving()
         state = replica.state()
         if state.get("status") in ("offline", "error"):
             body["takeOver"] = {"possible": True, "behind": max(0, (home_seq or 0) - (state.get("seq") or 0)),
@@ -1558,6 +1562,18 @@ def overview(memory_path: Path) -> dict:
                                 "text": "The computer that held your memory is not answering. If it is lost, this "
                                         "computer can take over; you see how far behind it is first."}
     return body
+
+
+def _home_moving() -> dict | None:
+    """The home's ``moving`` block, as its own ``GET /sync/home`` says it (a copy's overview), or None."""
+    from api.services import replica
+
+    try:
+        status, _h, body = replica.request("GET", "/sync/home", timeout=3)
+    except Exception:  # noqa: BLE001 — no token, away: nothing to say
+        return None
+    moving = (body or {}).get("moving") if status == 200 and isinstance(body, dict) else None
+    return moving if isinstance(moving, dict) else None
 
 
 def _sleep_summary(home_sleep: dict | None) -> dict:
