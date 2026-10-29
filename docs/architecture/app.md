@@ -922,19 +922,25 @@ JID. Telegram's chats post no card: the backend reads them through Telegram's AP
 (ruling 47a), so there is no handle the app could look up.
 
 **Telegram chats (ruling 47a, 2026-10-28).** The same row and sheet (`TelegramSourceRow`, `TelegramPanel`;
-`TelegramChats` holds the state, the backend the client). Not connected: the backend's consent sentence word for word,
-then — since ruling 49 (2026-10-29) — the sheet opens on a sign-in QR: Connect… was the person's act, so the panel asks
+`TelegramChats` holds the state, the backend the client). **The connect sheets' one shape (DESIGN_RULES §9,
+2026-10-29; `Views/Settings/ConnectSheet.swift`):** one step at a time, one primary (⏎) with Cancel as a text button, no
+*Done* until connected; under each sign-in step one caption line — one-to-one only, each with the other person's
+agreement, then the backend's consent sentence word for word — and *What Cicada reads*, which swaps the body for the
+full words (a page of the sheet, never a fold or popover). Since ruling 49 (2026-10-29) the sheet opens on a sign-in QR: Connect… was the person's act, so the panel asks
 `POST /sources/telegram/qr` at once and draws the returned `tg://login` link with Core Image (`TelegramQRCode`: dark
-modules on a light four-module quiet zone in both appearances, a 168 pt tile with the resting ring, DR-9, DR-12), the
-words beside it (Settings → Devices → Link Desktop Device; DR-13), and reads the status once a second only while the
+modules on a light four-module quiet zone in both appearances, a 200 pt tile with the resting ring, centred, DR-9,
+DR-12), one line of how under it (Settings → Devices → Link Desktop Device; DR-13), and reads the status once a second only while the
 QR is up (`TelegramChats.followQR`), so a refreshed QR replaces itself and a scan lands on the chat list. Closing the
 sheet mid sign-in stops it at the backend (`abandonSignIn`): a QR on screen or still being asked for (stopped as it
-lands), a code or a two-step password waiting — never a connected session. *Use a phone number instead* (a `TextButton`, DR-40) keeps the old steps in native
-rounded fields (DR-76: setup sheets keep the native field) — phone number → the code Telegram sends; the two-step
-password when the account has one, after either path. Connected: the one-to-one chats only (no group, no channel),
+lands), a code or a two-step password waiting — never a connected session. *Use phone number instead* (a `TextButton`, DR-40) keeps the old steps: a country button (flag + dial
+code; `PhoneCountry`, defaulting to `Locale.current.region`) opening a searchable country list as a page of the sheet,
+the national number in the native setup field (DR-76) grouped as typed, sent as `+<dial><digits>` (a trunk `0`
+dropped); then the code Telegram sends in five cells (`OneTimeCodeField`, `.oneTimeCode`, the fifth digit submits);
+the two-step password when the account has one, after either path. Switching between QR and phone clears the last
+way's refusal (`TelegramChats.clearError`). Connected: "Connected. Tick the chats Cicada may read.", the one-to-one chats only (no group, no channel),
 each with *Read history* and the tick; ticking opens a system alert (*Did they agree?*) carrying the backend's
-per-chat sentence with the chat's name — *They agreed* ticks, Cancel doesn't — and unticking withdraws it; *Disconnect*
-ends the session at Telegram.
+per-chat sentence with the chat's name — *They agreed* ticks, Cancel doesn't — and unticking withdraws it; *Disconnect* (a
+text button beside the sheet's one *Done*) ends the session at Telegram.
 
 **Ask why (G191).** When the bookmark watch's own file event starts a sync (`BookmarkSyncSignal.live`, a task-local
 the watcher sets; a catch-up, Sync now, Turn on or folder import is never live) and the result has exactly one fresh

@@ -40,6 +40,9 @@ final class TelegramChats {
 
     func bankChanged() async { await refresh() }
 
+    /// The person moved to another way in (QR or phone): the last way's refusal no longer applies.
+    func clearError() { error = nil }
+
     private func step(_ body: () async throws -> TelegramStatusAnswer) async {
         busy = true
         defer { busy = false }

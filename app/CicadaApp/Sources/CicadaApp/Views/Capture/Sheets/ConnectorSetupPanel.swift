@@ -15,6 +15,25 @@ enum ConnectorSetupState {
             : "Step 1 of 2 — save your app keys"
     }
 
+    /// The step's one primary action (owner 2026-10-29, the connect sheets): a token connector connects on save; an
+    /// OAuth connector saves its keys, then — keys saved and nothing new typed — authorizes in the browser.
+    enum Primary: Equatable {
+        case connect, saveKeys, authorize
+
+        var title: String {
+            switch self {
+            case .connect: Copy.Connect.connect
+            case .saveKeys: Copy.Connect.continueStep
+            case .authorize: "Authorize in your browser"
+            }
+        }
+    }
+
+    static func primaryAction(_ status: ConnectorStatus, draftsEmpty: Bool) -> Primary {
+        if status.needsAuthorization && draftsEmpty { return .authorize }
+        return status.isTokenConnector ? .connect : .saveKeys
+    }
+
     /// What a "Sync now" press actually did — never a bare "done".
     static func syncSummary(_ result: ConnectorSyncResult) -> String {
         switch result.status {
@@ -110,22 +129,23 @@ struct ConnectorSetupPanel: View {
                     ForEach(status.fields) { field in
                         credentialRow(field)
                     }
+                    // The connect sheets' one shape (DESIGN_RULES §9, 2026-10-29): one primary per step — save the
+                    // keys or token, or, once saved, authorize — and a quiet "Check status" while a browser finishes.
+                    let draftsEmpty = drafts.values.allSatisfy { $0.isEmpty }
+                    let primary = ConnectorSetupState.primaryAction(status, draftsEmpty: draftsEmpty)
                     HStack(spacing: CicadaTheme.spacingSM) {
-                        Button("Save") { Task { await save() } }
-                            .buttonStyle(.bordered)
-                            .disabled(busy || drafts.values.allSatisfy { $0.isEmpty })
-                        if status.needsAuthorization {
-                            Button("Authorize in your browser") { Task { await authorize() } }
-                                .buttonStyle(.borderedProminent)
-                                .disabled(busy)
-                                .accessibilityLabel("Authorize Cicada with \(status.label)")
-                        }
                         if awaitingAuthorization {
-                            Button("Check status") { Task { await checkStatus() } }
-                                .buttonStyle(.bordered)
+                            TextButton(title: "Check status", flushLeading: true) { Task { await checkStatus() } }
                                 .disabled(busy)
                                 .accessibilityLabel("Check whether \(status.label) finished connecting")
                         }
+                        Spacer(minLength: CicadaTheme.spacingSM)
+                        PrimaryActionButton(title: primary.title) {
+                            Task { primary == .authorize ? await authorize() : await save() }
+                        }
+                        // No ⏎ shortcut: this panel also sits inline on a source's detail, where ⏎ is the page's.
+                        .disabled(busy || (primary != .authorize && draftsEmpty))
+                        .accessibilityLabel(primary == .authorize ? "Authorize Cicada with \(status.label)" : primary.title)
                     }
                 }
             } else {
