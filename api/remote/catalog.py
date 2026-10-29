@@ -57,6 +57,10 @@ TOOL_SCOPE: dict[str, str | None] = {
     "cicada_link_conversation": "record",
     "cicada_link_entity": "record",   # decision 10: a remote app's tie is always a proposal (never on the trust list)
     "cicada_add_influence": "record",
+    # G227 follow-up (coordinator 2026-10-29): a remote app's merge or split is always a proposal in the person's inbox —
+    # never on the G198 trust list (`page_editors.is_trusted(remote=True)` is False), so it applies nothing itself.
+    "cicada_merge_pages": "record",
+    "cicada_split_page": "record",
     # Ruling 32 (owner 2026-10-19): a hookless app (claude.ai, ChatGPT, their phone apps) relays each turn.
     # Remote only: a stdio harness is captured by its own hook (G105), never by a model's call.
     "cicada_capture_turns": "record",
@@ -72,8 +76,6 @@ TOOL_SCOPE: dict[str, str | None] = {
 # whether a remote app may ever edit a page is the owner's open question.
 NEVER_REMOTE = frozenset({"cicada_pending", "cicada_mark_processed", "cicada_repo_context", "cicada_continue",
                           "cicada_save_design", "cicada_design_search", "cicada_edit_page",
-                          # G227 follow-up: merging and splitting pages — the same seat as a page edit (G198).
-                          "cicada_merge_pages", "cicada_split_page",
                           # G166 exploring (2026-10-14): stdio only in slice 1 — the record reads image files the agent
                           # saved, and a run starts only from the person in a local conversation (D5: never remote).
                           "cicada_explore_queue", "cicada_explore_claim", "cicada_record_capture",
@@ -99,7 +101,7 @@ WRITE_TOOLS = frozenset({"cicada_save_episode", "cicada_capture_turns", "cicada_
                          "cicada_change_source",
                          "cicada_note_progress", "cicada_add_backlog_item", "cicada_add_backlog_note",
                          "cicada_video_claim", "cicada_create_project", "cicada_link_conversation",
-                         "cicada_link_entity", "cicada_add_influence"})
+                         "cicada_link_entity", "cicada_add_influence", "cicada_merge_pages", "cicada_split_page"})
 READ_TOOLS = frozenset({"cicada_recall", "cicada_open_hub", "cicada_recall_detail", "cicada_get_perspective",
                         "cicada_check_nudges", "cicada_timeline", "cicada_project", "cicada_sources",
                         "cicada_ask", "cicada_backlog", "cicada_reading_queue", "cicada_video_queue"})

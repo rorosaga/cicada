@@ -281,13 +281,16 @@ def test_an_unlisted_agent_proposes_and_the_person_applies_it(bank):
     assert _clean(bank)
 
 
-def test_a_remote_app_cannot_merge_or_split(bank):
-    from api.services import mcp_tools
+def test_a_remote_app_only_ever_proposes(bank):
+    from api.services import mcp_tools, page_editors
 
-    ctx = mcp_tools.ToolContext(memory_path=lambda: bank, session_id="s", harness="claude-web",
+    ctx = mcp_tools.ToolContext(memory_path=lambda: bank, session_id="s", harness="claude-code",
                                 connector_id="ab12cd34")
-    assert "remote app" in mcp_tools.merge_pages(ctx, "bob-example", "alpha-project", "same")
-    assert "remote app" in mcp_tools.split_page(ctx, "tool-x", "x", sentences=[2])
+    assert page_editors.is_trusted("claude-code") and ctx.is_remote   # trusted locally, never through the connector
+    assert "Proposed, not applied" in mcp_tools.merge_pages(ctx, "bob-example", "alpha-project", "same")
+    assert "Proposed, not applied" in mcp_tools.split_page(ctx, "tool-x", "x", sentences=[2])
+    assert (bank / "entities" / "bob-example.md").exists() and not (bank / "entities" / "tool-x-2.md").exists()
+    assert len(list((bank / "inbox").glob("inbox-*.md"))) == 2
     assert _clean(bank)
 
 

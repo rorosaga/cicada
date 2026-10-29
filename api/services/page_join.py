@@ -318,24 +318,21 @@ def split_plan(memory_path, page_id: str, moves=()) -> dict:
 
 
 def _new_id(memory_path: Path, name: str) -> str:
-    from api.services.entity_resolver import _another_id
+    """The title's own slug when it is free, else ``<slug>-2``, ``-3`` … — `entity_resolver._another_id`'s rule, spelled
+    here because importing the resolver cost 2.3 s of a 3.0 s cold split-sheet open on an 8,000-page bank copy. A slug
+    a merge retired (`page_redirects`) is never reused: its old links would open the new page."""
+    from api.services import page_redirects
     from api.services.id_utils import sanitize_id
 
     ents = Path(memory_path) / "entities"
-    existing = {p.stem for p in ents.glob("*.md")}
+    taken = set(page_redirects.load(memory_path))
     slug = sanitize_id(name)
-    if slug and slug not in existing:
-        from api.services import page_redirects
-
-        if page_redirects.resolve(memory_path, slug) is None:
-            return slug
-    return _another_id(name, existing | set(_redirect_ids(memory_path)), {})
-
-
-def _redirect_ids(memory_path: Path) -> list[str]:
-    from api.services import page_redirects
-
-    return list(page_redirects.load(memory_path))
+    if slug and slug not in taken and not (ents / f"{slug}.md").exists():
+        return slug
+    n = 2
+    while f"{slug}-{n}" in taken or (ents / f"{slug}-{n}.md").exists():
+        n += 1
+    return f"{slug}-{n}"
 
 
 def _take_sentences(prose: str, picked: set[int]) -> tuple[str, list[tuple[str, str]]]:

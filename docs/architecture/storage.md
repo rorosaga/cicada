@@ -256,7 +256,7 @@ be separated if they were joined". One module, three moves, each **one commit** 
   removed comes back), and a change since in the same place refuses the whole undo (409, nothing written, the sentence
   says to merge or split again instead). The undo commit carries `Undoes: <sha>`; the History row of a join reads
   `join` (`merge`/`split`/`undo`) and `undoable` (`page_history`).
-- **Who writes.** Every write holds the bank's admission and page lock (`page_joins` routes; `_join_locked` on MCP);
+- **Who writes.** A remote app only ever proposes (coordinator 2026-10-29). Every write holds the bank's admission and page lock (`page_joins` routes; `_join_locked` on MCP);
   an edit already on a page is committed apart first (`before`). Commits: `Merged pages <day>` / `Split a page <day>` /
   `Undid a page join <day>` under the person (`user/companion_app`) or a trusted harness (its own `Cicada-Author`);
   any other agent's proposal is a `page_edit` inbox item with a `join` payload, applied by the person under
@@ -265,8 +265,10 @@ be separated if they were joined". One module, three moves, each **one commit** 
 **Measured (owner-scale bank copy, 8,079 pages, read-only copy; before = #546's head, after = this branch, two runs each,
 same machine):** card open p95 44–47 → 46–50 ms (noise band; the card read is unchanged when the page exists), inbox
 load p95 53–60 → 55 ms, a name miss p95 18–27 → 25–26 µs (+1 `stat`), `cicada_recall_detail` p95 116–127 → 116–121 ms.
-The split plan of a 32-sentence page: 1.4 s cold (one `git grep` finds the pages naming it; the conversation titles
-read the episode index), split 0.6 s, undo 0.4 s; split → undo, and split → merge → undo → undo, left the bank
+The split plan of a 32-sentence page: 0.6 s cold, 0.45 s warm — no model (the suggestion pass runs only on the
+person's *Suggest what to move*). The first cut took 3.0 s cold, 2.3 s of it importing `entity_resolver` for its
+`<slug>-2` rule (now spelled in `page_join._new_id`); what is left is finding the pages that link here (one `git grep`,
+~0.27 s, then reading those pages). Split 0.6 s, undo 0.4 s; split → undo, and split → merge → undo → undo, left the bank
 byte-identical.
 
 ### Decay classes (G66)

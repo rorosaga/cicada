@@ -480,6 +480,28 @@ REMOTE_TOOLS: dict[str, dict] = {t["name"]: t for t in (
            "evidence": {"type": "array", "items": {"type": "object", "required": ["episode", "quote"], "properties": {
                "episode": {"type": "string"}, "quote": {"type": "string"}}}}},
           ("project",), read_only=False),
+    # G227 follow-up (coordinator 2026-10-29): a remote app proposes a merge or a split; the person applies or leaves it
+    # in their inbox (never on G198's trust list).
+    _tool("cicada_merge_pages",
+          "Propose merging two pages that are the same thing, when the person says so: `page` would fold into `into` "
+          "(the page that stays). It waits in the person's inbox for one tap; nothing changes until they apply it. "
+          "Give a one-sentence reason.",
+          {"page": {"type": "string", "description": "The page that would go (id or name)."},
+           "into": {"type": "string", "description": "The page that stays (id or name)."},
+           "reason": {"type": "string", "maxLength": 300, "description": "Why, in one sentence."}},
+          ("page", "into", "reason"), read_only=False),
+    _tool("cicada_split_page",
+          "Propose splitting off what a page says about a DIFFERENT thing with the same name. First `preview: true` "
+          "(numbered sentences, beliefs by id, conversations); then name what belongs to the other thing. It waits in "
+          "the person's inbox for one tap; nothing changes until they apply it.",
+          {"page": {"type": "string", "description": "The page (id or name)."},
+           "preview": {"type": "boolean", "description": "List what can be picked; nothing changes."},
+           "reason": {"type": "string", "maxLength": 300, "description": "Why, in one sentence."},
+           "sentences": {"type": "array", "items": {"type": "integer"}},
+           "claims": {"type": "array", "items": {"type": "string"}},
+           "episodes": {"type": "array", "items": {"type": "string"}},
+           "name": {"type": "string", "maxLength": 120}},
+          ("page",), read_only=False),
     _tool("cicada_resolve_inbox",
           "Record the person's own answer to one of Cicada's questions: the option_key they chose, defer=true "
           "to ask again later, reject=true when two names are NOT the same, or skip=true when they did not "

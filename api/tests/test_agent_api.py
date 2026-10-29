@@ -349,7 +349,9 @@ def test_new_operations_take_the_cli_command_spelled_with_underscores():
                         # Ruling 45 (2026-10-27): named by their `cli_map` rows.
                         "projects_create", "projects_link", "projects_influence",
                         # Decision 10 (2026-10-28): pages tied by hand.
-                        "projects_tie_page"}
+                        "projects_tie_page",
+                        # G227 follow-up (coordinator 2026-10-29): a remote merge or split is a proposal.
+                        "page_merge", "page_split"}
 
 
 def test_each_operation_needs_exactly_its_tool_s_scope():

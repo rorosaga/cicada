@@ -4000,11 +4000,8 @@ def _join_reason(reason) -> str:
 
 def merge_pages(ctx: ToolContext, page: str, into: str, reason: str) -> str:
     """``cicada_merge_pages``: fold ``page`` into ``into`` — beliefs, evidence, sources, aliases, links and history move
-    by id, the old id keeps resolving. Trusted harness: at once; any other: an inbox proposal. Refused for a remote app
-    and a demo bank."""
-    if ctx.is_remote:
-        return Reply("Merging pages isn't available to a remote app; tell the person, who can merge them in the app.",
-                     code="refused")
+    by id, the old id keeps resolving. Trusted harness: at once; any other — a remote app always — an inbox
+    proposal. Refused for a demo bank."""
     memory_path = ctx.memory_path()
     if (refusal := _demo_refusal(memory_path)) is not None:
         return refusal
@@ -4029,9 +4026,6 @@ def split_page(ctx: ToolContext, page: str, reason: str = "", sentences=None, cl
 
     from api.services import page_join
 
-    if ctx.is_remote:
-        return Reply("Splitting a page isn't available to a remote app; tell the person, who can split it in the "
-                     "app.", code="refused")
     memory_path = ctx.memory_path()
     entity_id = _join_page_id(memory_path, page)
     if entity_id is None:

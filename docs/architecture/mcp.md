@@ -117,9 +117,11 @@ beliefs by id, sources, conversations and the pages linking to it with the conve
 `cicada_split_page(page, reason, sentences, claims, sources, episodes, references?, name?, page_type?)` moves the
 picked ones to a new page with the same clean title. The trust list is G198's (`page_editors`): a listed harness
 applies at once under its own `Cicada-Author`; any other files a `page_edit` proposal with a `join` payload that the
-person applies or leaves with one tap. Stdio and the command line only (`catalog.NEVER_REMOTE`, the same seat as
-`cicada_edit_page`), so neither is on `/v1`; the CLI rows (`page merge`, `page split`) are proposed spellings, not yet
-exposed (`cli_map`), like `page edit`. A refusal (no such page, nothing picked, Sleep holding the pages, a demo bank) writes
+person applies or leaves with one tap. **Coordinator 2026-10-29:** a remote app (the G135 connector, `/v1`
+`page_merge`/`page_split`) may call both under `record` scope but only ever proposes — `page_editors.is_trusted(remote=True)`
+is False — and its split takes sentences, claims and conversations (no links, no type). `cicada page merge` and
+`cicada page split` are exposed in the CLI (`cli_map`, `cli.py`): G198's trust list decides as on MCP, and an edit already
+uncommitted on a page is committed apart first. A refusal (no such page, nothing picked, Sleep holding the pages, a demo bank) writes
 nothing. Every join is one commit the person undoes from the page's History.
 
 **Same name, different things (G227, 2026-10-29).** Every door names a page whose title another page shares by

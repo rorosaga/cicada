@@ -910,8 +910,8 @@ TOOLS = [
         },
     },
     {
-        # G227 follow-up (owner 2026-10-29): two pages that are one thing. Stdio and the command line only, as a page
-        # edit (`catalog.NEVER_REMOTE`); a proposal in the inbox when the person has not listed this app.
+        # G227 follow-up (owner 2026-10-29): two pages that are one thing. A proposal in the inbox when the person has
+        # not listed this app — always from a remote app (coordinator 2026-10-29).
         "name": "cicada_merge_pages",
         "description": "Merge two pages that are the same thing, when the person says so or the record clearly shows it: `page` folds into `into` (the page that stays) — its beliefs, evidence, sources, aliases and links move, and its id keeps resolving to `into`. Give a `reason` in one sentence: it becomes the commit message the person sees. If the person has not listed your app as one that may change pages, it waits in their inbox for one tap instead. The person can undo it from the page's history.",
         "inputSchema": {"type": "object", "required": ["page", "into", "reason"], "properties": {
