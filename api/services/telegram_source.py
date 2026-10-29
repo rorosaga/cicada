@@ -72,7 +72,8 @@ def listed(dialog: TgDialog) -> dict | None:
     if dialog.broadcast or dialog.group or not is_user_peer(dialog.chat):
         return None
     return {"id": conversation_id(dialog.chat), "name": chat_live.messages_source._clean_name(dialog.name),
-            "group": bool(dialog.group), "bot": dialog.bot, "last": chat_live.utc_from_unix(dialog.last)}
+            "group": bool(dialog.group), "bot": dialog.bot, "last": chat_live.utc_from_unix(dialog.last),
+            "own": bool(dialog.is_self)}
 
 
 def _file(media: dict) -> tuple[dict | None, str]:
@@ -168,8 +169,16 @@ def ingest(memory_path, dialog: dict, messages: list[TgMessage], *, deleted: lis
     cid = str(dialog["id"])
     if cid != conversation_id(int(dialog["chat"])):
         raise NotOneToOne("This conversation isn't the one-to-one chat Telegram names.")
-    if cid not in telegram_account.consents():
+    given = telegram_account.consents()
+    if cid not in given:
         raise NoConsent("This chat has no confirmation that the other person agreed, so nothing was saved.")
+    # Saved Messages (ruling 47a amendment 2026-10-29): the person's chat with themselves, ticked by them alone — only
+    # while Telegram itself lists it as this account's own (`dialog["own"]`, #559 review). A `self` consent on a chat
+    # that is no longer the person's own (another account signed in since) is no consent at all.
+    own = bool(given[cid].get("self"))
+    if own and dialog.get("own") is not True:
+        raise NoConsent("This chat was ticked as your Saved Messages, but Telegram no longer lists it as yours, so "
+                        "nothing was saved. Tick it again, with the other person's agreement, to read it.")
     group = False
     chat_messages: list[ChatMessage] = []
     for m in messages:
@@ -191,5 +200,6 @@ def ingest(memory_path, dialog: dict, messages: list[TgMessage], *, deleted: lis
     members = members_of(messages, group=group)
     if not group and dialog.get("bot") is not None:
         members = [{"key": "0" * 16, "agent": bool(dialog["bot"])}]
-    conversation = {"id": cid, "name": dialog.get("name") or "", "group": group, "members": members}
+    conversation = {"id": cid, "name": dialog.get("name") or "", "group": group, "members": members,
+                    "self_chat": own}
     return chat_live.ingest(memory_path, SPEC, conversation, chat_messages, bank=bank)

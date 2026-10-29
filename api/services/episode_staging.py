@@ -574,6 +574,23 @@ def reattribute(path: Path, *, extra: dict, queue_for_sleep: bool) -> bool:
         return True
 
 
+def drop_keys(path: Path, keys: tuple[str, ...]) -> bool:
+    """Frontmatter keys a writer's new record no longer holds — a staged update merges the draft's keys over the stored
+    ones, so a key the record dropped would otherwise outlive it (chats-ux-v2: a sitting re-recorded as the person's
+    own notes keeps no ``correspondent``). Body, hashes and the Sleep queue untouched. Returns whether the file
+    changed. Runs under ``STAGE_LOCK``."""
+    with STAGE_LOCK, episode_ids.episode_lock(Path(path).parent):
+        parsed = markdown_parser.parse(path)
+        fm = dict(parsed.frontmatter)
+        gone = [k for k in keys if k in fm]
+        if not gone:
+            return False
+        for k in gone:
+            fm.pop(k)
+        markdown_parser.write(path, fm, parsed.body)
+        return True
+
+
 def _section_bounds(body: str, heading: str) -> tuple[int, int] | None:
     """``(start, end)`` of the ``## heading`` section in ``body`` — from its heading line to the next ``## `` heading
     (or the end) — or ``None`` when the body has none. Only a whole line matches."""

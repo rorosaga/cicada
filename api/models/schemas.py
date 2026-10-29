@@ -5387,6 +5387,9 @@ class MessagesConversationIn(CamelModel):
     members: list["MessagesMemberIn"] = []
     #: A one-to-one chat: the ONE address-book card holding the other side's handle, by its Contacts id.
     contact: Optional[str] = None
+    #: chats-ux-v2 — a note to self: the chat's handle is one of the person's own accounts (the app's finding; the
+    #: handle never crosses). Every line is theirs; no correspondent, no card.
+    self_chat: bool = False
 
 
 class MessagesMemberIn(CamelModel):

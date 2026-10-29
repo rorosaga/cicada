@@ -75,6 +75,7 @@ struct WhatsAppPanel: View {
     let onDone: () -> Void
     @Environment(WhatsAppWatcher.self) private var watcher
     @State private var error: String?
+    @State private var query = ""
 
     var body: some View {
         SettingsSheet(title: Copy.Chats.whatsAppTitle, onClose: onDone) {
@@ -91,12 +92,15 @@ struct WhatsAppPanel: View {
                 } else if watcher.chats.isEmpty {
                     Text(Copy.Chats.noneFound).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary)
                 } else {
+                    ChatSearchField(prompt: Copy.Chats.searchPromptNumber, query: $query)
+                    let shown = watcher.filtered(query)
+                    if shown.isEmpty { ChatNoMatches(query: query) }
                     ScrollView {
-                        VStack(spacing: 2) {
-                            ForEach(watcher.chats) { chat in
+                        LazyVStack(spacing: 2) {
+                            ForEach(shown) { chat in
                                 ChatTickRow(name: watcher.name(of: chat), group: chat.group,
                                             last: MessagesRowText.lastActivity(chat.lastActivity),
-                                            thumbnail: watcher.cards[chat.id]?.thumbnail,
+                                            thumbnail: watcher.thumbnail(of: chat),
                                             ticked: watcher.tickedIds.contains(chat.id),
                                             historyRead: watcher.historyIds.contains(chat.id),
                                             onTick: { on in
@@ -172,6 +176,7 @@ struct TelegramPanel: View {
     @State private var page: Page?
     /// The chat waiting for the person's confirmation that the other person agreed (ruling 47a amendment).
     @State private var asking: TelegramChatRow?
+    @State private var query = ""
 
     enum Page { case facts, countries }
 
@@ -361,18 +366,25 @@ struct TelegramPanel: View {
         } else if model.chats.isEmpty {
             Text(Copy.Chats.noneFound).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary)
         } else {
+            ChatSearchField(prompt: Copy.Chats.searchPrompt, query: $query)
+            let shown = ChatSearch.filter(model.chats, query: query, name: \.shownName)
+            if shown.isEmpty { ChatNoMatches(query: query) }
             ScrollView {
-                VStack(spacing: 2) {
-                    ForEach(model.chats) { chat in
-                        ChatTickRow(name: chat.name.isEmpty ? Copy.Chats.unnamed : chat.name, group: false,
+                LazyVStack(spacing: 2) {
+                    ForEach(shown) { chat in
+                        ChatTickRow(name: chat.shownName, group: false,
                                     last: chat.last.flatMap { ISO8601DateFormatter().date(from: $0) }
                                         .flatMap { MessagesRowText.lastActivity($0) },
-                                    thumbnail: nil, ticked: model.tickedIds.contains(chat.id),
+                                    thumbnail: model.photos[chat.id], ticked: model.tickedIds.contains(chat.id),
                                     historyRead: model.historyIds.contains(chat.id),
                                     onTick: { on in
-                                        if on { asking = chat } else { await model.setTicked(chat, false, consent: false) }
+                                        // Saved Messages has no other person to ask about (47a amendment 2026-10-29).
+                                        if on && !chat.own { asking = chat }
+                                        else { await model.setTicked(chat, on, consent: false) }
                                     },
                                     onHistory: { await model.readHistory(chat) })
+                            // chats-ux-v2 — the row's picture is asked when the row shows (a lazy list: never all 200).
+                            .task(id: chat.id) { await model.loadPhoto(chat) }
                     }
                 }
             }
@@ -442,6 +454,27 @@ struct ChatSheetSentence: View {
             .font(CicadaTheme.bodyFont)
             .foregroundStyle(CicadaTheme.textSecondary)
             .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// chats-ux-v2 (owner 2026-10-29: "why I can't search my chats like I can inside WhatsApp and Telegram") — the chat
+/// picker's search, at the top of the list as the apps put it. A setup sheet keeps the native rounded field (DR-76);
+/// the list under it keeps its order, most recent first.
+struct ChatSearchField: View {
+    let prompt: String
+    @Binding var query: String
+
+    var body: some View {
+        TextField(prompt, text: $query)
+            .textFieldStyle(.roundedBorder)
+            .accessibilityLabel(prompt)
+    }
+}
+
+struct ChatNoMatches: View {
+    let query: String
+    var body: some View {
+        Text(Copy.Chats.noMatches(query)).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textTertiary)
     }
 }
 

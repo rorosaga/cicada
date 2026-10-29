@@ -35,7 +35,7 @@ means wherever the bank records it, and says so channel by channel below:
   listed (they are counted from these days). A day opens to its videos through
   :func:`watched_day` (Sources v4, owner 2026-10-19: "what I watched in one
   day: a dropdown and you see all the videos I watched that day").
-* ``imessage`` — one row per chat (``kind: chat``), titled by **who the chat is
+* ``imessage``, ``whatsapp``, ``telegram-chats`` (chats-ux-v2) — one row per chat (``kind: chat``), titled by **who the chat is
   with** (its sittings' ``correspondent`` record), dated by its newest sitting,
   with ``sittings`` and ``chat``: the app's conversation hash, that name, and
   the stored photo's hash when the chat shares one (Sources v4). A chat opens to
@@ -102,7 +102,8 @@ from api.services.channel_registry import CHANNEL_IDS
 #: `g161-7`: ruling 39 — a row whose item came in days after its own date carries `received` (that day).
 #: `g161-8`: ruling 47 tier 2 — the Readwise and live Notion rows list their episodes.
 #: `g161-9`: G32 — the Spotify listening row lists its days.
-SHAPE = "g161-9"
+#: `g161-10`: chats-ux-v2 — WhatsApp and Telegram list one row per chat too; a chat row carries `messages` and `group`.
+SHAPE = "g161-10"
 LIMIT_DEFAULT = 50
 LIMIT_MAX = 200
 TITLE_CAP = 120
@@ -417,8 +418,8 @@ def _collect(memory_path: Path, channel_id: str) -> list[dict]:
         return media.by_origins(tuple(_SAVED_SOURCE_ROWS[channel_id]))
     if channel_id in _HISTORY_ROWS:
         return _watched_days(memory_path, set(_HISTORY_ROWS[channel_id]))
-    if channel_id == messages_source.ORIGIN:
-        return _chat_rows(memory_path)
+    if channel_id in CHAT_CHANNELS:
+        return _chat_rows(memory_path, CHAT_CHANNELS[channel_id])
     if channel_id in _ORIGIN_CHANNELS:
         origins = set(_ORIGIN_CHANNELS[channel_id])
         return _episodes(memory_path, lambda fm: str(fm.get("origin") or "") in origins, media=media)
@@ -443,16 +444,45 @@ def _watched_days(memory_path: Path, origins: set[str]) -> list[dict]:
     return rows
 
 
-def _chat_rows(memory_path: Path) -> list[dict]:
-    """Messages — one row per chat (review of #358: "one row per chat, newest day, N sittings"), titled by who it is
-    with, its day the newest sitting's, carrying the chat and how many sittings it holds; a sitting with no chat hash
-    (never written today) stays its own episode row."""
+#: chats-ux-v2 (owner 2026-10-29: "so much repetition") — every chat source lists one row per chat: its channel → the
+#: origin its sittings carry. Messages since Sources v4; WhatsApp and Telegram listed one row per sitting, each
+#: "Telegram with <name>" beside a compact age, so two chats read as a dozen identical rows.
+CHAT_CHANNELS = {"imessage": messages_source.ORIGIN, "whatsapp": "whatsapp", "telegram-chats": "telegram-chats"}
+CHAT_ORIGINS = frozenset(CHAT_CHANNELS.values())
+#: A chat with the person themselves (WhatsApp's "message yourself", `self_chat`) is named for what it is.
+SELF_CHAT_TITLE = "Notes to yourself"
+
+
+def _chat_names(memory_path: Path, origin: str) -> dict[str, str]:
+    """The name the person sees for each chat of a live chat source (a group's own name too), from its settings."""
+    from api.services import chat_live, telegram_source, whatsapp_source
+
+    spec = {s.origin: s for s in (whatsapp_source.SPEC, telegram_source.SPEC)}.get(origin)
+    if spec is None:
+        return {}
+    return {cid: c["name"] for cid, c in chat_live.load_settings(memory_path, spec)["conversations"].items()
+            if c.get("name")}
+
+
+def _count(raw) -> int:
+    try:
+        return max(0, int(raw or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _chat_rows(memory_path: Path, origin: str = messages_source.ORIGIN) -> list[dict]:
+    """One row per chat (review of #358: "one row per chat, newest day, N sittings"; every chat source since
+    chats-ux-v2), titled by who it is with — the sittings' ``correspondent`` record, else the chat's own name (a
+    group's), else the title — dated by its newest sitting, carrying the chat, how many sittings and messages it holds
+    and whether it is a group. A sitting with no chat hash (never written today) stays its own episode row."""
     photos = source_overview._chat_photos(memory_path)
+    names = _chat_names(memory_path, origin)
     chats: dict[str, dict] = {}
     rows = []
     for f in bank_index.files(memory_path, "episodes"):
         fm = f.frontmatter or {}
-        if fm.get("origin") != messages_source.ORIGIN or not _live(fm):
+        if fm.get("origin") != origin or not _live(fm):
             continue
         row = _episode_row(fm, f.stem)
         cid = str(fm.get("conversation") or "")
@@ -460,40 +490,44 @@ def _chat_rows(memory_path: Path) -> list[dict]:
             rows.append(row)
             continue
         record = fm.get("correspondent") if isinstance(fm.get("correspondent"), dict) else {}
-        name = _title(record.get("name"), fallback="")
+        name = ((SELF_CHAT_TITLE if fm.get("self_chat") else "") or _title(record.get("name"), fallback="")
+                or _title(names.get(cid), fallback=""))
         held = chats.get(cid)
         if held is None:
-            chats[cid] = held = {**_row("chat", cid, name or row["title"], row["day"], None), "sittings": 0}
+            chats[cid] = held = {**_row("chat", cid, name or row["title"], row["day"], None), "sittings": 0,
+                                 "messages": 0}
             held["_sort"] = row["_sort"]
         held["sittings"] += 1
+        held["messages"] += _count(fm.get("message_count"))
+        if fm.get("group"):
+            held["group"] = True
         if row["_sort"] >= held["_sort"]:
             held["_sort"], held["day"] = row["_sort"], row["day"]
             if name:
                 held["title"] = name
     for cid, held in chats.items():
         held["chat"] = {"id": cid, "label": held["title"], "photo": photos.get(cid)}
+        if not held["messages"]:
+            del held["messages"]       # sittings written before counts were kept: no number rather than a false 0
         rows.append(held)
     return rows
 
 
 def chat_sittings(memory_path: Path, conversation: str) -> dict | None:
     """One chat's sittings, newest first — what its row opens to: each sitting's episode (it opens in the Reader), its
-    day and how many messages it holds. Titles are not repeated: the row above already names the chat. None for an id
-    that is not a chat hash or has no live sitting."""
+    day and how many messages it holds. Titles are not repeated: the row above already names the chat. Any chat
+    source's chat (each reader hashes its own ids). None for an id that is not a chat hash or has no live sitting."""
     if not messages_source.CONVERSATION_ID_RE.match(str(conversation or "")):
         return None
     out = []
     for f in bank_index.files(Path(memory_path), "episodes"):
         fm = f.frontmatter or {}
-        if (fm.get("origin") != messages_source.ORIGIN or not _live(fm)
+        if (fm.get("origin") not in CHAT_ORIGINS or not _live(fm)
                 or str(fm.get("conversation") or "") != conversation):
             continue
         row = _episode_row(fm, f.stem)
-        try:
-            messages = max(0, int(fm.get("message_count") or 0))
-        except (TypeError, ValueError):
-            messages = 0
-        out.append({"id": row["id"], "day": row["day"], "messages": messages or None, "_sort": row["_sort"]})
+        out.append({"id": row["id"], "day": row["day"], "messages": _count(fm.get("message_count")) or None,
+                    "_sort": row["_sort"]})
     if not out:
         return None
     out.sort(key=lambda r: (-r["_sort"], r["id"]))
