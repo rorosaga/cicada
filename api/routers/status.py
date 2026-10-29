@@ -54,7 +54,7 @@ async def healthz(request: Request, settings: Settings = Depends(get_settings)):
     """
     from api.services import auth
 
-    full = auth.bearer_admits(request.headers.get("authorization"))
+    full = auth.bearer_admits(request.headers.get("authorization"), request)
     return await run_in_threadpool(_health, request.app.version, settings, full)
 
 

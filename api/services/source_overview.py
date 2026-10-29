@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from datetime import date as _date, datetime, timedelta, timezone
 from pathlib import Path
 
-from api.services import bank_index, episode_time, folder_source
+from api.services import agent_catalog, bank_index, episode_time, folder_source
 
 # G134: meetings and dictation are their own section, VOICE & MEETINGS (R-LS25).
 KIND_ORDER = ("harness", "browser", "social", "feed", "messaging", "voice", "import")
@@ -227,9 +227,11 @@ HARNESS_LABELS = {
     "gemini-cli": "Gemini CLI",
     "remote-app": "Other remote app",
     "agent-api": "Agents over HTTP",   # G213: an agent token's episodes (`catalog.API_HARNESS`)
+    "t3code": "T3 Code",               # G228: a host app's sessions (`host:` on the harness's episode)
     "unknown": "Other agents",
 }
 UNKNOWN = "unknown"
+_HOSTS = frozenset(agent_catalog.HOSTS)
 
 
 def source_key(fm: dict) -> str:
@@ -243,6 +245,11 @@ def source_key(fm: dict) -> str:
     """
     origin = str(fm.get("origin") or "").strip()
     if fm.get("session_id") or origin == "mcp":
+        # G228: a session a host app launched (T3 Code driving Claude Code) is that app's row — where the person
+        # typed — while the episode keeps its harness for everything else.
+        host = str(fm.get("host") or "").strip()
+        if host in HARNESS_LABELS and host in _HOSTS:
+            return "harness:" + host
         return "harness:" + (str(fm.get("harness") or "").strip() or UNKNOWN)
     # G133: one card per watched folder, not one "folder" card for all of them.
     if origin == folder_source.ORIGIN and fm.get("folder_id"):

@@ -963,12 +963,53 @@ fixtures, not yet run against the installed app.
 | Codex | `Stop` in `~/.codex/hooks.json` | `session_id`, `transcript_path` (JSONL) | Every session (G105); payload R9-unverified |
 | Cursor | `beforeSubmitPrompt`, `afterAgentResponse` in `~/.cursor/hooks.json` | `prompt`; `text` (final reply); `conversation_id`, `generation_id`, `model`; `transcript_path` nullable, format undocumented | Every local chat, per turn (`turn_capture`); unverified |
 | Gemini CLI | `AfterAgent` in `~/.gemini/settings.json` | `prompt`, `prompt_response`, `stop_hook_active`, `session_id`; `transcript_path` format undocumented | Every session, per exchange (`turn_capture`); unverified |
+| T3 Code (G228) | none of its own: the harness it drives fires Cicada's hooks (Claude Code through the Agent SDK with the person's user settings; Codex's `app-server` with `~/.codex/hooks.json` in its "existing login" setup; Cursor's SDK with user settings) | the driving harness's payload; the host is read by the hook from its own launch chain (exec paths only) | Every thread, as its harness's one episode labelled `host: t3code` (below); Claude Code verified only as far as T3 Code's recorded SDK fixtures (SessionStart hooks fire), the rest unverified |
 | Claude app (desktop) | none; MCP only | — | Only what it saves through MCP; its chats arrive by the claude.ai data export import (G197) |
 | Claude on the web and phone, ChatGPT, Grok | none; remote connector (G135) | — | Every turn its model relays through `cicada_capture_turns` (ruling 32, below), stored as relayed; an export upgrades it |
 | Windsurf (Cascade) | `pre_user_prompt`, `post_cascade_response` in `~/.codeium/windsurf/hooks.json` | `user_prompt`; `response`; `trajectory_id`, `execution_id` | Not yet: the same shape as Cursor, so it is a registry and an adapter on `/capture/turn` (G197) |
 | GitHub Copilot CLI | `userPromptSubmitted`, `agentStop` in `~/.copilot/hooks/` | `prompt`; the reply only inside `transcriptPath`, format undocumented | Not yet: the reply needs a transcript reader (G197) |
 | OpenCode | JS/TS plugins only (`~/.config/opencode/plugins/`) | events (`message.updated`, `session.idle`) with undocumented payloads | Not yet: needs a plugin, not a command hook (G197) |
 | Hermes, OpenClaw | no hooks documented | — | MCP saves only |
+
+**Host apps: T3 Code (G228, 2026-10-29).** A *host* drives a harness Cicada already captures without being one.
+T3 Code (an open-source GUI for coding agents; source read at commit 3748c5c2) runs Claude Code through the Agent SDK
+with `settingSources` left at its default — user, project and local settings, the CLI's own — so Cicada's Stop,
+flush and recall hooks and the Cicada plugin (its MCP server, skill and hooks; T3 Code's docs say enabled plugins
+load) run inside every T3 Code Claude thread; a thread is one SDK session id, resumed under the same id, so it is one
+episode (G104). Codex runs as `codex app-server`; with T3 Code's "use an existing Codex login" setup its
+`CODEX_HOME` is `~/.codex`, so `hooks.json` applies; its managed ChatGPT sign-in gives Codex a T3-owned home, which
+Cicada's hooks never reach (not captured; Needs the owner on G228). Cursor runs through Cursor's SDK with user
+settings loaded (unverified that `~/.cursor/hooks.json` fires there). T3 Code's own model calls (thread titles,
+commit messages) pass `disableAllHooks` / `codex exec --ephemeral`, so they are never captured. **Nothing is read
+from T3 Code's database** (`~/.t3/userdata`): the harness's hook is the one door, and the backend opens only the
+transcript it already validates. **The label:** T3 Code sets no variable of its own on the agent's environment,
+so the hook observes **its own launch chain: parent pid and exec path only, bounded, in-process, never another
+process's arguments or environment** (`api/hooks/host_identity.py`: at most 10 ancestors; `proc_pidinfo` and
+`proc_pidpath` on macOS, `/proc/<pid>/stat` and the `exe` link on Linux; no `KERN_PROCARGS2`, `cmdline` or
+`environ`, no subprocess; never logged). It matches the desktop app's bundle path (`…/T3 Code*.app/…`) and an exec
+named `t3` (the CLI, `t3 service`, the Linux app). **Not detected, by decision (PR #543 review):** `npx t3`, an
+npm-global install or a checkout, whose exec is `node` — those threads are still captured under their harness, only
+the label is missing. The hook posts `host: t3code` beside the harness (`/capture/transcript`, `/capture/session`,
+`/capture/turn`; additive, an unknown value dropped, never a refusal). The episode keeps `harness`, `origin`, the
+transcript rail and `external:<harness>` claims — the agent really is Claude Code — and gains `host: t3code` outside
+the hash, kept once written; the source row is T3 Code's (`source_overview.source_key`), and a capture that kept
+something stamps the last-seen registry (`agent_seen`, via `hook`), which is how the Agents page sees T3 Code.
+**What T3 Code writes into a turn is not kept as the person's words — only under its host, only on its full shape**
+(`transcript_extract.host_envelope(text, host)`, through `_Builder._add` on every path). It runs only when the
+capture's host is `t3code`: the hook named it, or the session's episode already carries it
+(`transcript_capture.envelope_host`, read from the frontmatter's top lines; a client applies only the host its own
+hook named). A provider switch or a fork the provider cannot resume starts a new harness session whose first message
+replays the thread; it is cut to the request only when the whole fixed shape is there — the "Context handoff (…)"
+header naming `t3_thread_read`, T3 Code's fixed "Selected N intact items; omitted M items. …" sentence, at least one
+full "[Historical <role>; <kind>; thread=…; run=…; item=…; provider-thread=…; status=…]" block, and a "\n\nUser
+message:\n" line, the cut at the FIRST such line after the last block (a request that itself holds the line keeps
+its head). A provider given history natively gets the header-and-sentence message alone and each full block as its
+own message (dropped, counted `host_handoff`/`host_replay`); an ACP prompt's `<t3_code_instructions>…<user_request>`
+wrapper keeps the request. Anything unsure — no host, a missing sentence, block or split line — keeps the whole text:
+losing the person's words is worse than keeping a replay. A provider switch inside one T3 Code thread is two harness
+sessions and two episodes (linking them would need T3 Code's thread id, which only its database holds). Hook cost (this Mac, after the review fix):
+one whole Stop firing p95 56.4–57.3 → 57.1–57.7 ms (60 runs each, origin/dev and this branch alternated twice, a
+refused loopback post); `detect()` alone p95 0.015 ms warm (1,000 calls), 1.2 ms cold with its import (60 runs).
 
 **Hookless apps, through the remote connector (ruling 32, owner 2026-10-19; amends G105 for apps with no hook).**
 Owner: "Exports should only be a starter seed for users; the usual should always be real-time captures." claude.ai,
@@ -1736,6 +1777,32 @@ payloads merge), never only the chosen mention's (W4). A project mention with no
 exactly one project page — on disk, else born this batch — brings that page to the judge (W2): "same" makes it the
 page's update, "unsure" asks the person, "different" or a pair the person rejected leaves it a held mention. An alias
 brings its page to the judge, never a decision (owner 2026-10-08).
+**Related is not the same (owner 2026-10-29, G21; `entity_relations`).** The judge answers `same`, `different`,
+`unsure` — or `related` with a `relation` of B (the name) to A (the page): `part_of`, `has_part`, `made_by`, `makes`,
+`alternative_to`, `version_of`, `has_version` (both prompts, both structured-output schemas). A part, a product, an
+alternative or a version is never `same` and never `unsure`; two people are never related (a person's `related` reads
+as `different`). A related verdict is no match and no question: the name goes on by the usual rule, and Stage 2 returns
+the relation (`resolve(...)["relations"]`) as a Stage-1-shaped relationship that Stage 5.56 writes as ONE claim on A's
+page — `includes`, `part-of`, `creates`, `made-by`, `alternative-to`, `has-version` or `is-a`, B its object by id (or
+its slug while it waits, never a held endpoint), observer `agent`, origin `sleep`, `epistemic: abductive` (an
+inference, never a stated fact), evidence the conversation as `reasoning`. **One pair is never both** (review of #545):
+a pair the batch asks about or holds as possibly the same — `_never_cleared`'s close spelling with a shared alias
+included — writes no relation. **A direction guard** (`entity_relations.plausible`, no model): when one name carries the
+other's whole name ("<x> Head", "<x> Cloud" beside "<x>"), the longer is never the line, whole or maker of the shorter —
+a relation saying so is dropped (no claim, no question), here, in a landing and in a check's answer. **A part of a project lands on it** (`_settle_unborn`, only when nothing came back `same` or `unsure` — unsure about one page holds and asks, whatever another page read as): a project name with no birth the judge calls a part,
+feature, stage, task or pull request of a page is that page's mention, as the owner's canoe rule says ("a canoe, its
+hull, the hull build — is one thing"), its own other names never the page's aliases — never "Is <feature> the same as
+<project>?", never a page competing with it (measured 2026-10-29 on a copy of the owner's bank: 74 of 160 open
+duplicate questions were a project name with no birth asked against a page). **An organisation/tool alias lead** (G209,
+2026-10-27: a page that lists another page's name as an alias) now meets the judge once before it is asked; only `same`
+or `unsure` asks, a relation is written as above. No call for a lead whose pair the person rejected (never asked again), whose question is already open (bumped, as before) or that this process already judged on the same two page versions (a memo in memory, keyed by bank, pages and their files' modification times — never in a bank): on the bank copy 67 org/tool leads, 24 with an open question, so at most 43 calls in a drain's first batch that meets them all and none in its later batches, where before every batch could re-judge all 67. **The record remembers:** a pair one current claim already relates
+(`entity_relations.known`: those predicates and `uses`, `depends-on`, `runs-on`, `integrates-with`, `implements`,
+`hosts`, `contains`, `contrasts-with`, either page) is never proposed (`ClarificationManager.create`, never a person
+pair) and an alias lead between them makes no call. A public pair the judge could not tell is the web check's
+(`features.md`, "Settled by a check"). Cost: each judge prompt grows by ~1.36k characters (~340 tokens; one-pair 1,504 → 2,866, batch 1,691 → 3,099
+characters before the entries); no new call on the mention path (the same
+judge call answers); one call per new organisation/tool alias lead a batch meets, none once the record relates the pair.
+
 Stage 5 writes the record once, as the page's `born:` frontmatter (`storage.md`). A watched folder the person named as
 a project (`folder_source.ensure_project`) is born `{origin: words, via: folder}`. Pages that existed before the rule are
 never archived or deleted for it; `python -m api.scripts.project_origins_dry_run --bank <path> [--json] [--quotes]` lists

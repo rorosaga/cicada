@@ -218,7 +218,8 @@ def _merge(*maps: dict[str, str]) -> dict[str, str]:
 
 def _fold_other(seen: dict[str, str]) -> dict[str, str]:
     """A way the app has no pill for lights the ``other`` pill too (as an unmatched name always did)."""
-    pills = set(LIVE_AGENTS)
+    # A host (G228) is never "another agent": its sessions are a pill's harness's, which lights on its own.
+    pills = set(LIVE_AGENTS) | set(agent_catalog.HOSTS)
     latest = max((ts for agent, ts in seen.items() if agent not in pills), default=None)
     if latest and latest > seen.get(OTHER_AGENT, ""):
         return {**seen, OTHER_AGENT: latest}

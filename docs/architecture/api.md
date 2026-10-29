@@ -247,6 +247,57 @@ bank (`NO_BANK_WRITE`). **Hyrum, mode A:** stable — the paths, `qr`'s three ke
   `kind` words, the file route's form fields and answer keys, the episode's `file:` record keys, the header name; not
   stable — the 24 h TTL, the 20/500 limits, the suggested 8443, the 25 MB cap, the `$CICADA_HOME/files` layout.
 
+**Key-bound device tokens, narrower pairing, the reach guide (G212, owner 2026-10-29).** Nothing here needs a third
+party: no relay, no account, no public port (the T3-Connect comparison is in the G212 row).
+- **Key-bound tokens (`device_proof`, RFC 9449's DPoP shape).** A device may bind its `cic_dev_` token to a P-256 key
+  that never leaves it (the phone's Secure Enclave). `devices.db` keeps the key's RFC 7638 thumbprint beside the token's
+  hash (`key_thumbprint`, `key_bound_at`; a store from before gains both columns, every old device reads unbound). A
+  bound token works only with a `DPoP` header: a compact JWS, `typ: dpop+jwt`, `alg: ES256`, the public key as `jwk`
+  (no private member), claims `htm`, `htu`, `iat`, `jti`, `ath` (the token's sha256). Checked: the signature and the
+  thumbprint, the method, **the path only** (the person's `tailscale serve` terminates TLS, so the authority a phone
+  signed is the overlay's), `iat` within 300 s, `jti` unseen in that window (one in-process cache; the backend runs one
+  worker), `ath`. **Strict types (security review, 2026-10-29):** each part's JSON refuses NaN and ±Infinity outright;
+  `iat` must be a whole number (not a bool, float or string, within 0…2^53) — Python's `json` reads NaN and every
+  comparison with it passes, so a NaN proof would otherwise never expire; `htm`, `htu` and `ath` must be strings. `Authorization` may say `Bearer` or `DPoP`. Never a fall back to bearer: a bound token with no proof
+  or a failing one is 401 `WWW-Authenticate: DPoP error="invalid_dpop_proof", error_description="<reason>"` (`missing`,
+  `malformed`, `unsupported`, `bad_signature`, `wrong_request`, `stale`, `replayed`, `wrong_token`, `wrong_key`), checked
+  before the kind and master-only 403s. `/healthz` gives a bound device its full answer only with its proof. Wires add
+  `keyBound` and `keyBoundAt` to a device and to a `/devices/status` row (with `kind`); the thumbprint never.
+- **Born bound, or bound later.** `POST /pair` with a `DPoP` proof (no `ath`: no token yet) mints a bound token; a
+  proof that does not pass is 400 and spends nothing. `POST /devices/me/key {narrow?: "capture"}` (`auth.
+  DEVICE_SELF_ROUTES`: any device token, about itself only; `NO_BANK_WRITE`) binds an unbound device once — the same key
+  again is `changed: false`, another key 409 (a new key is a new pairing), the master token 400 — and may narrow it to
+  capture-only. So an already-paired phone keeps working, reads "not yet key-bound", and upgrades by itself.
+  **A `full` device is never key-bound yet** (review 2026-10-29): its hooks, MCP server and CLI share its one token and
+  cannot sign, so binding it could only break that computer's capture. `/pair` with a proof that would mint `full`, and
+  `/devices/me/key` on a `full` device without `narrow: "capture"`, answer 409 `{code: "full_device", detail}`; the code
+  still waits and nothing changes. A token someone else bound first is a lockout only the person ends: the phone says
+  so ("revoke <name> on your Mac, then pair again"), and after a pairing the Mac offers to revoke an older active row of
+  the same name, behind Revoke's own confirmation.
+- **Narrower scopes.** `POST /pair` takes `kind`: a device may only narrow its code (a phone asks for `capture`, so a
+  computer's code shown by mistake still mints a capture-only phone), never widen it. Audit 2026-10-29: `capture`
+  reaches exactly `CAPTURE_ROUTES`, `/healthz`'s open answer and the self route; `/v1/*` refuses device tokens (a
+  connector's only); the bank headers check, never select. `full` stays every route but the master-only ones (ruling 28:
+  the person's own machine counts as local; narrowing it needs a ruling). Revoking is read by the very next request
+  (no cache in front of `devices.db`; tested).
+- **The reach guide: `GET /devices/reach[?check=true]`** (master token, under `/devices`). `{tailscale, step, command,
+  url, dnsName, check}`: `tailscale` from one bounded (2 s) read-only `tailscale status --json` (`BackendState`,
+  `Self.DNSName`) — `missing | not-running | logged-out | stopped | running`; `step` one of `install, open, sign-in,
+  turn-on, serve, unfunnel, ready` (`reach.GUIDE_STEPS`; `unfunnel` comes first whenever the backend port is
+  funnelled, even beside a tailnet-only serve of it — every ServeConfig entry is read, and no address goes in a QR
+  while it is open); `command` the exact command to copy (`tailscale serve --bg
+  --https=8443 <port>`, or `tailscale funnel --https=<p> off` for a funnelled backend port); `url` only at `ready`, from
+  the ServeConfig read `tailnet_backend` already makes. `check=true` fetches this machine's own served `/healthz` the
+  way a phone would — no token, no redirect, no proxy env, 3 s (`reach.self_check`) — and answers `{ok, failed, ms}`,
+  `failed` one of `dns, overlay, backend, not-cicada, other-cicada` (version and memory id compared). Cicada runs no
+  `up`, `serve` or `funnel`. Not a Store domain, no ETag.
+- **Cost (measured 2026-10-29, TestClient in process, synthetic bank, N = 300 each, p95):** the proof verify alone
+  0.06 ms; the device store's verify 0.98 → 0.57 ms (its DDL now runs once per process, not per request); a phone's
+  `POST /capture/note` 5.62 ms before, 4.79 unbound, 5.44 bound; `GET /capture/mine` 4.76 / 3.92 / 4.94; a client's
+  `POST /tools/call cicada_recall` 6.25 / 6.38 / 6.04 — within run-to-run noise of each other.
+- **Hyrum, mode A:** stable — the header name and scheme words, the reason enum, `keyBound`, the self route's path and
+  `narrow` word, `GUIDE_STEPS`, `CHECK_FAILURES`, the reach keys; not stable — the 300 s window, the cache sizes.
+
 **The agent API (G213, 2026-10-22).** For an agent that speaks HTTP but not MCP. `POST /v1/<op>` with
 `Authorization: Bearer <connector token>` and a JSON object body. **Generated from the remote tool table (ruling 38,
 2026-10-23):** every `REMOTE_TOOLS` entry is exactly one operation unless `agent_api.EXCLUDED` names it with its reason

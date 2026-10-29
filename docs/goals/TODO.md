@@ -19,7 +19,21 @@
   half way no longer "logs out" a session that never existed. **The real friction left is the app id:** no
   `CICADA_TELEGRAM_API_ID` is set on the repo, so a release build has none and every person would have to make their
   own at my.telegram.org — the owner sets it once (`docs/RELEASING.md`).
-
+- **2026-10-29 — seamless, secure devices (G212; branch `feat/seamless-devices`, cicada-app `feat/seamless-devices`).**
+  Settings → Devices guides the Mac onto the person's own tailnet (the next step and the command to copy; Cicada never
+  runs it) and checks the served address the way a phone would; a phone's token is bound to a Secure-Enclave key
+  (DPoP-style; a copied token alone is a 401), already-paired phones bind themselves, a phone pairs capture-only and can
+  only narrow its code. Proof verify p95 0.06 ms; hot paths within noise. Waits on the owner: whether a click may run
+  `tailscale serve`, and the on-phone checks. Numbers on the G212 row.
+- **2026-10-29 — T3 Code (G228; PR #543).** T3 Code drives the Claude Code, Codex and Cursor on the
+  machine with their own settings, so Cicada's existing hooks, plugin and MCP server already run in its threads; one
+  thread on one harness is that harness's one episode. New: the hook names the host from its own launch chain (exec paths only)
+  and the episode is labelled `host: t3code` (its own Sources row, an Agents-page umbrella whose connect steps are the agents
+  it drives, seen via the new `hook` sighting); what T3 Code writes into a turn (a provider switch's replay, its ACP
+  instructions) is not kept as the person's words — only under that host, on its full shape. Nothing read from T3
+  Code's database; `npx t3` goes unlabelled. T3 Chat documents no MCP
+  connector, so it is not listed. Stop firing p95 within spread (57.3 → 57.7 ms). Unverified against a live T3 Code; Codex under T3
+  Code's managed sign-in is not captured (Needs the owner on the G228 row).
 - **2026-10-29 — chat exports findable (CIC8, G64; branch `feat/chat-exports-obvious`).** Every door to a chat export
   opens the one intake (Sources' header *Import chats or files* and its Chat exports entry, Agents' *Import its chat
   export*, a ⇧⌘I palette action Home's field finds by "chatgpt"/"chat export", the walkthrough's *I have the file…*);
@@ -40,6 +54,14 @@
   skills rail); a copied suggestion now installs only its reviewed bytes (`check_reviewed`). Traces context is not built:
   hoff keeps no walkthrough record and its marks cache carries titles and page text — the recommended event line waits
   on the owner, as does `sharingType = .none` in hoff's own repo. Numbers on the G220 and G138 rows.
+- **2026-10-29 — related is not the same (G21, G209; branch `fix/duplicate-questions-relations`).** Home's "Possible
+  duplicates" held 160 questions on the owner's bank, most of them a part and its whole, a product and its maker, an
+  alternative and the original or a version and its line. The judge now answers `related` with the relation; a
+  relation is a claim on the page, never a question; a project name with no birth judged a part of a page lands on it
+  (owner 2026-10-23's canoe rule); an organisation/tool alias lead meets the judge before it is asked; a pair the record
+  relates is never proposed; a public pair is looked up (each name alone) and settled with a cited relation, undoable
+  under "Settled by a check" — never merged. The backlog is a per-item dry run in the workspace; applying it waits on
+  the owner. Numbers on the G21 row.
 - **2026-10-29 — same name, different things (G227; branch `feat/same-name-qualifier`).** A title two pages share is
   shown "<name> (<qualifier>)" everywhere — the app, the API, recall, Ask, the CLI and `/v1` — from one derived function
   (`same_name`); links resolve by id; Stage 2 no longer joins an exact title of another kind on the name alone (the

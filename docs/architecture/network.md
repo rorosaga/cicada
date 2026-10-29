@@ -289,6 +289,18 @@ or `ngrok http 8765 --url <their-domain>`. That is the one public port Cicada is
 (8000) is never funnelled (the headless rail, `headless.md`), and Cicada never starts a tunnel. What the person runs is in
 [`docs/connect-remote-apps.md`](../connect-remote-apps.md).
 
+**Reach for the person's own devices is guided, never run (G212, 2026-10-29).** Settings → Devices reads two
+bounded (2 s), read-only CLI answers (`tailscale status --json`, `tailscale funnel status --json`) and shows the one next
+step; a serve of the backend port to the tailnet (`tailscale serve --bg --https=8443 <port>`) or closing a funnel of it
+is shown as a command to copy. The app does not run it on a click: the rail above says Cicada never starts or
+reconfigures a tunnel, and whether a click counts as the person running it waits on the owner. *Check again* is one
+fetch of this machine's own served `/healthz` (no token, no redirect, no proxy env, 3 s) — the person's own address
+read from their ServeConfig, never a URL a request names, so it is not a `net_guard` fetch of someone else's page and no
+fetch gate applies; it runs only on the page's open or the person's click. No hosted relay sits in the path: a relay
+(T3 Connect's shape) would put a third party in front of the bank, give it a stable public hostname, and let it mint
+credentials. A paired phone's token is bound to a key in its Secure Enclave (`api.md`, "Key-bound device tokens"), so a
+token copied off the overlay is useless.
+
 **A failed poll is recorded, not raised** (`sync_state.record_error`) and surfaces per-channel as
 `lastError`; a gate-skipped poll is recorded distinctly (`record_skip`) so a skip never reads as a
 failure or as a stale success.

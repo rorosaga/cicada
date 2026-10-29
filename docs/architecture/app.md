@@ -66,6 +66,13 @@ Agents page, ⌘9, `AppTab.agents`, appended so no shortcut moved — DR-22).
   The QR's `url` is the backend's to fill (this machine's Tailscale name for the backend port, when it can tell); the
   app sends none. With it the sheet says the address and "Scan with Cicada on your phone"; without it, one line says
   which address to type.
+  **2026-10-29 (G212):** each device row's line adds what it may do (*Capture only* / *Full access*) and its key state
+  (*Key-bound since <day>* / *Not yet key-bound*); after a pairing, an older active row of the same name is offered for
+  revoking (an offer only, behind Revoke's confirmation); Revoke keeps its confirmation (DESIGN_RULES' destructive rule) and the next
+  request is refused. *Reach from your phone* (`DeviceReachSection`) sits in the list card above *Pair a device*: a
+  `StatusDot` and one line from `GET /devices/reach?check=true` (read on appear, never polled), the one next step in
+  words, the step's command in a `CommandBox` to copy (Cicada never runs it), *Get Tailscale* where it is missing, and
+  where the live check stopped (DR-19, DR-38, DR-39, DR-40, DR-51; no new visual pattern).
   *Memory on* and the folded *Apps outside this machine* (the remote connector, `page:remote`) follow.
 - **Privacy & data** gains Search & memory's one row (*Search runs on this Mac* and the sharper-model download); the
   fade card shows only while it holds a suggestion or a chosen pace. Watched folders are sources (`WatchedFoldersGroup`
@@ -101,6 +108,12 @@ Agents page, ⌘9, `AppTab.agents`, appended so no shortcut moved — DR-22).
   with Muse's own mark (Meta's agent; umbrella id `meta` kept), and xAI's three ways (Grok Build, the Grok app's custom
   connector, Grok Bot asked in chat). Cline, Goose, Kiro and Poke left the table and the logo set; a person who had
   connected one still lights *Another agent* and an old sign-in request reads "An agent" (`agent_catalog`'s docstring).
+  **T3 Code (G228, 2026-10-29)** is a host row: umbrella `t3`, way `t3code`, tier 2, the monogram until its own mark
+  joins the set. It has no pill; its detail's connect steps are the agents it drives (`AgentProducts.entries`: a way
+  with no pill offers the pills its `setup` ids name — `claude-code`, `codex`, `cursor` — the same rule that gives a
+  generic-prompt way *Another agent*), so Connect for me, the copied prompt and the wiring status are those agents'
+  own. The row lights *Connected* once a capture hook named T3 Code (`agent_seen` via `hook`; never *Another agent*),
+  and its conversations are the episodes labelled `host: t3code` (their own Sources row).
 - **Marks:** one per provider umbrella from the curated set (`app/assets/logo-set/`, `scripts/build-logo-set.py`, origin
   `set` in `logos.manifest.json`); `codex`/`chatgpt` draw OpenAI's mark and `gemini-cli` Gemini's through `BrandMark`.
   A listed connection's mark sits in `LogoTile` (26 pt in a 36 pt ring tile; `.dense` 18 in 24); a status is

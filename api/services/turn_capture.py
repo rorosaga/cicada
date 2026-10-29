@@ -46,7 +46,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from api.services import continuity_sessions, demo_guard, episode_ids, markdown_parser
+from api.services import agent_catalog, continuity_sessions, demo_guard, episode_ids, markdown_parser
 from api.services import transcript_capture as tc
 from api.services.transcript_extract import (
     _NOTE_LINE_RE, Conversation, Gap, Turn, clean_turn, window,
@@ -158,7 +158,7 @@ def _load_strict(stored):
 
 
 def _merge(turns: list[Turn], ids: list[str | None], posted: list[Posted], *, turn_id: str | None, retry: bool,
-           now: str, model: str | None, counts: dict) -> bool:
+           now: str, model: str | None, counts: dict, host: str | None = None) -> bool:
     """Fold the posted turns into ``turns``/``ids`` in place; True when anything moved.
 
     Keyed (Cursor): a turn with the same id and speaker is replaced when its
@@ -169,7 +169,7 @@ def _merge(turns: list[Turn], ids: list[str | None], posted: list[Posted], *, tu
     reply, anything else is appended."""
     def cleaned(p: Posted, first: bool) -> Turn | None:
         turn, c = clean_turn(p.speaker, p.text, first=first, ts=now,
-                             model=model if p.speaker == "assistant" else None)
+                             model=model if p.speaker == "assistant" else None, host=host)
         counts["scrubbed"] += c["scrubbed"]
         counts["truncated_turns"] += c["truncated_turns"]
         if turn is not None and c["first_request_clipped"]:
@@ -258,6 +258,8 @@ def capture_turns(
     hook_event: str | None = None,
     relay: dict | None = None,
     utc_offset_minutes: int | None = None,
+    host: str | None = None,
+    device: str | None = None,
 ) -> tc.CaptureResult:
     """Merge the posted turns into the session's one episode and write it.
 
@@ -265,6 +267,7 @@ def capture_turns(
     connector, channel}``. Any catalog harness is then accepted, the episode carries the channel and
     ``evidence_kind: assistant``, and an episode an export already upgraded is left alone (``upgraded``).
     ``utc_offset_minutes`` (ruling 34): a client's UTC offset, so a new episode's id carries the person's day.
+    ``host`` (G228): the app that launched the harness, a label on the episode (``transcript_capture.host_extra``).
 
     ``status`` is ``transcript_capture``'s vocabulary: ``refused`` (a demo bank,
     a bad harness, session or turn id, or ``state_mismatch``; nothing written),
@@ -302,7 +305,12 @@ def capture_turns(
             kept, ids, gap, clipped = [], [], None, False
         counts = {"scrubbed": 0, "truncated_turns": 0, "first_request_clipped": clipped}
         now = episode_ids.utc_now_iso()
-        _merge(kept, ids, posted, turn_id=turn_id, retry=retry, now=now, model=model, counts=counts)
+        # G228: T3 Code's envelopes are unwrapped only under its host — the hook's word, else the episode's own.
+        strip_host = None if relay is not None else (
+            agent_catalog.clean_host(host)
+            or agent_catalog.clean_host(stored.frontmatter.get("host") if stored is not None else None))
+        _merge(kept, ids, posted, turn_id=turn_id, retry=retry, now=now, model=model, counts=counts,
+               host=strip_host)
         key = {id(t): k for t, k in zip(kept, ids)}
         kept, gap = window(kept, gap)
         ids = [key[id(t)] for t in kept]
@@ -332,7 +340,12 @@ def capture_turns(
                                  **({"project": said} if said else {}),
                                  "first": relay_match_key(first)},
                      **extra}
-        return tc.write_session(memory_path, harness=harness, session_id=sid, conv=conv, existing=existing,
-                                cwd=cwd, bank=bank, effort=None, bank_paths=bank_paths if use_registry else None,
-                                hook_event=hook_event, registry_workspace=registry_workspace,
-                                extra=extra, stored=stored, utc_offset_minutes=utc_offset_minutes)
+        if relay is None:
+            extra.update(tc.host_extra(host) or {})
+        result = tc.write_session(memory_path, harness=harness, session_id=sid, conv=conv, existing=existing,
+                                  cwd=cwd, bank=bank, effort=None, bank_paths=bank_paths if use_registry else None,
+                                  hook_event=hook_event, registry_workspace=registry_workspace,
+                                  extra=extra, stored=stored, utc_offset_minutes=utc_offset_minutes)
+    if relay is None:
+        tc.saw_host(host, result, device=device)
+    return result
