@@ -51,6 +51,8 @@ __all__ = [
     "media_time",
     # A saved item's own words (2026-10-29)
     "SAVE_KIND", "PERSON_SECTIONS",
+    # An agent's saved note (ruling 50, 2026-10-29)
+    "AGENT_KIND", "agent_words",
     # Filing labels (2026-10-29)
     "LABEL_FIELDS", "label_ranges", "in_label", "mask_labels",
 ]
@@ -123,6 +125,21 @@ SAVE_KIND = "save"
 #: The sections only the person's own words fill on a save: ``saved_why``'s answer, a ``/save`` reason (Telegram, the
 #: share sheet), the person's note. Each is a ``user`` block in a save; every other ``## `` section is ``page``.
 PERSON_SECTIONS = ("## Why it was saved", "## Saved because", "## User note")
+#: Ruling 50 (owner, 2026-10-29): a note an AGENT saved through a tool door (``cicada_save_episode`` over stdio, the
+#: remote connector or an agent's shell) holds the agent's words, never the person's. It carries no turn marker, so
+#: before this R4's default read it as the person's own writing: its paragraphs were "exchanges in the person's own
+#: words" (promotion), its spans ``user`` evidence, and agent notes minted pages. Derived on read like
+#: :data:`SAVE_KIND` (``authorship.of``), never stored: every span the markers would give the person (an unmarked line,
+#: a ``user:`` line the agent wrote) is ``assistant``; a ``speaker:`` line (the meeting bridge), a timed video line and
+#: an ``attachment [..]:`` quote keep their own kind, since none of those is the person either.
+AGENT_KIND = "agent"
+
+
+def agent_words(kind: str) -> str:
+    """The kind a span of an agent's saved note takes (:data:`AGENT_KIND`): the person's becomes the agent's."""
+    return "assistant" if kind == "user" else kind
+
+
 #: ...plus a repeat save's ``## Note`` (``media_ingestor.write_note_episode``): the person's note as written, or an
 #: agent's behind its own ``assistant:`` marker, which still wins. Not a PERSON_SECTION for ``history_index``: an
 #: agent's note there must never make a list save the person's to read.
@@ -495,6 +512,8 @@ def kind_for(doc_id: str, text: str, start: int, override: str | None = None, ga
     kind = speaker_kind(text, start, gaps, saved=override == SAVE_KIND)
     if kind == GAP_KIND:
         return kind                     # gate B2: no declared authorship covers Cicada's own line
+    if override == AGENT_KIND:
+        return agent_words(kind)        # ruling 50: an agent's saved note is never the person's words
     return override if override in OVERRIDE_KINDS else kind
 
 
@@ -599,6 +618,8 @@ def turns(text: str, *, page: bool = False, stamps: dict[int, dict] | None = Non
     :func:`kind_for` labels every span in that episode. :data:`SAVE_KIND` (a
     saved item, ``authorship.of``) splits it at its ``## `` sections: ``page``
     blocks, and one ``user`` block per section of the person's own.
+    :data:`AGENT_KIND` (an agent's saved note, ruling 50) keeps its markers but
+    every turn that would be the person's is ``assistant``.
     """
     text = text or ""
     if not text:
@@ -623,7 +644,7 @@ def turns(text: str, *, page: bool = False, stamps: dict[int, dict] | None = Non
                 stamp = previous_stamp
             else:
                 previous_stamp = stamp
-        role = kind if kind == GAP_KIND else (forced or kind)
+        role = kind if kind == GAP_KIND else (forced or (agent_words(kind) if override == AGENT_KIND else kind))
         out.append(TurnSpan(
             index=i + 1, start=start, content_start=min(content_start, end), end=end,
             role=role, marker=marker, ts=stamp.get("ts"), speaker=stamp.get("speaker"),

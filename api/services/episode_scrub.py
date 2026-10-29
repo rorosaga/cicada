@@ -115,6 +115,71 @@ def scrub(text: str) -> tuple[str, int]:
     return text, count
 
 
+#: The named secret shapes alone — not the bare hex / base64 runs, which a one-token identifier (a content hash, a
+#: device id, a session id) legitimately is.
+_NAMED_SECRET_RES = _SECRET_RES[:-1]
+
+
+#: Frontmatter keys that are keys, paths or ids: a writer and its readers match on them byte for byte (a folder's
+#: `relpath` against its globs, a chat's message keys), so they are never altered — re-check of #560: a year in a
+#: folder path became "[redacted]" and the person's authorship rule stopped matching the file.
+_KEY_FIELDS = frozenset({"relpath", "path", "paths", "source_id", "conversation", "conversation_id", "message_keys",
+                         "jid", "jids", "id", "ids", "file", "files", "project", "hash", "sha", "session_id",
+                         "origin_session_id", "origin_episode", "device", "harness", "origin", "source"})
+_KEY_SUFFIXES = ("_id", "_ids", "_key", "_keys", "_path", "_paths", "_hash", "_sha", "relpath")
+
+
+def _is_key_field(name) -> bool:
+    name = str(name or "").lower()
+    return name in _KEY_FIELDS or name.endswith(_KEY_SUFFIXES)
+
+
+def _is_url_field(name) -> bool:
+    name = str(name or "").lower()
+    return name in ("url", "urls", "link", "links", "href") or name.endswith(("_url", "_urls"))
+
+
+def _named(text: str) -> tuple[str, int]:
+    count = 0
+    for rx in _NAMED_SECRET_RES:
+        text, n = rx.subn(REDACTED, text)
+        count += n
+    return text, count
+
+
+def scrub_value(value, *, key=None):
+    """``(value, replacements)`` with the strings a writer passes beside the body (``EpisodeDraft.extra``, a title)
+    scrubbed of NAMED secret shapes only (``sk-``, ``ghp_``, AWS, JWT, ``token=``/``password=`` values …) — review of
+    #560: a note's description reached the primer raw. Never the one-time-code rule or the bare hex / base64 runs:
+    those ate years in titles ("Advent of Code 2024") and Notion's 32-hex file ids, the "phone scrub erased dates"
+    class. ``key`` names the field: a key, path or id field (:data:`_KEY_FIELDS`) is never altered; a URL field
+    keeps its address and loses only a named secret in its query. Other values pass through."""
+    if isinstance(value, str):
+        if _is_key_field(key):
+            return value, 0
+        if _is_url_field(key):
+            base, sep, query = value.partition("?")
+            if not sep:
+                return value, 0
+            query, n = _named(query)
+            return base + sep + query, n
+        return _named(value)
+    if isinstance(value, dict):
+        out, total = {}, 0
+        for k, v in value.items():
+            out[k], n = scrub_value(v, key=key if _is_key_field(key) else k)
+            total += n
+        return out, total
+    if isinstance(value, (list, tuple)):
+        items, total = [], 0
+        for v in value:
+            item, n = scrub_value(v, key=key)
+            items.append(item)
+            total += n
+        return (type(value)(items) if isinstance(value, tuple) else items), total
+    return value, 0
+
+
 def record(writer: str, count: int, *, bank: str | None = None) -> None:
     """One ``capture`` ledger row for a write that replaced something. Never
     raises: the ledger must not fail a capture (``telemetry.record`` already

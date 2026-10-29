@@ -553,7 +553,7 @@ def _now_block(state: dict | None, bank: str, *, remote: bool = False, tz: str |
         standing.append(tz_line)
     prefs = (state.get("preferences") or []) if personal else []
     if prefs:
-        standing.append("- How to work with me: " + "; ".join(p.get("one_liner") or p["name"] for p in prefs))
+        standing.append("- How to work with me: " + "; ".join(_preference(p) for p in prefs))
     lasting = (state.get("standing") or []) if personal else []
     if lasting:
         standing.append("- Long-standing: " + "; ".join(f"`{s['id']}` {s['name']}" for s in lasting))
@@ -595,6 +595,18 @@ def _now_block(state: dict | None, bank: str, *, remote: bool = False, tz: str |
         for c in convs:
             lines.append(f"  - `{c['id']}` · {c.get('harness') or 'unknown'} · {c.get('title', '')}")
     return "\n".join(lines)
+
+
+def _preference(p: dict) -> str:
+    """One "How to work with me" entry. An agent's own memory note (ruling 43, 2026-10-29) says whose words it is and
+    where it came from: an agent's summary of the person, never theirs."""
+    text = p.get("one_liner") or p["name"]
+    if p.get("agent_note"):
+        # Scrubbed again at render (review of #560): a `_state.md` written before the scrub may hold it raw.
+        from api.services import episode_scrub
+
+        return f"{episode_scrub.scrub(text)[0]} ({state_dictionary.AGENT_NOTE_MARK}, `{p['id']}`)"
+    return text
 
 
 def _assemble(state: dict | None, variant: str, bank: str, tz: str | None = None,

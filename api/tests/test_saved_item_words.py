@@ -53,8 +53,10 @@ def test_a_save_is_known_by_its_record_never_by_a_line():
         assert authorship.of({"origin": door}) == evidence.SAVE_KIND, door
     assert authorship.of({"source": "watch-history-month"}) == evidence.SAVE_KIND
     # The person's own channels stay theirs: a note, a shared file, a Notes note, a chat export, a Telegram text.
-    for own in ("note", "phone", "device-file", "apple-notes", "claude-export", "telegram", "mcp"):
+    for own in ("note", "phone", "device-file", "apple-notes", "claude-export", "telegram"):
         assert authorship.of({"origin": own, "source": own}) is None, own
+    # An agent's saved note is the agent's (ruling 50, `test_agent_saved_words`).
+    assert authorship.of({"origin": "mcp", "source": "mcp"}) == evidence.AGENT_KIND
     # A declared kind always wins (a folder's own files, a reminder, a relayed turn).
     assert authorship.of({**SAVE_FM, "evidence_kind": "assistant"}) == "assistant"
     assert authorship.of({"evidence_kind": "user", "origin": "reminders-local"}) == "user"

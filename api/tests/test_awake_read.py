@@ -413,6 +413,26 @@ def test_recall_finds_an_unread_conversation_by_its_words_and_says_so(bank, monk
     assert "alpha deadline moved to friday" in out
 
 
+def test_recall_finds_it_by_a_question_in_plain_words(bank, monkeypatch):
+    """2026-10-29: the every-word read asked "what", "did" and "decide" to match too, and missed it; the rare-word
+    read (``ask_sources.rare_word_conversations``) needs the query's subject words together in one passage."""
+    out = _recall(monkeypatch, bank, "what did we decide about the alpha deadline?")
+    assert "ep_2026-10-22_001" in out and "not yet read by Sleep" in out
+    assert "alpha deadline moved to friday" in out
+
+
+def test_the_rare_word_read_needs_the_words_together(bank, monkeypatch):
+    from api.services import ask_sources
+
+    _episode(bank, "ep_2026-10-22_002", "user: the harbor is lovely\n\n" + "filler words here. " * 60
+             + "\n\nuser: the deadline for taxes is in april")
+    _recall(monkeypatch, bank, "warm")   # the index
+    found = [ep for ep, _s, _e in ask_sources.rare_word_conversations(bank, "harbor deadline", 5)]
+    assert found == [], "two words in different passages of one conversation are not its topic"
+    assert [ep for ep, _s, _e in ask_sources.rare_word_conversations(bank, "alpha deadline", 5)] == [
+        "ep_2026-10-22_001"]
+
+
 def test_recall_does_not_label_a_read_conversation(bank, monkeypatch):
     _episode(bank, "ep_2026-10-22_001", "user: the alpha deadline moved to friday", processed=True)
     out = _recall(monkeypatch, bank, "deadline friday")

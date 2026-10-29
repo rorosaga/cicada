@@ -570,8 +570,10 @@ def _stage(drafts: list[EpisodeDraft], episodes_dir: Path, index: dict, *, delet
         entry = index.get(str(draft.source_id)) if verdict == "skipped" else None
         if entry is None:
             continue
-        wanted = {k: (draft.title if k == "title" else draft.extra.get(k)) for k in RECORD_KEYS}
-        if all(entry.fm.get(k) == wanted[k] for k in RECORD_KEYS):
+        # As stored (review of #560), and never a None key: a scrubbed value compared raw read as changed every sync.
+        wanted = episode_staging.stored_meta({k: v for k in RECORD_KEYS
+                                              if (v := draft.title if k == "title" else draft.extra.get(k)) is not None})
+        if all(entry.fm.get(k) == wanted[k] for k in wanted):
             continue
         if episode_staging.reattribute(entry.path, extra=wanted, queue_for_sleep=draft.queue_for_sleep):
             recorded += 1

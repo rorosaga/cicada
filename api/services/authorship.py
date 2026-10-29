@@ -14,6 +14,15 @@ Two answers existed before this module, and every reader read only the first:
   protection all read as the person's. Derived on read, never stored, so no existing episode is rewritten and every
   reader agrees from its next read.
 
+* **An agent's saved note** (ruling 50, owner 2026-10-29, :data:`evidence.AGENT_KIND`): an episode an agent wrote
+  through a tool door — ``cicada_save_episode`` over stdio (``source: mcp``), the remote connector (``mcp-remote``),
+  or the command line from an agent's shell (``cli`` with the harness or session it ran in). It has no turn marker,
+  so before this R4's default read it as the person's own writing: it counted toward promotion, its spans were
+  ``user`` evidence, and agent notes minted event pages. Its words are the agent's now — every span the markers would
+  give the person is ``assistant`` and Stage 1 gives a claim resting on it the agent as observer
+  (``entity_extractor.assistant_observer``). The person's own ``cicada save`` in their own terminal (no harness, no
+  session) stays theirs. Derived on read like a saved item, so the existing notes read right on the next run.
+
 What makes an episode a saved item is the episode's own record, never what a line says: the saving door's
 ``media_entity_id`` or ``url``, or a saving door's ``origin``/``source`` (:func:`saved_origin`, the list
 ``inbox_tend`` already used to keep a saved page's title from counting as the person's words).
@@ -22,7 +31,7 @@ from __future__ import annotations
 
 import functools
 
-from api.services.evidence import SAVE_KIND
+from api.services.evidence import AGENT_KIND, SAVE_KIND
 
 #: Where something saved comes from (a bookmark, a saved post, a feed, a watch or web history, a read page): its text
 #: is the page's, not the person's — a name in its title, link or byline is never "their own words".
@@ -59,14 +68,34 @@ def is_saved(fm: dict | None) -> bool:
     return any(saved_origin(fm.get(k)) for k in ("origin", "source"))
 
 
+#: The ``source`` of a note an agent saved through a tool door (``mcp_tools.save_episode``): stdio, remote, the CLI.
+AGENT_SAVE_SOURCES = frozenset({"mcp", "mcp-remote", "cli"})
+
+
+def agent_saved(fm: dict | None) -> bool:
+    """An agent's saved note, by its own record (ruling 50): a tool door's ``source``; for the command line, only when
+    the record names the harness or session whose shell ran it — the person's own terminal names neither."""
+    if not isinstance(fm, dict):
+        return False
+    source = str(fm.get("source") or "").strip().lower()
+    if source not in AGENT_SAVE_SOURCES:
+        return False
+    if source != "cli":
+        return True
+    harness = str(fm.get("harness") or "").strip().lower()
+    return bool(str(fm.get("session_id") or "").strip() or (harness and harness != "unknown"))
+
+
 def of(fm: dict | None) -> str | None:
-    """The ``override`` for an episode: its declared ``evidence_kind``, else :data:`evidence.SAVE_KIND` for a saved
-    item, else ``None`` (the turn markers decide, R4)."""
+    """The ``override`` for an episode: its declared ``evidence_kind``, else :data:`evidence.AGENT_KIND` for an agent's
+    saved note, else :data:`evidence.SAVE_KIND` for a saved item, else ``None`` (the turn markers decide, R4)."""
     if not isinstance(fm, dict):
         return None
     declared = str(fm.get("evidence_kind") or "").strip()
     if declared:
         return declared
+    if agent_saved(fm):
+        return AGENT_KIND
     return SAVE_KIND if is_saved(fm) else None
 
 

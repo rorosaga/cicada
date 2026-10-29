@@ -404,8 +404,29 @@ def relay_for(draft: EpisodeDraft, candidates: dict[tuple[str, str], list[IndexE
     return near[0] if len(near) == 1 else None
 
 
+def stored_meta(values: dict) -> dict:
+    """Writer frontmatter as it is stored: named secret shapes scrubbed from its strings, keys, paths and ids never
+    touched (``episode_scrub.scrub_value``; review of #560). A writer that compares what it would write with what is
+    on disk compares THIS with it, or a scrubbed value reads as changed on every sync."""
+    return episode_scrub.scrub_value(dict(values))[0]
+
+
+def stored_title(title: str | None) -> str:
+    return episode_scrub.scrub_value(title or "", key="title")[0]
+
+
+def _extra(draft: EpisodeDraft) -> dict:
+    """``draft.extra`` as stored (:func:`stored_meta`) — the one way extras reach a file, so no writer's frontmatter
+    (a note's description, a chat's title) keeps a named secret its words lost."""
+    return stored_meta(draft.extra)
+
+
+def _title(draft: EpisodeDraft) -> str:
+    return stored_title(draft.title)
+
+
 def _apply_common(fm: dict, draft: EpisodeDraft, stamps: list[dict], body: str | None = None) -> None:
-    fm.update(draft.extra)
+    fm.update(_extra(draft))
     _apply_extras(fm, _extras_matching(draft, body) if body is not None else {})
     if draft.content_sha:
         fm["content_sha"] = draft.content_sha
@@ -443,7 +464,7 @@ def write_new(draft: EpisodeDraft, episodes_dir: Path, body: str, digest: str,
         # Ruling 39: the item's own date above, when Cicada received it here — set once, at creation.
         episode_ids.RECEIVED_KEY: normalise_timestamp(draft.received_at) or episode_ids.utc_now_iso(),
         "source": draft.source,
-        "title": draft.title or "Untitled",
+        "title": _title(draft) or "Untitled",
         "processed": False,
         "content_hash": digest,
     }
@@ -477,7 +498,7 @@ def _under_episode_lock(fn):
 def update_in_place(path: Path, draft: EpisodeDraft, body: str, digest: str, stamps: list[dict]) -> None:
     """Same file, same id, same original timestamp; new body, re-queued (G20)."""
     fm = dict(markdown_parser.parse(path).frontmatter)
-    fm["title"] = draft.title or fm.get("title", "Untitled")
+    fm["title"] = _title(draft) or fm.get("title", "Untitled")
     fm["content_hash"] = digest
     fm["source_updated_at"] = draft.source_updated_at
     fm["source_id"] = draft.source_id
@@ -497,7 +518,7 @@ def upgrade_relay(path: Path, draft: EpisodeDraft, body: str, digest: str, stamp
         fm.pop(key, None)
     fm["relay"] = {**(fm.get("relay") or {}), "upgraded_at": at, "upgraded_by": draft.source}
     fm["source"] = draft.source
-    fm["title"] = draft.title or fm.get("title", "Untitled")
+    fm["title"] = _title(draft) or fm.get("title", "Untitled")
     fm["content_hash"] = digest
     fm["source_id"] = draft.source_id
     fm["source_updated_at"] = draft.source_updated_at
@@ -516,7 +537,7 @@ def _refresh(path: Path, draft: EpisodeDraft) -> None:
     parsed = markdown_parser.parse(path)
     fm = dict(parsed.frontmatter)
     fm.pop("source_deleted_at", None)
-    fm.update(draft.extra)
+    fm.update(_extra(draft))
     if draft.content_sha:
         fm["content_sha"] = draft.content_sha
     if draft.source_updated_at:
@@ -564,7 +585,7 @@ def reattribute(path: Path, *, extra: dict, queue_for_sleep: bool) -> bool:
         parsed = markdown_parser.parse(path)
         fm = dict(parsed.frontmatter)
         before = dict(fm)
-        fm.update(extra)
+        fm.update(stored_meta(extra))
         _requeue_for_authorship(fm, EpisodeDraft(queue_for_sleep=queue_for_sleep))
         if fm == before:
             return False
@@ -721,7 +742,7 @@ def _set_meta(path: Path, values: dict) -> None:
     the queue are untouched."""
     parsed = markdown_parser.parse(path)
     fm = dict(parsed.frontmatter)
-    fm.update(values)
+    fm.update(stored_meta(values))
     markdown_parser.write(path, fm, parsed.body)
 
 
@@ -736,9 +757,9 @@ def _repoint(path: Path, draft: EpisodeDraft, old_sid: str) -> None:
     fm["source_id"] = draft.source_id
     fm["source_updated_at"] = draft.source_updated_at
     if draft.title:
-        fm["title"] = draft.title
+        fm["title"] = _title(draft)
     fm.pop("source_deleted_at", None)
-    fm.update(draft.extra)
+    fm.update(_extra(draft))
     _requeue_for_authorship(fm, draft)
     _apply_extras(fm, _extras_matching(draft, parsed.body))
     markdown_parser.write(path, fm, parsed.body)
@@ -900,7 +921,8 @@ def _stage_locked(drafts: list[EpisodeDraft], episodes_dir: Path, *,
                     entry.fm["content_sha"] = draft.content_sha
                     result.restamped += 1
                     result.paths.append(_rel(entry.path, episodes_dir))
-                grouping = draft.extra.get(PROVIDER_PROJECT_KEY)
+                grouping = stored_meta({PROVIDER_PROJECT_KEY: draft.extra.get(PROVIDER_PROJECT_KEY)})[
+                    PROVIDER_PROJECT_KEY]   # as stored, or a scrubbed name rewrites every sync
                 if grouping and entry.fm.get(PROVIDER_PROJECT_KEY) != grouping:
                     # Ruling 45: the provider's project grouping arrived (or moved) and no word did: frontmatter only.
                     if write:
