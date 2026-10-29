@@ -220,7 +220,8 @@ EXTRACTION GUIDELINES:
 - aliases: other NAMES the same thing goes by ("Mongo" for MongoDB, an acronym, a nickname). Never a
   reference that only makes sense inside this conversation ("the database", "this project", "my app",
   "the new format"), and never the name of a part, product, dataset, file format or version of the
-  entity — that is a different thing. Leave empty if there is only one name.
+  entity, nor of the larger thing it belongs to, its maker or an alternative to it ("Docker" is not
+  an alias of "Docker Desktop") — that is a different thing. Leave empty if there is only one name.
 - Use wikilinks `[[Entity Name]]` inside summary and key_facts to reference other entities.
   Do NOT fabricate links bullets — those come only from real URLs in the source.
 - Entity types must be exactly one of: person, project, company, concept, tool, skill, location, directory.

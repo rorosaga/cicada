@@ -1834,7 +1834,10 @@ hull, the hull build — is one thing"), its own other names never the page's al
 <project>?", never a page competing with it (measured 2026-10-29 on a copy of the owner's bank: 74 of 160 open
 duplicate questions were a project name with no birth asked against a page). **An organisation/tool alias lead** (G209,
 2026-10-27: a page that lists another page's name as an alias) now meets the judge once before it is asked; only `same`
-or `unsure` asks, a relation is written as above. No call for a lead whose pair the person rejected (never asked again), whose question is already open (bumped, as before) or that this process already judged on the same two page versions (a memo in memory, keyed by bank, pages and their files' modification times — never in a bank): on the bank copy 67 org/tool leads, 24 with an open question, so at most 43 calls in a drain's first batch that meets them all and none in its later batches, where before every batch could re-judge all 67. **The record remembers:** a pair one current claim already relates
+or `unsure` asks, a relation is written as above. Any other verdict (a relation, `different`, a rejected or related pair)
+also proposes removing the alias behind the lead (`wrong_aliases`, a `page_edit` the person applies or leaves —
+`storage.md`): on the bank copy 21 of the 160 open "same?" questions were org/tool alias leads, 14 of them judged two
+things. No call for a lead whose pair the person rejected (never asked again), whose question is already open (bumped, as before) or that this process already judged on the same two page versions (a memo in memory, keyed by bank, pages and their files' modification times — never in a bank): on the bank copy 67 org/tool leads, 24 with an open question, so at most 43 calls in a drain's first batch that meets them all and none in its later batches, where before every batch could re-judge all 67. **The record remembers:** a pair one current claim already relates
 (`entity_relations.known`: those predicates and `uses`, `depends-on`, `runs-on`, `integrates-with`, `implements`,
 `hosts`, `contains`, `contrasts-with`, either page) is never proposed (`ClarificationManager.create`, never a person
 pair) and an alias lead between them makes no call. A public pair the judge could not tell is the web check's

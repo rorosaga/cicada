@@ -131,6 +131,14 @@ extension Copy {
             static let downloadURL = URL(string: "https://tailscale.com/download")!
             static let ready = "Your phone can reach this Mac."
             static func readyAt(_ url: String) -> String { "Your devices reach this Mac at \(url)." }
+            // Owner 2026-10-29, "Yes, one click": the shown command, run on the person's click.
+            static let runIt = "Run it for me"
+            static let stop = "Stop serving"
+            static let stopTitle = "Stop serving this Mac to your devices?"
+            static func willRun(_ command: String) -> String {
+                "Cicada will run: \(command)\nYour phone stops reaching this Mac until it is served again."
+            }
+            static let runFailed = "That did not run. Run the command yourself in Terminal."
 
             /// The one next step for each `reach.GUIDE_STEPS` word.
             static func step(_ step: String) -> String {
@@ -139,7 +147,7 @@ extension Copy {
                 case "open": "Open Tailscale on this Mac."
                 case "sign-in": "Sign in to Tailscale on this Mac."
                 case "turn-on": "Tailscale is off on this Mac. Turn it on from its menu."
-                case "serve": "Run this once in Terminal. It stays private to your own devices:"
+                case "serve": "Serve this Mac to your own devices, privately — Cicada can run it, or run it in Terminal:"
                 case "unfunnel": "This Mac's Cicada is open to the internet. Close it with:"
                 case "ready": "Your devices reach this Mac on Tailscale."
                 default: "Cicada could not read Tailscale's state."

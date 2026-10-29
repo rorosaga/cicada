@@ -37,6 +37,29 @@ final class DeviceReachTests: XCTestCase {
         }
     }
 
+    /// Owner 2026-10-29, "Yes, one click": a click runs the serve step's shown command or a served address's off —
+    /// never a funnel command, never on any other step.
+    func testOnlyTheServeAndAServedAddressOfferAClick() throws {
+        let serve = try reach(#"{"tailscale":"running","step":"serve","command":"tailscale serve --bg --https=8443 8000"}"#)
+        XCTAssertEqual(DeviceReachText.action(serve), .serve)
+        let ready = try reach(#"{"tailscale":"running","step":"ready","url":"https://mac.example.ts.net:8443","stopCommand":"tailscale serve --https=8443 off"}"#)
+        XCTAssertEqual(ready.stopCommand, "tailscale serve --https=8443 off")
+        XCTAssertEqual(DeviceReachText.action(ready), .stop)
+        let unfunnel = try reach(#"{"tailscale":"running","step":"unfunnel","command":"tailscale funnel --https=443 off"}"#)
+        XCTAssertNil(DeviceReachText.action(unfunnel), "a funnel command is only ever copied")
+        let older = try reach(#"{"tailscale":"running","step":"ready","url":"https://mac.example.ts.net:8443"}"#)
+        XCTAssertNil(DeviceReachText.action(older), "an older backend names no off, so none is offered")
+        for step in ["install", "open", "sign-in", "turn-on"] {
+            XCTAssertNil(DeviceReachText.action(try reach(#"{"step":"\#(step)"}"#)), step)
+        }
+        let answer = try JSONDecoder().decode(DeviceReachServe.self, from: Data(
+            #"{"ok":false,"message":"Serve isn't on for your tailnet yet.","ran":"tailscale serve --bg --https=8443 8000","reach":{"step":"serve"}}"#.utf8))
+        XCTAssertEqual(answer.message, "Serve isn't on for your tailnet yet.")
+        XCTAssertEqual(answer.reach?.step, "serve")
+        XCTAssertTrue(Copy.DevicesPage.Reach.willRun("tailscale serve --https=8443 off")
+                        .contains("tailscale serve --https=8443 off"), "the dialog names the exact command")
+    }
+
     func testAnOlderBackendsAnswerStillDecodes() throws {
         let sparse = try reach("{}")
         XCTAssertEqual(sparse.step, "install")

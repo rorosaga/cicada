@@ -78,6 +78,7 @@ enum LogoSet {
     static let umbrellaMarks: [String] = [
         "claude", "openai", "gemini", "grok", "muse", "cursor", "opencode", "hermes", "openclaw", "copilot", "zed",
         "devin", "warp", "amp", "instinct", "openrouter", "fireworks", "deepinfra", "together", "groq", "mistral",
+        "t3",   // G228 follow-up (2026-10-29): T3 Code's own mark, from its repository at a pinned commit
     ]
     static let sourceMarks: [String] = [
         "x", "instagram", "youtube", "linkedin", "reddit", "tiktok", "github", "scholar", "telegram", "whatsapp",

@@ -212,13 +212,14 @@ UMBRELLAS: tuple[Umbrella, ...] = (
     # G228 (2026-10-29): T3 Code is a host, not a harness — it drives the Claude Code, Codex and Cursor installed on
     # this machine with their own settings (checked in its source, commit 3748c5c2), so Cicada's hooks, MCP server and
     # skill already run inside its threads. Its connect flow is theirs (``setup``); it lights when a capture hook saw
-    # one of its threads (``agent_seen`` via ``hook``). No mark in the set yet: the monogram, never a borrowed one.
+    # one of its threads (``agent_seen`` via ``hook``). Its mark is the vendor's own (its repository at 3748c5c2, `t3`).
     # T3 Chat is not listed: it documents no MCP connector (its FAQ, read 2026-10-29), so it cannot reach Cicada.
-    Umbrella("t3", "T3 Code", None, 2, ways=(
+    Umbrella("t3", "T3 Code", "t3", 1, ways=(
         Way("t3code", "T3 Code", ("hooks", "stdio"), tier=2, setup=("claude-code", "codex", "cursor"),
             note="T3 Code runs the coding agents installed here with their own settings, so connecting those agents "
-                 "connects every T3 Code thread. A Codex account signed in inside T3 Code keeps settings of its "
-                 "own, so use your existing Codex login there."),
+                 "connects every T3 Code thread. Codex signed in through T3 Code's own sign-in keeps settings of "
+                 "its own, so those threads are not captured: in T3 Code → Settings → Providers, choose your "
+                 "existing Codex login instead."),
     )),
     # Model hosts: intelligence only.
     Umbrella("openrouter", "OpenRouter", "openrouter", 1,

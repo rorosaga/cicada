@@ -75,6 +75,8 @@ NO_BANK_WRITE = frozenset({
     ("POST", "/pair"),
     # 2026-10-29: a device binding its own key — $CICADA_HOME's devices.db too.
     ("POST", "/devices/me/key"),
+    # 2026-10-29 (owner, "Yes, one click"): the person's click runs one tailnet serve — Tailscale's state, no bank.
+    ("POST", "/devices/reach/serve"),
     ("POST", "/agent-api/tokens"),
     ("DELETE", "/agent-api/tokens/{token_id}"),
 })

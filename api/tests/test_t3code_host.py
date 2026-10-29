@@ -384,7 +384,7 @@ def test_a_host_session_is_the_hosts_source_row_and_the_rest_keep_theirs():
 def test_t3_code_is_one_umbrella_whose_connect_flow_is_the_agents_it_drives():
     umbrella = next(u for u in agent_catalog.UMBRELLAS if u.id == "t3")
     (way,) = umbrella.ways
-    assert (umbrella.label, umbrella.logo, way.id) == ("T3 Code", None, "t3code")
+    assert (umbrella.label, umbrella.logo, umbrella.tier, way.id) == ("T3 Code", "t3", 1, "t3code")
     assert way.setup == ("claude-code", "codex", "cursor") and "hooks" in way.connects
     assert way.id not in agent_catalog.LIVE_PILLS and way.id in agent_catalog.TRACKED
     assert not any("chat" in w.id for w in umbrella.ways), "T3 Chat takes no MCP connector, so it is not listed"

@@ -449,6 +449,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   session too, ruling 47) — never in a bank, a log or the repo.
 - **Headless (G181):** a server is its bank's one writer and binds 127.0.0.1 only; reach from another machine is an
   overlay the person runs (never a public port, never funnel — only the G135 listener may be, by the person, ruling 32), and no installer creates or copies a credential (`headless.md`).
+  **One click (owner 2026-10-29, amends G132 (c)):** Settings → Devices may run exactly the shown `tailscale serve --bg
+  --https=8443 <port>` (tailnet only) or that one mapping's off — argv built by the backend, 10 s, never `funnel` or `up` (`network.md`).
   Another machine is a client (`CICADA_API_BASE`, or the app's `api_base` file, ruling 28) with its own revocable device
   token and no bank of its own; what it posts records `device` (`headless.md`).
 - **Video:** only a provider's own player URL is loaded; an oEmbed response is read for its fields, never its HTML.

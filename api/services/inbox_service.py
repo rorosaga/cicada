@@ -2698,7 +2698,7 @@ async def _resolve_page_edit(path, parsed, settings, label: str, before) -> tupl
 
 
 def _answer_page_edit(path: Path, fm: dict, memory_path: Path, label: str, before) -> None:
-    from api.services import git_service, page_edits, page_lock
+    from api.services import git_service, page_edits, page_lock, wrong_aliases
 
     day = date.today().isoformat()
     rel_item = f"inbox/{path.name}"
@@ -2706,10 +2706,17 @@ def _answer_page_edit(path: Path, fm: dict, memory_path: Path, label: str, befor
     with page_lock.page_lock(memory_path):
         if label == "dismiss":
             path.unlink(missing_ok=True)
+            lines, touched = [f"{rel_item}: removed (trigger: {page_edits.TRIGGER_DISMISS})"], [rel_item]
+            if fm.get("origin") == wrong_aliases.ORIGIN:
+                # The person keeps the alias Cicada proposed removing: remembered on the page, never proposed again.
+                page = resolve_entity_file(memory_path, str(fm.get("entity_id") or ""))
+                edit = fm.get("edit") if isinstance(fm.get("edit"), dict) else {}
+                if page is not None and wrong_aliases.remember_kept(page, edit.get("remove_aliases")):
+                    lines.append(f"entities/{page.name}: updated (trigger: {page_edits.TRIGGER_DISMISS})")
+                    touched.append(f"entities/{page.name}")
             message = git_service.build_commit_message(
-                f"Inbox resolution (page_edit) {day}",
-                [f"{rel_item}: removed (trigger: {page_edits.TRIGGER_DISMISS})"], authors=["user"])
-            git_service.commit_touched_sync(memory_path, message, [rel_item], before=before, **kept)
+                f"Inbox resolution (page_edit) {day}", lines, authors=["user"])
+            git_service.commit_touched_sync(memory_path, message, touched, before=before, **kept)
             return
         page = resolve_entity_file(memory_path, str(fm.get("entity_id") or ""))
         if page is None:
