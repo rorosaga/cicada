@@ -190,10 +190,18 @@ def _connect(path: Path, memory_path=None) -> sqlite3.Connection:
     try:
         if _ready(conn) and (memory_path is None or not legacy_path(memory_path).is_file()):
             return conn
-        with _write_lock(path):
+        lock = _write_lock(path)
+        if not lock.acquire(blocking=False):   # a text sync holds it for minutes: never wait, try next time
+            if _ready(conn):
+                return conn                    # the setup is done; only the old file's fold-in waits
+            conn.close()
+            raise BoardIndexUnavailable("the meaning index is busy")
+        try:
             _set_up(conn)
             if memory_path is not None:
                 _migrate(conn, memory_path)
+        finally:
+            lock.release()
         return conn
     except sqlite3.OperationalError as exc:
         conn.close()
@@ -347,15 +355,22 @@ def refresh(memory_path, emb: Embedders | None, *, refs=None, limit: int | None 
                             writes.append((rid, "note", _text_hash(text), emb.model, int(v.size), v.tobytes()))
                             counts["notes"] += 1
             if gone or writes:
+                # Never wait for the write lock (review of #516): a text sync holds it across a whole embed, and a
+                # board search must not hang behind it. Busy now: the rows are written by the next refresh.
+                lock = _write_lock(path)
+                if not lock.acquire(blocking=False):
+                    logger.debug("design_index: a text sync holds the index; the board's rows wait for the next refresh")
+                    return {"images": 0, "notes": 0, "failed": counts["failed"]}
                 try:
-                    with _write_lock(path):
-                        conn.executemany(f"DELETE FROM {TABLE} WHERE ref=? AND kind=?", gone)
-                        conn.executemany(f"INSERT OR REPLACE INTO {TABLE} VALUES (?, ?, ?, ?, ?, ?)", writes)
-                        conn.commit()
+                    conn.executemany(f"DELETE FROM {TABLE} WHERE ref=? AND kind=?", gone)
+                    conn.executemany(f"INSERT OR REPLACE INTO {TABLE} VALUES (?, ?, ?, ?, ?, ?)", writes)
+                    conn.commit()
                 except sqlite3.OperationalError as exc:   # another process held the file past the wait: next time
                     conn.rollback()
                     logger.debug(f"design_index: the board's rows wait for the next refresh ({type(exc).__name__})")
                     counts = {"images": 0, "notes": 0, "failed": counts["failed"]}
+                finally:
+                    lock.release()
         finally:
             conn.close()
     return counts

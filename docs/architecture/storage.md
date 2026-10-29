@@ -1407,7 +1407,9 @@ after everything is embedded, never across an embed. The board's old file (`$CIC
 is folded in on first use — its rows with their stamps, so nothing re-embeds — and deleted (`design_index._migrate`).
 **The shared file is never deleted by the board** (review of #516): reads open it with no lock (WAL readers never wait,
 so the board answers while a text re-embed holds the write lock for minutes); only the one-time setup and migration
-take the lock, and are skipped once `schema:looks` is set. A lock past the wait (`OperationalError`) is busy —
+take the lock, and are skipped once `schema:looks` is set. **No board path ever waits for that lock** (follow-up to
+#516): the setup and a refresh's write try it without waiting, and when a text sync holds it, a search answers from what
+is stored and the next refresh writes the new rows. A lock past the wait (`OperationalError`) is busy —
 `BoardIndexUnavailable`, and the board answers by words; real damage drops and recreates `look_vectors` alone, and a
 file SQLite can't open is left as it is. Audit: no other code unlinks `vector_index.db` (`search_index` discards only
 its own `search_index.db`, and only on a non-operational error).

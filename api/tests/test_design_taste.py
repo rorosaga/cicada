@@ -442,6 +442,30 @@ def test_a_board_read_returns_while_a_text_sync_holds_the_write_lock(bank):
     assert answers == [{"images": 1, "notes": 1}] and out["results"]
 
 
+def test_a_search_that_would_embed_never_waits_for_a_text_sync(bank):
+    """Follow-up to #516's review: a look new or changed while a text sync holds the write lock is embedded but not
+    written — the search answers at once, and the next refresh writes its rows."""
+    import threading
+
+    from api.services import vector_index
+
+    _add(bank, image=DARK, look=([], []))
+    design_index.refresh(bank, _fake_embedders())
+    _add(bank, image=LIGHT, note="Bright cards.", look=([], []), url="https://launch.example.com")
+    lock = vector_index._write_lock(design_index.index_path(bank))
+    done: list[dict] = []
+    with lock:
+        t = threading.Thread(target=lambda: done.append(
+            design_index.search(bank, query="bright", emb=_fake_embedders(), embed=True)))
+        t.start()
+        t.join(timeout=3)
+        assert not t.is_alive(), "the search did not wait for the write lock"
+        assert design_index.status(bank) == {"images": 1, "notes": 1}, "nothing written while the sync runs"
+    assert done and done[0]["results"]
+    design_index.refresh(bank, _fake_embedders())
+    assert design_index.status(bank) == {"images": 2, "notes": 2}, "the next refresh writes the rows"
+
+
 def test_the_boards_old_file_is_folded_into_the_one_index_once_and_deleted(bank):
     """Migration (meaning index 2): the rows of `$CICADA_HOME/design-index/<bank-id>.sqlite` move into the one index
     with their stamps, so nothing is re-embedded; the old file goes."""
