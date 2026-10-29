@@ -1405,6 +1405,12 @@ index 2, 2026-10-28): `look_vectors` in the bank's `vector_index.db` — git-ign
 export (`bank_registry.DERIVED_ARTIFACTS`), written only in one short transaction under the file's one write lock
 after everything is embedded, never across an embed. The board's old file (`$CICADA_HOME/design-index/<bank-id>.sqlite`)
 is folded in on first use — its rows with their stamps, so nothing re-embeds — and deleted (`design_index._migrate`).
+**The shared file is never deleted by the board** (review of #516): reads open it with no lock (WAL readers never wait,
+so the board answers while a text re-embed holds the write lock for minutes); only the one-time setup and migration
+take the lock, and are skipped once `schema:looks` is set. A lock past the wait (`OperationalError`) is busy —
+`BoardIndexUnavailable`, and the board answers by words; real damage drops and recreates `look_vectors` alone, and a
+file SQLite can't open is left as it is. Audit: no other code unlinks `vector_index.db` (`search_index` discards only
+its own `search_index.db`, and only on a non-operational error).
 One row per reference and kind (`image`: the screenshot's EmbeddingGemma 2
 vector; `note`: the note plus the look's words, same model's text encoder), each stamped with the model and the hash
 of what was embedded. **An image row's stamp also carries the preprocessing's fingerprint** (vision item 3,

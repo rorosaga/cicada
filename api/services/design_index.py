@@ -142,8 +142,25 @@ def _lock(path: Path) -> threading.Lock:
         return _LOCKS.setdefault(str(path), threading.Lock())
 
 
-def _open(path: Path) -> sqlite3.Connection:
-    conn = sqlite3.connect(path, timeout=5)
+class BoardIndexUnavailable(RuntimeError):
+    """The one index can't be used for the board right now — another writer holds it past the wait, or the file is
+    damaged. The board answers by words meanwhile; the file is never deleted here (review of #516)."""
+
+
+def _ready(conn: sqlite3.Connection) -> bool:
+    """Whether the board's table is set up at this schema — a read, so no lock and no write."""
+    try:
+        got = conn.execute("SELECT value FROM index_meta WHERE key = ?", (SCHEMA_KEY,)).fetchone()
+    except sqlite3.OperationalError as exc:
+        if "no such table" in str(exc):
+            return False
+        raise
+    has = conn.execute("SELECT 1 FROM sqlite_master WHERE name = ?", (TABLE,)).fetchone() is not None
+    return got is not None and got[0] == SCHEMA and has
+
+
+def _set_up(conn: sqlite3.Connection) -> None:
+    """The one-time schema write: the board's table and its stamp. Only ``look_vectors`` is ever dropped."""
     conn.execute("CREATE TABLE IF NOT EXISTS index_meta (key TEXT PRIMARY KEY, value TEXT)")
     got = conn.execute("SELECT value FROM index_meta WHERE key = ?", (SCHEMA_KEY,)).fetchone()
     if got is None or got[0] != SCHEMA:
@@ -151,27 +168,59 @@ def _open(path: Path) -> sqlite3.Connection:
         conn.execute("INSERT OR REPLACE INTO index_meta(key, value) VALUES (?, ?)", (SCHEMA_KEY, SCHEMA))
     conn.execute(f"CREATE TABLE IF NOT EXISTS {TABLE} {_COLUMNS}")
     conn.commit()
-    return conn
 
 
 def _connect(path: Path, memory_path=None) -> sqlite3.Connection:
-    """The board's table in the one index, created on first use, with the old separate file folded in once
-    (:func:`_migrate`). A file that is not a database is unusable to every kind: it is removed and rebuilt (every
-    vector in it is derived), never an error."""
+    """The board's table in the one index. **The file is shared with every kind and is never deleted here** (review
+    of #516: a lock wait read as damage once removed entities, claims, episodes, pictures and files).
+
+    * **Reads take no lock.** Once ``schema:looks`` is set (and no old board file waits to be folded in) this only
+      opens the file — WAL readers never wait for a writer, so the board answers while a text re-embed holds
+      ``vector_index``'s write lock for minutes.
+    * **The one-time setup** (the table, its stamp, :func:`_migrate`) takes that write lock, once.
+    * **A lock past the wait** (``OperationalError``: "database is locked") is busy, not damage: it raises
+      :class:`BoardIndexUnavailable` and the caller answers by words; the next call tries again.
+    * **Real damage** (a ``DatabaseError`` that is not operational: "malformed", "not a database") drops and recreates
+      ``look_vectors`` alone when SQLite still can; a file it can't open at all is left as it is, for the text index's
+      own rebuild — never unlinked, never its WAL under an open connection."""
     from api.services.vector_index import _write_lock
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    with _write_lock(path):
-        try:
-            conn = _open(path)
-        except sqlite3.DatabaseError:
-            logger.warning("design_index: the meaning index file was damaged; it is rebuilt")
-            for p in (path, Path(f"{path}-wal"), Path(f"{path}-shm")):
-                p.unlink(missing_ok=True)
-            conn = _open(path)
-        if memory_path is not None:
-            _migrate(conn, memory_path)
-    return conn
+    conn = sqlite3.connect(path, timeout=5)
+    try:
+        if _ready(conn) and (memory_path is None or not legacy_path(memory_path).is_file()):
+            return conn
+        with _write_lock(path):
+            _set_up(conn)
+            if memory_path is not None:
+                _migrate(conn, memory_path)
+        return conn
+    except sqlite3.OperationalError as exc:
+        conn.close()
+        logger.debug(f"design_index: the meaning index is busy ({type(exc).__name__}); words answer for now")
+        raise BoardIndexUnavailable("the meaning index is busy") from None
+    except sqlite3.DatabaseError as exc:
+        conn.close()
+        logger.warning(f"design_index: the meaning index looks damaged ({type(exc).__name__}); "
+                       f"only the board's table is rebuilt")
+        return _rebuild_table(path)
+
+
+def _rebuild_table(path: Path) -> sqlite3.Connection:
+    """Drop and recreate ``look_vectors`` alone (its rows are re-embedded later); every other kind is left as it is.
+    :class:`BoardIndexUnavailable` when SQLite can't even do that (the file isn't a database)."""
+    from api.services.vector_index import _write_lock
+
+    try:
+        conn = sqlite3.connect(path, timeout=5)
+        with _write_lock(path):
+            conn.execute(f"DROP TABLE IF EXISTS {TABLE}")
+            conn.execute("DELETE FROM index_meta WHERE key = ?", (SCHEMA_KEY,))
+            conn.commit()
+            _set_up(conn)
+        return conn
+    except sqlite3.DatabaseError:
+        raise BoardIndexUnavailable("the meaning index can't be read") from None
 
 
 def _migrate(conn: sqlite3.Connection, memory_path) -> int:
@@ -250,7 +299,10 @@ def refresh(memory_path, emb: Embedders | None, *, refs=None, limit: int | None 
     path = index_path(memory_path)
     counts = {"images": 0, "notes": 0, "failed": 0}
     with _lock(path):
-        conn = _connect(path, memory_path)
+        try:
+            conn = _connect(path, memory_path)
+        except BoardIndexUnavailable:
+            return counts   # busy or unreadable: nothing embedded, the next call goes on
         try:
             have = _rows(conn)
             live = {r.id for r in refs}
@@ -295,10 +347,15 @@ def refresh(memory_path, emb: Embedders | None, *, refs=None, limit: int | None 
                             writes.append((rid, "note", _text_hash(text), emb.model, int(v.size), v.tobytes()))
                             counts["notes"] += 1
             if gone or writes:
-                with _write_lock(path):
-                    conn.executemany(f"DELETE FROM {TABLE} WHERE ref=? AND kind=?", gone)
-                    conn.executemany(f"INSERT OR REPLACE INTO {TABLE} VALUES (?, ?, ?, ?, ?, ?)", writes)
-                    conn.commit()
+                try:
+                    with _write_lock(path):
+                        conn.executemany(f"DELETE FROM {TABLE} WHERE ref=? AND kind=?", gone)
+                        conn.executemany(f"INSERT OR REPLACE INTO {TABLE} VALUES (?, ?, ?, ?, ?, ?)", writes)
+                        conn.commit()
+                except sqlite3.OperationalError as exc:   # another process held the file past the wait: next time
+                    conn.rollback()
+                    logger.debug(f"design_index: the board's rows wait for the next refresh ({type(exc).__name__})")
+                    counts = {"images": 0, "notes": 0, "failed": counts["failed"]}
         finally:
             conn.close()
     return counts
@@ -343,9 +400,24 @@ def status(memory_path) -> dict:
             rows = dict(conn.execute(f"SELECT kind, COUNT(*) FROM {TABLE} GROUP BY kind").fetchall())
         finally:
             conn.close()
-    except sqlite3.DatabaseError:
+    except (sqlite3.DatabaseError, BoardIndexUnavailable):
         return {"images": 0, "notes": 0}
     return {"images": int(rows.get("image", 0)), "notes": int(rows.get("note", 0))}
+
+
+def _stored(memory_path) -> dict[tuple[str, str], tuple[str, str, np.ndarray]]:
+    """The board's stored rows for a search — a read with no lock; ``{}`` (words answer) while the index is busy
+    past the wait or unreadable."""
+    try:
+        conn = _connect(index_path(memory_path), memory_path)
+    except BoardIndexUnavailable:
+        return {}
+    try:
+        return _rows(conn)
+    except sqlite3.DatabaseError:
+        return {}
+    finally:
+        conn.close()
 
 
 # --------------------------------------------------------------------------- search
@@ -422,11 +494,7 @@ def search(memory_path, *, query: str | None = None, image: bytes | None = None,
     if emb is not None:
         if embed:
             refresh(memory_path, emb, refs=refs)
-        conn = _connect(index_path(memory_path), memory_path)
-        try:
-            have = _rows(conn)
-        finally:
-            conn.close()
+        have = _stored(memory_path)
         images = {r: v for (r, k), (_, m, v) in have.items() if k == "image" and emb.image_current(m)}
         notes = {r: v for (r, k), (_, m, v) in have.items() if k == "note" and m == emb.model}
         if query and emb.text is not None:
@@ -489,11 +557,7 @@ def similar(memory_path, ref_id: str, *, limit: int = 8, emb: Embedders | None |
     if emb is not None:
         if embed:
             refresh(memory_path, emb, refs=refs)
-        conn = _connect(index_path(memory_path), memory_path)
-        try:
-            have = _rows(conn)
-        finally:
-            conn.close()
+        have = _stored(memory_path)
         images = {r: v for (r, k), (_, m, v) in have.items() if k == "image" and emb.image_current(m)}
         mine = images.pop(ref_id, None)
         if mine is not None and images:
