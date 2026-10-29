@@ -950,6 +950,8 @@ MIGRATION = ("migration: a one-shot, marker-guarded rewrite at boot or bank acti
              "refused only during a person-started drain, so a plain or scheduled cycle can overlap it (disclosed)")
 MIGRATIONS: dict[str, tuple[str, str | None]] = {
     "dedup_normalization_items": (ADMITTED, "api.services.inbox_migration._dedup_normalization_locked"),
+    # Speed 2026-10-29: a watched day's rows move from its frontmatter to `sources/watched/` (episodes and rows files)
+    "move_rows": (ADMITTED, "api.services.watch_rows_migration.move_rows"),
     "migrate_to_inbox": (MIGRATION, None),
     "dedup_open_items": (MIGRATION, None),
     "dedup_decay_items": (MIGRATION, None),

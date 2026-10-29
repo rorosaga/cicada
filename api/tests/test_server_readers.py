@@ -591,7 +591,9 @@ def _times(memory: Path) -> list[str]:
     for path in (memory / "episodes").glob("*.md"):
         fm = markdown_parser.parse(path).frontmatter
         if str(fm.get("source_id", "")).startswith("watch-history:"):
-            return fm["watched"][0]["times"]
+            from api.services import watch_history
+
+            return watch_history.stored_rows(memory, fm)[0]["times"]
     return []
 
 
@@ -613,18 +615,21 @@ def test_watch_times_are_the_same_whatever_order_the_doors_arrive_in(tmp_path, u
     assert _times(one) == _times(two) == _times(three) == ["2026-10-14T10:00:00+00:00", "2026-10-14T10:40:00+00:00"]
 
 
-def test_a_raw_instant_on_an_unchanged_day_is_kept_in_its_frontmatter(tmp_path, utc):
+def test_a_raw_instant_on_an_unchanged_day_is_kept_in_its_rows_file(tmp_path, utc):
     from api.services import markdown_parser, watch_history
 
     memory = _bank(tmp_path)
     watch_history.record(memory, [_watch("2026-10-14T10:00Z")])
     quiet = watch_history.record(memory, [_watch("2026-10-14T10:25Z")])   # inside the 30 minutes: same watch
-    assert quiet.days_unchanged == 1 and len(quiet.paths) == 1
+    # The day's words did not move: only its rows file (the raw instant it learnt), never its episode.
+    assert quiet.days_unchanged == 1 and quiet.paths == ["sources/watched/youtube/2026-10-14.json"]
     later = watch_history.record(memory, [_watch("2026-10-14T09:50Z")])
     assert later.added == 1 and _times(memory) == ["2026-10-14T09:50:00+00:00", "2026-10-14T10:25:00+00:00"]
     day = next(p for p in (memory / "episodes").glob("*.md")
                if str(markdown_parser.parse(p).frontmatter.get("source_id", "")).startswith("watch-history:"))
-    assert len(markdown_parser.parse(day).frontmatter["watched"][0]["seen"]) == 3
+    fm = markdown_parser.parse(day).frontmatter
+    assert "watched" not in fm, "a day's rows live in their own file, never in the cached header"
+    assert len(watch_history.stored_rows(memory, fm)[0]["seen"]) == 3
 
 
 def _git(memory, *args):

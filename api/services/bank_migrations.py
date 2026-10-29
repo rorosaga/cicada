@@ -111,6 +111,13 @@ def run_bank_migrations(memory_path) -> dict:
     if originated:
         logger.info(f"Stamped export origin on {originated} imported episode(s)")
 
+    # Speed 2026-10-29: a watched day's rows move out of its episode's frontmatter (every cold start cached them).
+    from api.services.watch_rows_migration import move_rows
+
+    moved_rows = move_rows(memory_path)
+    if moved_rows:
+        logger.info(f"Moved {moved_rows} watched day(s)' rows to sources/watched/")
+
     # F1 (R-FX6): one-time move of folder-paper claims off the pre-F1
     # `folder:<id>:<section>` context — the junk graph satellites — plus their
     # edges, so each paper sits by the project that cites it.

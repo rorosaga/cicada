@@ -24,6 +24,11 @@ CHROME = "com.google.Chrome"
 VID = "aaaaaaaaaaa"
 
 
+# Capture-class writes: episodes, and a watched day's rows file beside its episode (`sources/watched/`, written only by
+# `watch_history` under the episode lock, never by Sleep).
+_CAPTURE_PREFIXES = ("episodes/", "sources/watched/")
+
+
 @pytest.fixture(autouse=True)
 def utc(monkeypatch):
     monkeypatch.setenv("TZ", "UTC")
@@ -156,7 +161,7 @@ def test_a_youtube_view_from_traces_lands_in_the_watch_history_with_its_dwell(cl
     assert sorted(days) == sorted(dwell_by_day)
     for iso, dwell in dwell_by_day.items():
         day = days[iso]
-        [row] = day.frontmatter["watched"]
+        [row] = watch_history.stored_rows(memory, day.frontmatter)
         assert row["url"] == f"https://www.youtube.com/watch?v={VID}" and row["via"] == ["traces"]
         assert row["dwell_s"] == dwell and row["title"] == "Bridge design, part one"
         assert f"{dwell // 60} min on screen" in day.body
@@ -422,10 +427,10 @@ def test_a_promotion_writes_episodes_only_so_it_stays_capture_class(tmp_path):
     paths = trace_memory.promote(memory, s, s.settings(), now=now)
     assert any("traces-day" in (memory / p).read_text() for p in paths)   # the summary
     assert any("watch-history:" in (memory / p).read_text() for p in paths)   # the watched day
-    assert paths and all(p.startswith("episodes/") for p in paths)
+    assert paths and all(p.startswith(_CAPTURE_PREFIXES) for p in paths)
     changed = {p.relative_to(memory).as_posix() for p in memory.rglob("*")
                if p.is_file() and ".git" not in p.parts and before.get(p) != p.read_bytes()}
-    assert changed and all(p.startswith("episodes/") for p in changed), changed
+    assert changed and all(p.startswith(_CAPTURE_PREFIXES) for p in changed), changed
 
 
 def test_a_watch_is_promoted_once_it_is_older_than_the_forget_window(tmp_path):

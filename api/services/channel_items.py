@@ -436,7 +436,7 @@ def _watched_days(memory_path: Path, origins: set[str]) -> list[dict]:
             continue
         row = _episode_row(fm, f.stem)
         try:
-            row["videos"] = max(0, int(fm.get("videos") or len(fm.get("watched") or [])))
+            row["videos"] = max(0, int(fm.get("videos") or len(watch_history.stored_rows(memory_path, fm))))
         except (TypeError, ValueError):
             row["videos"] = 0
         rows.append(row)
@@ -519,7 +519,7 @@ def watched_day(memory_path: Path, episode_id: str) -> dict | None:
         return None
     media = _Media(Path(memory_path))
     videos = []
-    for r in (fm.get("watched") or [])[:DAY_VIDEOS_MAX]:
+    for r in watch_history.stored_rows(Path(memory_path), fm)[:DAY_VIDEOS_MAX]:
         if not isinstance(r, dict) or not watch_history.watch_url(str(r.get("url") or "")):
             continue
         url = str(r["url"])
@@ -550,7 +550,7 @@ def day_has_video(memory_path: Path, episode_id: str, video_id: str) -> bool:
     fm = (f.frontmatter or {}) if f is not None else {}
     if str(fm.get("origin") or "") != watch_history.ORIGINS["youtube"] or not _live(fm):
         return False
-    for r in (fm.get("watched") or [])[:DAY_VIDEOS_MAX]:
+    for r in watch_history.stored_rows(Path(memory_path), fm)[:DAY_VIDEOS_MAX]:
         if isinstance(r, dict) and video_id in str(r.get("url") or ""):
             ref = video_urls.resolve(str(r["url"]))
             if ref is not None and ref.provider == "youtube" and ref.video_id == video_id:

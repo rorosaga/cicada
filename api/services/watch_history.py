@@ -35,7 +35,10 @@ capture, ungated, like every Awake writer).
 """
 from __future__ import annotations
 
+import json
+import os
 import re
+import tempfile
 import threading
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta, timezone
@@ -296,6 +299,106 @@ def _rows_of(fm: dict) -> list[dict]:
     return rows
 
 
+#: A day's watched rows live beside the bank's other source records, never in the episode: every episode's header is
+#: read on a cold start and cached for the backend's life (``bank_index``), and a heavy watcher's years of rows there
+#: cost every cold start ~1.3 s (speed 2026-10-29, the shape #528 gave Spotify's plays). One small JSON file per day,
+#: committed with its day. A day written before the move keeps its rows in its frontmatter until the bank's one-shot
+#: migration (``watch_rows_migration``) moves them; every reader takes either (:func:`stored_rows`).
+ROWS_DIR = ("sources", "watched")
+
+
+def rows_path(memory_path: Path, platform: str, day: date) -> Path:
+    return Path(memory_path).joinpath(*ROWS_DIR, platform, f"{day.isoformat()}.json")
+
+
+def _day_key(fm: dict) -> tuple[str, date] | None:
+    parsed = _day_of(str(fm.get("source_id") or ""))
+    if parsed is not None:
+        return parsed
+    platform, day = str(fm.get("platform") or ""), parse_day(fm.get("watched_on"))
+    return (platform, day) if platform in PLATFORMS and day is not None else None
+
+
+#: rows file -> ((mtime_ns, size), its raw rows). Process-local; a file that moved is read again.
+_ROW_FILES: dict[str, tuple[tuple[int, int], list]] = {}
+_ROW_FILES_LOCK = threading.Lock()
+
+
+def stored_rows(memory_path: Path, fm: dict | None) -> list:
+    """A watched day's rows as stored — its rows file, or (a day the migration has not reached) its frontmatter's
+    ``watched`` list. Raw: each reader keeps its own checks."""
+    fm = fm or {}
+    key = _day_key(fm)
+    if key is not None:
+        path = rows_path(memory_path, *key)
+        try:
+            st = os.stat(path)
+        except OSError:
+            st = None
+        if st is not None:
+            stamp = (st.st_mtime_ns, st.st_size)
+            with _ROW_FILES_LOCK:
+                hit = _ROW_FILES.get(str(path))
+            if hit is not None and hit[0] == stamp:
+                return hit[1]
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                data = None
+            if isinstance(data, list):
+                with _ROW_FILES_LOCK:
+                    _ROW_FILES[str(path)] = (stamp, data)
+                return data
+    raw = fm.get("watched")
+    return raw if isinstance(raw, list) else []
+
+
+def day_rows(memory_path: Path, fm: dict | None) -> list[dict]:
+    """:func:`stored_rows`, checked and normalised (``_rows_of``)."""
+    return _rows_of({"watched": stored_rows(memory_path, fm)})
+
+
+def write_rows(memory_path: Path, platform: str, day: date, rows: list[dict]) -> bool:
+    """The day's rows, atomically; ``False`` when the file already says exactly this."""
+    path = rows_path(memory_path, platform, day)
+    text = json.dumps(rows, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n"
+    try:
+        if path.read_text(encoding="utf-8") == text:
+            return False
+    except OSError:
+        pass
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # `.tmp`: the bank's `.*.tmp` ignore covers it while it exists; removed if anything stops the write.
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".rows-", suffix=".tmp", text=True)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+    return True
+
+
+def rows_signature(memory_path: Path) -> tuple:
+    """Each platform's rows folder as its ``(nanosecond mtime, size)``: a cache built from the rows moves when one
+    does (a day that only learnt a raw instant rewrites its rows file and not its episode). One stat per platform, not
+    one per day: every rows file arrives by a rename into its folder (:func:`write_rows`, or a restore's
+    unlink-and-create), and either moves the folder's mtime."""
+    out = []
+    root = Path(memory_path).joinpath(*ROWS_DIR)
+    for platform in sorted(PLATFORMS):
+        try:
+            st = os.stat(root / platform)
+        except OSError:
+            continue
+        out.append((platform, st.st_mtime_ns, st.st_size))
+    return tuple(out)
+
+
 def _dwell(value) -> int:
     """Seconds in front, bounded to a day; anything else is 0."""
     if isinstance(value, bool):
@@ -393,27 +496,30 @@ def record(memory_path: Path, watches: Iterable[Watch], *, bank: str | None = No
         with episode_staging.STAGE_LOCK, episode_ids.episode_lock(episodes_dir):
             index, _ = episode_staging.scan(episodes_dir)
             drafts: list[episode_staging.EpisodeDraft] = []
+            rows_by_day: dict[tuple[str, date], list[dict]] = {}
             for platform, day in step:
                 sid = source_id(platform, day)
                 entry = index.get(sid)
-                rows, added = merge(_rows_of(entry.fm) if entry else [], groups[(platform, day)])
+                rows, added = merge(day_rows(memory_path, entry.fm) if entry else [], groups[(platform, day)])
                 result.added += added
+                rows_by_day[(platform, day)] = rows
+                # The rows go to their own file (`write_rows`); a day written before the move drops its copy.
+                legacy = {"watched": None} if entry is not None and "watched" in entry.fm else {}
                 drafts.append(episode_staging.EpisodeDraft(
                     title=f"Watched on {PLATFORMS[platform]} · {day.isoformat()}", source_id=sid, source=SOURCE,
                     origin=ORIGINS[platform], original_date=day.isoformat(), timestamp=_timestamp(day, rows),
                     body=render(platform, day, rows),
-                    extra={"platform": platform, "watched_on": day.isoformat(), "videos": len(rows),
-                           "watched": rows},
+                    extra={"platform": platform, "watched_on": day.isoformat(), "videos": len(rows), **legacy},
                     # Owner ruling 2026-10-18: a watched day is indexed, never read by a model.
                     queue_for_sleep=False, processed_by=history_index.INDEXED_BY,
                     writer=SCRUB_WRITER))
             staged = episode_staging.stage(drafts, episodes_dir, bank=bank)
-            # A day whose words did not move may still have learnt a raw instant (`seen`): kept in its frontmatter
-            # alone, under the same locks, never re-queued — the next merge needs it to be order-free.
-            for verdict, draft in zip(staged.verdicts, drafts):
-                entry = index.get(draft.source_id)
-                if verdict == "skipped" and entry is not None and _refresh_seen(entry.path, draft.extra["watched"]):
-                    result.paths.append(str(entry.path.relative_to(Path(memory_path))))
+            # Every day's rows, under the same locks: a day whose words did not move may still have learnt a raw
+            # instant (`seen`), which the next merge needs to be order-free — its rows file moves, its episode does
+            # not (never re-queued).
+            for (platform, day), rows in rows_by_day.items():
+                if write_rows(memory_path, platform, day, rows):
+                    result.paths.append(str(rows_path(memory_path, platform, day).relative_to(Path(memory_path))))
         for verdict, draft in zip(staged.verdicts, drafts):
             if verdict == "created":
                 result.days_created += 1
@@ -430,31 +536,6 @@ def record(memory_path: Path, watches: Iterable[Watch], *, bank: str | None = No
     result.paths.extend(rollup(memory_path, months=months, bank=bank).paths)
     result.paths = sorted(set(result.paths))
     return result
-
-
-def _refresh_seen(path: Path, rows: list[dict]) -> bool:
-    """A day whose words did not change keeps its frontmatter as it was (``via`` names only the doors that wrote its
-    words) except each video's raw instants, ``seen``, which the next merge needs. Body, hashes and queue untouched."""
-    parsed = markdown_parser.parse(path)
-    fm = dict(parsed.frontmatter)
-    stored = fm.get("watched")
-    if not isinstance(stored, list):
-        return False
-    seen_by_url = {media_ingestor.url_hash(r["url"]): r.get("seen") or [] for r in rows}
-    changed = False
-    updated = []
-    for r in stored:
-        if isinstance(r, dict) and r.get("url"):
-            want = seen_by_url.get(media_ingestor.url_hash(str(r["url"])))
-            if want is not None and list(r.get("seen") or []) != want:
-                r = {**r, "seen": want}
-                changed = True
-        updated.append(r)
-    if not changed:
-        return False
-    fm["watched"] = updated   # a watch day carries no `turns` sidecar, so the key order is the stored one
-    markdown_parser.write(path, fm, parsed.body)
-    return True
 
 
 # --- the month's summary: counted, never read (owner ruling 2026-10-18) --------------------------------------------
@@ -577,7 +658,7 @@ def rollup(memory_path: Path, *, months: Iterable[tuple[str, str]] | None = None
             key = (platform, _month_key(day))
             if want is not None and key not in want:
                 continue
-            rows = _rows_of(entry.fm)
+            rows = day_rows(memory_path, entry.fm)
             if rows:
                 grouped.setdefault(key, []).append((day, rows, entry.fm))
         drafts: list[episode_staging.EpisodeDraft] = []
@@ -616,13 +697,13 @@ _CHANNEL_LOCK = threading.Lock()
 
 def channel_totals(memory_path: Path) -> dict[str, dict]:
     """``{folded channel name: {name, videos, days, first, last, platforms}}`` over every watched day the bank holds.
-    Frontmatter only (the cached scan), recomputed only when a day file moved."""
+    From each day's rows (its rows file, or a not-yet-moved day's frontmatter), recomputed only when a day or its rows moved."""
     from api.services import bank_index
 
     memory_path = Path(memory_path)
     entries = [f for f in bank_index.files(memory_path, "episodes")
                if history_index.kind(f.frontmatter) == "history" and not f.frontmatter.get("source_deleted_at")]
-    signature = tuple(sorted((f.path.name, f.mtime_ns, f.size) for f in entries))
+    signature = (tuple(sorted((f.path.name, f.mtime_ns, f.size) for f in entries)), rows_signature(memory_path))
     key = str(memory_path)
     with _CHANNEL_LOCK:
         cached = _CHANNEL_CACHE.get(key)
@@ -634,7 +715,7 @@ def channel_totals(memory_path: Path) -> dict[str, dict]:
         if parsed is None:
             continue
         platform, day = parsed
-        for r in _rows_of(f.frontmatter):
+        for r in day_rows(memory_path, f.frontmatter):
             ch = " ".join((r.get("channel") or "").split())
             if not ch:
                 continue
@@ -1100,13 +1181,13 @@ _ROWS_CACHE: dict[str, tuple[tuple, list[tuple]]] = {}
 
 def _history_rows(memory_path: Path) -> list[tuple]:
     """Every watched row the bank holds as ``(platform, day, url, channel, title, first watch instant, watch instants,
-    episode id)``, day order. Frontmatter only (the cached scan), recomputed only when a day file moved."""
+    episode id)``, day order. From each day's rows (its rows file, or a not-yet-moved day's frontmatter), recomputed only when a day or its rows moved."""
     from api.services import bank_index
 
     memory_path = Path(memory_path)
     entries = [f for f in bank_index.files(memory_path, "episodes")
                if history_index.kind(f.frontmatter) == "history" and not f.frontmatter.get("source_deleted_at")]
-    signature = tuple(sorted((f.path.name, f.mtime_ns, f.size) for f in entries))
+    signature = (tuple(sorted((f.path.name, f.mtime_ns, f.size) for f in entries)), rows_signature(memory_path))
     key = str(memory_path)
     with _CHANNEL_LOCK:
         cached = _ROWS_CACHE.get(key)
@@ -1115,8 +1196,8 @@ def _history_rows(memory_path: Path) -> list[tuple]:
     rows: list[tuple] = []
     for f in entries:
         parsed = _day_of(str(f.frontmatter.get("source_id") or ""))
-        raw = f.frontmatter.get("watched")
-        if parsed is None or not isinstance(raw, list):
+        raw = stored_rows(memory_path, f.frontmatter)
+        if parsed is None or not raw:
             continue
         platform, day = parsed
         for r in raw:

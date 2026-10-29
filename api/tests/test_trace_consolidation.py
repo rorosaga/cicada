@@ -22,6 +22,11 @@ CHROME = "com.google.Chrome"
 EDITOR = "com.example.Editor"
 
 
+# Capture-class writes: episodes, and a watched day's rows file beside its episode (`sources/watched/`, written only by
+# `watch_history` under the episode lock, never by Sleep).
+_CAPTURE_PREFIXES = ("episodes/", "sources/watched/")
+
+
 @pytest.fixture(autouse=True)
 def utc(monkeypatch):
     monkeypatch.setenv("TZ", "UTC")
@@ -197,7 +202,7 @@ def test_a_page_read_on_any_site_joins_its_days_reading_record_index_only(tmp_pa
     assert _episodes(memory, "watch-history:youtube:")                 # the video joined the watch history
     assert reading.frontmatter["processed_by"] == history_index.INDEXED_BY
     assert not history_index.waits_for_model(reading.frontmatter)     # never read by a model (ruling 30)
-    assert all(p.startswith("episodes/") for p in paths)
+    assert all(p.startswith(_CAPTURE_PREFIXES) for p in paths)
     # Idempotent: the same day again writes nothing.
     assert trace_memory.write_reading(memory, store, {trace_store.local_day(start)}, until=_now()) == []
 

@@ -197,7 +197,7 @@ def _watched(memory_path: Path, have: set[str]) -> list[Picture]:
                 or history_index.kind(fm) == "month"):
             continue
         day = str(fm.get("watched_on") or fm.get("original_date") or "")[:10]
-        for row in (fm.get("watched") or [])[:channel_items.DAY_VIDEOS_MAX]:
+        for row in watch_history.stored_rows(Path(memory_path), fm)[:channel_items.DAY_VIDEOS_MAX]:
             if not isinstance(row, dict):
                 continue
             ref = video_urls.resolve(str(row.get("url") or ""))
