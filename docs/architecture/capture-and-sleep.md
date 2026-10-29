@@ -2009,6 +2009,23 @@ listed as an alias. Four gaps caused it, each closed:
   `merge_rejections`, never a merge; the card says the conversation named the full name and the page carries only
   the given name.
 
+- **One person across sources (owner 2026-10-28, `contact_identity`).** Stage 1 marks a `person` entity of a chat
+  sitting whose name or alias folds to exactly one participant (a group member or a one-to-one chat's person) that
+  carries an address-book card (`contact_card`, never the model's). Stage 2 reads it before any name: the one page
+  whose sources carry the card's ref is the match (a mention spelled otherwise in the chat lands there, a same-name
+  page of someone else never takes it), and a one-to-one correspondent finds that page before `find_page`. With no
+  such page, a waiting card is used **only once the usual rules promote the mention** — the page is then born under
+  the card's name with its photo and sources (`WaitingIndex.by_id`); below the bar nothing is made (owner
+  2026-10-20). Never the owner's card or page, never a relation-only mention.
+  **A first name heard elsewhere is asked, never joined.** A one-word person name heard outside a chat (a harness
+  session, an export, a note, a calendar entry) that begins exactly one full-name person page heard in a chat —
+  on disk or born this batch — is never joined on the first name: a judge's `same` or `unsure` becomes the question,
+  and a held one asks after the loop (`_held_alias_questions`, `_full_name_pages`). The question records where each
+  side was heard (`heard_in: {mention, page}` — words, never ids), and the inbox says it in the owner's words:
+  "Is the <name> in your group chat the same <name> you talked to Claude about?" (`inbox_wording`). A model's trailing
+  note on the name ("<name> (unnamed surname)") is ignored for this. Seen on haiku through the real doors
+  (`/sources/messages/sync`, `/capture/turn`, Sleep, `GET /inbox`), synthetic chat and session, 2026-10-29.
+
 Nothing here settles who a person is (ruling 29): every lead ends in the person's question. A duplicate question about
 a name still parked below the promotion bar is live while its pending line exists (`inbox_service._subject_gone`,
 `pending_store.waiting_ids`). Before 2026-10-22 it was read as "no longer in your memory", hidden from the inbox and

@@ -1139,7 +1139,8 @@ Round 4 (C2–C4):
   `$CICADA_HOME/pictures/<bank>/messages/<conversation>.png` with `meta.json` (`{sha, ext}` per conversation) —
   **never in a bank, never in git, never sent anywhere**; nothing is written to a page. Stored by conversation and
   drawn at its **linked page**, derived at read (`messages_photos.links`): the newest live sitting's decided
-  `correspondent` record through `correspondents.find_page` — the rule Stage 2 and `waiting`'s `page` use — so a page
+  `correspondent` record — first the page its address-book card names (`contact_identity`, below), then
+  `correspondents.find_page` — the rule Stage 2 and `waiting`'s `page` use — so a page
   Sleep creates later, the person's mark or its removal moves the link with no second post; an undecided chat links
   nothing. A changed photo replaces it (new `?v=<sha>`), a post of `null` removes it, unticking removes it
   (`messages_photos.forget`, from `PUT /sources/messages/settings`). Served by `GET /entities/{id}/picture`. Its stamp
@@ -1198,6 +1199,13 @@ Round 4 (C2–C4):
   `graph_builder`'s cache key (`VersionVector` maps it onto `.graph`). The person's
   upload outranks it and "Use initials" (kept in the bank) removes it for good. A demo bank asks nobody and never offers
   the owner's email (`demo_guard.is_demo`). The fetch's rules are in `network.md`.
+- **One person across sources (owner 2026-10-28, `contact_identity`).** No second identity table: a chat's records
+  carry the ONE address-book card the app found for a handle, by its Contacts id — the `correspondent` record's
+  `contact` (a one-to-one chat with a person) and each `participants` row's `contact` (a group member; never an agent
+  member) — and a page the Contacts sync matched carries that card's `addressbook://<id>` sources. A card id names the
+  one person page whose sources carry it (never the owner's page, never a card two pages carry). The id is the opaque
+  `CNContact` identifier the sync already stores; a value shaped like a phone number or an address is refused
+  (`clean_card_id`), so no handle ever lands in a bank. WhatsApp and Telegram readers fill the same two records.
 - `contacts_photo:` (G154, read by G146) — `{sha, ext}` on a `person` page Contacts matched (`ext` jpg|png, jpg when
   absent); the thumbnail itself is a cache at `$CICADA_HOME/pictures/<bank>/contacts/<id>.<ext>`, never in a bank.
   Written by the Contacts sync only (`contacts_local.photo_path`, the same path `entity_picture.contacts_path` reads).

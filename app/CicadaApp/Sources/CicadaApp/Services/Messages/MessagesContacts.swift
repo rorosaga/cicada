@@ -7,6 +7,9 @@ import Foundation
 struct MessagesContactCard: Equatable, Sendable {
     var name: String
     var thumbnail: Data?
+    /// The card's own Contacts identifier — the same opaque id the Contacts sync posts — set only when exactly ONE
+    /// card holds the handle (one person across sources, 2026-10-28). Never a phone number or an address.
+    var id: String? = nil
 }
 
 enum MessagesContacts {
@@ -24,9 +27,11 @@ enum MessagesContacts {
                 let predicate = handle.contains("@")
                     ? CNContact.predicateForContacts(matchingEmailAddress: handle)
                     : CNContact.predicateForContacts(matching: CNPhoneNumber(stringValue: handle))
-                guard let contact = try? store.unifiedContacts(matching: predicate, keysToFetch: keys).first else { continue }
+                guard let found = try? store.unifiedContacts(matching: predicate, keysToFetch: keys),
+                      let contact = found.first else { continue }
                 let name = CNContactFormatter.string(from: contact, style: .fullName) ?? ""
-                out[handle] = MessagesContactCard(name: name, thumbnail: contact.thumbnailImageData)
+                out[handle] = MessagesContactCard(name: name, thumbnail: contact.thumbnailImageData,
+                                                  id: found.count == 1 ? contact.identifier : nil)
             }
             return out
         }.value

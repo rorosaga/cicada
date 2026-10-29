@@ -5339,6 +5339,8 @@ class MessagesConversationIn(CamelModel):
     #: A group's members (2026-10-28): each one's participant key, the name the person sees for them, and the id of
     #: their own one-to-one chat when there is one — never a handle.
     members: list["MessagesMemberIn"] = []
+    #: A one-to-one chat: the ONE address-book card holding the other side's handle, by its Contacts id.
+    contact: Optional[str] = None
 
 
 class MessagesMemberIn(CamelModel):
@@ -5347,6 +5349,9 @@ class MessagesMemberIn(CamelModel):
     key: str
     name: str = ""
     direct: Optional[str] = None
+    #: The ONE address-book card holding this member's handle, by its Contacts id (`contact_identity`); never the
+    #: handle. Absent when no card, or more than one, holds it.
+    contact: Optional[str] = None
 
 
 MessagesConversationIn.model_rebuild()

@@ -807,6 +807,9 @@ Bob and 2 more"), else "Group of N" (`Copy.Messages.groupTitle`), the one pill `
 who-is-who line as its help, and it has no *Who is this?* menu or question — a member keeps the mark of their own
 one-to-one chat. Its members' handles stay in the app (`MessagesConversation.members`), looked up in Contacts only
 when Contacts is already allowed; a pass posts each member as `MessagesReader.memberKey` with their Contacts name.
+Since 2026-10-28 (one person across sources) the look-up also keeps the card's `identifier` when exactly ONE card
+holds the handle (`MessagesContactCard.id`), and a pass posts it — `members[].contact`, or `conversation.contact` for
+a one-to-one chat — never the handle.
 `MessagesWatcher` (environment, started
 on launch, `bankChanged` on a switch) owns the list, the per-memory ROWID cursors (`cicada.messages.cursor.<bank>.<id>`
 in UserDefaults), the FSEvents watch on `~/Library/Messages` and the waiting bubbles; `MessagesReader` is the one SQL

@@ -94,6 +94,31 @@ final class MessagesReaderTests: XCTestCase {
                                                    handle: "+15550000021"), keys[0])
     }
 
+    func testACardIdCrossesBesideTheChatNeverTheHandle() throws {
+        let one = chat("+15550000031")
+        message(one, minute: 0, fromMe: true, text: "lunch?")
+        let group = synthetic.group(["+15550000032"], name: "Crew")
+        synthetic.message(group, minute: 1, from: "+15550000032", text: "yes")
+        let reader = MessagesReader(database: dbURL)
+        let listed = try reader.conversations()
+        let direct = try XCTUnwrap(listed.first { $0.chatRowId == one })
+        let pass = try reader.read(direct, name: "Robert Example", contact: "CARD-R", since: MessagesCursor())
+        let conv = try XCTUnwrap(try object(pass)["conversation"] as? [String: Any])
+        XCTAssertEqual(conv["contact"] as? String, "CARD-R")
+        let crew = try XCTUnwrap(listed.first { $0.chatRowId == group })
+        let key = MessagesReader.memberKey(conversationId: crew.id, handle: "+15550000032")
+        let groupPass = try reader.read(crew, name: "Crew",
+                                        members: [MessagesMemberPayload(key: key, name: "Alice Example", direct: nil,
+                                                                        contact: "CARD-A")],
+                                        contact: "IGNORED", since: MessagesCursor())
+        let body = try object(groupPass)
+        let groupConv = try XCTUnwrap(body["conversation"] as? [String: Any])
+        XCTAssertNil(groupConv["contact"], "a group has no single card; its members carry theirs")
+        XCTAssertEqual((groupConv["members"] as? [[String: Any]])?.first?["contact"] as? String, "CARD-A")
+        let text = String(decoding: pass.json, as: UTF8.self) + String(decoding: groupPass.json, as: UTF8.self)
+        XCTAssertFalse(text.contains("5550000031") || text.contains("5550000032"), "a handle never crosses")
+    }
+
     func testAGroupTitleIsItsNameElseItsMembers() {
         XCTAssertEqual(Copy.Messages.groupTitle([], count: 3), "Group of 4")
         XCTAssertEqual(Copy.Messages.groupTitle(["Alice Example", "Bob Example"], count: 2), "Alice Example, Bob Example")

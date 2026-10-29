@@ -166,7 +166,8 @@ final class MessagesWatcher {
         return conversation.members.map { handle in
             MessagesMemberPayload(key: MessagesReader.memberKey(conversationId: conversation.id, handle: handle),
                                   name: memberCards[handle]?.name ?? "",
-                                  direct: conversations.first { !$0.isGroup && $0.handle == handle }?.id)
+                                  direct: conversations.first { !$0.isGroup && $0.handle == handle }?.id,
+                                  contact: memberCards[handle]?.id)
         }
     }
 
@@ -348,10 +349,12 @@ final class MessagesWatcher {
             }
             let name = self.postedName(of: conversation)
             let members = self.memberPayloads(of: conversation)
+            // A one-to-one chat's other side, by their one address-book card (never the handle).
+            let contact = conversation.isGroup ? nil : cards[conversation.id]?.id
             for _ in 0..<20 {   // bounded catch-up: at most 20 batches per pass
                 let since = cursor
                 let pass = try await Task.detached(priority: .utility) {
-                    try reader.read(conversation, name: name, members: members, since: since)
+                    try reader.read(conversation, name: name, members: members, contact: contact, since: since)
                 }.value
                 try Task.checkCancellation()
                 if pass.count == 0 { break }

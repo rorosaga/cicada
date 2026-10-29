@@ -27,10 +27,13 @@ struct MessagesMemberPayload: Equatable, Sendable {
     let key: String
     let name: String
     let direct: String?
+    /// The member's ONE address-book card, by its Contacts id (never the handle); nil when none or several.
+    var contact: String? = nil
 
     var json: [String: Any] {
         var out: [String: Any] = ["key": key, "name": name]
         if let direct { out["direct"] = direct }
+        if let contact { out["contact"] = contact }
         return out
     }
 }
