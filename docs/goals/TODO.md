@@ -20,6 +20,12 @@
   ≤ 1 a minute per bank) and `seq` on `/tools/call` replies; mutating tool calls take an `Idempotency-Key` (8 days).
   Off, nothing changes (`test_sync_off_unchanged.py`). Measured on a synthetic bank: tool write p95 unchanged off
   (93.7 → 90.0 ms, interleaved), 92.9 ms on and keyed. Next: PR B, the replica (headless.md).
+- **2026-10-29 — dev suite after #556–#562, and the source page's list at the cost of its own source (G161; branch
+  `fix/dev-suite-5-speed`).** Full suites: backend 3 failures, one real — `test_mcp_stdio_golden` pinned recall before
+  #560's rare-word excerpt leg (fixture re-recorded), and `test_cli_reads`' CLI-equals-MCP recall raced the words
+  index #560's leg reads (now built inline; the CLI's dropped "read one whole" pointer stripped); two wall-clock tests
+  failed only under the parallel Swift build and pass alone. Swift 4,291 tests, 0 failures. `GET /sources/channels/{id}/items` no longer walks every episode:
+  empty source 86 → 1.4 ms p95, largest 97 → 8.4, Sources page open 399 → 90 (owner's bank copy, stream open).
 - **2026-10-29 — one memory on every device is decided, not built (ruling 51, G132 phase 0; branch
   `docs/g132-phase0`, docs only).** The owner's sync-engine decisions are binding: one home applies every write and
   runs Sleep, every computer may hold a fast-forward-only replica, other devices' writes are idempotency-keyed

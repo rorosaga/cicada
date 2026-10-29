@@ -1797,6 +1797,13 @@ by `test_main_access_log`). The app cuts a search at 200 code points, whole char
 `sources`+`episodes`+`entities`+`photos` with the shape, channel, page and query in `extra`, and is **not** a Store domain: `ChannelItemsCache`
 keeps it in memory, revalidates when the list opens or the channels move, and empties on a bank switch. A row opens its
 episode in the Reader, a saved item in Sleep › Saved, a person in Clusters.
+**Speed (2026-10-29):** a list reads only its own source. `channel_items` keeps the episode headers by origin,
+`source_id` family, id, chat and folder, the media pages by origin (`bank_index.derived`, rebuilt when that folder's
+cached headers change), the url index by its file's stamp, and each built row by the identity of the header it came
+from; the route, `/sources/overview` and `/sources/channels` share one listing per directory between the ETag and the
+read (`sync_ticker.request_scans`, the SSE walk's when its gate allows). Owner's bank copy (8.9k episodes, 8k pages,
+in-process, stream open): an empty source 86 → 1.4 ms p95, one item 90 → 1.4, 372 items 68 → 3.5, the largest (3,156)
+97 → 8.4; Sources page open (`/sources/overview`) 399 → 90, `/sources/channels` 93 → 9; every list's rows identical.
 
 **Clusters and Sleep's saved lists (Direction D, DS-3c; the Feed folded into Sleep 2026-10-16).** Clusters is a list
 page in progressive columns, and the Feed's list lives on as the Sleep page's Saved and Videos tabs (below, and the

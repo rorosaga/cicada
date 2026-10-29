@@ -63,7 +63,9 @@ number (the drifts above are real and disclosed).
 from __future__ import annotations
 
 import json
+import time
 from datetime import date, datetime, timezone
+from functools import cached_property
 from pathlib import Path
 
 from api.services import (
@@ -240,9 +242,35 @@ def _without_day(title: str, day: str | None) -> str:
     return title
 
 
+#: Rows already built, by what they were built from (source page speed, 2026-10-29): a title's scrub and a stamp's
+#: parse are most of a long list's time, and an unchanged header is the same object between reads (`bank_index`), so
+#: ``(key) -> (the inputs, held, the row)`` answers it by identity. The inputs are held, so an id is never reused while
+#: its entry lives; the local zone rides the check (a naive stamp is read in it). Bounded: cleared past the cap.
+_ROWS: dict[tuple, tuple] = {}
+_ROWS_MAX = 100_000
+
+
+def _memo_row(key: tuple, inputs: tuple, build) -> dict:
+    """A copy of the row ``build()`` made from ``inputs`` (compared by identity, and the zone by value)."""
+    stamp = (time.timezone, time.altzone, time.daylight)
+    hit = _ROWS.get(key)
+    if hit is not None and hit[1] == stamp and len(hit[0]) == len(inputs) and all(
+            a is b for a, b in zip(hit[0], inputs)):
+        return dict(hit[2])
+    row = build()
+    if len(_ROWS) >= _ROWS_MAX:
+        _ROWS.clear()
+    _ROWS[key] = (inputs, stamp, dict(row))
+    return row
+
+
 def _episode_row(fm: dict, stem: str, *, when_key: str | None = None) -> dict:
     """An episode by its own title. The day is `when_key`'s value when given (an event's start), else the
     day the source dated it (`original_date`), else the day Cicada captured it."""
+    return _memo_row(("episode", stem, when_key), (fm,), lambda: _build_episode_row(fm, stem, when_key=when_key))
+
+
+def _build_episode_row(fm: dict, stem: str, *, when_key: str | None = None) -> dict:
     own = fm.get(when_key) if when_key else None
     when = own or fm.get("original_date") or fm.get("timestamp")
     # An event's day is its own calendar day as written (`2026-10-01T09:00:00-05:00` is Oct 1), never shifted to UTC.
@@ -252,27 +280,133 @@ def _episode_row(fm: dict, stem: str, *, when_key: str | None = None) -> dict:
     return _with_received(row, episode_time.received_after(when, fm.get(episode_ids.RECEIVED_KEY)))
 
 
+# --- the indexes a list reads (source page speed, 2026-10-29) ---------------------------------------------------------
+# A source's list used to walk every episode (and every page, and parse the url index) on each read: ~65 ms for an
+# empty source on a 9k-episode bank. These indexes are derived from `bank_index`'s cached headers and kept until that
+# folder's cache changes (`bank_index.derived`), so a list reads only its own source's files. Disposable, process-local.
+
+#: `source_id` families a list selects by prefix: a calendar's events, the reminders, each browser's tab groups.
+_FAMILIES = (calendar_local.SOURCE_PREFIX, reminders_local.SOURCE_PREFIX,
+             *(f"{tab_groups.SOURCE_PREFIX}{browser}:" for browser in tab_groups.BROWSERS))
+
+
+class _EpisodeIndex:
+    """The episode headers by what a list selects on — origin, ``source_id`` family, id, chat, folder — each bucket in
+    the folder's own (name) order, so a list sees its files in the order a full walk did."""
+
+    def __init__(self, entries):
+        self.by_origin: dict[str, list] = {}
+        self.by_family: dict[str, list] = {}
+        self.by_id: dict[str, list] = {}
+        self.by_conversation: dict[str, list] = {}
+        self.by_folder: dict[str, list] = {}
+        for f in entries:
+            fm = f.frontmatter or {}
+            self.by_origin.setdefault(str(fm.get("origin") or ""), []).append(f)
+            self.by_id.setdefault(str(fm.get("id") or f.stem), []).append(f)
+            sid = str(fm.get("source_id") or "")
+            for prefix in _FAMILIES:
+                if sid.startswith(prefix):
+                    self.by_family.setdefault(prefix, []).append(f)
+            if cid := str(fm.get("conversation") or ""):
+                self.by_conversation.setdefault(cid, []).append(f)
+            if fm.get("origin") == folder_source.ORIGIN:
+                self.by_folder.setdefault(str(fm.get("folder_id") or ""), []).append(f)
+
+    def origins(self, origins) -> list:
+        """The files of any of ``origins``, in name order."""
+        buckets = [self.by_origin.get(o, []) for o in dict.fromkeys(origins)]
+        if len(buckets) == 1:
+            return buckets[0]
+        return sorted((f for b in buckets for f in b), key=lambda f: f.path.name)
+
+
+def _episode_index(memory_path: Path) -> _EpisodeIndex:
+    return bank_index.derived(memory_path, "episodes", "channel_items", _EpisodeIndex)
+
+
+class _MediaPages:
+    """The media pages (``pages``: id -> frontmatter, in the folder's order) and their ids by stamped origin."""
+
+    def __init__(self, entries):
+        self.pages = {f.stem: f.frontmatter or {} for f in entries if (f.frontmatter or {}).get("type") == "media"}
+        self.by_origin: dict[str, list[str]] = {}
+        self.position = {}
+        for i, (entity_id, fm) in enumerate(self.pages.items()):
+            self.by_origin.setdefault(str(fm.get("origin") or "").strip(), []).append(entity_id)
+            self.position[entity_id] = i
+
+
+def _media_pages(memory_path: Path) -> _MediaPages:
+    return bank_index.derived(memory_path, "entities", "channel_items.media", _MediaPages)
+
+
+def _person_pages(memory_path: Path) -> list:
+    return bank_index.derived(memory_path, "entities", "channel_items.people",
+                              lambda entries: [f for f in entries if (f.frontmatter or {}).get("type") == "person"])
+
+
+#: bank -> ((mtime_ns, size, inode) of `sources/url_index.json`, (by_hash, by_entity)). The index is written by an
+#: atomic rename (`media_ingestor.save_url_index`), so the stamp moves with every write.
+_URL_INDEX: dict[str, tuple[tuple, tuple[dict, dict]]] = {}
+
+
+def _url_index(memory_path: Path) -> tuple[dict, dict]:
+    path = Path(memory_path) / "sources" / "url_index.json"
+    try:
+        st = path.stat()
+        stamp = (st.st_mtime_ns, st.st_size, st.st_ino)
+    except OSError:
+        stamp = None
+    hit = _URL_INDEX.get(str(memory_path))
+    if stamp is not None and hit is not None and hit[0] == stamp:
+        return hit[1]
+    try:
+        index = media_ingestor.load_url_index(Path(memory_path))
+    except Exception:
+        index = {}
+    by_hash = index if isinstance(index, dict) else {}
+    by_entity: dict[str, dict] = {}
+    for entry in by_hash.values():
+        if isinstance(entry, dict) and entry.get("media_entity_id") and not entry.get("alias_of"):
+            by_entity.setdefault(str(entry["media_entity_id"]), entry)
+    if stamp is not None:
+        _URL_INDEX[str(memory_path)] = (stamp, (by_hash, by_entity))
+    return by_hash, by_entity
+
+
 class _Media:
-    """The saved-URL index and the media pages, read once per request."""
+    """The saved-URL index and the media pages (both kept between reads, read-only here), each read on first use: a
+    chat export's list that saved no link never lists the pages."""
 
     def __init__(self, memory_path: Path):
-        self.pages = {f.stem: f.frontmatter or {} for f in bank_index.files(memory_path, "entities")
-                      if (f.frontmatter or {}).get("type") == "media"}
-        try:
-            index = media_ingestor.load_url_index(memory_path)
-        except Exception:
-            index = {}
-        self.by_hash = index if isinstance(index, dict) else {}
-        self.by_entity: dict[str, dict] = {}
-        for entry in self.by_hash.values():
-            if isinstance(entry, dict) and entry.get("media_entity_id") and not entry.get("alias_of"):
-                self.by_entity.setdefault(str(entry["media_entity_id"]), entry)
+        self._memory_path = memory_path
+
+    @cached_property
+    def _pages(self) -> _MediaPages:
+        return _media_pages(self._memory_path)
+
+    @property
+    def pages(self) -> dict[str, dict]:
+        return self._pages.pages
+
+    @cached_property
+    def by_hash(self) -> dict:
+        return _url_index(self._memory_path)[0]
+
+    @cached_property
+    def by_entity(self) -> dict:
+        return _url_index(self._memory_path)[1]
 
     def row(self, entity_id: str) -> dict | None:
         fm = self.pages.get(entity_id)
         if fm is None or source_overview.is_hidden(fm):
             return None   # the Feed hides it too (F6), so a click would land nowhere
-        entry = self.by_entity.get(entity_id) or {}
+        held = self.by_entity.get(entity_id)
+        return _memo_row(("media", entity_id), (fm, held), lambda: self._build_row(entity_id, fm, held or {}))
+
+    @staticmethod
+    def _build_row(entity_id: str, fm: dict, entry: dict) -> dict:
         own = entry.get("content_saved_at") or entry.get(episode_time.PUBLISHED_KEY)
         saved = own or entry.get("saved_at") or fm.get("created")
         title = entry.get("title") or fm.get("name") or entry.get("url") or entity_id
@@ -285,13 +419,16 @@ class _Media:
         return row
 
     def by_origins(self, origins: tuple[str, ...], *, unstamped: bool = False) -> list[dict]:
-        wanted = set(origins)
+        wanted = list(dict.fromkeys(origins))
+        if unstamped and "" not in wanted:
+            wanted.append("")
+        buckets = [self._pages.by_origin.get(o, []) for o in wanted]
+        ids = buckets[0] if len(buckets) == 1 else sorted((i for b in buckets for i in b),
+                                                          key=self._pages.position.__getitem__)
         rows = []
-        for entity_id, fm in self.pages.items():
-            origin = str(fm.get("origin") or "").strip()
-            if (origin in wanted) or (unstamped and not origin):
-                if (row := self.row(entity_id)) is not None:
-                    rows.append(row)
+        for entity_id in ids:   # the pages' own order, as a walk of every page took them
+            if (row := self.row(entity_id)) is not None:
+                rows.append(row)
         return rows
 
 
@@ -325,14 +462,17 @@ def _notes(memory_path: Path) -> list[dict]:
         index = {}
     wanted = {str(v.get("episode_id")) for v in (index.values() if isinstance(index, dict) else [])
               if isinstance(v, dict) and v.get("episode_id")}
-    return [_episode_row(f.frontmatter or {}, f.stem) for f in bank_index.files(memory_path, "episodes")
-            if str((f.frontmatter or {}).get("id") or f.stem) in wanted]
+    by_id = _episode_index(memory_path).by_id
+    found = sorted((f for w in wanted for f in by_id.get(w, ())), key=lambda f: f.path.name)
+    return [_episode_row(f.frontmatter or {}, f.stem) for f in found]
 
 
-def _episodes(memory_path: Path, keep, *, when_key: str | None = None, media: _Media | None = None) -> list[dict]:
+def _episodes(memory_path: Path, keep, *, among, when_key: str | None = None,
+              media: _Media | None = None) -> list[dict]:
+    """The live episodes ``keep`` takes, read from ``among`` (the index bucket that holds every one of them)."""
     rows: list[dict] = []
     seen_media: set[str] = set()
-    for f in bank_index.files(memory_path, "episodes"):
+    for f in among:
         fm = f.frontmatter or {}
         if not _live(fm) or not keep(fm):
             continue
@@ -354,7 +494,7 @@ def _episodes(memory_path: Path, keep, *, when_key: str | None = None, media: _M
 
 def _contacts(memory_path: Path) -> list[dict]:
     rows = []
-    for f in bank_index.files(memory_path, "entities"):
+    for f in _person_pages(memory_path):
         fm = f.frontmatter or {}
         if fm.get("type") != "person" or fm.get("status") == "dropped":
             continue
@@ -399,18 +539,22 @@ def _collect(memory_path: Path, channel_id: str) -> list[dict]:
     if channel_id == calendar_local.CHANNEL_ID:
         return _episodes(memory_path,
                          lambda fm: str(fm.get("source_id") or "").startswith(calendar_local.SOURCE_PREFIX),
-                         when_key="event_start")
+                         when_key="event_start",
+                         among=_episode_index(memory_path).by_family.get(calendar_local.SOURCE_PREFIX, ()))
     if channel_id == "calendar":
-        return _episodes(memory_path, lambda fm: fm.get("origin") == "calendar", when_key="event_start")
+        return _episodes(memory_path, lambda fm: fm.get("origin") == "calendar", when_key="event_start",
+                         among=_episode_index(memory_path).origins(("calendar",)))
     if channel_id == contacts_local.CHANNEL_ID:
         return _contacts(memory_path)
     if channel_id == reminders_local.CHANNEL_ID:
         return _episodes(memory_path,
-                         lambda fm: str(fm.get("source_id") or "").startswith(reminders_local.SOURCE_PREFIX))
+                         lambda fm: str(fm.get("source_id") or "").startswith(reminders_local.SOURCE_PREFIX),
+                         among=_episode_index(memory_path).by_family.get(reminders_local.SOURCE_PREFIX, ()))
     for browser in tab_groups.BROWSERS:
         if channel_id == tab_groups.channel_id(browser):
             prefix = f"{tab_groups.SOURCE_PREFIX}{browser}:"
-            return _episodes(memory_path, lambda fm: str(fm.get("source_id") or "").startswith(prefix))
+            return _episodes(memory_path, lambda fm: str(fm.get("source_id") or "").startswith(prefix),
+                             among=_episode_index(memory_path).by_family.get(prefix, ()))
     media = _Media(memory_path)
     if channel_id in {bookmark_sync.channel_for(b) for b in bookmark_sync.CHROMIUM_BROWSERS} \
             or channel_id == "safari-bookmarks":
@@ -425,7 +569,8 @@ def _collect(memory_path: Path, channel_id: str) -> list[dict]:
         return _chat_rows(memory_path, CHAT_CHANNELS[channel_id])
     if channel_id in _ORIGIN_CHANNELS:
         origins = set(_ORIGIN_CHANNELS[channel_id])
-        return _episodes(memory_path, lambda fm: str(fm.get("origin") or "") in origins, media=media)
+        return _episodes(memory_path, lambda fm: str(fm.get("origin") or "") in origins, media=media,
+                         among=_episode_index(memory_path).origins(_ORIGIN_CHANNELS[channel_id]))
     if channel_id.startswith(folder_source.CHANNEL_PREFIX):
         return _folder(memory_path, channel_id[len(folder_source.CHANNEL_PREFIX):])
     return []
@@ -434,7 +579,7 @@ def _collect(memory_path: Path, channel_id: str) -> list[dict]:
 def _watched_days(memory_path: Path, origins: set[str]) -> list[dict]:
     """One row per watched day (never the month summaries, which are counted from these days), with `videos`."""
     rows = []
-    for f in bank_index.files(memory_path, "episodes"):
+    for f in _episode_index(memory_path).origins(sorted(origins)):
         fm = f.frontmatter or {}
         if str(fm.get("origin") or "") not in origins or not _live(fm) or history_index.kind(fm) == "month":
             continue
@@ -483,7 +628,7 @@ def _chat_rows(memory_path: Path, origin: str = messages_source.ORIGIN) -> list[
     names = _chat_names(memory_path, origin)
     chats: dict[str, dict] = {}
     rows = []
-    for f in bank_index.files(memory_path, "episodes"):
+    for f in _episode_index(memory_path).origins((origin,)):
         fm = f.frontmatter or {}
         if fm.get("origin") != origin or not _live(fm):
             continue
@@ -523,7 +668,7 @@ def chat_sittings(memory_path: Path, conversation: str) -> dict | None:
     if not messages_source.CONVERSATION_ID_RE.match(str(conversation or "")):
         return None
     out = []
-    for f in bank_index.files(Path(memory_path), "episodes"):
+    for f in _episode_index(Path(memory_path)).by_conversation.get(conversation, ()):
         fm = f.frontmatter or {}
         if (fm.get("origin") not in CHAT_ORIGINS or not _live(fm)
                 or str(fm.get("conversation") or "") != conversation):
@@ -624,7 +769,7 @@ def _folder(memory_path: Path, folder_id: str) -> list[dict]:
     (`folder_source.drafts_for_file`), and the list names the file once, by its own name, opening at its first
     section. The folder's label and the path are not repeated — the row already says which folder (DR-38)."""
     by_file: dict[str, tuple[str, dict, str]] = {}
-    for f in bank_index.files(memory_path, "episodes"):
+    for f in _episode_index(memory_path).by_folder.get(folder_id, ()):
         fm = f.frontmatter or {}
         if fm.get("origin") != folder_source.ORIGIN or str(fm.get("folder_id") or "") != folder_id or not _live(fm):
             continue

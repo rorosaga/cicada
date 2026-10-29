@@ -70,6 +70,7 @@ from api.services import (
     source_overview,
     sync_service,
     sync_state,
+    sync_ticker,
     watch_history,
     listening_history,
     write_admission,
@@ -1225,13 +1226,6 @@ async def sources_overview(
     # marks-2: `siteIcons` too — a saved row's faces put sites with a cached own icon first (`VersionVector` maps it to
     # `.sourcesOverview` in the same PR).
     feed_fetch = feed_registry.fetch_allowed()
-    etag = sync_service.etag_for(
-        memory_path, "sources", "episodes", "entities", "photos", "siteIcons",
-        extra=(f"{source_overview.SHAPE}|telegram:{settings.telegram_enabled}|connectors:{connector_tag}"
-               f"|feeds:{feed_fetch}"),
-    )
-    if (early := sync_service.conditional(request, response, etag)) is not None:
-        return early
 
     def _build() -> list[dict]:
         channels = channel_registry.build_channels(
@@ -1242,7 +1236,16 @@ async def sources_overview(
         )
         return source_overview.build_overview(memory_path, channels=channels)
 
-    rows = await run_in_threadpool(_build)
+    # Source page speed (2026-10-29): the ETag and the build share one listing per directory (`request_scans`).
+    with sync_ticker.request_scans(memory_path):
+        etag = sync_service.etag_for(
+            memory_path, "sources", "episodes", "entities", "photos", "siteIcons",
+            extra=(f"{source_overview.SHAPE}|telegram:{settings.telegram_enabled}|connectors:{connector_tag}"
+                   f"|feeds:{feed_fetch}"),
+        )
+        if (early := sync_service.conditional(request, response, etag)) is not None:
+            return early
+        rows = await run_in_threadpool(_build)
     return SourceOverviewResponse(sources=[SourceOverview(**r) for r in rows])
 
 
@@ -1271,23 +1274,24 @@ async def list_source_channels(
     connector_tag = ",".join(f"{k}:{v}" for k, v in sorted(connectors_connected.items()))
     # The feed gate is an env fact too: a feed row is connected only while feeds are fetched (2026-10-23).
     feed_fetch = feed_registry.fetch_allowed()
-    etag = sync_service.etag_for(
-        memory_path, "sources", "episodes", "entities",
-        extra=(f"{channel_registry.CHANNELS_SHAPE}|telegram:{settings.telegram_enabled}|connectors:{connector_tag}"
-               f"|feeds:{feed_fetch}"),
-    )
-    if (early := sync_service.conditional(request, response, etag)) is not None:
-        return early
-    # Off the event loop: `build_channels` runs the same full episode+entity
-    # origin scan `/origins` does, which on a cold `bank_index` re-parses every
-    # frontmatter inline and would stall the SSE stream (see `/origins`).
-    channels = await run_in_threadpool(
-        channel_registry.build_channels,
-        memory_path,
-        telegram_enabled=settings.telegram_enabled,
-        connectors_connected=connectors_connected,
-        feed_fetch_allowed=feed_fetch,
-    )
+    with sync_ticker.request_scans(memory_path):   # one listing per directory for ETag and build (2026-10-29)
+        etag = sync_service.etag_for(
+            memory_path, "sources", "episodes", "entities",
+            extra=(f"{channel_registry.CHANNELS_SHAPE}|telegram:{settings.telegram_enabled}"
+                   f"|connectors:{connector_tag}|feeds:{feed_fetch}"),
+        )
+        if (early := sync_service.conditional(request, response, etag)) is not None:
+            return early
+        # Off the event loop: `build_channels` runs the same full episode+entity
+        # origin scan `/origins` does, which on a cold `bank_index` re-parses every
+        # frontmatter inline and would stall the SSE stream (see `/origins`).
+        channels = await run_in_threadpool(
+            channel_registry.build_channels,
+            memory_path,
+            telegram_enabled=settings.telegram_enabled,
+            connectors_connected=connectors_connected,
+            feed_fetch_allowed=feed_fetch,
+        )
     return SourceChannelsResponse(channels=[SourceChannel(**c) for c in channels])
 
 
@@ -1317,15 +1321,18 @@ async def list_channel_items(
     memory_path = settings.memory_path
     if not channel_items.known(memory_path, channel_id):
         raise HTTPException(status_code=404, detail="Unknown channel")
-    # Sources v4 (review of #358): `photos` too — a Messages row carries its chat photo's hash.
-    etag = sync_service.etag_for(
-        memory_path, "sources", "episodes", "entities", "photos",
-        extra=f"{channel_items.SHAPE}|{channel_id}|{offset}|{limit}|{q or ''}",
-    )
-    if (early := sync_service.conditional(request, response, etag)) is not None:
-        return early
-    # Off the event loop: a cold `bank_index` re-parses every frontmatter (the `/sources/channels` reason).
-    page = await run_in_threadpool(channel_items.items, memory_path, channel_id, offset=offset, limit=limit, q=q)
+    # Source page speed (2026-10-29): the ETag and the read share one listing per directory (the worker thread copies
+    # this context) — the SSE walk's when its gate allows (`request_scans`), so a list reads only its own source's files.
+    with sync_ticker.request_scans(memory_path):
+        # Sources v4 (review of #358): `photos` too — a Messages row carries its chat photo's hash.
+        etag = sync_service.etag_for(
+            memory_path, "sources", "episodes", "entities", "photos",
+            extra=f"{channel_items.SHAPE}|{channel_id}|{offset}|{limit}|{q or ''}",
+        )
+        if (early := sync_service.conditional(request, response, etag)) is not None:
+            return early
+        # Off the event loop: a cold `bank_index` re-parses every frontmatter (the `/sources/channels` reason).
+        page = await run_in_threadpool(channel_items.items, memory_path, channel_id, offset=offset, limit=limit, q=q)
     if page is None:
         raise HTTPException(status_code=404, detail="Unknown channel")
     return page

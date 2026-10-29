@@ -468,3 +468,64 @@ def test_q_finds_a_live_chat_sources_chat_row(bank, monkeypatch, channel, origin
     assert channel_items.items(bank, channel, q="person c")["total"] == 1
     monkeypatch.setattr(search_index, "episodes_with_words", lambda memory_path, q: {"ep_2026-09-16_001"})
     assert [r["id"] for r in channel_items.items(bank, channel, q="climbing")["items"]] == [chat]
+
+
+# --- source page speed (2026-10-29): a list reads only its own source, and follows every change ---------------------
+
+
+def _titles(bank, channel):
+    return sorted(r["title"] for r in channel_items.items(bank, channel)["items"])
+
+
+def test_a_warm_list_follows_every_change_without_a_restart(bank):
+    """The indexes a list reads (episodes by origin, the media pages, the url index, each built row) are kept between
+    reads; every write the bank sees must still show on the next read — no `invalidate()` between them."""
+    import os
+    import time
+
+    assert _titles(bank, "wispr-flow") == ["Meeting with a secret [redacted]"]
+    assert _titles(bank, "pinterest") == ["A pin"]
+    assert _titles(bank, "chrome-bookmarks") == ["One", "Two"]
+    # An episode added, then retitled, then tombstoned.
+    _episode(bank, "ep_2026-09-14_001", title="New capture", origin="wispr-flow", timestamp="2026-09-14T08:00:00+00:00")
+    assert "New capture" in _titles(bank, "wispr-flow")
+    time.sleep(0.01)
+    _episode(bank, "ep_2026-09-14_001", title="Renamed capture", origin="wispr-flow",
+             timestamp="2026-09-14T08:00:00+00:00")
+    assert "Renamed capture" in _titles(bank, "wispr-flow") and "New capture" not in _titles(bank, "wispr-flow")
+    time.sleep(0.01)
+    _episode(bank, "ep_2026-09-14_001", title="Renamed capture", origin="wispr-flow",
+             timestamp="2026-09-14T08:00:00+00:00", source_deleted_at="2026-09-15T00:00:00+00:00")
+    assert _titles(bank, "wispr-flow") == ["Meeting with a secret [redacted]"]
+    # An episode that changes source moves lists.
+    time.sleep(0.01)
+    _episode(bank, "ep_2026-09-12_001", title="Now a Claude chat", origin="claude-export",
+             timestamp="2026-09-12T08:00:00+00:00")
+    assert _titles(bank, "wispr-flow") == [] and "Now a Claude chat" in _titles(bank, "chat-export:claude")
+    # A media page added, renamed and removed.
+    _page(bank, "media-pin-2", type="media", name="Second pin", origin="pinterest", created="2026-09-07")
+    assert _titles(bank, "pinterest") == ["A pin", "Second pin"]
+    time.sleep(0.01)
+    _page(bank, "media-pin-2", type="media", name="Second pin, renamed", origin="pinterest", created="2026-09-07")
+    assert _titles(bank, "pinterest") == ["A pin", "Second pin, renamed"]
+    os.remove(bank / "entities" / "media-pin-2.md")
+    assert _titles(bank, "pinterest") == ["A pin"]
+    # The url index rewritten (a title it gives wins over the page's name).
+    entries = json.loads((bank / "sources" / "url_index.json").read_text())
+    entries["h1"]["title"] = "One, retitled"
+    _json(bank, "sources/url_index.json", entries)
+    assert _titles(bank, "chrome-bookmarks") == ["One, retitled", "Two"]
+
+
+def test_a_list_reads_only_its_own_sources_episodes(bank, monkeypatch):
+    """Once the indexes are built, an unchanged bank answers a list without building any row but its own."""
+    channel_items.items(bank, "wispr-flow")
+    channel_items.items(bank, "pinterest")
+    built = []
+    real = channel_items._build_episode_row
+    monkeypatch.setattr(channel_items, "_build_episode_row", lambda *a, **k: built.append(a[1]) or real(*a, **k))
+    _episode(bank, "ep_2026-09-14_001", title="New capture", origin="wispr-flow", timestamp="2026-09-14T08:00:00+00:00")
+    channel_items.items(bank, "wispr-flow")
+    assert built == ["ep_2026-09-14_001"]   # the one new episode; the unchanged ones are kept rows
+    built.clear()
+    assert channel_items.items(bank, "chat-export:gemini")["total"] == 0 and built == []
