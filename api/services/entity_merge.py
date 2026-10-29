@@ -413,6 +413,11 @@ def merge_entities(memory_path: Path, loser_id: str, winner_id: str,
     winner_claims = parse_claims(wpar.body, strict=True)
     loser_claims = parse_claims(lpar.body, strict=True)
 
+    from api.services import alias_policy
+
+    # The loser's aliases are NEW names of the winner: a reference or a pronoun the loser carried never travels
+    # (G169, 2026-10-29) — what the winner already lists stays as it is.
+    lfm["aliases"] = alias_policy.keep(lfm.get("aliases")) if isinstance(lfm.get("aliases"), list) else lfm.get("aliases")
     for f in _LIST_FIELDS:
         merged = _union(wfm.get(f), lfm.get(f))
         if merged:
@@ -428,7 +433,7 @@ def merge_entities(memory_path: Path, loser_id: str, winner_id: str,
         if not wfm["related"]:
             wfm.pop("related")
     # The loser's name stays findable: a later mention of it resolves here.
-    if loser_name.lower() != winner_name.lower():
+    if loser_name.lower() != winner_name.lower() and alias_policy.admits(loser_name):
         aliases = list(wfm.get("aliases") or [])
         if loser_name.lower() not in {str(a).lower() for a in aliases}:
             wfm["aliases"] = [*aliases, loser_name]

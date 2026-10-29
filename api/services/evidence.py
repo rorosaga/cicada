@@ -51,6 +51,8 @@ __all__ = [
     "media_time",
     # A saved item's own words (2026-10-29)
     "SAVE_KIND", "PERSON_SECTIONS",
+    # Filing labels (2026-10-29)
+    "LABEL_FIELDS", "label_ranges", "in_label", "mask_labels",
 ]
 
 # The longest quote a writer may cite. A longer one is clipped, not refused:
@@ -125,6 +127,45 @@ PERSON_SECTIONS = ("## Why it was saved", "## Saved because", "## User note")
 #: agent's behind its own ``assistant:`` marker, which still wins. Not a PERSON_SECTION for ``history_index``: an
 #: agent's note there must never make a list save the person's to read.
 _PERSON_HEADINGS = frozenset((*PERSON_SECTIONS, "## Note"))
+#: A record's FILING LABELS (owner 2026-10-29): the folder a bookmark or note sits in, the list a reminder is on, the
+#: calendar an event is in, the database a Notion page belongs to, the tags a highlight carries. The person typed the
+#: name once, to file things — a label, never something they said: a span in one is ``page`` whatever the episode's
+#: authorship, and no exchange counts it (`promotion.exchanges`, :func:`mask_labels`). Only in the record's header —
+#: the lines Cicada's own writers put above the body (a title, blank lines and ``**Field:**`` lines) — never a line
+#: the person typed further down.
+LABEL_FIELDS = ("**Folder:**", "**List:**", "**Calendar:**", "**Database:**", "**Tags:**")
+_HEADER_FIELD = re.compile(r"^\*\*[^*\n]{1,40}:\*\*")
+
+
+def label_ranges(text: str) -> list[tuple[int, int]]:
+    """``(start, end)`` of each filing label's value in the record's header (:data:`LABEL_FIELDS`), ascending."""
+    out: list[tuple[int, int]] = []
+    pos = 0
+    for line in (text or "").splitlines(keepends=True):
+        bare = line.strip()
+        if bare and not bare.startswith("# ") and not _HEADER_FIELD.match(bare):
+            break   # the body starts: nothing below is a header line
+        field = next((f for f in LABEL_FIELDS if line.startswith(f)), None)
+        if field is not None:
+            out.append((pos + len(field), pos + len(line.rstrip("\r\n"))))
+        pos += len(line)
+    return out
+
+
+def in_label(text: str, start: int) -> bool:
+    """Does offset ``start`` sit in a filing label's value (:func:`label_ranges`)?"""
+    return any(a <= start < b for a, b in label_ranges(text))
+
+
+def mask_labels(text: str) -> str:
+    """``text`` with every filing label's value blanked to spaces (offsets kept): what an exchange counts."""
+    ranges = label_ranges(text)
+    if not ranges:
+        return text or ""
+    chars = list(text)
+    for a, b in ranges:
+        chars[a:b] = " " * (b - a)
+    return "".join(chars)
 
 
 def gap_line(dropped: int, first_at: str | None, last_at: str | None) -> str:
@@ -449,6 +490,8 @@ def kind_for(doc_id: str, text: str, start: int, override: str | None = None, ga
     :data:`OVERRIDE_KINDS`, else the turn marker at ``start``."""
     if not is_episode_id(doc_id):
         return "page"
+    if in_label(text, start):
+        return "page"                   # a filing label is never anyone's words (owner 2026-10-29)
     kind = speaker_kind(text, start, gaps, saved=override == SAVE_KIND)
     if kind == GAP_KIND:
         return kind                     # gate B2: no declared authorship covers Cicada's own line

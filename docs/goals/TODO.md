@@ -41,6 +41,13 @@
   Code's database; `npx t3` goes unlabelled. T3 Chat documents no MCP
   connector, so it is not listed. Stop firing p95 within spread (57.3 → 57.7 ms). Unverified against a live T3 Code; Codex under T3
   Code's managed sign-in is not captured (Needs the owner on the G228 row).
+- **2026-10-29 — live class guards (G194, G169, G118; branch `feat/bank-repair-apply`).** The owner dropped the
+  bespoke repair tooling ("apply fixes that make them generalizable"); the six vetted classes are closed in the live
+  path instead: a belief that held and ended is never reopened by an older mention (`claim_reconciler._ended_span`);
+  a filing label is `page` and no mention (`evidence.LABEL_FIELDS`, `promotion.label_only`); every alias writer asks
+  `alias_policy.admits` and Sleep adds no other page's name; an in-flight application on record takes the owner's lines about it from
+  any conversation (`application_page.standing`); the inbox dedup asks `distinct_names`. Saved-link words (#515) and
+  the near-name join (#491) were already closed on dev. Nothing applied to the bank.
 - **2026-10-29 — chat exports findable (CIC8, G64; branch `feat/chat-exports-obvious`).** Every door to a chat export
   opens the one intake (Sources' header *Import chats or files* and its Chat exports entry, Agents' *Import its chat
   export*, a ⇧⌘I palette action Home's field finds by "chatgpt"/"chat export", the walkthrough's *I have the file…*);
