@@ -253,7 +253,9 @@ def test_fifty_items_resolve_under_budget_and_parse_each_file_once(memory):
     before = bank_index.parse_count
     t0 = time.perf_counter(); items = inbox_service.load_inbox(memory); cold = time.perf_counter() - t0
     assert len(items) == 50 and all(i.cause.tier == "entity" for i in items)
-    assert bank_index.parse_count - before <= 110, "each episode/entity frontmatter parsed at most once"
+    # 60 episodes + 50 pages + 50 inbox items: the items' own headers go through `bank_index` too (speed 2026-10-29),
+    # so a later load re-parses only an item that moved.
+    assert bank_index.parse_count - before <= 160, "each episode/entity/item frontmatter parsed at most once"
     mid = bank_index.parse_count
     t0 = time.perf_counter(); inbox_service.load_inbox(memory); warm = time.perf_counter() - t0
     assert bank_index.parse_count == mid, "a second load re-parses no frontmatter"

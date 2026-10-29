@@ -96,6 +96,24 @@ def untimed_ids(memory_path: Path | str | None) -> frozenset[str]:
     """Every episode id in the bank that is not a time signal, from the frontmatter cache (one ``scandir``)."""
     if memory_path is None:
         return frozenset()
+    mp = Path(memory_path)
+    # Remembered per state of the folder (speed 2026-10-29: the inbox asked once per load, ~75 ms over 8.5k episodes);
+    # the fingerprint and the listing below share one scan.
+    with bank_index.shared_scans():
+        stamp = bank_index.dir_fingerprint(mp / "episodes")
+        hit = _UNTIMED.get(str(mp))
+        if hit is not None and hit[0] == stamp:
+            return hit[1]
+        ids = _untimed_ids(mp)
+    _UNTIMED[str(mp)] = (stamp, ids)
+    return ids
+
+
+#: bank -> (the episodes folder's fingerprint, its untimed ids). Process-local and disposable.
+_UNTIMED: dict[str, tuple[str, frozenset[str]]] = {}
+
+
+def _untimed_ids(memory_path: Path) -> frozenset[str]:
     out: set[str] = set()
     try:
         for f in bank_index.files(Path(memory_path), "episodes"):

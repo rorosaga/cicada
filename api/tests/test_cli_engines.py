@@ -530,20 +530,28 @@ def test_a_scheduled_run_reaches_cursor_only_through_the_switch(ladder):
 
 @pytest.mark.shipped_engine_default
 def test_a_hung_tool_is_skipped_in_words_and_the_next_rung_reads(ladder, monkeypatch):
-    import time as _time
+    """Deterministic: the hang is the runner's own timeout answer (rc 124, ``test_connections_base`` pins that a real
+    overrun returns it), injected for Cursor's two status commands, so no wall-clock budget races a loaded machine.
+    The healthy rung keeps the real stub and the shipped budgets."""
+    hung = []
 
-    monkeypatch.setattr(cli_engines, "PROBE_TIMEOUT_S", 0.5)
-    monkeypatch.setattr(cli_engines, "LADDER_WAIT_S", 5.0)
-    monkeypatch.setenv("STUB_HANG", "agent")
-    started = _time.monotonic()
+    def runner(argv, *args, timeout=None, **kwargs):
+        if os.path.basename(argv[0]) == "agent" and argv[1:2] in (["status"], ["models"]):
+            hung.append((argv[1], timeout))
+            return base.CliResult(124, "", f"agent timed out after {timeout:g}s")
+        return REAL_RUN(argv, *args, timeout=timeout, **kwargs)
+
+    monkeypatch.setattr(base, "run_cli_sync", runner)
     resolved, _ = _resolve({})
-    assert _time.monotonic() - started < 4.0
     assert resolved.llm_mode == "opencode"
+    assert {cmd for cmd, _ in hung} == {"status", "models"}
+    assert all(t == cli_engines.PROBE_TIMEOUT_S for _, t in hung), "each status command gets the probe budget"
     # Alone, the hung tool leaves no engine, with the reason.
     ladder.only("agent")
     resolved, _ = _resolve({})
     assert engine_select.no_engine(resolved)
-    assert "Cursor didn't answer within 0.5 s. Auto skipped it for this run." in resolved.no_engine_reason
+    assert (f"Cursor didn't answer within {cli_engines.PROBE_TIMEOUT_S:g} s. Auto skipped it for this run."
+            in resolved.no_engine_reason)
 
 
 @pytest.mark.shipped_engine_default

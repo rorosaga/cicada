@@ -10,6 +10,7 @@ from __future__ import annotations
 import contextvars
 import logging
 import re
+import threading
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
@@ -87,8 +88,16 @@ def _item_from_file(
     flag for a conflict on a multi-valued predicate. Without it — every legacy
     caller and test — the shape is exactly what it was.
     """
-    parsed = markdown_parser.parse(filepath)
-    fm = parsed.frontmatter
+    entry = None
+    if context is not None and filepath.parent == context.memory_path / "inbox":
+        # The item's header through `bank_index` (mtime-gated, speed 2026-10-29): a load after one answer re-parses the
+        # one file that moved, not all 423. A malformed file is `None` here and parsed below, which raises as before.
+        entry = bank_index.file(context.memory_path, "inbox", filepath.name)
+    if entry is not None:
+        fm, item_body = dict(entry.frontmatter), entry.body()
+    else:
+        parsed = markdown_parser.parse(filepath)
+        fm, item_body = parsed.frontmatter, parsed.body
     kind = str(fm.get("kind", "decay"))
     if kind == "normalization" and context is not None:
         # Served on a live covered page when its opener is archived or gone — a
@@ -157,7 +166,9 @@ def _item_from_file(
             kind == "conflict"
             # A "still?" question (`still_questions`) asks about ONE value, whatever the predicate's cardinality.
             and str(fm.get("asks") or "") != "still"
-            and predicates.cardinality(context.memory_path, str(fm.get("predicate", "") or "")) == "multi"
+            # One read of the predicate map per inbox load (the context's vocabulary memoises per predicate): asking
+            # `predicates.cardinality` per card deep-copied the map 117 times a load.
+            and context.check_vocab().cardinality(str(fm.get("predicate", "") or "")) == "multi"
         )
         extra.update(_extractor_refs(fm, kind, context))
         # The quick review (owner 2026-10-19): what the page is and how often it was said, and a fold in words —
@@ -220,7 +231,7 @@ def _item_from_file(
         entity_id=entity_id,
         entity_name=str(fm.get("entity_name", "") or ""),
         title=str(fm.get("title", "") or fm.get("entity_name", "") or ""),
-        body=parsed.body,
+        body=item_body,
         options=options,
         created_date=str(fm.get("created_date", "") or ""),
         question=question,
@@ -484,8 +495,66 @@ def load_inbox(memory_path: Path, *, include_deferred: bool = False) -> list[Inb
     (G98). All three are derived at read from one shared
     :class:`inbox_context.InboxContext`, never stored.
     """
-    inbox_dir = _inbox_dir(memory_path)
     today = str(date.today())
+    # One listing per directory for the whole read (and for the route's ETag around it): the inputs key, the context's
+    # indices and `page_use` see the same scan.
+    with bank_index.shared_scans():
+        key = _built_inputs(memory_path, today)
+        slot = (str(memory_path), include_deferred)
+        with _BUILT_LOCK:
+            hit = _BUILT.get(slot)
+        if hit is not None and hit[0] == key:
+            return list(hit[1])
+        items = _build_inbox(memory_path, today=today, include_deferred=include_deferred)
+    with _BUILT_LOCK:
+        _BUILT[slot] = (key, items)
+    return list(items)
+
+
+#: Speed 2026-10-29: the built list per (bank, include_deferred), with the inputs it was built from. ``GET /inbox`` at
+#: the owner's scale (423 questions) rebuilt every card on every read — about 0.5 s of CPU — though nothing it reads
+#: had moved. A hit is the same list a rebuild would make; any input moving rebuilds. Process-local and disposable.
+#: Callers read the items and never edit them (each gets its own list).
+_BUILT: dict[tuple[str, bool], tuple[tuple, list[InboxItem]]] = {}
+_BUILT_LOCK = threading.Lock()
+
+
+def _file_stamp(path: Path) -> tuple[int, int, int] | None:
+    try:
+        st = path.stat()
+    except OSError:
+        return None
+    return (st.st_ino, st.st_mtime_ns, st.st_size)
+
+
+def _built_inputs(memory_path: Path, today: str) -> tuple:
+    """Everything :func:`_build_inbox` reads, as stamps: the day (deferral, ages), the inbox, every page and every
+    episode (subjects, causes, claims, quiet pages, page use — fingerprints of name, size and nanosecond mtime, the
+    ETag's own), and the three files beside them it reads: the predicate map (``informational``, the check vocabulary),
+    the held names (a merge question about a parked name, G209) and ``_state.md`` (the owner, for page use). The seed
+    vocabulary ships with the code."""
+    from api.services import graph_builder, pending_store
+
+    mp = Path(memory_path)
+    return (
+        today,
+        graph_builder.inbox_stamp(mp),
+        bank_index.dir_fingerprint(mp / "entities"),
+        bank_index.dir_fingerprint(mp / "episodes"),
+        _file_stamp(mp / predicates.RUNTIME_FILE),
+        _file_stamp(pending_store.store_path(mp)),
+        _file_stamp(mp / "_state.md"),
+    )
+
+
+def reset_built() -> None:
+    """Forget every built list (tests)."""
+    with _BUILT_LOCK:
+        _BUILT.clear()
+
+
+def _build_inbox(memory_path: Path, *, today: str, include_deferred: bool) -> list[InboxItem]:
+    inbox_dir = _inbox_dir(memory_path)
     # G115 R2: one read cache for the whole inbox — episode + entity frontmatter
     # through bank_index, claim blocks parsed once per subject.
     context = inbox_context.InboxContext(memory_path, today=today)

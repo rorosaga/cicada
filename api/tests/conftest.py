@@ -272,6 +272,41 @@ def _disable_telemetry(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _stdio_client_info_isolated():
+    """The stdio server is one module object shared by the whole run (`_stdio_server`), and `initialize_result` records
+    the client's name in its module-level ``CLIENT_INFO``: a test that initialises as a client left it for every later
+    test (``test_run_events`` failed after ``test_agent_first_call``). Each test starts from no client and leaves none."""
+    import sys
+
+    from _stdio_server import _NAME
+
+    module = sys.modules.get(_NAME)
+    if module is not None:
+        module.CLIENT_INFO.clear()
+    yield
+    module = sys.modules.get(_NAME)
+    if module is not None:
+        module.CLIENT_INFO.clear()
+
+
+@pytest.fixture(autouse=True)
+def _fresh_inbox_build():
+    """`load_inbox` keeps its built list per bank on the stamps of what it reads, and the cut excerpts and untimed ids
+    on theirs (speed 2026-10-29); a test that patches a reader (the clock aside, which is in the key) starts from
+    none of them."""
+    from api.services import episode_time, inbox_context, inbox_service
+
+    def clear():
+        inbox_service.reset_built()
+        inbox_context._EXCERPTS.clear()
+        episode_time._UNTIMED.clear()
+
+    clear()
+    yield
+    clear()
+
+
+@pytest.fixture(autouse=True)
 def _disable_connector_fetch(monkeypatch):
     """G71: no test may reach Pinterest, Reddit, or X's default transport.
 

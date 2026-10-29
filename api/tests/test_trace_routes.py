@@ -33,6 +33,24 @@ def utc(monkeypatch):
     time.tzset()
 
 
+@pytest.fixture(autouse=True)
+def midday(monkeypatch):
+    """One clock for the whole test, pinned at today's noon UTC: the store reads ``trace_store._now``, promotion and
+    the routes read ``datetime.now``. On the wall clock these tests failed in the first quarter hour after midnight —
+    yesterday's spans are not a finished day until the forget window past midnight has gone (``PROMOTE_HOLD``). A
+    test that needs another instant re-pins with ``frozen``."""
+    moment = datetime.now(timezone.utc).replace(hour=12, minute=0, second=0, microsecond=0)
+
+    class Noon(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return moment.astimezone(tz) if tz else moment.astimezone().replace(tzinfo=None)
+
+    monkeypatch.setattr(trace_store, "_now", lambda: moment)
+    monkeypatch.setattr(trace_memory, "datetime", Noon)
+    return moment
+
+
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     memory = _bank(tmp_path)
@@ -58,7 +76,7 @@ def _span(sid, start: datetime, minutes=5.0, **extra):
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc).replace(microsecond=0)
+    return trace_store._now().replace(microsecond=0)   # the pinned clock (`midday`, or `frozen`)
 
 
 def _watch_days(memory: Path) -> dict[str, markdown_parser.ParsedFile]:

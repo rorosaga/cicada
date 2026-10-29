@@ -14,9 +14,10 @@ Three rules, all from the G115 ruling:
   at most once per :class:`InboxContext`. G97 measured 43/49 live items reaching
   an episode in ~100 ms with zero LLM, git or vector calls; the budget test in
   ``test_inbox_context.py`` keeps it there.
-* **Spans, not copies.** The excerpt is computed from the episode body on every
-  read and the mention offsets are recomputed with it — nothing is written back
-  and nothing reaches the ledger. A rewritten episode changes what the card
+* **Spans, not copies.** The excerpt is computed from the episode body and the
+  mention offsets with it — nothing is written back and nothing reaches the
+  ledger. The process remembers an excerpt only while the episode's
+  ``(mtime, size)`` and the span inputs are the ones it was cut from. A rewritten episode changes what the card
   shows instead of highlighting the wrong words (the G118 rail).
 * **Served, never hidden.** When no tier resolves, the card carries the literal
   ``[ no source recorded ]`` so the person sees that provenance is missing
@@ -26,6 +27,8 @@ Three rules, all from the G115 ruling:
 from __future__ import annotations
 
 import re
+import threading
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -276,6 +279,35 @@ class InboxContext:
                 self._bodies[ep.stem] = ""
         return self._bodies[ep.stem]
 
+    def _excerpt(self, ep, ep_id: str, claim, name: str, entity_id: str) -> tuple["Excerpt", str]:
+        """The cut for one candidate, remembered per episode state (speed 2026-10-29: reading 235 episode bodies and
+        lower-casing each to find a name was ~30 % of a load). The key is everything the cut reads: the episode's
+        path and ``(mtime, size)``, the claim's span rows into it, the name and the id."""
+        spans = None
+        if claim is not None:
+            spans = tuple((e.start, e.end, e.hash) for e in (getattr(claim, "evidence", None) or [])
+                          if getattr(e, "is_span", lambda: False)() and e.episode == ep_id)
+        key = (str(ep.path), ep.mtime_ns, ep.size, ep_id, spans, name, entity_id)
+        with _EXCERPTS_LOCK:
+            hit = _EXCERPTS.get(key)
+            if hit is not None:
+                _EXCERPTS.move_to_end(key)
+                return hit
+        body = self._body(ep)
+        span, span_kind = None, "derived"
+        if claim is not None:
+            span = _asserted_span(claim, ep_id, body)
+            if span is not None:
+                span_kind = "asserted"
+        if span is None:
+            span = locate_mention(body, name, entity_id)
+        out = (excerpt_around(body, span), span_kind)
+        with _EXCERPTS_LOCK:
+            _EXCERPTS[key] = out
+            while len(_EXCERPTS) > _EXCERPTS_MAX:
+                _EXCERPTS.popitem(last=False)
+        return out
+
     # ---------- cause ----------
 
     def cause_for(self, fm: dict, options: list[dict]) -> Cause:
@@ -327,15 +359,7 @@ class InboxContext:
             ep = self.episode(ep_id)
             if ep is None:
                 continue
-            body = self._body(ep)
-            span, span_kind = None, "derived"
-            if claim is not None:
-                span = _asserted_span(claim, ep_id, body)
-                if span is not None:
-                    span_kind = "asserted"
-            if span is None:
-                span = locate_mention(body, name, entity_id)
-            ex = excerpt_around(body, span)
+            ex, span_kind = self._excerpt(ep, ep_id, claim, name, entity_id)
             efm = ep.frontmatter
             return Cause(
                 tier=tier, episode_id=ep.stem,
@@ -347,6 +371,12 @@ class InboxContext:
                 span_kind=span_kind,
             )
         return Cause()
+
+
+#: Excerpts cut, keyed on what they were cut from (`InboxContext._excerpt`); bounded, process-local, disposable.
+_EXCERPTS: "OrderedDict[tuple, tuple[Excerpt, str]]" = OrderedDict()
+_EXCERPTS_LOCK = threading.Lock()
+_EXCERPTS_MAX = 4096
 
 
 def _asserted_span(claim, ep_id: str, body: str) -> tuple[int, int] | None:

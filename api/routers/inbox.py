@@ -7,7 +7,7 @@ from loguru import logger
 from api.config import Settings, get_settings
 from api.models.schemas import (CatchupRecordRequest, CatchupTurnRequest, CheckCensus, InboxItem,
                                 InboxResolveRequest, SettledCheck)
-from api.services import inbox_service, source_check, sync_service
+from api.services import bank_index, inbox_service, source_check, sync_service
 
 router = APIRouter()
 
@@ -35,13 +35,16 @@ async def list_inbox(
     # G205: agent requests (outside the bank) fold into the `inbox` component's stamp, so this ETag moves with them.
     # Ruling 48 (1): every served question carries its plain words and reason, whose ages ("yesterday", "about 2
     # months ago") are worded at read — so the tag moves with the day, or a 304 would keep yesterday's words (DR-58).
-    etag = sync_service.etag_for(settings.memory_path, "inbox", "entities", "episodes",
-                                 extra=f"{kind or ''}|{_served_day()}")
-    if (early := sync_service.conditional(request, response, etag)) is not None:
-        return early
-    # Off the event loop (inbox lag, 2026-10-17): the read parses every inbox file and the pages they name, and a
-    # synchronous call here held every other request — the SSE stream, the other panes — behind it.
-    items = await asyncio.to_thread(inbox_service.load_inbox, settings.memory_path)
+    # Speed 2026-10-29: the ETag and the read share one listing per directory (`shared_scans`; the worker thread
+    # copies this context), so the bank is stat-walked once per request, not once for the ETag and again for the read.
+    with bank_index.shared_scans():
+        etag = sync_service.etag_for(settings.memory_path, "inbox", "entities", "episodes",
+                                     extra=f"{kind or ''}|{_served_day()}")
+        if (early := sync_service.conditional(request, response, etag)) is not None:
+            return early
+        # Off the event loop (inbox lag, 2026-10-17): the read parses every inbox file and the pages they name, and a
+        # synchronous call here held every other request — the SSE stream, the other panes — behind it.
+        items = await asyncio.to_thread(inbox_service.load_inbox, settings.memory_path)
     # G205: requests sit above the questions.
     items = await asyncio.to_thread(inbox_service.agent_request_items, settings.memory_path) + items
     if kind:
