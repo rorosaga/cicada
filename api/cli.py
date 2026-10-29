@@ -1064,6 +1064,8 @@ def main(argv: list[str] | None = None) -> int:
                             cli_app.require_person(row.summary.rstrip("."))
                         arguments = {a.prop: getattr(args, a.prop, None) for a in row.args
                                      if getattr(args, a.prop, None) is not None}
+                        if arguments.get("content") == "-":
+                            arguments["content"] = sys.stdin.read()   # `cicada save -` reads stdin, as locally
                         result = _typed(_door(boot, row.tool, arguments), warnings=_root_warnings(boot))
                     else:
                         result = boot.ctx.run(_in_process, command, handler, boot, args)

@@ -105,14 +105,15 @@ class ReplicaRouting:
         from api.services import replica_routes
 
         method = scope.get("method", "GET")
-        template = _template(scope)
         if method not in MUTATING:
-            if template is not None and f"{method} {template}" in replica_routes.GET_FROM_HOME:
+            # A read never pays for route matching: the few the home answers are fixed paths.
+            if f"{method} {scope.get('path')}" in replica_routes.GET_FROM_HOME:
                 if not _authorized(scope):
                     return False   # the route's own auth answers it
                 await _sleep_status(scope, send)
                 return True
             return False
+        template = _template(scope)
         if template is None:
             return False           # no such route: FastAPI's own 404/405
         cls = replica_routes.classify(method, template)

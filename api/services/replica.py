@@ -369,10 +369,19 @@ def recopy() -> dict:
     return timings
 
 
-def _refresh_frame() -> None:
+#: The home's schedule, engine label and name change rarely, and its Sleep state arrives on its own `sleep` events:
+#: the whole frame is asked again at most this often (asking costs the home a primer check).
+FRAME_EVERY_S = 60.0
+_FRAME_AT = [0.0]
+
+
+def _refresh_frame(force: bool = False) -> None:
+    if not force and time.monotonic() - _FRAME_AT[0] < FRAME_EVERY_S:
+        return
+    _FRAME_AT[0] = time.monotonic()
     status, _h, frame = request("GET", "/sync/status", timeout=10)
     if status == 200 and isinstance(frame, dict):
-        _set(home_frame=frame, home_seq=frame.get("seq"))
+        _set(home_frame=frame)
 
 
 # --- state, waking and waiting ----------------------------------------------------------------------------------------

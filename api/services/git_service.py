@@ -841,6 +841,8 @@ class DirtyCopy(GitError):
 
 #: The ref the home's bundle is fetched into on a replica (never a branch anything else moves).
 HOME_REF = "refs/cicada/home"
+#: Up to this many paths an apply asks git about them alone (status, index); past it, the whole tree.
+_APPLY_PATHSPEC_MAX = 1000
 
 
 def _blobs_at(memory_path: Path, rev: str, paths: list[str]) -> dict[str, bytes]:
@@ -905,13 +907,16 @@ def fast_forward_sync(memory_path, bundle: Path, *, expect: str | None = None, r
                                       capture_output=True)
             if ancestor.returncode != 0:
                 raise NotFastForward("the home's head does not descend from this copy's")
-            if _git_sync(memory_path, "status", "--porcelain", "-z", "--untracked-files=no").strip("\0").strip():
-                raise DirtyCopy("a tracked file of this copy was changed outside the apply")
             listing = _git_sync(memory_path, "diff", "--name-status", "-z", "--no-renames", old, new)
             fields = [f for f in listing.split("\0") if f]
             changed, removed = [], []
             for status, path in zip(fields[0::2], fields[1::2]):
                 (removed if status.startswith("D") else changed).append(path)
+            # Only the paths this apply writes need to be clean (a copy's other files are not touched): asking git
+            # about them alone keeps a one-file apply from walking an owner-scale tree.
+            scope = ("--", *changed, *removed) if len(changed) + len(removed) <= _APPLY_PATHSPEC_MAX else ()
+            if _git_sync(memory_path, "status", "--porcelain", "-z", "--untracked-files=no", *scope).strip("\0").strip():
+                raise DirtyCopy("a tracked file of this copy was changed outside the apply")
         else:
             changed = [p for p in _git_sync(memory_path, "ls-tree", "-r", "-z", "--name-only", new).split("\0") if p]
             have = set()
@@ -927,7 +932,11 @@ def fast_forward_sync(memory_path, bundle: Path, *, expect: str | None = None, r
             _git_sync(memory_path, "update-ref", "HEAD", new, old)
         else:
             _git_sync(memory_path, "update-ref", "HEAD", new)
-        _git_sync(memory_path, "reset", "-q")
+        touched = [*changed, *removed]
+        if old and not rewrite and touched and len(touched) <= _APPLY_PATHSPEC_MAX:
+            _git_sync(memory_path, "reset", "-q", "--", *touched)   # only these index entries moved
+        else:
+            _git_sync(memory_path, "reset", "-q")
     from api.services import bank_index, markdown_parser
 
     markdown_parser.invalidate_pages(memory_path)

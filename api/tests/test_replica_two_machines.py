@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from test_headless_two_machines import PY, REPO, Backend, Mcp, _base_env
+from test_headless_two_machines import Backend, Mcp, _base_env, _cli
 
 
 class Machine(Backend):
@@ -140,6 +140,11 @@ def test_a_computer_keeps_a_copy_reads_it_and_writes_through_the_home(pair):
         assert (home.bank / "episodes" / f"{ep}.md").exists()
         assert (copy / "episodes" / f"{ep}.md").exists()
         assert _git(copy, "status", "--porcelain") == ""          # the copy never commits or dirties itself
+        # The command line on the replica writes the same way (ruling 21a's probe, then the home).
+        code, envelope = _cli(_mcp_env(replica), "save", "decided the delta-example scope", "--title", "Delta")
+        assert code == 0 and envelope["ok"], envelope
+        assert _wait(lambda: any("delta-example scope" in p.read_text() for p in home.episodes()), 10)
+        assert any("delta-example scope" in p.read_text() for p in (copy / "episodes").glob("ep_*.md"))
 
         # The queue, the inbox and the Sleep frame are the home's at the same seq.
         _caught_up(home, replica)
