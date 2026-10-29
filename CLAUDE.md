@@ -376,7 +376,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   ruling 36 D3) on its own listener, through a tunnel **the person** runs; capability tokens are hashed, scoped (`sources` gates every verbatim word of the person's), expiring and
   revocable; a remote claim is never the person's own words.
   `/v1` is generated from the remote tool table — one operation per remote tool, the 11 shipped names frozen, new ones
-  `cli_map`'s — with `/mcp`'s scopes and G199 contract; no third door (ruling 38, `api.md`).
+  `cli_map`'s — with `/mcp`'s scopes and G199 contract; no third door (ruling 38, `api.md`); a client library
+  speaking only `/v1` with an agent token, like `clients/memory-tool`, is not a door (38a, 2026-10-29).
   Apps sign in through the listener's own OAuth 2.1 server (ruling 32): consent only in the app, by typing the code the
   person's own page shows, never a click or the public page; PKCE S256, single-use codes, rotating refresh tokens, all
   hashed and mapped to connector rows; a self-registered app is never named by its claim (`network.md`).
