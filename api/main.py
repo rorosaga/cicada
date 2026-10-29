@@ -147,6 +147,26 @@ SHUTDOWN_DRAIN_S = 30.0
 
 
 @asynccontextmanager
+async def _replica_lifespan(app: FastAPI, settings):
+    """A replica's start and stop (G132 phase 1 B): the follower (first copy, then fast-forwards) and nothing that
+    writes a bank. ``app.state.scheduler`` stays None: a replica never schedules Sleep (ruling 4 runs at the home)."""
+    from api.services import replica
+
+    logger.info("This computer keeps a copy of a memory held elsewhere (replica mode)")
+    app.state.scheduler = None
+    asyncio.get_running_loop().run_in_executor(None, warm_query_embedder, settings.memory_path)
+    search_index.warm_in_background(settings.memory_path)
+    replica.start()
+    try:
+        yield
+    finally:
+        await asyncio.to_thread(replica.stop)
+        from api.services import bank_watch
+
+        bank_watch.stop_all()
+
+
+@asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
     settings_file.log_summary()
@@ -160,6 +180,27 @@ async def lifespan(app: FastAPI):
     loaded = connection_secrets.load_secrets()
     if loaded:
         logger.info(f"Loaded {len(loaded)} provider key(s) from {connection_secrets.secrets_path()}")
+
+    from api.services import replica_guard, runtime_layout
+
+    if runtime_layout.mode_conflict():
+        logger.warning(runtime_layout.mode_conflict())
+    # The mode this backend runs in is the one it started in: `replica_of` written or removed while it runs changes
+    # nothing until it starts again (review of #567 — never a half-switched backend).
+    if replica_guard.freeze():
+        # G132 phase 1 B (ruling 51e2): this computer keeps a read-only copy. No scaffold, migration, seed, schedule,
+        # catch-up, poll, listener or reindex job — only the follower, the words index and the query embedder.
+        try:
+            async with _replica_lifespan(app, settings):
+                yield
+        finally:
+            replica_guard.thaw()
+        return
+    # Not a copy (any more): a copy left active from when it was one is never opened here (review of #567) — this
+    # computer's own memory is active again before anything is scaffolded, scheduled or captured.
+    from api.services import replica as _replica
+
+    _replica.leave_copy(settings.memory_root)
 
     # Preload the query embedder recorded in the bank's index in the
     # background so the first /search request doesn't pay the model-load
@@ -285,6 +326,7 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        replica_guard.thaw()
         await remote_listener.LISTENER.stop()
         await telegram_account.ACCOUNT.stop()
         scheduler.shutdown(wait=False)
@@ -324,6 +366,12 @@ app.add_exception_handler(bank_binding.BankMismatch, bank_binding.handler)
 from api.services.request_limits import RequestLimits  # noqa: E402
 
 app.add_middleware(RequestLimits)
+
+# G132 phase 1 B: a replica's route table (forward / capture / refuse / local) and a publishing home's `X-Cicada-Seq`
+# on its writes; inert otherwise (`replica_forward`).
+from api.services.replica_forward import ReplicaRouting  # noqa: E402
+
+app.add_middleware(ReplicaRouting)
 
 # Speed 2026-10-29: count this process's writes, the gate on an ETag reusing the SSE tick's listings (`local_writes`).
 from api.services.local_writes import CountWrites  # noqa: E402

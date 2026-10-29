@@ -12,6 +12,13 @@
 
 ## Current state and evidence
 
+- **2026-10-29 — a computer keeps a copy (ruling 51a/d/e2, G132 phase 1 PR B; branch `feat/g132-replica`).**
+  Replica mode (`CICADA_REPLICA_OF` / `$CICADA_HOME/replica_of`, set by `PUT /sync/replica` with the home's pairing
+  code; client wins when both are set): a read-only copy fast-forwarded from the home's pack (ancestry checked here,
+  files written atomically, indexes caught up), every bank writer refused but the apply, writes as outbox
+  transactions (MCP/CLI/hooks through cli_map's `replica` column, the app through a hand-written route table), reads
+  local, the home's Sleep frame at the copy's seq. Rail (2) of ruling 51 takes effect (CLAUDE.md, Headless). The
+  app's two switches are their own PR. Numbers in `reports/g132-phase1-b.md` and the PR body.
 - **2026-10-29 — the home publishes its log, off by default (ruling 51a/d/e, G132 phase 1 PR A; branch
   `feat/g132-home-publishes`).** `CICADA_SYNC_PUBLISH=on` or `PUT /sync/publish` (the server's own token) turns on
   `/sync/log` (seq = first-parent position; a hand rewrite freezes it until "publish from here"), `/sync/pack` (a
@@ -2632,7 +2639,13 @@ A whole row moves to DONE only after its remaining implementation and required a
     replica write nothing, so `GET /state`'s refresh-and-commit is a no-op on a replica and refreshes at the home.
     **e3 — The history only grows.** If the home's published history is ever rewritten (a hand amend or reset in the
     bank), publishing freezes and says so in words; the person chooses "publish from here" and the replicas re-copy —
-    never automatic. **A demo bank is never published or replicated.** **Rails amended, old words → new (each takes effect when the phase that builds it ships;
+    never automatic. **A demo bank is never published or replicated.** **e4 — A copy's saves commit at the home
+    (acting owner, 2026-10-29, pending the owner's confirmation; G132 phase 1 B, #566).** A save a copy sends — an
+    episode `cicada_save_episode` or `cicada_save_url` writes through the tool door, a transaction carrying `base_seq`
+    while the home publishes — commits alone at the home under its harness, as a remote save does (R-R11 widened to a
+    copy's writes), so the copy that sent it can read it back from its replica. A save made on the home itself (its
+    stdio MCP, its own command line) is unchanged: uncommitted until Sleep, byte for byte (G135's ruling). Rodrigo can
+    overrule it. **Rails amended, old words → new (each takes effect when the phase that builds it ships;
     until then the old words describe the code):** (1) CLAUDE.md, Headless: *"a server is its bank's one writer"* →
     the bank's **home** is its one writer (a server or any computer), and every other computer may hold a read-only
     replica it fast-forwards. (2) *"Another machine is a client (`CICADA_API_BASE`, or the app's `api_base` file, ruling

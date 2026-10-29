@@ -71,6 +71,8 @@ class _Rec:
     #: Every hash this chain's capture writes produced (the latest included). HEAD holding any of them means another
     #: writer's ``add -A`` (a poll, a Sleep batch) committed one of OUR writes: nothing foreign sits under the chain.
     chain: tuple[str, ...] = ()
+    #: The chain outgrew :data:`CHAIN_MAX` and forgot its oldest hashes (see :func:`note_written`).
+    overflow: bool = False
 
     def clean_against(self, head_hash: str | None) -> bool:
         """Nothing uncommitted and foreign lies under this chain, given what HEAD holds at the path: the writer made
@@ -129,7 +131,8 @@ def _load(bank: _Bank) -> None:
     for rel, rec in (data.get("records") or {}).items() if isinstance(data, dict) else ():
         if isinstance(rec, dict) and isinstance(rec.get("hash"), str) and _episode_rel(rel):
             chain = tuple(h for h in (rec.get("chain") or [rec["hash"]]) if isinstance(h, str))
-            bank.records[rel] = _Rec(rec["hash"], float(rec.get("at") or 0), rec.get("base"), chain)
+            bank.records[rel] = _Rec(rec["hash"], float(rec.get("at") or 0), rec.get("base"), chain,
+                                     bool(rec.get("overflow")))
     bank.last_commit_at = float(data.get("last_commit_at") or 0) if isinstance(data, dict) else 0.0
 
 
@@ -138,7 +141,8 @@ def _save(bank: _Bank) -> None:
     path = _records_path(bank.memory_path)
     tmp = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
     payload = {"v": 1, "last_commit_at": bank.last_commit_at,
-               "records": {rel: {"hash": r.hash, "at": r.at, "base": r.base, "chain": list(r.chain)}
+               "records": {rel: {"hash": r.hash, "at": r.at, "base": r.base, "chain": list(r.chain),
+                                 "overflow": r.overflow}
                            for rel, r in bank.records.items()}}
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
@@ -173,16 +177,22 @@ def note_written(memory_path, path: Path, *, before: bytes | None, now: float | 
             prev = bank.records.get(rel)
             before_hash = _sha(before) if before is not None else None
             digest = _sha(data)
+            overflow = False
             if prev is not None and before_hash == prev.hash:
                 base = prev.base          # the same writer's chain goes on: the base stays where it began
-                chain = (*prev.chain, digest)[-CHAIN_MAX:]
+                whole = (*prev.chain, digest)
+                chain = whole[-CHAIN_MAX:]
+                # Review of #565: past the bound the oldest hashes are forgotten, so "HEAD holds none of ours" can
+                # no longer be told apart from "HEAD holds one we forgot" — recorded, and the sweep never keeps
+                # anything apart for this chain then.
+                overflow = prev.overflow or len(whole) > CHAIN_MAX
             else:
                 base = before_hash        # a new chain: whatever was there before is someone's — or HEAD
                 chain = (digest,)
                 bank.base_bytes.pop(rel, None)
                 if before is not None:
                     bank.base_bytes[rel] = before
-            bank.records[rel] = _Rec(digest, time.time() if now is None else now, base, chain)
+            bank.records[rel] = _Rec(digest, time.time() if now is None else now, base, chain, overflow)
             _save(bank)
     except Exception as exc:  # noqa: BLE001 — provenance never blocks memory
         logger.info(f"capture commit: record skipped ({type(exc).__name__})")
@@ -249,7 +259,7 @@ def sweep(memory_path, *, now: float | None = None) -> int:
         _load(bank)
         if now - bank.last_commit_at < MIN_INTERVAL_S:
             return 0
-        due = {rel: _Rec(r.hash, r.at, r.base, r.chain) for rel, r in bank.records.items() if now - r.at >= SETTLE_S}
+        due = {rel: _Rec(r.hash, r.at, r.base, r.chain, r.overflow) for rel, r in bank.records.items() if now - r.at >= SETTLE_S}
         bases = {rel: bank.base_bytes.get(rel, _MISSING) for rel in due}
     if not due or write_admission.probe():
         return 0
@@ -280,7 +290,9 @@ def sweep(memory_path, *, now: float | None = None) -> int:
                     # someone's uncommitted edit (or an untracked file): committed first, alone, with no author.
                     if not rec.clean_against(_sha(head) if head is not None else None):
                         before = bases.get(rel, _MISSING)
-                        if before is _MISSING:
+                        if before is _MISSING or rec.overflow:
+                            # Its bytes are gone, or the chain forgot hashes it wrote (overflow): never guess —
+                            # left for Sleep's batch, nothing kept apart.
                             drop.add(rel)      # someone's edit was under this write and its bytes are gone
                             continue
                         kept[rel] = before

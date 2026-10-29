@@ -139,10 +139,19 @@ class ToolContext:
     # G213: an agent token's own name as `Cicada-Author` (`api:<name>`, `catalog.Connector.author`); the harness
     # stays the enum `agent-api` for frontmatter and the ledger. None = the harness is the author, as always.
     author_override: str | None = None
+    # G132 phase 1 B: a transaction a replica sent while this home publishes its log. Its saved episode (a note, a
+    # link) commits alone under its harness, like a remote save (R-R11), so the copy that sent it can read it back —
+    # a stdio save on this machine stays uncommitted, byte for byte (G135's ruling).
+    commits_saves: bool = False
 
     @property
     def is_remote(self) -> bool:
         return self.connector_id is not None
+
+    @property
+    def saves_commit(self) -> bool:
+        """Does a saved episode commit alone here? A remote app's (R-R11) or a replica's transaction (G132)."""
+        return self.is_remote or self.commits_saves
 
     @property
     def reads_caller_paths(self) -> bool:
@@ -619,7 +628,7 @@ def _write_saved_url(ctx: ToolContext, memory_path: Path, item, prepared) -> str
     # episode — this is one of the two single-save paths that may.
     note_ep = (media_ingestor.write_note_episode(memory_path, item, result)
                if result.status == "duplicate" else None)
-    if ctx.is_remote and result.status == "created":
+    if ctx.saves_commit and result.status == "created":
         # R-R11: the three files this save wrote, committed on their own
         # under the app that saved them (the batch path's own path list).
         paths = ["sources/url_index.json", f"entities/{result.media_entity_id}.md",
@@ -631,7 +640,7 @@ def _write_saved_url(ctx: ToolContext, memory_path: Path, item, prepared) -> str
                    f"trigger: {ctx.trigger})",
                    f"episodes/{result.episode_id}.md: created (trigger: {ctx.trigger})"],
             paths=paths, author=ctx.author, session=ctx.session_id)
-    if ctx.is_remote and note_ep and note_ep[1]:
+    if ctx.saves_commit and note_ep and note_ep[1]:
         # R-R11: a kept note commits alone, under its app, like any remote
         # write. Stdio's backend-down path leaves it uncommitted, exactly as
         # it leaves a created save (G135's byte-identical ruling).
@@ -5635,7 +5644,7 @@ def save_episode(ctx: ToolContext, content: str, title: str | None) -> str:
         return Reply("Episode already exists (duplicate detected by content hash).", code="duplicate",
                      data={"episode_id": None, "duplicate": True})
 
-    if ctx.is_remote:
+    if ctx.saves_commit:
         # R-R11: a remote episode commits alone, under its app. Stdio's episode
         # save stays uncommitted (byte-identical to before G135, by ruling).
         agent_commits.commit_write(

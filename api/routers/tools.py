@@ -59,6 +59,32 @@ def _local_headers():
     return headers
 
 
+async def _to_home(req: ToolCallRequest, request: Request, pin) -> dict:
+    """G132 phase 1 B (ruling 51a): on a replica a write — and a read of a store the home keeps outside every bank —
+    is a transaction to the home, through the outbox (``tx_outbox``: kept until it lands, in order, keyed once). The
+    home's answer comes back as it is; its ``seq`` nudges the follower, and the reply waits up to about 2 s for the
+    copy to reach it (read-your-writes). Unreachable, the call is queued and says so."""
+    from api.services import idempotency, replica, tx_outbox
+
+    entry = tx_outbox.tool_entry(
+        req.tool, req.arguments, bank_id=pin.id if pin is not None else None, base_seq=replica.seq(),
+        caller=req.caller.model_dump(), surface=req.surface, options=req.options,
+        state=req.state.model_dump(), key=idempotency.clean_key(request.headers.get(idempotency.HEADER)))
+    verdict, status, answer = await asyncio.to_thread(tx_outbox.submit, entry, replica.send)
+    bank = pin.name if pin is not None else None
+    bank_id = pin.id if pin is not None else None
+    if verdict == "landed" and isinstance(answer, dict):
+        await asyncio.to_thread(replica.wait_for_seq, answer.get("seq"))
+        return {**answer, "bank": bank, "bankId": bank_id, "homeSeq": answer.get("seq"), "seq": replica.seq()}
+    if verdict in ("rejected", "drop") and isinstance(answer, dict):
+        text = answer.get("text") or answer.get("detail") or ""
+        return {"text": "", "code": answer.get("code"), "data": None, "segments": None,
+                "error": text if isinstance(text, str) and text else f"The home did not take this (HTTP {status}).",
+                "state": req.state.model_dump(), "bank": bank, "bankId": bank_id}
+    return {"text": tx_outbox.QUEUED_TEXT, "code": "queued_for_home", "data": {"queued": True, "id": entry["id"]},
+            "error": None, "segments": None, "state": req.state.model_dump(), "bank": bank, "bankId": bank_id}
+
+
 @router.post("/tools/call")
 async def call_tool(req: ToolCallRequest, request: Request, settings: Settings = Depends(get_settings)):
     from api.services import runtime_layout
@@ -67,6 +93,14 @@ async def call_tool(req: ToolCallRequest, request: Request, settings: Settings =
     pin = bank_registry.pinned_bank()
     memory_path = settings.memory_path
     bank_name = pin.name if pin is not None else None
+    from api.services import replica_guard
+
+    if replica_guard.active():
+        from api.services import cli_map as _map
+
+        row = _map.by_tool().get(req.tool)
+        if row is not None and row.replica_side == "home":
+            return await _to_home(req, request, pin)
     caller = tool_door.Caller(session_id=req.caller.session_id or "", harness=req.caller.harness or "unknown",
                               project_dir=req.caller.project_dir, client_name=req.caller.client_name,
                               client_version=req.caller.client_version)
@@ -90,6 +124,9 @@ async def call_tool(req: ToolCallRequest, request: Request, settings: Settings =
     mutates = bool(row is not None and row.mutates)
     # Off (the default), one environment read and one stat: no thread hop, no reply change.
     publishing = mutates and sync_publish.enabled() and await asyncio.to_thread(sync_publish.publishable, memory_path)
+    # G132 phase 1 B: a replica's transaction (it names the seq it was based on) — its saved episode commits alone,
+    # under its harness, so the copy that sent it can read it back.
+    ctx.commits_saves = bool(publishing and req.base_seq is not None)
 
     async def work() -> tuple[int, dict]:
         try:

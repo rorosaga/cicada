@@ -219,7 +219,7 @@ _DEVICE_READABLE = frozenset({("GET", "/devices"), ("GET", "/devices/status")})
 #: on faces the person's tunnel), so a device may read the connector state and revoke, never create or open.
 #: G132 phase 1: turning publishing on or off, and "publish from here", are the person's acts on the home, never a
 #: device's (a device reads the switch and, as a full device, the log).
-MASTER_ONLY_WRITE_PREFIXES = ("/remote", "/agent-api", "/sync/publish")
+MASTER_ONLY_WRITE_PREFIXES = ("/remote", "/agent-api", "/sync/publish", "/sync/replica")
 _MASTER_ONLY_WRITE_METHODS = frozenset({"POST", "PUT", "PATCH"})
 
 

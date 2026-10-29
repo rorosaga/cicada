@@ -71,6 +71,15 @@ class Row:
     #: The `/v1` operation's name when it is not the command spelled with underscores (G213, ruling 38): only the
     #: eleven operations shipped before `/v1` was generated from this table, frozen as they were (Hyrum).
     api_op: str | None = None
+    #: G132 phase 1 B (ruling 51a): where the tool runs on a replica — ``home`` (sent to the home as a transaction)
+    #: or ``local`` (answered from the copy). Empty takes the rule: every ``mutates`` row is ``home``, every other
+    #: ``local``; a read of a store that lives outside every bank on the home (the video, explore and reading
+    #: queues) says ``home`` itself.
+    replica: str = ""
+
+    @property
+    def replica_side(self) -> str:
+        return self.replica or ("home" if self.mutates else "local")
 
     @property
     def name(self) -> str:
@@ -206,12 +215,13 @@ ROWS: tuple[Row, ...] = (
     Row(("video", "record"), "cicada_record_watch", "Record a watched video: summary and short quotes.",
         (_p("url"), _p("summary"), _f("excerpts", "json"), _f("chapters", "json"), _f("basis"), _f("engine"),
          _f("duration"), _f("lease_token")), mutates=True),
-    Row(("video", "queue"), "cicada_video_queue", "Videos the person asked to have watched.", (_f("limit", "int"),)),
+    Row(("video", "queue"), "cicada_video_queue", "Videos the person asked to have watched.", (_f("limit", "int"),),
+        replica="home"),
     Row(("video", "claim"), "cicada_video_claim", "Take videos from the queue to watch.",
         (_f("limit", "int"), _f("release", "json")), mutates=True),
     # G166 exploring (2026-10-14): proposed spellings, not exposed yet; the start is never a CLI door (D5, ruling 21a).
     Row(("explore", "queue"), "cicada_explore_queue", "Saved sites the person asked to have explored.",
-        (_f("limit", "int"),)),
+        (_f("limit", "int"),), replica="home"),
     Row(("explore", "claim"), "cicada_explore_claim", "Take a saved site to explore, or hand one back.",
         (_f("limit", "int"), _f("release", "json")), mutates=True),
     Row(("explore", "record"), "cicada_record_capture", "Record what a site's capture saw.",
@@ -231,7 +241,8 @@ ROWS: tuple[Row, ...] = (
     Row(("source", "refresh-record"), "cicada_record_refresh", "Record what a tracked source says now.",
         (_p("entity_id"), _p("source"), _p("lease_token"), _p("outcome"), _f("predicate"), _f("value"),
          _f("ended", "json"), _f("quotes", "json"), _f("captured_at"), _f("summary"), _f("via")), mutates=True),
-    Row(("read", "queue"), "cicada_reading_queue", "Pages the person asked to have read.", (_f("limit", "int"),)),
+    Row(("read", "queue"), "cicada_reading_queue", "Pages the person asked to have read.", (_f("limit", "int"),),
+        replica="home"),
     # G71 (2026-10-16): a proposed spelling, not exposed — the agent reads the lists in the person's browser.
     Row(("read", "youtube"), "cicada_record_youtube_list", "Record what the person's YouTube list showed.",
         (_p("list"), _p("outcome"), _f("videos", "json"), _f("via")), mutates=True),

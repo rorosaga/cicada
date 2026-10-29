@@ -101,26 +101,100 @@ def is_client(environ=os.environ) -> bool:
     return bool(_raw_base(environ))
 
 
-def api_base(environ=os.environ) -> str:
-    """``CICADA_API_BASE`` checked and normalised (no trailing slash). https for any host; plain http only to a
-    loopback address (an SSH tunnel's local end), so a bearer token never crosses a network in clear text.
-    ``ValueError`` names the rule, never echoes the value."""
+def _checked_base(raw: str, name: str) -> str:
     from urllib.parse import urlsplit
 
-    raw = _raw_base(environ)
     try:
         parts = urlsplit(raw)
         host = parts.hostname
         parts.port  # noqa: B018 - raises ValueError on a malformed port
     except ValueError:
-        raise ValueError(f"{API_BASE_ENV} is not a URL") from None
+        raise ValueError(f"{name} is not a URL") from None
     if parts.scheme not in ("http", "https") or not host:
-        raise ValueError(f"{API_BASE_ENV} must be an http(s) address")
+        raise ValueError(f"{name} must be an http(s) address")
     if parts.username or parts.password or parts.query or parts.fragment:
-        raise ValueError(f"{API_BASE_ENV} must carry no credentials, query or fragment")
+        raise ValueError(f"{name} must carry no credentials, query or fragment")
     if parts.scheme == "http" and host not in _LOOPBACK_HOSTS:
-        raise ValueError(f"{API_BASE_ENV} must use https unless it is a loopback address")
+        raise ValueError(f"{name} must use https unless it is a loopback address")
     return f"{parts.scheme}://{parts.netloc}{parts.path.rstrip('/')}"
+
+
+def api_base(environ=os.environ) -> str:
+    """``CICADA_API_BASE`` checked and normalised (no trailing slash). https for any host; plain http only to a
+    loopback address (an SSH tunnel's local end), so a bearer token never crosses a network in clear text.
+    ``ValueError`` names the rule, never echoes the value."""
+    return _checked_base(_raw_base(environ), API_BASE_ENV)
+
+
+# --- A replica of a home elsewhere (G132 phase 1, ruling 51e2) ---------------------------------------------------
+#
+# ``CICADA_REPLICA_OF`` (else ``$CICADA_HOME/replica_of``, one line, 0600, the app's "Keep a full copy here") names
+# the HOME this machine keeps a read-only copy of: the same address rule as ``api_base``, the same device token. This
+# machine then runs its own backend on loopback, answers reads from its copy, never runs Sleep and never commits on
+# its own; its writes go to the home as transactions. Unset, nothing changes. **Both set fails closed to client**:
+# a machine told to be a client and a replica is a client (the safer of the two — it writes no local bank), and
+# :func:`mode_conflict` says so in words.
+
+REPLICA_ENV = "CICADA_REPLICA_OF"
+REPLICA_FILE = "replica_of"
+MODE_CONFLICT_TEXT = ("This computer is set both to use a Cicada server elsewhere and to keep its own copy of a "
+                      "memory. It uses the server and keeps no copy until one of the two is turned off.")
+
+
+def _raw_replica(environ=os.environ) -> str:
+    raw = (environ.get(REPLICA_ENV) or "").strip()
+    if raw:
+        return raw
+    if environ is not os.environ and not (environ.get("CICADA_HOME") or "").strip():
+        return ""
+    try:
+        return (cicada_home(environ) / REPLICA_FILE).read_bytes().decode("utf-8", "replace").strip()
+    except OSError:
+        return ""
+
+
+def mode(environ=os.environ) -> str:
+    """``local``, ``client`` or ``replica``. Client wins over replica (fail closed)."""
+    if is_client(environ):
+        return "client"
+    return "replica" if _raw_replica(environ) else "local"
+
+
+def is_replica(environ=os.environ) -> bool:
+    return mode(environ) == "replica"
+
+
+def mode_conflict(environ=os.environ) -> str | None:
+    """The sentence when both a server and a home are set (the machine is a client then), else None."""
+    return MODE_CONFLICT_TEXT if is_client(environ) and _raw_replica(environ) else None
+
+
+def replica_of(environ=os.environ) -> str:
+    """The home's address, checked like ``api_base``; ``ValueError`` names the rule."""
+    return _checked_base(_raw_replica(environ), REPLICA_ENV)
+
+
+DEVICE_TOKEN_PREFIX = "cic_dev_"
+NO_DEVICE_TOKEN_TEXT = ("This computer has no device code from the computer that holds your memory, so it does not "
+                        "copy or send anything. Pair it again from that computer's Devices page.")
+
+
+def replica_token(environ=os.environ) -> str:
+    """The ONE credential a copy sends to its home: the device token the home issued for it, read from
+    ``$CICADA_HOME/device_token`` alone — never ``CICADA_API_TOKEN`` (which also names this computer's own master
+    token) and never the master token itself. "" when there is none, or when what is there is not a device token or
+    is this computer's own master token: the copy then fails closed (it follows and sends nothing)."""
+    try:
+        token = (cicada_home(environ) / DEVICE_TOKEN_FILE).read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+    if not token.startswith(DEVICE_TOKEN_PREFIX):
+        return ""
+    try:
+        master = (cicada_home(environ) / "api_token").read_text(encoding="utf-8").strip()
+    except OSError:
+        master = ""
+    return "" if master and token == master else token
 
 
 def client_token(environ=os.environ) -> str:

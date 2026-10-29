@@ -157,6 +157,12 @@ def bootstrap(environ=None) -> Boot:
                 pin=pin, ctx=ctx, backend_url=runtime_layout.backend_url(environ))
 
 
+def _replica_mode(environ=None) -> bool:
+    from api.services import runtime_layout
+
+    return runtime_layout.is_replica(os.environ if environ is None else environ)
+
+
 def _client_mode(environ) -> bool:
     from api.services import runtime_layout
 
@@ -1050,7 +1056,19 @@ def main(argv: list[str] | None = None) -> int:
                     bank_name = boot.pin.name
                     _check_bank(boot, args.bank if args.bank is not None else os.environ.get("CICADA_BANK"))
                     boot.probe = probe_backend(boot.backend_url, boot.root, bank_id=getattr(boot.pin, "id", None))
-                    result = boot.ctx.run(_in_process, command, handler, boot, args)
+                    row = cli_map.by_name().get(command)
+                    if row is not None and row.tool and row.replica_side == "home" and _replica_mode():
+                        # G132 phase 1 B: this computer keeps a copy — a write goes to the home, through this
+                        # computer's own backend (its outbox), the same tool body the MCP door runs there.
+                        if row.person:
+                            cli_app.require_person(row.summary.rstrip("."))
+                        arguments = {a.prop: getattr(args, a.prop, None) for a in row.args
+                                     if getattr(args, a.prop, None) is not None}
+                        if arguments.get("content") == "-":
+                            arguments["content"] = sys.stdin.read()   # `cicada save -` reads stdin, as locally
+                        result = _typed(_door(boot, row.tool, arguments), warnings=_root_warnings(boot))
+                    else:
+                        result = boot.ctx.run(_in_process, command, handler, boot, args)
     except UsageError as exc:                  # a check that needed the page (a `get` range past its end)
         _emit(as_json, command=command, ok=False, code="usage", bank=bank_name, data=None, text=str(exc),
               warnings=[])
@@ -1064,6 +1082,12 @@ def main(argv: list[str] | None = None) -> int:
               text=f"Could not open the memory ({exc}).", warnings=[])
         return EXIT_CODES["bootstrap"]
     except PermissionError as exc:
+        from api.services import replica_guard
+
+        if isinstance(exc, replica_guard.ReplicaReadOnly):
+            _emit(as_json, command=command, ok=False, code="refused", bank=bank_name, data=None, text=str(exc),
+                  warnings=[])
+            return EXIT_CODES.get("refused", 1)
         where = f" ({exc.filename})" if getattr(exc, "filename", None) else ""
         _emit(as_json, command=command, ok=False, code="sandbox_denied", bank=bank_name, data=None,
               text=f"This shell may not use the memory folder{where}. Where the shell is sandboxed, "

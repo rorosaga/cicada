@@ -86,7 +86,7 @@ def _capture(payload, event, *, environ, home, post):
     text = payload.get(field)
     if not isinstance(text, str) or not text.strip():
         return sid, f"skipped: no {field}"
-    client = remote_client.is_client(environ)
+    client = remote_client.captures_elsewhere(environ)   # a client's server, or a copy's home (G132 phase 1 B)
     token = "" if client else _token(environ, home)
     if not token and not client:
         return sid, "skipped: no api_token"

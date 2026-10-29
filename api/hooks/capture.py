@@ -503,7 +503,7 @@ def main(argv=None, *, stdin=None, stdout=None, environ=None, post=None, log_pat
         host = host_identity.detect(environ)
         tag = f"{harness} {session_id[:8] or '?'} {event}" + (f" via {host}" if host else "")
         transcript_path = payload.get("transcript_path")
-        if remote_client.is_client(environ):
+        if remote_client.captures_elsewhere(environ):   # a client's server, or a copy's home (G132 phase 1 B)
             if not session_id:
                 _log(log_path, f"{tag} skipped: no session_id")
                 return 0

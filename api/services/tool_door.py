@@ -199,7 +199,7 @@ def _self_post(backend_url: str, headers: Callable[[], dict]) -> Callable[[str, 
 
 def context(*, memory_path: Path, bank_name: str | None, caller: Caller, state: SessionState, surface: str,
             device_id: str | None, backend_url: str, headers: Callable[[], dict],
-            post: Callable[[str, dict], dict] | None = None) -> mcp_tools.ToolContext:
+            post: Callable[[str, dict], dict] | None = None, commits_saves: bool = False) -> mcp_tools.ToolContext:
     """The ToolContext a stdio process on this machine would build for this caller, pinned to one bank."""
     def pinned_headers() -> dict:
         out = dict(headers())
@@ -215,7 +215,7 @@ def context(*, memory_path: Path, bank_name: str | None, caller: Caller, state: 
         read_surface="cli" if surface == "cli" else "mcp",
         available=cli_map.exposed_tools() if surface == "cli" else None,
         local_files=False, sleep_probe=write_admission.holding, sleep_holding=write_admission.holding,
-        device_id=device_id)
+        device_id=device_id, commits_saves=commits_saves)
 
 
 @dataclass

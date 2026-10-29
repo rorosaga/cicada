@@ -822,6 +822,12 @@ def refresh(
     """
     memory_path = Path(memory_path)
     path = state_path(memory_path)
+    from api.services import replica_guard
+
+    if replica_guard.blocks():
+        # G132 phase 1 (51e2): a replica never refreshes the cursor; the home does, commits it alone, and the copy
+        # follows — so the primer read here is the home's, never an older one written locally.
+        return {"written": False, "reason": "replica", "path": str(path)}
     previous = read_state(memory_path)
     if not force and previous is not None and previous.get("inputs_version") == inputs_version(memory_path):
         return {"written": False, "reason": "inputs unchanged", "path": str(path)}
