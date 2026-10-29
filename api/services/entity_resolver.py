@@ -486,8 +486,12 @@ async def resolve(
                 if same_repo is not None and same_repo[1]:
                     match = {"decision": "same", "candidate": same_repo[0]}
                 elif same_repo is not None:
+                    # Owner's coordinator call, 2026-10-29: a different folder name, or a remote the page's repository
+                    # only once had, is never a silent join — the judge decides, told the remote matched.
+                    note = ("Both were worked on in checkouts of the same git repository (the same origin); a "
+                            "template or fork reused for a new project shares an origin too.")
                     match = _pick_match(name, await _judge_candidates(
-                        entity, [same_repo[0]], llm_match_cache, settings,
+                        entity, [{**same_repo[0], "note": note}], llm_match_cache, settings,
                         gate=lookahead.gate if lookahead is not None else None,
                         connections=connections.get(name_lower, "")))
             if match is None and _written_type(entity, siblings) == "project":
@@ -1940,7 +1944,7 @@ def _same_repository_candidate(entity: dict, siblings, existing: list[dict], cre
                                memory_path, cache: dict, judged: dict) -> tuple[dict, bool] | None:
     """``(candidate, sure)`` for the one project page whose repository has this mention's hashed remote
     (`project_birth.same_repository_page`), else ``None``. A remote proves the same repository, not the same project:
-    ``sure`` only when it can be that repository renamed or moved; otherwise the caller brings the page to the judge.
+    ``sure`` only for the same folder name on the remote the page points at now; otherwise the judge decides.
     A pair the person said were different, or the judge already called different, is never brought back as sure.
     ``cache`` holds the bank's observed sessions, read once per resolve and only when a birth carries a remote."""
     birth = project_birth.birth_of(entity, siblings)

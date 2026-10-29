@@ -1804,13 +1804,17 @@ on the conversation it read (no model), a `project_birth` record and drops any t
   records it as `born.repo.remote`. A remote proves the same repository, **not the same project** (a template
   cloned under a new name, a fork whose origin is the upstream). Stage 2 finds the one project page whose repository
   has that remote — its own `born.repo.remote`, or, for a page born before the remote was read, a remote a later
-  session in its `born.repo.family` carried (`project_birth.remote_sessions`, the cached frontmatter index) — and
-  joins it before the judge only when it can be that repository renamed or moved: the new folder's name is the
-  page's repository name, or the page's checkout went quiet before the new one began (`project_birth.moved_families`).
-  Otherwise the page is brought to the judge as a candidate (the W2 precedent) and its "different" stands
+  session in its `born.repo.family` carried (`project_birth.remote_sessions`, the cached frontmatter index). Only a
+  repository's CURRENT remote counts (the one on its latest session, `project_birth.current_remotes`): a project
+  re-pointed from a template to its own repository no longer answers to the template. It joins that page before the
+  judge only when the page's repository points at the remote now AND the new folder's name, folded, is the page's
+  repository name (the same repository moved or cloned again). A different name — a rename, or a template reused
+  for a new project, even after the old checkout went quiet — or a remote the page only once had brings the page to
+  the judge as a candidate (the W2 precedent) with a note that both share an origin, and its "different" stands
   (`entity_resolver._same_repository_candidate`; two pages on one remote join neither; a pair the person said were
-  different is never joined). Project activity and conversation ties count a same-remote checkout by the same moved
-  rule only (`_Bank.page_repo_families`), so a checkout active alongside the page's never lends it days or
+  different is never joined). Project activity and conversation ties count a checkout on the page's current remote
+  only when it began after the page's checkout went quiet (`project_birth.moved_families`,
+  `_Bank.page_repo_families`), so a checkout active alongside it, or one on a remote it left, never lends it days or
   conversations. A page born before ruling 22 D2a whose repository was renamed before any later session
   in the old folder carried the remote is not recognised — nothing is rewritten to recover it.
 - **words** — one sentence of a person's own turn (`user`, or a meeting `speaker`) names it within five words of

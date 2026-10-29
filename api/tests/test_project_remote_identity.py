@@ -245,7 +245,7 @@ def _resolve(memory, mention, pages, monkeypatch, verdict="different"):
     judged = []
 
     async def judge(*_a, **k):
-        judged.append(1)
+        judged.append(k.get("note") or "")
         return verdict
 
     async def batch(new_name, new_type, new_description, entries, settings, *, new_connections=""):
@@ -266,24 +266,70 @@ def _mention(name, birth):
     return entity
 
 
-def test_a_renamed_repository_is_the_project_page_it_already_has(tmp_path, monkeypatch):
-    """The old folder went quiet, then the new one began: a rename or a move — joined without asking the judge."""
+MOVED_DIR = "/home/someone/elsewhere/alpha-project"
+
+
+def test_the_same_repository_moved_under_its_own_name_is_its_page(tmp_path, monkeypatch):
+    """Same folder name, the remote the page points at now: joined with no judge (and none is asked)."""
+    memory = _bank(tmp_path)
+    _session(memory, EP_A, OLD_DIR, "a" * 16, TS_A)
+    _session(memory, EP_B, MOVED_DIR, "b" * 16, TS_B)
+    page = _page("alpha-project", "alpha-project", _repo_birth("alpha-project", "a" * 16, ep=EP_A))
+    out = _resolve(memory, _mention("alpha-project", _repo_birth("alpha-project", "b" * 16)), [page], monkeypatch)
+    assert [(c["action"], c["id"]) for c in out["changes"]] == [("update", "alpha-project")]
+
+
+@pytest.mark.parametrize("verdict,expected", [("different", ("create", "alpha-renamed")),
+                                              ("same", ("update", "alpha-project"))])
+def test_a_renamed_repository_goes_to_the_judge_told_the_remote_matched(tmp_path, monkeypatch, verdict, expected):
+    """A different folder name is never a silent join, even after the old checkout went quiet: a reused template
+    looks exactly like this. The judge decides, told both share an origin."""
     memory = _bank(tmp_path)
     _session(memory, EP_A, OLD_DIR, "a" * 16, TS_A)
     _session(memory, EP_B, NEW_DIR, "b" * 16, TS_B)
     page = _page("alpha-project", "alpha-project", _repo_birth("alpha-project", "a" * 16, ep=EP_A))
-    out = _resolve(memory, _mention("alpha-renamed", _repo_birth("alpha-renamed", "b" * 16)), [page], monkeypatch)
-    assert [(c["action"], c["id"]) for c in out["changes"]] == [("update", "alpha-project")]
+    out = _resolve(memory, _mention("alpha-renamed", _repo_birth("alpha-renamed", "b" * 16)), [page], monkeypatch,
+                   verdict=verdict)
+    assert [(c["action"], c["id"]) for c in out["changes"]] == [expected]
+    assert any("same git repository" in c for c in out["judged"])
 
 
 def test_a_page_born_before_the_remote_was_read_is_found_through_a_later_session(tmp_path, monkeypatch):
     """The page's birth holds a family only; a later session in that same checkout carried family and remote."""
     memory = _bank(tmp_path)
     _session(memory, EP_A, OLD_DIR, "a" * 16, TS_A)
-    _session(memory, EP_B, NEW_DIR, "b" * 16, TS_B)
+    _session(memory, EP_B, MOVED_DIR, "b" * 16, TS_B)
     page = _page("alpha-project", "alpha-project", _repo_birth("alpha-project", "a" * 16, remote=None, ep=EP_A))
-    out = _resolve(memory, _mention("alpha-renamed", _repo_birth("alpha-renamed", "b" * 16)), [page], monkeypatch)
+    out = _resolve(memory, _mention("alpha-project", _repo_birth("alpha-project", "b" * 16)), [page], monkeypatch)
     assert [(c["action"], c["id"]) for c in out["changes"]] == [("update", "alpha-project")]
+
+
+TEMPLATE = "7" * 16
+
+
+def _repointed(memory):
+    """alpha-app was cloned from template T, then re-pointed to its own repository A; later bravo clones T."""
+    _session(memory, "ep_2026-01-10_001", "/home/someone/code/alpha-app", "a" * 16, "2026-01-10T10:00:00+00:00",
+             remote=TEMPLATE)
+    _session(memory, "ep_2026-02-10_001", "/home/someone/code/alpha-app", "a" * 16, "2026-02-10T10:00:00+00:00",
+             last="2026-03-01T10:00:00+00:00", remote=REMOTE)
+    _session(memory, EP_B, "/home/someone/code/bravo", "b" * 16, "2026-04-01T10:00:00+00:00", remote=TEMPLATE)
+
+
+def test_a_remote_the_page_only_once_had_is_never_a_join(tmp_path, monkeypatch):
+    memory = _bank(tmp_path)
+    _repointed(memory)
+    alpha = _page("alpha-app", "alpha-app", _repo_birth("alpha-app", "a" * 16, remote=TEMPLATE,
+                                                        ep="ep_2026-01-10_001"))
+    sessions = project_birth.remote_sessions(memory)
+    assert project_birth.same_repository_page(_repo_birth("bravo", "b" * 16, remote=TEMPLATE),
+                                              [("alpha-app", alpha["frontmatter"])], sessions=sessions) \
+        == ("alpha-app", False)
+    out = _resolve(memory, _mention("bravo", _repo_birth("bravo", "b" * 16, remote=TEMPLATE)), [alpha], monkeypatch)
+    assert [(c["action"], c["id"]) for c in out["changes"]] == [("create", "bravo")]
+    markdown_parser.write(memory / "entities" / "alpha-app.md", alpha["frontmatter"], "")
+    bank = project_timeline._Bank(memory, None)
+    assert "2026-04-01" not in project_timeline._repo_days(bank, ["alpha-app"])
 
 
 TEMPLATE_DIR = "/home/someone/code/beta-app"

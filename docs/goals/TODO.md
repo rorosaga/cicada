@@ -16,7 +16,7 @@
   `feat/project-remote-identity`).** The hook adds a hashed, per-install-salted `remote.origin.url` to its D2
   observation; continuity, project birth and project activity read it beside the path keys; a moved Claude Code notes
   folder keeps its episodes (rename by content), a copied one adds none. Scratch-repo measurement: pointer found 0/3 →
-  3/3, renamed-repository duplicate project 1 → 0, moved notes folder 2 new + 2 tombstoned → 0 + 0 (2 repointed).
+  3/3, moved repository (same name) duplicate project 1 → 0 (a renamed one goes to the judge, told they share an origin), moved notes folder 2 new + 2 tombstoned → 0 + 0 (2 repointed).
 - **2026-10-29 — the picture is the control (G146, owner; branch `feat/picture-click`).** The blue *Add a picture…* /
   *Use initials instead* / *Remove picture* words and the "Picture you added" caption under a page's name are gone; a click on the picture offers them
   (the picker at once when it is the only choice), a page with no picture adds one from its ••• menu.
@@ -1576,9 +1576,11 @@ A whole row moves to DONE only after its remaining implementation and required a
     matters — as evidence of the same *repository*, never by itself of the same *project* or checkout (review of
     #558: a template cloned under a new name, an upstream-as-origin fork, two live clones). Continuity adopts another
     checkout at the same place in the remote only when this one began after it went quiet (renamed, moved, cloned
-    again); clones active together are related choices. Project birth (`born.repo.remote`) joins the page that remote
-    already has only when the folder name matches it or its checkout went quiet first; otherwise the remote brings
-    the page to the judge and "different" stands; activity and ties follow the same moved rule. Records written
+    again); clones active together are related choices. Only a repository's current remote counts (the one on its
+    latest session). Project birth (`born.repo.remote`) joins the page with no judge only when the page points at
+    that remote now and the folder name is the same; a different name or a remote the page only once had brings the
+    page to the judge, told they share an origin, and "different" stands (coordinator's call on #558); activity and
+    ties count a same-remote checkout only after the page's went quiet. Records written
     before keep matching by their path keys; no
     bank rewrite. Ruling 43's notes are recognised by their own bytes, not the remote: Claude Code names their folder
     after the checkout's path, so a moved notes folder is repointed in place and a copied one is no second episode.
