@@ -146,13 +146,13 @@ def from_items(items: Iterable[RawItem]) -> list[Play]:
 
 def describe(items: Iterable[RawItem]) -> tuple[int, int]:
     """``(plays, days)`` a list of play rows would become — the preview's words, no write. Doubled plays count once."""
-    seen: set[str] = set()
+    held = Held()
     days: set[date] = set()
     n = 0
     for p in sorted(from_items(items), key=lambda p: p.at):
-        if seen.intersection(p.keys_near()):
+        if held.find(p) is not None:
             continue
-        seen.add(p.key)
+        held.add(_row(p))
         days.add(p.day)
         n += 1
     return n, len(days)
@@ -200,29 +200,51 @@ def _write_rows(memory_path: Path, day: date, rows: list[dict]) -> bool:
     except OSError:
         pass
     path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".rows-", text=True)
-    with os.fdopen(fd, "w", encoding="utf-8") as fh:
-        fh.write(text)
-    os.replace(tmp, path)
+    # `.tmp`: the bank's `.*.tmp` ignore covers it while it exists; removed if anything stops the write.
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".rows-", suffix=".tmp", text=True)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
     return True
 
 
+def same_play(row_uri: str | None, uri: str | None) -> bool:
+    """Whether a held row and a play whose keys match are one play: always, unless both carry a URI and the URIs
+    differ — then they are two tracks that share a name (an "Intro", an "Outro", a "Trailer"; review of #528). Account
+    data carries no URI, so its plays still meet the extended file's by name and minute."""
+    return not row_uri or not uri or row_uri == uri
+
+
+class Held:
+    """The plays already held near the ones being read, by key — the days a lookup can reach and the plays this read
+    added — and the one lookup every door asks: is this play already one of them?"""
+
+    def __init__(self) -> None:
+        self.by_key: dict[str, list[dict]] = {}
+
+    def add(self, row: dict) -> None:
+        self.by_key.setdefault(str(row["key"]), []).append(row)
+
+    def find(self, p: Play) -> dict | None:
+        for key in p.keys_near():
+            for row in self.by_key.get(key, ()):
+                if same_play(row.get("uri"), p.uri):
+                    return row
+        return None
+
+
 def merge(rows: list[dict], plays: list[Play]) -> tuple[list[dict], int]:
-    """A day's stored plays plus new ones; a play already held (same key) is never added again. A later read with a
-    URI fills one an earlier read lacked (account data has none). Sorted by when each ended, capped head-stable."""
-    by_key = {r["key"]: dict(r) for r in rows}
-    added = 0
-    for p in plays:
-        held = by_key.get(p.key)
-        if held is None:
-            by_key[p.key] = _row(p)
-            added += 1
-        elif p.uri and not held.get("uri"):
-            held["uri"] = p.uri
-        if held is not None and p.ms > int(held.get("ms") or 0):
-            held["ms"] = int(p.ms)
-    merged = sorted(by_key.values(), key=lambda r: (str(r.get("at") or ""), r["key"]))
-    return merged[:MAX_PER_DAY], added
+    """A day's stored rows plus plays the caller found new (``Held``). Sorted by when each ended, capped head-stable."""
+    merged = sorted([*rows, *(_row(p) for p in plays)], key=lambda r: (str(r.get("at") or ""), r["key"],
+                                                                        str(r.get("uri") or "")))
+    return merged[:MAX_PER_DAY], len(plays)
 
 
 def _minutes(ms: int) -> int:
@@ -290,20 +312,23 @@ def record(memory_path: Path, plays: Iterable[Play], *, bank: str | None = None)
                     stored[day] = _stored_rows(memory_path, day)
                 return stored[day]
 
-            held: set[str] = set()
-            for day in step:
-                for near in (day - timedelta(days=1), day, day + timedelta(days=1)):
-                    held.update(r["key"] for r in rows_for(near))
+            held = Held()
+            near_days = sorted({near for day in step
+                                for near in (day - timedelta(days=1), day, day + timedelta(days=1))})
+            for near in near_days:
+                for row in rows_for(near):
+                    held.add(row)
             drafts: list[episode_staging.EpisodeDraft] = []
             rows_by_day: dict[date, list[dict]] = {}
             for day in step:
                 fresh: list[Play] = []
                 for p in groups[day]:
-                    if p.key in {r["key"] for r in rows_for(day)}:
-                        fresh.append(p)          # the same day's own row: merge may fill its URI or its length
-                    elif not held.intersection(p.keys_near()):
+                    row = held.find(p)
+                    if row is None:
                         fresh.append(p)
-                        held.add(p.key)
+                        held.add(_row(p))
+                    elif p.uri and not row.get("uri"):
+                        row["uri"] = p.uri       # the extended file names what the account file's play was
                 if not fresh and source_id(day) not in index:
                     continue
                 rows, added = merge(rows_for(day), fresh)

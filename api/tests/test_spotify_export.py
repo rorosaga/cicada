@@ -251,3 +251,34 @@ def test_the_play_rows_never_ride_an_episode_header(client):
     rows = sorted((memory / "sources" / "listening" / "spotify").glob("*.json"))
     assert [p.name for p in rows] == ["2026-09-01.json", "2026-09-03.json"]
     assert len(json.loads(rows[0].read_text())) == 3
+
+
+def test_two_tracks_sharing_a_name_are_two_plays(tmp_path):
+    """Review of #528: two different "Intro"s (different URIs) ending 80 s apart, in one Extended file, are two plays —
+    and an account-data play of one of them, with no URI, still meets it."""
+    from datetime import datetime, timezone
+
+    memory = tmp_path / "memory"
+    (memory / "episodes").mkdir(parents=True)
+    a = listening_history.Play(at=datetime(2026, 9, 1, 10, 0, 30, tzinfo=timezone.utc), title="Intro", by="Artist A",
+                               ms=80000, uri="spotify:track:" + "1" * 22)
+    b = listening_history.Play(at=datetime(2026, 9, 1, 10, 1, 50, tzinfo=timezone.utc), title="Intro", by="Artist B",
+                               ms=80000, uri="spotify:track:" + "2" * 22)
+    assert listening_history.record(memory, [a, b]).added == 2
+    account = listening_history.Play(at=datetime(2026, 9, 1, 10, 0, tzinfo=timezone.utc), title="Intro",
+                                     by="Artist A", ms=80000)
+    assert listening_history.record(memory, [account]).added == 0
+    assert listening_history.describe([listening_history.play_item(p) for p in (a, b)]) == (2, 1)
+
+
+def test_a_failed_rows_write_leaves_no_stray_file(tmp_path, monkeypatch):
+    from datetime import date
+
+    def boom(src, dst):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(listening_history.os, "replace", boom)
+    with pytest.raises(OSError):
+        listening_history._write_rows(tmp_path, date(2026, 9, 1), [{"key": "k"}])
+    folder = tmp_path / "sources" / "listening" / "spotify"
+    assert list(folder.iterdir()) == []

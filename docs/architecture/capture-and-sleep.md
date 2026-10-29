@@ -704,7 +704,7 @@ API gives no one Watch later or watch history, so there are three doors, and the
   space-folded; never the creator — Account data names a track's own artist, Extended its album artist, so a
   compilation would double) and the minute it ended in UTC, looked up a minute either way and on the day either side
   (the local day moves with the Mac's time zone): the two downloads, one imported twice, or an import after a time-zone
-  change never double a play (review of #528). A day's play rows live in `sources/listening/spotify/<day>.json`,
+  change never double a play — and two plays whose URIs differ are always two (an "Intro" by two artists; review of #528). A day's play rows live in `sources/listening/spotify/<day>.json`,
   committed with the day, never in the episode's frontmatter, which every cold start caches (a decade of plays there
   cost a cold scan 9.5 s and +300 MB; 0.34 s against 0.29 s without, after). Plays are always read (the
   person asked Spotify for exactly this; no door ever saves a play) and never count against the saves' import cap.
