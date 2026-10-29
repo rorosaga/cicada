@@ -205,7 +205,7 @@ struct ClusterShortCard: View {
                     HStack(spacing: CicadaTheme.spacingSM) {
                         EntityPicture(id: entity.id, name: entity.name, type: entity.type, size: 20,
                                       collapsesWhenEmpty: !reserves)
-                        Text(entity.name)
+                        Text(entity.shownName)
                             .font(CicadaTheme.bodyFont)
                             .foregroundStyle(CicadaTheme.textPrimary)
                             .lineLimit(1)
@@ -246,7 +246,7 @@ struct ClusterTile: View {
                 .opacity(entity.quiet ? CicadaTheme.quietPictureOpacity : 1)
             Button(action: open) {
                 VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
-                    Text(entity.name)
+                    Text(entity.shownName)
                         .font(CicadaTheme.rowFont)
                         .foregroundStyle(entity.quiet ? CicadaTheme.quietName : CicadaTheme.textPrimary)
                         .lineLimit(1)

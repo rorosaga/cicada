@@ -277,7 +277,7 @@ def test_a_merge_carries_the_persons_keys(tmp_path):
 
 
 def test_the_shape_moves_so_caches_refetch_once():
-    assert project_timeline.PROJECT_SHAPE == "g141-8"   # g141-8: projects v3 (pulse, pages tied by hand)
+    assert project_timeline.PROJECT_SHAPE == "g141-9"   # g141-9: G227's qualifier on a page row
 
 
 def test_a_dismissed_grouping_moves_the_lists_etag(client):

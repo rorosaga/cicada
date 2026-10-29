@@ -420,6 +420,11 @@ struct InboxItem: Identifiable, Codable {
     var chainQuestion: String? = nil
     var chainReason: String? = nil
     var chainPairs: [ChainPair]? = nil
+    /// G227 — the item's page, or a merge question's other page, named with its qualifier when its title is shared;
+    /// and, for a question about a name several pages share, those pages' ids. Display only.
+    var entityDisplayName: String? = nil
+    var mergeTargetDisplayName: String? = nil
+    var sameTitle: [String]? = nil
 
     enum CodingKeys: String, CodingKey {
         case id, kind, requiredInput, status, priority
@@ -430,6 +435,7 @@ struct InboxItem: Identifiable, Codable {
         case extractorConfidence, extractorModel, recommendedKey, informational, checks
         case subject, fold, request, rows, review, spokenQuestion, spokenReason
         case chain, chainQuestion, chainReason, chainPairs
+        case entityDisplayName, mergeTargetDisplayName, sameTitle
     }
 
     init(from decoder: Decoder) throws {
@@ -494,6 +500,9 @@ struct InboxItem: Identifiable, Codable {
         chainReason = (try? c.decodeIfPresent(String.self, forKey: .chainReason)) ?? nil
         chainPairs = ((try? c.decodeIfPresent([Lenient<ChainPair>].self, forKey: .chainPairs)) ?? nil)?
             .compactMap(\.value)
+        entityDisplayName = (try? c.decodeIfPresent(String.self, forKey: .entityDisplayName)) ?? nil
+        mergeTargetDisplayName = (try? c.decodeIfPresent(String.self, forKey: .mergeTargetDisplayName)) ?? nil
+        sameTitle = (try? c.decodeIfPresent([String].self, forKey: .sameTitle)) ?? nil
     }
 
     /// G61 — the one grouped "Confirm N links" review, drawn as its own card above the questions.
@@ -504,7 +513,8 @@ struct InboxItem: Identifiable, Codable {
     /// Display name for the card header, falling back to the title when no
     /// entity name is attached (pure clarification with no entity yet).
     var displayName: String {
-        entityName.isEmpty ? title : entityName
+        if let entityDisplayName, !entityDisplayName.isEmpty { return entityDisplayName }   // G227
+        return entityName.isEmpty ? title : entityName
     }
 
     /// What the focus card shows as its H1, and a row as its question.

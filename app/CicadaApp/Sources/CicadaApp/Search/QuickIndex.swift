@@ -142,12 +142,14 @@ extension QuickIndex {
         nodes.compactMap { node in
             guard !node.isFacet, !node.isHub, node.type != .hub, node.type != .media else { return nil }
             var fields = [QuickMatch.Field(node.name, weight: QuickMatch.Weight.name)]
+            // G227: the qualifier is a word the person may type ("<name-a> IDE").
+            if let qualifier = node.qualifier { fields.append(QuickMatch.Field(qualifier, weight: QuickMatch.Weight.keyword)) }
             fields += node.aliases.map { QuickMatch.Field($0, weight: QuickMatch.Weight.alias) }
             fields += node.tags.map { QuickMatch.Field($0, weight: QuickMatch.Weight.keyword) }
             if let summary = node.summary, !summary.isEmpty {
                 fields.append(QuickMatch.Field(summary, weight: QuickMatch.Weight.body))
             }
-            let row = FindRow(key: FindRowKey(kind: .entity, id: node.id), group: .entities, title: node.name,
+            let row = FindRow(key: FindRowKey(kind: .entity, id: node.id), group: .entities, title: node.shownName,
                               detail: node.summary.flatMap(firstLine), badge: node.type.label,
                               mark: .entity(id: node.id, name: node.name, type: node.type),
                               tieBreak: Double(node.degree), destination: .entity(id: node.id),

@@ -10,7 +10,7 @@ from loguru import logger
 
 from api.models.schemas import GraphLink, GraphNode, GraphResponse
 from api.services import (bank_index, claim_contexts, decay_policy, entity_picture, fact_sources, logo_service,
-                          predicates, quiet_pages)
+                          predicates, quiet_pages, same_name)
 from api.services.claims import is_current, parse_claims, strip_claims_block
 from api.services.id_utils import sanitize_id
 from api.services.markdown_parser import load_yaml, load_yaml_file, parse, write_yaml
@@ -365,6 +365,14 @@ def _build_full(memory_path: Path) -> GraphResponse:
         if node.id in member_to_hub:
             node.hub_id = member_to_hub[node.id]
 
+    # G227: a page whose title another page shares carries its qualifier and the name to show (`same_name`, derived
+    # from the same entity files this cache is keyed on).
+    same = same_name.qualifiers(memory_path)
+    if same:
+        for node in nodes:
+            if node.id in entity_ids and (q := same.get(node.id)):
+                node.qualifier, node.display_name = q, same_name.display(node.name, q)
+
     # Fold the server-derived fields into each entity node's content hash.
     # `degree`, `has_pending` and `hub_id` are computed here, not stored in the
     # entity file, so a change in any of them leaves `content_hash(fm, body)`
@@ -388,6 +396,7 @@ def _build_full(memory_path: Path) -> GraphResponse:
                 "\x1e".join(node.contexts), node.summary,
                 node.picture, node.picture_source, node.last_referenced,
                 *(("quiet",) if node.quiet else ()),
+                *(("qualifier", node.qualifier) if node.qualifier else ()),
             )
 
     # Filter canonical edges to endpoints that exist (drops legacy dangling slugs).

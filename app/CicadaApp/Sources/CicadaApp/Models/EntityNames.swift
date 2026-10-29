@@ -11,9 +11,11 @@ struct EntityNames: Equatable {
 
     init(byId: [String: String]) { self.byId = byId }
 
-    /// A facet satellite (`bob-example#work`) is a view of a page, not a page.
+    /// A facet satellite (`bob-example#work`) is a view of a page, not a page. G227: a title another page shares is
+    /// shown with its qualifier ("<name-a> (IDE)"), so an inbox option or a merge tile never names two things alike.
     init(nodes: [GraphNode]) {
-        byId = Dictionary(nodes.filter { !$0.isFacet }.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
+        byId = Dictionary(nodes.filter { !$0.isFacet }.map { ($0.id, $0.shownName) },
+                          uniquingKeysWith: { first, _ in first })
     }
 
     func name(for id: String) -> String? {

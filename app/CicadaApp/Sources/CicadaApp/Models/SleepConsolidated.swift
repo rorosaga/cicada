@@ -46,9 +46,11 @@ struct SleepConsolidated: Codable, Equatable {
         var type: String?
         /// Merged or removed since: the row shows its id and opens nothing.
         var gone: Bool
+        /// G227 (items-2) — the name to show when another page shares this title.
+        var displayName: String? = nil
 
-        init(id: String, name: String? = nil, type: String? = nil, gone: Bool = false) {
-            self.id = id; self.name = name; self.type = type; self.gone = gone
+        init(id: String, name: String? = nil, type: String? = nil, gone: Bool = false, displayName: String? = nil) {
+            self.id = id; self.name = name; self.type = type; self.gone = gone; self.displayName = displayName
         }
 
         init(from decoder: Decoder) throws {
@@ -57,6 +59,7 @@ struct SleepConsolidated: Codable, Equatable {
             name = (try? c.decodeIfPresent(String.self, forKey: .name)) ?? nil
             type = (try? c.decodeIfPresent(String.self, forKey: .type)) ?? nil
             gone = ((try? c.decodeIfPresent(Bool.self, forKey: .gone)) ?? nil) ?? false
+            displayName = (try? c.decodeIfPresent(String.self, forKey: .displayName)) ?? nil
         }
     }
 

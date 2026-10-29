@@ -189,6 +189,29 @@ the facts fall back to.
 An edited item's G118 row goes (`section_provenance.refresh`: its exact-text guard no longer matches); the edit's own
 provenance is its commit (Git, below).
 
+### Same name, different things — the qualifier (G227, owner 2026-10-29)
+
+When two or more pages that are not `dropped` share a title (case, width and spacing folded), each is shown as
+`<name> (<qualifier>)`, Wikipedia-style — "<name-a> (IDE)" / "<name-a> (program)". **Derived on read by one function,
+`same_name`, never stored:** the page's `name:` stays clean, nothing writes a file. The qualifier says only what the
+record holds, never a guess, in order: the head noun of the page's own first sentence when it reads "<name> is
+a/an/the …" (`described_as`; never for a saved link, whose description is the site's blurb); a person's current
+`works-at`/`studies-at` claim; a saved link's site, then its site and first path segment (a real domain only); the type
+as a word (`tool`, `saved link`, …); the type and the month first heard of (a saved link: the day saved); last, a number
+in creation order. Each page takes its first rung; two that would read alike step down together. The map is cached per
+bank on the `entities/` directory's own mtime (every write is a rename into it — the card ETag's rule); a rebuild reads
+titles from `search_index.entity_names` (no bank-wide parse) and the colliding pages only. Measured on a copy of the
+owner's bank (8,067 pages, 5,722 live): 33 live collision groups, 76 pages (38 / 86 counting archived); 18 groups are
+two saved links of one title, 15 a saved link or a concept beside a tool, company or project. Held map 0.006 ms;
+rebuild after a write ~35 ms p50 on a warm index.
+
+**Links resolve by id (G227).** `id_utils.build_name_index` lets a page's own id win its key over another page's name
+(a saved link titled like a tool once took the tool's id by listing order) and records every name two or more pages
+answer to in `NameIndex.ambiguous`; `resolve_entity_id` never resolves such a name, `link_targets` names every page it
+can mean. Stage 5.5's `mentions` edge from a bare `[[<name>]]` goes to the one page the linking page already relates to
+(`related:`), else nowhere — never to a page picked by listing order. An agent's link is written by id with its
+qualifier (`[[<id>|<name> (<qualifier>)]]`, `cicada_ask`'s citations); the app's link to a shared name asks which.
+
 ### Decay classes (G66)
 One resolver, `api/services/decay_policy.py`. `resolve(fm)` returns `(class, rate)`: an explicit
 `decay_class:` wins; otherwise inferred from `type` (`media` → evergreen, `skill` → durable, else

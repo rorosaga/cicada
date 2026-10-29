@@ -41,6 +41,16 @@ committed alone as `Page edit <date>` with `entities/<id>.md: edited (trigger: u
 and `Cicada-Author: user` — a second door onto one writer, as the CLI is (ruling 21). 400: a request the editor refuses;
 409: words no longer on the page; 404: no page. The link-view switcher sends one `{old, new, all: true, pin: true}` row.
 
+**Same name, different things (G227, 2026-10-29; `same_name`, `storage.md`).** A page whose title another page shares
+carries `qualifier` and `displayName` ("<name> (<qualifier>)") on `GET /graph` nodes (omitted otherwise; node shape
+`+same-name`, folded into the node's `contentHash` only when present), `GET /entities/{id}` (null / the bare name
+otherwise; `same_name.SHAPE` rides the card ETag's `extra`), `GET /search` entity and media hits, `GET /projects/{id}`
+page rows (`g141-9`), `GET /sleep/runs/{id}/items` page rows (`items-2`, in its ETag) and `/ask` citations. `GET /inbox` items add
+`entityDisplayName`, `mergeTargetDisplayName` (a duplicate question's mention is never named as a page) and
+`sameTitle` (the pages a question about a shared name names), and their spoken question uses them; `same_name.SHAPE`
+rides the inbox ETag's `extra`, so the client mapping (`VersionVector`'s `entities` → `.inbox`/`.graph`) is unchanged
+and every client takes one 200. All additive: the stored `name` never changes.
+
 **The card's blocks and its ETag (vision item 5, 2026-10-28; `page_blocks`).** `GET /entities/{id}` carries
 `blocks: {shape, order, relevance, sources, coordinates, looks, ongoing, ongoingTotal, history}` — which blocks the
 page has (`order`, in the page order the redesign proposal draws: why it matters, where to check, the type block,

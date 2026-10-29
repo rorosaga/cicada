@@ -824,6 +824,11 @@ class EntityResponse(CamelModel):
     quiet: bool = False
     # Owner ruling 44 (G121) — "why it matters to you", derived at read (`page_relevance`), never stored. Additive.
     relevance: Optional[EntityRelevance] = None
+    # G227 (owner 2026-10-29): when another page shares this title, a short qualifier and the name to show —
+    # "<name> (<qualifier>)" (`same_name`); derived on read, the stored title stays clean. Additive: None, and the
+    # bare name, for a title of its own.
+    qualifier: Optional[str] = None
+    display_name: Optional[str] = None
     # Vision item 5 (2026-10-28) — which blocks the page has and their data (`page_blocks`), derived at read. Additive.
     blocks: Optional[PageBlocks] = None
 
@@ -2124,6 +2129,9 @@ class ProjectPageRow(CamelModel):
     last_seen: Optional[str] = None
     tie: str = "said"
     by: Optional[str] = None
+    # G227 (g141-9): when another page shares this title, the qualifier and the name to show. Additive.
+    qualifier: Optional[str] = None
+    display_name: Optional[str] = None
 
 
 class ProjectInfluence(CamelModel):
@@ -2437,12 +2445,17 @@ class GraphNode(CamelModel):
     # not mentioned yet (`quiet_pages`): drawn dimmed, never asked about. Derived on every read, never stored; OMITTED
     # when false, like an absent picture, so the largest snapshot pays only for the quiet few.
     quiet: bool = False
+    # G227 (owner 2026-10-29) — when another page shares this page's title, a short qualifier and the name to show,
+    # "<name> (<qualifier>)" (`same_name`): derived on every read, never stored; OMITTED when the title is its own, so
+    # the largest snapshot pays only for the few that collide.
+    qualifier: Optional[str] = None
+    display_name: Optional[str] = None
 
     @model_serializer(mode="wrap")
     def _omit_absent_picture(self, handler) -> dict[str, Any]:
         data = handler(self)
         if isinstance(data, dict):
-            for key in ("picture", "pictureSource", "picture_source"):
+            for key in ("picture", "pictureSource", "picture_source", "qualifier", "displayName", "display_name"):
                 if key in data and data[key] is None:
                     del data[key]
             if data.get("quiet") is False:
@@ -2541,6 +2554,10 @@ class SearchHit(CamelModel):
     file_id: str | None = None
     at_seconds: float | None = None
     end_seconds: float | None = None
+    # G227 (owner 2026-10-29) — an ``entity`` / ``media`` hit whose title another page shares: the short qualifier and
+    # the name to show, "<name> (<qualifier>)" (`same_name`). Additive; None for a title of its own.
+    qualifier: str | None = None
+    display_name: str | None = None
 
 
 class SearchResponse(CamelModel):
@@ -2574,6 +2591,9 @@ class AskRequest(CamelModel):
 class AskCitation(CamelModel):
     entity_id: str
     entity_name: str
+    # G227 — when another page shares the title: the qualifier and the name to show. Additive; None otherwise.
+    qualifier: Optional[str] = None
+    display_name: Optional[str] = None
     file_path: str
     snippet: str
     # The conversations this answer was grounded in (at most `ask_service.MAX_CITED_EPISODES`), and how many more
@@ -2889,6 +2909,12 @@ class InboxItem(CamelModel):
     priority: float = 0.0
     entity_id: str = ""
     entity_name: str = ""
+    # G227 (owner 2026-10-29) — when the item's page, or a merge question's other page, shares its title with another
+    # page: the name to show, "<name> (<qualifier>)" (`same_name`); and, for a question about a name several pages
+    # share, every one of those pages' ids. Additive: None when the title is its own.
+    entity_display_name: Optional[str] = None
+    merge_target_display_name: Optional[str] = None
+    same_title: Optional[list[str]] = None
     title: str
     body: str
     options: list[InboxOption] = []
@@ -3704,6 +3730,9 @@ class SleepConsolidatedPage(CamelModel):
     type: Optional[str] = None
     #: The page is no longer in the bank (merged or removed since): the row shows its id and opens nothing.
     gone: bool = False
+    #: G227 (items-2): when another page shares this title, the qualifier and the name to show. Additive.
+    qualifier: Optional[str] = None
+    display_name: Optional[str] = None
 
 
 class SleepConsolidatedQuestion(CamelModel):

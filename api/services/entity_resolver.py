@@ -133,11 +133,15 @@ async def resolve(
     role_people.canonicalize(extracted, existing, (owner_page or {}).get("frontmatter"))
 
     existing_by_name: dict[str, dict] = {}
+    same_title: dict[str, list[dict]] = {}
     for e in existing:
         name = e["frontmatter"].get("name", e["id"].replace("-", " ").title())
         if agent_engine.is_runtime_path(str(name)):
             continue  # an old leaked page: never a merge target, endpoint or judge candidate
         existing_by_name[name.lower()] = e
+        if str(e["frontmatter"].get("status") or "") != "dropped":
+            # G227: every page by its title — two pages may share one, and `existing_by_name` keeps only the last.
+            same_title.setdefault(str(name).lower(), []).append(e)
     aliases = _alias_index(existing_by_name)
     # The pairs the person said are different (`merge_rejections`): a shared alias or a close spelling never brings
     # one of them back to the judge.
@@ -413,7 +417,15 @@ async def resolve(
                     existing_by_name=existing_by_name,
                     created_by_id=resolved_creates,
                     aliases=aliases,
+                    same_title=same_title,
                 )
+            if match is None:
+                # G227: a title the name alone may not join (two pages share it, or none is of the mention's kind).
+                match = await _same_title_match(entity, same_title, llm_match_cache, settings,
+                                                gate=lookahead.gate if lookahead is not None else None,
+                                                stop=cancel_check)
+                if match is not None and match["decision"] == "different":
+                    match = None
             if match is None:
                 match = _answered_match(entity, aliases)
             if match is not None and lookahead is not None:
@@ -596,7 +608,8 @@ async def resolve(
                     _create_duplicate_clarification,
                     (),
                     {"clarifier": clarifier, "entity": entity, "candidate": match["candidate"],
-                     **({"heard_in": match["heard_in"]} if match.get("heard_in") else {})},
+                     **({"heard_in": match["heard_in"]} if match.get("heard_in") else {}),
+                     **({"same_title": match["same_title"]} if match.get("same_title") else {})},
                 ))
 
             taken = (should_promote and not ambiguous_match and card is None
@@ -610,10 +623,12 @@ async def resolve(
                 elif page is not None:
                     # 2026-10-27: the page with this exact id is another one it did not join (a name several people
                     # answer to, judged different or with no lead): never a create over it — held, and asked.
+                    shared = [p["id"] for p in same_title.get(name_lower) or ()]
                     pending_actions.append((
                         _create_duplicate_clarification, (),
                         {"clarifier": clarifier, "entity": entity,
-                         "candidate": {"source": "existing", "id": page["id"], "data": page}}))
+                         "candidate": {"source": "existing", "id": page["id"], "data": page},
+                         **({"same_title": shared} if shared else {})}))
                     ambiguous_match = True
             if should_promote and not ambiguous_match:
                 if card is not None:
@@ -2085,12 +2100,23 @@ def _find_direct_candidate_match(
     existing_by_name: dict[str, dict],
     created_by_id: dict[str, dict],
     aliases: dict[str, list[dict]] | None = None,
+    same_title: dict[str, list[dict]] | None = None,
 ) -> dict | None:
+    """A join on the name itself: the page titled exactly so, else a close spelling (``fuzz.ratio > 85``), else a
+    create of this batch. ``same_title`` (G227; ``None`` keeps the old exact join): every page by its lower-cased title,
+    so an exact title joins only the one page of the mention's kind (:func:`_same_title_pick`)."""
     new_name = (new_entity.get("name") or "").strip()
     new_name_lower = new_name.lower()
     person = _is_person(new_entity)
 
     existing_match = existing_by_name.get(new_name_lower)
+    if existing_match is not None and same_title is not None and not person:
+        # G227: a title two pages share, or a page of another kind than the mention, is never joined on the name
+        # alone — the one page of the mention's kind is, and anything else goes to the same-title judge
+        # (`_same_title_match`), which asks when it cannot tell.
+        existing_match = _same_title_pick(new_entity, same_title.get(new_name_lower) or [existing_match])
+        if existing_match is None:
+            return None
     if existing_match is not None and not (person and _shared_name(new_name, existing_match, aliases)):
         return {
             "decision": "same",
@@ -2122,6 +2148,80 @@ def _find_direct_candidate_match(
             }
 
     return None
+
+
+def _page_kind(page: dict) -> str:
+    return entity_types.in_set(((page or {}).get("frontmatter") or {}).get("type") or "concept")
+
+
+def _same_title_pick(new_entity: dict, group: list[dict]) -> dict | None:
+    """The one page among those titled exactly as the mention that a join on the name may take (G227), or None.
+
+    A page of the mention's own kind (a fallback page counts as a project, `_candidate_types`) when exactly one is; a
+    ``concept`` mention — Stage 1's word for anything it could not place — the one page that is not a saved link when
+    there is exactly one. Two of its kind, or none (a program said where only an IDE has the name), is the judge's."""
+    new_type = entity_types.in_set(new_entity.get("type") or "concept")
+    pages = [p for p in group if p is not None]
+    same_kind = [p for p in pages if new_type in _candidate_types({"source": "existing", "id": p.get("id"), "data": p})]
+    if len(same_kind) == 1:
+        return same_kind[0]
+    if not same_kind and new_type == "concept":
+        placed = [p for p in pages if _page_kind(p) != "media"]
+        if len(placed) == 1:
+            return placed[0]
+    return None
+
+
+#: The same-title judge's note (G227): two kinds of thing are often called the same.
+_SAME_TITLE_NOTE = ("Note: entity A's page has exactly this name, and the recorded types may differ. Different things "
+                    "are often called the same (a program and a software tool, a company and a saved web page, two "
+                    "people). A type recorded from one conversation can be wrong, so decide from the descriptions: "
+                    "say SAME only when B's description clearly describes A; say DIFFERENT when it describes another "
+                    "thing that shares the name; say UNSURE when there is too little to tell.\n")
+
+
+async def _same_title_match(entity: dict, same_title: dict[str, list[dict]], cache: dict[tuple[str, str], str],
+                            settings: Settings, *, gate: asyncio.Semaphore | None = None,
+                            stop: Callable[[], bool] | None = None) -> dict | None:
+    """G227: a mention titled exactly as one or more pages that a join on the name may not take
+    (:func:`_same_title_pick`) — each page weighed by the judge, the types allowed to differ.
+
+    ``same`` on one joins it; ``unsure`` holds the name and asks (the match carries ``same_title``: every page sharing
+    the title, so the question names each one, `inbox_wording`); ``different`` on all is no match — the name goes on by
+    the usual rule (a page of its own over the bar, which the qualifier tells apart, or a held line). Never a guess."""
+    if _is_person(entity):
+        return None
+    name = (entity.get("name") or "").strip()
+    key = name.lower()
+    group = [p for p in same_title.get(key) or () if p is not None]
+    if not group or _same_title_pick(entity, group) is not None:
+        return None
+    new_type = (entity.get("type") or "concept").lower()
+    description = _effective_summary(entity)
+    judged: list[tuple[dict, str]] = []
+    for page in group:
+        candidate = {"source": "existing", "id": page["id"], "data": page}
+        decision = cache.get((key, page["id"]))
+        if decision is None:
+            if stop is not None and stop():
+                break
+            kwargs = dict(new_name=name, new_type=new_type, new_description=description,
+                          existing_name=_candidate_display_name(candidate), existing_type=_candidate_type(candidate),
+                          existing_body=_candidate_description(candidate), settings=settings,
+                          note=_SAME_TITLE_NOTE, types_may_differ=True)
+            if gate is None:
+                decision = await _llm_judge_same_entity(**kwargs)
+            else:
+                async with gate:
+                    decision = await _llm_judge_same_entity(**kwargs)
+            cache[(key, page["id"])] = decision
+        judged.append((candidate, decision))
+        if decision == "same":
+            break
+    match = _pick_match(name, judged)
+    if match is not None and match["decision"] == "unsure":
+        match = {**match, "same_title": [p["id"] for p in group]}
+    return match
 
 
 def _shared_name(new_name: str, page: dict, aliases: dict[str, list[dict]] | None) -> bool:
@@ -2286,11 +2386,16 @@ def _create_duplicate_clarification(
     entity: dict,
     candidate: dict,
     heard_in: dict | None = None,
+    same_title: list[str] | None = None,
 ) -> None:
+    """Ask whether ``entity`` is ``candidate``. ``same_title`` (G227): every page sharing the mention's exact title,
+    so the item points at the candidate by id (never by a name two pages answer to) and the question names each."""
     candidate_name = _candidate_display_name(candidate)
     try:
         item = clarifier.create(
             **({"heard_in": heard_in} if heard_in else {}),
+            **({"same_title": same_title, "target_id": candidate["id"]}
+               if same_title and candidate.get("source") == "existing" else {}),
             entity_name=entity.get("name", "unknown"),
             source_episode=entity.get("source_episode", ""),
             uncertainty_type=f"Possible duplicate of {candidate_name}",
@@ -2696,6 +2801,12 @@ Respond with JSON only:
 {{"decision": "same" | "different" | "unsure", "reason": "one short sentence"}}
 """
 
+_TYPE_GUIDELINE = "- If the type fields disagree (e.g. person vs project), they are not the same."
+#: G227's same-title judge: the types are a weak hint there, the descriptions decide (`_SAME_TITLE_NOTE`).
+_TYPE_GUIDELINE_SAME_TITLE = ("- The type fields may disagree because one was recorded wrongly; let the descriptions "
+                              "decide.")
+assert _TYPE_GUIDELINE in _DISAMBIG_PROMPT
+
 # An alias hit is a lead, never a decision (2026-10-08): acronyms, short forms
 # and first names are shared by different things, so the judge is told the
 # page recorded the name and asked to decide on the context.
@@ -2724,6 +2835,7 @@ async def _llm_judge_same_entity(
     recorded_alias: bool = False,
     new_connections: str = "",
     note: str = "",
+    types_may_differ: bool = False,
 ) -> str:
     """One LLM call: same, different, or unsure.
 
@@ -2735,9 +2847,11 @@ async def _llm_judge_same_entity(
     the batch. Without them the prompt is the plain one, byte for byte."""
     from api.services.claims import strip_claims_block
 
-    if new_type and existing_type and new_type.lower() != existing_type.lower():
+    if new_type and existing_type and new_type.lower() != existing_type.lower() and not types_may_differ:
         return "different"
-    prompt = _DISAMBIG_PROMPT.format(
+    template = _DISAMBIG_PROMPT.replace(_TYPE_GUIDELINE, _TYPE_GUIDELINE_SAME_TITLE) if types_may_differ \
+        else _DISAMBIG_PROMPT
+    prompt = template.format(
         existing_name=existing_name,
         existing_type=existing_type or "unknown",
         existing_body=strip_claims_block(existing_body)[:2000] or "(empty)",

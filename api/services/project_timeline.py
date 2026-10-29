@@ -65,7 +65,9 @@ from api.services.transclusion_resolver import claim_to_model
 # it); the list adds `suggested` and `dismissed`; the detail adds `influences`, `conversationCount` and `knowledge`.
 # g141-8 (2026-10-28, decisions 9 and 10): an open thread says `waitingOn`; the detail adds `conversationDays` (the
 # pulse) and `pages` / `pagesTotal` / `pageCounts` (Pages in this project, tied by hand).
-PROJECT_SHAPE = "g141-8"
+# g141-9 (G227, owner 2026-10-29): a "Pages in this project" row whose title another page shares adds `qualifier` and
+# `displayName` (`same_name`).
+PROJECT_SHAPE = "g141-9"
 TREE_DEPTH = 2
 MAX_SCAN_PAGES = 200          # §6.6: raw scans are capped; hitting the cap sets `partial`
 COMMONS_DEGREE = 12           # R-PJ20

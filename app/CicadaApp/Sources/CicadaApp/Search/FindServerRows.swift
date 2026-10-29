@@ -52,12 +52,12 @@ enum FindServerRows {
             switch hit.kind {
             case "entity":
                 let type = EntityType(rawValue: hit.type) ?? .unknown
-                rows.append(FindRow(key: FindRowKey(kind: .entity, id: hit.id), group: .entities, title: hit.name,
+                rows.append(FindRow(key: FindRowKey(kind: .entity, id: hit.id), group: .entities, title: hit.shownName,
                                     titleRanges: bold(hit.name), detail: entityDetail(hit), badge: type.label,
                                     mark: .entity(id: hit.id, name: hit.name, type: type), score: hit.score,
                                     destination: .entity(id: hit.id), secondary: .entityInClusters(id: hit.id)))
             case "media":
-                rows.append(FindRow(key: FindRowKey(kind: .media, id: hit.id), group: .sources, title: hit.name,
+                rows.append(FindRow(key: FindRowKey(kind: .media, id: hit.id), group: .sources, title: hit.shownName,
                                     titleRanges: bold(hit.name), detail: hit.subtitle, badge: "Saved",
                                     mark: .entity(id: hit.id, name: hit.name, type: .media),
                                     trailing: date(hit.timestamp), score: hit.score,

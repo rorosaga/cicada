@@ -302,6 +302,10 @@ struct ProjectPageRow: Decodable, Equatable, Identifiable, Sendable {
     var lastSeen: String?
     var tie: String
     var by: String?
+    /// G227 (g141-9) — the name to show when another page shares this title.
+    var displayName: String? = nil
+
+    var shownName: String { displayName ?? name }
 
     init(id: String, name: String, type: String? = nil, rolePhrase: String = "", fact: String = "", count: Int = 0,
          lastSeen: String? = nil, tie: String = "said", by: String? = nil) {
@@ -316,7 +320,7 @@ struct ProjectPageRow: Decodable, Equatable, Identifiable, Sendable {
         self.by = by
     }
 
-    enum CodingKeys: String, CodingKey { case id, name, type, rolePhrase, fact, count, lastSeen, tie, by }
+    enum CodingKeys: String, CodingKey { case id, name, type, rolePhrase, fact, count, lastSeen, tie, by, displayName }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -329,6 +333,7 @@ struct ProjectPageRow: Decodable, Equatable, Identifiable, Sendable {
         lastSeen = c.lenient(.lastSeen)
         tie = c.lenient(.tie, "said")
         by = c.lenient(.by)
+        displayName = c.lenient(.displayName)
     }
 
     var isProposed: Bool { tie == "proposed" }

@@ -189,6 +189,11 @@ def _item_from_file(
             extra["check"] = InboxCheck(**source_check.for_item(fm, raw_options, context).to_wire())
         except Exception as exc:  # noqa: BLE001 — a derived field never costs the card
             logger.warning(f"checkability skipped for {filepath.name}: {type(exc).__name__}")
+        # G227: a page whose title another page shares is named with its qualifier.
+        try:
+            extra.update(_same_name_fields(fm, entity_id, context))
+        except Exception as exc:  # noqa: BLE001 — a derived field never costs the card
+            logger.warning(f"same-name fields skipped for {filepath.name}: {type(exc).__name__}")
         # Vision item 10 / ruling 48 (1): the plain question and its reason, from the pages this context already read.
         try:
             extra.update(_spoken(fm, kind, question, entity_id, context, now))
@@ -275,10 +280,58 @@ def _spoken(fm: dict, kind: str, question: str | None, entity_id: str,
         found = context.entity(str(pid or "")) if pid else None
         return dict(found.frontmatter) if found is not None else None
 
+    from api.services import same_name
+
     said = inbox_wording.spoken({**fm, "question": question or fm.get("question")}, today,
                                 page_fm=page(entity_id), other_fm=page(fm.get("merge_target_hint")),
-                                owner_id=context.owner_id())
+                                owner_id=context.owner_id(), same=same_name.qualifiers(context.memory_path),
+                                titled=_titled_pages(fm, context))
     return {"spoken_question": said.question or None, "spoken_reason": said.reason or None}
+
+
+def _same_name_fields(fm: dict, entity_id: str, context: "inbox_context.InboxContext") -> dict:
+    """G227: ``entity_display_name`` / ``merge_target_display_name`` when that page's title is shared, and
+    ``same_title`` — the pages a question about a shared name names (stored by Stage 2, only ids still on disk)."""
+    from api.services import same_name
+
+    same = same_name.qualifiers(context.memory_path)
+    out: dict = {}
+    if not same:
+        return out
+
+    def named(pid) -> str | None:
+        q = same.get(str(pid or ""))
+        if not q:
+            return None
+        page = context.entity(str(pid))
+        name = str(((page.frontmatter if page is not None else {}) or {}).get("name") or pid)
+        return same_name.display(name, q)
+
+    # A duplicate question's entity is the mention, whose id may be spelled like a page's: never named as that page.
+    if str(fm.get("kind") or "") != "merge_suggestion" and (shown := named(entity_id)):
+        out["entity_display_name"] = shown
+    if shown := named(fm.get("merge_target_hint")):
+        out["merge_target_display_name"] = shown
+    titled = [pid for pid in fm.get("same_title") or [] if isinstance(pid, str) and context.entity(pid) is not None]
+    if len(titled) >= 1 and str(fm.get("kind") or "") == "merge_suggestion":
+        out["same_title"] = titled
+    return out
+
+
+def _titled_pages(fm: dict, context: "inbox_context.InboxContext") -> list[dict]:
+    """The pages a question about a shared name names (``same_title``), each ``{id, name, qualifier}`` — for the
+    wording layer, which reads no file."""
+    from api.services import same_name
+
+    out = []
+    for pid in fm.get("same_title") or []:
+        page = context.entity(str(pid)) if isinstance(pid, str) else None
+        if page is None:
+            continue
+        fmp = page.frontmatter or {}
+        out.append({"id": pid, "name": str(fmp.get("name") or pid), "type": str(fmp.get("type") or ""),
+                    "qualifier": same_name.qualifier(context.memory_path, pid)})
+    return out
 
 
 def _check_findings(fm: dict) -> list[InboxCheckFinding]:

@@ -1118,6 +1118,18 @@ or `updated` write queues anything. A job held back by Sleep, a re-embed or the 
    with the conversations it came from (see *A skill page carries its conversations*).
 5. **Nudge generation, clarification queue & versioning** — snapshot, git commit.
 
+**A title is never joined on the name alone when it could be two things (G227, 2026-10-29).** Stage 2's exact-title
+join used to take whichever page held the name (one per title in `existing_by_name`, last writer wins), whatever its
+kind: a program said where only an IDE had the name landed on the IDE's page. Now an exact title joins only the one page
+of the mention's kind (`_same_title_pick`; a `concept` mention, Stage 1's word for what it could not place, the one page
+that is not a saved link). Two pages of that kind, or none, go to the same-title judge (`_same_title_match`): each page
+sharing the title weighed with the types allowed to differ (`_SAME_TITLE_NOTE`, the type guideline swapped for "let the
+descriptions decide"). `same` joins; `unsure` holds the name and asks — the item points at the page by id
+(`merge_target_hint`) and keeps every page sharing the title (`same_title`), so the question names each ("Did you mean
+the <name-a> IDE, or the program?", `inbox_wording`); `different` on all goes on by the usual rule, and a new page whose
+id the title already holds is held and asked, as before. A person mention keeps its own rules (G209). See the G227 row
+for the haiku replay.
+
 **Claim preservation (G148 regression):** Stage 5 rewrites prose with the stored `claims` fences removed from section parsing, then reattaches those fences unchanged. Rebuilding `Related` cannot remove beliefs before the claim pipeline reconciles them; synthesis output never authors a claims fence.
 
 **`Related` reads the edges once:** `apply_changes` builds each entity's edges from `graph_edges.yaml` on the first update that needs them and reuses them for every page that pass merges (nothing in the pass writes the file); every reader of that file uses `markdown_parser.load_yaml`, the libyaml safe loader. The file grows with the claims; on a 2,000-page synthetic bank one pure-Python read cost ~3.8 s and was paid once per merged entity (`benchmarks/scale`). The hot readers (`apply_changes`, `_write_graph_edges`, `graph_builder`'s regenerate, upsert and graph read) go through `markdown_parser.load_yaml_file`, which parses the file once per change of its (inode, mtime, size) and hands each caller a private copy; `write_yaml` leaves what it wrote there, so a read straight after another step's write is a copy, not a parse (2026-10-16: a batch parsed the ~5 MB owner-scale file ~5 times at ~1.1 s each; a 3-batch synthetic drain went 147 s → 120 s). Each link's label is read against the claims on the page it starts from; `related_edges` indexes a page's claims by

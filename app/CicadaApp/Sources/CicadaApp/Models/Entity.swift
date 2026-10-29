@@ -837,6 +837,13 @@ struct Entity: Identifiable, Codable {
     var relevance: EntityRelevance? = nil
     /// Vision item 5 (2026-10-28) — which blocks the page has and their data; nil from an older backend or a stub.
     var blocks: PageBlocks? = nil
+    /// G227 (owner 2026-10-29) — when another page shares this title: a short qualifier and the name to show,
+    /// "<name> (<qualifier>)", derived by the backend on read (`same_name`). Nil for a title of its own.
+    var qualifier: String? = nil
+    var displayName: String? = nil
+
+    /// The name every surface shows: the qualified one when the title is shared, else the name (G227).
+    var shownName: String { displayName ?? name }
 
     var pictureRef: EntityPictureRef? { EntityPictureRef.wire(url: pictureURL, source: pictureSource) }
 
@@ -846,7 +853,8 @@ struct Entity: Identifiable, Codable {
         decayRate: Double, sourceEpisodes: [String], tags: [String],
         related: [String], version: Int, markdownContent: String,
         history: [EntityHistoryEntry], decayClass: DecayClass = .active,
-        isOwner: Bool = false, pictureURL: String? = nil, pictureSource: String? = nil, quiet: Bool = false
+        isOwner: Bool = false, pictureURL: String? = nil, pictureSource: String? = nil, quiet: Bool = false,
+        qualifier: String? = nil, displayName: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -867,6 +875,8 @@ struct Entity: Identifiable, Codable {
         self.pictureURL = pictureURL
         self.pictureSource = pictureSource
         self.quiet = quiet
+        self.qualifier = qualifier
+        self.displayName = displayName
     }
 
     enum CodingKeys: String, CodingKey {
@@ -874,6 +884,7 @@ struct Entity: Identifiable, Codable {
         case decayRate, decayClass, decay, sourceEpisodes, tags, related, version
         case markdownContent, rawMarkdown, rawOmitted, path, media, history, historyTruncated, isOwner
         case pictureURL = "picture", pictureSource, pictureInputs, quiet, relevance, blocks
+        case qualifier, displayName
     }
 
     init(from decoder: Decoder) throws {
@@ -917,6 +928,8 @@ struct Entity: Identifiable, Codable {
         quiet = (try? c.decodeIfPresent(Bool.self, forKey: .quiet)) ?? false
         relevance = (try? c.decodeIfPresent(EntityRelevance.self, forKey: .relevance)) ?? nil
         blocks = (try? c.decodeIfPresent(PageBlocks.self, forKey: .blocks)) ?? nil
+        qualifier = (try? c.decodeIfPresent(String.self, forKey: .qualifier)) ?? nil
+        displayName = (try? c.decodeIfPresent(String.self, forKey: .displayName)) ?? nil
     }
 
     /// Fallback parser for the nested `media:` block when the backend hasn't
@@ -1115,6 +1128,12 @@ struct GraphNode: Codable, Sendable {
     /// Owner ruling 2026-10-20 — `Entity.quiet`'s twin: an imported page not mentioned yet, drawn dimmed. The server
     /// omits it when false; decode-tolerant.
     let quiet: Bool
+    /// G227 — `Entity.qualifier`/`displayName`'s twins: present only when another page shares this title.
+    let qualifier: String?
+    let displayName: String?
+
+    /// The name every list, the palette and the graph show (G227).
+    var shownName: String { displayName ?? name }
 
     var pictureRef: EntityPictureRef? { EntityPictureRef.wire(url: picture, source: pictureSource) }
 
@@ -1123,7 +1142,7 @@ struct GraphNode: Codable, Sendable {
         case degree, isHub, hasPending, memberCount, hubId
         case observers, contexts, isFacet, parentId, context
         case summary, contentHash, hasLogo, decayClass, isOwner, aliases
-        case picture, pictureSource, lastReferenced, quiet
+        case picture, pictureSource, lastReferenced, quiet, qualifier, displayName
     }
 
     init(
@@ -1135,7 +1154,8 @@ struct GraphNode: Codable, Sendable {
         summary: String? = nil, contentHash: String = "", hasLogo: Bool = false,
         decayClass: DecayClass = .active, isOwner: Bool = false,
         aliases: [String] = [], picture: String? = nil,
-        pictureSource: String? = nil, lastReferenced: String? = nil, quiet: Bool = false
+        pictureSource: String? = nil, lastReferenced: String? = nil, quiet: Bool = false,
+        qualifier: String? = nil, displayName: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -1163,6 +1183,8 @@ struct GraphNode: Codable, Sendable {
         self.pictureSource = pictureSource
         self.lastReferenced = lastReferenced
         self.quiet = quiet
+        self.qualifier = qualifier
+        self.displayName = displayName
     }
 
     init(from decoder: Decoder) throws {
@@ -1198,5 +1220,7 @@ struct GraphNode: Codable, Sendable {
         pictureSource = (try? c.decodeIfPresent(String.self, forKey: .pictureSource)) ?? nil
         lastReferenced = (try? c.decodeIfPresent(String.self, forKey: .lastReferenced)) ?? nil
         quiet = (try? c.decodeIfPresent(Bool.self, forKey: .quiet)) ?? false
+        qualifier = (try? c.decodeIfPresent(String.self, forKey: .qualifier)) ?? nil
+        displayName = (try? c.decodeIfPresent(String.self, forKey: .displayName)) ?? nil
     }
 }

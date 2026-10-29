@@ -43,7 +43,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from api.services import bank_index, inbox_wording, markdown_parser, page_use
+from api.services import bank_index, inbox_wording, markdown_parser, page_use, same_name
 
 LIMIT = 3
 CURSOR_HOURS = 12
@@ -406,6 +406,8 @@ def select(memory_path: Path, *, today: str | None = None, exclude=frozenset(), 
             f = bank_index.file(memory_path, "entities", f"{pid}.md")
             page_fm = f.frontmatter if f else {}
             label = inbox_wording.speakable(page_fm.get("name") or (m or {}).get("entity_name") or pid, page_fm)
+            if f is not None:
+                label = same_name.label(memory_path, pid, label)   # G227: a shared title, by its qualifier
             if label not in names:
                 names.append(label)
         entries.append(Entry(ids=ids, rank=page_use.rank(members[best].get("priority"), max(uses)), use=max(uses),
@@ -435,7 +437,15 @@ def spoken_for(memory_path: Path, entry: Entry, fm: dict, today: str) -> inbox_w
         f = bank_index.file(memory_path, "entities", f"{pid}.md") if pid else None
         return dict(f.frontmatter) if f else None
 
+    from api.services import same_name
+
+    same = same_name.qualifiers(memory_path)
+    titled = []
+    for pid in fm.get("same_title") or []:
+        if isinstance(pid, str) and (p := page(pid)) is not None:
+            titled.append({"id": pid, "name": str(p.get("name") or pid), "type": str(p.get("type") or ""),
+                           "qualifier": same.get(pid)})
     return inbox_wording.spoken(fm, today, page_fm=page(str(fm.get("entity_id") or "")),
                                 other_fm=page(str(fm.get("merge_target_hint") or "")),
                                 owner_id=everyday_names.owner_id(memory_path),
-                                group=entry.group_names or None)
+                                group=entry.group_names or None, same=same, titled=titled)

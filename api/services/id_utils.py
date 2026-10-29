@@ -257,27 +257,70 @@ def build_name_index(entities_dir: Path) -> dict[str, str]:
     wikilink/context/MCP resolution be O(refs) instead of O(refs * files).
 
     Keys: lowercased frontmatter ``name``, ``sanitize_id(name)``, the stem
-    itself, and ``stem.replace('-', ' ')``. Last-writer-wins on collision —
-    collisions are rare and either spelling resolves to a real file.
+    itself, and ``stem.replace('-', ' ')``. A page's own id always wins its key
+    over another page's name (G227: a saved link titled like a tool page once
+    took the tool's id by listing order). A key two or more pages answer to by
+    name is recorded in ``ambiguous`` (``NameIndex``) with every one of them, so
+    :func:`resolve_entity_id` never silently picks one — :func:`link_targets`
+    names them all.
     """
     from api.services import markdown_parser
 
-    index: dict[str, str] = {}
+    index = NameIndex()
     if not entities_dir.exists():
         return index
-    for filepath in entities_dir.glob("*.md"):
+    stems: dict[str, str] = {}
+    by_name: dict[str, set[str]] = {}
+    for filepath in sorted(entities_dir.glob("*.md")):
         stem = filepath.stem
         try:
             fm = markdown_parser.parse(filepath).frontmatter
         except Exception:
             fm = {}
         name = str((fm or {}).get("name", "") or "").strip()
-        index[stem.lower()] = stem
-        index[stem.replace("-", " ").lower()] = stem
-        if name:
-            index[name.lower()] = stem
-            index[sanitize_id(name)] = stem
+        stems.setdefault(stem.lower(), stem)
+        if str((fm or {}).get("status") or "") != "dropped":
+            for key in {stem.replace("-", " ").lower(), *((name.lower(), sanitize_id(name)) if name else ())}:
+                by_name.setdefault(key, set()).add(stem)
+        else:
+            for key in {stem.replace("-", " ").lower(), *((name.lower(), sanitize_id(name)) if name else ())}:
+                by_name.setdefault(key, set())
+                index.setdefault(key, stem)
+    for key, held in by_name.items():
+        if held:
+            index[key] = min(held)
+        if len(held) > 1:
+            index.ambiguous[key] = tuple(sorted(held))
+    index.update(stems)
     return index
+
+
+class NameIndex(dict):
+    """``build_name_index``'s answer: key -> stem, plus ``ambiguous`` — key -> every stem two or more pages that are
+    not dropped answer to by name (G227)."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.ambiguous: dict[str, tuple[str, ...]] = {}
+
+
+def link_targets(entities_dir: Path, ref: str, name_index: dict[str, str] | None = None) -> list[str]:
+    """Every page a link's target text can mean (G227): ``[stem]`` for a page's own id (spelled exactly) or a name
+    one page holds; every page when two or more share the name; ``[]`` when none. A link resolves by id, never by a
+    bare title two pages share."""
+    raw = (ref or "").strip()
+    if not raw:
+        return []
+    if name_index is None:
+        name_index = build_name_index(entities_dir)
+    if name_index.get(raw.lower()) == raw:
+        return [raw]                       # the page's own id, as written
+    ambiguous = getattr(name_index, "ambiguous", {})
+    for key in (raw.lower(), sanitize_id(raw), raw.lower().replace(" ", "-")):
+        if key in ambiguous:
+            return list(ambiguous[key])
+    one = resolve_entity_id(entities_dir, raw, name_index)
+    return [one] if one else []
 
 
 def resolve_entity_id(
@@ -302,6 +345,10 @@ def resolve_entity_id(
     # reports as existing even when the real file is ``madrid.md``, and
     # ``.stem`` would echo the requested casing instead of the true id.
     lower = raw.lower()
+    # G227: a name two or more pages share is never resolved to one of them — unless it is a page's own id, spelled.
+    ambiguous = getattr(name_index, "ambiguous", {})
+    if name_index.get(lower) != raw and any(k in ambiguous for k in (lower, sanitize_id(raw), lower.replace(" ", "-"))):
+        return None
     if lower in name_index:
         return name_index[lower]
     san = sanitize_id(raw)
