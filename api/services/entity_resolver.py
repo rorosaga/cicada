@@ -382,6 +382,9 @@ async def resolve(
             pending_actions.append((indexer.index_pending_entity, (line,), {}))
 
     unborn: list[_Unborn] = []   # project names with no birth, decided after the loop (`_settle_unborn`)
+    #: (name, page) pairs this batch holds as "could be the same" — asked or quiet (review of #545, B1): a pair the
+    #: judge's raw verdict called related but `_never_cleared` turned unsure is a question, never also a relation.
+    unsure_pairs: set[tuple[str, str]] = set()
     total_names = len(ordered_entities)
     if progress_callback is not None:
         progress_callback(0, total_names)
@@ -515,7 +518,10 @@ async def resolve(
                                 verdict = await _judge_lead(lead, family, settings,
                                                             gate=lookahead.gate if lookahead is not None else None)
                                 if verdict not in ("same", "unsure"):
-                                    if entity_relations.relation_of(verdict) is not None:
+                                    relation = entity_relations.relation_of(verdict)
+                                    if relation is not None and entity_relations.plausible(
+                                            relation, person_leads.page_name(family.by_id.get(lead.page) or {}),
+                                            person_leads.page_name(family.by_id.get(lead.holder) or {})):
                                         lead_relations.append(_lead_relation(lead, family, verdict, entity))
                                     continue
                             pending_actions.append((_create_lead_clarification, (),
@@ -524,6 +530,8 @@ async def resolve(
                 continue
 
             ambiguous_match = match is not None and match["decision"] == "unsure"
+            if ambiguous_match:
+                unsure_pairs.add((name_lower, str(match["candidate"]["id"])))
             if ambiguous_match and _said_different(settings.memory_path, name, match["candidate"]["id"]):
                 # The person already said these are different: the name goes on by the usual rule (its own page or
                 # a pending line), never held back by a question that will not be asked again.
@@ -640,6 +648,7 @@ async def resolve(
                          "candidate": {"source": "existing", "id": page["id"], "data": page},
                          **({"same_title": shared} if shared else {})}))
                     ambiguous_match = True
+                    unsure_pairs.add((name_lower, str(page["id"])))
             if should_promote and not ambiguous_match:
                 if card is not None:
                     entity = _card_entity(entity, card)
@@ -685,7 +694,8 @@ async def resolve(
         cancelled = await _settle_unborn(
             unborn, existing=existing, resolved_updates=resolved_updates, resolved_creates=resolved_creates,
             name_to_id=name_to_id, pending_actions=pending_actions, promoted_pending=promoted_pending,
-            clarifier=clarifier, hold=hold, cache=llm_match_cache, settings=settings, cancel_check=cancel_check)
+            clarifier=clarifier, hold=hold, cache=llm_match_cache, settings=settings, cancel_check=cancel_check,
+            unsure_pairs=unsure_pairs)
 
     if progress_callback is not None and not cancelled:
         progress_callback(total_names, total_names)
@@ -703,8 +713,9 @@ async def resolve(
         # claims keyed to that page by name: the hold says Stage 2 did not decide it is that page.
         if held in existing_by_name:
             name_to_id[held] = HELD_ENDPOINT
-    relations = [] if cancelled else _judged_relations(llm_match_cache, best_by_name, existing_by_id,
-                                                       resolved_creates, name_to_id) + lead_relations
+    relations = [] if cancelled else _judged_relations(
+        llm_match_cache, best_by_name, existing_by_id, resolved_creates, name_to_id,
+        skip=unsure_pairs | _asked_pairs(pending_actions)) + lead_relations
     if relations:
         logger.info(f"Stage 2: {len(relations)} relation(s) the judge named instead of a duplicate question")
     resolved = list(resolved_updates.values()) + list(resolved_creates.values())
@@ -788,18 +799,31 @@ async def resolve(
     }
 
 
+def _asked_pairs(pending_actions: list) -> set[tuple[str, str]]:
+    """Every (name, page) pair a duplicate question this batch queued is about."""
+    out: set[tuple[str, str]] = set()
+    for fn, _args, kwargs in pending_actions:
+        if fn is _create_duplicate_clarification:
+            name = str((kwargs.get("entity") or {}).get("name") or "").lower()
+            out.add((name, str((kwargs.get("candidate") or {}).get("id") or "")))
+    return out
+
+
 def _judged_relations(cache: dict[tuple[str, str], str], best_by_name: dict[str, dict],
                       existing_by_id: dict[str, dict], resolved_creates: dict[str, dict],
-                      name_to_id: dict[str, str]) -> list[dict]:
+                      name_to_id: dict[str, str], *, skip: set[tuple[str, str]] = frozenset()) -> list[dict]:
     """One relationship per ``related:<relation>`` verdict this batch's judge gave between a name and a page (on disk
     or born this batch) — never for a name that landed on that page (a part folded into its whole), never between
-    two spellings of one name, at most one per pair."""
+    two spellings of one name, never for a pair in ``skip`` (asked about, or held as possibly the same — review of
+    #545: one pair is never both a question and a relation), at most one per pair. A relation that reverses the
+    names' own containment ("<A> Head" read as the line <A> is a version of) is dropped
+    (`entity_relations.plausible`)."""
     out: list[dict] = []
     seen: set[tuple[str, str]] = set()
     for (name_lower, page_id), decision in cache.items():
         relation = entity_relations.relation_of(decision)
         entity = best_by_name.get(name_lower)
-        if relation is None or entity is None or (name_lower, page_id) in seen:
+        if relation is None or entity is None or (name_lower, page_id) in seen or (name_lower, page_id) in skip:
             continue
         page = existing_by_id.get(page_id)
         if page is not None:
@@ -810,6 +834,8 @@ def _judged_relations(cache: dict[tuple[str, str], str], best_by_name: dict[str,
             continue   # an unborn group or a parked line: no page to hold the claim
         name = str(entity.get("name") or "")
         if not name or name.strip().lower() == page_name.strip().lower() or name_to_id.get(name_lower) == page_id:
+            continue
+        if not entity_relations.plausible(relation, name, page_name):
             continue
         seen.add((name_lower, page_id))
         # Both sides pinned: the claim lands on the page weighed against (whatever other page shares its letters), the
@@ -1693,7 +1719,7 @@ async def _settle_unborn(
     unborn: list[_Unborn], *, existing: list[dict], resolved_updates: dict[str, dict],
     resolved_creates: dict[str, dict], name_to_id: dict[str, str], pending_actions: list, promoted_pending: list[str],
     clarifier: ClarificationManager, hold: Callable, cache: dict, settings: Settings,
-    cancel_check: Callable[[], bool] | None = None,
+    cancel_check: Callable[[], bool] | None = None, unsure_pairs: set[tuple[str, str]] | None = None,
 ) -> bool:
     """Owner 2026-10-23 (amends ruling 36 D4): what becomes of this batch's project names that nothing gave a birth.
 
@@ -1739,7 +1765,8 @@ async def _settle_unborn(
         if cancel_check is not None and cancel_check():
             return True
         match = _pick_match(u.name, judged)
-        whole = _part_of_page(judged) if match is None or match["decision"] != "same" else None
+        # Review of #545 (B2): only when nothing came back same or unsure — "unsure" about one page holds and asks.
+        whole = _part_of_page(judged, u.name) if match is None else None
         if whole is not None:
             # 2026-10-29, the owner's 2026-10-23 rule ("a canoe, its hull, the hull build — is one thing"): a name the
             # judge calls a part, feature, stage, task or pull request of a page lands on that page as a mention of it
@@ -1757,6 +1784,8 @@ async def _settle_unborn(
                 groups.append([stored.pop(candidate["line"]), u])
             continue
         unsure_pages = [c for c, decision in judged if decision == "unsure" and c["source"] in ("existing", "created")]
+        if unsure_pages and unsure_pairs is not None:
+            unsure_pairs.update((u.key, str(c["id"])) for c in unsure_pages)
         if unsure_pages:
             # Unsure about a page: held — never a second page beside the one it may be (as in the loop) — and asked
             # only when the two share a word or a conversation. A pair with no lead at all ("Epoxy workshop" against
@@ -1826,11 +1855,12 @@ async def _settle_unborn(
     return False
 
 
-def _part_of_page(judged: list[tuple[dict, str]]) -> dict | None:
-    """The first page (on disk or born this batch) the judge called the name a part of, in judging order."""
+def _part_of_page(judged: list[tuple[dict, str]], name: str) -> dict | None:
+    """The first page (on disk or born this batch) the judge called the name a part of, in judging order — never one
+    whose own name carries the mention's whole name (the direction guard, `entity_relations.plausible`)."""
     return next((c for c, decision in judged
-                 if entity_relations.relation_of(decision) == "part_of" and c.get("source") in ("existing", "created")),
-                None)
+                 if entity_relations.relation_of(decision) == "part_of" and c.get("source") in ("existing", "created")
+                 and entity_relations.plausible("part_of", name, _candidate_display_name(c))), None)
 
 
 def _project_alias_candidate(entity: dict, siblings, existing_by_name: dict[str, dict],
@@ -2151,29 +2181,67 @@ def _create_lead_clarification(clarifier: ClarificationManager, lead: "person_le
         logger.debug(f"Failed to create a lead question: {type(e).__name__}")
 
 
+#: Lead verdicts kept for the process, never in a bank (review of #545, B3): keyed by bank, the two pages and their
+#: files' modification times, so a drain's later batches reuse the verdict and an edited page is judged afresh.
+_LEAD_VERDICTS: dict[tuple, str] = {}
+_LEAD_VERDICTS_MAX = 4096
+
+
+def _lead_key(memory_path, lead: "person_leads.Lead") -> tuple | None:
+    if memory_path is None:
+        return None
+    entities = Path(memory_path) / "entities"
+    try:
+        stamps = tuple((entities / f"{pid}.md").stat().st_mtime_ns for pid in (lead.page, lead.holder))
+    except OSError:
+        return None
+    return (str(Path(memory_path).resolve()), lead.page, lead.holder, stamps)
+
+
 async def _judge_lead(lead: "person_leads.Lead", index: "person_leads.PersonIndex", settings: Settings, *,
                       gate: asyncio.Semaphore | None = None) -> str:
     """The judge's word on an organisation/tool/project alias lead (2026-10-29): ``same`` / ``unsure`` (the question
-    is asked, as before), ``different`` or ``related:<relation>`` (it is not). A pair the record already relates
-    (`entity_relations.known`) is ``different`` with no call; a lead with no page on its named side is asked."""
+    is asked, as before), ``different`` or ``related:<relation>`` (it is not). No call (review of #545, B3) when the
+    record already relates the pair (`entity_relations.known`: ``different``), the person rejected it (``different``:
+    never asked again), a question about it is already open (``unsure``: the open one is bumped, as before), or this
+    process judged the same two page versions already (the memo); a lead with no page on its named side is asked."""
+    from api.services.inbox_generator import find_open
+
     page = index.by_id.get(lead.page)
     holder = index.by_id.get(lead.holder)
     if page is None or holder is None:
         return "unsure"
-    if entity_relations.known(getattr(settings, "memory_path", None), lead.page, lead.holder):
+    memory_path = getattr(settings, "memory_path", None)
+    page_name = person_leads.page_name(page)
+    if memory_path is not None:
+        if _said_different(memory_path, page_name, lead.holder) or _said_different(memory_path, lead.page,
+                                                                                    lead.holder):
+            return "different"
+        if find_open(Path(memory_path), "merge_suggestion", sanitize_id(page_name), lead.holder) is not None:
+            return "unsure"
+    if entity_relations.known(memory_path, lead.page, lead.holder):
         return "different"
+    key = _lead_key(memory_path, lead)
+    if key is not None and key in _LEAD_VERDICTS:
+        return _LEAD_VERDICTS[key]
     page_candidate = {"source": "existing", "id": lead.page, "data": page}
     holder_candidate = {"source": "existing", "id": lead.holder, "data": holder}
-    kwargs = dict(new_name=person_leads.page_name(page), new_type=_candidate_type(page_candidate),
+    kwargs = dict(new_name=page_name, new_type=_candidate_type(page_candidate),
                   new_description=_candidate_description(page_candidate),
                   existing_name=person_leads.page_name(holder), existing_type=_candidate_type(holder_candidate),
                   existing_body=_alias_page_context(holder) if lead.kind == "alias" else
                   _candidate_description(holder_candidate),
                   settings=settings, recorded_alias=lead.kind == "alias", types_may_differ=True)
     if gate is None:
-        return await _llm_judge_same_entity(**kwargs)
-    async with gate:
-        return await _llm_judge_same_entity(**kwargs)
+        verdict = await _llm_judge_same_entity(**kwargs)
+    else:
+        async with gate:
+            verdict = await _llm_judge_same_entity(**kwargs)
+    if key is not None:
+        if len(_LEAD_VERDICTS) >= _LEAD_VERDICTS_MAX:
+            _LEAD_VERDICTS.clear()
+        _LEAD_VERDICTS[key] = verdict
+    return verdict
 
 
 def _lead_relation(lead: "person_leads.Lead", index: "person_leads.PersonIndex", verdict: str, entity: dict) -> dict:

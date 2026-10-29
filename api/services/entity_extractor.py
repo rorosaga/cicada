@@ -1181,6 +1181,10 @@ def _emit_claim_id(subject: str, predicate: str, obj: str, valid_from: str) -> s
     return f"clm_{base}_{digest}"
 
 
+#: The non-explicit epistemic values a relationship may carry (`claims.Claim.epistemic`).
+_INFERRED = frozenset({"deductive", "inductive", "abductive"})
+
+
 def entities_to_claims(
     extracted: list[dict], memory_path: Path | None, *, resolve_id: Callable[[str], str] | None = None,
 ) -> list:
@@ -1279,7 +1283,9 @@ def entities_to_claims(
                 object_kind="node",
                 observer=observer,
                 context="general",
-                epistemic="explicit",
+                # A relation Stage 2's judge inferred from two descriptions (`entity_relations`, review of #545) is an
+                # inference, never something a conversation stated: the vocabulary's ``abductive``.
+                epistemic=str(rel.get("epistemic")) if rel.get("epistemic") in _INFERRED else "explicit",
                 source_trust="agent_extracted",
                 confidence=float(rel.get("confidence", 0.6) or 0.6),
                 valid_from=valid_from or None,

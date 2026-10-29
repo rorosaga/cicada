@@ -102,11 +102,11 @@ def test_a_related_mention_is_no_question_and_its_relation_is_a_claim(tmp_path, 
     assert out["relations"] == [{
         "source": "Example DB", "target": "Example DB Cloud", "label": "creates", "confidence": 0.6,
         "source_page": "example-db", "target_page": "example-db-cloud",
-        "evidence": [{"episode": EP, "kind": "reasoning"}], "source_episode": EP, "source_episode_timestamp": TS}]
+        "epistemic": "abductive", "evidence": [{"episode": EP, "kind": "reasoning"}], "source_episode": EP, "source_episode_timestamp": TS}]
     claims = entity_extractor.entities_to_claims(
         [{"episode_id": "", "origin": "sleep", "relationships": out["relations"]}], memory)
-    assert [(c.subject, c.predicate, c.object, c.origin, c.observer) for c in claims] == [
-        ("example-db", "creates", "example-db-cloud", "sleep", "agent")]
+    assert [(c.subject, c.predicate, c.object, c.origin, c.observer, c.epistemic) for c in claims] == [
+        ("example-db", "creates", "example-db-cloud", "sleep", "agent", "abductive")]
     assert claims[0].evidence[0].kind == "reasoning" and claims[0].evidence[0].episode == EP
 
 
@@ -148,7 +148,7 @@ def _lead_pages():
             _tool_page("example-db-cloud", "Example DB Cloud", aliases=["Example DB"])]
 
 
-@pytest.mark.parametrize("verdict, asked", [("related:made_by", False), ("different", False), ("unsure", True),
+@pytest.mark.parametrize("verdict, asked", [("related:makes", False), ("different", False), ("unsure", True),
                                             ("same", True)])
 def test_an_alias_lead_is_asked_only_when_the_judge_cannot_tell(tmp_path, monkeypatch, verdict, asked):
     memory = _bank(tmp_path)
@@ -157,7 +157,7 @@ def test_an_alias_lead_is_asked_only_when_the_judge_cannot_tell(tmp_path, monkey
                    monkeypatch, verdict)
     assert bool(_asked(memory)) is asked
     related = [r for r in out["relations"] if r["source_page"] == "example-db-cloud"]
-    assert len(related) == (1 if verdict == "related:made_by" else 0)
+    assert len(related) == (1 if verdict == "related:makes" else 0)
 
 
 def test_a_pair_the_record_relates_is_judged_and_asked_never_again(tmp_path, monkeypatch):
@@ -295,3 +295,98 @@ def test_a_rejected_pair_stays_rejected(tmp_path):
     merge_rejections.add_rejected(memory, "example-db-cloud", "example-db")
     assert ClarificationManager(memory).create("Example DB Cloud", EP, "Possible duplicate of Example DB",
                                                "tool — x", 0.8, "ctx") is None
+
+
+# ---------- review of #545 ----------
+
+
+def test_b1_a_pair_never_cleared_is_asked_and_never_also_a_relation(tmp_path, monkeypatch):
+    """The reviewer's repro: a close spelling sharing an alias is never cleared by the judge alone — its `related`
+    verdict reads as unsure, so the pair is asked; the raw verdict in the cache must not also write a claim."""
+    memory = _bank(tmp_path)
+    mention = _entity("Talvik", "tool", EP, TS)
+    mention["aliases"] = ["Tal"]
+    out = _resolve(memory, [{"episode_id": EP, "entities": [mention], "relationships": []}],
+                   [_tool_page("talwyk", "Talwyk", aliases=["Tal"])], monkeypatch, "related:has_version")
+    asked = [(fm["kind"], fm["merge_target_hint"]) for fm in _asked(memory)]
+    assert asked == [("merge_suggestion", "talwyk")]
+    assert out["relations"] == []
+
+
+def test_b2_unsure_about_one_page_holds_and_asks_though_another_reads_as_its_whole(tmp_path, monkeypatch):
+    memory = _bank(tmp_path)
+    mention = _entity("Faster loading work", "project", EP, TS)
+    pages = [_project_page("example-app", "Example App"), _project_page("example-tool", "Example Tool")]
+
+    async def judge(*_a, **k):
+        return "unsure" if k.get("existing_name") == "Example App" else "related:part_of"
+
+    async def batch(new_name, new_type, new_description, entries, settings, *, new_connections=""):
+        return ["unsure" if e["name"] == "Example App" else "related:part_of" for e in entries]
+    monkeypatch.setattr(entity_resolver.SqliteVecIndexer, "_rebuild_pending_index", lambda self, entries: None)
+    monkeypatch.setattr(entity_resolver, "_llm_judge_same_entity", judge)
+    monkeypatch.setattr(entity_resolver, "_llm_judge_batch", batch)
+    out = asyncio.run(entity_resolver.resolve([{"episode_id": EP, "entities": [mention], "relationships": []}],
+                                              pages, _settings(memory)))
+    assert not any(c["id"] in ("example-app", "example-tool") for c in out["changes"])   # held, never landed
+    assert out["name_to_id"].get("faster loading work") not in ("example-app", "example-tool")
+
+
+def _write_pages(memory, pages):
+    for page in pages:
+        markdown_parser.write(memory / "entities" / f"{page['id']}.md", page["frontmatter"], page["body"])
+
+
+@pytest.mark.parametrize("case", ["judged_different", "open_question", "rejected"])
+def test_b3_a_second_batch_makes_no_judge_call_for_a_lead_already_settled(tmp_path, monkeypatch, case):
+    entity_resolver._LEAD_VERDICTS.clear()
+    memory = _bank(tmp_path)
+    pages = _lead_pages()
+    _write_pages(memory, pages)
+    if case == "rejected":
+        merge_rejections.add_rejected(memory, "example-db", "example-db-cloud")
+    verdict = "unsure" if case == "open_question" else "different"
+    extracted = [{"episode_id": EP, "entities": [_entity("Example DB", "tool", EP, TS)], "relationships": []}]
+    first: list = []
+    _resolve(memory, extracted, pages, monkeypatch, verdict, first)
+    if case == "open_question":
+        assert len(_asked(memory)) == 1
+    second: list = []
+    _resolve(memory, extracted, pages, monkeypatch, verdict, second)
+    assert second == []
+    if case == "rejected":
+        assert first == [] and _asked(memory) == []
+
+
+def test_the_direction_guard_drops_a_reversed_relation():
+    assert not entity_relations.plausible("has_version", "Example Robot Head", "Example Robot")
+    assert not entity_relations.plausible("version_of", "Example Robot", "Example Robot Head")
+    assert entity_relations.plausible("part_of", "Example Robot Head", "Example Robot")
+    assert entity_relations.plausible("made_by", "Example DB Cloud", "Example DB")
+    assert not entity_relations.plausible("makes", "Example DB Cloud", "Example DB")
+    assert entity_relations.plausible("alternative_to", "Example DB Cloud", "Example DB")
+
+
+def test_a_reversed_judge_relation_writes_no_claim(tmp_path, monkeypatch):
+    memory = _bank(tmp_path)
+    out = _resolve(memory, [{"episode_id": EP, "entities": [_entity("Example DB Cloud", "tool", EP, TS)],
+                             "relationships": []}], [_tool_page("example-db", "Example DB")], monkeypatch,
+                   "related:makes")
+    assert out["relations"] == [] and _asked(memory) == []
+
+
+def test_the_dry_run_refuses_a_live_bank_or_an_output_in_the_repo(tmp_path):
+    from api.scripts import duplicate_questions_dry_run as dry
+
+    root = tmp_path / "memory-root"
+    (root / "entities").mkdir(parents=True)
+    copy = tmp_path / "copy"
+    settings = SimpleNamespace(memory_root=root)
+    assert dry.refusal(copy, tmp_path / "out", settings) is None
+    assert "inside the repository" in dry.refusal(dry.REPO / "memory", tmp_path / "out", settings)
+    assert "--out is inside the repository" in dry.refusal(copy, dry.REPO / "tmp-out", settings)
+    assert "configured memory root" in dry.refusal(root, tmp_path / "out", settings)
+    assert "configured memory root" in dry.refusal(root / "banks" / "b", tmp_path / "out", settings)
+    (copy / "entities").mkdir(parents=True)
+    (copy / "inbox").mkdir()
+    assert dry.main(["--bank", str(dry.REPO / "memory"), "--out", str(tmp_path / "o")]) == 2

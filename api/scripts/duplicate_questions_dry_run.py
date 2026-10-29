@@ -128,6 +128,8 @@ def _outcome(row: dict) -> tuple[str, str]:
         return "not_asked", "the record already relates the two"
     if row["origin"] in ("placeholder_person", "alias_lead_person", "held_person") or row["subject_type"] == "person":
         return "keep_asking", "a person: who they are takes the person's own words"
+    if relation is not None and not entity_relations.plausible(relation, row["entity_name"], row["target_name"]):
+        return "not_asked", "the judge read the pair backwards (direction guard): no claim, no question"
     if relation == "part_of" and row["origin"] == "unsure_held_project":
         return "lands_as_part", entity_relations.phrase(relation, row["entity_name"], row["target_name"])
     if check.get("ok"):
@@ -139,6 +141,59 @@ def _outcome(row: dict) -> tuple[str, str]:
     if verdict == "same":
         return "would_join", "the judge says the same thing"
     return "keep_asking", "the judge still cannot tell" if verdict == "unsure" else (verdict or "not judged")
+
+
+REPO = Path(__file__).resolve().parents[2]
+
+
+def _checkouts() -> list[Path]:
+    """This checkout and, from a git worktree, the main checkout it belongs to (whose ``memory/`` is the live bank)."""
+    import subprocess
+
+    roots = [REPO]
+    try:
+        common = subprocess.run(["git", "-C", str(REPO), "rev-parse", "--path-format=absolute", "--git-common-dir"],
+                                capture_output=True, text=True, timeout=5).stdout.strip()
+        if common:
+            roots.append(Path(common).parent)
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return roots
+
+
+def _inside(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root.resolve())
+        return True
+    except (ValueError, OSError):
+        return False
+
+
+def refusal(bank: Path, out: Path, settings=None) -> str | None:
+    """Why this run may not go ahead (review of #545): its rows carry real names, so it reads only a COPY of a bank
+    and writes only outside the repo. Never the configured memory root or anything in it, never the active bank,
+    never the repo's own ``memory/`` (or any bank inside the repo); never an ``--out`` inside the repo."""
+    from api.services.bank_registry import resolve_active_bank_path
+
+    bank, out = bank.resolve(), out.resolve()
+    for repo in _checkouts():
+        if _inside(bank, repo):
+            return "the bank is inside the repository (its memory/ is the live bank): pass a copy outside it"
+        if _inside(out, repo):
+            return "--out is inside the repository: the rows carry real names, write them outside it"
+    if settings is None:
+        from api.config import Settings
+
+        settings = Settings()
+    root = Path(settings.memory_root).expanduser()
+    if _inside(bank, root):
+        return "the bank is the configured memory root or inside it: pass a copy"
+    try:
+        if bank == resolve_active_bank_path(root).resolve():
+            return "the bank is the active bank: pass a copy"
+    except Exception:  # noqa: BLE001 — an unreadable registry is no active bank to match
+        pass
+    return None
 
 
 def main(argv=None) -> int:
@@ -154,6 +209,10 @@ def main(argv=None) -> int:
         print(json.dumps({"error": "not a bank: no entities/ or inbox/ directory"}))
         return 2
     out_dir = Path(args.out).expanduser().resolve()
+    why = refusal(memory, out_dir)
+    if why:
+        print(json.dumps({"error": why}))
+        return 2
     out_dir.mkdir(parents=True, exist_ok=True)
 
     from api.config import Settings

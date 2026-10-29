@@ -100,6 +100,31 @@ def parse(decision, relation) -> str | None:
     return verdict(rel) if rel in RELATIONS else DIFFERENT
 
 
+#: Relations that make A the smaller thing (a part, version or product of B), and those that make B the smaller one.
+_A_SMALLER = frozenset({"has_part", "has_version", "makes"})
+_B_SMALLER = frozenset({"part_of", "version_of", "made_by"})
+
+
+def _words(name: str) -> str:
+    import re
+
+    from api.services import text_fold
+
+    return f" {' '.join(re.findall(r'\w+', text_fold.fold(name or '')))} "
+
+
+def plausible(relation: str, b_name: str, a_name: str) -> bool:
+    """A deterministic direction guard (review of #545): when one name carries the other's whole name ("<x> Head",
+    "<x> Cloud" beside "<x>"), the longer one is the part, version or product — never the line or maker of the shorter.
+    A relation that says otherwise is the judge reading the pair backwards, and is dropped."""
+    b, a = _words(b_name), _words(a_name)
+    if a.strip() and a != b and a in b:      # B is "<A> something"
+        return relation not in _A_SMALLER
+    if b.strip() and a != b and b in a:      # A is "<B> something"
+        return relation not in _B_SMALLER
+    return True
+
+
 def predicate_for(relation: str) -> str:
     return DIFFERENT_PREDICATE if relation == DIFFERENT else RELATIONS[relation]
 
@@ -114,6 +139,7 @@ def relationship(relation: str, b_name: str, a_name: str, *, a_id: str, b_id: st
     on A's page (pinned by id), B its object (pinned by id or slug — never a held endpoint), observer ``agent``, its
     evidence the conversation the name was heard in, as ``reasoning``."""
     out = {"source": a_name, "target": b_name, "label": predicate_for(relation), "confidence": 0.6,
+           "epistemic": "abductive",   # the judge's inference from two descriptions, never a stated fact
            "source_page": a_id, "target_page": b_id,
            "evidence": [{"episode": episode, "kind": "reasoning"}] if episode else []}
     if episode:

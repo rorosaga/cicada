@@ -250,6 +250,8 @@ def parse_answer(c: web_settle.Candidate, text: str) -> Answer:
             return Answer(c.item_id, False, "same")   # never a merge by a check: the person's tap merges
         if relation not in entity_relations.RELATIONS and relation != entity_relations.DIFFERENT:
             return Answer(c.item_id, False, "no_relation")
+        if relation in entity_relations.RELATIONS and not entity_relations.plausible(relation, c.name, c.other_name):
+            return Answer(c.item_id, False, "reversed")   # the direction guard: one name carries the other's
         return Answer(c.item_id, True, url=url, quote=quote, relation=relation)
     if c.kind == "conflict":
         key = str(data.get("option_key") or "").strip()
