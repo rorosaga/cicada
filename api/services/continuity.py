@@ -390,7 +390,7 @@ def select(snapshot: Snapshot, registry_rows: dict[str, dict], *, cwd: str | Non
         match = "same_checkout"
         if not here:
             related = [(n, r) for n, r in snapshot.rows.items() if r.get("session_id") != exclude_session
-                       and (r.get("workspace_identity") or {}).get("family_hash") == workspace.get("family_hash")]
+                       and workspace_identity.same_family(workspace, r.get("workspace_identity"))]
             related.sort(key=lambda nr: activity(nr[1], reg(nr[1])), reverse=True)
             if related:
                 return Selection("ambiguous", None, tuple(related[:MAX_LISTED]), reason="related_checkouts")
@@ -642,7 +642,7 @@ def _caller_workspace(registry, cwd, now) -> dict | None:
         return None
     latest = max(v["observed_at"] for v in values)
     newest = [v for v in values if v["observed_at"] == latest]
-    keys = {(v.get("family_hash"), v.get("checkout_hash")) for v in newest}
+    keys = {tuple(v.get(k) for k in ("family_hash", "checkout_hash", *workspace_identity.REMOTE_KEYS)) for v in newest}
     return workspace_identity.current(newest[0], cwd, now=now) if len(keys) == 1 else None
 
 
@@ -958,6 +958,10 @@ def full_text(ctx: WorkingContext, *, before: str | None = None, cap: int = REPL
     if sel.reason == "same_checkout":
         reserved.append("- Matched by harness-observed git checkout identity, not backend verification of workspace state.")
     source_workspace = sel.chosen[1].get("workspace_identity") if sel.chosen else None
+    if sel.reason == "same_checkout" and ctx.workspace and source_workspace \
+            and not workspace_identity.same_path_checkout(ctx.workspace, source_workspace):
+        reserved.append("- That session ran in another folder of this repository (the same hashed remote): it was "
+                        "renamed, moved or cloned again.")
     if sel.kind == "explicit" and ctx.workspace and source_workspace \
             and not workspace_identity.same_checkout(ctx.workspace, source_workspace):
         reserved.append("- This history is from a different observed checkout; the explicit episode selects it, not a shared role.")

@@ -114,6 +114,8 @@ def tie_reasons(memory_path: Path, stem: str, *, tz_name: str | None, bank: _Ban
     entity = {"name": fm.get("name") or stem, "aliases": fm.get("aliases") or []}
     born = fm.get("born") if isinstance(fm.get("born"), dict) else {}
     family = str(((born or {}).get("repo") or {}).get("family") or "")
+    # D2 amended 2026-10-29: the same hashed remote is the same repository, renamed, moved or cloned again.
+    remotes = {s[3] for s in bank.page_repo_sessions(stem, fm) if s[3]}
     for ep, f in bank.episodes.items():
         efm = f.frontmatter or {}
         if "workspace_identity" not in efm:
@@ -121,7 +123,8 @@ def tie_reasons(memory_path: Path, stem: str, *, tz_name: str | None, bank: _Ban
         repo = project_birth.observed_repo(efm)
         if repo is None:
             continue
-        if (family and str(repo["family"]) == family) or project_birth.repo_match(entity, efm) is not None:
+        if (family and str(repo["family"]) == family) or project_birth.repo_match(entity, efm) is not None \
+                or repo.get("remote") in remotes:
             add(ep, "repo")
     # claims: what Sleep (or an agent) wrote about the project, citing the conversation.
     for page in tree:

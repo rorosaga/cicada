@@ -272,6 +272,7 @@ async def resolve(
     # pair can come up more than once inside one cycle and we do not want to
     # pay for duplicate judge calls.
     llm_match_cache: dict[tuple[str, str], str] = {}
+    remote_cache: dict = {}   # the bank's family → hashed remotes, read once when a birth carries one
     resolved_updates: dict[str, dict] = {}
     resolved_creates: dict[str, dict] = {}
 
@@ -476,6 +477,11 @@ async def resolve(
                     if heard is not None:
                         match = {**match, "decision": "unsure", "heard_in": heard}
 
+            if match is None and _written_type(entity, siblings) == "project":
+                # D2 amended (owner 2026-10-29): a repository renamed, moved or cloned again keeps its hashed remote,
+                # so a birth from it is the project page that remote already has — never a second page.
+                match = _same_repository_match(entity, siblings, existing, resolved_creates,
+                                               settings.memory_path, remote_cache)
             if match is None and _written_type(entity, siblings) == "project":
                 # W2 (benchmarks/newuser, 2026-10-22): a project mention whose own recorded alias names exactly one
                 # project page brings that page to the judge — never a decision (owner 2026-10-08,
@@ -1920,6 +1926,35 @@ def _part_of_page(judged: list[tuple[dict, str]], name: str) -> dict | None:
     return next((c for c, decision in judged
                  if entity_relations.relation_of(decision) == "part_of" and c.get("source") in ("existing", "created")
                  and entity_relations.plausible("part_of", name, _candidate_display_name(c))), None)
+
+
+def _same_repository_match(entity: dict, siblings, existing: list[dict],
+                           created_by_id: dict[str, dict], memory_path, cache: dict) -> dict | None:
+    """``{"decision": "same", candidate}`` when this project mention's repository birth carries a hashed remote that
+    exactly one project page's repository has (`project_birth.same_repository_page`); a pair the person said were
+    different is never joined. ``cache`` holds the bank's family → remotes map, read once per resolve and only when
+    a birth carries a remote."""
+    birth = project_birth.birth_of(entity, siblings)
+    if not ((birth or {}).get("repo") or {}).get("remote"):
+        return None
+    if "families" not in cache:
+        cache["families"] = project_birth.remote_families(memory_path)
+    by_id = {str(d["id"]): d for d in existing if str((d.get("frontmatter") or {}).get("status") or "") != "dropped"
+             and "project" in _candidate_types({"source": "existing", "id": d["id"], "data": d})}
+    pid = project_birth.same_repository_page(birth, [(i, d.get("frontmatter") or {}) for i, d in by_id.items()],
+                                             families=cache["families"])
+    if pid is not None:
+        candidate = {"source": "existing", "id": pid, "data": by_id[pid]}
+    else:
+        made = [(cid, {"born": change.get("project_birth")}) for cid, change in created_by_id.items()
+                if isinstance(change.get("project_birth"), dict)]
+        pid = project_birth.same_repository_page(birth, made, families=cache["families"])
+        if pid is None:
+            return None
+        candidate = {"source": "created", "id": pid, "data": created_by_id[pid]}
+    if _said_different(memory_path, str(entity.get("name") or ""), pid):
+        return None
+    return {"decision": "same", "candidate": candidate}
 
 
 def _project_alias_candidate(entity: dict, siblings, existing_by_name: dict[str, dict],

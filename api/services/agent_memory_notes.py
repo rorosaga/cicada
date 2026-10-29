@@ -35,6 +35,7 @@ because the reader is wherever Claude Code runs; and the hook fires exactly when
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from datetime import datetime, timezone
@@ -132,6 +133,13 @@ def source_id(harness: str, device: str, project: str, file: str) -> str:
     return f"agent-memory:{harness}:{device}:{project}/{file}"
 
 
+def note_sha(note: dict) -> str:
+    """A note's identity apart from the folder it sits in: its file name and its bytes. Claude Code names a project's
+    folder after the checkout's path, so a renamed, moved or re-cloned repository whose notes came along files the
+    same notes under a new folder; this is what recognises them (``episode_staging``'s rename by content)."""
+    return hashlib.sha256(f"{note['file']}\0{note['text']}".encode("utf-8", "surrogateescape")).hexdigest()[:16]
+
+
 def session_episodes(memory_path: Path) -> dict[str, str]:
     """``session_id`` → episode id for every captured harness session in the bank (the frontmatter cache)."""
     out: dict[str, str] = {}
@@ -175,7 +183,7 @@ def note_draft(note: dict, *, harness: str, device: str, sessions: dict[str, str
         title=f"Agent memory: {name}", source_id=source_id(harness, device, project, file),
         source_updated_at=when, timestamp=when, original_date=episode_ids.id_day(when) if when else None,
         source=SOURCE, origin=harness, turns=[Turn(text=words, speaker="assistant", ts=when)],
-        extra=extra, writer=WRITER, redate=when is not None,
+        extra=extra, writer=WRITER, redate=when is not None, content_sha=note_sha(note),
     )
 
 
@@ -195,7 +203,7 @@ def index_draft(note: dict, *, harness: str, device: str) -> EpisodeDraft | None
         extra={"evidence_kind": "assistant", "harness": harness,
                "agent_memory": {"project": note["project"], "file": note["file"], "type": "index"},
                **({"device": device} if device != LOCAL_DEVICE else {})},
-        writer=WRITER, redate=when is not None,
+        writer=WRITER, redate=when is not None, content_sha=note_sha(note),
     )
 
 
@@ -241,15 +249,28 @@ def ingest(memory_path: Path, notes, *, harness: str, device: str | None, comple
             drafts.append(draft)
     prefix = f"agent-memory:{harness}:{device}:"
     deleted: list[str] = []
-    if complete and notes:
+    copies = 0
+    if notes:
         index, _ = episode_staging.scan(episodes_dir)
-        deleted = sorted(sid for sid, e in index.items()
-                         if sid.startswith(prefix) and sid not in present and not e.fm.get("source_deleted_at"))
+        if complete:
+            deleted = sorted(sid for sid, e in index.items()
+                             if sid.startswith(prefix) and sid not in present and not e.fm.get("source_deleted_at"))
+        # A repository renamed, moved or cloned again gets a new Claude Code folder. Notes that came along unchanged
+        # are the notes already held: a moved one (its old folder gone from a complete snapshot) is repointed by the
+        # stager's rename by content, keeping its episode; a copy (the old folder still there, or a partial read)
+        # is no second episode.
+        held = {str(e.fm.get("content_sha")) for sid, e in index.items()
+                if sid.startswith(prefix) and e.fm.get("content_sha") and not e.fm.get("source_deleted_at")
+                and sid not in deleted}
+        kept = [d for d in drafts if d.source_id in index or d.content_sha not in held]
+        copies = len(drafts) - len(kept)
+        drafts = kept
     staged = episode_staging.stage(drafts, episodes_dir, deleted_source_ids=deleted, bank=memory_path.name)
     paths = list(staged.paths)
     linked = _link_sessions(memory_path, drafts, staged, paths)
     return {"notes": len(notes), "created": staged.created, "updated": staged.updated, "skipped": staged.skipped,
-            "tombstoned": staged.tombstoned, "linked": linked, "paths": paths}
+            "tombstoned": staged.tombstoned, "linked": linked, "paths": paths,
+            "moved": len(staged.renamed_sources), "copies": copies}
 
 
 def _link_sessions(memory_path: Path, drafts: list[EpisodeDraft], staged, paths: list[str]) -> int:

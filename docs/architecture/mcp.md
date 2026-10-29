@@ -923,16 +923,34 @@ prompt or dynamic rule.
   the fixed `git -c core.fsmonitor=false rev-parse --path-format=absolute` pair with `--git-common-dir` and
   `--show-toplevel`, in the harness's supplied cwd. The pair shares a 100ms monotonic deadline (with a cleanup
   reserve), ≤4KB stdout per command, no shell, optional locks off, global/system config disabled and inherited
-  git directory/index/object/config overrides removed. No status/log/remote/worktree crawl or repository content.
+  git directory/index/object/config overrides removed. No status/log/worktree crawl or repository content; the origin's one hashed read is the next bullet.
   macOS skips the `/usr/bin/git` install-dialog shim; the installed runtime's bundled git is the last fallback.
   Failure or malformed output leaves exact-cwd matching. `resume`, `compact` and `fork` carry their own history
   and get no startup block; they may still supply identity for requested reads.
+- **The remote, hashed (ruling 50, owner 2026-10-29).** After the pair, inside the same deadline and bounds, the hook
+  runs one more fixed read: `git -c core.fsmonitor=false config --get remote.origin.url`. `normalise_remote` makes
+  every spelling of one repository the same `host/org/repo` (scheme, user, port, `.git`, trailing and doubled
+  slashes, case; scp-style `git@host:org/repo` = `ssh://` = `https://`), and only
+  `sha256(salt + "\0" + normalised)[:16]` is sent as `remote_hash`. The salt is 32 random hex characters made once per
+  install at `$CICADA_HOME/remote-salt` (0600, `O_NOFOLLOW`, created with `O_EXCL`); without one the remote is left
+  out, never hashed unsalted. No origin, a read past the deadline or a malformed line keep the pair's observation
+  without it. The URL is never stored, logged, sent or shown, and the hint cache stays cwd hash + time. The parser
+  keeps `remote_hash` and derives `remote_checkout_hash` = digest(remote + the checkout top level relative to the
+  folder holding the common git directory, lexically: `.` for the main checkout, `.worktrees/x` for one inside it).
+  `same_checkout` is the path keys *or* `remote_checkout_hash`; `same_family` is `family_hash` *or* `remote_hash`, so
+  a renamed, moved or re-cloned main checkout is the same checkout and its worker worktrees stay related choices.
+  A selection made through the remote alone adds one disclosed line ("another folder of this repository … renamed,
+  moved or cloned again"). The salt is per install, so two machines never share a hash: it is not cross-device repo
+  equivalence. Records written before keep their path keys and keep matching by them; nothing is rewritten.
+  Measured (`test_project_remote_identity.py`, real scratch repositories): the startup pointer finds the earlier
+  session after a rename, a move and a re-clone under another URL spelling — 0/3 before, 3/3 after.
 - **Supplied values and privacy.** The hook posts plain checkout root/common-directory strings, an exact cwd hash,
   observation time and a hash scoped to local hook home + device. `workspace_identity` is a pure backend parser:
   it validates shape, age and lexical containment, hashes the supplied strings and never opens, stats, resolves or
   runs git in them. Authentication does not prove an assertion: matches are labelled *harness-observed*, and every
   note still says *workspace state not checked*. Persisted `workspace_identity` holds only `family_hash`,
-  `checkout_hash`, `cwd_hash`, `observed_at`. No supplemental raw path is stored, even in the episode. Git common
+  `checkout_hash`, `cwd_hash`, `observed_at` and, when the hook read one, `remote_hash` + `remote_checkout_hash`. No
+  supplemental raw path is stored, even in the episode. Git common
   directory identifies a family, checkout top level a checkout; no `.git` stripping or `.worktrees`/prefix heuristic.
   Arbitrary linked-worktree layouts associate; clones, independent nested repos, submodules and separate git dirs
   keep their actual supplied identities. This is local device-scoped association, not cross-device repo equivalence.

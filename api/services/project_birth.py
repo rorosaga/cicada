@@ -5,8 +5,11 @@ A project page is born from one of two things, never from consolidation alone:
 * **a repository** the person works in with an agent: a harness session whose episode carries the hook's own
   observation of a git checkout (``workspace_identity`` with a ``family_hash``, G110 D2) and whose ``project_dir``
   names the thing Stage 1 called a project. The backend reads only those two stored values; it never opens, stats or
-  runs git in the path. The hook observes no remote (D2 allows only the ``rev-parse`` pair), so the repository's name
-  is read from the stored path itself: its last component, or the one before a ``.worktrees``/``worktrees`` folder.
+  runs git in the path. The repository's name is read from the stored path itself: its last component, or the one
+  before a ``.worktrees``/``worktrees`` folder. Since D2's amendment (owner 2026-10-29) the observation may also carry
+  the origin's salted hash (``remote_hash``; the URL never reaches the backend): a birth records it as
+  ``repo.remote``, and a repository renamed, moved or cloned again is the same project page
+  (:func:`same_repository_page`), never a second one.
 * **the person's own words** saying it is a project: one sentence of their own turn (or another person's in a
   meeting) that names the thing beside a word for "project" (a few languages, :data:`PROJECT_WORD`), located exactly
   in the conversation and kept as a span, never a copy (G118).
@@ -22,7 +25,7 @@ never archived or deleted for it: :func:`classify` says, per page, which origin 
 dry run (``python -m api.scripts.project_origins``) lists them for the owner to read.
 
 The ``born`` frontmatter key is written once, where the page is born, and never rewritten:
-``{origin: repo|words, day, episode, repo?: {name, family}, span?: {start, end, hash, kind}, via?: folder}``.
+``{origin: repo|words, day, episode, repo?: {name, family, remote?}, span?: {start, end, hash, kind}, via?: folder}``.
 """
 from __future__ import annotations
 
@@ -88,10 +91,10 @@ def repo_names(project_dir) -> list[str]:
 
 
 def observed_repo(frontmatter: dict) -> dict | None:
-    """``{family, names}`` when an episode was captured in a git checkout the hook observed, else ``None``.
+    """``{family, names, remote?}`` when an episode was captured in a git checkout the hook observed, else ``None``.
 
     The observation must be bound to the stored ``project_dir`` (its ``cwd_hash``) and carry a family: a failed or
-    foreign observation is no repository."""
+    foreign observation is no repository. ``remote`` is the origin's salted hash when the hook read one."""
     fm = frontmatter or {}
     cwd = fm.get("project_dir")
     seen = workspace_identity.clean(fm.get("workspace_identity"))
@@ -100,7 +103,12 @@ def observed_repo(frontmatter: dict) -> dict | None:
     if seen["cwd_hash"] not in (workspace_identity.digest(cwd), workspace_identity.digest(posixpath.normpath(cwd))):
         return None
     names = repo_names(cwd)
-    return {"family": seen["family_hash"], "names": names} if names else None
+    if not names:
+        return None
+    out = {"family": seen["family_hash"], "names": names}
+    if seen.get("remote_hash"):
+        out["remote"] = seen["remote_hash"]
+    return out
 
 
 def name_folds(entity: dict) -> set[str]:
@@ -110,7 +118,7 @@ def name_folds(entity: dict) -> set[str]:
 
 
 def repo_match(entity: dict, frontmatter: dict) -> dict | None:
-    """``{name, family}`` when the entity is the repository this episode was captured in."""
+    """``{name, family, remote?}`` when the entity is the repository this episode was captured in."""
     repo = observed_repo(frontmatter)
     if repo is None:
         return None
@@ -118,8 +126,58 @@ def repo_match(entity: dict, frontmatter: dict) -> dict | None:
     for name in _names(entity):
         hit = by_fold.get(fold(name))
         if hit is not None:
-            return {"name": hit, "family": repo["family"]}
+            return {"name": hit, "family": repo["family"], **({"remote": repo["remote"]} if "remote" in repo else {})}
     return None
+
+
+def born_repo(frontmatter: dict | None) -> dict:
+    """The ``born.repo`` record a page carries, or ``{}``."""
+    born = (frontmatter or {}).get("born")
+    repo = born.get("repo") if isinstance(born, dict) else None
+    return repo if isinstance(repo, dict) else {}
+
+
+def remote_families(memory_path: Path | None) -> dict[str, set[str]]:
+    """``family → remotes`` from every episode the hook observed with both keys (the cached frontmatter index; no
+    episode is parsed or written). It lets a page born before the remote was read — ``born.repo`` with a family only —
+    be recognised by its remote once any later session in that same checkout carried both."""
+    out: dict[str, set[str]] = {}
+    if memory_path is None:
+        return out
+    from api.services import bank_index
+
+    try:
+        entries = bank_index.files(Path(memory_path), "episodes")
+    except OSError:
+        return out
+    for f in entries:
+        seen = workspace_identity.clean((f.frontmatter or {}).get("workspace_identity"))
+        if seen and seen.get("family_hash") and seen.get("remote_hash"):
+            out.setdefault(seen["family_hash"], set()).add(seen["remote_hash"])
+    return out
+
+
+def page_remotes(frontmatter: dict | None, families: dict[str, set[str]]) -> set[str]:
+    """The hashed remotes a project page's repository is known by: its own ``born.repo.remote``, and the remotes
+    sessions in its ``born.repo.family`` carried."""
+    repo = born_repo(frontmatter)
+    out = {str(repo["remote"])} if repo.get("remote") else set()
+    if repo.get("family"):
+        out |= families.get(str(repo["family"]), set())
+    return out
+
+
+def same_repository_page(birth: dict | None, pages, *, families: dict[str, set[str]] | None = None) -> str | None:
+    """The one project page whose repository has the same hashed remote as a repository ``birth`` — the folder was
+    renamed, moved or cloned again — else ``None`` (no remote, no page, or two pages answer to it).
+
+    ``pages`` yields ``(id, frontmatter)``. Only a page born from a repository is ever matched; a remote is the
+    repository's identity, so the match is a fact, never a guess from a name."""
+    remote = ((birth or {}).get("repo") or {}).get("remote") if (birth or {}).get("origin") == REPO else None
+    if not remote:
+        return None
+    hits = {pid for pid, fm in pages if remote in page_remotes(fm, families or {})}
+    return next(iter(hits)) if len(hits) == 1 else None
 
 
 # --- the person's words ---------------------------------------------------------------------------------------------

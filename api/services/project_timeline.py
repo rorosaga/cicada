@@ -314,7 +314,8 @@ class _Bank:
         self._direct: dict[str, str] = names_epoch.direct
         self._reverse: dict[str, tuple[str | None, bool]] = names_epoch.reverse
         self._ep_convs: dict[str, tuple[tuple[str, str]] | None] = epoch.ep_convs
-        self._repo_sessions: list[tuple[str, frozenset[str], tuple[str, ...]]] | None = None
+        self._repo_sessions: list[tuple[str, frozenset[str], tuple[str, ...], str]] | None = None
+        self._remote_families: dict[str, set[str]] | None = None
         self._grouped: dict[tuple[str, ...], list[str]] | None = None
         self.scanned = 0
         self.partial = False
@@ -326,11 +327,11 @@ class _Bank:
         f = self.entities.get(eid)
         return dict(f.frontmatter or {}) if f else {}
 
-    def repo_sessions(self) -> list[tuple[str, frozenset[str], tuple[str, ...]]]:
-        """``(family, folded repository names, local days)`` of every episode captured in a checkout the hook
-        observed (``project_birth.observed_repo``), once per request: the days are the session's first and last
-        turn, so a session resumed for days counts on the day it was last worked in. Frontmatter only — the backend
-        never looks at the checkout itself (D2)."""
+    def repo_sessions(self) -> list[tuple[str, frozenset[str], tuple[str, ...], str]]:
+        """``(family, folded repository names, local days, hashed remote or "")`` of every episode captured in a
+        checkout the hook observed (``project_birth.observed_repo``), once per request: the days are the session's
+        first and last turn, so a session resumed for days counts on the day it was last worked in. Frontmatter only —
+        the backend never looks at the checkout itself (D2)."""
         if self._repo_sessions is None:
             out = []
             for f in self.episodes.values():
@@ -347,9 +348,28 @@ class _Bank:
                         days.append(when.local_day(instant, self.tz).isoformat())
                 if days:
                     names = frozenset(project_birth.fold(n) for n in repo["names"])
-                    out.append((str(repo["family"]), names, tuple(sorted(set(days)))))
+                    out.append((str(repo["family"]), names, tuple(sorted(set(days))), str(repo.get("remote") or "")))
             self._repo_sessions = out
         return self._repo_sessions
+
+    def page_repo_sessions(self, page: str, fm: dict) -> list[tuple[str, frozenset[str], tuple[str, ...], str]]:
+        """The sessions that ran in a project page's repository: the family it was born from, a checkout named for
+        it, or — D2 amended 2026-10-29 — the same hashed remote (`project_birth.page_remotes`), so a repository
+        renamed, moved or cloned again keeps its activity."""
+        sessions = self.repo_sessions()
+        if not sessions:
+            return []
+        if self._remote_families is None:
+            self._remote_families = {}
+            for fam, _names, _days, remote in sessions:
+                if remote:
+                    self._remote_families.setdefault(fam, set()).add(remote)
+        family = str(project_birth.born_repo(fm).get("family") or "")
+        folds = project_birth.name_folds({"name": fm.get("name") or page, "aliases": fm.get("aliases") or []})
+        remotes = project_birth.page_remotes(fm, self._remote_families)
+        mine = [s for s in sessions if (family and s[0] == family) or (s[1] & folds)]
+        remotes |= {s[3] for s in mine if s[3]}
+        return [s for s in sessions if (family and s[0] == family) or (s[1] & folds) or (s[3] and s[3] in remotes)]
 
     def grouped(self) -> dict[tuple[str, ...], list[str]]:
         """The episodes a provider's own project id or a relaying app's word groups, once per request:
@@ -636,19 +656,13 @@ def _repo_days(bank: _Bank, tree: list[str]) -> set[str]:
     """The local days an agent session ran in the repository of a tree page: the repository the page was born from
     (its ``born`` family) or one named for it (``project_birth.repo_match``'s name rule). A session in the repository
     is the project being worked on, said or not (2026-10-23: a project developed every day read "planned" because
-    the live session was not consolidated yet)."""
-    sessions = bank.repo_sessions()
-    if not sessions:
+    the live session was not consolidated yet). The same hashed remote counts too (`_Bank.page_repo_sessions`)."""
+    if not bank.repo_sessions():
         return set()
     days: set[str] = set()
     for page in tree:
-        fm = bank._fm(page)
-        born = fm.get("born") if isinstance(fm.get("born"), dict) else {}
-        family = str(((born or {}).get("repo") or {}).get("family") or "")
-        folds = project_birth.name_folds({"name": fm.get("name") or page, "aliases": fm.get("aliases") or []})
-        for fam, names, seen in sessions:
-            if (family and fam == family) or (names & folds):
-                days.update(seen)
+        for session in bank.page_repo_sessions(page, bank._fm(page)):
+            days.update(session[2])
     return days
 
 
@@ -725,11 +739,7 @@ def _header(bank: _Bank, eid: str) -> dict:
 
 
 def _repo_session_count(bank: _Bank, eid: str) -> int:
-    fm = bank.fm(eid)
-    folds = project_birth.name_folds({"name": fm.get("name") or eid, "aliases": fm.get("aliases") or []})
-    born = fm.get("born") if isinstance(fm.get("born"), dict) else {}
-    family = str(((born or {}).get("repo") or {}).get("family") or "")
-    return sum(1 for fam, names, _ in bank.repo_sessions() if (family and fam == family) or (names & folds))
+    return len(bank.page_repo_sessions(eid, bank.fm(eid)))
 
 
 def _suggestion(bank: _Bank, eid: str) -> SuggestedProject:
