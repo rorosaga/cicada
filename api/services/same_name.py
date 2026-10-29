@@ -216,13 +216,19 @@ def _stamp(memory_path: Path) -> tuple[int, int] | None:
 
 
 def _org_of(body: str) -> str:
-    from api.services.claims import is_current, is_event, parse_claims
+    from api.services.claims import parse_claims
 
     try:
         claims = parse_claims(body)
     except Exception:  # noqa: BLE001 — a hand-broken fence says nothing
         return ""
-    for claim in claims:
+    return _org_in(claims)
+
+
+def _org_in(claims) -> str:
+    from api.services.claims import is_current, is_event
+
+    for claim in claims or ():
         if claim.predicate in ORG_PREDICATES and claim.object and is_current(claim) and not is_event(claim):
             text = re.sub(r"\[\[(?:[^\]|]*\|)?([^\]]*)\]\]", r"\1", str(claim.object))
             return " ".join(text.split())
@@ -275,20 +281,62 @@ def _build(memory_path: Path) -> tuple[dict[str, str], dict[str, list[str]]]:
         pages: list[Page] = []
         for f in group:
             fm = f.frontmatter or {}
-            kind = str(fm.get("type") or "concept").strip().lower()
             try:
                 body = f.body()
             except Exception:  # noqa: BLE001 — unreadable: the type word still tells it apart
                 body = ""
-            site, path = _site_and_path(fm) if kind == "media" else ("", "")
-            pages.append(Page(
-                id=f.stem, name=str(fm.get("name") or f.stem), type=kind,
-                created=str((fm.get("saved_at") if kind == "media" else None) or fm.get("learned_on")
-                            or fm.get("created") or ""),
-                summary=(graph_builder.summarize(body) or "") if kind != "media" else "",
-                org=_org_of(body) if kind == "person" else "", site=site, path=path))
+            kind = _kind(fm)
+            pages.append(_page(f.stem, fm, (graph_builder.summarize(body) or "") if kind != "media" else "",
+                               lambda body=body: _org_of(body)))
         qualifiers.update(derive(pages))
     return qualifiers, titles
+
+
+def _kind(fm: dict) -> str:
+    return str(fm.get("type") or "concept").strip().lower()
+
+
+def _page(stem: str, fm: dict, summary: str, org) -> Page:
+    """One colliding page as `derive` reads it; ``org`` is called only for a person (it may parse claims)."""
+    kind = _kind(fm)
+    site, path = _site_and_path(fm) if kind == "media" else ("", "")
+    return Page(id=stem, name=str(fm.get("name") or stem), type=kind,
+                created=str((fm.get("saved_at") if kind == "media" else None) or fm.get("learned_on")
+                            or fm.get("created") or ""),
+                summary=summary if kind != "media" else "", org=org() if kind == "person" else "",
+                site=site, path=path)
+
+
+def prime(memory_path, rows, stamp: tuple[int, int] | None) -> dict[str, str]:
+    """Build the map from pages a caller has ALREADY read — ``rows`` of ``(stem, frontmatter, summary, claims)`` for
+    every page — and keep it under ``stamp`` (the `entities/` stamp the caller took BEFORE reading, :func:`stamp_of`),
+    so `graph_builder`'s full build does not list and read the pages a second time. A stamp that moved while the
+    caller read is simply stale: the next call rebuilds. Returns the qualifiers."""
+    global builds
+    builds += 1
+    by_title: dict[str, list] = {}
+    for row in rows:
+        stem, fm = row[0], row[1] or {}
+        if str(fm.get("status") or "") == "dropped":
+            continue
+        if key := fold(fm.get("name") or stem.replace("-", " ")):
+            by_title.setdefault(key, []).append(row)
+    qualifiers: dict[str, str] = {}
+    titles: dict[str, list[str]] = {}
+    for key, group in by_title.items():
+        if len(group) < 2:
+            continue
+        titles[key] = sorted(r[0] for r in group)
+        qualifiers.update(derive([_page(r[0], r[1] or {}, r[2] or "", lambda r=r: _org_in(r[3])) for r in group]))
+    if stamp is not None and memory_path is not None:
+        with _lock:
+            _CACHE[str(Path(memory_path))] = (stamp, qualifiers, titles)
+    return qualifiers
+
+
+def stamp_of(memory_path) -> tuple[int, int] | None:
+    """The `entities/` stamp :func:`prime` keys on — taken before the caller reads the pages."""
+    return _stamp(Path(memory_path)) if memory_path is not None else None
 
 
 def _current(memory_path) -> tuple[dict[str, str], dict[str, list[str]]]:

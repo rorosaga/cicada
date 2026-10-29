@@ -4961,6 +4961,13 @@ def _format_inbox_blurb(
             fm, body, cause=cause, recommended_key=recommended_key, raw_excerpts=raw_excerpts,
             can_answer=can_answer,
         )
+    if kind == "merge_suggestion" and fm.get("same_title") and fm.get("merge_target_hint"):
+        # G227: a mention said as a title several pages share is asked about ONE page — the one its same/different
+        # answers act on — named by id; the others are counted, never offered.
+        target = str(fm["merge_target_hint"])
+        others = len([p for p in fm.get("same_title") or [] if str(p) != target])
+        return (f"- **{ename}** — {fm.get('title') or 'Is this the existing page?'} (page id `{target}`; "
+                f"{others + 1} pages are called {ename}; answer same or different for this page only)")
     if kind in ("clarification", "merge_suggestion"):
         utype = fm.get("uncertainty_type", "unknown")
         suggestion = fm.get("suggested_classification", "unknown")

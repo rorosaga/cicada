@@ -209,6 +209,10 @@ def _build_full(memory_path: Path) -> GraphResponse:
     except Exception:
         chat_photos = {}
     episode_kind = quiet_pages.episode_lookup(memory_path)
+    # G227: the qualifier map is built from what this loop reads anyway (`same_name.prime`), keyed on the stamp taken
+    # before the read — never a second listing and read of the pages.
+    same_stamp = same_name.stamp_of(memory_path)
+    same_rows: list[tuple] = []
     for f in bank_index.files(memory_path, "entities"):
         fm = f.frontmatter
         eid = f.stem
@@ -223,6 +227,8 @@ def _build_full(memory_path: Path) -> GraphResponse:
             page_claims = []
         # Owner ruling 2026-10-20: a page only an import made, until the person mentions it — derived here, never stored.
         quiet = quiet_pages.is_quiet(fm, page_claims, episode_kind)
+        node_summary = summarize(body)
+        same_rows.append((eid, fm, node_summary, page_claims))
         try:
             for claim in page_claims:
                 if not is_current(claim):
@@ -260,7 +266,7 @@ def _build_full(memory_path: Path) -> GraphResponse:
                 has_pending=eid in pending_ids,
                 observers=sorted(subject_observers.get(eid, set())),
                 contexts=sorted(subject_contexts.get(eid, set())),
-                summary=summarize(body),
+                summary=node_summary,
                 content_hash=content_hash(fm, body),
                 has_logo=eid in logo_ids,
                 decay_class=decay_policy.resolve(fm)[0],
@@ -367,7 +373,7 @@ def _build_full(memory_path: Path) -> GraphResponse:
 
     # G227: a page whose title another page shares carries its qualifier and the name to show (`same_name`, derived
     # from the same entity files this cache is keyed on).
-    same = same_name.qualifiers(memory_path)
+    same = same_name.prime(memory_path, same_rows, same_stamp)
     if same:
         for node in nodes:
             if node.id in entity_ids and (q := same.get(node.id)):

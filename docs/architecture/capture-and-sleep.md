@@ -1125,9 +1125,10 @@ of the mention's kind (`_same_title_pick`; a `concept` mention, Stage 1's word f
 that is not a saved link). Two pages of that kind, or none, go to the same-title judge (`_same_title_match`): each page
 sharing the title weighed with the types allowed to differ (`_SAME_TITLE_NOTE`, the type guideline swapped for "let the
 descriptions decide"). `same` joins; `unsure` holds the name and asks — the item points at the page by id
-(`merge_target_hint`) and keeps every page sharing the title (`same_title`), so the question names each ("Did you mean
-the <name-a> IDE, or the program?", `inbox_wording`); `different` on all goes on by the usual rule, and a new page whose
-id the title already holds is held and asked, as before. A person mention keeps its own rules (G209). See the G227 row
+(`merge_target_hint`), keeps every page sharing the title (`same_title`), and asks about that ONE page, the one its
+same/different answers act on ("Is this the <name-a> IDE?", the others counted in the reason, `inbox_wording`; the
+stored title says the same); `different` on all goes on by the usual rule, and a new page whose id the title already
+holds is held and asked, as before. Picking among several pages waits on a resolver action (G227). A person mention keeps its own rules (G209). See the G227 row
 for the haiku replay.
 
 **Claim preservation (G148 regression):** Stage 5 rewrites prose with the stored `claims` fences removed from section parsing, then reattaches those fences unchanged. Rebuilding `Related` cannot remove beliefs before the claim pipeline reconciles them; synthesis output never authors a claims fence.

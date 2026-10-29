@@ -117,6 +117,18 @@ def test_graph_nodes_carry_the_qualifier_only_when_the_title_is_shared(bank):
     assert "qualifier" not in wire["beta"] and "displayName" not in wire["beta"]
 
 
+def test_the_graph_build_primes_the_same_map_it_would_build(bank):
+    from api.services import graph_builder
+
+    built = dict(same_name.qualifiers(bank))
+    same_name.invalidate()
+    graph_builder._CACHE.update(key=None, value=None)
+    before = same_name.builds
+    graph_builder.build_graph(bank)
+    assert same_name.builds == before + 1          # primed once from the build's own reads
+    assert same_name.qualifiers(bank) == built and same_name.builds == before + 1   # and then held
+
+
 def test_the_graph_node_shape_moved():
     from api.routers import graph
 
@@ -267,24 +279,31 @@ def test_the_judge_prompt_lets_the_descriptions_decide_when_types_may_differ(mon
 # --------------------------------------------------------------------------- asked in plain words
 
 
-def test_the_question_names_each_thing_by_its_qualifier():
+def test_the_question_names_exactly_the_one_page_its_answers_act_on():
+    """The item's answers are same / different on ``merge_target_hint`` alone (the app card, the catch-up keys, the
+    agent's resolve call), so the question names that one page — never a choice the answers cannot make."""
     from api.services import inbox_wording
 
     fm = {"kind": "merge_suggestion", "entity_id": "alpha", "entity_name": "Alpha", "merge_target_hint": "alpha"}
     titled = [{"id": "alpha-program", "name": "Alpha", "type": "project", "qualifier": "program"},
-              {"id": "alpha", "name": "Alpha", "type": "tool", "qualifier": "IDE"}]
-    said = inbox_wording.spoken(fm, "2026-10-29", other_fm={"name": "Alpha", "type": "tool"},
-                                same={"alpha": "IDE", "alpha-program": "program"}, titled=titled)
-    assert said.question == "Did you mean the Alpha IDE, or the program?"
-    assert "2 things are called Alpha" in said.reason
-    # A saved link is said by its site.
-    linked = [{"id": "media-alpha", "name": "Alpha", "type": "media", "qualifier": "example.com"},
-              {"id": "alpha", "name": "Alpha", "type": "tool", "qualifier": "tool"}]
-    said = inbox_wording.spoken({**fm, "merge_target_hint": "media-alpha"}, "2026-10-29", same={}, titled=linked)
-    assert said.question == "Did you mean the Alpha saved from example.com, or the tool?"
-    # One page with the name: "or another".
+              {"id": "alpha", "name": "Alpha", "type": "tool", "qualifier": "IDE"},
+              {"id": "media-alpha", "name": "Alpha", "type": "media", "qualifier": "example.com"}]
+    same = {"alpha": "IDE", "alpha-program": "program", "media-alpha": "example.com"}
+    said = inbox_wording.spoken(fm, "2026-10-29", other_fm={"name": "Alpha", "type": "tool"}, same=same, titled=titled)
+    assert said.question == "Is this the Alpha IDE?"
+    assert "3 things are called Alpha" in said.reason and "say no" in said.reason
+    for other in ("program", "example.com"):
+        assert other not in said.question
+    # Whatever the target, the question names it and only it.
+    for target, words in (("media-alpha", "the Alpha saved from example.com"), ("alpha-program", "the Alpha program")):
+        q = inbox_wording.spoken({**fm, "merge_target_hint": target}, "2026-10-29", same=same, titled=titled).question
+        assert q == f"Is this {words}?"
+        assert " or " not in q
+    # One page with the name.
     said = inbox_wording.spoken(fm, "2026-10-29", other_fm={"name": "Alpha", "type": "tool"}, same={})
-    assert said.question == "Did you mean the Alpha tool, or another Alpha?"
+    assert said.question == "Is this the Alpha tool?" and "a page already has that name" in said.reason
+    # The answers the question is put to are same / different only.
+    assert set(inbox_catchup_keys()) <= {"same", "different"}
     # Different names keep the old pair question.
     other = {**fm, "entity_name": "Alfa"}
     assert inbox_wording.spoken(other, "2026-10-29", other_fm={"name": "Alpha", "type": "tool"}).question \
@@ -293,6 +312,15 @@ def test_the_question_names_each_thing_by_its_qualifier():
     decay = {"kind": "decay", "entity_id": "alpha", "entity_name": "Alpha"}
     assert inbox_wording.spoken(decay, "2026-10-29", page_fm={"name": "Alpha", "type": "tool"},
                                 same={"alpha": "IDE"}).question == "Do you still use Alpha (IDE)?"
+
+
+def inbox_catchup_keys() -> list[str]:
+    from types import SimpleNamespace
+
+    from api.services import catchup_chat
+
+    item = SimpleNamespace(kind=SimpleNamespace(value="merge_suggestion"), options=[])
+    return [row["key"] for row in catchup_chat.answer_keys(item)]
 
 
 def test_a_same_title_question_points_at_the_page_by_id(tmp_path):
@@ -308,6 +336,12 @@ def test_a_same_title_question_points_at_the_page_by_id(tmp_path):
                           target_id="alpha-program")
     fm = parse(manager.dir / f"{item}.md").frontmatter
     assert fm["merge_target_hint"] == "alpha-program" and fm["same_title"] == ["alpha", "alpha-program"]
+    assert fm["title"] == "Is this Alpha (project)?"       # one page, the one the answers act on
+
+    from api.services import mcp_tools
+
+    line = mcp_tools._format_inbox_blurb(fm, "")
+    assert "page id `alpha-program`" in line and "2 pages are called Alpha" in line and " or " not in fm["title"]
 
 
 def test_the_inbox_serves_display_names_and_the_question(bank):
@@ -323,7 +357,7 @@ def test_the_inbox_serves_display_names_and_the_question(bank):
     item = items[0]
     assert item.same_title == ["alpha", "alpha-program"]
     assert item.merge_target_display_name == "Alpha (IDE)"
-    assert item.spoken_question == "Did you mean the Alpha IDE, or the program?"
+    assert item.spoken_question == "Is this the Alpha IDE?"
 
 
 # --------------------------------------------------------------------------- the agent doors

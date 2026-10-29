@@ -138,6 +138,12 @@ class ClarificationManager:
                 frontmatter["merge_target_hint"] = target_hint
             if same_title:
                 frontmatter["same_title"] = [str(i) for i in same_title][:6]
+                if target_id:
+                    # G227: the stored title names the one page its answers act on, by its qualifier — every reader
+                    # without the wording layer (an old client, a plain listing) asks the same yes/no question.
+                    from api.services import same_name
+
+                    frontmatter["title"] = f"Is this {same_name.label(self.memory_path, target_id, entity_name)}?"
         if source_episode_timestamp:
             frontmatter["source_episode_timestamp"] = str(source_episode_timestamp)
         if is_duplicate and isinstance(heard_in, dict) and heard_in.get("mention") and heard_in.get("page"):

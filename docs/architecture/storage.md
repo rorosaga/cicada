@@ -200,7 +200,8 @@ a/an/the …" (`described_as`; never for a saved link, whose description is the 
 as a word (`tool`, `saved link`, …); the type and the month first heard of (a saved link: the day saved); last, a number
 in creation order. Each page takes its first rung; two that would read alike step down together. The map is cached per
 bank on the `entities/` directory's own mtime (every write is a rename into it — the card ETag's rule); a rebuild reads
-titles from `search_index.entity_names` (no bank-wide parse) and the colliding pages only. Measured on a copy of the
+titles from `search_index.entity_names` (no bank-wide parse) and the colliding pages only; `graph_builder`'s full build
+primes it from the pages it already read (`same_name.prime`, keyed on the stamp taken before the read). Measured on a copy of the
 owner's bank (8,067 pages, 5,722 live): 33 live collision groups, 76 pages (38 / 86 counting archived); 18 groups are
 two saved links of one title, 15 a saved link or a concept beside a tool, company or project. Held map 0.006 ms;
 rebuild after a write ~35 ms p50 on a warm index.

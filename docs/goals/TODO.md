@@ -15,7 +15,8 @@
 - **2026-10-29 — same name, different things (G227; branch `feat/same-name-qualifier`).** A title two pages share is
   shown "<name> (<qualifier>)" everywhere — the app, the API, recall, Ask, the CLI and `/v1` — from one derived function
   (`same_name`); links resolve by id; Stage 2 no longer joins an exact title of another kind on the name alone (the
-  owner's IDE page held 10 program-shaped sentences on the bank copy) and asks when its judge cannot tell. Haiku
+  owner's IDE page held 10 program-shaped sentences on the bank copy) and asks when its judge cannot tell — yes/no
+  about one page; picking among several waits on the owner (G227 follow-up). Haiku
   replay 60/60 on three synthetic cases; hot-path p95 within run-to-run spread except `/graph`'s cold build (+0.14–0.29 s
   once per write). Numbers and the measurement on the G227 row.
 - **2026-10-29 — the full suites green again (branch `fix/dev-suite-2`).** `test_continuity_route_latency`'s

@@ -181,9 +181,10 @@ def spoken(fm: dict, today: str, *, page_fm: dict | None = None, other_fm: dict 
     follow-up already synthesised); ``page_fm`` its page's frontmatter, ``other_fm`` a duplicate pair's other page;
     ``group`` the names when several duplicate questions are one person (:mod:`inbox_catchup`).
 
-    G227: ``same`` is the bank's qualifier map (`same_name.qualifiers`) and ``titled`` the pages a question about a
-    shared name names (``{id, name, type, qualifier}``, the item's ``same_title``): a page is spoken of with its
-    qualifier, and a mention said exactly as a page's title is asked "Did you mean the <name> IDE, or the program?"."""
+    G227: ``same`` is the bank's qualifier map (`same_name.qualifiers`) and ``titled`` the pages sharing a mention's
+    title (``{id, name, type, qualifier}``, the item's ``same_title``): a page is spoken of with its qualifier, and a
+    mention said exactly as a page's title is asked about the one page its answers act on ("Is this the <name> IDE?"),
+    the others counted in the reason."""
     kind = str(fm.get("kind") or "")
     entity_id = str(fm.get("entity_id") or "")
     own = bool(owner_id) and entity_id == owner_id
@@ -281,36 +282,31 @@ def _thing_word(page: dict) -> str:
 
 def _same_name(fm: dict, today: str, name: str, other_fm: dict | None, same: dict[str, str],
                titled: list[dict]) -> Spoken | None:
-    """G227: a mention said exactly as a page's title — "Did you mean the <name-a> IDE, or the program?" — or None
-    when the names differ. The merge target is named first (the item's answer keys join it); every other page sharing
-    the title follows; with none, "or another <name-a>"."""
+    """G227: a mention said exactly as a page's title — "Is this the <name-a> IDE?" — or None when the names differ.
+
+    The question names ONE page, the merge target, because the item's answers ("Yes, the same" / "No, different", and
+    the catch-up's same/different keys) act on that page alone; "No" keeps the mention apart. That other pages share
+    the title is said in the reason, never offered as a choice the answers cannot make (PR #539 review; a pick-the-page
+    answer waits on the owner, G227)."""
     target = str(fm.get("merge_target_hint") or "")
     pages = list(titled)
     if not pages and other_fm and _fold(speakable(other_fm.get("name"), other_fm)) == _fold(name):
         pages = [{"id": target, "name": str(other_fm.get("name") or name), "type": str(other_fm.get("type") or ""),
                   "qualifier": same.get(target)}]
-    if not pages or _fold(pages[0].get("name")) != _fold(name):
+    page = next((p for p in pages if p.get("id") == target), None)
+    if page is None or _fold(page.get("name")) != _fold(name):
         return None
-    pages.sort(key=lambda p: 0 if p.get("id") == target else 1)
-    words = [_clip(_thing_word(p), MAX_LABEL) for p in pages]
+    word = _clip(_thing_word(page), MAX_LABEL)
+    thing = f"the {name} saved from {word}" if _is_site(word) else f"the {name} {word}"
+    question = _ask(f"Is this {thing}")
     when = _ago(fm.get("source_episode_timestamp") or fm.get("created_date"), today)
-    def first(word: str) -> str:            # "the <name-a> IDE", "the <name-a> saved from example.com"
-        return f"the {name} saved from {word}" if _is_site(word) else f"the {name} {word}"
-
-    def other(word: str) -> str:            # "the program", "the one saved from example.com"
-        return f"the one saved from {word}" if _is_site(word) else f"the {word}"
-
-    if len(words) >= 2:
-        rest = [other(w) for w in words[1:]]
-        others = (", ".join(rest[:-1]) + ", or " if len(rest) > 1 else "") + rest[-1]
-        question = _ask(f"Did you mean {first(words[0])}, or {others}")
-        reason = (f"{len(words)} things are called {name}, and I'd rather ask than put what you said {when} on the "
-                  "wrong one." if when else
-                  f"{len(words)} things are called {name}, and I'd rather ask than put it on the wrong one.")
-        return Spoken(question, reason)
-    question = _ask(f"Did you mean {first(words[0])}, or another {name}")
-    reason = (f"You mentioned {name} {when}, and a page already has that name; I'd rather ask than put it on the "
-              "wrong one." if when else "A page already has that name, and I'd rather ask than put it on the wrong one.")
+    said = f"You mentioned {name} {when}" if when else f"You mentioned {name}"
+    others = len({str(p.get("id")) for p in pages}) - 1
+    if others >= 1:
+        reason = (f"{said}, and {others + 1} things are called {name}; if it's not this one, say no and I'll keep it "
+                  "apart.")
+    else:
+        reason = f"{said}, and a page already has that name; if it's another one, say no and I'll keep it apart."
     return Spoken(question, reason)
 
 
