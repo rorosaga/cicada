@@ -13,7 +13,7 @@ from loguru import logger
 from tqdm import tqdm
 
 from api.config import Settings
-from api.services import (act_object, authorship, turn_signals, correspondents, decay_policy, engine_errors, entity_types, episode_time,
+from api.services import (act_object, authorship, contact_identity, turn_signals, correspondents, decay_policy, engine_errors, entity_types, episode_time,
                           evidence, fact_policy, participation, project_birth, promotion, section_provenance, source_dates)
 from api.services.json_parse import parse_json_object
 
@@ -1059,6 +1059,9 @@ async def extract(
                 # G179: the other side of a message conversation is its own page, of its own type — the entity
                 # that names them is marked (and typed) here, from the episode's own record (`correspondents`).
                 correspondents.mark_extraction(results[i], episode.get("correspondent"))
+                # One person across sources (owner 2026-10-28): a participant with an address-book card is marked
+                # with its id, which Stage 2 reads before any name (`contact_identity`).
+                contact_identity.mark(results[i], episode)
 
                 success += 1
                 if on_episode_read is not None:

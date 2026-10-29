@@ -233,6 +233,15 @@ def _pair(fm: dict, today: str, name: str, page_fm: dict | None, other_fm: dict 
     kind_of = str((other_fm or {}).get("type") or (page_fm or {}).get("type") or fm.get("suggested_classification")
                   or "")
     noun = _NOUNS.get(kind_of, "thing")
+    heard = fm.get("heard_in") if isinstance(fm.get("heard_in"), dict) else None
+    if noun == "person" and heard and heard.get("mention") and heard.get("page"):
+        # One person across sources (owner 2026-10-28): "Is the <name> in your group chat the same <name> you talked
+        # to Claude about?" — the mention's own word on both sides; who the page is stays in the reason.
+        said = _clip(re.sub(r"\s*\([^()]*\)\s*$", "", speakable(fm.get("entity_name") or name)).strip() or name)
+        where = str(heard["mention"])
+        return Spoken(_ask(f"Is the {said} {heard['page']} the same {said} {where}"),
+                      f"{other} is in your chats; {said} came up elsewhere. A shared first name is not enough, so "
+                      "I only join them on your word.")
     question = _ask(f"Are {name} and {other} the same {noun}")
     if noun == "person":
         reason = "They could be one person, and I only join people on your word."

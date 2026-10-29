@@ -55,6 +55,8 @@ final class MessagesWatcher {
     @ObservationIgnored private let makeWatch: FolderWatchFactory
     @ObservationIgnored private let bank: @MainActor () -> String
     @ObservationIgnored private let lookUpCards: @Sendable ([String]) async -> [String: MessagesContactCard]
+    /// Whether Contacts may be read (a test replaces it); never asks.
+    @ObservationIgnored var lookUpContactsAllowed: @Sendable () -> Bool
     /// nil when the key store could not be read — never taken as "shares no photo".
     @ObservationIgnored private let lookUpSharedPhotos: @Sendable ([String]) async -> [String: Data]?
     /// When each ticked chat's shared photo was last looked up (found or not): at most once per `sharedRecheck`, so a
@@ -76,6 +78,7 @@ final class MessagesWatcher {
          minimumInterval: Duration = .seconds(60), makeWatch: FolderWatchFactory? = nil,
          bank: @escaping @MainActor () -> String = { "default" },
          lookUpCards: @escaping @Sendable ([String]) async -> [String: MessagesContactCard] = { await MessagesContacts.cards(for: $0) },
+         lookUpContactsAllowed: @escaping @Sendable () -> Bool = { MessagesContacts.allowed },
          lookUpSharedPhotos: (@Sendable ([String]) async -> [String: Data]?)? = nil,
          sharedRecheck: Duration = .seconds(3600)) {
         self.api = api
@@ -89,6 +92,7 @@ final class MessagesWatcher {
         self.makeWatch = makeWatch ?? { path, onChange in FSEventsWatch(path: path, handler: onChange) }
         self.bank = bank
         self.lookUpCards = lookUpCards
+        self.lookUpContactsAllowed = lookUpContactsAllowed
         // The shared photos live under the same Messages folder the watcher reads (a test's synthetic folder there).
         let nicknames = folder.appendingPathComponent(MessagesSharedPhotos.folderName, isDirectory: true)
         self.lookUpSharedPhotos = lookUpSharedPhotos ?? { handles in
@@ -166,8 +170,31 @@ final class MessagesWatcher {
         return conversation.members.map { handle in
             MessagesMemberPayload(key: MessagesReader.memberKey(conversationId: conversation.id, handle: handle),
                                   name: memberCards[handle]?.name ?? "",
-                                  direct: conversations.first { !$0.isGroup && $0.handle == handle }?.id)
+                                  direct: conversations.first { !$0.isGroup && $0.handle == handle }?.id,
+                                  contact: Self.postedCard(memberCards[handle], looked: lookedUp.contains(handle)))
         }
+    }
+
+    /// The handles this session actually looked up in Contacts (#527 review B3): only for one of them can "no single
+    /// card" be said. Permission alone is not a look-up — at launch a pass runs before the list or the bubbles have
+    /// read any card, and sending "" then cleared every stored card.
+    @ObservationIgnored private(set) var lookedUp: Set<String> = []
+
+    /// Look these handles up, and remember them as looked up only when Contacts could really be read (the look-up
+    /// itself answers nothing without permission, and an empty answer then is no "no card").
+    private func lookUp(_ handles: [String]) async -> [String: MessagesContactCard] {
+        guard !handles.isEmpty else { return [:] }
+        let allowed = lookUpContactsAllowed()
+        let found = await lookUpCards(handles)
+        if allowed { lookedUp.formUnion(handles) }
+        return found
+    }
+
+    /// What a pass posts as a handle's card: its id when exactly ONE card holds it; `""` when Contacts was read and
+    /// none or several cards hold it (the backend clears a stored card); nil when Contacts was not read (it keeps it).
+    nonisolated static func postedCard(_ card: MessagesContactCard?, looked: Bool) -> String? {
+        if let id = card?.id { return id }
+        return looked ? "" : nil
     }
 
     /// The name a waiting conversation's bubble carries.
@@ -202,7 +229,7 @@ final class MessagesWatcher {
             return
         }
         let memberHandles = conversations.filter(\.isGroup).flatMap(\.members)
-        let byHandle = await lookUpCards(conversations.filter { !$0.isGroup }.map(\.handle) + memberHandles)
+        let byHandle = await lookUp(conversations.filter { !$0.isGroup }.map(\.handle) + memberHandles)
         var next: [String: MessagesContactCard] = [:]
         for conversation in conversations where !conversation.isGroup {
             if let card = byHandle[conversation.handle] { next[conversation.id] = card }
@@ -343,15 +370,22 @@ final class MessagesWatcher {
         for conversation in read {
             var cursor = self.cursor(bank: bank, id: conversation.id)
             if conversation.isGroup, conversation.members.contains(where: { memberCards[$0] == nil }) {
-                let found = await lookUpCards(conversation.members)
+                let found = await lookUp(conversation.members.filter { !lookedUp.contains($0) })
                 for (handle, card) in found { memberCards[handle] = card }
+            }
+            if !conversation.isGroup, cards[conversation.id] == nil, !lookedUp.contains(conversation.handle) {
+                // B3: a one-to-one chat looks its other side up too, so a launch pass never posts a card it never read.
+                if let card = await lookUp([conversation.handle])[conversation.handle] { cards[conversation.id] = card }
             }
             let name = self.postedName(of: conversation)
             let members = self.memberPayloads(of: conversation)
+            // A one-to-one chat's other side, by their one address-book card (never the handle).
+            let contact = conversation.isGroup ? nil
+                : Self.postedCard(cards[conversation.id], looked: lookedUp.contains(conversation.handle))
             for _ in 0..<20 {   // bounded catch-up: at most 20 batches per pass
                 let since = cursor
                 let pass = try await Task.detached(priority: .utility) {
-                    try reader.read(conversation, name: name, members: members, since: since)
+                    try reader.read(conversation, name: name, members: members, contact: contact, since: since)
                 }.value
                 try Task.checkCancellation()
                 if pass.count == 0 { break }
@@ -376,7 +410,7 @@ final class MessagesWatcher {
         let noCard = Set(waiting.map(\.conversation).filter { cards[$0] == nil })
         if !noCard.isEmpty {
             let carded = await handles(for: noCard)
-            let found = await lookUpCards(carded.map(\.handle))
+            let found = await lookUp(carded.map(\.handle))
             for conversation in carded {
                 if let card = found[conversation.handle] { cards[conversation.id] = card }
             }

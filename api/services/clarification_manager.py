@@ -51,6 +51,7 @@ class ClarificationManager:
         suggested_confidence: float,
         source_context: str,
         source_episode_timestamp: str | None = None,
+        heard_in: dict | None = None,
     ) -> str | None:
         """Create a clarification file. Returns its id, or None if duplicate.
 
@@ -131,6 +132,9 @@ class ClarificationManager:
                 frontmatter["merge_target_hint"] = target_hint
         if source_episode_timestamp:
             frontmatter["source_episode_timestamp"] = str(source_episode_timestamp)
+        if is_duplicate and isinstance(heard_in, dict) and heard_in.get("mention") and heard_in.get("page"):
+            # Where each side was heard (`entity_resolver._held_alias_questions`): words for the question, never ids.
+            frontmatter["heard_in"] = {"mention": str(heard_in["mention"])[:40], "page": str(heard_in["page"])[:40]}
         filepath = self.dir / f"{clar_id}.md"
         markdown_parser.write(filepath, frontmatter, source_context.strip())
         logger.info(f"Clarification created: {clar_id} ({entity_name})")

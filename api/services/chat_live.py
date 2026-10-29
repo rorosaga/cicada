@@ -45,7 +45,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from api.services import (agent_detectors, episode_ids, episode_staging, evidence, markdown_parser, messages_source,
+from api.services import (agent_detectors, contact_identity, episode_ids, episode_staging, evidence, markdown_parser, messages_source,
                           turn_extras)
 from api.services.agent_detectors import Actor, Detection
 from api.services.episode_staging import EpisodeDraft, Turn
@@ -275,6 +275,8 @@ class Cast:
     markers: dict[str, str]
     actor: Actor | None = None
     record: list[dict] = field(default_factory=list)
+    #: A one-to-one chat's other side: their ONE address-book card, by Contacts id (`contact_identity`).
+    contact: str | None = None
 
     def marker(self, from_me: bool, sender: str | None) -> str:
         if from_me:
@@ -322,9 +324,16 @@ def cast_for(spec: ChatSpec, entry: dict, conversation: dict, stored: list[dict]
         else:
             label = sanitize_id(actor.label)[:48].strip("-")
             marker = f"speaker:{label if label and label != 'unnamed' else 'contact'}"
-        return Cast(group=False, title=title, markers={"": marker}, actor=actor)
+        # One person across sources (2026-10-28): the reader's ONE address-book card for the other side, by id.
+        # Absent (None) keeps the stored one; "" says none or several cards hold the handle now, and clears it.
+        posted = other.get("contact") if other.get("contact") is not None else conversation.get("contact")
+        card = (contact_identity.clean_card_id(conversation.get("_stored_contact")) if posted is None
+                else contact_identity.clean_card_id(posted))
+        return Cast(group=False, title=title, markers={"": marker}, actor=actor,
+                    contact=card if actor.kind == agent_detectors.PERSON else None)
     names: dict[str, str] = {}
     agents: dict[str, bool] = {}
+    cards: dict[str, str | None] = {}
     order: list[str] = []
     for p in stored:
         key = str(p.get("key") or "")
@@ -332,6 +341,7 @@ def cast_for(spec: ChatSpec, entry: dict, conversation: dict, stored: list[dict]
             order.append(key)
             names[key] = messages_source._clean_name(p.get("name"))
             agents[key] = p.get("kind") == agent_detectors.AGENT
+            cards[key] = contact_identity.clean_card_id(p.get("contact"))
     for raw in members:
         key = str(raw.get("key") or "").strip().lower()
         if not ID_RE.match(key):
@@ -339,6 +349,8 @@ def cast_for(spec: ChatSpec, entry: dict, conversation: dict, stored: list[dict]
         if key not in names:
             order.append(key)
         names[key] = messages_source._clean_name(raw.get("name")) or names.get(key, "")
+        if raw.get("contact") is not None:   # absent keeps the stored card; "" clears it (none or several now)
+            cards[key] = contact_identity.clean_card_id(raw.get("contact"))
         if raw.get("agent") is not None:
             agents[key] = bool(raw.get("agent"))
     bots = [k for k in order if agents.get(k)]
@@ -350,7 +362,8 @@ def cast_for(spec: ChatSpec, entry: dict, conversation: dict, stored: list[dict]
         marker = "assistant" if key == agent_key else f"speaker:{_label(names[key], key, used)}"
         markers[key] = marker
         record.append({"key": key, "marker": marker, **({"name": names[key]} if names[key] else {}),
-                       "kind": agent_detectors.AGENT if key == agent_key else agent_detectors.PERSON})
+                       "kind": agent_detectors.AGENT if key == agent_key else agent_detectors.PERSON,
+                       **({"contact": cards[key]} if cards.get(key) and key != agent_key else {})})
     return Cast(group=True, title=title, markers=markers, record=record)
 
 
@@ -522,7 +535,7 @@ def sitting_draft(spec: ChatSpec, cid: str, source_id: str, messages: list[ChatM
         title = f"{spec.label} · {cast.title or 'group'} · {first[:10]}"
     else:
         actor = cast.actor or one_to_one_actor(cast.title, None, agent=None)
-        record = {"correspondent": actor.to_dict()}
+        record = {"correspondent": {**actor.to_dict(), **({"contact": cast.contact} if cast.contact else {})}}
         title = (f"{spec.label} · {first[:10]}" if actor.label == agent_detectors.UNNAMED
                  else f"{spec.label} with {actor.label} · {first[:10]}")
     return EpisodeDraft(
@@ -629,7 +642,10 @@ def ingest(memory_path: Path, spec: ChatSpec, conversation: dict, messages: list
         planned, gone = plan_sittings(spec, cid, stored, batch, kept_reactions, counts,
                                       reserved=frozenset(unreadable))
         known = [p for e in mine.values() for p in participants_of(e.fm)]
-        cast = cast_for(spec, entry, {**conversation, "group": conversation.get("group", entry.get("group"))}, known)
+        stored_card = next((c for e in mine.values() if isinstance(e.fm.get("correspondent"), dict)
+                            and (c := (e.fm.get("correspondent") or {}).get("contact"))), None)
+        cast = cast_for(spec, entry, {**conversation, "group": conversation.get("group", entry.get("group")),
+                                      "_stored_contact": stored_card}, known)
         drafts = [sitting_draft(spec, cid, sid, msgs, cast) for sid, msgs in planned
                   if any(not m.unsent for m in msgs)]
         staged, recorded = _stage(drafts, episodes_dir, index, deleted=gone, bank=bank)

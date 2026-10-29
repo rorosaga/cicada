@@ -13,7 +13,7 @@ from loguru import logger
 from thefuzz import fuzz
 
 from api.config import Settings
-from api.services import (agent_engine, alias_policy, application_page, authorship, contacts_local, correspondents, engine_errors,
+from api.services import (agent_engine, alias_policy, application_page, authorship, contact_identity, contacts_local, correspondents, engine_errors,
                           entity_body, entity_types, fact_policy, json_parse, owner_identity, people_directory, person_leads,
                           project_birth, promotion, quiet_pages, role_people, section_provenance, text_fold)
 from api.services.clarification_manager import (
@@ -143,6 +143,10 @@ async def resolve(
     # one of them back to the judge.
     rejected_pairs = _load_rejected(getattr(settings, "memory_path", None))
     name_index = NameIndex(existing_by_name)   # every name and alias, once: the leads' lookups (2026-10-27)
+    # One person across sources (owner 2026-10-28): a chat participant's address-book card -> the one page carrying
+    # that card's G61 source (`contact_identity`). Read before any name.
+    card_page_ids = contact_identity.card_pages(existing)
+    existing_by_id = {str(e.get("id")): e for e in existing if e.get("id")}
 
     # G169: a speaker reference ("User", "the user", "me", "yo", "mí"...) is the
     # bank's owner, never a page of its own. One qualified decision
@@ -399,12 +403,17 @@ async def resolve(
                 break
             name = entity["name"]
             siblings = [e for e in extractions_by_name.get(name_lower, []) if e is not entity]
-            match = _find_direct_candidate_match(
-                new_entity=entity,
-                existing_by_name=existing_by_name,
-                created_by_id=resolved_creates,
-                aliases=aliases,
-            )
+            card_id = (contact_identity.card_of(entity, siblings)
+                       if _is_person(entity) and not any(e.get(role_people.UNNAMED_KEY) for e in (entity, *siblings))
+                       else None)
+            match = _card_match(card_id, card_page_ids, existing_by_id, owner_page_id)
+            if match is None:
+                match = _find_direct_candidate_match(
+                    new_entity=entity,
+                    existing_by_name=existing_by_name,
+                    created_by_id=resolved_creates,
+                    aliases=aliases,
+                )
             if match is None:
                 match = _answered_match(entity, aliases)
             if match is not None and lookahead is not None:
@@ -423,6 +432,14 @@ async def resolve(
                     rejected=rejected_pairs,
                     index=name_index,
                 )
+                # One person across sources (owner 2026-10-28): a one-word name heard outside a chat that the judge
+                # would join to a chat participant's full-name page is asked about instead — a shared first name is
+                # never enough on its own, whatever else the two conversations share.
+                # An "unsure" judge's question is worded the same way, saying where each was heard.
+                if match is not None and match.get("decision") in ("same", "unsure") and card_id is None:
+                    heard = _first_name_across(settings.memory_path, entity, match, existing)
+                    if heard is not None:
+                        match = {**match, "decision": "unsure", "heard_in": heard}
 
             if match is None and _written_type(entity, siblings) == "project":
                 # W2 (benchmarks/newuser, 2026-10-22): a project mention whose own recorded alias names exactly one
@@ -532,6 +549,10 @@ async def resolve(
             )
             card = None if ambiguous_match else _card_for(entity, siblings, waiting_cards, person_keys, episode_kind,
                                                           memory_path=Path(settings.memory_path))
+            if card is None and card_id and should_promote and not ambiguous_match:
+                # A participant the usual rules promote is born under their own card (its name, photo and sources),
+                # found by id: a card is still never used below the bar (owner 2026-10-20).
+                card = waiting_cards.by_id(card_id)
             if card is not None and str(card["id"]) in card_creates:
                 # A second spelling of a name this batch already gave a card's page to ("Example Bob"): the same page.
                 card_page = card_creates[str(card["id"])]
@@ -574,7 +595,8 @@ async def resolve(
                 pending_actions.append((
                     _create_duplicate_clarification,
                     (),
-                    {"clarifier": clarifier, "entity": entity, "candidate": match["candidate"]},
+                    {"clarifier": clarifier, "entity": entity, "candidate": match["candidate"],
+                     **({"heard_in": match["heard_in"]} if match.get("heard_in") else {})},
                 ))
 
             taken = (should_promote and not ambiguous_match and card is None
@@ -785,6 +807,7 @@ def _resolve_correspondents(
     taken = {str(page.get("id")) for page in existing} | set(creates_by_id) | {sanitize_id(ln.name) for ln in lines}
     pages: dict[tuple[str, str], str] = {}
     live: set[str] = set()
+    card_pids = contact_identity.card_pages(existing)
     for key, group in groups.items():
         ident = idents[key]
         best = group[0]
@@ -792,7 +815,10 @@ def _resolve_correspondents(
             if float(entity.get("confidence", 0) or 0) > float(best.get("confidence", 0) or 0):
                 best = entity
         siblings = [entity for entity in group if entity is not best]
-        page = correspondents.find_page(existing, ident)
+        # A texted person's address-book card names their page across every source (`contact_identity`), first.
+        card_pid = card_pids.get(contact_identity.card_of(best, siblings) or "")
+        page = next((p for p in existing if str(p.get("id")) == card_pid), None) if card_pid else None
+        page = page or correspondents.find_page(existing, ident)
         if page is not None:
             page_id = page["id"]
             for incoming in (best, *siblings):
@@ -992,6 +1018,16 @@ def _said_in_person_turn(memory_path: Path | None, episode_id: str, card: dict) 
         if any(f" {key} " in said for key in keys):
             return True
     return False
+
+
+def _card_match(card_id: str | None, card_page_ids: dict[str, str], existing_by_id: dict[str, dict],
+                owner_page_id: str | None) -> dict | None:
+    """The page a chat participant's address-book card already names (`contact_identity.card_pages`), as a "same"
+    decision — never the owner's page."""
+    pid = card_page_ids.get(card_id or "")
+    if not pid or pid == owner_page_id or pid not in existing_by_id:
+        return None
+    return {"decision": "same", "candidate": {"source": "existing", "id": pid, "data": existing_by_id[pid]}}
 
 
 def _card_for(entity: dict, siblings: list[dict], waiting: "contacts_local.WaitingIndex",
@@ -1772,6 +1808,7 @@ def _held_alias_questions(held_people: list[tuple[dict, list[dict]]], existing: 
             pages.setdefault(person_leads.handle_key(entity.get("name") or ""), []).append(
                 (pid, str(entity.get("name") or pid)))
     given_pages = _given_name_pages(existing, resolved_creates, owner_page_id)
+    full_pages = _full_name_pages(existing, resolved_creates, owner_page_id)
 
     from api.services import pending_store
 
@@ -1799,9 +1836,22 @@ def _held_alias_questions(held_people: list[tuple[dict, list[dict]]], existing: 
         hits = {hit for alias in aliases if person_leads.handle_key(alias) != key
                 for hit in pages.get(person_leads.handle_key(alias), [])}
         by_given = False
+        heard_in = None
         if not hits and key not in pages:
             hit = given_pages.get(_given_name(name) or "")
             hits, by_given = ({hit}, True) if hit is not None else (hits, False)
+        if not hits and key not in pages and len(_name_words(_bare(name))) == 1:
+            # One person across sources (owner 2026-10-28): a one-word name heard outside a chat ("Alice" in a
+            # harness session) whose word begins exactly one full-name person page heard in a chat is ASKED about,
+            # never joined — a shared first name is no proof (G209). Only across sources: two people in one place
+            # sharing a first name ask nothing here.
+            hit = full_pages.get(_name_words(_bare(name))[0])
+            if hit is not None:
+                born = resolved_creates.get(hit[0])
+                heard_in = _cross_source(memory_path, entity, hit[0], existing,
+                                         [str(e) for e in (born or {}).get("source_episodes") or [] if e]
+                                         if born is not None else None)
+                hits = {hit} if heard_in is not None else hits
         if len({pid for pid, _ in hits}) != 1:
             continue
         pid, page_name = next(iter(hits))
@@ -1812,7 +1862,9 @@ def _held_alias_questions(held_people: list[tuple[dict, list[dict]]], existing: 
                 continue
             room -= 1
         said = sorted(a for a in aliases if person_leads.handle_key(a) == person_leads.handle_key(page_name))
-        context = (f"A conversation named {name} in full; {page_name}'s page carries only the given name."
+        context = (f"{name} came up {heard_in['mention']}; {page_name} is someone {heard_in['page']}."
+                   if heard_in is not None else
+                   f"A conversation named {name} in full; {page_name}'s page carries only the given name."
                    if by_given else
                    f"A conversation also called {name} “{said[0] if said else page_name}”, "
                    f"the name {page_name}'s page carries.")
@@ -1824,8 +1876,104 @@ def _held_alias_questions(held_people: list[tuple[dict, list[dict]]], existing: 
             "suggested_confidence": float(entity.get("confidence", 0.0) or 0.0),
             "source_context": context,
             "source_episode_timestamp": entity.get("source_episode_timestamp"),
+            **({"heard_in": heard_in} if heard_in is not None else {}),
         }))
     return actions
+
+
+#: Where a mention was heard, as the question says it ("you talked to Claude about"); a chat is "in your group chat"
+#: or "in your messages". A source not listed is "in another conversation".
+HEARD_IN = {"claude-code": "you talked to Claude about", "claude-export": "you talked to Claude about",
+            "codex": "you talked to Codex about", "cursor": "you talked to Cursor about",
+            "gemini-cli": "you talked to Gemini about", "chatgpt-export": "you talked to ChatGPT about",
+            "gemini-export": "you talked to Gemini about",
+            # The origins those sources really write (#527 review): Apple Notes `apple-notes`, the Telegram bot's
+            # notes `telegram`, Calendar on this Mac `calendar-local` and a subscribed one `calendar`, Reminders
+            # `reminders-local`, a Notion export `notion-export`, Wispr Flow `wispr-flow`.
+            "apple-notes": "in your notes", "telegram": "in a note you sent yourself",
+            "calendar-local": "in your calendar", "calendar": "in your calendar",
+            "reminders-local": "in your reminders", "notion-export": "in your Notion pages",
+            "wispr-flow": "in something you dictated"}
+
+
+def _episode_record(memory_path, episode_id: str) -> dict:
+    from api.services import bank_index
+
+    if not memory_path or not str(episode_id or "").startswith("ep_"):
+        return {}
+    entry = bank_index.file(Path(memory_path), "episodes", f"{episode_id}.md")
+    return dict(entry.frontmatter or {}) if entry is not None else {}
+
+
+def _cross_source(memory_path, entity: dict, page_id: str, existing: list[dict],
+                  episodes: list[str] | None = None) -> dict | None:
+    """``{mention, page}`` — where a held one-word name was heard and where the page's person was — when the page is
+    a chat participant's (one of its conversations is a chat sitting, `contact_identity.chat_origins`) and the
+    mention was heard elsewhere; else ``None``. ``episodes`` are a page born in this batch's own (it is not on disk)."""
+    mention = _episode_record(memory_path, str(entity.get("source_episode") or ""))
+    origin = str(mention.get("origin") or entity.get("origin") or "")
+    chats_set = contact_identity.chat_origins()
+    if not origin or origin in chats_set:
+        return None
+    if episodes is None:
+        page = next((p for p in existing if str(p.get("id")) == page_id), None)
+        episodes = [str(e) for e in ((page or {}).get("frontmatter") or {}).get("source_episodes") or []]
+    chats = [rec for rec in (_episode_record(memory_path, e) for e in episodes[:50])
+             if str(rec.get("origin") or "") in chats_set]
+    if not chats:
+        return None
+    where = "in your group chat" if any(rec.get("group") for rec in chats) else "in your messages"
+    return {"mention": HEARD_IN.get(origin, "in another conversation"), "page": where}
+
+
+_TRAILING_NOTE = re.compile(r"\s*\([^()]*\)\s*$")
+
+
+def _bare(name: str) -> str:
+    """A name without the model's trailing note ("Alice (unnamed surname)" -> "Alice")."""
+    return _TRAILING_NOTE.sub("", str(name or "")).strip()
+
+
+def _first_name_across(memory_path, entity: dict, match: dict, existing: list[dict]) -> dict | None:
+    """``heard_in`` when a one-word person name heard outside a chat was matched to a full-name person page — on disk,
+    or born in this batch — that begins with that word and was heard in a chat (`_cross_source`); else ``None``."""
+    candidate = match.get("candidate") or {}
+    if not _is_person(entity) or candidate.get("source") not in ("existing", "created"):
+        return None
+    said = _name_words(_bare(str(entity.get("name") or "")))
+    data = candidate.get("data") or {}
+    if candidate["source"] == "existing":
+        title, episodes = person_leads.page_name(data) if data else "", None
+    else:
+        title = str((data.get("entity") or {}).get("name") or "")
+        episodes = [str(e) for e in data.get("source_episodes") or [data.get("source_episode")] if e]
+    words = _name_words(title)
+    if len(said) != 1 or not (2 <= len(words) <= 4) or words[0] != said[0]:
+        return None
+    return _cross_source(memory_path, entity, str(candidate.get("id") or ""), existing, episodes)
+
+
+def _full_name_pages(existing: list[dict], resolved_creates: dict[str, dict],
+                     owner_page_id: str | None) -> dict[str, tuple[str, str]]:
+    """Folded first word -> ``(page id, title)`` of the ONE person page whose name begins with it and has two to four
+    words, when no other person page's name begins with that word. The owner's page and a page titled by a relation
+    (`role_people`) never count."""
+    starts: dict[str, set[tuple[str, str]]] = {}
+    rows = [(str(page.get("id") or ""), page.get("frontmatter") or {}, person_leads.page_name(page))
+            for page in existing]
+    rows += [(pid, change.get("entity") or {}, str((change.get("entity") or {}).get("name") or pid))
+             for pid, change in resolved_creates.items()]
+    for pid, fm, title in rows:
+        if not pid or str(fm.get("type") or "").lower() != "person":
+            continue
+        if (pid == owner_page_id or fm.get("owner") or fm.get(role_people.UNNAMED_KEY)
+                or role_people.parse(title, bare=True)):
+            continue
+        words = _name_words(title)
+        if words:
+            starts.setdefault(words[0], set()).add((pid, title, len(words)))
+    return {word: (next(iter(hits))[0], next(iter(hits))[1]) for word, hits in starts.items()
+            if len(hits) == 1 and 2 <= next(iter(hits))[2] <= 4}
 
 
 def _name_words(name: str) -> list[str]:
@@ -2137,10 +2285,12 @@ def _create_duplicate_clarification(
     clarifier: ClarificationManager,
     entity: dict,
     candidate: dict,
+    heard_in: dict | None = None,
 ) -> None:
     candidate_name = _candidate_display_name(candidate)
     try:
         item = clarifier.create(
+            **({"heard_in": heard_in} if heard_in else {}),
             entity_name=entity.get("name", "unknown"),
             source_episode=entity.get("source_episode", ""),
             uncertainty_type=f"Possible duplicate of {candidate_name}",

@@ -63,7 +63,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from api.services import (agent_detectors, episode_ids, episode_staging, evidence, markdown_parser, turn_extras,
+from api.services import (agent_detectors, contact_identity, episode_ids, episode_staging, evidence, markdown_parser, turn_extras,
                           typedstream)
 from api.services.agent_detectors import Actor, ConversationMeta
 from api.services.episode_staging import EpisodeDraft, Turn
@@ -574,6 +574,7 @@ def members_of(settings: dict, conversation: dict, stored: list[dict] = ()) -> G
     two agents would share one marker, so then both stay ``speaker:``. Never a handle: a name that looks like a phone
     number or an address is dropped (`_clean_name`)."""
     names: dict[str, str] = {}
+    cards: dict[str, str | None] = {}
     agents: list[str] = []
     order: list[str] = []
     for p in stored:
@@ -581,6 +582,7 @@ def members_of(settings: dict, conversation: dict, stored: list[dict] = ()) -> G
         if key not in names:
             order.append(key)
         names[key] = _clean_name(p.get("name"))
+        cards[key] = contact_identity.clean_card_id(p.get("contact"))
     for raw in (conversation.get("members") or [])[:MAX_MEMBERS]:
         if not isinstance(raw, dict):
             continue
@@ -591,6 +593,10 @@ def members_of(settings: dict, conversation: dict, stored: list[dict] = ()) -> G
             order.append(key)
         name = _clean_name(raw.get("name"))
         names[key] = name or names.get(key, "")
+        # The ONE address-book card the app found for this member's handle (`contact_identity`), never the handle.
+        # Absent (None) keeps the stored card; "" says none or several cards hold the handle now, and clears it.
+        if raw.get("contact") is not None:
+            cards[key] = contact_identity.clean_card_id(raw.get("contact"))
         direct = str(raw.get("direct") or "")
         mark = (settings["conversations"].get(direct) or {}).get("actor") if CONVERSATION_ID_RE.match(direct) else None
         if isinstance(mark, dict) and mark.get("kind") == agent_detectors.AGENT:
@@ -603,7 +609,8 @@ def members_of(settings: dict, conversation: dict, stored: list[dict] = ()) -> G
         marker = "assistant" if key == agent else f"speaker:{_member_label(names[key], key, used)}"
         markers[key] = marker
         record.append({"key": key, "marker": marker, **({"name": names[key]} if names[key] else {}),
-                       "kind": agent_detectors.AGENT if key == agent else agent_detectors.PERSON})
+                       "kind": agent_detectors.AGENT if key == agent else agent_detectors.PERSON,
+                       **({"contact": cards[key]} if cards.get(key) and key != agent else {})})
     title = _clean_name(conversation.get("display_name")) or _clean_name(conversation.get("name"))
     return Group(name=title, markers=markers, record=record)
 
@@ -612,7 +619,7 @@ UNKNOWN_MEMBER = "speaker:member"
 
 
 def sitting_draft(cid: str, source_id: str, messages: list[Message], actor: Actor, service: str,
-                  group: Group | None = None) -> EpisodeDraft:
+                  group: Group | None = None, contact: str | None = None) -> EpisodeDraft:
     """One sitting's episode: a line per message said, and beside the words (`turn_extras`) each message's reactions,
     reply target, attachments and edit, and where an unsent message was. ``messages`` are in order; at least one was
     said. ``group``: each member's lines under their own marker, and who each marker is recorded beside the words."""
@@ -653,7 +660,9 @@ def sitting_draft(cid: str, source_id: str, messages: list[Message], actor: Acto
         record = {"group": True, "participants": who_is}
         title = f"Messages · {group.name} · {first[:10]}" if group.name else f"Messages · group · {first[:10]}"
     else:
-        record = {"correspondent": actor.to_dict()}
+        # A person's one address-book card, by id (`contact_identity`): their page across every source.
+        card = contact if actor.kind == agent_detectors.PERSON else None
+        record = {"correspondent": {**actor.to_dict(), **({"contact": card} if card else {})}}
         title = _title(actor, first)
     return EpisodeDraft(
         title=title, source_id=source_id, source_updated_at=last, timestamp=first,
@@ -861,7 +870,15 @@ def ingest(memory_path: Path, payload: dict, *, bank: str | None = None) -> dict
         if conversation.get("group"):
             known = [p for e in mine.values() for p in participants_of(e.fm)]
             group = members_of(settings, conversation, known)
-        drafts = [sitting_draft(cid, sid, msgs, actor, service, group) for sid, msgs in planned]
+        posted = conversation.get("contact") if not group else None
+        contact = contact_identity.clean_card_id(posted) if posted is not None else None
+        if posted is None and not group:
+            # A pass that names no card keeps the one the stored sittings recorded; "" (none or several cards now)
+            # clears it.
+            contact = next((contact_identity.clean_card_id((e.fm.get("correspondent") or {}).get("contact"))
+                            for e in mine.values() if isinstance(e.fm.get("correspondent"), dict)
+                            and (e.fm.get("correspondent") or {}).get("contact")), None)
+        drafts = [sitting_draft(cid, sid, msgs, actor, service, group, contact) for sid, msgs in planned]
         staged, recorded = _stage(drafts, episodes_dir, index, deleted=gone, bank=bank)
     return {"conversation": cid, "messages_seen": counts.seen, "kept": sum(1 for m in incoming if not m.unsent),
             "reactions": counts.reactions, "reactions_kept": counts.reactions_kept,
@@ -902,7 +919,8 @@ def reattribute(memory_path: Path, cid: str, *, bank: str | None = None) -> dict
             actor = agent_detectors.resolve_actor(name, entry.get("actor"), detection)
             ordered = sorted(sitting.messages, key=lambda m: (_instant(m.ts), m.order))
             drafts.append(sitting_draft(cid, sitting.source_id, ordered, actor,
-                                        str(e.fm.get("service") or entry.get("service") or "iMessage")))
+                                        str(e.fm.get("service") or entry.get("service") or "iMessage"),
+                                        contact=contact_identity.clean_card_id(stored_actor.get("contact"))))
         staged, recorded = _stage(drafts, episodes_dir, mine, bank=bank)
     return {"updated": staged.updated, "recorded": recorded, "skipped": staged.skipped - recorded,
             "paths": staged.paths}

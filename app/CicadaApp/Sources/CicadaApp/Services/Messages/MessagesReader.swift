@@ -211,7 +211,7 @@ struct MessagesReader: Sendable {
     /// One batch of a ticked conversation's rows past `cursor`, serialised as the sync request. `members` is a group's
     /// members as posted (participant key, the name the person sees, their own one-to-one chat's id) — never a handle.
     func read(_ conversation: MessagesConversation, name: String, members: [MessagesMemberPayload] = [],
-              since cursor: MessagesCursor) throws -> MessagesPass {
+              contact: String? = nil, since cursor: MessagesCursor) throws -> MessagesPass {
         let db = try open()
         defer { db.close() }
         var rows: [[String: Any]] = []
@@ -299,6 +299,7 @@ struct MessagesReader: Sendable {
                                    "service": conversation.service, "group": conversation.isGroup,
                                    "fromMe": conversation.fromMe, "fromThem": conversation.fromThem]
         if conversation.isGroup { conv["members"] = members.map(\.json) }
+        if !conversation.isGroup, let contact { conv["contact"] = contact }
         let body: [String: Any] = ["conversation": conv, "messages": messages]
         return MessagesPass(json: try JSONSerialization.data(withJSONObject: body), cursor: next,
                             count: messages.count, hasMore: rows.count == batchLimit)

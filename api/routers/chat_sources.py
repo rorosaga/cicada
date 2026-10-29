@@ -77,6 +77,8 @@ class ChatDescribeRequest(CamelModel):
 class WhatsAppMember(CamelModel):
     key: str = Field(min_length=16, max_length=64)
     name: str | None = Field(None, max_length=200)
+    #: The member's ONE address-book card, by its Contacts id — never a JID or a number (`contact_identity`).
+    contact: str | None = Field(None, max_length=200)
 
 
 class WhatsAppConversation(CamelModel):
@@ -84,6 +86,8 @@ class WhatsAppConversation(CamelModel):
     name: str | None = Field(None, max_length=200)
     group: bool = False
     members: list[WhatsAppMember] = Field(default_factory=list, max_length=chat_live.MAX_MEMBERS)
+    #: A one-to-one chat's other side: their ONE address-book card, by its Contacts id.
+    contact: str | None = Field(None, max_length=200)
 
 
 class WhatsAppMedia(CamelModel):

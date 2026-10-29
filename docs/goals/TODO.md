@@ -12,6 +12,11 @@
 
 ## Current state and evidence
 
+- **2026-10-29 — one person across sources (G209, G179; branch `feat/one-person-across-sources`, PR #527).** A
+  chat participant's ONE address-book card (by Contacts id, never a handle) rides on the sitting's records; Stage 2
+  joins the participant to that card's page before any name, a waiting card only once the usual rules promote. A
+  first name heard outside a chat is asked about in plain words, never joined. Read-only counts on a bank copy:
+  282 person pages; 33 already appear in 2+ kinds of source on one page; 13 likely splits across kinds of source (3 a one-word page beside a full-name page, 9 an alias that is another page's name, 1 a held one-word name), 2 of them involving a chat; 0 chat participants with a card today (the bank's one ticked chat is with an agent), so 0 faces gained on this bank until a person chat is ticked.
 - **2026-10-29 — Spotify is export-only (ruling 47's path table amended; G223, G32; branch `docs/spotify-export-only`).**
   Spotify's Developer Terms (v10) bar ingesting Spotify Content into an AI model (§IV.2(b)(i)) and storing or
   compiling it (§IV.3(a)), so the ToS rail rules out an API connector. The way in is the person's own Extended

@@ -561,6 +561,16 @@ class WaitingIndex:
                     found[str(card["id"])] = card
         return next(iter(found.values())) if len(found) == 1 else None
 
+    def by_id(self, card_id: str | None) -> dict | None:
+        """The waiting card with this id — a chat participant's own card, found by the id the app posted beside the
+        chat (`contact_identity`), never by a name. A one-part name never waits, so it is never here; nor the
+        person's own card."""
+        for cards in self.cards.values():
+            for card in cards:
+                if str(card.get("id")) == str(card_id or "") and card_live(card):
+                    return card
+        return None
+
 
 def waiting_index(memory_path: Path, *, bank: str | None = None) -> WaitingIndex:
     """The waiting cards of this bank, keyed for :meth:`WaitingIndex.match`. Empty on a demo bank (a demo never takes
