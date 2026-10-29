@@ -92,7 +92,7 @@ class PendingEntity:
     # G209 (2026-10-27): the existing page this name was held AGAINST — a page bears its name (and its slug) but Stage 2
     # did not decide it is that page. Its held claims are released onto that page only on Stage 2's own verdict.
     held_against: str = ""
-    # G227 (2026-10-29, #546 review): the person said THIS held mention is none of these pages ("None of these", or
+    # G227 (2026-10-29, #546 review): the person said THIS held mention is none of these pages ("Another one", or
     # "No, different") — ``{"pages": [ids], "episodes": [the conversations the line held when they answered]}``. Scoped
     # to the mention, never to the name: a later conversation naming one of those pages still joins it; only a re-read
     # of these conversations is kept apart, and the line's claims never follow the name onto one of these pages.
@@ -563,6 +563,20 @@ def mark_apart(memory_path: Path, name: str, pages: Iterable[str], episodes: Ite
                              "episodes": [*line.apart_episodes(), *line.episodes(), *episodes]})
         save(memory_path, entries)
         return True
+    return False
+
+
+def clear_apart(memory_path: Path, name: str, page: str) -> bool:
+    """The person joined the mention held under ``name`` to ``page`` after all: their earlier "apart" no longer holds
+    for that page (G227 — every join and split stays reversible). True when the store changed."""
+    key = (name or "").strip().lower()
+    entries = load(memory_path)
+    for line in entries:
+        if line.name.lower() == key and page in line.apart_pages():
+            line.apart = _apart({"pages": sorted(line.apart_pages() - {page}),
+                                 "episodes": sorted(line.apart_episodes())})
+            save(memory_path, entries)
+            return True
     return False
 
 

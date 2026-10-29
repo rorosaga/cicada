@@ -52,8 +52,9 @@ rides the inbox ETag's `extra`, so the client mapping (`VersionVector`'s `entiti
 and every client takes one 200. All additive: the stored `name` never changes. **Pick the page (owner 2026-10-29,
 `same_name_pick`):** a `merge_suggestion` with `sameTitle` is served with `question` ("Which <name> is this?") and
 `options` — one per candidate page still on disk (`key` `page:<id>`, `label` "<name> (<qualifier>)", additive
-`pageId`/`pageName`/`qualifier` on `InboxOption`) plus `none`; `POST /inbox/{id}/resolve` with `action: resolve` and
-one of those keys is a `merge` into that id or a `reject` against every candidate, any other key a 400.
+`pageId`/`pageName`/`qualifier` on `InboxOption`) plus `another` ("Another one"; `none` accepted as an alias).
+`POST /inbox/{id}/resolve` with `action: resolve` and one of those keys is a `merge` into that id. `another` keeps that
+held mention apart from every candidate on its own pending line (never a name-wide rejection). Any other key is a 400.
 `same_name_pick.SHAPE` rides the inbox ETag beside `same_name.SHAPE`.
 
 **The card's blocks and its ETag (vision item 5, 2026-10-28; `page_blocks`).** `GET /entities/{id}` carries

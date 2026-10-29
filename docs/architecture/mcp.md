@@ -119,7 +119,8 @@ one, and a shared page's text ends with a "Shown as: …" line naming the others
 member or any `_entity_id_for_name` lookup never resolves a shared name to one page unless it is a page's own id as
 written. The CLI and `/v1` run the same bodies; `cicada find` lists `displayName`. A same-title inbox question
 (owner 2026-10-29, pick the page) reaches every door with the options `GET /inbox` serves (`_agent_question`): the list
-and ask lines show "Which <name> is this?" and each page by name, qualifier and `option_key="page:<id>"`, plus `none`;
+and ask lines show "Which <name> is this?" and each page by name, qualifier and `option_key="page:<id>"`, plus
+"Another one" (`option_key="another"`, its own thing);
 catch-up mode lists them as its answers and records the pick with `cicada_resolve_inbox(id, option_key, quote)`.
 
 **Recall (G140).** Three legs fused by one RRF (`search_service.rrf_fuse`): the stored vectors, the

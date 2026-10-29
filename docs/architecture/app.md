@@ -196,7 +196,7 @@ releases its graph. Regression nets: `Tests/graph/graph-lifecycle.test.js` and
 (`InboxOption.pageName`/`qualifier`) draw the plain name with `QualifierTag` — DR-44's one `Tag` — beside it; the run
 card's pages are already `Tag`s, so a shared one reads "<name-a> · IDE" inside its own. Running text keeps
 "<name> (<qualifier>)" (`shownName`, `EntityNames`): a tooltip, VoiceOver, an inbox sentence, a dialog button. A
-same-title question's options are its pages plus "None of these"; the card is the `.options` variant and the catch-up
+same-title question's options are its pages plus "Another one"; the card is the `.options` variant and the catch-up
 answers with the option's key (`CatchupAnswers.bare`). A bare `[[<name>]]` that
 two or more pages answer to opens the system's own choice dialog ("Which <name>?", one button per page by its qualified
 name; DR-40's buttons are AppKit's own there, no new visual pattern) — a link never picks one (`MarkdownBody.entityIDs`).

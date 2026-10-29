@@ -1182,16 +1182,19 @@ for the haiku replay.
 question for the mention — never one per pair: `ClarificationManager.create` finds an open question about the same
 mention through any of its `same_title` pages before writing a second, and stores "Which <name> is this?". The question
 is served (`same_name_pick`, at read — the labels carry derived qualifiers) with one option per candidate page still on
-disk (`page:<id>`, labelled "<name> (<qualifier>)", plus `pageId`/`pageName`/`qualifier`) and `none` ("None of these").
-`page:<id>` is the inbox's own `merge` into that id (the held mention's claims land there, G209); `none` is a `reject`
-recorded against EVERY candidate (`merge_rejections`). Stage 2 then never joins the name to, judges it against or asks
-about a rejected page (`_find_direct_candidate_match` and `_same_title_match` drop them), and the mention, once over the
-promotion bar, gets a page of its own: **the same clean title and a distinct id** (`_another_id`: `<slug>-2`, `-3` …;
-no stored "(another)" — the qualifier tells the pages apart). A page whose own id the title spells keeps the name's key
-in `existing_by_name`, so a join on the name never moves to the newer page by listing order. A key that is not one of
-the question's pages is a 400, nothing written. Known limit (Needs the owner on the PR): a rejection is keyed on the
-mention's slug, which is also the first page's id, so after "none of these" a later mention of that page by its bare
-name is not joined to it either — the same rule a "No, different" has always had.
+disk (`page:<id>`, labelled "<name> (<qualifier>)", plus `pageId`/`pageName`/`qualifier`) and `another` ("Another one" — owner on #546: "none should probably just mean another one"; the key `none` it first had is still accepted).
+`page:<id>` is the inbox's own `merge` into that id (the held mention's claims land there, G209, and the answer lifts
+any earlier "apart" for that page). `another` means **this mention is its own thing with the name**. It is recorded on
+the mention's own pending line with the conversations it holds (`pending_store.mark_apart`, `apart`), **never as a
+name→page rejection**. The mention's slug is usually a candidate's own id, so a name-keyed pair kept every later
+mention of that page from joining it (#546 review). The same holds for "No, different" and dismiss on any question
+about a held mention (`inbox_service._keep_apart`); a page-pair question keeps `merge_rejections`. A join on the name itself drops the `apart` pages only on a re-read of those conversations (`_apart_here`), so a new conversation naming one of those pages still joins it. The judge, a lead and a question honour the line's verdict whatever the conversation (`_said_different`, `ClarificationManager.create`), so that mention is never weighed against, or asked about, them again. The line's claims never follow the
+name onto an `apart` page (`pending_store.ready`). Once the unchanged promotion bar is met and a later mention is not
+one of those pages, the line gets a page of its own: **the same clean title and a distinct id** (`_another_id`:
+`<slug>-2`, `-3` …; no stored "(another)" — the qualifier tells the pages apart). The record dies with the line, so a
+later merge has nothing to lift. A page whose own id the title spells keeps the name's key in `existing_by_name`, so
+a join on the name never moves to the newer page by listing order. A key that is not one of the question's pages is a
+400, nothing written. `_merge_rejected.yaml` pairs written by an older "No, different" stay as they were.
 
 **Sentences about a different same-named thing (G227, `same_name_split`).** A repair *plan*, never applied by Cicada on
 its own: for every page in a same-name group that is not a saved link (and any page id the caller names), the page's

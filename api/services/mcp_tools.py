@@ -4963,12 +4963,12 @@ def _format_inbox_blurb(
         )
     if kind == "merge_suggestion" and fm.get("same_title"):
         # G227 (owner 2026-10-29): a mention said as a title pages share is asked WHICH page it is — each page by its
-        # name, qualifier and id, plus "none of these"; the answer is the option's key.
+        # name, qualifier and id, plus "Another one" (its own thing); the answer is the option's key.
         ids = [str(p) for p in fm.get("same_title") or [] if isinstance(p, str)]
         pages = ", ".join(f"`{p}`" for p in ids)
         return (f"- **{ename}** — {fm.get('title') or f'Which {ename} is this?'} ({len(ids)} page"
                 f"{'s' if len(ids) != 1 else ''} called {ename}: {pages}; answer with option_key=\"page:<id>\" "
-                f"or \"none\")")
+                f"or \"another\" when it is its own thing with that name)")
     if kind in ("clarification", "merge_suggestion"):
         utype = fm.get("uncertainty_type", "unknown")
         suggestion = fm.get("suggested_classification", "unknown")

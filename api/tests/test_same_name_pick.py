@@ -1,5 +1,6 @@
 """G227 follow-up (owner 2026-10-29): pick the page — a mention said as a title several pages share is asked ONE
-question, one option per page plus "none of these"; a pick merges the held mention into that page by id, "none"
+question, one option per page plus "Another one" (owner, #546 review: "none should probably just mean another
+one"); a pick merges the held mention into that page by id, "another"
 keeps it apart from every one so Sleep makes a page of its own (a clean title, a distinct id).
 
 Synthetic banks only (the `test_held_release` fixture: alex, alex-kim, alex-lee, mira-quell, plus a second "Alex",
@@ -43,14 +44,14 @@ def _served(bank, item_id="inbox-002"):
     return next(i for i in inbox_service.load_inbox(bank) if i.id == item_id)
 
 
-def test_the_question_is_served_with_one_option_per_page_and_none(picked_bank):
+def test_the_question_is_served_with_one_option_per_page_and_another(picked_bank):
     item = _served(picked_bank)
-    assert [o.key for o in item.options] == ["page:alex", "page:alex-2", "none"]
+    assert [o.key for o in item.options] == ["page:alex", "page:alex-2", "another"]
     assert [o.page_id for o in item.options[:2]] == ["alex", "alex-2"]
     assert all(o.page_name == "Alex" and o.qualifier for o in item.options[:2])
     assert item.options[0].qualifier != item.options[1].qualifier, "the qualifier tells them apart"
     assert item.options[0].label == f"Alex ({item.options[0].qualifier})", "the label keeps it in text for agents"
-    assert item.options[2].label == same_name_pick.NONE_LABEL
+    assert item.options[2].label == "Another one"
     assert item.question == "Which Alex is this?"
     assert item.spoken_question.startswith("Which Alex is this:")
 
@@ -69,8 +70,9 @@ def _line(bank):
     return next(e for e in pending_store.load(bank) if e.name == "Alex")
 
 
-def test_none_of_these_keeps_this_mention_apart_never_the_name(picked_bank):
-    _answer(picked_bank, "inbox-002", action="resolve", option_key="none")
+@pytest.mark.parametrize("key", ["another", "none"], ids=["another", "the-first-key-still-accepted"])
+def test_another_keeps_this_mention_apart_never_the_name(picked_bank, key):
+    _answer(picked_bank, "inbox-002", action="resolve", option_key=key)
     line = _line(picked_bank)
     assert line.apart_pages() == {"alex", "alex-2"} and EP1 in line.apart_episodes()
     # #546 review: no name→page pair — the mention's slug is the first page's own id, and such a pair kept every later
@@ -80,11 +82,11 @@ def test_none_of_these_keeps_this_mention_apart_never_the_name(picked_bank):
     assert _claims(picked_bank, "alex-2") == [] and _line_claims(picked_bank, "Alex"), "held for Sleep to place"
 
 
-def test_after_none_a_later_mention_of_an_existing_page_still_joins_it_and_the_held_claims_stay(picked_bank):
+def test_after_another_a_later_mention_of_an_existing_page_still_joins_it_and_the_held_claims_stay(picked_bank):
     from api.services import entity_resolver as er
     from api.services import pending_store
 
-    _answer(picked_bank, "inbox-002", action="resolve", option_key="none")
+    _answer(picked_bank, "inbox-002", action="resolve", option_key="another")
 
     class _Indexer:
         def pending_by_name(self, name):
@@ -105,6 +107,17 @@ def test_after_none_a_later_mention_of_an_existing_page_still_joins_it_and_the_h
     assert pending_store.ready(picked_bank, lambda _n, _s: "alex", decided=["alex"]) == []
 
 
+def test_a_later_join_lifts_the_apart_record_for_that_page(picked_bank):
+    """Every join and split stays reversible (owner): the person joining the mention to a page after all clears their
+    own "apart" for that page, and its held claims land there."""
+    from api.services import pending_store
+
+    _answer(picked_bank, "inbox-002", action="resolve", option_key="another")
+    assert pending_store.clear_apart(picked_bank, "Alex", "alex-2")
+    assert _line(picked_bank).apart_pages() == {"alex"}
+    assert not pending_store.clear_apart(picked_bank, "Alex", "alex-2"), "nothing left to lift"
+
+
 def test_a_key_that_is_not_one_of_its_pages_is_refused(picked_bank):
     for key in ("page:alex-kim", "page:nowhere", "same"):
         with pytest.raises(HTTPException) as err:
@@ -117,11 +130,11 @@ def test_the_catch_up_and_the_agent_doors_offer_the_same_keys(picked_bank):
     from api.services import catchup_chat, mcp_tools
 
     item = _served(picked_bank)
-    assert [k["key"] for k in catchup_chat.answer_keys(item)] == ["page:alex", "page:alex-2", "none"]
+    assert [k["key"] for k in catchup_chat.answer_keys(item)] == ["page:alex", "page:alex-2", "another"]
     fm = markdown_parser.parse(picked_bank / "inbox" / "inbox-002.md").frontmatter
     asked, _cause, _rec = mcp_tools._agent_question(picked_bank, fm, "2026-10-29")
     assert asked["question"] == "Which Alex is this?"
-    assert [o["key"] for o in asked["options"]] == ["page:alex", "page:alex-2", "none"]
+    assert [o["key"] for o in asked["options"]] == ["page:alex", "page:alex-2", "another"]
     assert "page:<id>" in mcp_tools._format_inbox_blurb(fm, "")
 
 

@@ -419,6 +419,10 @@ async def resolve(
             # G227 (#546 review): the pages the person said THIS mention is not — only on a re-read of the conversations
             # their answer covered (its pending line's `apart`), never for every later mention of the name.
             apart_here = _apart_here(indexer, name, episode_mentions.get(name_lower, set()))
+            # …and for the judge, a lead or a question, the held line's own verdict whatever the conversation: that
+            # mention is never weighed against, or asked about, a page the person said it is not. A join on the name
+            # itself is never suppressed by it (only `apart_here` above, on a re-read).
+            line_apart = _apart_here(indexer, name, None)
             if match is None:
                 match = _find_direct_candidate_match(
                     new_entity=entity,
@@ -432,7 +436,7 @@ async def resolve(
                 # G227: a title the name alone may not join (two pages share it, or none is of the mention's kind).
                 match = await _same_title_match(entity, same_title, llm_match_cache, settings,
                                                 gate=lookahead.gate if lookahead is not None else None,
-                                                stop=cancel_check, rejected=apart_here)
+                                                stop=cancel_check, rejected=line_apart)
                 if match is not None and match["decision"] == "different":
                     match = None
             if match is None:
@@ -450,7 +454,7 @@ async def resolve(
                     connections=connections.get(name_lower, ""),
                     prejudged=await lookahead.take(done_names) if lookahead is not None else None,
                     gate=lookahead.gate if lookahead is not None else None,
-                    rejected=rejected_pairs | apart_here,
+                    rejected=rejected_pairs | line_apart,
                     index=name_index,
                 )
                 # One person across sources (owner 2026-10-28): a one-word name heard outside a chat that the judge
@@ -628,7 +632,7 @@ async def resolve(
                 page = next((e for e in existing if str(e.get("id")) == sanitize_id(name)), None)
                 apart_line = page is not None and pending_entry is not None and page["id"] in pending_entry.apart_pages()
                 if page is not None and (apart_line or _said_different(settings.memory_path, name, page["id"])):
-                    # The person said it is someone else ("none of these", or "No, different"): a page of its own
+                    # The person said it is someone else ("Another one", or "No, different"): a page of its own
                     # beside the one with that name — the same clean title, a distinct id; the qualifier tells them
                     # apart on every surface (G227, owner 2026-10-29: no stored "(another)").
                     own_id = _another_id(name, existing_ids, resolved_creates)
@@ -1422,17 +1426,20 @@ def _rejected_pair(rejected, name: str, page_id: str) -> bool:
     return bool(rejected) and tuple(sorted((sanitize_id(name), str(page_id)))) in rejected
 
 
-def _apart_here(indexer, name: str, heard_now: set[str]) -> frozenset:
+def _apart_here(indexer, name: str, heard_now: set[str] | None) -> frozenset:
     """G227: ``(slug, page)`` pairs — in `_rejected_pair`'s shape — for the pages the person said the mention held under
-    ``name`` is not, ONLY when this read is one of the conversations that answer covered. A new conversation naming the
-    same thing is a new mention: it joins, is judged and is asked as any other."""
+    ``name`` is not. With ``heard_now``, ONLY when this read is one of the conversations that answer covered (what the
+    join on the name honours: a new conversation naming one of those pages still joins it); ``None`` is the line's
+    verdict whatever the conversation (what the judge, a lead and a question honour)."""
     if indexer is None:
         return frozenset()
     try:
         line = indexer.pending_by_name(name)
     except Exception:  # noqa: BLE001
         return frozenset()
-    if line is None or not line.apart_pages() or not (set(heard_now) & line.apart_episodes()):
+    if line is None or not line.apart_pages():
+        return frozenset()
+    if heard_now is not None and not (set(heard_now) & line.apart_episodes()):
         return frozenset()
     slug = sanitize_id(name)
     return frozenset(tuple(sorted((slug, p))) for p in line.apart_pages())
@@ -1443,7 +1450,14 @@ def _said_different(memory_path, name: str, page_id: str) -> bool:
     from api.services import merge_rejections
 
     try:
-        return merge_rejections.is_rejected(Path(memory_path), sanitize_id(name), page_id)
+        if merge_rejections.is_rejected(Path(memory_path), sanitize_id(name), page_id):
+            return True
+        # G227 (#546 review): the person's answer about the mention held under this name, kept on its own line.
+        from api.services import pending_store
+
+        key = (name or "").strip().lower()
+        return any(line.name.lower() == key and str(page_id) in line.apart_pages()
+                   for line in pending_store.load(Path(memory_path)))
     except Exception:
         return False
 

@@ -140,7 +140,7 @@ def _item_from_file(
             allow_other, allow_defer = synthesised["allow_other"], synthesised["allow_defer"]
         if not raw_options and same_name_pick.applies(fm):
             # G227 (owner 2026-10-29): a mention said as a title pages share is asked which page it is — one option
-            # per candidate plus "none of these", served at read (the labels carry derived qualifiers).
+            # per candidate plus "Another one", served at read (the labels carry derived qualifiers).
             def _lookup(pid: str) -> dict | None:
                 found = context.entity(pid)
                 return dict(found.frontmatter or {}) if found is not None else None
@@ -856,10 +856,10 @@ def _action_label(kind: str, request: InboxResolveRequest, options: list[dict]) 
         return action or "answer"
     # clarification / merge_suggestion
     if kind == "merge_suggestion" and key:
-        # G227: a same-title question's picked page is a merge, "none of these" a reject (`same_name_pick`).
+        # G227: a same-title question's picked page is a merge, "Another one" a reject (`same_name_pick`).
         if key.startswith(same_name_pick.PAGE_PREFIX):
             return "merge"
-        if key == same_name_pick.NONE_KEY:
+        if same_name_pick.is_another(key):
             return "reject"
     if key == "rather_not_say":
         return "rather_not_say"
@@ -1035,7 +1035,7 @@ def _normalize_pick_request(kind: str, fm: dict, request: InboxResolveRequest, m
     verb = same_name_pick.picked(fm, request.option_key, same_name_pick.bank_lookup(memory_path))
     if verb is None:
         raise HTTPException(400, f"Unknown optionKey {request.option_key!r} for this question: pick one of the pages "
-                                 f"it lists, or {same_name_pick.NONE_KEY!r}.")
+                                 f"it lists, or {same_name_pick.ANOTHER_KEY!r}.")
     if verb[0] == "merge":
         return request.model_copy(update={"action": "merge", "merge_target": verb[1], "merge_survivor": None})
     return request.model_copy(update={"action": "reject"})
@@ -2748,6 +2748,7 @@ def _release_answered(memory_path: Path, mention: str, target_id: str, settings,
 
     if not mention or not target_id:
         return []
+    pending_store.clear_apart(memory_path, mention, target_id)   # G227: the person's join lifts their own "apart"
     release = pending_store.answered(memory_path, mention, target_id, subject_page=subject_page)
     if release is None:
         return []
@@ -2758,7 +2759,7 @@ def _release_answered(memory_path: Path, mention: str, target_id: str, settings,
 
 
 def _keep_apart(settings, fm: dict, pages: list[str]) -> list[str] | None:
-    """G227 (#546 review): "None of these" / "No, different" / dismiss on a question about a mention Sleep HELD keeps
+    """G227 (#546 review): "Another one" / "No, different" / dismiss on a question about a mention Sleep HELD keeps
     THAT mention apart — on its pending line, with the conversations it holds (`pending_store.mark_apart`) — never as a
     name→page rejection. The mention's slug is often a page's own id (the page it was held against), so a name-keyed
     pair kept every later mention of that page from joining it. Returns the manifest lines, or ``None`` for a question
@@ -2811,8 +2812,7 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
             raise HTTPException(status_code=400, detail="reject needs a merge target (hint or mergeTarget)")
         from api.services import merge_rejections
 
-        none = ((request.option_key or "").strip() == same_name_pick.NONE_KEY
-                and same_name_pick.applies(parsed.frontmatter))
+        none = same_name_pick.is_another(request.option_key) and same_name_pick.applies(parsed.frontmatter)
         pages = same_name_pick.rejected_ids(parsed.frontmatter) if none else [other]
         if (kept := _keep_apart(settings, parsed.frontmatter, pages)) is not None:
             path.unlink()

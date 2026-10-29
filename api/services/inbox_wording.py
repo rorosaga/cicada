@@ -297,7 +297,7 @@ def _same_name(fm: dict, today: str, name: str, other_fm: dict | None, same: dic
     """G227: a mention said exactly as a page's title, or None when the names differ.
 
     Two or more pages with the name (owner 2026-10-29, "pick the page"): ONE question for the mention — "Which
-    <name-a> is this: the IDE or the program?" — answered by picking the page or "none of these" (the options
+    <name-a> is this: the IDE or the program?" — answered by picking the page or "Another one" (the options
     `same_name_pick` serves). One page: "Is this the <name-a> IDE?", its options that page or "another one"."""
     target = str(fm.get("merge_target_hint") or "")
     pages = list(titled)
@@ -308,7 +308,8 @@ def _same_name(fm: dict, today: str, name: str, other_fm: dict | None, same: dic
             question = _ask(f"Which {name} is this")
         when = _ago(fm.get("source_episode_timestamp") or fm.get("created_date"), today)
         said = f"You mentioned {name} {when}" if when else f"You mentioned {name}"
-        reason = f"{said}, and {len(pages)} things are called {name}; if it's none of them, say so and I'll keep it apart."
+        reason = (f"{said}, and {len(pages)} things are called {name}; if it's another one, say so and I'll keep it "
+                  "as its own.")
         return Spoken(question, reason)
     if not pages and other_fm and _fold(speakable(other_fm.get("name"), other_fm)) == _fold(name):
         pages = [{"id": target, "name": str(other_fm.get("name") or name), "type": str(other_fm.get("type") or ""),

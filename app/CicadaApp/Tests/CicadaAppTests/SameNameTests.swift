@@ -113,7 +113,7 @@ final class SameNameTests: XCTestCase {
                       "qualifier": "IDE"},
                      {"key": "page:alpha-program", "label": "Alpha (program)", "pageId": "alpha-program",
                       "pageName": "Alpha", "qualifier": "program"},
-                     {"key": "none", "label": "None of these"}]}
+                     {"key": "another", "label": "Another one"}]}
         """#.utf8))
         XCTAssertEqual(item.options.map(\.pageName), ["Alpha", "Alpha", nil])
         XCTAssertEqual(item.options.map(\.qualifier), ["IDE", "program", nil])

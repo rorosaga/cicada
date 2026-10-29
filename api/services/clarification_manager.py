@@ -95,6 +95,13 @@ class ClarificationManager:
                     entity_name, second,
                 )
                 return None
+            from api.services import pending_store
+
+            key = (entity_name or "").strip().lower()
+            if any(line.name.lower() == key and second in line.apart_pages()
+                   for line in pending_store.load(self.memory_path)):
+                # G227: the person already said the mention held under this name is another one — never asked again.
+                return None
         open_path = find_open(self.memory_path, kind, sanitize_id(entity_name), second)
         if open_path is None and is_duplicate and same_title and len(same_title) >= 2:
             # G227 (owner 2026-10-29): one question per mention, never one per pair — a mention already asked about

@@ -2,15 +2,19 @@
 
 Owner ruling: "a mention that could be any of several same-named pages asks one question with one option per
 candidate page plus 'none of these'; picking one merges the held mention into that page by id; 'none of these' lets
-Sleep make a new page." Stage 2 keeps the candidates on the question as ``same_title`` (ids, `clarification_manager`);
+Sleep make a new page." Then, on #546's review: "none should probably just mean another one, no?" — so the last option
+reads "Another one": this mention is its own thing with the same name. Stage 2 keeps the candidates on the question as ``same_title`` (ids, `clarification_manager`);
 this module turns them into the question's options **at read** — the labels carry each page's qualifier, which is
 derived and would go stale if stored — and turns a picked key back into the inbox's own verbs:
 
 - ``page:<id>`` → ``merge`` into that page (the merge branch of `inbox_service._resolve_clarification`, which already
   folds a held mention — G209 — into the page it is given);
-- ``none`` → ``reject`` against EVERY candidate (`merge_rejections`), so the next Sleep neither joins nor asks about
-  any of them, and the mention, once over the promotion bar, gets a page of its own (a clean title and a distinct
-  id — `entity_resolver._another_id`).
+- ``another`` → this held mention is its own thing: kept apart from EVERY candidate on its own pending line
+  (`pending_store.mark_apart`, scoped to the mention and its conversations — never a name→page rejection, so a later
+  mention of a candidate still joins it), never asked again, and once over the unchanged promotion bar it gets a page
+  of its own (a clean title, a distinct id — `entity_resolver._another_id` — and its qualifier tag). The record dies
+  with the line when that page is born, and an answer joining the mention to a page clears it for that page, so a
+  later merge or split has nothing to lift.
 
 A key for a page that is no longer a candidate (dropped, merged away) is refused, never guessed. Pure apart from the
 page lookups it is handed; engine-free.
@@ -23,10 +27,13 @@ from typing import Callable
 #: Bumped into `GET /inbox`'s ETag: same-title questions gained derived ``question``/``options`` (and options their
 #: additive ``pageId``/``pageName``/``qualifier``).
 SHAPE = "pick-1"
-NONE_KEY = "none"
+#: The key of "Another one". The PR first served ``none`` ("None of these"); it is still accepted (an agent or a
+#: client that read that wording), never served.
+ANOTHER_KEY = "another"
+ANOTHER_LABEL = "Another one"
+ANOTHER_ALIASES = frozenset({ANOTHER_KEY, "none"})
+NONE_KEY = ANOTHER_KEY   # the name the resolver and tests used
 PAGE_PREFIX = "page:"
-NONE_LABEL = "None of these"
-NONE_LABEL_ONE = "No, another one"
 
 Lookup = Callable[[str], "dict | None"]
 
@@ -88,8 +95,17 @@ def options(memory_path, fm: dict, lookup: Lookup | None = None) -> list[dict]:
         qualifier = shared.get(pid) or same_name.TYPE_WORDS.get(kind) or None
         out.append({"key": f"{PAGE_PREFIX}{pid}", "label": same_name.display(name, qualifier),
                     "page_id": pid, "page_name": name, "qualifier": qualifier})
-    out.append({"key": NONE_KEY, "label": NONE_LABEL if len(pages) > 1 else NONE_LABEL_ONE})
+    out.append({"key": ANOTHER_KEY, "label": another_label(fm, len(pages))})
     return out
+
+
+def another_label(fm: dict, count: int) -> str:
+    """"Another one" — this mention is its own thing with the name (the owner's final wording, 2026-10-29)."""
+    return ANOTHER_LABEL
+
+
+def is_another(key: str | None) -> bool:
+    return str(key or "").strip() in ANOTHER_ALIASES
 
 
 def question(fm: dict, count: int) -> str:
@@ -99,13 +115,13 @@ def question(fm: dict, count: int) -> str:
 
 
 def picked(fm: dict, key: str | None, lookup: Lookup) -> tuple[str, str] | None:
-    """A served key as the inbox's verb: ``("merge", <id>)``, ``("none", "")``, or None when the key is not one of
+    """A served key as the inbox's verb: ``("merge", <id>)``, ``("another", "")``, or None when the key is not one of
     this question's (the caller refuses it). A ``page:`` key must name a candidate still on disk."""
     key = str(key or "").strip()
     if not applies(fm) or not key:
         return None
-    if key == NONE_KEY:
-        return "none", ""
+    if key in ANOTHER_ALIASES:
+        return "another", ""
     if key.startswith(PAGE_PREFIX):
         pid = key[len(PAGE_PREFIX):]
         if any(pid == cid for cid, _ in candidates(fm, lookup)):
@@ -114,5 +130,5 @@ def picked(fm: dict, key: str | None, lookup: Lookup) -> tuple[str, str] | None:
 
 
 def rejected_ids(fm: dict) -> list[str]:
-    """Every page "none of these" keeps the mention apart from: all stored candidates (one gone since is harmless)."""
+    """Every page "Another one" keeps the mention apart from: all stored candidates (one gone since is harmless)."""
     return list(dict.fromkeys(_stored(fm)))
