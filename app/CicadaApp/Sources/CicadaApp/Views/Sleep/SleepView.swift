@@ -1123,6 +1123,9 @@ struct SleepView: View {
                 }
             }
 
+            // G132 phase 2 — the device that runs consolidation, every other device's lag, and moving it (shared only).
+            HomeStripView(model: sleepVM.homeStrip)
+
             // Everything under the room, one centred group in the 760 pt column (2026-10-16).
             SleepRoomColumn(page: page, status: status, answers: answers, room: room,
                             feedAsleep: feedIsAsleep(page.mood),

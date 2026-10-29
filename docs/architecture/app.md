@@ -1616,6 +1616,25 @@ agent reads (`agent_methods`), not an install.
   while connected, how (Local · Tailscale · SSH · Local network), *N waiting*. A click opens that machine's queue in
   Waiting (rows rebuilt from its own episodes; `GET /sleep/episodes` rows carry `device`, shape `episodes-3`). The
   engine line is UI-A's.
+- **Sleep's home strip (G132 phase 2, ruling 51a; owner 2026-10-29: "Sleep page on the app should show the selected
+  device running consolidation and you should be able to easily switch"):** under the machines strip, only while this
+  memory is shared with another device (`GET /sync/home` → `shared: true`; one computer that shares nothing sees
+  nothing new). `HomeStripView`, fed by `HomeStripModel` (owned by `SleepViewModel`, polled with the machines strip,
+  held in memory, never a Store domain; a failed poll keeps the last answer): one line naming the device that runs
+  consolidation — the home, which also keeps every change in order, one concept — "Sleep runs on <name> · this
+  computer · idle / consolidating, stage 2 of 5 / not answering"; then every other device as the machines strip draws a
+  machine (a dot, green while online; its name; "up to date", "N changes behind", "keeps no copy"), with an inline
+  *Make this the home* `TextButton` on a device that keeps a copy and can be reached. A pick asks once in the native
+  confirmation dialog (as Settings → Devices' revoke does): *Move to <name>*, with what moving does in words; that is the
+  hand-off (`POST /sync/home/move`, which a copy's backend forwards to the home). While it moves the strip asks again
+  every `CicadaTiming.homeMoveFollow` (2 s), at most `homeMoveFollowTries`, then falls back to the page's poll. A lost
+  home offers *Take over on this computer…*: it first asks how far behind this copy is (`GET /sync/home/take-over`) and
+  the confirmation shows that sentence before the person confirms (`POST /sync/home/take-over` with the number shown);
+  a home that still answers is a move instead, said in words. What the backend says in words — moving, what was set
+  aside after a take-over, a refusal's sentence — follows as plain `textSecondary` lines. Applies DR-37 (no card for a
+  line), DR-38, DR-40, DR-41, DR-59 and DR-81 (no fold; nothing drawn when there is nothing); no new pattern, no new
+  motion. Copy in `Copy+MemoryHome.swift` (provider-neutral: a
+  device is the name the person gave it). `HomeStripTests`.
 
 **Sources page — v3 (owner 2026-10-19; supersedes v2's tile grid, G124, DS-3c).** The owner: *"The Sources page needs
 an urgent redesign. It has these graphs and stuff, and it's not intuitive … in two clicks I click on something, then I

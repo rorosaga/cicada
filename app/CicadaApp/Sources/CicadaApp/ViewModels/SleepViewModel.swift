@@ -194,6 +194,8 @@ final class SleepViewModel {
     /// Fetched here so no file under Views/Sleep reaches `APIClient` itself (R-Z10, `RoomFeedTests`).
     private(set) var machines: [MachineStatus] = []
     private let fetchMachines: () async throws -> MachineStatusList
+    /// G132 phase 2 — the memory's home: who runs consolidation, and moving it (`HomeStripModel`).
+    let homeStrip: HomeStripModel
 
     init(
         store: Store,
@@ -244,8 +246,10 @@ final class SleepViewModel {
         },
         fetchConsolidated: @escaping (SleepConsolidatedKey, String?) async throws -> Conditional<SleepConsolidated> = {
             try await APIClient.shared.fetchSleepConsolidated($0, etag: $1)
-        }
+        },
+        homeStrip: HomeStripModel? = nil
     ) {
+        self.homeStrip = homeStrip ?? HomeStripModel()
         self.fetchConsolidated = fetchConsolidated
         self.fetchMachines = fetchMachines
         self.fetchEpisodes = fetchEpisodes
@@ -575,6 +579,7 @@ final class SleepViewModel {
     /// One poll of the machines strip; a failed poll keeps the last answer (never blank).
     func loadMachines() async {
         if let list = try? await fetchMachines() { machines = list.devices }
+        await homeStrip.load()
     }
 
     /// A run's detail, cached by id and freshness key: a second open under the same key is a dictionary hit; a
