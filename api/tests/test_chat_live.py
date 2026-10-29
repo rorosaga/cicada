@@ -266,6 +266,66 @@ def test_quoted_stanza_reads_field_five_and_nothing_else():
     assert whatsapp_source.quoted_stanza(base64.b64encode(b"\x2a\xff").decode()) is None
 
 
+# --- #502 review B3: a WhatsApp sitting through #499's group handling, #515's authorship and turn_signals ------------
+
+def _group_sitting(bank):
+    tick(bank, GROUP, group=True)
+    members = [{"key": MEMBER_A, "name": "Carol Example"}, {"key": MEMBER_B, "name": "Dave Example"}]
+    ingest(bank, [row("G1", T0, "I moved to alpha-city last spring.", member=MEMBER_A),
+                  row("G2", T0 + 30, "Nice.", member=MEMBER_B),
+                  row("G3", T0 + 60, "Lunch on Friday?", me=True),
+                  row("G4", T0 + 90, "Which neighbourhood?", me=True, metadata=quote_meta("G1"))],
+           cid=GROUP, group=True, members=members, name="Weekend crew")
+    (ep,) = episodes(bank).values()
+    return ep
+
+
+def test_a_group_members_words_are_never_the_persons(bank):
+    from api.services import authorship, entity_extractor, evidence
+
+    ep = _group_sitting(bank)
+    fm, body = ep.frontmatter, ep.body
+    assert authorship.of(fm) is None, "a texted chat is no saved item: its turn markers decide"
+    kinds = [t.role for t in evidence.turns(body, override=authorship.of(fm)) if t.marker is not None]
+    assert kinds[:2] == ["speaker", "speaker"] and kinds[2:] == ["user", "user"]
+    members = entity_extractor.group_members({"group": fm.get("group"), "participants": fm.get("participants")})
+    assert [m["marker"] for m in members] == ["speaker:carol-example", "speaker:dave-example"]
+    start = body.index("alpha-city")
+    carol = {"evidence": [{"kind": "speaker", "start": start, "end": start + 10}]}
+    assert entity_extractor._observer_for(carol, None, members, body, group=True) == "external:carol-example"
+    both = {"evidence": [{"kind": "speaker", "start": start, "end": start + 10},
+                         {"kind": "speaker", "start": body.index("Nice"), "end": body.index("Nice") + 4}]}
+    assert entity_extractor._observer_for(both, None, members, body, group=True) == entity_extractor.GROUP_OBSERVER
+    mine = {"evidence": [{"kind": "user", "start": body.index("Lunch"), "end": body.index("Lunch") + 5}]}
+    assert entity_extractor._observer_for(mine, None, members, body, group=True) is None
+    nobody = {"evidence": [{"kind": "speaker", "start": start, "end": start + 10}]}
+    assert entity_extractor._observer_for(nobody, None, [], body, group=True) == entity_extractor.GROUP_OBSERVER
+
+
+def test_a_quoted_reply_anchors_in_turn_signals(bank):
+    from api.services import turn_signals
+
+    ep = _group_sitting(bank)
+    found = turn_signals.signals(ep.frontmatter, ep.body)
+    replies = [s for s in found if s.kind == "reply"]
+    assert len(replies) == 1 and "alpha-city" in replies[0].line and "Which neighbourhood" in replies[0].line
+    assert replies[0].window is not None and ep.body[replies[0].window[0]:replies[0].window[1]].startswith("user:")
+
+
+def test_a_reply_into_an_earlier_sitting_resolves_through_the_key_index(bank):
+    from api.services import turn_signals
+
+    tick(bank, history=True)
+    ingest(bank, [row("E1", T0, "The launch is on the 3rd.")])
+    ingest(bank, [row("E2", T0 + 6 * 3600, "Still on?", me=True, metadata=quote_meta("E1"))])
+    eps = sorted(episodes(bank).values(), key=lambda p: p.frontmatter["sitting_first_at"])
+    later = eps[1]
+    assert turn_signals.needs_keys(later.frontmatter)
+    index = turn_signals.KeyIndex(bank_index.files(bank, "episodes"))
+    found = turn_signals.signals(later.frontmatter, later.body, lookup=index.lookup_for(later.frontmatter))
+    assert any(s.kind == "reply" and "The launch is on the 3rd." in s.line for s in found)
+
+
 def test_live_update_cost_p95(bank):
     """File change → episode, backend half: one new message into a chat that already holds 40 sittings."""
     tick(bank, history=True)
