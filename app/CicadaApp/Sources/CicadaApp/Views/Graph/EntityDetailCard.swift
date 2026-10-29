@@ -251,6 +251,11 @@ struct EntityDetailCard: View {
         .environment(\.evidenceDocIndex, EvidenceDocIndex.from(provenanceState.value))
         // Ruling 48 — a card open is one request (`GET /entities/{id}` with its blocks). `/provenance` names the agent on
         // every evidence chip and maps a history row to its conversation: the tabs that draw those read it when opened.
+        // Review of #517: a popover read before the page changed (a re-read after a write, Sleep, an agent's edit) is
+        // never shown for the new numbering.
+        .onChange(of: entity.blocks, initial: true) { _, blocks in
+            CitationDetailCache.shared.track(entity.id, blocks: blocks)
+        }
         .onChange(of: entity.id) { _, _ in
             provenanceAskedFor = nil
             provenanceState = .loading

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 
+import pytest
 from fastapi.testclient import TestClient
 
 from api import config, main
@@ -65,6 +66,20 @@ def test_the_popover_reads_the_located_words_lazily(tmp_path):
     assert other["evidenceKind"] == "reasoning" and other["span"] is None and other["lines"] == 2
     assert page_citations.detail(tmp_path, "alpha-place", 9, fm=parsed.frontmatter, body=parsed.body,
                                  claims=[]) is None
+
+
+def test_a_marker_from_before_a_renumbering_never_shows_another_source(tmp_path):
+    """Review of #517: the card drew `2` at 188 (paragraph 2); paragraph 1 was then edited, so 1 left and 2 became the
+    looked-up page. The old marker must not open that page's details."""
+    parsed = _page(tmp_path)
+    old = _block(tmp_path, parsed)
+    assert [188, 2] in old["markers"]
+    parsed = _page(tmp_path, body=cites.BODY.replace("It opens in December.", "It opened in May."))
+    with pytest.raises(page_citations.StaleMarker):
+        page_citations.detail(tmp_path, "alpha-place", 2, at=188, fm=parsed.frontmatter, body=parsed.body, claims=[])
+    with pytest.raises(page_citations.StaleMarker):
+        page_citations.detail(tmp_path, "alpha-place", 1, claim_id="c-gone", fm=parsed.frontmatter,
+                              body=parsed.body, claims=[])
 
 
 def test_a_page_whose_prose_cites_nothing_shows_its_beliefs_as_sentences(tmp_path):
@@ -138,6 +153,7 @@ def test_the_card_carries_the_markers_and_the_popover_is_its_own_read(tmp_path, 
     assert pop.status_code == 200 and pop.json()["evidenceKind"] == "user"
     assert cites.SAID in pop.json()["span"]["excerpt"]
     assert client.get("/entities/alpha-place/citations/7").status_code == 404
+    assert client.get("/entities/alpha-place/citations/3?at=1").status_code == 409, "no line ends there"
     assert client.get("/entities/nowhere/citations/1").status_code == 404
 
 
@@ -153,3 +169,10 @@ def test_an_agent_reads_the_same_citations(tmp_path, monkeypatch):
                                                            harness="unknown", connector_id="c1", raw_excerpts=False),
                                      "alpha-place", include=["citations"])
     assert "Studio plan" not in json.dumps(remote.data) and "Studio plan" not in str(remote)
+    # Review of #517: /v1 returns `data` as it is — no session id, episode id or chat partner's name without `sources`.
+    refs = remote.data["blocks"]["citations"]["refs"]
+    assert refs and all(r["conversationId"] is None and r["episodeId"] is None and r["correspondent"] is None
+                        for r in refs)
+    dumped = json.dumps(remote.data)
+    assert "verify-" not in dumped and "sess-a" not in dumped and "Bob Example" not in dumped
+    assert cites.EP_SAID not in dumped and cites.EP_OTHER not in dumped

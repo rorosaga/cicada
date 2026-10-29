@@ -284,11 +284,17 @@ def _best(rows: list) -> object | None:
     return min(rows, key=lambda ev: (_RANK.get(ev.kind, 9), 0 if ev.is_span() else 1), default=None)
 
 
+class StaleMarker(LookupError):
+    """The marker asked for (``at`` or ``claim``) no longer cites reference ``n``: the page was renumbered since the
+    card drew it. Never answered with ``n``'s current source, which that line may never have cited."""
+
+
 def detail(memory_path: Path, entity_id: str, n: int, *, at: int | None = None, claim_id: str | None = None,
            fm: dict, body: str, claims) -> dict | None:
     """One marker's popover: reference ``n`` as cited by the line ending at ``at`` (or by belief ``claim_id``; neither:
     its first citing line) — its kind and who and when, and the best evidence row's located words with the cited span
-    (one episode read). ``None`` when ``n`` is no reference of this page."""
+    (one episode read). ``None`` when ``n`` is no reference of this page; :class:`StaleMarker` when ``at`` or
+    ``claim_id`` names no current marker citing ``n``."""
     from api.services import provenance
 
     t = table(memory_path, entity_id, fm=fm, body=body, claims=claims)
@@ -303,6 +309,8 @@ def detail(memory_path: Path, entity_id: str, n: int, *, at: int | None = None, 
             if n in ns and (at is None or marker_at == at):
                 rows = by.get(n, [])
                 break
+    if (at is not None or claim_id is not None) and not rows:
+        raise StaleMarker(f"no current marker cites {n}")
     best = _best(rows)
     out = _ref_dict(ref)
     out.update({"evidenceKind": best.kind if best is not None else None, "status": None, "span": None,
@@ -324,11 +332,14 @@ OWN_WORDS = "(in the person's own words)"
 
 def for_caller(cites: dict | None, *, verbatim: bool) -> dict | None:
     """The block one agent call may carry: for a caller without ``sources`` (``verbatim=False``) a conversation's title
-    (often its first words) and a belief in the person's own sentence are masked. A copy."""
+    (often its first words) and a belief in the person's own sentence are masked, and no reference names a session,
+    an episode or a chat partner (`episode_actor.actor_for(ids=False)`'s rule) — `/v1` returns this data as it is. A
+    copy."""
     if not cites or verbatim:
         return cites
     out = dict(cites)
-    out["refs"] = [dict(r, title="(a conversation)") if r.get("kind") == "conversation" else dict(r)
+    out["refs"] = [dict(r, title="(a conversation)" if r.get("kind") == "conversation" else r.get("title"),
+                        conversationId=None, episodeId=None, correspondent=None)
                    for r in cites.get("refs") or []]
     out["beliefs"] = [dict(b, text=OWN_WORDS) if b.get("verbatim") else dict(b) for b in cites.get("beliefs") or []]
     return out

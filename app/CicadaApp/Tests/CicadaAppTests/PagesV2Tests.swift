@@ -58,6 +58,21 @@ final class PagesV2Tests: XCTestCase {
         XCTAssertNil(CiteKey(url: URL(string: "cicada://entity/alpha")!), "a wikilink is no marker")
     }
 
+    @MainActor
+    func testHeldPopoversAreForgottenWhenThePagesBlocksChange() throws {
+        let cache = CitationDetailCache()
+        let first = PageBlocks.Citations(markers: [.init(at: 132, refs: [1])], total: 1, conversations: 1)
+        var blocks = try JSONDecoder().decode(PageBlocks.self, from: Data(#"{"shape":"blocks-2","order":[]}"#.utf8))
+        blocks.citations = first
+        cache.track("alpha", blocks: blocks)
+        cache.held["alpha|1|132|"] = PageCitationDetail(n: 1, kind: "conversation")
+        cache.track("alpha", blocks: blocks)
+        XCTAssertNotNil(cache.held["alpha|1|132|"], "the same blocks keep what was read")
+        blocks.citations = PageBlocks.Citations(markers: [.init(at: 132, refs: [2])], total: 2, conversations: 2)
+        cache.track("alpha", blocks: blocks)
+        XCTAssertNil(cache.held["alpha|1|132|"], "a renumbered page never shows an old source")
+    }
+
     // MARK: Where to check (DR-79)
 
     private func source(_ state: String, checked: String? = nil, label: String? = nil, site: String? = "example.org",

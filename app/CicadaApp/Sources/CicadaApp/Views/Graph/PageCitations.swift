@@ -160,6 +160,8 @@ struct CitationPopover: View {
         case loading
         case loaded(PageCitationDetail)
         case failed
+        /// The page was renumbered since this marker was drawn (409): its line no longer cites this source.
+        case stale
     }
 
     var body: some View {
@@ -169,6 +171,9 @@ struct CitationPopover: View {
                 Text(Copy.Pages.readingSource).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
             case .failed:
                 Text(Copy.Pages.sourceUnavailable).font(CicadaTheme.metaFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+            case .stale:
+                Text(Copy.Pages.sourceMoved).font(CicadaTheme.metaFont)
                     .foregroundStyle(CicadaTheme.textTertiary)
             case .loaded(let detail):
                 loaded(detail)
@@ -242,18 +247,32 @@ struct CitationPopover: View {
             guard !Task.isCancelled else { return }
             CitationDetailCache.shared.held[cacheKey] = detail
             phase = .loaded(detail)
+        } catch APIError.httpError(409, _) {
+            if !Task.isCancelled { phase = .stale }
         } catch {
             if !Task.isCancelled { phase = .failed }
         }
     }
 }
 
-/// Popovers already read, by page and marker — in memory, a few hundred at most, dropped with the page's next open
-/// (the card calls `forget`) so a renumbered page never shows an old source. Not a Store domain.
+/// Popovers already read, by page and marker — in memory, a few hundred at most. A page's are dropped whenever its
+/// blocks change (`track`: a re-read after a write, an agent's edit, Sleep's push) as well as on its next open, so a
+/// renumbered page never shows an old source. Not a Store domain.
 @MainActor
 final class CitationDetailCache {
     static let shared = CitationDetailCache()
     var held: [String: PageCitationDetail] = [:]
+    /// The blocks each page's held popovers were read under.
+    private var under: [String: PageBlocks] = [:]
+
+    /// The card's page now has `blocks`: anything held from other blocks is forgotten.
+    func track(_ entityId: String, blocks: PageBlocks?) {
+        guard let blocks else { return }
+        if let previous = under[entityId], previous == blocks { return }
+        if under[entityId] != nil { forget(entityId) }
+        under[entityId] = blocks
+        if under.count > 64 { under = [entityId: blocks] }
+    }
 
     func forget(_ entityId: String) {
         held = held.filter { !$0.key.hasPrefix(entityId + "|") }

@@ -41,6 +41,7 @@ extension Copy {
         static func citeSpoken(_ n: Int) -> String { "Source \(n)" }
         static let readingSource = "Reading where this came from…"
         static let sourceUnavailable = "Couldn't read this source."
+        static let sourceMoved = "This line changed since the page was drawn. Its sources are being read again."
         static let showInConversation = "Show in conversation"
         static let fromConversation = "From this conversation"
         static let lookedUp = "Looked up"

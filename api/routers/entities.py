@@ -645,7 +645,11 @@ async def get_entity_citation(entity_id: str, n: int, at: int | None = None, cla
         return page_citations.detail(settings.memory_path, entity_id, n, at=at, claim_id=claim,
                                      fm=parsed.frontmatter, body=parsed.body or "", claims=claims)
 
-    found = await run_in_threadpool(read)
+    try:
+        found = await run_in_threadpool(read)
+    except page_citations.StaleMarker:
+        # The page was renumbered since the card drew this marker: never another source's details in its place.
+        raise HTTPException(409, f"That line no longer cites {n}; reopen the page") from None
     if found is None:
         raise HTTPException(404, f"No reference {n} on {entity_id}")
     return PageCitationDetail(**found)
