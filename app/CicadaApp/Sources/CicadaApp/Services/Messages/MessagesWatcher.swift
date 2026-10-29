@@ -55,6 +55,8 @@ final class MessagesWatcher {
     @ObservationIgnored private let makeWatch: FolderWatchFactory
     @ObservationIgnored private let bank: @MainActor () -> String
     @ObservationIgnored private let lookUpCards: @Sendable ([String]) async -> [String: MessagesContactCard]
+    /// Whether Contacts may be read (a test replaces it); never asks.
+    @ObservationIgnored var lookUpContactsAllowed: @Sendable () -> Bool = { MessagesContacts.allowed }
     /// nil when the key store could not be read — never taken as "shares no photo".
     @ObservationIgnored private let lookUpSharedPhotos: @Sendable ([String]) async -> [String: Data]?
     /// When each ticked chat's shared photo was last looked up (found or not): at most once per `sharedRecheck`, so a
@@ -167,8 +169,18 @@ final class MessagesWatcher {
             MessagesMemberPayload(key: MessagesReader.memberKey(conversationId: conversation.id, handle: handle),
                                   name: memberCards[handle]?.name ?? "",
                                   direct: conversations.first { !$0.isGroup && $0.handle == handle }?.id,
-                                  contact: memberCards[handle]?.id)
+                                  contact: Self.postedCard(memberCards[handle], looked: contactsLooked))
         }
+    }
+
+    /// Whether Contacts was read on this pass: only then can "no single card" be said (nil means "not looked").
+    var contactsLooked: Bool { lookUpContactsAllowed() }
+
+    /// What a pass posts as a handle's card: its id when exactly ONE card holds it; `""` when Contacts was read and
+    /// none or several cards hold it (the backend clears a stored card); nil when Contacts was not read (it keeps it).
+    static func postedCard(_ card: MessagesContactCard?, looked: Bool) -> String? {
+        if let id = card?.id { return id }
+        return looked ? "" : nil
     }
 
     /// The name a waiting conversation's bubble carries.
@@ -350,7 +362,7 @@ final class MessagesWatcher {
             let name = self.postedName(of: conversation)
             let members = self.memberPayloads(of: conversation)
             // A one-to-one chat's other side, by their one address-book card (never the handle).
-            let contact = conversation.isGroup ? nil : cards[conversation.id]?.id
+            let contact = conversation.isGroup ? nil : Self.postedCard(cards[conversation.id], looked: contactsLooked)
             for _ in 0..<20 {   // bounded catch-up: at most 20 batches per pass
                 let since = cursor
                 let pass = try await Task.detached(priority: .utility) {

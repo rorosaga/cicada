@@ -1885,9 +1885,15 @@ def _held_alias_questions(held_people: list[tuple[dict, list[dict]]], existing: 
 #: or "in your messages". A source not listed is "in another conversation".
 HEARD_IN = {"claude-code": "you talked to Claude about", "claude-export": "you talked to Claude about",
             "codex": "you talked to Codex about", "cursor": "you talked to Cursor about",
-            "chatgpt-export": "you talked to ChatGPT about", "gemini-cli": "you talked to Gemini about",
-            "apple-notes": "in your notes", "notes": "in your notes", "calendar": "in your calendar",
-            "calendar-local": "in your calendar"}
+            "gemini-cli": "you talked to Gemini about", "chatgpt-export": "you talked to ChatGPT about",
+            "gemini-export": "you talked to Gemini about",
+            # The origins those sources really write (#527 review): Apple Notes `apple-notes`, the Telegram bot's
+            # notes `telegram`, Calendar on this Mac `calendar-local` and a subscribed one `calendar`, Reminders
+            # `reminders-local`, a Notion export `notion-export`, Wispr Flow `wispr-flow`.
+            "apple-notes": "in your notes", "telegram": "in a note you sent yourself",
+            "calendar-local": "in your calendar", "calendar": "in your calendar",
+            "reminders-local": "in your reminders", "notion-export": "in your Notion pages",
+            "wispr-flow": "in something you dictated"}
 
 
 def _episode_record(memory_path, episode_id: str) -> dict:
@@ -1902,17 +1908,18 @@ def _episode_record(memory_path, episode_id: str) -> dict:
 def _cross_source(memory_path, entity: dict, page_id: str, existing: list[dict],
                   episodes: list[str] | None = None) -> dict | None:
     """``{mention, page}`` — where a held one-word name was heard and where the page's person was — when the page is
-    a chat participant's (one of its conversations is a chat sitting, `contact_identity.CHAT_ORIGINS`) and the
+    a chat participant's (one of its conversations is a chat sitting, `contact_identity.chat_origins`) and the
     mention was heard elsewhere; else ``None``. ``episodes`` are a page born in this batch's own (it is not on disk)."""
     mention = _episode_record(memory_path, str(entity.get("source_episode") or ""))
     origin = str(mention.get("origin") or entity.get("origin") or "")
-    if not origin or origin in contact_identity.CHAT_ORIGINS:
+    chats_set = contact_identity.chat_origins()
+    if not origin or origin in chats_set:
         return None
     if episodes is None:
         page = next((p for p in existing if str(p.get("id")) == page_id), None)
         episodes = [str(e) for e in ((page or {}).get("frontmatter") or {}).get("source_episodes") or []]
     chats = [rec for rec in (_episode_record(memory_path, e) for e in episodes[:50])
-             if str(rec.get("origin") or "") in contact_identity.CHAT_ORIGINS]
+             if str(rec.get("origin") or "") in chats_set]
     if not chats:
         return None
     where = "in your group chat" if any(rec.get("group") for rec in chats) else "in your messages"

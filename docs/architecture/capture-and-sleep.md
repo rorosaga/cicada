@@ -2021,7 +2021,10 @@ listed as an alias. Four gaps caused it, each closed:
   session, an export, a note, a calendar entry) that begins exactly one full-name person page heard in a chat —
   on disk or born this batch — is never joined on the first name: a judge's `same` or `unsure` becomes the question,
   and a held one asks after the loop (`_held_alias_questions`, `_full_name_pages`). The question records where each
-  side was heard (`heard_in: {mention, page}` — words, never ids), and the inbox says it in the owner's words:
+  side was heard (`heard_in: {mention, page}` — words, never ids; a chat is an origin in `chat_live.CHAT_ORIGINS`,
+  and the other side is worded by the origin its source really writes: a harness or chat export by its app,
+  `apple-notes` "in your notes", the Telegram bot's `telegram` "in a note you sent yourself", `calendar-local` /
+  `calendar`, `reminders-local`, `notion-export`, `wispr-flow`), and the inbox says it in the owner's words:
   "Is the <name> in your group chat the same <name> you talked to Claude about?" (`inbox_wording`). A model's trailing
   note on the name ("<name> (unnamed surname)") is ignored for this. Seen on haiku through the real doors
   (`/sources/messages/sync`, `/capture/turn`, Sleep, `GET /inbox`), synthetic chat and session, 2026-10-29.

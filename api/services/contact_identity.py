@@ -41,18 +41,24 @@ ID_CAP = 200
 #: A card id as Contacts writes it: an opaque identifier. Anything shaped like a phone number or an address is refused
 #: — a newer or buggier app can never make the bank keep a handle under this key.
 _EMAIL = re.compile(r"[^@\s]+@[^@\s]+")
-_PHONE = re.compile(r"^[\d\s()+\-.]{7,}$")
-_ID = re.compile(r"^[A-Za-z0-9:_\-./]+$")
-#: The chat sources whose sittings carry participants (`messages_source`; WhatsApp and Telegram to come).
-CHAT_ORIGINS = frozenset({"imessage", "whatsapp", "telegram"})
+#: A Contacts identifier: a UUID, optionally ``:ABPerson`` (macOS writes ``<UUID>:ABPerson``). Nothing else passes —
+#: not a ``tel:`` link, not digits with an ``x`` extension, not a short code.
+_ID = re.compile(r"^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}(:ABPerson)?$")
+
+
+def chat_origins() -> frozenset[str]:
+    """The texted-conversation origins — ONE list, `chat_live.CHAT_ORIGINS` (live Telegram chats are
+    ``telegram-chats``; plain ``telegram`` is the bot capture, the person's own notes, never a chat). Read lazily:
+    `chat_live` imports this module."""
+    from api.services import chat_live
+
+    return chat_live.CHAT_ORIGINS
 
 
 def clean_card_id(value) -> str | None:
     """A posted card id, or ``None``: never a phone number, never an address, never longer than the sync allows."""
     text = str(value or "").strip()
     if not text or len(text) > ID_CAP or _EMAIL.search(text) or not _ID.match(text):
-        return None
-    if _PHONE.match(text) and sum(c.isdigit() for c in text) >= 7:
         return None
     return text
 

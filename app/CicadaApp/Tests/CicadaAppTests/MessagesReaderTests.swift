@@ -119,6 +119,15 @@ final class MessagesReaderTests: XCTestCase {
         XCTAssertFalse(text.contains("5550000031") || text.contains("5550000032"), "a handle never crosses")
     }
 
+    func testACardIsPostedWhenOneHoldsTheHandleClearedWhenNoneOrSeveralAndKeptWhenNotLooked() {
+        let one = MessagesContactCard(name: "Robert Example", thumbnail: nil, id: "CARD-R")
+        let several = MessagesContactCard(name: "Robert Example", thumbnail: nil, id: nil)
+        XCTAssertEqual(MessagesWatcher.postedCard(one, looked: true), "CARD-R")
+        XCTAssertEqual(MessagesWatcher.postedCard(several, looked: true), "", "several cards: the backend clears it")
+        XCTAssertEqual(MessagesWatcher.postedCard(nil, looked: true), "", "no card: cleared")
+        XCTAssertNil(MessagesWatcher.postedCard(nil, looked: false), "Contacts not read: the stored card is kept")
+    }
+
     func testAGroupTitleIsItsNameElseItsMembers() {
         XCTAssertEqual(Copy.Messages.groupTitle([], count: 3), "Group of 4")
         XCTAssertEqual(Copy.Messages.groupTitle(["Alice Example", "Bob Example"], count: 2), "Alice Example, Bob Example")

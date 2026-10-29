@@ -18,6 +18,10 @@ from api.services import (bank_index, contact_identity, contacts_local, entity_r
 ONE = "1" * 24
 GROUP = "2" * 24
 A, B = "a1" * 8, "b2" * 8
+#: Synthetic Contacts identifiers, UUID-shaped as Contacts writes them.
+CARD_A, CARD_B, CARD_R = ("0000000a-0000-4000-8000-00000000000a", "0000000b-0000-4000-8000-00000000000b",
+                          "00000001-0000-4000-8000-000000000001")
+CARD_ME, CARD_X = "00000002-0000-4000-8000-000000000002", "00000003-0000-4000-8000-000000000003"
 
 
 def _settings(bank):
@@ -98,13 +102,13 @@ def _resolve(memory, extracted, pages=()):
 def test_a_texted_persons_card_rides_on_the_correspondent_record_and_stays(bank):
     messages_source.update_settings(bank, conversation={"id": ONE, "name": "Robert Example", "ticked": True,
                                                         "actor": {"kind": "person"}})
-    _sync(bank, ONE, [_row(1, 0, "lunch tomorrow?")], name="Robert Example", contact="ABCD-1234:ABPerson")
+    _sync(bank, ONE, [_row(1, 0, "lunch tomorrow?")], name="Robert Example", contact=CARD_R + ":ABPerson")
     (ep,) = _episodes(bank)
-    assert ep.frontmatter["correspondent"]["contact"] == "ABCD-1234:ABPerson"
+    assert ep.frontmatter["correspondent"]["contact"] == CARD_R + ":ABPerson"
     # A later pass that names no card keeps the one recorded.
     _sync(bank, ONE, [_row(2, 5, "sure")], name="Robert Example")
     (ep,) = _episodes(bank)
-    assert ep.frontmatter["correspondent"]["contact"] == "ABCD-1234:ABPerson"
+    assert ep.frontmatter["correspondent"]["contact"] == CARD_R + ":ABPerson"
 
 
 def test_the_chats_shared_photo_lands_on_the_cards_page(bank):
@@ -114,9 +118,9 @@ def test_the_chats_shared_photo_lands_on_the_cards_page(bank):
 
     messages_source.update_settings(bank, conversation={"id": ONE, "name": "Rob", "ticked": True,
                                                         "actor": {"kind": "person"}})
-    _sync(bank, ONE, [_row(1, 0, "lunch?")], name="Rob", contact="CARD-R")
+    _sync(bank, ONE, [_row(1, 0, "lunch?")], name="Rob", contact=CARD_R)
     _page(bank, "rob", "Rob")                                     # a same-name page of someone else
-    _page(bank, "robert-example", "Robert Example", card="CARD-R")
+    _page(bank, "robert-example", "Robert Example", card=CARD_R)
     messages_photos.store(bank, [{"conversation": ONE, "photo_b64": b64(png())}])
     assert set(messages_photos.links(bank)) == {"robert-example"}
 
@@ -138,20 +142,76 @@ def test_whatsapp_keeps_the_same_cards_on_the_same_records(tmp_path):
     chat_live.update_settings(memory, SPEC, {"id": CHAT, "actor": {"kind": "person"}})
     tick(memory, GROUP, group=True)
     wa_ingest(memory, [row("S1", 1_790_000_000, "hi")], cid=CHAT,
-              members=[{"key": MEMBER_A, "name": "Bob Example", "contact": "CARD-B"}])
+              members=[{"key": MEMBER_A, "name": "Bob Example", "contact": CARD_B}])
     wa_ingest(memory, [row("S2", 1_790_000_100, "hello all", member=MEMBER_A)], cid=GROUP, group=True,
-              members=[{"key": MEMBER_A, "name": "Alice Example", "contact": "CARD-A"},
+              members=[{"key": MEMBER_A, "name": "Alice Example", "contact": CARD_A},
                        {"key": "c" * 24, "name": "Carol Example", "contact": "+1 555 000 0009"}])
     fms = [markdown_parser.parse(p).frontmatter for p in sorted((memory / "episodes").glob("*.md"))]
     one = next(f for f in fms if not f.get("group"))
     grp = next(f for f in fms if f.get("group"))
-    assert one["correspondent"].get("contact") == "CARD-B"
+    assert one["correspondent"].get("contact") == CARD_B
     by_key = {p["key"]: p for p in grp["participants"]}
-    assert by_key[MEMBER_A]["contact"] == "CARD-A"
+    assert by_key[MEMBER_A]["contact"] == CARD_A
     assert "555" not in str(grp)                                    # a number posted as a card is refused
+    # A later pass whose member arrives as `"contact": None` (the route's model_dump) keeps the card (#527 B2).
+    wa_ingest(memory, [row("S3", 1_790_000_200, "still here", member=MEMBER_A)], cid=GROUP, group=True,
+              members=[{"key": MEMBER_A, "name": "Alice Example", "contact": None}])
+    wa_ingest(memory, [row("S4", 1_790_000_300, "and me")], cid=CHAT,
+              members=[{"key": MEMBER_A, "name": "Bob Example", "contact": None}])
+    fms = [markdown_parser.parse(p).frontmatter for p in sorted((memory / "episodes").glob("*.md"))]
+    grp = next(f for f in fms if f.get("group"))
+    one = next(f for f in fms if not f.get("group"))
+    assert {p["key"]: p for p in grp["participants"]}[MEMBER_A]["contact"] == CARD_A
+    assert one["correspondent"].get("contact") == CARD_B
 
 
-@pytest.mark.parametrize("raw", ["+1 555 000 0001", "bob@example.com", "x" * 201, "a b"])
+def test_a_group_members_card_survives_a_later_sync_that_names_none(bank):
+    """#527 review B2: the route's model_dump sends ``"contact": None`` for a member posted without one."""
+    messages_source.update_settings(bank, conversation={"id": GROUP, "ticked": True})
+    _sync(bank, GROUP, [_row(1, 0, "hi", sender=A)], group=True,
+          members=[{"key": A, "name": "Alice Example", "contact": CARD_A}])
+    _sync(bank, GROUP, [_row(2, 1, "again", sender=A)], group=True, members=[{"key": A, "name": "Alice Example"}])
+    (ep,) = _episodes(bank)
+    assert {p["key"]: p for p in ep.frontmatter["participants"]}[A]["contact"] == CARD_A
+    # "" says Contacts now finds none or several cards for the handle: the card is cleared.
+    _sync(bank, GROUP, [_row(3, 2, "and again", sender=A)], group=True,
+          members=[{"key": A, "name": "Alice Example", "contact": ""}])
+    (ep,) = _episodes(bank)
+    assert "contact" not in {p["key"]: p for p in ep.frontmatter["participants"]}[A]
+
+
+def test_a_one_to_one_card_is_cleared_when_contacts_finds_several(bank):
+    messages_source.update_settings(bank, conversation={"id": ONE, "name": "Robert Example", "ticked": True,
+                                                        "actor": {"kind": "person"}})
+    _sync(bank, ONE, [_row(1, 0, "lunch?")], name="Robert Example", contact=CARD_R)
+    _sync(bank, ONE, [_row(2, 1, "sure")], name="Robert Example", contact="")
+    (ep,) = _episodes(bank)
+    assert "contact" not in ep.frontmatter["correspondent"]
+
+
+def test_the_chat_origins_are_chat_lives_one_list(bank):
+    """#527 review B1: a live Telegram chat (`telegram-chats`) is a chat; the Telegram bot's own notes (`telegram`)
+    are not."""
+    from api.services import chat_live
+
+    assert contact_identity.chat_origins() is chat_live.CHAT_ORIGINS
+    markdown_parser.write(bank / "episodes" / "ep_2026-09-05_001.md",
+                          {"id": "ep_2026-09-05_001", "origin": "telegram-chats", "source": "telegram-chats"},
+                          "speaker:alice-example: hi")
+    markdown_parser.write(bank / "episodes" / "ep_2026-09-07_001.md",
+                          {"id": "ep_2026-09-07_001", "origin": "telegram", "source": "telegram"},
+                          "ask Alice about the deposit")
+    bank_index.invalidate()
+    alice = _page(bank, "alice-example", "Alice Example", episodes=["ep_2026-09-05_001"])
+    heard = er._cross_source(bank, {"source_episode": "ep_2026-09-07_001"}, "alice-example", [alice])
+    assert heard == {"mention": "in a note you sent yourself", "page": "in your messages"}
+    # A bot note never makes a page a chat person's.
+    note_only = _page(bank, "alice-other", "Alice Other", episodes=["ep_2026-09-07_001"])
+    assert er._cross_source(bank, {"source_episode": "ep_2026-09-07_001"}, "alice-other", [note_only]) is None
+
+
+@pytest.mark.parametrize("raw", ["+1 555 000 0001", "bob@example.com", "x" * 201, "a b", "tel:+15550000001",
+                                 "5550000001x23", "ABC123", "CARD-A", "1234-5678"])
 def test_a_handle_is_never_kept_as_a_card(raw):
     assert contact_identity.clean_card_id(raw) is None
 
@@ -160,12 +220,12 @@ def test_each_group_member_keeps_their_own_card_and_an_agent_none(bank):
     direct = "e" * 24
     messages_source.update_settings(bank, conversation={"id": direct, "ticked": True, "actor": {"kind": "agent"}})
     messages_source.update_settings(bank, conversation={"id": GROUP, "ticked": True})
-    members = [{"key": A, "name": "Alice Example", "contact": "CARD-A"},
-               {"key": B, "name": "Helper Bot", "direct": direct, "contact": "CARD-B"}]
+    members = [{"key": A, "name": "Alice Example", "contact": CARD_A},
+               {"key": B, "name": "Helper Bot", "direct": direct, "contact": CARD_B}]
     _sync(bank, GROUP, [_row(1, 0, "hi", sender=A), _row(2, 1, "hello", sender=B)], group=True, members=members)
     (ep,) = _episodes(bank)
     by_key = {p["key"]: p for p in ep.frontmatter["participants"]}
-    assert by_key[A]["contact"] == "CARD-A"
+    assert by_key[A]["contact"] == CARD_A
     assert "contact" not in by_key[B] and by_key[B]["marker"] == "assistant"
 
 
@@ -174,9 +234,9 @@ def test_each_group_member_keeps_their_own_card_and_an_agent_none(bank):
 
 def test_stage_one_marks_only_a_person_naming_exactly_one_participant_with_a_card():
     episode = {"group": True, "participants": [
-        {"marker": "speaker:alice-example", "name": "Alice Example", "kind": "person", "contact": "CARD-A"},
+        {"marker": "speaker:alice-example", "name": "Alice Example", "kind": "person", "contact": CARD_A},
         {"marker": "speaker:bob-example", "name": "Bob Example", "kind": "person"},
-        {"marker": "assistant", "name": "Helper Bot", "kind": "agent", "contact": "CARD-X"}]}
+        {"marker": "assistant", "name": "Helper Bot", "kind": "agent", "contact": CARD_X}]}
     result = {"entities": [
         {"name": "Alice", "aliases": ["Alice Example"], "type": "person"},
         {"name": "Bob Example", "type": "person"},                       # no card
@@ -185,7 +245,7 @@ def test_stage_one_marks_only_a_person_naming_exactly_one_participant_with_a_car
         {"name": "Zed", "type": "person", contact_identity.MARK: "MODEL-SET"}]}   # the model may never set it
     assert contact_identity.mark(result, episode) == 1
     alice, bob, bot, project, zed = result["entities"]
-    assert alice[contact_identity.MARK] == "CARD-A"
+    assert alice[contact_identity.MARK] == CARD_A
     assert all(contact_identity.MARK not in e for e in (bob, bot, project, zed))
 
 
@@ -193,9 +253,9 @@ def test_stage_one_marks_only_a_person_naming_exactly_one_participant_with_a_car
 
 
 def test_a_participant_spelled_differently_lands_on_their_cards_page(bank):
-    robert = _page(bank, "robert-example", "Robert Example", card="CARD-R")
+    robert = _page(bank, "robert-example", "Robert Example", card=CARD_R)
     bobby = _page(bank, "bobby", "Bobby")                     # someone else, by name
-    out = _resolve(bank, _mention("Bobby", card="CARD-R"), [robert, bobby])
+    out = _resolve(bank, _mention("Bobby", card=CARD_R), [robert, bobby])
     assert out["name_to_id"]["bobby"] == "robert-example"
     assert [c["id"] for c in out["changes"] if c["action"] == "update"] == ["robert-example"]
 
@@ -203,8 +263,8 @@ def test_a_participant_spelled_differently_lands_on_their_cards_page(bank):
 def test_a_texted_correspondent_lands_on_their_cards_page_not_a_new_one(bank):
     from api.services import correspondents
 
-    robert = _page(bank, "robert-example", "Robert Example", card="CARD-R")
-    extracted = _mention("Rob", card="CARD-R", **{correspondents.MARK: {"name": "Rob", "kind": "person"}})
+    robert = _page(bank, "robert-example", "Robert Example", card=CARD_R)
+    extracted = _mention("Rob", card=CARD_R, **{correspondents.MARK: {"name": "Rob", "kind": "person"}})
     extracted[0][correspondents.MARK] = {"name": "Rob", "kind": "person"}
     out = _resolve(bank, extracted, [robert])
     assert out["name_to_id"].get("rob") == "robert-example"
@@ -212,22 +272,22 @@ def test_a_texted_correspondent_lands_on_their_cards_page_not_a_new_one(bank):
 
 
 def test_the_owners_card_never_takes_a_participant(bank):
-    owner = _page(bank, "pat-owner", "Pat Owner", card="CARD-ME", owner=True)
-    out = _resolve(bank, _mention("Pat", card="CARD-ME"), [owner])
+    owner = _page(bank, "pat-owner", "Pat Owner", card=CARD_ME, owner=True)
+    out = _resolve(bank, _mention("Pat", card=CARD_ME), [owner])
     assert out["name_to_id"].get("pat") != "pat-owner"
 
 
 def test_a_waiting_card_is_used_only_once_the_usual_rules_promote(bank):
-    contacts_local.save_waiting(bank.name, [{"id": "CARD-R", "given_name": "Robert", "family_name": "Example"}])
+    contacts_local.save_waiting(bank.name, [{"id": CARD_R, "given_name": "Robert", "family_name": "Example"}])
     # One sitting, nobody's own words: below the bar — the card is never a page by itself (owner 2026-10-20).
-    out = _resolve(bank, _mention("Bobby", card="CARD-R"))
+    out = _resolve(bank, _mention("Bobby", card=CARD_R))
     assert not [c for c in out["changes"] if c["action"] == "create"]
     # Two sittings: the rule passes, and the page is born under the card's name, the chat's name kept as an alias.
-    two = _mention("Bobby", card="CARD-R") + _mention("Bobby", card="CARD-R", episode="ep_2026-09-06_001")
+    two = _mention("Bobby", card=CARD_R) + _mention("Bobby", card=CARD_R, episode="ep_2026-09-06_001")
     out = _resolve(bank, two)
     (create,) = [c for c in out["changes"] if c["action"] == "create"]
     assert create["entity"]["name"] == "Robert Example" and "Bobby" in create["entity"]["aliases"]
-    assert create["contacts_card"]["id"] == "CARD-R"
+    assert create["contacts_card"]["id"] == CARD_R
 
 
 # --- a name-only mention elsewhere is asked about, never joined -----------------------------------------------------
@@ -318,6 +378,6 @@ def test_a_first_name_in_the_same_kind_of_place_asks_nothing_new(bank):
 def test_sleeps_episode_dict_carries_the_participants_cards(bank):
     messages_source.update_settings(bank, conversation={"id": GROUP, "ticked": True})
     _sync(bank, GROUP, [_row(1, 0, "hi", sender=A)], group=True,
-          members=[{"key": A, "name": "Alice Example", "contact": "CARD-A"}])
+          members=[{"key": A, "name": "Alice Example", "contact": CARD_A}])
     (episode,) = sleep_cycle._get_unprocessed_episodes(bank)
-    assert contact_identity.participants(episode) == {"alice example": "CARD-A"}
+    assert contact_identity.participants(episode) == {"alice example": CARD_A}

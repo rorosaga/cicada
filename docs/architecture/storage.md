@@ -1204,8 +1204,13 @@ Round 4 (C2–C4):
   `contact` (a one-to-one chat with a person) and each `participants` row's `contact` (a group member; never an agent
   member) — and a page the Contacts sync matched carries that card's `addressbook://<id>` sources. A card id names the
   one person page whose sources carry it (never the owner's page, never a card two pages carry). The id is the opaque
-  `CNContact` identifier the sync already stores; a value shaped like a phone number or an address is refused
-  (`clean_card_id`), so no handle ever lands in a bank. WhatsApp and Telegram readers fill the same two records.
+  `CNContact` identifier the sync already stores; only a UUID-shaped id passes (`<UUID>` or `<UUID>:ABPerson`) —
+  a phone number, an address, a `tel:` link, digits with an extension or a short code are refused (`clean_card_id`),
+  so no handle ever lands in a bank. A field the app leaves out (or sends as null) keeps the stored card; `""` — the
+  app read Contacts and none or several cards hold the handle now — clears it, for a one-to-one chat and a group
+  member alike. The live chat sources (`chat_live`: WhatsApp, Telegram) keep the same two records the same way; a
+  chat is a sitting whose origin is in `chat_live.CHAT_ORIGINS` (live Telegram chats are `telegram-chats`; plain
+  `telegram` is the bot's notes, never a chat).
 - `contacts_photo:` (G154, read by G146) — `{sha, ext}` on a `person` page Contacts matched (`ext` jpg|png, jpg when
   absent); the thumbnail itself is a cache at `$CICADA_HOME/pictures/<bank>/contacts/<id>.<ext>`, never in a bank.
   Written by the Contacts sync only (`contacts_local.photo_path`, the same path `entity_picture.contacts_path` reads).

@@ -594,7 +594,8 @@ def members_of(settings: dict, conversation: dict, stored: list[dict] = ()) -> G
         name = _clean_name(raw.get("name"))
         names[key] = name or names.get(key, "")
         # The ONE address-book card the app found for this member's handle (`contact_identity`), never the handle.
-        if "contact" in raw:
+        # Absent (None) keeps the stored card; "" says none or several cards hold the handle now, and clears it.
+        if raw.get("contact") is not None:
             cards[key] = contact_identity.clean_card_id(raw.get("contact"))
         direct = str(raw.get("direct") or "")
         mark = (settings["conversations"].get(direct) or {}).get("actor") if CONVERSATION_ID_RE.match(direct) else None
@@ -869,9 +870,11 @@ def ingest(memory_path: Path, payload: dict, *, bank: str | None = None) -> dict
         if conversation.get("group"):
             known = [p for e in mine.values() for p in participants_of(e.fm)]
             group = members_of(settings, conversation, known)
-        contact = contact_identity.clean_card_id(conversation.get("contact")) if not group else None
-        if contact is None and not group:
-            # A pass that names no card keeps the one the stored sittings recorded.
+        posted = conversation.get("contact") if not group else None
+        contact = contact_identity.clean_card_id(posted) if posted is not None else None
+        if posted is None and not group:
+            # A pass that names no card keeps the one the stored sittings recorded; "" (none or several cards now)
+            # clears it.
             contact = next((contact_identity.clean_card_id((e.fm.get("correspondent") or {}).get("contact"))
                             for e in mine.values() if isinstance(e.fm.get("correspondent"), dict)
                             and (e.fm.get("correspondent") or {}).get("contact")), None)
