@@ -309,6 +309,8 @@ def _fresh_inbox_build():
         episode_time._UNTIMED.clear()
         origin_stats._MEMO.clear()
         project_timeline._EPOCHS.clear()
+        project_timeline._ENTITY_EPOCHS.clear()
+        project_timeline._LISTS.clear()
         status_router._EPISODE_COUNTS.clear()
         mcp_tools._PAGE_CLAIMS.clear()
 

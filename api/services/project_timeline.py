@@ -249,6 +249,29 @@ def _episode_epoch(memory_path: Path, tz_name: str) -> _EpisodeEpoch:
         return epoch
 
 
+@dataclass
+class _EntityEpoch:
+    """The name index (``names``/``direct``) and every reference resolved through it (``resolved``, ``reverse``), keyed
+    on the entities folder's fingerprint alone: a page renamed, aliased, added or removed moves it and drops the lot."""
+    key: str
+    names: dict | None = None
+    direct: dict = field(default_factory=dict)
+    resolved: dict = field(default_factory=dict)
+    reverse: dict = field(default_factory=dict)
+
+
+_ENTITY_EPOCHS: dict[str, _EntityEpoch] = {}
+
+
+def _entity_epoch(memory_path: Path) -> _EntityEpoch:
+    key = bank_index.dir_fingerprint(Path(memory_path) / "entities")
+    with _EPOCH_LOCK:
+        epoch = _ENTITY_EPOCHS.get(str(memory_path))
+        if epoch is None or epoch.key != key:
+            epoch = _ENTITY_EPOCHS[str(memory_path)] = _EntityEpoch(key=key)
+        return epoch
+
+
 class _Bank:
     """One request's view: frontmatter from `bank_index` (cached across
     requests), bodies and claims parsed at most once per request, and the raw-scan
@@ -264,7 +287,12 @@ class _Bank:
         self._beliefs: dict[str, list[Claim]] = {}
         self._bodies: dict[str, str] = {}
         self._texts: dict[str, str | None] = {}
-        self._names: dict[str, str] | None = None
+        # A page's names and every reference resolved through them depend only on the pages' headers: they outlive
+        # the request while the entities folder holds (`_entity_epoch`, speed 2026-10-29 — the list rebuilt the name
+        # index of every page and re-resolved ~40k claim objects on every read of the owner's bank).
+        names_epoch = _entity_epoch(self.path)
+        self._names_epoch = names_epoch
+        self._names: dict[str, str] | None = names_epoch.names
         self._sessions: dict[str, list[str]] | None = None
         self._parents: tuple[dict[str, str], dict[str, list[str]]] | None = None
         self._citing: dict[str, list[str]] = {}
@@ -279,10 +307,10 @@ class _Bank:
         self._anchor_days: dict[int, str | None] = epoch.anchor_days
         self._held: list[Claim] = epoch.held
         self._ts_days: dict[str, str | None] = epoch.ts_days
-        self._resolved: dict[str, str | None] = {}
+        self._resolved: dict[str, str | None] = names_epoch.resolved
         self._stems: list[str] | None = None
-        self._direct: dict[str, str] = {}
-        self._reverse: dict[str, tuple[str | None, bool]] = {}
+        self._direct: dict[str, str] = names_epoch.direct
+        self._reverse: dict[str, tuple[str | None, bool]] = names_epoch.reverse
         self._ep_convs: dict[str, tuple[tuple[str, str]] | None] = epoch.ep_convs
         self._repo_sessions: list[tuple[str, frozenset[str], tuple[str, ...]]] | None = None
         self._grouped: dict[tuple[str, ...], list[str]] | None = None
@@ -409,6 +437,7 @@ class _Bank:
                 for k in keys:
                     idx.setdefault(k.strip().lower(), stem)
             self._names, self._direct = idx, direct
+            self._names_epoch.names, self._names_epoch.direct = idx, direct
         return self._names
 
     def reverse_target(self, ref) -> tuple[str | None, bool]:
@@ -1776,9 +1805,38 @@ def _followup_counts(bank: _Bank) -> Counter:
 
 def list_projects(memory_path: Path, *, tz_name: str | None, transcript_exists: Callable | None = None) -> ProjectsResponse:
     """:func:`_list_projects` under one listing per folder (speed 2026-10-29: its readers listed `entities/` and
-    `episodes/` three times a call)."""
+    `episodes/` three times a call), remembered while everything it reads holds (:func:`_list_inputs`). A partial
+    list (the word index still building) is never remembered, nor a list read with a caller's own transcript test."""
     with bank_index.shared_scans():
-        return _list_projects(memory_path, tz_name=tz_name, transcript_exists=transcript_exists)
+        key = _list_inputs(memory_path, tz_name) if transcript_exists is None else None
+        if key is not None:
+            with _EPOCH_LOCK:
+                hit = _LISTS.get(str(memory_path))
+            if hit is not None and hit[0] == key:
+                return hit[1].model_copy(deep=True)
+        out = _list_projects(memory_path, tz_name=tz_name, transcript_exists=transcript_exists)
+    if key is not None and not out.partial:
+        with _EPOCH_LOCK:
+            _LISTS[str(memory_path)] = (key, out.model_copy(deep=True))
+    return out
+
+
+#: bank -> (the list's inputs, the list). Process-local and disposable.
+_LISTS: dict[str, tuple[tuple, ProjectsResponse]] = {}
+
+
+def _list_inputs(memory_path: Path, tz_name: str | None) -> tuple:
+    """Everything the list reads, as stamps: the zone and the code's shape, every page with its claims ledgers, every
+    episode, the inbox (follow-ups), the provider groupings file, and the word index's files (the reverse layer:
+    ``search_index.claim_rows``). The `/projects` ETag's own components, plus the index and the ledgers."""
+    from api.services import graph_builder, inbox_inputs
+
+    mp = Path(memory_path)
+    return (tz_name or "UTC", PROJECT_SHAPE,
+            bank_index.dir_fingerprint(mp / "entities"), bank_index.ledger_fingerprint(mp / "entities"),
+            bank_index.dir_fingerprint(mp / "episodes"), graph_builder.inbox_stamp(mp),
+            inbox_inputs.file_stamp(mp / "project_groupings.yaml"),
+            *(inbox_inputs.file_stamp(mp / f"{search_index.DB_FILE}{suffix}") for suffix in ("", "-wal")))
 
 
 def _list_projects(memory_path: Path, *, tz_name: str | None, transcript_exists: Callable | None = None) -> ProjectsResponse:

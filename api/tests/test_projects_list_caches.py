@@ -222,6 +222,29 @@ def test_the_payload_cache_is_bounded_least_recently_used_first(monkeypatch):
     assert list(project_timeline._PAYLOAD_CLAIMS) == [js[2], js[0], js[3]]
 
 
+def test_the_remembered_list_is_a_fresh_read_and_each_input_moving_rebuilds_it(tmp_path, monkeypatch):
+    """Speed 2026-10-29: the list is remembered on the stamps of what it reads; a hit is the rebuild, and a page, an
+    episode, the inbox or the word index moving rebuilds it."""
+    bank = demo(tmp_path)
+    first = project_timeline.list_projects(bank, tz_name=TZ).model_dump()
+    built = []
+    real = project_timeline._list_projects
+    monkeypatch.setattr(project_timeline, "_list_projects", lambda *a, **k: built.append(1) or real(*a, **k))
+    assert project_timeline.list_projects(bank, tz_name=TZ).model_dump() == first and built == []
+    for path in (sorted((bank / "entities").glob("*.md"))[0], sorted((bank / "episodes").glob("*.md"))[0],
+                 *sorted((bank / "inbox").glob("*.md"))[:1], bank / search_index.DB_FILE):
+        if not path.exists():
+            continue
+        st = path.stat()
+        import os
+
+        os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000))
+        before = len(built)
+        project_timeline.list_projects(bank, tz_name=TZ)
+        assert len(built) == before + 1, path.name
+    assert project_timeline.list_projects(bank, tz_name="Asia/Tokyo") and len(built) >= 4, "a zone is its own key"
+
+
 def test_the_episode_epoch_answers_as_a_fresh_read_and_drops_when_an_episode_moves(tmp_path):
     """Speed 2026-10-29: a claim's anchor day and conversations outlive the request while the episodes folder and the
     zone hold. A read from the epoch is a fresh read's, and a re-dated episode starts a new epoch."""
