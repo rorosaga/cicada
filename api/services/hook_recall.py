@@ -91,6 +91,8 @@ TOPIC_TERMS = 16
 TOPIC_DF_CAP = 2_000
 #: A word held by more than this share of the bank's claims finds nothing (the person's own name, "project").
 TOPIC_COMMON_SHARE = 0.02
+#: …never fewer claims than this: in a small bank no word is common.
+TOPIC_COMMON_FLOOR = 5
 #: Rare subject words a claim must share with the message (its own words, its page's name, its predicate/object):
 #: every one when the message has two or three, :data:`TOPIC_FULL` of them when it has more — "fix the failing test in
 #: the parser" is not about a belief that holds "test" and "parser".
@@ -542,7 +544,7 @@ def _topic_weights(reader: "search_index.Reader", stems: list[str]) -> tuple[dic
     for s in stems:
         found = {int(r) for (r,) in reader.conn.execute(
             f"SELECT rowid FROM clm WHERE clm MATCH ? LIMIT {TOPIC_DF_CAP}", (f'{{title aliases keywords}} : "{s}"*',))}
-        if not found or len(found) > max(1.0, TOPIC_COMMON_SHARE * n):
+        if not found or len(found) >= TOPIC_DF_CAP or len(found) > max(TOPIC_COMMON_FLOOR, TOPIC_COMMON_SHARE * n):
             continue
         weights[s] = math.log((n + 1) / (len(found) + 0.5))
         rows[s] = found
