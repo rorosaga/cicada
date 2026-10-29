@@ -176,3 +176,26 @@ def test_an_agent_reads_the_same_citations(tmp_path, monkeypatch):
     dumped = json.dumps(remote.data)
     assert "verify-" not in dumped and "sess-a" not in dumped and "Bob Example" not in dumped
     assert cites.EP_SAID not in dumped and cites.EP_OTHER not in dumped
+
+
+def test_the_card_etag_moves_with_what_the_citations_read(tmp_path, monkeypatch):
+    """After #518 changed how ETag routes build their stamps: the card's ETag (`page_blocks.card_etag`) still covers
+    every input of the citations block — the page's lines and provenance, and a cited conversation, whose title is a
+    References line."""
+    from api.services import page_blocks
+
+    client, memory = _client(tmp_path, monkeypatch)
+    etag = client.get("/entities/alpha-place").headers["etag"]
+    assert client.get("/entities/alpha-place", headers={"If-None-Match": etag}).status_code == 304
+    fm, text = cites.EPISODES[cites.EP_SAID]
+    markdown_parser.write(memory / "episodes" / f"{cites.EP_SAID}.md", dict(fm, title="Studio plan, renamed"), text)
+    moved = client.get("/entities/alpha-place", headers={"If-None-Match": etag})
+    assert moved.status_code == 200
+    assert moved.json()["blocks"]["citations"]["refs"][0]["title"] == "Studio plan, renamed"
+    etag = moved.headers["etag"]
+    page = memory / "entities" / "alpha-place.md"
+    parsed = markdown_parser.parse(page)
+    markdown_parser.write(page, parsed.frontmatter, parsed.body.replace("It opens in December.", "It opened in May."))
+    edited = client.get("/entities/alpha-place", headers={"If-None-Match": etag})
+    assert edited.status_code == 200 and len(edited.json()["blocks"]["citations"]["markers"]) == 3
+    assert page_blocks.SHAPE == "blocks-2"
