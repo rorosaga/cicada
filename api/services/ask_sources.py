@@ -155,7 +155,7 @@ def _clip(text: str, at: int | None, limit: int) -> str:
 
 def _who(turn, fm: dict, owner_name: str | None) -> str:
     if turn.marker is None and authorship.agent_saved(fm):
-        # Ruling 50: an agent's saved note — its turns are `assistant` (`authorship.of`); the label Ask always gave it.
+        # Ruling 50: an agent's saved note (its turns are `assistant`), under the label Ask always gave it.
         return "an agent's saved note (not the person's own words)"
     if turn.role == "user":
         return f"{owner_name} (the person this memory belongs to)" if owner_name else "the person this memory belongs to"

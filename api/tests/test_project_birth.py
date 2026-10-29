@@ -157,7 +157,7 @@ def test_at_extraction_prefers_the_repository_and_falls_back_to_the_words():
 
 
 def _write_episode(memory, ep, ts, body, **fm):
-    markdown_parser.write(memory / "episodes" / f"{ep}.md", {"id": ep, "processed": True, "source": "mcp",
+    markdown_parser.write(memory / "episodes" / f"{ep}.md", {"id": ep, "processed": True, "source": "claude-code",
                                                               "timestamp": ts, **fm}, body)
 
 

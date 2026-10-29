@@ -212,7 +212,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   as are a harness session's or a chat export's assistant's (`external:<harness|app>`, 2026-10-27; relayed apps keep
   their own rail); an explanation is never written as the person's act, and a claim carries its episode's session.
   **Ruling 50 (owner, 2026-10-29):** so is a note an agent saved (`cicada_save_episode` by any door, `cicada save` from
-  an agent's shell) — `assistant` throughout, never a promotion exchange, its claims `external:<harness>` (`authorship`, `storage.md`).
+  an agent's shell) — `assistant` throughout, never a promotion exchange, its claims `external:<harness>`
+  (`authorship`, `storage.md`).
 
 ### Sleep
 

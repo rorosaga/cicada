@@ -67,7 +67,9 @@ def test_an_agent_save_is_known_by_its_door_never_by_a_line():
 
 def test_every_span_the_person_would_have_is_the_agents():
     ov = authorship.of(NOTE_FM)
-    kind = lambda quote, text=NOTE: evidence.verify(None, NOTE_ID, quote, text=text, kind_override=ov).kind  # noqa: E731
+    def kind(quote, text=NOTE):
+        return evidence.verify(None, NOTE_ID, quote, text=text, kind_override=ov).kind
+
     assert kind("The person registered for alpha-event") == "assistant"
     assert kind("alpha-event is in alpha-city") == "assistant"
     assert kind("I signed up for alpha-event") == "assistant"        # a `user:` line the agent wrote is still its own
