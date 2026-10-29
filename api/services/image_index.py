@@ -690,10 +690,11 @@ def search(memory_path, query: str, *, top_k: int = 8, embed_fn=None) -> list[di
 
 
 def calibrated(model: str | None) -> bool:
-    """Whether the lone-item cosine floors were measured on ``model`` (EmbeddingGemma 2, at any width)."""
+    """Whether the lone-item cosine floors were measured on ``model``: EmbeddingGemma 2 at its full 768 width only — a
+    cut-down width (``:256``) puts cosines on another scale (review of #529)."""
     from api.services import onnx_embedder
 
-    return bool(model) and str(model).split(":", 1)[0] == onnx_embedder.PREFERRED_BASE
+    return str(model or "") == onnx_embedder.PREFERRED_ID
 
 
 def status(memory_path) -> dict:
