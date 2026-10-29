@@ -15,7 +15,8 @@ from thefuzz import fuzz
 from api.config import Settings
 from api.services import (agent_engine, alias_policy, application_page, authorship, contact_identity, contacts_local, correspondents, engine_errors,
                           entity_body, entity_relations, entity_types, fact_policy, json_parse, owner_identity, people_directory, person_leads,
-                          project_birth, promotion, quiet_pages, role_people, section_provenance, text_fold)
+                          project_birth, promotion, quiet_pages, role_people, section_provenance, text_fold,
+                          wrong_aliases)
 from api.services.clarification_manager import (
     CONFIDENCE_THRESHOLD,
     ClarificationManager,
@@ -537,10 +538,19 @@ async def resolve(
                                                             gate=lookahead.gate if lookahead is not None else None)
                                 if verdict not in ("same", "unsure"):
                                     relation = entity_relations.relation_of(verdict)
-                                    if relation is not None and entity_relations.plausible(
-                                            relation, person_leads.page_name(family.by_id.get(lead.page) or {}),
-                                            person_leads.page_name(family.by_id.get(lead.holder) or {})):
+                                    b_name = person_leads.page_name(family.by_id.get(lead.page) or {})
+                                    a_name = person_leads.page_name(family.by_id.get(lead.holder) or {})
+                                    plausible = relation is not None and entity_relations.plausible(
+                                        relation, b_name, a_name)
+                                    if plausible:
                                         lead_relations.append(_lead_relation(lead, family, verdict, entity))
+                                    if lead.kind == "alias" and settings.memory_path is not None:
+                                        # The alias that made two things look like one is the cause: Cicada
+                                        # proposes removing it (`wrong_aliases`, the person applies or leaves it).
+                                        why = (entity_relations.phrase(relation, b_name, a_name) + "."
+                                               if plausible else f"{b_name} and {a_name} are different things.")
+                                        pending_actions.append((wrong_aliases.propose, (
+                                            settings.memory_path, lead.holder, b_name or lead.key, why), {}))
                                     continue
                             pending_actions.append((_create_lead_clarification, (),
                                                     {"clarifier": clarifier, "lead": lead, "index": family,

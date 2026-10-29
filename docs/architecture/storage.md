@@ -148,6 +148,15 @@ an edit through Sleep, in the frontmatter:
 - `aliases_removed: [{alias, by, on}]` (≤ 50) — like `sources_removed`: Sleep's alias merge (`page_edits.keep_aliases`) and a
   page merge (`page_edits.carry_marks`, which also carries both pages' corrections) never add a removed alias back; matched
   case-insensitively with accents kept. Adding the alias by an edit lifts the mark.
+- **An alias that names a different thing (2026-10-29, `wrong_aliases`, G209).** When the record holds two pages as two
+  things — a judge's related/different on their alias lead, a relation claim on either page (`entity_relations.known`),
+  the person's rejection, or a cited check that settled the pair — and one lists the other's name as an alias, Cicada
+  proposes removing it: one `page_edit` item (`origin: wrong_alias`, `proposed_by: cicada`, "Cicada suggests a change to
+  …"), applied or left by the person (G198); applying it goes through the ordinary apply path, so it lands in
+  `aliases_removed`. Leaving it writes `aliases_kept: [alias]` on the page in the same commit, and it is never proposed
+  again; nothing is proposed while one is open or once the alias is gone. Sleep's alias writer
+  (`conflict_resolver._new_aliases`) never adds, as a NEW alias, the name of a page the record holds apart from this one
+  (one `is_file`, then the two pages' claims and the rejection list only when that page exists).
 - `human_edited: true` — set when an edit rewrites the Summary or an Article section whole: the page is the editor's from
   then on, additive-only, as a person's edit of those halves already makes it. The record sections need no mark.
 

@@ -750,8 +750,9 @@ def preview(name: str, request: Request, reason: str) -> str:
 
 
 def write_proposal(memory_path: Path, *, entity_id: str, name: str, request: Request, reason: str, author: str,
-                   session: str | None, spans=None, day: str | None = None) -> str:
-    """One ``page_edit`` inbox item; returns its bank-relative path. Never replaces an item (``write_new``)."""
+                   session: str | None, spans=None, day: str | None = None, origin: str | None = None) -> str:
+    """One ``page_edit`` inbox item; returns its bank-relative path. Never replaces an item (``write_new``).
+    ``origin`` marks a proposal Cicada itself makes (``wrong_aliases.ORIGIN``): its question says so."""
     from api.services import inbox_service
 
     inbox_dir = Path(memory_path) / "inbox"
@@ -761,7 +762,8 @@ def write_proposal(memory_path: Path, *, entity_id: str, name: str, request: Req
         "kind": KIND, "required_input": "choice", "status": "pending", "priority": 0.5,
         "entity_id": entity_id, "entity_name": name, "title": f"Change {name}?",
         "created_date": day,
-        "question": f"An agent suggests a change to {name}: {reason}",
+        "question": (f"Cicada suggests a change to {name}: {reason}" if origin else
+                     f"An agent suggests a change to {name}: {reason}"),
         # Leave first is not a recommendation: Cicada proposes nothing here, the agent did.
         "options": [{"key": "apply", "label": "Apply the change"},
                     {"key": "dismiss", "label": "Leave the page as it is"}],
@@ -771,6 +773,9 @@ def write_proposal(memory_path: Path, *, entity_id: str, name: str, request: Req
     }
     if session:
         fm["session_id"] = session
+    if origin:
+        fm["origin"] = origin
+        fm["trigger"] = f"sleep/{origin}"
     rows = [ev.to_dict() if hasattr(ev, "to_dict") else dict(ev) for ev in spans or []]
     rows = [r for r in rows if r.get("kind") != "reasoning"]
     if rows:

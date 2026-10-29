@@ -38,7 +38,7 @@ from pathlib import Path
 from loguru import logger
 
 from api.services import (bank_index, episode_ids, episode_scrub, inbox_questions, markdown_parser, predicates,
-                          role_people, text_fold)
+                          role_people, text_fold, wrong_aliases)
 
 SOURCE = "web-check"
 SETTLED_DIR = "settled"
@@ -1176,16 +1176,23 @@ def settle_pair(
         "episode": episode_id, "held": False, "closed": [], "relation": relation, "pair": [c.entity_id, c.other_id],
         **({"engine": engine} if engine else {}),
     }
+    # The alias that made the two look like one (a page listing the other's name) is the cause: Cicada proposes
+    # removing it, for the person to apply or leave (`wrong_aliases`, G198). Taken back with the settle while waiting.
+    proposals = wrong_aliases.for_pair(memory_path, c.other_id, c.other_name, c.entity_id, c.name, answer + ".",
+                                       day=today)
+    if proposals:
+        record["alias_proposals"] = proposals
     markdown_parser.write(settled_dir / f"{item_id}.md", {**parsed_item.frontmatter, "settled": record},
                           parsed_item.body)
     item_path.unlink()
     bank_index.invalidate(memory_path)
     paths = [f"episodes/{episode_id}.md", f"entities/{c.other_id}.md", f"inbox/{item_id}.md",
-             f"inbox/{SETTLED_DIR}/{item_id}.md"]
+             f"inbox/{SETTLED_DIR}/{item_id}.md", *proposals]
     trigger = "sleep/web-check" if origin == "sleep" else f"mcp/{checker or 'agent'}"
     lines = [f"episodes/{episode_id}.md: created (source: {item_id}, trigger: {trigger})",
              f"entities/{c.other_id}.md: updated (source: {episode_id}, trigger: {trigger})",
-             f"inbox/{item_id}.md: settled (source: {episode_id}, trigger: {trigger})"]
+             f"inbox/{item_id}.md: settled (source: {episode_id}, trigger: {trigger})",
+             *(f"{rel}: created (source: {item_id}, trigger: {trigger})" for rel in proposals)]
     return Settled(item_id=item_id, entity_id=c.other_id, claim_id=claim.id, episode_id=episode_id,
                    paths=paths, lines=lines)
 
@@ -1291,6 +1298,14 @@ def undo(memory_path: Path, item_id: str) -> tuple[str, list[str], list[str]]:
     # The question comes back as it was, plus one mark: the person took this answer back, so no check settles it again.
     markdown_parser.write(inbox_dir / f"{target}.md", {**fm, UNDONE_KEY: "undone"}, parsed.body)
     rec_path.unlink()
+    for rel in rec.get("alias_proposals") or []:
+        # A proposal the settle raised that nobody answered yet goes with it (one the person answered is theirs).
+        proposal = memory_path / str(rel)
+        if (str(rel).startswith("inbox/inbox-") and proposal.is_file()
+                and markdown_parser.parse(proposal).frontmatter.get("origin") == wrong_aliases.ORIGIN):
+            proposal.unlink()
+            paths.append(str(rel))
+            lines.append(f"{rel}: removed (source: {item_id}, trigger: inbox/web-check/undone)")
     bank_index.invalidate(memory_path)
     paths += [f"inbox/{target}.md", f"inbox/{SETTLED_DIR}/{item_id}.md"]
     lines += [f"inbox/{target}.md: reopened (source: {item_id}, trigger: inbox/web-check/undone)"]

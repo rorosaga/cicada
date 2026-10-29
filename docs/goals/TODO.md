@@ -26,6 +26,13 @@
   on its own), and a local post with no answer logs `no answer`, waits in the spool and is sent by a later firing.
   Reproduced on a scratch copy under load: route p99 10.96 s → 2.01 s, hook firing p95 3.12 s → 0.88 s, timeouts
   22/126 → 0/147.
+- **2026-10-29 — session-1 follow-ups (G209/G21, G228, G212; branch `feat/session1-followups`).** The alias behind a
+  "same as?" lead is the cause: when the record holds a pair as two things, Cicada proposes removing that alias as a
+  `page_edit` (the person applies or leaves it; a kept alias is never proposed again), Sleep never adds a page-held-apart
+  name as an alias, and Stage 1's prompt says so (21 of 160 open "same?" were org/tool alias leads, 14 of them judged two
+  things). The person's own agent settles a public pair with a relation through Sleep's own writer. The Agents page draws
+  way notes (T3 Code's managed Codex sign-in: not captured) and T3 Code's own mark. **Owner ruling 2026-10-29 "Yes, one
+  click":** Settings → Devices runs exactly the shown tailnet `tailscale serve` (and that mapping's off), never funnel/up.
 - **2026-10-29 — seamless, secure devices (G212; branch `feat/seamless-devices`, cicada-app `feat/seamless-devices`).**
   Settings → Devices guides the Mac onto the person's own tailnet (the next step and the command to copy; Cicada never
   runs it) and checks the served address the way a phone would; a phone's token is bound to a Secure-Enclave key

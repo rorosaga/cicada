@@ -89,6 +89,19 @@ final class ConnectionModelTests: XCTestCase {
         XCTAssertEqual(AgentProducts.lines([older]).map(\.name), ["Claude app"])
     }
 
+    /// G228 follow-up: a way's note is drawn under its own line — once, on the local line, never on the remote one —
+    /// so "T3 Code's own Codex sign-in is not captured" is visible where the person reads how T3 Code connects.
+    func testAWaysNoteRidesItsLocalLineOnly() throws {
+        let t3 = try JSONDecoder().decode(ProviderWay.self, from: Data(
+            #"{"id":"t3code","label":"T3 Code","connects":["hooks","stdio"],"note":"Those threads are not captured."}"#.utf8))
+        XCTAssertEqual(AgentProducts.lines([t3]).map(\.note), ["Those threads are not captured."])
+        let claude = ProviderWay(id: "claude", label: "Claude Desktop", connects: ["stdio", "remote"],
+                                 note: "One sentence.", remoteLabel: "claude.ai")
+        XCTAssertEqual(AgentProducts.lines([claude]).map(\.note), ["One sentence.", nil])
+        let blank = ProviderWay(id: "zed", label: "Zed", connects: ["stdio"], note: "  ")
+        XCTAssertNil(AgentProducts.lines([blank])[0].note, "a blank note draws nothing")
+    }
+
     /// G228: a host app (T3 Code) has no pill of its own; its detail offers the connect steps of the agents it
     /// drives, in the table's order, while every other way keeps what it offered before.
     func testAHostAppOffersTheConnectStepsOfTheAgentsItDrives() {

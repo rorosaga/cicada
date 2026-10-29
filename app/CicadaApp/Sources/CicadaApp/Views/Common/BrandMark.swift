@@ -27,6 +27,8 @@ enum BrandMark {
         // its mark; Gemini CLI draws Gemini's. The logical names stay, so no caller changes.
         case "codex", "chatgpt": Composition(file: "openai", badge: nil)
         case "gemini-cli": Composition(file: "gemini", badge: nil)
+        // G228 follow-up (2026-10-29): T3 Code's way draws its umbrella's mark (the vendor's own, `t3`).
+        case "t3code": Composition(file: "t3", badge: nil)
         default: Composition(file: name, badge: nil)
         }
     }

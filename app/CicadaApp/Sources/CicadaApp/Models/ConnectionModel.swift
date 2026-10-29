@@ -161,18 +161,21 @@ struct DeviceReach: Decodable, Equatable {
     var tailscale: String = "missing"
     /// `install` | `open` | `sign-in` | `turn-on` | `serve` | `unfunnel` | `ready` (`reach.GUIDE_STEPS`).
     var step: String = "install"
-    /// The exact command to copy when a command is the step; Cicada never runs it.
+    /// The exact command the step is. On `serve` a click may run it (owner 2026-10-29, "Yes, one click"); on
+    /// `unfunnel` it is only copied (a funnel command is never run).
     var command: String?
     /// The served address a QR carries (`ready` only).
     var url: String?
     var dnsName: String?
     var check: ReachCheck?
+    /// `ready` only: the off for that one tailnet mapping, shown before a click may run it.
+    var stopCommand: String?
 
-    enum CodingKeys: String, CodingKey { case tailscale, step, command, url, dnsName, check }
+    enum CodingKeys: String, CodingKey { case tailscale, step, command, url, dnsName, check, stopCommand }
     init(tailscale: String = "missing", step: String = "install", command: String? = nil, url: String? = nil,
-         dnsName: String? = nil, check: ReachCheck? = nil) {
+         dnsName: String? = nil, check: ReachCheck? = nil, stopCommand: String? = nil) {
         self.tailscale = tailscale; self.step = step; self.command = command; self.url = url
-        self.dnsName = dnsName; self.check = check
+        self.dnsName = dnsName; self.check = check; self.stopCommand = stopCommand
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -182,6 +185,7 @@ struct DeviceReach: Decodable, Equatable {
         url = c.lenient(.url)
         dnsName = c.lenient(.dnsName)
         check = c.lenient(.check)
+        stopCommand = c.lenient(.stopCommand)
     }
 }
 
@@ -190,6 +194,32 @@ struct ReachCheck: Decodable, Equatable {
     /// `dns` | `overlay` | `backend` | `not-cicada` | `other-cicada` (`reach.CHECK_FAILURES`), nil when it passed.
     var failed: String?
     var ms: Int?
+}
+
+/// What a click asks of `POST /devices/reach/serve`: the action only, never a command.
+enum DeviceReachAction: String {
+    case serve, stop
+}
+
+/// `POST /devices/reach/serve`'s answer: whether the one command ran, its sentence when it did not, what ran, and the
+/// fresh reach state.
+struct DeviceReachServe: Decodable, Equatable {
+    var ok = false
+    var message: String?
+    var ran: String?
+    var reach: DeviceReach?
+
+    enum CodingKeys: String, CodingKey { case ok, message, ran, reach }
+    init(ok: Bool = false, message: String? = nil, ran: String? = nil, reach: DeviceReach? = nil) {
+        self.ok = ok; self.message = message; self.ran = ran; self.reach = reach
+    }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        ok = c.lenient(.ok, false)
+        message = c.lenient(.message)
+        ran = c.lenient(.ran)
+        reach = c.lenient(.reach)
+    }
 }
 
 /// `POST /devices/pairing` and `GET /devices/pairing/{id}` (G212).

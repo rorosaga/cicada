@@ -310,7 +310,14 @@ episode holding the link and the quote as a `page`-kind span, the claim observer
 its pending line, no page is created), moves the question to `inbox/settled/`, and commits alone under the harness
 (`Web check <date>`, the session trailer). Refused, writing nothing: a connected app (it reports, never settles), a
 question that is not public, a link that is not a public page (`reading_hosts.classify`, no walled host), no quote, no
-option key / answer, Sleep running, ten settles a session. **Repository state** ("did PR #n merge", "is G<n> shipped")
+option key / answer, Sleep running, ten settles a session. **A "same as?" pair of two public things (2026-10-29, G21):**
+the nudge line reads `Public pair: look each name up alone (search only "<a>" and "<b>"), then settle it with how "<a>"
+relates to "<b>" — cicada_record_check(…, outcome="settles", proposed_value=<part_of|has_part|made_by|makes|
+alternative_to|version_of|has_version|different>, …)`; the answer goes through `web_settle.settle_pair`, the writer
+Sleep's tail uses — one cited relation claim on the page the name was weighed against, the question to `settled/`,
+undoable under "Settled by a check", and a proposal to remove the alias that made them meet (`storage.md`). "Same" or
+any other value is refused (the person's tap merges); a pair with a person or the person's own work is not public and
+is refused as before. **Repository state** ("did PR #n merge", "is G<n> shipped")
 is never searched: `From the repository: answer it from its commit — cicada_record_check(…, source="commit:<sha>",
 outcome="settles", …, quotes=[{quote: <the commit's subject>}])` is shown to, and accepted from, a harness on the
 person's trust list only (`page_editors`); the source is `commit:<sha>` or a GitHub/GitLab commit or pull-request link,

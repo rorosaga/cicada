@@ -1,5 +1,8 @@
 """How AI apps reach this Mac (G135 R-R32) — detection only; Cicada never starts,
-stops or reconfigures a tunnel (G132 (c): the overlay is the person's).
+stops or reconfigures a tunnel (G132 (c): the overlay is the person's) — with one
+dated exception (owner 2026-10-29, "Yes, one click"): the person's click may run
+exactly ``tailscale serve --bg --https=8443 <port>`` (tailnet only) and the
+matching off for that one mapping (:func:`run_serve`). Never ``funnel``, never ``up``.
 
 Tailscale: on PATH, in a standard install folder (`TUNNEL_BIN_DIRS`), or the app
 bundle's own CLI — an older LaunchAgent's PATH is launchd's bare one, and
@@ -260,7 +263,8 @@ def guide(port: int, *, state: TailnetState | None = None, backend: TailnetBacke
         # port). Nothing is offered for a QR until the funnel is closed.
         return {**out, "step": "unfunnel", "command": f"tailscale funnel --https={backend.public_port or 443} off"}
     if backend.url:
-        return {**out, "step": "ready", "url": backend.url}
+        # The matching off for that one mapping (owner 2026-10-29): shown before a click may run it.
+        return {**out, "step": "ready", "url": backend.url, "stopCommand": stop_command(backend.url)}
     return {**out, "step": "serve", "command": serve_command(port)}
 
 
@@ -323,3 +327,96 @@ def self_check(url: str, *, version: str, bank_id: str | None, resolve=None, fet
     if data.get("version") != version or (bank_id and data.get("bankId") != bank_id):
         return done("other-cicada")
     return done(None)
+
+
+# ── G212 amendment (owner 2026-10-29, "Yes, one click"): serve the backend to the tailnet from a click ─────────────
+# The one exception to "Cicada never starts, stops or reconfigures a tunnel" (G132 (c), network.md): a click in
+# Settings → Devices may run EXACTLY ``tailscale serve --bg --https=8443 <port>`` (tailnet only) — the argv shown before
+# the click — and the matching off for that one mapping, then re-read the state. Never ``funnel``, never ``up``, never
+# a shell, never a command a request names (the argv is built here, from the backend's own port and the person's own
+# ServeConfig); 10 s cap; stdin closed, so nothing can wait on a prompt; every failure is a sentence.
+
+SERVE_TIMEOUT = 10.0
+SERVE_ACTIONS = ("serve", "stop")
+
+
+def serve_argv(tailscale: str, port: int) -> list[str]:
+    """The serve the click runs — :func:`serve_command`'s words, with the resolved binary."""
+    return [tailscale, "serve", "--bg", f"--https={BACKEND_SERVE_HTTPS_PORT}", str(int(port))]
+
+
+def _https_port(url: str | None) -> int | None:
+    if not url:
+        return None
+    try:
+        return urlparse(url).port or 443
+    except ValueError:
+        return None
+
+
+def stop_command(url: str | None) -> str | None:
+    """The off for the one tailnet-only mapping that serves the backend (``ready``): its https port, nothing else."""
+    port = _https_port(url)
+    return f"tailscale serve --https={port} off" if port else None
+
+
+def stop_argv(tailscale: str, url: str | None) -> list[str] | None:
+    port = _https_port(url)
+    return [tailscale, "serve", f"--https={port}", "off"] if port else None
+
+
+#: Tailscale prints a URL to visit when Serve or HTTPS certificates are not enabled for the tailnet yet, and waits.
+_ENABLE_HINTS = ("login.tailscale.com", "/admin/", "not enabled", "enable https", "enable serve")
+
+
+def _failure(stdout: str, stderr: str) -> str:
+    text = " ".join(f"{stderr or ''} {stdout or ''}".split())
+    lower = text.lower()
+    if "access denied" in lower or "permission denied" in lower or "--operator" in lower:
+        return ("Tailscale refused: this user may not change Tailscale's settings. Run the command yourself in a "
+                "terminal.")
+    if any(h in lower for h in _ENABLE_HINTS):
+        url = next((w.rstrip(".,)") for w in text.split() if w.startswith("https://")), None)
+        where = f" at {url}" if url else " in the Tailscale admin console"
+        return f"Serve isn't on for your tailnet yet: turn it on{where}, then try again."
+    return "Tailscale did not do it. Run the command yourself in a terminal to see why."
+
+
+def _text(value) -> str:
+    return value.decode(errors="replace") if isinstance(value, bytes) else (value or "")
+
+
+def run_serve(action: str, port: int, *, which=shutil.which, run=subprocess.run, exists=_is_executable) -> dict:
+    """Run the click's one command — ``serve`` (only on the ``serve`` step) or ``stop`` (only on ``ready``) — and
+    re-read where the machine stands. ``{ok, message, ran, guide}``: ``ran`` the command as words (the binary shown as
+    ``tailscale``), ``guide`` :func:`guide`'s fresh answer. On any other step it runs nothing and says why."""
+    if action not in SERVE_ACTIONS:
+        raise ValueError(f"action must be one of {', '.join(SERVE_ACTIONS)}")
+    before = guide(port, which=which, run=run, exists=exists)
+    tailscale = find_tool("tailscale", which=which, exists=exists) or (
+        TAILSCALE_APP_CLI if exists(TAILSCALE_APP_CLI) else None)
+    if action == "serve":
+        argv = serve_argv(tailscale, port) if tailscale and before["step"] == "serve" else None
+        refusal = "Nothing to serve right now: " + {
+            "ready": "this Mac is already reachable on your tailnet.",
+            "unfunnel": "close the public funnel first, with the command shown.",
+        }.get(before["step"], "finish the step shown first.")
+    else:
+        argv = stop_argv(tailscale, before.get("url")) if tailscale and before["step"] == "ready" else None
+        refusal = "This Mac is not being served to your tailnet, so there is nothing to stop."
+    if argv is None:
+        return {"ok": False, "message": refusal, "ran": None, "guide": before}
+    ran = " ".join(["tailscale", *argv[1:]])
+    try:
+        done = run(argv, capture_output=True, text=True, timeout=SERVE_TIMEOUT, check=False,
+                   stdin=subprocess.DEVNULL)
+        ok = done.returncode == 0
+        message = None if ok else _failure(done.stdout, done.stderr)
+    except subprocess.TimeoutExpired as exc:
+        out, err = _text(exc.stdout), _text(exc.stderr)
+        ok = False
+        message = (_failure(out, err) if any(h in f"{out} {err}".lower() for h in _ENABLE_HINTS)
+                   else "Tailscale did not answer within 10 seconds. Run the command yourself in a terminal.")
+    except OSError:
+        ok, message = False, "Tailscale could not be started. Run the command yourself in a terminal."
+    return {"ok": ok, "message": message, "ran": ran, "guide": guide(port, which=which, run=run, exists=exists)}

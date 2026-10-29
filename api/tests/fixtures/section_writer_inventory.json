@@ -1215,6 +1215,14 @@
       "disposition": "preserve_frontmatter_guarded"
     }
   ],
+  "services/wrong_aliases.py": [
+    {
+      "function": "remember_kept",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "preserve_frontmatter_guarded"
+    }
+  ],
   "services/web_settle.py": [
     {
       "function": "settle",
@@ -1226,6 +1234,18 @@
       "function": "settle",
       "method": "write",
       "frontmatter": "{**fm_item, 'settled': record}",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "settle_pair",
+      "method": "write",
+      "frontmatter": "page.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "settle_pair",
+      "method": "write",
+      "frontmatter": "{**parsed_item.frontmatter, 'settled': record}",
       "disposition": "uninstrumented_guarded"
     },
     {
