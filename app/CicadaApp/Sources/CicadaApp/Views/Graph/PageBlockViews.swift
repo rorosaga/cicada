@@ -354,9 +354,8 @@ struct PageReferences: View {
                         }
                     }
                 }
-                let closing = PageWords.closing(citations)
-                if !closing.isEmpty {
-                    Text("\(closing) · \(Copy.Pages.whoWroteIt)")
+                if let closing = PageWords.closingLine(citations) {
+                    Text(closing)
                         .font(CicadaTheme.metaFont)
                         .foregroundStyle(CicadaTheme.textTertiary)
                 }
@@ -429,8 +428,10 @@ struct PageBrandBlock: View {
                                     .fill(LooksColour.color(hex))
                                     .frame(height: CicadaTheme.scaled(44))
                                     .ringed(.resting, in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
+                                // DR-19: copyable by selection, in SF with even digits — as the Looks page draws hex.
                                 Text(hex.uppercased())
-                                    .font(CicadaTheme.monoFont)
+                                    .font(CicadaTheme.metaFont)
+                                    .monospacedDigit()
                                     .foregroundStyle(CicadaTheme.textSecondary)
                                     .textSelection(.enabled)
                             }
@@ -441,8 +442,10 @@ struct PageBrandBlock: View {
                     HStack(spacing: CicadaTheme.spacingSM) {
                         ForEach(faces, id: \.self) { face in
                             VStack(alignment: .leading, spacing: CicadaTheme.scaled(4)) {
+                                // G137 R-M3: no face but the theme's. The look's family is named under the sample;
+                                // the sample is the Looks page's stand-in (`LooksSpecimenGlyph`), never a custom font.
                                 Text(Copy.Pages.typeSample)
-                                    .font(.custom(face, size: CicadaTheme.scaled(30)))
+                                    .font(CicadaTheme.font(size: 30, design: LooksSpecimenFace.design(nil)))
                                     .foregroundStyle(CicadaTheme.textPrimary)
                                 Text(face).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
                                     .textSelection(.enabled)

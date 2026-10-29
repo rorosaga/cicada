@@ -94,6 +94,13 @@ enum PageWords {
         return Copy.Pages.inAll(parts)
     }
 
+    /// References' closing line with its pointer to History: "9 conversations and 2 web pages in all · who wrote each
+    /// change is in History". Nil when the page cites nothing. Every count in it went through `UsageFormat` (R-S18).
+    static func closingLine(_ c: PageBlocks.Citations) -> String? {
+        let counts = closing(c)
+        return counts.isEmpty ? nil : [counts, Copy.Pages.whoWroteIt].joined(separator: " · ")
+    }
+
     // MARK: Belief sentences (DR-80)
 
     /// A belief as a sentence: an inference is worded as one ("It seems that …"), and what ended says until when
