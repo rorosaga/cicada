@@ -177,11 +177,28 @@ def record_facts(entity: dict, birth: dict, *, owner: str | None) -> dict | None
 
 #: The value claim an application's status is kept under (:func:`record_facts`' ``application status``).
 STATUS_PREDICATE = "value-of-application-status"
+#: Statuses after which nothing about the application is still in flight: a page holding one of these takes no more of
+#: the owner's lines (review of #548: a 2025 rejection must not pull a 2027 job start off the owner's page).
+FINAL = frozenset({"accepted", "rejected", "attended"})
+#: The words a line must carry to be ABOUT the application, not merely name the thing: the act and the paperwork
+#: (applied, registered, signed up, enrolled, submitted, the application, the form, the registration, an RSVP, a
+#: deadline to apply) — never "joined", "started", "works at", "lives", which are the owner's own life.
+ABOUT_APPLICATION = re.compile(
+    r"(?<!\w)(?:appl(?:y|ies|ied|ying|ication|icant)s?|regist(?:er|ers|ered|ering|ration)s?|sign(?:ed|s|ing)?[ -]?up|"
+    r"enrol(?:l)?(?:s|ed|ing|ment)?|submi(?:t|ts|tted|tting|ssion)|forms?|rsvp'?d?|waitlist(?:ed)?|"
+    r"inscri(?:b|p)\w*|solicitud\w*|postul\w*|formulario\w*)(?!\w)", re.IGNORECASE)
+
+
+def about_application(text: str) -> bool:
+    """Is ``text`` about an application (:data:`ABOUT_APPLICATION`), rather than only naming the thing?"""
+    return bool(ABOUT_APPLICATION.search(str(text or "")))
 
 
 def standing(memory_path):
     """``on_record(entity) -> bool``: does a page this entity's name (or an alias) spells by id already hold an
-    application (its status value, :data:`STATUS_PREDICATE`)? Read once per page, cached for the extraction.
+    application still in flight (an open status value, :data:`STATUS_PREDICATE`, that is not :data:`FINAL`)? Read once
+    per page, cached for the extraction. Only lines ABOUT the application then move (``move_from_owner(...,
+    about_only=True)``): the owner's own life — a job start, where they live — never leaves the owner's page.
 
     Why (2026-10-29, the vetted facts-keep-context re-run): the owner-page move ran only when THIS conversation showed
     the act, so every later conversation about an application already on its page — the agent's saved notes, a texted
@@ -203,6 +220,7 @@ def standing(memory_path):
             if path is not None and path.is_file():
                 try:
                     found = any(c.predicate == STATUS_PREDICATE and c.valid_to is None and not claims_mod.is_event(c)
+                                and str(c.object or "").strip().lower() not in FINAL
                                 for c in claims_mod.parse_claims(markdown_parser.parse(path).body))
                 except Exception:  # noqa: BLE001 — an unreadable page holds nothing here
                     found = False
@@ -238,20 +256,26 @@ def _names_it(text: str, names: list[str]) -> bool:
                for n in names)
 
 
-def move_from_owner(owner_entity: dict, target: dict) -> int:
+def move_from_owner(owner_entity: dict, target: dict, *, about_only: bool = False) -> int:
     """Move what the owner's extraction says about ``target`` (an application entity) onto it: key facts, summary
     sentences (each standing alone, `fact_policy.standalone`) and history entries that name it. The owner keeps its
-    relationship to the thing (the link); nothing is dropped. Returns how many items moved."""
+    relationship to the thing (the link); nothing is dropped. ``about_only`` (an application already on record, no act
+    in this conversation): only lines that are about the application (:func:`about_application`). Returns how many
+    items moved."""
     from api.services import fact_policy
 
     names = [str(target.get("name") or "").strip(), *(str(a) for a in target.get("aliases") or [] if a)]
     names = [n for n in names if len(n) >= 3]
     if not names:
         return 0
+
+    def hit(text) -> bool:
+        return _names_it(text, names) and (not about_only or about_application(text))
+
     moved: list[str] = []
     facts = [f for f in owner_entity.get("key_facts") or [] if isinstance(f, str)]
-    keep = [f for f in facts if not _names_it(f, names)]
-    moved += [f for f in facts if _names_it(f, names)]
+    keep = [f for f in facts if not hit(f)]
+    moved += [f for f in facts if hit(f)]
     if len(keep) != len(facts):
         owner_entity["key_facts"] = keep
     owner_names = [owner_entity.get("name"), *(owner_entity.get("aliases") or [])]
@@ -260,11 +284,13 @@ def move_from_owner(owner_entity: dict, target: dict) -> int:
         if not text or not _names_it(text, names):
             continue
         parts = fact_policy.standalone(text, owner_names)
-        about = [p for p in parts if _names_it(p, names)]
+        about = [p for p in parts if hit(p)]
+        if not about:
+            continue
         owner_entity[field] = " ".join(p for p in parts if p not in about)
         moved += [p for p in about if p not in moved]
     history = [h for h in owner_entity.get("history_entries") or [] if isinstance(h, dict)]
-    hits = [h for h in history if _names_it(h.get("event"), names)]
+    hits = [h for h in history if hit(h.get("event"))]
     if hits:
         owner_entity["history_entries"] = [h for h in history if h not in hits]
         target["history_entries"] = [*(target.get("history_entries") or []), *hits]

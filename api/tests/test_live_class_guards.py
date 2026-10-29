@@ -191,7 +191,8 @@ def test_owner_lines_about_an_application_on_record_move_without_a_new_act(tmp_p
     owner = {"name": "Owner Example", "type": "person",
              "key_facts": ["Owner Example's application to [[Alpha Hackathon]] lists his role as developer.",
                            "Owner Example lives in Example City."],
-             "history_entries": [{"date": "2026-10-21", "event": "Asked for flights to the Alpha Hackathon."}]}
+             "history_entries": [{"date": "2026-10-21", "event": "Filled in the Alpha Hackathon registration form."},
+                                 {"date": "2026-10-22", "event": "Booked flights to the Alpha Hackathon."}]}
     event = {"name": "Alpha Hackathon", "type": "concept"}
     other = {"name": "Beta Meetup", "type": "concept"}
     text = "user: remind me about flights for the alpha hackathon\nassistant: sure."
@@ -200,10 +201,48 @@ def test_owner_lines_about_an_application_on_record_move_without_a_new_act(tmp_p
                                         owner="Owner Example", day="2026-10-21",
                                         on_record=application_page.standing(memory))
     assert owner["key_facts"] == ["Owner Example lives in Example City."]
-    assert not owner.get("history_entries")
+    assert [h["event"] for h in owner["history_entries"]] == ["Booked flights to the Alpha Hackathon."], \
+        "only lines about the application move; the owner's trip stays theirs"
     assert event["key_facts"] == ["Owner Example's application to [[Alpha Hackathon]] lists his role as developer."]
-    assert event["history_entries"][0]["event"].startswith("Asked for flights")
+    assert [h["event"] for h in event["history_entries"]] == ["Filled in the Alpha Hackathon registration form."]
     assert application_page.KEY not in event, "no new act: no birth, no status written"
+
+
+def _company_with_status(memory: Path, status: str) -> None:
+    claim = Claim(id=f"clm_{status}", text=f"Acme Example application status: {status}", subject="acme-example",
+                  predicate=application_page.STATUS_PREDICATE, object=status, object_kind="literal",
+                  valid_from="2025-03-01", recorded_at="2025-03-01")
+    markdown_parser.write(memory / "entities" / "acme-example.md",
+                          {"name": "Acme Example", "type": "company", "status": "active"},
+                          write_claims("## Summary\nA company.", [claim]))
+
+
+LIFE = ["Joined Acme Example as an engineer in 2027.", "Started a full-time job at Acme Example.",
+        "Lives next to the Acme Example office."]
+
+
+def test_the_owners_own_life_never_leaves_for_an_application_page(tmp_path):
+    """Review of #548: a company the owner applied to in 2025 (rejected), then a 2027 conversation "I started at
+    <company> today": the job start and where they live stay on the owner's page, whatever the status."""
+    for status in ("rejected", "sent"):
+        memory = _bank(tmp_path / status)
+        _company_with_status(memory, status)
+        owner = {"name": "Owner Example", "type": "person",
+                 "key_facts": [*LIFE, "Owner Example's application to Acme Example was submitted in March 2025."],
+                 "summary": "Owner Example started at Acme Example today.",
+                 "history_entries": [{"date": "2027-01-10", "event": "Started at Acme Example."}]}
+        acme = {"name": "Acme Example", "type": "company"}
+        entity_extractor._application_pages([owner, acme], {"id": "ep_2027-01-10_001"}, "ep_2027-01-10_001",
+                                            "user: I started at Acme Example today", owner="Owner Example",
+                                            day="2027-01-10", on_record=application_page.standing(memory))
+        assert owner["key_facts"][:3] == LIFE, status
+        assert owner["summary"] == "Owner Example started at Acme Example today.", status
+        assert [h["event"] for h in owner["history_entries"]] == ["Started at Acme Example."], status
+        moved = acme.get("key_facts") or []
+        if status == "rejected":
+            assert not moved and len(owner["key_facts"]) == 4, "a final status takes nothing more"
+        else:
+            assert moved == ["Owner Example's application to Acme Example was submitted in March 2025."]
 
 
 def test_a_thing_with_no_application_on_record_keeps_the_owners_lines(tmp_path):

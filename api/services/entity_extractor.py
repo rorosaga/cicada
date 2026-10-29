@@ -545,7 +545,7 @@ def _application_pages(entities: list, episode: dict, episode_id: str, content: 
             if (isinstance(entity, dict) and all(entity is not m for m in marked) and not _is_owner(entity, owner)
                     and application_page.names_it(said, entity) and on_record(entity)):
                 for owner_entity in owners:
-                    application_page.move_from_owner(owner_entity, entity)
+                    application_page.move_from_owner(owner_entity, entity, about_only=True)
     if not marked:
         return []
     values = []

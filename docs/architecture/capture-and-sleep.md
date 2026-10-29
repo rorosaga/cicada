@@ -1905,9 +1905,13 @@ summary and for every relationship); "an explicit link" was any relationship the
   run only in a conversation that itself showed the act, so the agent's saved notes, a texted reminder or the person
   mentioning the event later wrote "<owner>'s application to [[X]] lists …" back onto the owner's page (the vetted
   re-run found such lines for an event whose page and status already existed). Stage 1 now also moves the owner
-  extraction's lines that name a thing whose page already holds an open `value-of-application-status`
-  (`application_page.standing`, read once per page per extraction, only for names the owner's lines mention); no new
-  status or birth is written without an act, and a thing with no page keeps the lines on the owner's page.
+  extraction's lines **about the application** (the act and the paperwork: applied, registered, signed up, enrolled,
+  submitted, the application, the form — `application_page.ABOUT_APPLICATION`) that name a thing whose page holds an
+  open, **not final** status (`value-of-application-status` other than accepted, rejected or attended;
+  `application_page.standing`, read once per page per extraction, only for names the owner's lines mention). The
+  owner's own life never moves: "joined <company>", "started a job at <company>", "lives next to its office" stay on
+  the owner's page whatever the page holds (review of #548). No new status or birth is written without an act, and a
+  thing with no page keeps the lines.
 - **The act's object is the event, never its venue or organiser (2026-10-28, `api/services/act_object.py`).** "I
   signed up for an <event> at the <venue>" gave both "<person> signed up for <event>" and "<person> signed up for
   <venue>", the second shown as the person's own words. After every chunk's spans are located, `act_object.hold`
