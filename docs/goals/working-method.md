@@ -41,7 +41,7 @@ list is what a reviewer checks:
 |---|---|---|
 | Crucial tier | `make test-crucial` | **0 failures** — 247 backend tests in ~16 s, 47 Swift tests in ~4 s (+ build), 2026-10-19 |
 | Dev CI | `.github/workflows/dev-ci.yml` (`make test-crucial-backend` on `ubuntu-latest`) | **0 failures** — 258 backend tests in ~32 s, ~1.5 min with the venv, 2026-10-22 |
-| Bench tier | `make test-bench` | 12 tests, ~50 s, 2026-10-19: **1 known failure**, `test_projects_bench.py` (the 2,500-page project list's p95 is ~230 ms against its 80 ms budget; it was an unrun `CICADA_BENCH=1` opt-in until the marker). Run on a quiet machine |
+| Bench tier | `make test-bench` | 12 tests, ~50 s, 2026-10-19: **1 known failure**, `test_projects_bench.py` (the 2,500-page project list's p95 is ~230 ms against its 80 ms budget; it was an unrun `CICADA_BENCH=1` opt-in until the marker). Run on a quiet machine. Every budget is CPU time with the wall under 4×, timed with the heap frozen out of the collector (`api/tests/_bench.py`: `measure`, `Timer`, `frozen`), so it holds inside the full suite too (2026-10-29) |
 | Backend | `api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider` | October 5 audit on `4264e297`: 6,016 passed, **1 known G185 failure**, 1 skipped; rerun for the change |
 | App | `cd app/CicadaApp && swift test` | **0 failures** |
 | Graph (JS) | `node --test app/CicadaApp/Tests/graph/*.test.js` | **0 failures.** Pass the glob, not the directory — a bare directory arg fails with a bare "test failed". |

@@ -1432,7 +1432,7 @@ agent reads (`agent_methods`), not an install.
   (`reads`) and where the token comes from (`tokenHelp`) before Save, then Refresh and Disconnect. A refused token reads
   Needs sign-in (`signInChannels`). Notion's detail keeps the export's steps and drop below the live panel.
   **G32 (2026-10-29):** *Accounts* gains **Spotify** (id `spotify`, `verb: .importFile`, channels `spotify` — the
-  library's saved items — and `spotify-listening` — the listening days). Its detail is the Files & links row's own
+  library's saved items — and `spotify-listening` — the listening days, shown as "Spotify history" within `SourceDisplayName`'s 16 characters). Its detail is the Files & links row's own
   controls (the where-it-comes-from line, then `IntakePanel`): `Copy.Catalog.howSpotify` says to ask Spotify's privacy
   settings for Extended streaming history or Account data and drop the zip it emails. The bundled `spotify` mark.
 - **Inbox top cards (G205, G61):** `agent_request` (`InboxKind.agentRequest`) and the grouped *Confirm N links* review
