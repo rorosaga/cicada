@@ -189,7 +189,7 @@ final class MenuBarManager: NSObject {
     private var onOpenApp: (() -> Void)?
     private var onRunSleep: (() async -> Void)?
     private var onSaveClipboardURL: (() async -> Void)?
-    /// Track I T5 (R-IA26) — "Import a file…" opens the one intake.
+    /// Track I T5 (R-IA26) — "Import Chats or Files…" (CIC8) opens the one intake.
     private var onImportFile: (() -> Void)?
     /// Track I part b (R-IB22) — the export waits of the active memory, as the
     /// menu's lines. Set by the app; a closure, not state to observe, so it is

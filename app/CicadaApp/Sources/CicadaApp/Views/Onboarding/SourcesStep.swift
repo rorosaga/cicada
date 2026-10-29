@@ -188,7 +188,7 @@ struct SourcesStep: View {
     }
 
     /// The file panel the old Import page ran: the URLs go to the one intake, which stages them while onboarding
-    /// shows (R-IB15). ⌘⇧I and the menu bar's *Import a file…* land here too (`welcomeChooseRequest`).
+    /// shows (R-IB15). ⌘⇧I and the menu bar's *Import Chats or Files…* land here too (`welcomeChooseRequest`).
     static func chooseFile(_ intake: IntakeRouter) {
         // CIC8 — the intake's one picker (its types, opening in Downloads), not a copy that could drift.
         let urls = IntakePicker.choose()

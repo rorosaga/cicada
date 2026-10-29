@@ -598,7 +598,7 @@ struct CicadaApp: App {
             onSaveClipboardURL: {
                 await menuBarManager.saveClipboardURL()
             },
-            // R-IA26 — "Import a file…": bring the window forward and
+            // R-IA26 — "Import Chats or Files…" (CIC8): bring the window forward and
             // open the intake idle, like File → Import….
             onImportFile: { [intakeRouter, appRouter] in
                 appRouter.showMainWindow()

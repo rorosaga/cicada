@@ -108,6 +108,11 @@ final class SidebarTabTests: XCTestCase {
         let row = docs.first { $0.row.destination == .action(.importFile) }
         XCTAssertNotNil(row)
         XCTAssertEqual(row?.row.trailing, "⇧⌘I")
+        // Every door says one thing: the File menu, the menu-bar worm, the palette and Sources' header add.
+        let words = Copy.Catalog.importChatsOrFiles.lowercased()
+        XCTAssertEqual(Copy.intakeFileMenuItem.lowercased(), words + "…")
+        XCTAssertEqual(Copy.intakeMenuBarItem, Copy.intakeFileMenuItem)
+        XCTAssertEqual(row?.row.title.lowercased(), words + "…")
         let index = QuickIndex.build(QuickIndexInputs())
         for typed in ["chatgpt", "claude export", "chat export", "import", "zip"] {
             XCTAssertTrue(index.query(typed).rows.contains { $0.destination == .action(.importFile) }, typed)

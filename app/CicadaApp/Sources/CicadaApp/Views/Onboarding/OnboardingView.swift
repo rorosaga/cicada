@@ -136,7 +136,7 @@ struct OnboardingView: View {
         .task { await load() }
         // R-OB2 — a drop starts at once once the owner is saved; before that it waits, staged.
         .onChange(of: intake.welcomeDrops.map(\.id)) { old, new in startDrops(new.filter { !old.contains($0) }) }
-        // ⌘⇧I and the menu bar's Import a file… while onboarding shows (R-IB15), a turn later: a modal panel must
+        // ⌘⇧I and the menu bar's Import Chats or Files… while onboarding shows (R-IB15), a turn later: a modal panel must
         // not run inside a view update.
         .onChange(of: intake.welcomeChooseRequest) { _, _ in Task { @MainActor in SourcesStep.chooseFile(intake) } }
         // R-OB7 — a Full Disk Access grant lands while Cicada is in the background.

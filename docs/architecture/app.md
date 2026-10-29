@@ -378,7 +378,8 @@ menu commands in `Support/FindCommands.swift` (`HiddenShortcutLintTests`); ⌘, 
 `Support/ShellCommands.swift`. Track P's audit removed the global Sleep button, because a cycle starts from the Sleep
 page's one Consolidate control (G125 R10) or the menu-bar bookworm.
 **One intake (Track I, spec decision 13).** Every way a file arrives — a drop anywhere on the
-window, the Dock icon, File → Import… (⌘⇧I), the menu-bar worm's *Import a file…*, an empty state,
+window, the Dock icon, File → Import Chats or Files… (⌘⇧I), the menu-bar worm's *Import Chats or Files…* (both
+*Import…* / *Import a file…* until CIC8, 2026-10-29: every door says one thing), an empty state,
 each `+` chat tile, the Sleep room's worm — goes through one `IntakeRouter`: sniff (`POST /intake/sniff`, stages nothing) →
 preview (counts, date range, new · grew · already here, skipped files by name, *Into* a memory) →
 import (`POST /intake/import`; a 202 and a job counter above 10 episodes) → a *what happens next*
