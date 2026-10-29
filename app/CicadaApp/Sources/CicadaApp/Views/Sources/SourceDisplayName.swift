@@ -76,7 +76,7 @@ enum SourceDisplayName {
         "readwise": "Readwise",
         // G32 (`source_overview.CATALOG`'s rows).
         "spotify": "Spotify",
-        "spotify-listening": "Spotify listening",
+        "spotify-listening": "Spotify history",
         "files": "Files & links",
         "wispr-flow": "Wispr Flow",
         // The open families a live bank produces (A2/A4).

@@ -10,6 +10,7 @@ from __future__ import annotations
 import gc
 import statistics
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 
 WALL_FACTOR = 4
@@ -42,27 +43,49 @@ class Samples:
         return min(self.wall)
 
 
+_frozen_depth = 0
+
+
+@contextmanager
+def frozen(*, collect: bool = True):
+    """What is alive on entry frozen out of the collector (``gc.freeze``) until exit; reentrant.
+
+    ``collect`` first collects the earlier tests' garbage so it is not held frozen; :class:`Timer` skips it, since a
+    full collection of a big heap per timed step cost the full suite ~48 s and freezing alone is a list splice.
+
+    A full collection walks every live object, so one landing in a timed run cost it the heap the EARLIER tests left:
+    in the bench tier the modules before `test_projects_bench` import the whole app (`TestClient(main.app)`), ~190k
+    more objects, and one gen-2 pass inside the detail's runs cost ~85 ms of a 150 ms budget (review of #530); in the
+    full suite (~4.5M objects alive by the continuity route test) one pass cost ~234 ms and put a 15 ms warm
+    SessionStart call at 342 ms CPU (dev-suite-2, 2026-10-29). The code's own garbage is still collected, and paid
+    for, inside the runs."""
+    global _frozen_depth
+    if _frozen_depth == 0:
+        if collect:
+            gc.collect()
+        gc.freeze()
+    _frozen_depth += 1
+    try:
+        yield
+    finally:
+        _frozen_depth -= 1
+        if _frozen_depth == 0:
+            gc.unfreeze()
+
+
 def measure(fn, runs: int = 20, *, warm: bool = True) -> Samples:
     """``fn`` run ``runs`` times (once first, untimed, when ``warm``), each run's CPU and wall seconds.
 
-    Timed with what was alive before it frozen out of the collector (``gc.freeze``): a full collection walks every
-    live object, so one landing in a timed run cost it the heap the EARLIER tests left — in the bench tier the modules
-    before `test_projects_bench` import the whole app (`TestClient(main.app)`), ~190k more objects, and one gen-2 pass
-    inside the detail's runs cost ~85 ms of a 150 ms budget (review of #530; ~40 ms alone). The code's own garbage is
-    still collected, and paid for, inside the runs."""
+    Timed under :func:`frozen`, so a collection of the heap earlier tests left never lands in a run."""
     if warm:
         fn()
-    gc.collect()
-    gc.freeze()
-    try:
+    with frozen():
         cpu, wall = [], []
         for _ in range(runs):
             c, w = time.process_time(), time.perf_counter()
             fn()
             cpu.append(time.process_time() - c)
             wall.append(time.perf_counter() - w)
-    finally:
-        gc.unfreeze()
     return Samples(cpu, wall)
 
 
@@ -75,12 +98,17 @@ def within(cpu_s: float, wall_s: float, budget_s: float, label: str = "") -> Non
 
 
 class Timer:
-    """``with Timer() as t: ...`` — then ``t.cpu`` and ``t.wall`` seconds, for a loop that times one step of several."""
+    """``with Timer() as t: ...`` — then ``t.cpu`` and ``t.wall`` seconds, for a loop that times one step of several.
+
+    Timed under :func:`frozen`, like :func:`measure`."""
 
     def __enter__(self):
+        self._frozen = frozen(collect=False)
+        self._frozen.__enter__()
         self._c, self._w = time.process_time(), time.perf_counter()
         return self
 
     def __exit__(self, *exc):
         self.cpu, self.wall = time.process_time() - self._c, time.perf_counter() - self._w
+        self._frozen.__exit__(None, None, None)
         return False
