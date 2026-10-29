@@ -210,6 +210,39 @@ def test_a_first_copy_cut_short_is_taken_up_again_never_a_second_copy(local_home
         config.get_settings.cache_clear()
 
 
+def test_a_stop_that_lands_while_the_follower_fetches_is_never_undone(local_home, monkeypatch):
+    """Review of #567: the follower passed its check, then "Stop keeping a copy" removed `replica_of` while it fetched
+    the pack — it checks again under the stop's own lock and writes nothing (no copy registered or made active)."""
+    from api import config
+
+    home = local_home / "home-bank"
+    home.mkdir()
+    with replica_guard.applying():
+        bank = _bank(home)
+    bundle = local_home / "full.bundle"
+    subprocess.run(["git", "bundle", "create", "-q", str(bundle), "HEAD"], cwd=str(bank), check=True,
+                   capture_output=True)
+    root = local_home / "copy-root"
+    root.mkdir()
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(root))
+    monkeypatch.setenv("CICADA_REPLICA_OF", "https://home.example.ts.net")
+    config.get_settings.cache_clear()
+    monkeypatch.setattr(replica, "request", lambda *a, **k: (200, {}, {"bankId": "3" * 32, "bank": "memory"}))
+
+    def fetched_then_stopped(have, folder):
+        monkeypatch.delenv("CICADA_REPLICA_OF")            # the person's stop, between the check and the write
+        return bundle, {"X-Cicada-Seq": "1"}, {}
+
+    monkeypatch.setattr(replica, "_fetch_pack", fetched_then_stopped)
+    try:
+        with pytest.raises(replica.NoLongerACopy):
+            replica.bootstrap()
+        assert not (root / "banks" / "memory").exists()
+        assert not any(r.get("replica") for r in bank_registry.load_registry(root)["banks"].values())
+    finally:
+        config.get_settings.cache_clear()
+
+
 def test_a_forwarded_write_that_timed_out_says_it_may_have_landed_and_is_resent_with_its_key(local_home, monkeypatch):
     from api import config
 

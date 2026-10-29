@@ -3744,6 +3744,43 @@ actor APIClient {
         return try decoder.decode(Answer.self, from: data).device
     }
 
+    // MARK: - One memory on every device (G132 phase 1): share, keep a copy
+
+    /// `GET /sync/publish` — whether this computer, the home, shares its memory with the person's other computers.
+    func fetchPublish() async throws -> PublishState {
+        try await get("/sync/publish", timeout: Self.refreshTimeout)
+    }
+
+    /// `PUT /sync/publish` — the person's switch (this computer's own token; never a demo memory).
+    func setPublish(_ on: Bool) async throws -> PublishState {
+        try await put("/sync/publish", body: ["publish": on])
+    }
+
+    /// `GET /sync/replica` — this computer's mode and, while it keeps a copy, how the copy stands (counts only).
+    func fetchReplica() async throws -> ReplicaState {
+        try await get("/sync/replica", timeout: Self.refreshTimeout)
+    }
+
+    /// `PUT /sync/replica` — keep a copy of the memory the computer at `home` holds, paired with its one-time code.
+    func keepCopy(home: String, code: String) async throws -> ReplicaSetupAnswer {
+        try await put("/sync/replica", body: ["home": home, "code": code])
+    }
+
+    /// `DELETE /sync/replica` — stop keeping a copy (the copy stays on disk, inactive).
+    func stopCopy() async throws {
+        _ = try await delete("/sync/replica")
+    }
+
+    /// `POST /sync/replica/restart` — this computer's backend starts again, so a change of mode takes effect.
+    func restartForCopy() async throws {
+        _ = try await post("/sync/replica/restart")
+    }
+
+    /// `POST /sync/replica/recopy` — "Copy again" after the home's history changed.
+    func copyAgain() async throws {
+        _ = try await post("/sync/replica/recopy")
+    }
+
     // MARK: - The connection model (G217, G212, G213)
 
     /// `GET /providers` — static per release, so no ETag and no Store domain: fetched once per launch, kept in memory.
