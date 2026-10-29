@@ -942,6 +942,16 @@ curated summaries, often a cleaner record than the raw turns. The transcripts be
   server with this device's token, and each device's notes are keyed under its own id
   (`agent-memory:<harness>:<device>:<project>/<file>`, `local` for the server's own token), so two machines never
   tombstone each other's.
+- **A repository renamed, moved or cloned again (ruling 22 D2a, 2026-10-29).** Claude Code names a project's notes folder
+  after the checkout's path, so a new path starts a new folder; notes the person brings along (moving or copying the
+  folder) arrive under a new key. Each draft carries `content_sha` = sha256(file name + note bytes)[:16]: a note whose
+  old key left a complete snapshot and whose bytes reappear under a new one is repointed by the stager's rename by
+  content — same episode, same id, not re-queued, `previous_source_ids` kept; a note whose bytes a live note already
+  holds (a copy, or a partial read) adds no episode (the post's answer counts `moved` and `copies`). Measured on a
+  scratch bank: a moved folder of two notes went 2 created + 2 tombstoned → 2 repointed; a copied one 2 duplicate
+  episodes → 0. A note edited before its first sweep in the new folder is still a new episode (its bytes changed);
+  the remote is not used here, because the hook cannot tie a notes folder to a checkout without reading git in a
+  path it was not given. Episodes held before carry no `content_sha`: the first sweep stamps it (frontmatter only).
 - **The episode.** One per note through `episode_staging`: an edit updates it in place with `processed: false`; a note
   missing from a complete post is tombstoned (`source_deleted_at`), never unlinked, and cleared if it returns; the body
   is scrubbed (writer `agent-memory`); a demo bank answers 409 (`refuse_capture_into_demo`). `source: agent-memory`,
@@ -1806,8 +1816,24 @@ on the conversation it read (no model), a `project_birth` record and drops any t
   `family_hash`, bound to the stored `project_dir` by its `cwd_hash`; G110 D2), and the mention's name or an alias,
   folded (case, accents, punctuation), is the checkout's folder name: the last component of `project_dir`, or the one
   before a `.worktrees`/`worktrees` folder. Read from the two stored strings only — the backend never opens, stats or
-  runs git in the path, and **no remote is read** (D2 allows the hook only the `rev-parse` pair, so the remote the
-  ruling's text mentions is not available; the folder name stands in for it, disclosed).
+  runs git in the path. **The remote, hashed (ruling 22 D2a, 2026-10-29):** when the hook's observation carries
+  `remote_hash` (its origin URL normalised and salted per install; the URL never reaches the backend), the birth
+  records it as `born.repo.remote`. A remote proves the same repository, **not the same project** (a template
+  cloned under a new name, a fork whose origin is the upstream). Stage 2 finds the one project page whose repository
+  has that remote — its own `born.repo.remote`, or, for a page born before the remote was read, a remote a later
+  session in its `born.repo.family` carried (`project_birth.remote_sessions`, the cached frontmatter index). Only a
+  repository's CURRENT remote counts (the one on its latest session, `project_birth.current_remotes`): a project
+  re-pointed from a template to its own repository no longer answers to the template. It joins that page before the
+  judge only when the page's repository points at the remote now AND the new folder's name, folded, is the page's
+  repository name (the same repository moved or cloned again). A different name — a rename, or a template reused
+  for a new project, even after the old checkout went quiet — or a remote the page only once had brings the page to
+  the judge as a candidate (the W2 precedent) with a note that both share an origin, and its "different" stands
+  (`entity_resolver._same_repository_candidate`; two pages on one remote join neither; a pair the person said were
+  different is never joined). Project activity and conversation ties never follow a shared remote by itself
+  (`_Bank.page_repo_families`): they follow the page's judged identity — its born family and a checkout whose folder
+  name folds to one of the page's names or aliases. A rename the judge called the same is merged with the new name
+  as an alias, so its sessions count; a reused template judged different lends the page nothing. A page born before ruling 22 D2a whose repository was renamed before any later session
+  in the old folder carried the remote is not recognised — nothing is rewritten to recover it.
 - **words** — one sentence of a person's own turn (`user`, or a meeting `speaker`) names it within five words of
   *project* (or *proyecto*, *projet*, *Projekt*, *progetto*, *projeto*, plurals), inside one clause (no comma, colon,
   semicolon or parenthesis between them — except one colon after the project word's clause that introduces the name,

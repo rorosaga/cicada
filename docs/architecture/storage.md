@@ -1362,8 +1362,9 @@ Round 4 (C2–C4):
 - `paths:` (G133) — on a `project` page a watched folder anchors: `[{path, device}]`, where that
   folder lives on which Mac. For display and relink only; the backend never opens it.
 - `born:` (G141, ruling 36 D4) — on a `project` page, where it came from, written once where the page is born and
-  never rewritten: `{origin: repo|words, day, episode, repo?: {name, family}, span?: {start, end, hash, kind},
-  via?: folder}`. `repo.family` is the hook's `family_hash` (a hash, never a path); `span` points into the episode's
+  never rewritten: `{origin: repo|words, day, episode, repo?: {name, family, remote?}, span?: {start, end, hash, kind},
+  via?: folder}`. `repo.family` is the hook's `family_hash` (a hash, never a path); `repo.remote` its origin's
+  per-install-salted hash when the hook read one (ruling 22 D2a, 2026-10-29; never the URL); `span` points into the episode's
   evidence text and is read back only while `evidence.span_status` says current or grown (`project_birth.quote`).
   A page without it (older than the rule) is classified on read (`project_birth.classify`: a declared `repos:` →
   repo, `paths:`/`folder` → words, then the cited conversations) and never rewritten for it (`capture-and-sleep.md`).

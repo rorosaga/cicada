@@ -114,6 +114,8 @@ def tie_reasons(memory_path: Path, stem: str, *, tz_name: str | None, bank: _Ban
     entity = {"name": fm.get("name") or stem, "aliases": fm.get("aliases") or []}
     born = fm.get("born") if isinstance(fm.get("born"), dict) else {}
     family = str(((born or {}).get("repo") or {}).get("family") or "")
+    # G110 D2a: a shared hashed remote ties nothing by itself (`_Bank.page_repo_families`): a renamed checkout judged
+    # the same carries the page's alias, and the name rule below ties it.
     for ep, f in bank.episodes.items():
         efm = f.frontmatter or {}
         if "workspace_identity" not in efm:
