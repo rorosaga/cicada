@@ -10,6 +10,7 @@ value (read once per change of the file), not the file's time.
 """
 from __future__ import annotations
 
+import hashlib
 import threading
 from pathlib import Path
 
@@ -61,4 +62,7 @@ def side_component(memory_path: Path) -> str:
     if pred is None and pending is None and not owner:
         return ""
     fmt = lambda s: "-" if s is None else f"{s[1]}.{s[2]}"   # noqa: E731 — mtime and size; the inode never matters to a reader
-    return f":s{fmt(pred)}/{fmt(pending)}/{owner}"
+    # The owner's page id is a person's name in most banks, and `/sync/version` hands its components to every client:
+    # a digest moves exactly when the id does and names no one (review of #524).
+    who = hashlib.blake2b(owner.encode("utf-8"), digest_size=6).hexdigest() if owner else "-"
+    return f":s{fmt(pred)}/{fmt(pending)}/{who}"

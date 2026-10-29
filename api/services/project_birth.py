@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import posixpath
 import re
+from functools import lru_cache
 import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
@@ -50,8 +51,10 @@ _CLAUSE_BREAK = re.compile(r"[,;:()]")
 _WORKTREE_DIRS = frozenset({".worktrees", "worktrees", ".worktree"})
 
 
+@lru_cache(maxsize=65536)
 def fold(name: str) -> str:
-    """A name as a repository's folder would spell it: no accents, no case, letters and digits only."""
+    """A name as a repository's folder would spell it: no accents, no case, letters and digits only. Remembered per
+    name (speed 2026-10-29: the Projects list folds every page's names on every read, ~8k a call)."""
     decomposed = unicodedata.normalize("NFD", name or "")
     return "".join(c for c in decomposed if c.isalnum() and not unicodedata.combining(c)).lower()
 

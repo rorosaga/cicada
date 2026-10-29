@@ -39,7 +39,7 @@ from api.models.schemas import (ConversationTie, HappeningCreate, InfluenceCreat
                                 MilestoneCreate, MilestonePatch, ProjectAccept, ProjectConversations, ProjectCreate,
                                 PageTie, ProjectOwnershipResponse, ProjectPatch, ProjectsResponse, ProjectTimeline,
                                 ProjectWriteResponse, ThreadSettle, WithdrawRequest)
-from api.services import (bank_index, episode_scrub, git_service, handshake, markdown_parser, owner_identity,
+from api.services import (bank_index, episode_scrub, sync_ticker, git_service, handshake, markdown_parser, owner_identity,
                           progress, project_timeline, search_index, sync_service, telemetry,
                           turn_authorship, when, write_admission)
 from api.services.claim_reconciler import is_human
@@ -84,6 +84,13 @@ def _unpin_degraded(response: Response, index_state: str, result) -> None:
 
 @router.get("/projects", response_model=ProjectsResponse)
 async def list_projects(request: Request, response: Response, settings: Settings = Depends(get_settings)):
+    # Speed 2026-10-29: the ETag and the list share one listing per folder (the SSE walk's when its gate allows); the
+    # list's own readers listed `entities/` and `episodes/` again in its worker thread.
+    with sync_ticker.request_scans(settings.memory_path):
+        return await _list_projects(request, response, settings)
+
+
+async def _list_projects(request: Request, response: Response, settings: Settings):
     mp, tz = settings.memory_path, _tz()
     etag = sync_service.etag_for(mp, "entities", "episodes", "inbox",
                                  extra=f"projects|{project_timeline.PROJECT_SHAPE}|{git_service.AUTHOR_SHAPE}|{tz}")
@@ -98,6 +105,12 @@ async def list_projects(request: Request, response: Response, settings: Settings
 @router.get("/projects/{project_id}/timeline", response_model=ProjectTimeline)
 async def get_project_timeline(project_id: str, request: Request, response: Response,
                                since: Optional[str] = None, settings: Settings = Depends(get_settings)):
+    with sync_ticker.request_scans(settings.memory_path):   # one listing per folder for ETag and build (2026-10-29)
+        return await _project_timeline(project_id, request, response, since, settings)
+
+
+async def _project_timeline(project_id: str, request: Request, response: Response, since: Optional[str],
+                            settings: Settings):
     mp, tz = settings.memory_path, _tz()
     since_day = None
     if since:

@@ -27,7 +27,7 @@ import os
 import re
 import threading
 from collections import Counter, OrderedDict
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Callable
@@ -217,6 +217,38 @@ def _open(c: Claim) -> bool:
     return c.valid_to is None and not c.superseded_by
 
 
+@dataclass
+class _EpisodeEpoch:
+    """Per-claim and per-episode memos keyed on nothing but the episodes folder's state and the zone. A claim is keyed
+    by ``id()``: ``held`` keeps every claim keyed alive for as long as the epoch lives, so no id is reused under it,
+    and the epoch is dropped whole the moment an episode moves (a new conversation, a re-dated one, a deleted one)."""
+    key: tuple
+    ep_keys: dict = field(default_factory=dict)
+    timed: dict = field(default_factory=dict)
+    ep_days: dict = field(default_factory=dict)
+    claim_convs: dict = field(default_factory=dict)
+    anchor_days: dict = field(default_factory=dict)
+    held: list = field(default_factory=list)
+    ts_days: dict = field(default_factory=dict)
+    ep_convs: dict = field(default_factory=dict)
+
+
+#: bank -> its current `_EpisodeEpoch`. Bounded by what one bank's requests touch; past ``_EPOCH_HELD_MAX`` claims
+#: held, a fresh epoch starts (a long-lived process whose pages keep changing never grows without bound).
+_EPOCHS: dict[str, _EpisodeEpoch] = {}
+_EPOCH_HELD_MAX = 200_000
+_EPOCH_LOCK = threading.Lock()
+
+
+def _episode_epoch(memory_path: Path, tz_name: str) -> _EpisodeEpoch:
+    key = (tz_name, bank_index.dir_fingerprint(Path(memory_path) / "episodes"))
+    with _EPOCH_LOCK:
+        epoch = _EPOCHS.get(str(memory_path))
+        if epoch is None or epoch.key != key or len(epoch.held) > _EPOCH_HELD_MAX:
+            epoch = _EPOCHS[str(memory_path)] = _EpisodeEpoch(key=key)
+        return epoch
+
+
 class _Bank:
     """One request's view: frontmatter from `bank_index` (cached across
     requests), bodies and claims parsed at most once per request, and the raw-scan
@@ -236,18 +268,22 @@ class _Bank:
         self._sessions: dict[str, list[str]] | None = None
         self._parents: tuple[dict[str, str], dict[str, list[str]]] | None = None
         self._citing: dict[str, list[str]] = {}
-        self._ep_keys: dict[str, tuple] = {}
-        self._timed: dict[str, bool] = {}
-        self._ep_days: dict[str, str | None] = {}
-        self._claim_convs: dict[int, tuple[tuple[str, str], ...]] = {}
-        self._anchor_days: dict[int, str | None] = {}
-        self._held: list[Claim] = []
-        self._ts_days: dict[str, str | None] = {}
+        # What a claim's day and conversations are, and every episode fact they rest on, depends only on the episodes
+        # folder and the zone: those memos outlive the request while both hold (`_episode_epoch`, speed 2026-10-29 —
+        # the list re-derived ~10k claims' anchor days and conversations on every read).
+        epoch = _episode_epoch(self.path, self.tz_name)
+        self._ep_keys: dict[str, tuple] = epoch.ep_keys
+        self._timed: dict[str, bool] = epoch.timed
+        self._ep_days: dict[str, str | None] = epoch.ep_days
+        self._claim_convs: dict[int, tuple[tuple[str, str], ...]] = epoch.claim_convs
+        self._anchor_days: dict[int, str | None] = epoch.anchor_days
+        self._held: list[Claim] = epoch.held
+        self._ts_days: dict[str, str | None] = epoch.ts_days
         self._resolved: dict[str, str | None] = {}
         self._stems: list[str] | None = None
         self._direct: dict[str, str] = {}
         self._reverse: dict[str, tuple[str | None, bool]] = {}
-        self._ep_convs: dict[str, tuple[tuple[str, str]] | None] = {}
+        self._ep_convs: dict[str, tuple[tuple[str, str]] | None] = epoch.ep_convs
         self._repo_sessions: list[tuple[str, frozenset[str], tuple[str, ...]]] | None = None
         self._grouped: dict[tuple[str, ...], list[str]] | None = None
         self.scanned = 0

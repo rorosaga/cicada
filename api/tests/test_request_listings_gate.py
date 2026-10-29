@@ -136,3 +136,10 @@ def test_a_ledger_changing_alone_moves_the_entities_stamp_and_the_built_inbox_ke
     assert moved != stamp
     ledger.write_text('{"id": "clm_x"}\n{"id": "clm_y"}\n', encoding="utf-8")
     assert sync_service.components(bank, keys=("entities",))["entities"] != moved
+
+
+def test_the_owners_id_never_appears_in_the_sync_component(tmp_path):
+    bank = _bank(tmp_path)
+    (bank / "_state.md").write_text("---\ntype: state\nowner_id: alpha-project\n---\nnow\n", encoding="utf-8")
+    component = sync_service.components(bank, keys=("inbox",))["inbox"]
+    assert "alpha-project" not in component and "alpha" not in component

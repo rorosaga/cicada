@@ -235,7 +235,7 @@ episode's `(mtime, size)` and span inputs are unchanged (`inbox_context._excerpt
 8k pages, 8.5k episodes, a read-only copy) the warm body went from ~515 ms to ~65 ms of CPU (the floor is the ETag's
 stat walk), a read after one changed item from ~445 ms to ~245 ms. `/status` counts the inbox from the built list
 when it is current (`served_counts`), and `/status`, `/origins` and the card read one listing per folder; `/origins`
-is remembered per state of both folders (`origin_stats`).
+is remembered per state of both folders (`origin_stats`). Round 3 (2026-10-29): `/status`'s episode counts are one pass remembered per state of `episodes/`, and its inbox count is remembered on the built list's own inputs (`served_counts`); the `inbox` sync component carries a digest of the owner's page id, never the id.
 
 **The read is one listing, not one per item (inbox lag, 2026-10-17).** Most hidden items name a subject with no page
 under any spelling (merged away, renamed), and `resolve_entity_file`'s case-insensitive rung used to glob `entities/`
