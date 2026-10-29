@@ -714,11 +714,35 @@ spools send again. A write on a publishing home pays for its journal line: `/too
 p50 88.2 / p95 104.9 ms with the journal vs 87.5 / 102.8 without it, 85.0 / 98.3 ms with publishing off (interleaved,
 n=80 each, in process).
 
+**Review of #569 (the rules that close the gaps):**
+- *Two homes at one term.* A higher term wins; at an equal term (two take-overs at once, a take-over racing a move) the
+  lower device id wins (`home_move.outranks`) — the same answer in the peer watch, a copy's search for a home and a
+  reconcile, so the loser supersedes itself. A take-over first asks every device of the group and is refused while
+  any answers as the home at its term or later.
+- *A claim is verified before it is followed.* `GET /sync/peer` returns the device's HEAD record with its signature;
+  a copy re-points and a home supersedes itself only on a record that verifies (the registry's key, a signer not
+  revoked, this memory, that device, that term). A revoked signer's record never holds.
+- *A home never trusts a mirror*: the mirrored registry is consulted only by a copy, is never created by a read, and is
+  dropped at promotion (its store holds the group then).
+- *What a set-aside home offers.* Each journal line records the commit the call produced (`headAfter`); at a reconcile
+  every call whose commit the new home's history does not hold is offered (never a seq compare), the set-aside range is
+  where the two histories part (their merge base). The command line's writes on a home are journaled; the remote
+  connector's are counted by tool and named in words, never replayed (another device's door would give them that
+  device's trust); the remote door refuses writes while the home is closed. An offered conversation that continues one
+  already at the new home updates it in place (its later turns kept); one that diverged is kept as its own episode.
+- *Crash-safe reconcile:* the set-aside ref, then every offer kept in the outbox (a refused keep stops it, nothing
+  rewritten; an offer kept again is kept once), then the rewrite.
+- *Applied once across a move:* the home exports its idempotency keys (their sha256 and the answers they replay,
+  `GET /sync/keys`); a copy takes them with the registry, and a target takes the closed old home's final set before it
+  promotes, so a write sent again after the move replays its first answer.
+- `cicada home take-over --yes` needs `--behind N`, the number it showed; a Sleep run that claims its slot after the
+  doors closed lets go at once, and a move that finds one running once sealed is called off.
+
 Known limits of phase 2: a phone paired with an old home keeps sending there; its captures reach the new home only
 while that computer is up and follows (a copy accepts only its own token for a write, so a phone's post is refused —
 phase 4 re-pairs the phone with the group). A transaction a copy queued and the old home applied after the take-over
-point is offered back by the old home only if it returns. The CLI's in-process writes on a home are not journaled (they
-are offered as episodes when they made one). Commits a lost home made that no device received are gone with it — the
+point is offered back by the old home only if it returns. The remote connector's writes are named, not replayed (they
+their episodes are offered like any other). Commits a lost home made that no device received are gone with it — the
 lag the person was shown.
 
 ## Decided, not built (G132, ruling 51)

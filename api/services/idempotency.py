@@ -116,6 +116,38 @@ def _remember(scope: str, route: str, key_hash: str, now: float, status: int, bo
                    (scope, route, key_hash, now, status, json.dumps(body)))
 
 
+def export_since(since: float) -> list[dict]:
+    """G132 phase 2 (review of #569): every key kept since ``since`` — scope, route, the key's sha256, when, and the
+    answer it replays — for the person's other full devices, so a write sent again after the home moved is applied
+    once there too. Never the key itself."""
+    with _db() as db:
+        rows = db.execute("SELECT scope, route, key_hash, created, status, body FROM keys WHERE created >= ? "
+                          "ORDER BY created", (since,)).fetchall()
+    return [{"scope": r[0], "route": r[1], "keyHash": r[2], "created": r[3], "status": r[4], "body": r[5]}
+            for r in rows]
+
+
+def import_rows(rows: list[dict]) -> int:
+    """Take another home's keys (a copy following it; a new home at its promotion). A key kept here wins."""
+    taken = 0
+    with _db() as db:
+        for r in rows or ():
+            try:
+                db.execute("INSERT OR IGNORE INTO keys VALUES (?, ?, ?, ?, ?, ?)",
+                           (str(r["scope"]), str(r["route"]), str(r["keyHash"]), float(r["created"]),
+                            int(r["status"]), str(r["body"])))
+                taken += 1
+            except (KeyError, TypeError, ValueError):
+                continue
+    return taken
+
+
+def newest() -> float:
+    with _db() as db:
+        row = db.execute("SELECT MAX(created) FROM keys").fetchone()
+    return float(row[0] or 0) if row else 0.0
+
+
 async def run_once(scope: str, route: str, key: str | None, work, *, now=time.time,
                    keep=None) -> tuple[int, dict, bool]:
     """``(status, body, replayed)``. ``await work()`` returns ``(status, body)``; only a 2xx answer is kept, so a

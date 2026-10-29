@@ -291,7 +291,7 @@ def test_the_peer_route_answers_only_a_device_of_the_group(home, client):
     assert client.get("/sync/peer", headers={"Authorization": "Bearer cic_dev_zzzzzzzz_" + "x" * 43}).status_code == 401
     body = client.get("/sync/peer", headers={"Authorization": f"Bearer {token}"}).json()
     assert body["role"] == "home" and body["term"] == 0 and set(body) == {
-        "bankId", "term", "role", "device", "seq", "home", "canHost"}
+        "bankId", "term", "role", "device", "seq", "home", "canHost", "record"}
 
 
 def test_recopy_racing_a_stop_answers_409_with_a_sentence(home, client, monkeypatch):
@@ -376,7 +376,7 @@ def test_home_move_and_take_over_refuse_from_an_agents_shell(monkeypatch):
     monkeypatch.setattr(cli_app, "call", lambda *a, **k: sent.append(a) or {})
     monkeypatch.setenv("CODEX_THREAD_ID", "thread-example")
     for cmd, args in ((cli_app.cmd_home_move, type("A", (), {"device": "desk"})()),
-                      (cli_app.cmd_home_take_over, type("A", (), {"yes": True})())):
+                      (cli_app.cmd_home_take_over, type("A", (), {"yes": True, "behind": 0})())):
         with pytest.raises(Refusal) as refused:
             cmd(_Boot(), args)
         assert refused.value.code == "person_only"
@@ -410,5 +410,188 @@ def test_home_move_names_the_device_and_take_over_confirms_what_it_showed(monkey
     with pytest.raises(Refusal) as refused:                          # shown, not confirmed: nothing sent
         cli_app.cmd_home_take_over(_Boot(), type("A", (), {"yes": False})())
     assert "2 changes behind" in str(refused.value) and calls[-1][0] == "GET"
-    cli_app.cmd_home_take_over(_Boot(), type("A", (), {"yes": True})())
+    with pytest.raises(Refusal) as refused:                          # --yes alone: it says the N, sends nothing
+        cli_app.cmd_home_take_over(_Boot(), type("A", (), {"yes": True, "behind": None})())
+    assert "--behind 2" in str(refused.value) and calls[-1][0] == "GET"
+    with pytest.raises(Refusal):                                     # another N than the one shown: refused
+        cli_app.cmd_home_take_over(_Boot(), type("A", (), {"yes": True, "behind": 5})())
+    assert calls[-1][0] == "GET"
+    cli_app.cmd_home_take_over(_Boot(), type("A", (), {"yes": True, "behind": 2})())
     assert calls[-1] == ("POST", "/sync/home/take-over", {"behind": 2, "confirm": True})
+
+
+# --- review of #569: the tie-break, verified homes, mirrors, offers, keys ----------------------------------------
+
+
+def test_an_equal_term_is_broken_the_same_way_everywhere():
+    assert home_move.outranks(2, "zzzzzzzz", 1, "aaaaaaaa")              # a higher term wins
+    assert home_move.outranks(1, "aaaaaaaa", 1, "bbbbbbbb")              # equal: the lower device id
+    assert not home_move.outranks(1, "bbbbbbbb", 1, "aaaaaaaa")
+    assert not home_move.outranks(1, "aaaaaaaa", 1, "aaaaaaaa")          # never over itself
+
+
+def _signed(term: int, to: str, signer: str, bank_id: str = "b" * 32):
+    return home_record.make(bank_id=bank_id, term=term, kind="take-over", seq=1, after=None,
+                            source={"device": "aaaaaaaa", "name": "a"}, to={"device": to, "name": to},
+                            signer=signer)
+
+
+def test_a_revoked_signer_never_holds_and_an_unsigned_peer_is_never_followed(home, monkeypatch):
+    _share()
+    store = device_tokens.store()
+    laptop, _ = store.create("stolen-laptop")
+    store.announce(laptop.id, sign_jwk=device_key.public_jwk())          # this computer's key, for the test
+    rec = _signed(1, laptop.id, laptop.id)
+    assert home_move._check(rec, store.export()) is None                 # noqa: SLF001
+    store.revoke(laptop.id)
+    assert home_move._check(rec, store.export()) == "revoked_signer"     # noqa: SLF001
+    monkeypatch.setattr(home_move, "_pin", lambda: home_move._Pin("b" * 32))   # noqa: SLF001
+    peer = {"role": "home", "term": 1, "device": laptop.id, "record": rec.data}
+    assert not home_move.verified_peer(home, peer)                       # revoked
+    assert not home_move.verified_peer(home, {**peer, "record": None})   # no record: never followed
+    other, _ = store.create("desk")
+    store.announce(other.id, sign_jwk=device_key.public_jwk())
+    good = _signed(1, other.id, other.id)
+    assert home_move.verified_peer(home, {"role": "home", "term": 1, "device": other.id, "record": good.data})
+    assert not home_move.verified_peer(home, {"role": "home", "term": 2, "device": other.id, "record": good.data})
+
+
+def test_a_take_over_is_refused_while_another_device_is_the_home(home, monkeypatch):
+    from api.services import replica, runtime_layout
+
+    monkeypatch.setattr(runtime_layout, "is_replica", lambda environ=None: True)
+    monkeypatch.setattr(replica, "state", lambda: {"seq": 4, "homeSeq": 4, "lastContact": None})
+    monkeypatch.setattr(replica, "request", lambda *a, **k: (None, {}, None))       # the last home is gone
+    monkeypatch.setattr(home_move, "_own_token", lambda: "cic_dev_cccccccc_" + "x" * 43)
+    monkeypatch.setattr(home_move, "my_device_id", lambda: "cccccccc")
+    monkeypatch.setattr(home_move, "_pin", lambda: home_move._Pin("b" * 32))         # noqa: SLF001
+    monkeypatch.setattr(home_move, "registry", lambda _p: [
+        {"id": "bbbbbbbb", "name": "bravo-laptop", "kind": "full", "address": "https://b.example"}])
+    monkeypatch.setattr(home_move, "_ask", lambda *a, **k: (200, {"bankId": "b" * 32, "role": "home", "term": 1}))
+    preview = home_move.take_over_preview(home)
+    assert preview["code"] == "another_home" and "bravo-laptop holds your memory" in preview["text"]
+    monkeypatch.setattr(home_move, "_ask", lambda *a, **k: (200, {"bankId": "b" * 32, "role": "replica", "term": 0}))
+    assert home_move.take_over_preview(home)["possible"]
+
+
+def test_a_home_never_trusts_a_mirror(home, monkeypatch):
+    _share()
+    store = device_tokens.store()
+    gone, token = store.create("old-desk")
+    rows = store.export()
+    store.revoke(gone.id)                                                  # revoked on this home
+    home_move.save_mirror(home, rows)                                      # an old mirror still lists it
+    assert home_move.peer_caller(home, token) is None                     # a home reads its own store only
+    monkeypatch.setattr(replica_guard, "active", lambda: True)
+    assert home_move.peer_caller(home, token) == gone.id                   # a copy uses its mirror
+
+
+def test_the_peer_route_on_one_computer_that_shares_nothing_writes_nothing(home, client):
+    r = client.get("/sync/peer", headers={"Authorization": "Bearer cic_dev_zzzzzzzz_" + "x" * 43})
+    assert r.status_code == 401
+    root = home_move._sync_root()                                          # noqa: SLF001
+    assert not root.exists() or not any(p.is_dir() for p in root.iterdir())
+
+
+def test_an_offered_conversation_that_continues_one_here_updates_it_in_place(home):
+    from api.services import offered_episode
+
+    first = ("---\nid: ep_2026-10-20_001\ntimestamp: '2026-10-20T10:00:00+00:00'\nsource: claude-code\n"
+             "session_id: ses_long_1\n---\nuser: the juliet-example plan\n")
+    made = offered_episode.write(home, first, from_device="aaaaaaaa", term=1)
+    longer = first + "assistant: noted\nuser: and the kilo-example budget\n"
+    again = offered_episode.write(home, longer, from_device="aaaaaaaa", term=1)
+    assert again == {"status": "updated", "episodeId": made["episodeId"]}            # later turns never dropped
+    text = (home / "episodes" / f"{made['episodeId']}.md").read_text()
+    assert "kilo-example budget" in text and "processed: false" in text
+    assert offered_episode.write(home, first, from_device="aaaaaaaa", term=1) == {"status": "already"}
+    other = first.replace("juliet-example plan", "lima-example plan")                 # diverged: kept on its own
+    assert offered_episode.write(home, other, from_device="aaaaaaaa", term=1)["status"] == "created"
+
+
+def _identity(bank):
+    _git(bank, "config", "user.email", "t@example.com")
+    _git(bank, "config", "user.name", "t")
+
+
+def test_a_write_is_offered_by_what_it_produced_never_by_a_seq(home):
+    from api.services import admitted_log
+
+    _identity(home)
+    _share()
+    base = _git(home, "rev-parse", "HEAD").strip()
+    for title in ("One", "Two"):
+        (home / "entities" / f"{title.lower()}.md").write_text(f"{title}\n")
+        _git(home, "add", "-A")
+        _git(home, "commit", "-q", "-m", title)
+        # Both read seq 10 (concurrent writes); the new home took over at `base`.
+        admitted_log.record_tool(home, tool="cicada_add_backlog_item", arguments={"title": title}, seq_before=10)
+    assert [e["arguments"]["title"] for e in admitted_log.not_in(home, base, since_seq=11)] == ["One", "Two"]
+    assert admitted_log.not_in(home, _git(home, "rev-parse", "HEAD").strip()) == []   # both already in it
+
+
+def test_the_outbox_keeps_an_offer_once(home):
+    from api.services import tx_outbox
+
+    entry = tx_outbox.rest_entry("POST", "/capture/offered", "", b"{}", "application/json", bank_id="b",
+                                 base_seq=None, key="k" * 32)
+    assert tx_outbox.keep(entry) and tx_outbox.keep(dict(entry))
+    assert sum(1 for p in tx_outbox.entries() if "kkkkkkkkkkkk" in p.name) == 1
+
+
+def test_a_reconcile_whose_offers_cannot_be_kept_rewrites_nothing(home, tmp_path, monkeypatch):
+    """The offers are kept before the rewrite; a refused keep stops it with the copy untouched, and done again it
+    finishes."""
+    from api.services import tx_outbox
+
+    _identity(home)
+    _share()
+    me = home_move.ensure_own_identity()
+    other = tmp_path / "theirs"
+    _git(tmp_path, "clone", "-q", str(home), str(other))
+    _identity(other)
+    (home / "episodes" / "ep_2026-10-29_050.md").write_text("---\nid: ep_2026-10-29_050\n---\nuser: mike-example\n")
+    _git(home, "add", "-A")
+    _git(home, "commit", "-q", "-m", "after the take-over point, here")
+    mine = _git(home, "rev-parse", "HEAD").strip()
+    rec = home_record.make(bank_id="b" * 32, term=1, kind="take-over", seq=1, after=None,
+                           source={"device": me, "name": "a"}, to={"device": me, "name": "x"}, signer=me)
+    (other / "_home.json").write_bytes(home_record.encode(rec))
+    _git(other, "add", "-A")
+    _git(other, "commit", "-q", "-m", "taken over")
+    bundle = tmp_path / "pack.bundle"
+    _git(other, "bundle", "create", "-q", str(bundle), "HEAD")
+    monkeypatch.setattr(home_move, "outranks", lambda *a: True)
+    real_keep = tx_outbox.keep
+    monkeypatch.setattr(tx_outbox, "keep", lambda *a, **k: False)
+    with pytest.raises(RuntimeError):
+        home_move.reconcile(home, bundle)
+    assert _git(home, "rev-parse", "HEAD").strip() == mine                    # nothing rewritten
+    assert _git(home, "rev-parse", f"{home_move.SET_ASIDE_REF}/term-1").strip() == mine   # set aside first
+    monkeypatch.setattr(tx_outbox, "keep", real_keep)
+    summary = home_move.reconcile(home, bundle)
+    assert summary["commits"] == 1 and summary["episodes"] == 1
+    assert _git(home, "rev-parse", "HEAD").strip() == _git(other, "rev-parse", "HEAD").strip()
+    assert any("capture/offered" in p.read_text() for p in tx_outbox.entries())
+
+
+def test_idempotency_keys_travel_to_the_next_home(tmp_path, monkeypatch):
+    import asyncio
+
+    from api.services import idempotency
+
+    monkeypatch.setenv("CICADA_HOME", str(tmp_path / "old"))
+    ran = []
+
+    async def work():
+        ran.append(1)
+        return 200, {"text": "saved"}
+
+    asyncio.run(idempotency.run_once("dev:b", "/tools/call:cicada_save_episode", "K-1", work))
+    rows = idempotency.export_since(0)
+    assert rows and "K-1" not in str(rows)                                    # the key's hash, never the key
+    monkeypatch.setenv("CICADA_HOME", str(tmp_path / "new"))
+    assert idempotency.import_rows(rows) == 1
+    _status, body, replayed = asyncio.run(idempotency.run_once("dev:b", "/tools/call:cicada_save_episode", "K-1",
+                                                               work))
+    assert replayed and body == {"text": "saved"} and ran == [1]             # applied once across the move

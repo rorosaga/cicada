@@ -1068,7 +1068,24 @@ def main(argv: list[str] | None = None) -> int:
                             arguments["content"] = sys.stdin.read()   # `cicada save -` reads stdin, as locally
                         result = _typed(_door(boot, row.tool, arguments), warnings=_root_warnings(boot))
                     else:
+                        journal = row is not None and row.tool and row.mutates
+                        if journal:
+                            from api.services import home_move
+
+                            if home_move.writes_closed():
+                                # G132 phase 2: this computer's home is moving (or moved): no write is made here.
+                                raise Refusal("refused", home_move.closed_text())
                         result = boot.ctx.run(_in_process, command, handler, boot, args)
+                        if journal and result.ok:
+                            # G132 phase 2: a publishing home keeps what it admitted, to offer it back if it is ever
+                            # taken over while away (`admitted_log`; nothing at all while it shares nothing).
+                            from api.services import admitted_log
+
+                            arguments = {a.prop: getattr(args, a.prop, None) for a in row.args
+                                         if getattr(args, a.prop, None) not in (None, "-")}
+                            admitted_log.record_tool(boot.pin.path,
+                                                     tool=row.tool, arguments=arguments,
+                                                     caller={"harness": cli_app.caller()[1]}, surface="cli")
     except UsageError as exc:                  # a check that needed the page (a `get` range past its end)
         _emit(as_json, command=command, ok=False, code="usage", bank=bank_name, data=None, text=str(exc),
               warnings=[])

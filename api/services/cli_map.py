@@ -397,8 +397,8 @@ ROWS: tuple[Row, ...] = (
          "runs Sleep from then on, and this one follows it.", (_p("device"),), via="backend", mutates=True,
          person=True),
     _app(("home", "take-over"), "Make this computer the home when the last one is lost: says how far behind this "
-         "copy is first, then asks (--yes confirms what it showed).", (_f("yes", "bool"),), via="backend",
-         mutates=True, person=True),
+         "copy is first, then asks (--yes --behind N confirms the N it showed).",
+         (_f("yes", "bool"), _f("behind", "int")), via="backend", mutates=True, person=True),
     # G212 (2026-10-22): a one-time code a new device trades once for its own token (`POST /pair`).
     _app(("device", "pair"), "Show a one-time code (and its QR payload) a new device trades for its own token "
          "(--kind capture for a phone, the default; full for a computer).",

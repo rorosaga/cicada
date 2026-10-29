@@ -349,10 +349,25 @@ class RemoteRuntime:
         # first (`SELF_ADMITTED`) is gated here on a stale answer and takes the hold itself around its write,
         # asking again there: no admission spans a fetch.
         held = writes and tool not in SELF_ADMITTED
+        if writes:
+            from api.services import home_move
+
+            if home_move.writes_closed():
+                # G132 phase 2 (review of #569): this home is moving (or moved) — no write is admitted here.
+                text = mcp_tools.Reply(home_move.closed_text(), code="refused")
+                self._record(connector, tool, "busy", text, memory_path)
+                return text, "busy"
         try:
             with write_admission.shared(memory_path) if held else contextlib.nullcontext():
-                return self._call(connector, tool, arguments, writes, memory_path, bank_name,
-                                  utc_offset_minutes=utc_offset_minutes)
+                text, status = self._call(connector, tool, arguments, writes, memory_path, bank_name,
+                                          utc_offset_minutes=utc_offset_minutes)
+            if writes and status == "ok" and not tool_contract.is_error(getattr(text, "code", None)):
+                # G132 phase 2: kept as unofferable — a remote app's write is never replayed through another door.
+                from api.services import admitted_log
+
+                admitted_log.record_tool(memory_path, tool=tool, arguments={}, caller={"connector": connector.id},
+                                         surface="remote", offerable=False)
+            return text, status
         except write_admission.SleepHolding:
             self._record(connector, tool, "busy", BUSY_TEXT, memory_path)
             return BUSY_TEXT, "busy"

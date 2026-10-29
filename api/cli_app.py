@@ -1555,9 +1555,19 @@ def cmd_home_take_over(boot, args) -> Result:
     preview = call(boot, "GET", "/sync/home/take-over")
     if not preview.get("possible"):
         raise Refusal("refused", preview.get("text") or "This computer cannot take over now.", _warn(boot))
-    if not getattr(args, "yes", False):
+    behind = preview.get("behind")
+    if getattr(args, "yes", False):
+        # Review of #569: --yes confirms a number the person saw — never a take-over blind.
+        if getattr(args, "behind", None) is None:
+            raise Refusal("refused", f"{preview['text']} Run it again with --yes --behind {behind} to take over.",
+                          _warn(boot))
+        if int(args.behind) != int(behind):
+            raise Refusal("refused", f"{preview['text']} That is not the {args.behind} you gave; look again, then "
+                                     f"run it with --yes --behind {behind}.", _warn(boot))
+    else:
         if not _interactive():
-            raise Refusal("refused", f"{preview['text']} Run it again with --yes to take over.", _warn(boot))
+            raise Refusal("refused", f"{preview['text']} Run it again with --yes --behind {behind} to take over.",
+                          _warn(boot))
         import sys
 
         print(preview["text"], file=sys.stderr)
@@ -1566,7 +1576,7 @@ def cmd_home_take_over(boot, args) -> Result:
         if sys.stdin.readline().strip().lower() not in ("y", "yes"):
             return Result(text="Nothing was changed.", data={"took": False, "preview": preview},
                           warnings=_warn(boot))
-    answer = call(boot, "POST", "/sync/home/take-over", body={"behind": preview["behind"], "confirm": True})
+    answer = call(boot, "POST", "/sync/home/take-over", body={"behind": behind, "confirm": True})
     return Result(text="This computer holds your memory now and runs Sleep; it starts again as the home in a "
                        "moment.", data={**answer, "preview": preview}, warnings=_warn(boot))
 

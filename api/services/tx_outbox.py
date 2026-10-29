@@ -152,9 +152,14 @@ def keep(entry: dict, *, home: Path | None = None) -> bool:
     """Keep ``entry`` without sending it now (G132 phase 2: what an old home offers back to the new one goes out on
     the follower's next flush, in order). False when the outbox is full."""
     with _locked(home):
-        if len(entries(home)) >= MAX_ENTRIES:
+        waiting = entries(home)
+        tag = f"-{entry['id'][:12]}.json"
+        for path in waiting:
+            if path.name.endswith(tag) and (_read(path) or {}).get("id") == entry["id"]:
+                return True          # kept already (a reconcile done again after a cut): kept once
+        if len(waiting) >= MAX_ENTRIES:
             return False
-        _write(folder(home) / f"tx-{time.time_ns():020d}-{entry['id'][:12]}.json", entry)
+        _write(folder(home) / f"tx-{time.time_ns():020d}{tag}", entry)
     return True
 
 

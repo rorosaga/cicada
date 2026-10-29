@@ -44,16 +44,26 @@ def _body_hash(body: str) -> str:
     return hashlib.sha256(body.strip().encode("utf-8")).hexdigest()
 
 
-def _already(memory_path: Path, fm: dict, body: str) -> bool:
+def _same_session(memory_path: Path, fm: dict) -> Path | None:
+    """The episode here of the same conversation (one per session, G104), or None."""
     from api.services import bank_index
 
     session, source = fm.get("session_id"), fm.get("source")
-    wanted = _body_hash(body)
+    if not session:
+        return None
     for f in bank_index.files(memory_path, "episodes"):
         other = f.frontmatter
-        if session and other.get("session_id") == session and other.get("source") == source:
-            return True
-        if other.get("offered_hash") == wanted:
+        if other.get("session_id") == session and other.get("source") == source:
+            return Path(f.path)
+    return None
+
+
+def _already(memory_path: Path, fm: dict, body: str) -> bool:
+    from api.services import bank_index
+
+    wanted = _body_hash(body)
+    for f in bank_index.files(memory_path, "episodes"):
+        if f.frontmatter.get("offered_hash") == wanted:
             return True
     # The words themselves (a save the offered calls already made again here): only among recent episodes.
     for path in sorted((memory_path / "episodes").glob("ep_*.md"))[-400:]:
@@ -65,7 +75,7 @@ def _already(memory_path: Path, fm: dict, body: str) -> bool:
 
 def write(memory_path: Path, text: str, *, from_device: str | None, term: int | None) -> dict:
     """``{"status": "created" | "already" | "refused", "episodeId"?, "reason"?}``."""
-    from api.services import episode_ids, episode_scrub
+    from api.services import episode_ids, episode_scrub, markdown_parser
 
     if not isinstance(text, str) or len(text) > MAX_CHARS:
         return {"status": "refused", "reason": "too_large"}
@@ -78,6 +88,27 @@ def write(memory_path: Path, text: str, *, from_device: str | None, term: int | 
         episode_scrub.record("offered_episode", scrubbed, bank=memory_path.name)
     episodes = memory_path / "episodes"
     with episode_ids.episode_lock(episodes):
+        same = _same_session(memory_path, fm)
+        if same is not None and same.exists():
+            # Review of #569: the same conversation is here already. The same words or fewer: nothing to add. The
+            # offered words continue it (the old home heard later turns): updated in place — its id, dates and
+            # place kept, read again by Sleep. Neither continues the other: kept as its own episode, never dropped.
+            stored = markdown_parser.parse(same)
+            here = stored.body.strip()
+            offered = body.strip()
+            if offered == here or here.startswith(offered):
+                return {"status": "already"}
+            if offered.startswith(here):
+                kept = {k: v for k, v in fm.items() if k not in _DROPPED}
+                merged = {**stored.frontmatter, **{k: v for k, v in kept.items() if k not in ("timestamp",
+                                                                                          "received_at")},
+                          "id": stored.frontmatter.get("id"), "processed": False, "offered_from": from_device,
+                          "offered_term": term, "offered_hash": _body_hash(body)}
+                markdown_parser.write(same, merged, body)
+                from api.services import bank_index
+
+                bank_index.invalidate(memory_path)
+                return {"status": "updated", "episodeId": stored.frontmatter.get("id")}
         if _already(memory_path, fm, body):
             return {"status": "already"}
         keep = {k: v for k, v in fm.items() if k not in _DROPPED}

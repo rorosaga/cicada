@@ -597,6 +597,7 @@ def _refresh_frame(force: bool = False) -> None:
         from api.services import home_move
 
         home_move._refresh_mirror(mp)   # noqa: SLF001
+        home_move.pull_keys()           # so a write sent again after a take-over is applied once there too
 
 
 # --- state, waking and waiting ----------------------------------------------------------------------------------------

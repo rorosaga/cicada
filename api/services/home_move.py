@@ -296,10 +296,12 @@ def pinned_by_environment() -> str | None:
 
 # --- the registry every full device shares -------------------------------------------------------------------------------
 
-def mirror_path(memory_path) -> Path:
+def mirror_path(memory_path, *, create: bool = False) -> Path:
+    """``$CICADA_HOME/sync/<bank key>/devices.json`` — never created by a read (review of #569: an unauthenticated
+    ``/sync/peer`` on one computer that shares nothing must write nothing)."""
     from api.services import sync_publish
 
-    return sync_publish.bank_dir(memory_path, create=True) / MIRROR
+    return sync_publish.bank_dir(memory_path, create=create) / MIRROR
 
 
 def load_mirror(memory_path) -> list[dict]:
@@ -309,7 +311,7 @@ def load_mirror(memory_path) -> list[dict]:
 
 
 def save_mirror(memory_path, rows: list[dict]) -> None:
-    _write_json(mirror_path(memory_path), {"devices": rows, "at": time.time()})
+    _write_json(mirror_path(memory_path, create=True), {"devices": rows, "at": time.time()})
 
 
 def registry(memory_path) -> list[dict]:
@@ -381,6 +383,10 @@ def peer_caller(memory_path, token: str | None) -> str | None:
         device = None
     if device is not None:
         return device.id
+    from api.services import replica_guard, runtime_layout
+
+    if not (runtime_layout.is_replica() or replica_guard.active()):
+        return None       # a home answers from its own store only: a revoke there is never undone by an old mirror
     try:
         return _token_ok(token or "", load_mirror(memory_path))
     except Exception:  # noqa: BLE001
@@ -422,7 +428,9 @@ def role(memory_path) -> str:
 
 
 def peer_answer(memory_path) -> dict:
-    """``GET /sync/peer``: ids and numbers only — which memory, which term, whether this computer is its home."""
+    """``GET /sync/peer``: which memory, which term, whether this computer is its home — and its HEAD hand-off record
+    with its signature (device ids, names and a public key; never an address or a token), so the asker verifies the
+    claim before it follows (review of #569)."""
     from api.services import sync_log
 
     pin = _pin()
@@ -435,7 +443,7 @@ def peer_answer(memory_path) -> dict:
     return {"bankId": pin.id if pin is not None else None, "term": rec.term if rec is not None else 0,
             "role": me, "device": my_device_id(), "seq": seq,
             "home": rec.to if rec is not None else (my_device_id() if me == "home" else None),
-            "canHost": pinned_by_environment() is None}
+            "canHost": pinned_by_environment() is None, "record": rec.data if rec is not None else None}
 
 
 def _replica_seq() -> int | None:
@@ -688,6 +696,11 @@ def _move(memory_path: Path, to: dict, me: str, bank_id: str | None) -> None:
             raise MoveRefused("writers_busy", "A change was still being saved; try moving again in a moment.")
         # 2. Sealed: every bank writer refused now (the backstop), but the hand-off's own commits below.
         _close(memory_path, "sealed", to, new_term)
+        from api.services import sleep_cycle
+
+        if sleep_cycle.get_sleep_state().status == "running":
+            # A run that slipped in before the doors closed (review of #569): never carried half-written — called off.
+            raise MoveRefused("sleep_busy", "Sleep started just as the move began; try moving again in a moment.")
         with replica_guard.applying():
             try:
                 capture_commit.sweep(memory_path, everything=True)   # every capture record, settled or not
@@ -874,9 +887,38 @@ def notes() -> dict:
 
 
 def _check(rec, rows: list[dict]) -> str | None:
+    """None when ``rec`` holds: signed by its signer's registered key, and that signer not revoked (review of #569: a
+    stolen laptop the person revoked cannot take over)."""
     from api.services import home_record
 
-    return home_record.verify(rec, thumbprint_of(row(rows, rec.signer)))
+    signer = row(rows, rec.signer)
+    if signer is not None and signer.get("revoked_at"):
+        return "revoked_signer"
+    return home_record.verify(rec, thumbprint_of(signer))
+
+
+def outranks(term_a: int, home_a: str | None, term_b: int, home_b: str | None) -> bool:
+    """Does home ``a`` (under ``term_a``) win over home ``b``? A higher term wins; at an equal term — two take-overs at
+    once, or a take-over racing a move — the lower device id wins (review of #569), the same answer on every device,
+    so the loser supersedes itself and the two never stay homes side by side."""
+    if term_a != term_b:
+        return term_a > term_b
+    if not home_a or not home_b or home_a == home_b:
+        return False
+    return home_a < home_b
+
+
+def verified_peer(memory_path: Path, peer: dict) -> bool:
+    """A peer's claim to be the home is believed only with its HEAD record: verified (signature, the registry's key,
+    a signer not revoked), of this memory, naming that peer, at the term it says (review of #569)."""
+    from api.services import home_record
+
+    rec = home_record.Record(peer["record"]) if isinstance(peer.get("record"), dict) else None
+    pin = _pin()
+    if rec is None or rec.bank_id != (pin.id if pin else None) or rec.to != peer.get("device") \
+            or rec.term != int(peer.get("term") or 0):
+        return False
+    return _check(rec, _rows_with_signer(memory_path, rec)) is None
 
 
 def _rows_with_signer(memory_path: Path, rec) -> list[dict]:
@@ -905,6 +947,24 @@ def _refresh_mirror(memory_path: Path, address: str | None = None) -> list[dict]
     return None
 
 
+def pull_keys(address: str | None = None) -> int:
+    """Take the home's idempotency keys newer than the newest kept here (a copy does it with the registry; a new home
+    once more, from the closed old home, before it promotes). Returns how many it took."""
+    from api.services import idempotency, replica
+
+    since = max(0.0, idempotency.newest() - 60.0)
+    try:
+        if address:
+            status, body = _ask(address, f"/sync/keys?since={since}", _own_token(), timeout=10)
+        else:
+            status, _h, body = replica.request("GET", f"/sync/keys?since={since}", timeout=10)
+    except Exception:  # noqa: BLE001 — no token, offline
+        return 0
+    if status == 200 and isinstance(body, dict) and isinstance(body.get("keys"), list):
+        return idempotency.import_rows(body["keys"])
+    return 0
+
+
 def repoint(address: str) -> None:
     """Follow the home at ``address`` from now on (``replica_of``, read on every request): queued transactions go
     there by themselves."""
@@ -925,6 +985,8 @@ def promote(memory_path: Path, rec) -> None:
         return
     name, path, bank_id = bank_registry._active_record(Path(_settings().memory_root))   # noqa: SLF001
     frame = replica.home_frame() or {}
+    if rec.kind == "move":
+        pull_keys()          # the old home is closed, so its keys are final: take every one before admitting
     _write_json(_sync_root(create=True) / PROMOTE, {
         "bank": name, "bankPath": str(path), "bankId": bank_id, "term": rec.term, "me": my_device_id(),
         "schedule": frame.get("schedule"), "rows": registry(memory_path), "at": time.time()})
@@ -955,6 +1017,7 @@ def _finish_promote() -> bool:
     path = Path(journal.get("bankPath") or "")
     if path.exists():
         replica.marker_path(path, create=False).unlink(missing_ok=True)
+        mirror_path(path).unlink(missing_ok=True)          # its own store holds the group now
         _adopt_schedule(path, journal.get("schedule"))
     sync_publish.set_enabled(True)
     with replica.MODE_LOCK:
@@ -1110,6 +1173,12 @@ def take_over_preview(memory_path: Path) -> dict:
     if status == 200:
         return {"possible": False, "code": "home_reachable", "home": home_name,
                 "text": f"{home_name} answers, so it is not lost: move your memory from the Sleep page instead."}
+    # Review of #569: another device may already hold the memory (a move this copy has not heard of yet, or someone
+    # else's take-over): every device of the group is asked first, and any home at this term or later wins.
+    other = _another_home(memory_path, rec.term if rec is not None else 0)
+    if other is not None:
+        return {"possible": False, "code": "another_home", "home": other,
+                "text": f"{other} holds your memory now; this computer follows it in a moment."}
     seq = state.get("seq") or 0
     last_home = state.get("homeSeq") if isinstance(state.get("homeSeq"), int) else seq
     behind = max(0, last_home - seq)
@@ -1119,6 +1188,25 @@ def take_over_preview(memory_path: Path) -> dict:
             f"{home_name}, {when}. If you take over, those changes are not in your memory here; if {home_name} "
             f"comes back, what it changed is offered to this computer, never merged.")
     return {"possible": True, "behind": behind, "lastSeenAt": seen, "home": home_name, "seq": seq, "text": text}
+
+
+def _another_home(memory_path: Path, mine: int) -> str | None:
+    """The name of a device of the group that answers as the home of this memory at ``mine`` or a later term, or
+    None. Asked of every device with an address (3 s each)."""
+    pin = _pin()
+    token = _own_token()
+    me = my_device_id()
+    if not token:
+        return None
+    for r in registry(memory_path):
+        address = r.get("address")
+        if r.get("revoked_at") or not address or r.get("id") == me or r.get("kind") not in (None, "full"):
+            continue
+        status, peer = _ask(address, "/sync/peer", token)
+        if status == 200 and isinstance(peer, dict) and peer.get("bankId") == (pin.id if pin else None) \
+                and peer.get("role") == "home" and int(peer.get("term") or 0) >= mine:
+            return str(r.get("name") or "another computer")
+    return None
 
 
 def _take_back_preview(memory_path: Path) -> dict:
@@ -1244,7 +1332,9 @@ def find_home(memory_path: Path) -> str | None:
         if status != 200 or not isinstance(peer, dict) or peer.get("bankId") != (pin.id if pin else None):
             continue
         theirs = int(peer.get("term") or 0)
-        if peer.get("role") == "home" and (theirs > mine or (rec is not None and peer.get("device") == rec.to)):
+        if peer.get("role") == "home" and verified_peer(memory_path, peer) and (
+                outranks(theirs, peer.get("device"), mine, rec.to if rec is not None else None)
+                or (rec is not None and peer.get("device") == rec.to)):
             if (os.environ.get(runtime_layout.REPLICA_ENV) or "").strip():
                 _note("pinned", pinned_by_environment() or "")
                 return None
@@ -1312,7 +1402,8 @@ def check_peers(memory_path: Path) -> dict | None:
         status, peer = _ask(device.address, "/sync/peer", token)
         if status != 200 or not isinstance(peer, dict) or peer.get("bankId") != (pin.id if pin else None):
             continue
-        if peer.get("role") == "home" and int(peer.get("term") or 0) > mine:
+        if peer.get("role") == "home" and outranks(int(peer.get("term") or 0), peer.get("device"), mine, me) \
+                and verified_peer(memory_path, peer):
             to = {"device": peer.get("device") or device.id, "name": device.name, "address": device.address}
             logger.info(f"home move: {device.id} holds this memory under a newer term; following it")
             _close(memory_path, "superseding", to, int(peer.get("term") or 0))   # the doors at once
@@ -1341,10 +1432,13 @@ def _superseded_demote(memory_path: Path, to: dict, new_term: int) -> None:
 
 def reconcile(memory_path: Path, bundle: Path) -> dict | None:
     """The follower met a home whose history does not contain this copy's head (``unknown_base``). When the home's
-    record is newer than this copy's and its take-over point is in this copy's history, the commits past that point
-    are set aside on ``refs/cicada/set-aside/term-<n>`` — never merged, never dropped — and offered back as
-    transactions; the copy then takes the home's history. Returns the summary (words, counts), or None when the
-    copy simply diverged (the person's "Copy again")."""
+    record outranks this copy's (:func:`outranks`: a higher term, or the tie-break at an equal one) and verifies, the
+    commits this copy has past the point where the two histories part (their merge base) are set aside on
+    ``refs/cicada/set-aside/term-<n>`` — never merged, never dropped — and offered back as transactions; the copy then
+    takes the home's history. Crash-safe (review of #569): the ref, then the offers kept in the outbox (a refusal to
+    keep one stops here, nothing rewritten), and only then the rewrite; a cut anywhere is done again from the start,
+    and an offer kept twice is kept once (its key is its content). Returns the summary (words, counts), or None when
+    the copy simply diverged (the person's "Copy again")."""
     from api.services import git_service, replica_guard, tx_outbox
 
     memory_path = Path(memory_path)
@@ -1353,42 +1447,46 @@ def reconcile(memory_path: Path, bundle: Path) -> dict | None:
                               f"+HEAD:{git_service.HOME_REF}")
     theirs = record(memory_path, git_service.HOME_REF)
     mine = record(memory_path)
-    if theirs is None or theirs.term <= (mine.term if mine is not None else 0) or not theirs.after:
+    if theirs is None or not outranks(theirs.term, theirs.to, mine.term if mine else 0, mine.to if mine else None):
         return None
     rows = _rows_with_signer(memory_path, theirs)
     if _check(theirs, rows):
         return None
     old = _head(memory_path)
-    if not (_is_ancestor(memory_path, theirs.after, old) and _is_ancestor(memory_path, theirs.after,
-                                                                          git_service.HOME_REF)):
+    head_ref = _git_read(memory_path, "rev-parse", git_service.HOME_REF).strip()
+    fork = _git_read(memory_path, "merge-base", old, head_ref).strip()
+    if not fork:
         return None
-    orphans = [c for c in _git_read(memory_path, "rev-list", "--first-parent", f"{theirs.after}..{old}").split() if c]
+    orphans = [c for c in _git_read(memory_path, "rev-list", "--first-parent", f"{fork}..{old}").split() if c]
     me = my_device_id()
-    was_home = bool(mine is None or (mine.to == me)) and bool(me) and theirs.source == me
-    offers = _offers(memory_path, theirs, old, was_home=was_home or _has_journal(memory_path))
+    was_home = bool(me) and (theirs.source == me or _has_journal(memory_path))
+    offers = _offers(memory_path, theirs, fork, old, head_ref, was_home=was_home)
     ref = f"{SET_ASIDE_REF}/term-{theirs.term}"
-    with git_service.write_lock(memory_path), replica_guard.applying():
-        if orphans:
+    if orphans:
+        with git_service.write_lock(memory_path), replica_guard.applying():
             git_service._git_sync(memory_path, "update-ref", ref, old)   # noqa: SLF001
-        git_service.fast_forward_sync(memory_path, bundle, rewrite=True)
     for entry in offers["entries"]:
-        tx_outbox.keep(entry)
+        if not tx_outbox.keep(entry):
+            raise RuntimeError("the outbox refused an offer; nothing was rewritten")
+    with git_service.write_lock(memory_path), replica_guard.applying():
+        git_service.fast_forward_sync(memory_path, bundle, rewrite=True)
     from api.services import admitted_log
 
     admitted_log.clear(memory_path)
     summary = {"term": theirs.term, "home": theirs.to_name, "ref": ref if orphans else None,
                "commits": len(orphans), "episodes": offers["episodes"], "calls": offers["calls"],
-               "at": time.time(), "wasHome": offers["wasHome"]}
+               "unoffered": offers["unoffered"], "at": time.time(), "wasHome": offers["wasHome"]}
     summary["text"] = set_aside_text(summary)
     _write_json(_set_aside_path(memory_path), summary)
     logger.info(f"home move: {len(orphans)} commits set aside, {offers['episodes']} episodes and {offers['calls']} "
-                f"calls offered to the new home")
+                f"calls offered to the new home, {sum(offers['unoffered'].values())} not offerable")
     return summary
 
 
 def set_aside_text(s: dict) -> str:
     n, home = int(s.get("commits") or 0), s.get("home") or "the new home"
-    if n == 0 and not s.get("episodes") and not s.get("calls"):
+    unoffered = s.get("unoffered") or {}
+    if n == 0 and not s.get("episodes") and not s.get("calls") and not unoffered:
         return f"{home} took over; nothing made here was left out."
     plural = "s" if n != 1 else ""
     lead = (f"{n} change{plural} made on this computer after {home} took over" if s.get("wasHome")
@@ -1401,6 +1499,10 @@ def set_aside_text(s: dict) -> str:
         sent.append(f"{s['calls']} other change{'s' if s['calls'] != 1 else ''}")
     tail = (f" {' and '.join(sent)} were sent to {home} to apply; what Sleep wrote from them, {home} writes again "
             f"when it reads them." if sent else " None of them could be sent as a change to apply.")
+    if unoffered:
+        named = ", ".join(f"{count} × {tool}" for tool, count in sorted(unoffered.items()))
+        tail += (f" Not sent, because an app connected from outside made them and only it can say them again: "
+                 f"{named}. They stay in what is kept aside here.")
     return f"{lead} {'are' if n != 1 else 'is'} kept aside here, never merged.{tail}"
 
 
@@ -1411,7 +1513,9 @@ def _set_aside_path(memory_path: Path) -> Path:
 
 
 def set_aside(memory_path: Path) -> dict | None:
-    return _read_json(_set_aside_path(memory_path))
+    from api.services import sync_publish
+
+    return _read_json(sync_publish.bank_dir(memory_path, create=False) / SET_ASIDE)
 
 
 def _has_journal(memory_path: Path) -> bool:
@@ -1436,34 +1540,38 @@ def _git_read(memory_path: Path, *args: str) -> str:
         return ""
 
 
-def _offers(memory_path: Path, theirs, old: str, *, was_home: bool) -> dict:
-    """The transactions that offer the set-aside range back: first the calls this computer admitted as the home
-    after the take-over point (``admitted_log``; a copy that never was the home has none), then every episode the
-    range added or changed, through the new home's own episode writer (``POST /capture/offered``)."""
+def _offers(memory_path: Path, theirs, fork: str, old: str, head_ref: str, *, was_home: bool) -> dict:
+    """The transactions that offer the set-aside range back: first the calls this computer admitted as the home whose
+    commit the new home's history does not hold (``admitted_log.not_in``; a copy that never was the home has none),
+    then every episode the range added or changed (``fork..old``), through the new home's own episode writer
+    (``POST /capture/offered``). A remote app's writes are counted by tool, never sent (``unoffered``)."""
     from api.services import admitted_log, git_service, tx_outbox
 
     bank_id = theirs.bank_id
     entries: list[dict] = []
     calls = 0
+    unoffered: dict[str, int] = {}
     if was_home:
-        for e in admitted_log.entries(memory_path, since_seq=theirs.seq):
+        for e in admitted_log.not_in(memory_path, head_ref, since_seq=theirs.seq):
             key = hashlib.sha256(json.dumps(e, sort_keys=True).encode("utf-8")).hexdigest()[:32]
             if e.get("kind") == "tool":
                 entries.append(tx_outbox.tool_entry(e.get("tool"), e.get("arguments") or {}, bank_id=bank_id,
                                                     base_seq=None, caller=e.get("caller") or {},
-                                                    surface=e.get("surface") or "mcp", options=e.get("options") or {},
-                                                    key=key))
+                                                    surface=e.get("surface") if e.get("surface") in ("mcp", "cli")
+                                                    else "mcp", options=e.get("options") or {}, key=key))
             elif e.get("kind") == "rest":
                 try:
                     entries.append(tx_outbox.rest_entry(e["method"], e["path"], e.get("query") or "",
                                                         base64.b64decode(e.get("body") or ""), e.get("contentType"),
                                                         bank_id=bank_id, base_seq=None, key=key))
                 except (KeyError, ValueError):
+                    unoffered[str(e.get("path"))] = unoffered.get(str(e.get("path")), 0) + 1
                     continue
             else:
+                unoffered[str(e.get("tool"))] = unoffered.get(str(e.get("tool")), 0) + 1
                 continue
             calls += 1
-    fields = [f for f in _git_read(memory_path, "diff", "--name-status", "-z", "--no-renames", theirs.after, old,
+    fields = [f for f in _git_read(memory_path, "diff", "--name-status", "-z", "--no-renames", fork, old,
                                    "--", "episodes/").split("\0") if f]
     paths = [p for status, p in zip(fields[0::2], fields[1::2])
              if not status.startswith("D") and p.startswith("episodes/ep_") and p.endswith(".md")]
@@ -1481,8 +1589,8 @@ def _offers(memory_path: Path, theirs, old: str, *, was_home: bool) -> dict:
                                                 bank_id=bank_id, base_seq=None, key=key))
             episodes += 1
         except ValueError:
-            continue
-    return {"entries": entries, "calls": calls, "episodes": episodes, "wasHome": was_home}
+            unoffered[rel] = 1
+    return {"entries": entries, "calls": calls, "episodes": episodes, "unoffered": unoffered, "wasHome": was_home}
 
 
 # --- the Sleep page ------------------------------------------------------------------------------------------------------

@@ -493,6 +493,17 @@ async def get_sync_devices(settings: Settings = Depends(get_settings)):
     return {"devices": rows}
 
 
+@router.get("/keys")
+async def get_sync_keys(since: float = Query(0, ge=0), settings: Settings = Depends(get_settings)):
+    """The idempotency keys this home kept (their sha256 and the answers they replay, 8 days), for the person's other
+    full devices: a write sent again after the home moved is applied once there too (review of #569). Only while
+    this memory is shared."""
+    from api.services import idempotency
+
+    await _shared(settings)
+    return {"keys": await run_in_threadpool(idempotency.export_since, since)}
+
+
 @router.post("/devices/me")
 async def post_sync_devices_me(body: AnnounceBody, request: Request, settings: Settings = Depends(get_settings)):
     """A device of the group says where it is reached, the key it signs a hand-off with (set once) and how far its

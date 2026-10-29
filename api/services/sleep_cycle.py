@@ -1794,6 +1794,13 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True,
 
     _state.status = "running"
     _state.cycle_id = cycle_id
+    if home_move.writes_closed():
+        # Review of #569: a move closed the doors between the check above and the slot taken here — the move parks
+        # what it sees running and waits out admission, so a run must never start behind it: let go at once.
+        _state.status = "idle"
+        _state.writing = False
+        logger.info("Sleep: not started — this computer's memory is moving to another computer")
+        return
     _state.started_at = datetime.now().isoformat()
     _state.started_monotonic = time.monotonic()
     _state.progress = "Starting..."

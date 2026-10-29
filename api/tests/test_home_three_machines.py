@@ -17,7 +17,6 @@ issued). Shown, synthetic data and placeholder names only, nothing leaves loopba
 from __future__ import annotations
 
 import json
-import os
 import signal
 import subprocess
 import time
@@ -166,7 +165,15 @@ def test_the_home_moves_and_every_device_follows(trio):
     record_commit = _git(bravo.bank, "log", "-1", "--format=%H", "--", "_home.json").strip()
     assert _git(bravo.bank, "merge-base", "--is-ancestor", before, record_commit) == ""
     assert "trigger: sync/handoff" in _git(bravo.bank, "log", "-1", "--format=%B", record_commit)
-    assert _head(alpha) == _head(bravo) and _git(alpha.bank, "status", "--porcelain", "--untracked-files=no") == ""
+    # The copy never commits: its head is always in the new home's history. The new home may commit in between (its
+    # primer, refreshed and committed alone when a copy reads its status — review of #569's flake): the copy then
+    # catches up to it.
+    copy_head, home_head = _head(alpha), _head(bravo)
+    between = _git(bravo.bank, "log", "--format=%s", f"{copy_head}..{home_head}")
+    ancestor = subprocess.run(["git", "merge-base", "--is-ancestor", copy_head, home_head], cwd=str(bravo.bank))
+    assert ancestor.returncode == 0, between                               # the copy made no commit of its own
+    assert _wait(lambda: _head(alpha) == _head(bravo), 30), between
+    assert _git(alpha.bank, "status", "--porcelain", "--untracked-files=no") == ""
     assert (alpha.cicada_home / "replica_of").read_text().strip() == bravo.url
     assert not (bravo.cicada_home / "replica_of").exists()
     assert _home(bravo)["home"]["me"] and _home(alpha)["role"] == "replica"
