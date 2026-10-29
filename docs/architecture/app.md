@@ -66,6 +66,12 @@ Agents page, ⌘9, `AppTab.agents`, appended so no shortcut moved — DR-22).
   The QR's `url` is the backend's to fill (this machine's Tailscale name for the backend port, when it can tell); the
   app sends none. With it the sheet says the address and "Scan with Cicada on your phone"; without it, one line says
   which address to type.
+  **2026-10-29 (G212):** each device row's line adds what it may do (*Capture only* / *Full access*) and its key state
+  (*Key-bound* / *Not yet key-bound*); Revoke keeps its confirmation (DESIGN_RULES' destructive rule) and the next
+  request is refused. *Reach from your phone* (`DeviceReachSection`) sits in the list card above *Pair a device*: a
+  `StatusDot` and one line from `GET /devices/reach?check=true` (read on appear, never polled), the one next step in
+  words, the step's command in a `CommandBox` to copy (Cicada never runs it), *Get Tailscale* where it is missing, and
+  where the live check stopped (DR-19, DR-38, DR-39, DR-40, DR-51; no new visual pattern).
   *Memory on* and the folded *Apps outside this machine* (the remote connector, `page:remote`) follow.
 - **Privacy & data** gains Search & memory's one row (*Search runs on this Mac* and the sharper-model download); the
   fade card shows only while it holds a suggestion or a chosen pace. Watched folders are sources (`WatchedFoldersGroup`

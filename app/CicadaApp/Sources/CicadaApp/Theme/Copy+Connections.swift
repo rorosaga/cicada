@@ -109,6 +109,50 @@ extension Copy {
         static let noAddress = "On the device, type the address you reach this Mac at, e.g. its Tailscale name."
         static let apps = "Apps outside this machine"
         static func waiting(_ n: Int) -> String { n == 1 ? "1 waiting" : "\(n) waiting" }
+        /// 2026-10-29: a device's rights and key, each one word in its row (DR-38: said once).
+        static let captureOnly = "Capture only"
+        static let fullAccess = "Full access"
+        static let keyBound = "Key-bound"
+        static let notKeyBound = "Not yet key-bound"
+
+        /// 2026-10-29 — the guided reach step: one state line and one next step, never a tutorial. Tailscale is named
+        /// because it is the person's own overlay (the row's own product), never as the one doing Cicada's job.
+        enum Reach {
+            static let title = "Reach from your phone"
+            static let check = "Check again"
+            static let checking = "Checking…"
+            static let getTailscale = "Get Tailscale"
+            static let downloadURL = URL(string: "https://tailscale.com/download")!
+            static let ready = "Your phone can reach this Mac."
+            static func readyAt(_ url: String) -> String { "Your devices reach this Mac at \(url)." }
+
+            /// The one next step for each `reach.GUIDE_STEPS` word.
+            static func step(_ step: String) -> String {
+                switch step {
+                case "install": "Install Tailscale on this Mac and your phone, signed in to the same account."
+                case "open": "Open Tailscale on this Mac."
+                case "sign-in": "Sign in to Tailscale on this Mac."
+                case "turn-on": "Tailscale is off on this Mac. Turn it on from its menu."
+                case "serve": "Run this once in Terminal. It stays private to your own devices:"
+                case "unfunnel": "This Mac's Cicada is open to the internet. Close it with:"
+                case "ready": "Your devices reach this Mac on Tailscale."
+                default: "Cicada could not read Tailscale's state."
+                }
+            }
+
+            /// Where the live check stopped (`reach.CHECK_FAILURES`), and what to do about it.
+            static func failed(_ failed: String) -> String {
+                switch failed {
+                case "dns": "Stopped at the name: turn on MagicDNS in your Tailscale admin console."
+                case "overlay": "Stopped at Tailscale: the name was found but nothing answered. Turn on HTTPS "
+                    + "certificates in your Tailscale admin console, then check again."
+                case "backend": "Stopped at Cicada: Tailscale answered but did not reach Cicada behind it."
+                case "not-cicada": "Something other than Cicada answers at that address."
+                case "other-cicada": "Another Cicada answers at that address, not this one."
+                default: "The check did not finish. Try again."
+                }
+            }
+        }
         static func expires(_ date: Date) -> String {
             "Expires \(date.formatted(.dateTime.hour().minute()))"
         }

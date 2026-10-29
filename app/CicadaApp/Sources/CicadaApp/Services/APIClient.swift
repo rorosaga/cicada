@@ -3746,6 +3746,12 @@ actor APIClient {
         return try await post("/devices/pairing", body: body)
     }
 
+    /// `GET /devices/reach` (2026-10-29): the guided reach step; `check` also fetches this Mac's own served address the
+    /// way a phone would (the backend's one bounded fetch, on the person's open or click).
+    func fetchDeviceReach(check: Bool) async throws -> DeviceReach {
+        try await get(check ? "/devices/reach?check=true" : "/devices/reach", timeout: Self.refreshTimeout)
+    }
+
     func pairingState(_ id: String) async throws -> PairingAnswer {
         try await get("/devices/pairing/\(encodedID(id))", timeout: Self.refreshTimeout)
     }

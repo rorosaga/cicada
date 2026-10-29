@@ -147,6 +147,9 @@ struct DevicesSettingsView: View {
                     }
                 }
                 if model.canManage {
+                    // 2026-10-29: the guided reach step sits right above the button it makes work.
+                    SettingsDivider()
+                    DeviceReachSection()
                     SettingsDivider()
                     HStack {
                         Spacer()
@@ -243,6 +246,15 @@ struct DevicesSettingsView: View {
             parts.append(row.connected ? Copy.AgentsPage.seen(seen, now: now) : Copy.AgentsPage.lastSeen(seen))
         }
         if row.queue > 0 { parts.append(Copy.DevicesPage.waiting(row.queue)) }
+        // 2026-10-29: what the device may do and whether its token needs its own key — only when the backend says.
+        if !row.isServer {
+            switch row.kind {
+            case "capture": parts.append(Copy.DevicesPage.captureOnly)
+            case "full": parts.append(Copy.DevicesPage.fullAccess)
+            default: break
+            }
+            if let bound = row.keyBound { parts.append(bound ? Copy.DevicesPage.keyBound : Copy.DevicesPage.notKeyBound) }
+        }
         return parts.joined(separator: " · ")
     }
 

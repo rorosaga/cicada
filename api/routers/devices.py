@@ -109,6 +109,14 @@ class PairRequest(BaseModel):
     code: str = Field(..., min_length=1, max_length=40)
     #: The device's own name for itself (its host name, the phone's name) — what the person sees in Devices.
     name: str = Field(..., min_length=1, max_length=200)
+    #: 2026-10-29: what the device asks to be. It may only narrow the code (a phone asks for ``capture``, so a computer's
+    #: code shown by mistake still mints a capture-only phone), never widen it. Omitted: the code's own kind.
+    kind: Literal["capture", "full"] | None = None
+
+
+class BindKeyRequest(BaseModel):
+    #: ``capture`` also narrows the asking device to capture-only (a phone paired before kinds existed). Never widens.
+    narrow: Literal["capture"] | None = None
 
 
 def _pair_url(raw: str | None) -> str | None:
@@ -172,16 +180,81 @@ async def cancel_pairing(pairing_id: str):
 
 
 @router.post("/pair", status_code=201)
-async def redeem_pairing(req: PairRequest):
+async def redeem_pairing(req: PairRequest, request: Request):
     """Open (``auth._STATIC_OPEN_PATHS``): the code is the credential. Any code that matches nothing waiting is one
-    404, whatever the reason, and ten a minute is the most this door answers."""
+    404, whatever the reason, and ten a minute is the most this door answers.
+
+    2026-10-29: a ``DPoP`` header with a proof of the device's own key for this request (``device_proof``, no ``ath``:
+    there is no token yet) makes the token **key-bound** from birth. A proof that is there but does not pass is a 400
+    that spends nothing — the code still waits — so a phone with a wrong clock can be told so and try again."""
     if not _wrong_codes().take():
         raise HTTPException(status_code=429, detail="Too many codes — wait a minute.", headers={"Retry-After": "60"})
+    from api.services import device_proof
+
+    jkt = None
+    proof = request.headers.get(device_proof.HEADER)
+    if proof:
+        try:
+            jkt = device_proof.verify(proof, method="POST", path=request.url.path)
+        except device_proof.ProofError as exc:
+            raise HTTPException(status_code=400, detail=f"This device's key proof did not pass ({exc.reason}). "
+                                                        "Check its clock and scan again.") from None
     try:
-        device, token = await run_in_threadpool(lambda: device_tokens.store().redeem(req.code, req.name))
+        device, token = await run_in_threadpool(
+            lambda: device_tokens.store().redeem(req.code, req.name, key_thumbprint=jkt, kind=req.kind))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
     except KeyError:
         raise HTTPException(status_code=404, detail="No pairing waits with that code — it was used, cancelled or "
                                                     "expired. Ask for a new one.") from None
     return {"device": device.wire(), "token": token}
+
+
+# ── 2026-10-29: a device binds itself to its key; this machine's reach on the person's overlay ────────────────────
+
+@router.post("/devices/me/key")
+async def bind_own_key(req: BindKeyRequest, request: Request):
+    """An already-paired device upgrades itself to key-bound (``auth.DEVICE_SELF_ROUTES``: any device token, about the
+    asking device only). The request carries its bearer token and a ``DPoP`` proof of the key, with ``ath``; the
+    server keeps the key's thumbprint and from the next request on the token works only with a proof. Binding the key
+    it already has is ``changed: false``; another key is 409 (a new key is a new pairing). ``narrow: "capture"`` also
+    makes the device capture-only. The master token has no device: 400."""
+    from api.services import auth, device_proof
+
+    device = getattr(request.state, "device", None)
+    if device is None:
+        raise HTTPException(status_code=400, detail="Only a paired device binds its own key.")
+    jkt = getattr(request.state, "device_jkt", None)
+    if jkt is None:   # not yet bound: the gate checked no proof, so this route does
+        try:
+            jkt = device_proof.verify(request.headers.get(device_proof.HEADER), method="POST",
+                                      path=request.url.path, token=auth.credential(request.headers.get("authorization")))
+        except device_proof.ProofError as exc:
+            raise auth.proof_refusal(exc.reason) from None
+    try:
+        bound, changed = await run_in_threadpool(
+            lambda: device_tokens.store().bind_key(device.id, jkt, narrow_to=req.narrow))
+    except KeyError:
+        raise HTTPException(status_code=401, detail="missing or invalid bearer token") from None
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from None
+    return {"device": bound.wire(), "changed": changed}
+
+
+@router.get("/devices/reach")
+async def device_reach(request: Request, check: bool = False, settings: Settings = Depends(get_settings)):
+    """Settings → Devices' guided reach step (master token: under ``/devices``). Where this machine stands on the
+    person's overlay — ``tailscale`` (missing, not-running, logged-out, stopped, running), ``step`` (one of
+    ``reach.GUIDE_STEPS``), ``command`` (the exact command to copy, when one is the step), ``url`` (the served address
+    a QR carries, ``ready`` only) and ``dnsName``. ``check=true`` also fetches this machine's own ``/healthz`` through
+    that address, the way a phone would (``reach.self_check``), and names where it stopped. Cicada only looks: two
+    bounded read-only CLI reads, and the one fetch on the person's ask. Not a Store domain; no ETag."""
+    from api.remote import reach
+    from api.routers.status import _active_bank_id
+
+    answer = await run_in_threadpool(reach.guide, settings.port)
+    answer["check"] = None
+    if check and answer.get("url"):
+        answer["check"] = await run_in_threadpool(
+            lambda: reach.self_check(answer["url"], version=request.app.version, bank_id=_active_bank_id(settings)))
+    return answer

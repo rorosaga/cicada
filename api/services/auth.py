@@ -120,15 +120,53 @@ def auth_enabled() -> bool:
     return os.environ.get("CICADA_API_AUTH", "on").strip().lower() not in {"off", "0", "false"}
 
 
-def bearer_admits(authorization: str | None) -> bool:
+def credential(authorization: str | None) -> str:
+    """The token an ``Authorization`` header carries: ``Bearer <token>``, or ``DPoP <token>`` — the scheme RFC 9449
+    gives a key-bound token (2026-10-29). Either scheme reaches the same check; what makes a bound token work is the
+    proof beside it, never the word in front of it. "" for anything else."""
+    if not authorization:
+        return ""
+    scheme, _, rest = authorization.partition(" ")
+    return rest.strip() if scheme.lower() in ("bearer", "dpop") else ""
+
+
+#: 2026-10-29: the words a refused proof answers (the reason itself rides ``WWW-Authenticate``, an enum).
+PROOF_REFUSED = ("This device's token works only with its own key, and this request's proof did not pass. "
+                 "Check the device's clock, or pair it again.")
+
+
+def proof_refusal(reason: str) -> HTTPException:
+    return HTTPException(status_code=401, detail=PROOF_REFUSED, headers={
+        "WWW-Authenticate": f'DPoP error="invalid_dpop_proof", error_description="{reason}"',
+        "Cache-Control": "no-store"})
+
+
+def check_proof(device, token: str, request: Request) -> str | None:
+    """A key-bound device's request must carry a proof of that key for this very request (``device_proof``): the
+    thumbprint, else :class:`HTTPException` 401 — never a fall back to bearer. An unbound device: None, nothing
+    checked (the proof header, if any, is ignored)."""
+    if not getattr(device, "key_thumbprint", None):
+        return None
+    from api.services import device_proof
+
+    try:
+        jkt = device_proof.verify(request.headers.get(device_proof.HEADER), method=request.method,
+                                  path=request.url.path, token=token)
+    except device_proof.ProofError as exc:
+        raise proof_refusal(exc.reason) from None
+    if not secrets.compare_digest(jkt, device.key_thumbprint):
+        raise proof_refusal("wrong_key")
+    return jkt
+
+
+def bearer_admits(authorization: str | None, request: Request | None = None) -> bool:
     """Whether an ``Authorization`` header carries the master token or an active device token — for an OPEN route that
     says more to a caller who holds one (``/healthz``'s paths, owner decision 3, 2026-10-16). True when auth is off.
-    Never raises; an unreadable device store admits nothing."""
+    A key-bound device admits only with its proof (``request`` carries it; without one it never admits). Never raises;
+    an unreadable device store admits nothing."""
     if not auth_enabled():
         return True
-    supplied = ""
-    if authorization and authorization.lower().startswith("bearer "):
-        supplied = authorization[7:].strip()
+    supplied = credential(authorization)
     if not supplied:
         return False
     if secrets.compare_digest(supplied.encode("utf-8"), get_token().encode("utf-8")):
@@ -142,7 +180,16 @@ def bearer_admits(authorization: str | None) -> bool:
     except Exception:  # noqa: BLE001 — fail closed
         return False
     # G212: a capture-only device (a phone) gets the open answer — liveness and identity, never the memory's path.
-    return device is not None and device.kind != "capture"
+    if device is None or device.kind == "capture":
+        return False
+    if device.key_bound:
+        if request is None:
+            return False
+        try:
+            check_proof(device, supplied, request)
+        except HTTPException:
+            return False
+    return True
 
 
 def get_token() -> str:
@@ -179,6 +226,9 @@ _MASTER_ONLY_WRITE_METHODS = frozenset({"POST", "PUT", "PATCH"})
 #: paths, never prefixes; `/healthz` is open to anyone. Every other route answers 403 to it, the device routes included.
 CAPTURE_ROUTES = frozenset({("POST", "/sources/save"), ("POST", "/capture/note"), ("POST", "/capture/file"),
                             ("GET", "/capture/mine")})
+#: 2026-10-29: what any device token may do to ITSELF, whatever its kind: bind its own key (and narrow itself to
+#: capture-only). Under `/devices`, but about the asking device alone — never another, never a new one.
+DEVICE_SELF_ROUTES = frozenset({("POST", "/devices/me/key")})
 
 
 def _master_only(path: str, method: str = "GET") -> bool:
@@ -209,9 +259,7 @@ async def require_token(
     device_context.bind(None)
     if not auth_enabled() or request.url.path in _OPEN_PATHS:
         return
-    supplied = ""
-    if authorization and authorization.lower().startswith("bearer "):
-        supplied = authorization[7:].strip()
+    supplied = credential(authorization)
     if supplied and secrets.compare_digest(supplied.encode("utf-8"), get_token().encode("utf-8")):
         return
     from api.services import device_tokens
@@ -224,10 +272,15 @@ async def require_token(
             device = None
     if device is None:
         raise HTTPException(status_code=401, detail="missing or invalid bearer token")
-    if _master_only(request.url.path, request.method):
-        raise HTTPException(status_code=403, detail="only the server's own token may do this")
-    if device.kind == "capture" and (request.method.upper(), request.url.path) not in CAPTURE_ROUTES:
-        raise HTTPException(status_code=403, detail="this device may only send captures")
+    # 2026-10-29: a key-bound token is checked against its proof before anything else is said about it (a copied
+    # bound token learns nothing from a 403 either).
+    request.state.device_jkt = check_proof(device, supplied, request)
+    route = (request.method.upper(), request.url.path)
+    if route not in DEVICE_SELF_ROUTES:
+        if _master_only(request.url.path, request.method):
+            raise HTTPException(status_code=403, detail="only the server's own token may do this")
+        if device.kind == "capture" and route not in CAPTURE_ROUTES:
+            raise HTTPException(status_code=403, detail="this device may only send captures")
     request.state.device = device
     device_context.bind(device.id)
     try:
