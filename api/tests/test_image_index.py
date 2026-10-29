@@ -272,6 +272,18 @@ def test_search_never_loads_the_image_encoder(bank, tmp_path, monkeypatch):
     assert image_index.search(bank, "blue", embed_fn=text_embed)
 
 
+def test_a_lone_picture_answers_only_a_query_about_it(bank, tmp_path, monkeypatch):
+    """Review of #529: the owner's bank has exactly one look — it must not answer every recall."""
+    image_index.refresh(bank, EMBEDDER, pictures=_pictures(tmp_path / "pics", {"look:only": b"red:1"}))
+    assert image_index.search(bank, "tax form", embed_fn=text_embed) == []
+    assert image_index.search(bank, "red", embed_fn=text_embed) == [], "uncalibrated model: a lone picture never shows"
+    monkeypatch.setattr(image_index, "calibrated", lambda model: True)
+    monkeypatch.setattr(image_index, "LONE_PICTURE_COSINE_MIN", 0.3)
+    assert image_index.search(bank, "tax form", embed_fn=text_embed) == []
+    hits = image_index.search(bank, "red", embed_fn=text_embed)
+    assert [h["key"] for h in hits] == ["look:only"] and hits[0]["score"] == hits[0]["cosine"]
+
+
 def test_no_table_no_hits(bank):
     assert image_index.search(bank, "red", embed_fn=text_embed) == []
     assert image_index.status(bank) == {"pictures": 0}

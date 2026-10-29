@@ -398,12 +398,14 @@ def search_text(memory_path, query: str, *, top_k: int = 8, embed_fn=None) -> li
         return []
     finally:
         conn.close()
+    # A lone passage, or a count the stats don't record (n = 0), is never shown for free (review of #529): its cosine
+    # must reach the absolute floor measured for EmbeddingGemma 2, and on any other model it isn't shown at all.
+    lone_min = image_index.LONE_TEXT_COSINE_MIN if image_index.calibrated(indexer.kind_model(TEXT_KIND)) else None
     out = []
     for h in hits:
-        lift = image_index.loo_lift(float(h["score"]), mean, n)
-        if lift < TEXT_LIFT_MIN:
+        score = image_index.clears(float(h["score"]), mean, n, lift_min=TEXT_LIFT_MIN, lone_min=lone_min)
+        if score is None:
             break
-        score = lift if lift != float("inf") else float(h["score"])   # a lone passage: its cosine
         out.append({"key": (h.get("metadata") or {}).get("file_id", ""), "score": round(score, 4),
                     "cosine": round(float(h["score"]), 4), "text": h.get("text") or "",
                     "metadata": h.get("metadata") or {}})
