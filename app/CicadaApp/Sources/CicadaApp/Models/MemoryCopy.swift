@@ -68,6 +68,11 @@ final class MemoryCopyModel {
     func canShare(isDemo: Bool) -> Bool { replica?.mode == "local" && publish?.demo == false && !isDemo }
     func isDemoMemory(isDemo: Bool) -> Bool { isDemo || publish?.demo == true }
 
+    /// Does a running Sleep hold the copy switch (DR-41)? Only on a Mac that is not a copy (review of #567): a copy never
+    /// runs Sleep — the run the Store shows there is the home's — so "Stop keeping a copy" stays available, and the
+    /// copy's following, behind and on-its-way lines stay shown.
+    nonisolated static func sleepBlocks(sleeping: Bool, isCopy: Bool) -> Bool { sleeping && !isCopy }
+
     /// A failed read keeps what the card last showed (review of #567): the card never drops to nothing mid-page.
     func refresh() async {
         if let fresh = try? await APIClient.shared.fetchReplica() {

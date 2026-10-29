@@ -15,7 +15,8 @@ struct MemoryCopySetting: View {
 
     /// The open memory is a demo (the Store's roster, beside the backend's own answer): it is never shared.
     private var inDemo: Bool { model.isDemoMemory(isDemo: DemoMode.isShowing(store.banks.value, bank: store.bank)) }
-    /// Changing where the memory lives waits while Sleep runs here (DR-41, review of #567): the switch is off, and why.
+    /// The Sleep the Store shows: this Mac's own — or, on a copy, the home's (`replica.home_sleep()`), which never
+    /// stops this Mac from leaving its copy (`MemoryCopyModel.sleepBlocks`).
     private var sleeping: Bool { ProjectWriteGate.sleepRunning(store.status.value) }
 
     var body: some View {
@@ -64,12 +65,13 @@ struct MemoryCopySetting: View {
             }))
             .labelsHidden()
             .toggleStyle(.switch)
-            .disabled(model.busy || model.restarting || sharing || inDemo || sleeping)
+            .disabled(model.busy || model.restarting || sharing || inDemo
+                      || MemoryCopyModel.sleepBlocks(sleeping: sleeping, isCopy: isCopy))
         } below: {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                 if model.restarting {
                     caption(Copy.MemoryCopy.restarting)
-                } else if sleeping {
+                } else if MemoryCopyModel.sleepBlocks(sleeping: sleeping, isCopy: isCopy) {
                     caption(Copy.MemoryCopy.waitForSleep)
                 } else if inDemo && !isCopy {
                     caption(Copy.MemoryCopy.notForDemo)

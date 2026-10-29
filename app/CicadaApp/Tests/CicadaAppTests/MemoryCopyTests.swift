@@ -42,6 +42,17 @@ final class MemoryCopyTests: XCTestCase {
         XCTAssertFalse(model.canShare(isDemo: true))     // the Store says the open bank is the demo
     }
 
+    /// Review of #567: on a copy the Sleep frame is the home's, so a long run there never disables "Stop keeping a copy";
+    /// on this Mac's own memory a running Sleep still holds the switch.
+    func testAHomesSleepNeverHoldsTheCopysStopSwitch() throws {
+        let state = try JSONDecoder().decode(ReplicaState.self, from: Data(
+            (#"{"mode": "replica", "conflict": null, "home": "home.example", "outbox": null,"#
+             + #" "replica": {"status": "following", "text": "Following.", "seq": 3, "homeSeq": 4, "behind": 1}}"#).utf8))
+        XCTAssertFalse(MemoryCopyModel.sleepBlocks(sleeping: true, isCopy: state.isReplica))
+        XCTAssertTrue(MemoryCopyModel.sleepBlocks(sleeping: true, isCopy: false))
+        XCTAssertFalse(MemoryCopyModel.sleepBlocks(sleeping: false, isCopy: false))
+    }
+
     func testTheBackendsOwnSentenceIsShown() {
         XCTAssertEqual(MemoryCopyModel.detail(#"{"detail": "That code was not accepted."}"#), "That code was not accepted.")
         XCTAssertNil(MemoryCopyModel.detail("not json"))
