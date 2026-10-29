@@ -180,6 +180,8 @@ struct SourceCatalogDetail: View {
     @State private var consentYouTube: YouTubeList?
     @Environment(LocalSourceWatcher.self) private var localSources
     @State private var flowTile: AddSourceTile?
+    /// The connector panel's export walkthrough binding; a tier-2 connector has no export walkthrough.
+    @State private var vendor: WalkthroughVendor = .claude
     @State private var browsers = BrowserInventory.empty
     /// G218 (owner 2026-10-26) — the Traces page is on the rail.
     @AppStorage(TracesPageVisibility.key) private var tracesPage = false
@@ -304,8 +306,13 @@ struct SourceCatalogDetail: View {
                 IntakePanel(origin: .emptyState(.sources), compact: true)
                 tileButton(Copy.Catalog.importFile)
             }
+        case "readwise":
+            // Ruling 47 tier 2: the connector panel the accounts already use (DR ids in the PR) — no new pattern.
+            ConnectorSetupPanel(connectorId: "readwise", vendors: [], vendor: $vendor)
         case "notion":
             // G219 slice 1: the export's steps, then the one intake's drop (it reads the zip, previews it, imports).
+            // Ruling 47 tier 2: the live connection first, in the same panel the accounts use.
+            ConnectorSetupPanel(connectorId: "notion-api", vendors: [], vendor: $vendor)
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                 Text(Copy.Catalog.notionHow)
                     .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary)

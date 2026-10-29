@@ -418,6 +418,8 @@ async def _poll_connectors_safely(memory_path: Path) -> None:
         return
 
     for adapter in ADAPTERS.values():
+        if getattr(adapter, "TIER", 1) == 2:
+            continue    # ruling 47 tier 2 runs on its own schedule and yields to Sleep; never inside a Sleep run
         try:
             result = await adapter.sync(memory_path)
             if result.get("status") == "ok" and result.get("new"):

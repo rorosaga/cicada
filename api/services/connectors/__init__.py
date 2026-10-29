@@ -55,6 +55,11 @@ An OAuth adapter (``LOGIN_MODE == "oauth"``) additionally exposes:
     authorize_url(state, *, base_url) -> str
     async def exchange_code(code, *, state="", http_fn=None, base_url) -> None
 
+A tier-2 adapter (``TIER == 2``, ruling 47 — ``tier2.py``) additionally exposes ``TOKEN_ENV``, ``API_BASE``,
+``READS`` (what it reads, in words), ``TOKEN_HELP``, ``REFUSED_WORDS``, ``auth_headers(token)``,
+``async check(client)`` (run on the person's Save) and ``async fetch(client, cursor, memory_path) -> Batch``; its
+``sync`` stages episodes instead of ``RawItem``s, and Sleep's tail never runs it.
+
 A PKCE adapter (X today) keeps its ``code_verifier`` entirely internal,
 minted in ``authorize_url`` and consumed in ``exchange_code``, both keyed by
 ``state`` — the router never sees or stores it.
@@ -64,10 +69,13 @@ from __future__ import annotations
 
 from types import ModuleType
 
-from api.services.connectors import pinterest, reddit, x
+from api.services.connectors import notion, pinterest, readwise, reddit, x
 
 ADAPTERS: dict[str, ModuleType] = {
     pinterest.CHANNEL_ID: pinterest,
     reddit.CHANNEL_ID: reddit,
     x.CHANNEL_ID: x,
+    # Ruling 47 tier 2 (`tier2.py`): the person's own token, staged as episodes, on their own schedule.
+    readwise.CHANNEL_ID: readwise,
+    notion.CHANNEL_ID: notion,
 }

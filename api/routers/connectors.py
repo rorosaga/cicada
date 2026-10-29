@@ -82,6 +82,9 @@ def _status(connector_id: str, memory_path) -> ConnectorStatus:
         last_error=entry.get("last_error") or None,
         detail=None,
         login_mode=adapter.LOGIN_MODE,
+        reads=getattr(adapter, "READS", None),
+        token_help=getattr(adapter, "TOKEN_HELP", None),
+        tier=int(getattr(adapter, "TIER", 1)),
     )
 
 
@@ -129,6 +132,15 @@ async def set_credentials(
         except ValueError as exc:
             # `exc` describes the shape, never the value.
             raise HTTPException(status_code=422, detail=f"{name}: {exc}")
+    if getattr(adapter, "TIER", 1) == 2:
+        # Ruling 47 tier 2: the token is checked with the service before it is saved — the person's Save, so never
+        # gated; a refused or unchecked token is never written, and the answer says why in words.
+        from api.services.connectors import tier2
+
+        try:
+            await tier2.check_before_save(adapter, body.fields)
+        except tier2.Refused as exc:
+            raise HTTPException(status_code=422, detail=exc.words)
     for name, value in body.fields.items():
         secret_store.set_secret(name, value)
     logger.info(f"{connector_id}: stored {len(body.fields)} credential field(s)")

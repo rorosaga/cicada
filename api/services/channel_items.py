@@ -100,7 +100,8 @@ from api.services.channel_registry import CHANNEL_IDS
 #: `g161-6`: marks-2 — a saved YouTube video's row carries `video` (its still is asked by the page's id), and a saved
 #: link still waiting for Sleep (an episode row) carries `host`/`site` (its icon is asked by the episode's id).
 #: `g161-7`: ruling 39 — a row whose item came in days after its own date carries `received` (that day).
-SHAPE = "g161-7"
+#: `g161-8`: ruling 47 tier 2 — the Readwise and live Notion rows list their episodes.
+SHAPE = "g161-8"
 LIMIT_DEFAULT = 50
 LIMIT_MAX = 200
 TITLE_CAP = 120
@@ -114,6 +115,9 @@ _ORIGIN_CHANNELS = {
     "telegram": ("telegram",),
     "imessage": ("imessage",),
     "notion": ("notion-export",),
+    # Ruling 47 tier 2: what the person's own connection brought in (a Readwise document with a page lists as it).
+    "notion-api": ("notion-api",),
+    "readwise": ("readwise",),
 }
 #: A channel whose items are media pages, by the origins its catalog row owns.
 _MEDIA_CHANNELS = ("safari-tabs", "pinterest", "reddit", "x", "rss", "files")

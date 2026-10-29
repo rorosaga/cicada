@@ -49,7 +49,7 @@ enum ChannelActions {
     /// bookmarks from `BrowserInventory` (round 4, C9) — one catalog, so a browser added there is routed here too.
     static let browserFileChannels: Set<String> = Set(["safari-tabs"] + BrowserInventory.catalog.compactMap(\.bookmarksChannel))
     /// `api/services/connectors/__init__.py::ADAPTERS`.
-    static let connectorChannels: Set<String> = ["pinterest", "reddit", "x"]
+    static let connectorChannels: Set<String> = ["pinterest", "reddit", "x", "readwise", "notion-api"]
     static let folderPrefix = "folder:"
     /// Round-4 G142 (C6): the backend lists `calendar-local` with `sync`; the app is the only reader of EventKit.
     static let calendarLocalChannel = "calendar-local"

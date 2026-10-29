@@ -10,6 +10,22 @@
 
 ## Current state and evidence
 
+- **2026-10-29 — ruling 47 tier 2 built: the connector framework, Readwise and Notion live (G223, G219; branch
+  `feat/connectors-tier2`).** `api/services/connectors/tier2.py` is the one framework: the person's own token in
+  `secrets.env`, checked with the service on Save (a refused or unchecked token is never written), what it reads said in
+  words on the status (`reads`, `tokenHelp`), one-click Disconnect that forgets the token and every bank's cursor; a
+  sync stages one episode per natural unit through `episode_staging` (scrubbed, edits in place, deletions tombstoned)
+  and commits only its paths as `user`, inside one admitted transaction (refused while Sleep holds the pages; nothing
+  written, the cursor kept); its own scheduler job every 6 h behind `CICADA_ALLOW_CONNECTOR_FETCH`, skipped before any
+  request while Sleep writes; Sleep's tail never runs one. Readwise: a document episode plus one per highlight day
+  (quotes as `page` evidence, the person's notes as `user`), linked to an existing page only on an exact URL or a
+  unique exact title, never a page made. Notion: an internal connection only (a personal token is refused at Save),
+  pages keyed `notion:<id>` like the export, in place on edit, trash tombstoned; a page is the person's words only when
+  Notion names the connection's owner and that user created it (else `assistant`), and a unit stored as someone
+  else's is never moved back to the person's; the first sync walks the whole history before the mark moves. Engine
+  children, the embedding worker and the PDF reader also lose the master API token and the Telegram bot secrets. Connector tokens are stripped from every engine child. Doors: the API and `cicada
+  connector list|connect|disconnect|sync` (token from stdin only); no remote door. p95 on a copy of the owner's bank
+  (8.5k episodes, fake servers): 6.2 ms per Readwise unit, 22 ms per Notion page per incremental sync.
 - **2026-10-29 — Pages v2, part A (ruling 48 (3), (4), (7), (16), (17); DR-78…DR-81; G217; branch `feat/pages-v2`).**
   The entity page reads top to bottom with no folds: In short, Where to check as one box of mention rows with their
   state and proposals as one Review line, the brand block above the article on pages about their look, Ongoing on

@@ -1644,6 +1644,9 @@ the CLI.
   - `via="backend"` — the running backend's own routes with the token, because the state is the backend's: `sleep
     status|start [--continue]|stop|end|schedule [--mode --at --every]|engine [--mode --model]|options [--batch-size
     --continue-after-reset --reserve]`, `index status|rebuild|use <model>|install [--model]`, `feed add|remove|poll`,
+    `connector list|connect <id>|disconnect <id>|sync <id>` (ruling 47 tier 2: `connect` reads the token from standard
+    input only — a hidden prompt in a terminal — never an argument, and the backend checks it before saving; the
+    three that act are the person's, refused from an agent's shell),
     `import`'s chat-export branch (above), `settings
     owner [--name --handle --email]`, `engine list`, `page decay <entity> <class>`, `inbox answer <id> [--option
     --answer --defer --days --reject]`, `picture set <entity> <file>|initials|clear`, `bank use|create|rename|delete`.

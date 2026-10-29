@@ -1,0 +1,30 @@
+{
+  "_note": "An incremental read (updatedAfter, includeDeleted): only what changed. Book 101 lost highlight 1003 and its first note was edited; book 202 was deleted. Then book 101 read whole (ids=101). Placeholders only.",
+  "incremental": {"count": 2, "nextPageCursor": null, "results": [
+    {"user_book_id": 101, "is_deleted": false, "title": "Example Book One", "author": "Author A",
+     "readable_title": "Example Book One", "category": "books", "document_note": "Read this for alpha-project.",
+     "book_tags": [], "source_url": "",
+     "highlights": [
+       {"id": 1001, "is_deleted": false, "text": "The first highlighted line.", "note": "My thought, revised.",
+        "highlighted_at": "2026-09-01T10:00:00Z", "created_at": "2026-09-01T10:00:00Z",
+        "updated_at": "2026-10-20T10:00:00Z", "book_id": 101, "is_discard": false},
+       {"id": 1003, "is_deleted": true, "text": "A line from another day.", "note": "",
+        "highlighted_at": "2026-09-05T08:00:00Z", "created_at": "2026-09-05T08:00:00Z",
+        "updated_at": "2026-10-20T10:00:00Z", "book_id": 101, "is_discard": false}
+     ]},
+    {"user_book_id": 202, "is_deleted": true, "title": "Example Article", "highlights": []}
+  ]},
+  "whole_book_101": {"count": 1, "nextPageCursor": null, "results": [
+    {"user_book_id": 101, "is_deleted": false, "title": "Example Book One", "author": "Author A",
+     "readable_title": "Example Book One", "category": "books", "document_note": "Read this for alpha-project.",
+     "book_tags": [{"id": 1, "name": "reading"}], "source_url": "",
+     "highlights": [
+       {"id": 1001, "is_deleted": false, "text": "The first highlighted line.", "note": "My thought, revised.",
+        "highlighted_at": "2026-09-01T10:00:00Z", "created_at": "2026-09-01T10:00:00Z",
+        "updated_at": "2026-10-20T10:00:00Z", "book_id": 101, "is_discard": false},
+       {"id": 1002, "is_deleted": false, "text": "A second line, same day.", "note": null,
+        "highlighted_at": "2026-09-01T11:00:00Z", "created_at": "2026-09-01T11:00:00Z",
+        "updated_at": "2026-09-01T11:00:00Z", "book_id": 101, "is_discard": false}
+     ]}
+  ]}
+}

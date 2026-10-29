@@ -7,6 +7,7 @@ enum ConnectorSetupState {
     /// Where the user is in a two-step OAuth setup, or "Connected".
     static func stepLabel(_ status: ConnectorStatus) -> String {
         if status.connected { return "Connected" }
+        if status.isTokenConnector { return "Paste your own token" }
         guard status.isOAuth else { return "Enter your app credentials" }
         let allPresent = !status.fields.isEmpty && status.fields.allSatisfy(\.present)
         return allPresent
@@ -80,6 +81,20 @@ struct ConnectorSetupPanel: View {
                         .font(CicadaTheme.captionFont)
                         .foregroundStyle(status.lastError == nil
                                          ? CicadaTheme.textSecondary : CicadaTheme.danger)
+                }
+
+                // Ruling 47 tier 2: what it reads is said in words before anything is saved, and stays said.
+                if let reads = status.reads {
+                    Text(reads)
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if !status.connected, let help = status.tokenHelp {
+                    Text("Get your token at \(help).")
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                        .textSelection(.enabled)
                 }
 
                 if status.connected {

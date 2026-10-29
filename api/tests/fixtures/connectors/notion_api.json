@@ -1,0 +1,28 @@
+{
+  "_note": "The shapes of Notion's POST /v1/search, GET /v1/pages/{id}/markdown, GET /v1/data_sources/{id} and GET /v1/users/me (developers.notion.com, Notion-Version 2026-03-11, read 2026-10-29). Placeholders only.",
+  "users_me_bot": {"object": "user", "id": "bot-0001", "type": "bot", "bot": {"owner": {"type": "workspace", "workspace": true}}},
+  "users_me_person": {"object": "user", "id": "user-0001", "type": "person", "person": {}},
+  "search": {"object": "list", "has_more": false, "next_cursor": null, "results": [
+    {"object": "page", "id": "11111111-2222-3333-4444-555555555555", "created_time": "2026-08-01T09:00:00.000Z",
+     "last_edited_time": "2026-10-10T09:00:00.000Z", "created_by": {"object": "user", "id": "user-0001"},
+     "in_trash": false, "parent": {"type": "workspace", "workspace": true},
+     "properties": {"title": {"id": "title", "type": "title", "title": [{"plain_text": "Alpha project plan"}]}}},
+    {"object": "page", "id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", "created_time": "2026-07-01T09:00:00.000Z",
+     "last_edited_time": "2026-10-09T09:00:00.000Z", "created_by": {"object": "user", "id": "user-0001"},
+     "in_trash": false, "parent": {"type": "data_source_id", "data_source_id": "ds-0001", "database_id": "db-0001"},
+     "properties": {
+       "Name": {"id": "title", "type": "title", "title": [{"plain_text": "Idea: a reading log"}]},
+       "Status": {"id": "s", "type": "status", "status": {"name": "Someday"}},
+       "Tags": {"id": "t", "type": "multi_select", "multi_select": [{"name": "tools"}, {"name": "reading"}]},
+       "Done": {"id": "d", "type": "checkbox", "checkbox": false}
+     }}
+  ]},
+  "markdown": {
+    "11111111-2222-3333-4444-555555555555": {"object": "page_markdown", "id": "11111111-2222-3333-4444-555555555555",
+      "markdown": "## Goals\n\nShip the first slice.\n\n<page url=\"https://www.notion.so/x\">A child page</page>\n\n- one\n- two", "truncated": false, "unknown_block_ids": []},
+    "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee": {"object": "page_markdown", "id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+      "markdown": "Keep a log of what I read.", "truncated": false, "unknown_block_ids": []}
+  },
+  "data_source": {"object": "data_source", "id": "ds-0001", "title": [{"plain_text": "Project ideas"}]},
+  "trash": {"object": "list", "has_more": false, "next_cursor": null, "results": []}
+}

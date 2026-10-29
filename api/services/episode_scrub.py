@@ -48,6 +48,7 @@ WRITERS = frozenset({
     "reminders",  # G219: a reminder's title and notes, from the lists the person ticked
     "notion",  # G219: a Notion export's pages and database rows
     "agent-memory",  # ruling 43: an agent's own memory notes, posted by the harness's hook
+    "readwise",  # ruling 47 tier 2: Readwise highlights, their notes and their documents
 })
 
 # Secret shapes (G105 R6), moved verbatim from transcript_extract. Ordered

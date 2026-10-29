@@ -64,7 +64,7 @@ def test_every_connector_module_is_registered_in_adapters():
         info.name for info in pkgutil.iter_modules([package_dir])
         if not info.ispkg
     }
-    non_adapter_modules = {"base"}
+    non_adapter_modules = {"base", "tier2"}  # tier2: the ruling-47 framework, not an adapter
     expected_adapter_modules = module_names - non_adapter_modules
 
     registered_modules = {

@@ -5509,6 +5509,11 @@ class ConnectorStatus(CamelModel):
     # "oauth" (Pinterest: save app id/secret, then authorize in a browser) or
     # "credentials" (a script-app-style connector needs no redirect round trip).
     login_mode: str = "credentials"
+    # Ruling 47 tier 2: what the connector reads, in the person's words (the connect step says it before Save), and
+    # where the person gets their own token. ``None`` on the saved-content connectors.
+    reads: Optional[str] = None
+    token_help: Optional[str] = None
+    tier: int = 1
 
 
 class ConnectorsResponse(CamelModel):

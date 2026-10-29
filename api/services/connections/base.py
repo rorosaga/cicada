@@ -62,9 +62,28 @@ _ALSO_STRIPPED = ("CLAUDE_CODE_RETRY_WATCHDOG", "CODEX_HOME")
 #: ``MANAGED_KEY_ENV``.)
 CLI_ENGINE_OVERRIDE_ENV = ("CURSOR_API_KEY", "OPENCODE_CONFIG_CONTENT", "OPENCODE_CONFIG", "OPENCODE_PERMISSION")
 
+#: Ruling 47 tier 2 and G71: the tokens of the person's ingestion connectors (``api/services/connectors``). No engine
+#: child needs one, and a model with tools must never hold a key to the person's Notion, Readwise or Reddit; pinned to
+#: every adapter's ``SECRET_NAMES`` by ``test_connectors_tier2``.
+CONNECTOR_SECRET_ENV = ("PINTEREST_APP_ID", "PINTEREST_APP_SECRET", "PINTEREST_ACCESS_TOKEN",
+                        "REDDIT_CLIENT_ID", "REDDIT_CLIENT_SECRET", "REDDIT_USERNAME", "REDDIT_PASSWORD",
+                        "X_CLIENT_ID", "X_ACCESS_TOKEN", "X_REFRESH_TOKEN", "X_USER_ID",
+                        "CICADA_READWISE_TOKEN", "CICADA_NOTION_TOKEN")
+
+#: Cicada's own credentials: the backend's master API token (``auth``) and the Telegram bot's token and webhook
+#: secret (G29). No child — an engine, the embedding worker, the PDF reader — ever needs one.
+CICADA_SECRET_ENV = ("CICADA_API_TOKEN", "CICADA_TELEGRAM_BOT_TOKEN", "CICADA_TELEGRAM_WEBHOOK_SECRET")
+
 #: R-E5: one list for every child. Stripping the union is safe for every CLI Cicada spawns.
 SCRUBBED_ENV_KEYS = (MANAGED_KEY_ENV + CLAUDE_PLAN_OVERRIDE_ENV + CODEX_PLAN_OVERRIDE_ENV + CLI_ENGINE_OVERRIDE_ENV
-                     + _ALSO_STRIPPED)
+                     + CONNECTOR_SECRET_ENV + CICADA_SECRET_ENV + _ALSO_STRIPPED)
+
+
+def secretless_env() -> dict[str, str]:
+    """The environment for a helper child Cicada runs on its own code (the embedding worker, the PDF page reader):
+    every key, token and secret in ``SCRUBBED_ENV_KEYS`` stripped, nothing added — it never calls a model or a
+    service, and a crash dump or a library's telemetry must have nothing to leak."""
+    return {k: v for k, v in os.environ.items() if k not in SCRUBBED_ENV_KEYS}
 
 
 #: Set on every child Cicada spawns; Cicada's own MCP server reads it and stays silent (see ``scrubbed_env``).

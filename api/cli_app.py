@@ -850,6 +850,79 @@ def cmd_feed_poll(boot, args) -> Result:
     return Result(text=json.dumps(result, ensure_ascii=False), data=result, warnings=_warn(boot))
 
 
+# --- connectors (ruling 47 tier 2) ---------------------------------------------------------------------------------
+
+def _connector_line(c: dict) -> str:
+    state = "connected" if c.get("connected") else "not connected"
+    tail = f", last sync {c['lastSync']}" if c.get("lastSync") else ""
+    error = f"\n    {c['lastError']}" if c.get("lastError") else ""
+    reads = f"\n    {c['reads']}" if c.get("reads") else ""
+    return f"{c.get('id')}: {c.get('label')} — {state}{tail}{error}{reads}"
+
+
+def cmd_connector_list(boot, args) -> Result:
+    data = call(boot, "GET", "/sources/connectors")
+    rows = data.get("connectors") or []
+    return Result(text="\n".join(_connector_line(c) for c in rows) or "No connectors.", data=data,
+                  warnings=_warn(boot))
+
+
+def read_token(label: str) -> str:
+    """A token from standard input only — never argv (a process list and shell history would keep it)."""
+    import getpass
+    import sys
+
+    if sys.stdin.isatty():
+        return (getpass.getpass(f"{label}: ") or "").strip()
+    return (sys.stdin.readline() or "").strip()
+
+
+def cmd_connector_connect(boot, args) -> Result:
+    """The token goes straight to the backend, which checks it with the service before writing it to secrets.env
+    (0600); the CLI never stores or prints it."""
+    import sys
+
+    require_person("Connecting an account with your token")
+    status = call(boot, "GET", f"/sources/connectors/{args.connector}")
+    fields = list(status.get("fields") or [])
+    if len(fields) != 1 or status.get("loginMode") != "credentials":
+        raise Refusal("refused", f"{status.get('label') or args.connector} is connected in the app (Settings → "
+                                 "Sources), where it signs in. Nothing was changed.")
+    field = fields[0]
+    if status.get("reads"):
+        sys.stderr.write(status["reads"] + "\n")
+    if status.get("tokenHelp"):
+        sys.stderr.write(f"Get your token at {status['tokenHelp']}.\n")
+    value = read_token(field.get("label") or "Token")
+    if not value:
+        raise UsageError("no token on standard input; nothing was changed")
+    result = call(boot, "PUT", f"/sources/connectors/{args.connector}/credentials",
+                  body={"fields": {field["name"]: value}}, timeout=60)
+    return Result(text=f"{result.get('label')} is connected. It syncs every few hours; `cicada connector sync "
+                       f"{args.connector}` reads it now.",
+                  data={"connector": args.connector, "connected": bool(result.get("connected"))}, warnings=_warn(boot))
+
+
+def cmd_connector_disconnect(boot, args) -> Result:
+    require_person("Disconnecting an account")
+    result = call(boot, "DELETE", f"/sources/connectors/{args.connector}/credentials")
+    return Result(text=f"{result.get('label')} is disconnected; Cicada forgot its token. What it brought in stays.",
+                  data={"connector": args.connector, "connected": bool(result.get("connected"))}, warnings=_warn(boot))
+
+
+def cmd_connector_sync(boot, args) -> Result:
+    require_person("Reading an account now")
+    result = call(boot, "POST", f"/sources/connectors/{args.connector}/sync", timeout=600)
+    status = result.get("status")
+    if status == "ok":
+        text = f"{result.get('new', 0)} new, {result.get('seen', 0)} read."
+    elif status == "skipped":
+        text = f"Skipped: {result.get('reason')}"
+    else:
+        text = f"The sync failed: {result.get('error')}"
+    return Result(text=text, data=result, warnings=_warn(boot))
+
+
 def refuse_harness_folder(path: Path) -> None:
     """The rail: transcripts under ~/.claude are read only by the Stop hook's capture — never imported, by either
     import path, file or folder."""
@@ -1476,6 +1549,8 @@ COMMANDS = {
     "index install": cmd_index_install,
     "projects new": cmd_projects_new,
     "feed list": cmd_feed_list, "feed add": cmd_feed_add, "feed remove": cmd_feed_remove, "feed poll": cmd_feed_poll,
+    "connector list": cmd_connector_list, "connector connect": cmd_connector_connect,
+    "connector disconnect": cmd_connector_disconnect, "connector sync": cmd_connector_sync,
     "settings owner": cmd_settings_owner, "engine list": cmd_engine_list, "engine connect": cmd_engine_connect,
     "picture set": cmd_picture_set, "picture initials": cmd_picture_initials, "picture clear": cmd_picture_clear,
     "bank list": cmd_bank_list, "bank use": cmd_bank_use, "bank create": cmd_bank_create,

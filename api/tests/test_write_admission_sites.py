@@ -108,6 +108,8 @@ PROBE_SITES = {
                                   "again (`_settle_one`)",
     "api/services/awake_read.py": "the early check before an embed or a quick read's model call (G207); the "
                                   "provisional record's write admits itself and asks again",
+    "api/services/connectors/tier2.py": "a scheduled sync's early skip before its network fetch (ruling 47); the "
+                                        "staging and its commit admit themselves and refuse while Sleep writes",
 }
 
 
