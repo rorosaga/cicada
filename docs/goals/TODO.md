@@ -12,6 +12,10 @@
 
 ## Current state and evidence
 
+- **2026-10-29 — G32 built: Spotify's own download imported (branch `feat/spotify-export-import`).** Both downloads
+  (Extended streaming history, Account data) through the one file import: plays as one index-only listening day each
+  (ruling 30), never doubled between the two files; the library as index-only saved items, never fetched. Sources
+  gains a Spotify row that says where to ask Spotify for the file.
 - **2026-10-29 — one person across sources (G209, G179; branch `feat/one-person-across-sources`, PR #527).** A
   chat participant's ONE address-book card (by Contacts id, never a handle) rides on the sitting's records; Stage 2
   joins the participant to that card's page before any name, a waiting card only once the usual rules promote. A

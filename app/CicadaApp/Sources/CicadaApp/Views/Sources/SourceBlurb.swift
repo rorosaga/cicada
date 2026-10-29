@@ -84,6 +84,9 @@ enum SourceBlurb {
         // Ruling 47 tier 2.
         "notion-api": "The Notion pages you shared with your own connection, kept current.",
         "readwise": "Your Readwise highlights, with your notes and the book or article each came from.",
+        // G32.
+        "spotify": "Your liked songs, saved albums and podcasts, from your Spotify download.",
+        "spotify-listening": "What you listened to on Spotify, one entry per day, from your Spotify download.",
         // A conversation an agent saved without saying which app it is (no harness on its episodes): kept, and named
         // for what it is, rather than folded into an app it may not be.
         "harness:unknown": "Conversations from agents that didn't say which app they are.",

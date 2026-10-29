@@ -74,6 +74,9 @@ enum SourceDisplayName {
         // Ruling 47 tier 2 (`source_overview.CATALOG`'s rows).
         "notion-api": "Notion (live)",
         "readwise": "Readwise",
+        // G32 (`source_overview.CATALOG`'s rows).
+        "spotify": "Spotify",
+        "spotify-listening": "Spotify listening",
         "files": "Files & links",
         "wispr-flow": "Wispr Flow",
         // The open families a live bank produces (A2/A4).

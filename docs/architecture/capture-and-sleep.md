@@ -693,6 +693,21 @@ API gives no one Watch later or watch history, so there are three doors, and the
   **already read** (`processed_by: index`; *Indexed, not consolidated* below). Saved never sees a history row, and an
   import of years of history is that many days, which the preview says before Confirm ("N watched videos over D
   days"). Each month the history touches gets one more episode, its summary (`watch_history.rollup`, below).
+- **Listening history (G32, 2026-10-29).** Spotify is export-only (ruling 47's table), so its way in is the person's
+  own download, read member by member by `saved_exports` (`spotify_export`): Extended streaming history
+  (`Streaming_History_Audio|Video_*.json`, every play, `ts` to the second, with URIs) and Account data
+  (`StreamingHistory_music|podcast_*.json`, the last year, `endTime` to the minute, no URI; `YourLibrary.json`). Every
+  other member (playlists, search queries, inferences, user data) is skipped unread by name. Plays become
+  `listening_history` days — one episode per local day, `listening-history:spotify:<day>`, origin `spotify-history`,
+  **index-only** like a watched day (`history_index.kind == "listening"`, ruling 30: never read by a model, never a
+  mention, an agent asking by id gets one line saying what it is). A play's identity is its kind, creator and name
+  (case- and space-folded) and the minute it ended in UTC — the precision both files share — so the two downloads, or
+  one imported twice, never double a play, and a later read fills a URI an earlier lacked. Plays are always read (the
+  person asked Spotify for exactly this; no door ever saves a play) and never count against the saves' import cap.
+  The library becomes saved items (origin `spotify-saved`, a saved list's index-only save, folders *Liked Songs*,
+  *Saved albums*, *Saved podcasts*, *Saved episodes*) at `open.spotify.com/<type>/<id>` with `defer_enrich`: no
+  Spotify page or API is ever asked. Every door that brings saved files (`/sources/upload`, `cicada import`) takes
+  plays off the save path (`listening_history.split`) and commits their days alone (`user/listening_history`).
 - **One identity.** A video is `media_ingestor.url_hash` of its canonical URL — the key Watch later, bookmarks and
   Takeout playlists share — so `youtu.be/<id>`, `/shorts/<id>` and `watch?v=<id>&t=…` are one video. Within a day a
   video is one row (`watched` in frontmatter: `url, title, channel, times, via, seen`); a watch less than 30 minutes

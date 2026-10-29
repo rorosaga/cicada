@@ -107,6 +107,9 @@ CATALOG: tuple[SourceSpec, ...] = (
     SourceSpec("linkedin", "LinkedIn", "social", "linkedin-saved", ("linkedin-saved",), None),
     SourceSpec("tiktok", "TikTok", "social", "tiktok-saved", ("tiktok-saved",), None),
     SourceSpec("tiktok-history", "TikTok history", "social", "tiktok-history", ("tiktok-history",), None),
+    # G32: Spotify's own download — the library as saved items, the plays as listening days (index-only, ruling 30).
+    SourceSpec("spotify", "Spotify", "social", "spotify", ("spotify-saved",), None),
+    SourceSpec("spotify-listening", "Spotify listening", "social", "spotify", ("spotify-history",), None),
     SourceSpec("rss", "RSS feeds", "feed", "rss", ("rss",), "rss"),
     SourceSpec("calendar", "Calendars", "feed", "calendar", ("calendar",), "calendar"),
     # G142 (round 4): Apple Calendar through EventKit, so its episodes never read as a raw id.
@@ -145,14 +148,15 @@ CATALOG: tuple[SourceSpec, ...] = (
 #: is `captured`. A fact of the catalog, served on every row as `intent`, so every client groups the same way.
 SAVED_SOURCES = frozenset({
     "chrome-bookmarks", "safari-bookmarks", "brave-bookmarks", "vivaldi-bookmarks", "comet-bookmarks", "dia-bookmarks",
-    "pinterest", "reddit", "x", "instagram", "youtube", "linkedin", "tiktok", "files", "readwise",
+    "pinterest", "reddit", "x", "instagram", "youtube", "linkedin", "tiktok", "files", "readwise", "spotify",
 })
 INTENTS = ("saved", "captured")
 #: Folded into `/sources/overview`'s ETag: bump it when the body changes for the same bank files (v3: `intent`;
 #: v4: `waiting`, `faces`/`faces_more`, and check records left out; v5: a nil-origin save on Files & links, the Phone
 #: and device-notes rows; v6: the device-files row; v7: Apple Reminders and Notion, G219;
-#: v8: Readwise and Notion live, ruling 47 tier 2; v9: WhatsApp, G179; v10: Telegram chats, ruling 47a).
-SHAPE = "overview-v10"
+#: v8: Readwise and Notion live, ruling 47 tier 2; v9: WhatsApp, G179; v10: Telegram chats, ruling 47a;
+#: v11: Spotify's library and listening, G32).
+SHAPE = "overview-v11"
 
 #: Sources v4 (owner 2026-10-19: "I don't understand how Sleep is also a source on the page"). A check record is the
 #: episode Cicada writes as the citation for a question a check settled — `web_settle` (a web lookup Sleep or an agent

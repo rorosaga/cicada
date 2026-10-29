@@ -139,6 +139,10 @@ class RawItem:
     # only knows the permalink) and its API connector (which saves the outbound
     # link) dedupe against each other in either order.
     aliases: list[str] = field(default_factory=list)
+    # G32: a listening play from Spotify's own export (``listening_history.play_item``) — what was played, its
+    # creator, album, kind, milliseconds and URI. A row carrying it has origin ``spotify-history`` and every door
+    # takes it off the save path (``listening_history.split``); it never becomes a saved link.
+    play: dict | None = None
 
 
 @dataclass
@@ -1650,6 +1654,12 @@ def parse_upload(
         return parse_safari_bookmarks(content), "Bookmarks", True
     if name.endswith(".plist"):
         return parse_safari_bookmarks(content), "Safari Bookmarks", True
+    from api.services import spotify_export
+
+    if name.endswith(".json") and spotify_export.is_member(Path(name).name):
+        # G32: one file of a Spotify download, dropped by itself (the walker's own reader and allow-list).
+        items, _platform, _left_out = saved_exports.parse_member(Path(name).name, content)
+        return items, saved_exports.LABEL_BY_PLATFORM["spotify"], False
     if name.endswith(".json"):
         data = json.loads(content)
         if isinstance(data, dict) and "roots" in data:
@@ -1763,6 +1773,7 @@ PLATFORM_BY_LABEL = {
     "TikTok Export": "tiktok",
     "Reddit Saved Export": "reddit",
     "X Archive": "x",
+    "Spotify Export": "spotify",
 }
 
 # What ONE grouping is called on each platform, so the overlay can say
@@ -1778,10 +1789,13 @@ COLLECTION_KIND_BY_PLATFORM = {
     "tiktok": "list",
     "reddit": "saved",
     "x": "list",
+    "spotify": "list",
     "unknown": "list",
 }
 
 DEFAULT_COLLECTION_NAME = "Ungrouped"
+#: G32: the preview's line for a Spotify download's plays — the days of listening they become, never a saved list.
+LISTENING_COLLECTION = "Listening history (days)"
 
 
 @dataclass
@@ -1843,13 +1857,15 @@ def describe_items(items: list[RawItem], label: str, warnings: list[str] | None 
     History rows are not saves: they are counted apart (``history_videos`` over
     ``history_days``, the episodes ``watch_history`` would write) and never as a
     collection, and a preview that holds only history is still recognized."""
-    from api.services import watch_history
+    from api.services import listening_history, watch_history
 
     warnings = list(warnings or [])
     platform = PLATFORM_BY_LABEL.get(label, "unknown")
     kind = COLLECTION_KIND_BY_PLATFORM.get(platform, "list")
+    items, plays = listening_history.split(items)
     items, history = watch_history.split(items)
     history_videos, history_days = watch_history.describe(history)
+    listened, listening_days = listening_history.describe(plays)
     if history_videos:
         warnings.append(
             f"Watch history: {history_videos:,} watched video{'s' if history_videos != 1 else ''} over "
@@ -1862,6 +1878,14 @@ def describe_items(items: list[RawItem], label: str, warnings: list[str] | None 
             continue
         name = (item.folder or "").strip() or DEFAULT_COLLECTION_NAME
         counts[name] = counts.get(name, 0) + 1
+    if listening_days:
+        # G32: Spotify's plays are what the person listened to, never saves — one entry per day. Counted as the days
+        # they become (what the import writes), said in words beside it.
+        counts[LISTENING_COLLECTION] = listening_days
+        warnings.append(
+            f"Listening history: {listened:,} play{'s' if listened != 1 else ''} over {listening_days:,} "
+            f"day{'s' if listening_days != 1 else ''}, kept as one entry per day of what you listened to, not as "
+            "saves.")
 
     total = sum(counts.values())
     if total == 0 and not history_videos and not history_excluded:

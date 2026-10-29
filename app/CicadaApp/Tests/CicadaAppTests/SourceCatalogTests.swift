@@ -51,6 +51,15 @@ final class SourceCatalogTests: XCTestCase {
         XCTAssertEqual(row("readwise", in: r)?.status, .needsSignIn)
     }
 
+    /// G32: Spotify is a file import (its terms bar an API connector) that says where Spotify hands the file out, and
+    /// reads Connected once its download fed memory.
+    func testSpotifyIsAnImportThatSaysWhereTheFileComesFrom() {
+        let entry = row("spotify", in: rows())?.entry
+        XCTAssertEqual(entry?.group, .accounts)
+        XCTAssertEqual(entry?.verb, .importFile)
+        XCTAssertTrue(SourceCatalog.exportHow("spotify")?.contains("Privacy settings") == true)
+    }
+
     func testInstagramIsConnectedOnlyOnceItsSiteMayBeReadByAnAgentHere() {
         XCTAssertEqual(row("instagram", in: rows())?.status, .off)
         let entries = SourceCatalog.entries(browsers: [], wisprPresent: false, overview: [])

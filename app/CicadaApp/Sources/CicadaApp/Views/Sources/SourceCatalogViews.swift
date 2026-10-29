@@ -304,6 +304,12 @@ struct SourceCatalogDetail: View {
                     .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary)
                 NeutralButton(title: Copy.Catalog.openAgents, size: .compact) { router.routeToAgents() }
             }
+        case "spotify":
+            // G32: where the file comes from, then the one intake's drop — the "files" row's controls, no new pattern.
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                importHow
+                IntakePanel(origin: .emptyState(.sources), compact: true)
+            }
         case "files":
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                 importHow

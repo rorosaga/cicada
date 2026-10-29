@@ -653,12 +653,16 @@ def _import_platform_export(boot: Boot, args) -> Result:
         return Result(text="\n".join(lines), data=data, warnings=warnings)
     if not described.recognized:
         raise Refusal("not_an_export", f"Found no saved links in {path.name}.")
-    if len(items) > media_ingestor.MAX_UPLOAD_ITEMS:
-        raise Refusal("too_large", f"{len(items):,} items is past the {media_ingestor.MAX_UPLOAD_ITEMS:,}-item "
+    from api.services import listening_history as _listening
+
+    saves = sum(1 for it in items if not _listening.is_play(it))   # G32: plays become days, never saves
+    if saves > media_ingestor.MAX_UPLOAD_ITEMS:
+        raise Refusal("too_large", f"{saves:,} items is past the {media_ingestor.MAX_UPLOAD_ITEMS:,}-item "
                                    "import cap; nothing was imported.")
     # History is experience, never a save (G71, 2026-10-16): one episode per day, committed alone first.
-    from api.services import watch_history
+    from api.services import listening_history, watch_history
 
+    items, play_rows = listening_history.split(items)
     items, history_rows = watch_history.split(items)
     history_text = ""
     if history_rows:
@@ -667,6 +671,12 @@ def _import_platform_export(boot: Boot, args) -> Result:
         data.update(history_added=history.added, history_days_created=history.days_created,
                     history_days_updated=history.days_updated)
         history_text = " " + watch_history.summary(history)
+    if play_rows:
+        # G32: Spotify's plays, one listening day each, committed alone — never saved links.
+        listened = asyncio.run(listening_history.import_history(bank, play_rows, trigger="user/listening_history"))
+        data.update(plays_added=listened.added, listening_days_created=listened.days_created,
+                    listening_days_updated=listened.days_updated)
+        history_text += " " + listening_history.summary(listened)
     created, duplicates = asyncio.run(media_ingestor.ingest_chunked(items, bank, from_bookmark_file))
     data.update(created=created, duplicates=duplicates)
     return Result(text=f"Imported {created} new item(s) from {label}; {duplicates} already in memory.{history_text}",

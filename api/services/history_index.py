@@ -46,9 +46,14 @@ TRACES_PREFIX = "traces-day:"
 #: on any site that day — index-only like a watched day (ruling 30), never read by a model.
 READING_SOURCE = "reading-history"
 READING_PREFIX = "reading-history:"
+#: ``source`` of a listening day (G32, ``listening_history``): what was played on Spotify that day, from the person's own
+#: export — index-only like a watched day (ruling 30), never read by a model, never a mention.
+LISTENING_SOURCE = "listening-history"
+LISTENING_PREFIX = "listening-history:"
 #: Origins only a platform's saved list writes (an export archive, or the person's agent reading Watch later or,
 #: G206, a saved list on X, Instagram or LinkedIn — ``saved_lists``, which files X under the archive's ``Bookmarks``).
-LIST_ORIGINS = frozenset({"youtube-playlist", "instagram-saved", "tiktok-saved", "x-likes", "linkedin-saved"})
+LIST_ORIGINS = frozenset({"youtube-playlist", "instagram-saved", "tiktok-saved", "x-likes", "linkedin-saved",
+                          "spotify-saved"})
 #: Origins a connector shares with an export: the export's rows are told apart by the folder its reader names
 #: (the Reddit connector files under ``r/<sub>``, the X connector under no folder).
 LIST_FOLDERS: dict[str, frozenset[str]] = {
@@ -69,7 +74,8 @@ COMMIT_STEP = 500
 
 def kind(fm: dict | None) -> str | None:
     """``history`` (a watched day), ``month`` (a month's summary), ``list`` (a save from a platform's saved list),
-    ``traces`` (an index-only trace day written before 2026-10-28), ``reading`` (a reading day), or ``None`` — an
+    ``traces`` (an index-only trace day written before 2026-10-28), ``reading`` (a reading day), ``listening``
+    (a listening day, G32), or ``None`` — an
     episode Sleep reads with a model."""
     if not isinstance(fm, dict):
         return None
@@ -83,6 +89,8 @@ def kind(fm: dict | None) -> str | None:
         return None if fm.get("learn_from_traces") is True else "traces"
     if source == READING_SOURCE or sid.startswith(READING_PREFIX):
         return "reading"
+    if source == LISTENING_SOURCE or sid.startswith(LISTENING_PREFIX):
+        return "listening"
     origin = str(fm.get("origin") or "")
     if any(fm.get(key) for key in PERSON_KEYS):
         return None

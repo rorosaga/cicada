@@ -106,6 +106,10 @@ enum SourceCatalog {
         // Ruling 47 tier 2: highlights with their sources, through the person's own Readwise token.
         SourceCatalogEntry(id: "readwise", group: .accounts, title: "Readwise", origin: "readwise",
                            channels: ["readwise"]),
+        // G32: Spotify is export-only (its terms bar an API connector): the library and the listening, from the
+        // person's own download.
+        SourceCatalogEntry(id: "spotify", group: .accounts, title: "Spotify", origin: "spotify-saved",
+                           channels: ["spotify", "spotify-listening"], verb: .importFile),
         SourceCatalogEntry(id: "tiktok", group: .accounts, title: "TikTok", origin: "tiktok-saved",
                            channels: ["tiktok"], tile: .tiktok, site: "tiktok", verb: .importFile),
         SourceCatalogEntry(id: "calendar-local", group: .thisMac, title: "Calendar", origin: "calendar-local",
@@ -189,6 +193,7 @@ enum SourceCatalog {
         case "youtube": Copy.Catalog.howYouTube
         case "instagram": Copy.Catalog.howInstagram
         case "tiktok": Copy.Catalog.howTikTok
+        case "spotify": Copy.Catalog.howSpotify
         case "linkedin": Copy.Catalog.howLinkedIn
         case "files": Copy.Catalog.howBookmarksFile
         default: nil
