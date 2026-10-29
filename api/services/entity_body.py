@@ -951,10 +951,31 @@ def _anchors(text: str) -> set[str]:
             or m.group(0)[:1].isdigit() or m.group(0).startswith(("[[", "http"))}
 
 
+def _word(ch: str) -> bool:
+    r"""``re``'s ``\w`` for one character: a Unicode letter or digit, or ``_`` (sre's own test)."""
+    return ch.isalnum() or ch == "_"
+
+
 def _shown_whole(anchor: str, folded: str) -> bool:
-    """Is ``anchor`` in ``folded`` as a whole token — never inside a longer one (``40`` is not shown by ``400``, nor
-    ``5`` by ``2025``; review of #488)."""
-    return re.search(r"(?<![\w.,:/-])" + re.escape(anchor) + r"(?![\w]|[.,:/-]\w)", folded) is not None
+    r"""Is ``anchor`` in ``folded`` as a whole token — never inside a longer one (``40`` is not shown by ``400``, nor
+    ``5`` by ``2025``; review of #488).
+
+    Exactly ``re.search(r"(?<![\w.,:/-])" + re.escape(anchor) + r"(?![\w]|[.,:/-]\w)", folded)``, by ``str.find``
+    over the occurrences only (speed 2026-10-29: the regex scanned the whole growing text once per anchor per bullet —
+    2.0 s of 4.3 s across five recalls on the owner's bank; ``test_entity_body_shown_whole`` pins the equivalence)."""
+    if not anchor:
+        return re.search(r"(?<![\w.,:/-])(?![\w]|[.,:/-]\w)", folded) is not None
+    n = len(anchor)
+    i = folded.find(anchor)
+    while i >= 0:
+        before = folded[i - 1] if i > 0 else ""
+        nxt = folded[i + n:i + n + 2]
+        if not (before and (_word(before) or before in ".,:/-")):
+            a = nxt[:1]
+            if not (a and (_word(a) or (a in ".,:/-" and len(nxt) > 1 and _word(nxt[1])))):
+                return True
+        i = folded.find(anchor, i + 1)
+    return False
 
 
 def collapse_repeats(lines: list[str], shown: str) -> tuple[list[str], int]:

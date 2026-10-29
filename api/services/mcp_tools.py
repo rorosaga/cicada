@@ -4838,15 +4838,19 @@ def read_inbox_item(filepath: Path) -> tuple[dict, str]:
     The line-based :func:`parse_frontmatter` flattens a nested list: a question's ``options`` (``- key: a`` /
     ``label: …`` blocks, as ``markdown_parser.write`` writes them) came back as the strings ``"key: a"``, so the
     question rendered as ``0) key: a`` and the ask gate had no option words to compare (G115 noted the
-    disagreement). A file YAML cannot read falls back to the line parser, as before."""
-    content = filepath.read_text(encoding="utf-8")
+    disagreement). A file YAML cannot read falls back to the line parser, as before.
+
+    The header comes from ``bank_index`` (speed 2026-10-29): recall, ``check_nudges`` and the hook read every item
+    each call, and re-parsing 423 YAML headers was ~180 ms of each recall; an unchanged file now costs one stat."""
+    from api.services import bank_index
+
     try:
-        parsed = markdown_parser.parse(filepath, ledger=False)
-        if isinstance(parsed.frontmatter, dict) and parsed.frontmatter:
-            return dict(parsed.frontmatter), parsed.body
+        entry = bank_index.file(filepath.parent.parent, filepath.parent.name, filepath.name)
+        if entry is not None and isinstance(entry.frontmatter, dict) and entry.frontmatter:
+            return dict(entry.frontmatter), entry.body()
     except Exception:  # noqa: BLE001 — an unreadable item still renders what the line parser finds
         pass
-    return parse_frontmatter(content)
+    return parse_frontmatter(filepath.read_text(encoding="utf-8"))
 
 
 def _inbox_files(memory_path: Path):
@@ -5225,13 +5229,14 @@ def _relevant_inbox(memory_path: Path, query: str, *, raw_excerpts: bool = True,
         if filepath.stem in skipped:
             continue
         fm, body = read_inbox_item(filepath)
-        # A deferred item is hidden everywhere it could be surfaced, the
-        # proactive recall block included — the user asked to be reminded
-        # later, not on the next unrelated question.
-        if not nudge_visible(fm, wanted=frozenset(), today=today, memory_path=memory_path):
-            continue
         named = inbox_ask_gate.with_page_names(memory_path, fm)
         if str(fm.get("kind") or "") in inbox_ask_gate.NEVER_ASKED or not inbox_ask_gate.named_in(named, query):
+            continue
+        # A deferred item is hidden everywhere it could be surfaced, the
+        # proactive recall block included — the user asked to be reminded
+        # later, not on the next unrelated question. Asked after the name gate (both must pass): the quiet-page test
+        # resolves the subject's page, and most items are not about the query at all.
+        if not nudge_visible(fm, wanted=frozenset(), today=today, memory_path=memory_path):
             continue
         fm, cause, rec = _agent_question(memory_path, fm, today, ctx=ctx, verbatim_ok=raw_excerpts)
         full = {**fm, "aliases": named.get("aliases") or []}
