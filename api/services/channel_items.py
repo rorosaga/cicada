@@ -101,7 +101,8 @@ from api.services.channel_registry import CHANNEL_IDS
 #: link still waiting for Sleep (an episode row) carries `host`/`site` (its icon is asked by the episode's id).
 #: `g161-7`: ruling 39 — a row whose item came in days after its own date carries `received` (that day).
 #: `g161-8`: ruling 47 tier 2 — the Readwise and live Notion rows list their episodes.
-SHAPE = "g161-8"
+#: `g161-9`: G32 — the Spotify listening row lists its days.
+SHAPE = "g161-9"
 LIMIT_DEFAULT = 50
 LIMIT_MAX = 200
 TITLE_CAP = 120
@@ -120,6 +121,8 @@ _ORIGIN_CHANNELS = {
     # Ruling 47 tier 2: what the person's own connection brought in (a Readwise document with a page lists as it).
     "notion-api": ("notion-api",),
     "readwise": ("readwise",),
+    # G32: a Spotify download's listening days, one row each (index-only, opened in the Reader).
+    "spotify-listening": ("spotify-history",),
 }
 #: A channel whose items are media pages, by the origins its catalog row owns.
 _MEDIA_CHANNELS = ("safari-tabs", "pinterest", "reddit", "x", "rss", "files")

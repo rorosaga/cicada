@@ -2756,7 +2756,8 @@ def _episode_read(ctx: ToolContext, episode_id: str) -> str | Reply:
         # model by id — one line saying what it is and where to ask, as recall and Ask treat it (review of #488).
         what = {"history": "a day of the person's watch history", "month": "a month's summary of the watch history",
                 "list": "a save from one of the person's saved lists", "traces": "an activity-trace day",
-                "reading": "a day of pages the person read"}[kind]
+                "reading": "a day of pages the person read",
+                "listening": "a day of what the person listened to on Spotify"}[kind]
         ask = " Ask about what it holds with `cicada_ask`." if ctx.can("cicada_ask") and not ctx.is_cli else ""
         return Reply(f"`{episode_id}` · {day} is {what}: indexed for lookup, not read by an agent by id.{ask}",
                      data={"episode_id": episode_id, "index_only": kind})

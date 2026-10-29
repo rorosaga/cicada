@@ -1,0 +1,5 @@
+[
+  {"endTime": "2026-09-01 08:15", "artistName": "Artist A", "trackName": "Example Song One", "msPlayed": 201000},
+  {"endTime": "2026-09-01 08:19", "artistName": "Artist B", "trackName": "Example Song Two", "msPlayed": 12000},
+  {"endTime": "2026-09-02 20:30", "artistName": "Artist C", "trackName": "Only In The Account File", "msPlayed": 180000}
+]

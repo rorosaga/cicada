@@ -1,0 +1,19 @@
+{
+  "tracks": [
+    {"artist": "Artist A", "album": "Album A", "track": "Example Song One", "uri": "spotify:track:0000000000000000000001"},
+    {"artist": "Artist D", "album": "Album D", "track": "A Track With No Link", "uri": ""}
+  ],
+  "albums": [
+    {"artist": "Artist B", "album": "Album B", "uri": "spotify:album:0000000000000000000003"}
+  ],
+  "shows": [
+    {"name": "Example Show", "publisher": "Example Publisher", "uri": "spotify:show:0000000000000000000004"}
+  ],
+  "episodes": [
+    {"name": "Episode 12: an example", "show": "Example Show", "uri": "spotify:episode:0000000000000000000009"}
+  ],
+  "artists": [{"name": "Artist A", "uri": "spotify:artist:0000000000000000000005"}],
+  "bannedTracks": [],
+  "bannedArtists": [],
+  "other": []
+}

@@ -71,6 +71,7 @@ from api.services import (
     sync_service,
     sync_state,
     watch_history,
+    listening_history,
     write_admission,
 )
 from api.services.connectors import ADAPTERS
@@ -298,10 +299,12 @@ async def upload_sources(
     # Read at call time (not the import-time name): a whole archive of likes
     # runs past one batch and is imported MAX_BATCH at a time below.
     cap = media_ingestor.MAX_UPLOAD_ITEMS
-    if len(items) > cap:
+    # G32: a Spotify play is never a save — a whole account's listening runs past the saves' cap, and becomes days.
+    saves = sum(1 for it in items if not listening_history.is_play(it))
+    if saves > cap:
         raise HTTPException(
             status_code=413,
-            detail=f"{len(items)} items exceeds the {cap}-item import cap",
+            detail=f"{saves} items exceeds the {cap}-item import cap",
         )
 
     memory_path = settings.memory_path
@@ -312,6 +315,12 @@ async def upload_sources(
         history = await watch_history.import_history(memory_path, history_rows, door="takeout",
                                                      trigger="user/watch_history")
         history_note = " " + watch_history.summary(history)
+    # G32: Spotify's plays likewise — one listening day each, committed alone, never a saved link.
+    items, play_rows = listening_history.split(items)
+    if play_rows:
+        listened = await listening_history.import_history(memory_path, play_rows, trigger="user/listening_history")
+        history_note += " " + listening_history.summary(listened)
+        history_rows = history_rows + play_rows
     idx = media_ingestor.load_url_index(memory_path)
     fresh, duplicates, backfilled = media_ingestor._dedup_items(items, idx)
     # G99d (Devin round 1, PR #26 finding 1): this router loads its OWN `idx`
