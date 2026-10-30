@@ -188,6 +188,8 @@ struct DevicesSettingsView: View {
             }
             // G132 phase 1: share this memory with the person's other computers, or keep a full copy of another's here.
             MemoryCopySetting()
+            // G132 phase 3b: the relay (off by default) — pair a computer through it, or join one with a code.
+            RelaySection(canManage: model.canManage)
             // Hyrum audit B1 / D6: the remote connector, unchanged, folded (DR-39) under the old page's anchor.
             SettingsGroupCard {
                 DisclosureGroup(isExpanded: $appsOpen) {

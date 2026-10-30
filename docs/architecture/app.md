@@ -415,6 +415,19 @@ words, while Sleep runs here, for a demo memory and while this Mac shares its ow
 a demo (the backend's `demo` and the Store's roster both ask). A failed refresh keeps what the card last showed. The app
 keeps talking to this Mac's own backend in both cases (`headless.md`, "A computer keeps a copy").
 DR-40, DR-59, DR-76.
+**Relay** (G132 phase 3b; `RelaySection`, `RelayModel`, `RelayPairSheet`, `RelayPairModel`, `Copy.Relay`; not a Store
+domain, read on appear; drawn only when this app is not a server's client): the relay address, **off by default**
+(`PUT /sync/relay`, `wss://` only, `ws://` only to this Mac; *Turn off* clears it), with one plain line for either
+state. With a relay set on a computer that shares its memory, *Pair a computer through the relay* opens the sheet: the
+QR (v2, sorted keys, drawn here with Core Image inside a ring, DR-9) beside the code and the relay's address for typing
+(DR-19); then the name of the computer that answered — and on the typed path the six digits both screens show, in mono
+because they are compared — with one confirmation (DR-40); "Two devices answered this code, so neither was added" when
+a second answered; closing while it waits cancels the code. On a computer that keeps its own memory and shares nothing,
+*Join with a code* takes the code and the relay's address, shows the same six digits with *They match*, and the
+backend starts again as a copy. Revoke's confirmation now says "Revoking cannot take back the copy it already holds."
+The app does not advertise or browse the LAN in this build (network.md, "Discovery on the LAN"): that is the app's
+part when it ships, with its Local Network usage text and `AssociatedBundleIdentifiers` passed to the agent's install.
+No chevron, no fold, no new pattern, no new motion. DR-9, DR-19, DR-40, DR-59, DR-76.
 Agents' last card holds *Command-line tool* (G180, ruling 21; on General's Setup card until B11; `CommandLineTool`,
 `CommandLineToolRow`): one neutral *Install the command-line tool* button (DR-40) that links `~/.local/bin/cicada`
 with no admin.

@@ -3844,6 +3844,57 @@ actor APIClient {
         _ = try await delete("/devices/pairing/\(encodedID(id))")
     }
 
+    // MARK: G132 phase 3b — the relay (off by default) and pairing through it
+
+    /// `GET /sync/relay` — the relay address this computer uses, or none.
+    func fetchRelay() async throws -> RelaySetting {
+        try await get("/sync/relay", timeout: Self.refreshTimeout)
+    }
+
+    /// `PUT /sync/relay` — set (wss://) or clear it; the backend starts or stops its link at once.
+    func setRelay(url: String?) async throws -> RelaySetting {
+        let value: Any = url ?? NSNull()
+        return try await put("/sync/relay", body: ["url": value])
+    }
+
+    /// `POST /devices/pairing/relay` — a one-time code with its QR (v2) for a computer that reaches this one only
+    /// through the relay.
+    func createRelayPairing() async throws -> RelayPairingCreated {
+        try await post("/devices/pairing/relay")
+    }
+
+    func relayPairing(_ id: String) async throws -> RelaySession {
+        let answer: RelaySessionAnswer = try await get("/devices/pairing/relay/\(encodedID(id))",
+                                                       timeout: Self.refreshTimeout)
+        return answer.session
+    }
+
+    func confirmRelayPairing(_ id: String) async throws -> RelaySession {
+        let answer: RelaySessionAnswer = try await post("/devices/pairing/relay/\(encodedID(id))/confirm")
+        return answer.session
+    }
+
+    func cancelRelayPairing(_ id: String) async throws {
+        _ = try await delete("/devices/pairing/relay/\(encodedID(id))")
+    }
+
+    /// `POST /sync/relay/join` — this computer joins with the code the other shows and the relay's address.
+    func joinOverRelay(code: String, relay: String) async throws -> RelayJoinState {
+        try await post("/sync/relay/join", body: ["code": code, "relay": relay])
+    }
+
+    func joinState() async throws -> RelayJoinState {
+        try await get("/sync/relay/join", timeout: Self.refreshTimeout)
+    }
+
+    func confirmJoin() async throws -> RelayJoinState {
+        try await post("/sync/relay/join/confirm")
+    }
+
+    func cancelJoin() async throws {
+        _ = try await delete("/sync/relay/join")
+    }
+
     /// `PUT /connections/{id}/key` with the check flag (G50): 422 = refused (nothing saved), 503 = unreachable — the
     /// caller then offers "Save without checking", which resends with `check: false`.
     func saveKey(_ id: String, key: String, check: Bool) async throws -> ConnectionStatus {
