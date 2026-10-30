@@ -28,6 +28,10 @@ enum CicadaTiming {
     /// G212 — how often the Sleep page asks `GET /devices/status` while it shows (a machine is "connected" within ten
     /// minutes of its last request, so a half-minute poll is plenty). A wait, not motion.
     static let machinePoll: TimeInterval = 30
+    /// G132 phase 2 — while the memory's home is moving, the Sleep page's strip asks again this often (a move takes
+    /// seconds), at most `homeMoveFollowTries` times, then falls back to `machinePoll`. A wait, not motion.
+    static let homeMoveFollow: TimeInterval = 2
+    static let homeMoveFollowTries = 45
     /// How long a toast (`Store.toast`) stays before it clears itself.
     static let toastDwell: TimeInterval = 4
     /// G218 — how often `PermissionDragHelper` asks, by preflight only, whether the person has allowed the permission

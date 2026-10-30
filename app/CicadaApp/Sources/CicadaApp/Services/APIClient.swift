@@ -3781,6 +3781,29 @@ actor APIClient {
         _ = try await post("/sync/replica/recopy")
     }
 
+    // MARK: - Moving the home (G132 phase 2): who runs consolidation, and switching it
+
+    /// `GET /sync/home` — the device that runs consolidation, with every other device's lag; `shared: false` on a
+    /// computer that shares nothing. Machine-wide, never a Store domain.
+    func fetchHome() async throws -> HomeOverview {
+        try await get("/sync/home", timeout: Self.refreshTimeout)
+    }
+
+    /// `POST /sync/home/move` — the person confirmed: `device` becomes the home (a copy's backend asks the home).
+    func moveHome(to device: String) async throws -> HomeMoveAnswer {
+        try await post("/sync/home/move", body: ["device": device])
+    }
+
+    /// `GET /sync/home/take-over` — how far behind this copy is of the last home it saw, before the person confirms.
+    func fetchTakeOverPreview() async throws -> TakeOverPreview {
+        try await get("/sync/home/take-over", timeout: Self.refreshTimeout)
+    }
+
+    /// `POST /sync/home/take-over` — the person confirmed what they were shown (`behind`): this computer takes over.
+    func takeOver(behind: Int) async throws {
+        _ = try await post("/sync/home/take-over", body: ["behind": behind, "confirm": true])
+    }
+
     // MARK: - The connection model (G217, G212, G213)
 
     /// `GET /providers` — static per release, so no ETag and no Store domain: fetched once per launch, kept in memory.
