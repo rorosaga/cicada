@@ -72,3 +72,54 @@ def test_a_forwarded_address_is_believed_only_from_a_trusted_proxy():
     assert limits.client_ip("127.0.0.1", headers, []) == "127.0.0.1"           # off by default
     assert limits.client_ip("127.0.0.1", {"X-Forwarded-For": "junk"}, trusted) == "127.0.0.1"
     assert Config().trusted_proxies == ""
+
+
+class _Lines:
+    """A header mapping with repeated lines, as the websockets library hands them over (``get_all``)."""
+
+    def __init__(self, *lines):
+        self.lines = list(lines)
+
+    def get(self, name, default=None):
+        return self.lines[0] if self.lines else default
+
+    def get_all(self, name):
+        return list(self.lines)
+
+
+def test_a_chain_of_trusted_proxies_is_walked_from_the_right():
+    trusted = limits.parse_networks("127.0.0.1/32, 10.0.0.0/8")
+    # client -> CDN (10.1.2.3) -> TLS proxy (127.0.0.1): every trusted hop is skipped, the client is found.
+    assert limits.client_ip("127.0.0.1", {"X-Forwarded-For": "203.0.113.7, 10.1.2.3"}, trusted) == "203.0.113.7"
+    # A client's own forged entries to the left of the real one are never believed.
+    assert limits.client_ip("127.0.0.1", {"X-Forwarded-For": "192.0.2.66, 203.0.113.7, 10.1.2.3"},
+                            trusted) == "203.0.113.7"
+    # Only trusted hops (or junk where it matters): the peer.
+    assert limits.client_ip("127.0.0.1", {"X-Forwarded-For": "10.1.2.3"}, trusted) == "127.0.0.1"
+    assert limits.client_ip("127.0.0.1", {"X-Forwarded-For": "203.0.113.7, junk"}, trusted) == "127.0.0.1"
+
+
+def test_repeated_forwarded_header_lines_are_read_whole_and_in_order():
+    trusted = limits.parse_networks("127.0.0.1/32")
+    # A client sends its own line; the proxy appends a second. Reading only the first line would believe the forgery.
+    headers = _Lines("192.0.2.66", "203.0.113.7")
+    assert limits.client_ip("127.0.0.1", headers, trusted) == "203.0.113.7"
+
+
+def test_one_ipv6_48_is_capped_across_all_its_64s(tmp_path):
+    clock = Clock()
+    relay = Relay(Config(db_path=str(tmp_path / "relay.db"), creates_per_ip_per_hour=5, creates_per_48_per_hour=20),
+                  clock=clock)
+    made = 0
+    for i in range(1000):                     # a fresh /64 inside one /48 each time
+        client = f"2001:db8:1:{i:x}::1"
+        ip, site = limits.net_key(client), limits.wide_key(client)
+        if relay._creates.allow(ip) and relay._creates_wide.allow(site):
+            relay._creates.record(ip)
+            relay._creates_wide.record(site)
+            made += 1
+    assert made == 20
+    assert limits.wide_key("2001:db8:1:ffff::9") == "2001:db8:1::/48"
+    assert limits.wide_key("203.0.113.200") == "203.0.113.0/24"
+    assert relay._creates_wide.allow(limits.wide_key("2001:db8:2::1"))     # another site is its own budget
+    relay.store.close()

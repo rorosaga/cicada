@@ -38,6 +38,24 @@ def group(n=2, clock=None):
     return home, devices, clock
 
 
+def test_the_latest_status_read_first_never_refuses_the_frames_that_waited():
+    """G132 phase 3b: the relay hands a device the home's latest status the moment it connects, before the deltas that
+    waited for it. Status counters are kept apart, so those deltas still open — and an old status is still refused."""
+    home, (laptop,), _ = group(1)
+    waited = [home.seal("delta", b"d%d" % i, meta={"seq": i})[0] for i in range(3)]
+    old_status = home.seal("status", b"{}")[0]
+    latest = home.seal("status", b'{"x":1}')[0]
+    assert laptop.open(latest).kind == "status"
+    for frame in waited:
+        assert laptop.open(frame).kind == "delta"
+    with pytest.raises(Refused) as exc:
+        laptop.open(old_status)
+    assert exc.value.code == "replay"
+    restored = Endpoint.from_state(laptop.to_state())
+    with pytest.raises(Refused):
+        restored.open(latest)
+
+
 def test_padding_hides_the_length_to_a_bucket():
     assert pad(b"") == b"\x80" + b"\x00" * 4095
     for n in (0, 1, 4095, 4096, 5000, 70_000, 600_000, MAX_PART_PLAIN - 1):

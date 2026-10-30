@@ -8,7 +8,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 
@@ -426,6 +426,7 @@ class AnnounceBody(BaseModel):
     address: str | None = None
     bankId: str | None = None
     seq: int | None = None
+    head: str | None = Field(None, max_length=64)
 
 
 def _refused_move(exc) -> JSONResponse:
@@ -494,14 +495,21 @@ async def get_sync_devices(settings: Settings = Depends(get_settings)):
 
 
 @router.get("/keys")
-async def get_sync_keys(since: float = Query(0, ge=0), settings: Settings = Depends(get_settings)):
+async def get_sync_keys(since: float = Query(0, ge=0), after: str = Query("", max_length=64),
+                        limit: int = Query(1000, ge=1, le=5000), settings: Settings = Depends(get_settings)):
     """The idempotency keys this home kept (their sha256 and the answers they replay, 8 days), for the person's other
     full devices: a write sent again after the home moved is applied once there too (review of #569). Only while
-    this memory is shared."""
-    from api.services import idempotency
+    this memory is shared. Paged (phase 3b): ``more`` with the cursor (``next``: ``since`` and ``after``) of the
+    next page."""
+    from api.services import home_move, idempotency
 
     await _shared(settings)
-    return {"keys": await run_in_threadpool(idempotency.export_since, since)}
+    rows = await run_in_threadpool(lambda: idempotency.export_since(since, after=after, limit=limit + 1,
+                                                                    me=home_move.my_device_id()))
+    more = len(rows) > limit
+    rows = rows[:limit]
+    nxt = {"since": rows[-1]["created"], "after": rows[-1]["keyHash"]} if more and rows else None
+    return {"keys": rows, "more": more, "next": nxt}
 
 
 @router.post("/devices/me")
@@ -525,7 +533,8 @@ async def post_sync_devices_me(body: AnnounceBody, request: Request, settings: S
             address = ""
     try:
         await run_in_threadpool(lambda: device_tokens.store().announce(
-            device.id, sign_jwk=body.signKey, address=address, bank_id=body.bankId, seq=body.seq))
+            device.id, sign_jwk=body.signKey, address=address, bank_id=body.bankId, seq=body.seq,
+            head=body.head if body.head is None or all(c in "0123456789abcdef" for c in body.head) else None))
     except KeyError:
         raise HTTPException(status_code=404, detail="No such device.") from None
     except ValueError as exc:
@@ -542,7 +551,8 @@ async def get_peer(request: Request, settings: Settings = Depends(get_settings))
     from api.services import auth, home_move
 
     token = auth.credential(request.headers.get("authorization"))
-    if await run_in_threadpool(home_move.peer_caller, settings.memory_path, token) is None:
+    relay_ed = request.scope.get(auth.RELAY_SENDER_SCOPE)     # phase 3b: a peer's signed relay frame, no token
+    if await run_in_threadpool(home_move.peer_caller, settings.memory_path, token, relay_ed) is None:
         raise HTTPException(status_code=401, detail="missing or invalid bearer token")
     if await run_in_threadpool(home_move.role, settings.memory_path) == "local":
         raise HTTPException(status_code=404)

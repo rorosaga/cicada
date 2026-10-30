@@ -580,8 +580,9 @@ imports the device side, so a normal install starts no process and opens no conn
 **Direct first, the relay as fallback (owner, 2026-10-30: "cant we just connect between devices").** Devices talk to
 each other directly whenever they can: on the same LAN, over a tailnet, or through a hole-punched path. The relay is
 only (1) the fallback when no direct path exists, (2) the mailbox for a home that is asleep or a phone that was off, and
-(3) the public address the Claude and ChatGPT connector reaches (phase 4, TLS passthrough). Hosting and a domain wait;
-the direct transport is not in this build. **The frames are identical on either path:** the E2E layer below is
+(3) the public address the Claude and ChatGPT connector reaches (phase 4, TLS passthrough). Hosting and a domain wait:
+a relay URL is the person's setting, off by default, and only the self-host container (or the suite's in-process relay)
+on localhost has ever been used. **Built in phase 3b (below, "One transport").** **The frames are identical on either path:** the E2E layer below is
 transport-agnostic — a frame is signed and encrypted end to end before any transport sees it, and a receiver runs the
 same `Endpoint.open` (membership, signature, counter, epoch key) whether the bytes came over a direct socket or out of
 the relay's mailbox. A frame that arrives twice, once each way, is refused the second time by its counter, so a device
@@ -600,6 +601,103 @@ may try both paths for the same frame. What direct needs, for 3b:
   the wire. TLS on a direct socket is transport hygiene, not the trust boundary.
 - **Choosing a path.** Try direct, fall back to the relay after a short timeout; queue through the relay whenever the
   peer is offline. Acks are per path (the relay's relay seq, a direct session's own), the sender counter is shared.
+
+### One transport: direct first, the relay as fallback (G132 phase 3b — built, off unless a relay is set)
+
+**One interface.** Every request a device makes of another — the follower's pack and log, the status frame, the
+outbox's transactions, the registry and keys, and the home-move peer calls — goes through `sync_transport.request`
+(to the home) or `sync_transport.ask_peer` (to one device by its registry row). **With no relay set it is phases 1–2's
+direct request, the same code**: nothing relay-side is imported or started (`test_sync_transport.py`,
+`test_sync_relay_isolation.py`). With a relay set and the memory shared (never a demo), the backend runs one relay link
+(`sync_relay_link`, an asyncio task on its own loop) and the transport chooses:
+
+- **direct first** — the peer's configured address (`replica_of`, a registry address, or a verified discovered one)
+  must accept a TCP connection within 2 s (a success is trusted 5 s); then the request goes direct, with its token;
+- **the relay as fallback** — no answer, or a direct request that dies mid-way with no answer, is sent over the relay
+  with the same `Idempotency-Key`, and direct is tried again after 30 s. The relay path never carries a token
+  (`Authorization` is stripped): the receiver knows the sender by its signed frame;
+- **the relay-only address** — a device paired over the relay with no direct address follows
+  `https://home.relay.invalid` (RFC 2606: never resolves), so a direct try costs nothing.
+
+**What travels over the relay.** The home's link pushes each new HEAD as one `delta` to every device (`previous..HEAD`,
+with `seq`, `head` and `base` inside the ciphertext); a device keeps it until its follower asks for that base, so a copy
+catches up from the mailbox while the home is asleep. A device that stays away is **coalesced**: once four deltas wait
+for it the home drops them at the relay (`supersede`) and sends one bundle from the commit that device last announced
+(`copy_head` on its registry row). A write is one `tx` frame to the home, run there **in process** through the same
+route and the same `idempotency.run_once` a direct request reaches, as the device whose relay key signed it
+(`auth.RELAY_DEVICE_SCOPE`, a scope key no network server can set; the device's row is looked up again, so a revoke
+in between is a 401, and the master-only and capture-only rules apply); the answer comes back as a `control` frame, and
+an answer that arrives after the caller stopped waiting is kept for the outbox's next try (no second frame is queued
+for it). The status frame is latest-only (`status`, every 15 s when it changed; a device keeps its own counter for
+status frames apart, because the relay hands it the latest status before the frames that waited). Every other request
+(the registry, keys, `/sync/peer`, a pack) is a `control` request answered by a `control` reply or, from the relay's
+home, a `delta`/`stream`; the same read asked again while unanswered waits for the first answer. A first copy is a
+`stream` spooled to a 0600 file. Relay state is `$CICADA_HOME/sync/relay-state.json` (0600, outside every bank; the
+counter saved before a frame is sent, what a frame changed saved before it is acknowledged; a message cut by a
+dropped connection is received again from its first part). Logs carry kinds, counts and timings only.
+
+**Measured** (a synthetic owner-scale bank — 8,000 pages, 9,000 episodes, 470 inbox items — a home and a copy on
+loopback, the copy reaching the home through a cuttable forwarder and an in-process relay; nice 10): a home commit
+reaches the copy p50 365 / p95 412 ms direct and p50 473 / p95 518 ms over the relay alone (n=20 each, interleaved; the
+relay leg is the home's 0.5 s head poll plus one sealed delta); a write made right after direct is refused, or after
+direct forwarded it and dropped the answer, lands at the home once in ~0.55 s; a copy starting with the home asleep and
+10 commits waiting is caught up 0.17 s after its backend is up, from the mailbox alone (a peer not heard from in 90 s
+gets 1.5 s per read, not 20 s; the home re-seals its status every 30 s as the heartbeat that tells asleep from quiet);
+a first copy over the relay (pairing confirmed → HEAD equal, the restart included, a ~9.5 MB bundle) takes 8.1 s
+against 7.2 s direct; idle, a relay set costs the home +0.27–0.38 s and the copy +0.06–0.14 s of CPU per 120 s.
+
+**Applied once across both paths** (`test_sync_relay_three_machines.py`): a write that went direct, landed, and lost
+its answer is resent over the relay under the same key and replayed, not re-run; a delta whose base is not the copy's
+head is never applied (ancestry is checked before any file is written); a relay frame already accepted is refused by
+its counter.
+
+**The group.** A replica that is not in the relay group yet enrols over the direct path it already trusts
+(`POST /sync/enrol`, its own token): its relay keys' public halves go on its registry row (`relay_ed`, `relay_x`) and
+the home posts a new epoch before answering. Revoking a device (`DELETE /devices/{id}`) also takes it out of the group:
+a new epoch it holds no key to, and the relay closes its socket. **Revoking cannot take back the copy it already
+holds** (the Devices page says so). Phase 2's move calls `Home.hand_off` after the record commits (the membership names
+the target; the group record goes to the target alone), and the target, once its record arrives, `Home.take_over`s the
+group — before it promotes it still asks the old home for its history (`_home_route`). A take-over (or a take-back)
+starts the group again: a new mailbox rooted in the taker's key, the same devices, announced on the old mailbox with the
+signed take-over record; a device follows it only when that record verifies against the registry, outranks the record
+it holds and names the device whose relay key sent the notice.
+
+**Pairing over the relay** (Settings → Devices, the app's PR): `POST /devices/pairing/relay` issues a one-time code
+through `device_tokens` (ten minutes, single use) and the QR v2 `{v, code, relay, slot, home: {ed, x}}` (plus `url` when
+the home has a direct address), and opens the typed path's Argon2id slot too. The new computer posts the QR or the typed
+code with the relay's address (`POST /sync/relay/join`); the home's screen names what answered and, on the typed path,
+both screens show the same six digits; the person confirms on the home (and, typed, on the new computer); then the code
+is spent through `device_tokens.redeem`, the device's relay keys go on its row, the epoch is posted, and only then the
+sealed welcome is sent. A second device answering voids the code: "Two devices answered this code, so neither was
+added." The new computer keeps its token, `replica_of`, the relay setting and the endpoint (all 0600) and starts again
+as a copy. The phone's binding to its Secure-Enclave key waits for phase 4.
+
+**Discovery on the LAN — the app, never the backend.** Apple's TN3179 ("Understanding local network privacy",
+2026-10-06): *"All Bonjour operations require local network access"*, and so does *"Making an outgoing TCP
+connection"* to a local-network address (listening and accepting do not); macOS allows it automatically for *"Any
+daemon started by launchd"*, root, and Terminal/SSH tools, but *"The exception for launchd daemons doesn't apply to
+launchd agents"*. The backend is a launchd agent (`com.cicada.backend`), so a Bonjour call from it would raise the
+Local Network alert on its own, under no app's name. So the app (which may ask, with its usage text) advertises and
+browses `_cicada._tcp` with the instance name `c-<hash>` — the first 80 bits of `sha256("cicada-lan-v1\0" + bank id)`,
+never a name, hostname or the bank id — and hands the backend what it resolved (`POST /sync/discovered`). An address is
+trusted only after the peer signs a fresh nonce the backend issued (`GET /sync/discovery` → the peer's open
+`GET /sync/hello`) with the device key the registry holds for it — no token is sent to it before that — and only an
+`https` address is kept (a token never crosses a LAN in the clear). The backend dials a verified LAN address only when
+the app says the person allowed local network access **and** its launchd plist names the app as its responsible code
+(TN3179's `AssociatedBundleIdentifiers`, written by `install-backend-agent.sh` with `CICADA_APP_BUNDLE_ID` when the app
+passes its bundle id); otherwise the configured address and the relay carry everything. Off on a single-machine install:
+nothing is advertised and `/sync/hello` answers 404.
+
+**The bind.** The backend still binds `127.0.0.1` only; `GET /sync/transport` shows it in words, with where the person's
+other devices reach it (their tailnet's `tailscale serve`, or `CICADA_DEVICE_URL`). No LAN listener is built: one on
+the LAN address itself would serve the API over plain HTTP with no certificate a peer could check (Needs the owner:
+a self-signed certificate whose fingerprint the device key signs, pinned by the peer).
+
+**Before any hosted relay goes live (pre-go-live, as far as code goes).** Creation is also capped per IPv6 /48 (an
+IPv4 /24): 20 an hour (`RELAY_CREATES_PER_48_PER_HOUR`), so one site handed 65,536 /64s is still one budget; a bank no
+device connected to again after the one that created it is purged after 2 days (`RELAY_UNCONFIRMED_PURGE_S`), not 30;
+behind trusted proxies the forwarded chain is read whole — every `X-Forwarded-For` line in order (`get_all`) — and
+walked from the right past each trusted hop, so a client's own forged entries to the left are never believed.
 
 **What exists.** `relay/` is the relay (`cicada_relay`: `wire`, `config`, `store`, `server`, `health`), standalone —
 it imports nothing from the backend — with its own pinned, hashed `requirements.txt` (PyNaCl, websockets) and one
@@ -671,7 +769,8 @@ start again"). A slot lives at most the code's ten minutes and carries at most 8
 | Idle bank | purged after 30 days with no device connected | the home re-creates it from its signed membership |
 | Relay-wide | 16 GiB of frames (a running total kept by SQLite triggers) and a 20 GiB database file | a full relay answers `relay_full`; it never evicts another bank's frames |
 | A flush | reads sizes, then one frame's bytes at a time, ≤ 4 MiB a batch | a bank's 15 online devices cost ~15 frames of memory, not 15 × 256 MiB |
-| Bank creation | one per connection; 5 an hour per network — an IPv4 /32 or an IPv6 /64, so rotating through a prefix is one key; only a created bank counts; a table of at most 50,000 networks, O(1) at the cap, a new network refused when it is full rather than scanned; 16 unauthenticated sockets per network | creating needs no credential (the home's key is the bank's root), so it is rate-limited; addresses are held in memory for the counts only, never logged or stored |
+| Idle bank never reconnected | purged after 2 days when no device connected again after the one that created it (phase 3b) | a create costs nothing; an abandoned or scripted one should not hold a row for a month |
+| Bank creation | one per connection; 5 an hour per network — an IPv4 /32 or an IPv6 /64, so rotating through a prefix is one key — and 20 an hour per IPv6 /48 or IPv4 /24 (phase 3b); only a created bank counts; a table of at most 50,000 networks, O(1) at the cap, a new network refused when it is full rather than scanned; 16 unauthenticated sockets per network | creating needs no credential (the home's key is the bank's root), so it is rate-limited; addresses are held in memory for the counts only, never logged or stored |
 
 A device spools a bootstrap's parts to a 0600 file outside every bank (`Endpoint.spool_dir`, never in memory), up to
 the relay's 256 MiB; the home seals it from its bundle file a part at a time (`seal_stream`). Any other message is
@@ -710,8 +809,8 @@ It runs as uid 10001 on `python:3.12.11-slim-bookworm` with only its two hashed 
 (the image's `HEALTHCHECK`), keeps its mailbox in `/data` (a cache the devices can rebuild, except transactions still
 in flight, which also stay in their device's outbox), and terminates TLS for its own name only — **TLS should terminate
 in the relay**, so the address it counts is the client's. Behind a TLS proxy, set `RELAY_TRUSTED_PROXIES` to the
-proxy's network (empty by default): its `X-Forwarded-For` right-most entry is then believed, and from any other peer the
-header is ignored; without it every client counts as the proxy and the per-network limits become relay-wide. Without the TLS
+proxy's network (empty by default): its forwarded chain is then read whole (every `X-Forwarded-For` line) and walked from
+the right past each trusted hop, and from any other peer the header is ignored; without it every client counts as the proxy and the per-network limits become relay-wide. Without the TLS
 variables it serves plain `ws://`, which devices accept only on loopback (a TLS proxy on the same machine). Its logs
 carry hashed ids, sizes, counts and timings, never a body, a key, an address or a slot. Without Docker:
 `PYTHONPATH=relay python -m cicada_relay` with the same variables.

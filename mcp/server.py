@@ -7,6 +7,7 @@ Cursor) can connect to. Provides tools for:
 3. Checking pending nudges/clarifications
 """
 
+import contextlib
 import json
 import os
 import re
@@ -1629,7 +1630,8 @@ def handle_tool(name: str, arguments: dict) -> str:
         before = admitted_log.seq_before(get_memory_path())
         # Owner, 2026-10-16 (backend hunt): an edit already uncommitted on a page this write takes is committed
         # apart, first, never under this agent's name (`agent_commits.setting_apart`, as the inbox routes do).
-        with agent_commits.setting_apart(get_memory_path()):
+        with agent_commits.setting_apart(get_memory_path()), \
+                admitted_log.tracking(get_memory_path()) if before is not None else contextlib.nullcontext() as track:
             text = _handle_local_tool(name, arguments)
         if before is not None and not tool_contract.is_error(getattr(text, "code", None)):
             # G132 phase 2: a publishing home keeps what it admitted, to offer back if it is ever taken over.
@@ -1638,7 +1640,7 @@ def handle_tool(name: str, arguments: dict) -> str:
                                              "project_dir": SESSION.project_dir,
                                              "client_name": CLIENT_INFO.get("name") or None,
                                              "client_version": CLIENT_INFO.get("version") or None},
-                                     surface="mcp", seq_before=before)
+                                     surface="mcp", seq_before=before, track=track)
     else:
         text = _handle_local_tool(name, arguments)
     if notice and isinstance(text, str):

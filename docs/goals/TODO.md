@@ -12,6 +12,15 @@
 
 ## Current state and evidence
 
+- **2026-10-30 — one transport, direct first, the relay as fallback (ruling 51c, G132 phase 3b; branches
+  `feat/g132-direct-first`, backend, and `feat/g132-direct-first-app`, Settings → Devices' Relay).** Owner: "cant we just
+  connect between devices". Every device-to-device request goes through `sync_transport`: direct to the configured
+  address (unset relay = phases 1–2 exactly), the relay when direct does not answer in 2 s or dies mid-request; the home
+  pushes commits to the mailbox, a write is a sealed transaction applied once whichever path carried it, the home moves
+  and a first copy is made over the relay alone; pairing over the relay (QR v2, six digits) and revoke rotating the
+  group. Discovery is the app's (TN3179), checked by a signed hello; no LAN listener. No relay is hosted or deployed.
+  Measured on a synthetic owner-scale bank (8,000 pages, 9,000 episodes, 470 inbox items; loopback, this Mac at nice 10, a relay in process): a home commit reaches the copy in p50 365 / p95 412 ms direct and p50 473 / p95 518 ms over the relay alone (n=20 each, interleaved); a write made right after direct fails lands at the home in ~0.55 s (refused, or forwarded with its answer dropped: resent over the relay under the same key, applied once); a copy that starts with the home asleep and 10 commits waiting is caught up 0.17 s after its backend is up (from the mailbox alone; 61 s before a sleeping home's reads were made short); a first copy over the relay (pairing confirmed → HEAD equal, its restart included) 8.1 s against 7.2 s direct; idle, a relay set costs the home +0.27–0.38 s and the copy +0.06–0.14 s of CPU per 120 s (two alternating rounds).
+  Report: `reports/g132-phase3b.md`.
 - **2026-10-29 — the home moves (ruling 51a, G132 phase 2; branches `feat/g132-move-home`, backend, and
   `feat/g132-move-home-app`, the Sleep page's strip).** The Sleep page names the device that runs consolidation and
   every other device's lag; picking one and confirming (or `cicada home move <device>`) closes the home, parks Sleep,

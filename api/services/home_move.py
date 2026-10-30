@@ -93,6 +93,8 @@ def peer_after_offline_s() -> float:
     except ValueError:
         return PEER_AFTER_OFFLINE_S
 PEER_TIMEOUT_S = 3.0
+#: ``/sync/keys`` pages one pull reads at most (5,000 keys a page): 8 days of a busy group's writes.
+KEYS_PAGES_MAX = 64
 #: A device counts as online when it reached the home this recently.
 ONLINE_WITHIN_S = 120.0
 #: A move's refusal stays on the Sleep page this long.
@@ -335,7 +337,7 @@ def registry(memory_path) -> list[dict]:
 def registry_digest(rows: list[dict]) -> str:
     """What changes when a device joins, leaves, moves address or registers its key — never a seq or a time — so a
     replica asks for the registry again only when it changed."""
-    keys = ("id", "token_hash", "revoked_at", "kind", "key_thumbprint", "sign_jwk", "address", "is_self")
+    keys = ("id", "token_hash", "revoked_at", "kind", "key_thumbprint", "sign_jwk", "address", "is_self", "relay_ed")
     flat = sorted(json.dumps({k: r.get(k) for k in keys}, sort_keys=True) for r in rows if isinstance(r, dict))
     return hashlib.sha256("\n".join(flat).encode("utf-8")).hexdigest()[:16]
 
@@ -373,12 +375,14 @@ def _token_ok(token: str, rows: list[dict]) -> str | None:
     return device_id if hmac.compare_digest(str(r.get("token_hash") or ""), digest) else None
 
 
-def peer_caller(memory_path, token: str | None) -> str | None:
-    """``GET /sync/peer``'s check: a device of the group (this computer's own store, or the registry it mirrored)."""
+def peer_caller(memory_path, token: str | None, relay_ed: str | None = None) -> str | None:
+    """``GET /sync/peer``'s check: a device of the group (this computer's own store, or the registry it mirrored) —
+    by its bearer token on a direct path, or (phase 3b) by the relay key its frame was signed with (``relay_ed``,
+    verified by ``sync_relay_link`` before the request runs; no token crosses the relay)."""
     from api.services import device_tokens
 
     try:
-        device = device_tokens.store().verify(token)
+        device = device_tokens.store().by_relay_key(relay_ed) if relay_ed else device_tokens.store().verify(token)
     except Exception:  # noqa: BLE001
         device = None
     if device is not None:
@@ -388,7 +392,11 @@ def peer_caller(memory_path, token: str | None) -> str | None:
     if not (runtime_layout.is_replica() or replica_guard.active()):
         return None       # a home answers from its own store only: a revoke there is never undone by an old mirror
     try:
-        return _token_ok(token or "", load_mirror(memory_path))
+        rows = load_mirror(memory_path)
+        if relay_ed:
+            r = next((r for r in rows if r.get("relay_ed") == relay_ed and not r.get("revoked_at")), None)
+            return r.get("id") if r else None
+        return _token_ok(token or "", rows)
     except Exception:  # noqa: BLE001
         return None
 
@@ -478,6 +486,28 @@ def _ask(address: str, path: str, token: str, *, method: str = "GET", body: dict
         return None, None
 
 
+def _reachable(r: dict) -> bool:
+    """A device of the group can be asked: it has an address, or relay keys (and a relay is running here)."""
+    from api.services import sync_transport
+
+    return bool(r.get("address")) or bool(r.get("relay_ed") and sync_transport._link() is not None)   # noqa: SLF001
+
+
+def _ask_row(r: dict, path: str, token: str, *, method: str = "GET", body: dict | None = None,
+             timeout: float = PEER_TIMEOUT_S):
+    """``(status | None, body)`` from the device of registry row ``r``: direct first, the relay as fallback."""
+    from api.services import sync_transport
+
+    if sync_transport._link() is None or not r.get("relay_ed"):   # noqa: SLF001 — no relay: phase 2's own request
+        if not r.get("address"):
+            return None, None
+        return _ask(r["address"], path, token, method=method, body=body, timeout=timeout)
+    data = json.dumps(body).encode("utf-8") if body is not None else None
+    status, _h, answer = sync_transport.ask_peer(r.get("address"), r.get("relay_ed"), method, path, token=token,
+                                                 body=data, timeout=timeout)
+    return status, answer if isinstance(answer, (dict, list)) or answer is None else None
+
+
 def _own_token() -> str:
     from api.services import runtime_layout
 
@@ -532,10 +562,11 @@ def start_move(memory_path, target_id: str) -> dict:
     if target.kind != "full" or target.copy_bank_id != bank_id:
         raise MoveRefused("no_copy", f"{target.name} does not keep a copy of this memory. Turn on \"Keep a full "
                                      f"copy here\" on it first.")
-    if not target.address:
+    reach = {"address": target.address, "relay_ed": target.relay_ed}
+    if not _reachable(reach):
         raise MoveRefused("no_address", f"Your other devices cannot reach {target.name} yet. On {target.name}, "
                                         f"open Settings → Devices and share it on your network.")
-    status, peer = _ask(target.address, "/sync/peer", _own_token())
+    status, peer = _ask_row(reach, "/sync/peer", _own_token())
     if status != 200 or not isinstance(peer, dict) or peer.get("bankId") != bank_id:
         raise MoveRefused("target_away", f"{target.name} does not answer right now. Try again when it is on.", 503)
     if not peer.get("canHost", True):
@@ -546,7 +577,9 @@ def start_move(memory_path, target_id: str) -> dict:
     _PROGRESS.clear()
     _step(phase="starting", to={"device": target.id, "name": target.name}, startedAt=time.time(),
           text=MOVING_TEXT.format(to=target.name), headSeq=sync_log.head_seq(memory_path))
-    to = {"device": target.id, "name": target.name, "address": target.address}
+    # Phase 3b: the target by its address and, when a relay runs, its relay key — the move works over either path.
+    to = {"device": target.id, "name": target.name, "address": target.address or _relay_only_base(),
+          "relay_ed": target.relay_ed}
     threading.Thread(target=_move_thread, args=(memory_path, to, me, bank_id), name="cicada-home-move",
                      daemon=True).start()
     return progress()
@@ -719,11 +752,43 @@ def _move(memory_path: Path, to: dict, me: str, bank_id: str | None) -> None:
             raise
         sha = _head(memory_path)    # the record landed before the error: closed for good, go on handing off
         carried = 0
+    # Phase 3b: the relay group moves with the history — the membership names the target, and the group record (who
+    # joined when) goes to the target alone, sealed to it (``Home.hand_off``). Nothing when no relay runs.
+    _relay_hand_off(to)
     # 3. The record is the last commit this home made: it says so, and waits for the target to take it up.
     _close(memory_path, "left", to, new_term, recordSha=sha, closedFor=round(time.monotonic() - t_closed, 3))
     _step(phase="left", recordSha=sha, carried=carried, recordAt=time.time())
     logger.info(f"home move: the record is committed (term {new_term}); waiting for the new home")
     _wait_and_demote(memory_path, to, new_term)
+
+
+def _relay_link():
+    from api.services import sync_transport
+
+    return sync_transport._link()   # noqa: SLF001 — None when no relay runs (and nothing relay-side is imported)
+
+
+def _relay_hand_off(to: dict) -> None:
+    link = _relay_link()
+    if link is None or not to.get("relay_ed"):
+        return
+    try:
+        link.hand_off_sync(to["relay_ed"])
+    except Exception as exc:  # noqa: BLE001 — the history's record still moves the home; the relay group follows later
+        logger.info(f"home move: the relay group was not handed off ({type(exc).__name__})")
+
+
+def _relay_regroup(rec) -> None:
+    """A take-over: the old home holds the relay group's root and is gone, so this computer starts a new group for
+    the same devices (a new mailbox, its own key as the root) and tells the old group where it went, with the signed
+    take-over record each device checks before it follows (``sync_relay_link.Link.regroup``)."""
+    link = _relay_link()
+    if link is None:
+        return
+    try:
+        link.regroup_sync(rec.data)
+    except Exception as exc:  # noqa: BLE001
+        logger.info(f"home move: the relay group was not started again ({type(exc).__name__})")
 
 
 def _wait_and_demote(memory_path: Path, to: dict, new_term: int) -> None:
@@ -733,7 +798,7 @@ def _wait_and_demote(memory_path: Path, to: dict, new_term: int) -> None:
     while True:
         if handoff() is None:
             return
-        status, peer = _ask(to["address"], "/sync/peer", _own_token())
+        status, peer = _ask_row(to, "/sync/peer", _own_token())
         if status == 200 and isinstance(peer, dict) and peer.get("role") == "home" \
                 and int(peer.get("term") or 0) >= new_term:
             _step(phase="demoting", homeAt=time.time())
@@ -952,17 +1017,32 @@ def pull_keys(address: str | None = None) -> int:
     once more, from the closed old home, before it promotes). Returns how many it took."""
     from api.services import idempotency, replica
 
-    since = max(0.0, idempotency.newest() - 60.0)
-    try:
-        if address:
-            status, body = _ask(address, f"/sync/keys?since={since}", _own_token(), timeout=10)
-        else:
-            status, _h, body = replica.request("GET", f"/sync/keys?since={since}", timeout=10)
-    except Exception:  # noqa: BLE001 — no token, offline
-        return 0
-    if status == 200 and isinstance(body, dict) and isinstance(body.get("keys"), list):
-        return idempotency.import_rows(body["keys"])
-    return 0
+    since, after = max(0.0, idempotency.newest() - 60.0), ""
+    taken = 0
+    me = my_device_id()
+    for _page in range(KEYS_PAGES_MAX):          # phase 3b: paged; a page at a time, never one unbounded answer
+        path = f"/sync/keys?since={since}&after={after}&limit={idempotency.EXPORT_PAGE}"
+        try:
+            if address:
+                status, body = _ask(address, path, _own_token(), timeout=10)
+            else:
+                status, _h, body = replica.request("GET", path, timeout=10)
+        except Exception:  # noqa: BLE001 — no token, offline
+            return taken
+        if status != 200 or not isinstance(body, dict) or not isinstance(body.get("keys"), list):
+            return taken
+        taken += idempotency.import_rows(body["keys"], me=me)
+        nxt = body.get("next")
+        if not body.get("more") or not isinstance(nxt, dict):
+            return taken
+        since, after = float(nxt.get("since") or since), str(nxt.get("after") or "")
+    return taken
+
+
+def _relay_only_base() -> str:
+    from api.services import sync_transport
+
+    return sync_transport.RELAY_ONLY_BASE
 
 
 def repoint(address: str) -> None:
@@ -1186,7 +1266,9 @@ def take_over_preview(memory_path: Path) -> dict:
     when = _when(seen)
     text = (f"This computer is {behind} change{'s' if behind != 1 else ''} behind the last home it saw, "
             f"{home_name}, {when}. If you take over, those changes are not in your memory here; if {home_name} "
-            f"comes back, what it changed is offered to this computer, never merged.")
+            f"comes back, what it changed is offered to this computer, never merged. A change another device sent "
+            f"to {home_name} in about the last minute before it went away may be applied a second time if that "
+            f"device sends it again: this computer learns which changes were applied about once a minute.")
     return {"possible": True, "behind": behind, "lastSeenAt": seen, "home": home_name, "seq": seq, "text": text}
 
 
@@ -1198,14 +1280,25 @@ def _another_home(memory_path: Path, mine: int) -> str | None:
     me = my_device_id()
     if not token:
         return None
-    for r in registry(memory_path):
-        address = r.get("address")
-        if r.get("revoked_at") or not address or r.get("id") == me or r.get("kind") not in (None, "full"):
-            continue
-        status, peer = _ask(address, "/sync/peer", token)
+    rows = [r for r in registry(memory_path)
+            if not r.get("revoked_at") and _reachable(r) and r.get("id") != me and r.get("kind") in (None, "full")]
+    if not rows:
+        return None
+
+    def ask(r):
+        status, peer = _ask_row(r, "/sync/peer", token)
         if status == 200 and isinstance(peer, dict) and peer.get("bankId") == (pin.id if pin else None) \
                 and peer.get("role") == "home" and int(peer.get("term") or 0) >= mine:
             return str(r.get("name") or "another computer")
+        return None
+
+    # Review of #569: asked all at once (3 s each in turn was 3 s per device the person waited for).
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=min(8, len(rows)), thread_name_prefix="cicada-ask-peer") as pool:
+        for name in pool.map(ask, rows):
+            if name is not None:
+                return name
     return None
 
 
@@ -1278,6 +1371,7 @@ def take_over(memory_path: Path, *, behind_seen: int | None) -> dict:
                                to={"device": me, "name": device_status.machine_name()}, signer=me)
         home_record.commit(memory_path, rec, subject=f"Taken over by {device_status.machine_name()}")
     logger.info(f"home move: this computer took over (term {rec.term}, {preview['behind']} behind)")
+    _relay_regroup(rec)
     promote(memory_path, rec)
     return {"took": True, "term": rec.term, "behind": preview["behind"]}
 
@@ -1300,6 +1394,7 @@ def _take_back(memory_path: Path, preview: dict) -> dict:
         home_record.commit(memory_path, rec, subject=f"Taken back by {device_status.machine_name()}")
     _clear_handoff()
     _PROGRESS.clear()
+    _relay_regroup(rec)       # phase 3b: the relay group was handed to the target, which never came
     logger.info(f"home move: this computer took its memory back (term {rec.term})")
     return {"took": True, "term": rec.term, "behind": 0, "takeBack": True}
 
@@ -1325,10 +1420,10 @@ def find_home(memory_path: Path) -> str | None:
         current = ""
     for r in registry(memory_path):          # its own store too: an old home that follows knows the group
         address = (r.get("address") or "").rstrip("/")
-        if r.get("revoked_at") or r.get("kind") not in (None, "full") or not address or r.get("id") == me \
-                or address == current:
+        if r.get("revoked_at") or r.get("kind") not in (None, "full") or not _reachable(r) or r.get("id") == me \
+                or (address and address == current):
             continue
-        status, peer = _ask(address, "/sync/peer", token)
+        status, peer = _ask_row(r, "/sync/peer", token)
         if status != 200 or not isinstance(peer, dict) or peer.get("bankId") != (pin.id if pin else None):
             continue
         theirs = int(peer.get("term") or 0)
@@ -1338,6 +1433,7 @@ def find_home(memory_path: Path) -> str | None:
             if (os.environ.get(runtime_layout.REPLICA_ENV) or "").strip():
                 _note("pinned", pinned_by_environment() or "")
                 return None
+            address = address or _relay_only_base()
             repoint(address)
             logger.info(f"home move: found the home under term {theirs}; following it")
             return address
@@ -1349,8 +1445,12 @@ def announce_body(memory_path: Path, seq: int | None) -> dict:
     from api.services import device_key
 
     pin = _pin()
+    from api.services import sync_service
+
+    # Phase 3b: the commit the copy is at, so the home can coalesce a lagging device's deltas from there.
     return {"signKey": device_key.public_jwk(create=True), "address": own_address() or "",
-            "bankId": pin.id if pin is not None else None, "seq": seq}
+            "bankId": pin.id if pin is not None else None, "seq": seq,
+            "head": sync_service.git_head(Path(memory_path)) or None}
 
 
 # --- the old home comes back -------------------------------------------------------------------------------------------
@@ -1397,14 +1497,16 @@ def check_peers(memory_path: Path) -> dict | None:
         return None
     me = my_device_id()
     for device in device_tokens.store().list():
-        if not device.active or device.kind != "full" or not device.address or device.id == me:
+        r = {"address": device.address, "relay_ed": device.relay_ed}
+        if not device.active or device.kind != "full" or not _reachable(r) or device.id == me:
             continue
-        status, peer = _ask(device.address, "/sync/peer", token)
+        status, peer = _ask_row(r, "/sync/peer", token)
         if status != 200 or not isinstance(peer, dict) or peer.get("bankId") != (pin.id if pin else None):
             continue
         if peer.get("role") == "home" and outranks(int(peer.get("term") or 0), peer.get("device"), mine, me) \
                 and verified_peer(memory_path, peer):
-            to = {"device": peer.get("device") or device.id, "name": device.name, "address": device.address}
+            to = {"device": peer.get("device") or device.id, "name": device.name,
+                  "address": device.address or _relay_only_base()}
             logger.info(f"home move: {device.id} holds this memory under a newer term; following it")
             _close(memory_path, "superseding", to, int(peer.get("term") or 0))   # the doors at once
             threading.Thread(target=_superseded_demote, args=(memory_path, to, int(peer.get("term") or 0)),
@@ -1553,7 +1655,9 @@ def _offers(memory_path: Path, theirs, fork: str, old: str, head_ref: str, *, wa
     unoffered: dict[str, int] = {}
     if was_home:
         for e in admitted_log.not_in(memory_path, head_ref, since_seq=theirs.seq):
-            key = hashlib.sha256(json.dumps(e, sort_keys=True).encode("utf-8")).hexdigest()[:32]
+            # Review of #569: a write this computer's own token sent is offered under its own key, so the same write
+            # sent again by this computer's own app or agent once it follows the new home is one transaction there.
+            key = e.get("key") or hashlib.sha256(json.dumps(e, sort_keys=True).encode("utf-8")).hexdigest()[:32]
             if e.get("kind") == "tool":
                 entries.append(tx_outbox.tool_entry(e.get("tool"), e.get("arguments") or {}, bank_id=bank_id,
                                                     base_seq=None, caller=e.get("caller") or {},
@@ -1568,6 +1672,8 @@ def _offers(memory_path: Path, theirs, fork: str, old: str, head_ref: str, *, wa
                     unoffered[str(e.get("path"))] = unoffered.get(str(e.get("path")), 0) + 1
                     continue
             else:
+                if e.get("tool") in admitted_log.EPISODE_TOOLS:
+                    continue      # its episode is offered below, as the episode: counted there, once
                 unoffered[str(e.get("tool"))] = unoffered.get(str(e.get("tool")), 0) + 1
                 continue
             calls += 1

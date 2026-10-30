@@ -465,6 +465,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   **Ruling 51 (owner 2026-10-29, G132; decided, not built — amends this rail as each phase ships):** one movable home
   writes, mints, commits and runs Sleep; other devices (the phone a full one) hold replicas and send writes as
   transactions; all dial out to an E2E relay that never sees plaintext; nothing merged by git (`headless.md`).
+  **Rail (3), phase 3b (2026-10-30):** reach is direct to the address the person configured, else the relay they set
+  (off by default; never a frame's plaintext, never a token over it); LAN discovery is the app's, a peer trusted only
+  after a signed hello (`network.md`, "One transport").
   Phase 1 A built: the home may publish its log (off by default, never a demo; a rewritten history freezes it).
   Phase 1 B built — rail (2) in effect: a client machine may instead run in **replica mode** (`replica_of`): a
   read-only copy it fast-forwards, every bank writer refused but the apply, its writes transactions to the home.

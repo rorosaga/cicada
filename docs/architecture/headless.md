@@ -745,6 +745,20 @@ point is offered back by the old home only if it returns. The remote connector's
 their episodes are offered like any other). Commits a lost home made that no device received are gone with it — the
 lag the person was shown.
 
+## Direct first, the relay as fallback (G132 phase 3b — built, off unless a relay is set)
+
+Everything a copy says to its home, and every home-move peer call, goes through one transport (`sync_transport`):
+direct to the address the person configured — exactly phases 1–2's request when no relay is set — and, with a relay set
+(Settings → Devices → Relay, or `CICADA_SYNC_RELAY`; off by default; `wss://`, `ws://` only on loopback), over the
+relay when direct does not answer within 2 s or dies mid-request. The home's link pushes each commit to every device's
+mailbox, so a copy catches up while the home is asleep; a write is a sealed transaction the home runs through the same
+route and the same idempotency key, so a write sent both ways is applied once. A computer paired over the relay with
+no direct address follows `https://home.relay.invalid`. A move works over the relay alone (the three-machine test
+moves the home with every direct path cut), and so does a first copy. The backend still binds 127.0.0.1; reach from
+another machine is the person's tailnet or the relay. Details, the measured numbers and the threat model:
+[`network.md`](network.md), "One transport". `GET /sync/transport` shows the path the last request took, the counts,
+the last fallback's time and the bind.
+
 ## Decided, not built (G132, ruling 51)
 
 Everything above describes what ships (the home's publishing, just above, is phase 1's first half). This section

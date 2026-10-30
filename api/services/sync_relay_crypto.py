@@ -257,6 +257,10 @@ class Endpoint:
     spool_dir: str | None = None
     #: The home before the last hand-off this device accepted: the only key a hand-off's group record may be signed by.
     prev_home: str | None = None
+    #: Phase 3b: the highest STATUS counter accepted per sender, kept apart from ``hw``. The relay hands a device the
+    #: home's latest status the moment it connects, before the frames that waited for it (latest-only, out of band);
+    #: one counter for both would refuse every waiting frame as a replay once a newer status was read.
+    hw_status: dict[str, int] = field(default_factory=dict)
     _partial: dict = field(default_factory=dict)
 
     @property
@@ -343,7 +347,8 @@ class Endpoint:
         to = h["to"]
         if (to == "home" and not self.is_home) or (isinstance(to, list) and self.me not in to):
             raise Refused("not_for_me")
-        if h["ctr"] <= self.hw.get(sender, 0):
+        seen = self.hw_status if h["kind"] == "status" else self.hw
+        if h["ctr"] <= seen.get(sender, 0):
             raise Refused("replay")
         key = self.epoch_keys.get(h["ep"])
         if key is None:
@@ -361,7 +366,7 @@ class Endpoint:
         except CryptoError as exc:
             raise Refused("bad_ciphertext") from exc
         chunk = unpad(plain)
-        self.hw[sender] = h["ctr"]
+        seen[sender] = h["ctr"]
         return self._assemble(h, sender, chunk)
 
     def _drop_partial(self, k) -> None:
@@ -487,7 +492,8 @@ class Endpoint:
     def to_state(self) -> dict:
         return {"keys": self.keys.export(), "mailbox": self.mailbox, "home": self.home, "ctr": self.ctr,
                 "epoch": self.epoch, "epoch_keys": {str(e): b64e(k) for e, k in self.epoch_keys.items()},
-                "members": self.members, "hw": self.hw, "revoked": self.revoked, "prev_home": self.prev_home}
+                "members": self.members, "hw": self.hw, "revoked": self.revoked, "prev_home": self.prev_home,
+                "hw_status": self.hw_status}
 
     def clear_spool(self) -> int:
         """Delete unfinished bootstrap parts left by an earlier run (a crash or a restart mid-stream). ``from_state``
@@ -502,6 +508,15 @@ class Endpoint:
                     n += 1
         return n
 
+    def repin(self, mailbox: str, home_ed: str, home_x: str) -> None:
+        """Phase 3b (a take-over): the group started again under ``home_ed`` at ``mailbox``. Called only after the
+        signed take-over record was checked (``sync_relay_link``); the new group's first epoch frame, signed by
+        ``home_ed``, then hands this device its key. Nothing from the old group is kept."""
+        self.prev_home, self.home, self.mailbox = self.home, home_ed, mailbox
+        self.epoch, self.epoch_keys, self.members, self.hw, self.hw_status = 0, {}, {home_ed: home_x}, {}, {}
+        for k in list(self._partial):
+            self._drop_partial(k)
+
     @classmethod
     def from_state(cls, state: dict, **kw) -> "Endpoint":
         endpoint = cls._restore(state, **kw)
@@ -513,7 +528,7 @@ class Endpoint:
         return cls(keys=Keys.load(state["keys"]), mailbox=state["mailbox"], home=state["home"], ctr=state["ctr"],
                    epoch=state["epoch"], epoch_keys={int(e): b64d(k) for e, k in state["epoch_keys"].items()},
                    members=dict(state["members"]), hw=dict(state["hw"]), revoked=state["revoked"],
-                   prev_home=state.get("prev_home"), **kw)
+                   prev_home=state.get("prev_home"), hw_status=dict(state.get("hw_status") or {}), **kw)
 
 
 @dataclass
@@ -612,7 +627,8 @@ class Home(Endpoint):
             raise Refused("bad_handoff")
         home = cls(keys=device.keys, mailbox=device.mailbox, home=device.me, ctr=device.ctr, epoch=device.epoch,
                    epoch_keys=dict(device.epoch_keys), members=dict(device.members), hw=dict(device.hw),
-                   clock=device.clock, prev_home=device.prev_home)
+                   clock=device.clock, prev_home=device.prev_home, hw_status=dict(device.hw_status),
+                   spool_dir=device.spool_dir)
         home.joined = joined
         home.started = {int(e): float(t) for e, t in got["started"].items() if int(e) in device.epoch_keys}
         return home

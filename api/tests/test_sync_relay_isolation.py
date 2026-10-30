@@ -8,7 +8,10 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
-RELAY_SIDE = {"sync_relay_crypto", "sync_relay_pairing", "sync_relay_client"}
+RELAY_SIDE = {"sync_relay_crypto", "sync_relay_pairing", "sync_relay_client", "sync_relay_link", "sync_relay_join"}
+#: G132 phase 3b: the modules that start, stop and route to the relay side — each one only inside a function, after a
+#: relay was set (``test_importing_the_backend_app_loads_no_relay_module`` proves nothing is reached at startup).
+WIRING = {"sync_transport", "sync_net", "home_move", "routers/sync_net"}
 
 
 def _imports(path: Path) -> set[str]:
@@ -39,10 +42,19 @@ def test_no_backend_module_imports_the_relay_server():
 
 
 def test_only_the_relay_side_modules_import_each_other():
-    """3b wires the client into the follower and the outbox; until then nothing else reaches it."""
+    """Phase 3b wires the relay side into the transport, the lifespan and the routes — those modules alone, and never
+    at their top level."""
     offenders = []
     for path in _backend_files():
-        if path.stem in RELAY_SIDE:
+        rel = "/".join(path.relative_to(REPO / "api").with_suffix("").parts[-2:])
+        if path.stem in RELAY_SIDE or path.stem in WIRING or rel in WIRING:
+            if path.stem in WIRING or rel in WIRING:
+                top = ast.parse(path.read_text(encoding="utf-8")).body
+                for node in top:
+                    if isinstance(node, (ast.Import, ast.ImportFrom)):
+                        mod = getattr(node, "module", None) or ""
+                        names = {a.name for a in node.names} | {mod}
+                        assert not any(any(side in n.split(".") for side in RELAY_SIDE) for n in names), rel
             continue
         names = _imports(path)
         if any(any(side in name.split(".") for side in RELAY_SIDE) for name in names):

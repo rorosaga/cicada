@@ -24,6 +24,8 @@ import json
 import os
 import subprocess
 import time
+from contextlib import contextmanager
+from dataclasses import dataclass, field
 from pathlib import Path
 
 FILE = "admitted.jsonl"
@@ -83,15 +85,54 @@ def _head(memory_path) -> str | None:
         return None
 
 
+@dataclass
+class Track:
+    """What one admitted call did to the history: the head before it, and the commits it made itself."""
+
+    before: str | None
+    made: list[str] = field(default_factory=list)
+
+    def head_after(self) -> str | None:
+        """The call's own last commit; with none, the head it started from (its effect is already in that history,
+        or it is an episode offered as the episode)."""
+        return self.made[-1] if self.made else self.before
+
+
+@contextmanager
+def tracking(memory_path):
+    """Around one admitted call on a publishing home (review of #569): its ``headAfter`` is the commit the call made
+    — never a HEAD another writer moved between the call and the journal line. Nothing at all while not publishing."""
+    if not recording(memory_path):
+        yield None
+        return
+    from api.services import git_service
+
+    before = _head(memory_path)
+    with git_service.recording_commits() as made:
+        yield Track(before=before, made=made)
+
+
+def _after(memory_path, track: Track | None) -> str | None:
+    return track.head_after() if track is not None else _head(memory_path)
+
+
+#: Tools whose one effect is an episode: on the set-aside range the episode itself is offered (``home_move._offers``),
+#: so a remote app's call of one is never also counted as "not sent" (review of #569: it was counted twice).
+EPISODE_TOOLS = frozenset({"cicada_save_episode", "cicada_save_url", "cicada_capture_turns"})
+
+
 #: Mutating tools whose effect is a lease or a job on THIS computer's own stores outside every bank (the video and
 #: exploring queues): never a change to the memory, so never offered to another home.
 NOT_OFFERED = frozenset({"cicada_video_claim", "cicada_explore_claim", "cicada_explore_start"})
 
 
 def record_tool(memory_path, *, tool: str, arguments: dict, caller: dict | None = None, surface: str = "mcp",
-                options: dict | None = None, seq_before: int | None = None, offerable: bool = True) -> None:
+                options: dict | None = None, seq_before: int | None = None, offerable: bool = True,
+                track: Track | None = None, key: str | None = None) -> None:
     """A mutating tool call this home ran (the stdio MCP server, the tool door, the command line; ``offerable=False``
-    for the remote connector's)."""
+    for the remote connector's). ``key`` is the ``Idempotency-Key`` of a call this computer's own token sent (review of
+    #569): offered back under it, a resend of the same write after this computer follows another home is the same
+    transaction there."""
     if tool in NOT_OFFERED or not recording(memory_path):
         return
     try:
@@ -99,20 +140,22 @@ def record_tool(memory_path, *, tool: str, arguments: dict, caller: dict | None 
                               "arguments": (arguments or {}) if offerable else {}, "caller": caller or {},
                               "surface": surface, "options": options or {},
                               "seqBefore": seq_before if seq_before is not None else _seq(memory_path),
-                              "headAfter": _head(memory_path), "at": time.time()})
+                              "headAfter": _after(memory_path, track), "at": time.time(),
+                              **({"key": key} if key else {})})
     except Exception:  # noqa: BLE001 — a journal line never fails the write it records
         pass
 
 
 def record_rest(memory_path, *, method: str, path: str, query: str, body: bytes, content_type: str | None,
-                seq_before: int | None) -> None:
+                seq_before: int | None, track: Track | None = None, key: str | None = None) -> None:
     """One of the app's writes this home admitted (a ``forward`` route of the table, answered 2xx)."""
     if not recording(memory_path) or len(body or b"") > MAX_BODY:
         return
     try:
         _append(memory_path, {"v": 2, "kind": "rest", "method": method, "path": path, "query": query or "",
                               "body": base64.b64encode(body or b"").decode("ascii"), "contentType": content_type,
-                              "seqBefore": seq_before, "headAfter": _head(memory_path), "at": time.time()})
+                              "seqBefore": seq_before, "headAfter": _after(memory_path, track), "at": time.time(),
+                              **({"key": key} if key else {})})
     except Exception:  # noqa: BLE001
         pass
 
