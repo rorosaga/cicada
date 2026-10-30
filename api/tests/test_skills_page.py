@@ -651,7 +651,8 @@ def test_the_skills_route_answers_with_every_section(home):
 
 FOLDER_LITERAL = re.compile(r"[\"'][~/]*\.(claude|codex|agents|cursor|gemini|config/opencode)/skills[\"']"
                             r"|\"\.(claude|codex|agents|cursor|gemini)\"\s*/\s*\"skills\"")
-FOLDER_BUILDER = re.compile(r"\.own\b|skill_folders\.(SHARED|roots)")
+# `agent.own` (a skills folder), never `device_tokens.own` or a `.own()` call.
+FOLDER_BUILDER = re.compile(r"(?<!device_tokens)\.own\b(?!\s*\()|skill_folders\.(SHARED|roots)")
 
 
 def test_only_skill_store_writes_into_an_agents_skill_folder():
