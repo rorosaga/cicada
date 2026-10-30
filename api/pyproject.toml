@@ -19,6 +19,9 @@ dependencies = [
     "pydantic-settings>=2.13.1",
     "pypdfium2>=4.30",
     "python-multipart>=0.0.24",
+    # G132 phase 3a: the relay's end-to-end layer (services/relay_e2e.py, relay_pairing.py): Ed25519 signatures,
+    # XChaCha20-Poly1305 frames, sealed-box key wraps, Argon2id for the typed-code slot. Pinned (libsodium 1.0.22).
+    "pynacl==1.6.2",
     "pyyaml>=6.0.3",
     # `cicada setup` (G213, owner 2026-10-22): the spinner, checklist and prompts. Imported only by that command.
     "questionary>=2.0",
@@ -37,6 +40,9 @@ dependencies = [
     "tokenizers>=0.22.2",
     "tqdm>=4.66.0",
     "uvicorn[standard]>=0.44.0",
+    # G132 phase 3a: the device side of the relay (services/relay_client.py) dials out over a websocket. Already in
+    # the lock through uvicorn[standard]; pinned here because the client depends on its asyncio API directly.
+    "websockets==16.0",
 ]
 
 [project.optional-dependencies]

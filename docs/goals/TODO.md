@@ -23,6 +23,17 @@
   counted in words. Rail (1) of ruling 51 takes effect (CLAUDE.md, Headless). Three-machine test: the move, a queued
   transaction re-targeting, a crash on each side mid-hand-off, a take-over, the old home's return. Hand-off p50 6.0 s / p95 6.6 s; write downtime p50 8.7 s / p95 10.5 s (owner-scale synthetic bank, loopback).
   Report: `reports/g132-phase2.md`.
+- **2026-10-29 — the relay is built and tested on localhost, not deployed (ruling 51c, G132 phase 3a; branch
+  `feat/g132-relay`).** `relay/` is one Python websocket relay with a SQLite mailbox per bank and one non-root
+  container; the backend's `sync_relay_crypto` / `_pairing` / `_client` are the end-to-end layer (per-epoch group
+  key sealed to each device, sender-signed padded frames, counters against replay and reorder, revoke rotates and
+  the relay drops the device, QR-pinned or typed-code-with-digits pairing). Nothing imports it at startup; no
+  host, account or domain. Measured on a synthetic owner-scale bank: a capture commit's bundle 1.1 KB p50, a day
+  18.5 MB live / 11.2 MB coalesced, the bootstrap 53 MB (bound raised to 256 MiB; the real `.git` is 147 MB); a
+  Sleep drain's decay commit rewrites thousands of pages (~10 MB), so the home coalesces (`supersede`). Relay
+  ~69 KB RAM per idle socket. **Owner 2026-10-30: direct first** (LAN, tailnet, hole-punched), the relay only
+  the fallback, the sleeping home's mailbox and the connector's address; hosting waits. Next: phase 3b
+  wires it after phase 2 merges, with the direct transport (network.md lists what direct needs).
 - **2026-10-29 — a computer keeps a copy (ruling 51a/d/e2, G132 phase 1 PR B; branch `feat/g132-replica`).**
   Replica mode (`CICADA_REPLICA_OF` / `$CICADA_HOME/replica_of`, set by `PUT /sync/replica` with the home's pairing
   code; client wins when both are set): a read-only copy fast-forwarded from the home's pack (ancestry checked here,

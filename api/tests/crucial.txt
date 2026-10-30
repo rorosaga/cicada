@@ -163,6 +163,11 @@ test_default_summarize_gate.py::test_a_blocked_page_is_never_summarized_or_retri
 test_media_preview.py::test_a_wall_is_a_miss_and_never_retried_with_other_headers
 test_reading_walled_never_fetched.py::test_enrich_never_touches_the_client_for_a_walled_host
 test_reading_never_spawns_browser.py::test_no_module_imports_a_browser_driver_or_names_a_browser_binary
+# G132 phase 3a (ruling 51c): the relay sees only ciphertext and cannot forge; unset, the backend never reaches it
+test_sync_relay_crypto.py::test_neither_the_relay_nor_another_device_can_forge_a_frame
+test_sync_relay_crypto.py::test_revoke_rotates_the_epoch_and_the_revoked_device_opens_nothing_after
+test_sync_relay_e2e.py::test_offline_delivery_both_ways_and_the_relay_stores_no_plaintext
+test_sync_relay_isolation.py
 
 ## Search model download: every file sha256-checked; credentials live in secrets.env at 0600
 test_fetch_embedding_model.py::test_a_checksum_mismatch_installs_nothing
