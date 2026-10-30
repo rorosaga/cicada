@@ -85,7 +85,8 @@ extension Copy {
         static let addOnServer = "Add or revoke a device on the server with `cicada device add <name>` and `cicada device revoke <id>`."
         static let revoke = "Revoke"
         static func revokeTitle(_ name: String) -> String { "Revoke \(name)?" }
-        static let revokeMessage = "It stops reaching your memory right away. What it already sent stays, and still says it came from it."
+        static let revokeMessage = "It stops reaching your memory right away, and nothing new reaches it. Revoking "
+            + "cannot take back the copy it already holds. What it already sent stays, and still says it came from it."
         static let thisDevice = "this Mac"
         static let thisServer = "this server"
         static let aDevice = "a device"

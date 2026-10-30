@@ -14,7 +14,8 @@ final class SettingsAnchorsTests: XCTestCase {
         .intelligence: ["Views/Settings/IntelligenceView.swift"],
         .sleep: ["Views/Settings/SettingsSleepView.swift", "Views/Settings/ScenerySettings.swift",
                  "Views/Settings/MascotSettings.swift"],
-        .devices: ["Views/Settings/DevicesSettingsView.swift", "Views/Settings/MemoryCopySetting.swift"],
+        .devices: ["Views/Settings/DevicesSettingsView.swift", "Views/Settings/MemoryCopySetting.swift",
+                   "Views/Settings/RelaySection.swift"],
         .privacy: ["Views/Settings/PrivacyView.swift", "Views/Settings/SearchFilesView.swift",
                    "Views/Settings/FadePaceCard.swift"],
     ]
