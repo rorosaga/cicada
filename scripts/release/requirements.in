@@ -20,6 +20,10 @@ python-multipart>=0.0.24
 # resvg's Rust renderer, no script engine and no network code.
 resvg-py>=0.5.0
 pyyaml>=6.0.3
+# G132 phase 3a: the relay's end-to-end layer and its device-side websocket (api/services/sync_relay_*.py). Inert until
+# phase 3b wires them; pinned to the developer lock.
+pynacl==1.6.2
+websockets==16.0
 # `cicada setup`'s prompts and panels (api/cli_setup.py, G212/G213); the release's launcher runs the same CLI.
 questionary>=2.0
 rich>=13.7

@@ -620,6 +620,8 @@ index and recently opened pages, the rest on open), its writes transactions like
 its Secure-Enclave key; revoking any device rotates the device-group key.
 
 **Open, decided in the build (the G132 row's phase gates):** what happens to a transaction the home rejects while its
-device is offline; the mailbox's bounds and expiry; how the device-group key is distributed at pairing and rotated on
-revoke; the relay's stack (measured in phase 3); how a device gets a TLS certificate for a relay-issued hostname under
-TLS passthrough; the phone's partial-replica scope.
+device is offline; how a device gets a TLS certificate for a relay-issued hostname under TLS passthrough; the phone's
+partial-replica scope. **Decided in phase 3a (2026-10-29), built on localhost and not deployed:** the mailbox's bounds
+and expiry, the device-group key's distribution at pairing and its rotation on revoke, and the relay's stack — one
+small Python websocket relay with a SQLite mailbox ([`network.md`](network.md), "The relay: built on localhost, not
+deployed"). The relay is not yet wired to the follower or the outbox (phase 3b), so the topology above still runs.

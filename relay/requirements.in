@@ -1,0 +1,4 @@
+# The relay container's only dependencies (G132 phase 3a). Compile with:
+#   uv pip compile relay/requirements.in --generate-hashes --python-version 3.12 --python-platform linux -o relay/requirements.txt
+pynacl==1.6.2
+websockets==16.0
