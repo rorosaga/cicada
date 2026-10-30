@@ -47,6 +47,11 @@ ROUTES: dict[str, str] = {
     "POST /v1/{op}": REFUSE,
     "PUT /sync/publish": REFUSE,
     "POST /sync/publish/from-here": REFUSE,
+    # G132 phase 2: "make <device> the home", pressed on a copy's Sleep page, is asked of the home; a take-over is this
+    # computer's own act; a copy never takes another device's announcement.
+    "POST /sync/home/move": FORWARD,
+    "POST /sync/home/take-over": LOCAL,
+    "POST /sync/devices/me": REFUSE,
     # This computer's own copy: set up, stop, copy again — the person's acts here.
     "PUT /sync/replica": LOCAL,
     "DELETE /sync/replica": LOCAL,
@@ -121,6 +126,7 @@ ROUTES: dict[str, str] = {
     "POST /capture/file": CAPTURE,
     "POST /capture/local-source/wispr-flow": CAPTURE,
     "POST /capture/note": CAPTURE,
+    "POST /capture/offered": CAPTURE,                   # G132 phase 2: an old home's set-aside episode, offered back
     "POST /capture/session": CAPTURE,
     "POST /capture/telegram": CAPTURE,
     "POST /capture/turn": CAPTURE,

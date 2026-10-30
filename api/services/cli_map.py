@@ -390,6 +390,15 @@ ROWS: tuple[Row, ...] = (
     _app(("device", "list"), "Your devices, and whether each one's token still works.", via="backend"),
     _app(("device", "revoke"), "Revoke a device's token at once.", (_p("device_id"),), via="backend", mutates=True,
          person=True),
+    # G132 phase 2 (ruling 51a): the home — the one device that orders every change and runs Sleep — and moving it.
+    _app(("home", "status"), "Which device holds this memory and runs Sleep, and how far behind each other one is.",
+         via="backend"),
+    _app(("home", "move"), "Make another of your devices the home (by its name or id): it orders every change and "
+         "runs Sleep from then on, and this one follows it.", (_p("device"),), via="backend", mutates=True,
+         person=True),
+    _app(("home", "take-over"), "Make this computer the home when the last one is lost: says how far behind this "
+         "copy is first, then asks (--yes --behind N confirms the N it showed).",
+         (_f("yes", "bool"), _f("behind", "int")), via="backend", mutates=True, person=True),
     # G212 (2026-10-22): a one-time code a new device trades once for its own token (`POST /pair`).
     _app(("device", "pair"), "Show a one-time code (and its QR payload) a new device trades for its own token "
          "(--kind capture for a phone, the default; full for a computer).",

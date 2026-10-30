@@ -85,6 +85,8 @@ def test_a_rest_entry_keeps_its_bytes_and_a_capture_too_large_is_refused(home):
 #: snapshot): a resend days later is the same write, whatever the key. Every other capture route is keyed.
 SAME_BY_CONTENT = {
     "POST /capture/agent-memory", "POST /capture/local-source/wispr-flow", "POST /capture/session",
+    # G132 phase 2: an offered episode is written once — its session or its words already here answers `already`.
+    "POST /capture/offered",
     "POST /capture/telegram", "POST /capture/turn", "POST /sources/upload", "POST /sources/calendar-local/sync",
     "POST /sources/contacts-local/sync", "POST /sources/folders/{folder_id}/sync", "POST /sources/messages/sync",
     "POST /sources/reminders-local/sync", "POST /sources/sync-bookmarks", "POST /sources/sync-notes",

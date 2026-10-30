@@ -137,12 +137,19 @@ def frame(memory_path: Path, settings, state, debt, *, bank_id: str | None, bank
 
     log = sync_log.state(memory_path)
     _key, sleep = sleep_event(state, debt, memory_path)
+    try:
+        # G132 phase 2: the home's id in its own group (made on the first share), so a copy knows whom it follows.
+        from api.services import home_move
+
+        device = home_move.ensure_own_identity()
+    except Exception:  # noqa: BLE001 — the frame never fails on it
+        device = None
     return {
         "bankId": bank_id,
         "bank": bank,
         "seq": log.get("seq"),
         "log": log,
-        "home": {"device": None, "name": device_status.machine_name()},
+        "home": {"device": device, "name": device_status.machine_name()},
         "sleep": sleep,
         "schedule": schedule(memory_path, debt),
         "queue": queue(memory_path),

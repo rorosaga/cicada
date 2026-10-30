@@ -245,9 +245,10 @@ def next_due(memory_path) -> float | None:
         return max(min(r.at for r in bank.records.values()) + SETTLE_S, bank.last_commit_at + MIN_INTERVAL_S)
 
 
-def sweep(memory_path, *, now: float | None = None) -> int:
+def sweep(memory_path, *, now: float | None = None, everything: bool = False) -> int:
     """Commit the settled capture writes of one bank; the number of commits made (0, 1, or 2 with a kept-apart edit).
-    Skipped (0) while Sleep holds the pages, while publishing is off, or before anything is due."""
+    Skipped (0) while Sleep holds the pages, while publishing is off, or before anything is due. ``everything`` (G132
+    phase 2: the home is handing off, closed to writes) commits every recorded path now, settled or not."""
     from api.services import episode_ids, git_service, write_admission
 
     mp = Path(memory_path)
@@ -257,9 +258,10 @@ def sweep(memory_path, *, now: float | None = None) -> int:
     bank = _bank(mp)
     with bank.lock:
         _load(bank)
-        if now - bank.last_commit_at < MIN_INTERVAL_S:
+        if not everything and now - bank.last_commit_at < MIN_INTERVAL_S:
             return 0
-        due = {rel: _Rec(r.hash, r.at, r.base, r.chain, r.overflow) for rel, r in bank.records.items() if now - r.at >= SETTLE_S}
+        due = {rel: _Rec(r.hash, r.at, r.base, r.chain, r.overflow) for rel, r in bank.records.items()
+               if everything or now - r.at >= SETTLE_S}
         bases = {rel: bank.base_bytes.get(rel, _MISSING) for rel in due}
     if not due or write_admission.probe():
         return 0

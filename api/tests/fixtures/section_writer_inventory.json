@@ -1474,5 +1474,13 @@
       "frontmatter": "fm",
       "disposition": "fresh_frontmatter_untracked"
     }
+  ],
+  "services/offered_episode.py": [
+    {
+      "function": "write",
+      "method": "write",
+      "frontmatter": "merged",
+      "disposition": "uninstrumented_guarded"
+    }
   ]
 }

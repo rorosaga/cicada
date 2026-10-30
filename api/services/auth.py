@@ -62,6 +62,10 @@ _STATIC_OPEN_PATHS = frozenset({
     "/llms.txt",
     # G212: a device redeems a one-time pairing code the person's own screen showed; the code is its credential.
     "/pair",
+    # G132 phase 2: another device of the group asks which home this computer knows. The route checks the bearer
+    # itself against this computer's store AND the registry it mirrored (a replica's own store does not hold the
+    # group), and answers ids and numbers only.
+    "/sync/peer",
 })
 
 
@@ -219,7 +223,9 @@ _DEVICE_READABLE = frozenset({("GET", "/devices"), ("GET", "/devices/status")})
 #: on faces the person's tunnel), so a device may read the connector state and revoke, never create or open.
 #: G132 phase 1: turning publishing on or off, and "publish from here", are the person's acts on the home, never a
 #: device's (a device reads the switch and, as a full device, the log).
-MASTER_ONLY_WRITE_PREFIXES = ("/remote", "/agent-api", "/sync/publish", "/sync/replica")
+#: G132 phase 2: a take-over is this computer's own act on the person's OK (never a device's); a move is not listed —
+#: the person's Sleep page on any of their full devices asks the home to move (`POST /sync/home/move`).
+MASTER_ONLY_WRITE_PREFIXES = ("/remote", "/agent-api", "/sync/publish", "/sync/replica", "/sync/home/take-over")
 _MASTER_ONLY_WRITE_METHODS = frozenset({"POST", "PUT", "PATCH"})
 
 

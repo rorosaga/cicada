@@ -1767,6 +1767,17 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True,
 
     device_context.clear()
 
+    # G132 phase 2 (ruling 51a): Sleep runs only on the home. A home that is handing off (or handed off) starts no
+    # run — scheduled, caught up or pressed — and lets go of a slot a trigger reserved.
+    from api.services import home_move
+
+    if home_move.writes_closed():
+        if _state.cycle_id == cycle_id and _state.status == "running":
+            _state.status = "idle"
+            _state.writing = False
+        logger.info("Sleep: not started — this computer's memory is moving to another computer")
+        return
+
     # Sleep control (Devin PR #27 round 1, finding 2): if `reserve_cycle`
     # already claimed this EXACT cycle_id (the synchronous trigger-time
     # reservation that closes the "background task hasn't started yet"
@@ -1783,6 +1794,13 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True,
 
     _state.status = "running"
     _state.cycle_id = cycle_id
+    if home_move.writes_closed():
+        # Review of #569: a move closed the doors between the check above and the slot taken here — the move parks
+        # what it sees running and waits out admission, so a run must never start behind it: let go at once.
+        _state.status = "idle"
+        _state.writing = False
+        logger.info("Sleep: not started — this computer's memory is moving to another computer")
+        return
     _state.started_at = datetime.now().isoformat()
     _state.started_monotonic = time.monotonic()
     _state.progress = "Starting..."

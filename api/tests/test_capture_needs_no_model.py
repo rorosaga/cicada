@@ -21,6 +21,7 @@ CAPTURE_WRITERS = (
     "api.services.reminders_local",   # G219
     "api.services.notion_export",     # G219
     "api.services.agent_memory_notes",  # ruling 43
+    "api.services.offered_episode",   # G132 phase 2: an old home's set-aside episode, offered back
 )
 MODEL_CLIENTS = ("litellm", "openai", "anthropic", "sentence_transformers", "torch", "onnxruntime",
                  "api.services.entity_extractor", "api.services.ask_service", "api.services.agent_engine",

@@ -555,6 +555,13 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "DELETE /sync/replica": (OUTSIDE, None),
     "POST /sync/replica/restart": (OUTSIDE, None),
     "POST /sync/replica/recopy": (BANKS, None),
+    # G132 phase 2: moving the home closes this computer to writes, parks Sleep, waits out the writers already admitted
+    # (`write_admission.wait_for_writers`, Sleep's own wait) and commits the hand-off record alone; a take-over commits
+    # it on a copy (the apply's exception). A device's announcement writes $CICADA_HOME's devices.db only.
+    "POST /sync/home/move": (BANKS, None),
+    "POST /sync/home/take-over": (BANKS, None),
+    "POST /sync/devices/me": (OUTSIDE, None),
+    "POST /capture/offered": (CAPTURE, None),   # an old home's set-aside episode, through the episode writer
     "POST /capture/hook-context": (OUTSIDE, None),   # G110: may refresh the continuity index in $CICADA_HOME
     "PUT /sources/connectors/{connector_id}/credentials": (OUTSIDE, None),
     "DELETE /sources/connectors/{connector_id}/credentials": (OUTSIDE, None),
