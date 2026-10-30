@@ -36,7 +36,7 @@ import time
 from websockets.asyncio.server import serve
 from websockets.exceptions import ConnectionClosed
 
-from . import wire
+from . import limits, wire
 from .config import Config
 from .store import Refused, Store
 
@@ -65,8 +65,10 @@ class Relay:
         self.online: dict[str, dict[str, Conn]] = {}
         self.pair_waiters: dict[str, object] = {}
         self.unauthenticated = 0
-        self._unauth_by_ip: dict[str, int] = {}
-        self._creates: dict[str, list[float]] = {}
+        self._unauth_by_ip: dict[str, int] = {}     # bounded: each entry is a live unauthenticated socket
+        self._creates = limits.CreateLimiter(self.config.creates_per_ip_per_hour, self.config.max_tracked_networks,
+                                             clock)
+        self._trusted = limits.parse_networks(self.config.trusted_proxies)
         self._server = None
         self._purger: asyncio.Task | None = None
 
@@ -122,22 +124,12 @@ class Relay:
         return out
 
     # -- connections --------------------------------------------------------------------------------------------
-    @staticmethod
-    def _ip(ws) -> str:
+    def _ip(self, ws) -> str:
+        """The client's network key (an IPv4 /32 or an IPv6 /64), through a trusted proxy's header when configured."""
         addr = getattr(ws, "remote_address", None)
-        return str(addr[0]) if addr else "?"
-
-    def _may_create(self, ip: str) -> bool:
-        now = self.clock()
-        recent = [t for t in self._creates.get(ip, []) if now - t < 3600]
-        if len(recent) >= self.config.creates_per_ip_per_hour:
-            self._creates[ip] = recent
-            return False
-        self._creates[ip] = recent + [now]
-        if len(self._creates) > 100_000:      # bounded: forget the quietest addresses
-            for k in [k for k, v in self._creates.items() if not v or now - v[-1] >= 3600]:
-                del self._creates[k]
-        return True
+        peer = str(addr[0]) if addr else "?"
+        request = getattr(ws, "request", None)
+        return limits.net_key(limits.client_ip(peer, getattr(request, "headers", None), self._trusted))
 
     async def _handle(self, ws):
         ip = self._ip(ws)
@@ -201,7 +193,7 @@ class Relay:
             if not msg.get("create"):
                 await self._error(ws, "unknown_mailbox", 4404)
                 return None
-            if not self._may_create(ip):
+            if not self._creates.allow(ip):
                 log.info("create refused: rate")
                 await self._error(ws, "rate_limited", 1013)
                 return None
@@ -215,6 +207,7 @@ class Relay:
             except (wire.WireError, Refused) as exc:
                 await self._error(ws, exc.code)
                 return None
+            self._creates.record(ip)          # only a bank actually created counts (no await since allow)
             log.info("bank created mb=%s devices=%d", tag(mb), len(st["devices"]))
             bank = self.store.bank(mb)
         elif not self.store.is_member(mb, dev):

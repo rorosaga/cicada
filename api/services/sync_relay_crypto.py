@@ -489,8 +489,27 @@ class Endpoint:
                 "epoch": self.epoch, "epoch_keys": {str(e): b64e(k) for e, k in self.epoch_keys.items()},
                 "members": self.members, "hw": self.hw, "revoked": self.revoked, "prev_home": self.prev_home}
 
+    def clear_spool(self) -> int:
+        """Delete unfinished bootstrap parts left by an earlier run (a crash or a restart mid-stream). ``from_state``
+        calls it when given a ``spool_dir``: a restored endpoint holds no partial stream, so nothing there is live."""
+        if not self.spool_dir or not os.path.isdir(self.spool_dir):
+            return 0
+        n = 0
+        for name in os.listdir(self.spool_dir):
+            if name.startswith("stream-") and name.endswith(".part"):
+                with contextlib.suppress(OSError):
+                    os.unlink(os.path.join(self.spool_dir, name))
+                    n += 1
+        return n
+
     @classmethod
     def from_state(cls, state: dict, **kw) -> "Endpoint":
+        endpoint = cls._restore(state, **kw)
+        endpoint.clear_spool()
+        return endpoint
+
+    @classmethod
+    def _restore(cls, state: dict, **kw) -> "Endpoint":
         return cls(keys=Keys.load(state["keys"]), mailbox=state["mailbox"], home=state["home"], ctr=state["ctr"],
                    epoch=state["epoch"], epoch_keys={int(e): b64d(k) for e, k in state["epoch_keys"].items()},
                    members=dict(state["members"]), hw=dict(state["hw"]), revoked=state["revoked"],
@@ -606,7 +625,7 @@ class Home(Endpoint):
 
     @classmethod
     def from_state(cls, state: dict, **kw) -> "Home":
-        home = super().from_state(state, **kw)
+        home = super().from_state(state, **kw)   # clears the spool too
         home.joined = dict(state.get("joined", {}))
         home.started = {int(e): t for e, t in state.get("started", {}).items()}
         return home

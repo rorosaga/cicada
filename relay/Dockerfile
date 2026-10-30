@@ -4,7 +4,9 @@
 #   docker run -d --name cicada-relay -p 8443:8443 -v cicada-relay-data:/data \
 #     --read-only --cap-drop ALL --security-opt no-new-privileges cicada-relay
 #
-# On a public address the relay terminates TLS for its own name only: mount the certificate and set
+# TLS should terminate here, so the per-network limits see the client (behind a TLS proxy, set
+# RELAY_TRUSTED_PROXIES to the proxy's network instead). On a public address the relay terminates TLS for its own
+# name only: mount the certificate and set
 #   -v /etc/cicada-relay/tls:/tls:ro -e RELAY_TLS_CERT=/tls/fullchain.pem -e RELAY_TLS_KEY=/tls/privkey.pem
 # Every bound is a RELAY_* variable (cicada_relay/config.py). The mailbox holds ciphertext only; /data is a cache the
 # devices can always rebuild, except transactions still in flight (which also stay in their device's outbox).

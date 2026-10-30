@@ -671,7 +671,7 @@ start again"). A slot lives at most the code's ten minutes and carries at most 8
 | Idle bank | purged after 30 days with no device connected | the home re-creates it from its signed membership |
 | Relay-wide | 16 GiB of frames (a running total kept by SQLite triggers) and a 20 GiB database file | a full relay answers `relay_full`; it never evicts another bank's frames |
 | A flush | reads sizes, then one frame's bytes at a time, ≤ 4 MiB a batch | a bank's 15 online devices cost ~15 frames of memory, not 15 × 256 MiB |
-| Bank creation | one per connection; 5 per remote address an hour; 16 unauthenticated sockets per address | creating needs no credential (the home's key is the bank's root), so it is rate-limited; the address is held in memory for the count only, never logged or stored |
+| Bank creation | one per connection; 5 an hour per network — an IPv4 /32 or an IPv6 /64, so rotating through a prefix is one key; only a created bank counts; a table of at most 50,000 networks, O(1) at the cap, a new network refused when it is full rather than scanned; 16 unauthenticated sockets per network | creating needs no credential (the home's key is the bank's root), so it is rate-limited; addresses are held in memory for the counts only, never logged or stored |
 
 A device spools a bootstrap's parts to a 0600 file outside every bank (`Endpoint.spool_dir`, never in memory), up to
 the relay's 256 MiB; the home seals it from its bundle file a part at a time (`seal_stream`). Any other message is
@@ -708,7 +708,10 @@ docker run -d --name cicada-relay -p 8443:8443 -v cicada-relay-data:/data \
 
 It runs as uid 10001 on `python:3.12.11-slim-bookworm` with only its two hashed dependencies, answers `GET /healthz`
 (the image's `HEALTHCHECK`), keeps its mailbox in `/data` (a cache the devices can rebuild, except transactions still
-in flight, which also stay in their device's outbox), and terminates TLS for its own name only. Without the TLS
+in flight, which also stay in their device's outbox), and terminates TLS for its own name only — **TLS should terminate
+in the relay**, so the address it counts is the client's. Behind a TLS proxy, set `RELAY_TRUSTED_PROXIES` to the
+proxy's network (empty by default): its `X-Forwarded-For` right-most entry is then believed, and from any other peer the
+header is ignored; without it every client counts as the proxy and the per-network limits become relay-wide. Without the TLS
 variables it serves plain `ws://`, which devices accept only on loopback (a TLS proxy on the same machine). Its logs
 carry hashed ids, sizes, counts and timings, never a body, a key, an address or a slot. Without Docker:
 `PYTHONPATH=relay python -m cicada_relay` with the same variables.

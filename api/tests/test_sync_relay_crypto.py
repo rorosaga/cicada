@@ -299,3 +299,13 @@ def test_state_round_trips():
     assert again.open(home.seal("delta", b"b", meta={"seq": 2})[0]).payload == b"b"
     home2 = Home.from_state(home.to_state(), clock=clock)
     assert again.open(home2.seal("delta", b"c", meta={"seq": 3})[0]).payload == b"c"
+
+
+def test_a_restored_endpoint_clears_unfinished_streams_from_its_spool(tmp_path):
+    home, (laptop,), clock = group(1)
+    spool = tmp_path / "spool"
+    spool.mkdir()
+    (spool / "stream-0123456789abcdef.part").write_bytes(b"half a bootstrap")
+    (spool / "keep.txt").write_text("not ours")
+    again = Endpoint.from_state(laptop.to_state(), clock=clock, spool_dir=str(spool))
+    assert sorted(p.name for p in spool.iterdir()) == ["keep.txt"] and again.spool_dir == str(spool)

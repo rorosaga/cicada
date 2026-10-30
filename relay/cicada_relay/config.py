@@ -59,10 +59,16 @@ class Config:
     #: A flush reads at most this many bytes of frames per batch, one frame's bytes at a time as it is sent.
     flush_batch_bytes: int = 4 * MiB
     #: Creating a bank needs no credential (the home's own key is the bank's root of trust), so creation is limited:
-    #: one per connection by construction (one hello), and this many per remote address per hour. The address is
-    #: held in memory only for that count, never logged or stored.
+    #: one per connection by construction (one hello), and this many per network per hour — an IPv4 /32 or an IPv6
+    #: /64 (``limits.py``). The table of networks is hard-capped; full, a new network's create is refused, never
+    #: scanned. Addresses are held in memory only for the counts, never logged or stored.
     creates_per_ip_per_hour: int = 5
     max_unauthenticated_per_ip: int = 16
+    max_tracked_networks: int = 50_000
+    #: Proxies (comma-separated networks) whose ``X-Forwarded-For`` is believed. Empty by default: TLS terminates in
+    #: the relay itself and the peer address is the client's. Behind a TLS proxy, list it here, or every client counts
+    #: as the proxy.
+    trusted_proxies: str = ""
 
     @classmethod
     def from_env(cls, env: dict | None = None, **overrides) -> "Config":
