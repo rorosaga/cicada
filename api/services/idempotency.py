@@ -116,26 +116,48 @@ def _remember(scope: str, route: str, key_hash: str, now: float, status: int, bo
                    (scope, route, key_hash, now, status, json.dumps(body)))
 
 
-def export_since(since: float) -> list[dict]:
-    """G132 phase 2 (review of #569): every key kept since ``since`` — scope, route, the key's sha256, when, and the
+EXPORT_PAGE = 1000
+EXPORT_PAGE_MAX = 5000
+SERVER_SCOPE = "server"
+
+
+def _as_seen_elsewhere(scope: str, me: str | None) -> str:
+    """Review of #569: a key this computer's own token wrote (``server|…``) is, at any other home, a write from this
+    device (``device:<me>|…``) — what this computer's own app or agent sends once it follows another home."""
+    who, sep, rest = scope.partition("|")
+    return f"device:{me}{sep}{rest}" if me and who == SERVER_SCOPE else scope
+
+
+def _as_seen_here(scope: str, me: str | None) -> str:
+    who, sep, rest = scope.partition("|")
+    return f"{SERVER_SCOPE}{sep}{rest}" if me and who == f"device:{me}" else scope
+
+
+def export_since(since: float, *, after: str = "", limit: int = EXPORT_PAGE, me: str | None = None) -> list[dict]:
+    """G132 phase 2 (review of #569): the keys kept since ``since`` — scope, route, the key's sha256, when, and the
     answer it replays — for the person's other full devices, so a write sent again after the home moved is applied
-    once there too. Never the key itself."""
+    once there too. Never the key itself. One page (phase 3b): ordered by ``(created, key_hash)``; the next page starts
+    after the last row's ``created`` and ``keyHash`` (``after``). ``me``: this computer's device id, so its own
+    token's keys read as its device's elsewhere."""
+    limit = max(1, min(int(limit), EXPORT_PAGE_MAX))
     with _db() as db:
-        rows = db.execute("SELECT scope, route, key_hash, created, status, body FROM keys WHERE created >= ? "
-                          "ORDER BY created", (since,)).fetchall()
-    return [{"scope": r[0], "route": r[1], "keyHash": r[2], "created": r[3], "status": r[4], "body": r[5]}
-            for r in rows]
+        rows = db.execute("SELECT scope, route, key_hash, created, status, body FROM keys "
+                          "WHERE created > ? OR (created = ? AND key_hash > ?) ORDER BY created, key_hash LIMIT ?",
+                          (since, since, after or "", limit)).fetchall()
+    return [{"scope": _as_seen_elsewhere(r[0], me), "route": r[1], "keyHash": r[2], "created": r[3],
+             "status": r[4], "body": r[5]} for r in rows]
 
 
-def import_rows(rows: list[dict]) -> int:
-    """Take another home's keys (a copy following it; a new home at its promotion). A key kept here wins."""
+def import_rows(rows: list[dict], *, me: str | None = None) -> int:
+    """Take another home's keys (a copy following it; a new home at its promotion). A key kept here wins. ``me``:
+    this computer's device id, so the keys its device wrote there are its own token's here."""
     taken = 0
     with _db() as db:
         for r in rows or ():
             try:
                 db.execute("INSERT OR IGNORE INTO keys VALUES (?, ?, ?, ?, ?, ?)",
-                           (str(r["scope"]), str(r["route"]), str(r["keyHash"]), float(r["created"]),
-                            int(r["status"]), str(r["body"])))
+                           (_as_seen_here(str(r["scope"]), me), str(r["route"]), str(r["keyHash"]),
+                            float(r["created"]), int(r["status"]), str(r["body"])))
                 taken += 1
             except (KeyError, TypeError, ValueError):
                 continue

@@ -10,6 +10,7 @@ the event loop.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from pathlib import Path
 from typing import Any, Literal
 
@@ -139,10 +140,13 @@ async def call_tool(req: ToolCallRequest, request: Request, settings: Settings =
 
     async def work() -> tuple[int, dict]:
         before = await asyncio.to_thread(sync_log.head_seq, memory_path) if publishing else None
+        from api.services import admitted_log
+
         try:
-            answer = await asyncio.to_thread(tool_door.run, req.tool, req.arguments, ctx=ctx, state=state,
-                                             surface=req.surface, options=req.options,
-                                             root=Path(settings.memory_root), bank_name=bank_name)
+            with admitted_log.tracking(memory_path) if publishing and mutates else contextlib.nullcontext() as track:
+                answer = await asyncio.to_thread(tool_door.run, req.tool, req.arguments, ctx=ctx, state=state,
+                                                 surface=req.surface, options=req.options,
+                                                 root=Path(settings.memory_root), bank_name=bank_name)
         except tool_door.DoorError as exc:
             raise HTTPException(status_code=exc.status, detail=str(exc)) from None
         if mutates and (answer.error or tool_contract.is_error(answer.code)):
@@ -166,11 +170,11 @@ async def call_tool(req: ToolCallRequest, request: Request, settings: Settings =
                                         device.id if device is not None else "server", req.base_seq, body["seq"])
             if answer.error is None and not tool_contract.is_error(answer.code):
                 # G132 phase 2: kept so it can be offered back if this home is ever taken over while away.
-                from api.services import admitted_log
-
                 await asyncio.to_thread(admitted_log.record_tool, memory_path, tool=req.tool,
                                         arguments=req.arguments, caller=req.caller.model_dump(), surface=req.surface,
-                                        options=req.options, seq_before=before)
+                                        options=req.options, seq_before=before, track=track,
+                                        key=idempotency.clean_key(request.headers.get(idempotency.HEADER))
+                                        if device is None else None)
         return 200, body
 
     if not mutates:

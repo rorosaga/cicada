@@ -61,6 +61,7 @@ from api.routers import (
     state,
     status,
     sync,
+    sync_net as sync_net_routes,
     tools,
     traces,
 )
@@ -156,11 +157,17 @@ async def _replica_lifespan(app: FastAPI, settings):
     app.state.scheduler = None
     asyncio.get_running_loop().run_in_executor(None, warm_query_embedder, settings.memory_path)
     search_index.warm_in_background(settings.memory_path)
+    # G132 phase 3b: the relay link (when the person set a relay) before the follower, so its first ask can take
+    # either path; the direct listener when CICADA_DEVICE_URL names this computer's private address.
+    from api.services import sync_net
+
+    await sync_net.on_start(app, settings)
     replica.start()
     try:
         yield
     finally:
         await asyncio.to_thread(replica.stop)
+        await sync_net.on_stop()
         from api.services import bank_watch
 
         bank_watch.stop_all()
@@ -328,6 +335,10 @@ async def lifespan(app: FastAPI):
     # took over while it was away; a home closed by a move it already recorded goes on handing off. Nothing at all
     # while it shares nothing.
     await asyncio.to_thread(home_move.at_start, settings.memory_path)
+    # G132 phase 3b: the relay link and the direct listener — nothing at all while this memory is not shared.
+    from api.services import sync_net
+
+    await sync_net.on_start(app, settings)
 
     from api.services import gc_tuning
 
@@ -338,6 +349,7 @@ async def lifespan(app: FastAPI):
     finally:
         home_move.stop_peer_watch()
         replica_guard.thaw()
+        await sync_net.on_stop()
         await remote_listener.LISTENER.stop()
         await telegram_account.ACCOUNT.stop()
         scheduler.shutdown(wait=False)
@@ -435,6 +447,7 @@ app.include_router(maintenance.router, tags=["maintenance"])
 app.include_router(memory.router, tags=["memory"])
 app.include_router(connections.router, tags=["connections"])
 app.include_router(sync.router, tags=["sync"])
+app.include_router(sync_net_routes.router, tags=["sync"])
 app.include_router(consumption.router, tags=["consumption"])
 app.include_router(reading.router, tags=["reading"])
 app.include_router(remote.router, tags=["remote"])

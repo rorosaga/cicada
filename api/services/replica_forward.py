@@ -207,11 +207,14 @@ async def _admitted(app, scope, receive, send) -> None:
             status[0] = message.get("status")
         await send(message)
 
-    await app(scope, tee, _with_seq(scope, seen))
+    with admitted_log.tracking(memory_path) as track:
+        await app(scope, tee, _with_seq(scope, seen))
     if status[0] is not None and 200 <= status[0] < 300 and size[0] <= admitted_log.MAX_BODY:
+        own = (scope.get("state") or {}).get("device") is None and not scope.get("cicada.relay_device")
         await asyncio.to_thread(admitted_log.record_rest, memory_path, method=scope["method"], path=scope["path"],
                                 query=scope.get("query_string", b"").decode("latin-1"), body=b"".join(chunks),
-                                content_type=_header(scope, b"content-type"), seq_before=before)
+                                content_type=_header(scope, b"content-type"), seq_before=before, track=track,
+                                key=(_header(scope, b"idempotency-key") or None) if own else None)
 
 
 def _with_seq(scope, send):

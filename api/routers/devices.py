@@ -75,7 +75,16 @@ async def revoke_device(device_id: str):
         device = await run_in_threadpool(device_tokens.store().revoke, device_id)
     except KeyError:
         raise HTTPException(status_code=404, detail="No such device.") from None
-    return {"device": device.wire()}
+    # G132 phase 3b: it leaves the relay group too (a new epoch; the relay closes its socket). Nothing without a relay.
+    from api.services import sync_net
+
+    await sync_net.on_revoke(device)
+    return {"device": device.wire(), "text": REVOKE_TEXT}
+
+
+#: G132 phase 3b: what revoking means, in words the Devices page shows beside its confirmation.
+REVOKE_TEXT = ("This device can no longer read or change your memory, and nothing new reaches it. Revoking cannot "
+               "take back the copy it already holds.")
 
 
 # ── G212: pairing a new device with a one-time code ─────────────────────────────

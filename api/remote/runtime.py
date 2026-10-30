@@ -358,15 +358,16 @@ class RemoteRuntime:
                 self._record(connector, tool, "busy", text, memory_path)
                 return text, "busy"
         try:
-            with write_admission.shared(memory_path) if held else contextlib.nullcontext():
+            from api.services import admitted_log
+
+            with write_admission.shared(memory_path) if held else contextlib.nullcontext(), \
+                    admitted_log.tracking(memory_path) if writes else contextlib.nullcontext() as track:
                 text, status = self._call(connector, tool, arguments, writes, memory_path, bank_name,
                                           utc_offset_minutes=utc_offset_minutes)
             if writes and status == "ok" and not tool_contract.is_error(getattr(text, "code", None)):
                 # G132 phase 2: kept as unofferable — a remote app's write is never replayed through another door.
-                from api.services import admitted_log
-
                 admitted_log.record_tool(memory_path, tool=tool, arguments={}, caller={"connector": connector.id},
-                                         surface="remote", offerable=False)
+                                         surface="remote", offerable=False, track=track)
             return text, status
         except write_admission.SleepHolding:
             self._record(connector, tool, "busy", BUSY_TEXT, memory_path)

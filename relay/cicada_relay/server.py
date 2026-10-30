@@ -68,6 +68,8 @@ class Relay:
         self._unauth_by_ip: dict[str, int] = {}     # bounded: each entry is a live unauthenticated socket
         self._creates = limits.CreateLimiter(self.config.creates_per_ip_per_hour, self.config.max_tracked_networks,
                                              clock)
+        self._creates_wide = limits.CreateLimiter(self.config.creates_per_48_per_hour,
+                                                  self.config.max_tracked_networks, clock)
         self._trusted = limits.parse_networks(self.config.trusted_proxies)
         self._server = None
         self._purger: asyncio.Task | None = None
@@ -124,15 +126,20 @@ class Relay:
         return out
 
     # -- connections --------------------------------------------------------------------------------------------
-    def _ip(self, ws) -> str:
-        """The client's network key (an IPv4 /32 or an IPv6 /64), through a trusted proxy's header when configured."""
+    def _client(self, ws) -> str:
+        """The client's address, through a trusted proxy chain when configured (memory only, never logged)."""
         addr = getattr(ws, "remote_address", None)
         peer = str(addr[0]) if addr else "?"
         request = getattr(ws, "request", None)
-        return limits.net_key(limits.client_ip(peer, getattr(request, "headers", None), self._trusted))
+        return limits.client_ip(peer, getattr(request, "headers", None), self._trusted)
+
+    def _ip(self, ws) -> str:
+        """The client's network key (an IPv4 /32 or an IPv6 /64)."""
+        return limits.net_key(self._client(ws))
 
     async def _handle(self, ws):
-        ip = self._ip(ws)
+        client = self._client(ws)
+        ip, site = limits.net_key(client), limits.wide_key(client)
         if (self.unauthenticated >= self.config.max_unauthenticated
                 or self._unauth_by_ip.get(ip, 0) >= self.config.max_unauthenticated_per_ip):
             await ws.close(1013, "busy")
@@ -162,7 +169,7 @@ class Relay:
             if first.get("t") == "pair":
                 await self._pair_device(ws, first)
                 return
-            conn = await self._hello(ws, first, nonce, ip)
+            conn = await self._hello(ws, first, nonce, ip, site)
             if conn is None:
                 return
             release()
@@ -179,7 +186,7 @@ class Relay:
             await ws.send(json.dumps({"t": "error", "code": code}))
             await ws.close(close_code, code)
 
-    async def _hello(self, ws, msg: dict, nonce: bytes, ip: str = "?") -> Conn | None:
+    async def _hello(self, ws, msg: dict, nonce: bytes, ip: str = "?", site: str = "?") -> Conn | None:
         mb, dev, sig = msg.get("mb"), msg.get("dev"), msg.get("sig")
         if (msg.get("t") != "hello" or not isinstance(mb, str) or not wire.MAILBOX_RE.match(mb)
                 or not isinstance(dev, str) or not wire.KEY_RE.match(dev) or not isinstance(sig, str)):
@@ -193,7 +200,7 @@ class Relay:
             if not msg.get("create"):
                 await self._error(ws, "unknown_mailbox", 4404)
                 return None
-            if not self._creates.allow(ip):
+            if not self._creates.allow(ip) or not self._creates_wide.allow(site):
                 log.info("create refused: rate")
                 await self._error(ws, "rate_limited", 1013)
                 return None
@@ -208,6 +215,7 @@ class Relay:
                 await self._error(ws, exc.code)
                 return None
             self._creates.record(ip)          # only a bank actually created counts (no await since allow)
+            self._creates_wide.record(site)
             log.info("bank created mb=%s devices=%d", tag(mb), len(st["devices"]))
             bank = self.store.bank(mb)
         elif not self.store.is_member(mb, dev):
@@ -223,7 +231,10 @@ class Relay:
         if old is not None:
             with contextlib.suppress(ConnectionClosed):
                 await old.ws.close(4409, "replaced")
-        self.store.touch(mb)
+        if msg.get("create"):
+            self.store.touch(mb)
+        else:
+            self.store.connected(mb)
         await ws.send(json.dumps({"t": "welcome", "epoch": bank["epoch"], "home": bank["home"],
                                   "pending": self.store.counts(mb), "dropped": self.store.take_dropped(mb, dev)}))
         await ws.send(struct.pack(">Q", 0) + bank["epoch_frame"])

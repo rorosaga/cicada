@@ -235,3 +235,17 @@ def test_a_flush_batch_is_capped_in_bytes_and_carries_only_sizes(tmp_path):
     big, _ = make(tmp_path / "big", flush_batch_bytes=10)
     put(big, "tx", 1000)
     assert len(big.pending("mb", H)) == 1                           # always at least one frame
+
+
+def test_a_bank_its_home_never_came_back_to_is_purged_after_two_days(tmp_path):
+    """G132 phase 3b (pre-go-live): a create costs nothing, so a bank nobody connected to again does not hold a row for
+    a month. One later connection — the home's or any device's — makes it an ordinary bank again."""
+    store, clock = make(tmp_path)
+    store.create_bank("mb-kept", {"home": H, "epoch": 1, "devices": [{"ed": H}]}, b"epoch-1", 0)
+    clock.t += DAY
+    store.connected("mb-kept")
+    clock.t += DAY + 1
+    out = store.purge()
+    assert out["banks"] == 1 and store.bank("mb") is None          # never reconnected: gone after two days
+    assert store.bank("mb-kept") is not None                        # reconnected once: the 30-day rule holds
+    assert Config().unconfirmed_purge_s == 2 * DAY

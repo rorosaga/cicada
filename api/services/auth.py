@@ -66,6 +66,9 @@ _STATIC_OPEN_PATHS = frozenset({
     # itself against this computer's store AND the registry it mirrored (a replica's own store does not hold the
     # group), and answers ids and numbers only.
     "/sync/peer",
+    # G132 phase 3b: a device proves who it is before another trusts an address it found on the LAN — a fresh nonce,
+    # signed by its registered key. Answers a signature and a device id only, never a name or a token.
+    "/sync/hello",
 })
 
 
@@ -225,7 +228,9 @@ _DEVICE_READABLE = frozenset({("GET", "/devices"), ("GET", "/devices/status")})
 #: device's (a device reads the switch and, as a full device, the log).
 #: G132 phase 2: a take-over is this computer's own act on the person's OK (never a device's); a move is not listed —
 #: the person's Sleep page on any of their full devices asks the home to move (`POST /sync/home/move`).
-MASTER_ONLY_WRITE_PREFIXES = ("/remote", "/agent-api", "/sync/publish", "/sync/replica", "/sync/home/take-over")
+#: G132 phase 3b: the relay setting, joining over the relay and the app's LAN finds are this computer's own acts.
+MASTER_ONLY_WRITE_PREFIXES = ("/remote", "/agent-api", "/sync/publish", "/sync/replica", "/sync/home/take-over",
+                              "/sync/relay", "/sync/discovered")
 _MASTER_ONLY_WRITE_METHODS = frozenset({"POST", "PUT", "PATCH"})
 
 
@@ -248,11 +253,40 @@ def _master_only(path: str, method: str = "GET") -> bool:
         path == p or path.startswith(p + "/") for p in MASTER_ONLY_WRITE_PREFIXES)
 
 
+def _admit_relay_device(request: Request, device_id: str) -> None:
+    """A request a relay frame carried (G132 phase 3b): the device is the one whose relay key signed the frame, looked
+    up again here (a revoke between the frame and this request is a 401), and held to every rule a device token is —
+    the master-only paths, a capture device's routes. The frame's signature stands in for a bound key's proof."""
+    from api.services import device_context, device_tokens
+
+    try:
+        device = device_tokens.store().get(str(device_id))
+    except Exception:  # noqa: BLE001 — fail closed
+        device = None
+    if device is None or not device.active:
+        raise HTTPException(status_code=401, detail="missing or invalid bearer token")
+    route = (request.method.upper(), request.url.path)
+    if route not in DEVICE_SELF_ROUTES:
+        if _master_only(request.url.path, request.method):
+            raise HTTPException(status_code=403, detail="only the server's own token may do this")
+        if device.kind == "capture" and route not in CAPTURE_ROUTES:
+            raise HTTPException(status_code=403, detail="this device may only send captures")
+    request.state.device = device
+    device_context.bind(device.id)
+
+
 def request_device(request: Request):
     """The device whose token signed this request (``device_tokens.Device``), or None for the master token, an open
     path, or auth turned off. Set only by :func:`require_token` from the token itself — never from anything the client
     says about itself."""
     return getattr(request.state, "device", None)
+
+
+#: G132 phase 3b: keys ``sync_relay_link`` alone sets on the ASGI scope of a request it runs in process for a relay
+#: frame it verified (membership, signature, counter, epoch key): the sender's relay signing key and, at a home, the
+#: device row it belongs to. A network server never sets a custom scope key, so no client can claim either.
+RELAY_SENDER_SCOPE = "cicada.relay_sender"
+RELAY_DEVICE_SCOPE = "cicada.relay_device"
 
 
 async def require_token(
@@ -266,6 +300,10 @@ async def require_token(
     request.state.device = None
     device_context.bind(None)
     if not auth_enabled() or request.url.path in _OPEN_PATHS:
+        return
+    relay_device = request.scope.get(RELAY_DEVICE_SCOPE)
+    if relay_device is not None:
+        _admit_relay_device(request, relay_device)
         return
     supplied = credential(authorization)
     if supplied and secrets.compare_digest(supplied.encode("utf-8"), get_token().encode("utf-8")):

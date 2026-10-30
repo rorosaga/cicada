@@ -561,6 +561,17 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /sync/home/move": (BANKS, None),
     "POST /sync/home/take-over": (BANKS, None),
     "POST /sync/devices/me": (OUTSIDE, None),
+    # G132 phase 3b: the relay setting, joining and pairing over it, enrolment and the app's LAN finds — every one in
+    # $CICADA_HOME (the relay state, devices.db, the pairing codes, the discovered addresses), never the bank.
+    "PUT /sync/relay": (OUTSIDE, None),
+    "POST /sync/relay/join": (OUTSIDE, None),
+    "POST /sync/relay/join/confirm": (OUTSIDE, None),
+    "DELETE /sync/relay/join": (OUTSIDE, None),
+    "POST /sync/enrol": (OUTSIDE, None),
+    "POST /sync/discovered": (OUTSIDE, None),
+    "POST /devices/pairing/relay": (OUTSIDE, None),
+    "POST /devices/pairing/relay/{session_id}/confirm": (OUTSIDE, None),
+    "DELETE /devices/pairing/relay/{session_id}": (OUTSIDE, None),
     "POST /capture/offered": (CAPTURE, None),   # an old home's set-aside episode, through the episode writer
     "POST /capture/hook-context": (OUTSIDE, None),   # G110: may refresh the continuity index in $CICADA_HOME
     "PUT /sources/connectors/{connector_id}/credentials": (OUTSIDE, None),

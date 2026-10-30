@@ -52,6 +52,17 @@ ROUTES: dict[str, str] = {
     "POST /sync/home/move": FORWARD,
     "POST /sync/home/take-over": LOCAL,
     "POST /sync/devices/me": REFUSE,
+    # G132 phase 3b: the relay setting, joining over the relay and the app's LAN finds are this computer's own; a copy
+    # never enrols another device nor pairs one (the home does).
+    "PUT /sync/relay": LOCAL,
+    "POST /sync/relay/join": LOCAL,
+    "POST /sync/relay/join/confirm": LOCAL,
+    "DELETE /sync/relay/join": LOCAL,
+    "POST /sync/discovered": LOCAL,
+    "POST /sync/enrol": REFUSE,
+    "POST /devices/pairing/relay": REFUSE,
+    "POST /devices/pairing/relay/{session_id}/confirm": REFUSE,
+    "DELETE /devices/pairing/relay/{session_id}": REFUSE,
     # This computer's own copy: set up, stop, copy again — the person's acts here.
     "PUT /sync/replica": LOCAL,
     "DELETE /sync/replica": LOCAL,

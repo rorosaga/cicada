@@ -1,10 +1,12 @@
 import asyncio
+import contextlib
 import os
 import re
 import subprocess
 import tempfile
 import threading
 import time
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import date, timedelta
 from functools import lru_cache
@@ -564,6 +566,36 @@ def _spawn(memory_path: Path, args: tuple[str, ...]) -> subprocess.CompletedProc
     return subprocess.run(["git", *args], cwd=str(memory_path), capture_output=True)
 
 
+#: G132 phase 3b (review of #569): the commits this context made, in order, while a caller asked to know them
+#: (``recording_commits``) — so a publishing home journals the commit a write itself produced as its ``headAfter``,
+#: never a HEAD another writer moved in between. None (the default): nothing is noted and nothing is spawned.
+_COMMITS_MADE: ContextVar[list | None] = ContextVar("cicada_commits_made", default=None)
+
+
+@contextlib.contextmanager
+def recording_commits():
+    """Collect the sha of every commit this context (and the threads it hands its context to) makes."""
+    made: list[str] = []
+    token = _COMMITS_MADE.set(made)
+    try:
+        yield made
+    finally:
+        _COMMITS_MADE.reset(token)
+
+
+def _note_commit(memory_path: Path, args: tuple[str, ...]) -> None:
+    made = _COMMITS_MADE.get()
+    if made is None or not args:
+        return
+    if args[0] == "commit" or (args[0] == "update-ref" and len(args) > 1 and args[1] == "HEAD"):
+        try:
+            proc = _spawn(memory_path, ("rev-parse", "HEAD"))   # still under the write lock the commit held
+        except OSError:
+            return
+        if proc.returncode == 0:
+            made.append(proc.stdout.decode(errors="replace").strip())
+
+
 def _git_sync(memory_path: Path, *args: str) -> str:
     """One git command, called with the bank's write lock held. Retries only git's
     index-lock refusal and never deletes the lock (R-B2): another process owns
@@ -579,6 +611,7 @@ def _git_sync(memory_path: Path, *args: str) -> str:
         except OSError as exc:
             raise GitError(f"git {' '.join(args)} failed: {exc}") from exc
         if proc.returncode == 0:
+            _note_commit(memory_path, args)
             return proc.stdout.decode(errors="replace")
         stderr = proc.stderr.decode(errors="replace")
         if delay is None or not _index_lock_busy(stderr):
