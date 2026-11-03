@@ -22,126 +22,168 @@ final class GitHubReposTests: XCTestCase {
          "owned": [{"id": 501, "fullName": "bob-example/alpha-project", "url": "https://github.com/bob-example/alpha-project",
                     "private": true, "topics": [], "ownerKind": "User", "archived": false, "fork": false,
                     "starred": false, "owned": true, "added": false,
-                    "project": {"project": "alpha", "name": "alpha", "how": "origin"}}],
+                    "project": {"project": "alpha", "name": "alpha", "how": "origin"},
+                    "projects": [{"project": "alpha", "name": "alpha", "how": "origin"},
+                                 {"project": "beta", "name": "Beta", "how": "user"}]}],
          "starred": [{"id": 601, "fullName": "example-org/widget-kit", "starred": true,
                       "starredAt": "2026-09-12T08:30:00+00:00", "entityId": "widget-kit"}]}
         """.utf8))
         XCTAssertTrue(lists.connected)
         XCTAssertEqual(lists.owned.first?.isPrivate, true)
         XCTAssertEqual(lists.owned.first?.project?.isSettled, true)
+        XCTAssertEqual(lists.owned.first?.projects.map(\.project), ["alpha", "beta"])
         XCTAssertEqual(lists.starred.first?.url, "https://github.com/example-org/widget-kit")   // derived when absent
         let card = try JSONDecoder().decode(RepositoryDetail.self, from: Data("""
         {"id": 601, "fullName": "example-org/widget-kit", "url": "https://github.com/example-org/widget-kit",
          "entityId": "widget-kit", "ownerKind": "Organization",
+         "candidates": [{"project": "kit", "name": "Kit", "how": "name"}, {"project": "z", "name": "Z", "how": "other"}],
          "readme": {"state": "fresh", "text": "# Widget Kit", "truncated": false, "path": "README.md",
                     "fetchedAt": "2026-11-02T10:00:00+00:00"}}
         """.utf8))
         XCTAssertEqual(card.repo.owner, "example-org")
         XCTAssertEqual(card.repo.name, "widget-kit")
         XCTAssertEqual(card.readme.state, "fresh")
+        XCTAssertEqual(card.candidates.map(\.project), ["kit", "z"])
+        XCTAssertEqual(RepositoryText.candidateLabel(card.candidates[0]), Copy.GitHub.suggested("Kit"))
+        XCTAssertEqual(RepositoryText.candidateLabel(card.candidates[1]), "Z")
         let bare = try JSONDecoder().decode(RepositoryDetail.self, from: Data(#"{"fullName": "a-b/c"}"#.utf8))
         XCTAssertEqual(bare.readme.state, "missing")
     }
 
     // MARK: - The Sources panel
 
-    func testTheFieldTakesOnlyARepository() {
-        let cases: [(String, String?)] = [
-            ("https://github.com/example-org/widget-kit", "example-org/widget-kit"),
-            ("https://github.com/example-org/widget-kit/tree/main", "example-org/widget-kit"),
-            ("github.com/example-org/widget-kit.git", "example-org/widget-kit"),
-            ("git@github.com:example-org/widget-kit.git", "example-org/widget-kit"),
-            ("example-org/widget-kit", "example-org/widget-kit"),
-            ("https://gitlab.com/example-org/widget-kit", nil),
-            ("https://github.com/example-org", nil),
-            ("https://user@github.com/example-org/widget-kit", nil),
-            ("not a link", nil),
-        ]
-        for (text, want) in cases { XCTAssertEqual(GitHubReposLogic.repository(text), want, text) }
-    }
-
-    func testEachRepositoryOffersWhatTheRecordAllows() {
-        XCTAssertEqual(GitHubReposLogic.offer(repo()), .make)
-        XCTAssertEqual(GitHubReposLogic.offer(repo(project: RepoProject(project: "alpha", name: "Alpha", how: "name"))),
-                       .link(id: "alpha", name: "Alpha"))
-        XCTAssertEqual(GitHubReposLogic.offer(repo(project: RepoProject(project: "alpha", name: "Alpha", how: "linked"))),
-                       .project(id: "alpha", name: "Alpha"))
+    func testARowSaysItsFlagsAndAtMostTwoProjects() {
         XCTAssertEqual(GitHubReposLogic.detail(repo()), "Python · Notes.")
+        var r = repo()
+        r.projects = ["a", "b", "c"].map { RepoProject(project: $0, name: $0.uppercased(), how: "user") }
+        let shown = GitHubReposLogic.projects(r)
+        XCTAssertEqual(shown.shown.map(\.project), ["a", "b"])
+        XCTAssertEqual(shown.more, 1)
     }
 
-    func testTheModelAddsMakesAProjectAndSaysWhatHappened() async {
-        var added: [String] = []
-        var projects: [(String, String?)] = []
+    func testTheListReadsAgainAndKeepsWhatItHadWhenARefusalComes() async {
         var loads = 0
+        var fail = false
         let model = GitHubReposModel(deps: .init(
-            fetch: { loads += 1; return RepoLists(connected: true, owned: [self.repo()]) },
-            add: { added.append($0); return RepoAddResult(entityId: "widget-kit", fullName: $0, created: true) },
-            project: { projects.append(($0, $1)); return RepoProjectResult(project: "alpha-project", created: true) }))
+            fetch: {
+                loads += 1
+                if fail { throw APIError.httpError(500, "") }
+                return RepoLists(connected: true, owned: [self.repo()])
+            },
+            project: { _, _, _ in RepoProjectResult(project: "", created: false) }))
         await model.load()
         XCTAssertEqual(model.lists.owned.count, 1)
-        let refused = await model.add("https://example.com/x")
-        XCTAssertFalse(refused)
-        XCTAssertEqual(model.note, Copy.GitHub.notALink)
-        XCTAssertTrue(added.isEmpty)                      // refused before any request
-        let landed = await model.add("https://github.com/example-org/widget-kit/issues")
-        XCTAssertTrue(landed)
-        XCTAssertEqual(added, ["example-org/widget-kit"])
-        XCTAssertEqual(model.note, Copy.GitHub.added("example-org/widget-kit"))
-        await model.project(repo(), link: nil)
-        XCTAssertEqual(projects.first?.0, "bob-example/alpha-project")
-        XCTAssertNil(projects.first?.1)
-        XCTAssertEqual(model.note, Copy.GitHub.started("alpha-project"))
-        XCTAssertEqual(loads, 3)                          // read again after each write
-    }
-
-    func testARefusalKeepsTheServersSentence() async {
-        let model = GitHubReposModel(deps: .init(
-            fetch: { RepoLists() },
-            add: { _ in throw APIError.httpError(404, #"{"detail": "GitHub has no repository there."}"#) },
-            project: { _, _ in RepoProjectResult(project: "", created: false) }))
-        let landed = await model.add("example-org/gone")
-        XCTAssertFalse(landed)
-        XCTAssertEqual(model.note, "GitHub has no repository there.")
-    }
-
-    /// Owner 2026-11-03: "i'd rather it said 'Add as a project'". One of the person's own repositories — a row, or a
-    /// pasted link to it — has one action, the make-project route; only anyone else's is added as a page.
-    func testYourOwnRepositoryIsAddedAsAProjectAndAnyoneElsesAsAPage() async {
-        XCTAssertEqual(Copy.GitHub.addAsProject, "Add as a project")
-        let fresh = repo("bob-example/alpha-project")
-        let named = repo("bob-example/beta-notes", project: RepoProject(project: "beta", name: "Beta", how: "name"))
-        let settled = repo("bob-example/gamma", project: RepoProject(project: "gamma", name: "Gamma", how: "origin"))
-        let lists = RepoLists(connected: true, owned: [fresh, named, settled])
-        XCTAssertEqual(GitHubReposLogic.owned("https://github.com/Bob-Example/alpha-project/issues", in: lists)?.fullName,
-                       "bob-example/alpha-project")
-        XCTAssertNil(GitHubReposLogic.owned("example-org/widget-kit", in: lists))
-        XCTAssertNil(GitHubReposLogic.owned("bob-example/alpha-project", in: RepoLists()))   // before a sync
-
-        var added: [String] = []
-        var projects: [(String, String?)] = []
-        let model = GitHubReposModel(deps: .init(
-            fetch: { lists },
-            add: { added.append($0); return RepoAddResult(entityId: "widget-kit", fullName: $0, created: true) },
-            project: { projects.append(($0, $1)); return RepoProjectResult(project: $1 ?? "alpha-project",
-                                                                           created: $1 == nil) }))
+        fail = true
         await model.load()
-        let made = await model.submit("github.com/bob-example/alpha-project")
-        XCTAssertTrue(made)
-        XCTAssertEqual(projects.last?.0, "bob-example/alpha-project")
-        XCTAssertNil(projects.last?.1)
-        XCTAssertEqual(model.note, Copy.GitHub.started("alpha-project"))
-        let linked = await model.submit("bob-example/beta-notes")
-        XCTAssertTrue(linked)
-        XCTAssertEqual(projects.last?.1, "beta")
-        XCTAssertEqual(model.note, Copy.GitHub.linked("Beta"))
-        let already = await model.submit("bob-example/gamma")
-        XCTAssertFalse(already)
-        XCTAssertEqual(projects.count, 2)                 // nothing sent for a project it already is
-        XCTAssertEqual(model.note, Copy.GitHub.alreadyProject("Gamma"))
-        XCTAssertTrue(added.isEmpty)                      // none of the person's own became a repository page
-        let page = await model.submit("example-org/widget-kit")
-        XCTAssertTrue(page)
-        XCTAssertEqual(added, ["example-org/widget-kit"])
+        XCTAssertEqual(model.lists.owned.count, 1)          // never blank
+        XCTAssertEqual(model.note, Copy.GitHub.couldNotRead)
+        XCTAssertEqual(loads, 2)
+        XCTAssertEqual(GitHubReposModel.describe(APIError.httpError(404, #"{"detail": "Not in memory."}"#)),
+                       "Not in memory.")
+    }
+
+    // MARK: - Connecting with a code (owner 2026-11-03: "cant we just do oauth? like a connect?")
+
+    private func code(_ interval: Int = 5) -> GitHubConnectCode {
+        GitHubConnectCode(userCode: "ABCD-1234", verificationUri: "https://github.com/login/device",
+                          expiresAt: 1_000_900, interval: interval)
+    }
+
+    func testTheStepFollowsTheBackendsAnswer() {
+        XCTAssertEqual(GitHubConnectStep.from(GitHubConnectStatus(available: false)), .unavailable)
+        XCTAssertEqual(GitHubConnectStep.from(GitHubConnectStatus(available: true)), .disconnected)
+        XCTAssertEqual(GitHubConnectStep.from(GitHubConnectStatus(available: true, pending: code())), .code(code()))
+        XCTAssertEqual(GitHubConnectStep.from(GitHubConnectStatus(
+            available: true, connected: true, how: "app", installed: false,
+            installUrl: "https://github.com/apps/cicada-memory/installations/new")),
+            .install(url: "https://github.com/apps/cicada-memory/installations/new"))
+        XCTAssertEqual(GitHubConnectStep.from(GitHubConnectStatus(available: true, connected: true, how: "app",
+                                                                  installed: true)), .connected(byToken: false))
+        XCTAssertEqual(GitHubConnectStep.from(GitHubConnectStatus(available: false, connected: true, how: "token")),
+                       .connected(byToken: true))
+        XCTAssertEqual(GitHubConnectStep.minutesLeft(code(), now: 1_000_000), 15)
+    }
+
+    func testConnectShowsTheCodeOpensGitHubAndWaitsForTheApproval() async {
+        var opened: [URL] = []
+        var polls = [GitHubConnectPoll(state: "pending", interval: 10),
+                     GitHubConnectPoll(state: "connected", status: GitHubConnectStatus(
+                        available: true, connected: true, how: "app", installed: false,
+                        installUrl: "https://github.com/apps/cicada-memory/installations/new"))]
+        var synced = 0
+        var installed = false
+        let model = GitHubConnectModel(deps: .init(
+            status: { GitHubConnectStatus(available: true) },
+            start: { self.code() },
+            poll: { polls.removeFirst() },
+            installation: { GitHubConnectStatus(available: true, connected: true, how: "app", installed: installed) },
+            cancel: {},
+            sync: { synced += 1; return ConnectorSyncResult(status: "ok", reason: nil, new: 2, seen: 4, error: nil,
+                                                            resourcesRead: 0) },
+            disconnect: {},
+            open: { opened.append($0) },
+            sleep: { _ in await Task.yield() }))
+        await model.load()
+        XCTAssertEqual(model.step, .disconnected)
+        await model.connect()
+        model.stop()                                         // the test drives the polls itself
+        XCTAssertEqual(model.step, .code(code()))
+        XCTAssertEqual(opened.map(\.absoluteString), ["https://github.com/login/device"])
+        let more = await model.pollOnce()
+        XCTAssertTrue(more)
+        XCTAssertEqual(model.status.pending?.interval, 10)  // GitHub asked to slow down
+        let done = await model.pollOnce()
+        XCTAssertFalse(done)
+        XCTAssertEqual(model.step, .install(url: "https://github.com/apps/cicada-memory/installations/new"))
+        XCTAssertEqual(model.generation, 1)
+        model.openInstall()
+        XCTAssertEqual(opened.last?.host, "github.com")
+        await model.checkInstalled()
+        XCTAssertEqual(model.note, Copy.GitHub.notInstalledYet)
+        XCTAssertEqual(synced, 0)
+        installed = true
+        await model.checkInstalled()
+        XCTAssertEqual(model.step, .connected(byToken: false))
+        XCTAssertEqual(synced, 1)                            // installed: the repositories come in at once
+        XCTAssertEqual(model.generation, 2)
+    }
+
+    func testACancelledCodeSaysSoAndConnectsNothing() async {
+        let model = GitHubConnectModel(deps: .init(
+            status: { GitHubConnectStatus(available: true) },
+            start: { self.code() },
+            poll: { GitHubConnectPoll(state: "denied", words: "You cancelled on GitHub, so nothing was connected.") },
+            installation: { GitHubConnectStatus() }, cancel: {},
+            sync: { ConnectorSyncResult(status: "ok", reason: nil, new: 0, seen: 0, error: nil, resourcesRead: 0) },
+            disconnect: {}, open: { _ in }, sleep: { _ in await Task.yield() }))
+        await model.load()
+        await model.connect()
+        model.stop()
+        _ = await model.pollOnce()
+        XCTAssertEqual(model.step, .disconnected)
+        XCTAssertEqual(model.note, "You cancelled on GitHub, so nothing was connected.")
+        XCTAssertEqual(model.generation, 0)
+    }
+
+    func testTheWireForConnectingDecodes() throws {
+        let status = try JSONDecoder().decode(GitHubConnectStatus.self, from: Data("""
+        {"available": true, "connected": false, "grantsUrl": "https://github.com/settings/applications",
+         "pending": {"userCode": "ABCD-1234", "verificationUri": "https://github.com/login/device",
+                     "expiresAt": 1000900, "interval": 5}}
+        """.utf8))
+        XCTAssertEqual(status.pending?.userCode, "ABCD-1234")
+        let poll = try JSONDecoder().decode(GitHubConnectPoll.self, from: Data(#"{"state": "pending", "interval": 10}"#.utf8))
+        XCTAssertEqual(poll.interval, 10)
+        let projects = try JSONDecoder().decode(ProjectRepositories.self, from: Data("""
+        {"project": "alpha", "repos": [{"id": 501, "fullName": "bob-example/alpha-project", "entityId": "media-a",
+                                         "how": "origin"}],
+         "candidates": [{"id": 502, "fullName": "bob-example/side-notes", "entityId": "media-b"}]}
+        """.utf8))
+        XCTAssertEqual(projects.repos.first?.entityId, "media-a")
+        XCTAssertEqual(projects.candidates.count, 1)
+        XCTAssertFalse(ProjectRepositoriesSection.shows(ProjectRepositories(project: "alpha")))
+        XCTAssertTrue(ProjectRepositoriesSection.shows(projects))
+        XCTAssertFalse(ProjectRepositoriesSection.shows(nil))
     }
 
     func testGitHubIsACatalogueAccountRoutedLikeTheTokenConnectors() {
@@ -157,7 +199,7 @@ final class GitHubReposTests: XCTestCase {
 
     func testTheCardAsksForARepositoryOnlyWhereOneCanBe() {
         XCTAssertTrue(EntityDetailCard.wantsRepositoryDetail(type: .media, media: nil))
-        XCTAssertTrue(EntityDetailCard.wantsRepositoryDetail(type: .project, media: nil))
+        XCTAssertFalse(EntityDetailCard.wantsRepositoryDetail(type: .project, media: nil))   // its own section
         XCTAssertTrue(EntityDetailCard.wantsRepositoryDetail(
             type: .media, media: MediaBlock(url: "https://github.com/a-b/c", mediaType: "repository", kind: "repository")))
         XCTAssertFalse(EntityDetailCard.wantsRepositoryDetail(
@@ -166,7 +208,9 @@ final class GitHubReposTests: XCTestCase {
     }
 
     func testTheCardSaysWhatThePersonDidAndWhichFlagsHold() {
-        var r = repo()
+        XCTAssertEqual(RepositoryText.relation(repo(), today: today, locale: locale), Copy.GitHub.yours)
+        XCTAssertEqual(RepositoryText.linkHelp("origin", name: "Alpha"), "Alpha · \(Copy.GitHub.byCheckout)")
+        var r = repo(owned: false)
         r.starred = true
         r.starredAt = "2026-09-12T08:30:00+00:00"
         XCTAssertEqual(RepositoryText.relation(r, today: today, locale: locale), "You starred it Sep 12")

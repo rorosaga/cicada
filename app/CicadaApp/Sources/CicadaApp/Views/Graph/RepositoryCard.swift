@@ -2,13 +2,14 @@ import AppKit
 import SwiftUI
 
 // G230 — a repository page's own card, where a paper's card and a saved link's preview sit (the media page's own
-// card, above its article): GitHub's record as the page keeps it, what the person did with it, the project it is,
-// and its README as words. The README arrives as text only — the backend drops HTML, pictures and badges and keeps a
+// card, above its article): GitHub's record as the page keeps it, what the person did with it, the projects it belongs
+// to (a project may span several repositories — owner 2026-11-03), and its README as words. A project's page lists
+// its repositories the same way (`ProjectRepositoriesSection`); linking is the person's act from either page. The README arrives as text only — the backend drops HTML, pictures and badges and keeps a
 // link as its words — so the card never loads a picture or a link the README names.
 //
 // Not a Store domain: `GET /entities/{id}/repository` is read when the card opens and kept in the card's state.
 //
-// DR-40 (Open on GitHub and the project action are `NeutralButton`s), DR-44 (flags and topics are `Tag`s, never a
+// DR-40 (Open on GitHub and the link menu are neutral; a project is a `TextButton` to it), DR-44 (flags and topics are `Tag`s, never a
 // filter), DR-47 (the README's label is `SectionLabel`), DR-56 (the README's markdown structure is stripped: a
 // heading reads as a heading, a bullet as a bullet, a fence as nothing), DR-58 (dates computed when read),
 // DR-71 (only theme tokens, so light and dark both hold), DR-81 (nothing folds; at most five topics, then "+N").
@@ -43,8 +44,10 @@ enum RepositoryText {
         (Array(repo.topics.prefix(maxTopics)), max(0, repo.topics.count - maxTopics))
     }
 
-    /// What the person did with it: "You starred it Sep 12", "No longer starred since Oct 30", "You added it".
+    /// What the person did with it: "Your repository", "You starred it Sep 12", "No longer starred since Oct 30",
+    /// "You added it" (before adds were retired).
     static func relation(_ repo: RepoRow, today: ISODay, locale: Locale = .autoupdatingCurrent) -> String? {
+        if repo.owned { return Copy.GitHub.yours }
         if repo.starred, let day = ISODay(repo.starredAt) {
             return Copy.GitHub.starredOn(RelativeDay.absolute(day, today: today, locale: locale))
         }
@@ -52,6 +55,24 @@ enum RepositoryText {
             return Copy.GitHub.unstarredOn(RelativeDay.absolute(day, today: today, locale: locale))
         }
         return repo.added ? Copy.GitHub.youAdded : nil
+    }
+
+    /// A project in the link menu: the suggestion says why it is first.
+    static func candidateLabel(_ project: RepoProject) -> String {
+        switch project.how {
+        case "name": Copy.GitHub.suggested(project.name)
+        case "origin": Copy.GitHub.sameCheckout(project.name)
+        default: project.name
+        }
+    }
+
+    /// How a link was made, when it was not the person: said on hover.
+    static func linkHelp(_ how: String, name: String) -> String {
+        switch how {
+        case "origin": "\(name) · \(Copy.GitHub.byCheckout)"
+        case "agent": "\(name) · \(Copy.GitHub.byAgent)"
+        default: name
+        }
     }
 
     /// The README's state in words when there is no text to show.
@@ -116,6 +137,7 @@ struct RepositoryCard: View {
                     .textSelection(.enabled)
             }
             tags
+            projects
             actions
             if let note {
                 Text(note).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
@@ -157,18 +179,28 @@ struct RepositoryCard: View {
         }
     }
 
-    @ViewBuilder
+    /// The person's link menu: the suggestion first, every other project, then a new project from it.
     private var projectAction: some View {
-        if let project = repo.project, project.isSettled {
-            TextButton(title: Copy.GitHub.yourProject(project.name), help: project.name) { open(project.project) }
-        } else if repo.owned {
-            // One action, as on the Sources row (owner 2026-11-03).
-            if let project = repo.project {
-                NeutralButton(title: Copy.GitHub.linkTo(project.name), size: .compact, isDisabled: busy,
-                              help: Copy.GitHub.linkToHelp(project.name)) { act(link: project) }
-            } else {
-                NeutralButton(title: Copy.GitHub.addAsProject, size: .compact, isDisabled: busy,
-                              help: Copy.GitHub.addAsProjectHelp) { act(link: nil) }
+        RepoLinkMenu(title: Copy.GitHub.linkToProject, help: Copy.GitHub.linkToProjectHelp, busy: busy) {
+            ForEach(detail.candidates, id: \.project) { project in
+                Button(RepositoryText.candidateLabel(project)) { act(link: project) }
+            }
+            if !detail.candidates.isEmpty { Divider() }
+            Button(Copy.GitHub.newProject) { act(link: nil) }
+        }
+    }
+
+    /// The projects it belongs to, each a way to its page; Unlink in its menu.
+    @ViewBuilder
+    private var projects: some View {
+        if !repo.projects.isEmpty {
+            HStack(spacing: CicadaTheme.spacingXS) {
+                SectionLabel(Copy.GitHub.projectsTitle)
+                ForEach(repo.projects, id: \.project) { project in
+                    TextButton(title: project.name, help: RepositoryText.linkHelp(project.how, name: project.name),
+                               inline: true) { open(project.project) }
+                        .contextMenu { Button(Copy.GitHub.unlink) { act(unlink: project) } }
+                }
             }
         }
     }
@@ -225,14 +257,144 @@ struct RepositoryCard: View {
     }
 
     private func act(link project: RepoProject?) {
+        run { name in
+            let result = try await APIClient.shared.makeRepoProject(fullName: name, project: project?.project)
+            return result.created ? Copy.GitHub.started(repo.name) : Copy.GitHub.linked(project?.name ?? repo.name)
+        }
+    }
+
+    private func act(unlink project: RepoProject) {
+        run { name in
+            _ = try await APIClient.shared.makeRepoProject(fullName: name, project: project.project, remove: true)
+            return Copy.GitHub.unlinked(project.name)
+        }
+    }
+
+    private func run(_ write: @escaping (String) async throws -> String) {
         busy = true
         let name = repo.fullName
         Task {
             defer { busy = false }
             do {
-                let result = try await APIClient.shared.makeRepoProject(fullName: name, project: project?.project)
-                note = result.created ? Copy.GitHub.started(repo.name) : Copy.GitHub.linked(project?.name ?? repo.name)
+                note = try await write(name)
                 changed()
+            } catch {
+                note = GitHubReposModel.describe(error)
+            }
+        }
+    }
+}
+
+/// The link menus' one look (a compact neutral control that opens a menu, R-HS10's disclosure glyph).
+struct RepoLinkMenu<Items: View>: View {
+    let title: String
+    let help: String
+    var busy = false
+    @ViewBuilder let items: () -> Items
+
+    var body: some View {
+        Menu { items() } label: {
+            HStack(spacing: CicadaTheme.spacingXS) {
+                Text(title)
+                Image(systemName: "chevron.down").font(CicadaTheme.icon(.inline))
+                    .foregroundStyle(CicadaTheme.textTertiary)
+            }
+            .font(CicadaTheme.metaMediumFont)
+            .foregroundStyle(CicadaTheme.textPrimary)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .padding(.horizontal, CicadaTheme.scaled(10))
+        .frame(height: CicadaTheme.scaled(NeutralButton.Size.compact.height))
+        .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(CicadaTheme.bgButton))
+        .ringed(in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
+        .help(help)
+        .disabled(busy)
+        .opacity(busy ? NeutralButton.disabledOpacity : 1)
+    }
+}
+
+/// G230 — a project's repositories, on its page (owner 2026-11-03: "a project might reference several repos"): each
+/// one opens its own page (Unlink in its menu), and the person links another from their repository pages. Read when
+/// the page opens and after each write; not a Store domain.
+struct ProjectRepositoriesSection: View {
+    let projectId: String
+    let open: (String) -> Void
+
+    @State private var listing: ProjectRepositories?
+    @State private var busy = false
+    @State private var note: String?
+
+    /// Nothing to show — no repository linked and none to link (GitHub never connected) — draws nothing.
+    static func shows(_ listing: ProjectRepositories?) -> Bool {
+        guard let listing else { return false }
+        return !listing.repos.isEmpty || !listing.candidates.isEmpty
+    }
+
+    var body: some View {
+        Group {
+            if Self.shows(listing), let listing {
+                VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                    HStack(alignment: .firstTextBaseline) {
+                        SectionLabel(Copy.GitHub.repositoriesTitle)
+                        Spacer(minLength: 0)
+                        if !listing.candidates.isEmpty {
+                            RepoLinkMenu(title: Copy.GitHub.linkRepository, help: Copy.GitHub.linkRepositoryHelp,
+                                         busy: busy) {
+                                ForEach(listing.candidates, id: \.url) { repo in
+                                    Button(repo.fullName) { write(repo, remove: false) }
+                                }
+                            }
+                        }
+                    }
+                    if listing.repos.isEmpty {
+                        Text(Copy.GitHub.repositoriesEmpty).font(CicadaTheme.captionFont)
+                            .foregroundStyle(CicadaTheme.textTertiary)
+                    }
+                    ForEach(listing.repos, id: \.url) { repo in row(repo) }
+                    if let note {
+                        Text(note).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+        }
+        .task(id: projectId) { await load() }
+    }
+
+    private func row(_ repo: RepoRow) -> some View {
+        HStack(spacing: CicadaTheme.spacingSM) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(repo.fullName).font(CicadaTheme.rowFont).foregroundStyle(CicadaTheme.textPrimary)
+                    .lineLimit(1).truncationMode(.middle)
+                let detail = GitHubReposLogic.detail(repo)
+                if !detail.isEmpty {
+                    Text(detail).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary).lineLimit(1)
+                }
+            }
+            Spacer(minLength: CicadaTheme.spacingSM)
+            if let page = repo.entityId {
+                NeutralButton(title: Copy.GitHub.open, size: .compact, help: repo.fullName) { open(page) }
+            }
+        }
+        .contentShape(Rectangle())
+        .contextMenu { Button(Copy.GitHub.unlink) { write(repo, remove: true) } }
+    }
+
+    private func load() async {
+        listing = try? await APIClient.shared.fetchProjectRepositories(id: projectId)
+    }
+
+    private func write(_ repo: RepoRow, remove: Bool) {
+        busy = true
+        Task {
+            defer { busy = false }
+            do {
+                _ = try await APIClient.shared.makeRepoProject(fullName: repo.fullName, project: projectId,
+                                                              remove: remove)
+                note = remove ? Copy.GitHub.unlinked(repo.fullName) : Copy.GitHub.linked(repo.fullName)
+                await load()
             } catch {
                 note = GitHubReposModel.describe(error)
             }

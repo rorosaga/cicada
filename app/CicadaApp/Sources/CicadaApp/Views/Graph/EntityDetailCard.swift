@@ -35,7 +35,6 @@ struct EntityDetailCard: View {
     /// G230 — should the card ask `GET /entities/{id}/repository`? A `media` page whose kind is unknown (the stub) or
     /// a repository, and a project (one linked to its repository has a card; any other answers 404, read as nil).
     static func wantsRepositoryDetail(type: EntityType, media: MediaBlock?) -> Bool {
-        if type == .project { return true }
         guard type == .media else { return false }
         return media.map { $0.isRepository } ?? true
     }
@@ -304,6 +303,11 @@ struct EntityDetailCard: View {
             }
             if Self.listsFolder(entity.type) { locationSection }
             if !repoContexts.isEmpty { repositorySection }
+            // G230: the GitHub repositories a project lists (it may span several), each opening its own page.
+            if entity.type == .project, !isStub {
+                ProjectRepositoriesSection(projectId: entity.id, open: { navigate(to: $0) })
+                    .id(entity.id)
+            }
             if !isStub, !showRawMarkdown, let blocks {
                 PageOngoing(items: blocks.ongoing, total: blocks.ongoingTotal)
             }

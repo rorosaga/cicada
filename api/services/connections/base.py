@@ -68,7 +68,8 @@ CLI_ENGINE_OVERRIDE_ENV = ("CURSOR_API_KEY", "OPENCODE_CONFIG_CONTENT", "OPENCOD
 CONNECTOR_SECRET_ENV = ("PINTEREST_APP_ID", "PINTEREST_APP_SECRET", "PINTEREST_ACCESS_TOKEN",
                         "REDDIT_CLIENT_ID", "REDDIT_CLIENT_SECRET", "REDDIT_USERNAME", "REDDIT_PASSWORD",
                         "X_CLIENT_ID", "X_ACCESS_TOKEN", "X_REFRESH_TOKEN", "X_USER_ID",
-                        "CICADA_READWISE_TOKEN", "CICADA_NOTION_TOKEN", "CICADA_GITHUB_TOKEN")
+                        "CICADA_READWISE_TOKEN", "CICADA_NOTION_TOKEN", "CICADA_GITHUB_TOKEN",
+                        "CICADA_GITHUB_REFRESH_TOKEN", "CICADA_GITHUB_TOKEN_EXPIRES", "CICADA_GITHUB_AUTH")
 
 #: Cicada's own credentials: the backend's master API token (``auth``) and the Telegram bot's token and webhook
 #: secret (G29). No child — an engine, the embedding worker, the PDF reader — ever needs one.
