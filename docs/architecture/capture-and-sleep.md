@@ -1696,7 +1696,9 @@ sends nothing: `has_route()` (a UDP `connect` to a documentation address asks th
 `CLOCK_MONOTONIC − CLOCK_UPTIME_RAW` on macOS, `CLOCK_BOOTTIME − CLOCK_MONOTONIC` on Linux; never the wall clock).
 (3) `sleep_drain.offline_cause` sorts a failed call into `asleep` (it overlapped ≥ 30 s of machine sleep), `no_network`
 (no route) or `connection` (a transport failure with a route); a sign-in, plan limit or refused model is never offline,
-and an unnamed failure counts only with the machine's own evidence (asleep or no route). Stage 1's hook marks each read's
+and an unnamed failure counts only with the machine's own evidence (asleep or no route). A pause-class stop met in the
+same batch — the plan breaker, a sign-out, a refused model — outranks an offline one whichever came first, so a plan
+limit keeps its `resets_at` (ruling 15 arms on it); the offline ids stay requeued. Stage 1's hook marks each read's
 start; a later stage's escaped error is checked against the batch's start, only while nothing is on disk
 (`write_started` false). (4) An offline failure is `engine_failed` (never `could not be read`, no attempt or timeout
 charged) and dooms the batch before its first write; the drain then **waits in the same run** (`_wait_for_network`):
@@ -1708,8 +1710,9 @@ it waits; the engine resolved at the start is the one it reads with again (rulin
 continue-after-reset — no plan limit is involved and nothing is armed past the run. While waiting the drain's wire
 carries `waiting: asleep | no_network | connection` (status and SSE). (5) A network that never comes back pauses as
 reason `engine`, `engine_kind: offline`, no `error`, with a sentence about the network ("This computer was asleep and
-the network was not back yet… Continue once it is online"; "computer", since the backend also runs headless); Past
-reads records the pause as `offline`. (6) `SleepState.stage` (stages completed) moves to 1 only after Stage 1's
+the network was not back yet… Continue once it is online"; "computer", since the backend also runs headless), and the
+record's `offline_cause` (`asleep | no_network | connection`, on the wire too) says which; Past reads records the pause
+as `offline`, or `connection` for a dropping connection with a network present. (6) `SleepState.stage` (stages completed) moves to 1 only after Stage 1's
 total-failure checks, so a Stage 1 that failed draws Read as the failed stage, never Sort.
 An id another writer marked processed meanwhile is `skipped`, and a bank switch between batches stops the run (`bank_switched`; `activate`, `demo`,
 `leave-demo` and the active bank's rename answer **409** while `SleepState.drain_run`). **A scheduled cycle drains too**

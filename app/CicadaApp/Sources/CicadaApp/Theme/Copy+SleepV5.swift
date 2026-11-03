@@ -73,7 +73,17 @@ extension Copy {
         static let pausedEngineLead = "Paused. The engine stopped answering."
         static let pausedEngineFixLead = "Paused. The engine needs a look."
         /// The network left and did not come back while the run waited (2026-11-03): nothing to fix in the engine.
+        /// One lead per cause, each the backend's own diagnosis in brief (#575 review).
         static let pausedOfflineLead = "Paused. This Mac was offline."
+        static let pausedAsleepLead = "Paused. This Mac was asleep."
+        static let pausedConnectionLead = "Paused. The connection kept dropping."
+        static func pausedOfflineLead(cause: String?) -> String {
+            switch cause {
+            case "asleep": pausedAsleepLead
+            case "connection": pausedConnectionLead
+            default: pausedOfflineLead
+            }
+        }
         static func continueWhenOnline(filed: Int, frozen: Int, _ locale: Locale = .autoupdatingCurrent) -> String {
             "Continue once it's online. \(filedOf(filed, frozen, locale))."
         }
@@ -319,6 +329,7 @@ extension Copy {
             case "plan_window", "plan_weekly", "overage": "Paused at your plan's limit"
             case "engine": "Paused — the engine stopped"
             case "offline": "Paused — this Mac was offline"
+            case "connection": "Paused — the connection kept dropping"
             case "restart": "Paused — Cicada restarted"
             case "bank_switched": bankSwitchedLead
             default: "Paused"
@@ -405,6 +416,7 @@ extension Copy {
             case "plan_window", "plan_weekly", "overage": "the plan's limit"
             case "engine": "the engine stopped"
             case "offline": "this Mac was offline"
+            case "connection": "the connection kept dropping"
             case "restart": "Cicada restarted"
             default: "paused"
             }
@@ -456,7 +468,7 @@ extension Copy {
         SleepV5.continueOnSleepPage, SleepV5.stagesLabel, SleepV5.filingLead, SleepV5.pausingLead,
         SleepV5.pausedLead, SleepV5.pausedTitle("reserve"), SleepV5.pausedTitle("user"),
         SleepV5.pausedTitle("plan_window"), SleepV5.pausedTitle("engine"), SleepV5.pausedTitle("restart"),
-        SleepV5.pausedTitle("offline"), SleepV5.consolidateAll(287), SleepV5.pausedMenuTitle(filed: 98, frozen: 287), SleepV5.pausedMenuPlain,
+        SleepV5.pausedTitle("offline"), SleepV5.pausedTitle("connection"), SleepV5.consolidateAll(287), SleepV5.pausedMenuTitle(filed: 98, frozen: 287), SleepV5.pausedMenuPlain,
         SleepV5.scheduledRunTitle, SleepV5.retryAfterRun,
     ]
 
@@ -472,7 +484,8 @@ extension Copy {
         SleepV5.pausedOverageLead, SleepV5.resetsContinue("after 2:00 PM"), SleepV5.resetsThenContinue("Tue 2:00 PM"),
         SleepV5.continueWhenItResets, SleepV5.pausedEngineLead, SleepV5.continueToTryAgain(filed: 98, frozen: 287),
         SleepV5.pausedEngineFixLead, SleepV5.continueWhenFixed(filed: 98, frozen: 287),
-        SleepV5.pausedOfflineLead, SleepV5.continueWhenOnline(filed: 98, frozen: 287),
+        SleepV5.pausedOfflineLead, SleepV5.pausedAsleepLead, SleepV5.pausedConnectionLead,
+        SleepV5.continueWhenOnline(filed: 98, frozen: 287),
         SleepV5.waitingForNetworkLead, SleepV5.waitingForNetworkTail("asleep"),
         SleepV5.waitingForNetworkTail("no_network"), SleepV5.waitingForNetworkTail("connection"),
         SleepV5.readingStoppedLead, SleepV5.readingStoppedTail,

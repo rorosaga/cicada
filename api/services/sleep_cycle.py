@@ -2016,7 +2016,7 @@ async def _run_batch(
                 stop = sleep_drain.classify(
                     exc, agent_engine.breaker_reason(), agent_engine.breaker_resets_at(),
                     agent_engine.breaker_kind())
-                if stop.reason != "plan_limit" and not _state.write_started:
+                if stop.reason != "plan_limit" and not _state.write_started and not agent_engine.breaker_reason():
                     # A later stage's call lost the network: nothing is on disk yet, so the batch is read again
                     # once the network is back, like a Stage 1 read that lost it.
                     cause = _offline_cause(exc, batch_mark)
@@ -2506,7 +2506,8 @@ def _record_leg(ds: "sleep_drain.DrainState", memory_path: Path, state: str, *, 
     try:
         reason = sleep_paused.reason_for(stop) if stop is not None else None
         if reason == "engine" and getattr(stop, "offline", None):
-            reason = "offline"          # Past reads says the network left, never that the engine stopped
+            # Past reads says what left — the network, or a connection that kept dropping — never "the engine stopped"
+            reason = "connection" if stop.offline == "connection" else "offline"
         sleep_runs.record_leg(memory_path, ds, state=state, stop=stop, reason=reason,
                               questions_leg=questions_leg)
     except Exception as e:  # noqa: BLE001 - a summary for Past nights, never worth failing a run
@@ -2686,7 +2687,10 @@ def _batch_hooks(live: "sleep_drain.BatchLive", guard, ds: "sleep_drain.DrainSta
             # never a fix the person owes. The batch is discarded before its first write and read again once the
             # network is back (`_drain`); no attempt or timeout is charged against this conversation.
             live.engine_failed.add(ep["id"])
-            if live.transient_stop is None or live.transient_stop.offline is None:
+            # A plan limit, a sign-out or a refused model in the same batch outranks the network: its stop carries
+            # the vendor's reset time (ruling 15 arms on it) or the fix the person owes (#575 review).
+            if not live.pause_class and not _ae_breaker() and (
+                    live.transient_stop is None or live.transient_stop.offline is None):
                 live.transient_stop = sleep_drain.offline_stop(cause)
             return
         if isinstance(exc, engine_errors.EngineTimeout):
@@ -2713,6 +2717,8 @@ def _batch_hooks(live: "sleep_drain.BatchLive", guard, ds: "sleep_drain.DrainSta
             live.pause_sentence = live.pause_sentence or str(exc).strip()[:300]
             if isinstance(exc, engine_errors.TRANSIENT):
                 live.transient_stop = live.transient_stop or sleep_drain.classify(exc)
+            elif live.transient_stop is not None and live.transient_stop.offline:
+                live.transient_stop = None      # the engine's own stop outranks a network wait (#575 review)
         else:
             live.failed[ep["id"]] = reason or "other"
             if isinstance(exc, engine_errors.EngineFailed):
@@ -2978,6 +2984,10 @@ async def _run_stages(
     if live is not None:
         for ep_id in live.timeouts:
             batch.ds.timeout_attempts[ep_id] = batch.ds.timeout_attempts.get(ep_id, 0) + 1
+        if live.transient_stop is not None and live.transient_stop.offline and (live.pause_class or _ae_breaker()):
+            # A plan limit or an engine fix met in the same batch outranks the network wait: the batch takes the
+            # pause-class path below (the breaker's reset time, or the fix); the offline ids stay requeued.
+            live.transient_stop = None
         if live.transient_stop is not None:
             # A newly affected id or a positive connection interruption dooms
             # this leg. Keep per-id observations but discard its content work.

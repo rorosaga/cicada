@@ -192,6 +192,7 @@ def build(ds, *, phase: str, stop=None, engine_label: str | None = None,
             "engine_kind": ("offline" if getattr(stop, "offline", None) else
                             "transient" if getattr(stop, "transient", False) else "needs_fix")
                            if reason == "engine" else None,
+            "offline_cause": getattr(stop, "offline", None) if reason == "engine" else None,
             "sentence": (getattr(stop, "sentence", "") or None) if stop is not None else None,
             "resets_at": getattr(stop, "resets_at", None) if stop is not None else None,
             "limit": getattr(stop, "limit", None) if stop is not None else None,
@@ -223,6 +224,7 @@ def to_wire(record: dict | None, memory_path: Path | None = None) -> dict | None
         "started_by": record.get("started_by", "user"),
         "reason": record.get("reason"),
         "engine_kind": (record.get("engine_kind") or "needs_fix") if record.get("reason") == "engine" else None,
+        "offline_cause": record.get("offline_cause") if record.get("engine_kind") == "offline" else None,
         "sentence": record.get("sentence"),
         "resets_at": record.get("resets_at"),
         "limit": record.get("limit"),

@@ -3375,6 +3375,8 @@ class SleepPaused(CamelModel):
     started_by: str = "user"
     reason: str
     engine_kind: Optional[Literal["transient", "needs_fix", "offline"]] = None
+    # For an ``offline`` pause, why: the machine slept, had no network, or the connection kept dropping.
+    offline_cause: Optional[Literal["asleep", "no_network", "connection"]] = None
     sentence: Optional[str] = None
     resets_at: Optional[int] = None
     limit: Optional[str] = None

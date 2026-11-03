@@ -2407,9 +2407,11 @@ refetches the paused record. An engine pause never implies automatic continuatio
 **The network left (2026-11-03, `capture-and-sleep.md`).** While a run waits for the network the drain carries
 `waiting` (`SleepDrainInfo.waiting`) and the sentence says "Waiting for the network." with one tail per cause ("The Mac
 slept mid-read. That part is read again once it's back." / "This Mac is offline. …" / "The connection dropped. It tries
-again shortly.") — rung V8, above the stage rungs. A run that gave up waiting pauses with `engineKind: offline`: "Paused.
-This Mac was offline." / "Continue once it's online. N of M filed.", in plain tone (nothing to fix, DR-7); Details
-titles it "Paused — this Mac was offline" and Past reads' pause row says "this Mac was offline" (DR-38, DR-59).
+again shortly.") — rung V8, above the stage rungs. A run that gave up waiting pauses with `engineKind: offline`, its lead by `offlineCause`: "Paused. This Mac was
+asleep." / "Paused. This Mac was offline." with "Continue once it's online. N of M filed.", or "Paused. The connection
+kept dropping." with "Continue to try again. N of M filed." (a network present: nothing to wait for), in plain tone
+(nothing to fix, DR-7); Details titles it "Paused — this Mac was offline" or "Paused — the connection kept dropping",
+and Past reads' pause row says the same (DR-38, DR-59).
 An engine connection loss that is not offline uses the transient pause/Continue machinery. Neither an engine pause nor a genuine
 failure renders an exception class, CLI command or raw diagnosis in the page's sentence or worm answers. A failure
 instead says "Reading stopped" / "See what needs a fix in Past reads, then try again", in warning tone (DR-7, DR-59);

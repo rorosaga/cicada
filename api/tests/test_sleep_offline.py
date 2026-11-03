@@ -275,3 +275,55 @@ def test_has_route_sends_nothing_and_reads_an_unreachable_network_as_offline(mon
     monkeypatch.setattr(socket, "socket", Sock)
     assert REAL_HAS_ROUTE() is False
     assert len(seen) == 2
+
+
+@pytest.mark.parametrize("offline_first", [True, False])
+def test_a_plan_limit_in_the_same_batch_outranks_the_network(tmp_path, monkeypatch, offline_first):
+    """#575 review: one read loses the network, another meets the plan's limit — the run pauses at the plan's limit
+    with the vendor's reset time (ruling 15 arms on it), never as an offline pause, whichever failed first."""
+    ids = episode_ids(2)
+    memory = seed_bank(tmp_path, ids)
+    Net(monkeypatch, online=True, slept=0.0)
+    off_id, limit_id = ids
+    resets = 1_900_000_000
+    from api.services import entity_extractor
+
+    real_extract = entity_extractor.extract
+    install(monkeypatch, engine_label="claude-cli")
+    monkeypatch.setattr(entity_extractor, "extract", real_extract)
+    calls = []
+
+    async def complete(*, messages, **kw):
+        ep_id = next(i for i in ids if i in messages[-1]["content"])
+        calls.append(ep_id)
+        if ep_id == off_id:
+            agent_engine.parse_envelope(timed_out())       # a lost connection (route present: `connection`)
+        if offline_first:
+            while calls.count(off_id) < 2:                 # the lost read and its one retry fail first
+                await asyncio.sleep(0)
+            await asyncio.sleep(0)
+        agent_engine.trip_breaker("Claude plan throttled — resets soon", resets_at=resets, kind="five_hour")
+        raise engine_errors.EngineThrottled("Claude plan throttled", resets_at=resets)
+
+    monkeypatch.setattr(providers, "resolve_llm_fn", lambda *a, **kw: complete)
+    run(memory)
+    rec = sleep_paused.get_paused(memory)
+    assert rec and rec["reason"] == "plan_window" and rec["resets_at"] == resets
+    assert rec["engine_kind"] is None and rec.get("offline_cause") is None
+    assert sleep_cycle.get_sleep_state().drain.offline_waits == 0
+    assert sleep_parked.ids(memory) == set() and waiting(memory) == ids and rec["attempts"] == {}
+
+
+def test_the_offline_cause_reaches_the_paused_wire(tmp_path, monkeypatch):
+    ids = episode_ids(2)
+    memory = seed_bank(tmp_path, ids)
+    Net(monkeypatch, online=True, slept=0.0)          # a route, and a connection that keeps dropping
+    real_reads(monkeypatch, ids, lambda _i: True)
+    run(memory)
+    rec = sleep_paused.get_paused(memory)
+    assert rec["engine_kind"] == "offline" and rec["offline_cause"] == "connection"
+    wire = sleep_paused.to_wire(rec)
+    assert wire["offline_cause"] == "connection" and wire["sentence"].startswith("The connection kept dropping.")
+    from api.models.schemas import SleepPaused
+
+    assert SleepPaused.model_validate(wire).model_dump(by_alias=True)["offlineCause"] == "connection"

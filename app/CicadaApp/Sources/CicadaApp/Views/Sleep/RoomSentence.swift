@@ -378,7 +378,8 @@ private func pausedLead(_ paused: SleepPausedRun) -> SentenceLine {
     case "plan_weekly": SentenceLine(lead: Copy.SleepV5.pausedPlanWeeklyLead)
     case "overage": SentenceLine(lead: Copy.SleepV5.pausedOverageLead)
     // The network left (2026-11-03): a fact about the Mac, nothing to fix — plain, never the warning tone.
-    case "engine" where paused.engineKind == "offline": SentenceLine(lead: Copy.SleepV5.pausedOfflineLead)
+    case "engine" where paused.engineKind == "offline":
+        SentenceLine(lead: Copy.SleepV5.pausedOfflineLead(cause: paused.offlineCause))
     case "engine": SentenceLine(lead: paused.engineKind == "transient"
                                ? Copy.SleepV5.pausedEngineLead : Copy.SleepV5.pausedEngineFixLead, tone: .warning)
     case "restart": SentenceLine(lead: Copy.SleepV5.restartLead)
@@ -412,8 +413,11 @@ private func pausedTail(_ paused: SleepPausedRun, _ ctx: RoomContext) -> Sentenc
         return SentenceTail(text: ctx.resetWhen.map(Copy.SleepV5.resetsThenContinue) ?? Copy.SleepV5.continueWhenItResets,
                             action: .openDetails(.lastCycle))
     case "engine" where paused.engineKind == "offline":
-        return SentenceTail(text: Copy.SleepV5.continueWhenOnline(filed: filed, frozen: frozen, locale),
-                            action: .openDetails(.lastCycle))
+        // A dropping connection with a network present is tried again; no network (or asleep) waits to be online.
+        let text = paused.offlineCause == "connection"
+            ? Copy.SleepV5.continueToTryAgain(filed: filed, frozen: frozen, locale)
+            : Copy.SleepV5.continueWhenOnline(filed: filed, frozen: frozen, locale)
+        return SentenceTail(text: text, action: .openDetails(.lastCycle))
     case "engine":
         let text = paused.engineKind == "transient"
             ? Copy.SleepV5.continueToTryAgain(filed: filed, frozen: frozen, locale)

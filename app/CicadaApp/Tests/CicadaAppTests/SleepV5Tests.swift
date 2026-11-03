@@ -217,6 +217,30 @@ final class SleepV5RoomSentenceTests: XCTestCase {
                        "Paused at 3:00 AM · this Mac was offline")
     }
 
+    /// #575 review: the lead says what the backend found — a dropping connection is not "offline".
+    func test_anOfflinePauseLeadFollowsItsCause() throws {
+        let expected = ["asleep": ("Paused. This Mac was asleep.", "Continue once it's online. 0 of 4 filed."),
+                        "no_network": ("Paused. This Mac was offline.", "Continue once it's online. 0 of 4 filed."),
+                        "connection": ("Paused. The connection kept dropping.", "Continue to try again. 0 of 4 filed.")]
+        for (cause, (lead, tail)) in expected {
+            let paused = try JSONDecoder().decode(SleepPausedRun.self, from: Data(
+                #"{"runId":"run","reason":"engine","engineKind":"offline","offlineCause":"\#(cause)","filed":0,"frozen":4}"#.utf8))
+            XCTAssertEqual(paused.offlineCause, cause)
+            var context = RoomContext(mood: .sleeping(stage: 1), scheduleMode: "manual", locale: V5Fixture.en)
+            context.paused = paused
+            let line = roomSentence(context)
+            XCTAssertEqual(line.lead, lead)
+            XCTAssertEqual(line.tail, tail)
+            let row = try XCTUnwrap(LastCycleRow.runRows(drain: nil, paused: paused, run: nil, detail: nil, parkedCount: 0,
+                                                         runBilling: nil, reserveValue: nil, locale: V5Fixture.en)
+                .first { $0.kind == .paused })
+            XCTAssertEqual(row.title, cause == "connection" ? "Paused — the connection kept dropping"
+                                                            : "Paused — this Mac was offline")
+        }
+        XCTAssertEqual(Copy.SleepV5.pauseRow(from: "3:00 AM", to: nil, reason: "connection"),
+                       "Paused at 3:00 AM · the connection kept dropping")
+    }
+
     func test_aRunWaitingForTheNetworkSaysSoAboveTheStageRungs() throws {
         let drain = try JSONDecoder().decode(SleepDrainInfo.self, from: Data(
             #"{"id":"run","frozen":4,"batchSize":25,"batch":1,"batches":1,"filed":0,"active":true,"waiting":"asleep"}"#.utf8))

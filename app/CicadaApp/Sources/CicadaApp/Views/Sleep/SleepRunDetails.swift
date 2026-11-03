@@ -59,7 +59,8 @@ extension LastCycleRow {
             }
             // A switch that was on but did not fire says why (`autoContinue.blocked`), never silence.
             let why = paused.autoContinue.flatMap { $0.armed ? nil : Copy.SleepV5.autoContinueBlocked($0.blocked) }
-            let titled = paused.reason == "engine" && paused.engineKind == "offline" ? "offline" : paused.reason
+            let titled = paused.reason == "engine" && paused.engineKind == "offline"
+                ? (paused.offlineCause == "connection" ? "connection" : "offline") : paused.reason
             rows.append(LastCycleRow(kind: .paused, title: Copy.SleepV5.pausedTitle(titled),
                                      text: [text, why].compactMap { $0 }.joined(separator: " ")))
             if paused.reason == "reserve", let reserveValue {
