@@ -49,6 +49,37 @@ final class LocalNetworkTests: XCTestCase {
                      "a refusal while the prompt is up is not an answer yet")
     }
 
+    /// Review of #573: a refused answer is re-checked on the app's return only after the person's own Allow click,
+    /// at most once per window, never two probes at once.
+    func testTheReturnRecheckIsThrottledNeverOverlapsAndNeedsAnEarlierAsk() throws {
+        let t = Date(timeIntervalSince1970: 1_800_000_000)
+        var gate = LocalNetworkRecheckGate()
+        XCTAssertFalse(gate.due(state: .denied, askedBefore: false, now: t), "never asked by a click: never probed")
+        XCTAssertFalse(gate.due(state: .notYet, askedBefore: true, now: t))
+        XCTAssertFalse(gate.due(state: .granted, askedBefore: true, now: t))
+        XCTAssertTrue(gate.due(state: .denied, askedBefore: true, now: t))
+        gate.started(at: t)
+        XCTAssertFalse(gate.due(state: .denied, askedBefore: true, now: t.addingTimeInterval(60)), "one at a time")
+        gate.finished()
+        XCTAssertFalse(gate.due(state: .denied, askedBefore: true,
+                                now: t.addingTimeInterval(CicadaTiming.localNetworkRecheckEvery - 1)))
+        XCTAssertTrue(gate.due(state: .denied, askedBefore: true, now: t.addingTimeInterval(CicadaTiming.localNetworkRecheckEvery)))
+        let memory = LocalNetworkMemory(defaults: try defaults("asked"))
+        XCTAssertFalse(memory.askedBefore)
+        memory.noteAsked(at: t)
+        XCTAssertTrue(memory.askedBefore)
+        let discovery = try source("Services/LanDiscovery.swift")
+        XCTAssertTrue(discovery.contains("memory.noteAsked()"), "the ask records the click")
+        XCTAssertTrue(discovery.contains("recheck.due(state: memory.state, askedBefore: memory.askedBefore"))
+    }
+
+    /// Review of #573: another memory is another instance name, so a bank switch refreshes Bonjour at once.
+    func testABankSwitchRefreshesDiscovery() throws {
+        let app = try source("CicadaApp.swift")
+        let block = try XCTUnwrap(app.components(separatedBy: ".onChange(of: store.banks.value?.active)").dropFirst().first)
+        XCTAssertTrue(block.prefix(400).contains("LanDiscovery.shared.refresh()"))
+    }
+
     func testLocalNetworkIsAPromptRowThatNeverAsksFromItsProbe() throws {
         XCTAssertEqual(MacPermission.localNetwork.way, .prompt)
         XCTAssertEqual(MacPermissionRows.action(.localNetwork, state: .notYet), .ask)
@@ -154,6 +185,7 @@ final class LocalNetworkTests: XCTestCase {
         XCTAssertLessThanOrEqual(OnboardingWords.count([Copy.LocalNetwork.firewall]), 12)
         XCTAssertLessThanOrEqual(OnboardingWords.count([Copy.Relay.detailOff]), 12)
         XCTAssertLessThanOrEqual(OnboardingWords.count([Copy.Relay.detailOn]), 16)
+        XCTAssertFalse(Copy.LocalNetwork.unlocks.contains("Wi-Fi"), "a wired Mac is on a network too (owner 2026-11-03)")
         XCTAssertFalse(Copy.LocalNetwork.unlocks.lowercased().contains(Copy.LocalNetwork.name.lowercased()),
                        "the row's line never repeats its name")
         for line in Copy.LocalNetwork.labels { XCTAssertFalse(line.contains("!"), line) }
@@ -177,6 +209,7 @@ final class LocalNetworkTests: XCTestCase {
         XCTAssertNotNil(text.range(of: "<key>NSLocalNetworkUsageDescription</key><string>[^<]{20,}</string>",
                                    options: .regularExpression))
         XCTAssertTrue(text.contains("<key>NSBonjourServices</key><array><string>_cicada._tcp</string></array>"))
+        XCTAssertNil(text.range(of: "<key>NSLocalNetworkUsageDescription</key><string>[^<]*Wi-Fi", options: .regularExpression))
     }
 
     private func source(_ path: String) throws -> String {

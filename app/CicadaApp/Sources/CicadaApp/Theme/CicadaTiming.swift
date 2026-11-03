@@ -54,6 +54,8 @@ enum CicadaTiming {
     /// re-check of a refused answer (macOS never asks twice) this long; the probe looks every step. Waits, not motion.
     static let localNetworkAskLimit: TimeInterval = 60
     static let localNetworkRecheck: TimeInterval = 3
+    /// The app's return re-checks a refused answer at most this often (review of #573).
+    static let localNetworkRecheckEvery: TimeInterval = 30
     static let localNetworkProbeStep: TimeInterval = 0.25
     /// How often the app reads `GET /sync/discovery` again (the door's port can open after a share), how long found
     /// doors settle before they are posted, and how often the same set is posted again. Waits, not motion.

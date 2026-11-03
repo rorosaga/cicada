@@ -36,6 +36,7 @@ final class LanDiscovery {
     private var sawFirstPath = false
     private var changeTask: Task<Void, Never>?
     private var gate = NetworkHintGate()
+    private var recheck = LocalNetworkRecheckGate()
     private var loop: Task<Void, Never>?
 
     init(memory: LocalNetworkMemory = LocalNetworkMemory()) {
@@ -66,9 +67,17 @@ final class LanDiscovery {
     /// The app is in front again: the backend tries every earlier route now; a refused answer is looked at again.
     func appBecameActive() {
         Task {
-            if memory.state == .denied, let fresh = await probe(limit: CicadaTiming.localNetworkRecheck), fresh != .denied {
-                memory.note(fresh)
-                await postAllowed()
+            // Review of #573: at most one silent re-check per window, never two at once, and only after the person's
+            // own Allow click asked once — a probe after macOS forgot the answer could otherwise prompt unasked.
+            let now = Date()
+            if recheck.due(state: memory.state, askedBefore: memory.askedBefore, now: now) {
+                recheck.started(at: now)
+                let fresh = await probe(limit: CicadaTiming.localNetworkRecheck)
+                recheck.finished()
+                if let fresh, fresh != .denied {
+                    memory.note(fresh)
+                    await postAllowed()
+                }
             }
             await refresh()
             await hint(.returned)
@@ -81,6 +90,7 @@ final class LanDiscovery {
     /// answer: the app's throwaway instance seen in its own browse is a yes; a browse refused by policy that never saw
     /// it is a no. Then the backend is told (`lanAllowed`), so the door may bind this network.
     func ask() async {
+        memory.noteAsked()
         let answer = await probe(limit: CicadaTiming.localNetworkAskLimit)
         if let answer { memory.note(answer) }
         await postAllowed()

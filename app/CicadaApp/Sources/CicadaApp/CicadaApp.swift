@@ -362,6 +362,8 @@ struct CicadaApp: App {
         // 2026-11-03 — the bookmark catch-up the launch owed until the active memory was known (`rosterLoaded`).
         .onChange(of: store.banks.value?.active) { _, _ in
             Task { await browserWatcher.rosterLoaded() }
+            // G132 ruling 51f: another memory is another instance name — drop the old advert and browse at once.
+            if !ServerConnection.current.isServer { Task { await LanDiscovery.shared.refresh() } }
         }
         .onChange(of: store.bank) { _, _ in
             Task { await localSources.reload() }

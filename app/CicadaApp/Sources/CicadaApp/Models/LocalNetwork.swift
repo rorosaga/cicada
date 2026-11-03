@@ -169,6 +169,14 @@ struct LocalNetworkMemory {
     /// Whether the person has been asked at all — the first-share step shows until they have.
     var asked: Bool { state != .notYet }
 
+    /// The person's own Allow click ran the ask at least once (`cicada.permission.localNetwork.askedAt`): the only
+    /// thing that lets a silent re-check run.
+    var askedBefore: Bool { defaults.object(forKey: Self.askedKey) != nil }
+
+    static let askedKey = "cicada.permission.localNetwork.askedAt"
+
+    func noteAsked(at now: Date = Date()) { defaults.set(now.timeIntervalSince1970, forKey: Self.askedKey) }
+
     func note(_ state: MacPermissionState) {
         switch state {
         case .granted: defaults.set("granted", forKey: Self.key)
@@ -176,6 +184,27 @@ struct LocalNetworkMemory {
         case .notYet: defaults.removeObject(forKey: Self.key)
         }
     }
+}
+
+/// When the app's return may re-check a refused answer silently (review of #573): only after the person's own Allow
+/// click asked once, while the answer reads refused, at most once per `CicadaTiming.localNetworkRecheckEvery`, and
+/// never while another probe runs. Pure, so the throttle is tested without a clock.
+struct LocalNetworkRecheckGate {
+    private(set) var lastStarted: Date?
+    private(set) var running = false
+
+    func due(state: MacPermissionState, askedBefore: Bool, now: Date) -> Bool {
+        guard state == .denied, askedBefore, !running else { return false }
+        guard let lastStarted else { return true }
+        return now.timeIntervalSince(lastStarted) >= CicadaTiming.localNetworkRecheckEvery
+    }
+
+    mutating func started(at now: Date) {
+        lastStarted = now
+        running = true
+    }
+
+    mutating func finished() { running = false }
 }
 
 /// How a probe that ran reads (`LanDiscovery.probe`): the app's own throwaway instance came back in its browse →

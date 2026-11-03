@@ -6,7 +6,7 @@ import SwiftUI
 /// relay's address, then the same six digits on both screens and a confirmation here). Existing patterns only: a
 /// Settings row with Settings' native rounded fields below (DR-76, as *Where your memory lives*), a neutral button for
 /// the act and a text button for the rare one (DR-40), copy in plain words (DR-59), the digits in mono because they
-/// are compared (DR-19). No chevron, no fold, no new motion.
+/// are compared (DR-19). No chevron and no new motion; the one fold is Advanced's, above.
 struct RelaySection: View {
     /// Owned and refreshed by the Devices page (2026-11-03): the card used to hide itself on its own first read
     /// (setting known, mode not yet), which cancelled the read that would have shown it.

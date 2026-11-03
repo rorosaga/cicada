@@ -7,7 +7,7 @@ extension Copy {
     enum LocalNetwork {
         // The first-share step (owner D4): the act the person clicked is its title, so nothing above repeats the row.
         static let name = "Local network"
-        static let unlocks = "Your devices find each other on this Wi-Fi"
+        static let unlocks = "Your devices find each other on this network"
         static let firewall = "If macOS asks about incoming connections, choose Allow."
         static let continueTitle = "Continue"
 

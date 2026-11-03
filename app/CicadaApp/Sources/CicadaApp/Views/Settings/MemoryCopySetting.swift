@@ -88,9 +88,8 @@ struct MemoryCopySetting: View {
                     caption(Copy.MemoryCopy.whileSharing)
                 } else if isCopy, let copy = model.replica?.replica {
                     caption(copy.text)
-                    // Ruling 51f: the route line below says how the home is reached; no address or port is shown
-                    // (the "Following <address>" line it replaces repeated the status above with an address).
-                    // G132 ruling 51f: the route this copy is using, in words — never an address or a port.
+                    // G132 ruling 51f: the route this copy is using, in words — never an address or a port (it
+                    // replaces "Following <address>").
                     TimelineView(.everyMinute) { context in
                         if let line = MemoryCopyModel.routeLine(model.routes, lastContact: copy.lastContact,
                                                                 now: context.date) {

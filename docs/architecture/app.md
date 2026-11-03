@@ -445,7 +445,9 @@ stays on loopback until it is a yes. Skipped or refused, the same row sits on th
 (a conflict-renamed "c-… (2)" matches), each match is resolved with `DNSServiceResolve` + `DNSServiceGetAddrInfo` —
 never a connection, which would spend the door's handshake budget — and private and unique-local addresses are posted
 as `doors` (`POST /sync/discovered`, at most 16, again only when the set changed or after 5 min). A refusal later in
-System Settings is noticed by the browse; a refused answer is looked at again, silently, on the app's return. *Hints:*
+System Settings is noticed by the browse; a refused answer is looked at again, silently, on the app's return — only after the person's own *Allow…* asked once
+(`cicada.permission.localNetwork.askedAt`), at most once per 30 s and never two probes at once. A bank switch refreshes
+Bonjour at once (another memory is another instance name). *Hints:*
 `NWPathMonitor` posts `{event: changed}` after a 2 s settle, the app's return `{event: returned}` at most every 30 s,
 only while this memory is shared or this computer keeps a copy. *Route state, in words, never an address or a port:* a
 device row's `how` reads "Same network" for a door on this network (a door request stamps `agent_seen` as `lan` or
