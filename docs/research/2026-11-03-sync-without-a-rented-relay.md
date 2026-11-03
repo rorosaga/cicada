@@ -17,7 +17,11 @@ localhost") and `headless.md`; the open PRs #572 (backend: one transport, direct
 
 ---
 
-## 1. The short answer
+> **Revised the same day (§12).** The owner answered D1–D9. The cloud mailboxes (iCloud, Google Drive) are out, the
+> Developer Program waits, and the owner wants cross-network direct connections made to work rather than deferred.
+> **§12 supersedes §1, §6, §7, §9 and §10 wherever they differ**; §2–§5 and §8 still stand as evidence.
+
+## 1. The short answer (superseded by §12.6)
 
 **Yes, for the sync itself.** Cicada's devices can stay in sync with no server Cicada or the owner rents. It takes two
 layers:
@@ -339,7 +343,7 @@ remains is reach from outside the home network: J1 and J3, which is §4.3's mail
 | Cicada relay, self-hosted | paste a URL | the person's own box | yes | foreground + mailbox | yes | built | none | keep as advanced |
 | Cicada relay, hosted | none | **owner rents** (~€6.50/mo up to ~€80–90/mo at 10k users, phase-3a research) | yes | yes | yes | built | none | only if J4 ever needs it |
 
-## 6. Recommendation: a layered transport, no rent
+## 6. Recommendation: a layered transport, no rent (superseded by §12)
 
 The transport tries layers in order. Every layer carries **the same sealed, signed, counted frames** (phase 3a), so a
 frame sent by two layers applies once.
@@ -364,7 +368,7 @@ chooses it." The trust model is unchanged: the mailbox, like the relay, sees onl
 counts. It is tied to the person's Apple ID or Google account instead of a random mailbox id, a provider the person
 already trusts with that account.
 
-## 7. What should change in #572 and #573 before merge
+## 7. What should change in #572 and #573 before merge (superseded by §12)
 
 **#572 (backend): merge it, with four small changes.** Its core is right: one transport, the HTTP-shaped request run
 in process through the device door, the E2E layer reused, no relay imported when unset, and the asleep-peer timeout.
@@ -412,7 +416,7 @@ closed-lid laptop is in effect "the next wake". Two things follow:
    rather than started belongs to the scheduled-Sleep code, not this transport. It is noted here because the brief
    asked.
 
-## 9. Decisions for the owner
+## 9. Decisions for the owner (superseded by §12)
 
 Each decision is a one-line question with the recommended answer.
 
@@ -437,7 +441,7 @@ Each decision is a one-line question with the recommended answer.
 - **D9.** #573: hold the Relay URL row, or ship it under *Your own relay (advanced)*, keeping the pairing sheet
   transport-agnostic? **Ship it as advanced, after #572's QR change.**
 
-## 10. What to build next, in order
+## 10. What to build next, in order (superseded by §12)
 
 1. **#572's four changes (§7), then merge; #573 as advanced, after it.** S.
 2. **The LAN frame socket and the app's Bonjour half; pairing and the bootstrap over it** (D3, D4). M. Measure: fast-
@@ -463,6 +467,374 @@ Each decision is a one-line question with the recommended answer.
 - **A measured CGNAT share for any carrier.** The sources agree qualitatively only.
 - **Whether DarkWake or Power Nap ever give a closed-lid laptop on battery enough network to run Sleep.** It is not
   relied on here.
+
+## 12. After the owner's answers (2026-11-03): no cloud, no rent, make direct work
+
+**The owner's answers (Rodrigo, 2026-11-03), verbatim:**
+
+- D1: "why cloud account? i still dont like this."
+- D2: "i will join this program but not yet"
+- D3: "wdym with this?"
+- D4: "yeah in onboarding we should have one step to ask for all permissions" (handled elsewhere)
+- D5: "I mean why hold off, lets think about a way to enable this. How does t3 code do this for example?"
+- D6: "ok but can the app setup that public connector for the user?"
+- D7: "yes i agree"
+- D8: "wtf no"
+- D9: "sure but i still dont get why the relay"
+
+So these constraints now apply:
+
+- **No cloud mailbox of any kind.** iCloud and Google Drive are out, and the cloud items D1, D8, §4.3, §6.2 and §10.3–4
+  are withdrawn.
+- **Nothing that needs the Apple Developer Program for now.** That rules out CloudKit and APNs pushes.
+- **No rented server.**
+- **Cross-network direct connections are to be designed, not deferred.**
+
+### 12.1 How others connect across networks
+
+The short version: **none of the products studied hole-punches for free. Each one either rents something or borrows a
+network the user signs up for.**
+
+**T3 Code** (source read at `pingdotgg/t3code` `b7ab02e`, 2026-11-03: `docs/user/remote-access.md`,
+`docs/internals/remote.md`, `docs/internals/t3-connect.md`):
+
+- **Routes, not one transport.** A saved machine holds an *ordered list of routes*: LAN, Tailscale, another VPN, a
+  public URL, SSH, and T3 Connect. The client "connects over the first route that answers".
+  - While on a later route, it re-checks the earlier ones "when your network changes, when you return to the app, and
+    every minute", and moves back as soon as one works.
+  - A LAN address that does not answer away from home is "checked briefly and skipped".
+- **Learned routes.** A connected server reports its current LAN and tailnet addresses, and the client saves them, so
+  "pairing once through T3 Connect is enough to use the LAN at home". A learned route still has to prove it is the same
+  environment, by its descriptor's environment id, before any credential is sent.
+- **The LAN listener rule.** A headless service "listens on every IPv4 interface and closes each connection unless both
+  addresses of the direct peer are loopback, private, or tailnet IPv4". That keeps a VPS's public address closed. This
+  is a working precedent for D3.
+- **T3 Connect, the "from anywhere" mode, is rented.**
+  - A hosted relay (a Cloudflare Worker with Durable Objects, and Clerk for sign-in) provisions **a managed Cloudflare
+    named tunnel per machine**, run by `cloudflared` on the host.
+  - Clients then reach the machine through the tunnel's hostname, so Cloudflare's edge terminates TLS.
+  - T3 notes that "Cloudflare bills a tunnel whether or not a connector is attached", and reaps idle tunnels from
+    sleeping laptops.
+  - It caps each free account at 3 machines, raised by a paid plan.
+  - It holds webhooks for an offline machine only on opt-in, for 24 hours, in a Durable Object. There is no general
+    mailbox: "That machine must stay running and reachable while you work."
+  - **T3 does no hole punching.**
+- **What Cicada should copy:** the ordered route list, learned routes, preflight and move-back, and the private-peer
+  listener rule. **What it should not copy:** the rented tunnel.
+
+**Tailscale.** Its coordination server and DERP relays are the side channel for exchanging endpoints: "the peers have to
+know in advance the `ip:port` their counterpart is using".
+
+- It asks the router for a port mapping (UPnP IGD, NAT-PMP, PCP), "a sort of supercharged STUN" that "effectively
+  makes one NAT vanish from the data path".
+- It uses IPv6 where present, calling it "just an extra tool in our connectivity toolbox".
+- The author's estimate, not a measurement, is "a direct connection over 90% of the time", with DERP relaying the rest.
+- Free for the user; Tailscale runs the coordination and DERP servers.
+
+**Syncthing.** It maps ports with UPnP and NAT-PMP (the "Enable NAT Traversal" setting) and hole-punches. It falls back
+to community-run relays and global discovery servers that the project runs.
+
+**Zed.** Collaboration goes through Zed's central `collab` server over a WebSocket RPC, with LiveKit for audio, video
+and screen sharing. Remote development is SSH. That information comes from secondary sources and was not checked in
+the source code.
+
+**Warp.** Its docs say "session sharing runs through Warp's servers instead of a direct, peer-to-peer connection".
+
+### 12.2 D5: cross-network direct connections with nothing rented
+
+**The reframe.** Ruling 51 has one home that every device talks to. So the problem is not "connect any two devices
+across any NATs". It is "make the home reachable", or failing that, "punch to the home". Once the home's frame socket
+has a public address and port, every device reaches it by an *outbound* connection, including a phone behind cellular
+CGNAT. CGNAT blocks inbound connections, never outbound ones. That is the biggest lever, and it needs no server.
+
+**The routes, in the order a device tries them.** This copies T3's driver: the first route that answers wins, earlier
+routes are re-checked on a network change, on app open and every minute, and every route carries the same sealed
+frames, so a frame sent twice applies once.
+
+1. **LAN.** The frame socket on a private address, found by the app's Bonjour (D3 below; §4.1).
+2. **The home's mapped public port** (new).
+   - While the person has **"Reach my memory away from home"** on, the home asks its router for a mapping of the frame
+     socket's UDP port only. It tries PCP (RFC 6887) first, then NAT-PMP (RFC 6886), then UPnP IGD, and renews within
+     each mapping's lifetime.
+   - NAT-PMP and PCP report the external address directly, so no STUN is needed.
+   - The home tells each paired device its current external address and port over the frame channel, as a learned
+     route.
+   - Off, or with the home asleep, nothing is mapped.
+3. **IPv6 direct** (new).
+   - The home's global IPv6 address, where its router's firewall admits inbound traffic to that port. PCP can open such a
+     pinhole on routers that support it.
+   - It needs IPv6 on the other device too. Google measured native IPv6 above 50% of its users for one day in March
+     2026, with a rolling average around 45–48%, highest on mobile.
+4. **A hole punch** (new; experimental and measured, §12.2b), for when the home has no mapping and no IPv6 path.
+5. **Tailnet.** Unchanged, for technical users.
+6. **Queue.** No path, so the device keeps its writes and reads its own replica until a route answers (§12.3).
+
+**12.2a The rendezvous that costs nothing.** A device away from home needs the home's *current* address after the
+home's public IP changes, as most residential IPs eventually do. Three free sources, used in order:
+
+- **(i) The last learned route.** It is right until the address changes.
+- **(ii) A signed record in the BitTorrent Mainline DHT, via pkarr.** The home publishes `{external addr:port, IPv6,
+  updated}` as a signed packet under a key derived from its membership key. That keeps it unlinkable to the bank id and
+  rotated with the epoch. The record is padded and its content encrypted to the group, so only devices can read the
+  address.
+  - The DHT is a commons with no operator to rent from or to accept terms from.
+  - Records are 1,000 bytes or less, must be republished about hourly, and a cache miss "might take few seconds" to
+    resolve (pkarr's README).
+  - Some networks treat DHT traffic as torrenting, so it is one source among three, not the only one.
+- **(iii) The person's own always-on device**, when it is the home (D7). It is then the rendezvous for everything else.
+
+**12.2b Hole punching, when the home has no mapping.** Both sides need a reflexive address and a moment to send at once.
+
+- **Reflexive address.** The same Mainline DHT gives one for free: BEP 42 says every DHT response "SHOULD include a top
+  level field called `ip`" with the requester's address and port as the responder saw them.
+  - Using the same UDP socket for the DHT and the frames makes that the mapping to punch through.
+  - Public STUN servers (Google, Cloudflare) are the alternative, but they are a third party learning the IP (D-new-3).
+- **Signalling.** Each side publishes `{reflexive candidates, a punch time}` as an encrypted pkarr record, and the other
+  polls for it. That costs seconds, not milliseconds: fine for sync, too slow for a live call.
+- **Which cases fail.** ProbeLab measured about 70% success (±7.1%) once both sides have candidates. Hard NATs on
+  *both* sides "squared the size of the search space", which makes punching impractical. The phone on cellular CGNAT
+  is the common hard side; it punches when the home's NAT is easy, and fails when both are hard.
+- **Verdict:** build it third, behind a measurement. The punch matters only for a home with no mapping and no IPv6 path.
+
+**What fraction fails anyway, and what happens then.** No source found measures how many homes get a working port
+mapping (§11), so this is the shape of the answer, not a number:
+
+| The home's network | Route that works | Phone on cellular |
+|---|---|---|
+| Router with UPnP, NAT-PMP or PCP on, ISP gives a public IPv4 | 2, mapped port | **reaches it** (outbound to a public port) |
+| ISP CGNAT at home (common on 5G or satellite home internet), but IPv6 with inbound allowed | 3, IPv6 | reaches it if the phone has IPv6 |
+| No mapping, no usable IPv6, easy NAT at home | 4, punch | often (one hard side) |
+| No mapping, no usable IPv6, hard NAT at home (enterprise, some routers) | none | **fails** → queue |
+| Hotel or captive network blocking UDP | none off the LAN | fails → queue (a TCP mapping is a later fallback) |
+
+**When everything fails, nothing is lost.**
+
+- The device reads its own replica, which is as fresh as its last contact.
+- Its writes wait in the outbox and land the next time any route answers: at home on the LAN at the latest.
+- The app says so in words: "Not reaching <home> from here; your changes will sync when it's reachable".
+
+**How the fraction gets measured, not guessed.** The home records which route its devices actually used and whether its
+mapping succeeded, as **enums only** in the telemetry ledger (`mapped|ipv6|punched|lan|tailnet|none`), never an
+address. That satisfies the telemetry rail.
+
+**Rails.**
+
+- **Route 2 is a public port on a device. It amends ruling 51c, rail 3 ("no device listens on a public port") for one
+  socket**, under these limits:
+  - on the home only;
+  - only while the person has "Reach my memory away from home" on;
+  - it speaks only the frame handshake: membership-key challenge first, nothing before it, no HTTP, no token, no bank
+    path;
+  - rate-limited per source;
+  - a random high UDP port.
+- **The precedent:** Tailscale maps ports for WireGuard, and Syncthing maps ports for its sync protocol. What is exposed
+  is a QUIC endpoint that drops everything not signed by a member key.
+- **The G135 rail** ("only the G135 listener may be public") **needs the same amendment** (D-new-1).
+- **The DHT and BEP 42** are outbound UDP to a commons. They are a new network gate of their own, opt-out within the
+  "away from home" switch (D-new-2).
+- **Transport:** QUIC over UDP (TLS 1.3 built in, with a self-signed certificate bound to the device's membership key,
+  so the handshake *is* the membership check): `aioquic` in Python and Network framework's QUIC on the Mac and iPhone.
+  On the Mac, router mapping uses the LAN and so needs the Local Network permission. It is attributed to the app by
+  #572's `AssociatedBundleIdentifiers` and asked in the onboarding permissions step (D4).
+
+**Effort.** Route 2 with learned routes is M: a small PCP/NAT-PMP client is under 500 lines, plus `miniupnpc` for UPnP.
+The DHT record is M (a pkarr client in Python; iroh's crates or a native module on the phone). The punch is L.
+QUIC frame sockets on three platforms are M–L.
+
+### 12.3 D1 without any cloud: the case for no mailbox
+
+A mailbox exists only to hand a frame across a gap where the sender and the home are never awake and reachable at the
+same time. Without one, every device keeps its writes in its outbox and syncs when it next reaches the home.
+
+**What the person loses, by setup:**
+
+| Setup | What changes without a mailbox | What is lost |
+|---|---|---|
+| **An always-on home** (desktop, mini, server; D7) plus laptops and a phone | Nothing at home. Away, it depends on §12.2: a mapped home is reachable from anywhere | **Nothing** when reachable; when not, **latency** until the device is back on a route |
+| **A laptop home** plus a phone | The phone's inbox answers, saves and captures wait until the phone and the laptop are awake and reachable *at the same time* | **Latency**, sometimes hours. The phone's view of the bank is as old as the last overlap |
+| **A laptop home** plus a second laptop | The second laptop's captures wait in its spool; nothing is consolidated until both overlap | Latency; Sleep reads them at the next overlap |
+| A device that never overlaps with the home for over a week | Today the outbox expires at 7 days | **Writes could be lost.** Fix below |
+
+**Two things are really lost, beyond latency:**
+
+1. **Push to the phone.** Without CloudKit or a server holding Cicada's APNs key, the home cannot wake the phone.
+   - Sending a push needs the app's APNs key, a team secret that must never ship to users, so the person's own home
+     cannot be the push provider.
+   - The phone learns about new inbox questions only when it is opened, plus whatever background refresh iOS grants
+     (opportunistic, system-scheduled).
+   - For a memory app that the chat drives, this is a notification badge lost, not data.
+2. **Overlap on a laptop-only household.** If the phone is used only while the laptop's lid is shut, its writes wait
+   until the next time both are up. A mapped home (§12.2, route 2) makes that overlap anywhere, not only on the same
+   Wi-Fi, but the laptop must be awake.
+
+**One rule must change so that nothing is lost: an outbox item never delivered never expires.**
+
+- The 7-day outbox expiry exists for the relay's TTL and the home's 8-day idempotency key. A key matters only if the
+  home might have seen the write.
+- So the rule becomes:
+  - an item never sent, or refused before connecting (`unreachable`), waits indefinitely, and a stale one is rejected by
+    `base_seq` with a reason when it finally lands;
+  - an item in the "sent, may have landed" state (`timeout`) keeps the 7-day bound, with an honest note if it expires.
+- It is a small change in the outbox (D-new-4).
+
+**Verdict: no mailbox.**
+
+- With an always-on home, almost nothing is lost.
+- With a laptop home, the cost is latency plus the phone's badge.
+- With the outbox rule above, no write is ever lost.
+- If a mailbox is ever wanted, the self-hosted relay already is one, on the person's own machine.
+
+### 12.4 D6: can the app set up the connector's public address itself?
+
+**Yes, with one click, through Tailscale Funnel.** It is the only free option where TLS terminates on the person's own
+device, so no third party sees memory in plaintext. The options:
+
+| Option | What the person sees | Cost | TLS ends at | Rail conflicts | Verdict |
+|---|---|---|---|---|---|
+| **(a) Tailscale Funnel driven from the app** | Install Tailscale and sign in, if not already. Then **Settings → Connect Claude/ChatGPT → "Make reachable"**: the app runs exactly `tailscale funnel --bg --https=443 <G135 port>`. The first time, a browser page asks to approve enabling Funnel. The app shows the `https://…ts.net` address to paste into Claude or ChatGPT, then ruling 32's OAuth code flow | free (all plans, per Tailscale's Funnel docs) | **the device** ("receives the encrypted request … then terminates" TLS) | amends the 2026-10-29 one-click rail ("never `funnel`") **for the G135 port only**; the person's click is "the person runs it" (ruling 32) | **yes, first** |
+| **(b) Embedded `tsnet`/libtailscale** | "Make reachable", a browser sign-in to Tailscale (Google, Apple, Microsoft, GitHub), approve Funnel once, copy the address. **No Tailscale app** | free | the device (`ListenFunnel`) | as (a); a Go sidecar in the release bundle | **later**, when the Tailscale app is the friction |
+| (c) Cloudflare named tunnel via the person's account | A Cloudflare account and **a domain on it** (bought, ~€10/yr), sign-in, then `cloudflared` | domain, the person's | **Cloudflare's edge** | memory in plaintext at a third party | no |
+| (d) ngrok free | An account, an authtoken pasted, one free `ngrok-free.app` domain (stable). Third parties report 1 GB/month and 20k requests/month free, and an interstitial for browser visitors | free tier | **ngrok's edge** (raw TLS endpoints are paid) | same as (c) | no |
+| (e) Router port mapping of the G135 listener + free dynamic DNS + an ACME certificate on the device | A DDNS account, router UPnP on, an unstable IP behind CGNAT | free | the device | a public port on the G135 listener (allowed by the person); an IP change breaks the registered URL unless DDNS keeps up | not for non-technical people |
+| Cloudflare quick tunnel | nothing | free | Cloudflare | hostname changes every start, no SSE, testing only (§4.4) | no |
+
+**Caveats for (a).**
+
+- Funnel works only while the machine is awake, so a laptop home's connector is unreachable with the lid shut. That is
+  one more reason for D7.
+- On macOS, Tailscale's Funnel page gives contradictory sentences on which app variant (App Store, Standalone, open
+  source) can funnel a local port; check before building.
+- Funnel has fixed bandwidth limits, and only ports 443, 8443 and 10000.
+
+### 12.5 D3 and D9 in plain words
+
+**D3, "wdym with this?":**
+
+- Today Cicada's engine on your Mac only answers *the Mac itself*. Technically it "binds to 127.0.0.1", the address
+  that means "this computer". Your phone or another laptop on the same Wi-Fi cannot reach it without Tailscale.
+- D3 asks whether Cicada may open **one small door on your home network**:
+  - only devices on your Wi-Fi can see it, never the internet;
+  - it opens only for devices you paired (each proves it holds its key before anything else is said);
+  - all that passes through it is the same sealed, signed messages the sync already uses, never a password or token.
+- #572 proposed a bigger door: a full web server with its own certificate. I recommend the small one.
+- T3 Code does the same thing: its server "closes each connection unless both addresses of the direct peer are
+  loopback, private, or tailnet".
+
+**D9, "i still dont get why the relay":**
+
+- A relay is a **post office on the internet** that all your devices can reach. It exists for two cases:
+  - the devices are on different networks that refuse incoming calls (a phone on mobile data, a laptop behind a home
+    router), so it passes messages between them;
+  - one device is asleep, so it holds the letters until it wakes.
+- It was planned because most devices cannot be called directly from outside their network.
+- §12.2 now covers the first case without a post office: your home machine asks its router to open one door, or uses
+  IPv6, or the two devices punch through.
+- §12.3 drops the second case: devices keep their own letters until they meet the home.
+- So **the relay is no longer needed by default.** It is already built, costs nothing unless someone runs it, and stays
+  only for a person who has a server with a public address and wants a post office of their own. Hide it under
+  "Advanced", or take it out of Settings until someone asks.
+
+### 12.6 The revised recommendation
+
+**The answer to "sync with nothing rented" is yes, with the honest residue stated.**
+
+1. **The same network:** the LAN frame socket (D3).
+2. **Away from home: make the home reachable.**
+   - a router port mapping for the frame socket only, or IPv6;
+   - learned routes;
+   - the home's address published as an encrypted, signed record in the Mainline DHT.
+3. **A hole punch** with DHT signalling and BEP 42 reflexive addresses, as a measured third route.
+4. **Otherwise, queue.** No mailbox; outbox items never delivered never expire.
+5. **The tailnet** (unchanged) and **the self-hosted relay** (advanced, hidden).
+6. **The connector's public address:** the app drives Tailscale Funnel for the G135 port with one click; embedded `tsnet`
+   comes later.
+
+**What remains unsolved with nothing rented, stated plainly:**
+
+- **Push to a suspended phone.** It needs a server holding Cicada's APNs key.
+- **Delivery when the home is asleep.** Writes wait.
+- **Homes behind a hard NAT with no mapping and no IPv6.** Devices sync on the LAN only.
+
+**An always-on home (D7) removes the second, and a mapped home removes most of the third.**
+
+### 12.7 Changes to #572 and #573 before merge (replaces §7)
+
+**#572:**
+
+1. **Make the transport an ordered route list, T3-style:** first that answers; learned routes; preflight earlier routes
+   on a network change, on app open and every minute; move back. "Relay" becomes one optional route among them, and the
+   last resort is **queue**, not relay.
+2. **The heartbeat only on live routes** (unchanged from §7).
+3. **QR v2:** `relay` optional and a `routes` hint (unchanged from §7).
+4. **No pinned-cert HTTPS LAN listener.** Use the frame socket (D3), accepting only private or tailnet peers on the LAN
+   bind.
+5. **The outbox rule of §12.3:** never-delivered items do not expire.
+
+**#573:** the Relay row hidden or under *Advanced* (D9). The pairing sheet, the six digits and Revoke's words stay.
+
+### 12.8 Decisions for the owner (replaces §9)
+
+Each decision is a one-line question with the recommended answer.
+
+- **D1′.** No mailbox: devices queue and sync when they next reach the home, and never-delivered writes never expire?
+  **Yes.**
+- **D2′.** Developer Program later (owner). **Nothing in this plan needs it.**
+- **D3.** May the home open one door on the home network only, for paired devices only, carrying only sealed messages
+  (§12.5)? **Yes.**
+- **D4.** One onboarding step for every permission (owner: yes). It includes Local Network, which route 2's router
+  mapping also needs.
+- **D-new-1.** While the person has "Reach my memory away from home" on, may the home ask its router to open one UDP
+  port for that same door, or use IPv6, so other devices reach it from anywhere (amends 51c rail 3 and the G135-only
+  public rule, for that socket only)? **Yes.**
+- **D-new-2.** May the home publish its current address as an encrypted, signed record in the public BitTorrent DHT (a
+  commons with no operator), under the same switch? **Yes.**
+- **D-new-3.** For hole punching, take the reflexive address from the DHT (BEP 42) rather than a public STUN server run by
+  a company? **Yes, the DHT; STUN only if the DHT proves unreliable.**
+- **D-new-4.** Record the route each device used and whether the mapping worked, as enums only, to measure the failing
+  fraction? **Yes.**
+- **D6′.** One click in the app runs `tailscale funnel` for the G135 port only (amends "never `funnel`"), with embedded
+  `tsnet` later; never Cloudflare or ngrok, which see plaintext? **Yes.**
+- **D7.** Suggest an always-on computer as the home. **Agreed** (owner).
+- **D8.** The Google Drive mailbox: **out** (owner).
+- **D9′.** The relay hidden under *Advanced*, or removed from Settings until someone asks? **Hidden under Advanced.**
+
+### 12.9 What to build next (replaces §10)
+
+1. **#572 with §12.7's five changes, then merge; #573 with the Relay row hidden.** S–M.
+2. **The LAN frame socket over QUIC with the app's Bonjour, plus pairing and the bootstrap over it** (D3). M. Measure
+   the fast-forward and the first copy on a real LAN.
+3. **Route 2:** PCP, NAT-PMP and UPnP mapping on the home, learned routes, and the enums (D-new-1, D-new-4). M. Measure,
+   on the owner's own networks: whether the mapping works, then a phone on cellular reaching it, and the latency.
+4. **The DHT address record** (D-new-2). M.
+5. **The hole punch** (D-new-3), only if step 3's enums show enough homes with no mapping and no IPv6. L.
+6. **Funnel from the app for the connector** (D6′). S. Embedded `tsnet` later, L.
+7. **The outbox rule** (§12.3) and the laptop-home suggestion (D7). S.
+
+### 12.10 What I could not check (adds to §11)
+
+- **A measured share of homes where UPnP, NAT-PMP or PCP mapping works,** or of routers that admit inbound IPv6 by
+  default. No study was found; step 3 measures it.
+- **Syncthing's default for `natEnabled`.** Forum threads describe the setting but not its default.
+- **Zed's and Warp's internals** beyond their docs and secondary write-ups.
+- **The current Funnel support matrix across Tailscale's macOS app variants** (the page contradicts itself).
+- **pkarr's churn numbers** on the live DHT (linked from Pubky's docs, not opened).
+
+**More sources (2026-11-03):**
+
+- T3 Code: <https://github.com/pingdotgg/t3code> (`docs/user/remote-access.md`, `docs/internals/remote.md`,
+  `docs/internals/t3-connect.md`)
+- Tailscale, "How NAT traversal works": <https://tailscale.com/blog/how-nat-traversal-works>; Funnel:
+  <https://tailscale.com/kb/1223/funnel>; firewall and port-mapping notes: <https://tailscale.com/docs/integrations/firewalls>
+- Syncthing NAT traversal setting: <https://forum.syncthing.net/t/enable-nat-traversal-what-does-it-do/13044>
+- Zed collaboration (secondary): <https://deepwiki.com/zed-industries/zed/11.1-collaboration-architecture>
+- Warp session sharing: <https://docs.warp.dev/agent-platform/local-agents/session-sharing>
+- BEP 42: <https://bittorrent.org/beps/bep_0042.html>; pkarr: <https://github.com/pubky/pkarr>
+- IPv6 at Google, 50% for one day (2026-03-28): <https://pulse.internetsociety.org/blog/18-years-later-ipv6-reaches-majority>,
+  <https://www.theregister.com/2026/04/17/ipv6_50_percent_google/>
+- tsnet: <https://pkg.go.dev/tailscale.com/tsnet>
+- Cloudflare Tunnel needing a domain (secondary guides): <https://flaviocopes.com/cloudflare-tunnel/>
+- ngrok free plan: <https://ngrok.com/docs/pricing-limits/free-plan-limits>
+- RFC 6886 (NAT-PMP): <https://www.rfc-editor.org/rfc/rfc6886>; RFC 6887 (PCP): <https://www.rfc-editor.org/rfc/rfc6887>
 
 ## Sources
 
