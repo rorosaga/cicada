@@ -436,8 +436,8 @@ def build_channels(
         if state.get(channel):
             rows.append(_local_channel(channel, f"YouTube history from {name}", state, "video"))
     for folder in folder_source.list_folders(memory_path):
-        rows.append(_local_channel(folder_source.channel_id(folder["id"]),
-                                   str(folder.get("label") or "Folder"), state, "note"))
+        rows.append(_local_channel(folder_source.channel_for(folder), str(folder.get("label") or "Folder"), state,
+                                   "meeting" if folder_source.is_meetings(folder) else "note"))
     # G134: shown once the person turned it on (or it has ever synced), so an
     # unused note-taker is not a disconnected row on every install (R-LS25).
     # 2026-10-23: turned off, it keeps its row and what came in, but is no longer connected — nothing more arrives.

@@ -206,8 +206,9 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   and the identical rendered text at its old offset — and remapped to wherever it sits now; a reply that slid onto an
   old offset never inherits another's. **The G104
   costs the ruling accepted, stated plainly:** (1) while an over-cap session is active, every Stop with a new turn
-  changes the body and re-queues the episode for a whole-body re-extraction — no `metadata` short-cut, unlike the
-  head-only cap it replaced; (2) when the tail slides, a claim quoting a turn that slid out is re-extracted as
+  changes the body and re-queues the episode — no `metadata` short-cut, unlike the head-only cap it replaced (since
+  2026-11-03 Sleep reads it as a revision: only the changed tail with its context, `episode_revision`, and a
+  transcript's slid-out turns close nothing); (2) when the tail slides, a claim quoting a turn that slid out is re-extracted as
   `reasoning`, and an existing span into the old tail (or into the 60–100k region, once the cap is first crossed)
   reads `stale` — the claim is still written; (3) more `body_revision` mismatches between Sleep's read and its
   retirement while the session runs; (4) the person's words in the dropped middle leave the bank (they are disclosed
@@ -325,7 +326,14 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   fails for any module that mints an episode id without it. `api/services/episode_staging.py` is the
   G20 stager they share: an `EpisodeDraft` keyed by `source_id`, the hash over the scrubbed body, an
   edit rewritten in place with `processed: false`, a rename kept by content hash, a deletion
-  tombstoned (`source_deleted_at`) and never unlinked. A multi-turn source records G118's per-turn
+  tombstoned (`source_deleted_at`) and never unlinked. **An edit in place says it is one** (owner 2026-11-03: "re-ingested
+  items are updates, not new"; G95): `update_in_place` writes `revised: {count, at, previous_hash, consolidated_hash?}`
+  (`episode_staging.REVISED_KEY`, `revision_record`) — the number of body edits so far, when the latest landed, the
+  `content_hash` of the body it replaced, and the `content_hash` of the last body that was consolidated (processed by
+  Sleep or an agent, never by a parser or the index), kept through later edits until Sleep reads the episode again and
+  absent while no revision was ever consolidated. It is what Sleep reads to treat a re-queued episode as a newer
+  revision of what it already filed; the earlier body is in git. A new episode, a metadata-only refresh, a re-date, a
+  rename and a tombstone write none. A multi-turn source records G118's per-turn
   sidecar `turns: [{offset, ts, speaker, model?, effort?}, …]` (R-PB4: an entry only for a turn with
   a time, the last key, outside `content_hash`, capped head-stable at 500; `model`/`effort` only on
   an agent turn (round 4 C1)) — the one shape `evidence.turn_stamps`
@@ -539,6 +547,45 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   gains their link and facts then, and nothing is ever said about anyone without one. Nothing is fetched: the link is
   where to look the person up; the profile-photo rung may use it only once the person takes the source (its own
   off-by-default gate, `person_photo`, unchanged).
+- **Meeting transcripts — Hex, any recorder's folder (G95, owner ruling 2026-11-03: "Meetings ofc should also be
+  consolidated in memory").** A meeting folder is a watched folder of `kind: meetings` (`folder_source.register(kind=,
+  recorder=)`; set on the first add, never flipped — a folder added before G95 has no `kind` and is notes
+  (`kind_of`), and adding an already-watched folder as the other kind is a 409 with its words, `KIND_REFUSAL`, nothing
+  written): the app holds the bookmark, watches it and posts the bytes of changed
+  files to the same `POST /sources/folders/{id}/sync` with the Mac's IANA zone (`tzName`; a name this machine cannot read, a directory such as `America` included, is
+  this machine's zone instead); the backend never opens it.
+  It anchors no project, has no papers step and no authorship rules, and syncs as its own channel, `meetings:<id>`
+  (`channel_for`, `folder_id_of`; a notes folder stays `folder:<id>`). `meeting_transcripts` is the one parser: **one
+  episode per file** through the stager (`source_id` `meetings:<folder>:<relpath>` — an edited transcript is rewritten
+  in place and re-queued, a rename keeps the episode by content hash, a deletion is tombstoned), `queue_for_sleep` like
+  any conversation — unlike a recording the person adds as a media file (`media_files`, never read by Sleep). Dated by
+  the meeting's own start (ruling 39): the file name's `YYYY-MM-DD HHMM` (Hex's), else a `Date:` line, read as wall time
+  in the posted zone, else the file's time; a day with no time is the file's own time when that falls on the same day,
+  else that day's midday (never its midnight, which a reader in another zone shows as the day before); the id day is
+  the meeting's local day (ruling 34); each turn's `ts` is the start plus its offset when the start is stated to the
+  minute, else the offset alone. Formats, read by content: **Hex** (anoma.ly/hex, MIT; `<YYYY-MM-DD HHMM> <title>.md` in the
+  Hex meetings folder — the app resolves it from Hex's own `meetings.output_folder` setting, that one key of Hex's
+  settings file, else Hex's default under Documents; the file is never renamed, so its relpath keys the meeting) — `# title`, `- **Date:**` / `- **Duration:**` /
+  `- **Attendees:**` bullets, an optional `<!-- hex:notes -->` summary block with its writer's footer, `## Transcript`
+  with `**You** · 00:00` / `**Them** · 00:05` headers (the older `**[mm:ss] You:** text` too); a Hex folder excludes
+  Hex's `audio/**` bundle (WAVs, `manifest.json`, duplicate and translated transcripts). **WebVTT / SRT** (a `<v Name>`
+  voice or a `Name:` prefix; same-speaker cues merge), **JSON** segments (Whisper / WhisperX `segments`, `utterances`,
+  ndjson; `speaker`/`source`, `start` or `*_ms`), and **text** (`Name: words` only in a file where several lines say so,
+  `[00:01:02] Name:`, `Name (00:01:02):`, `**Name:**`, Otter's `Name  0:00` header over its words). A file holding no
+  transcript (`manifest.json`) is the sync error "not a meeting transcript", never an episode. **Whose words (TODO
+  ruling 52a, decided 2026-11-03):** a line the recorder labels `You` (Hex's microphone track) or `Me` (the same
+  convention elsewhere) is a `user:` line — the person's own words, an exchange for promotion; every other utterance is
+  `speaker:<label>:` (evidence kind `speaker`, G134's seam; Hex's `Them` is `speaker:them`), a line with no speaker
+  `speaker:unknown`, and the recorder's model-written summary an `assistant:` line — never the person's, never an
+  exchange. Every line of the summary is quoted (`> `, `meeting_transcripts.summary_text`, the chat importer's
+  attachment convention), so a summary line reading `User: …` or `speaker:x: …` never opens a turn. No name is ever guessed to be the person; nothing is unmarked, so R4 never credits the person with an
+  unlabelled line, and no `evidence_kind` is declared. The episode's `meeting` record (`recorder`, `format`, `speakers`,
+  `own_labels`, `duration_s`, `summary_writer`, `attendees` — a calendar's invitees as the file lists them, never G179's
+  `participants` rows) reaches Stage 1 (`sleep_cycle` passes it), whose `meeting_note` says which lines are the
+  person's, that `speaker:` lines are someone else's, and that the summary is the recorder's; `consent: unknown` (G95's
+  rail). An edited transcript carries the stager's `revised` record (above), so Sleep reads it as a revision. Wispr Flow's meetings stay
+  on their own reader (above), now under the same Sources section; their summary and notes blocks are quoted through the
+  same `summary_text` (#579 review, 2026-11-03), so a model line reading `User: …` opens no turn there either.
 - **Messages conversations the person ticks (G179, 2026-10-15).** The app lists `chat.db`'s 200 most recent chats for
   the Settings picker (names, last activity, per-side counts — `MessagesReader.conversations`; a ticked chat below that
   cap is appended so it can be unticked). **Group chats (2026-10-28):** `chat.style` 43 is listed too, with its
@@ -1268,6 +1315,62 @@ or `updated` write queues anything. A job held back by Sleep, a re-embed or the 
 4. **Pattern detection & skill extraction** — recurring patterns distilled into skill entities, each written only
    with the conversations it came from (see *A skill page carries its conversations*).
 5. **Nudge generation, clarification queue & versioning** — snapshot, git commit.
+
+**An edited conversation is read as a revision of itself (G104, owner 2026-11-03).** Many sources re-stage an episode
+Sleep already consolidated — an edited note or meeting transcript, a chat whose 48 h window is re-posted, a re-imported
+export upgrading in place, a resumed session — and `episode_staging` rewrites it in place with `processed: false`.
+Measured before this (scratch bank, Claude plan at haiku, four synthetic notes consolidated then edited in place): the
+second Sleep re-read all four whole (8 calls, 42,142 input tokens); every one of 10 spans into the four read `stale`
+and 5 claims gained a second span beside it; the removed line's claim stayed open; the whitespace-only edit asked a
+conflict question ("MIT" vs "MIT license"); four names said once in unchanged lines got pages (the link rung, with a
+page now existing); the page prose kept the old fact beside the new. `episode_revision` makes the edit a revision:
+- **The version last consolidated is git's.** The stager's edit-in-place record (`revised: {count, at,
+  previous_hash, consolidated_hash?}`, `episode_staging`, G95) names it: the committed version whose `content_hash` is
+  `consolidated_hash` (consolidated by Sleep or an agent). Sleep refreshes `consolidated_hash` to the body it retires
+  (`episode_revision.mark_consolidated`, under `episode_lock` in `_mark_episodes_processed`) and never starts a record
+  on an episode that was never edited. With no record (a transcript, a writer that does not stage) the prior is the
+  version committed `processed: true, processed_by: sleep`. Each loaded batch's waiting episodes are read at the bank's
+  `HEAD` in one `git cat-file --batch` (no capture writer commits by default, so `HEAD` holds it until Sleep's next
+  commit); with the capture log published (G132 51e) the file's own history is walked, at most 20 commits. A parser's
+  version (`processed_by: parser`) is never a prior. No git, or no such version: read whole, as before. Reads only.
+- **The diff is by line, on the words** (`difflib`, whitespace ignored): `changed` ranges in the new body, `removed`
+  ranges in the read one. Only whitespace moved is a **no-op**: no engine call, the spans re-anchored, the episode
+  retired. A pure removal also reads nothing.
+- **Stage 1 reads what changed** (`windows`): each changed range with 2 unchanged lines after it and at least 2 lines and 4,000 characters before it, merged; past 60%
+  of the body the whole body. Each window carries `REVISION_NOTE` ("this conversation was edited after it was read…").
+  Evidence is still located against the whole stored body. Of the answer, a relationship or value located only in
+  unchanged text, and a name said only there, are the first read's and dropped (`keep_changed`): a re-read is never a
+  second chance at promotion. One with no locatable span is kept — provenance never blocks memory.
+- **Stage 3, before the reconciler** (`reanchor`): every span into a revised episode minted on the read version (its
+  hash, or a grown prefix of it) is located again in the matching lines of the new body — exact, whitespace,
+  case-insensitive, never fuzzy — and takes the new offsets and hash. An open claim whose only support is spans the
+  new body no longer holds is marked; never one another conversation also says, the person's own (`is_human`), an
+  agent's write (`recorded_ts`), an event, a record, one with a `reasoning` entry or a span on an older body for that
+  episode, nor anything in a transcript (`capture_kind: transcript` drops old turns by its session cap, not by
+  revision).
+- **The same source revising itself is not a conflict** (`claim_reconciler._place_claim`, `revised`): a new value read
+  from that same episode closes a marked claim on its slot (`superseded_by`, the owner's-words rail `may_close` still
+  holding) — no question. A value from any OTHER conversation meets the trust table as before: a later conversation
+  saying something different is an update or a conflict, which is how memory evolves.
+- **After the reconciler** (`settle`): a marked claim stays open when another conversation read in the same batch now
+  supports it (its evidence or `source_episodes` cite another episode — an unsent message splitting a Messages sitting
+  does this), or when the revision said it again: Stage 3 reports every marked claim it reinforced from that revision
+  (`revision_restated`), whatever the evidence kind — an unlocatable quote arrives as `reasoning`, which `_reinforce`
+  drops for a conversation the claim already cites (R8), and is still a restatement (provenance never blocks memory). A
+  restated claim with a located new span keeps only that span. Every other is withdrawn by a born-closed `retracts`
+  record (`authored_by: cicada`, reason "The conversation this came from was edited and no longer says it.", evidence
+  `reasoning` on the episode with the revision's body hash) — never deleted.
+- **The same conversation.** The episode keeps its id, so the 2+ conversations rule, promotion and decay credit count
+  it once; `processed_by` stays `sleep`. A revision Stage 1 failed to read stays queued with its claims untouched.
+  The claim pipeline logs the counts (spans re-anchored, no longer in the text, replaced, withdrawn).
+- **Measured after** (the same four notes, Claude plan at haiku): the second Sleep made 5 calls, 22,927 input tokens
+  (extraction ran for the two edits with new words only), 0 questions, 0 pages, 5 spans re-anchored, 1 claim withdrawn
+  (the removed line), 0 duplicated spans. `test_episode_revision_sleep.py` pins the four cases on the engine seam
+  (2 extraction calls, the changed value superseded with no question).
+- **Left (G104):** the page prose (Key Facts, History, Summary) still carries what the removed text said — claims are
+  corrected, prose is not regenerated from them; `section_provenance` items into a revised episode keep the old hash;
+  claims held in the pending store for page-less names keep their old spans; a transcript's replaced reply (Cursor's
+  final reply for a generation) closes nothing.
 
 **A title is never joined on the name alone when it could be two things (G227, 2026-10-29).** Stage 2's exact-title
 join used to take whichever page held the name (one per title in `existing_by_name`, last writer wins), whatever its
@@ -2001,6 +2104,9 @@ entries, or two relationships in the conversation (the prompt defines confidence
 summary and for every relationship); "an explicit link" was any relationship the model drew to any page at 0.6. Now:
 - **>3 exchanges** is counted by Stage 1 on the conversation itself (`promotion.exchanges` / `measure`, no model):
   an exchange opens at each turn of a person (the owner, or a `speaker:` in a meeting) and runs through the replies;
+  what comes before any such turn (a recorder's summary at a meeting's head, an agent's opening line, a page's own
+  description) is no exchange at all (2026-11-03, the #579 review: it had counted as one, so a summary naming a
+  project turned the person's three exchanges into four and promoted it);
   a document with no turn markers is the person's own writing, one exchange per paragraph — **except a saved item**
   (2026-10-29, `authorship.of`): its title, header lines and fetched description are the page's words and no exchange
   of the person's; only its reason or note section is (`evidence.PERSON_SECTIONS`) — **nor an agent's saved note**

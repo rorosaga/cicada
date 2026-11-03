@@ -2663,6 +2663,14 @@ actor APIClient {
         ])
     }
 
+    /// G95 (2026-11-03) — a folder of meeting transcripts: no project, no authorship rules; `recorder` is `"hex"` for
+    /// Hex's own Markdown folder (the backend then leaves its `audio/` bundle unread), nil for any other.
+    func registerMeetingFolder(label: String, path: String, recorder: String?) async throws -> FolderRegistration {
+        var body: [String: Any] = ["label": label, "path": path, "kind": FolderRegistration.meetingsKind]
+        if let recorder { body["recorder"] = recorder }
+        return try await post("/sources/folders", body: body)
+    }
+
     func updateFolder(id: String, authorship: [FolderAuthorshipRule]) async throws -> FolderRegistration {
         try await put("/sources/folders/\(encodedID(id))", body: [
             "authorship": authorship.map { ["glob": $0.glob, "authorship": $0.authorship] },
@@ -2680,6 +2688,8 @@ actor APIClient {
             "files": files.map { ["relpath": $0.relpath, "mtime": $0.mtime, "sha256": $0.sha256,
                                   "contentB64": $0.data.base64EncodedString()] },
             "deleted": deleted,
+            // A meeting file names its local start ("2026-11-03 1601 …"); the backend reads it in this Mac's zone.
+            "tzName": TimeZone.current.identifier,
         ]
         return try await post("/sources/folders/\(encodedID(id))/sync?preview=\(preview)&resolve=\(resolve)", body: body)
     }

@@ -739,6 +739,20 @@ end (`claim_expiry`), in its own `Expiry <date>` commit (`Cicada-Author: cicada`
 closes and a born-closed `retracts` record keeps the reason and any cited words; a human or Sleep
 claim is never an agent's to withdraw.
 
+**An edited source revises its own claims (G104, owner 2026-11-03; `episode_revision`, `capture-and-sleep.md`).** When
+Sleep reads an episode it already consolidated, edited in place since, it diffs it against the version git holds as
+the one Sleep read. Spans minted on that version are **re-anchored**: the cited words are located again in the matching
+lines of the new body (`evidence.locate`: exact, whitespace, case-insensitive — never fuzzy) and take the new
+offsets and body hash, so they read `current` instead of `stale`; one whose words are gone stays as it was and reads
+`stale`, which is the truth about that source. A claim whose ONLY support was such a span is closed, never deleted:
+superseded by the new value the same revision states on its slot (no conflict question — the source corrected
+itself), or else withdrawn by a born-closed `retracts` record written by Sleep (`authored_by: cicada`, evidence
+`reasoning` on that episode with the revision's body hash, so the record names the revision that dropped it). A claim
+another conversation also says (before the read, or in the same batch), one the revision says again even in words that
+do not locate, the person's own, an agent's write (`recorded_ts`), an event, or anything a capped transcript's slid-out
+turn said is never closed this way. A withdrawn claim restated later is a fresh assertion, as
+for any withdrawal.
+
 **Reading provenance back (G118 slice 2, server half).** Three engine-free, bank-only reads, all
 built in `api/services/provenance.py` and fetched on demand — none is a Store domain, so each ETag
 serves the client's in-memory cache and there is no `VersionVector` mapping: `GET

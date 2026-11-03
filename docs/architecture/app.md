@@ -850,6 +850,23 @@ before the flip — see *Ask why* below.
 **Calendars, contacts & feeds** offers Calendar on this Mac and
 Contacts (G154), both app-owned rows.
 
+**Meeting recorders (G95, ruling 52, 2026-11-03).** Sources gains a **Meeting recorders** group after This Mac
+(`SourceCatalogGroup.meetings`): **Hex** (`SourceCatalog.hexId`, shown once Hex is on this Mac — `LocalSourceWatcher.
+hexInstalled`, a LaunchServices lookup made on each reload, never per body — or a Hex folder exists; its mark is the
+installed app's icon, `anomaly.hex`), **Wispr Flow** (moved here from This Mac, its row unchanged) and **Transcripts**
+(`meetingFoldersId`, always: any folder of transcripts; the shorter name fits the list column). `SourceCatalog.entries(hexPresent:meetingFolders:)` takes the watcher's
+folders: a meeting folder (`FolderRegistration.isMeetings`, `kind: meetings`) syncs as `meetings:<id>`, so it never
+counts for Folders; Hex's own (`recorder: hex`) speak for Hex, the rest for the folder of transcripts. The detail lists
+each meeting folder with the folder rows' own `FolderChannelRow` ("3 meetings · …"; its Manage drops the agent
+checklist and Save, DR-38/DR-40) and `AddMeetingFolderRow`: how it works and whose words they are, one compact
+`NeutralButton` (*Add Hex's folder* / *Add a folder*, DR-40) that opens the open panel — in the Hex meetings folder
+when it is there (`LocalSourceWatcher.hexMeetingsFolder()`: Hex's own `meetings.output_folder`, the one key the app
+reads of Hex's settings file, else Hex's default) — then `AddMeetingFolderSheet` (a sheet, DR-33/R-HS16): its name in
+`cicadaField` (DR-76), *Look inside* (counts only: "Found 3 meetings · 1 file holds no transcript", `MeetingFolderText`),
+then *Start watching*, the sheet's one primary action (DR-40); closing it before that removes the registration the sheet made, never a folder that was already watched (a re-pick);
+a folder already watched as notes is refused by the backend and its words shown. The
+refused roots (`IntakeRouter.refusedRoot`) hold here too. Every sync posts the Mac's zone (`tzName`).
+
 **Activity traces (G218, ruling 38, 2026-10-23).** Sources → This Mac → **Traces** (`SourceCatalog.tracesId`, after
 the chat sources — Messages, WhatsApp — the `timeline.selection` symbol): Connected only while the recorder records — paused, off, a server connection
 and a failed read all read **Off** (ruling 36's three words), each with its own line in the controls ("Paused until

@@ -14,7 +14,7 @@ from tqdm import tqdm
 
 from api.config import Settings
 from api.services import (act_object, authorship, contact_identity, turn_signals, correspondents, decay_policy, engine_errors, entity_types, episode_time,
-                          evidence, fact_policy, participation, project_birth, promotion, section_provenance, source_dates)
+                          episode_revision, evidence, fact_policy, participation, project_birth, promotion, section_provenance, source_dates)
 from api.services.json_parse import parse_json_object
 
 EXTRACTION_SYSTEM_PROMPT = """You are an entity extraction system for a personal knowledge graph.
@@ -494,6 +494,31 @@ def agent_session_note(episode: dict) -> str | None:
             "to the person (submit, send, pay, confirm) is not done.]\n\n")
 
 
+#: G95 (owner ruling 52, 2026-11-03, "Meetings ofc should also be consolidated in memory"): a meeting transcript from a
+#: recorder's folder is read like any conversation; only the lines the recorder labels as the person's are theirs (52a).
+MEETING_NOTE_PREFIX = "[Source: a recorded meeting's transcript"
+
+
+def meeting_note(episode: dict) -> str | None:
+    """The note for a meeting transcript (``meeting_transcripts``): ``user:`` lines are the person's own (the recorder
+    labelled them ``You``/``Me``), every ``speaker:<label>:`` line is someone else in the meeting, and ``assistant:``
+    lines are the recorder's own model-written summary, never the person's words. ``None`` for every other episode."""
+    meeting = episode.get("meeting")
+    if not isinstance(meeting, dict):
+        return None
+    from api.services import meeting_transcripts
+
+    recorder = meeting_transcripts.RECORDERS.get(str(meeting.get("recorder") or ""), "")
+    by = f", written by {recorder} on the person's computer" if recorder else ", kept in the person's meeting folder"
+    own = [str(x) for x in meeting.get("own_labels") or [] if str(x).strip()]
+    own_line = (f' Lines starting "user:" are the person\'s own words (the recorder labelled them '
+                f'"{own[0]}").' if own else " None of its lines is marked as the person's own words.")
+    return (f'{MEETING_NOTE_PREFIX}{by}.{own_line} Each line starting "speaker:<label>:" is someone else in the '
+            'meeting, labelled by the recorder: their words, never the person\'s, and "I" in such a line is that '
+            'speaker. Lines starting "assistant:" are the recorder\'s own model-written summary, never the person\'s '
+            "words. What someone says about the person is that speaker's statement, not something the person said.]\n\n")
+
+
 def project_note(episode: dict) -> str | None:
     """Ruling 45 addendum: the provider's own project grouping (a ChatGPT ``g-p-`` id) or the relaying app's word on the
     project, told to the model as context — the conversation sits in a project the person made there. Never a claim by
@@ -899,7 +924,22 @@ async def extract(
             success += 1
             return
 
-        spans = _chunk_spans(content)
+        # G104 (owner 2026-11-03): a conversation read before and edited since is read where it changed; one whose
+        # edit changed nothing but whitespace, or only removed lines, needs no call (`episode_revision`).
+        revision = episode.get(episode_revision.KEY)
+        if revision is not None and not revision.windows:
+            results[i] = {
+                "episode_id": ep_id,
+                "episode_timestamp": episode.get("timestamp"),
+                "origin": episode.get("origin", "unknown"),
+                "entities": [],
+                "relationships": [],
+            }
+            success += 1
+            return
+
+        spans = _chunk_spans(content) if revision is None else [
+            (lo + s, lo + e) for lo, hi in revision.windows for s, e in _chunk_spans(content[lo:hi])]
         # G110 gate B2: blank the episode's own gap range on the WHOLE body, then slice.
         gaps = tuple(episode.get("gaps") or ())
         masked = evidence.mask_gaps(content, gaps)
@@ -920,7 +960,7 @@ async def extract(
         # G179: a message conversation says who its other side is, before every chunk.
         # A harness session says whose its assistant lines are, and that their acts are not the person's.
         source_note = (correspondent_note(episode.get("correspondent")) or agent_session_note(episode)
-                       or agent_save_note(episode))
+                       or agent_save_note(episode) or meeting_note(episode))
         # Ruling 45 addendum: the provider's project grouping, or the relaying app's word on it, as context.
         if (in_project := project_note(episode)) is not None:
             source_note = (source_note or "") + in_project
@@ -929,6 +969,8 @@ async def extract(
         in_group = bool(episode.get("group"))
         if in_group:
             source_note = group_note(members) + (source_note or "")
+        if revision is not None:
+            source_note = (source_note or "") + episode_revision.REVISION_NOTE
         their_observer = assistant_observer(episode)
         session_id = str(episode.get("session_id") or "").strip() or None
         # The owner, 2026-10-28: replies, reactions, forwards and unsends, told to each chunk they fall in.
@@ -996,6 +1038,13 @@ async def extract(
                 if held_participation:
                     logger.info(f"  {ep_id}: {held_participation} relationship(s) of taking part kept as a mention: "
                                 "the cited words state no such role")
+                if revision is not None:
+                    # What the unchanged lines say is the first read's: never written twice, never a second
+                    # chance at a page for a name only they name.
+                    all_entities, all_relationships, all_values, left = episode_revision.keep_changed(
+                        revision, all_entities, all_relationships, all_values)
+                    if left:
+                        logger.info(f"  {ep_id}: revision — {left} item(s) from unchanged lines left as first read")
                 # What the model was given counts as said: the conversation, the owner's name and the source note.
                 given = "\n".join(t for t in (masked, owner or "", source_note or "") if t)
                 if plan_ids and engine_identity.scrub_extraction(all_entities, all_relationships, all_values,
