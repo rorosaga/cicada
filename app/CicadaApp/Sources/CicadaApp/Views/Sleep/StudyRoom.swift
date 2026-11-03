@@ -126,9 +126,8 @@ struct StudyRoom: View {
                 WormStage(mood: page.mood, room: room, cell: scene.cell,
                           lighting: scenery.lighting, lampLit: page.lampLit)
             }
-            // DESIGN §3.2 — out of its card, the floor fades into the page ground over the art's own bottom edge: a
-            // mask on the ART layer only (never the pile, which is data), no shadow (DR-9/10).
-            .mask { RoomFloorFade(height: scene.size.height, fade: RoomFloorFade.fade(cell: scene.cell)) }
+            // Owner 2026-11-03 ("remove that fade effect from everywhere"): the room ends in a hard edge — its floor
+            // reaches the art's bottom row at full opacity, no mask, no ring, no shadow (DR-9/10, §9).
             .environment(\.scenePaused, !onScreen)
             if let clock = scene.layers.first(where: { $0.prop == .clock }) {
                 RoomClock(lighting: scenery.lighting, cell: scene.cell, onScreen: onScreen)
@@ -232,25 +231,6 @@ struct StudyRoom: View {
         if let phase = RoomModel.feedPhase(drag: nil, result: result, intakePhase: intake.phase) {
             AccessibilityNotification.Announcement(feedLine(phase, asleep: feedIsAsleep(page.mood)).spoken).post()
         }
-    }
-}
-
-/// The room's floor, fading into the page ground (DESIGN §3.2): opaque down to the last few cells, then clear at the
-/// art's bottom edge. Whole cells, so the fade starts on a pixel boundary; a mask, so no colour is painted.
-struct RoomFloorFade: View {
-    let height: CGFloat
-    let fade: CGFloat
-
-    /// About 24 pt at the 5 pt cell — five cells — and five cells at every scale.
-    static func fade(cell: CGFloat) -> CGFloat { cell * 5 }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            Rectangle().fill(Color.black)
-            LinearGradient(colors: [Color.black, Color.black.opacity(0)], startPoint: .top, endPoint: .bottom)
-                .frame(height: min(fade, height))
-        }
-        .frame(height: height)
     }
 }
 

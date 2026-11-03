@@ -2209,8 +2209,9 @@ scroll — no title (the "Sleep Cycle" `PageTitle` retired; the page opens on an
 2 h ago", `SleepEyebrow` — what waits is the room's headline ("23 to read.") and the Waiting tab's count, so the eyebrow
 no longer counts it a third time (say it once, 2026-10-19; the pinned tab keeps the total once the room scrolls away) — with the staleness chip at its right, R-A12); then the room **out of its card**, on the page
 ground, drawn at a whole 5, 4 or 3 pt per lattice cell by the width the art may take (`SleepLayout.artScale`: 5 from
-880, 4 from 720, else 3 — 2 only under ⌘+ zoom with the Reader open; `StudyRoom(cell:)`), its floor fading into the
-page over its bottom five cells (`RoomFloorFade`, a mask on the art layer only, never the pile). **The painted room is
+880, 4 from 720, else 3 — 2 only under ⌘+ zoom with the Reader open; `StudyRoom(cell:)`), ending in a hard edge —
+its floor opaque to the last row, no mask, ring or shadow (owner 2026-11-03: "remove that fade effect from everywhere";
+the floor fade `RoomFloorFade` is gone from Sleep and onboarding, `SleepRoomEdgeTests`). **The painted room is
 the lattice (2026-10-16):** the backdrop's wall, floor and trim span all 160 columns, so the pile stands on the room's
 floor in its own columns and the worm, props, pile and every hotspot sit inside `DeskSceneLayout.paintedFrame` at every
 step (`SleepRoomFrameTests`; the backdrop was 110 columns, which the old card hid). **The pile is books (owner pick
