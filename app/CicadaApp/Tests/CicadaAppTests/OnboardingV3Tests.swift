@@ -85,7 +85,8 @@ final class OnboardingV3PermissionTests: XCTestCase {
             model.start()
             XCTAssertEqual(model.ask, .drag, "\(kind)")
             XCTAssertEqual(model.need, Copy.Traces.need(kind))
-            XCTAssertTrue(model.need.contains("Drag me into"))
+            XCTAssertTrue(model.need.hasPrefix("Drag Cicada into"), "the app's own name, one line")
+            XCTAssertEqual(PermissionBannerAction.of(model), .open, "not opened yet: Open is the one action")
         }
     }
 
@@ -94,7 +95,7 @@ final class OnboardingV3PermissionTests: XCTestCase {
         let (model, _, _, _, _) = make(.fullDiskAccess)
         model.start()
         XCTAssertEqual(model.ask, .flip, "seen granted before, refused now: its switch is off")
-        XCTAssertEqual(model.need, "I'm already in the Full Disk Access list. Flip my toggle on.")
+        XCTAssertEqual(model.need, "Turn on Cicada's switch in Full Disk Access")
         let (other, _, _, _, _) = make(.screenRecording)
         XCTAssertEqual(other.ask, .drag, "the memory is per list")
     }
@@ -126,9 +127,11 @@ final class OnboardingV3PermissionTests: XCTestCase {
             model.start()
             model.open()
             XCTAssertTrue(model.offersReopen, "\(kind): Already on? Reopen Cicada, quietly, once Settings is open")
+            XCTAssertEqual(PermissionBannerAction.of(model), .alreadyOn)
             model.returned()
             XCTAssertEqual(model.ask, .reopen, "\(kind): the preflight can stay false until Cicada reopens")
-            XCTAssertEqual(model.need, "Already on? Reopen Cicada to apply it.")
+            XCTAssertEqual(model.need, "Already on? macOS applies it after a restart")
+            XCTAssertEqual(PermissionBannerAction.of(model), .reopen, "Reopen Cicada is the one primary")
         }
     }
 
@@ -156,11 +159,40 @@ final class OnboardingV3PermissionTests: XCTestCase {
         XCTAssertEqual(clock.cancelled, 1)
     }
 
+    /// Owner 2026-11-03: one banner, one line — never a title the body repeats — in the app's own name, and the icon's
+    /// arrival hop is named motion that does not run under Reduce Motion.
+    func testTheBannerSaysOneLineInTheAppsNameAndItsHopIsNamedMotion() {
+        for kind in TracePermission.allCases {
+            for ask in [PermissionAsk.drag, .flip, .reopen] {
+                let line = Copy.Permission.line(kind, ask: ask, app: "Cicada Verify")
+                XCTAssertFalse(line.contains("\n") || line.contains("!"), "\(kind) \(ask): one calm line")
+                XCTAssertLessThanOrEqual(OnboardingWords.count([line]), 10, "\(kind) \(ask): short, even with a two-word name")
+                if ask != .reopen { XCTAssertTrue(line.contains("Cicada Verify"), "\(kind) \(ask): the real name") }
+            }
+        }
+        XCTAssertTrue(Copy.Traces.need(.screenRecording).contains("Screen & System Audio Recording"),
+                      "the exact list, so the audio-only list beside it is not the target")
+        let model = PermissionDragHelperModel(kind: .fullDiskAccess, probe: V3Probe(),
+                                              opener: V3Opener(), clock: V3Clock(),
+                                              appName: "Cicada Verify")
+        XCTAssertEqual(model.need, "Drag Cicada Verify into Full Disk Access")
+        XCTAssertEqual(Copy.Permission.reopen(model.appName), "Reopen Cicada Verify", "the bundle's own name")
+        XCTAssertEqual(Copy.Permission.alreadyOn(model.appName), "Already on? Reopen Cicada Verify")
+
+        XCTAssertNil(CicadaMotion.helperBounce(up: true, reduceMotion: true))
+        XCTAssertNil(CicadaMotion.helperBounce(up: false, reduceMotion: true))
+        XCTAssertNotNil(CicadaMotion.helperBounce(up: true, reduceMotion: false))
+        XCTAssertLessThanOrEqual(CicadaMotion.helperBounceUpDuration, CicadaMotion.maxDuration)
+        XCTAssertLessThanOrEqual(CicadaMotion.helperBounceDownDuration, CicadaMotion.maxDuration)
+        XCTAssertEqual(CicadaMotion.helperBounceHops, 2, "a bit, at the start: two hops, then still")
+    }
+
     func testAccessibilityNeverOffersAReopenAndNoRelauncherMeansNoReopen() {
         let (ax, _, _, _, _) = make(.accessibility)
         ax.start()
         ax.open()
         XCTAssertFalse(ax.offersReopen)
+        XCTAssertEqual(PermissionBannerAction.of(ax), .none, "opened, Accessibility: the icon is the action")
         let (bare, _, _, _, relauncher) = make(.fullDiskAccess, relaunch: false)
         bare.start()
         bare.open()
@@ -557,11 +589,11 @@ final class OnboardingV3ExitTests: XCTestCase {
         XCTAssertEqual(OnboardingPage.menuBar.next, .done)
     }
 
-    /// Hyrum: no step id or stored name moved, so a saved step resumes where it did. *Saved lists* (2026-10-26) adds a
-    /// new name; every earlier one is unchanged.
+    /// Hyrum: no step id or stored name moved, so a saved step resumes where it did. *Saved lists* (2026-10-26) and
+    /// *Permissions* (2026-11-03) add new names; every earlier one is unchanged.
     func testSavedProgressStillResumes() {
         XCTAssertEqual(OnboardingPage.allCases.map(\.storedName),
-                       ["welcome", "intelligence", "agents", "sources", "savedLists", "menuBar", "done"])
+                       ["welcome", "intelligence", "agents", "permissions", "sources", "savedLists", "menuBar", "done"])
         for (stored, page) in [("agents", OnboardingPage.agents), ("menuBar", .menuBar), ("done", .done),
                                ("import", .sources), ("whoReads", .intelligence), ("ready", .done)] {
             XCTAssertEqual(OnboardingPage(stored: stored), page, stored)

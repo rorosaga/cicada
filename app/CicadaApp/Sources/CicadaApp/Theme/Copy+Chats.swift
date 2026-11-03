@@ -5,10 +5,11 @@ extension Copy {
     enum Chats {
         static let whatsAppTitle = "WhatsApp"
         static let telegramTitle = "Telegram chats"
-        static let whatsAppWhatItReads = "Cicada reads only the chats you tick here — group chats included — from WhatsApp "
-            + "on this Mac: each message's words, who sent it and when, which message it replies to, and the names of "
-            + "attachments, never the files. A tick reads what's said from now on; ask for a chat's history to read "
-            + "what WhatsApp already keeps. macOS lets an app open WhatsApp's chats only with Full Disk Access."
+        /// 2026-11-03 — what "checked" measures (`ChatCheck`): the store on this Mac, read on every change. On the status
+        /// line's hover only (owner 2026-11-03: the pickers' and pages' standing paragraphs are gone).
+        static let whatsAppWhenItReads = "Cicada checks the chats you tick each time WhatsApp on this Mac saves a "
+            + "message, in any chat; “checked” is the last time, “newest message” the newest one in them. A message "
+            + "sent from your phone reaches Cicada once WhatsApp on this Mac has it, which it gets while it's open."
         static let telegramWhatItReads = "Cicada reads only the one-to-one chats you tick here, through your own Telegram "
             + "account: each message's words, who sent it and when, replies, reactions and edits, and the names of "
             + "attachments, never the files. A tick reads what's said from now on; ask for a chat's history to read what "
@@ -82,7 +83,6 @@ extension Copy {
         /// The one line every step keeps before connecting (ruling 47a: one-to-one only, the other person's
         /// agreement); the backend's own session sentence follows it word for word.
         static let telegramFacts = "Only the one-to-one chats you tick are read, each with the other person's agreement."
-        static let connectedLine = "Connected. Tick the chats Cicada may read."
         static let disconnect = "Disconnect"
         static let disconnectHelp = "End Cicada's Telegram session now — it is logged out at Telegram"
         static let notConnected = "Not connected"
@@ -93,5 +93,32 @@ extension Copy {
         static let consentYes = "They agreed"
         static let consentCancel = "Cancel"
         static let theOtherPerson = "the other person"
+    }
+
+    /// 2026-11-03 — a chat source's page: the chats Cicada holds, and one chat's stored conversation in the panel.
+    enum ChatPage {
+        static let today = "Today"
+        static let yesterday = "Yesterday"
+        static let synced = "Synced"
+        static func lastSynced(_ ago: String) -> String { "Last synced \(ago)" }
+        static let notSyncing = "Not syncing"
+        static let pin = "Pin to Top"
+        static let unpin = "Unpin"
+        static let pinned = "Pinned"
+        static let pinFailed = "Cicada couldn't pin this chat. Try again."
+        static let openHelp = "Show this chat's messages"
+        static let closeHelp = "Close the chat (Esc)"
+        static let close = "Close"
+        static let earlier = "Earlier messages"
+        static let loading = "Loading messages…"
+        static let failed = "Cicada couldn't load this chat's messages."
+        static let empty = "No messages stored for this chat yet."
+        /// An unticked chat: its name, picture and recency, never its words (G179's ticked-only rail).
+        static let notTicked = "Cicada isn't syncing this chat, so its messages aren't shown here. Tick it in Choose… "
+            + "to sync it."
+        static func rowLabel(_ name: String, sync: String, recency: String?, pinned: Bool) -> String {
+            [name, pinned ? pinned_ : nil, sync, recency].compactMap { $0 }.joined(separator: ", ")
+        }
+        private static let pinned_ = "pinned"
     }
 }

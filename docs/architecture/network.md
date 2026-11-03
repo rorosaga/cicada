@@ -375,7 +375,7 @@ I think. But for some specific things if we can do api integration that is aweso
   tier) and the app's Mac readers. Every rail above is unchanged: the person's own signed-in session, Cicada never signs
   in on their behalf there, ticked or allowed sites only, the read limits, no backend scraping.
 - **Tier 2 — an official API for a specific high-value source where one exists.** Telegram first (47a); candidates
-  Notion, Readwise, Google, YouTube, Letterboxd (Spotify was one; it is export-only, see the table). "Cicada never signs in" is amended for this tier only: a
+  Notion, Google, YouTube, Letterboxd (Spotify was one; it is export-only, see the table). "Cicada never signs in" is amended for this tier only: a
   connection is an API client the person authorised, never a browser session, cookie or profile, and the backend still
   never fetches a login-walled page. The existing Reddit, X and Pinterest connectors (`api/services/connectors/`) are
   of this kind.
@@ -389,7 +389,7 @@ way. As applied on 2026-10-28:
 | Telegram | API (47a) | full chat history and live updates; no harness sees them |
 | Spotify | export only: the person's own "Extended streaming history" download (Spotify's privacy page), through G32's import; no API connector | Spotify's Developer Terms (v10, 15 May 2025) forbid it: §IV.2(b)(i) bars "using the Spotify Platform or any Spotify Content to train a machine learning or AI model or otherwise ingesting Spotify Content into a machine learning or AI model", and §IV.3(a) says "you may not store, aggregate or create compilations or databases of Spotify Content" and "Do not store Spotify Content indefinitely" — the bank is a lasting compilation that agents read, so the ToS rail rules the API out (2026-10-29). The download is the person's own data, given to them, not taken through the Spotify Platform. Capturing what is playing through the macOS harness waits on an owner ruling (G223) |
 | Notion | API | a workspace's pages as structured blocks; a harness sees one page at a time |
-| Readwise | API | highlights with their sources, complete |
+| Readwise | none (built on tier 2 2026-10-29, removed by owner direction 2026-11-03) | — |
 | Google | Calendar on the Mac reader; API only for what the Mac cannot read (Drive, Docs), on ask | the Mac already reads Calendar |
 | YouTube | harness (G71 browser history, Watch later through the agent) | the official API does not return watch history |
 | Letterboxd | harness, plus its public per-diary RSS through the feed gate | its API is granted by request; adopt it only if granted |
@@ -440,7 +440,7 @@ after Telegram. An adapter is a module in `ADAPTERS` with `TIER = 2`, so its Sou
   pages. Sleep's tail never runs a tier-2 sync.
 - **Errors** on the Sources row are the adapter's sentence or "<service> answered HTTP <status>" — never a URL, body or
   token (`sync_state.json` is in the bank and committed).
-- **Credentials** — `CICADA_READWISE_TOKEN`, `CICADA_NOTION_TOKEN` in `secrets.env` (0600); every connector secret (the
+- **Credentials** — `CICADA_READWISE_TOKEN`, `CICADA_NOTION_TOKEN`, `CICADA_GITHUB_TOKEN` in `secrets.env` (0600); every connector secret (the
   saved-content connectors' too) is in `connections.base.CONNECTOR_SECRET_ENV`, stripped from every engine child, so a
   model with tools never holds a key to the person's accounts. `CICADA_SECRET_ENV` (the master `CICADA_API_TOKEN`,
   the Telegram bot token and webhook secret) is stripped the same way, and the embedding worker and the PDF page
@@ -449,8 +449,24 @@ after Telegram. An adapter is a module in `ADAPTERS` with `TIER = 2`, so its Sou
 
 | Connector | Token | What is read | Terms |
 |---|---|---|---|
-| Readwise (`readwise.py`) | the person's access token, readwise.io/access_token (no read-only scope exists; only GETs are made) | `GET /api/v2/export/` (highlights with their books), `GET /api/v2/auth/` on Save | readwise.io/tos §8: "connect AI assistants and other tools to your content … through our APIs"; §3's scraper ban excepts the APIs |
 | Notion (`notion.py`) | an internal connection with Read content only, shared page by page; a personal access token is refused | `POST /v1/search` (pages, no query), `GET /v1/pages/{id}/markdown`, `GET /v1/data_sources/{id}` (a row's database title), `GET /v1/users/me` on Save; Notion-Version 2026-03-11 | developers.notion.com: internal connections are for "syncing data from external tools"; 180 requests a minute per connection outside Business plans, honoured through `Retry-After` |
+| GitHub (`github.py`, G230) | a token the person makes (fine-grained, read-only "Metadata", "Contents" and "Starring"; or classic with no scope for public repositories) | `GET /user` (on Save, and once a sync to tell its own repositories apart; the login is kept only as a hash), `GET /user/repos?affiliation=owner&sort=full_name` and `GET /user/starred` (the `star+json` type, for when each was starred), 50 a page — a real 100-row page measured 633,641 bytes, past the 512 KB rail, a starred row ~6.1 KB — ≤ 60 pages each (3,000 items); `GET /repos/{owner}/{name}` and `…/readme` only for one repository the person adds or opens | GitHub's REST API with the person's own token: 5,000 requests an hour; a 403 with `x-ratelimit-remaining: 0`, a `retry-after` or a message naming a rate limit (the secondary limit) is read as the rate limit it is, never as a refused token; it says the next sync reads the lists again from the start (it does: every sync reads them whole) |
+**GitHub's transport (G230).** GitHub is the one tier-2 adapter with its own live transport (`github.TRANSPORT`,
+picked up by `tier2.Client`): `https://api.github.com` only, every request through `net_guard`'s address rule, no
+redirect followed, no cookie kept, **4 s and ≤ 512 KB a response — the ToS rail's numbers, not the framework's 15 s**;
+a longer answer is a refusal in words, never a partial read. Only `GET`s; Cicada never writes to GitHub. What a request
+names is the person's own account endpoints and, for a repository's record or README, that repository's own
+`owner/name` sent to GitHub alone — GitHub's own identifier for its own record, never a lookup of a person.
+**A README is never read during a sync:** only when the person adds a repository (their click) or opens its page (the
+person's view, like a saved link's icon — so behind `CICADA_ALLOW_LOGO_FETCH`, the picture-and-preview gate), with the
+token when connected and none for a public repository (GitHub allows 60 requests an hour without one). The preview is
+kept outside every bank (`$CICADA_HOME/readmes/<bank>/<entity>.json`, 0600), read again when a week old, and
+**Disconnect forgets every README** with the token and the cursor; the pages and episodes stay, the person's to keep.
+The repository's page link (`https://github.com/<owner>/<name>`) is its trusted source with `kept_by: github`, so the
+source refresh never sends Cicada's own fetcher to github.com for it — the API's record is the re-check. The page's
+picture is the organisation's avatar (`avatars.githubusercontent.com`, through `media_preview`'s ToS rail) only when an
+organisation owns the repository; a personal account's avatar is never asked.
+
 **47a amended — one-to-one chats only, each with the other person's consent (owner, 2026-10-28).** Telegram's terms, read the same day: API Terms §1.5 — "you are prohibited from using, accessing or aggregating data obtained from the Telegram platform to train … or otherwise engage in the development, enhancement or deployment of artificial intelligence, machine learning models" — and telegram.org/tos/content-licensing, "Large Language Models and AI": "Telegram firmly prohibits the scraping, indexing, harvesting, aggregation or use of data obtained from its platform to train, fine-tune, validate or otherwise engage in the development, enhancement, benchmarking or deployment of artificial intelligence, machine learning models and similar technologies. Exceptions may be granted in instances where all relevant users individually provide explicit, informed, affirmative and continued consent that is strictly limited to the specific content and chat, channel, or non-global context window for which it was requested." Sleep reads a sitting with a model, so the owner chose "1:1 with consent": group chats and channels are never offered and the backend refuses them; ticking a one-to-one chat needs the person to confirm, per chat and in plain words, that the other person agreed — explicitly, knowing what it means, for that chat only — said to be the person's responsibility, which Cicada cannot verify; the confirmation is kept with its date outside every bank (`$CICADA_HOME/telegram/consents.json`, 0600, a chat id and a time); unticking withdraws it and stops the reading. **Revisit** if Telegram grants Cicada an exception or changes those terms.
 
 **How 47a is built.** `telegram_port` is the one seam to Telegram (plain values out, a fake in every test): Telethon v1

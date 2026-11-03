@@ -69,7 +69,7 @@ enum SettingsIndex {
     /// holds the entries to the pages — a task that adds a row adds it here
     /// in the same commit (R-O1).
     static let staticIDs: [SettingsRowID] = [
-        .appearance, .textSize, .openAtLogin, .showInMenuBar, .backgroundService,
+        .appearance, .textSize, .openAtLogin, .showInMenuBar, .connectSuggest, .backgroundService,
         .runSetup, .guidedTour, .demoMemory, .appVersion, .autoUpdate, .reportProblem,
         .ownerName, .ownerPhoto, .ownerEmail, .ownerProfiles, .ownerHandle, .ownerPage,
         .engineChoice, .plansAndKeys, .sleepUsePlan, .engineOverage, .engineAutoClaude,
@@ -77,7 +77,7 @@ enum SettingsIndex {
         .devicesList, .memoryHome, .devicesConnection, .memoryShare, .memoryCopy, .fromAnywhere, .remoteSwitch, .remoteReach, .remoteNew,
         .memoryLocation, .banks, .bankExport, .bankDelete, .searchMeaning, .searchImages, .memoryGroup, .fadePace,
         .outboundConnectors, .outboundFeeds, .outboundLogos, .telemetry, .credentials, .remoteAccess, .transcripts,
-        .agentNotes,
+        .agentNotes, .permissions,
     ]
 
     /// D6 (2026-10-22): rows that left Settings with their page, by id, with their new home — a palette recent, a
@@ -109,6 +109,7 @@ enum SettingsIndex {
         SettingsEntry(.textSize, .general, Copy.textSize, keywords: ["zoom", "font", "bigger", "smaller", "larger", "scale"]),
         SettingsEntry(.openAtLogin, .general, Copy.openAtLogin, keywords: ["login", "startup", "start", "launch", "boot"]),
         SettingsEntry(.showInMenuBar, .general, Copy.showInMenuBar, keywords: ["menu bar", "status", "bookworm", "icon", "tray", "hide"]),
+        SettingsEntry(.connectSuggest, .general, Copy.ConnectSuggest.settingTitle, keywords: ["notch", "suggest", "suggestion", "connect", "apps", "offer"]),
         SettingsEntry(.backgroundService, .general, Copy.keepMemoryWorking, keywords: ["background", "launchd", "service", "closed", "always on", "sync"]),
         SettingsEntry(.runSetup, .general, Copy.setup, keywords: ["onboarding", "first run", "welcome", "start over", "checklist"]),
         SettingsEntry(.guidedTour, .general, Copy.Tour.settingsTitle, keywords: ["tour", "walkthrough", "tutorial", "guide", "help", "learn"]),
@@ -200,6 +201,9 @@ enum SettingsIndex {
         SettingsEntry(.remoteAccess, .privacy, Copy.remoteAccessTitle, keywords: ["remote", "outside", "from anywhere"]),
         SettingsEntry(.transcripts, .privacy, Copy.transcriptsTitle, keywords: ["transcripts", "conversations", "claude code"]),
         SettingsEntry(.agentNotes, .privacy, Copy.agentNotesTitle, keywords: ["memory notes", "agent notes", "claude code"]),
+        SettingsEntry(.permissions, .privacy, Copy.MacPermissions.settingsTitle,
+                      keywords: ["full disk access", "contacts", "calendars", "reminders", "automation", "notifications",
+                                 "accessibility", "screen recording", "privacy", "allow"]),
     ]
 
     /// Each section is a hit by its title, and by the names of the pages folded into it (D6, B1: keep the old search

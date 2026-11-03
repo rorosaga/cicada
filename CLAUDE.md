@@ -204,7 +204,12 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   A new episode never replaces a file (`create_episode`); dedup, edits and Sleep's revision-checked retirement share
   `episode_lock`, and every page write is atomic (audit K01/A01/A02, `capture-and-sleep.md`).
 - **Every writer scrubs, every source-keyed writer stages through one module** (`episode_scrub`, `episode_staging`:
-  hash over the scrubbed body, edits in place with `processed: false`, deletions tombstoned, never unlinked).
+  hash over the scrubbed body, edits in place with `processed: false` and a `revised` record Sleep reads as a revision
+  (owner 2026-11-03), deletions tombstoned, never unlinked).
+- **Meetings are conversations (owner ruling 2026-11-03, G95):** a recorder's transcript (Hex's Markdown folder, any
+  folder of transcripts) is an episode Sleep consolidates — one per meeting, its own date, through the folder stager;
+  unlike a `media_files` recording. Only a line the recorder labels `You`/`Me` is the person's (52a); every other is
+  its speaker's (`speaker:<label>`), the summary the recorder's model's (`capture-and-sleep.md`).
 - **Capture never writes into a demo bank** (`demo_guard`, by `_bank.yaml`, never by name): every capture/sources
   POST/PUT answers 409; the Stop hook redirects to the real bank left most recently.
 - **Messages are read only for conversations the person ticked (G179)**: the app reads them, the backend refuses any
@@ -242,6 +247,10 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **Sleep tends the inbox (ruling 29):** after each batch's commit it settles questions the person's own words answer
   (spans in their own turns, never a guess) and, per drain, the small stuff by rule, through the person's own resolvers
   as Sleep's commit (`inbox/<kind>/settled:`), each undoable; never a person's identity without their words (`features.md`).
+- **An edited conversation is a revision of itself (G104, owner 2026-11-03):** diffed against the version Sleep read
+  (git), only what changed is read, spans re-anchored never fuzzily; what only removed text said is superseded by the
+  same revision's value (no question) or withdrawn by a record, never deleted; still one conversation for every count;
+  another conversation's word stays an update or a conflict (`episode_revision`, `capture-and-sleep.md`).
 - **Entity promotion:** a first mention stays in the index; a page needs 2+ conversations, >3 exchanges with the person's
   own words, or a link the person made to a high-confidence page other than the owner's — counted on the conversation,
   never guessed (`promotion`) — or the person's own words naming in full exactly one waiting Contacts card, never the "me"
@@ -421,7 +430,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   **The redesign (ruling 48, owner 2026-10-28):** a page is an article carrying its beliefs as citations, never a stacked
   fold; the Inbox lives on Home and each page, off the rail (DESIGN_RULES §9 2026-10-28, DR-77…DR-81).
 - **Bookmarks (G191 v3, 2026-10-15):** the app removes a bookmark from the person's browser only on their click, after
-  asking in words — Chrome through Apple Events (the Automation prompt only then), never Safari, never the backend; it
+  asking in words — Chrome through Apple Events (the Automation prompt only then, or from the Permissions row's own click, owner 2026-11-03), never Safari, never the backend; it
   sees Chrome's bookmark bubble from window bounds alone (no title, no permission), read only in the moment after the
   person's own click in a frontmost Chrome — never on a steady timer (G191 v4) — and posts no answer until a sync confirms the bookmark (`app.md`).
   An answer given is never dropped for a dismissal or a late sync, and a touched panel closes only on the person's act;

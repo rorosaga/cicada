@@ -93,7 +93,7 @@ def settings_path(memory_path: Path, spec: ChatSpec) -> Path:
 
 
 def load_settings(memory_path: Path, spec: ChatSpec) -> dict:
-    """``{conversations: {id: {name, group, ticked, reads_from, actor, history}}}`` — never raises."""
+    """``{conversations: {id: {name, group, ticked, reads_from, actor, history, pinned}}}`` — never raises."""
     try:
         data = json.loads(settings_path(memory_path, spec).read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -113,6 +113,9 @@ def load_settings(memory_path: Path, spec: ChatSpec) -> dict:
             "reads_from": episode_staging.normalise_timestamp(entry.get("reads_from")),
             "actor": actor,
             "history": [h for h in entry.get("history") or [] if isinstance(h, dict)][-50:],
+            # 2026-11-03 (owner: "right click → pin a chat to the top") — the person's pin, kept with the chat's tick so
+            # every client of this bank lists it first; ids only, an unticked chat's included (nothing of its words).
+            "pinned": bool(entry.get("pinned")),
         }
     return {"conversations": conversations}
 
@@ -129,8 +132,8 @@ def update_settings(memory_path: Path, spec: ChatSpec, conversation: dict, *, no
                     ) -> tuple[dict, bool]:
     """Tick or untick one conversation, ask for its history, or mark who it is with; ``(settings, actor_changed)``.
 
-    ``conversation``: ``{id, name?, group?, ticked?, history?, actor?}``. A first tick sets ``reads_from`` to now —
-    live from here; ``history: true`` opens it back to the first message the source holds. Unticking keeps the entry
+    ``conversation``: ``{id, name?, group?, ticked?, history?, actor?, pinned?}``. A first tick sets ``reads_from``
+    to now — live from here; ``history: true`` opens it back to the first message the source holds. Unticking keeps the entry
     and every saved episode; ticking again keeps the earlier start (what was read stays read). Every change is kept in
     the entry's ``history``."""
     at = now or episode_ids.utc_now_iso()
@@ -140,9 +143,12 @@ def update_settings(memory_path: Path, spec: ChatSpec, conversation: dict, *, no
     with _LOCK:
         data = load_settings(memory_path, spec)
         entry = data["conversations"].setdefault(cid, {"name": "", "group": False, "ticked": False,
-                                                       "reads_from": None, "actor": None, "history": []})
+                                                       "reads_from": None, "actor": None, "history": [],
+                                                       "pinned": False})
         if conversation.get("name"):
             entry["name"] = messages_source._clean_name(conversation["name"])
+        if conversation.get("pinned") is not None:
+            entry["pinned"] = bool(conversation["pinned"])
         if conversation.get("group") is not None:
             entry["group"] = bool(conversation["group"])
         log = entry.setdefault("history", [])

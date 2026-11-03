@@ -81,6 +81,12 @@ struct PrivacyView: View {
             }
             // D6: Search & memory's one row — search runs on this Mac, and the sharper-model download.
             SearchFilesView()
+            // Owner 2026-11-03: onboarding's Permissions rows, reachable later — the same component, live.
+            SettingsGroupCard {
+                SettingsRow(.permissions, title: Copy.MacPermissions.settingsTitle) { EmptyView() } below: {
+                    MacPermissionsRows(place: .settings)
+                }
+            }
             SettingsGroupCard(header: Copy.reachingTheInternet) {
                 // Spelled out, not through a helper: `SettingsRowLintTests` finds a
                 // row by its literal `SettingsRow(.<id>,`.

@@ -39,6 +39,7 @@ from api.routers import (
     explore,
     files,
     entities,
+    github_repos,
     episodes,
     graph,
     inbox,
@@ -304,7 +305,7 @@ async def lifespan(app: FastAPI):
 
     asyncio.get_running_loop().run_in_executor(None, trace_store.sweep_if_present)
     scheduler.add_job(trace_store.sweep_if_present, "interval", hours=1, id="traces-sweep", replace_existing=True)
-    # Ruling 47 tier 2: the connected official-API sources (Readwise, Notion) sync on their own, every few hours —
+    # Ruling 47 tier 2: the connected official-API sources (Notion) sync on their own, every few hours —
     # behind CICADA_ALLOW_CONNECTOR_FETCH, never while Sleep holds the pages, nothing at all until one is connected.
     from api.services.connectors import tier2
 
@@ -443,6 +444,7 @@ app.include_router(chat_sources.router, tags=["chat-sources"])
 app.include_router(traces.router, tags=["traces"])
 app.include_router(capture.router, tags=["capture"])
 app.include_router(connectors.router, tags=["connectors"])
+app.include_router(github_repos.router, tags=["github"])
 app.include_router(maintenance.router, tags=["maintenance"])
 app.include_router(memory.router, tags=["memory"])
 app.include_router(connections.router, tags=["connections"])

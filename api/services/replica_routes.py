@@ -124,6 +124,7 @@ ROUTES: dict[str, str] = {
     "POST /entities/{entity_id}/read": LOCAL,             # this viewer's "read" mark, outside every bank
     "POST /entities/{entity_id}/repos/observed": LOCAL,   # this computer's own repositories, a cache outside banks
     "PUT /sources/messages/photos": LOCAL,                # ticked chats' photos read here, kept outside every bank
+    "PUT /sources/catch-up": LOCAL,                       # G229: this computer's readers' catch-up, in memory here
     "POST /capture/hook-context": LOCAL,                  # this computer's continuity index ($CICADA_HOME)
     # --- the sealed activity traces live on the computer that captured them (ruling 38) -------------------------------
     "POST /sources/traces/delete": LOCAL,
@@ -145,6 +146,7 @@ ROUTES: dict[str, str] = {
     "POST /capture/turn": CAPTURE,
     "POST /capture/transcript": REFUSE,   # names a file on this computer; the hooks send the session itself instead
     "POST /sources/save": CAPTURE,
+    "POST /sources/github/repos": CAPTURE,                # G230: a repository saved, like a link (the home asks GitHub)
     "POST /sources/upload": CAPTURE,
     "POST /sources/calendar-local/sync": CAPTURE,
     "POST /sources/contacts-local/sync": CAPTURE,
@@ -169,6 +171,7 @@ ROUTES: dict[str, str] = {
     "DELETE /reading/asks/{url_hash}": FORWARD,
     "DELETE /sources/calendars": FORWARD,
     "DELETE /sources/connectors/{connector_id}/credentials": REFUSE,   # the home's sign-ins
+    "POST /sources/github/repos/project": FORWARD,        # G230: the person's "this is my project"
     "DELETE /sources/contacts-local/waiting": FORWARD,
     "DELETE /sources/feeds": FORWARD,
     "DELETE /sources/folders/{folder_id}": FORWARD,

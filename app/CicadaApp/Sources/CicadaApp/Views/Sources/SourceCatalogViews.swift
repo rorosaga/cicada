@@ -192,6 +192,11 @@ struct SourceCatalogDetail: View {
     @Environment(BrowserWatcher.self) private var watcher
     @Environment(SyncActivity.self) private var activity: SyncActivity?
     @Environment(InboxViewModel.self) private var inboxVM
+    @Environment(WhatsAppWatcher.self) private var whatsApp: WhatsAppWatcher?
+    @Environment(MessagesWatcher.self) private var messagesWatcher: MessagesWatcher?
+    @Environment(ExploreCache.self) private var exploreCache
+    @State private var showReadingSheet = false
+    @State private var showExploreSheet = false
 
     private var channels: [SourceChannel] { store.channels.value ?? [] }
 
@@ -209,12 +214,21 @@ struct SourceCatalogDetail: View {
     private var savedStyle: Bool { overview?.intent == .saved }
 
     /// The status: the catalogue's word, the first channel's run (a read in progress, a failure, missing access) and
-    /// the day the newest item came in.
+    /// the day the newest item came in — or, for a chat reader on this Mac, when it last checked the ticked chats and
+    /// the newest message in them (2026-11-03, `ChatCheck`).
     private var pageStatus: SourcePageStatus {
         let channel = mine.first
         let watch = channel.flatMap { watcher.state(for: $0.id) }
         let run = SourceRowText.status(channel: channel, watch: watch, run: channel.flatMap { activity?.run(for: $0.id) })
-        return SourcePageStatus.of(row: row.status, run: run, latest: latest)
+        return SourcePageStatus.of(row: row.status, run: run, latest: latest, check: chatCheck)
+    }
+
+    private var chatCheck: ChatCheck? {
+        switch row.entry.id {
+        case WhatsAppWatcher.channel: whatsApp?.check
+        case MessagesWatcher.channel: messagesWatcher?.check
+        default: nil
+        }
     }
 
     private var latest: String? {
@@ -224,26 +238,14 @@ struct SourceCatalogDetail: View {
         return listChannels.compactMap { itemsCache?.list($0.id)?.latest }.max()
     }
 
-    /// Everything that used to be a paragraph on the page, one tap away (owner: "not so much text"): what the source is,
-    /// what Cicada reads from it, where an export comes from, and the one honest limit.
-    private var facts: [String] {
-        let entry = row.entry
-        var out: [String] = []
-        if let overview { out.append(SourceBlurb.text(for: overview)) }
-        else if let blurb = entry.channels.lazy.compactMap(SourceBlurb.text(id:)).first { out.append(blurb) }
-        switch entry.id {
-        case MessagesWatcher.channel: out.append(Copy.Messages.whatItReads)
-        case WhatsAppWatcher.channel: out.append(Copy.Chats.whatsAppWhatItReads)
-        case TelegramChats.channel: out.append(Copy.Chats.telegramWhatItReads)
-        case "telegram": out.append(Copy.Catalog.telegramHonest)
-        case "notion": out.append(Copy.Catalog.notionHow)
-        default:
-            if entry.verb == .turnOn, entry.overviewId == nil { out.append(Copy.Catalog.instagramHonest) }
+    /// 2026-11-03 (owner: "this of what cicada reads in all pages i see it unnecessary") — the "What Cicada reads" sheet
+    /// is gone from every source page. What a chat reader's "checked" measures stays on the status line's hover only.
+    private var statusHelp: String? {
+        switch row.entry.id {
+        case MessagesWatcher.channel: Copy.Messages.whenItReads
+        case WhatsAppWatcher.channel: Copy.Chats.whatsAppWhenItReads
+        default: row.status == .waitingForAgent ? Copy.Catalog.waitingForAgentHelp : nil
         }
-        if let how = SourceCatalog.exportHow(entry.id) { out.append(how) }
-        if row.status == .waitingForAgent { out.append(Copy.Catalog.waitingForAgentHelp) }
-        var seen = Set<String>()
-        return out.filter { !$0.isEmpty && seen.insert($0).inserted }
     }
 
     private func takeConversationQuery() {
@@ -286,7 +288,7 @@ struct SourceCatalogDetail: View {
                 SourceLogoTile(origin: row.entry.origin)
             }
             .padding(.horizontal, CicadaTheme.spacingXL)
-            SourceStatusLine(status: pageStatus, facts: facts, title: row.entry.title)
+            SourceStatusLine(status: pageStatus, help: statusHelp)
                 .padding(.horizontal, CicadaTheme.spacingXL)
                 .padding(.bottom, CicadaTheme.spacingMD)
             ScrollView {
@@ -303,6 +305,7 @@ struct SourceCatalogDetail: View {
                             VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
                                 importHow
                                 controls
+                                browserActions
                                 if let site = row.entry.site { readingToggle(site) }
                                 if let site = row.entry.site, SourceCatalog.savedListSites.contains(site) {
                                     savedListToggle(site)
@@ -321,6 +324,12 @@ struct SourceCatalogDetail: View {
         .frame(maxWidth: .infinity, alignment: .top)
         .sheet(item: $flowTile) { tile in
             AddSourceSheet(initialTile: tile, onClose: { flowTile = nil }, flowOnly: true)
+        }
+        .sheet(isPresented: $showReadingSheet, onDismiss: { Task { await reading.load() } }) {
+            ReadingInBrowserSheet { showReadingSheet = false }
+        }
+        .sheet(isPresented: $showExploreSheet) {
+            ExploreSheet { showExploreSheet = false }
         }
         .task { await reading.loadSettings() }
         // G136 R-SU18 — a palette conversation row lands on its agent's page with the search filled.
@@ -346,6 +355,26 @@ struct SourceCatalogDetail: View {
 
     // MARK: - The source's own control
 
+    /// 2026-11-03 (owner: "i dont get why these buttons are here if they dont influence whatsapp or some of the other
+    /// sources at all") — the two actions that left the Sources page's top right, each only on the pages it acts on
+    /// (`SourcePageActions`), the same neutral buttons and words (DR-40).
+    @ViewBuilder
+    private var browserActions: some View {
+        let actions = SourcePageActions.of(row.entry, exploreGone: exploreCache.isGone)
+        if !actions.isEmpty {
+            HStack(spacing: CicadaTheme.spacingSM) {
+                if actions.contains(.readingInBrowser) {
+                    NeutralButton(title: Copy.Reading.inBrowserTitle, systemImage: "globe", size: .compact,
+                                  help: Copy.Reading.inBrowserHelp) { showReadingSheet = true }
+                }
+                if actions.contains(.exploreSavedSites) {
+                    NeutralButton(title: Copy.Explore.button, systemImage: "safari", size: .compact,
+                                  help: Copy.Explore.buttonHelp) { showExploreSheet = true }
+                }
+            }
+        }
+    }
+
     @ViewBuilder
     private var controls: some View {
         let entry = row.entry
@@ -367,6 +396,12 @@ struct SourceCatalogDetail: View {
             if tracesPage { TracesSourcesLink() } else { TracesControls() }
         case LocalSourceWatcher.wisprChannel:
             WisprFlowRow(channel: mine.first)
+        case SourceCatalog.hexId, SourceCatalog.meetingFoldersId:
+            // G95 (2026-11-03) — a meeting folder per row (the folder rows' own grammar), then the way to add one.
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(mine) { FolderChannelRow(channel: $0) }
+                AddMeetingFolderRow(recorder: entry.id == SourceCatalog.hexId ? SourceCatalog.hexId : nil)
+            }
         case "folders":
             VStack(alignment: .leading, spacing: 2) {
                 ForEach(mine) { FolderChannelRow(channel: $0) }
@@ -405,9 +440,13 @@ struct SourceCatalogDetail: View {
                 IntakePanel(origin: .emptyState(.sources), compact: true)
                 tileButton(Copy.Catalog.importFile)
             }
-        case "readwise":
-            // Ruling 47 tier 2: the connector panel the accounts already use (DR ids in the PR) — no new pattern.
-            ConnectorSetupPanel(connectorId: "readwise", vendors: [], vendor: $vendor)
+        case "github":
+            // G230: the token connect panel the accounts use, then adding one repository by its link and the person's
+            // own repositories.
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
+                ConnectorSetupPanel(connectorId: "github", vendors: [], vendor: $vendor)
+                GitHubReposSection()
+            }
         case "notion":
             // G219 slice 1: the export's steps, then the one intake's drop (it reads the zip, previews it, imports).
             // Ruling 47 tier 2: the live connection first, in the same panel the accounts use.
@@ -588,7 +627,11 @@ struct SourceCatalogDetail: View {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                 SourceSearchHeader(query: $query, prompt: searchPrompt)
                 ForEach(listChannels, id: \.id) { list in
-                    SourceItemsSection(channel: list.id, saved: savedStyle, query: query, label: list.label) {
+                    // 2026-11-03 — a chat source's chats are the page: all of them, paged, never "All N" (the apps
+                    // list every chat; a person keeps a few dozen, where a feed keeps thousands).
+                    SourceItemsSection(channel: list.id, saved: savedStyle, query: query,
+                                       cap: ChatSourcePage.isChatSource(list.id) ? nil : SourceItemsRules.cap,
+                                       label: list.label) {
                         drill = $0
                     }
                 }

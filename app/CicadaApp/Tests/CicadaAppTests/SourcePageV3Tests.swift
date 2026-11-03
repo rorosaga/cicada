@@ -40,6 +40,39 @@ final class SourcePageV3Tests: XCTestCase {
                        "Connected · nothing in yet")
     }
 
+    /// 2026-11-03 (live) — a chat reader that checked a minute ago says so, with the newest message in its ticked chats,
+    /// instead of the day something last came in (which read as a stopped reader); a problem still wins; the list row
+    /// counts the check as its last sync.
+    func testAChatReaderSaysWhenItCheckedAndTheNewestMessage() throws {
+        let calendar = Calendar.autoupdatingCurrent
+        let at = today.date(in: calendar)
+        let check = ChatCheck(at: at, newest: ISODay(year: 2026, month: 10, day: 23).date(in: calendar))
+        let status = SourcePageStatus.of(row: .connected, run: .synced(.now), latest: "2026-10-23", check: check)
+        XCTAssertEqual(status, .checked(check))
+        XCTAssertEqual(status.tone, .on)
+        XCTAssertEqual(status.line(today: today, now: at.addingTimeInterval(30), locale: us),
+                       "Connected · checked just now · newest message Friday")
+        XCTAssertEqual(status.line(today: today, now: at.addingTimeInterval(120), locale: us),
+                       "Connected · checked 2 min. ago · newest message Friday")
+        XCTAssertEqual(SourcePageStatus.checked(ChatCheck(at: at, newest: nil)).line(today: today, now: at, locale: us),
+                       "Connected · checked just now")
+        XCTAssertEqual(SourcePageStatus.of(row: .connected, run: .problem(Copy.sourceNeedsAccess), latest: nil,
+                                           check: check).line(today: today), "Needs you · allow Full Disk Access")
+        XCTAssertEqual(SourcePageStatus.of(row: .off, run: .idle, latest: nil, check: check), .off(lastItem: nil))
+        // The list row: the last post was four days back, the check a minute ago — the row says the check.
+        let entry = try XCTUnwrap(SourceCatalog.entries(browsers: [], wisprPresent: false, overview: [])
+            .first { $0.id == WhatsAppWatcher.channel })
+        let posted = at.addingTimeInterval(-4 * 86_400)
+        let channel = SourceChannel(id: WhatsAppWatcher.channel, label: "WhatsApp", connected: true,
+                                    lastSync: ISO8601DateFormatter().string(from: posted))
+        let before = SourceCatalog.rows(entries: [entry], channels: [channel], overview: [], readableSites: [])
+        XCTAssertEqual(before.first?.lastSync.map { SourceCatalog.ago($0, now: at, locale: us) }, "4 days ago",
+                       "without the check the row reads the last post")
+        let after = SourceCatalog.rows(entries: [entry], channels: [channel], overview: [], readableSites: [],
+                                       checked: [WhatsAppWatcher.channel: at])
+        XCTAssertEqual(after.first?.lastSync, at)
+    }
+
     func testWestOfUTCInTheEveningTheLastItemIsTodayNeverTomorrow() {
         // 2026-10-29 20:30 at UTC−5 is 2026-10-30 01:30 UTC: the backend dates the item the 30th (its UTC day).
         var calendar = Calendar(identifier: .gregorian)

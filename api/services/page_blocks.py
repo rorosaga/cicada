@@ -164,14 +164,15 @@ def icon_site(source: dict, page_type: str) -> str | None:
 
 
 #: A source's state in one word, the redesign proposal's words (2026-10-28 §0) plus the two it leaves implicit.
-SOURCE_STATES = ("proposed", "dead", "changed", "stale", "checked", "unchecked", "unconfirmed")
+SOURCE_STATES = ("proposed", "dead", "changed", "stale", "checked", "unchecked", "unconfirmed", "kept")
 
 
 def source_state(source: dict, today: date) -> str:
     """One of :data:`SOURCE_STATES`: ``proposed`` (an agent's find waiting for the person), ``dead`` (two failed visits a
     week apart), ``changed`` (Cicada saw the page change and could not read the fact), ``stale`` (a re-check is due:
     its cadence passed, a retry, or the person asked), ``checked`` (re-checked within its cadence, or confirmed by
-    Cicada's own read), ``unchecked`` (trusted, never re-checked — or nothing to visit), else ``unconfirmed``. Read from
+    Cicada's own read), ``kept`` (G230: an official API keeps the record behind it — ``kept_by``, never visited),
+    ``unchecked`` (trusted, never re-checked — or nothing to visit), else ``unconfirmed``. Read from
     ``source_refresh``'s own rules (ruling 26), never a second copy of them."""
     from api.services import fact_sources, source_refresh
 
@@ -179,6 +180,8 @@ def source_state(source: dict, today: date) -> str:
         return "proposed"
     if not fact_sources.trusted(source):
         return "unconfirmed"
+    if source.get("kept_by"):
+        return "kept"
     if source_refresh.tracked(source) and source_refresh.dead(source):
         return "dead"
     due = source_refresh.due_reason(source, today)

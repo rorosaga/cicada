@@ -173,6 +173,9 @@ final class SaveWhyCenter {
     /// G191 v5 — every bookmark the app's diff names, before any decision: the bubble watcher's only teacher
     /// (`BookmarkBubbleWatcher.bookmarkNamed`), so a shape is remembered only from a bookmark the file confirmed.
     @ObservationIgnored var onNamed: ((FreshBookmark) -> Void)?
+    /// G231 — called just before the panel is shown, on every path that shows it (`open`): the connect offer, which
+    /// shares the notch, leaves first (`ConnectSuggestCenter.yields(to:)`). App-level, so it holds with no window.
+    @ObservationIgnored var willShow: (@MainActor () -> Void)?
     /// When each way in last opened or named the panel (uptime seconds) — for the stage timings, never shown.
     @ObservationIgnored private(set) var marks: [String: TimeInterval] = [:]
 
@@ -417,6 +420,8 @@ final class SaveWhyCenter {
         state = panel
         shownAt = uptime()
         marks["shown"] = shownAt
+        // G231 — the notch's other voice (the connect offer) steps aside first, with or without a window open.
+        willShow?()
         presenter?.show(self)
         logShown(channel: panel.channel)
         run(SaveWhyPanelState.opening())

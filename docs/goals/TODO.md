@@ -37,6 +37,109 @@
   group. Discovery is the app's (TN3179), checked by a signed hello; no LAN listener. No relay is hosted or deployed.
   Measured on a synthetic owner-scale bank (8,000 pages, 9,000 episodes, 470 inbox items; loopback, this Mac at nice 10, a relay in process): a home commit reaches the copy in p50 365 / p95 412 ms direct and p50 473 / p95 518 ms over the relay alone (n=20 each, interleaved); a write made right after direct fails lands at the home in ~0.55 s (refused, or forwarded with its answer dropped: resent over the relay under the same key, applied once); a copy that starts with the home asleep and 10 commits waiting is caught up 0.17 s after its backend is up (from the mailbox alone; 61 s before a sleeping home's reads were made short); a first copy over the relay (pairing confirmed → HEAD equal, its restart included) 8.1 s against 7.2 s direct; idle, a relay set costs the home +0.27–0.38 s and the copy +0.06–0.14 s of CPU per 120 s (two alternating rounds).
   Report: `reports/g132-phase3b.md`.
+- **2026-11-03 — repositories on the graph (G230; branch `feat/github-repos`, PR #583).** The owner asked for a
+  repository's name, link and a README preview, and a sync of his own and starred repositories. GitHub is a tier-2 token
+  connector (ruling 47: off until a token is pasted, said in words, Disconnect forgets the token, its cursor and every
+  README; only `GET`s to `api.github.com`, 4 s / ≤ 512 KB through `net_guard`). Starred repositories are indexed saves
+  (ruling 30): a quiet `media` page each (`media.kind: repository`), an index-only episode. Owned ones are index-only
+  records offered on the Sources row, never a page or a project by a sync (ruling 36 D4 / 45); the project each already
+  is is derived on read — a trusted `repo` source, the hook's D2a salted origin hash, or a same-name suggestion — and
+  the person links or makes one in one click. A pasted link or `owner/name` adds any repository (a public one with no
+  connection). The README is read through the API only on the person's add or a page open (behind
+  `CICADA_ALLOW_LOGO_FETCH`), words only, outside every bank. A re-sync rewrites in place and deletes nothing (an
+  unstar keeps the page and says so; a gone owned repository is tombstoned). The repository link is a trusted source
+  with `kept_by: github`, so `source_refresh` never sends Cicada's fetcher to github.com for it. Verified on scratch
+  state against a fake GitHub API (never the owner's token).
+- **2026-11-03 — the notch offers to connect the app in front (G231; branch `feat/notch-connect-suggest`).** Owner:
+  "when you enter an app they support a connection for, they suggest from the notch to connect to it … with our own
+  aesthetic". Bringing WhatsApp, Telegram, Messages, Notes, Calendar, Reminders, Contacts, a browser Cicada reads,
+  Wispr Flow, Notion or Hex (offered until its own meeting folder is connected) to the front, when its Sources entry reads Off in the active
+  memory, drops the ask-why notch's second voice: worm + the app's icon, "Connect Notes to Cicada?", what is read, two
+  or three things Cicada does with it, No · Not now · Yes. Once per source; Not now (or untouched for 12 s, or leaving
+  the app) once more after ≥ 14 days, then never; No never, undone in Settings → General; ≤ 1 a day; never in an app's
+  or Cicada's first minute, over the ask-why panel, in a demo, or before setup ran or was skipped; on by default; never
+  takes the keyboard. Websites in the front tab are deliberately not a trigger (the star-click prefill is the only
+  permission-free tab read, owner 2026-10-19). Seen on a scratch app copy: Notes brought forward → the panel in ≈ 1.5–2 s,
+  12 s untouched → recorded Not now, Yes → Sources on Apple Notes. Found live and fixed: a Yes over the Welcome opened
+  the source behind it, so nothing is offered before setup. Waiting on the owner: nothing.
+- **2026-11-03 — an edited conversation is read as a revision (G104; PR #581).** The owner asked whether updates should be told from new material at consolidation. Measured on a scratch bank (Claude plan, haiku; four synthetic notes consolidated, then edited in place: a changed value, an added line, a removed line, whitespace only): the second Sleep re-read all four whole (8 calls), left the removed line's claim open, read every old span `stale`, doubled 5 claims' spans, asked a conflict question for the whitespace edit and gave four once-said names pages. Now `episode_revision` diffs against the version Sleep read (git), reads only what changed, re-anchors spans, closes what only the removed text said (superseded by the same revision's value with no question, else a Sleep `retracts` record), and keeps a different conversation's word an update or conflict: the same run took 5 calls, 0 questions, 0 new pages, 1 withdrawn. Left: prose regeneration from corrected claims (G104 row).
+- **2026-11-03 — meeting recorders on Sources: Hex, Wispr Flow, a folder of transcripts (G95, ruling 52; branch
+  `feat/meeting-recorders`).** Hex (anoma.ly/hex, 3.3.0, MIT) writes one Markdown file per meeting to the Hex
+  meetings folder (Hex's `meetings.output_folder` setting, else its default) with a title, Date/Duration bullets, an
+  optional model-written Summary block and a `You`/`Them` transcript with offsets; a per-meeting `audio/` bundle sits
+  beside it. A meeting folder is a G133 watched folder of `kind: meetings` (`meeting_transcripts`, one episode per
+  file, edited in place, its own start date, consolidated by Sleep); `You`/`Me` lines are the person's (52a). An edit in
+  place now says it is one for every stager (`revised: {count, at, previous_hash, consolidated_hash?}`, owner
+  2026-11-03: "re-ingested items are updates, not new") — the record the Sleep side reads; a calendar's attendees sit in
+  the `meeting` record, never G179's `participants`. Built and verified on scratch state with made-up transcripts only;
+  the owner's folder was looked at for names, layout and counts, never text. **Next:** the coordinator confirms 52a
+  with the owner; the Sleep side consumes `revised`; the owner adds the Hex meetings folder. **Review of #579
+  (2026-11-03), three blockers fixed:** every summary line is quoted (`> `) so none opens a `user:` turn; what comes
+  before any of the person's turns is no exchange (`promotion.exchanges`, for every source — a summary naming a project
+  had made 3 exchanges 4 and promoted it); a folder's kind never flips (a pre-G95 folder is notes, a re-add as the other
+  kind is a 409). A zone name that is a directory no longer fails a sync. Wispr Flow's summary and notes were stored
+  unquoted the same way (`wispr_flow`) and are now quoted through the same helper (coordinator 2026-11-03: fix the
+  class; the bank holds one Wispr meeting, so the re-render costs one plan read).
+- **2026-11-03 — one onboarding Permissions step (G92; branch `onboarding-permissions-step`).** Owner ask: one step for every permission, drag-to-allow where macOS has no prompt. Inventory grepped from the app: Full Disk Access (Messages, Safari, WhatsApp), Contacts, Calendars, Reminders, Automation for Chrome and Notes, Notifications, and Accessibility + Screen Recording only while traces are on — 9 rows, 7 by default. Left out on purpose: Speech Recognition (asked only on a dropped recording), Automation for Terminal/Ghostty (the click that opens one), Input Monitoring and Local Network (not used). Every state is a preflight; a prompt appears only on its row's click; the drag rows open the exact list with the helper at once. The same rows are Settings → Privacy & data → Permissions. Verified on a scratch app copy, light and dark. Caveat: `cv app launch` runs the binary directly, so TCC answers for the launching terminal (Automation read Allowed on a fresh bundle id); a LaunchServices launch is a fresh identity. Same day, on the owner's screenshot: the drag helper is ONE banner holding the app's icon as the drag source, one line in the app's name, at most one action, and a two-hop arrival through `CicadaMotion.helperBounce` (nothing under Reduce Motion; DESIGN_RULES §9 2026-11-03).
+- **2026-11-03 — Sources and chat pages, the owner's pass (G179, G161, G223; branch `sources-page-owner-feedback`).**
+  Eight items, one PR. *What Cicada reads* left every source page; the chat pickers' standing paragraphs are gone (a
+  missing permission still shows its fix). The page's top right keeps only *Import chats or files* while no source is
+  open; *Reading in your browser* sits on the account and YouTube pages, *Explore saved sites* on a browser's. Each
+  section lists what is set up first (stable). A chat source's page is its chats: pinned first (right-click; `pinned`
+  in the chat's settings file, backend state), then the newest stored message; green *Last synced* / grey *Not
+  syncing*; a click opens the stored conversation in the trailing panel through the backend's sittings route, which
+  now lists none for an unticked chat (`ticked: false`). Decided: the page and the picker stay two things (the page
+  is what Cicada holds, readable on a client or replica; the picker is the consent act reading this Mac). Faces: the
+  person's own chat draws the owner's page picture, a one-to-one chat its correspondent's page by the one precedence.
+  The "9026" date: WhatsApp keeps a pinned chat's `ZLASTMESSAGEDATE` thousands of years ahead (measured: +6,000 and
+  +7,000 years exactly on a live store's two such chats, numbers only); the reader now lists by the newest message's
+  own date and every picker drops a date more than a day ahead. Readwise removed (adapter, fixtures, catalogue,
+  copy). Verified on scratch runs of `origin/dev` and the branch, light and dark (synthetic chats only). Cost: a chat
+  list now resolves each chat's page and picture — synthetic 300 chats / 3,000 sittings / 500 pages, uncached,
+  median 19 → 35 ms (an indexed `correspondents.page_finder` and the shared picture inputs read once; folding every
+  page per chat had cost ~400 ms); a repeat is a 304.
+- **2026-11-03 — the study room ends in a hard edge (G176; PR #582).** Owner, on onboarding's
+  room: "remove that fade effect from everywhere." The floor fade (a mask over the room's bottom five cells on the Sleep
+  page and in onboarding) is removed and its type deleted; no ring is added (the room sits on the page ground out of
+  its card, DESIGN_RULES §9 2026-11-03). Seen on a scratch app copy in light and dark.
+- **2026-11-03 — "are we also syncing WhatsApp?" (G179; branch `fix/whatsapp-live-stale`).** Not a stopped reader:
+  read on a read-only copy of the live store (counts, ids, times only), the one ticked chat (the person's own) holds
+  24 messages, its newest 6 days old and exactly the reader's cursor; 0 rows past it, 0 in the 48 h window; the 1,670
+  messages since were all in 43 unticked chats. The row's "synced" four days back was the recheck window's last
+  re-post of that newest message (7 s before it left the window). The backend's `last_sync` moves only when a pass
+  posts, for Messages and Telegram too, so a quiet chat read as a dead reader. The app's WhatsApp and Messages
+  readers now keep their last successful pass and the newest message in the ticked chats (`ChatCheck`); the page says
+  "Connected · checked 2 min. ago · newest message Friday" and the list row counts the check. Telegram is a backend
+  listener (no pass to report) and keeps "last item". Found while verifying: the WhatsApp reader heard its own APFS
+  clone of the store as a change (FSEvents `ItemCloned`), so it ran a pass every 15 s forever, re-posting the 48 h
+  window; a change now runs a pass only when the store or its `-wal` moved (size or mtime). Waiting on the owner:
+  whether more chats should be ticked.
+- **2026-11-03 — a Sleep run the network left waits for it (G163; branch `fix/sleep-offline-transient`).** Live: a
+  scheduled 3 AM run on a laptop slept ~3 h mid-read; on wake four `claude -p` calls answered "Request timed out"
+  (`api_error`, no status) before the network was back, and the run stopped as "The engine needs a look", told the
+  person to check the sign-in, badged 4 conversations *could not be read* and drew Sort ✗. Now the transport's own
+  timeouts are a lost connection; `machine_state` reads machine sleep (two monotonic clocks) and a route (UDP
+  connect, nothing sent); an offline failure is never the conversation's, and the drain waits within the run (no route:
+  poll to 10 min awake, settle 15 s; dropping connection: 30 s / 2 min / 5 min; ≤ 3 waits in a row; the person's Pause
+  honoured) and reads the same batch again; a network that never returns pauses as `engine_kind: offline` in words about
+  the network. Stage 1's total failure now leaves the strip on Read. Not ruling 15: nothing is armed past the run.
+- **2026-11-03 — the app says when it is syncing after it was closed (G229; branch `feat/g229-away-sync`).** The
+  app's readers report to `PUT /sources/catch-up` (in memory, `reader_catch_up`); `GET /devices/status` carries each
+  machine's `catchUp` with what came in while the app was closed and since it opened, counted from the bank. Shown
+  under the Sleep page's machines strip and as a row in Home's Today: "Syncing Messages and Notes — 14 new
+  conversations so far. 9 conversations came in while you were away." → "Synced …", a source that could not be read
+  in its warning clause with its fix. Verified on scratch state (`verify-cicada`, run `g229-away-sync`): three harness
+  captures made while the app was closed read "3 conversations came in while you were away"; a second device's report
+  showed reading, a failed source with its fix, and done with its new count. Open: a CLI line; an SSE push for other
+  viewers.
+- **2026-11-03 — Safari bookmarks "never appeared" (G129; branch `fix/safari-bookmarks-catchup`).** Not a missed
+  read: Safari keeps every bookmark and the Reading List in `~/Library/Safari/Bookmarks.plist` (all profiles), written
+  by Safari and, Safari closed, by iCloud's sync agent; the owner's file had not moved in five days, Safari.app had not
+  run on the Mac, and Cicada had read all 512 leaves one second after its last write. The page now says what "up to
+  date" is measured against and how another device's bookmarks arrive (`BrowserFreshness`); the launch catch-up no
+  longer reads the whole file for the placeholder memory before the roster loads. Waiting on the owner: where the
+  missing bookmarks were saved (phone or Mac), and whether they show in Safari on the Mac.
+
 - **2026-10-29 — the home moves (ruling 51a, G132 phase 2; branches `feat/g132-move-home`, backend, and
   `feat/g132-move-home-app`, the Sleep page's strip).** The Sleep page names the device that runs consolidation and
   every other device's lag; picking one and confirming (or `cicada home move <device>`) closes the home, parks Sleep,
@@ -2750,3 +2853,19 @@ A whole row moves to DONE only after its remaining implementation and required a
     ([plan](../plans/2026-11-03-g132-routes.md); `network.md`, "The route list and the home-network door"). Slice 2
     (f5) is planned, not built. **Revisit** f4 if the door is ever found to answer a byte before a device proved its
     key; f3 if an outbox entry is ever found applied twice; f7 when the owner asks for the phone as a full device.
+52. **Meetings are consolidated in memory (owner, 2026-11-03: "Meetings ofc should also be consolidated in memory";
+    G95, G134; branch `feat/meeting-recorders`).** A meeting transcript a recorder writes — Hex's Markdown folder, any
+    folder of transcripts — is an episode Sleep reads and consolidates like any conversation: one per meeting, its own
+    date, through the folder stager (`meeting_transcripts`). It is **not** a `media_files` derivative: a recording or
+    video the person adds keeps its words outside every bank and is never read by Sleep; a recorder's transcript is a
+    conversation. **52a — speaker attribution (decided 2026-11-03 under this ruling, from the owner's facts about Hex
+    relayed by the coordinator; the coordinator confirms with the owner):** a line the recorder labels `You` (Hex's
+    microphone track, its Transcript reads "You 00:00") is the person's own words — `user`, counted for promotion's
+    exchanges; `Them` and every other labelled speaker is someone else's, never the person's (`speaker:<label>`); the
+    recorder's model-written Summary is `assistant`, never the person's words and never an exchange. A folder of
+    transcripts follows the same convention, `Me` included (`meeting_transcripts.OWN_LABELS`); no name is ever guessed
+    to be the person. Wispr Flow keeps its shipped rule (a label in the person's own listed names is `user`, R-LS22).
+    One meeting is one episode, keyed on Hex's own file (never renamed by Hex), its timestamp the meeting's start
+    (ruling 39). **Revisit** 52a if the owner says otherwise (flipping a label re-renders the existing meeting episodes
+    in place, body changed, re-queued), or if a recorder is found whose `You`/`Me` is not its own microphone; 52 itself
+    only if a meeting's words are found to leave the bank or to be credited to the person without a recorder's mark.

@@ -132,8 +132,8 @@ CATALOG: tuple[SourceSpec, ...] = (
     # Ruling 47 tier 2: the pages shared with the person's own Notion connection, live — its own row beside the
     # export's, so each says what came in its way.
     SourceSpec("notion-api", "Notion (live)", "import", "notion-export", ("notion-api",), "notion-api"),
-    # Ruling 47 tier 2: Readwise highlights — quotes the person saved from what they read, with their own notes.
-    SourceSpec("readwise", "Readwise", "social", "readwise", ("readwise",), "readwise"),
+    # G230: the person's GitHub — the repositories they starred (saves, each a page) and the ones they own (offered).
+    SourceSpec("github", "GitHub", "social", "github", ("github-starred", "github-owned", "github-added"), "github"),
     SourceSpec("files", "Files & links", "import", "bookmark", ("saved-link",), "files"),
     # 2026-10-23: a note typed on a paired phone (`/capture/note`, `origin: phone`) or another device (`note`), so
     # neither reads as its raw id ("phone").
@@ -148,15 +148,15 @@ CATALOG: tuple[SourceSpec, ...] = (
 #: is `captured`. A fact of the catalog, served on every row as `intent`, so every client groups the same way.
 SAVED_SOURCES = frozenset({
     "chrome-bookmarks", "safari-bookmarks", "brave-bookmarks", "vivaldi-bookmarks", "comet-bookmarks", "dia-bookmarks",
-    "pinterest", "reddit", "x", "instagram", "youtube", "linkedin", "tiktok", "files", "readwise", "spotify",
+    "pinterest", "reddit", "x", "instagram", "youtube", "linkedin", "tiktok", "files", "spotify", "github",
 })
 INTENTS = ("saved", "captured")
 #: Folded into `/sources/overview`'s ETag: bump it when the body changes for the same bank files (v3: `intent`;
 #: v4: `waiting`, `faces`/`faces_more`, and check records left out; v5: a nil-origin save on Files & links, the Phone
 #: and device-notes rows; v6: the device-files row; v7: Apple Reminders and Notion, G219;
 #: v8: Readwise and Notion live, ruling 47 tier 2; v9: WhatsApp, G179; v10: Telegram chats, ruling 47a;
-#: v11: Spotify's library and listening, G32).
-SHAPE = "overview-v11"
+#: v11: Spotify's library and listening, G32; v12: Readwise removed by owner direction, 2026-11-03; v13: GitHub, G230).
+SHAPE = "overview-v13"
 
 #: Sources v4 (owner 2026-10-19: "I don't understand how Sleep is also a source on the page"). A check record is the
 #: episode Cicada writes as the citation for a question a check settled — `web_settle` (a web lookup Sleep or an agent
@@ -253,7 +253,7 @@ def source_key(fm: dict) -> str:
         return "harness:" + (str(fm.get("harness") or "").strip() or UNKNOWN)
     # G133: one card per watched folder, not one "folder" card for all of them.
     if origin == folder_source.ORIGIN and fm.get("folder_id"):
-        return folder_source.channel_id(str(fm["folder_id"]))
+        return folder_source.channel_id(str(fm["folder_id"]), fm.get("folder_kind"))
     if not origin:
         # A save's episode written before origins were stamped, or from a bookmarks file imported through Files and
         # links (2026-10-23: it read as a row called "unknown"): the Files & links card, where its nil-origin page is
@@ -273,7 +273,7 @@ def _new_state(key: str, labels: dict[str, str] | None = None) -> dict:
         spec = _BY_ID[key]
         label, kind, mark, origins, channel = spec.label, spec.kind, spec.mark, list(spec.origins), spec.channel
         harness = None
-    elif key.startswith(folder_source.CHANNEL_PREFIX):
+    elif folder_source.folder_id_of(key) is not None:
         known = (labels or {})
         label, kind, mark, origins, channel = (
             known.get(key, "Folder (removed)"), "import", "folder", [folder_source.ORIGIN],
@@ -315,7 +315,7 @@ def build_overview(memory_path: Path, *, channels: list[dict], today: _date | No
     memory_path = Path(memory_path)
     states: dict[str, dict] = {}
     episode_key: dict[str, str] = {}
-    labels = {folder_source.channel_id(f["id"]): str(f.get("label") or "Folder")
+    labels = {folder_source.channel_for(f): str(f.get("label") or "Folder")
               for f in folder_source.list_folders(memory_path)}
     today = today or datetime.now(timezone.utc).date()
     window_start = (today - timedelta(days=ACTIVITY_DAYS - 1)).isoformat()

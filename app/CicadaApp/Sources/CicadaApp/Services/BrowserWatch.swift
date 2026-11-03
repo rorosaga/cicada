@@ -21,6 +21,15 @@ import Foundation
 /// person has turned it on (Track I T1: before that gate, the first launch of
 /// a fresh install read Chrome with nobody asked).
 ///
+/// **Where Safari keeps them (checked on macOS 27.2, 2026-11-03).** One file, `~/Library/Safari/Bookmarks.plist`:
+/// every bookmark and the Reading List, shared by every Safari profile (profiles split history and Tab Groups, never
+/// bookmarks). It is written by Safari and — Safari open or not — by iCloud's own Safari sync
+/// (`SafariBookmarksSyncAgent`, whose sandbox grants it that file and which merges a push from another device into
+/// it). `SafariTabs.db` in Safari's container holds Tab Groups only; `CloudTabs.db` other devices' open tabs. So a
+/// bookmark saved on another device reaches Cicada exactly when it lands in that file, and a file that has not moved
+/// means there is nothing new to read — which the page now says (`BrowserFreshness`) instead of a bare
+/// "Last synced <date>".
+///
 /// Bookmarks only, deliberately. Safari's iCloud tabs live behind the same
 /// seam and would be trivial to add here, but a tab opening is not a save —
 /// watching them would turn "what I'm reading right now" into a constant
@@ -406,11 +415,31 @@ final class BrowserWatcher {
         await catchUp()
     }
 
+    /// 2026-11-03 — the roster arrived (the app calls this when `Store.banks`' active memory is first known or moves).
+    /// A launch catch-up that ran before it is owed and runs now, once, against the memory the roster names; nothing
+    /// else changes. `bankChanged` covers a switch; this covers the launch whose active memory is the placeholder's
+    /// own name, where `Store.bank` never moves and `bankChanged` never fires.
+    func rosterLoaded() async {
+        guard catchUpOwed, bankResolved else { return }
+        for (channel, file) in channels { refreshState(channel: channel, file: file) }
+        await catchUp()
+    }
+
+    /// A catch-up asked for before the memory was known (`bankResolved`), run by `rosterLoaded` or `bankChanged`.
+    private var catchUpOwed = false
+
     /// Sync every turned-on channel whose file moved since its last successful
     /// sync. This is what covers the app being closed when the bookmark was
     /// saved. A channel nobody turned on is skipped (Track I T1, F1).
+    ///
+    /// 2026-11-03: only once the memory is known. `start(store:)` runs before `Store.hydrate()` reads the roster, so
+    /// `currentBank` was the placeholder "default": its "what was synced" was empty and the launch read the whole
+    /// file into a memory nobody had open (`testTheLaunchCatchUpWaitsForTheActiveMemory` reproduced it: the read was
+    /// posted for "default" before the roster loaded). Before the roster, the catch-up is owed instead.
     func catchUp() async {
         guard !currentIsDemo else { return }
+        guard bankResolved else { catchUpOwed = true; return }
+        catchUpOwed = false
         for (channel, file) in channels {
             let current = signature(of: file)
             if BrowserWatchPolicy.shouldSync(current: current, lastSynced: lastSynced(channel),
@@ -423,6 +452,17 @@ final class BrowserWatcher {
     // MARK: State
 
     func state(for channel: String) -> BrowserWatchState? { states[channel] ?? externalStates[channel] }
+
+    /// 2026-11-03 (live) — when the browser itself last changed its bookmark file on this Mac (the file's own
+    /// modification time, taken with the signature on every refresh), so the page can say what "up to date" is
+    /// measured against (`BrowserFreshness`). "Watching" and "Last synced 5 days ago" both read as healthy while the
+    /// owner's bookmarks were being saved elsewhere and Safari's file here had not moved in five days: nothing was
+    /// broken, and nothing said why nothing came in. Nil for a channel this watcher does not read, a browser nobody
+    /// turned on (Track I T1: nothing about it is shown), or a file that is not here.
+    func browserChanged(for channel: String) -> Date? { browserChangedAt[channel] }
+
+    private var browserChangedAt: [String: Date] = [:]
+
     func error(for channel: String) -> BrowserFileError? {
         errors[channel] ?? externalErrors[channel] ?? refused[channel]
     }
@@ -511,6 +551,7 @@ final class BrowserWatcher {
 
     private func refreshState(channel: String, file: BrowserFile) {
         let current = signature(of: file)
+        browserChangedAt[channel] = isEnabled(channel) ? current.map { Date(timeIntervalSince1970: $0.modified) } : nil
         // Task 3 review, round 1: a missing signature may be TCC's "no such file" — ask an open which it is, so a
         // blocked Safari offers its fix instead of reading as absent. Recomputed on every refresh (never sticky), so
         // granting access and pressing Try again clears it.
@@ -626,6 +667,9 @@ final class BrowserWatcher {
     }
 
     private func syncIfChanged(channel: String, file: BrowserFile, live: Bool = false) async {
+        // 2026-11-03: a save seen before the roster names the active memory is read by the owed catch-up, into that
+        // memory — never into the placeholder (`catchUp`'s note). The instant look above it has already run.
+        guard bankResolved else { catchUpOwed = true; return }
         if let started = lastSyncStarted[channel],
            ContinuousClock.now - started < minimumInterval {
             // G191 live: owed, not dropped — before, a save inside the floor waited for the next save to be read.

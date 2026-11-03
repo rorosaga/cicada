@@ -1,0 +1,127 @@
+{
+  "user": {
+    "login": "bob-example",
+    "id": 1001,
+    "type": "User"
+  },
+  "owned": [
+    {
+      "id": 501,
+      "name": "alpha-project",
+      "full_name": "bob-example/alpha-project",
+      "owner": {
+        "login": "bob-example",
+        "id": 1001,
+        "type": "User",
+        "avatar_url": "https://avatars.githubusercontent.com/u/1001?v=4"
+      },
+      "private": false,
+      "html_url": "https://github.com/bob-example/alpha-project",
+      "description": "Notes on an example project.",
+      "fork": false,
+      "archived": false,
+      "language": "Python",
+      "stargazers_count": 12,
+      "topics": [
+        "notes"
+      ],
+      "default_branch": "main",
+      "pushed_at": "2026-10-30T10:00:00Z",
+      "created_at": "2025-03-01T09:00:00Z",
+      "updated_at": "2026-10-30T10:00:00Z",
+      "clone_url": "https://github.com/bob-example/alpha-project.git"
+    },
+    {
+      "id": 502,
+      "name": "side-notes",
+      "full_name": "bob-example/side-notes",
+      "owner": {
+        "login": "bob-example",
+        "id": 1001,
+        "type": "User",
+        "avatar_url": "https://avatars.githubusercontent.com/u/1001?v=4"
+      },
+      "private": true,
+      "html_url": "https://github.com/bob-example/side-notes",
+      "description": "Scratch notes.",
+      "fork": false,
+      "archived": false,
+      "language": null,
+      "stargazers_count": 12,
+      "topics": [],
+      "default_branch": "main",
+      "pushed_at": "2026-10-30T10:00:00Z",
+      "created_at": "2025-03-01T09:00:00Z",
+      "updated_at": "2026-10-30T10:00:00Z",
+      "clone_url": "https://github.com/bob-example/side-notes.git"
+    }
+  ],
+  "starred": [
+    {
+      "starred_at": "2026-09-12T08:30:00Z",
+      "repo": {
+        "id": 601,
+        "name": "widget-kit",
+        "full_name": "example-org/widget-kit",
+        "owner": {
+          "login": "example-org",
+          "id": 2002,
+          "type": "Organization",
+          "avatar_url": "https://avatars.githubusercontent.com/u/2002?v=4"
+        },
+        "private": false,
+        "html_url": "https://github.com/example-org/widget-kit",
+        "description": "A small kit of widgets.",
+        "fork": false,
+        "archived": false,
+        "language": "Python",
+        "stargazers_count": 12,
+        "topics": [
+          "notes"
+        ],
+        "default_branch": "main",
+        "pushed_at": "2026-10-30T10:00:00Z",
+        "created_at": "2025-03-01T09:00:00Z",
+        "updated_at": "2026-10-30T10:00:00Z",
+        "clone_url": "https://github.com/example-org/widget-kit.git"
+      }
+    },
+    {
+      "starred_at": "2026-08-01T17:05:00Z",
+      "repo": {
+        "id": 602,
+        "name": "tiny-lib",
+        "full_name": "ada-example/tiny-lib",
+        "owner": {
+          "login": "ada-example",
+          "id": 3003,
+          "type": "User",
+          "avatar_url": "https://avatars.githubusercontent.com/u/3003?v=4"
+        },
+        "private": false,
+        "html_url": "https://github.com/ada-example/tiny-lib",
+        "description": "A tiny library.",
+        "fork": false,
+        "archived": false,
+        "language": "Rust",
+        "stargazers_count": 12,
+        "topics": [
+          "notes"
+        ],
+        "default_branch": "main",
+        "pushed_at": "2026-10-30T10:00:00Z",
+        "created_at": "2025-03-01T09:00:00Z",
+        "updated_at": "2026-10-30T10:00:00Z",
+        "clone_url": "https://github.com/ada-example/tiny-lib.git"
+      }
+    }
+  ],
+  "readme_widget_kit": {
+    "name": "README.md",
+    "path": "README.md",
+    "sha": "abc123",
+    "size": 355,
+    "encoding": "base64",
+    "content": "PHAgYWxpZ249ImNlbnRlciI+PGltZyBzcmM9Imh0dHBzOi8vZXhhbXBsZS5pbnZhbGlkL2xvZ28ucG5nIiB3aWR0aD0iODAiPjwvcD4KCiMgV2lkZ2V0IEtpdAoKWyFbQnVpbGRdKGh0dHBzOi8vZXhhbXBsZS5pbnZhbGlkL2JhZGdlLnN2ZyldKGh0dHBzOi8vZXhhbXBsZS5pbnZhbGlkL2NpKQoKQSBzbWFsbCBraXQgb2Ygd2lkZ2V0cyBmb3IgW2V4YW1wbGUgYXBwc10oaHR0cHM6Ly9leGFtcGxlLmludmFsaWQvZG9jcykuCgo8IS0tIGEgY29tbWVudCB0aGUgcHJldmlldyBkcm9wcyAtLT4KCiMjIEluc3RhbGwKCiAgICBwaXAgaW5zdGFsbCB3aWRnZXQta2l0CgpbcmVmXTogaHR0cHM6Ly9leGFtcGxlLmludmFsaWQvcmVmCg=="
+  }
+}

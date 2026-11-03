@@ -494,10 +494,40 @@ def _under_episode_lock(fn):
     return locked
 
 
+#: An edit in place says it is one (owner 2026-11-03: "re-ingested items are updates, not new"; G95): the record Sleep
+#: reads to treat a re-queued episode as a newer revision of what it already filed, never as a new conversation.
+#: ``count`` — the body's edits in place so far; ``at`` — when the latest landed (UTC); ``previous_hash`` — the
+#: ``content_hash`` of the body this edit replaced; ``consolidated_hash`` — the ``content_hash`` of the last body that was
+#: consolidated (processed by Sleep or an agent, never by a parser or the index), kept through later edits until Sleep
+#: reads the episode again, absent while no revision was ever consolidated. The earlier body is in git.
+REVISED_KEY = "revised"
+#: ``processed_by`` values that mean nothing consolidated the body (R-LS10's parser, ``history_index.INDEXED_BY``).
+_NOT_CONSOLIDATED_BY = frozenset({PARSED_ONLY, "index"})
+
+
+def revision_record(fm: dict, *, at: str | None = None) -> dict:
+    """The ``revised`` record an edit in place writes over ``fm`` (the episode's frontmatter BEFORE the edit)."""
+    prior = fm.get(REVISED_KEY) if isinstance(fm.get(REVISED_KEY), dict) else {}
+    try:
+        count = max(0, int(prior.get("count") or 0))
+    except (TypeError, ValueError):
+        count = 0
+    record: dict = {"count": count + 1, "at": at or episode_ids.utc_now_iso()}
+    if fm.get("content_hash"):
+        record["previous_hash"] = str(fm["content_hash"])
+    consolidated = fm.get("processed") is True and fm.get("processed_by") not in _NOT_CONSOLIDATED_BY
+    if consolidated and fm.get("content_hash"):
+        record["consolidated_hash"] = str(fm["content_hash"])
+    elif prior.get("consolidated_hash"):
+        record["consolidated_hash"] = str(prior["consolidated_hash"])
+    return record
+
+
 @_under_episode_lock
 def update_in_place(path: Path, draft: EpisodeDraft, body: str, digest: str, stamps: list[dict]) -> None:
-    """Same file, same id, same original timestamp; new body, re-queued (G20)."""
+    """Same file, same id, same original timestamp; new body, re-queued (G20), marked as a revision (``revised``)."""
     fm = dict(markdown_parser.parse(path).frontmatter)
+    fm[REVISED_KEY] = revision_record(fm)
     fm["title"] = _title(draft) or fm.get("title", "Untitled")
     fm["content_hash"] = digest
     fm["source_updated_at"] = draft.source_updated_at

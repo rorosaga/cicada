@@ -141,6 +141,29 @@ ETag over `entities`+`episodes` with `extra` = `page_sources.SHAPE|<page>|<today
 midnight). R-PB11: asked on demand and cached in memory by `ProvenanceCache.sourcesOverview`, not a Store domain, no
 `VersionVector` mapping. The wire is pinned on both sides by `api/tests/fixtures/page_sources_overview.json`.
 
+**Repositories on the graph (G230, `api/routers/github_repos.py`; writer `github_repos`).** Connecting, Refresh and
+Disconnect are the tier-2 connector routes (`/sources/connectors/github…`). Four more:
+- `GET /sources/github/repos` → `{connected, owned: [RepoRow], starred: [RepoRow]}` — the repositories the last sync
+  found the person owns, each with `project` `{project, name, how: linked|origin|name}` or null and `entityId` when it
+  already has a page, and every repository page (starred ones first, newest star first). Reads the bank only; never asks
+  GitHub; not a Store domain (no ETag).
+- `POST /sources/github/repos` `{url}` → `{entityId, fullName, created}` — the person adds one repository by its link
+  or `owner/name` (422 in words for anything else). GitHub's record is read first, holding nothing (the token when
+  connected; a 404 says a private one needs GitHub connected); then the page and its commit (`Repository added …`,
+  author `user`) are one admitted transaction (409 while Sleep holds the pages); then the README is read once, outside
+  the bank. A repeat updates the same page. Replica class `capture`.
+- `POST /sources/github/repos/project` `{fullName, project?, via: app|cli}` → `{project, created}` — link the
+  repository to that project page (404 for a page that is not a live project) or, with no `project`, start one in the
+  person's list named after it (409 in words when the name is a page already). Admitted; replica class `forward`.
+- `GET /entities/{id}/repository` → the row's keys plus `readme` `{state: fresh|stale|missing|none, text, truncated,
+  path, fetchedAt}` — a repository page's card, or a linked project's (404 for any other page). `owned` and `project`
+  are derived on read: owned when the page says so or the last sync listed it; a settled project for any repository, a
+  same-name suggestion only for one the person owns. The README is read
+  through GitHub's API when missing or a week old, only while `CICADA_ALLOW_LOGO_FETCH` is on, and kept outside every
+  bank; the GET writes nothing in the bank.
+Both writes refuse a demo bank (`refuse_capture_into_demo`). The CLI's `cicada github repos | add | project` call these
+routes as the person (`require_person`).
+
 **Auth.** Every endpoint except `GET /healthz`, `POST /capture/telegram`, an OAuth adapter's
 `GET /sources/connectors/{id}/callback`, and OpenRouter's sign-in landing
 `GET /connections/byok-openrouter/callback/<nonce>` (R-AG10 — gated by its own single-use, 10-minute nonce
@@ -438,8 +461,18 @@ name a `cicada_…` tool; `llms.txt` maps each to its operation), `data`'s shape
   ids and hyphenated slugs not on the keep list (channel and agent ids); a line where a name, URL or email still
   survives keeps only its structure (time, level, logger, exception class, file:line) and reads `[message withheld]`.
   It sends nothing; the app shows it before the person copies, saves or sends it.
-- `GET /devices/status` — `{devices: [{id, name, role: server|device, current, connected, how, lastSeenAt, queue}],
-  connectedWithinSeconds}`: this server first, named by its own Computer Name (macOS `scutil`, else the host name),
+- `PUT /sources/catch-up` (G229, 2026-11-03) — the app's word on the sync its readers do after it was closed:
+  `{session, openedAt, awaySince?, readers: [{channel, label, state: reading|done|failed, fix?}], done}`, the whole word
+  each time (idempotent). Held in memory per (reporter, bank) by `reader_catch_up` — the reporter is the device whose
+  token signed it, none for this server's own app — outside every bank, never logged; a new `session` starts a new
+  one, a finished one takes no further word, one left `reading` 15 min is dropped, a finished one shown 10 min.
+  Answers `{catchUp}` (the reporter's view, below). Demo bank 409 (`_DEMO_GATE`); write-admission class `outside`;
+  replica `local`. `fix` is kept only on a `failed` reader.
+- `GET /devices/status` — `{devices: [{id, name, role: server|device, current, connected, how, lastSeenAt, queue,
+  catchUp}], connectedWithinSeconds}`. `catchUp` (G229) is that machine's live sync or null: `{state: reading|done,
+  openedAt, awaySince, doneAt, readers, arrived, new}` — `arrived` = waiting episodes whose file changed between
+  `awaySince` and `openedAt` (null without `awaySince`), `new` = since `openedAt` (frozen at `doneAt`), both from the
+  same `bank_index` header scan as `queue`, never from the app: this server first, named by its own Computer Name (macOS `scutil`, else the host name),
   then each active device token by the name the person gave it. `how` is read from the device's last request
   (`agent_seen.how_from_request`: a Tailscale Serve header or tailnet address → `tailscale`, another private address →
   `lan`, a device token on loopback → `ssh`), stamped in `auth.require_token` once a minute. `queue` = that machine's
@@ -493,6 +526,19 @@ the node's `contentHash` only when true, so a lit node's hash is unchanged; `GET
 `saved-why-2`, G191 v3: items gained `savedWhyHistory`, `lastSavedAt` and `captureThumb`). Neither moved a component,
 so `VersionVector` was unchanged by those — but G191 v3 also folds the `captures` component into `/sources`' ETag (a
 new site capture gives a bookmark's row its thumbnail), so `VersionVector` maps `captures` → `.sources`.
+**Chat source pages (2026-11-03, shape `g161-12`, overview `overview-v12`).** On `GET /sources/channels/{id}/items` for a
+chat source (`imessage`, `whatsapp`, `telegram-chats`) each chat row adds `ticked` (now), `pinned` (only when set),
+`last_at` (the newest stored message, aware UTC) and `synced_at` (the newest write of any of its sittings), and its
+`chat` adds `picture` — an API path on Cicada (`/entities/<id>/picture?v=` or `/photo`) when the chat stands for a page
+(the person's own chat → the owner's page; a one-to-one chat → its correspondent's page, `messages_photos.chat_pages`);
+pinned rows list first, then the apps' order. A ticked chat with nothing stored yet lists too (no `day`). The pin is
+written through each source's own settings route (`PUT /sources/{messages|whatsapp|telegram}/settings`
+`{conversation: {id, pinned}}`, the tick's route, one `user` commit of the settings file; a pin never ticks), and the
+three settings files ride the `sources` component by mtime (`sync_service.CHAT_SETTINGS_FILENAMES`; client mapping
+unchanged, `sources` → `.sources`). `GET /sources/messages/chats/{id}/sittings` (any chat source) adds `ticked` and
+lists **no** sittings for an unticked chat (G179's ticked-only rail on the chat page's panel; 404 only when it is not a
+chat hash, or holds nothing and is not ticked); its ETag now rides `sources` with `episodes`. Readwise's rows are gone
+from the overview (`overview-v12`); the connector routes are the generic ones and stay.
 **G191 v4.** `/sources` items gained `leftBrowser` `[{browser, channel, since}]` (shape `saved-why-3`): the browsers a
 bookmark has left, read from the bookmark seen-set's `left` map. That file (`sources/bookmark_seen.json`) is not `*.md`, so
 the `sources` component's directory fingerprint never saw it — it now rides the component by its own mtime (client

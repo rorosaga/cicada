@@ -1482,5 +1482,25 @@
       "frontmatter": "merged",
       "disposition": "uninstrumented_guarded"
     }
+  ],
+  "services/github_repos.py": [
+    {
+      "function": "upsert",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "apply_stars",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "link_project",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "preserve_frontmatter_guarded"
+    }
   ]
 }

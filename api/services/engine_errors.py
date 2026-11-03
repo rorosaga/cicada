@@ -105,6 +105,10 @@ def is_connectivity_error(message: str) -> bool:
         "connection refused", "connection reset", "connection error", "connection failed",
         "could not connect", "unable to connect", "failed to connect", "network error", "fetch failed",
         "error sending request", "failed to send request", "connection_error", "network_error",
+        # The transport's own timeouts (2026-11-03: `claude -p` after a wake printed `terminal_reason: api_error`,
+        # no status, "Request timed out" — its HTTP client's timeout, never Sleep's subprocess budget).
+        "request timed out", "connection timed out", "connect timeout", "socket hang up", "econnaborted",
+        "network connection was lost", "und_err_connect_timeout", "und_err_socket",
     )) or bool(re.search(r"\boffline\b|\breconnecting\s*(?:\.{3}|…)\s*\d+\s*/\s*\d+", text))
 
 
