@@ -12,7 +12,7 @@
 
 ## Current state and evidence
 
-- **2026-11-03 — the study room ends in a hard edge (G176; branch `study-room-hard-edge`).** Owner, on onboarding's
+- **2026-11-03 — the study room ends in a hard edge (G176; PR #582).** Owner, on onboarding's
   room: "remove that fade effect from everywhere." The floor fade (a mask over the room's bottom five cells on the Sleep
   page and in onboarding) is removed and its type deleted; no ring is added (the room sits on the page ground out of
   its card, DESIGN_RULES §9 2026-11-03). Seen on a scratch app copy in light and dark.
