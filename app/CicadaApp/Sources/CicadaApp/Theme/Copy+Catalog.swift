@@ -44,7 +44,7 @@ extension Copy {
 
         /// G95 (2026-11-03) — meeting recorders: Hex's Markdown folder, Wispr Flow, any folder of transcripts.
         static let meetings = "Meeting recorders"
-        static let meetingFolders = "A folder of transcripts"
+        static let meetingFolders = "Transcripts"
         static let addHexFolder = "Add Hex's folder"
         static let hexHow = "Hex saves each meeting it records as a Markdown file in its meetings folder. Pick that "
             + "folder and Cicada keeps up with new and edited meetings."

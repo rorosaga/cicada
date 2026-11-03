@@ -824,8 +824,8 @@ Contacts (G154), both app-owned rows.
 **Meeting recorders (G95, ruling 52, 2026-11-03).** Sources gains a **Meeting recorders** group after This Mac
 (`SourceCatalogGroup.meetings`): **Hex** (`SourceCatalog.hexId`, shown once Hex is on this Mac — `LocalSourceWatcher.
 hexInstalled`, a LaunchServices lookup made on each reload, never per body — or a Hex folder exists; its mark is the
-installed app's icon, `anomaly.hex`), **Wispr Flow** (moved here from This Mac, its row unchanged) and **A folder of
-transcripts** (`meetingFoldersId`, always). `SourceCatalog.entries(hexPresent:meetingFolders:)` takes the watcher's
+installed app's icon, `anomaly.hex`), **Wispr Flow** (moved here from This Mac, its row unchanged) and **Transcripts**
+(`meetingFoldersId`, always: any folder of transcripts; the shorter name fits the list column). `SourceCatalog.entries(hexPresent:meetingFolders:)` takes the watcher's
 folders: a meeting folder (`FolderRegistration.isMeetings`, `kind: meetings`) syncs as `meetings:<id>`, so it never
 counts for Folders; Hex's own (`recorder: hex`) speak for Hex, the rest for the folder of transcripts. The detail lists
 each meeting folder with the folder rows' own `FolderChannelRow` ("3 meetings · …"; its Manage drops the agent
