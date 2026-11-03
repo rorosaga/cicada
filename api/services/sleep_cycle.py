@@ -10,7 +10,7 @@ from pathlib import Path
 from loguru import logger
 
 from api.config import Settings
-from api.services import authorship, bank_index, episode_ids, evidence, git_service, machine_state, markdown_parser
+from api.services import authorship, bank_index, episode_ids, episode_revision, evidence, git_service, machine_state, markdown_parser
 from api.services import sleep_drain, sleep_reserve
 
 
@@ -2784,6 +2784,9 @@ async def _run_stages(
         episodes = []
     else:
         episodes = _get_unprocessed_episodes(memory_path, only_ids=set(batch.only_ids))
+    # G104 (owner 2026-11-03): a conversation read before and edited since is a revision of it — diffed against the
+    # version Sleep read (git's), read where it changed, its spans moved and what only the removed text said closed.
+    revisions = episode_revision.attach(memory_path, episodes) if episodes else {}
     if not episodes and not decay_only:
         logger.info("No unprocessed episodes found — skipping")
         _state.progress = "No unprocessed episodes"
@@ -3284,6 +3287,9 @@ async def _run_stages(
             # G141 PJ-0: Stage 2's own map, so a claim lands where its edge did.
             name_to_id=resolved_result.get("name_to_id"),
             decided_names=resolved_result.get("decided_names"),
+            # Only a revision Stage 1 read: one it could not stays queued, its claims untouched.
+            **({"revisions": {i: r for i, r in revisions.items()
+                              if i in {e.get("episode_id") for e in extracted}}} if revisions else {}),
             **decay_kw,
         )
         _state.claims_page_less = int(claim_result.get("claims_page_less", 0) or 0)
@@ -3625,6 +3631,9 @@ def _get_unprocessed_episodes(
             # reads the two stored values; nothing opens the path).
             "project_dir": fm.get("project_dir") if isinstance(fm.get("project_dir"), str) else None,
             "workspace_identity": fm.get("workspace_identity") if isinstance(fm.get("workspace_identity"), dict) else None,
+            # G95/G104: the stager's edit-in-place record — which body was last consolidated (`episode_revision`).
+            **({episode_revision.REVISED_KEY: fm[episode_revision.REVISED_KEY]}
+               if isinstance(fm.get(episode_revision.REVISED_KEY), dict) else {}),
         })
     # Order by INSTANT, not by string (G114 R2): a bank holds legacy
     # naive-local stamps beside `Z` and `+00:00` UTC ones, and a lexical sort
@@ -3780,6 +3789,8 @@ def _mark_episodes_processed(episodes: list[dict]) -> int:
                 continue
             parsed.frontmatter["processed"] = True
             parsed.frontmatter["processed_by"] = "sleep"
+            # G95/G104: an episode edited in place says which body was consolidated — this one, now.
+            episode_revision.mark_consolidated(parsed.frontmatter)
             markdown_parser.write(filepath, parsed.frontmatter, parsed.body)
             retired += 1
     return retired

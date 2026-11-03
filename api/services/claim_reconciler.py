@@ -718,7 +718,7 @@ def _says_any(text: str, labels: set[str]) -> bool:
 
 def _place_claim(new: Claim, slot: list[Claim], settings, today: str, cardinality_fn: CardinalityFn,
                  nudges: list[dict], audit: list[dict], untimed=frozenset(), over: set[str] = frozenset(),
-                 canonical: str | None = None) -> Claim | None:
+                 canonical: str | None = None, revised: dict[str, str] | None = None) -> Claim | None:
     """One non-event incoming claim against its subject's slot (the K table).
     Returns the claim the page keeps for it — ``new``, or the existing claim a
     restatement reinforced — or ``None`` when it is not stored (a conflict to
@@ -728,7 +728,12 @@ def _place_claim(new: Claim, slot: list[Claim], settings, today: str, cardinalit
     is kept as closed history, never reopened (2026-10-14 review) — and so is one said on or before the end of the same
     belief the page holds as having held and ended, however it was closed (:func:`_ended_span`, 2026-10-29). A claim whose id the page already holds closed, read
     again from a conversation that claim already cites (G104), stays closed: a re-read never undoes a close, and never
-    doubles an id. A withdrawn claim restated is a fresh assertion (``cicada_retract_claim``'s rule), as before."""
+    doubles an id. A withdrawn claim restated is a fresh assertion (``cicada_retract_claim``'s rule), as before.
+
+    ``revised`` (G104, owner 2026-11-03): open claims only the removed text of an edited conversation said, by id, with
+    that conversation (`episode_revision`). A new value read from that same conversation's revision closes one cleanly
+    — the source corrected itself, so there is nothing to ask. A value from any other conversation meets the table as
+    before: a later conversation saying something different is an update or a conflict."""
     twin = _reread_twin(new, slot)
     if twin is not None:
         _merge_episodes(twin, new)
@@ -768,6 +773,14 @@ def _place_claim(new: Claim, slot: list[Claim], settings, today: str, cardinalit
         _reinforce(existing, new, today=today, untimed=untimed)
         return existing
 
+    if revised and existing.id in revised and set(new.source_episodes or []) == {revised[existing.id]}:
+        from api.services.inbox_tend import may_close
+
+        if not value or may_close(new, [existing]):
+            _close(existing, by=_stamp_new(new, settings, today=today))
+            slot.append(new)
+            audit.append({"action": "revised", "closed": existing.id, "by": new.id})
+            return new
     action = trust_decision(new, existing)
     if value and action in ("SUPERSEDE", "CONFLICT_NUDGE"):
         # The owner's-words rail (`inbox_tend.may_close`, review 2026-10-17): a value resting only on the assistant's or
@@ -990,8 +1003,11 @@ def reconcile_stage3(
     decay_class_fn: DecayClassFn | None = None,
     subject_fn: SubjectFn | None = None,
     decay: bool = True,
+    revised: dict[str, str] | None = None,
 ) -> tuple[dict[str, list[Claim]], list[dict], list[dict]]:
     """Trust-gated invalidate-and-supersede over claims. Nothing deleted.
+
+    ``revised``: :func:`_place_claim`'s — the claims an edited conversation stopped saying (G104).
 
     ``decay=False`` skips ``_decay_claims`` only (a drain's batches before the
     last; see ``sleep_drain``).
@@ -1098,7 +1114,8 @@ def reconcile_stage3(
         # A predicate an ending also ends (`also_ends`, or a qualified label) reads that canonical's departures.
         canonical = (ended_by(new.predicate) if ended_by else None) or new.predicate
         over = getattr(endings_fn, "over", {}).get(canonical, frozenset())
-        kept = _place_claim(new, slot, settings, today, cardinality_fn, nudges, audit, untimed, over, canonical)
+        kept = _place_claim(new, slot, settings, today, cardinality_fn, nudges, audit, untimed, over, canonical,
+                            revised=revised)
         if kept is not None and getattr(new, "premise_at", None):
             premise_pairs.append((kept, new.premise_at))
         if raw_label:

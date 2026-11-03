@@ -12,6 +12,7 @@
 
 ## Current state and evidence
 
+- **2026-11-03 — an edited conversation is read as a revision (G104; branch `feat/revision-aware-sleep`).** The owner asked whether updates should be told from new material at consolidation. Measured on a scratch bank (Claude plan, haiku; four synthetic notes consolidated, then edited in place: a changed value, an added line, a removed line, whitespace only): the second Sleep re-read all four whole (8 calls), left the removed line's claim open, read every old span `stale`, doubled 5 claims' spans, asked a conflict question for the whitespace edit and gave four once-said names pages. Now `episode_revision` diffs against the version Sleep read (git), reads only what changed, re-anchors spans, closes what only the removed text said (superseded by the same revision's value with no question, else a Sleep `retracts` record), and keeps a different conversation's word an update or conflict: the same run took 5 calls, 0 questions, 0 new pages, 1 withdrawn. Left: prose regeneration from corrected claims (G104 row).
 - **2026-11-03 — "are we also syncing WhatsApp?" (G179; branch `fix/whatsapp-live-stale`).** Not a stopped reader:
   read on a read-only copy of the live store (counts, ids, times only), the one ticked chat (the person's own) holds
   24 messages, its newest 6 days old and exactly the reader's cursor; 0 rows past it, 0 in the 48 h window; the 1,670

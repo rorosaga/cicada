@@ -206,8 +206,9 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   and the identical rendered text at its old offset — and remapped to wherever it sits now; a reply that slid onto an
   old offset never inherits another's. **The G104
   costs the ruling accepted, stated plainly:** (1) while an over-cap session is active, every Stop with a new turn
-  changes the body and re-queues the episode for a whole-body re-extraction — no `metadata` short-cut, unlike the
-  head-only cap it replaced; (2) when the tail slides, a claim quoting a turn that slid out is re-extracted as
+  changes the body and re-queues the episode — no `metadata` short-cut, unlike the head-only cap it replaced (since
+  2026-11-03 Sleep reads it as a revision: only the changed tail with its context, `episode_revision`, and a
+  transcript's slid-out turns close nothing); (2) when the tail slides, a claim quoting a turn that slid out is re-extracted as
   `reasoning`, and an existing span into the old tail (or into the 60–100k region, once the cap is first crossed)
   reads `stale` — the claim is still written; (3) more `body_revision` mismatches between Sleep's read and its
   retirement while the session runs; (4) the person's words in the dropped middle leave the bank (they are disclosed
@@ -1254,6 +1255,58 @@ or `updated` write queues anything. A job held back by Sleep, a re-embed or the 
 4. **Pattern detection & skill extraction** — recurring patterns distilled into skill entities, each written only
    with the conversations it came from (see *A skill page carries its conversations*).
 5. **Nudge generation, clarification queue & versioning** — snapshot, git commit.
+
+**An edited conversation is read as a revision of itself (G104, owner 2026-11-03).** Many sources re-stage an episode
+Sleep already consolidated — an edited note or meeting transcript, a chat whose 48 h window is re-posted, a re-imported
+export upgrading in place, a resumed session — and `episode_staging` rewrites it in place with `processed: false`.
+Measured before this (scratch bank, Claude plan at haiku, four synthetic notes consolidated then edited in place): the
+second Sleep re-read all four whole (8 calls, 42,142 input tokens); every one of 10 spans into the four read `stale`
+and 5 claims gained a second span beside it; the removed line's claim stayed open; the whitespace-only edit asked a
+conflict question ("MIT" vs "MIT license"); four names said once in unchanged lines got pages (the link rung, with a
+page now existing); the page prose kept the old fact beside the new. `episode_revision` makes the edit a revision:
+- **The version last consolidated is git's.** The stager's edit-in-place record (`revised: {count, at,
+  previous_hash, consolidated_hash?}`, `episode_staging`, G95) names it: the committed version whose `content_hash` is
+  `consolidated_hash` (consolidated by Sleep or an agent). Sleep refreshes `consolidated_hash` to the body it retires
+  (`episode_revision.mark_consolidated`, under `episode_lock` in `_mark_episodes_processed`) and never starts a record
+  on an episode that was never edited. With no record (a transcript, a writer that does not stage) the prior is the
+  version committed `processed: true, processed_by: sleep`. Each loaded batch's waiting episodes are read at the bank's
+  `HEAD` in one `git cat-file --batch` (no capture writer commits by default, so `HEAD` holds it until Sleep's next
+  commit); with the capture log published (G132 51e) the file's own history is walked, at most 20 commits. A parser's
+  version (`processed_by: parser`) is never a prior. No git, or no such version: read whole, as before. Reads only.
+- **The diff is by line, on the words** (`difflib`, whitespace ignored): `changed` ranges in the new body, `removed`
+  ranges in the read one. Only whitespace moved is a **no-op**: no engine call, the spans re-anchored, the episode
+  retired. A pure removal also reads nothing.
+- **Stage 1 reads what changed** (`windows`): each changed range with 2 unchanged lines after it and at least 2 lines and 4,000 characters before it, merged; past 60%
+  of the body the whole body. Each window carries `REVISION_NOTE` ("this conversation was edited after it was read…").
+  Evidence is still located against the whole stored body. Of the answer, a relationship or value located only in
+  unchanged text, and a name said only there, are the first read's and dropped (`keep_changed`): a re-read is never a
+  second chance at promotion. One with no locatable span is kept — provenance never blocks memory.
+- **Stage 3, before the reconciler** (`reanchor`): every span into a revised episode minted on the read version (its
+  hash, or a grown prefix of it) is located again in the matching lines of the new body — exact, whitespace,
+  case-insensitive, never fuzzy — and takes the new offsets and hash. An open claim whose only support is spans the
+  new body no longer holds is marked; never one another conversation also says, the person's own (`is_human`), an
+  agent's write (`recorded_ts`), an event, a record, one with a `reasoning` entry or a span on an older body for that
+  episode, nor anything in a transcript (`capture_kind: transcript` drops old turns by its session cap, not by
+  revision).
+- **The same source revising itself is not a conflict** (`claim_reconciler._place_claim`, `revised`): a new value read
+  from that same episode closes a marked claim on its slot (`superseded_by`, the owner's-words rail `may_close` still
+  holding) — no question. A value from any OTHER conversation meets the trust table as before: a later conversation
+  saying something different is an update or a conflict, which is how memory evolves.
+- **After the reconciler** (`settle`): a marked claim the revision restated (a reworded or moved line) keeps only its
+  new span; every other is withdrawn by a born-closed `retracts` record (`authored_by: cicada`, reason "The
+  conversation this came from was edited and no longer says it.", evidence `reasoning` on the episode with the
+  revision's body hash) — never deleted.
+- **The same conversation.** The episode keeps its id, so the 2+ conversations rule, promotion and decay credit count
+  it once; `processed_by` stays `sleep`. A revision Stage 1 failed to read stays queued with its claims untouched.
+  The claim pipeline logs the counts (spans re-anchored, no longer in the text, replaced, withdrawn).
+- **Measured after** (the same four notes, Claude plan at haiku): the second Sleep made 5 calls, 22,927 input tokens
+  (extraction ran for the two edits with new words only), 0 questions, 0 pages, 5 spans re-anchored, 1 claim withdrawn
+  (the removed line), 0 duplicated spans. `test_episode_revision_sleep.py` pins the four cases on the engine seam
+  (2 extraction calls, the changed value superseded with no question).
+- **Left (G104):** the page prose (Key Facts, History, Summary) still carries what the removed text said — claims are
+  corrected, prose is not regenerated from them; `section_provenance` items into a revised episode keep the old hash;
+  claims held in the pending store for page-less names keep their old spans; a transcript's replaced reply (Cursor's
+  final reply for a generation) closes nothing.
 
 **A title is never joined on the name alone when it could be two things (G227, 2026-10-29).** Stage 2's exact-title
 join used to take whichever page held the name (one per title in `existing_by_name`, last writer wins), whatever its
