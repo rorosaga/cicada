@@ -434,7 +434,7 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   **index-only** (`history_index.LIST_ORIGINS`, ruling 30's posture — a record GitHub keeps, never the person's words,
   never a model read, never a mention), dated when the repository was created. It makes **no page**: it is offered on
   the Sources row (ruling 36 D4 / 45 — a project is born only from the hook, the person's words or the person's act).
-  One gone from a list read whole is tombstoned and kept; a list cut short at 30 pages tombstones nothing.
+  One gone from a list read whole is tombstoned and kept; a list cut short at 60 pages (3,000 items) tombstones nothing.
   *A repository the person starred* is a save, like a bookmark: one `media` page (`media.kind: repository`) and one
   index-only save episode (origin `github-starred`) through `media_ingestor`'s write path, dated when it was starred; a
   github.com link already saved (a bookmark of it) becomes that page rather than a second one. The page and its

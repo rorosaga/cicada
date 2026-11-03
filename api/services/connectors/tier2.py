@@ -157,7 +157,9 @@ def _answer(adapter: ModuleType, resp: Response) -> Any:
     if resp.status in (401, 403):
         raise Refused(adapter.REFUSED_WORDS, kind="sign-in")
     if resp.status == 429:
-        raise Refused(f"{adapter.LABEL} asked Cicada to slow down; the next sync carries on from here.", kind="rate")
+        # An adapter whose next sync starts over (GitHub reads its lists whole) says so in its own words.
+        raise Refused(getattr(adapter, "RATE_WORDS", None)
+                      or f"{adapter.LABEL} asked Cicada to slow down; the next sync carries on from here.", kind="rate")
     if resp.status >= 400:
         raise base.ConnectorError(f"{adapter.LABEL} answered HTTP {resp.status}")
     return resp.body

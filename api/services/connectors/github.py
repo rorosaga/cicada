@@ -43,7 +43,7 @@ from api.services.connectors import tier2
 CHANNEL_ID = "github"
 LABEL = "GitHub"
 LOGIN_MODE = "credentials"
-CHANNEL_NOUN = "repository"
+CHANNEL_NOUN = "repo"
 TIER = tier2.TIER
 ORIGIN_OWNED = "github-owned"
 ORIGIN_STARRED = "github-starred"
@@ -60,11 +60,18 @@ READS = ("Reads the list of repositories you own and the ones you starred, with 
          "link, using a token you make on GitHub. A README is read only when you add a repository or open its page. "
          "Cicada only reads; it never changes anything on GitHub. Disconnect forgets the token; you can also delete "
          "it at github.com/settings/personal-access-tokens.")
+#: GitHub's rate limits (the primary hourly one, or a secondary one for too many requests at once). A sync reads both
+#: lists whole each time, so a sync a limit stopped saved nothing and the next one starts again from the top.
+RATE_WORDS = ("GitHub asked Cicada to slow down, so nothing was saved this time; the next sync reads your repositories "
+              "again from the start.")
 REFUSED_WORDS = ("GitHub refused the token. Make a new one at github.com/settings/personal-access-tokens and paste "
                  "it in Settings → Sources → GitHub.")
 
-PER_PAGE = 100
-MAX_PAGES = 30
+#: Rows a list request asks for. GitHub allows 100, but a real 100-repository page measured 633,641 bytes (a starred
+#: row ~6.1 KB with every URL template GitHub sends), past the ToS rail's 512 KB a response: 50 a page stays under it
+#: with room (≈ 310 KB). 60 pages keep the same 3,000 items a list may hold.
+PER_PAGE = 50
+MAX_PAGES = 60
 TIMEOUT_SECONDS = 4.0
 MAX_BYTES = 512 * 1024
 TEXT_CAP = 2000
@@ -135,7 +142,8 @@ async def guarded_transport(method: str, url: str, *, headers: dict, params: dic
     host = (urlparse(url).hostname or "").lower()
     if urlparse(url).scheme != "https" or host != API_HOST:
         raise tier2.base.ConnectorError("GitHub: a request off its own host was refused")
-    async with httpx.AsyncClient(follow_redirects=False, timeout=TIMEOUT_SECONDS,
+    async with httpx.AsyncClient(follow_redirects=False, timeout=TIMEOUT_SECONDS, transport=HTTPX_TRANSPORT,
+                                 trust_env=False,
                                  event_hooks={"request": [net_guard.httpx_request_guard]}) as client:
         async with client.stream(method, url, headers=headers, params=params, json=json) as resp:
             chunks, size = [], 0
@@ -154,12 +162,24 @@ async def guarded_transport(method: str, url: str, *, headers: dict, params: dic
             body = _json.loads(raw)
         except ValueError:
             body = None
-    if status == 403 and response_headers.get("x-ratelimit-remaining") == "0":
-        status = 429   # GitHub's primary limit answers 403; it is a rate limit, not a refused token
-    return tier2.Response(status, body, response_headers)
+    return tier2.Response(_rate_status(status, body, response_headers), body, response_headers)
+
+
+def _rate_status(status: int, body, headers: dict) -> int:
+    """GitHub answers a rate limit with 403 as often as 429: the primary limit with ``x-ratelimit-remaining: 0``, a
+    secondary one with ``retry-after`` or a message that says so. Either is a rate limit (429), never a refused token."""
+    if status != 403:
+        return status
+    message = str((body or {}).get("message") or "").lower() if isinstance(body, dict) else ""
+    if headers.get("x-ratelimit-remaining") == "0" or headers.get("retry-after") or "rate limit" in message:
+        return 429
+    return status
 
 
 TRANSPORT = guarded_transport
+#: httpx's own transport under `guarded_transport`: None is the network. The suite puts an `httpx.MockTransport` here
+#: so a realistic answer goes through the real size cap and status mapping.
+HTTPX_TRANSPORT = None
 
 
 def client(token: str | None = None, transport=None) -> tier2.Client:

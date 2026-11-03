@@ -479,3 +479,108 @@ def test_the_cli_commands_call_the_backends_routes_as_the_person(monkeypatch):
     assert sent[-1] == ("POST", "/sources/github/repos/project",
                         {"fullName": "bob-example/alpha-project", "via": "cli", "project": "alpha"})
     assert len(asked) == 2                               # both writes refuse from an agent's shell
+
+
+# --- review of #583: the real size cap, rate limits, a replayed add, a stale link row ---------------------------------
+
+
+def _realistic_star(n: int) -> dict:
+    """A starred row the size GitHub really sends (~6.1 KB: every URL template on the repository and its owner)."""
+    full = f"example-org/repo-{n:03d}"
+    api = f"https://api.github.com/repos/{full}"
+    repo = copy.deepcopy(FIX["starred"][0]["repo"])
+    repo.update({"id": 10_000 + n, "name": full.split("/")[1], "full_name": full,
+                 "html_url": f"https://github.com/{full}", "description": "A kit of widgets. " * 18,
+                 "topics": [f"topic-{i}" for i in range(20)]})
+    for key in ("forks", "keys", "collaborators", "teams", "hooks", "issue_events", "events", "assignees", "branches",
+                "tags", "blobs", "git_tags", "git_refs", "trees", "statuses", "languages", "stargazers", "contributors",
+                "subscribers", "subscription", "commits", "git_commits", "comments", "issue_comment", "contents",
+                "compare", "merges", "archive", "downloads", "issues", "pulls", "milestones", "notifications",
+                "labels", "releases", "deployments", "git", "ssh", "clone", "svn", "mirror"):
+        repo[f"{key}_url"] = f"{api}/{key}{{/sha}}{{?since,until,path,author,committer,per_page,page}}"
+    owner = repo["owner"]
+    for key in ("followers", "following", "gists", "starred", "subscriptions", "organizations", "repos", "events",
+                "received_events", "html", "url"):
+        owner[f"{key}_url"] = f"https://api.github.com/users/example-org/{key}{{/other_user}}{{/gist_id}}"
+    repo["license"] = {"key": "mit", "name": "MIT License", "spdx_id": "MIT",
+                       "url": "https://api.github.com/licenses/mit", "node_id": "MDc6TGljZW5zZTEz"}
+    return {"starred_at": "2026-09-12T08:30:00Z", "repo": repo}
+
+
+@pytest.fixture
+def real_cap(monkeypatch):
+    """GitHub's answers through `guarded_transport` itself — its byte cap, its JSON read, its status mapping — with
+    httpx's network swapped for a mock; `net_guard`'s DNS check answered yes for api.github.com only."""
+    import httpx
+
+    from api.services import net_guard
+
+    async def fetchable(url):
+        return url.startswith(github.API_BASE)
+
+    monkeypatch.setattr(net_guard, "is_fetchable_url_async", fetchable)
+    replies = {}
+
+    def handler(request):
+        status, body, headers = replies["fn"](request)
+        return httpx.Response(status, json=body, headers=headers)
+
+    monkeypatch.setattr(github, "HTTPX_TRANSPORT", httpx.MockTransport(handler))
+    return replies
+
+
+def test_a_full_page_of_real_sized_rows_fits_the_byte_cap(real_cap):
+    row_bytes = len(json.dumps(_realistic_star(0)).encode())
+    assert row_bytes >= 6_000                                            # the measured size of a real starred row
+    assert 100 * row_bytes > github.MAX_BYTES >= github.PER_PAGE * row_bytes * 1.3   # 100 a page could never fit
+
+    def star_pages(request):
+        page = int(request.url.params.get("page"))
+        rows = [_realistic_star(n) for n in range(github.PER_PAGE)] if page == 1 else []
+        return 200, rows, {}
+
+    real_cap["fn"] = star_pages
+    rows, done = asyncio.run(github.read_starred(github.client("placeholder")))
+    assert done and len(rows) == github.PER_PAGE
+    assert github.PER_PAGE * github.MAX_PAGES >= 3000                     # the same 3,000 items a list may hold
+    # And the page size GitHub allows, through the same cap: refused in words, never a partial read.
+    real_cap["fn"] = lambda request: (200, [_realistic_star(n) for n in range(100)], {})
+    with pytest.raises(tier2.Refused) as exc:
+        asyncio.run(github.client("placeholder").get("user/starred", per_page=100, page=1))
+    assert "more than Cicada reads" in exc.value.words
+
+
+def test_a_secondary_rate_limit_is_a_rate_limit_never_a_refused_token(real_cap):
+    for headers, body in (({"retry-after": "1"}, {"message": "slow down"}),
+                          ({}, {"message": "You have exceeded a secondary rate limit."}),
+                          ({"x-ratelimit-remaining": "0"}, {"message": "API rate limit exceeded"})):
+        real_cap["fn"] = lambda request, h=headers, b=body: (403, b, h)
+        client = tier2.Client(github, "placeholder", sleep=lambda s: asyncio.sleep(0))
+        with pytest.raises(tier2.Refused) as exc:
+            asyncio.run(client.get("user"))
+        assert exc.value.kind == "rate" and exc.value.words == github.RATE_WORDS
+        assert "again from the start" in exc.value.words and "refused the token" not in exc.value.words
+    real_cap["fn"] = lambda request: (403, {"message": "Resource not accessible by personal access token"}, {})
+    with pytest.raises(tier2.Refused) as exc:
+        asyncio.run(github.client("placeholder").get("user"))
+    assert exc.value.kind == "sign-in"
+
+
+def test_a_replayed_add_writes_nothing_new(api, bank):
+    """A copy's outbox may resend the same add days later (`test_tx_outbox.SAME_BY_CONTENT`): the same page, no
+    second episode, no commit."""
+    first = api.post("/sources/github/repos", json={"url": "example-org/widget-kit"}).json()
+    files, head = _files(bank), _git(bank, "rev-parse", "HEAD")
+    again = api.post("/sources/github/repos", json={"url": "https://github.com/example-org/widget-kit"})
+    assert again.status_code == 200 and again.json() == {**first, "created": False}
+    assert _files(bank) == files and _git(bank, "rev-parse", "HEAD") == head
+
+
+def test_a_link_row_whose_page_is_gone_gets_the_page_again(api, bank):
+    eid = api.post("/sources/github/repos", json={"url": "example-org/widget-kit"}).json()["entityId"]
+    (bank / "entities" / f"{eid}.md").unlink()
+    bank_index.invalidate(bank)
+    again = api.post("/sources/github/repos", json={"url": "example-org/widget-kit"})
+    assert again.status_code == 200, again.text
+    body = again.json()
+    assert body["created"] is True and (bank / "entities" / f"{body['entityId']}.md").exists()

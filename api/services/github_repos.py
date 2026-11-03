@@ -274,6 +274,10 @@ def upsert(memory_path: Path, repo: Repo, idx: dict, *, origin: str, starred: bo
     status = "same"
     page = memory_path / "entities" / f"{entity_id}.md" if entity_id else None
     if page is None or not page.exists():
+        # A link row whose page is gone (deleted by hand, or a merge left it) would make the save path answer
+        # "already saved" with no page behind it: the stale row goes, and the repository gets its page again.
+        if entity_id is not None:
+            idx.pop(media_ingestor.url_hash(repo.url), None)
         entity_id, episode_id = _new_page(memory_path, repo, idx, origin=origin, starred_at=starred_at)
         page = memory_path / "entities" / f"{entity_id}.md"
         paths += [f"episodes/{episode_id}.md", "sources/url_index.json"]
