@@ -60,9 +60,11 @@ SECRET_NAMES: tuple[str, ...] = (TOKEN_ENV,)
 API_BASE = "https://api.notion.com/v1/"
 NOTION_VERSION = "2026-03-11"
 TOKEN_HELP = "notion.so/profile/integrations"
-READS = ("Reads only the Notion pages and databases you share with your own connection (Add connections on a page), "
-         "as text, with each row's properties. Give the connection Read content only; Cicada never changes anything "
-         "in Notion. Disconnect forgets the token; you can also delete the connection in Notion.")
+#: One short line (owner 2026-11-03); the panel adds where the token comes from while it is not connected.
+READS = "Read-only: only the pages you share with it (Add connections on a page)."
+#: A walk through everything shared that found nothing: a first connection reads 0 pages until one is shared with it.
+NOTHING_SHARED_WORDS = ("Nothing is shared with the connection yet. In Notion, open a page's ••• menu, choose "
+                        "Connections and add it; that page and the pages under it come in at the next sync.")
 REFUSED_WORDS = ("Notion refused the token. Check the connection in Notion's developer portal (it may have been "
                  "deleted or lost access), then paste its token again in Settings → Sources → Notion.")
 PERSONAL_TOKEN_WORDS = ("That token acts as you, with every page you can open. Cicada reads only what you choose to "
@@ -277,6 +279,8 @@ async def fetch(client: tier2.Client, cursor: dict, memory_path: Path) -> tier2.
     words = []
     if walk is not None:
         # A walk through the whole history: the high-water mark moves only once nothing older is left to read.
+        if finished and not walk.get("read"):
+            words.append(NOTHING_SHARED_WORDS)
         if finished:
             batch.cursor = {"high_water": walk.get("top") or high_water, "databases": db_titles}
         else:
@@ -289,7 +293,7 @@ async def fetch(client: tier2.Client, cursor: dict, memory_path: Path) -> tier2.
             new_high = str(todo[-1].get("last_edited_time") or "") or high_water
             words.append("Part of your edited pages came in; the next sync brings the rest.")
         batch.cursor = {"high_water": new_high, "databases": db_titles}
-    if owner is None:
+    if owner is None and batch.seen:
         words.append(UNKNOWN_AUTHOR_WORDS)
     if unreadable:
         words.append(f"{unreadable} page(s) could not be read; share them with the connection again.")

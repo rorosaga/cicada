@@ -440,6 +440,9 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "PUT /agent-methods": (HELD, "api.services.skill_pages.ensure"),
     "POST /agent-methods/skills/{skill}/page": (HELD, "api.services.skill_pages.ensure"),
     "POST /sources/save": (ADMITTED, "api.routers.sources._save_source"),   # G212: wrapped by its Idempotency-Key
+    # G230: GitHub's record read first (nothing held), then the page and its commit as one admitted transaction.
+    "POST /sources/github/repos": (ADMITTED, None),
+    "POST /sources/github/repos/project": (ADMITTED, None),
     "POST /sources/saved-why": (ADMITTED, None),       # G191: the answer on the link's episode, committed alone
     "PUT /sources/saved-why": (ADMITTED, None),        # G191 v3: the person's edit of one answer, committed alone
     "POST /sources/bookmarks/remove": (ADMITTED, None),   # G191 v3: the page archived, the episode tombstoned
@@ -492,6 +495,7 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /sources/messages/sync": (CAPTURE, None),            # G179: one ticked conversation's sittings
     "PUT /sources/messages/settings": (CAPTURE, None),         # G179: the registry file + a re-attributed sitting
     "POST /sources/messages/conversations": (NONE, None),      # G179: detection over names and counts, stores nothing
+    "PUT /sources/catch-up": (OUTSIDE, None),                  # G229: the readers' catch-up, held in memory only
     "PUT /sources/messages/photos": (OUTSIDE, None),           # 2026-10-16: a chat's shared photo, a cache outside every bank
     # G179 (2026-10-28): WhatsApp and Telegram chats — the sittings and the tick registry, held through their commit.
     "POST /sources/whatsapp/sync": (HELD, None),
@@ -561,6 +565,19 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /sync/home/move": (BANKS, None),
     "POST /sync/home/take-over": (BANKS, None),
     "POST /sync/devices/me": (OUTSIDE, None),
+    # G132 phase 3b: the relay setting, joining and pairing over it, enrolment and the app's LAN finds — every one in
+    # $CICADA_HOME (the relay state, devices.db, the pairing codes, the discovered addresses), never the bank.
+    "PUT /sync/relay": (OUTSIDE, None),
+    "POST /sync/relay/join": (OUTSIDE, None),
+    "POST /sync/relay/join/confirm": (OUTSIDE, None),
+    "DELETE /sync/relay/join": (OUTSIDE, None),
+    "POST /sync/enrol": (OUTSIDE, None),
+    "POST /sync/discovered": (OUTSIDE, None),
+    # Ruling 51f: the app's word that the network changed: route state in memory and routes.json, outside every bank.
+    "POST /sync/network": (OUTSIDE, None),
+    "POST /devices/pairing/relay": (OUTSIDE, None),
+    "POST /devices/pairing/relay/{session_id}/confirm": (OUTSIDE, None),
+    "DELETE /devices/pairing/relay/{session_id}": (OUTSIDE, None),
     "POST /capture/offered": (CAPTURE, None),   # an old home's set-aside episode, through the episode writer
     "POST /capture/hook-context": (OUTSIDE, None),   # G110: may refresh the continuity index in $CICADA_HOME
     "PUT /sources/connectors/{connector_id}/credentials": (OUTSIDE, None),

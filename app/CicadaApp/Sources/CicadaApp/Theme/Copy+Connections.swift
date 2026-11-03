@@ -193,7 +193,10 @@ extension Copy {
         static let commandLine = "Command-line tool"
         static func conversations(_ n: Int) -> String { n == 1 ? "1 conversation" : "\(n) conversations" }
         static func seen(_ date: Date, now: Date = Date()) -> String {
-            RelativeDateTimeFormatter().localizedString(for: date, relativeTo: now)
+            // A minute timeline's `now` is the minute's start: a sighting later in that minute is never "in 24 seconds".
+            let words = RelativeDateTimeFormatter()
+            words.dateTimeStyle = .named      // "now", never "in 0 seconds"
+            return words.localizedString(for: min(date, now), relativeTo: now)
         }
         /// "last seen Oct 21" — the day, for a row that is set up but not connected now.
         static func lastSeen(_ date: Date) -> String {

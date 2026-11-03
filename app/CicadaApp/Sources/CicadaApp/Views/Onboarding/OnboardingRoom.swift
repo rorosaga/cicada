@@ -26,8 +26,7 @@ struct OnboardingRoom: View {
         SceneryRoomArt(lampLit: false, scenery: scenery, cell: cell) {
             BookwormView(state: mood, latticeCell: cell, lighting: scenery.lighting, lampLit: false)
         }
-        // The floor fades into the ground over its last five cells, as on the Sleep page (a mask, never a shadow).
-        .mask { RoomFloorFade(height: size.height, fade: RoomFloorFade.fade(cell: cell)) }
+        // A hard bottom edge, as on the Sleep page: no fade (owner 2026-11-03).
         .frame(width: size.width, height: size.height)
         .accessibilityHidden(true)
     }

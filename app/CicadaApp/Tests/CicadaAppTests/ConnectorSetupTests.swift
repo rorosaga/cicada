@@ -34,22 +34,30 @@ final class ConnectorSetupTests: XCTestCase {
     /// payload (no `reads`) still decodes.
     func testATokenConnectorDecodesWhatItReadsAndAsksForTheToken() throws {
         let json = """
-        {"id": "readwise", "label": "Readwise", "connected": false,
-         "fields": [{"name": "CICADA_READWISE_TOKEN", "label": "Readwise access token", "secret": true,
+        {"id": "notion-api", "label": "Notion", "connected": false,
+         "fields": [{"name": "CICADA_NOTION_TOKEN", "label": "Notion connection token", "secret": true,
                      "present": false}],
          "lastSync": null, "lastError": null, "detail": null, "loginMode": "credentials",
-         "reads": "Reads your Readwise highlights.", "tokenHelp": "readwise.io/access_token", "tier": 2}
+         "reads": "Reads the pages you shared with the connection.", "tokenHelp": "notion.so/profile/integrations",
+         "tier": 2}
         """.data(using: .utf8)!
         let status = try JSONDecoder().decode(ConnectorStatus.self, from: json)
         XCTAssertTrue(status.isTokenConnector)
-        XCTAssertEqual(status.reads, "Reads your Readwise highlights.")
+        XCTAssertEqual(status.reads, "Reads the pages you shared with the connection.")
         XCTAssertEqual(ConnectorSetupState.stepLabel(status), "Paste your own token")
+        // Said once, on one line (owner 2026-11-03): what it reads, then where the token comes from until connected.
+        XCTAssertEqual(ConnectorSetupState.readsLine(status),
+                       "Reads the pages you shared with the connection. Get a token at notion.so/profile/integrations.")
+        let connected = try JSONDecoder().decode(ConnectorStatus.self, from: Data(String(decoding: json, as: UTF8.self)
+            .replacingOccurrences(of: #""connected": false"#, with: #""connected": true"#).utf8))
+        XCTAssertEqual(ConnectorSetupState.readsLine(connected), "Reads the pages you shared with the connection.")
         let older = """
         {"id": "reddit", "label": "Reddit", "connected": false, "fields": [], "loginMode": "credentials"}
         """.data(using: .utf8)!
         let legacy = try JSONDecoder().decode(ConnectorStatus.self, from: older)
         XCTAssertFalse(legacy.isTokenConnector)
         XCTAssertNil(legacy.reads)
+        XCTAssertNil(ConnectorSetupState.readsLine(legacy))
     }
 
     func testOAuthConnectorWithSavedAppButNoTokenStillNeedsAuthorization() throws {

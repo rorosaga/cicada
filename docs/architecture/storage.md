@@ -434,7 +434,7 @@ studies (`claim_reconciler._ended_span`; `past_roles_repair` asks the same, `end
 now runs for every placement, ~0.4 ms p50 / 1.6 ms p95 on the owner page's 7,490-claim slot. A re-read of a claim the page holds closed (same id, G104) only adds its sources — a page never holds one
 id twice. No fold question is raised for an ending. Stage 1's prompt says "works at" means current.
 **A filing label is never anyone's words (owner 2026-10-29).** A record's header lines that file it — `**Folder:**`
-(a bookmark, a note), `**List:**` (a reminder), `**Calendar:**`, `**Database:**` (Notion), `**Tags:**` (Readwise) —
+(a bookmark, a note), `**List:**` (a reminder), `**Calendar:**`, `**Database:**` (Notion), `**Tags:**` (an earlier Readwise episode) —
 are `page` in every evidence reader (`evidence.LABEL_FIELDS`, `label_ranges`; `kind_for`, the search snippet), whatever
 the episode's authorship: the person typed the folder name once, to file things, and a span in it is no claim of
 theirs. Only the header Cicada's own writer put above the body counts; the same words typed in the body are the
@@ -738,6 +738,20 @@ end (`claim_expiry`), in its own `Expiry <date>` commit (`Cicada-Author: cicada`
 `git add -A` writer. An agent withdraws a claim IT wrote with `cicada_retract_claim`: the claim
 closes and a born-closed `retracts` record keeps the reason and any cited words; a human or Sleep
 claim is never an agent's to withdraw.
+
+**An edited source revises its own claims (G104, owner 2026-11-03; `episode_revision`, `capture-and-sleep.md`).** When
+Sleep reads an episode it already consolidated, edited in place since, it diffs it against the version git holds as
+the one Sleep read. Spans minted on that version are **re-anchored**: the cited words are located again in the matching
+lines of the new body (`evidence.locate`: exact, whitespace, case-insensitive — never fuzzy) and take the new
+offsets and body hash, so they read `current` instead of `stale`; one whose words are gone stays as it was and reads
+`stale`, which is the truth about that source. A claim whose ONLY support was such a span is closed, never deleted:
+superseded by the new value the same revision states on its slot (no conflict question — the source corrected
+itself), or else withdrawn by a born-closed `retracts` record written by Sleep (`authored_by: cicada`, evidence
+`reasoning` on that episode with the revision's body hash, so the record names the revision that dropped it). A claim
+another conversation also says (before the read, or in the same batch), one the revision says again even in words that
+do not locate, the person's own, an agent's write (`recorded_ts`), an event, or anything a capped transcript's slid-out
+turn said is never closed this way. A withdrawn claim restated later is a fresh assertion, as
+for any withdrawal.
 
 **Reading provenance back (G118 slice 2, server half).** Three engine-free, bank-only reads, all
 built in `api/services/provenance.py` and fetched on demand — none is a Store domain, so each ETag
@@ -1412,6 +1426,23 @@ Round 4 (C2–C4):
   `venue`, `sections`, and `metadata_status` once a lookup failed. The ids are the identity
   (`media-arxiv-<id>` / `media-doi-<hash>`); the abstract is a `describes` claim from
   `external:arxiv` or `external:crossref`, a dated cache shown under the personal tier (G121).
+- `media.kind: repository` + `github:` (G230, `github_repos`, its one writer) — a GitHub repository the person starred
+  or added: a `media` page, the closed set's saved-link type (not `tool`, which Sleep makes from the person's words,
+  and not `project`, which only the person's act, the hook or their located words make — ruling 36 D4 / 45). The
+  `github:` block is GitHub's record — `id` (the key: a rename keeps the page), `full_name`, `owner`, `owner_kind`,
+  `description`, `language`, `topics`, `private`, `archived`, `fork`, `default_branch` — plus what the person did:
+  `starred`, `starred_at`, `unstarred_on`, `added`, `owned`. Never the star count or the last push (both move daily; a
+  page rewritten every sync is a commit of noise). Its one source is the repository's own link, `predicate: website`,
+  `added_by: user`, `kept_by: github` (the sync and the page's open keep its record; `source_refresh.checker` never
+  visits it, and the card's Where to check reads its state `kept` — "read through its official API"). `media.thumbnail` is the owner's avatar only when an organisation owns it (owner 2026-10-28, E). A
+  project the person links to a repository (`POST /sources/github/repos/project`, or "Add as a project", which makes
+  one in their list, `mine.via: app|cli`) carries the same block with `owned: true` and a trusted `repo` source — which
+  also gives it its organisation's avatar (`logo_service.repo_owner`). Whether an owned repository already is a project
+  is derived on read (`github_repos.project_match`), never written by a sync: `linked` (a trusted `repo` source or a
+  declared `repos:` URL), `origin` (a page born from a checkout whose `born.repo.remote` equals this URL's hash under
+  this install's D2a salt — the salt is read, never made, and the URL is never stored), or `name` (a project with
+  exactly its name — a suggestion the person confirms). The README preview is outside every bank
+  (`$CICADA_HOME/readmes/<bank>/<entity>.json`; `network.md`).
 - On an episode (G133/G134): `turns` (the G118 per-turn sidecar), `evidence_kind`,
   `source_deleted_at`, and a section's `content_sha` — see the Awake rails; on a conversation, `turn_extras` and
   `unsent_turns` (2026-10-20, above).

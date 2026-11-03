@@ -326,7 +326,7 @@ ROWS: tuple[Row, ...] = (
     _app(("feed", "remove"), "Stop following a feed.", (_p("url"),), via="backend", mutates=True),
     _app(("feed", "poll"), "Fetch every followed feed now.", via="backend", mutates=True, person=True),
     # Ruling 47 tier 2 (and the saved-content connectors): the person's own accounts, by their own token.
-    _app(("connector", "list"), "The accounts Cicada can read with your own token (Readwise, Notion, …): what each "
+    _app(("connector", "list"), "The accounts Cicada can read with your own token (Notion, …): what each "
                                 "reads, whether it is connected, its last sync.", via="backend"),
     _app(("connector", "connect"), "Connect one with your own token, read from standard input (never an argument); "
                                    "Cicada checks it with the service before saving it.", (_p("connector"),),
@@ -335,6 +335,15 @@ ROWS: tuple[Row, ...] = (
          mutates=True, person=True),
     _app(("connector", "sync"), "Read one now (your click: no gate, but never while Sleep holds your memory).",
          (_p("connector"),), via="backend", mutates=True, person=True),
+    # G230: repositories on the graph — the synced lists, a pasted link, and "this is my project".
+    _app(("github", "repos"), "Your GitHub repositories (from the last sync, each with the project it already is) and "
+                              "the repository pages in memory (starred or added).", via="backend"),
+    _app(("github", "add"), "Add someone else's repository to memory as a page by its link (or owner/name), with a "
+                            "preview of its README. One of yours: `cicada github project`.", (_p("url"),),
+         via="backend", mutates=True, person=True),
+    _app(("github", "project"), "Add a repository you own as a project, or link it to the project that has its name "
+                                "(--project).",
+         (_p("full_name"), _f("project")), via="backend", mutates=True, person=True),
     # Settings and engines.
     _app(("settings", "owner"), "Who the person is (--name, --handle, --email change it).",
          (_f("name"), _f("handle"), _f("email")), via="backend", mutates=True, person=True),

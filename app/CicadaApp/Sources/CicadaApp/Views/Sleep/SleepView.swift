@@ -185,6 +185,8 @@ struct SleepView: View {
     /// R-IB22 — an export the person is waiting on keeps Saved up while nothing is saved: its strip heads that tab.
     @Environment(ExportWaitStore.self) private var exportWaits
     @Environment(ProvenanceRouter.self) private var provenance
+    /// G229 — this Mac's sync after it was closed (the tracker's answer is fresher than the strip's poll).
+    @Environment(AwaySyncTracker.self) private var awaySync: AwaySyncTracker?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Track Z Z10 — Increase Contrast hides the optional sky band (§11).
     @Environment(\.colorSchemeContrast) private var contrast
@@ -298,9 +300,17 @@ struct SleepView: View {
         .task { await videoCache.refresh() }
         // G212 — the machines strip, asked while the page shows; a failed poll keeps the last answer.
         .task {
+            var cleared = Date.distantPast
             while !Task.isCancelled {
-                await sleepVM.loadMachines()
-                try? await Task.sleep(for: .seconds(CicadaTiming.machinePoll))
+                // The home strip's refusal sentence is cleared at the slow poll's pace only, however fast this runs.
+                let clearing = Date().timeIntervalSince(cleared) >= CicadaTiming.machinePoll
+                if clearing { cleared = Date() }
+                await sleepVM.loadMachines(clearingProblem: clearing)
+                // G229 — faster while a machine syncs after it was closed, so its count and its end land promptly.
+                let syncing = sleepVM.machines.contains { $0.catchUp?.isReading == true }
+                    || awaySync?.view?.isReading == true
+                try? await Task.sleep(for: .seconds(syncing ? CicadaTiming.machinePollWhileSyncing
+                                                             : CicadaTiming.machinePoll))
             }
         }
     }
@@ -1122,6 +1132,10 @@ struct SleepView: View {
                     if machine != nil { selectTab(.waiting) }
                 }
             }
+
+            // G229 — right under the strip that says what waits: what each machine is still syncing after it was closed.
+            AwaySyncLines(entries: AwaySyncWords.machines(own: awaySync?.view, rows: sleepVM.machines),
+                          openSources: { selectedTab = .sources })
 
             // G132 phase 2 — the device that runs consolidation, every other device's lag, and moving it (shared only).
             HomeStripView(model: sleepVM.homeStrip)

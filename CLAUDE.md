@@ -204,7 +204,12 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   A new episode never replaces a file (`create_episode`); dedup, edits and Sleep's revision-checked retirement share
   `episode_lock`, and every page write is atomic (audit K01/A01/A02, `capture-and-sleep.md`).
 - **Every writer scrubs, every source-keyed writer stages through one module** (`episode_scrub`, `episode_staging`:
-  hash over the scrubbed body, edits in place with `processed: false`, deletions tombstoned, never unlinked).
+  hash over the scrubbed body, edits in place with `processed: false` and a `revised` record Sleep reads as a revision
+  (owner 2026-11-03), deletions tombstoned, never unlinked).
+- **Meetings are conversations (owner ruling 2026-11-03, G95):** a recorder's transcript (Hex's Markdown folder, any
+  folder of transcripts) is an episode Sleep consolidates — one per meeting, its own date, through the folder stager;
+  unlike a `media_files` recording. Only a line the recorder labels `You`/`Me` is the person's (52a); every other is
+  its speaker's (`speaker:<label>`), the summary the recorder's model's (`capture-and-sleep.md`).
 - **Capture never writes into a demo bank** (`demo_guard`, by `_bank.yaml`, never by name): every capture/sources
   POST/PUT answers 409; the Stop hook redirects to the real bank left most recently.
 - **Messages are read only for conversations the person ticked (G179)**: the app reads them, the backend refuses any
@@ -242,6 +247,10 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **Sleep tends the inbox (ruling 29):** after each batch's commit it settles questions the person's own words answer
   (spans in their own turns, never a guess) and, per drain, the small stuff by rule, through the person's own resolvers
   as Sleep's commit (`inbox/<kind>/settled:`), each undoable; never a person's identity without their words (`features.md`).
+- **An edited conversation is a revision of itself (G104, owner 2026-11-03):** diffed against the version Sleep read
+  (git), only what changed is read, spans re-anchored never fuzzily; what only removed text said is superseded by the
+  same revision's value (no question) or withdrawn by a record, never deleted; still one conversation for every count;
+  another conversation's word stays an update or a conflict (`episode_revision`, `capture-and-sleep.md`).
 - **Entity promotion:** a first mention stays in the index; a page needs 2+ conversations, >3 exchanges with the person's
   own words, or a link the person made to a high-confidence page other than the owner's — counted on the conversation,
   never guessed (`promotion`) — or the person's own words naming in full exactly one waiting Contacts card, never the "me"
@@ -421,7 +430,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   **The redesign (ruling 48, owner 2026-10-28):** a page is an article carrying its beliefs as citations, never a stacked
   fold; the Inbox lives on Home and each page, off the rail (DESIGN_RULES §9 2026-10-28, DR-77…DR-81).
 - **Bookmarks (G191 v3, 2026-10-15):** the app removes a bookmark from the person's browser only on their click, after
-  asking in words — Chrome through Apple Events (the Automation prompt only then), never Safari, never the backend; it
+  asking in words — Chrome through Apple Events (the Automation prompt only then, or from the Permissions row's own click, owner 2026-11-03), never Safari, never the backend; it
   sees Chrome's bookmark bubble from window bounds alone (no title, no permission), read only in the moment after the
   person's own click in a frontmost Chrome — never on a steady timer (G191 v4) — and posts no answer until a sync confirms the bookmark (`app.md`).
   An answer given is never dropped for a dismissal or a late sync, and a touched panel closes only on the person's act;
@@ -456,7 +465,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   scraping; an unofficial client that breaks a service's terms or risks a ban never is (WhatsApp stays local, `network.md`).
 - **Credentials** live in `~/.cicada/secrets.env` (0600), or the keychain where the app holds them (a connection's
   session too, ruling 47) — never in a bank, a log or the repo.
-- **Headless (G181):** the bank's **home** (a server or any computer; ruling 51 (1), phase 2) is its one writer and binds 127.0.0.1 only; reach from another machine is an
+- **Headless (G181):** the bank's **home** (a server or any computer; ruling 51 (1), phase 2) is its one writer and binds its API to 127.0.0.1 only; reach from another machine is an
   overlay the person runs (never a public port, never funnel — only the G135 listener may be, by the person, ruling 32), and no installer creates or copies a credential (`headless.md`).
   **One click (owner 2026-10-29, amends G132 (c)):** Settings → Devices may run exactly the shown `tailscale serve --bg
   --https=8443 <port>` (tailnet only) or that one mapping's off — argv built by the backend, 10 s, never `funnel` or `up` (`network.md`).
@@ -465,6 +474,18 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   **Ruling 51 (owner 2026-10-29, G132; decided, not built — amends this rail as each phase ships):** one movable home
   writes, mints, commits and runs Sleep; other devices (the phone a full one) hold replicas and send writes as
   transactions; all dial out to an E2E relay that never sees plaintext; nothing merged by git (`headless.md`).
+  **Ruling 51f (owner 2026-11-03, amends c):** nothing rented, no cloud mailbox, no Tailscale requirement. Each device
+  runs an ordered route list (T3 Code's: first that answers, learned routes kept, re-checked each minute and on a
+  network change, moved back) — the home's door on the LAN, a tailnet if present, the configured address, the relay
+  only under Advanced — else it queues; an unsent outbox item never expires. **The door** is the one listener besides
+  loopback: sealed frames only, never the HTTP API or a token, open only while a memory is shared; **it binds loopback
+  and each of this computer's own private (RFC 1918, IPv6 ULA) and Tailscale addresses, one socket each, rebound when
+  the network changes — never a wildcard, a public or global address, nor a carrier's 100.64/10 (a tailnet only on Tailscale's
+  own interface holding its 100.x and `fd7a:` pair, the 100.x not the default route's source)** (on a Mac, loopback until the app's permissions
+  step); a peer only of its socket's own kind, a first packet that proves no pairing key dropped without a byte,
+  rate-limited, fuzzed. Identity
+  is the pairing keys, never an address. The phone is for now a capture device on that list (`network.md`, "The route
+  list"); away-from-home reach (router port, IPv6, a DHT record) waits behind an off switch.
   Phase 1 A built: the home may publish its log (off by default, never a demo; a rewritten history freezes it).
   Phase 1 B built — rail (2) in effect: a client machine may instead run in **replica mode** (`replica_of`): a
   read-only copy it fast-forwards, every bank writer refused but the apply, its writes transactions to the home.

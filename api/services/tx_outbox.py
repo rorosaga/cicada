@@ -11,8 +11,12 @@ own entry landed in that flush, else ``queued``. The keep / drop / hold rules ar
 
 * **wait** (kept, the flush stops so order holds): no answer, 401/403 (a revoked device — nothing more is sent until
   the token works again), 409 ``sleep_writing`` (also a tool's ``sleep_writing`` refusal code), 5xx;
-* **drop**, its reason counted: 400, 404, 405, 413, 422, and **expired** — an entry older than :data:`EXPIRE_S`
-  (7 days, before the home's 8-day key) is dropped rather than risk a second apply;
+* **drop**, its reason counted: 400, 404, 405, 413, 422, and **expired** — an entry the home **may have seen** (it
+  answered, or a send's answer was lost: ``timeout``) more than :data:`EXPIRE_S` ago (7 days, before the home's 8-day
+  key) is dropped rather than risk a second apply, and listed with the rejected ones so it is never silently lost.
+  **An entry that never reached the home never expires** (ruling 51f D1, owner 2026-11-03: "we sync when a machine
+  is on"): with no mailbox, a write waits for the next time a route answers — however long — and applies once;
+  if the memory moved on meanwhile, the home rejects it with a reason (below);
 * **hold**: 409 ``bank_mismatch`` — the home's memory is another one now; held, never in front of the others, tried
   again at most every :data:`HOLD_RETRY_S`;
 * **rejected**: any other refusal the home answered (an inbox item already answered elsewhere) — the transaction no
@@ -20,6 +24,8 @@ own entry landed in that flush, else ``queued``. The keep / drop / hold rules ar
   ``rejected.json`` for the Devices page (the G132 g1 gate: shown, never silently lost).
 
 What the outbox shows beside the queue is counts (:func:`counts`): waiting, held, dropped and rejected — never a body.
+Bounded by :data:`MAX_ENTRIES` and :data:`MAX_TOTAL_BYTES`: a write that does not fit is **not kept and said so**
+(``full``, :func:`full_text`) — never queued in words and dropped in fact.
 """
 from __future__ import annotations
 
@@ -36,6 +42,11 @@ from pathlib import Path
 EXPIRE_S = 7 * 24 * 3600
 HOLD_RETRY_S = 600.0
 MAX_ENTRIES = 5000
+#: With nothing ever expiring unsent, the outbox is bounded by size too: what waits may take at most this much disk.
+MAX_TOTAL_BYTES = 256 * 1024 * 1024
+FULL_TEXT = ("Not kept: this device's queue for the home is full ({waiting} changes, {mb} MB wait already). Nothing "
+             "that waits was dropped. Once the computer that holds your memory is reachable they are sent, and this "
+             "can be made again.")
 MAX_BODY_BYTES = 32 * 1024 * 1024
 REJECTED_KEEP = 200
 DROP_STATUSES = frozenset({400, 404, 405, 413, 422})
@@ -90,7 +101,7 @@ def entries(home: Path | None = None) -> list[Path]:
 
 def tool_entry(tool: str, arguments: dict, *, bank_id: str | None, base_seq: int | None, caller: dict,
                surface: str, options: dict, state: dict | None = None, key: str | None = None) -> dict:
-    return {"v": 1, "id": key or uuid.uuid4().hex, "kind": "tool", "bankId": bank_id, "baseSeq": base_seq,
+    return {"v": 2, "id": key or uuid.uuid4().hex, "kind": "tool", "bankId": bank_id, "baseSeq": base_seq,
             "tool": tool, "arguments": arguments or {}, "caller": caller or {}, "surface": surface,
             "options": options or {}, "state": state or {}, "queuedAt": time.time(), "attempts": 0}
 
@@ -99,9 +110,32 @@ def rest_entry(method: str, path: str, query: str, body: bytes, content_type: st
                base_seq: int | None, key: str | None = None) -> dict:
     if len(body) > MAX_BODY_BYTES:
         raise ValueError("too large to queue")
-    return {"v": 1, "id": key or uuid.uuid4().hex, "kind": "rest", "bankId": bank_id, "baseSeq": base_seq,
+    return {"v": 2, "id": key or uuid.uuid4().hex, "kind": "rest", "bankId": bank_id, "baseSeq": base_seq,
             "method": method, "path": path, "query": query or "", "contentType": content_type or "",
             "body": base64.b64encode(body).decode("ascii"), "queuedAt": time.time(), "attempts": 0}
+
+
+def _size(home: Path | None = None) -> tuple[int, int]:
+    """``(entries, bytes)`` waiting."""
+    paths = entries(home)
+    total = 0
+    for path in paths:
+        try:
+            total += path.stat().st_size
+        except OSError:
+            pass
+    return len(paths), total
+
+
+def _room(entry: dict, home: Path | None = None) -> bool:
+    n, total = _size(home)
+    return n < MAX_ENTRIES and total + len(json.dumps(entry)) <= MAX_TOTAL_BYTES
+
+
+def full_text(home: Path | None = None) -> str:
+    """The queue is full, in words — said every time a write is not kept, never a silent drop."""
+    n, total = _size(home)
+    return FULL_TEXT.format(waiting=n, mb=max(1, round(total / (1024 * 1024))))
 
 
 def describe(entry: dict) -> str:
@@ -119,12 +153,46 @@ def _count(reason: str, home: Path | None = None) -> None:
     _write(folder(home) / "counters.json", data)
 
 
-def _reject(entry: dict, status: int | None, code: str | None, home: Path | None = None) -> None:
+def _note_full(home: Path | None = None, *, refused: bool = True) -> None:
+    """The Devices page's "queue full" (ruling 51f D1): set when a write was not kept, with the queue's size then;
+    cleared when a write is kept again. ``counts`` reads it as full until the queue is smaller than at the refusal."""
+    data = _counters(home)
+    if refused:
+        data["fullAt"] = list(_size(home))
+    elif "fullAt" not in data:
+        return
+    else:
+        data.pop("fullAt", None)
+    _write(folder(home) / "counters.json", data)
+
+
+def _reject(entry: dict, status: int | None, code: str | None, home: Path | None = None, *,
+            counted: bool = True) -> None:
     path = folder(home) / "rejected.json"
     rows = (_read(path) or {}).get("rows") or []
     rows.append({"id": entry.get("id"), "what": describe(entry), "status": status, "code": code, "at": time.time()})
     _write(path, {"rows": rows[-REJECTED_KEEP:]})
-    _count("rejected", home)
+    if counted:
+        _count("rejected", home)
+
+
+def may_have_landed_at(entry: dict) -> float | None:
+    """When the home first may have seen ``entry`` (it answered, or an answer was lost), or None — never sent, or only
+    ever refused before a connection. An entry from before this rule that was tried is taken to have been seen when it
+    was queued (the old rule)."""
+    at = entry.get("maybeLandedAt")
+    if isinstance(at, (int, float)):
+        return float(at)
+    if int(entry.get("v") or 1) < 2 and int(entry.get("attempts") or 0) > 0:
+        return float(entry.get("queuedAt") or 0)
+    return None
+
+
+def _reached(status: int | None, body) -> bool:
+    """Did this send reach the home? Any answer did; no answer only when it was sent and the answer lost."""
+    if status is not None:
+        return True
+    return isinstance(body, dict) and body.get("_noAnswer") == "timeout"
 
 
 def verdict(entry: dict, status: int | None, body: dict | None) -> str:
@@ -157,7 +225,7 @@ def keep(entry: dict, *, home: Path | None = None) -> bool:
         for path in waiting:
             if path.name.endswith(tag) and (_read(path) or {}).get("id") == entry["id"]:
                 return True          # kept already (a reconcile done again after a cut): kept once
-        if len(waiting) >= MAX_ENTRIES:
+        if not _room(entry, home):
             return False
         _write(folder(home) / f"tx-{time.time_ns():020d}{tag}", entry)
     return True
@@ -169,10 +237,13 @@ def submit(entry: dict, send, *, home: Path | None = None, deadline_s: float = 3
     # One hold across the write and its flush (review of #566): a flush racing in between (the follower's) could send
     # this entry and leave this caller answering "queued" for a write that landed.
     with _locked(home):
-        if len(entries(home)) >= MAX_ENTRIES:
-            return "full", None, {}
+        if not _room(entry, home):
+            _count("full", home)
+            _note_full(home)
+            return "full", None, {"code": "queue_full", "text": full_text(home)}
         name = f"tx-{time.time_ns():020d}-{entry['id'][:12]}.json"
         _write(folder(home) / name, entry)
+        _note_full(home, refused=False)
         outcome = _flush_locked(send, home=home, deadline_s=deadline_s, now=time.time)
     return outcome.get(entry["id"], ("queued", None, {}))
 
@@ -195,9 +266,11 @@ def _flush_locked(send, *, home: Path | None, deadline_s: float, now) -> dict[st
         if entry is None:
             path.unlink(missing_ok=True)
             continue
-        if now() - float(entry.get("queuedAt") or 0) > EXPIRE_S:
+        seen_at = may_have_landed_at(entry)
+        if seen_at is not None and now() - seen_at > EXPIRE_S:
             path.unlink(missing_ok=True)
             _count("expired", home)
+            _reject(entry, None, "expired_may_have_landed", home, counted=False)
             decided[entry.get("id", "")] = ("expired", None, {})
             continue
         if entry.get("heldAt") and now() - float(entry["heldAt"]) < HOLD_RETRY_S:
@@ -206,6 +279,8 @@ def _flush_locked(send, *, home: Path | None, deadline_s: float, now) -> dict[st
             status, body = send(entry)
         except Exception:  # noqa: BLE001 — a send that raised is no answer
             status, body = None, None
+        if _reached(status, body) and entry.get("maybeLandedAt") is None:
+            entry["maybeLandedAt"] = now()
         v = verdict(entry, status, body)
         decided[entry["id"]] = (v, status, body or {})
         if v == "landed":
@@ -230,7 +305,7 @@ def _flush_locked(send, *, home: Path | None, deadline_s: float, now) -> dict[st
 
 
 def counts(home: Path | None = None) -> dict:
-    """``{waiting, held, dropped, expired, rejected, oldestAt}`` — numbers only."""
+    """``{waiting, held, full, dropped, expired, rejected, oldestAt}`` — numbers and one flag only."""
     waiting = held = 0
     oldest = None
     for path in entries(home):
@@ -243,7 +318,12 @@ def counts(home: Path | None = None) -> dict:
         if isinstance(at, (int, float)) and (oldest is None or at < oldest):
             oldest = at
     c = _counters(home)
-    return {"waiting": waiting, "held": held, "expired": int(c.get("expired") or 0),
+    # ``full``: the last write was not kept and nothing has left the queue since, or not even a small one would fit
+    # (the Devices page says so in words; ruling 51f D1).
+    n, total = _size(home)
+    at = c.get("fullAt")
+    full = not _room({}, home) or (isinstance(at, list) and len(at) == 2 and (n, total) >= (int(at[0]), int(at[1])))
+    return {"waiting": waiting, "held": held, "full": full, "expired": int(c.get("expired") or 0), "refusedFull": int(c.get("full") or 0),
             "dropped": sum(int(v) for k, v in c.items() if k.startswith("dropped_")),
             "rejected": int(c.get("rejected") or 0), "oldestAt": oldest}
 

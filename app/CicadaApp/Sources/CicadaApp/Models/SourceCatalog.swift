@@ -6,7 +6,7 @@ import Foundation
 /// (`/sources/channels`, `/sources/overview`, the browsers on this Mac, the sites an agent may read), so the words and
 /// the order are tested without a view.
 enum SourceCatalogGroup: String, CaseIterable, Identifiable {
-    case accounts, thisMac, exports, feeds, conversations
+    case accounts, thisMac, meetings, exports, feeds, conversations
 
     var id: String { rawValue }
 
@@ -14,6 +14,7 @@ enum SourceCatalogGroup: String, CaseIterable, Identifiable {
         switch self {
         case .accounts: Copy.Catalog.accounts
         case .thisMac: Copy.Catalog.thisMac
+        case .meetings: Copy.Catalog.meetings
         case .exports: Copy.Catalog.exports
         case .feeds: Copy.Catalog.feeds
         case .conversations: Copy.Catalog.conversations
@@ -85,6 +86,10 @@ enum SourceCatalog {
     static let wisprChannel = "wispr-flow"
     /// G218 — activity traces' entry, origin and `localReaders` key: recorded by the app, kept by This Mac's backend.
     static let tracesId = "traces"
+    /// G95 (2026-11-03) — Meeting recorders: Hex's own Markdown folder, and any other folder of transcripts. Both are
+    /// meeting folders (`FolderRegistration.isMeetings`), told apart by the folder's `recorder`.
+    static let hexId = "hex"
+    static let meetingFoldersId = "meeting-folders"
 
     /// The fixed entries. Browsers on this Mac and watched folders are added from what is present (`entries`).
     /// The Obsidian vault entry is gone for now (owner 2026-10-22); a vault is a folder.
@@ -103,9 +108,8 @@ enum SourceCatalog {
                            tile: .reddit, site: "reddit"),
         SourceCatalogEntry(id: "pinterest", group: .accounts, title: "Pinterest", origin: "pinterest",
                            channels: ["pinterest"], tile: .pinterest),
-        // Ruling 47 tier 2: highlights with their sources, through the person's own Readwise token.
-        SourceCatalogEntry(id: "readwise", group: .accounts, title: "Readwise", origin: "readwise",
-                           channels: ["readwise"]),
+        // G230: the repositories the person owns and the ones they starred, through their own GitHub token.
+        SourceCatalogEntry(id: "github", group: .accounts, title: "GitHub", origin: "github", channels: ["github"]),
         // G32: Spotify is export-only (its terms bar an API connector): the library and the listening, from the
         // person's own download.
         SourceCatalogEntry(id: "spotify", group: .accounts, title: "Spotify", origin: "spotify-saved",
@@ -155,9 +159,11 @@ enum SourceCatalog {
                            verb: .connect(Copy.Chats.connect)),
     ]
 
-    /// Every entry: the fixed ones, one per browser on this Mac (or one that synced before), Wispr Flow once it is
-    /// here, and — until the Agents page holds them — one per agent whose conversations the overview lists.
-    static func entries(browsers: [BrowserSpec], wisprPresent: Bool,
+    /// Every entry: the fixed ones, one per browser on this Mac (or one that synced before), the meeting recorders
+    /// (Hex once it is here or has a folder, Wispr Flow once it is here, a folder of transcripts always), and — until
+    /// the Agents page holds them — one per agent whose conversations the overview lists.
+    static func entries(browsers: [BrowserSpec], wisprPresent: Bool, hexPresent: Bool = false,
+                        meetingFolders: [FolderRegistration] = [],
                         overview: [SourceOverview]) -> [SourceCatalogEntry] {
         var all = fixed
         let browserEntries = browsers.map { spec in
@@ -170,12 +176,24 @@ enum SourceCatalog {
         // Browsers sit after Messages, before Apple Notes: the Mac's own apps first.
         let at = all.firstIndex { $0.id == "notes" } ?? all.endIndex
         all.insert(contentsOf: browserEntries, at: at)
-        if wisprPresent {
-            let folders = all.firstIndex { $0.id == "folders" } ?? all.endIndex
-            all.insert(SourceCatalogEntry(id: wisprChannel, group: .thisMac, title: "Wispr Flow",
-                                          origin: "wispr-flow", channels: [wisprChannel]),
-                       at: folders + 1)
+        // G95 (2026-11-03): Meeting recorders sit after This Mac, before the exports.
+        let meetings = meetingFolders.filter(\.isMeetings)
+        let hexChannels = meetings.filter { $0.recorder == hexId }.map(\.channelId)
+        var recorders: [SourceCatalogEntry] = []
+        if hexPresent || !hexChannels.isEmpty {
+            recorders.append(SourceCatalogEntry(id: hexId, group: .meetings, title: "Hex", origin: hexId,
+                                                channels: hexChannels, verb: .connect(Copy.Catalog.addHexFolder)))
         }
+        if wisprPresent {
+            recorders.append(SourceCatalogEntry(id: wisprChannel, group: .meetings, title: "Wispr Flow",
+                                                origin: "wispr-flow", channels: [wisprChannel]))
+        }
+        recorders.append(SourceCatalogEntry(id: meetingFoldersId, group: .meetings, title: Copy.Catalog.meetingFolders,
+                                            origin: meetingFoldersId,
+                                            channels: meetings.filter { $0.recorder != hexId }.map(\.channelId),
+                                            verb: .connect(Copy.Catalog.addFolder)))
+        let exports = all.firstIndex { $0.group == .exports } ?? all.endIndex
+        all.insert(contentsOf: recorders, at: exports)
         let claimed = Set(all.flatMap(\.channels))
         for row in overview where row.kind == .harness && !claimed.contains(row.id)
             && !claimed.contains(row.channelId ?? "") {
@@ -229,7 +247,7 @@ enum SourceCatalog {
     /// The channels a person signs in to (`ChannelActions.connectorChannels`). Only these can need a sign-in: a reader
     /// on this Mac whose failure happens to say "not authorized" or "token" needs a permission or a retry, never an
     /// account (2026-10-23).
-    static let signInChannels: Set<String> = ["pinterest", "reddit", "x", "readwise", "notion-api"]
+    static let signInChannels: Set<String> = ["pinterest", "reddit", "x", "notion-api", "github"]
     /// G206 (#426): the sites whose saved list the person's own agent can keep current from their signed-in browser
     /// (`reading_settings.SAVED_LISTS`).
     static let savedListSites: Set<String> = ["x", "instagram", "linkedin"]
@@ -291,25 +309,37 @@ enum SourceCatalog {
         return overviewRow(for: entry, in: overview)?.lastActivityDate
     }
 
+    /// `checked` (2026-11-03): when a chat reader on this Mac last read its ticked chats, by entry id (`ChatCheck`) — a
+    /// read that found nothing new is still a sync, so the row's "4 days ago" (the last read that POSTED) never stands
+    /// for a reader that checked a minute ago.
     static func rows(entries: [SourceCatalogEntry], channels: [SourceChannel], overview: [SourceOverview],
                      readableSites: Set<String>, localReaders: [String: Bool] = [:],
-                     savedListsOn: Set<String> = [], localAgent: Bool = false) -> [SourceCatalogRow] {
+                     savedListsOn: Set<String> = [], localAgent: Bool = false,
+                     checked: [String: Date] = [:]) -> [SourceCatalogRow] {
         entries.map { entry in
-            SourceCatalogRow(entry: entry,
-                             status: status(for: entry, channels: channels, overview: overview,
-                                            readableSites: readableSites, localReaders: localReaders,
-                                            savedListsOn: savedListsOn, localAgent: localAgent),
-                             lastSync: lastSync(for: entry, channels: channels, overview: overview))
+            let synced = lastSync(for: entry, channels: channels, overview: overview)
+            return SourceCatalogRow(entry: entry,
+                                    status: status(for: entry, channels: channels, overview: overview,
+                                                   readableSites: readableSites, localReaders: localReaders,
+                                                   savedListsOn: savedListsOn, localAgent: localAgent),
+                                    lastSync: [synced, checked[entry.id]].compactMap { $0 }.max())
         }
     }
 
-    /// The groups in their fixed order, each in the catalogue's order; an empty group is not drawn.
+    /// The groups in their fixed order; an empty group is not drawn. 2026-11-03 (owner: "those sources that are
+    /// connected make them go to the top of the section so its easy to see whats connected and whats not") — inside a
+    /// group every source that is set up (connected, or waiting on a sign-in or an agent) comes first, then the ones
+    /// that are off, each part in the catalogue's own order (a stable partition, so nothing else moves).
     static func grouped(_ rows: [SourceCatalogRow]) -> [(group: SourceCatalogGroup, rows: [SourceCatalogRow])] {
         SourceCatalogGroup.allCases.compactMap { group in
             let inGroup = rows.filter { $0.entry.group == group }
-            return inGroup.isEmpty ? nil : (group, inGroup)
+            let ordered = inGroup.filter { $0.status != .off } + inGroup.filter { $0.status == .off }
+            return ordered.isEmpty ? nil : (group, ordered)
         }
     }
+
+    /// The rows in the order the page draws them (`grouped`, flattened): what the arrow keys walk.
+    static func drawnOrder(_ rows: [SourceCatalogRow]) -> [SourceCatalogRow] { grouped(rows).flatMap(\.rows) }
 
     /// "Sources · 6 connected" — the eyebrow counts what is connected; a list waiting for an agent is not.
     static func connectedCount(_ rows: [SourceCatalogRow]) -> Int {
@@ -320,12 +350,17 @@ enum SourceCatalog {
     /// on the right says the rest — never a sentence, design-refs pattern 4).
     static func line(_ row: SourceCatalogRow, now: Date, locale: Locale = .autoupdatingCurrent) -> String? {
         guard row.status == .connected || row.status == .needsSignIn, let last = row.lastSync else { return nil }
-        guard now.timeIntervalSince(last) >= 60 else { return Copy.Catalog.justNow }
+        return ago(last, now: now, locale: locale)
+    }
+
+    /// "just now" under a minute, else the short relative words ("4 days ago", "2 min. ago"), computed when read (DR-58).
+    static func ago(_ date: Date, now: Date, locale: Locale = .autoupdatingCurrent) -> String {
+        guard now.timeIntervalSince(date) >= 60 else { return Copy.Catalog.justNow }
         let f = RelativeDateTimeFormatter()
         f.unitsStyle = .short
         f.dateTimeStyle = .numeric
         f.locale = locale
-        return f.localizedString(for: last, relativeTo: now)
+        return f.localizedString(for: date, relativeTo: now)
     }
 }
 

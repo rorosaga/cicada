@@ -176,9 +176,10 @@ def walled(ref: str) -> bool:
 def checker(source: dict) -> str | None:
     """Who re-checks this source now: ``cicada`` (a public page, Cicada's own fetcher), ``agent`` (a login-walled
     page, a page whose read was blocked, or a public page Cicada saw change with no machine-readable fact), or None
-    (a path, a repo, an app, a note — nothing to visit)."""
+    (a path, a repo, an app, a note, or a link whose record a connected API keeps — nothing to visit)."""
     ref = _url_ref(source)
-    if ref is None:
+    if ref is None or source.get("kept_by"):
+        # `kept_by`: an official API the person connected keeps the record behind this link (G230, GitHub's sync).
         return None
     st = state(source)
     if walled(ref) or fact_sources.effective_access(source) == fact_sources.ACCESS_SIGNED_IN or st.get("blocked"):

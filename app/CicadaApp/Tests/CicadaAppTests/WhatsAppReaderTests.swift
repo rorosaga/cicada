@@ -146,7 +146,17 @@ final class FakeChatSourcesAPI: ChatSourcesAPI {
     private(set) var photoPosts: [[MessagesPhotoPayload]] = []
     func putChatPhotos(_ photos: [MessagesPhotoPayload]) async throws { photoPosts.append(photos) }
 
+    /// #578 review — held while set: the post waits on `postGate`, as a slow pass does. `refusePosts` refuses that many
+    /// posts first (the backend down).
+    var holdPost = false
+    var postGate: CheckedContinuation<Void, Never>?
+    var refusePosts = 0
     func postWhatsApp(_ json: Data) async throws -> ChatSyncAnswer {
+        if refusePosts > 0 {
+            refusePosts -= 1
+            throw URLError(.cannotConnectToHost)
+        }
+        if holdPost { await withCheckedContinuation { postGate = $0 } }
         posts.append(try XCTUnwrap(JSONSerialization.jsonObject(with: json) as? [String: Any]))
         return try JSONDecoder().decode(ChatSyncAnswer.self, from: Data(#"{"created": 1}"#.utf8))
     }
@@ -246,6 +256,37 @@ final class WhatsAppReaderTests: XCTestCase {
         try await watcher.readHistory(chat)
         let all = api.posts.flatMap { ($0["messages"] as? [[String: Any]]) ?? [] }.compactMap { $0["stanza"] as? String }
         XCTAssertTrue(all.contains("H1"), "history read on the person's ask")
+    }
+
+    /// 2026-11-03 (live) — the owner's case: one ticked chat whose newest message is six days old, outside the recheck
+    /// window. A pass posts nothing (so the backend's last sync stays days back), and the watcher still says when it
+    /// checked and how new the chat's newest message is; the page says that, not the last post.
+    @MainActor
+    func testAQuietTickedChatIsCheckedAndSaysSoWithoutPosting() async throws {
+        let sixDaysAgo = now.timeIntervalSinceReferenceDate - 6 * 86_400
+        let friend = store.session(friendJid, name: "Bob Example", last: sixDaysAgo)
+        store.message(friend, "Q1", at: sixDaysAgo, text: "the last word, six days ago")
+        let api = FakeChatSourcesAPI()
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "whatsapp-test-\(UUID().uuidString)"))
+        let checkedAt = now
+        let watcher = WhatsAppWatcher(api: api, reader: reader(), defaults: defaults, folder: store.dir,
+                                      makeWatch: { _, _ in nil }, lookUpCards: { _ in [:] }, clock: { checkedAt })
+        await watcher.loadList()
+        let chat = try XCTUnwrap(watcher.chats.first)
+        try await watcher.setTicked(chat, true)
+        _ = try await watcher.syncNow()
+        XCTAssertEqual(api.posts.count, 0, "nothing new and nothing in the window: nothing posted")
+        let newest = Date(timeIntervalSinceReferenceDate: sixDaysAgo)
+        XCTAssertEqual(watcher.check, ChatCheck(at: checkedAt, newest: newest))
+        // What the page says two minutes later — never the day of the last post.
+        let us = Locale(identifier: "en_US")
+        let status = SourcePageStatus.of(row: .connected, run: .synced(newest), latest: nil, check: watcher.check)
+        let viewed = checkedAt.addingTimeInterval(120)
+        let detail = status.detail(today: ISODay.today(now: viewed), now: viewed, locale: us) ?? ""
+        XCTAssertTrue(detail.hasPrefix("checked 2 min. ago · newest message "), detail)
+        // Unticked: nothing is said any more.
+        try await watcher.setTicked(chat, false)
+        XCTAssertNil(watcher.check)
     }
 
     /// #502 review B1: a busy chat — more already-posted rows in the recheck window than a batch holds — still reaches
@@ -348,6 +389,100 @@ final class WhatsAppReaderTests: XCTestCase {
         await model.refresh()
         await model.abandonSignIn()
         XCTAssertEqual(api.telegramDisconnects, 2, "a connected session is never ended by closing the sheet")
+    }
+
+    /// 2026-11-03 (live): a pass clones the store, and the clone raised an FSEvent on it — so every pass ran the next one
+    /// at the floor, forever, re-posting the 48 h window each time. A real FSEvents stream on the synthetic store: after
+    /// one pass, nothing more runs until the store is written; a write still runs a pass.
+    @MainActor
+    func testThePassesOwnCopyNeverRunsTheNextPass() async throws {
+        let friend = store.session(friendJid, name: "Bob Example")
+        store.message(friend, "R1", at: now.timeIntervalSinceReferenceDate - 60, text: "inside the window")
+        try await Task.sleep(for: .milliseconds(1200))   // the store's own creation lands before the stream starts
+        let api = FakeChatSourcesAPI()
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "whatsapp-test-\(UUID().uuidString)"))
+        let watcher = WhatsAppWatcher(api: api, reader: reader(), defaults: defaults, folder: store.dir,
+                                      debounce: .milliseconds(50), minimumInterval: .zero,
+                                      makeWatch: { path, onChange in FSEventsWatch(path: path, latency: 0.1,
+                                                                                   handler: onChange) },
+                                      lookUpCards: { _ in [:] })
+        await watcher.loadList()
+        let chat = try XCTUnwrap(watcher.chats.first)
+        try await watcher.setTicked(chat, true)        // arms the real watch; the tick's pass re-posts the window
+        try await Task.sleep(for: .seconds(3))
+        let settled = api.posts.count
+        try await Task.sleep(for: .seconds(3))
+        XCTAssertEqual(api.posts.count, settled, "nothing was written: no pass runs (each would re-post R1)")
+        XCTAssertLessThanOrEqual(settled, 2, "the tick's pass, and at most the one its own copy raced")
+        store.message(friend, "R2", at: now.timeIntervalSinceReferenceDate - 1, text: "a new one")
+        for _ in 0..<50 where !api.posts.contains(where: { post in
+            ((post["messages"] as? [[String: Any]]) ?? []).contains { $0["stanza"] as? String == "R2" } }) {
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        let stanzas = api.posts.flatMap { ($0["messages"] as? [[String: Any]]) ?? [] }.compactMap { $0["stanza"] as? String }
+        XCTAssertTrue(stanzas.contains("R2"), "a write by WhatsApp still runs a pass")
+        try await watcher.setTicked(chat, false)        // disarms the watch
+    }
+
+    @MainActor
+    private func stanzas(_ api: FakeChatSourcesAPI) -> [String] {
+        api.posts.flatMap { ($0["messages"] as? [[String: Any]]) ?? [] }.compactMap { $0["stanza"] as? String }
+    }
+
+    /// #578 review 1: a write that lands while a pass runs raises its event during the pass, which joins it — so the
+    /// message waited for the next write. When a pass ends with the store moved since it began, it runs once more.
+    @MainActor
+    func testAWriteDuringAPassIsReadWhenThePassEnds() async throws {
+        let friend = store.session(friendJid, name: "Bob Example")
+        store.message(friend, "P1", at: now.timeIntervalSinceReferenceDate - 60, text: "inside the window")
+        let api = FakeChatSourcesAPI()
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "whatsapp-test-\(UUID().uuidString)"))
+        var onChange: (@MainActor () -> Void)?
+        let watcher = WhatsAppWatcher(api: api, reader: reader(), defaults: defaults, folder: store.dir,
+                                      debounce: .milliseconds(20), minimumInterval: .zero,
+                                      makeWatch: { _, handler in onChange = handler; return nil },
+                                      lookUpCards: { _ in [:] })
+        await watcher.loadList()
+        try await watcher.setTicked(try XCTUnwrap(watcher.chats.first), true)
+        api.holdPost = true
+        let pass = Task { await watcher.run() }
+        while api.postGate == nil { await Task.yield() }   // the pass has read and is posting
+        store.message(friend, "P2", at: now.timeIntervalSinceReferenceDate - 1, text: "said during the pass")
+        onChange?()                                        // its event, while the pass runs: joins it
+        try await Task.sleep(for: .milliseconds(200))       // past the debounce: the event's run joined the pass
+        api.holdPost = false
+        api.postGate?.resume()
+        _ = await pass.value
+        XCTAssertFalse(stanzas(api).contains("P2"), "the running pass had read before the write")
+        for _ in 0..<50 where !stanzas(api).contains("P2") { try await Task.sleep(for: .milliseconds(20)) }
+        XCTAssertTrue(stanzas(api).contains("P2"), "the pass's end saw the store moved and read it")
+        let settled = api.posts.count
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(api.posts.count, settled, "nothing moved since: no further pass")
+    }
+
+    /// #578 review 2: a pass whose post failed (the backend down) kept the signature it began with, so no event could
+    /// retry it until WhatsApp wrote again. A failed pass now clears it: the next change event retries.
+    @MainActor
+    func testAFailedPassIsRetriedOnTheNextEvent() async throws {
+        let friend = store.session(friendJid, name: "Bob Example")
+        store.message(friend, "F1", at: now.timeIntervalSinceReferenceDate - 60, text: "inside the window")
+        let api = FakeChatSourcesAPI()
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "whatsapp-test-\(UUID().uuidString)"))
+        var onChange: (@MainActor () -> Void)?
+        let watcher = WhatsAppWatcher(api: api, reader: reader(), defaults: defaults, folder: store.dir,
+                                      debounce: .milliseconds(20), minimumInterval: .zero,
+                                      makeWatch: { _, handler in onChange = handler; return nil },
+                                      lookUpCards: { _ in [:] })
+        await watcher.loadList()
+        api.refusePosts = 1
+        try await watcher.setTicked(try XCTUnwrap(watcher.chats.first), true)   // its pass's post is refused
+        XCTAssertTrue(api.posts.isEmpty)
+        if case .failed = watcher.status {} else { XCTFail("the refused post is a failed pass: \(watcher.status)") }
+        onChange?()                                        // an event with nothing written (the pass's own copy)
+        for _ in 0..<50 where api.posts.isEmpty { try await Task.sleep(for: .milliseconds(20)) }
+        XCTAssertTrue(stanzas(api).contains("F1"), "the next event retried the failed pass")
+        XCTAssertEqual(watcher.status, .watching)
     }
 
     /// File change → posted (the app's half; the backend's is `test_chat_live.test_live_update_cost_p95`): one new

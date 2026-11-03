@@ -35,12 +35,13 @@ enum LocalSourceRowText {
 
     /// A folder row's state line on Search & files: its notes and when it was last read, or why it can't be.
     static func folderState(_ channel: SourceChannel, onThisMac: Bool, reading: Bool, now: Date = Date(),
-                            locale: Locale = .autoupdatingCurrent) -> String {
+                            locale: Locale = .autoupdatingCurrent, meetings: Bool = false) -> String {
         if !onThisMac { return LocalSourceCopy.folderMissing }
         if let error = channel.lastError { return error }
         if reading { return Copy.SearchFiles.readingNow }
         guard channel.connected else { return Copy.SearchFiles.notReadYet }
-        var parts = [Copy.SearchFiles.notes(channel.count, locale: locale)]
+        var parts = [meetings ? Copy.SearchFiles.meetings(channel.count, locale: locale)
+                              : Copy.SearchFiles.notes(channel.count, locale: locale)]
         if let date = channel.lastSyncDate { parts.append(SourceRowText.lastSynced(date, now: now, locale: locale)) }
         return parts.joined(separator: " · ")
     }
@@ -86,7 +87,8 @@ struct FolderChannelRow: View {
                         Tag(text: Copy.SearchFiles.depthMemory)
                             .help(Copy.SearchFiles.depthMemoryHelp)
                     }
-                    WarningLine(text: LocalSourceRowText.folderState(channel, onThisMac: onThisMac, reading: reading),
+                    WarningLine(text: LocalSourceRowText.folderState(channel, onThisMac: onThisMac, reading: reading,
+                                                                     meetings: folder?.isMeetings ?? false),
                                 warning: channel.lastError != nil || !onThisMac)
                 }
                 .help(folder?.path ?? "")
@@ -459,8 +461,11 @@ struct FolderManagePanel: View {
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .lineLimit(1)
                 .truncationMode(.middle)
-            AgentFolderPicker(root: root, rows: $rows, message: $message)
-            Text(Copy.Folders.manageHelp)
+            // G95: a meeting folder has no "written by an agent" parts — each line is its speaker's.
+            if !folder.isMeetings {
+                AgentFolderPicker(root: root, rows: $rows, message: $message)
+            }
+            Text(folder.isMeetings ? Copy.Catalog.meetingWords : Copy.Folders.manageHelp)
                 .font(CicadaTheme.captionFont)
                 .foregroundStyle(CicadaTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -476,6 +481,7 @@ struct FolderManagePanel: View {
                               disabledHelp: localSources.isOnThisMac(folder) ? Copy.SearchFiles.readingNow : Copy.SearchFiles.readNowAway) {
                     Task { await localSources.syncNow(folder) }
                 }
+                if !folder.isMeetings {
                 PrimaryActionButton(title: Copy.SearchFiles.save) {
                     Task {
                         busy = true
@@ -488,6 +494,7 @@ struct FolderManagePanel: View {
                             message = AddSourceSheet.friendlyError(error)
                         }
                     }
+                }
                 }
             }
         }

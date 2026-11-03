@@ -233,7 +233,9 @@ APP_SYNC_ROUTED = {
     "chrome-bookmarks", "safari-bookmarks", "safari-tabs", "notes",
     "pinterest", "reddit", "x", "folder:*", "wispr-flow", "calendar-local",
     # ruling 47 tier 2: the token connectors, routed to `ChannelActions.connectorChannels` like Reddit and X.
-    "readwise", "notion-api",
+    "notion-api",
+    # G230: GitHub's repositories and stars, a token connector like Notion's live one.
+    "github",
     # round 4 (C9): rows that appear once synced — the test gives each a sync.
     "brave-bookmarks", "vivaldi-bookmarks", "comet-bookmarks", "dia-bookmarks",
     # round 4 (G160): Chrome's open tab groups, once synced.

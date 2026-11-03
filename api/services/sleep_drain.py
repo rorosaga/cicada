@@ -54,6 +54,8 @@ class DrainStop:
     resets_at: int | None = None
     limit: str | None = None
     transient: bool = False                         # internal: a recoverable engine interruption
+    #: The network left, not the engine (``OFFLINE_CAUSES``): the run waits for it and reads the batch again.
+    offline: str | None = None
 
     def to_wire(self) -> dict:
         return {"reason": self.reason, "sentence": self.sentence or None,
@@ -79,6 +81,7 @@ class BatchLive:
     transient_stop: DrainStop | None = None           # discard this batch before its first write
     timeouts: set[str] = field(default_factory=set)    # compare episode-specific failures across Continues
     unnamed_failed: set[str] = field(default_factory=set)  # CLI rejected this input without a classified cause
+    marks: dict = field(default_factory=dict)          # id -> machine_state.Mark when its read started
     sort_done: int = 0
     sort_total: int | None = None
     decide_done: int = 0
@@ -146,6 +149,10 @@ class DrainState:
     reserve: dict | None = None                           # {"pct", "windows": [...]} once observed
     resumed: bool = False                                 # this leg continues an earlier one
     auto_used: int = 0                                    # automatic continues this run has used (ruling 15)
+    #: The network left mid-run (2026-11-03): ``waiting`` names why while the run waits for it (an
+    #: ``OFFLINE_CAUSES`` value, else ``None``); ``offline_waits`` counts the waits this leg took.
+    waiting: str | None = None
+    offline_waits: int = 0
     engine_label: str | None = None                       # the engine the run resolved once, and its model
     engine_model: str | None = None
     engine_shown: str | None = None                       # its model as the Sleep page shows one (`engine_select.shown_model`)
@@ -231,6 +238,124 @@ def next_batch_retrying(frozen_ids: list[str], waiting: set[str], settled: set[s
     ordered = retries + rest
     batch = ordered[:max(1, size)]
     return batch, len(ordered) - len(batch)
+
+
+# --------------------------------------------------------------------------- #
+# The network left (2026-11-03): a laptop asleep, offline, or a request that timed out
+# --------------------------------------------------------------------------- #
+
+#: Why a read lost the network: the machine slept through the call, it has no network now, or the connection
+#: dropped (a transport error or the transport's own timeout) with a network present.
+OFFLINE_CAUSES = ("asleep", "no_network", "connection")
+
+#: A call that overlapped this much machine sleep failed because of the sleep.
+SLEPT_S = 30.0
+#: How long one wait looks for a network, in seconds the machine is AWAKE (a closed lid uses none of it).
+OFFLINE_WAIT_S = 600.0
+#: How often the wait looks for a route, and how long it lets a network that just came back settle (DNS, a
+#: Wi-Fi sign-in) before reading again.
+OFFLINE_POLL_S = 5.0
+OFFLINE_SETTLE_S = 15.0
+#: Waits in a row before the run pauses instead; a committed batch starts the count over.
+OFFLINE_RETRIES = 3
+#: With a network present but the connection dropping: the wait before each try again, in order (seconds).
+CONNECTION_BACKOFF_S = (30.0, 120.0, 300.0)
+
+#: Said by the backend, which also runs headless on a server (G181): "this computer", never "the Mac".
+_OFFLINE_SENTENCES = {
+    "asleep": "This computer was asleep and the network was not back yet.",
+    "no_network": "This computer had no network.",
+    "connection": "The connection kept dropping.",
+}
+
+
+def offline_cause(exc: BaseException, *, slept_s: float, route: bool) -> str | None:
+    """Whether a failed engine call is the network's doing, and how; ``None`` when it is not.
+
+    Never the account, the plan or the model: a sign-in, a limit and a refused model keep their own classes
+    whatever the machine did. A failure of the connection itself is the network's always. Any other engine or
+    transport failure is the network's only on the machine's own evidence — the call overlapped a machine sleep, or
+    there is no route off the machine — because without it an unnamed failure may be the input's."""
+    if isinstance(exc, (engine_errors.EngineThrottled, engine_errors.EngineExhausted,
+                        engine_errors.EngineUnavailable, engine_errors.EngineModelNotFound)):
+        return None
+    transport = _is_transport(exc)
+    if not transport and not _machine_can_explain(exc):
+        return None
+    if slept_s >= SLEPT_S:
+        return "asleep"
+    if not route:
+        return "no_network"
+    return "connection" if transport else None
+
+
+def _is_transport(exc: BaseException) -> bool:
+    """A failure of the connection itself: Cicada's own diagnosis, or a client's connection error."""
+    if isinstance(exc, engine_errors.EngineConnectionLost):
+        return True
+    try:
+        import httpx
+
+        if isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout, httpx.NetworkError)):
+            return True
+    except Exception:  # pragma: no cover - httpx missing
+        pass
+    try:
+        import litellm
+
+        if isinstance(exc, litellm.exceptions.APIConnectionError):
+            return True
+    except Exception:  # pragma: no cover - litellm missing or renamed
+        pass
+    return isinstance(exc, ConnectionError) or (
+        isinstance(exc, OSError) and getattr(exc, "errno", None) in _NET_ERRNOS)
+
+
+def _machine_can_explain(exc: BaseException) -> bool:
+    """An engine call that failed in a way a sleeping or offline machine causes (never an answer's shape)."""
+    if isinstance(exc, (engine_errors.EngineError, OSError, TimeoutError)):
+        return True
+    try:
+        import httpx
+
+        if isinstance(exc, httpx.HTTPError):
+            return True
+    except Exception:  # pragma: no cover
+        pass
+    try:
+        import litellm
+
+        lx = litellm.exceptions
+        return isinstance(exc, (lx.Timeout, lx.APIError, lx.ServiceUnavailableError, lx.InternalServerError))
+    except Exception:  # pragma: no cover
+        return False
+
+
+def _net_errnos() -> frozenset:
+    import errno
+
+    names = ("ENETUNREACH", "EHOSTUNREACH", "ENETDOWN", "EHOSTDOWN", "ECONNREFUSED", "ECONNRESET", "ECONNABORTED",
+             "ETIMEDOUT", "ENOTCONN")
+    return frozenset(getattr(errno, n) for n in names if hasattr(errno, n))
+
+
+_NET_ERRNOS = _net_errnos()
+
+
+def offline_stop(cause: str, *, gave_up: bool = False) -> DrainStop:
+    """The stop a lost network leaves. While the run waits it is never shown; when the run gives up it is a pause
+    (``engine`` reason, ``engine_kind: offline``) in words about the network, never about the engine."""
+    lead = _OFFLINE_SENTENCES.get(cause, _OFFLINE_SENTENCES["connection"])
+    tail = (" Sleep waited and it did not come back. Continue once it is online; nothing is counted against "
+            "the conversations, and the part it was reading is read again." if gave_up else
+            " Sleep waits for it and reads that part again.")
+    return DrainStop("engine", lead + tail, transient=True, offline=cause)
+
+
+def waiting_sentence(cause: str) -> str:
+    """The run's progress line while it waits for the network."""
+    lead = _OFFLINE_SENTENCES.get(cause, _OFFLINE_SENTENCES["connection"])
+    return f"{lead} Waiting for it; the part it was reading is read again."
 
 
 def merged(ds: DrainState, name: str, live: int) -> int:
@@ -465,6 +590,7 @@ def to_wire(ds: DrainState | None, *, live: dict[str, int] | None = None,
         "owner_page": ds.owner_beliefs,
         "reserve": ds.guard.wire() if ds.guard is not None else None,
         "resumed": ds.resumed,
+        "waiting": ds.waiting,
     }
 
 
@@ -481,4 +607,5 @@ def to_sse(ds: DrainState | None, unprocessed: int | None = None) -> dict | None
         "calls": ds.calls, "read": len(lv.read), "failed": len(lv.failed),
         "sort": lv.sort_done, "decide": lv.decide_done, "parked": len(ds.parked),
         "arrived": live_arrived(ds, unprocessed) if ds.active else ds.arrived_since,
+        "waiting": ds.waiting,
     }

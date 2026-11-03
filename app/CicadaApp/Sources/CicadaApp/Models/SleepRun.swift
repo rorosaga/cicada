@@ -93,8 +93,10 @@ struct SleepPausedRun: Codable, Equatable {
     var runId: String
     var startedBy: String
     var reason: String
-    /// `transient | needs_fix`; older backends omit this and retain the fix guidance.
+    /// `transient | needs_fix | offline`; older backends omit this and retain the fix guidance.
     var engineKind: String?
+    /// For an `offline` pause, why (2026-11-03): `asleep | no_network | connection`.
+    var offlineCause: String? = nil
     /// The pause's diagnosis: a plan's own sentence, or an engine interruption/fix.
     var sentence: String?
     /// The vendor's unix reset time — `nil` when none was given, never guessed.
@@ -128,6 +130,7 @@ struct SleepPausedRun: Codable, Equatable {
         startedBy = str(.startedBy) ?? "user"
         reason = str(.reason) ?? "user"
         engineKind = str(.engineKind)
+        offlineCause = str(.offlineCause)
         sentence = str(.sentence)
         resetsAt = (try? c.decodeIfPresent(Int.self, forKey: .resetsAt)) ?? nil
         limit = str(.limit)
@@ -140,7 +143,7 @@ struct SleepPausedRun: Codable, Equatable {
 
     enum CodingKeys: String, CodingKey {
         case runId, startedBy, reason, engineKind, sentence, resetsAt, limit, filed, frozen, calls, committedBatches
-        case pausedAt, canContinue, engineLabel, autoContinue
+        case pausedAt, canContinue, engineLabel, autoContinue, offlineCause
     }
 }
 

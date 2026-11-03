@@ -17,6 +17,22 @@ localhost") and `headless.md`; the open PRs #572 (backend: one transport, direct
 
 ---
 
+> **Outcome (2026-11-03).** The owner's ruling 51f ([`TODO.md`](../goals/TODO.md), ruling 51) settled what this
+> research proposed.
+>
+> - **Taken:** §12's design. Each device keeps an ordered route list in the T3 Code style: the first route that answers
+>   wins, routes are learned from the home, and earlier routes are re-checked so a device moves back. The home opens one
+>   door on the home network, and the last resort is the queue, not a relay. There is no cloud mailbox, Tailscale is
+>   not required, and the relay sits under Advanced.
+> - **Withdrawn:** the iCloud (CloudKit) and Google Drive mailboxes (§4.3, D1, D8), and the Apple Developer Program for
+>   now (D2).
+> - **Phone:** a capture device for now.
+> - **Built:** #586 (the routes and the door; the door's move to UDP follows in a new PR) and #573 (the app's half:
+>   the relay under Advanced, Local Network asked at first share, Bonjour, routes in words).
+>
+> §12's router port mapping, IPv6, DHT address record and hole punch are not built yet; the G132 row names what
+> slice 2 takes. This document stays the research record.
+
 > **Revised the same day (§12).** The owner answered D1–D9. The cloud mailboxes (iCloud, Google Drive) are out, the
 > Developer Program waits, and the owner wants cross-network direct connections made to work rather than deferred.
 > **§12 supersedes §1, §6, §7, §9 and §10 wherever they differ**; §2–§5 and §8 still stand as evidence.

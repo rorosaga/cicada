@@ -427,6 +427,18 @@ final class AppRouter {
         return pendingRevealEntity
     }
 
+    /// G231 — the notch's Yes: the Sources page on that source's catalogue entry (`SourceCatalogEntry.id`), where its
+    /// own connect control and any permission row live — the same place a click on its row opens. The window comes
+    /// forward, opening one when the app lives in the menu bar with none.
+    var pendingCatalogEntry: String?
+
+    func routeToCatalogEntry(_ entryId: String) {
+        closeSettings()
+        pendingTab = .sources
+        pendingCatalogEntry = entryId
+        showMainWindow()
+    }
+
     /// Read-then-clear, for the same double-firing reason as `consumeAddSource`
     /// (`SourcesPageView.onAppear` and its `onChange` can both see one hand-off).
     @discardableResult

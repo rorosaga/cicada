@@ -23,7 +23,12 @@ KINDS = (
     "llm_call", "sleep_run", "agentic_write", "ask", "import", "throttle",
     "resolution", "audit", "dedup_verdict", "capture", "handshake", "read",
     "remote_call", "connector_auth", "hook_recall", "read_agent", "video_queue", "check_agent", "web_check",
+    "sync_route",
 )
+# G132 ruling 51f: one row when a device's route to its home changes (or it starts queueing), and once an hour per
+# device and route at the door it reached — ``side`` (device | door), ``route`` (lan | tailnet | configured | mapped
+# | ipv6 | relay | none), ``event`` (moved | queued | served), ``before``. Never an address, a host, a port or a name.
+SYNC_ROUTE_KIND = "sync_route"
 # G149: one row per recall-hook firing — harness, event, reason enum, the page
 # ids shown and their count, token and latency buckets, the model id when the
 # harness sent one (D7: an id is an enum). Never the prompt (R-H9, R-H10).
@@ -71,7 +76,7 @@ FEEDBACK_KINDS = ("resolution", "audit", "dedup_verdict")
 # receipt with no spend and no connection.
 NON_SPEND_KINDS = FEEDBACK_KINDS + ("capture", "handshake", "read", "remote_call", "connector_auth",
                                     HOOK_RECALL_KIND, READ_AGENT_KIND, VIDEO_QUEUE_KIND, CHECK_AGENT_KIND, EXPLORE_KIND,
-                                    WEB_CHECK_KIND)
+                                    WEB_CHECK_KIND, SYNC_ROUTE_KIND)
 
 
 def now_iso() -> str:
@@ -182,7 +187,7 @@ READS_KIND = "read"
 # `/consumption/*` endpoint. G149 R-H9: a hook row fires on every prompt, so
 # it is filed here for the same reason.
 SIBLING_KINDS = frozenset({READS_KIND, "remote_call", HOOK_RECALL_KIND, READ_AGENT_KIND, VIDEO_QUEUE_KIND,
-                           CHECK_AGENT_KIND, EXPLORE_KIND, WEB_CHECK_KIND})
+                           CHECK_AGENT_KIND, EXPLORE_KIND, WEB_CHECK_KIND, SYNC_ROUTE_KIND})
 _PREFIX_EVENTS = "events"
 _PREFIX_READS = "reads"
 

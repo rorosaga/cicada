@@ -159,15 +159,35 @@ struct TodaySection: View {
     @Environment(Store.self) private var store
     @Environment(SleepViewModel.self) private var sleepVM
     @Environment(MessagesWatcher.self) private var messages: MessagesWatcher?
+    @Environment(AwaySyncTracker.self) private var awaySync: AwaySyncTracker?
 
     var body: some View {
         let figures = HomeFigures.today(store.sourcesOverview.value, today: today)
-        HomeBlock(title: Copy.homeToday, emptyNote: empty ? Copy.homeTodayNothingYet : nil) {
+        HomeBlock(title: Copy.homeToday, emptyNote: empty && awaySync?.view == nil ? Copy.homeTodayNothingYet : nil) {
             captured(figures)
             if HomeLayout.showsWaitingInToday(gettingStartedVisible: gettingStartedVisible,
                                               hasRunBefore: hasRunBefore) {
                 waiting
             }
+            if let sync = awaySync?.view { syncing(sync) }
+        }
+    }
+
+    /// G229 — what this Mac is still syncing after it was closed, under what waits: the same words as the Sleep page's
+    /// line, a source that could not be read in its `warning` clause (DR-7). The row opens Sleep, where each failure's
+    /// fix is said in full.
+    private func syncing(_ sync: MachineAwaySync) -> some View {
+        HomeRowButton(help: Copy.AwaySync.openSleepHelp, action: { selectedTab = .sleep }) {
+            Image(systemName: sync.isReading ? "arrow.triangle.2.circlepath" : "checkmark")
+                .font(CicadaTheme.icon(.list))
+                .foregroundStyle(CicadaTheme.textTertiary)
+                .accessibilityHidden(true)
+            let failed = AwaySyncWords.failures(sync).map(\.lead).joined(separator: " ")
+            (Text(AwaySyncWords.line(sync)).foregroundStyle(CicadaTheme.textSecondary)
+             + Text(verbatim: failed.isEmpty ? "" : " " + failed).foregroundStyle(CicadaTheme.warning))
+                .font(CicadaTheme.metaFont)
+                .monospacedDigit()
+                .lineLimit(2)
         }
     }
 

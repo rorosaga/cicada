@@ -24,6 +24,8 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
     static let openAtLogin = SettingsRowID("openAtLogin")
     // General → Startup → Show in menu bar (round-4 decision 6, R-HO16)
     static let showInMenuBar = SettingsRowID("showInMenuBar")
+    // General → Startup → Suggest connecting apps (G231): the notch's connect suggestion, and its No list
+    static let connectSuggest = SettingsRowID("connectSuggest")
     static let backgroundService = SettingsRowID("backgroundService")
     // Devices → Where your memory lives (G181 phase 3): This Mac or a server
     static let memoryHome = SettingsRowID("memoryHome")
@@ -33,6 +35,8 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
     // Devices → One memory on your computers (G132 phase 1): share this memory, keep a full copy here
     static let memoryShare = SettingsRowID("memoryShare")
     static let memoryCopy = SettingsRowID("memoryCopy")
+    // Devices → Relay (G132 phase 3b): the relay address (off), pairing and joining through it
+    static let relay = SettingsRowID("relay")
     // Agents → Command-line tool (G180, TODO ruling 21; on General's Setup card until the Hyrum audit's B11)
     static let commandLineTool = SettingsRowID("commandLineTool")
     // General → Getting to know Cicada (G152, G117 round 4)
@@ -111,6 +115,8 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
     static let transcripts = SettingsRowID("transcripts")
     /// Ruling 43: the agents' own memory notes, one switch per memory.
     static let agentNotes = SettingsRowID("agentNotes")
+    // Privacy & data → Permissions (owner 2026-11-03): onboarding's Permissions rows, the same component
+    static let permissions = SettingsRowID("permissions")
     // Search & files (owner, 2026-10-14): the folder list and the two consent rows. Search version, Rebuild search,
     // the Advanced disclosure and Memory's Fetch link previews left the app (settings defaults, owner 2026-10-22).
     static let searchFolders = SettingsRowID("searchFolders")

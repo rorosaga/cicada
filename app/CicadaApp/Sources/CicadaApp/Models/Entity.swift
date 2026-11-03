@@ -740,6 +740,8 @@ struct MediaBlock: Codable, Equatable {
     }
 
     var isPaper: Bool { kind == "paper" }
+    /// G230 — a repository page (`github_repos.KIND`).
+    var isRepository: Bool { kind == "repository" }
 
     /// True when there's a real url to preview. A media entity whose frontmatter
     /// couldn't be parsed (empty url) shouldn't render a broken preview.

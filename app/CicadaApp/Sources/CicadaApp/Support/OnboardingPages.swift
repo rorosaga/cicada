@@ -2,7 +2,9 @@ import CoreGraphics
 import SwiftUI
 
 /// Onboarding v2 (G217, G92, ruling 36 D1/D6; 2026-10-22) — seven steps, one verb each, a visible Skip on the working
-/// steps: Welcome · Intelligence · Agents · Sources · Saved lists · Meet your bookworm · Done. *Saved lists* (owner
+/// steps: Welcome · Intelligence · Agents · Permissions · Sources · Saved lists · Meet your bookworm · Done.
+/// *Permissions* (owner 2026-11-03) asks for every macOS permission in one place, before the Sources it unlocks
+/// (`PermissionsStep`); a new stored name, so no saved step moves. *Saved lists* (owner
 /// 2026-10-26, ruling 39's dated line) asks once, pre-ticked, whether the person's own agent keeps their saved lists
 /// current; its answer is the consent (`SavedListsStep`). *See how* is a sheet over Sources,
 /// never a step. *Meet your bookworm* (owner 2026-10-23) explains the menu-bar worm's number before the worm appears:
@@ -11,7 +13,7 @@ import SwiftUI
 /// It replaced the seven-step flow (Import, Agents, Skills, Who reads, Keep it running); `init(stored:)` maps every
 /// name either flow could have stored, so a person who quit mid-way on any build resumes on the nearest step.
 enum OnboardingPage: Int, CaseIterable, Comparable {
-    case welcome, intelligence, agents, sources, savedLists, menuBar, done
+    case welcome, intelligence, agents, permissions, sources, savedLists, menuBar, done
 
     static let stepCount = allCases.count
     static func < (a: OnboardingPage, b: OnboardingPage) -> Bool { a.rawValue < b.rawValue }
@@ -33,6 +35,7 @@ enum OnboardingPage: Int, CaseIterable, Comparable {
         case .welcome: "welcome"
         case .intelligence: "intelligence"
         case .agents: "agents"
+        case .permissions: "permissions"
         case .sources: "sources"
         case .savedLists: "savedLists"
         case .menuBar: "menuBar"
@@ -48,6 +51,7 @@ enum OnboardingPage: Int, CaseIterable, Comparable {
         case "welcome": self = .welcome
         case "intelligence", "whoReads": self = .intelligence
         case "agents": self = .agents
+        case "permissions": self = .permissions
         case "sources", "import", "skills": self = .sources
         case "savedLists": self = .savedLists
         case "menuBar": self = .menuBar
@@ -61,7 +65,7 @@ enum OnboardingPage: Int, CaseIterable, Comparable {
     var roomMood: BookwormState {
         switch self {
         case .welcome: .awake
-        case .intelligence, .sources, .savedLists: .reading
+        case .intelligence, .permissions, .sources, .savedLists: .reading
         case .agents, .done: .happy
         // No room on this step — the menu-bar worm itself is the picture; its mood is the illustration's.
         case .menuBar: .happy

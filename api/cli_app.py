@@ -885,6 +885,59 @@ def cmd_feed_poll(boot, args) -> Result:
     return Result(text=json.dumps(result, ensure_ascii=False), data=result, warnings=_warn(boot))
 
 
+# --- GitHub repositories (G230) --------------------------------------------------------------------------------------
+
+def _repo_line(r: dict) -> str:
+    project = r.get("project") or {}
+    tail = ""
+    if project.get("how") in ("linked", "origin"):
+        tail = f" — your project {project.get('name')} ({project.get('project')})"
+    elif project.get("how") == "name":
+        tail = f" — maybe your project {project.get('name')} ({project.get('project')})"
+    elif r.get("entityId"):
+        tail = f" — in memory ({r['entityId']})"
+    flags = [w for w, on in (("private", r.get("private")), ("archived", r.get("archived")), ("fork", r.get("fork")))
+             if on]
+    return f"{r.get('fullName')}{' [' + ', '.join(flags) + ']' if flags else ''}{tail}"
+
+
+def cmd_github_repos(boot, args) -> Result:
+    data = call(boot, "GET", "/sources/github/repos")
+    owned, pages = data.get("owned") or [], data.get("starred") or []
+    lines = []
+    if not data.get("connected") and not owned:
+        lines.append("GitHub is not connected: `cicada connector connect github` reads your own and starred "
+                     "repositories; without connecting, `cicada github project <owner/name>` adds one of yours as a "
+                     "project and `cicada github add <link>` adds anyone else's.")
+    if owned:
+        lines += ["Yours:", *(f"  {_repo_line(r)}" for r in owned)]
+    if pages:
+        lines += ["In memory:", *(f"  {r.get('fullName')}{' (starred)' if r.get('starred') else ''} — {r.get('entityId')}"
+                                  for r in pages)]
+    return Result(text="\n".join(lines) or "No repositories yet.", data=data, warnings=_warn(boot))
+
+
+def cmd_github_add(boot, args) -> Result:
+    require_person("Adding a repository to your memory")
+    result = call(boot, "POST", "/sources/github/repos", body={"url": args.url}, timeout=60)
+    verb = "Added" if result.get("created") else "Updated"
+    return Result(text=f"{verb} {result.get('fullName')} ({result.get('entityId')}).", data=result,
+                  warnings=_warn(boot))
+
+
+def cmd_github_project(boot, args) -> Result:
+    require_person("Adding a repository as one of your projects")
+    body = {"fullName": args.full_name, "via": "cli"}
+    if args.project:
+        body["project"] = args.project
+    result = call(boot, "POST", "/sources/github/repos/project", body=body, timeout=60)
+    if result.get("created"):
+        text = f"Added {args.full_name} as your project {result.get('project')}."
+    else:
+        text = f"Linked {args.full_name} to your project {result.get('project')}."
+    return Result(text=text, data=result, warnings=_warn(boot))
+
+
 # --- connectors (ruling 47 tier 2) ---------------------------------------------------------------------------------
 
 def _connector_line(c: dict) -> str:
@@ -927,7 +980,7 @@ def cmd_connector_connect(boot, args) -> Result:
     if status.get("reads"):
         sys.stderr.write(status["reads"] + "\n")
     if status.get("tokenHelp"):
-        sys.stderr.write(f"Get your token at {status['tokenHelp']}.\n")
+        sys.stderr.write(f"Get a token at {status['tokenHelp']}.\n")
     value = read_token(field.get("label") or "Token")
     if not value:
         raise UsageError("no token on standard input; nothing was changed")
@@ -1673,6 +1726,7 @@ COMMANDS = {
     "feed list": cmd_feed_list, "feed add": cmd_feed_add, "feed remove": cmd_feed_remove, "feed poll": cmd_feed_poll,
     "connector list": cmd_connector_list, "connector connect": cmd_connector_connect,
     "connector disconnect": cmd_connector_disconnect, "connector sync": cmd_connector_sync,
+    "github repos": cmd_github_repos, "github add": cmd_github_add, "github project": cmd_github_project,
     "settings owner": cmd_settings_owner, "engine list": cmd_engine_list, "engine connect": cmd_engine_connect,
     "picture set": cmd_picture_set, "picture initials": cmd_picture_initials, "picture clear": cmd_picture_clear,
     "bank list": cmd_bank_list, "bank use": cmd_bank_use, "bank create": cmd_bank_create,

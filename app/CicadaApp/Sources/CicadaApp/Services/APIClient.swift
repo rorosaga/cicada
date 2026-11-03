@@ -1262,6 +1262,8 @@ struct SleepDrainInfo: Codable, Equatable {
     var ownerPage: SleepOwnerPageCount? = nil
     var reserve: SleepReserveInfo? = nil
     var resumed: Bool? = nil
+    /// While the run waits for the network to come back (2026-11-03): `asleep | no_network | connection`.
+    var waiting: String? = nil
 
     init(id: String = "", frozen: Int = 0, batchSize: Int = 0, batch: Int = 0, batches: Int = 0, filed: Int = 0,
          requeued: Int = 0, skipped: Int = 0, active: Bool = false, finished: Bool = false, stop: Stop? = nil,
@@ -1292,12 +1294,13 @@ struct SleepDrainInfo: Codable, Equatable {
         ownerPage = (try? c.decodeIfPresent(SleepOwnerPageCount.self, forKey: .ownerPage)) ?? nil
         reserve = (try? c.decodeIfPresent(SleepReserveInfo.self, forKey: .reserve)) ?? nil
         resumed = (try? c.decodeIfPresent(Bool.self, forKey: .resumed)) ?? nil
+        waiting = (try? c.decodeIfPresent(String.self, forKey: .waiting)) ?? nil
     }
 
     enum CodingKeys: String, CodingKey {
         case id, frozen, batchSize, batch, batches, filed, requeued, skipped, active, finished, stop, arrivedSince
         case startedBy, firstRun, committedBatches, calls, elapsedMs, pausedMs, batchState, stages, byOrigin
-        case parked, ownerPage, reserve, resumed
+        case parked, ownerPage, reserve, resumed, waiting
     }
 }
 
@@ -2660,6 +2663,14 @@ actor APIClient {
         ])
     }
 
+    /// G95 (2026-11-03) — a folder of meeting transcripts: no project, no authorship rules; `recorder` is `"hex"` for
+    /// Hex's own Markdown folder (the backend then leaves its `audio/` bundle unread), nil for any other.
+    func registerMeetingFolder(label: String, path: String, recorder: String?) async throws -> FolderRegistration {
+        var body: [String: Any] = ["label": label, "path": path, "kind": FolderRegistration.meetingsKind]
+        if let recorder { body["recorder"] = recorder }
+        return try await post("/sources/folders", body: body)
+    }
+
     func updateFolder(id: String, authorship: [FolderAuthorshipRule]) async throws -> FolderRegistration {
         try await put("/sources/folders/\(encodedID(id))", body: [
             "authorship": authorship.map { ["glob": $0.glob, "authorship": $0.authorship] },
@@ -2677,6 +2688,8 @@ actor APIClient {
             "files": files.map { ["relpath": $0.relpath, "mtime": $0.mtime, "sha256": $0.sha256,
                                   "contentB64": $0.data.base64EncodedString()] },
             "deleted": deleted,
+            // A meeting file names its local start ("2026-11-03 1601 …"); the backend reads it in this Mac's zone.
+            "tzName": TimeZone.current.identifier,
         ]
         return try await post("/sources/folders/\(encodedID(id))/sync?preview=\(preview)&resolve=\(resolve)", body: body)
     }
@@ -2896,6 +2909,14 @@ actor APIClient {
         return try await put("/sources/messages/settings", body: ["conversation": conversation])
     }
 
+    /// 2026-11-03 — pin or unpin a chat on its source's page: the source's own settings route (`whatsapp`, `telegram`,
+    /// `messages`), one `user` commit of its settings file; nothing else about the chat changes.
+    func setChatPinned(source: String, id: String, pinned: Bool) async throws {
+        guard ["whatsapp", "telegram", "messages"].contains(source) else { throw APIError.serverUnreachable }
+        let _: ChatPinAnswer = try await put("/sources/\(source)/settings",
+                                             body: ["conversation": ["id": id.filter(\.isHexDigit), "pinned": pinned]])
+    }
+
     /// `PUT /sources/messages/settings` — turn the AI-agent suggestions on or off for this memory.
     func setMessagesSuggestAgents(_ on: Bool) async throws -> MessagesSettingsAnswer {
         try await put("/sources/messages/settings", body: ["suggestAgents": on])
@@ -2992,6 +3013,35 @@ actor APIClient {
     /// `GET /entities/{id}/paper` — the paper card's two tiers (G133 / G121).
     func fetchPaperDetail(id: String) async throws -> PaperDetail {
         try await get("/entities/\(encodedID(id))/paper")
+    }
+
+    // MARK: - GitHub repositories (G230)
+    //
+    // Not Store domains: the Sources panel's lists and a page's repository card are read on demand and kept in memory
+    // by their views, read again after every write (CLAUDE.md, Sync).
+
+    /// A repository page's card (or a linked project's): GitHub's record as the page keeps it, and its README preview.
+    /// The backend reads the README through GitHub's API when it is missing or a week old — so this may take a moment.
+    func fetchRepository(id: String) async throws -> RepositoryDetail {
+        try await get("/entities/\(encodedID(id))/repository", timeout: 20)
+    }
+
+    /// The repositories the last sync found the person owns (each with the project it already is) and every
+    /// repository page in memory. Reads the bank only.
+    func fetchGitHubRepos() async throws -> RepoLists {
+        try await get("/sources/github/repos")
+    }
+
+    /// The person adds one repository by its link (or `owner/name`).
+    func addGitHubRepo(_ url: String) async throws -> RepoAddResult {
+        try await post("/sources/github/repos", body: ["url": url])
+    }
+
+    /// The person's "this is my project": link `fullName` to `project`, or (nil) make a project of it.
+    func makeRepoProject(fullName: String, project: String? = nil) async throws -> RepoProjectResult {
+        var body: [String: Any] = ["fullName": fullName, "via": "app"]
+        if let project { body["project"] = project }
+        return try await post("/sources/github/repos/project", body: body)
     }
 
     /// Ruling 48 (16), DR-80 — one citation marker's popover: reference `n` as cited by the line ending at `at`, or by
@@ -3727,6 +3777,14 @@ actor APIClient {
         try await get("/devices/status", timeout: Self.refreshTimeout)
     }
 
+    /// `PUT /sources/catch-up` (G229) — the app's readers' catch-up after it was closed, its whole word each time;
+    /// the answer is this machine's view, counted from the bank. A demo memory answers 409 (no reader reads into one).
+    func putCatchUp(_ report: AwaySyncReport) async throws -> MachineAwaySync? {
+        struct Answer: Decodable { let catchUp: MachineAwaySync? }
+        let answer: Answer = try await put("/sources/catch-up", body: report.body)
+        return answer.catchUp
+    }
+
     /// `GET /devices` — outside every bank, so never a Store domain (`DeviceDirectory` keeps it in memory).
     func getDevicesList() async throws -> DeviceList {
         try await get("/devices", timeout: Self.refreshTimeout)
@@ -3844,10 +3902,92 @@ actor APIClient {
         _ = try await delete("/devices/pairing/\(encodedID(id))")
     }
 
+    // MARK: G132 phase 3b — the relay (off by default) and pairing through it
+
+    /// `GET /sync/relay` — the relay address this computer uses, or none.
+    func fetchRelay() async throws -> RelaySetting {
+        try await get("/sync/relay", timeout: Self.refreshTimeout)
+    }
+
+    /// `PUT /sync/relay` — set (wss://) or clear it; the backend starts or stops its link at once.
+    func setRelay(url: String?) async throws -> RelaySetting {
+        let value: Any = url ?? NSNull()
+        return try await put("/sync/relay", body: ["url": value])
+    }
+
+    /// `POST /devices/pairing/relay` — a one-time code with its QR (v2) for a computer that reaches this one only
+    /// through the relay.
+    func createRelayPairing() async throws -> RelayPairingCreated {
+        try await post("/devices/pairing/relay")
+    }
+
+    func relayPairing(_ id: String) async throws -> RelaySession {
+        let answer: RelaySessionAnswer = try await get("/devices/pairing/relay/\(encodedID(id))",
+                                                       timeout: Self.refreshTimeout)
+        return answer.session
+    }
+
+    func confirmRelayPairing(_ id: String) async throws -> RelaySession {
+        let answer: RelaySessionAnswer = try await post("/devices/pairing/relay/\(encodedID(id))/confirm")
+        return answer.session
+    }
+
+    func cancelRelayPairing(_ id: String) async throws {
+        _ = try await delete("/devices/pairing/relay/\(encodedID(id))")
+    }
+
+    /// `POST /sync/relay/join` — this computer joins with the code the other shows and the relay's address.
+    func joinOverRelay(code: String, relay: String) async throws -> RelayJoinState {
+        try await post("/sync/relay/join", body: ["code": code, "relay": relay])
+    }
+
+    func joinState() async throws -> RelayJoinState {
+        try await get("/sync/relay/join", timeout: Self.refreshTimeout)
+    }
+
+    func confirmJoin() async throws -> RelayJoinState {
+        try await post("/sync/relay/join/confirm")
+    }
+
+    func cancelJoin() async throws {
+        _ = try await delete("/sync/relay/join")
+    }
+
     /// `PUT /connections/{id}/key` with the check flag (G50): 422 = refused (nothing saved), 503 = unreachable — the
     /// caller then offers "Save without checking", which resends with `check: false`.
     func saveKey(_ id: String, key: String, check: Bool) async throws -> ConnectionStatus {
         try await put("/connections/\(encodedID(id))/key", body: ["key": key, "check": check])
+    }
+
+    // MARK: G132 ruling 51f — the home-network door's app side (Bonjour, hints, route state)
+
+    /// `GET /sync/discovery` — what to advertise and browse for; nil while nothing is shared (404).
+    func fetchDiscovery() async throws -> DiscoveryPlan? {
+        do {
+            let plan: DiscoveryPlan = try await get("/sync/discovery", timeout: Self.refreshTimeout)
+            return plan
+        } catch APIError.httpError(404, _) {
+            return nil
+        }
+    }
+
+    /// `POST /sync/discovered` — the doors Bonjour resolved, and the person's Local Network answer (the door binds this
+    /// network only once it is a yes).
+    func postDiscovered(doors: [FoundDoor], lanAllowed: Bool) async throws {
+        let rows: [[String: Any]] = doors.map { ["host": $0.host, "port": $0.port] }
+        _ = try await post("/sync/discovered", body: ["doors": rows, "lanAllowed": lanAllowed]) as Data
+    }
+
+    /// `POST /sync/network` — the network changed (`changed`) or the app is in front again (`returned`).
+    func postNetwork(event: String, lanAllowed: Bool?) async throws {
+        var body: [String: Any] = ["event": event]
+        if let lanAllowed { body["lanAllowed"] = lanAllowed }
+        _ = try await post("/sync/network", body: body) as Data
+    }
+
+    /// `GET /sync/routes` — this computer's routes to its home as kinds and states, never an address.
+    func fetchRoutes() async throws -> SyncRoutes {
+        try await get("/sync/routes", timeout: Self.refreshTimeout)
     }
 
     /// `GET /agent-api/tokens` (G213) — machine-global, outside every bank; not a Store domain.

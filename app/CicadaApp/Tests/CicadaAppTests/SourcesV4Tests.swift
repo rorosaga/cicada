@@ -132,6 +132,41 @@ final class SourcesV4Tests: XCTestCase {
         XCTAssertEqual(problem?.text, "Chrome isn't installed")
     }
 
+    /// 2026-11-03 (live): Safari's row read "Watching · Last synced 5 days ago" while the person had been saving
+    /// bookmarks on another device for days — Safari's own file on this Mac had not changed since, so there was
+    /// nothing to read, and the line never said so. A watched browser's line says what "up to date" is measured
+    /// against: when the browser last changed its bookmarks on this Mac, and, once that is quiet, how another
+    /// device's bookmarks get here.
+    func testAWatchedBrowserSaysWhenItsOwnFileLastChangedAndHowOtherDevicesArrive() {
+        let now = Date(timeIntervalSince1970: 1_760_000_000)
+        let watching = SourceLiveness(state: .watching, detail: nil)
+        let fiveDays = now.addingTimeInterval(-5 * 86_400)
+        let quiet = BrowserFreshness.of(channel: "safari-bookmarks", changed: fiveDays)
+        let line = SourceDetailText.state(liveness: watching, status: .synced(fiveDays), fullError: nil, now: now,
+                                          locale: us, freshness: quiet)
+        XCTAssertEqual(line?.text, "Up to date with Safari on this Mac — its bookmarks here last changed 5 days ago. "
+                       + "Ones saved on another device reach Cicada once iCloud copies them into Safari on this Mac; "
+                       + "if one is missing, check Safari here.")
+        XCTAssertEqual(line?.isAlarm, false, "nothing is broken; the line explains, it does not alarm")
+
+        let recent = BrowserFreshness.of(channel: "chrome-bookmarks", changed: now.addingTimeInterval(-3 * 3600))
+        XCTAssertEqual(SourceDetailText.state(liveness: watching, status: .synced(now.addingTimeInterval(-3 * 3600)),
+                                              fullError: nil, now: now, locale: us, freshness: recent)?.text,
+                       "Up to date with Chrome on this Mac — its bookmarks here last changed 3 hours ago",
+                       "a browser that changed today needs no note about other devices")
+        let chromeQuiet = BrowserFreshness.of(channel: "chrome-bookmarks", changed: fiveDays)
+        XCTAssertTrue(SourceDetailText.state(liveness: watching, status: .synced(fiveDays), fullError: nil, now: now,
+                                             locale: us, freshness: chromeQuiet)?.text
+                        .hasSuffix("Ones saved on another device reach Cicada once Chrome on this Mac syncs them, "
+                                   + "which it does while it's open.") == true)
+        XCTAssertNil(BrowserFreshness.of(channel: "folder:/tmp/x", changed: fiveDays), "only a watched browser")
+        // Not watching (behind, failed, off): the freshness never hides what is wrong.
+        let behind = SourceDetailText.state(liveness: SourceLiveness(state: .behind, detail: nil),
+                                            status: .synced(fiveDays), fullError: nil, now: now, locale: us,
+                                            freshness: quiet)
+        XCTAssertEqual(behind?.isAlarm, true)
+    }
+
     func testConsolidateSaysWhenOtherSourcesWaitToo() {
         XCTAssertEqual(SourceDetailText.consolidate(waiting: 2, total: 2, running: false), "Consolidate now · 2 waiting")
         XCTAssertEqual(SourceDetailText.consolidate(waiting: 2, total: 340, running: false),
