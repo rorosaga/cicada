@@ -6,9 +6,8 @@ import Foundation
 extension Copy {
     enum Relay {
         static let title = "Relay"
-        static let detailOff = "Off. Your computers reach each other directly on your network or private network."
-        static let detailOn = "Your computers reach each other directly when they can, and through this relay when "
-            + "they can't. It carries only sealed messages it can't read."
+        static let detailOff = "For when your devices can't reach each other directly."
+        static let detailOn = "Used only when no direct route answers. It carries sealed messages it can't read."
         static let addressTitle = "Relay address"
         static let addressPlaceholder = "wss://relay.example.net"
         static let save = "Use this relay"

@@ -28,6 +28,7 @@ extension Copy {
             case .notifications: "Notifications"
             case .accessibility: "Accessibility"
             case .screenRecording: "Screen Recording"
+            case .localNetwork: Copy.LocalNetwork.name
             }
         }
 
@@ -43,6 +44,7 @@ extension Copy {
             case .notifications: "A nudge when an export is ready or an agent needs you"
             case .accessibility: "Window titles in traces"
             case .screenRecording: "Screenshots in traces"
+            case .localNetwork: Copy.LocalNetwork.unlocks
             }
         }
 

@@ -715,6 +715,8 @@ class Server:
         self.watch_task: asyncio.Task | None = None
         self.counts = {"accepted": 0, "dropped": 0, "refusedPeer": 0, "limited": 0, "requests": 0}
         self.by_route: dict[str, float] = {}
+        #: How each device last reached this door (``agent_seen.HOW``), so a request it sends is stamped the same way.
+        self.how_of: dict[str, str] = {}
         st = door_state() or {}
         self.priv = _x_load(_b64d(st["key"]))
         self.pub = _x_pub(self.priv)
@@ -855,6 +857,7 @@ class Server:
             self.by_device.setdefault(device.device_id, set()).add(writer)
         if device.kind != "pairing":
             self._note_route(device.device_id, address_class(peer) or "lan")
+            self._seen(device.device_id, address_class(peer) or "lan")
         try:
             writer.write(reply)
             out, inn = Sealer(keys.send), Sealer(keys.recv)
@@ -891,6 +894,17 @@ class Server:
         from api.services import sync_routes
 
         sync_routes.record("door", route="lan" if kind == "loopback" else kind, event="served")
+
+    def _seen(self, device_id: str | None, kind: str | None = None) -> None:
+        """The Devices page's *how* and *last seen* for a device that reached this door (``agent_seen``, G212): a
+        tailnet peer is ``tailscale``, any other ``lan`` — an enum and a time, never an address. Throttled there."""
+        if not device_id:
+            return
+        if kind is not None:
+            self.how_of[device_id] = "tailscale" if kind == "tailnet" else "lan"
+        from api.services import agent_seen
+
+        agent_seen.stamp_device(device_id, self.how_of.get(device_id, "lan"))
 
     async def _read(self, reader, inn: Sealer, timeout: float = IDLE_S) -> tuple[bytes, bytes]:
         head = await asyncio.wait_for(reader.readexactly(4), timeout)
@@ -950,6 +964,7 @@ class Server:
         from api.services import sync_inprocess
 
         self.counts["requests"] += 1
+        self._seen(device.device_id)
         spill = _spool_dir()
         try:
             status, headers, answer, file = await sync_inprocess.run_in_process(

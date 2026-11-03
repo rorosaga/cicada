@@ -13,7 +13,10 @@ final class MacPermissionsTests: XCTestCase {
                        [.fullDiskAccess, .contacts, .calendars, .reminders, .chrome, .notes, .notifications],
                        "traces are off by default: their two permissions stay out of the list (ruling 38)")
         XCTAssertFalse(MacPermissionRows.visible(tracesOn: false, chromeInstalled: false).contains(.chrome))
-        XCTAssertEqual(MacPermissionRows.visible(tracesOn: true, chromeInstalled: true), MacPermission.allCases)
+        XCTAssertEqual(MacPermissionRows.visible(tracesOn: true, chromeInstalled: true),
+                       MacPermission.allCases.filter { $0 != .localNetwork })
+        XCTAssertFalse(MacPermissionRows.visible(tracesOn: true, chromeInstalled: true).contains(.localNetwork),
+                       "Local Network is asked only at the person's first share or add-device click (G132, owner D4)")
     }
 
     // MARK: What each row's one button does
@@ -22,7 +25,8 @@ final class MacPermissionsTests: XCTestCase {
         XCTAssertEqual(MacPermissionRows.action(.fullDiskAccess, state: .notYet), .drag(.fullDiskAccess))
         XCTAssertEqual(MacPermissionRows.action(.accessibility, state: .notYet), .drag(.accessibility))
         XCTAssertEqual(MacPermissionRows.action(.screenRecording, state: .notYet), .drag(.screenRecording))
-        for permission in [MacPermission.contacts, .calendars, .reminders, .notifications, .chrome, .notes] {
+        for permission in [MacPermission.contacts, .calendars, .reminders, .notifications, .chrome, .notes,
+                           .localNetwork] {
             XCTAssertEqual(MacPermissionRows.action(permission, state: .notYet), .ask, "\(permission): macOS's prompt")
             XCTAssertEqual(MacPermissionRows.action(permission, state: .denied), .openSettings,
                            "\(permission): refused once, macOS never asks again — the exact list instead")
@@ -52,6 +56,7 @@ final class MacPermissionsTests: XCTestCase {
             .notifications: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=com.example.app",
             .accessibility: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
             .screenRecording: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
+            .localNetwork: "x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork",
         ]
         for permission in MacPermission.allCases {
             XCTAssertEqual(permission.settingsURL(bundleId: "com.example.app").absoluteString, expected[permission])

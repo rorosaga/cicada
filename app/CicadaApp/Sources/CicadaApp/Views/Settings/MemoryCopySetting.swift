@@ -9,9 +9,15 @@ import SwiftUI
 /// (DR-76), a neutral button for the act and a text button for the rare one (DR-40); copy in plain words (DR-59),
 /// provider-neutral, no path or variable (`Copy.MemoryCopy`).
 struct MemoryCopySetting: View {
-    @State private var model = MemoryCopyModel()
+    /// Owned and refreshed by the Devices page (2026-11-03): a `.task` on a `Group` whose only child is hidden never
+    /// runs, so a card that waits on its own first read never appeared.
+    @Bindable var model: MemoryCopyModel
     @State private var formOpen = false
+    /// G132 ruling 51f, owner D4: the first share or copy click asks for Local Network first (`LocalNetworkStep`).
+    @State private var lanStep: LanStepFor?
     @Environment(Store.self) private var store
+
+    private enum LanStepFor { case share, copy }
 
     /// The open memory is a demo (the Store's roster, beside the backend's own answer): it is never shared.
     private var inDemo: Bool { model.isDemoMemory(isDemo: DemoMode.isShowing(store.banks.value, bank: store.bank)) }
@@ -20,23 +26,24 @@ struct MemoryCopySetting: View {
     private var sleeping: Bool { ProjectWriteGate.sleepRunning(store.status.value) }
 
     var body: some View {
-        Group {
-            if model.shown {
-                SettingsGroupCard {
-                    if model.canShare(isDemo: inDemo) {
-                        shareRow
-                        SettingsDivider()
-                    }
-                    copyRow
-                }
-            }
+        if model.shown {
+            card
         }
-        .task {
-            await model.refresh()
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(30))
-                if Task.isCancelled { break }
-                await model.refresh()
+    }
+
+    private var card: some View {
+        SettingsGroupCard {
+            if model.canShare(isDemo: inDemo) {
+                shareRow
+                SettingsDivider()
+            }
+            copyRow
+        }
+        .sheet(isPresented: Binding(get: { lanStep != nil }, set: { if !$0 { lanStep = nil } })) {
+            LocalNetworkStepSheet(title: lanStep == .copy ? Copy.MemoryCopy.copyTitle : Copy.MemoryCopy.shareTitle) {
+                let then = lanStep
+                lanStep = nil
+                if then == .copy { formOpen = true } else { Task { await model.setShare(true) } }
             }
         }
     }
@@ -44,7 +51,9 @@ struct MemoryCopySetting: View {
     private var shareRow: some View {
         SettingsRow(.memoryShare, title: Copy.MemoryCopy.shareTitle, detail: Copy.MemoryCopy.shareDetail) {
             Toggle(Copy.MemoryCopy.shareTitle, isOn: Binding(get: { model.publish?.publish ?? false },
-                                                             set: { on in Task { await model.setShare(on) } }))
+                                                             set: { on in
+                if on, LocalNetworkStep.due() { lanStep = .share } else { Task { await model.setShare(on) } }
+            }))
                 .labelsHidden()
                 .toggleStyle(.switch)
                 .disabled(model.busy || model.publish?.source == "env")
@@ -61,7 +70,7 @@ struct MemoryCopySetting: View {
         return SettingsRow(.memoryCopy, title: Copy.MemoryCopy.copyTitle,
                            detail: isCopy ? nil : Copy.MemoryCopy.copyDetail) {
             Toggle(Copy.MemoryCopy.copyTitle, isOn: Binding(get: { isCopy || formOpen }, set: { on in
-                if on { formOpen = true } else if isCopy { Task { await model.stopCopy() } } else { formOpen = false }
+                if on, !isCopy, LocalNetworkStep.due() { lanStep = .copy } else if on { formOpen = true } else if isCopy { Task { await model.stopCopy() } } else { formOpen = false }
             }))
             .labelsHidden()
             .toggleStyle(.switch)
@@ -79,8 +88,21 @@ struct MemoryCopySetting: View {
                     caption(Copy.MemoryCopy.whileSharing)
                 } else if isCopy, let copy = model.replica?.replica {
                     caption(copy.text)
-                    if let host = model.replica?.home, copy.status == "following" {
-                        caption(Copy.MemoryCopy.following(host))
+                    // Ruling 51f: the route line below says how the home is reached; no address or port is shown
+                    // (the "Following <address>" line it replaces repeated the status above with an address).
+                    // G132 ruling 51f: the route this copy is using, in words — never an address or a port.
+                    TimelineView(.everyMinute) { context in
+                        if let line = MemoryCopyModel.routeLine(model.routes, lastContact: copy.lastContact,
+                                                                now: context.date) {
+                            caption(line).accessibilityIdentifier("memoryCopy.route")
+                        }
+                    }
+                    if model.replica?.outbox?.full == true {
+                        Text(Copy.LocalNetwork.full)
+                            .font(CicadaTheme.captionFont)
+                            .foregroundStyle(CicadaTheme.danger)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier("memoryCopy.queueFull")
                     }
                     if let behind = copy.behind, behind > 0 { caption(Copy.MemoryCopy.behind(behind)) }
                     if let waiting = model.replica, waiting.onItsWay > 0 {

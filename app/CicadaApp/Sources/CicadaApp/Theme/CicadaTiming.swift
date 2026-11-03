@@ -50,4 +50,19 @@ enum CicadaTiming {
     static let automationLaunchStep: TimeInterval = 0.25
     /// G218 — how long screenshots stay shown after Touch ID before they are dropped from memory and hidden again.
     static let traceScreenshotsShown: TimeInterval = 300
+    /// G132 ruling 51f — the Local Network ask waits this long for the person's answer to macOS's prompt; a silent
+    /// re-check of a refused answer (macOS never asks twice) this long; the probe looks every step. Waits, not motion.
+    static let localNetworkAskLimit: TimeInterval = 60
+    static let localNetworkRecheck: TimeInterval = 3
+    static let localNetworkProbeStep: TimeInterval = 0.25
+    /// How often the app reads `GET /sync/discovery` again (the door's port can open after a share), how long found
+    /// doors settle before they are posted, and how often the same set is posted again. Waits, not motion.
+    static let discoveryRefresh: TimeInterval = 60
+    static let discoverySettle: TimeInterval = 1
+    static let discoveryRepost: TimeInterval = 300
+    /// A network change is told to the backend once it settled this long; an app return at most this often.
+    static let networkChangeSettle: TimeInterval = 2
+    static let networkReturnEvery: TimeInterval = 30
+    /// The firewall's state is read with this bound (`socketfilterfw --getglobalstate`).
+    static let firewallReadLimit: TimeInterval = 2
 }

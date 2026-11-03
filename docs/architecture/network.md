@@ -834,7 +834,13 @@ trusted only after the peer signs a fresh nonce the backend issued (`GET /sync/d
 `https` address is kept (a token never crosses a LAN in the clear). The backend dials a verified LAN address only when
 the app says the person allowed local network access **and** its launchd plist names the app as its responsible code
 (TN3179's `AssociatedBundleIdentifiers`, written by `install-backend-agent.sh` with `CICADA_APP_BUNDLE_ID` when the app
-passes its bundle id); otherwise the configured address and the relay carry everything. Off on a single-machine install:
+passes its bundle id — Settings → General's install does since #573, and a release rewrites an older plist once);
+otherwise the configured address and the relay carry everything. **Built in the app (#573):** the advertisement
+(`DNSServiceRegister` for the door's port), the browse (`NWBrowser`), the resolve without a connection, the posted
+`doors`, the `lanAllowed` answer of the first-share step, and the network hints (app.md, "The home-network door, the
+app's side"). A door request stamps the device's `how` (`agent_seen`: `lan`, or `tailscale` from a tailnet peer) so
+the home's Devices page names the route; `tx_outbox.counts` adds `full` (the last write was not kept and the queue
+has not shrunk since, or not even a small one fits). Off on a single-machine install:
 nothing is advertised and `/sync/hello` answers 404.
 
 **The bind.** The backend's HTTP API still binds `127.0.0.1` only; `GET /sync/transport` shows it in words, with where

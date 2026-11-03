@@ -53,6 +53,9 @@ final class LiveMacPermissionProbe: MacPermissionProbe, @unchecked Sendable {
             case .denied: return .denied
             default: return .granted
             }
+        case .localNetwork:
+            // No preflight exists: the last answer the app's own Bonjour saw (`LocalNetworkMemory`), never a call.
+            return LocalNetworkMemory().state
         default: return .notYet
         }
     }
@@ -104,6 +107,8 @@ struct LiveMacPermissionAsker: MacPermissionAsker {
             }.value
             // Opened only for the ask: quit it again once the person answered. One already running is left alone.
             if let launched = launch.launched { launched.terminate() }
+        case .localNetwork:
+            await LanDiscovery.shared.ask()
         case .fullDiskAccess, .accessibility, .screenRecording:
             return   // drag lists: the row shows the drag helper instead
         }

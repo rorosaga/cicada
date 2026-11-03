@@ -1,24 +1,50 @@
 import SwiftUI
 
-/// G132 phase 3b — Settings → Devices' *Relay*: the relay address (off by default; `PUT /sync/relay`), and on a computer
+/// G132 phase 3b — Settings → Devices' *Relay*, under *Advanced* (ruling 51f, owner D9: never a default; a folded card,
+/// DR-39's form exception, "Relay on" beside the label while folded with one set): the relay address (off by default; `PUT /sync/relay`), and on a computer
 /// that holds no shared memory yet, *Join with a code* (`/sync/relay/join`: the code the other computer shows and its
 /// relay's address, then the same six digits on both screens and a confirmation here). Existing patterns only: a
 /// Settings row with Settings' native rounded fields below (DR-76, as *Where your memory lives*), a neutral button for
 /// the act and a text button for the rare one (DR-40), copy in plain words (DR-59), the digits in mono because they
 /// are compared (DR-19). No chevron, no fold, no new motion.
 struct RelaySection: View {
-    @State private var model = RelayModel()
+    /// Owned and refreshed by the Devices page (2026-11-03): the card used to hide itself on its own first read
+    /// (setting known, mode not yet), which cancelled the read that would have shown it.
+    @Bindable var model: RelayModel
     /// The master token's page (a server's client never pairs): the home pairs, a computer sharing nothing may join.
     let canManage: Bool
     @State private var pairing = false
+    /// Ruling 51f (owner D9): the relay sits under Devices' Advanced, folded (DR-39: a form's rare option) with the
+    /// viewer's choice remembered, never a default. Hyrum: one new key.
+    @AppStorage("cicada.settings.devices.advancedOpen") private var advancedOpen = false
+    @Environment(SettingsFocus.self) private var focus: SettingsFocus?
 
     private var canJoin: Bool { canManage && model.canJoin }
     private var canPair: Bool { canManage && model.sharing }
 
     var body: some View {
-        if model.shown || model.setting == nil {
-            SettingsGroupCard { row }
-                .task { await model.refresh() }
+        if model.shown {
+            SettingsGroupCard {
+                DisclosureGroup(isExpanded: $advancedOpen) {
+                    row.padding(.top, CicadaTheme.spacingSM)
+                } label: {
+                    HStack(spacing: CicadaTheme.spacingSM) {
+                        Text(Copy.LocalNetwork.advanced)
+                            .font(CicadaTheme.rowFont)
+                            .foregroundStyle(CicadaTheme.textPrimary)
+                        // Folded with a relay set: one word says so, so it never runs unseen.
+                        if model.setting?.on == true && !advancedOpen {
+                            Text(Copy.LocalNetwork.relayOn)
+                                .font(CicadaTheme.captionFont)
+                                .foregroundStyle(CicadaTheme.textSecondary)
+                        }
+                    }
+                }
+                .padding(CicadaTheme.spacingMD)
+                .accessibilityIdentifier("devices.advanced")
+            }
+            // A search hit or a deep link on the relay row opens the fold it sits in.
+            .onChange(of: focus?.landedNonce ?? 0) { _, _ in if focus?.landed == .relay { advancedOpen = true } }
         }
     }
 

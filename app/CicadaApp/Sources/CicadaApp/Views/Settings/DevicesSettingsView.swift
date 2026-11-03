@@ -128,6 +128,9 @@ struct DevicesSettingsView: View {
     /// The device the pairing sheet just paired, so an older row of the same name can be offered for revoking.
     @State private var justPaired: String?
     @State private var appsOpen = false
+    /// The two G132 cards' models, read with the page (on appear and every 30 s), so a card shows once its read lands.
+    @State private var copyModel = MemoryCopyModel()
+    @State private var relayModel = RelayModel()
 
     var body: some View {
         SettingsPage(section: .devices) {
@@ -166,6 +169,11 @@ struct DevicesSettingsView: View {
                     // 2026-10-29: the guided reach step sits right above the button it makes work.
                     SettingsDivider()
                     DeviceReachSection()
+                    if LocalNetworkStep.rowShown() {
+                        // A skipped or refused first-share step: the same row, so the answer can still be given.
+                        SettingsDivider()
+                        PermissionList(permissions: [.localNetwork], place: .settings)
+                    }
                     SettingsDivider()
                     HStack {
                         Spacer()
@@ -187,9 +195,10 @@ struct DevicesSettingsView: View {
                 }
             }
             // G132 phase 1: share this memory with the person's other computers, or keep a full copy of another's here.
-            MemoryCopySetting()
-            // G132 phase 3b: the relay (off by default) — pair a computer through it, or join one with a code.
-            RelaySection(canManage: model.canManage)
+            MemoryCopySetting(model: copyModel)
+            // G132 phase 3b: the relay (off by default) — pair a computer through it, or join one with a code. Ruling
+            // 51f, owner D9: under Advanced, never a default.
+            RelaySection(model: relayModel, canManage: model.canManage)
             // Hyrum audit B1 / D6: the remote connector, unchanged, folded (DR-39) under the old page's anchor.
             SettingsGroupCard {
                 DisclosureGroup(isExpanded: $appsOpen) {
@@ -231,6 +240,8 @@ struct DevicesSettingsView: View {
 
     private func refresh() async {
         await model.refresh()
+        await copyModel.refresh()
+        await relayModel.refresh()
         if let answer = try? await APIClient.shared.fetchDeviceStatus() {
             rows = answer.devices.map { row in
                 var row = row

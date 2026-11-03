@@ -137,7 +137,6 @@ extension Copy {
         static let notForDemo = "A demo memory is never shared or copied. Open your own memory to use this."
         static let whileSharing = "This computer shares its own memory with your other computers, so it doesn't keep "
             + "a copy of another's. Turn sharing off first."
-        static func following(_ host: String) -> String { "Following \(host)." }
         static func behind(_ n: Int) -> String { n == 1 ? "1 change still to copy." : "\(n) changes still to copy." }
         static func onItsWay(_ n: Int) -> String {
             n == 1 ? "1 change made here is on its way." : "\(n) changes made here are on their way."

@@ -113,6 +113,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>NSSpeechRecognitionUsageDescription</key><string>Cicada turns the speech in a recording or video you add into words on this Mac, so you can search what it says. Nothing is sent anywhere, and only the files you add are read.</string>
   <key>NSContactsUsageDescription</key><string>Cicada reads your contacts to recognise the people you already talk about — where to look up their details, and their photo. It never adds anyone new, and it stays on this Mac.</string>
   <key>NSAppleEventsUsageDescription</key><string>Cicada reads your notes in Apple Notes when you sync them, and in Chrome the page you save or a bookmark you ask it to remove, so what you keep there becomes part of your memory, kept in plain files on this Mac. It never changes a note.</string>
+  <key>NSLocalNetworkUsageDescription</key><string>Cicada finds your other devices on this Wi-Fi so they can share one memory directly, with nothing in between. It only looks for Cicada on the devices you paired.</string>
+  <key>NSBonjourServices</key><array><string>_cicada._tcp</string></array>
   <key>CFBundleDocumentTypes</key>
   <array>
     <dict>
