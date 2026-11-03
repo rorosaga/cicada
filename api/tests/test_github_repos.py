@@ -408,10 +408,14 @@ def test_the_lists_and_make_it_a_project(api, bank):
     assert row["project"] == {"project": pid, "name": "alpha-project", "how": "linked"}
     card = api.get(f"/entities/{pid}/repository").json()
     assert card["project"]["project"] == pid
-    # The person's own repository added by its link: its page knows it is theirs and which project it is.
-    page = api.post("/sources/github/repos", json={"url": "bob-example/alpha-project"}).json()["entityId"]
-    mine = api.get(f"/entities/{page}/repository").json()
-    assert mine["owned"] is True and mine["project"] == {"project": pid, "name": "alpha-project", "how": "linked"}
+    # The person's own repository by its link is steered to the project route, never made a repository page (owner
+    # 2026-11-03: "i'd rather it said 'Add as a project'"): one already a project says so, one not yet says how.
+    pages_before = sorted(p.name for p in (bank / "entities").glob("*.md"))
+    again = api.post("/sources/github/repos", json={"url": "https://github.com/Bob-Example/alpha-project"})
+    assert again.status_code == 409 and "already your project alpha-project" in again.json()["detail"]
+    fresh = api.post("/sources/github/repos", json={"url": "bob-example/side-notes"})
+    assert fresh.status_code == 409 and "`cicada github project bob-example/side-notes`" in fresh.json()["detail"]
+    assert sorted(p.name for p in (bank / "entities").glob("*.md")) == pages_before
     # A starred repository someone else owns never gets a same-name suggestion.
     _project(bank, "widget-kit")
     kit = next(r for r in api.get("/sources/github/repos").json()["starred"] if r["fullName"].endswith("widget-kit"))

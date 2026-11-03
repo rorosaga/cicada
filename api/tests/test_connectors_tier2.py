@@ -273,6 +273,19 @@ def test_notion_pages_become_episodes_keyed_by_page_id(bank):
     assert {c["url"].split("/v1/")[1] for c in server.calls if c["method"] == "POST"} == {"search"}
 
 
+def test_a_first_notion_sync_that_finds_nothing_shared_says_how_to_share_a_page(bank):
+    """Review of #587: a first connection reads 0 pages until one is shared with it — said in words, never silence."""
+    assert "Add connections" in notion.READS
+    _connect(notion)
+    result = asyncio.run(notion.sync(bank, http_fn=FakeServer(_notion_routes(search=NO["trash"]))))
+    assert result["status"] == "ok" and result["new"] == 0, result
+    words = sync_state.read_sync_state(bank)["notion-api"]["words"]
+    assert words == notion.NOTHING_SHARED_WORDS and "Connections" in words      # no "which pages you wrote" either
+    # Shared pages: the line is gone.
+    asyncio.run(notion.sync(bank, http_fn=FakeServer(_notion_routes())))
+    assert notion.NOTHING_SHARED_WORDS not in (sync_state.read_sync_state(bank)["notion-api"].get("words") or "")
+
+
 def test_notion_an_edit_rewrites_in_place_and_the_trash_tombstones(bank):
     _connect(notion)
     asyncio.run(notion.sync(bank, http_fn=FakeServer(_notion_routes())))

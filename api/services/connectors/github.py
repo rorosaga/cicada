@@ -58,7 +58,7 @@ WEB_HOSTS = frozenset({"github.com", "www.github.com"})
 TOKEN_HELP = "github.com/settings/personal-access-tokens"
 #: One short line (owner 2026-11-03: "this text is extremely unnecessary in all pages that have it, remove it"); the
 #: panel adds where the token comes from while it is not connected, so neither says it twice.
-READS = "Read-only: the repositories you own and the ones you starred."
+READS = "Read-only: the repositories you own and the ones you starred; a README only when you add or open one."
 #: GitHub's rate limits (the primary hourly one, or a secondary one for too many requests at once). A sync reads both
 #: lists whole each time, so a sync a limit stopped saved nothing and the next one starts again from the top.
 RATE_WORDS = ("GitHub asked Cicada to slow down, so nothing was saved this time; the next sync reads your repositories "

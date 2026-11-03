@@ -1733,8 +1733,9 @@ agent reads (`agent_methods`), not an install.
   person's own repositories is never added as a repository page** (owner 2026-11-03: "i'd rather it said 'Add as a
   project'"): the field's button follows the same rule — a pasted link to a repository the last sync listed as theirs
   (`GitHubReposLogic.owned`) reads that row's offer and `GitHubReposModel.submit` runs it; anyone else's (and any link
-  before a sync) reads *Add* and makes the `media` page. Every write is the person's click; the lists are read on open
-  and after each write, never a Store domain.
+  before a sync) reads *Add* and makes the `media` page; the backend's add route refuses one of the person's own the
+  last sync listed (409, naming the project path), so the CLI cannot make one a page either. Every write is the
+  person's click; the lists are read on open and after each write, never a Store domain.
   **A repository page's card** (`Views/Graph/RepositoryCard.swift`) sits where a paper's card and a saved link's
   preview sit, above the article: `GET /entities/{id}/repository` is asked for a `media` page whose kind is unknown
   (the graph stub) or `repository`, and for a project (a 404 for any other is nil), on its own task because the README
