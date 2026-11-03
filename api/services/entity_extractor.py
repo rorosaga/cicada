@@ -14,7 +14,7 @@ from tqdm import tqdm
 
 from api.config import Settings
 from api.services import (act_object, authorship, contact_identity, turn_signals, correspondents, decay_policy, engine_errors, entity_types, episode_time,
-                          evidence, fact_policy, participation, project_birth, promotion, section_provenance, source_dates)
+                          episode_revision, evidence, fact_policy, participation, project_birth, promotion, section_provenance, source_dates)
 from api.services.json_parse import parse_json_object
 
 EXTRACTION_SYSTEM_PROMPT = """You are an entity extraction system for a personal knowledge graph.
@@ -924,7 +924,22 @@ async def extract(
             success += 1
             return
 
-        spans = _chunk_spans(content)
+        # G104 (owner 2026-11-03): a conversation read before and edited since is read where it changed; one whose
+        # edit changed nothing but whitespace, or only removed lines, needs no call (`episode_revision`).
+        revision = episode.get(episode_revision.KEY)
+        if revision is not None and not revision.windows:
+            results[i] = {
+                "episode_id": ep_id,
+                "episode_timestamp": episode.get("timestamp"),
+                "origin": episode.get("origin", "unknown"),
+                "entities": [],
+                "relationships": [],
+            }
+            success += 1
+            return
+
+        spans = _chunk_spans(content) if revision is None else [
+            (lo + s, lo + e) for lo, hi in revision.windows for s, e in _chunk_spans(content[lo:hi])]
         # G110 gate B2: blank the episode's own gap range on the WHOLE body, then slice.
         gaps = tuple(episode.get("gaps") or ())
         masked = evidence.mask_gaps(content, gaps)
@@ -954,6 +969,8 @@ async def extract(
         in_group = bool(episode.get("group"))
         if in_group:
             source_note = group_note(members) + (source_note or "")
+        if revision is not None:
+            source_note = (source_note or "") + episode_revision.REVISION_NOTE
         their_observer = assistant_observer(episode)
         session_id = str(episode.get("session_id") or "").strip() or None
         # The owner, 2026-10-28: replies, reactions, forwards and unsends, told to each chunk they fall in.
@@ -1021,6 +1038,13 @@ async def extract(
                 if held_participation:
                     logger.info(f"  {ep_id}: {held_participation} relationship(s) of taking part kept as a mention: "
                                 "the cited words state no such role")
+                if revision is not None:
+                    # What the unchanged lines say is the first read's: never written twice, never a second
+                    # chance at a page for a name only they name.
+                    all_entities, all_relationships, all_values, left = episode_revision.keep_changed(
+                        revision, all_entities, all_relationships, all_values)
+                    if left:
+                        logger.info(f"  {ep_id}: revision — {left} item(s) from unchanged lines left as first read")
                 # What the model was given counts as said: the conversation, the owner's name and the source note.
                 given = "\n".join(t for t in (masked, owner or "", source_note or "") if t)
                 if plan_ids and engine_identity.scrub_extraction(all_entities, all_relationships, all_values,
