@@ -51,7 +51,7 @@ from typing import Callable
 
 from loguru import logger
 
-from api.services import markdown_parser, owner_identity, pending_store, telemetry
+from api.services import episode_revision, markdown_parser, owner_identity, pending_store, telemetry
 from api.services.claim_reconciler import reconcile_stage3
 from api.services.claims import Claim, is_event, parse_claims, write_claims
 from api.services.entity_extractor import entities_to_claims
@@ -419,6 +419,7 @@ def run_claim_pipeline(
     name_to_id: dict[str, str] | None = None,
     decay: bool = True,
     decided_names: list[str] | None = None,
+    revisions: dict | None = None,
 ) -> dict:
     """Emit → release → reconcile → write → hold claims over the live entity pages (additive).
 
@@ -441,6 +442,8 @@ def run_claim_pipeline(
             batch — ``sleep_drain``); everything else runs.
         decided_names: Stage 2's ``resolve(...)["decided_names"]`` — the names it joined or created this cycle; a line
             held against a page that bears its name is released there only on these (G209).
+        revisions: ``{episode id: episode_revision.Revision}`` — conversations read before and edited since (G104):
+            their spans move onto the new body, and what only the removed text said is closed (`episode_revision`).
 
     Returns a dict: ``{"nudges": [...], "audit": [...], "claims_written": int,
     "subjects_written": int, "subjects_skipped": int, "claims_page_less": int,
@@ -486,6 +489,9 @@ def run_claim_pipeline(
     if extra_claims:
         incoming = incoming + list(extra_claims)
 
+    # ---- G104: an edited conversation's spans re-anchored, what only its removed text said marked ----
+    revision_plan = episode_revision.reanchor(existing_by_subject, revisions or {})
+
     # ---- Stage 3: reconcile against existing in-page claims (trust-gated) ----
     reconciled, nudges, audit = reconcile_stage3(
         incoming,
@@ -493,7 +499,14 @@ def run_claim_pipeline(
         settings,
         now_date=today,
         **({} if decay else {"decay": False}),
+        **({"revised": revision_plan.revised_out} if revision_plan.revised_out else {}),
     )
+    withdrawn = episode_revision.settle(reconciled, revision_plan, revisions or {}, today, audit)
+    if revisions:
+        superseded = sum(1 for a in audit if a.get("action") == "revised")
+        logger.info(f"Claim pipeline: {len(revisions)} revised conversation(s) — {revision_plan.reanchored} span(s) "
+                    f"re-anchored, {revision_plan.stale} no longer in the text, {superseded} claim(s) replaced by "
+                    f"the revision, {withdrawn} withdrawn")
     # G113 — every supersede/reject the reconciler decided lands in the ledger.
     # One pass covers every subject, so the subject is recovered per entry from
     # the claim ids involved rather than passed once for the whole batch.
