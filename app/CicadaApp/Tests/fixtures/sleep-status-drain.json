@@ -102,7 +102,8 @@
         "reason": "cancelled",
         "resetsAt": null,
         "sentence": null
-      }
+      },
+      "waiting": null
     },
     "engineDetail": null,
     "entitiesCreated": 3,
@@ -251,7 +252,8 @@
         }
       ],
       "startedBy": "user",
-      "stop": null
+      "stop": null,
+      "waiting": null
     },
     "engineDetail": null,
     "entitiesCreated": 7,
@@ -352,10 +354,10 @@
       "skipped": 0,
       "stages": [
         {
-          "done": 1,
+          "done": 0,
           "failed": 0,
           "id": "read",
-          "state": "done",
+          "state": "pending",
           "total": 1,
           "unit": "conversations"
         },
@@ -398,7 +400,8 @@
         "reason": "plan_limit",
         "resetsAt": 1790000000,
         "sentence": "Your Claude plan hit its 5-hour limit \u2014 Sleep paused. Try again after 14:00."
-      }
+      },
+      "waiting": null
     },
     "engineDetail": "Your Claude plan hit its 5-hour limit \u2014 Sleep paused. Try again after 14:00.",
     "entitiesCreated": 6,
@@ -443,7 +446,7 @@
     },
     "relationshipsCreated": 0,
     "skillsDetected": 0,
-    "stage": 1,
+    "stage": 0,
     "startedAt": "2026-09-29T10:15:00",
     "status": "idle",
     "totalStages": 5,
@@ -547,7 +550,8 @@
         }
       ],
       "startedBy": "user",
-      "stop": null
+      "stop": null,
+      "waiting": null
     },
     "engineDetail": null,
     "entitiesCreated": 3,

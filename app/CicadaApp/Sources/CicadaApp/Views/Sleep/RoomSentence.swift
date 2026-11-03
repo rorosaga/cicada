@@ -220,6 +220,9 @@ private func sentenceLead(_ ctx: RoomContext) -> SentenceLine {
     if let paused = ctx.paused { return pausedLead(paused) }                                       // V2
     switch ctx.mood {
     case .sleeping:
+        if ctx.drain?.waiting != nil {                                                           // V8 (2026-11-03)
+            return SentenceLine(lead: Copy.SleepV5.waitingForNetworkLead)
+        }
         let running = stage(ctx)
         if let counted = countedStageLead(ctx, stage: running.number) { return counted }        // V3 (P15)
         if running.number == SleepStages.all.count, ctx.drain?.stages != nil {                  // V4
@@ -274,6 +277,9 @@ private func sentenceTail(_ ctx: RoomContext) -> SentenceTail? {
     }
     if let paused = ctx.paused { return pausedTail(paused, ctx) }                                 // V2
     if case .sleeping = ctx.mood {                                                               // T2 (P16)
+        if let waiting = ctx.drain?.waiting {                                                    // V8 (2026-11-03)
+            return SentenceTail(text: Copy.SleepV5.waitingForNetworkTail(waiting))
+        }
         if let drain = ctx.drain, drain.active, drain.firstRun == true, drain.committedBatches == 1,
            let owner = drain.ownerPage {                                                          // V6 (first save)
             let firstBatch = min(drain.batchSize > 0 ? drain.batchSize : ctx.batchSize, drain.filed)
@@ -371,6 +377,8 @@ private func pausedLead(_ paused: SleepPausedRun) -> SentenceLine {
     case "plan_window": SentenceLine(lead: Copy.SleepV5.pausedPlanWindowLead)
     case "plan_weekly": SentenceLine(lead: Copy.SleepV5.pausedPlanWeeklyLead)
     case "overage": SentenceLine(lead: Copy.SleepV5.pausedOverageLead)
+    // The network left (2026-11-03): a fact about the Mac, nothing to fix — plain, never the warning tone.
+    case "engine" where paused.engineKind == "offline": SentenceLine(lead: Copy.SleepV5.pausedOfflineLead)
     case "engine": SentenceLine(lead: paused.engineKind == "transient"
                                ? Copy.SleepV5.pausedEngineLead : Copy.SleepV5.pausedEngineFixLead, tone: .warning)
     case "restart": SentenceLine(lead: Copy.SleepV5.restartLead)
@@ -402,6 +410,9 @@ private func pausedTail(_ paused: SleepPausedRun, _ ctx: RoomContext) -> Sentenc
                             action: .openDetails(.lastCycle))
     case "plan_weekly":
         return SentenceTail(text: ctx.resetWhen.map(Copy.SleepV5.resetsThenContinue) ?? Copy.SleepV5.continueWhenItResets,
+                            action: .openDetails(.lastCycle))
+    case "engine" where paused.engineKind == "offline":
+        return SentenceTail(text: Copy.SleepV5.continueWhenOnline(filed: filed, frozen: frozen, locale),
                             action: .openDetails(.lastCycle))
     case "engine":
         let text = paused.engineKind == "transient"

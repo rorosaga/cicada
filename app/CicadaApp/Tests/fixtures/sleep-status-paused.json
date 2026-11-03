@@ -72,10 +72,10 @@
       "skipped": 0,
       "stages": [
         {
-          "done": 3,
+          "done": 0,
           "failed": 0,
           "id": "read",
-          "state": "done",
+          "state": "pending",
           "total": 3,
           "unit": "conversations"
         },
@@ -118,7 +118,8 @@
         "reason": "engine",
         "resetsAt": null,
         "sentence": "Stage 1 extracted nothing \u2014 every episode failed on the Claude Code engine. Run `claude auth status` to check the plan is signed in. The queue is intact; trigger Sleep again once it is. (signed in)"
-      }
+      },
+      "waiting": null
     },
     "engineDetail": null,
     "entitiesCreated": 3,
@@ -168,7 +169,7 @@
     },
     "relationshipsCreated": 0,
     "skillsDetected": 0,
-    "stage": 1,
+    "stage": 0,
     "startedAt": "2026-09-30T10:15:00",
     "status": "idle",
     "totalStages": 5,
@@ -233,10 +234,10 @@
       "skipped": 0,
       "stages": [
         {
-          "done": 3,
+          "done": 0,
           "failed": 0,
           "id": "read",
-          "state": "done",
+          "state": "pending",
           "total": 3,
           "unit": "conversations"
         },
@@ -279,7 +280,8 @@
         "reason": "plan_limit",
         "resetsAt": 1790003600,
         "sentence": "Your plan's 5-hour window is full."
-      }
+      },
+      "waiting": null
     },
     "engineDetail": null,
     "entitiesCreated": 3,
@@ -329,7 +331,7 @@
     },
     "relationshipsCreated": 0,
     "skillsDetected": 0,
-    "stage": 1,
+    "stage": 0,
     "startedAt": "2026-09-30T10:15:00",
     "status": "idle",
     "totalStages": 5,
@@ -454,7 +456,8 @@
         "reason": "reserve",
         "resetsAt": 1790003600,
         "sentence": "Paused to leave room in your plan."
-      }
+      },
+      "waiting": null
     },
     "engineDetail": null,
     "entitiesCreated": 4,
@@ -570,7 +573,7 @@
     },
     "relationshipsCreated": 0,
     "skillsDetected": 0,
-    "stage": 1,
+    "stage": 0,
     "startedAt": "2026-09-30T10:15:00",
     "status": "idle",
     "totalStages": 5,
@@ -681,7 +684,8 @@
         "reason": "cancelled",
         "resetsAt": null,
         "sentence": null
-      }
+      },
+      "waiting": null
     },
     "engineDetail": null,
     "entitiesCreated": 3,

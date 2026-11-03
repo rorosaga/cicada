@@ -188,7 +188,9 @@ def build(ds, *, phase: str, stop=None, engine_label: str | None = None,
         reason = reason_for(stop) if stop is not None else "restart"
         rec.update({
             "reason": reason or "engine",
-            "engine_kind": ("transient" if getattr(stop, "transient", False) else "needs_fix")
+            # ``offline``: the network left, not the engine (2026-11-03) — the words are about the network.
+            "engine_kind": ("offline" if getattr(stop, "offline", None) else
+                            "transient" if getattr(stop, "transient", False) else "needs_fix")
                            if reason == "engine" else None,
             "sentence": (getattr(stop, "sentence", "") or None) if stop is not None else None,
             "resets_at": getattr(stop, "resets_at", None) if stop is not None else None,

@@ -1,5 +1,6 @@
 import asyncio
 import inspect
+import math
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -9,7 +10,8 @@ from pathlib import Path
 from loguru import logger
 
 from api.config import Settings
-from api.services import authorship, bank_index, episode_ids, evidence, git_service, markdown_parser, sleep_drain, sleep_reserve
+from api.services import authorship, bank_index, episode_ids, evidence, git_service, machine_state, markdown_parser
+from api.services import sleep_drain, sleep_reserve
 
 
 @dataclass
@@ -1994,6 +1996,7 @@ async def _run_batch(
     from api.services import agent_engine, cycle_usage
 
     _state.batch_started_monotonic = time.monotonic()
+    batch_mark = machine_state.mark()
     if batch is not None:
         agent_engine.reset_models_used()
         if batch.ds is not None:
@@ -2013,6 +2016,12 @@ async def _run_batch(
                 stop = sleep_drain.classify(
                     exc, agent_engine.breaker_reason(), agent_engine.breaker_resets_at(),
                     agent_engine.breaker_kind())
+                if stop.reason != "plan_limit" and not _state.write_started:
+                    # A later stage's call lost the network: nothing is on disk yet, so the batch is read again
+                    # once the network is back, like a Stage 1 read that lost it.
+                    cause = _offline_cause(exc, batch_mark)
+                    if cause is not None:
+                        stop = sleep_drain.offline_stop(cause)
                 if stop.transient:
                     logger.warning(f"Sleep batch {batch_cycle_id} paused: {stop.sentence}")
                 elif stop.reason != "plan_limit":
@@ -2263,6 +2272,7 @@ async def _drain(
 
     last = _StageOutcome()
     stop: "sleep_drain.DrainStop | None" = None
+    offline_streak = 0          # network waits in a row; a committed batch starts it over
 
     def _park(i: str, reason: str) -> None:
         ds.parked[i] = reason
@@ -2361,6 +2371,18 @@ async def _drain(
         if last.committed:
             _write_run_record(ds, memory_path, phase="running", engine_label=engine_lbl)
 
+        if last.committed:
+            offline_streak = 0
+        if last.stop is not None and last.stop.offline and not last.committed:
+            # The network left (2026-11-03): the batch was discarded before its first write. Wait for the network and
+            # read the same batch again under its own number (as a Continue does), bounded; stop only on the
+            # person's Pause or a network that does not come back.
+            waited = await _wait_for_network(ds, last.stop.offline, offline_streak)
+            offline_streak += 1
+            if waited is None:
+                ds.batch -= 1
+                continue
+            last.stop = waited
         if last.stop is not None:
             stop = last.stop
             if stop.reason == "reserve" and not any(
@@ -2482,8 +2504,10 @@ def _record_leg(ds: "sleep_drain.DrainState", memory_path: Path, state: str, *, 
     from api.services import sleep_paused, sleep_runs
 
     try:
-        sleep_runs.record_leg(memory_path, ds, state=state, stop=stop,
-                              reason=sleep_paused.reason_for(stop) if stop is not None else None,
+        reason = sleep_paused.reason_for(stop) if stop is not None else None
+        if reason == "engine" and getattr(stop, "offline", None):
+            reason = "offline"          # Past reads says the network left, never that the engine stopped
+        sleep_runs.record_leg(memory_path, ds, state=state, stop=stop, reason=reason,
                               questions_leg=questions_leg)
     except Exception as e:  # noqa: BLE001 - a summary for Past nights, never worth failing a run
         logger.warning(f"run summary not written: {type(e).__name__}: {e}")
@@ -2577,12 +2601,78 @@ def _plan_hint(scheduled: bool) -> bool:
     return bool(scheduled) and _state.engine_detail == engine_select.SCHEDULE_DEGRADED
 
 
+def _offline_cause(exc: BaseException, mark: "machine_state.Mark | None") -> str | None:
+    """Whether a failed engine call lost the network (``sleep_drain.OFFLINE_CAUSES``), read from this machine's own
+    clocks and route table — nothing is sent. Never raises: a check that fails is no evidence."""
+    try:
+        slept = machine_state.slept_s(mark)
+        route = True if slept >= sleep_drain.SLEPT_S else machine_state.has_route()
+        return sleep_drain.offline_cause(exc, slept_s=slept, route=route)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+async def _wait_for_network(ds: "sleep_drain.DrainState", cause: str,
+                            attempt: int) -> "sleep_drain.DrainStop | None":
+    """A batch lost the network (2026-11-03): wait for it, then let the drain read that batch again.
+
+    ``None`` means read again; a stop means the run stops with it — the person's Pause (honoured on every poll, never
+    waited past), or, after ``OFFLINE_RETRIES`` waits in a row or a wait the network never ended, the offline pause
+    in words about the network. The wait counts in ``asyncio.sleep`` steps, whose clock stops while the machine
+    sleeps: a closed lid spends none of the bound. With no route the wait ends when one comes back, then settles;
+    with a route and a dropping connection it backs off. No page is held and no engine is called while it waits
+    (the write window is shut), and the engine the run resolved is the one it reads with again (ruling 4). Distinct
+    from ruling 15's continue-after-reset: no plan limit is involved, and nothing is armed past this run."""
+    if attempt >= sleep_drain.OFFLINE_RETRIES:
+        return sleep_drain.offline_stop(cause, gave_up=True)
+    _state.writing = False
+    ds.waiting = cause
+    ds.offline_waits += 1
+    ds.live = sleep_drain.BatchLive()          # the discarded batch's counts leave the page
+    ds.batch_counted = True
+    _state.stage = 0
+    _state.progress = sleep_drain.waiting_sentence(cause)
+    logger.warning(f"Drain {ds.drain_id}: the network left ({cause}); waiting to read the batch again "
+                   f"(wait {attempt + 1} of {sleep_drain.OFFLINE_RETRIES})")
+    poll = max(0.001, sleep_drain.OFFLINE_POLL_S)
+
+    async def nap(seconds: float) -> bool:
+        """Sleep ``seconds`` in poll steps; False when the person paused meanwhile."""
+        for _ in range(max(1, math.ceil(seconds / poll))):
+            if _state.cancel_requested:
+                return False
+            await asyncio.sleep(poll)
+        return not _state.cancel_requested
+
+    try:
+        if cause == "connection" and machine_state.has_route():
+            backoff = sleep_drain.CONNECTION_BACKOFF_S
+            if not await nap(backoff[min(attempt, len(backoff) - 1)]):
+                return sleep_drain.DrainStop("cancelled")
+            return None
+        for _ in range(max(1, math.ceil(sleep_drain.OFFLINE_WAIT_S / poll))):
+            if _state.cancel_requested:
+                return sleep_drain.DrainStop("cancelled")
+            if machine_state.has_route():
+                break
+            await asyncio.sleep(poll)
+        else:
+            if not machine_state.has_route():
+                return sleep_drain.offline_stop(cause, gave_up=True)
+        if not await nap(sleep_drain.OFFLINE_SETTLE_S):
+            return sleep_drain.DrainStop("cancelled")
+        return None
+    finally:
+        ds.waiting = None
+
+
 def _batch_hooks(live: "sleep_drain.BatchLive", guard, ds: "sleep_drain.DrainState") -> dict:
     """Stage 1's per-conversation hooks for a drain's batch: what started, what was
     read, what failed and whether that was the conversation's or the engine's, what
     the reserve line or engine interruption stopped from starting."""
     def started(ep: dict) -> None:
         live.started.add(ep["id"])
+        live.marks[ep["id"]] = machine_state.mark()
 
     def read(ep: dict) -> None:
         live.read.add(ep["id"])
@@ -2590,6 +2680,15 @@ def _batch_hooks(live: "sleep_drain.BatchLive", guard, ds: "sleep_drain.DrainSta
     def failed(ep: dict, exc: BaseException) -> None:
         from api.services import engine_cause, engine_errors
 
+        cause = _offline_cause(exc, live.marks.get(ep["id"]))
+        if cause is not None:
+            # The network left (the Mac asleep, offline, the connection dropping): never the conversation's and
+            # never a fix the person owes. The batch is discarded before its first write and read again once the
+            # network is back (`_drain`); no attempt or timeout is charged against this conversation.
+            live.engine_failed.add(ep["id"])
+            if live.transient_stop is None or live.transient_stop.offline is None:
+                live.transient_stop = sleep_drain.offline_stop(cause)
+            return
         if isinstance(exc, engine_errors.EngineTimeout):
             live.timeouts.add(ep["id"])
             if not ds.timeout_attempts.get(ep["id"]):
@@ -2862,7 +2961,8 @@ async def _run_stages(
     total_entities = sum(len(e.get("entities", [])) for e in extracted)
     total_rels = sum(len(e.get("relationships", [])) for e in extracted)
     logger.info(f"Stage 1 complete: {total_entities} entities, {total_rels} relationships extracted")
-    _state.stage = 1
+    # `_state.stage` (stages COMPLETED) moves to 1 only once Stage 1 is known to have read something (below): a batch
+    # Stage 1 failed outright leaves it at 0, so the strip's failed stage is Read, never Sort (2026-11-03).
 
     # Sleep control — safe point: Stage 1 only ever computed `extracted` in
     # memory (no disk write, `write_started` is still False), so a cancel
@@ -2872,6 +2972,7 @@ async def _run_stages(
     # Checked BEFORE the total-Stage-1-failure check below: a cancelled
     # cycle is not a failure and must not be reported as one.
     if _state.cancel_requested:
+        _state.stage = 1
         return _cycle_cancelled()
 
     if live is not None:
@@ -2963,6 +3064,7 @@ async def _run_stages(
         return _StageOutcome(stop=(
             sleep_drain.DrainStop("plan_limit", breaker, _ae.breaker_resets_at(), _ae.breaker_kind()) if breaker
             else sleep_drain.DrainStop("engine", msg)))
+    _state.stage = 1
 
     # Stage 2: Entity Resolution & Deduplication
     _say("Stage 2/5: Resolving entities...")

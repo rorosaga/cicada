@@ -2397,14 +2397,20 @@ person's own choice) and journal-honest (no "read and kept": a Pause reads the p
 `GET /sleep/status` and in brief on the SSE event, where a present `null` means none) outranks every idle rung of the sentence — Paused / Paused to
 leave room in your plan / Your plan window is full / The engine stopped answering / Cicada restarted while reading — with what is filed and, when armed
 (ruling 15), "Continues after 3:40 PM" (one locale-aware formatter, `sleepClockWords`); the mood is `.reading`, never an error or a cheer.
-An engine pause's `engineKind` (`transient | needs_fix`) travels in status and the compact SSE block. Transient
+An engine pause's `engineKind` (`transient | needs_fix | offline`) travels in status and the compact SSE block. Transient
 timeouts/errors say "The engine stopped answering" and "Continue to try again" with the filed count. Sign-out and
 model-not-found pauses retain "The engine needs a look" and "Continue when it is fixed"; older backends without the
 kind retain that fix guidance. Past reads shows the backend's diagnosis (DR-59), including the sign-in/model fix or a
 trimmed transient failure detail. For a timeout, the diagnosis says the interrupted part is read again. The existing
 `sleep` version component includes kind and diagnosis and maps to `.status` in `VersionVector`; a changed SSE kind
 refetches the paused record. An engine pause never implies automatic continuation.
-An engine connection loss uses the transient pause/Continue machinery. Neither an engine pause nor a genuine
+**The network left (2026-11-03, `capture-and-sleep.md`).** While a run waits for the network the drain carries
+`waiting` (`SleepDrainInfo.waiting`) and the sentence says "Waiting for the network." with one tail per cause ("The Mac
+slept mid-read. That part is read again once it's back." / "This Mac is offline. …" / "The connection dropped. It tries
+again shortly.") — rung V8, above the stage rungs. A run that gave up waiting pauses with `engineKind: offline`: "Paused.
+This Mac was offline." / "Continue once it's online. N of M filed.", in plain tone (nothing to fix, DR-7); Details
+titles it "Paused — this Mac was offline" and Past reads' pause row says "this Mac was offline" (DR-38, DR-59).
+An engine connection loss that is not offline uses the transient pause/Continue machinery. Neither an engine pause nor a genuine
 failure renders an exception class, CLI command or raw diagnosis in the page's sentence or worm answers. A failure
 instead says "Reading stopped" / "See what needs a fix in Past reads, then try again", in warning tone (DR-7, DR-59);
 the existing Last cycle rows retain the full diagnosis (DR-37/48). **One

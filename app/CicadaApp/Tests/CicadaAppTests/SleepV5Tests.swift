@@ -193,6 +193,44 @@ final class SleepV5RoomSentenceTests: XCTestCase {
         }
     }
 
+    /// 2026-11-03: a run the network left and that gave up waiting says so — never "the engine needs a look".
+    func test_anOfflinePauseSpeaksOfTheNetworkInPlainToneNeverTheEngine() throws {
+        let diagnosis = "This computer was asleep and the network was not back yet. Sleep waited and it did not come back."
+        var paused = try JSONDecoder().decode(SleepPausedRun.self, from: Data(
+            #"{"runId":"run","reason":"engine","engineKind":"offline","filed":0,"frozen":4}"#.utf8))
+        paused.sentence = diagnosis
+        let page = SleepPageModel.resolve(
+            status: nil, sse: nil, queued: [], schedule: ScheduleConfig(mode: "manual", hour: 3, minute: 0),
+            enginePreview: nil, history: [], storeStatus: nil, queueLoad: .loaded(count: 4),
+            justFinishedAt: nil, intakeInFlight: false, paused: paused, now: V5Fixture.now, locale: V5Fixture.en)
+        let line = V5Fixture.sentence(page)
+        XCTAssertEqual(line.lead, "Paused. This Mac was offline.")
+        XCTAssertEqual(line.tail, "Continue once it's online. 0 of 4 filed.")
+        XCTAssertNotEqual(line.tone, .warning)
+        XCTAssertFalse(line.spoken.contains("engine"))
+        let rows = LastCycleRow.runRows(drain: nil, paused: paused, run: nil, detail: nil, parkedCount: 0,
+                                        runBilling: nil, reserveValue: nil, locale: V5Fixture.en)
+        let row = try XCTUnwrap(rows.first { $0.kind == .paused })
+        XCTAssertEqual(row.title, "Paused — this Mac was offline")
+        XCTAssertEqual(row.text, diagnosis)
+        XCTAssertEqual(Copy.SleepV5.pauseRow(from: "3:00 AM", to: nil, reason: "offline"),
+                       "Paused at 3:00 AM · this Mac was offline")
+    }
+
+    func test_aRunWaitingForTheNetworkSaysSoAboveTheStageRungs() throws {
+        let drain = try JSONDecoder().decode(SleepDrainInfo.self, from: Data(
+            #"{"id":"run","frozen":4,"batchSize":25,"batch":1,"batches":1,"filed":0,"active":true,"waiting":"asleep"}"#.utf8))
+        XCTAssertEqual(drain.waiting, "asleep")
+        var context = RoomContext(mood: .sleeping(stage: 1), scheduleMode: "manual", locale: V5Fixture.en)
+        context.activeStage = 1
+        context.drain = drain
+        let line = roomSentence(context)
+        XCTAssertEqual(line.lead, "Waiting for the network.")
+        XCTAssertEqual(line.tail, "The Mac slept mid-read. That part is read again once it's back.")
+        context.drain?.waiting = nil
+        XCTAssertNotEqual(roomSentence(context).lead, "Waiting for the network.")
+    }
+
     func test_engineKindSurvivesStatusAndSSEDecodingAndMovesTheStatusDomain() throws {
         let paused = try JSONDecoder().decode(SleepPausedRun.self, from: Data(
             #"{"runId":"run","reason":"engine","engineKind":"transient"}"#.utf8))

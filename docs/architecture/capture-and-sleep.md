@@ -1651,8 +1651,8 @@ reads in a mixed batch. Once doomed, the batch starts no further Stage-1 calls; 
 The sidecar persists timeout observations by episode across Continue and process restarts. Each previously
 observed id that times out again can receive its second conversation attempt and be parked (`timed_out`), even
 when multiple ids time out together or the batch has no healthy neighbor. A newly affected id still pauses first;
-its discarded leg retains observations but charges no content attempt. Connection loss always pauses and never
-charges a timeout/content attempt.
+its discarded leg retains observations but charges no content attempt. Connection loss never charges a timeout/content
+attempt; it waits for the network within the run before it pauses (below, 2026-11-03).
 An unnamed `EngineFailed` during extraction is content `other` only when another conversation was read in the
 same batch. It then gets the normal next-batch retry-then-park without discarding healthy reads. A lone retry
 may use already-filed work in this run plus its existing attempt as that evidence. When nothing was read and
@@ -1685,6 +1685,32 @@ available in Details, while the page speaks provider-neutral pause/fix copy.
 Routing-discovery authorization/account errors and the reading engine's authentication/login and low-credit
 diagnoses are explicitly non-transient. Failed-turn warning events only inform connectivity detection, not model,
 auth or quota matching; a timeout stays a timeout despite an unrelated unsupported-config warning.
+**The network left — the Mac asleep, offline, a request that timed out (G163, 2026-11-03).** Live case: a scheduled
+run on a laptop, the lid closed mid-read for about three hours; on wake all four `claude -p` calls answered
+`terminal_reason: api_error`, no status, "Request timed out" while the network was not back yet, and the run stopped as
+`engine/needs_fix` ("Run `claude auth status`…"), badged the four conversations *could not be read* and drew Sort as the
+failed stage. Now: (1) the transport's own timeouts ("request timed out", "connection timed out", "socket hang up",
+`ECONNABORTED`, undici's connect timeout…) are `EngineConnectionLost`. (2) `machine_state` reads two local signals and
+sends nothing: `has_route()` (a UDP `connect` to a documentation address asks the kernel for a route — no packet, no DNS;
+`ENETUNREACH` means offline) and `slept_s(mark)` (a clock that counts sleep minus one that does not:
+`CLOCK_MONOTONIC − CLOCK_UPTIME_RAW` on macOS, `CLOCK_BOOTTIME − CLOCK_MONOTONIC` on Linux; never the wall clock).
+(3) `sleep_drain.offline_cause` sorts a failed call into `asleep` (it overlapped ≥ 30 s of machine sleep), `no_network`
+(no route) or `connection` (a transport failure with a route); a sign-in, plan limit or refused model is never offline,
+and an unnamed failure counts only with the machine's own evidence (asleep or no route). Stage 1's hook marks each read's
+start; a later stage's escaped error is checked against the batch's start, only while nothing is on disk
+(`write_started` false). (4) An offline failure is `engine_failed` (never `could not be read`, no attempt or timeout
+charged) and dooms the batch before its first write; the drain then **waits in the same run** (`_wait_for_network`):
+with no route it polls every 5 s up to 10 min, settles 15 s and reads the same batch again under its own number; with
+a route and a dropping connection it backs off 30 s / 2 min / 5 min. Waits count in `asyncio.sleep` steps, whose clock
+stops while the machine sleeps, so a closed lid spends none of the bound. At most 3 waits in a row (a committed batch
+resets the count); the person's Pause is honoured on every poll; the write window is shut and no engine is called while
+it waits; the engine resolved at the start is the one it reads with again (ruling 4). It is not ruling 15's
+continue-after-reset — no plan limit is involved and nothing is armed past the run. While waiting the drain's wire
+carries `waiting: asleep | no_network | connection` (status and SSE). (5) A network that never comes back pauses as
+reason `engine`, `engine_kind: offline`, no `error`, with a sentence about the network ("This computer was asleep and
+the network was not back yet… Continue once it is online"; "computer", since the backend also runs headless); Past
+reads records the pause as `offline`. (6) `SleepState.stage` (stages completed) moves to 1 only after Stage 1's
+total-failure checks, so a Stage 1 that failed draws Read as the failed stage, never Sort.
 An id another writer marked processed meanwhile is `skipped`, and a bank switch between batches stops the run (`bank_switched`; `activate`, `demo`,
 `leave-demo` and the active bank's rename answer **409** while `SleepState.drain_run`). **A scheduled cycle drains too**
 (ruling 16: both scheduler entry points pass `drain=True`) but with `user_triggered=False`, so automatic engine

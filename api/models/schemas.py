@@ -3352,6 +3352,8 @@ class SleepDrain(CamelModel):
     owner_page: Optional[SleepDrainOwnerPage] = None
     reserve: Optional[SleepReserve] = None
     resumed: Optional[bool] = None
+    # The network left mid-run (2026-11-03): while the run waits for it, why — ``asleep | no_network | connection``.
+    waiting: Optional[Literal["asleep", "no_network", "connection"]] = None
 
 
 class SleepPausedAutoContinue(CamelModel):
@@ -3365,13 +3367,14 @@ class SleepPaused(CamelModel):
     """A run that stopped with conversations still waiting and can be continued. Paused
     is a fact about a run, not a state of Sleep: ``status`` stays ``idle`` and nothing is
     held. ``reason``: ``user | plan_window | plan_weekly | reserve | overage | engine |
-    restart``; ``engine_kind`` distinguishes transient interruptions from fixes;
+    restart``; ``engine_kind`` distinguishes transient interruptions from fixes, and
+    ``offline`` a network that left and did not come back (2026-11-03) from both;
     ``sentence`` is the plan's own diagnosis or the engine's fix; ``resets_at`` is the
     vendor's, ``null`` when none was given — never guessed."""
     run_id: str
     started_by: str = "user"
     reason: str
-    engine_kind: Optional[Literal["transient", "needs_fix"]] = None
+    engine_kind: Optional[Literal["transient", "needs_fix", "offline"]] = None
     sentence: Optional[str] = None
     resets_at: Optional[int] = None
     limit: Optional[str] = None
