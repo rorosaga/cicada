@@ -12,7 +12,7 @@
 
 ## Current state and evidence
 
-- **2026-11-03 — routes, not a relay (ruling 51f, G132 phase 3b slice 1; branch `feat/g132-routes`, stacked on
+- **2026-11-03 — routes, not a relay (ruling 51f, G132 phase 3b slice 1; branch `feat/g132-routes`, PR #586, stacked on
   #572).** Owner: "yes i think we should copy t3 code … if we can make it all run nicely and for free awesome"; the
   phone, for now, a capture device. Each device's ordered route list (the home's door on the LAN → on a tailnet if
   present → the configured address → the relay only under Advanced → queue; re-checked each minute and on a network
