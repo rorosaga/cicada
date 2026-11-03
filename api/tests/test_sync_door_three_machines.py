@@ -225,4 +225,8 @@ def test_a_revoked_copy_is_refused_at_the_door(trio):
     _tool(alpha, "cicada_add_backlog_item", project="alpha-project", title="After the revoke", description="x")
     time.sleep(6)
     assert _items(bravo, "After the revoke") == 0
-    assert _wait(lambda: bravo.call("GET", "/sync/replica")[1]["replica"]["status"] == "revoked", 30)
+    # Its sessions were closed at the revoke, and its key is dropped at the door like any stranger's: the door tells
+    # an unproven key nothing, so over the door alone a revoked copy sees its home as unreachable, never a 401.
+    assert _wait(lambda: bravo.call("GET", "/sync/replica")[1]["replica"]["status"] in ("offline", "revoked"), 30)
+    assert _wait(lambda: (_routes(bravo).get("toHome") or {}).get("queued") is True, 30), _routes(bravo)
+    assert (_routes(alpha).get("door") or {}).get("dropped", 0) >= 1

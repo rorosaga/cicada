@@ -741,7 +741,8 @@ never a bank path**. The backend's HTTP API still binds `127.0.0.1`.
 - **What it carries.** Requests run **in process** through the same routes a device token reaches
   (`sync_inprocess`, shared with the relay link), as the device the handshake proved (`auth.RELAY_DEVICE_SCOPE`,
   `auth.DOOR_DEVICE_SCOPE`): its row is looked up again per request (a revoke is a 401 at once, and the revoked
-  device's open sessions and watch are closed then and there), the master-only rules
+  device's open sessions and watch are closed then and there; from then on its key is dropped at the door like a
+  stranger's, so over the door alone it sees its home as unreachable — the door never tells an unproven key anything), the master-only rules
   hold, a capture-only phone reaches only `auth.CAPTURE_ROUTES`, and a write carries its `Idempotency-Key` into the
   same `idempotency.run_once` — sent twice by two routes, applied once. A copy holds a watch on the door: the door
   reads the home's `HEAD` every 0.5 s only while a device watches and tells it of each commit at once.
