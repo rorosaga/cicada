@@ -1,8 +1,9 @@
 """Ruling 47, tier 2 — one framework for an official API the person connects for a high-value source.
 
 Tier 1 (the person's own browser and Mac) is the default way in; tier 2 is for a source whose official API gives what
-the harness cannot — the whole history, its metadata, a reliable read. The first two built on this module are
-Readwise (``readwise.py``) and Notion (``notion.py``); Telegram (47a) has its own client. Each adapter is a module in
+the harness cannot — the whole history, its metadata, a reliable read. Notion (``notion.py``) is built on this module
+(Readwise's adapter was the first, removed by owner direction 2026-11-03); Telegram (47a) has its own client. Each
+adapter is a module in
 ``ADAPTERS`` like the saved-content connectors (so the Sources row, the credential routes, Disconnect and Refresh are
 the existing ones), and declares ``TIER = 2``; what differs is everything after the fetch:
 

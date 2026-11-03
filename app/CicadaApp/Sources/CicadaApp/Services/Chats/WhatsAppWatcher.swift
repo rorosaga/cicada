@@ -325,12 +325,17 @@ final class WhatsAppWatcher {
     }
 
     /// chats-ux-v2 — a ticked chat's WhatsApp picture, posted like a Messages chat's shared photo (`messages_photos`:
-    /// outside every bank, the page's picture through the chat's correspondent — never for a group or the person's own
-    /// chat, which have none). Posted only when it changed; a failure leaves the face a monogram, never the sync.
+    /// outside every bank, the page's picture through the chat's correspondent). Posted only when it changed; a failure
+    /// leaves the face a monogram, never the sync.
+    ///
+    /// 2026-11-03 (owner: "then why doesnt the pfp appear") — a group's and the person's own chat's picture are posted
+    /// too: the picker drew them from this Mac while the page drew a monogram. They have no correspondent record, so
+    /// they are only the chat's face on the Sources page, never a page's picture (`messages_photos.links`); the person's
+    /// own chat draws the owner's page first when it has a picture (`channel_items._chat_pictures`).
     private func postPhotos(_ ticked: [WhatsAppChat]) async {
         let reader = self.reader
         let pairs = await Task.detached(priority: .utility) {
-            ticked.map { chat in (chat.id, chat.group || chat.isSelf ? nil : reader.picture(chat)) }
+            ticked.map { chat in (chat.id, reader.picture(chat)) }
         }.value
         let changed = pairs.filter { id, data in postedPhotos[id] != data?.hashValue ?? 0 }
         guard !changed.isEmpty else { return }

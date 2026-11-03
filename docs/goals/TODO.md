@@ -13,6 +13,28 @@
 ## Current state and evidence
 
 - **2026-11-03 — an edited conversation is read as a revision (G104; PR #581).** The owner asked whether updates should be told from new material at consolidation. Measured on a scratch bank (Claude plan, haiku; four synthetic notes consolidated, then edited in place: a changed value, an added line, a removed line, whitespace only): the second Sleep re-read all four whole (8 calls), left the removed line's claim open, read every old span `stale`, doubled 5 claims' spans, asked a conflict question for the whitespace edit and gave four once-said names pages. Now `episode_revision` diffs against the version Sleep read (git), reads only what changed, re-anchors spans, closes what only the removed text said (superseded by the same revision's value with no question, else a Sleep `retracts` record), and keeps a different conversation's word an update or conflict: the same run took 5 calls, 0 questions, 0 new pages, 1 withdrawn. Left: prose regeneration from corrected claims (G104 row).
+- **2026-11-03 — one onboarding Permissions step (G92; branch `onboarding-permissions-step`).** Owner ask: one step for every permission, drag-to-allow where macOS has no prompt. Inventory grepped from the app: Full Disk Access (Messages, Safari, WhatsApp), Contacts, Calendars, Reminders, Automation for Chrome and Notes, Notifications, and Accessibility + Screen Recording only while traces are on — 9 rows, 7 by default. Left out on purpose: Speech Recognition (asked only on a dropped recording), Automation for Terminal/Ghostty (the click that opens one), Input Monitoring and Local Network (not used). Every state is a preflight; a prompt appears only on its row's click; the drag rows open the exact list with the helper at once. The same rows are Settings → Privacy & data → Permissions. Verified on a scratch app copy, light and dark. Caveat: `cv app launch` runs the binary directly, so TCC answers for the launching terminal (Automation read Allowed on a fresh bundle id); a LaunchServices launch is a fresh identity. Same day, on the owner's screenshot: the drag helper is ONE banner holding the app's icon as the drag source, one line in the app's name, at most one action, and a two-hop arrival through `CicadaMotion.helperBounce` (nothing under Reduce Motion; DESIGN_RULES §9 2026-11-03).
+- **2026-11-03 — Sources and chat pages, the owner's pass (G179, G161, G223; branch `sources-page-owner-feedback`).**
+  Eight items, one PR. *What Cicada reads* left every source page; the chat pickers' standing paragraphs are gone (a
+  missing permission still shows its fix). The page's top right keeps only *Import chats or files* while no source is
+  open; *Reading in your browser* sits on the account and YouTube pages, *Explore saved sites* on a browser's. Each
+  section lists what is set up first (stable). A chat source's page is its chats: pinned first (right-click; `pinned`
+  in the chat's settings file, backend state), then the newest stored message; green *Last synced* / grey *Not
+  syncing*; a click opens the stored conversation in the trailing panel through the backend's sittings route, which
+  now lists none for an unticked chat (`ticked: false`). Decided: the page and the picker stay two things (the page
+  is what Cicada holds, readable on a client or replica; the picker is the consent act reading this Mac). Faces: the
+  person's own chat draws the owner's page picture, a one-to-one chat its correspondent's page by the one precedence.
+  The "9026" date: WhatsApp keeps a pinned chat's `ZLASTMESSAGEDATE` thousands of years ahead (measured: +6,000 and
+  +7,000 years exactly on a live store's two such chats, numbers only); the reader now lists by the newest message's
+  own date and every picker drops a date more than a day ahead. Readwise removed (adapter, fixtures, catalogue,
+  copy). Verified on scratch runs of `origin/dev` and the branch, light and dark (synthetic chats only). Cost: a chat
+  list now resolves each chat's page and picture — synthetic 300 chats / 3,000 sittings / 500 pages, uncached,
+  median 19 → 35 ms (an indexed `correspondents.page_finder` and the shared picture inputs read once; folding every
+  page per chat had cost ~400 ms); a repeat is a 304.
+- **2026-11-03 — the study room ends in a hard edge (G176; PR #582).** Owner, on onboarding's
+  room: "remove that fade effect from everywhere." The floor fade (a mask over the room's bottom five cells on the Sleep
+  page and in onboarding) is removed and its type deleted; no ring is added (the room sits on the page ground out of
+  its card, DESIGN_RULES §9 2026-11-03). Seen on a scratch app copy in light and dark.
 - **2026-11-03 — "are we also syncing WhatsApp?" (G179; branch `fix/whatsapp-live-stale`).** Not a stopped reader:
   read on a read-only copy of the live store (counts, ids, times only), the one ticked chat (the person's own) holds
   24 messages, its newest 6 days old and exactly the reader's cursor; 0 rows past it, 0 in the 48 h window; the 1,670

@@ -51,6 +51,73 @@ final class SleepRoomFrameTests: XCTestCase {
             }
         }
     }
+
+    /// Owner 2026-11-03, on the floor fading into the page ground under the room: "remove that fade effect from
+    /// everywhere." No file that draws the room masks it or lays a gradient over its edges, and the fade type is gone.
+    func test_noRoomDrawsAFadeOverItsEdges() throws {
+        let root = SpriteTestAssets.root.appendingPathComponent("Sources/CicadaApp/Views")
+        for file in ["Sleep/StudyRoom.swift", "Sleep/DeskScene.swift", "Onboarding/OnboardingRoom.swift",
+                     "Settings/ScenerySettings.swift"] {
+            let text = try String(contentsOf: root.appendingPathComponent(file), encoding: .utf8)
+            XCTAssertFalse(text.contains(".mask"), "\(file) masks the room")
+            XCTAssertFalse(text.contains("RoomFloorFade"), "\(file) still fades the floor")
+        }
+        for file in ["Sleep/StudyRoom.swift", "Sleep/DeskScene.swift", "Onboarding/OnboardingRoom.swift"] {
+            let text = try String(contentsOf: root.appendingPathComponent(file), encoding: .utf8)
+            XCTAssertFalse(text.contains("Gradient("), "\(file) lays a gradient on the room")
+        }
+    }
+}
+
+/// The room ends in a hard edge (owner 2026-11-03): rendered over two different grounds, every pixel of its bottom five
+/// cells — where the floor used to fade — is the same, so the floor is opaque to the last row and nothing is clipped.
+@MainActor
+final class SleepRoomEdgeTests: XCTestCase {
+    override func setUp() { CicadaTheme.uiScale = 1 }
+
+    private func plane(_ view: some View, size: CGSize, over ground: Color) throws -> SpriteTestAssets.Plane {
+        let framed = view.frame(width: size.width, height: size.height).background(ground)
+            .environment(\.spriteSnapshotDate, Date(timeIntervalSince1970: 12 * 3600))
+            .environment(\.scenePaused, true)
+        let renderer = ImageRenderer(content: framed)
+        renderer.scale = 1
+        let context = try XCTUnwrap(CGContext(
+            data: nil, width: Int(size.width), height: Int(size.height), bitsPerComponent: 8, bytesPerRow: 0,
+            space: try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB)),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        renderer.render { _, draw in draw(context) }
+        return SpriteTestAssets.Plane(try XCTUnwrap(context.makeImage()))
+    }
+
+    private func assertHardBottomEdge(_ view: some View, cell: CGFloat, _ name: String) throws {
+        let size = deskSceneLayout(pixelScale: cell).size
+        let red = try plane(view, size: size, over: .red), blue = try plane(view, size: size, over: .blue)
+        XCTAssertEqual([red.w, red.h], [Int(size.width), Int(size.height)], name)
+        let band = Int(cell) * 5
+        for y in (red.h - band)..<red.h { for x in 0..<red.w {
+            XCTAssertEqual(red.at(x, y), blue.at(x, y), "\(name): the ground shows through the floor at (\(x), \(y))")
+            if red.at(x, y) != blue.at(x, y) { return }
+        } }
+    }
+
+    func test_theRoomsFloorIsOpaqueToItsLastRow() throws {
+        let suite = "com.cicada.room-edge.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(SceneryMode.choose.rawValue, forKey: SceneryMode.defaultsKey)
+        for time in ["day", "night"] {
+            defaults.set(time, forKey: ManualScenery.timeKey)
+            defaults.set("sunny", forKey: ManualScenery.baseKey)
+            for cell: CGFloat in [5, 3] {
+                let scenery = Scenery(base: .sunny, time: time == "night" ? .night : .day, overlay: nil, source: .chosen)
+                try assertHardBottomEdge(SceneryRoomArt(lampLit: true, scenery: scenery, cell: cell) {
+                    BookwormView(state: .reading, latticeCell: cell, lighting: scenery.lighting, lampLit: true)
+                }, cell: cell, "the Sleep room's art, \(time), \(cell) pt")
+                try assertHardBottomEdge(OnboardingRoom(mood: .awake, cell: cell).defaultAppStorage(defaults),
+                                         cell: cell, "the onboarding room, \(time), \(cell) pt")
+            }
+        }
+    }
 }
 
 /// The room's three lines read as one group (2026-10-16): the live capture had ≈ 70 pt of empty slot between the

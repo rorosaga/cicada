@@ -434,7 +434,7 @@ studies (`claim_reconciler._ended_span`; `past_roles_repair` asks the same, `end
 now runs for every placement, ~0.4 ms p50 / 1.6 ms p95 on the owner page's 7,490-claim slot. A re-read of a claim the page holds closed (same id, G104) only adds its sources — a page never holds one
 id twice. No fold question is raised for an ending. Stage 1's prompt says "works at" means current.
 **A filing label is never anyone's words (owner 2026-10-29).** A record's header lines that file it — `**Folder:**`
-(a bookmark, a note), `**List:**` (a reminder), `**Calendar:**`, `**Database:**` (Notion), `**Tags:**` (Readwise) —
+(a bookmark, a note), `**List:**` (a reminder), `**Calendar:**`, `**Database:**` (Notion), `**Tags:**` (an earlier Readwise episode) —
 are `page` in every evidence reader (`evidence.LABEL_FIELDS`, `label_ranges`; `kind_for`, the search snippet), whatever
 the episode's authorship: the person typed the folder name once, to file things, and a span in it is no claim of
 theirs. Only the header Cicada's own writer put above the body counts; the same words typed in the body are the

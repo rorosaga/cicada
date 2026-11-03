@@ -512,7 +512,7 @@ async def put_messages_settings(req: MessagesSettingsUpdate, settings: Settings 
     conversation = None
     if req.conversation is not None:
         c = req.conversation
-        conversation = {"id": c.id, "name": c.name, "service": c.service, "ticked": c.ticked}
+        conversation = {"id": c.id, "name": c.name, "service": c.service, "ticked": c.ticked, "pinned": c.pinned}
         if c.clear_actor:
             conversation["actor"] = None
         elif c.actor is not None:

@@ -41,6 +41,13 @@ enum CicadaTiming {
     /// yet. Gentle: a preflight is a cheap local read, and a second is quick enough that the panels close as the switch
     /// flips. A wait, not motion.
     static let permissionPoll: TimeInterval = 1
+    /// The Permissions rows (onboarding's step, Settings → Privacy & data) look again this often while they show, by
+    /// preflight only, so a switch flipped in System Settings turns its row green. A wait, not motion.
+    static let permissionRowsPoll: TimeInterval = 2
+    /// Automation asks only while the target app runs: after the person's click opens it in the background, the ask
+    /// waits up to `automationLaunchTries` × `automationLaunchStep` seconds for it to finish launching. A wait.
+    static let automationLaunchTries = 20
+    static let automationLaunchStep: TimeInterval = 0.25
     /// G218 — how long screenshots stay shown after Touch ID before they are dropped from memory and hidden again.
     static let traceScreenshotsShown: TimeInterval = 300
 }
