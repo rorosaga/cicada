@@ -103,8 +103,9 @@ def test_hex_markdown_is_one_meeting_with_its_speakers_and_its_model_summary():
     assert d.extra["meeting"] == {"recorder": "hex", "format": "hex", "speakers": ["You", "Them"],
                                   "own_labels": ["You"], "duration_s": 750,
                                   "summary_writer": "Written on this Mac by Apple Intelligence; check it against the "
-                                                    "transcript."}
-    assert d.extra["participants"] == ["Bob Example", "Carol Example"]
+                                                    "transcript.",
+                                  "attendees": ["Bob Example", "Carol Example"]}
+    assert d.extra["meeting"]["attendees"] == ["Bob Example", "Carol Example"] and "participants" not in d.extra
     assert d.extra["consent"] == "unknown" and d.extra["folder_kind"] == "meetings"
     assert d.source_id == "meetings:meetings-abc123:" + HEX_NAME
     assert d.queue_for_sleep is True   # owner 2026-11-03: Sleep consolidates meetings
@@ -262,6 +263,26 @@ def test_a_meeting_is_staged_queued_edited_in_place_renamed_and_tombstoned(bank)
     assert fs.sync(bank, folder, [_file(HEX_NAME, edited)], [], tz_name="Europe/Madrid")["updated"] == 1
     ep = _episodes(bank)[sid]
     assert _paths(bank)[sid].stem == first_id and "on Friday." in ep.body and ep.frontmatter["processed"] is False
+    # The edit says it is one (owner 2026-11-03: a re-ingested item is an update): never consolidated yet, so no
+    # consolidated body to supersede — only the count and the body it replaced.
+    revised = ep.frontmatter["revised"]
+    assert revised["count"] == 1 and revised["previous_hash"] == fm["content_hash"]
+    assert "consolidated_hash" not in revised
+    # Sleep reads it, then the transcript changes again: the record names the body Sleep consolidated.
+    path = _paths(bank)[sid]
+    read = markdown_parser.parse(path)
+    markdown_parser.write(path, {**read.frontmatter, "processed": True, "processed_by": "sleep"}, read.body)
+    consolidated = read.frontmatter["content_hash"]
+    again = edited.replace("It just needs docs.", "It just needs docs and a demo.")
+    assert fs.sync(bank, folder, [_file(HEX_NAME, again)], [], tz_name="Europe/Madrid")["updated"] == 1
+    revised = _episodes(bank)[sid].frontmatter["revised"]
+    assert revised["count"] == 2 and revised["consolidated_hash"] == consolidated == revised["previous_hash"]
+    assert _episodes(bank)[sid].frontmatter["processed"] is False and _paths(bank)[sid].stem == first_id
+    # A third edit before Sleep reads it again keeps pointing at the body Sleep consolidated.
+    third = again.replace("and a demo.", "and a demo video.")
+    fs.sync(bank, folder, [_file(HEX_NAME, third)], [], tz_name="Europe/Madrid")
+    revised = _episodes(bank)[sid].frontmatter["revised"]
+    assert revised["count"] == 3 and revised["consolidated_hash"] == consolidated != revised["previous_hash"]
     # Deleted in the folder: tombstoned, never unlinked.
     assert fs.sync(bank, folder, [], [HEX_NAME])["tombstoned"] == 1
     assert _episodes(bank)[sid].frontmatter.get("source_deleted_at")
@@ -336,3 +357,31 @@ def test_the_routes(client):
     assert any(ch["id"] == f"meetings:{fid}" for ch in c.get("/sources/channels").json()["channels"])
     assert c.get("/sources/folders").json()["folders"][0]["kind"] == "meetings"
     assert c.post("/sources/folders", json={"label": "x", "path": "/x", "kind": "podcasts"}).status_code == 422
+
+
+def test_a_demo_bank_takes_no_meeting_folder_and_no_meeting(tmp_path, monkeypatch):
+    from api.services import bank_registry, demo_guard
+
+    root = tmp_path / "root"
+    root.mkdir()
+    slug = bank_registry.create_bank(root, "demo")
+    demo = bank_registry.bank_dir(root, slug)
+    demo_guard.write_manifest(demo)
+    bank_registry.activate_bank(root, slug)
+    monkeypatch.delenv("CICADA_MEMORY_PATH", raising=False)
+    monkeypatch.setenv("CICADA_MEMORY_ROOT", str(root))
+    config.get_settings.cache_clear()
+    try:
+        c = TestClient(main.app)
+        before = sorted(p.as_posix() for p in demo.rglob("*") if p.is_file() and ".git" not in p.parts)
+        r = c.post("/sources/folders", json={"label": "Hex Meetings", "path": "/Users/example/Documents/Hex Meetings",
+                                             "kind": "meetings", "recorder": "hex"})
+        assert r.status_code == 409 and r.json()["detail"] == demo_guard.REFUSAL
+        f = _file(HEX_NAME, HEX)
+        r = c.post("/sources/folders/hex-meetings-abc123/sync",
+                   json={"files": [{"relpath": f.relpath, "mtime": f.mtime, "sha256": f.sha256,
+                                    "contentB64": f.content_b64}], "deleted": [], "tzName": "Europe/Madrid"})
+        assert r.status_code == 409 and r.json()["detail"] == demo_guard.REFUSAL
+        assert sorted(p.as_posix() for p in demo.rglob("*") if p.is_file() and ".git" not in p.parts) == before
+    finally:
+        config.get_settings.cache_clear()

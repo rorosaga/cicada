@@ -519,12 +519,16 @@ def draft_for_file(folder: dict, relpath: str, text: str, *, mtime_iso: str, sha
         meeting["app"] = t.app
     if t.summary_writer:
         meeting["summary_writer"] = t.summary_writer
+    if t.attendees:
+        # A calendar's invitees as the file lists them — inside the meeting record, never ``participants`` (G179's
+        # ``[{key, marker, name, kind}]`` rows for a chat's members, a shape these plain names are not).
+        meeting["attendees"] = t.attendees
     return EpisodeDraft(
         title=_title(t, relpath), source_id=source_id(folder["id"], relpath),
         source_updated_at=mtime_iso, timestamp=stamp, original_date=day, source="folder", origin="folder",
         turns=turns, redate=start is not None, content_sha=sha, writer=WRITER,
         extra={"folder_id": folder["id"], "relpath": relpath, "folder_kind": KIND, "meeting": meeting,
-               "participants": t.attendees, "consent": "unknown"},
+               "consent": "unknown"},
     )
 
 

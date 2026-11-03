@@ -325,7 +325,14 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   fails for any module that mints an episode id without it. `api/services/episode_staging.py` is the
   G20 stager they share: an `EpisodeDraft` keyed by `source_id`, the hash over the scrubbed body, an
   edit rewritten in place with `processed: false`, a rename kept by content hash, a deletion
-  tombstoned (`source_deleted_at`) and never unlinked. A multi-turn source records G118's per-turn
+  tombstoned (`source_deleted_at`) and never unlinked. **An edit in place says it is one** (owner 2026-11-03: "re-ingested
+  items are updates, not new"; G95): `update_in_place` writes `revised: {count, at, previous_hash, consolidated_hash?}`
+  (`episode_staging.REVISED_KEY`, `revision_record`) — the number of body edits so far, when the latest landed, the
+  `content_hash` of the body it replaced, and the `content_hash` of the last body that was consolidated (processed by
+  Sleep or an agent, never by a parser or the index), kept through later edits until Sleep reads the episode again and
+  absent while no revision was ever consolidated. It is what Sleep reads to treat a re-queued episode as a newer
+  revision of what it already filed; the earlier body is in git. A new episode, a metadata-only refresh, a re-date, a
+  rename and a tombstone write none. A multi-turn source records G118's per-turn
   sidecar `turns: [{offset, ts, speaker, model?, effort?}, …]` (R-PB4: an entry only for a turn with
   a time, the last key, outside `content_hash`, capped head-stable at 500; `model`/`effort` only on
   an agent turn (round 4 C1)) — the one shape `evidence.turn_stamps`
@@ -554,9 +561,10 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   `speaker:unknown`, and the recorder's model-written summary an `assistant:` line — never the person's, never an
   exchange. No name is ever guessed to be the person; nothing is unmarked, so R4 never credits the person with an
   unlabelled line, and no `evidence_kind` is declared. The episode's `meeting` record (`recorder`, `format`, `speakers`,
-  `own_labels`, `duration_s`, `summary_writer`) reaches Stage 1 (`sleep_cycle` passes it), whose `meeting_note` says
-  which lines are the person's, that `speaker:` lines are someone else's, and that the summary is the recorder's;
-  `participants` holds a calendar's attendees, `consent: unknown` (G95's rail). Wispr Flow's meetings stay
+  `own_labels`, `duration_s`, `summary_writer`, `attendees` — a calendar's invitees as the file lists them, never G179's
+  `participants` rows) reaches Stage 1 (`sleep_cycle` passes it), whose `meeting_note` says which lines are the
+  person's, that `speaker:` lines are someone else's, and that the summary is the recorder's; `consent: unknown` (G95's
+  rail). An edited transcript carries the stager's `revised` record (above), so Sleep reads it as a revision. Wispr Flow's meetings stay
   on their own reader (above), now under the same Sources section.
 - **Messages conversations the person ticks (G179, 2026-10-15).** The app lists `chat.db`'s 200 most recent chats for
   the Settings picker (names, last activity, per-side counts — `MessagesReader.conversations`; a ticked chat below that

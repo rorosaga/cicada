@@ -17,9 +17,12 @@
   meetings folder (Hex's `meetings.output_folder` setting, else its default) with a title, Date/Duration bullets, an
   optional model-written Summary block and a `You`/`Them` transcript with offsets; a per-meeting `audio/` bundle sits
   beside it. A meeting folder is a G133 watched folder of `kind: meetings` (`meeting_transcripts`, one episode per
-  file, edited in place, its own start date, consolidated by Sleep); `You`/`Me` lines are the person's (52a). Built and
-  verified on scratch state with made-up transcripts only; the owner's folder was looked at for names, layout and
-  counts, never text. **Next:** the coordinator confirms 52a with the owner; the owner adds the Hex meetings folder.
+  file, edited in place, its own start date, consolidated by Sleep); `You`/`Me` lines are the person's (52a). An edit in
+  place now says it is one for every stager (`revised: {count, at, previous_hash, consolidated_hash?}`, owner
+  2026-11-03: "re-ingested items are updates, not new") — the record the Sleep side reads; a calendar's attendees sit in
+  the `meeting` record, never G179's `participants`. Built and verified on scratch state with made-up transcripts only;
+  the owner's folder was looked at for names, layout and counts, never text. **Next:** the coordinator confirms 52a
+  with the owner; the Sleep side consumes `revised`; the owner adds the Hex meetings folder.
 
 - **2026-11-03 — "are we also syncing WhatsApp?" (G179; branch `fix/whatsapp-live-stale`).** Not a stopped reader:
   read on a read-only copy of the live store (counts, ids, times only), the one ticked chat (the person's own) holds
