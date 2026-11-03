@@ -6,9 +6,11 @@ import XCTest
 /// the working steps and the worm's, and the keyboard never animates.
 final class OnboardingPagesTests: XCTestCase {
     func testSixStepsInTheFlowsOrderWithTheSplitFrameAndSkipOnTheWorkingSteps() {
-        XCTAssertEqual(OnboardingPage.allCases, [.welcome, .intelligence, .agents, .sources, .savedLists, .menuBar,
-                                                    .done])
-        XCTAssertEqual(OnboardingPage.allCases.map(\.step), [1, 2, 3, 4, 5, 6, 7])
+        XCTAssertEqual(OnboardingPage.allCases, [.welcome, .intelligence, .agents, .permissions, .sources, .savedLists,
+                                                    .menuBar, .done])
+        XCTAssertEqual(OnboardingPage.allCases.map(\.step), [1, 2, 3, 4, 5, 6, 7, 8])
+        XCTAssertEqual(OnboardingPage.agents.next, .permissions, "one step asks for every permission (owner 2026-11-03)")
+        XCTAssertEqual(OnboardingPage.permissions.next, .sources, "before the sources it unlocks")
         XCTAssertEqual(OnboardingPage.stepCount, OnboardingPage.allCases.count)
         XCTAssertEqual(OnboardingPage.welcome.next, .intelligence)
         XCTAssertEqual(OnboardingPage.sources.next, .savedLists, "the saved lists follow Sources (owner 2026-10-26)")
@@ -16,8 +18,10 @@ final class OnboardingPagesTests: XCTestCase {
         XCTAssertEqual(OnboardingPage.menuBar.next, .done)
         XCTAssertEqual(OnboardingPage.done.previous, .menuBar)
         XCTAssertNil(OnboardingPage.done.next)
-        XCTAssertEqual(OnboardingPage.allCases.filter(\.isSplit), [.intelligence, .agents, .sources, .savedLists])
-        XCTAssertEqual(OnboardingPage.allCases.filter(\.skippable), [.intelligence, .agents, .sources, .savedLists, .menuBar])
+        XCTAssertEqual(OnboardingPage.allCases.filter(\.isSplit), [.intelligence, .agents, .permissions, .sources,
+                                                                   .savedLists])
+        XCTAssertEqual(OnboardingPage.allCases.filter(\.skippable), [.intelligence, .agents, .permissions, .sources,
+                                                                     .savedLists, .menuBar])
     }
 
     /// Hyrum mode B — every step name either flow could have stored maps to a step that exists, and each new step
@@ -31,6 +35,8 @@ final class OnboardingPagesTests: XCTestCase {
         XCTAssertEqual(OnboardingPage(stored: "ready"), .done)
         XCTAssertEqual(OnboardingPage(stored: "menuBar"), .menuBar)
         XCTAssertEqual(OnboardingPage(stored: "savedLists"), .savedLists)
+        XCTAssertEqual(OnboardingPage(stored: "permissions"), .permissions)
+        XCTAssertEqual(OnboardingPage(stored: "sources"), .sources, "a stored Sources stays on Sources, never moves")
         XCTAssertEqual(OnboardingPage(stored: "done"), .done, "a step stored before the worm's step still lands on Done")
         XCTAssertNil(OnboardingPage(stored: "3"), "a raw number is never a step")
         XCTAssertNil(OnboardingPage(stored: ""))
@@ -43,6 +49,7 @@ final class OnboardingPagesTests: XCTestCase {
         XCTAssertEqual(OnboardingPage.welcome.roomMood, .awake)
         XCTAssertEqual(OnboardingPage.intelligence.roomMood, .reading)
         XCTAssertEqual(OnboardingPage.sources.roomMood, .reading)
+        XCTAssertEqual(OnboardingPage.permissions.roomMood, .reading)
         XCTAssertEqual(OnboardingPage.agents.roomMood, .happy)
         XCTAssertEqual(OnboardingPage.done.roomMood, .happy)
         XCTAssertEqual(OnboardingRoomLayout.paneCell(paneWidth: 540), 3, "480 × 192 in the full pane")

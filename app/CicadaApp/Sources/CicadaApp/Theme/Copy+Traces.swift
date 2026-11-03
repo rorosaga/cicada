@@ -161,24 +161,19 @@ extension Copy {
 
         // MARK: - The drag helper
 
-        static func need(_ permission: TracePermission) -> String {
+        /// The banner's one line while a drag is the job (owner 2026-11-03: one line, never a title repeated below it). It
+        /// names the exact list, so Screen Recording's lands in the right one, not the audio-only list beside it.
+        static func need(_ permission: TracePermission, app: String = "Cicada") -> String {
             switch permission {
-            case .screenRecording: "I need screen recording. Drag me into the Screen Recording list."
-            case .accessibility: "I need Accessibility. Drag me into the Accessibility list."
-            case .fullDiskAccess: "I need Full Disk Access. Drag me into the Full Disk Access list."
-            }
-        }
-
-        static func nearMiss(_ permission: TracePermission) -> String {
-            switch permission {
-            case .screenRecording: "Drag into 'Screen & System Audio Recording', not the audio-only list."
-            case .accessibility: "Drag into the Accessibility list under Privacy & Security, then turn its switch on."
-            case .fullDiskAccess: "Drag into 'Full Disk Access', then turn its switch on."
+            case .screenRecording: "Drag \(app) into Screen & System Audio Recording"
+            case .accessibility: "Drag \(app) into Accessibility"
+            case .fullDiskAccess: "Drag \(app) into Full Disk Access"
             }
         }
 
         static let open = "Open"
         static let openHelp = "Open this list in System Settings"
+        /// The banner's icon: its help tag and its accessibility label.
         static let dragHint = "Drag into the list"
         static let closeHelper = "Close"
 
