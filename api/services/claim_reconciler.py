@@ -1116,6 +1116,11 @@ def reconcile_stage3(
         over = getattr(endings_fn, "over", {}).get(canonical, frozenset())
         kept = _place_claim(new, slot, settings, today, cardinality_fn, nudges, audit, untimed, over, canonical,
                             revised=revised)
+        if (revised and kept is not None and kept is not new and kept.id in revised
+                and revised[kept.id] in (new.source_episodes or [])):
+            # G104: the revision said a marked claim again — whatever its evidence (an unlocatable quote is a
+            # `reasoning` entry `_reinforce` drops for a conversation already cited, R8). It is kept, never withdrawn.
+            audit.append({"action": "revision_restated", "kept": kept.id})
         if kept is not None and getattr(new, "premise_at", None):
             premise_pairs.append((kept, new.premise_at))
         if raw_label:

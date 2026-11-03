@@ -161,15 +161,57 @@ def test_a_removed_claim_is_withdrawn_by_a_record_and_a_restated_one_kept():
     assert record.object == "linux" and record.evidence[0].hash == rev.hash and record.authored_by == er.AUTHOR
 
 
+def _restated(evidence_list, ep=EP, cid="linux", quote="we target Linux only") -> Claim:
+    """What Stage 1 emits when a conversation says the claim again: same slot and object, its own evidence."""
+    return Claim(id=cid, text=quote, subject="alpha", predicate="says", object=quote, evidence=evidence_list,
+                 source_episodes=[ep], valid_from="2026-11-03")
+
+
+def _through_stage3(pages, plan, rev, incoming):
+    out, nudges, audit = reconcile_stage3(incoming, pages, _settings(), now_date="2026-11-04", decay=False,
+                                          revised=plan.revised_out)
+    return out, nudges, audit, er.settle(out, plan, {EP: rev}, "2026-11-04", audit)
+
+
 def test_a_marked_claim_the_revision_restates_keeps_only_its_new_span():
     rev = _rev("user: we target Linux only.", "user: Linux only is the target.")
     claim = _claim("linux", rev.prior, "we target Linux only")
     pages = {"alpha": [claim]}
     plan = er.reanchor(pages, {EP: rev})
     assert plan.revised_out == {"linux": EP}
-    claim.evidence.append(evidence.verify(None, EP, "Linux only", text=rev.body))   # Stage 3's reinforce
-    assert er.settle(pages, plan, {EP: rev}, "2026-11-04", []) == 0
-    assert claim.valid_to is None and [e.hash for e in claim.evidence] == [rev.hash]
+    out, nudges, audit, withdrawn = _through_stage3(
+        pages, plan, rev, [_restated([evidence.verify(None, EP, "Linux only", text=rev.body)])])
+    assert withdrawn == 0 and not nudges and claim.valid_to is None
+    assert [e.hash for e in claim.evidence] == [rev.hash] and not any(is_record(c) for c in out["alpha"])
+
+
+def test_a_restatement_whose_quote_does_not_locate_still_keeps_the_claim():
+    """Provenance never blocks memory: the revision says it again, the quote is unlocatable (`reasoning`), and Stage 3's
+    reinforce drops a reasoning entry for a conversation the claim already cites (R8) — the claim stays open."""
+    rev = _rev("user: notes\nwe target Linux only.", "user: notes\nLinux is the only platform we ship for.")
+    claim = _claim("linux", rev.prior, "we target Linux only")
+    pages = {"alpha": [claim]}
+    plan = er.reanchor(pages, {EP: rev})
+    assert plan.revised_out == {"linux": EP}
+    out, _, audit, withdrawn = _through_stage3(pages, plan, rev, [_restated([evidence.reasoning(EP, hash=rev.hash)])])
+    assert withdrawn == 0 and claim.valid_to is None and claim.superseded_by is None
+    assert not any(is_record(c) for c in out["alpha"])
+    assert {"action": "revision_restated", "kept": "linux"} in audit
+
+
+def test_another_conversation_in_the_same_batch_keeps_the_claim_open():
+    """The revision removed the line, but another conversation read in the same batch says it: not the source's word
+    alone any more, so nothing is withdrawn (an unsent message splitting a Messages sitting does this)."""
+    rev = _rev("user: the review is on Friday.\nwe target Linux only.", "user: the review is on Friday.")
+    claim = _claim("linux", rev.prior, "we target Linux only")
+    pages = {"alpha": [claim]}
+    plan = er.reanchor(pages, {EP: rev})
+    assert plan.revised_out == {"linux": EP}
+    other = "ep_2026-11-03_002"
+    said = evidence.verify(None, other, "we target Linux only", text="user: we target Linux only.")
+    out, _, _, withdrawn = _through_stage3(pages, plan, rev, [_restated([said], ep=other, cid="linux2")])
+    assert withdrawn == 0 and claim.valid_to is None and other in claim.source_episodes
+    assert [c.id for c in out["alpha"] if c.valid_to is None] == ["linux"]
 
 
 # --------------------------------------------------------------------------- the version git holds

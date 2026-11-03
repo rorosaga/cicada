@@ -748,8 +748,9 @@ offsets and body hash, so they read `current` instead of `stale`; one whose word
 superseded by the new value the same revision states on its slot (no conflict question — the source corrected
 itself), or else withdrawn by a born-closed `retracts` record written by Sleep (`authored_by: cicada`, evidence
 `reasoning` on that episode with the revision's body hash, so the record names the revision that dropped it). A claim
-another conversation also says, the person's own, an agent's write (`recorded_ts`), an event, or anything a capped
-transcript's slid-out turn said is never closed this way. A withdrawn claim restated later is a fresh assertion, as
+another conversation also says (before the read, or in the same batch), one the revision says again even in words that
+do not locate, the person's own, an agent's write (`recorded_ts`), an event, or anything a capped transcript's slid-out
+turn said is never closed this way. A withdrawn claim restated later is a fresh assertion, as
 for any withdrawal.
 
 **Reading provenance back (G118 slice 2, server half).** Three engine-free, bank-only reads, all

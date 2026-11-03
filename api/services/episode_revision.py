@@ -462,13 +462,20 @@ def reanchor(claims_by_subject: dict[str, list[Claim]], revisions: dict[str, Rev
 
 def settle(reconciled: dict[str, list[Claim]], plan: Plan, revisions: dict[str, Revision], today: str,
            audit: list[dict]) -> int:
-    """After Stage 3: a marked claim a restatement in this revision reinforced keeps its new span only; one the
-    revision's new value closed stays closed; every other is withdrawn by a ``retracts`` record that names the
-    revision. Returns how many were withdrawn."""
+    """After Stage 3, each marked claim still open is withdrawn by a ``retracts`` record that names the revision —
+    unless Stage 3 gave it a reason to stand:
+
+    * another conversation now supports it (read in the same batch: its evidence or ``source_episodes`` cite an
+      episode other than the revised one) — no longer the removed text's word alone;
+    * the revision said it again (Stage 3's ``revision_restated``, whatever the evidence kind: an unlocatable quote
+      is still a restatement — provenance never blocks memory). Its old span gives way to a new one when it has one.
+
+    One the revision's new value closed stays closed. Returns how many were withdrawn."""
     if not plan.revised_out:
         return 0
     from api.services.agentic_write import _withdrawal_record
 
+    restated = {a.get("kept") for a in audit if a.get("action") == "revision_restated"}
     withdrawn = 0
     for slot in reconciled.values():
         records: list[Claim] = []
@@ -477,10 +484,15 @@ def settle(reconciled: dict[str, list[Claim]], plan: Plan, revisions: dict[str, 
             if ep is None or c.valid_to is not None:
                 continue
             rev = revisions[ep]
-            if any(e.episode == ep and e.is_span() and e.hash == rev.hash for e in c.evidence):
-                # Said again in the revision (a reworded or moved line): the old span gives way to the new one.
-                c.evidence = [e for e in c.evidence if not (e.episode == ep and e.hash != rev.hash and e.is_span())]
-                audit.append({"action": "revision_kept", "kept": c.id})
+            if any(e.episode != ep for e in c.evidence) or any(s != ep for s in c.source_episodes or []):
+                audit.append({"action": "revision_kept", "kept": c.id, "why": "another_conversation"})
+                continue
+            if c.id in restated:
+                if any(e.episode == ep and e.is_span() and e.hash == rev.hash for e in c.evidence):
+                    # A reworded or moved line, located: the old span gives way to the new one.
+                    c.evidence = [e for e in c.evidence
+                                  if not (e.episode == ep and e.hash != rev.hash and e.is_span())]
+                audit.append({"action": "revision_kept", "kept": c.id, "why": "restated"})
                 continue
             record = _withdrawal_record(c, [*slot, *records], reason=WITHDRAW_REASON, author=AUTHOR,
                                         origin=c.origin, session_id=c.session_id,

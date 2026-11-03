@@ -1287,10 +1287,14 @@ page now existing); the page prose kept the old fact beside the new. `episode_re
   from that same episode closes a marked claim on its slot (`superseded_by`, the owner's-words rail `may_close` still
   holding) — no question. A value from any OTHER conversation meets the trust table as before: a later conversation
   saying something different is an update or a conflict, which is how memory evolves.
-- **After the reconciler** (`settle`): a marked claim the revision restated (a reworded or moved line) keeps only its
-  new span; every other is withdrawn by a born-closed `retracts` record (`authored_by: cicada`, reason "The
-  conversation this came from was edited and no longer says it.", evidence `reasoning` on the episode with the
-  revision's body hash) — never deleted.
+- **After the reconciler** (`settle`): a marked claim stays open when another conversation read in the same batch now
+  supports it (its evidence or `source_episodes` cite another episode — an unsent message splitting a Messages sitting
+  does this), or when the revision said it again: Stage 3 reports every marked claim it reinforced from that revision
+  (`revision_restated`), whatever the evidence kind — an unlocatable quote arrives as `reasoning`, which `_reinforce`
+  drops for a conversation the claim already cites (R8), and is still a restatement (provenance never blocks memory). A
+  restated claim with a located new span keeps only that span. Every other is withdrawn by a born-closed `retracts`
+  record (`authored_by: cicada`, reason "The conversation this came from was edited and no longer says it.", evidence
+  `reasoning` on the episode with the revision's body hash) — never deleted.
 - **The same conversation.** The episode keeps its id, so the 2+ conversations rule, promotion and decay credit count
   it once; `processed_by` stays `sleep`. A revision Stage 1 failed to read stays queued with its claims untouched.
   The claim pipeline logs the counts (spans re-anchored, no longer in the text, replaced, withdrawn).
