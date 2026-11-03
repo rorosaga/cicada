@@ -16,8 +16,8 @@ import Observation
 /// last pass that had something to post (or re-post: the recheck window re-reads the last 48 hours), never the last
 /// check. The owner's one ticked chat had nothing new for six days while WhatsApp kept writing other chats; those writes
 /// kept running passes, each found nothing past the cursor, and the row said "synced" four days back (the last
-/// re-read of the window). `check` keeps the last successful pass and the newest message in the ticked chats, and the source page says
-/// both (`ChatCheck`, `SourcePageStatus.checked`).
+/// re-read of the window). `check` keeps the last successful pass and the newest message in the ticked chats, and the
+/// source page says both (`ChatCheck`, `SourcePageStatus.checked`).
 @MainActor
 @Observable
 final class WhatsAppWatcher {
