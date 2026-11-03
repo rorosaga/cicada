@@ -304,6 +304,11 @@ def set_lan_allowed(allowed: bool) -> None:
             _save(data)
 
 
+def lan_allowed() -> bool:
+    """The app's last word on the person's local-network permission (its first-share permissions step)."""
+    return bool(_load().get("lanAllowed"))
+
+
 def may_dial_lan(environ=os.environ) -> bool:
     """Whether this backend may open a connection to a LAN address. On a Mac only when the app says the person allowed
     local network access and this backend's agent names the app (Apple TN3179; ``sync_discovery.associated``); on

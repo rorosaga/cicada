@@ -282,9 +282,10 @@ async def post_discovered(body: DiscoveredBody, request: Request, settings: Sett
     _own_token_only(request)
     from api.services import sync_discovery
 
-    from api.services import sync_routes
+    from api.services import sync_net, sync_routes
 
     await run_in_threadpool(sync_routes.set_lan_allowed, body.lanAllowed)
+    await sync_net.ensure_door(request.app, settings.memory_path)    # on a Mac: the LAN once the person allowed it
     kept = await run_in_threadpool(lambda: sync_discovery.accept(
         settings.memory_path, [c.model_dump() for c in body.candidates], lan_allowed=body.lanAllowed))
     doors = await run_in_threadpool(lambda: _check_doors([d.model_dump() for d in body.doors]))
@@ -346,14 +347,16 @@ class NetworkNote(BaseModel):
 
 
 @router.post("/sync/network")
-async def post_network(body: NetworkNote, request: Request):
+async def post_network(body: NetworkNote, request: Request, settings: Settings = Depends(get_settings)):
     """The app's word that the network changed or that it is in front again: every earlier route is tried again now,
-    and a copy catches up at once (only what it missed)."""
+    and a copy catches up at once (only what it missed). ``lanAllowed`` is its permissions step's answer: on a Mac the
+    door opens to the LAN only after it."""
     _own_token_only(request)
-    from api.services import replica, sync_door, sync_routes
+    from api.services import replica, sync_door, sync_net, sync_routes
 
     if body.lanAllowed is not None:
         await run_in_threadpool(sync_routes.set_lan_allowed, body.lanAllowed)
+        await sync_net.ensure_door(request.app, settings.memory_path)
     sync_routes.BOOK.note_network_change()
     sync_door.POOL.drop()
     replica.wake()

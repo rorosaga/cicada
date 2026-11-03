@@ -12,6 +12,22 @@
 
 ## Current state and evidence
 
+- **2026-11-03 — routes, not a relay (ruling 51f, G132 phase 3b slice 1; branch `feat/g132-routes`, stacked on
+  #572).** Owner: "yes i think we should copy t3 code … if we can make it all run nicely and for free awesome"; the
+  phone, for now, a capture device. Each device's ordered route list (the home's door on the LAN → on a tailnet if
+  present → the configured address → the relay only under Advanced → queue; re-checked each minute and on a network
+  change, moved back); the door (sealed frames on the pairing keys, never the HTTP API or a token, silent to anything
+  unproven, private peers only, rate-limited, fuzzed); a capture-only phone paired in the same room over the door with
+  the QR's one-time secret; an unsent outbox item never expires; route enums in the ledger. Measured on loopback (three
+  backends, a phone-shaped client, 5 runs beside a full gate run): door handshake p50 1.28 ms; a commit reaches a copy
+  over the door p50 384 ms (n=25); after a network switch the copy found the home at its new address and had the 5
+  commits it missed in p50 315 ms over ~5.3 KB (a full copy ~15.9 KB), nothing re-paired; moved back to the door in
+  p50 0.91 s after the app's word; the phone's three queued captures landed in 18–40 ms once the home answered, each
+  once; a dead LAN route costs 1.0 s once a minute; idle, a copy on the door costs less than on `/sync/events` (home
+  0.39–0.46 vs 0.50–0.83 s, copy 0.30–0.33 vs 0.54–0.70 s of CPU per 120 s). Slice 2 (router port, IPv6, the DHT
+  record) is planned in [the plan](../plans/2026-11-03-g132-routes.md), not built; hole punching design notes only.
+  **Pick up here:** merge #572, then this PR (retarget to `dev`); the app's half follows (#573: Relay under Advanced,
+  the Local Network and firewall step at first share, Bonjour and the network hint).
 - **2026-10-30 — one transport, direct first, the relay as fallback (ruling 51c, G132 phase 3b; branches
   `feat/g132-direct-first`, backend, and `feat/g132-direct-first-app`, Settings → Devices' Relay).** Owner: "cant we just
   connect between devices". Every device-to-device request goes through `sync_transport`: direct to the configured

@@ -536,7 +536,7 @@ def registry_lookup(memory_path):
 
 class Server:
     def __init__(self, app, memory_path: Path, *, port: int, host: str | None = None):
-        self.host = host or (os.environ.get(HOST_ENV) or "").strip() or None
+        self.host = (os.environ.get(HOST_ENV) or "").strip() or None if host is None else (host or None)
         self.app = app
         self.memory_path = Path(memory_path)
         self.port = port
@@ -821,16 +821,35 @@ def _spool_dir() -> Path:
 SERVER: Server | None = None
 
 
+def wanted_host(environ=os.environ) -> str | None:
+    """Where the door binds now: ``CICADA_SYNC_DOOR_HOST`` when set; on a Mac, loopback until the app says the person
+    went through its permissions step (``sync_routes``' ``lanAllowed``) — binding every interface raises the
+    application firewall's question, which nothing may ask unasked; elsewhere every interface (None)."""
+    import sys
+
+    raw = (environ.get(HOST_ENV) or "").strip()
+    if raw:
+        return raw
+    if sys.platform == "darwin":
+        from api.services import sync_routes
+
+        return None if sync_routes.lan_allowed() else "127.0.0.1"
+    return None
+
+
 async def start(app, memory_path) -> Server | None:
     global SERVER
     if not enabled():
         return None
+    host = await asyncio.to_thread(wanted_host)
     if SERVER is not None and SERVER.running():
-        return SERVER
+        if SERVER.host == host:
+            return SERVER
+        await stop()              # the person allowed the LAN since: the door opens to it
     st = await asyncio.to_thread(door_state)
     raw_port = (os.environ.get(PORT_ENV) or "").strip()
     port = int(raw_port) if raw_port.isdigit() else int(st["port"])
-    server = Server(app, memory_path, port=port)
+    server = Server(app, memory_path, port=port, host=host or "")
     try:
         await server.start()
     except OSError as exc:

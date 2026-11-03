@@ -306,3 +306,18 @@ def test_a_device_not_yet_in_the_group_is_let_in_only_with_the_qrs_secret(keys):
     assert opened(sync_door.client_hello(ident, keys["pub"], pair_secret=os.urandom(32))[0]) is None   # wrong one
     got = opened(sync_door.client_hello(ident, keys["pub"], pair_secret=secret)[0])
     assert got is not None and got[0].kind == "pairing" and got[0].jwk == phone.jwk
+
+
+def test_on_a_mac_the_door_stays_on_loopback_until_the_person_allowed_the_lan(keys, monkeypatch):
+    """Binding every interface raises the application firewall's question: never before the app's permissions step."""
+    from api.services import sync_routes
+
+    monkeypatch.delenv(sync_door.HOST_ENV, raising=False)
+    monkeypatch.setattr(__import__("sys"), "platform", "darwin")
+    assert sync_door.wanted_host() == "127.0.0.1"
+    sync_routes.set_lan_allowed(True)
+    assert sync_door.wanted_host() is None
+    assert sync_door.wanted_host({sync_door.HOST_ENV: "192.168.1.4"}) == "192.168.1.4"
+    monkeypatch.setattr(__import__("sys"), "platform", "linux")
+    sync_routes.set_lan_allowed(False)
+    assert sync_door.wanted_host() is None

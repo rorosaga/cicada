@@ -730,8 +730,11 @@ never a bank path**. The backend's HTTP API still binds `127.0.0.1`.
   redeemed capture-only and bound to the key its hello proved. The answer is the device's id — never a token.
 - **macOS.** Accepting connections needs no Local Network permission (TN3179); dialing a LAN address does, so a copy
   dials a non-loopback LAN door only when the app reports the permission and the agent plist names the app
-  (`CICADA_SYNC_LAN_DIAL=on|off` overrides; Linux always may). The application firewall, when on, asks once whether
-  the backend may accept incoming connections — the app's first-share permissions step must cover it (D4).
+  (`CICADA_SYNC_LAN_DIAL=on|off` overrides; Linux always may). Binding every interface raises the application
+  firewall's question (whether the backend may accept incoming connections) when the firewall is on, so **on a Mac the
+  door stays on loopback until the app reports its permissions step** (`lanAllowed` on `POST /sync/discovered` or
+  `POST /sync/network`), then reopens on every interface — nothing asks the person anything unasked; the app's
+  first-share step (D4) covers Local Network and the firewall together.
 
 **The outbox never drops an unsent write (D1).** With no mailbox, a write that never reached the home waits however
 long and applies once when a route answers; only an entry the home may have seen (it answered, or a send's answer was
@@ -742,11 +745,18 @@ lost) keeps the 7-day bound before the home's 8-day key, and one that lapses is 
 once an hour per device and route at the door — `side`, `route`, `event`, `before` as enums only, never an address,
 host or port. It is how the share of homes that need slice 2 gets measured, not guessed.
 
-**Measured** (loopback, three backends, synthetic bank, this Mac; the door reached through forwarders the test cuts):
-see the PR and TODO.md's entry for the 5× runs. A copy on the door fast-forwards a commit in the same few hundred ms as
-the configured address (one watch notice, then the same pack); after a network switch, a copy that found the home at
-its new address had the five commits it missed in ~0.3 s, over about a third of the bytes a full copy takes; it moved
-back to the door within one request of the app's word.
+**Measured** (2026-11-03; loopback on this Mac, three backends and a phone-shaped client, synthetic data, the door
+reached through forwarders the test cuts; the 5 end-to-end runs beside a full gate run, nice 10):
+
+| What | Result |
+|---|---|
+| Door handshake (connect + both proofs), n=100 | p50 1.28 ms, p95 1.42 ms; a request on the session 0.2 ms |
+| A dead LAN route away from home | 1.0 s once (the connect timeout), then skipped for a minute |
+| A home commit reaches a copy over the door (watch → pack), n=25 | p50 384 ms; each run's first commit after the configured address is cut, 1.0–1.2 s (the copy moving its watch to the door) |
+| Network switch: the home found at another address → copy caught up, 5 missed commits, n=5 | 290–603 ms (p50 315); ~5.3 KB over the new route, every handshake and status read included, against a ~15.9 KB full copy |
+| Move back to the door after the app's word, n=5 | 0.8–1.8 s (p50 0.91 s; one request on the next commit) |
+| Phone-shaped client: a capture on the same network / three queued captures after the home answered on a new network, n=5 | 11–18 ms / 18–40 ms; each kept once, one re-sent after a lost answer |
+| Idle CPU per 120 s, a copy on the door's watch vs on the configured address's `/sync/events` (two alternating rounds) | home 0.39–0.46 s vs 0.50–0.83 s; copy 0.30–0.33 s vs 0.54–0.70 s — the door is cheaper idle |
 
 **The phone, for now a capture device** (owner 2026-11-03: *"for now, the phone i mainly want it as a way to capture,
 so wether im outside, same wifi or wherever, i can send stuff to the same queue to get digested"*). It runs the same
