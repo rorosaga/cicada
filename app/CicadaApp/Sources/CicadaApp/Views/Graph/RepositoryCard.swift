@@ -358,6 +358,10 @@ struct ProjectRepositoriesSection: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
+            } else {
+                // An empty Group draws no view, and a view that is never drawn never runs its task: this one is
+                // there, takes no room, and loads the listing.
+                Color.clear.frame(width: 0, height: 0)
             }
         }
         .task(id: projectId) { await load() }
