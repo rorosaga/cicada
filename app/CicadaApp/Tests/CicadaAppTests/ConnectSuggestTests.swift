@@ -168,6 +168,18 @@ final class ConnectSuggestTests: XCTestCase {
         XCTAssertNil(ConnectSuggestApps.target(bundleId: nil))
     }
 
+    func testYesLandsOnTheMissingPermissionFirstElseTheSource() {
+        for id in ["imessage", "whatsapp", "browser:safari"] {
+            XCTAssertEqual(ConnectSuggestApps.landing(entryId: id, permissionGranted: { _ in false }),
+                           .permission(.fullDiskAccess), id)
+            XCTAssertEqual(ConnectSuggestApps.landing(entryId: id, permissionGranted: { _ in true }), .source(id), id)
+        }
+        // A source whose own Connect asks macOS's prompt goes straight to its page.
+        for id in ["notes", "calendar-local", "reminders-local", "contacts-local", "browser:chrome", "telegram-chats"] {
+            XCTAssertEqual(ConnectSuggestApps.landing(entryId: id, permissionGranted: { _ in false }), .source(id), id)
+        }
+    }
+
     func testEveryFixedTargetIsAnEntryOfTheCatalogueOrWaitsForOne() {
         let ids = Set(SourceCatalog.entries(browsers: BrowserInventory.catalog.filter(\.supported), wisprPresent: true,
                                             overview: []).map(\.id))

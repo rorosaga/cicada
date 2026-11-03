@@ -229,6 +229,8 @@ def test_messages_lists_one_row_per_chat_that_opens_to_its_sittings(client, bank
     _sitting(bank, "ep_2026-10-17_001", CHAT_A, "Alice Example", "2026-10-17T10:00:00+00:00", message_count=4)
     _sitting(bank, "ep_2026-10-19_001", CHAT_A, "Alice Example", "2026-10-19T10:00:00+00:00", message_count=9)
     _sitting(bank, "ep_2026-10-18_001", CHAT_B, "Bob Example", "2026-10-18T10:00:00+00:00")
+    # 2026-11-03: only a ticked chat lists its sittings (G179's ticked-only rail on the chat page's panel).
+    messages_source.update_settings(bank, conversation={"id": CHAT_A, "ticked": True})
     rows = channel_items.items(bank, "imessage")["items"]
     assert [(r["kind"], r["id"], r["title"], r["day"], r["sittings"]) for r in rows] == [
         ("chat", CHAT_A, "Alice Example", "2026-10-19", 2), ("chat", CHAT_B, "Bob Example", "2026-10-18", 1)]

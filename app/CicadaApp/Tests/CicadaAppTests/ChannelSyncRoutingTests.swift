@@ -19,7 +19,7 @@ final class ChannelSyncRoutingTests: XCTestCase {
         "chrome-bookmarks", "safari-bookmarks", "safari-tabs", "notes",
         "pinterest", "reddit", "x",
         // Ruling 47 tier 2: the token connectors, routed like Reddit and X.
-        "readwise", "notion-api",
+        "notion-api",
         "folder:alpha-project-1a2b3c", "wispr-flow",
         "calendar-local",
         // Round 4 (C9): the Chromium family, emitted once synced (R-SR15).

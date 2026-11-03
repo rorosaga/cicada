@@ -55,6 +55,30 @@ enum ConnectSuggestApps {
         BrowserInventory.catalog.first { $0.bundleId == bundleId && $0.supported }
     }
 
+    /// The macOS permission a source cannot be read without and that no button of its own asks for: Full Disk Access
+    /// (a list Cicada is dragged into) for Messages, WhatsApp and Safari. Contacts, Calendar, Reminders and Notes ask
+    /// macOS's own prompt from their Connect, so their Yes goes straight to the source.
+    static func dragPermission(entryId: String) -> MacPermission? {
+        switch entryId {
+        case "imessage", "whatsapp", SourceCatalog.browserPrefix + "safari": .fullDiskAccess
+        default: nil
+        }
+    }
+
+    /// Where Yes lands: the permission's row in Settings → Privacy & data (with its drag helper, #584's component)
+    /// while that permission is missing, else the source's own entry on Sources.
+    enum Landing: Equatable {
+        case permission(MacPermission)
+        case source(String)
+    }
+
+    static func landing(entryId: String, permissionGranted: (MacPermission) -> Bool) -> Landing {
+        if let permission = dragPermission(entryId: entryId), !permissionGranted(permission) {
+            return .permission(permission)
+        }
+        return .source(entryId)
+    }
+
     /// The source's status in the active memory — the Sources catalogue's own (`SourceCatalog.status`), so the notch
     /// and the source's row never disagree. Every supported browser and Wispr Flow are offered as entries: the app in
     /// front is running, so it is here. Nil when the catalogue has no such entry.

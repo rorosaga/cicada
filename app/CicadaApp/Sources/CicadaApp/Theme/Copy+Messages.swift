@@ -5,11 +5,8 @@ import Foundation
 extension Copy {
     enum Messages {
         static let title = "Messages"
-        /// The one sentence before access (the brief: what Cicada reads, and why it needs Full Disk Access).
-        static let whatItReads = "Cicada reads only the conversations you tick here — each message's words, who sent "
-            + "it and when, its reactions, replies and edits, and the names of attachments, never the files — from "
-            + "Messages on this Mac, which macOS lets an app open only with Full Disk Access."
-        /// 2026-11-03 — what "checked" above measures (`ChatCheck`): Messages' store on this Mac, read on every change.
+        /// 2026-11-03 — what "checked" measures (`ChatCheck`): Messages' store on this Mac, read on every change. The
+        /// status line's hover only (the page's standing paragraphs are gone, owner 2026-11-03).
         static let whenItReads = "Cicada checks the conversations you tick each time Messages on this Mac saves one; "
             + "“checked” is the last time, “newest message” the newest one in them. A message reaches Cicada once "
             + "Messages on this Mac has it."
@@ -70,7 +67,6 @@ extension Copy {
         static let suggestAgents = "Suggest which conversations are AI agents"
         static let suggestAgentsHelp = "From the conversation's name and how much each side writes — never its words. "
             + "A suggestion only labels; it never ticks a conversation."
-        static let whoIsWho = "Your messages are yours. An AI agent's replies stay the agent's — never your own words."
 
         // The bubbles
         static func waiting(_ n: Int) -> String { n == 1 ? "1 message" : "\(n) messages" }

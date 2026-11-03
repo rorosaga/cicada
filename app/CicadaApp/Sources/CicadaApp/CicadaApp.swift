@@ -456,7 +456,23 @@ struct CicadaApp: App {
                                           traces: traceRecorder, reminders: remindersReader)
             return ConnectSuggestApps.status(of: entryId, channels: channels, overview: overview, localReaders: readers)
         }
-        connectSuggest.onYes = { [appRouter] entryId in appRouter.routeToCatalogEntry(entryId) }
+        // Yes: the source's page — or, while the Full Disk Access it needs is missing, that permission's row with its
+        // drag helper (Settings → Privacy & data → Permissions, the onboarding step's own rows). A preflight only.
+        connectSuggest.onYes = { [appRouter] entryId in
+            Task { @MainActor in
+                var granted: [MacPermission: Bool] = [:]
+                if let permission = ConnectSuggestApps.dragPermission(entryId: entryId) {
+                    granted[permission] = await LiveMacPermissionProbe().state(permission) == .granted
+                }
+                switch ConnectSuggestApps.landing(entryId: entryId, permissionGranted: { granted[$0] ?? true }) {
+                case .permission:
+                    appRouter.showMainWindow()
+                    appRouter.openSettings(.privacy, row: .permissions)
+                case .source(let id):
+                    appRouter.routeToCatalogEntry(id)
+                }
+            }
+        }
         connectSuggest.start()
     }
 

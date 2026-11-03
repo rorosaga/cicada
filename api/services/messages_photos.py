@@ -208,7 +208,7 @@ def links(memory_path: Path) -> dict[str, dict]:
     """``{page id: {conversation, sha, ext}}`` — each stored photo of a ticked chat at the page its correspondent
     record resolves to. Empty, reading no episode, when no photo is stored (most banks). Memoized on what it reads:
     the index, the Messages settings, and the episodes' and pages' fingerprints."""
-    from api.services import bank_index, contact_identity, correspondents, messages_source
+    from api.services import bank_index, messages_source
 
     memory_path = Path(memory_path)
     bank = logo_service.bank_name(memory_path)
@@ -234,36 +234,66 @@ def links(memory_path: Path) -> dict[str, dict]:
     wanted = {cid for cid, entry in meta.items() if cid in ticked and isinstance(entry, dict)
               and isinstance(entry.get("sha"), str) and entry.get("ext") in entity_picture.UPLOAD_EXTS}
     out: dict[str, dict] = {}
-    if wanted:
-        newest: dict[str, tuple[str, dict]] = {}
-        for f in bank_index.files(memory_path, "episodes"):
-            fm = f.frontmatter or {}
-            cid = str(fm.get("conversation") or "")
-            if fm.get("origin") not in CHAT_ORIGINS or cid not in wanted or fm.get("source_deleted_at"):
-                continue
-            last = str(fm.get("sitting_last_at") or fm.get("timestamp") or "")
-            if cid not in newest or last >= newest[cid][0]:
-                record = fm.get("correspondent") if isinstance(fm.get("correspondent"), dict) else {}
-                newest[cid] = (last, record)
-        idents = {cid: correspondents.identity(record) for cid, (_, record) in newest.items()}
-        if any(idents.values()):
-            pages = [{"id": f.stem, "frontmatter": f.frontmatter or {}}
-                     for f in bank_index.files(memory_path, "entities")]
-            # Oldest first, so when two chats name one page the most recently active one is its picture.
-            by_card = contact_identity.card_pages(pages)
-            by_id = {str(p["id"]): p for p in pages}
-            for cid in sorted(idents, key=lambda c: (newest[c][0], c)):
-                ident = idents[cid]
-                # One person across sources (2026-10-28): the page the correspondent's address-book card names comes
-                # first, as Stage 2 resolves it; then the record's own name and type.
-                card = contact_identity.clean_card_id(newest[cid][1].get("contact")) if ident is not None else None
-                page = by_id.get(by_card.get(card or "", ""))
-                if page is None:
-                    page = correspondents.find_page(pages, ident) if ident is not None else None
-                if page is not None:
-                    out[str(page["id"])] = {"conversation": cid, "sha": meta[cid]["sha"], "ext": meta[cid]["ext"]}
+    for cid, page in chat_pages(memory_path, wanted).items():
+        out[page] = {"conversation": cid, "sha": meta[cid]["sha"], "ext": meta[cid]["ext"]}
     _MEMO[str(memory_path)] = (key, out)
     return dict(out)
+
+
+def chat_pages(memory_path: Path, conversations, *, newest: dict[str, tuple[str, dict]] | None = None) -> dict[str, str]:
+    """``{conversation: page id}`` — the page each chat stands for: the page its newest live sitting's decided
+    ``correspondent`` record resolves to (the address-book card the record names first, then the record's own name and
+    type, `correspondents.find_page`), the rule Stage 2 resolves the correspondent by. A chat with no decided record
+    (a group, the person's own chat) or no such page yet is left out. When two chats name one page, the most recently
+    active one keeps it. Reads only the episodes and pages already on the record; never raises on a bad file.
+    ``newest`` (``{conversation: (sitting_last_at or timestamp, correspondent record)}``) is a caller's own scan of the
+    same episodes (a chat source's list), so they are not walked twice."""
+    from api.services import bank_index, contact_identity, correspondents
+
+    wanted = {str(c) for c in conversations or () if c}
+    if not wanted:
+        return {}
+    if newest is not None:
+        newest = {cid: v for cid, v in newest.items() if cid in wanted}
+    else:
+        newest = _newest_records(memory_path, wanted)
+    idents = {cid: correspondents.identity(record) for cid, (_, record) in newest.items()}
+    if not any(idents.values()):
+        return {}
+    pages = [{"id": f.stem, "frontmatter": f.frontmatter or {}} for f in bank_index.files(Path(memory_path), "entities")]
+    by_card = contact_identity.card_pages(pages)
+    by_id = {str(p["id"]): p for p in pages}
+    find = correspondents.page_finder(pages)
+    by_page: dict[str, str] = {}
+    # Oldest first, so when two chats name one page the most recently active one is its picture.
+    for cid in sorted(idents, key=lambda c: (newest[c][0], c)):
+        ident = idents[cid]
+        # One person across sources (2026-10-28): the page the correspondent's address-book card names comes first, as
+        # Stage 2 resolves it; then the record's own name and type.
+        card = contact_identity.clean_card_id(newest[cid][1].get("contact")) if ident is not None else None
+        page = by_id.get(by_card.get(card or "", ""))
+        if page is None:
+            page = find(ident) if ident is not None else None
+        if page is not None:
+            by_page[str(page["id"])] = cid
+    return {cid: page for page, cid in by_page.items()}
+
+
+def _newest_records(memory_path: Path, wanted: set[str]) -> dict[str, tuple[str, dict]]:
+    """Each wanted chat's newest live sitting's ``(sitting_last_at or timestamp, correspondent record)``."""
+    from api.services import bank_index
+
+    newest: dict[str, tuple[str, dict]] = {}
+    for f in bank_index.files(Path(memory_path), "episodes"):
+        fm = f.frontmatter or {}
+        cid = str(fm.get("conversation") or "")
+        if fm.get("origin") not in CHAT_ORIGINS or cid not in wanted or fm.get("source_deleted_at"):
+            continue
+        last = str(fm.get("sitting_last_at") or fm.get("timestamp") or "")
+        if cid not in newest or last >= newest[cid][0]:
+            record = fm.get("correspondent") if isinstance(fm.get("correspondent"), dict) else {}
+            newest[cid] = (last, record)
+    return newest
 
 
 def picture_path(memory_path: Path, entity_id: str, chats: dict | None = None) -> Path | None:

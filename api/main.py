@@ -297,7 +297,7 @@ async def lifespan(app: FastAPI):
 
     asyncio.get_running_loop().run_in_executor(None, trace_store.sweep_if_present)
     scheduler.add_job(trace_store.sweep_if_present, "interval", hours=1, id="traces-sweep", replace_existing=True)
-    # Ruling 47 tier 2: the connected official-API sources (Readwise, Notion) sync on their own, every few hours —
+    # Ruling 47 tier 2: the connected official-API sources (Notion) sync on their own, every few hours —
     # behind CICADA_ALLOW_CONNECTOR_FETCH, never while Sleep holds the pages, nothing at all until one is connected.
     from api.services.connectors import tier2
 

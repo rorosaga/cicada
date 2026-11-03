@@ -77,7 +77,7 @@ enum SettingsIndex {
         .devicesList, .memoryHome, .devicesConnection, .memoryShare, .memoryCopy, .fromAnywhere, .remoteSwitch, .remoteReach, .remoteNew,
         .memoryLocation, .banks, .bankExport, .bankDelete, .searchMeaning, .searchImages, .memoryGroup, .fadePace,
         .outboundConnectors, .outboundFeeds, .outboundLogos, .telemetry, .credentials, .remoteAccess, .transcripts,
-        .agentNotes,
+        .agentNotes, .permissions,
     ]
 
     /// D6 (2026-10-22): rows that left Settings with their page, by id, with their new home — a palette recent, a
@@ -201,6 +201,9 @@ enum SettingsIndex {
         SettingsEntry(.remoteAccess, .privacy, Copy.remoteAccessTitle, keywords: ["remote", "outside", "from anywhere"]),
         SettingsEntry(.transcripts, .privacy, Copy.transcriptsTitle, keywords: ["transcripts", "conversations", "claude code"]),
         SettingsEntry(.agentNotes, .privacy, Copy.agentNotesTitle, keywords: ["memory notes", "agent notes", "claude code"]),
+        SettingsEntry(.permissions, .privacy, Copy.MacPermissions.settingsTitle,
+                      keywords: ["full disk access", "contacts", "calendars", "reminders", "automation", "notifications",
+                                 "accessibility", "screen recording", "privacy", "allow"]),
     ]
 
     /// Each section is a hit by its title, and by the names of the pages folded into it (D6, B1: keep the old search

@@ -79,15 +79,21 @@ extension APIClient {
 struct ChatSittings: Codable, Hashable, Sendable {
     let conversation: String
     let sittings: [ChatSitting]
+    /// 2026-11-03 (`channel_items.chat_sittings`) — whether the chat is ticked now; an unticked chat lists no sittings
+    /// (G179's ticked-only rail on the chat page's panel). Nil from an older backend.
+    var ticked: Bool? = nil
 
-    enum CodingKeys: String, CodingKey { case conversation, sittings }
+    enum CodingKeys: String, CodingKey { case conversation, sittings, ticked }
 
-    init(conversation: String, sittings: [ChatSitting]) { self.conversation = conversation; self.sittings = sittings }
+    init(conversation: String, sittings: [ChatSitting], ticked: Bool? = nil) {
+        self.conversation = conversation; self.sittings = sittings; self.ticked = ticked
+    }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         conversation = try c.decodeIfPresent(String.self, forKey: .conversation) ?? ""
         sittings = (try? c.decodeIfPresent([ChatSitting].self, forKey: .sittings)) ?? []
+        ticked = try? c.decodeIfPresent(Bool.self, forKey: .ticked)
     }
 }
 
@@ -289,7 +295,7 @@ struct ChatSittingsRow: View {
         InPlaceDisclosureRow(title: item.title, help: [item.title, day?.help].compactMap { $0 }.joined(separator: ", "),
                              count: count, open: $expanded) {
             if let chat = item.chat {
-                ChatFace(id: chat.id, label: chat.label, photo: chat.photo, side: CicadaTheme.scaled(20))
+                ChatFace(chat: chat, side: CicadaTheme.scaled(20))
             }
         } content: {
             if let cache { sittings(cache) }

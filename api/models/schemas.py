@@ -5495,6 +5495,8 @@ class MessagesConversationUpdate(CamelModel):
     #: Present → the mark changes (``{"kind": null}`` clears it); absent → untouched.
     actor: Optional[MessagesActorIn] = None
     clear_actor: bool = False
+    #: 2026-11-03 — the person's pin: the chat lists first on the Sources page (`chat_live`'s rule).
+    pinned: Optional[bool] = None
 
 
 class MessagesSettingsUpdate(CamelModel):
