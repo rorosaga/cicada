@@ -396,6 +396,12 @@ struct SourceCatalogDetail: View {
             if tracesPage { TracesSourcesLink() } else { TracesControls() }
         case LocalSourceWatcher.wisprChannel:
             WisprFlowRow(channel: mine.first)
+        case SourceCatalog.hexId, SourceCatalog.meetingFoldersId:
+            // G95 (2026-11-03) — a meeting folder per row (the folder rows' own grammar), then the way to add one.
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(mine) { FolderChannelRow(channel: $0) }
+                AddMeetingFolderRow(recorder: entry.id == SourceCatalog.hexId ? SourceCatalog.hexId : nil)
+            }
         case "folders":
             VStack(alignment: .leading, spacing: 2) {
                 ForEach(mine) { FolderChannelRow(channel: $0) }

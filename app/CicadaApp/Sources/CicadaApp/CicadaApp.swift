@@ -449,12 +449,13 @@ struct CicadaApp: App {
         connectSuggest.isDemo = { [store] in DemoMode.isActive(store.banks.value) }
         connectSuggest.saveWhyOpen = { [saveWhy] in saveWhy.state != nil }
         connectSuggest.status = { [store, calendarReader, contactsReader, tabGroups, watchHistory, browserWatcher,
-                                   notesWatcher, traceRecorder, remindersReader] entryId in
+                                   notesWatcher, traceRecorder, remindersReader, localSources] entryId in
             guard let channels = store.channels.value, let overview = store.sourcesOverview.value else { return nil }
             let readers = LocalReaders.on(calendar: calendarReader, contacts: contactsReader, tabGroups: tabGroups,
                                           watchHistory: watchHistory, browsers: browserWatcher, notes: notesWatcher,
                                           traces: traceRecorder, reminders: remindersReader)
-            return ConnectSuggestApps.status(of: entryId, channels: channels, overview: overview, localReaders: readers)
+            return ConnectSuggestApps.status(of: entryId, channels: channels, overview: overview, localReaders: readers,
+                                             meetingFolders: localSources.folders)
         }
         // Yes: the source's page — or, while the Full Disk Access it needs is missing, that permission's row with its
         // drag helper (Settings → Privacy & data → Permissions, the onboarding step's own rows). A preflight only.

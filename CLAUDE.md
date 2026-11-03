@@ -204,7 +204,12 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   A new episode never replaces a file (`create_episode`); dedup, edits and Sleep's revision-checked retirement share
   `episode_lock`, and every page write is atomic (audit K01/A01/A02, `capture-and-sleep.md`).
 - **Every writer scrubs, every source-keyed writer stages through one module** (`episode_scrub`, `episode_staging`:
-  hash over the scrubbed body, edits in place with `processed: false`, deletions tombstoned, never unlinked).
+  hash over the scrubbed body, edits in place with `processed: false` and a `revised` record Sleep reads as a revision
+  (owner 2026-11-03), deletions tombstoned, never unlinked).
+- **Meetings are conversations (owner ruling 2026-11-03, G95):** a recorder's transcript (Hex's Markdown folder, any
+  folder of transcripts) is an episode Sleep consolidates — one per meeting, its own date, through the folder stager;
+  unlike a `media_files` recording. Only a line the recorder labels `You`/`Me` is the person's (52a); every other is
+  its speaker's (`speaker:<label>`), the summary the recorder's model's (`capture-and-sleep.md`).
 - **Capture never writes into a demo bank** (`demo_guard`, by `_bank.yaml`, never by name): every capture/sources
   POST/PUT answers 409; the Stop hook redirects to the real bank left most recently.
 - **Messages are read only for conversations the person ticked (G179)**: the app reads them, the backend refuses any

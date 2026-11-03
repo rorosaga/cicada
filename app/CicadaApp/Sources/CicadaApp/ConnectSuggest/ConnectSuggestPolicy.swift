@@ -24,9 +24,8 @@ enum ConnectSuggestApps {
         let kind: Kind
     }
 
-    /// Bundle id → source. Browsers come from `BrowserInventory.catalog` (only the ones Cicada reads); Hex's entry
-    /// exists once the meeting recorders are in the catalogue (#579) — until then it resolves to no entry and nothing
-    /// is suggested. Readwise is gone from Sources and is not here.
+    /// Bundle id → source. Browsers come from `BrowserInventory.catalog` (only the ones Cicada reads); Hex is the
+    /// meeting recorders' entry (#579). Readwise is gone from Sources and is not here.
     static let fixed: [String: Target] = [
         "net.whatsapp.WhatsApp": Target(entryId: "whatsapp", kind: .chats),
         "ru.keepcoder.Telegram": Target(entryId: "telegram-chats", kind: .chats),
@@ -81,11 +80,13 @@ enum ConnectSuggestApps {
 
     /// The source's status in the active memory — the Sources catalogue's own (`SourceCatalog.status`), so the notch
     /// and the source's row never disagree. Every supported browser and Wispr Flow are offered as entries: the app in
-    /// front is running, so it is here. Nil when the catalogue has no such entry.
+    /// front is running, so it is here — Hex too (`hexPresent`), whose status is its meeting folders' (#579), so a Hex
+    /// already set up never reads Off. Nil when the catalogue has no such entry.
     static func status(of entryId: String, channels: [SourceChannel], overview: [SourceOverview],
-                       localReaders: [String: Bool]) -> SourceCatalogStatus? {
+                       localReaders: [String: Bool],
+                       meetingFolders: [FolderRegistration] = []) -> SourceCatalogStatus? {
         let entries = SourceCatalog.entries(browsers: BrowserInventory.catalog.filter(\.supported), wisprPresent: true,
-                                            overview: overview)
+                                            hexPresent: true, meetingFolders: meetingFolders, overview: overview)
         guard let entry = entries.first(where: { $0.id == entryId }) else { return nil }
         return SourceCatalog.status(for: entry, channels: channels, overview: overview, readableSites: [],
                                     localReaders: localReaders)

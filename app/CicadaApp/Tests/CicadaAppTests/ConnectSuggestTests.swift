@@ -180,12 +180,29 @@ final class ConnectSuggestTests: XCTestCase {
         }
     }
 
-    func testEveryFixedTargetIsAnEntryOfTheCatalogueOrWaitsForOne() {
+    func testEveryFixedTargetIsAnEntryOfTheCatalogue() {
         let ids = Set(SourceCatalog.entries(browsers: BrowserInventory.catalog.filter(\.supported), wisprPresent: true,
-                                            overview: []).map(\.id))
-        for target in ConnectSuggestApps.fixed.values where target.entryId != "hex" {
+                                            hexPresent: true, overview: []).map(\.id))
+        for target in ConnectSuggestApps.fixed.values {
             XCTAssertTrue(ids.contains(target.entryId), target.entryId)
         }
+    }
+
+    /// #579 — Hex in front is offered while no Hex meeting folder is connected, and never once one is.
+    func testHexIsOfferedUntilItsMeetingFolderIsConnected() {
+        XCTAssertEqual(ConnectSuggestApps.status(of: "hex", channels: [], overview: [], localReaders: [:]), .off)
+        let folder = FolderRegistration(id: "hex-1", label: "Meetings", path: "/tmp/hex-meetings",
+                                        include: ["**/*.md"], kind: FolderRegistration.meetingsKind,
+                                        recorder: SourceCatalog.hexId)
+        let connected = [SourceChannel(id: folder.channelId, label: "Hex", connected: true)]
+        XCTAssertEqual(ConnectSuggestApps.status(of: "hex", channels: connected, overview: [], localReaders: [:],
+                                                 meetingFolders: [folder]), .connected)
+        // Another recorder's folder is the Transcripts entry's, never Hex's.
+        let other = FolderRegistration(id: "otter-1", label: "Transcripts", path: "/tmp/otter",
+                                       include: ["**/*.vtt"], kind: FolderRegistration.meetingsKind, recorder: nil)
+        let otherOn = [SourceChannel(id: other.channelId, label: "Transcripts", connected: true)]
+        XCTAssertEqual(ConnectSuggestApps.status(of: "hex", channels: otherOn, overview: [], localReaders: [:],
+                                                 meetingFolders: [other]), .off)
     }
 
     func testTheStatusIsTheCatalogueRowsOwn() {

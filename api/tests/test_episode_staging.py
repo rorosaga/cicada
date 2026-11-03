@@ -155,6 +155,36 @@ def test_a_requeued_update_drops_a_stale_processed_by(tmp_path):
     assert fm["processed"] is False and "processed_by" not in fm  # G114 R6
 
 
+def test_an_edit_in_place_records_that_it_is_a_revision(tmp_path):
+    """Owner 2026-11-03: a re-ingested item is an update, not new — the episode says so for Sleep (``revised``)."""
+    ep_dir = tmp_path / "episodes"
+    st.stage([_draft("folder:f1:a.md", "v1", sha="s1")], ep_dir)
+    path, parsed = _only(ep_dir)
+    assert st.REVISED_KEY not in parsed.frontmatter            # a new episode is no revision
+    v1 = parsed.frontmatter["content_hash"]
+    # Same body, new metadata: no revision either.
+    st.stage([_draft("folder:f1:a.md", "v1", sha="s1", extra={"evidence_kind": "assistant"})], ep_dir)
+    assert st.REVISED_KEY not in _only(ep_dir)[1].frontmatter
+    # A parser-only episode was never consolidated: the record names the body it replaced, nothing consolidated.
+    markdown_parser.write(path, dict(parsed.frontmatter, processed=True, processed_by=st.PARSED_ONLY), parsed.body)
+    st.stage([_draft("folder:f1:a.md", "v2", sha="s2")], ep_dir)
+    fm = _only(ep_dir)[1].frontmatter
+    assert fm[st.REVISED_KEY]["count"] == 1 and fm[st.REVISED_KEY]["previous_hash"] == v1
+    assert "consolidated_hash" not in fm[st.REVISED_KEY] and fm[st.REVISED_KEY]["at"].endswith("+00:00")
+    v2 = fm["content_hash"]
+    # Sleep consolidated v2; two edits land before it reads again: both name v2 as the body Sleep filed.
+    path, parsed = _only(ep_dir)
+    markdown_parser.write(path, dict(parsed.frontmatter, processed=True, processed_by="sleep"), parsed.body)
+    st.stage([_draft("folder:f1:a.md", "v3", sha="s3")], ep_dir)
+    st.stage([_draft("folder:f1:a.md", "v4", sha="s4")], ep_dir)
+    path, parsed = _only(ep_dir)
+    rec = parsed.frontmatter[st.REVISED_KEY]
+    assert rec["count"] == 3 and rec["consolidated_hash"] == v2 and rec["previous_hash"] != v2
+    assert parsed.body == "v4" and parsed.frontmatter["processed"] is False
+    # A garbled record never fails a sync: it restarts the count.
+    assert st.revision_record({st.REVISED_KEY: {"count": "many"}, "content_hash": "h"})["count"] == 1
+
+
 def test_the_router_names_are_compat_wrappers_over_the_service(tmp_path):
     eps = [{"title": "T", "source": "claude", "timestamp": "2026-02-24T13:00:00Z",
             "original_date": "2026-02-24", "source_id": "u-1", "source_updated_at": "a",

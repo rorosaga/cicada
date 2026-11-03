@@ -14,7 +14,58 @@ final class SourceCatalogTests: XCTestCase {
 
     func testGroupsComeInTheirFixedOrderAndEveryEntryHasOne() {
         let groups = SourceCatalog.grouped(rows()).map(\.group)
-        XCTAssertEqual(groups, [.accounts, .thisMac, .exports, .feeds])
+        XCTAssertEqual(groups, [.accounts, .thisMac, .meetings, .exports, .feeds])
+    }
+
+    /// G95 (2026-11-03) — Meeting recorders: Hex once it is here (or has a folder), Wispr Flow moved in from This Mac, a
+    /// folder of transcripts always; a meeting folder's channel never counts for Folders, nor Hex's for the other.
+    func testMeetingRecordersHoldHexWisprAndAFolderOfTranscripts() {
+        let hex = FolderRegistration(id: "hex-meetings-1", label: "Hex Meetings", path: "/h", kind: "meetings",
+                                     recorder: "hex")
+        let calls = FolderRegistration(id: "calls-2", label: "Calls", path: "/c", kind: "meetings")
+        let notes = FolderRegistration(id: "notes-3", label: "Notes", path: "/n")
+        XCTAssertEqual(hex.channelId, "meetings:hex-meetings-1")
+        XCTAssertEqual(notes.channelId, "folder:notes-3")
+        let none = SourceCatalog.entries(browsers: [], wisprPresent: false, overview: [])
+        XCTAssertEqual(none.filter { $0.group == .meetings }.map(\.id), [SourceCatalog.meetingFoldersId])
+        let entries = SourceCatalog.entries(browsers: [], wisprPresent: true, hexPresent: false,
+                                            meetingFolders: [hex, calls, notes], overview: [])
+        let meetings = entries.filter { $0.group == .meetings }
+        XCTAssertEqual(meetings.map(\.id), [SourceCatalog.hexId, SourceCatalog.wisprChannel, SourceCatalog.meetingFoldersId])
+        XCTAssertEqual(meetings[0].channels, ["meetings:hex-meetings-1"])
+        XCTAssertEqual(meetings[2].channels, ["meetings:calls-2"])
+        XCTAssertFalse(entries.contains { $0.id == SourceCatalog.wisprChannel && $0.group == .thisMac })
+        let channels = [SourceChannel(id: "meetings:calls-2", label: "Calls", connected: true)]
+        let r = SourceCatalog.rows(entries: entries, channels: channels, overview: [], readableSites: [])
+        XCTAssertEqual(row(SourceCatalog.meetingFoldersId, in: r)?.status, .connected)
+        XCTAssertEqual(row("folders", in: r)?.status, .off)
+        XCTAssertEqual(row(SourceCatalog.hexId, in: r)?.status, .off)
+        XCTAssertEqual(none.first { $0.id == SourceCatalog.meetingFoldersId }?.verb, .connect(Copy.Catalog.addFolder))
+    }
+
+    /// The Hex meetings folder: Hex's own `meetings.output_folder` when the person chose one, else Hex's default.
+    @MainActor
+    func testTheHexMeetingsFolderIsHexsOwnSettingElseItsDefault() throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("hex-home-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: home) }
+        XCTAssertEqual(LocalSourceWatcher.hexMeetingsFolder(home: home).path,
+                       home.appendingPathComponent("Documents/Hex Meetings").path)
+        let dir = home.appendingPathComponent("Library/Application Support/hex")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try Data(#"{"meetings": {"enabled": true, "output_folder": "/tmp/alpha-meetings"}}"#.utf8)
+            .write(to: dir.appendingPathComponent("settings.json"))
+        XCTAssertEqual(LocalSourceWatcher.hexMeetingsFolder(home: home).path, "/tmp/alpha-meetings")
+        try Data(#"{"meetings": {"output_folder": ""}}"#.utf8).write(to: dir.appendingPathComponent("settings.json"))
+        XCTAssertEqual(LocalSourceWatcher.hexMeetingsFolder(home: home).lastPathComponent, "Hex Meetings")
+    }
+
+    func testAMeetingFolderPreviewCountsMeetingsAndTheFilesThatHoldNone() {
+        var r = FolderSyncResult()
+        r.filesNew = 3
+        XCTAssertEqual(MeetingFolderText.preview(r, locale: Locale(identifier: "en_US")), "Found 3 meetings")
+        r.errors = [FolderSyncError(relpath: "manifest.json", reason: "not a meeting transcript")]
+        XCTAssertEqual(MeetingFolderText.preview(r, locale: Locale(identifier: "en_US")),
+                       "Found 3 meetings · 1 file holds no transcript")
     }
 
     func testTheCatalogueHasNoObsidianAndKeepsContactsAndInstagram() {
