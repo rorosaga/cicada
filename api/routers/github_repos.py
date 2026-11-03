@@ -232,10 +232,21 @@ async def get_repository(entity_id: str, settings: Settings = Depends(get_settin
     match = None
     if not github_repos.is_repository_page(fm):
         match = RepoProject(project=entity_id, name=str(fm.get("name") or entity_id), how="linked")
-    elif block.get("owned"):
-        found = await asyncio.to_thread(github_repos.project_match, memory_path, str(block["full_name"]),
-                                        salt=github_repos._salt())
-        match = RepoProject(**found) if found else None
+    else:
+        # Derived on read: the person owns it when the page says so or the last sync listed it (a pasted link of their
+        # own repository carries no login); the project it already is shows for any repository, a same-name
+        # suggestion only for one they own.
+        full = str(block["full_name"])
+
+        def derive():
+            mine = bool(block.get("owned")) or any(
+                str(r.get("full_name") or "").lower() == full.lower() for r in github_repos.owned(memory_path))
+            return mine, github_repos.project_match(memory_path, full, salt=github_repos._salt())
+
+        mine, found = await asyncio.to_thread(derive)
+        block = {**block, "owned": mine}
+        if found and (found["how"] != "name" or mine):
+            match = RepoProject(**found)
     state = github_repos.readme_state(readme)
     if readme and readme.get("none"):
         state = "none"

@@ -408,6 +408,14 @@ def test_the_lists_and_make_it_a_project(api, bank):
     assert row["project"] == {"project": pid, "name": "alpha-project", "how": "linked"}
     card = api.get(f"/entities/{pid}/repository").json()
     assert card["project"]["project"] == pid
+    # The person's own repository added by its link: its page knows it is theirs and which project it is.
+    page = api.post("/sources/github/repos", json={"url": "bob-example/alpha-project"}).json()["entityId"]
+    mine = api.get(f"/entities/{page}/repository").json()
+    assert mine["owned"] is True and mine["project"] == {"project": pid, "name": "alpha-project", "how": "linked"}
+    # A starred repository someone else owns never gets a same-name suggestion.
+    _project(bank, "widget-kit")
+    kit = next(r for r in api.get("/sources/github/repos").json()["starred"] if r["fullName"].endswith("widget-kit"))
+    assert api.get(f"/entities/{kit['entityId']}/repository").json()["project"] is None
     # Linking to an existing page instead; a page that is not a project is refused.
     _project(bank, "notes-project")
     linked = api.post("/sources/github/repos/project",
