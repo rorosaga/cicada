@@ -12,8 +12,8 @@
 
 ## Current state and evidence
 
-- **2026-11-03 — routes, not a relay (ruling 51f, G132 phase 3b slice 1; branch `feat/g132-routes`, PR #586, stacked on
-  #572).** Owner: "yes i think we should copy t3 code … if we can make it all run nicely and for free awesome"; the
+- **2026-11-03 — routes, not a relay (ruling 51f, G132 phase 3b slice 1; branch `feat/g132-routes`, #586 (includes
+  #572's one-transport work)).** Owner: "yes i think we should copy t3 code … if we can make it all run nicely and for free awesome"; the
   phone, for now, a capture device. Each device's ordered route list (the home's door on the LAN → on a tailnet if
   present → the configured address → the relay only under Advanced → queue; re-checked each minute and on a network
   change, moved back); the door (sealed frames on the pairing keys, never the HTTP API or a token, silent to anything
@@ -35,11 +35,12 @@
   in 100.64.0.0/10): a 100.64/10 address now counts only on Tailscale's own interface (`utun*`, `tailscale*`, read
   with `getifaddrs`) holding its 100.x and `fd7a:` pair, and only when that 100.x is not the default route's IPv4
   source (a stray router advertisement's `fd7a:` address on Wi-Fi fooled the first fix); otherwise it is public —
-  never bound, its carrier's other subscribers never let in; an exit node is not recognised (the accepted fail-safe). **Pick up here:** merge #572, then this PR (retarget to `dev`); the
-  app's half follows (#573: Relay under Advanced, the Local Network and firewall step at first share, Bonjour and the
+  never bound, its carrier's other subscribers never let in; an exit node is not recognised (the accepted fail-safe). **Pick up here:** #586 lands on `dev` alone,
+  carrying #572 (closed as landed through it); the app's half follows (#573: Relay under Advanced, the Local Network and firewall step at first share, Bonjour and the
   network hint).
 - **2026-10-30 — one transport, direct first, the relay as fallback (ruling 51c, G132 phase 3b; branches
-  `feat/g132-direct-first`, backend, and `feat/g132-direct-first-app`, Settings → Devices' Relay).** Owner: "cant we just
+  `feat/g132-direct-first`, backend — lands in #586 (includes #572's one-transport work) — and
+  `feat/g132-direct-first-app`, Settings → Devices' Relay, #573).** Owner: "cant we just
   connect between devices". Every device-to-device request goes through `sync_transport`: direct to the configured
   address (unset relay = phases 1–2 exactly), the relay when direct does not answer in 2 s or dies mid-request; the home
   pushes commits to the mailbox, a write is a sealed transaction applied once whichever path carried it, the home moves
@@ -2857,7 +2858,7 @@ A whole row moves to DONE only after its remaining implementation and required a
     durable outbox on the phone while the home is asleep or unreachable, never expire, and apply exactly once by
     `Idempotency-Key`, under its capture-only token scope (`auth.CAPTURE_ROUTES`) and the existing capture routes. The
     full-device phone of b (ruling 38 §2's reversal) is **deferred**; a computer's copy (phase 1 B) stays as built.
-    **Built in slice 1 (2026-11-03, stacked on #572):** the route list (`sync_routes`), the door (`sync_door`, TCP,
+    **Built in slice 1 (2026-11-03; lands in #586, which includes #572's one-transport work):** the route list (`sync_routes`), the door (`sync_door`, TCP,
     a handshake on the P-256 pairing keys, pairing a phone in the same room with the QR's one-time secret), the outbox
     rule, Tailscale as a route, the `sync_route` telemetry enums, the network-change re-check
     ([plan](../plans/2026-11-03-g132-routes.md); `network.md`, "The route list and the home-network door"). Slice 2
