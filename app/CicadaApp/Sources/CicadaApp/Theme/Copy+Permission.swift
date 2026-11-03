@@ -28,8 +28,9 @@ extension Copy {
 
         /// The relaunch state's line; its one button says the act (`reopen`), so the line does not.
         static let reopenLine = "Already on? macOS applies it after a restart"
-        static let reopen = "Reopen Cicada"
-        static let alreadyOn = "Already on? Reopen Cicada"
+        /// In the app's own name, as the banner's line says it.
+        static func reopen(_ app: String = "Cicada") -> String { "Reopen \(app)" }
+        static func alreadyOn(_ app: String = "Cicada") -> String { "Already on? Reopen \(app)" }
         static let reopenHelp = "Quit and open Cicada again. You come back to this step."
         /// The row's link after the helper was closed with ×.
         static let retryHelp = "Show the helper again"
@@ -38,7 +39,7 @@ extension Copy {
         static let deniedTile = "Turned off in macOS. Click to open the setting"
 
         static var labels: [String] {
-            TracePermission.allCases.map { flip($0) } + [reopenLine, reopen, alreadyOn, reopenHelp, retryHelp, deniedTile]
+            TracePermission.allCases.map { flip($0) } + [reopenLine, reopen(), alreadyOn(), reopenHelp, retryHelp, deniedTile]
         }
     }
 }

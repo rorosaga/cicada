@@ -438,10 +438,10 @@ private struct PermissionBanner: View {
             PrimaryActionButton(title: Copy.Traces.open, action: onOpen)
                 .help(Copy.Traces.openHelp)
         case .alreadyOn:
-            TextButton(title: Copy.Permission.alreadyOn, flushLeading: true, action: onReopen)
+            TextButton(title: Copy.Permission.alreadyOn(model.appName), flushLeading: true, action: onReopen)
                 .help(Copy.Permission.reopenHelp)
         case .reopen:
-            PrimaryActionButton(title: Copy.Permission.reopen, action: onReopen)
+            PrimaryActionButton(title: Copy.Permission.reopen(model.appName), action: onReopen)
                 .help(Copy.Permission.reopenHelp)
         case .none:
             EmptyView()

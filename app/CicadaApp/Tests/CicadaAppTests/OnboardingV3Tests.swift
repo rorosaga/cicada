@@ -176,6 +176,8 @@ final class OnboardingV3PermissionTests: XCTestCase {
                                               opener: V3Opener(), clock: V3Clock(),
                                               appName: "Cicada Verify")
         XCTAssertEqual(model.need, "Drag Cicada Verify into Full Disk Access")
+        XCTAssertEqual(Copy.Permission.reopen(model.appName), "Reopen Cicada Verify", "the bundle's own name")
+        XCTAssertEqual(Copy.Permission.alreadyOn(model.appName), "Already on? Reopen Cicada Verify")
 
         XCTAssertNil(CicadaMotion.helperBounce(up: true, reduceMotion: true))
         XCTAssertNil(CicadaMotion.helperBounce(up: false, reduceMotion: true))

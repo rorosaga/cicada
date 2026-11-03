@@ -163,6 +163,9 @@ final class MacPermissionsTests: XCTestCase {
             XCTAssertFalse(probe.contains(call), "the probe must never ask: \(call)")
         }
         XCTAssertTrue(probe.contains("automationStatus(bundleId, ask: false)"))
+        let asker = try XCTUnwrap(text.components(separatedBy: "struct LiveMacPermissionAsker").last)
+        XCTAssertTrue(asker.contains("if let launched = launch.launched { launched.terminate() }"),
+                      "an app opened only for the Automation ask is quit again; one already running is left alone")
         let list = try String(contentsOf: Self.source("Views/Common/PermissionList.swift"), encoding: .utf8)
         XCTAssertTrue(list.contains("openAtOnce: true"), "a drag row opens the list with the helper over it, one click")
     }

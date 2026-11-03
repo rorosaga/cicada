@@ -97,33 +97,41 @@ struct LiveMacPermissionAsker: MacPermissionAsker {
             guard ReminderAvailability.current else { return }
             _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
         case .chrome, .notes:
-            guard case .automation(let bundleId) = permission.way, await Self.launchQuietly(bundleId) else { return }
+            guard case .automation(let bundleId) = permission.way,
+                  let launch = await Self.launchQuietly(bundleId) else { return }
             _ = await Task.detached(priority: .userInitiated) {
                 LiveMacPermissionProbe.automationStatus(bundleId, ask: true)
             }.value
+            // Opened only for the ask: quit it again once the person answered. One already running is left alone.
+            if let launched = launch.launched { launched.terminate() }
         case .fullDiskAccess, .accessibility, .screenRecording:
             return   // drag lists: the row shows the drag helper instead
         }
     }
 
+    /// The target app is running for the ask; `launched` is set only when Cicada opened it for this ask.
+    struct AutomationLaunch {
+        let launched: NSRunningApplication?
+    }
+
     /// macOS asks for Automation only while the target app runs: on the person's click it is opened in the background
-    /// (not brought forward, hidden), then asked once it has launched.
-    private static func launchQuietly(_ bundleId: String) async -> Bool {
+    /// (not brought forward, hidden), then asked once it has launched. Nil: it could not be opened.
+    private static func launchQuietly(_ bundleId: String) async -> AutomationLaunch? {
         func running() -> NSRunningApplication? {
             NSRunningApplication.runningApplications(withBundleIdentifier: bundleId).first { $0.isFinishedLaunching }
         }
-        if running() != nil { return true }
-        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) else { return false }
+        if running() != nil { return AutomationLaunch(launched: nil) }
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) else { return nil }
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.activates = false
         configuration.hides = true
-        guard (try? await NSWorkspace.shared.openApplication(at: url, configuration: configuration)) != nil else {
-            return false
+        guard let opened = try? await NSWorkspace.shared.openApplication(at: url, configuration: configuration) else {
+            return nil
         }
         for _ in 0..<CicadaTiming.automationLaunchTries {
-            if running() != nil { return true }
+            if opened.isFinishedLaunching { return AutomationLaunch(launched: opened) }
             try? await Task.sleep(for: .seconds(CicadaTiming.automationLaunchStep))
         }
-        return running() != nil
+        return opened.isFinishedLaunching ? AutomationLaunch(launched: opened) : nil
     }
 }
