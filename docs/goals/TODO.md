@@ -12,6 +12,7 @@
 
 ## Current state and evidence
 
+- **2026-11-03 — sync with nothing rented is possible; the connector's public address is the one exception (G132, ruling 51c; branch `docs/g132-no-rent-transport`, docs only).** [Research](../research/2026-11-03-sync-without-a-rented-relay.md): LAN frame socket first (pairing and the bootstrap in person), then the person's own cloud as the E2E mailbox (CloudKit private DB for Apple devices — free to Cicada, the person's quota, free pushes to the phone; Linux cannot use it practically: a web token lasts ≤ 2 weeks; Google Drive app-data second), tailnet and self-hosted relay unchanged, no hosted relay. Hole punching deferred (ProbeLab: ~70% success; CGNAT phones fail most); n0's free relays are "development and hobby use only"; Cloudflare quick tunnels terminate TLS, change hostname and lack SSE. #572: name the fallback a mailbox, heartbeat only on live paths, QR `relay` optional, drop the pinned-cert LAN listener for the frame socket; #573's relay URL as advanced. **Waits on the owner: D1–D9** (D2 is the Apple Developer Program, ~$99/yr, the owner's spend, not per user). Nothing built.
 - **2026-10-29 — the home moves (ruling 51a, G132 phase 2; branches `feat/g132-move-home`, backend, and
   `feat/g132-move-home-app`, the Sleep page's strip).** The Sleep page names the device that runs consolidation and
   every other device's lag; picking one and confirming (or `cicada home move <device>`) closes the home, parks Sleep,
