@@ -18,6 +18,13 @@ import Observation
 /// kept running passes, each found nothing past the cursor, and the row said "synced" four days back (the last
 /// re-read of the window). `check` keeps the last successful pass and the newest message in the ticked chats, and the
 /// source page says both (`ChatCheck`, `SourcePageStatus.checked`).
+///
+/// **The reader's own copy is not a change (2026-11-03, live).** A pass clones the store and its `-wal`
+/// (`FileManager.copyItem`, an APFS clone), and cloning a file raises an FSEvent on the source (`ItemCloned`, measured
+/// 2026-11-03; its flags can also carry the file's recent `Modified`/`Created` history, so the flags cannot tell). So
+/// every pass ran the next one at the 15 s floor, forever, re-posting the 48 h window on each — the verify run posted
+/// 21 times in six minutes with nothing written. A change event now runs a pass only when the store's or the `-wal`'s
+/// size or modification time moved since the last pass began (`WhatsAppReader.signature`).
 @MainActor
 @Observable
 final class WhatsAppWatcher {
@@ -73,6 +80,8 @@ final class WhatsAppWatcher {
     @ObservationIgnored private var running: Task<String, Error>?
     @ObservationIgnored private var lastStarted: ContinuousClock.Instant?
     @ObservationIgnored private var changedAt: ContinuousClock.Instant?
+    /// The store's signature when the last pass began: an event that leaves it unchanged is the pass's own clone.
+    @ObservationIgnored private var readSignature: [Double]?
 
     init(api: any ChatSourcesAPI = APIClient.shared, reader: WhatsAppReader = WhatsAppReader(store: WhatsAppReader.standardStore),
          lights: BrowserWatcher? = nil, activity: SyncActivity? = nil, defaults: UserDefaults = .standard,
@@ -258,6 +267,7 @@ final class WhatsAppWatcher {
 
     private func perform(bank: String) async throws -> String {
         let reader = self.reader
+        readSignature = reader.signature()   // before the clone: a write after this moment still runs the next pass
         let ticked = tickedIds
         let found = try await Task.detached(priority: .utility) { try reader.chats(ids: ticked) }.value
         passNewest = found.compactMap(\.lastActivity).max()
@@ -341,6 +351,8 @@ final class WhatsAppWatcher {
 
     private func changed() {
         guard !tickedIds.isEmpty else { return }
+        // Nothing WhatsApp writes moved since the last pass began: the event is that pass's own copy (or a picture).
+        if let readSignature, reader.signature() == readSignature { return }
         if changedAt == nil { changedAt = .now }
         pending?.cancel()
         pending = Task { [weak self] in

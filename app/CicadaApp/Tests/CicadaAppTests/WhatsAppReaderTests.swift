@@ -381,6 +381,39 @@ final class WhatsAppReaderTests: XCTestCase {
         XCTAssertEqual(api.telegramDisconnects, 2, "a connected session is never ended by closing the sheet")
     }
 
+    /// 2026-11-03 (live): a pass clones the store, and the clone raised an FSEvent on it — so every pass ran the next one
+    /// at the floor, forever, re-posting the 48 h window each time. A real FSEvents stream on the synthetic store: after
+    /// one pass, nothing more runs until the store is written; a write still runs a pass.
+    @MainActor
+    func testThePassesOwnCopyNeverRunsTheNextPass() async throws {
+        let friend = store.session(friendJid, name: "Bob Example")
+        store.message(friend, "R1", at: now.timeIntervalSinceReferenceDate - 60, text: "inside the window")
+        try await Task.sleep(for: .milliseconds(1200))   // the store's own creation lands before the stream starts
+        let api = FakeChatSourcesAPI()
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "whatsapp-test-\(UUID().uuidString)"))
+        let watcher = WhatsAppWatcher(api: api, reader: reader(), defaults: defaults, folder: store.dir,
+                                      debounce: .milliseconds(50), minimumInterval: .zero,
+                                      makeWatch: { path, onChange in FSEventsWatch(path: path, latency: 0.1,
+                                                                                   handler: onChange) },
+                                      lookUpCards: { _ in [:] })
+        await watcher.loadList()
+        let chat = try XCTUnwrap(watcher.chats.first)
+        try await watcher.setTicked(chat, true)        // arms the real watch; the tick's pass re-posts the window
+        try await Task.sleep(for: .seconds(3))
+        let settled = api.posts.count
+        try await Task.sleep(for: .seconds(3))
+        XCTAssertEqual(api.posts.count, settled, "nothing was written: no pass runs (each would re-post R1)")
+        XCTAssertLessThanOrEqual(settled, 2, "the tick's pass, and at most the one its own copy raced")
+        store.message(friend, "R2", at: now.timeIntervalSinceReferenceDate - 1, text: "a new one")
+        for _ in 0..<50 where !api.posts.contains(where: { post in
+            ((post["messages"] as? [[String: Any]]) ?? []).contains { $0["stanza"] as? String == "R2" } }) {
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        let stanzas = api.posts.flatMap { ($0["messages"] as? [[String: Any]]) ?? [] }.compactMap { $0["stanza"] as? String }
+        XCTAssertTrue(stanzas.contains("R2"), "a write by WhatsApp still runs a pass")
+        try await watcher.setTicked(chat, false)        // disarms the watch
+    }
+
     /// File change → posted (the app's half; the backend's is `test_chat_live.test_live_update_cost_p95`): one new
     /// message in a ticked chat of a 20,000-row store, read from an APFS clone.
     @MainActor
