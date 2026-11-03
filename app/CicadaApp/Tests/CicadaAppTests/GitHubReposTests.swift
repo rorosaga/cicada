@@ -145,6 +145,13 @@ final class GitHubReposTests: XCTestCase {
         XCTAssertEqual(RepositoryText.byline(r), "bob-example · Python")
     }
 
+    func testAKeptSourceSaysItIsReadThroughItsAPI() {
+        let source = PageBlocks.Source(ref: "https://github.com/example-org/widget-kit", kind: "url", label: nil,
+                                       linkKind: "website", state: "kept", site: "github.com", checkedAt: nil,
+                                       addedBy: "user", iconSite: nil)
+        XCTAssertEqual(PageWords.state(source, today: today, locale: locale), Copy.Pages.kept)
+    }
+
     func testTheReadmeReadsAsCleanLines() {
         let lines = RepositoryText.lines("# Widget Kit\n\n\n\nA **small** kit of `widgets`.\n\n## Install\n\n```\n"
                                          + "pip install widget-kit\n```\n- one\n* two\n---\n")

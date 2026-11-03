@@ -137,6 +137,11 @@ def test_a_first_sync_offers_owned_repositories_and_saves_starred_ones_as_quiet_
     assert source["ref"] == "https://github.com/example-org/widget-kit" and source["predicate"] == "website"
     assert source["added_by"] == "user" and source["kept_by"] == "github"
     assert not source_refresh.tracked(source) and source_refresh.checker(source) is None
+    from datetime import date
+
+    from api.services import page_blocks
+
+    assert page_blocks.source_state(source, date.today()) == "kept"
     # The organisation's avatar is the picture; a personal account's never is.
     assert kit["media"]["thumbnail"].startswith("https://avatars.githubusercontent.com/u/2002")
     assert not pages["ada-example/tiny-lib"]["fm"]["media"].get("thumbnail")

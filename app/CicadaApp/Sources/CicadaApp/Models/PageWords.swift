@@ -27,6 +27,7 @@ enum PageWords {
         case "changed": return Copy.Pages.changed
         case "dead": return Copy.Pages.dead
         case "unconfirmed": return Copy.Pages.unconfirmed
+        case "kept": return Copy.Pages.kept
         case "proposed": return Copy.Pages.suggestedBy
         default: return Copy.Pages.notChecked
         }
