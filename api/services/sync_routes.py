@@ -353,7 +353,7 @@ def _i_am_on_a_tailnet() -> bool:
     if now - _TAILNET_SELF[1] > 30.0:
         from api.services import sync_door
 
-        _TAILNET_SELF[0] = bool(sync_door.local_addresses()["tailnet"])
+        _TAILNET_SELF[0] = bool(sync_door.own_tailnet())     # Tailscale's, never a carrier's 100.64/10
         _TAILNET_SELF[1] = now
     return bool(_TAILNET_SELF[0])
 

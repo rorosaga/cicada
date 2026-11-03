@@ -31,7 +31,9 @@
   addresses only, one socket each, rebound on a network change; also the pairing tag in constant time, a door
   pairing redeems only its own code, a revoke closes the device's sessions and watch at once, a failed request
   leaves no spill, IPv6 sources share their /64's bucket, and the never-expiring outbox is capped at 256 MB as well
-  as 5,000 entries, a full queue said in words. **Pick up here:** merge #572, then this PR (retarget to `dev`); the
+  as 5,000 entries, a full queue said in words. The re-check found carrier-grade NAT counted as a tailnet (both live
+  in 100.64.0.0/10): a 100.64/10 address now counts only when this computer also holds Tailscale's IPv6 range,
+  otherwise it is public — never bound, its carrier's other subscribers never let in. **Pick up here:** merge #572, then this PR (retarget to `dev`); the
   app's half follows (#573: Relay under Advanced, the Local Network and firewall step at first share, Bonjour and the
   network hint).
 - **2026-10-30 — one transport, direct first, the relay as fallback (ruling 51c, G132 phase 3b; branches

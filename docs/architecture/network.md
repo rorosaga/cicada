@@ -712,11 +712,21 @@ shares a memory — it publishes its log, it is a copy, or a device is paired wi
 demo, `CICADA_SYNC_DOOR=off` to keep it shut. It is **a sealed-frame endpoint only: never the HTTP API, never a token,
 never a bank path**. The backend's HTTP API still binds `127.0.0.1`.
 
-- **Who may connect.** T3 Code's rule: both ends of the connection loopback, private (RFC 1918, IPv6 unique-local) or
-  tailnet (`100.64.0.0/10`, Tailscale's IPv6 range); anything else is closed before a byte is read.
+- **Who may connect.** T3 Code's rule, made exact: a connection on the loopback socket from loopback, on a private
+  socket from a private address, on a Tailscale socket from Tailscale's ranges; anything else is closed before a byte
+  is read.
+- **A tailnet is Tailscale's only when it is really there** (security re-check of #586). `100.64.0.0/10` is also
+  carrier-grade NAT's shared space: a computer whose ISP uplink is CGNAT (common on 5G and satellite home lines)
+  holds an address there with no Tailscale at all. So this computer counts as on a tailnet only when the route to
+  Tailscale's IPv6 range (`fd7a:115c:a1e0::/48`, which Tailscale assigns beside every 100.x address) leaves from an
+  address in it; only then is the address that answers for `100.100.100.100` its tailnet address. Any other
+  100.64/10 address is public — never bound, never advertised, never a door its carrier's other subscribers can
+  reach (`own_tailnet`, `bindable`; `test_sync_door.py`: CGNAT alone, Tailscale alone, both). A tailnet with IPv6
+  turned off is not recognised — the safe way to be wrong; its devices still reach the door on the LAN or the
+  configured address.
 - **Where it listens: never a wildcard, never a public or global address** (security review of #586). It binds
-  loopback (`127.0.0.1`, `::1`) and each of this computer's own private (RFC 1918, IPv6 unique-local) and tailnet
-  addresses, read from the routing table, one socket each; every 5 s it compares that list with what it holds,
+  loopback (`127.0.0.1`, `::1`) and each of this computer's own private (RFC 1918, IPv6 unique-local) and Tailscale
+  addresses (below), read from the routing table, one socket each; every 5 s it compares that list with what it holds,
   binds a new network's address and closes a gone one. A server with a public IPv4 or a global IPv6 address never
   listens on it, so "nothing on a device listens on a public port" holds; slice 2's switch is the only thing that may
   ever amend that. `CICADA_SYNC_DOOR_HOST` names the addresses instead (a non-bindable one is ignored). The port is

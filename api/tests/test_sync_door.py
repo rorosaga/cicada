@@ -138,6 +138,9 @@ def test_the_parser_is_fuzzed_and_never_raises(keys):
     assert sync_door.frame_length((100).to_bytes(4, "big")) == 100
 
 
+REAL_TAILNET = frozenset({"100.101.1.1", "100.64.0.9", "fd7a:115c:a1e0::1"})
+
+
 @pytest.mark.parametrize("local,peer,ok", [
     ("127.0.0.1", "127.0.0.1", True), ("192.168.1.4", "192.168.1.9", True), ("10.0.0.2", "10.9.9.9", True),
     ("172.16.0.1", "172.31.255.1", True), ("100.101.1.1", "100.64.0.9", True), ("::1", "::1", True),
@@ -146,9 +149,77 @@ def test_the_parser_is_fuzzed_and_never_raises(keys):
     ("192.168.1.4", "8.8.8.8", False), ("203.0.113.5", "192.168.1.9", False), ("192.168.1.4", "2001:db8::1", False),
     ("192.168.1.4", "fe80::1", False), ("0.0.0.0", "192.168.1.9", False), ("192.168.1.4", "224.0.0.1", False),
     ("192.168.1.4", "not-an-address", False),
+    ("192.168.1.4", "100.80.0.9", False),        # a tailnet-range peer on a LAN socket
+    ("100.72.1.5", "100.99.200.7", False),       # a 100.64/10 address that is not this computer's tailnet
+    ("127.0.0.1", "192.168.1.9", False), ("100.101.1.1", "fd7a:115c:a1e0::2", False),
 ])
 def test_only_loopback_private_and_tailnet_peers_are_let_in(local, peer, ok):
-    assert sync_door.allowed_peer(local, peer) is ok
+    assert sync_door.allowed_peer(local, peer, tailnet=REAL_TAILNET) is ok
+
+
+def _routing(table: dict):
+    """A fake routing table: (family, target) -> the local address the route leaves from."""
+    return lambda family, target: table.get(("v6" if family == socket.AF_INET6 else "v4", target))
+
+
+CGNAT_ONLY = {("v4", "192.0.2.1"): "100.72.1.5", ("v4", "100.100.100.100"): "100.72.1.5"}
+TAILSCALE_ONLY = {("v4", "192.0.2.1"): "192.168.1.4", ("v4", "100.100.100.100"): "100.101.2.3",
+                  ("v6", "fd7a:115c:a1e0::53"): "fd7a:115c:a1e0::2"}
+BOTH = {("v4", "192.0.2.1"): "100.72.1.5", ("v4", "100.100.100.100"): "100.101.2.3",
+        ("v6", "fd7a:115c:a1e0::53"): "fd7a:115c:a1e0::2"}
+
+
+@pytest.mark.parametrize("platform", ["linux", "darwin"])
+def test_a_carriers_100_64_uplink_is_never_a_tailnet(keys, monkeypatch, platform):
+    """The re-check's blocker: a computer behind its ISP's CGNAT, with no Tailscale, holds an address in 100.64.0.0/10.
+    It is public: never bound, never a route, and the carrier's other subscribers are never let in."""
+    from api.services import sync_routes
+
+    monkeypatch.delenv(sync_door.HOST_ENV, raising=False)
+    monkeypatch.setattr(__import__("sys"), "platform", platform)
+    sync_routes.set_lan_allowed(True)
+    found = sync_door.local_addresses(_routing(CGNAT_ONLY))
+    assert found["tailnet"] == [] and found["public"] == ["100.72.1.5"]
+    mine = frozenset(found["tailnet"])
+    assert sync_door.bind_hosts(found=found) == ["127.0.0.1", "::1"]
+    assert sync_door.bindable("100.72.1.5", mine) is False
+    assert sync_door.allowed_peer("100.72.1.5", "100.99.200.7", tailnet=mine) is False
+    monkeypatch.setattr(sync_door, "own_tailnet", lambda: frozenset())
+    assert sync_door.bind_hosts({sync_door.HOST_ENV: "100.72.1.5"}) == ["127.0.0.1"]   # named, still refused
+    monkeypatch.setattr(sync_routes, "_TAILNET_SELF", [None, -1e9])
+    monkeypatch.delenv(sync_routes.TAILNET_ENV, raising=False)
+    assert sync_routes._i_am_on_a_tailnet() is False                                    # noqa: SLF001
+
+
+def test_tailscale_present_is_bound_and_its_peers_let_in(keys, monkeypatch):
+    from api.services import sync_routes
+
+    monkeypatch.delenv(sync_door.HOST_ENV, raising=False)
+    monkeypatch.setattr(__import__("sys"), "platform", "linux")
+    sync_routes.set_lan_allowed(True)
+    found = sync_door.local_addresses(_routing(TAILSCALE_ONLY))
+    assert found["tailnet"] == ["100.101.2.3", "fd7a:115c:a1e0::2"] and found["lan"] == ["192.168.1.4"]
+    mine = frozenset(found["tailnet"])
+    assert sync_door.bind_hosts(found=found) == ["127.0.0.1", "::1", "192.168.1.4", "100.101.2.3",
+                                                 "fd7a:115c:a1e0::2"]
+    assert sync_door.allowed_peer("100.101.2.3", "100.80.0.9", tailnet=mine) is True
+    assert sync_door.allowed_peer("fd7a:115c:a1e0::2", "fd7a:115c:a1e0::77", tailnet=mine) is True
+    assert sync_door.allowed_peer("192.168.1.4", "100.80.0.9", tailnet=mine) is False
+
+
+def test_tailscale_beside_a_cgnat_uplink_binds_only_tailscales_address(keys, monkeypatch):
+    from api.services import sync_routes
+
+    monkeypatch.delenv(sync_door.HOST_ENV, raising=False)
+    monkeypatch.setattr(__import__("sys"), "platform", "linux")
+    sync_routes.set_lan_allowed(True)
+    found = sync_door.local_addresses(_routing(BOTH))
+    assert found["tailnet"] == ["100.101.2.3", "fd7a:115c:a1e0::2"] and found["public"] == ["100.72.1.5"]
+    mine = frozenset(found["tailnet"])
+    hosts = sync_door.bind_hosts(found=found)
+    assert "100.72.1.5" not in hosts and "100.101.2.3" in hosts
+    assert sync_door.allowed_peer("100.72.1.5", "100.99.200.7", tailnet=mine) is False   # the carrier's side
+    assert sync_door.allowed_peer("100.101.2.3", "100.80.0.9", tailnet=mine) is True     # the tailnet's side
 
 
 def test_a_source_that_keeps_failing_runs_out_of_tries():

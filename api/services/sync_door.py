@@ -136,7 +136,9 @@ def _ip(host: str):
 
 def address_class(host: str) -> str | None:
     """``loopback``, ``lan``, ``tailnet``, ``ipv6`` (a global IPv6 address) or ``public`` — or None for a name or
-    anything unusable (wildcard, link-local, multicast)."""
+    anything unusable (wildcard, link-local, multicast). **By range only**: ``tailnet`` here says an address is in
+    Tailscale's ranges, not that it is a tailnet — 100.64.0.0/10 is also carrier-grade NAT's shared space. Whether this
+    computer really is on a tailnet is :func:`own_tailnet`; every bind and every admission asks it."""
     addr = _ip(host)
     if addr is None or addr.is_unspecified or addr.is_multicast or addr.is_link_local:
         return None
@@ -149,9 +151,32 @@ def address_class(host: str) -> str | None:
     return "ipv6" if addr.version == 6 else "public"
 
 
-def allowed_peer(local: str, peer: str) -> bool:
-    """T3 Code's listener rule: both addresses of the connection loopback, private or tailnet."""
-    return all(address_class(h) in ("loopback", "lan", "tailnet") for h in (local, peer))
+def bindable(host: str, tailnet=None) -> bool:
+    """May the door bind ``host``? Loopback and private addresses; a tailnet-range address only when it is one of this
+    computer's own Tailscale addresses (``tailnet``, default :func:`own_tailnet`) — a carrier-grade NAT uplink in
+    100.64.0.0/10 never. Never a wildcard, a public or a global address."""
+    cls = address_class(host)
+    if cls in ("loopback", "lan"):
+        return True
+    if cls == "tailnet":
+        mine = own_tailnet() if tailnet is None else tailnet
+        return str(_ip(host)) in {str(_ip(h)) for h in mine}
+    return False
+
+
+def allowed_peer(local: str, peer: str, *, tailnet=None) -> bool:
+    """T3 Code's listener rule, made exact: a loopback connection from loopback; a private one from a private address;
+    a tailnet-range peer **only** on one of this computer's own Tailscale addresses (``tailnet``, default
+    :func:`own_tailnet`) — so a carrier's other subscribers in 100.64.0.0/10 are never let in."""
+    lc, pc = address_class(local), address_class(peer)
+    if lc == "loopback":
+        return pc == "loopback"
+    if lc == "lan":
+        return pc == "lan"
+    if lc == "tailnet" and pc == "tailnet":
+        la, pa = _ip(local), _ip(peer)
+        return la.version == pa.version and bindable(local, tailnet)
+    return False
 
 
 def _probe_local(family: int, target: str) -> str | None:
@@ -164,17 +189,44 @@ def _probe_local(family: int, target: str) -> str | None:
         return None
 
 
-def local_addresses() -> dict:
+def local_addresses(probe=None) -> dict:
     """This computer's own addresses by class, read from the routing table without a packet: the default route's
-    (IPv4, IPv6) and Tailscale's when it runs (its interface answers for 100.100.100.100 / its IPv6 range)."""
+    (IPv4, IPv6) and Tailscale's when it runs.
+
+    **A tailnet is Tailscale's only when it is really there.** Tailscale gives every device an IPv6 address in
+    ``fd7a:115c:a1e0::/48`` beside its 100.x one, and routes ``100.100.100.100`` and that range through its own
+    interface. So this computer is on a tailnet only when the route to Tailscale's IPv6 range leaves from an address in
+    it; only then is the 100.x address that answers for ``100.100.100.100`` its tailnet address. Any other address in
+    100.64.0.0/10 — a carrier-grade NAT uplink, a 5G or satellite home line — is ``public``: never bound, never a route,
+    never a door to its neighbours. (A tailnet with IPv6 turned off is not recognised: the safe way to be wrong.)"""
+    probe = probe or _probe_local
     found: dict[str, list[str]] = {"lan": [], "tailnet": [], "ipv6": [], "public": []}
+    t6 = probe(socket.AF_INET6, "fd7a:115c:a1e0::53")
+    real = bool(t6) and (_ip(t6) is not None and _ip(t6).version == 6 and _ip(t6) in TAILNET_V6)
+    t4 = probe(socket.AF_INET, "100.100.100.100") if real else None
+    mine = {h for h in (t6 if real else None, t4 if t4 and _ip(t4) is not None and _ip(t4) in TAILNET_V4 else None)
+            if h}
     for family, target in ((socket.AF_INET, "192.0.2.1"), (socket.AF_INET6, "2001:db8::1"),
                            (socket.AF_INET, "100.100.100.100"), (socket.AF_INET6, "fd7a:115c:a1e0::53")):
-        got = _probe_local(family, target)
+        got = probe(family, target)
         kind = address_class(got) if got else None
+        if kind == "tailnet" and got not in mine:
+            kind = "public"             # carrier-grade NAT (or anything in Tailscale's ranges that is not Tailscale)
         if kind in found and got not in found[kind]:
             found[kind].append(got)
     return found
+
+
+_TAILNET: list = [frozenset(), -1e9]
+
+
+def own_tailnet() -> frozenset:
+    """This computer's own Tailscale addresses (empty with no tailnet), read at most every 5 s."""
+    now = time.monotonic()
+    if now - _TAILNET[1] > 5.0:
+        _TAILNET[0] = frozenset(local_addresses()["tailnet"])
+        _TAILNET[1] = now
+    return _TAILNET[0]
 
 
 def network_fingerprint() -> str:
@@ -602,7 +654,7 @@ class Server:
         return list(self.bound)
 
     async def _bind(self, host: str):
-        if address_class(host) not in BINDABLE:          # never a wildcard, a public or a global address
+        if not bindable(host):          # never a wildcard, a public or global address, nor a carrier's 100.64/10
             raise OSError("not a private address")
         return await asyncio.start_server(self._on_conn, host=host, port=self.port, reuse_address=True,
                                           limit=MAX_FRAME + 8)
@@ -633,7 +685,7 @@ class Server:
     async def rebind(self) -> None:
         """Hold exactly the planned addresses: bind the new ones, close the ones this computer no longer has."""
         try:
-            wanted = [h for h in await asyncio.to_thread(self.plan) if address_class(h) in BINDABLE]
+            wanted = [h for h in await asyncio.to_thread(self.plan) if bindable(h)]
         except Exception:  # noqa: BLE001 — keep what is bound
             return
         if LOOPBACK_HOSTS[0] not in wanted:
@@ -899,7 +951,7 @@ def bind_hosts(environ=os.environ, *, found: dict | None = None) -> list[str]:
 
     raw = (environ.get(HOST_ENV) or "").strip()
     if raw:
-        named = [h.strip() for h in raw.split(",") if address_class(h.strip()) in BINDABLE]
+        named = [h.strip() for h in raw.split(",") if bindable(h.strip())]
         return named or [LOOPBACK_HOSTS[0]]
     hosts = list(LOOPBACK_HOSTS)
     if sys.platform == "darwin":
@@ -908,8 +960,9 @@ def bind_hosts(environ=os.environ, *, found: dict | None = None) -> list[str]:
         if not sync_routes.lan_allowed():
             return hosts
     found = found if found is not None else local_addresses()
+    mine = frozenset(found.get("tailnet") or [])
     for h in list(found.get("lan") or []) + list(found.get("tailnet") or []):
-        if address_class(h) in ("lan", "tailnet") and h not in hosts:
+        if bindable(h, mine) and h not in hosts:
             hosts.append(h)
     return hosts
 
