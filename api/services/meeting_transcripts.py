@@ -446,7 +446,9 @@ def started_at(t: Transcript, relpath: str, tz_name: str | None, mtime_iso: str 
     moment = (timed or [m for m in (by_name, by_text) if m is not None] or [None])[0]
     if moment is None:
         return None
-    zone = moment.tzinfo or when.zone(tz_name or _machine_zone())
+    # A posted zone this machine cannot read (a typo, a directory of the zone database) is this machine's zone instead.
+    known = tz_name if tz_name and episode_ids.zone_offset_minutes(tz_name) is not None else None
+    zone = moment.tzinfo or when.zone(known or _machine_zone())
     if moment.tzinfo is None:
         moment = moment.replace(tzinfo=zone)
     if not timed:
@@ -480,6 +482,15 @@ def _title(t: Transcript, relpath: str) -> str:
     return " ".join(stem.split())[:200] or "Meeting"
 
 
+def summary_text(summary: str, who: str) -> str:
+    """The recorder's summary as one ``assistant:`` turn's text, every line of it quoted (``> ``, the chat importer's
+    attachment convention), so no line of the model's text can open a turn: a summary line reading ``User: …`` or
+    ``speaker:x: …`` would otherwise be read back as the person's words, or another speaker's (`evidence.turns`)."""
+    lines = [line.rstrip() for line in summary.replace("\r\n", "\n").split("\n")]
+    quoted = "\n".join(f"> {line}" if line.strip() else ">" for line in lines).strip("\n")
+    return f"Summary (written by {who})\n{quoted}"
+
+
 def draft_for_file(folder: dict, relpath: str, text: str, *, mtime_iso: str, sha: str,
                    tz_name: str | None = None) -> EpisodeDraft | None:
     """One meeting file as one episode, or ``None`` when the file holds no transcript."""
@@ -500,7 +511,7 @@ def draft_for_file(folder: dict, relpath: str, text: str, *, mtime_iso: str, sha
     turns: list[Turn] = []
     if t.summary:
         who = RECORDERS.get(recorder or "", "the recorder")
-        turns.append(Turn(f"Summary (written by {who})\n{t.summary}", "assistant"))
+        turns.append(Turn(summary_text(t.summary, who), "assistant"))
     labels: list[str] = []
     for line in t.lines:
         if line.label and line.label not in labels and len(labels) < MAX_LABELS:

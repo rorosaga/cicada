@@ -534,8 +534,11 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   off-by-default gate, `person_photo`, unchanged).
 - **Meeting transcripts — Hex, any recorder's folder (G95, owner ruling 2026-11-03: "Meetings ofc should also be
   consolidated in memory").** A meeting folder is a watched folder of `kind: meetings` (`folder_source.register(kind=,
-  recorder=)`; set on the first add, never flipped): the app holds the bookmark, watches it and posts the bytes of changed
-  files to the same `POST /sources/folders/{id}/sync` with the Mac's IANA zone (`tzName`); the backend never opens it.
+  recorder=)`; set on the first add, never flipped — a folder added before G95 has no `kind` and is notes
+  (`kind_of`), and adding an already-watched folder as the other kind is a 409 with its words, `KIND_REFUSAL`, nothing
+  written): the app holds the bookmark, watches it and posts the bytes of changed
+  files to the same `POST /sources/folders/{id}/sync` with the Mac's IANA zone (`tzName`; a name this machine cannot read, a directory such as `America` included, is
+  this machine's zone instead); the backend never opens it.
   It anchors no project, has no papers step and no authorship rules, and syncs as its own channel, `meetings:<id>`
   (`channel_for`, `folder_id_of`; a notes folder stays `folder:<id>`). `meeting_transcripts` is the one parser: **one
   episode per file** through the stager (`source_id` `meetings:<folder>:<relpath>` — an edited transcript is rewritten
@@ -559,7 +562,8 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   convention elsewhere) is a `user:` line — the person's own words, an exchange for promotion; every other utterance is
   `speaker:<label>:` (evidence kind `speaker`, G134's seam; Hex's `Them` is `speaker:them`), a line with no speaker
   `speaker:unknown`, and the recorder's model-written summary an `assistant:` line — never the person's, never an
-  exchange. No name is ever guessed to be the person; nothing is unmarked, so R4 never credits the person with an
+  exchange. Every line of the summary is quoted (`> `, `meeting_transcripts.summary_text`, the chat importer's
+  attachment convention), so a summary line reading `User: …` or `speaker:x: …` never opens a turn. No name is ever guessed to be the person; nothing is unmarked, so R4 never credits the person with an
   unlabelled line, and no `evidence_kind` is declared. The episode's `meeting` record (`recorder`, `format`, `speakers`,
   `own_labels`, `duration_s`, `summary_writer`, `attendees` — a calendar's invitees as the file lists them, never G179's
   `participants` rows) reaches Stage 1 (`sleep_cycle` passes it), whose `meeting_note` says which lines are the
@@ -2028,6 +2032,9 @@ entries, or two relationships in the conversation (the prompt defines confidence
 summary and for every relationship); "an explicit link" was any relationship the model drew to any page at 0.6. Now:
 - **>3 exchanges** is counted by Stage 1 on the conversation itself (`promotion.exchanges` / `measure`, no model):
   an exchange opens at each turn of a person (the owner, or a `speaker:` in a meeting) and runs through the replies;
+  what comes before any such turn (a recorder's summary at a meeting's head, an agent's opening line, a page's own
+  description) is no exchange at all (2026-11-03, the #579 review: it had counted as one, so a summary naming a
+  project turned the person's three exchanges into four and promoted it);
   a document with no turn markers is the person's own writing, one exchange per paragraph — **except a saved item**
   (2026-10-29, `authorship.of`): its title, header lines and fetched description are the page's words and no exchange
   of the person's; only its reason or note section is (`evidence.PERSON_SECTIONS`) — **nor an agent's saved note**

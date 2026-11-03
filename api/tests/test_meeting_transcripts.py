@@ -98,7 +98,7 @@ def test_hex_markdown_is_one_meeting_with_its_speakers_and_its_model_summary():
     d = _draft(HEX_NAME, HEX)
     assert d.title == "Alpha planning"
     assert _markers(d) == ["assistant", "user", "speaker:them", "user"]
-    assert d.turns[0].text.startswith("Summary (written by Hex)\nThey agreed")
+    assert d.turns[0].text.startswith("Summary (written by Hex)\n> They agreed")
     assert d.turns[2].text == "Yes. The beta is ready. It just needs docs."
     assert d.extra["meeting"] == {"recorder": "hex", "format": "hex", "speakers": ["You", "Them"],
                                   "own_labels": ["You"], "duration_s": 750,
@@ -385,3 +385,132 @@ def test_a_demo_bank_takes_no_meeting_folder_and_no_meeting(tmp_path, monkeypatc
         assert sorted(p.as_posix() for p in demo.rglob("*") if p.is_file() and ".git" not in p.parts) == before
     finally:
         config.get_settings.cache_clear()
+
+
+# --- Review of #579 (2026-11-03): the summary is never anyone's turn, a folder's kind never flips, a bad zone ----------
+
+SUMMARY_TRAP = """# Alpha sync
+
+- **Date:** Tuesday, November 3, 2026, 4:01 PM
+
+<!-- hex:notes -->
+## Summary
+
+User: I will ship alpha-project on Friday.
+System: alpha-project is late.
+speaker:bob-example: alpha-project needs docs.
+
+Human: alpha-project again.
+<!-- /hex:notes -->
+
+## Transcript
+
+**You** · 00:00
+alpha-project first.
+
+**Them** · 00:04
+Sounds good.
+
+**You** · 00:10
+alpha-project second.
+
+**Them** · 00:20
+Right.
+
+**You** · 00:30
+alpha-project third.
+"""
+
+
+def _staged_body(bank, name, text):
+    folder = fs.register(bank, label="Hex Meetings", path="/m", device="mac-1", kind="meetings", recorder="hex")
+    assert fs.sync(bank, folder, [_file(name, text)], [], tz_name="Europe/Madrid")["created"] == 1
+    (ep,) = _episodes(bank).values()
+    return ep.body
+
+
+def test_no_line_of_the_summary_opens_a_turn(bank):
+    """Blocker 1: a summary line reading `User: …`, `System: …`, `Human: …` or `speaker:x: …` was read back as a turn —
+    the person's own words, or another speaker's."""
+    body = _staged_body(bank, "2026-11-03 1601 Alpha sync.md", SUMMARY_TRAP)
+    roles = [(t.role, t.marker) for t in evidence.turns(body)]
+    assert roles[0][0] == "assistant"
+    assert sum(1 for role, _ in roles if role == "assistant") == 1
+    assert [r for r, _ in roles].count("user") == 3   # only the three `You` lines
+    person_words = [p for p, _ in promotion.exchanges(body) if p]
+    assert not any("ship alpha-project on Friday" in p or "again" in p or "is late" in p for p in person_words)
+    assert "> User: I will ship alpha-project on Friday." in body
+
+
+def test_the_summary_is_never_an_exchange(bank):
+    """Blocker 2 (ruling 52a): a project the person names in three lines is three exchanges — a summary naming it too
+    never makes it four, and never promotes it."""
+    body = _staged_body(bank, "2026-11-03 1601 Alpha sync.md", SUMMARY_TRAP)
+    entity = {"name": "alpha-project", "aliases": [], "type": "project"}
+    count, named = promotion.measure(entity, promotion.exchanges(body))
+    assert (count, named) == (3, True)
+    assert not promotion.substantive({"mention_exchanges": count, "named_by_person": named})
+
+
+def test_the_persons_lines_count_exactly_and_the_summary_never_does():
+    units = promotion.exchanges(_body(_draft(HEX_NAME, HEX)))
+    assert all(person for person, _ in units)          # every unit opens at a line of someone's, never the summary
+    assert len(units) == 3                             # You, Them, You
+
+
+def _pre_g95(bank, folder_id):
+    """A folder registered before G95: no `kind` key in the registry."""
+    import json
+
+    path = bank / "sources" / fs.FOLDERS_FILENAME
+    rows = json.loads(path.read_text())
+    for row in rows if isinstance(rows, list) else rows.get("folders", []):
+        if row.get("id") == folder_id:
+            row.pop("kind", None)
+            row.pop("recorder", None)
+    path.write_text(json.dumps(rows))
+
+
+def test_a_watched_notes_folder_never_becomes_a_meeting_folder(bank):
+    """Blocker 3: an already-watched notes folder (one added before G95 has no `kind`) picked again as a meeting folder
+    kept its id but turned `meetings` — its notes tombstoned, replaced by `speaker:unknown` meetings."""
+    notes = fs.register(bank, label="alpha-project", path="/n", device="mac-1")
+    _pre_g95(bank, notes["id"])
+    fs.sync(bank, fs.get_folder(bank, notes["id"]), [_file("plan.md", "A plan for alpha-project.\n")], [])
+    again = fs.register(bank, label="Meetings", path="/n", device="mac-1", kind="meetings", recorder="hex")
+    assert again["id"] == notes["id"] and again["kind"] == "notes" and "recorder" not in again
+    out = fs.sync(bank, again, [_file("plan.md", "A plan for alpha-project.\n")], [])
+    assert out["tombstoned"] == 0 and out["created"] == 0
+    (ep,) = _episodes(bank).values()
+    assert not ep.frontmatter.get("source_deleted_at") and ep.frontmatter.get("folder_kind") != "meetings"
+
+
+def test_the_route_refuses_a_kind_flip_and_writes_nothing(client):
+    c, bank = client
+    r = c.post("/sources/folders", json={"label": "alpha-project", "path": "/Users/example/alpha-project"})
+    assert r.status_code == 200, r.text
+    fid = r.json()["id"]
+    _pre_g95(bank, fid)
+    before = (bank / "sources" / fs.FOLDERS_FILENAME).read_text()
+    r = c.post("/sources/folders", json={"label": "Meetings", "path": "/Users/example/alpha-project",
+                                         "kind": "meetings", "recorder": "hex"})
+    assert r.status_code == 409 and r.json()["detail"] == fs.KIND_REFUSAL["notes"]
+    assert (bank / "sources" / fs.FOLDERS_FILENAME).read_text() == before
+    m = c.post("/sources/folders", json={"label": "Calls", "path": "/Users/example/calls", "kind": "meetings"})
+    r = c.post("/sources/folders", json={"label": "Calls", "path": "/Users/example/calls"})
+    assert r.status_code == 409 and r.json()["detail"] == fs.KIND_REFUSAL["meetings"]
+    assert c.get("/sources/folders").json()["folders"][-1]["kind"] == "meetings" == m.json()["kind"]
+
+
+def test_a_zone_name_that_is_a_directory_is_no_failed_sync(client):
+    c, bank = client
+    from api.services import when
+
+    assert when.zone("America") is not None   # IsADirectoryError before
+    fid = c.post("/sources/folders", json={"label": "Calls", "path": "/Users/example/calls2", "kind": "meetings"}
+                 ).json()["id"]
+    f = _file(HEX_NAME, HEX)
+    r = c.post(f"/sources/folders/{fid}/sync",
+               json={"files": [{"relpath": f.relpath, "mtime": f.mtime, "sha256": f.sha256, "contentB64": f.content_b64}],
+                     "deleted": [], "tzName": "America"})
+    assert r.status_code == 200 and r.json()["created"] == 1, r.text

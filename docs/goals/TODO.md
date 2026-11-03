@@ -22,7 +22,13 @@
   2026-11-03: "re-ingested items are updates, not new") — the record the Sleep side reads; a calendar's attendees sit in
   the `meeting` record, never G179's `participants`. Built and verified on scratch state with made-up transcripts only;
   the owner's folder was looked at for names, layout and counts, never text. **Next:** the coordinator confirms 52a
-  with the owner; the Sleep side consumes `revised`; the owner adds the Hex meetings folder.
+  with the owner; the Sleep side consumes `revised`; the owner adds the Hex meetings folder. **Review of #579
+  (2026-11-03), three blockers fixed:** every summary line is quoted (`> `) so none opens a `user:` turn; what comes
+  before any of the person's turns is no exchange (`promotion.exchanges`, for every source — a summary naming a project
+  had made 3 exchanges 4 and promoted it); a folder's kind never flips (a pre-G95 folder is notes, a re-add as the other
+  kind is a 409). A zone name that is a directory no longer fails a sync. **Open, deliberately:** Wispr Flow's summary is
+  stored unquoted the same way (`wispr_flow`); quoting it re-renders and re-queues every Wispr meeting (💸 a Sleep re-read
+  each), so it waits for the coordinator's call.
 
 - **2026-11-03 — "are we also syncing WhatsApp?" (G179; branch `fix/whatsapp-live-stale`).** Not a stopped reader:
   read on a read-only copy of the live store (counts, ids, times only), the one ticked chat (the person's own) holds

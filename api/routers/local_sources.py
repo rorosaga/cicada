@@ -137,7 +137,11 @@ async def register_folder(req: FolderRegisterRequest, settings: Settings = Depen
     # G95 (2026-11-03): a folder of meeting transcripts anchors no project — a recorder's folder is not one.
     existing = next((f for f in folder_source.list_folders(memory_path)
                      if local_refs.same_device(f.get("device"), device) and f.get("path") == req.path), None)
-    meetings = folder_source.is_meetings(existing) if existing else req.kind == "meetings"
+    if existing is not None and folder_source.kind_of(existing) != req.kind:
+        # A folder's kind is set when it is first added and never flips: re-read as meetings, a notes folder's episodes
+        # would be replaced by meetings and its notes tombstoned (and the reverse). Nothing is written.
+        raise HTTPException(409, folder_source.KIND_REFUSAL[folder_source.kind_of(existing)])
+    meetings = req.kind == "meetings"
     project_id, created = ("", False) if meetings else await run_in_threadpool(
         folder_source.ensure_project, memory_path, name, path=req.path, device=device)
     folder = folder_source.register(

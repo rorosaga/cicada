@@ -124,8 +124,22 @@ def channel_id(folder_id: str, kind: str | None = None) -> str:
     return f"{MEETINGS_CHANNEL_PREFIX if kind == 'meetings' else CHANNEL_PREFIX}{folder_id}"
 
 
+def kind_of(folder: dict) -> str:
+    """What a registered folder holds: ``meetings``, else ``notes`` — a folder added before G95 has no ``kind`` key and
+    is a notes folder."""
+    return "meetings" if folder.get("kind") == "meetings" else "notes"
+
+
 def is_meetings(folder: dict | None) -> bool:
-    return isinstance(folder, dict) and folder.get("kind") == "meetings"
+    return isinstance(folder, dict) and kind_of(folder) == "meetings"
+
+
+#: Why the same folder cannot be added again as the other kind (the route's 409; the app shows it as written).
+KIND_REFUSAL = {
+    "notes": "Cicada already watches this folder as notes. Remove it under Folders first to read it as meetings.",
+    "meetings": "Cicada already reads this folder as meetings. Remove it under Meeting recorders first to watch it "
+                "as notes.",
+}
 
 
 def channel_for(folder: dict) -> str:
@@ -184,7 +198,8 @@ def _register_locked(memory_path: Path, *, label: str, path: str, include, exclu
     slug = (sanitize_id(label) or "folder")[:40].strip("-") or "folder"
     record = existing if existing is not None else {"id": f"{slug}-{key}", "created_at": episode_ids.utc_now_iso()}
     # A folder's kind is set when it is first added and never flips: its episodes, channel and source ids follow it.
-    kind = record.get("kind") or (kind if kind in KINDS else "notes")
+    # A folder added before G95 has no ``kind`` and is notes: an existing record never takes the asked-for kind.
+    kind = kind_of(record) if existing is not None else (kind if kind in KINDS else "notes")
     meetings = kind == "meetings"
     recorder = recorder if recorder in meeting_transcripts.RECORDERS else record.get("recorder")
     default_include = meeting_transcripts.DEFAULT_INCLUDE if meetings else DEFAULT_INCLUDE

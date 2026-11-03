@@ -107,8 +107,8 @@ def exchanges(text: str, *, override: str | None = None, gaps=(),
         if turn.role in _NOT_AN_EXCHANGE or turn.role not in persons:
             if out:
                 out[-1][1] += "\n" + words
-            else:
-                out.append(["", words])
+            # else: what comes before anyone the person counts says a word — a recorder's summary at the head of a
+            # meeting (G95, ruling 52a), an agent's opening line — is no exchange: nobody of theirs took part in it.
         else:
             out.append([words, words])
     return [(person, whole) for person, whole in out]

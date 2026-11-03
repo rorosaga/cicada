@@ -79,7 +79,8 @@ enum MeetingFolderText {
 }
 
 /// Name it, look inside (counts only), then start watching. Registered on *Look inside* so the preview has a folder
-/// id; closing the sheet before *Start watching* removes that registration again.
+/// id; closing the sheet before *Start watching* removes that registration again — never a folder that was already
+/// watched. A folder already watched as notes is refused by the backend (409, its words shown), never turned into one.
 struct AddMeetingFolderSheet: View {
     let url: URL
     let recorder: String?
@@ -87,6 +88,8 @@ struct AddMeetingFolderSheet: View {
     @Environment(LocalSourceWatcher.self) private var localSources
     @State private var label: String
     @State private var folder: FolderRegistration?
+    /// The folder was already watched before this sheet registered it (a re-pick): closing the sheet keeps it.
+    @State private var existed = false
     @State private var preview: FolderSyncResult?
     @State private var busy = false
     @State private var message: String?
@@ -141,7 +144,9 @@ struct AddMeetingFolderSheet: View {
         busy = true
         defer { busy = false }
         do {
+            let known = Set(localSources.folders.map(\.id))
             let registered = try await localSources.addMeetingFolder(url: url, label: label, recorder: recorder)
+            existed = known.contains(registered.id)
             folder = registered
             preview = try await localSources.preview(registered, root: url)
             message = nil
@@ -157,7 +162,8 @@ struct AddMeetingFolderSheet: View {
     }
 
     private func cancel() async {
-        if let folder { try? await localSources.removeFolder(folder) }
+        // Only a registration this sheet made is undone: a folder that was already watched stays as it was.
+        if let folder, !existed { try? await localSources.removeFolder(folder) }
         onDone()
     }
 }

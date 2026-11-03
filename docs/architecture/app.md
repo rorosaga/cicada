@@ -834,7 +834,8 @@ checklist and Save, DR-38/DR-40) and `AddMeetingFolderRow`: how it works and who
 when it is there (`LocalSourceWatcher.hexMeetingsFolder()`: Hex's own `meetings.output_folder`, the one key the app
 reads of Hex's settings file, else Hex's default) — then `AddMeetingFolderSheet` (a sheet, DR-33/R-HS16): its name in
 `cicadaField` (DR-76), *Look inside* (counts only: "Found 3 meetings · 1 file holds no transcript", `MeetingFolderText`),
-then *Start watching*, the sheet's one primary action (DR-40); closing it before that removes the registration. The
+then *Start watching*, the sheet's one primary action (DR-40); closing it before that removes the registration the sheet made, never a folder that was already watched (a re-pick);
+a folder already watched as notes is refused by the backend and its words shown. The
 refused roots (`IntakeRouter.refusedRoot`) hold here too. Every sync posts the Mac's zone (`tzName`).
 
 **Activity traces (G218, ruling 38, 2026-10-23).** Sources → This Mac → **Traces** (`SourceCatalog.tracesId`, after
