@@ -109,16 +109,18 @@ class Client:
                  sleep: Callable[[float], Awaitable[None]] | None = None):
         self.adapter = adapter
         self._token = token
-        self._transport = transport or http_transport
+        # An adapter may name its own live transport (GitHub's goes through `net_guard`, ToS-rail caps).
+        self._transport = transport or getattr(adapter, "TRANSPORT", None) or http_transport
         self._sleep = sleep
         self.requests = 0
 
-    async def request(self, method: str, path: str, *, params: dict | None = None, json: dict | None = None) -> Any:
+    async def request(self, method: str, path: str, *, params: dict | None = None, json: dict | None = None,
+                      headers: dict | None = None) -> Any:
         base_url = self.adapter.API_BASE
         url = path if path.startswith("https://") else base_url + path
         if not url.startswith(base_url):
             raise base.ConnectorError(f"{self.adapter.LABEL}: a request off its own host was refused")
-        headers = dict(self.adapter.auth_headers(self._token))
+        headers = {**self.adapter.auth_headers(self._token), **(headers or {})}
         for attempt in (1, 2):
             self.requests += 1
             resp = self._transport(method, url, headers=headers, params=params, json=json)
@@ -178,6 +180,10 @@ class Batch:
     cursor: dict = field(default_factory=dict)
     seen: int = 0
     words: str | None = None
+    #: An adapter's own writes beside the staged episodes (GitHub's starred pages), run in the same admitted
+    #: transaction after the staging: ``after(memory_path) -> {paths, created, updated, live}``; its paths ride the
+    #: same commit, its ``live`` adds to the row's count.
+    after: Callable[[Path], dict] | None = None
 
 
 def in_group(source_id: str, prefix: str) -> bool:
@@ -368,6 +374,11 @@ async def run(adapter: ModuleType, memory_path: Path, *, http_fn: Transport | No
 
         async def transaction() -> dict:
             out = await asyncio.to_thread(_stage, adapter, memory_path, batch, memory_path.name)
+            if batch.after is not None:
+                more = await asyncio.to_thread(batch.after, memory_path)
+                out["paths"] = [*out["paths"], *more.get("paths", [])]
+                for key in ("created", "updated", "live"):
+                    out[key] += int(more.get(key) or 0)
             await folder_source.commit_paths_for(memory_path, out["paths"], subject=f"{adapter.LABEL} sync",
                                                  trigger=f"capture/{channel}", channel=channel)
             return out

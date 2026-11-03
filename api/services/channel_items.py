@@ -108,7 +108,8 @@ from api.services.channel_registry import CHANNEL_IDS
 #: `g161-10`: chats-ux-v2 — WhatsApp and Telegram list one row per chat too; a chat row carries `messages` and `group`.
 #: `g161-11`: source-page-v3, on top of `g161-10` — a page carries `all` and `latest`, and `q` narrows it (the route
 #: folds `q` into the ETag's extra).
-SHAPE = "g161-11"
+#: `g161-12`: G230 — the GitHub row lists its repository pages.
+SHAPE = "g161-12"
 LIMIT_DEFAULT = 50
 LIMIT_MAX = 200
 TITLE_CAP = 120
@@ -130,8 +131,9 @@ _ORIGIN_CHANNELS = {
     # G32: a Spotify download's listening days, one row each (index-only, opened in the Reader).
     "spotify-listening": ("spotify-history",),
 }
-#: A channel whose items are media pages, by the origins its catalog row owns.
-_MEDIA_CHANNELS = ("safari-tabs", "pinterest", "reddit", "x", "rss", "files")
+#: A channel whose items are media pages, by the origins its catalog row owns. G230: GitHub's row lists the
+#: repository pages (starred or added); the repositories the person owns are offered in its own panel.
+_MEDIA_CHANNELS = ("safari-tabs", "pinterest", "reddit", "x", "rss", "files", "github")
 #: Sources v3 — a saved source with no channel (a one-shot import): listed by its Sources row id, by its origins.
 _SAVED_SOURCE_ROWS = {spec.id: spec.origins for spec in source_overview.CATALOG
                       if spec.channel is None and spec.id in source_overview.SAVED_SOURCES}

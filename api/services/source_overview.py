@@ -134,6 +134,8 @@ CATALOG: tuple[SourceSpec, ...] = (
     SourceSpec("notion-api", "Notion (live)", "import", "notion-export", ("notion-api",), "notion-api"),
     # Ruling 47 tier 2: Readwise highlights — quotes the person saved from what they read, with their own notes.
     SourceSpec("readwise", "Readwise", "social", "readwise", ("readwise",), "readwise"),
+    # G230: the person's GitHub — the repositories they starred (saves, each a page) and the ones they own (offered).
+    SourceSpec("github", "GitHub", "social", "github", ("github-starred", "github-owned", "github-added"), "github"),
     SourceSpec("files", "Files & links", "import", "bookmark", ("saved-link",), "files"),
     # 2026-10-23: a note typed on a paired phone (`/capture/note`, `origin: phone`) or another device (`note`), so
     # neither reads as its raw id ("phone").
@@ -149,14 +151,15 @@ CATALOG: tuple[SourceSpec, ...] = (
 SAVED_SOURCES = frozenset({
     "chrome-bookmarks", "safari-bookmarks", "brave-bookmarks", "vivaldi-bookmarks", "comet-bookmarks", "dia-bookmarks",
     "pinterest", "reddit", "x", "instagram", "youtube", "linkedin", "tiktok", "files", "readwise", "spotify",
+    "github",
 })
 INTENTS = ("saved", "captured")
 #: Folded into `/sources/overview`'s ETag: bump it when the body changes for the same bank files (v3: `intent`;
 #: v4: `waiting`, `faces`/`faces_more`, and check records left out; v5: a nil-origin save on Files & links, the Phone
 #: and device-notes rows; v6: the device-files row; v7: Apple Reminders and Notion, G219;
 #: v8: Readwise and Notion live, ruling 47 tier 2; v9: WhatsApp, G179; v10: Telegram chats, ruling 47a;
-#: v11: Spotify's library and listening, G32).
-SHAPE = "overview-v11"
+#: v11: Spotify's library and listening, G32; v12: GitHub, G230).
+SHAPE = "overview-v12"
 
 #: Sources v4 (owner 2026-10-19: "I don't understand how Sleep is also a source on the page"). A check record is the
 #: episode Cicada writes as the citation for a question a check settled — `web_settle` (a web lookup Sleep or an agent

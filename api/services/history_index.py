@@ -52,8 +52,10 @@ LISTENING_SOURCE = "listening-history"
 LISTENING_PREFIX = "listening-history:"
 #: Origins only a platform's saved list writes (an export archive, or the person's agent reading Watch later or,
 #: G206, a saved list on X, Instagram or LinkedIn — ``saved_lists``, which files X under the archive's ``Bookmarks``).
+#: G230: GitHub's own lists, read with the person's token — the repositories they starred (a save each) and the ones
+#: they own (a record GitHub keeps, offered as a project, never the person's words).
 LIST_ORIGINS = frozenset({"youtube-playlist", "instagram-saved", "tiktok-saved", "x-likes", "linkedin-saved",
-                          "spotify-saved"})
+                          "spotify-saved", "github-starred", "github-owned"})
 #: Origins a connector shares with an export: the export's rows are told apart by the folder its reader names
 #: (the Reddit connector files under ``r/<sub>``, the X connector under no folder).
 LIST_FOLDERS: dict[str, frozenset[str]] = {
