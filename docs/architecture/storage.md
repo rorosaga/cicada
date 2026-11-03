@@ -1412,6 +1412,23 @@ Round 4 (C2–C4):
   `venue`, `sections`, and `metadata_status` once a lookup failed. The ids are the identity
   (`media-arxiv-<id>` / `media-doi-<hash>`); the abstract is a `describes` claim from
   `external:arxiv` or `external:crossref`, a dated cache shown under the personal tier (G121).
+- `media.kind: repository` + `github:` (G230, `github_repos`, its one writer) — a GitHub repository the person starred
+  or added: a `media` page, the closed set's saved-link type (not `tool`, which Sleep makes from the person's words,
+  and not `project`, which only the person's act, the hook or their located words make — ruling 36 D4 / 45). The
+  `github:` block is GitHub's record — `id` (the key: a rename keeps the page), `full_name`, `owner`, `owner_kind`,
+  `description`, `language`, `topics`, `private`, `archived`, `fork`, `default_branch` — plus what the person did:
+  `starred`, `starred_at`, `unstarred_on`, `added`, `owned`. Never the star count or the last push (both move daily; a
+  page rewritten every sync is a commit of noise). Its one source is the repository's own link, `predicate: website`,
+  `added_by: user`, `kept_by: github` (the sync and the page's open keep its record; `source_refresh.checker` never
+  visits it). `media.thumbnail` is the owner's avatar only when an organisation owns it (owner 2026-10-28, E). A
+  project the person links to a repository (`POST /sources/github/repos/project`, or "Make it a project", which makes
+  one in their list, `mine.via: app|cli`) carries the same block with `owned: true` and a trusted `repo` source — which
+  also gives it its organisation's avatar (`logo_service.repo_owner`). Whether an owned repository already is a project
+  is derived on read (`github_repos.project_match`), never written by a sync: `linked` (a trusted `repo` source or a
+  declared `repos:` URL), `origin` (a page born from a checkout whose `born.repo.remote` equals this URL's hash under
+  this install's D2a salt — the salt is read, never made, and the URL is never stored), or `name` (a project with
+  exactly its name — a suggestion the person confirms). The README preview is outside every bank
+  (`$CICADA_HOME/readmes/<bank>/<entity>.json`; `network.md`).
 - On an episode (G133/G134): `turns` (the G118 per-turn sidecar), `evidence_kind`,
   `source_deleted_at`, and a section's `content_sha` — see the Awake rails; on a conversation, `turn_extras` and
   `unsent_turns` (2026-10-20, above).

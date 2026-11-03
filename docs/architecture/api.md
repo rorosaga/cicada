@@ -141,6 +141,27 @@ ETag over `entities`+`episodes` with `extra` = `page_sources.SHAPE|<page>|<today
 midnight). R-PB11: asked on demand and cached in memory by `ProvenanceCache.sourcesOverview`, not a Store domain, no
 `VersionVector` mapping. The wire is pinned on both sides by `api/tests/fixtures/page_sources_overview.json`.
 
+**Repositories on the graph (G230, `api/routers/github_repos.py`; writer `github_repos`).** Connecting, Refresh and
+Disconnect are the tier-2 connector routes (`/sources/connectors/github…`). Four more:
+- `GET /sources/github/repos` → `{connected, owned: [RepoRow], starred: [RepoRow]}` — the repositories the last sync
+  found the person owns, each with `project` `{project, name, how: linked|origin|name}` or null and `entityId` when it
+  already has a page, and every repository page (starred ones first, newest star first). Reads the bank only; never asks
+  GitHub; not a Store domain (no ETag).
+- `POST /sources/github/repos` `{url}` → `{entityId, fullName, created}` — the person adds one repository by its link
+  or `owner/name` (422 in words for anything else). GitHub's record is read first, holding nothing (the token when
+  connected; a 404 says a private one needs GitHub connected); then the page and its commit (`Repository added …`,
+  author `user`) are one admitted transaction (409 while Sleep holds the pages); then the README is read once, outside
+  the bank. A repeat updates the same page. Replica class `capture`.
+- `POST /sources/github/repos/project` `{fullName, project?, via: app|cli}` → `{project, created}` — link the
+  repository to that project page (404 for a page that is not a live project) or, with no `project`, start one in the
+  person's list named after it (409 in words when the name is a page already). Admitted; replica class `forward`.
+- `GET /entities/{id}/repository` → the row's keys plus `readme` `{state: fresh|stale|missing|none, text, truncated,
+  path, fetchedAt}` — a repository page's card, or a linked project's (404 for any other page). The README is read
+  through GitHub's API when missing or a week old, only while `CICADA_ALLOW_LOGO_FETCH` is on, and kept outside every
+  bank; the GET writes nothing in the bank.
+Both writes refuse a demo bank (`refuse_capture_into_demo`). The CLI's `cicada github repos | add | project` call these
+routes as the person (`require_person`).
+
 **Auth.** Every endpoint except `GET /healthz`, `POST /capture/telegram`, an OAuth adapter's
 `GET /sources/connectors/{id}/callback`, and OpenRouter's sign-in landing
 `GET /connections/byok-openrouter/callback/<nonce>` (R-AG10 — gated by its own single-use, 10-minute nonce
