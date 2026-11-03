@@ -43,8 +43,8 @@
   firewall line only when the firewall is on — before the person's first share, keep-a-copy or pair; nothing is asked
   before that click, and the door binds the LAN only after the app reports a yes. The app's Bonjour advertises the
   door's port and posts found doors; `NWPathMonitor` and the app's return post `/sync/network` (2 s settle, a return at
-  most every 30 s). Route state in words — the home's rows "Same Wi-Fi · 23 seconds ago" (a door request now stamps
-  `how`), a copy's "Same Wi-Fi · reached just now" / "Queued", and "Queue full" (`tx_outbox.counts`' `full`: the last
+  most every 30 s). Route state in words — the home's rows "Same network · 23 seconds ago" (a door request now stamps
+  `how`), a copy's "Same network · reached just now" / "Queued", and "Queue full" (`tx_outbox.counts`' `full`: the last
   write was not kept and nothing left since). Verified on two scratch backends and two scratch apps; the Allow click
   itself (a real TCC prompt) was not pressed in the verify run, so the granted path is covered by tests only.
 - **2026-10-30 — one transport, direct first, the relay as fallback (ruling 51c, G132 phase 3b; branches

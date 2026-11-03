@@ -122,18 +122,18 @@ final class LocalNetworkTests: XCTestCase {
     // MARK: The route in words
 
     func testTheRouteIsAWordAndNeverAnAddress() {
-        XCTAssertEqual(LanRules.routeWord("lan"), "Same Wi-Fi")
+        XCTAssertEqual(LanRules.routeWord("lan"), "Same network")
         XCTAssertEqual(LanRules.routeWord("tailnet"), "Tailscale")
         XCTAssertEqual(LanRules.routeWord("tailscale"), "Tailscale")
         XCTAssertEqual(LanRules.routeWord("configured"), "Your address")
         XCTAssertEqual(LanRules.routeWord("relay"), "Relay")
         XCTAssertNil(LanRules.routeWord(nil))
-        XCTAssertEqual(ConnectionModelText.how("lan"), "Same Wi-Fi", "a device on the door reads as its route")
+        XCTAssertEqual(ConnectionModelText.how("lan"), "Same network", "a device on the door reads as its route")
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         let contact = "2027-01-15T07:58:00Z"
         let using = MemoryCopyModel.routeLine(SyncRoutes(toHome: .init(active: "lan", queued: false)),
                                               lastContact: contact, now: now)
-        XCTAssertEqual(using?.hasPrefix("Same Wi-Fi · reached "), true, using ?? "")
+        XCTAssertEqual(using?.hasPrefix("Same network · reached "), true, using ?? "")
         XCTAssertEqual(Copy.LocalNetwork.reached(now.addingTimeInterval(24), now: now), "reached just now",
                        "a sighting later in the timeline's minute is never in the future")
         XCTAssertFalse(Copy.AgentsPage.seen(now.addingTimeInterval(24), now: now).contains("in "))

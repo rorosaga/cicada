@@ -91,7 +91,7 @@ final class MemoryCopyModel {
         routes = replica?.isReplica == true ? (try? await APIClient.shared.fetchRoutes()) ?? routes : nil
     }
 
-    /// The route a copy is using to its home, in words: "Same Wi-Fi · reached 2 minutes ago", "Queued · reached
+    /// The route a copy is using to its home, in words: "Same network · reached 2 minutes ago", "Queued · reached
     /// yesterday" while no route answers. Never an address or a port. Nil before the backend says anything.
     nonisolated static func routeLine(_ routes: SyncRoutes?, lastContact: String?, now: Date = Date()) -> String? {
         guard let routes else { return nil }

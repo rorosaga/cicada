@@ -290,7 +290,7 @@ enum ConnectionModelText {
         case "tailscale": "Tailscale"
         case "ssh": "SSH"
         // G132 ruling 51f: a device on the home-network door reads as the route it took (`LanRules.routeWord`).
-        case "lan": Copy.LocalNetwork.sameWiFi
+        case "lan": Copy.LocalNetwork.sameNetwork
         default: nil
         }
     }

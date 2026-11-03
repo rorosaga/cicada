@@ -125,7 +125,7 @@ enum LanRules {
     /// to its home (`/sync/routes`' `active`), or how a device last reached this one (`/devices/status`' `how`).
     static func routeWord(_ kind: String?) -> String? {
         switch kind {
-        case "lan": Copy.LocalNetwork.sameWiFi
+        case "lan": Copy.LocalNetwork.sameNetwork
         case "tailnet", "tailscale": Copy.LocalNetwork.tailscale
         case "configured": Copy.LocalNetwork.yourAddress
         case "relay": Copy.LocalNetwork.relay

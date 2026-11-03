@@ -448,8 +448,8 @@ as `doors` (`POST /sync/discovered`, at most 16, again only when the set changed
 System Settings is noticed by the browse; a refused answer is looked at again, silently, on the app's return. *Hints:*
 `NWPathMonitor` posts `{event: changed}` after a 2 s settle, the app's return `{event: returned}` at most every 30 s,
 only while this memory is shared or this computer keeps a copy. *Route state, in words, never an address or a port:* a
-device row's `how` reads "Same Wi-Fi" for a door on this network (a door request stamps `agent_seen` as `lan` or
-`tailscale`); a copy's row says its route to its home from `/sync/routes` ("Same Wi-Fi · reached just now", "Tailscale",
+device row's `how` reads "Same network" for a door on this network (a door request stamps `agent_seen` as `lan` or
+`tailscale`); a copy's row says its route to its home from `/sync/routes` ("Same network · reached just now", "Tailscale",
 "Your address", "Relay", or "Queued") — the "Following <address>" line is gone — and, in `danger`, "Queue full: nothing
 waiting was lost, but new changes aren't kept until the home answers." while `outbox.full`. The bundle carries
 `NSLocalNetworkUsageDescription` and `NSBonjourServices` (`_cicada._tcp`) in both builds; the background service's

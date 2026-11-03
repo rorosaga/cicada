@@ -12,7 +12,7 @@ extension Copy {
         static let continueTitle = "Continue"
 
         // A route as one word (never an address or a port)
-        static let sameWiFi = "Same Wi-Fi"
+        static let sameNetwork = "Same network"
         static let tailscale = "Tailscale"
         static let yourAddress = "Your address"
         static let relay = "Relay"
@@ -29,7 +29,7 @@ extension Copy {
         static let relayOn = "Relay on"
 
         static var labels: [String] {
-            [name, unlocks, firewall, continueTitle, sameWiFi, tailscale, yourAddress, relay, queued, full, advanced,
+            [name, unlocks, firewall, continueTitle, sameNetwork, tailscale, yourAddress, relay, queued, full, advanced,
              relayOn]
         }
     }
