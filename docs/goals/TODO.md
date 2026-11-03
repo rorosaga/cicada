@@ -12,7 +12,7 @@
 
 ## Current state and evidence
 
-- **2026-11-03 — repositories on the graph (G230; branch `feat/github-repos`, PR #TBD).** The owner asked for a
+- **2026-11-03 — repositories on the graph (G230; branch `feat/github-repos`, PR #583).** The owner asked for a
   repository's name, link and a README preview, and a sync of his own and starred repositories. GitHub is a tier-2 token
   connector (ruling 47: off until a token is pasted, said in words, Disconnect forgets the token, its cursor and every
   README; only `GET`s to `api.github.com`, 4 s / ≤ 512 KB through `net_guard`). Starred repositories are indexed saves
