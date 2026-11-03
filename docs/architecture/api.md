@@ -156,7 +156,9 @@ Disconnect are the tier-2 connector routes (`/sources/connectors/github…`). Fo
   repository to that project page (404 for a page that is not a live project) or, with no `project`, start one in the
   person's list named after it (409 in words when the name is a page already). Admitted; replica class `forward`.
 - `GET /entities/{id}/repository` → the row's keys plus `readme` `{state: fresh|stale|missing|none, text, truncated,
-  path, fetchedAt}` — a repository page's card, or a linked project's (404 for any other page). The README is read
+  path, fetchedAt}` — a repository page's card, or a linked project's (404 for any other page). `owned` and `project`
+  are derived on read: owned when the page says so or the last sync listed it; a settled project for any repository, a
+  same-name suggestion only for one the person owns. The README is read
   through GitHub's API when missing or a week old, only while `CICADA_ALLOW_LOGO_FETCH` is on, and kept outside every
   bank; the GET writes nothing in the bank.
 Both writes refuse a demo bank (`refuse_capture_into_demo`). The CLI's `cicada github repos | add | project` call these

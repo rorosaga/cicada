@@ -1420,7 +1420,7 @@ Round 4 (C2–C4):
   `starred`, `starred_at`, `unstarred_on`, `added`, `owned`. Never the star count or the last push (both move daily; a
   page rewritten every sync is a commit of noise). Its one source is the repository's own link, `predicate: website`,
   `added_by: user`, `kept_by: github` (the sync and the page's open keep its record; `source_refresh.checker` never
-  visits it). `media.thumbnail` is the owner's avatar only when an organisation owns it (owner 2026-10-28, E). A
+  visits it, and the card's Where to check reads its state `kept` — "read through its official API"). `media.thumbnail` is the owner's avatar only when an organisation owns it (owner 2026-10-28, E). A
   project the person links to a repository (`POST /sources/github/repos/project`, or "Make it a project", which makes
   one in their list, `mine.via: app|cli`) carries the same block with `owned: true` and a trusted `repo` source — which
   also gives it its organisation's avatar (`logo_service.repo_owner`). Whether an owned repository already is a project
