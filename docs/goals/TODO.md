@@ -26,9 +26,9 @@
   (2026-11-03), three blockers fixed:** every summary line is quoted (`> `) so none opens a `user:` turn; what comes
   before any of the person's turns is no exchange (`promotion.exchanges`, for every source — a summary naming a project
   had made 3 exchanges 4 and promoted it); a folder's kind never flips (a pre-G95 folder is notes, a re-add as the other
-  kind is a 409). A zone name that is a directory no longer fails a sync. **Open, deliberately:** Wispr Flow's summary is
-  stored unquoted the same way (`wispr_flow`); quoting it re-renders and re-queues every Wispr meeting (💸 a Sleep re-read
-  each), so it waits for the coordinator's call.
+  kind is a 409). A zone name that is a directory no longer fails a sync. Wispr Flow's summary and notes were stored
+  unquoted the same way (`wispr_flow`) and are now quoted through the same helper (coordinator 2026-11-03: fix the
+  class; the bank holds one Wispr meeting, so the re-render costs one plan read).
 - **2026-11-03 — Sources and chat pages, the owner's pass (G179, G161, G223; branch `sources-page-owner-feedback`).**
   Eight items, one PR. *What Cicada reads* left every source page; the chat pickers' standing paragraphs are gone (a
   missing permission still shows its fix). The page's top right keeps only *Import chats or files* while no source is

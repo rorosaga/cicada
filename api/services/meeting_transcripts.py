@@ -482,13 +482,14 @@ def _title(t: Transcript, relpath: str) -> str:
     return " ".join(stem.split())[:200] or "Meeting"
 
 
-def summary_text(summary: str, who: str) -> str:
+def summary_text(summary: str, who: str, *, heading: str | None = None) -> str:
     """The recorder's summary as one ``assistant:`` turn's text, every line of it quoted (``> ``, the chat importer's
     attachment convention), so no line of the model's text can open a turn: a summary line reading ``User: …`` or
-    ``speaker:x: …`` would otherwise be read back as the person's words, or another speaker's (`evidence.turns`)."""
+    ``speaker:x: …`` would otherwise be read back as the person's words, or another speaker's (`evidence.turns`).
+    ``heading`` replaces ``Summary (written by <who>)`` (Wispr Flow's ``Notes (Wispr Flow)`` block)."""
     lines = [line.rstrip() for line in summary.replace("\r\n", "\n").split("\n")]
     quoted = "\n".join(f"> {line}" if line.strip() else ">" for line in lines).strip("\n")
-    return f"Summary (written by {who})\n{quoted}"
+    return f"{heading or f'Summary (written by {who})'}\n{quoted}"
 
 
 def draft_for_file(folder: dict, relpath: str, text: str, *, mtime_iso: str, sha: str,

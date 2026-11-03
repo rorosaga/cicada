@@ -564,7 +564,8 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   `participants` rows) reaches Stage 1 (`sleep_cycle` passes it), whose `meeting_note` says which lines are the
   person's, that `speaker:` lines are someone else's, and that the summary is the recorder's; `consent: unknown` (G95's
   rail). An edited transcript carries the stager's `revised` record (above), so Sleep reads it as a revision. Wispr Flow's meetings stay
-  on their own reader (above), now under the same Sources section.
+  on their own reader (above), now under the same Sources section; their summary and notes blocks are quoted through the
+  same `summary_text` (#579 review, 2026-11-03), so a model line reading `User: …` opens no turn there either.
 - **Messages conversations the person ticks (G179, 2026-10-15).** The app lists `chat.db`'s 200 most recent chats for
   the Settings picker (names, last activity, per-side counts — `MessagesReader.conversations`; a ticked chat below that
   cap is appended so it can be unticked). **Group chats (2026-10-28):** `chat.style` 43 is listed too, with its
