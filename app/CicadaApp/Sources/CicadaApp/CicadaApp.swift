@@ -342,8 +342,6 @@ struct CicadaApp: App {
                 }
             }
         }
-        // G231 — the ask-why question takes the notch: an open connect suggestion goes first (as a Not now).
-        .onChange(of: saveWhy.state != nil) { _, open in if open { connectSuggest.yield() } }
         // …and when the backend first answers after launch (a launch-time retry can beat its start).
         .onChange(of: store.status.value == nil) { _, missing in
             if !missing { Task { await saveWhy.retryHeld() } }
@@ -447,7 +445,8 @@ struct CicadaApp: App {
         }
         connectSuggest.setUp = { [store] in OnboardingState.isOnboarded(bank: store.bank) }
         connectSuggest.isDemo = { [store] in DemoMode.isActive(store.banks.value) }
-        connectSuggest.saveWhyOpen = { [saveWhy] in saveWhy.state != nil }
+        // The ask-why question always wins the notch, window or no window (app-level, through its own center).
+        connectSuggest.yields(to: saveWhy)
         connectSuggest.status = { [store, calendarReader, contactsReader, tabGroups, watchHistory, browserWatcher,
                                    notesWatcher, traceRecorder, remindersReader, localSources] entryId in
             guard let channels = store.channels.value, let overview = store.sourcesOverview.value else { return nil }

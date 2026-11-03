@@ -133,7 +133,7 @@ struct ConnectSuggestPanelView: View {
                         .font(CicadaTheme.font(size: 13, weight: .semibold))
                         .foregroundStyle(CicadaTheme.Notch.textPrimary)
                         .lineLimit(1)
-                    Text(Copy.ConnectSuggest.reads(state.target.kind))
+                    Text(Copy.ConnectSuggest.reads(state.target))
                         .font(CicadaTheme.captionFont)
                         .foregroundStyle(CicadaTheme.Notch.textTertiary)
                         .lineLimit(1)

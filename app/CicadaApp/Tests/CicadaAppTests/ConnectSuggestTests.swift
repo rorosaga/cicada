@@ -110,42 +110,45 @@ final class ConnectSuggestTests: XCTestCase {
 
     // MARK: - The panel's clock
 
+    /// The panel's own clock is uptime seconds, never the wall clock.
+    private let u0: TimeInterval = 5_000
+
     private func panel() -> ConnectSuggestPanelState {
-        ConnectSuggestPanelState(target: whatsApp, appName: "WhatsApp", bundleId: "net.whatsapp.WhatsApp", shownAt: t0)
+        ConnectSuggestPanelState(target: whatsApp, appName: "WhatsApp", bundleId: "net.whatsapp.WhatsApp", shownAt: u0)
     }
 
     func testAButtonInTheArmDelayIsIgnored() {
         var state = panel()
-        XCTAssertNil(state.handle(.yes, at: t0.addingTimeInterval(0.2)))
-        XCTAssertEqual(state.handle(.yes, at: t0.addingTimeInterval(0.6)), .yes)
+        XCTAssertNil(state.handle(.yes, at: u0 + (0.2)))
+        XCTAssertEqual(state.handle(.yes, at: u0 + (0.6)), .yes)
         state = panel()
-        XCTAssertEqual(state.handle(.no, at: t0.addingTimeInterval(1)), .no)
+        XCTAssertEqual(state.handle(.no, at: u0 + (1)), .no)
         state = panel()
-        XCTAssertEqual(state.handle(.notNow, at: t0.addingTimeInterval(1)), .notNow)
+        XCTAssertEqual(state.handle(.notNow, at: u0 + (1)), .notNow)
     }
 
     func testUntouchedItLeavesAfterTheTimeoutAsNotNow() {
         var state = panel()
-        XCTAssertNil(state.handle(.tick, at: t0.addingTimeInterval(ConnectSuggestPolicy.timeout - 0.1)))
-        let outcome = state.handle(.tick, at: t0.addingTimeInterval(ConnectSuggestPolicy.timeout))
+        XCTAssertNil(state.handle(.tick, at: u0 + (ConnectSuggestPolicy.timeout - 0.1)))
+        let outcome = state.handle(.tick, at: u0 + (ConnectSuggestPolicy.timeout))
         XCTAssertEqual(outcome, .timedOut)
         XCTAssertEqual(outcome?.answer, .notNow)
     }
 
     func testThePointerOnItHoldsItAndLeavingStartsItsPatienceAgain() {
         var state = panel()
-        XCTAssertNil(state.handle(.hover(true), at: t0.addingTimeInterval(5)))
-        XCTAssertNil(state.handle(.tick, at: t0.addingTimeInterval(60)))
-        XCTAssertNil(state.handle(.hover(false), at: t0.addingTimeInterval(60)))
-        XCTAssertNil(state.handle(.tick, at: t0.addingTimeInterval(60 + ConnectSuggestPolicy.timeout - 0.1)))
-        XCTAssertEqual(state.handle(.tick, at: t0.addingTimeInterval(60 + ConnectSuggestPolicy.timeout)), .timedOut)
+        XCTAssertNil(state.handle(.hover(true), at: u0 + (5)))
+        XCTAssertNil(state.handle(.tick, at: u0 + (60)))
+        XCTAssertNil(state.handle(.hover(false), at: u0 + (60)))
+        XCTAssertNil(state.handle(.tick, at: u0 + (60 + ConnectSuggestPolicy.timeout - 0.1)))
+        XCTAssertEqual(state.handle(.tick, at: u0 + (60 + ConnectSuggestPolicy.timeout)), .timedOut)
     }
 
     func testLeavingTheAppOrTheAskWhyQuestionIsNotNow() {
         var state = panel()
-        XCTAssertEqual(state.handle(.appChanged, at: t0)?.answer, .notNow)
+        XCTAssertEqual(state.handle(.appChanged, at: u0)?.answer, .notNow)
         state = panel()
-        XCTAssertEqual(state.handle(.superseded, at: t0)?.answer, .notNow)
+        XCTAssertEqual(state.handle(.superseded, at: u0)?.answer, .notNow)
     }
 
     // MARK: - The apps
@@ -221,11 +224,17 @@ final class ConnectSuggestTests: XCTestCase {
 
     func testTheCopySaysEachThingOnceAndNamesNoProvider() {
         let title = Copy.ConnectSuggest.title("WhatsApp")
-        for kind in ConnectSuggestApps.Kind.allCases {
+        let browsers = ["chrome", "safari", "brave"].map {
+            ConnectSuggestApps.Target(entryId: SourceCatalog.browserPrefix + $0, kind: .browser)
+        }
+        let targets = ConnectSuggestApps.Kind.allCases.filter { $0 != .browser }
+            .map { ConnectSuggestApps.Target(entryId: "x", kind: $0) } + browsers
+        for target in targets {
+            let kind = target.kind
             let uses = Copy.ConnectSuggest.uses(kind)
             XCTAssertTrue((2...3).contains(uses.count), "\(kind)")
             XCTAssertEqual(Set(uses).count, uses.count, "\(kind)")
-            let reads = Copy.ConnectSuggest.reads(kind)
+            let reads = Copy.ConnectSuggest.reads(target)
             for line in uses + [reads] {
                 XCTAssertFalse(title.localizedCaseInsensitiveContains(line), line)
                 XCTAssertFalse(line.localizedCaseInsensitiveContains("connect"), "the title already asks: \(line)")
@@ -235,6 +244,22 @@ final class ConnectSuggestTests: XCTestCase {
             }
             XCTAssertFalse(uses.contains(reads))
         }
+    }
+
+    /// Review of #585 — a browser's line says what its own entry reads: Chrome's extra switches, Safari's Reading
+    /// List and its iCloud tabs import, every other browser bookmarks only.
+    func testEachBrowserSaysWhatItsOwnEntryReads() {
+        func line(_ id: String) -> String {
+            Copy.ConnectSuggest.reads(ConnectSuggestApps.Target(entryId: SourceCatalog.browserPrefix + id, kind: .browser))
+        }
+        XCTAssertTrue(line("chrome").contains("tab groups") && line("chrome").contains("watched videos"))
+        XCTAssertTrue(line("safari").contains("Reading List") && line("safari").contains("iCloud tabs"))
+        XCTAssertEqual(line("brave"), "Only your bookmarks are read.")
+        XCTAssertEqual(Set(["chrome", "safari", "brave"].map(line)).count, 3)
+        // Only Chrome has the tab-groups switch and the watch history; only Safari has a Reading List.
+        XCTAssertEqual(BrowserInventory.catalog.filter { $0.reads.contains(.tabGroups) }.map(\.id), ["chrome"])
+        XCTAssertEqual(WatchHistoryWatcher.browser, "chrome")
+        XCTAssertEqual(BrowserInventory.catalog.filter { $0.reads.contains(.readingList) }.map(\.id), ["safari"])
     }
 
     // MARK: - The store and the center
@@ -257,8 +282,28 @@ final class ConnectSuggestTests: XCTestCase {
     private final class Presenter: ConnectSuggestPresenting {
         var shows = 0
         var hides = 0
+        var onHide: () -> Void = {}
         func show(_ center: ConnectSuggestCenter) { shows += 1 }
-        func hide() { hides += 1 }
+        func hide() { hides += 1; onHide() }
+    }
+
+    /// The ask-why panel's presenter, standing in for the `NSPanel` (no window anywhere).
+    @MainActor
+    private final class QuestionPresenter: SaveWhyPresenting {
+        var shown = 0
+        let onShow: () -> Void
+        init(onShow: @escaping () -> Void) { self.onShow = onShow }
+        func show(_ center: SaveWhyCenter) { shown += 1; onShow() }
+        func hide() {}
+        func focusText() {}
+    }
+
+    private actor QuietSavedWhyAPI: SavedWhyAPI {
+        func freshBookmarks(_ bytes: BookmarkBytes) async throws -> BookmarkSyncResult {
+            BookmarkSyncResult(new: 0, skipped: 0, sources: [])
+        }
+        func savedWhyOptions() async throws -> SavedWhyOptions { SavedWhyOptions.basic }
+        func saveWhy(url: String, answer: SavedWhyAnswer, at: Date, addedAt: String?) async throws {}
     }
 
     @MainActor
@@ -271,7 +316,8 @@ final class ConnectSuggestTests: XCTestCase {
 
     @MainActor
     private func center(clock: Clock, front: @escaping () -> pid_t?) -> (ConnectSuggestCenter, Presenter) {
-        let center = ConnectSuggestCenter(store: store(), now: { clock.now }, wait: { _ in }, ticks: false)
+        let center = ConnectSuggestCenter(store: store(), now: { clock.now },
+                                          uptime: { clock.now.timeIntervalSince1970 }, wait: { _ in }, ticks: false)
         // Cicada launched an hour before the test's clock starts moving.
         clock.now = clock.now.addingTimeInterval(3600)
         let presenter = Presenter()
@@ -349,13 +395,55 @@ final class ConnectSuggestTests: XCTestCase {
     }
 
     @MainActor
-    func testTheAskWhyQuestionTakesTheNotch() async {
+    func testTheAskWhyQuestionTakesTheNotchThroughItsOwnCenterWithNoWindow() async {
+        // Review of #585: the offer used to step aside only through an `.onChange` on the main window's view, which a
+        // closed window takes down, while the ask-why panel still opens from a sync. This drives the app's own wiring
+        // (`yields(to:)`, called by `CicadaApp.startConnectSuggest`) and the question's real path, with no window.
         let clock = Clock(t0)
-        let (center, presenter) = center(clock: clock, front: { self.whatsAppPid })
-        await center.enter(entering("net.whatsapp.WhatsApp", pid: whatsAppPid, launched: t0))
-        center.yield()
-        XCTAssertEqual(presenter.hides, 1)
-        XCTAssertEqual(center.lastOutcome, .superseded)
+        let (offer, offerPanel) = center(clock: clock, front: { self.whatsAppPid })
+        var order: [String] = []
+        offerPanel.onHide = { order.append("offer hides") }
+        let prefs = SaveWhyPrefs(defaults: UserDefaults(suiteName: "ConnectSuggestTests.\(UUID().uuidString)")!)
+        prefs.enabled = true
+        let questionPanel = QuestionPresenter { order.append("question shows") }
+        let question = SaveWhyCenter(prefs: prefs, api: QuietSavedWhyAPI(), presenter: questionPanel,
+                                     now: { clock.now })
+        offer.yields(to: question)
+
+        await offer.enter(entering("net.whatsapp.WhatsApp", pid: whatsAppPid, launched: t0))
+        XCTAssertNotNil(offer.state)
+        // A bookmark made a moment ago, synced live — the path a sync from another device takes with no window open.
+        let fresh = FreshBookmark(url: "https://www.alpha.example/post", title: "Alpha post", origin: "chrome-bookmark",
+                                  channel: "chrome-bookmarks", episodeId: "ep_2027-01-15_001",
+                                  addedAt: ISO8601DateFormatter().string(from: clock.now.addingTimeInterval(-30)))
+        var result = BookmarkSyncResult(new: 1, skipped: 0, sources: [
+            BookmarkSyncSourceSummary(origin: "chrome-bookmark", channel: "chrome-bookmarks", found: 1, new: 1,
+                                      skipped: 0, firstSync: false),
+        ])
+        result.fresh = [fresh]
+        result.freshTotal = 1
+        await question.noticed(result, live: true)
+
+        XCTAssertEqual(questionPanel.shown, 1)
+        XCTAssertNil(offer.state, "the offer never stays under the question")
+        XCTAssertEqual(offer.lastOutcome, .superseded)
+        XCTAssertEqual(order, ["offer hides", "question shows"], "the offer leaves before the question shows")
+        XCTAssertEqual(offer.store.memory.sources["whatsapp"]?.answer, .notNow)
+
+        // And while the question shows, no offer starts.
+        clock.now = clock.now.addingTimeInterval(20 * day)
+        await offer.enter(ConnectSuggestActivation(bundleId: "com.apple.Notes", name: "Notes", pid: whatsAppPid,
+                                                   launchedAt: t0))
+        XCTAssertEqual(offer.lastDecision, .skip(.saveWhyOpen))
+    }
+
+    func testTheAppWiresTheYieldWhereTheAppLivesNotOnTheWindow() throws {
+        let app = try String(contentsOf: try XCTUnwrap(ThemeTokenTests.swiftSources().first {
+            $0.path.hasSuffix("Sources/CicadaApp/CicadaApp.swift") }), encoding: .utf8)
+        let start = try XCTUnwrap(app.range(of: "private func startConnectSuggest()"))
+        let body = app[start.upperBound...].prefix(2_000)
+        XCTAssertTrue(body.contains("connectSuggest.yields(to: saveWhy)"))
+        XCTAssertFalse(app.contains("onChange(of: saveWhy.state"), "a window-level hook dies with the window")
     }
 
     @MainActor

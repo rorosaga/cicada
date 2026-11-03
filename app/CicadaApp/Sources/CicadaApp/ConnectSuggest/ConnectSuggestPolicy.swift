@@ -295,12 +295,14 @@ struct ConnectSuggestPanelState: Equatable {
     /// The app's own name as macOS shows it ("WhatsApp", "Google Chrome").
     let appName: String
     let bundleId: String
-    let shownAt: Date
+    /// When it showed, on the monotonic clock (`systemUptime`, as the ask-why panel's own): a wall clock stepped back
+    /// can never freeze its timeout or its arm delay.
+    let shownAt: TimeInterval
     private(set) var hovering = false
     /// When the untouched-panel clock started: at showing, and again whenever the pointer leaves.
-    private(set) var clockFrom: Date
+    private(set) var clockFrom: TimeInterval
 
-    init(target: ConnectSuggestApps.Target, appName: String, bundleId: String, shownAt: Date) {
+    init(target: ConnectSuggestApps.Target, appName: String, bundleId: String, shownAt: TimeInterval) {
         self.target = target
         self.appName = appName
         self.bundleId = bundleId
@@ -309,11 +311,11 @@ struct ConnectSuggestPanelState: Equatable {
     }
 
     /// The outcome an input ends the panel with, or nil while it stays. A button pressed within the arm delay is
-    /// ignored (the hand was on its way to the app beneath).
-    mutating func handle(_ input: Input, at now: Date) -> Outcome? {
+    /// ignored (the hand was on its way to the app beneath). `now` is uptime seconds.
+    mutating func handle(_ input: Input, at now: TimeInterval) -> Outcome? {
         switch input {
         case .yes, .no, .notNow:
-            guard now.timeIntervalSince(shownAt) >= ConnectSuggestPolicy.armDelay else { return nil }
+            guard now - shownAt >= ConnectSuggestPolicy.armDelay else { return nil }
             return input == .yes ? .yes : input == .no ? .no : .notNow
         case .hover(let inside):
             hovering = inside
@@ -324,7 +326,7 @@ struct ConnectSuggestPanelState: Equatable {
         case .superseded:
             return .superseded
         case .tick:
-            guard !hovering, now.timeIntervalSince(clockFrom) >= ConnectSuggestPolicy.timeout else { return nil }
+            guard !hovering, now - clockFrom >= ConnectSuggestPolicy.timeout else { return nil }
             return .timedOut
         }
     }

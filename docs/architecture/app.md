@@ -1374,7 +1374,9 @@ connected, needs sign-in and waiting for an agent never are, and an entry not re
 *Respect* (`ConnectSuggestPolicy`, pure, clock injected): on by default (Settings → General → **Suggest connecting apps**;
 the offer only ever names an app the person just chose to open, and the caps keep it to a handful a month); once per
 source, ever; **Not now** — and the panel leaving on its own after `timeout` (12 s, the ask-why question's patience; the
-pointer resting on it holds it), the person leaving the app, or the ask-why question taking the notch — allows one more
+pointer resting on it holds it; measured on `systemUptime`, as the ask-why panel's clock is, so a wall clock stepped back
+never freezes it), the person leaving the app, or the ask-why question taking the notch (`SaveWhyCenter.willShow`, set
+by `ConnectSuggestCenter.yields(to:)` at launch, so it holds with the main window closed) — allows one more
 offer no sooner than 14 days later, and that is the last (`maxShows` 2); **No** is never again, undone by *Suggest
 again* in that Settings card; **Yes** is never asked again (the source's page is where it is finished); at most one
 offer a day across sources (rolling 24 h); never in the first minute after the app launched or after Cicada did; never
@@ -1390,8 +1392,9 @@ time. *The panel* (`ConnectSuggestPanelController`, `ConnectSuggestPanelView`) i
 question — `SaveWhyNotch` placement on the front app's screen, `SaveWhyNotchShape` on `CicadaMotion.notchGrow` /
 `notchShrink` (drawn grown and only fading under Reduce Motion), notch black and the notch's text ladder, the same
 468 pt card: the bookworm (`curious`) beside the app's own icon as macOS draws it, the question "Connect Notes to
-Cicada?", one tertiary line on what is read ("macOS asks you first.", "Only the chats you tick are read.", "Only your
-bookmarks are read." …), two or three ringed chips of what Cicada does with it (`Copy.ConnectSuggest.uses`, e.g.
+Cicada?", one tertiary line on what is read ("macOS asks you first.", "Only the chats you tick are read."; a browser
+its own entry's: Chrome "Bookmarks; tab groups and watched videos only if you turn them on.", Safari "Bookmarks and
+Reading List; iCloud tabs only if you import them.", any other "Only your bookmarks are read."), two or three ringed chips of what Cicada does with it (`Copy.ConnectSuggest.uses`, e.g.
 "Remember what friends tell you · Find that link someone sent · Recall plans you made"), and **No · Not now · Yes**.
 It **never takes the keyboard**: `ConnectSuggestNSPanel.canBecomeKey` is always false (there is no field), its buttons
 answer the first click (`ConnectSuggestHostingView.acceptsFirstMouse`), it is shown with `orderFrontRegardless`, and a

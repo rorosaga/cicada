@@ -82,12 +82,17 @@ final class ConnectSuggestCenter {
 
     /// Whether an open panel's clock ticks by itself (tests send `.tick` by hand).
     @ObservationIgnored private let ticks: Bool
+    /// The open panel's own clock (its timeout and its arm delay): monotonic, as the ask-why panel's is, so a wall
+    /// clock stepped back can never freeze it. The memory's dates (14 days, one a day) stay on the wall clock.
+    @ObservationIgnored private let uptime: () -> TimeInterval
 
     init(store: ConnectSuggestStore = ConnectSuggestStore(defaults: .standard), now: @escaping () -> Date = Date.init,
+         uptime: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
          wait: @escaping (TimeInterval) async -> Void = { try? await Task.sleep(for: .seconds($0)) },
          ticks: Bool = true) {
         self.store = store
         self.now = now
+        self.uptime = uptime
         self.wait = wait
         self.ticks = ticks
         self.launchedAt = now()
@@ -115,6 +120,14 @@ final class ConnectSuggestCenter {
     }
 
     func attach(presenter: ConnectSuggestPresenting) { self.presenter = presenter }
+
+    /// The notch has two voices and the ask-why question always wins (DESIGN_RULES §9 2026-11-03): no offer starts
+    /// while it shows, and an open offer leaves the moment it is about to show — through the question's own center,
+    /// which lives as long as the app, so this holds with the main window closed (review of #585).
+    func yields(to saveWhy: SaveWhyCenter) {
+        saveWhyOpen = { [weak saveWhy] in saveWhy?.state != nil }
+        saveWhy.willShow = { [weak self] in self?.yield() }
+    }
 
     func start() {
         guard observer == nil else { return }
@@ -168,7 +181,7 @@ final class ConnectSuggestCenter {
         let at = now()
         store.memory = ConnectSuggestPolicy.shown(target.entryId, name: name, at: at, in: store.memory)
         icon = iconFor(pid)
-        state = ConnectSuggestPanelState(target: target, appName: name, bundleId: bundleId, shownAt: at)
+        state = ConnectSuggestPanelState(target: target, appName: name, bundleId: bundleId, shownAt: uptime())
         Self.logger.info("show \(target.entryId, privacy: .public)")
         presenter?.show(self)
         ticking?.cancel()
@@ -183,7 +196,7 @@ final class ConnectSuggestCenter {
 
     func input(_ input: ConnectSuggestPanelState.Input) {
         guard var open = state else { return }
-        let outcome = open.handle(input, at: now())
+        let outcome = open.handle(input, at: uptime())
         state = open
         if let outcome { close(outcome, record: true) }
     }
