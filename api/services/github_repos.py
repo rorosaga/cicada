@@ -258,10 +258,15 @@ def _new_page(memory_path: Path, repo: Repo, idx: dict, *, origin: str, starred_
 
 def upsert(memory_path: Path, repo: Repo, idx: dict, *, origin: str, starred: bool | None = None,
            starred_at: str | None = None, added: bool = False, owned: bool | None = None,
-           known: dict[int, str] | None = None) -> tuple[str, str, list[str]]:
+           known: dict[int, str] | None = None, remake: bool = False) -> tuple[str, str, list[str]]:
     """Make or update ``repo``'s page: ``(entity id, "created"|"updated"|"same", paths written)``. The caller holds
-    the bank's admission and page lock and saves ``idx``."""
-    from api.services import media_ingestor
+    the bank's admission and page lock and saves ``idx``.
+
+    A link row whose page is gone is one of two things. The person merged the page into another
+    (``page_redirects``): that page is the repository's now — updated when it is a ``media`` page, left alone when it
+    is any other kind (a ``tool`` the person folded it into). Or the page went with no redirect: only the person's own
+    add (``remake``) makes it again; a sync never brings back a page the person removed."""
+    from api.services import media_ingestor, page_redirects
 
     memory_path = Path(memory_path)
     known = _pages_by_id(memory_path) if known is None else known
@@ -273,11 +278,17 @@ def upsert(memory_path: Path, repo: Repo, idx: dict, *, origin: str, starred: bo
     paths: list[str] = []
     status = "same"
     page = memory_path / "entities" / f"{entity_id}.md" if entity_id else None
-    if page is None or not page.exists():
-        # A link row whose page is gone (deleted by hand, or a merge left it) would make the save path answer
-        # "already saved" with no page behind it: the stale row goes, and the repository gets its page again.
-        if entity_id is not None:
+    if page is not None and not page.exists():
+        moved = page_redirects.resolve(memory_path, entity_id)
+        if moved:
+            entity_id, page = moved, memory_path / "entities" / f"{moved}.md"
+        elif not remake:
+            return entity_id, "same", paths
+        else:
+            # The save path would answer "already saved" with no page behind it: the stale row goes first.
             idx.pop(media_ingestor.url_hash(repo.url), None)
+            page = None
+    if page is None:
         entity_id, episode_id = _new_page(memory_path, repo, idx, origin=origin, starred_at=starred_at)
         page = memory_path / "entities" / f"{entity_id}.md"
         paths += [f"episodes/{episode_id}.md", "sources/url_index.json"]
@@ -361,7 +372,7 @@ def add(memory_path: Path, repo: Repo) -> tuple[str, str, list[str]]:
 
     with page_lock.page_lock(memory_path):
         idx = media_ingestor.load_url_index(memory_path)
-        entity_id, status, paths = upsert(memory_path, repo, idx, origin=ADDED_ORIGIN, added=True)
+        entity_id, status, paths = upsert(memory_path, repo, idx, origin=ADDED_ORIGIN, added=True, remake=True)
         media_ingestor.save_url_index(memory_path, idx)
     bank_index.invalidate(memory_path)
     return entity_id, status, list(dict.fromkeys(paths))

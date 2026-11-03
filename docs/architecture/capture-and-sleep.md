@@ -442,7 +442,9 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   rewrites the page's `github:` block only when GitHub's record changed (never for a star count or a push), and a
   repository no longer starred keeps its page with `starred: false` and the day it was seen gone, said on the row in
   words ("N repositories are no longer starred on GitHub; their pages stay"). Nothing a sync does deletes a page or an
-  episode. *A repository the person adds* by its link (`POST /sources/github/repos`, origin `github-added`) is a save
+  episode, and a sync never brings one back: a page the person merged away is followed to the page it became
+  (`page_redirects`; a `media` winner is updated, any other kind left alone), and one removed with no redirect stays
+  gone — only the person's own add makes it again. *A repository the person adds* by its link (`POST /sources/github/repos`, origin `github-added`) is a save
   they made on purpose: its episode is read by Sleep like any single link they save. Pages are quiet until mentioned
   (`quiet_pages`: import evidence only).
   Chrome's open tab groups (round 4, G160 first slice): the app reads the default profile's

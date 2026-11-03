@@ -584,3 +584,38 @@ def test_a_link_row_whose_page_is_gone_gets_the_page_again(api, bank):
     assert again.status_code == 200, again.text
     body = again.json()
     assert body["created"] is True and (bank / "entities" / f"{body['entityId']}.md").exists()
+
+
+def test_a_sync_never_brings_back_a_page_the_person_merged_away(api, bank):
+    """Re-review of #583: the person folds a starred repository's page into a `tool` page (the merge deletes it and
+    leaves a redirect); the next sync follows the redirect and leaves the tool page alone — never a second page."""
+    _connect()
+    assert api.post("/sources/connectors/github/sync").json()["status"] == "ok"
+    kit = next(r for r in api.get("/sources/github/repos").json()["starred"] if r["fullName"].endswith("widget-kit"))
+    markdown_parser.write(bank / "entities" / "widget-kit-tool.md",
+                          {"name": "Widget Kit", "type": "tool", "status": "active"}, "A kit the person uses.\n")
+    _git(bank, "add", "-A")
+    _git(bank, "commit", "-q", "-m", "tool page")
+    bank_index.invalidate(bank)
+    merged = api.post(f"/entities/{kit['entityId']}/merge", json={"into": "widget-kit-tool"})
+    assert merged.status_code == 200, merged.text
+    assert not (bank / "entities" / f"{kit['entityId']}.md").exists()
+    tool_before = (bank / "entities" / "widget-kit-tool.md").read_text()
+    entities_before = sorted(p.name for p in (bank / "entities").glob("*.md"))
+    assert api.post("/sources/connectors/github/sync").json()["status"] == "ok"
+    assert sorted(p.name for p in (bank / "entities").glob("*.md")) == entities_before
+    assert (bank / "entities" / "widget-kit-tool.md").read_text() == tool_before
+    # The person's own add of the same link lands on the page they merged it into, never a second page.
+    again = api.post("/sources/github/repos", json={"url": "example-org/widget-kit"}).json()
+    assert again["entityId"] == "widget-kit-tool" and again["created"] is False
+    assert sorted(p.name for p in (bank / "entities").glob("*.md")) == entities_before
+
+
+def test_a_sync_never_remakes_a_page_removed_with_no_redirect(api, bank):
+    _connect()
+    api.post("/sources/connectors/github/sync")
+    kit = next(r for r in api.get("/sources/github/repos").json()["starred"] if r["fullName"].endswith("widget-kit"))
+    (bank / "entities" / f"{kit['entityId']}.md").unlink()
+    bank_index.invalidate(bank)
+    assert api.post("/sources/connectors/github/sync").json()["status"] == "ok"
+    assert not (bank / "entities" / f"{kit['entityId']}.md").exists()
