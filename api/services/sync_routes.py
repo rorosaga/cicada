@@ -456,8 +456,7 @@ def wire(base: str | None = None) -> dict:
         routes = []
     door = sync_door.SERVER.wire() if sync_door.SERVER is not None else {"open": False}
     door.pop("port", None)
-    return {"toHome": BOOK.wire(routes), "door": door, "lanDial": may_dial_lan(),
-            "away": {"on": False, "text": "Reaching your memory away from home is not built yet."}}
+    return {"toHome": BOOK.wire(routes), "door": door, "lanDial": may_dial_lan()}
 
 
 def reset_for_tests() -> None:
