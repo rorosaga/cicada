@@ -262,6 +262,15 @@ final class WhatsAppWatcher {
         case .failure(let error): status = .failed(Self.failureMessage(error))
         }
         publish()
+        if case .failure = result {
+            // #578 review: a pass that did not finish (the backend down, a refused post) read nothing for good — the next
+            // change event retries it, at the watcher's own debounce and floor, instead of matching its signature.
+            readSignature = nil
+        } else {
+            // #578 review: a write that landed during this pass raised its event while the pass ran, and that event
+            // joined it (`if let running`) — so it is read now. The pass's own copy never moves the signature: no loop.
+            changed()
+        }
         return result
     }
 

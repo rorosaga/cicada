@@ -674,7 +674,10 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   newest message, then stopped: consistent with the loop, and with nothing new.) A change event now runs a pass only
   when the store's or the `-wal`'s size or modification time moved since the last pass began
   (`WhatsAppReader.signature`; `WhatsAppReaderTests.testThePassesOwnCopyNeverRunsTheNextPass`: 1 post, then none until
-  a write, which is read). Messages opens `chat.db` in place and clones only the nickname store, at most hourly per
+  a write, which is read). Two edges (#578 review): a write that lands during a pass joins that pass's run, so when a
+  pass ends with the signature moved since it began it runs once more (`testAWriteDuringAPassIsReadWhenThePassEnds`);
+  a pass that failed (a refused post, the backend down) clears the signature, so the next change event retries it at
+  the debounce and floor (`testAFailedPassIsRetriedOnTheNextEvent`). Messages opens `chat.db` in place and clones only the nickname store, at most hourly per
   chat, so it never looped; Telegram has no file watch.
 - **Telegram chats the person ticks (ruling 47a and its amendment, 2026-10-28).** The backend's own client
   (`telegram_account`, `telegram_port`, network.md) listens while the person is connected; events wait in memory for
