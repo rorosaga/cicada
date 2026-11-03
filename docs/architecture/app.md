@@ -715,7 +715,7 @@ nothing and stays "not yet"), **Control Chrome** (Automation: the saved page's f
 shown only when Chrome is installed), **Control Notes** (Automation for Apple Notes), **Notifications** (an export
 ready, an agent asking), and — only while activity traces are on — **Accessibility** and **Screen Recording** (drag
 lists). Not rows, on purpose: Speech Recognition stays asked only inside `MediaFileIndexer.add(_:)`, the person's own
-drop; Automation for Terminal/Ghostty is the moment of the click that opens one; traces' per-browser Automation is
+drop (decided, owner 2026-11-03: "i'd leave it where it is for now"); Automation for Terminal/Ghostty is the moment of the click that opens one; traces' per-browser Automation is
 traces' own switch; Input Monitoring and Local Network are not used by the app today. Each row
 (`PermissionList`, `ConnectionLine`) shows the app's own icon or a glyph, the name, what it unlocks in one line, and
 either a green dot with *Allowed* or one button (`MacPermissionRows.action`): a drag list's *Allow…* opens its exact
