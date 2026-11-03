@@ -358,3 +358,37 @@ def refresh(frontmatter: dict, original_body: str, body: str, entity: dict, *, s
     if records or raw is not None:
         extras = {k: v for k, v in (raw or {}).items() if k not in ('v', 'sources', 'sections')}
         frontmatter[FIELD] = {**extras, **encode(records)}
+
+
+def remap(frontmatter: dict, body: str, move) -> int:
+    """Each row of an item still on the page (its exact-text guard holds) through ``move(section, item text, row)``:
+    the row it becomes, or ``None`` to keep it. Records of items no longer on the page, of an unreadable section, and
+    unknown fields stay as they are; nothing is recertified. Returns how many rows changed (G104: rows into an edited
+    conversation onto its new body, `revision_prose`)."""
+    raw = frontmatter.get(FIELD)
+    decoded = decode(raw)
+    if not decoded:
+        return 0
+    unavailable = unavailable_sections(body, decoded)
+    current = {section: {item.key: item for item in items if not item.ambiguous}
+               for section, items in scan(body).items() if section not in unavailable}
+    changed = 0
+    records = {}
+    for section, items in decoded.items():
+        out = {}
+        for key, (guard, rows) in items.items():
+            item = current.get(section, {}).get(key)
+            new_rows = []
+            for ev in rows:
+                moved = move(section, item.text, ev) if item is not None and item.text_hash == guard else None
+                if moved is not None and moved != ev:
+                    changed += 1
+                    ev = moved
+                if ev not in new_rows:
+                    new_rows.append(ev)
+            out[key] = (guard, new_rows)
+        records[section] = out
+    if changed:
+        extras = {k: v for k, v in raw.items() if k not in ('v', 'sources', 'sections')}
+        frontmatter[FIELD] = {**extras, **encode(records)}
+    return changed

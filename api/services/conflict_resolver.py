@@ -69,8 +69,15 @@ async def resolve_and_prune(
     decay: bool = True,
     cancel_check=None,
     progress_callback=None,
+    revised: dict[str, bool] | None = None,
 ) -> list[dict]:
     """Apply conflict resolution and temporal decay to all entities.
+
+    ``revised`` (G104 slice 2): ``{episode id: whether it replaced or removed words}`` for the conversations Sleep read
+    before that this batch read again as revisions of themselves. An update resting only on them, one of which took
+    words away, is the source correcting itself, never an unresolvable contradiction: no check is asked (the claim
+    layer closes the old value without a question, #581, and Stage 5.58 rewrites the passages that said it,
+    `revision_prose`).
 
     The synthesis and contradiction calls — the long, paid part of this stage — overlap
     across pages, at most ``agent_max_concurrency`` calls at once (1 is one call after
@@ -164,7 +171,15 @@ async def resolve_and_prune(
     # The contradiction checks, `CONTRADICTION_BATCH` pages a call, the pages in their order (2026-10-20): each
     # page's check reads only its page as it was before the stage and its own update, never a write, so it waits
     # for no synthesis; a group is a function of the jobs' order alone, so every concurrency asks the same calls.
-    asked = [index for index, job in enumerate(jobs) if index in decided and job["new_desc"]]
+    def _correcting(change: dict) -> bool:
+        sources = set(_change_source_episodes(change))
+        return bool(revised and sources and sources <= revised.keys() and any(revised[s] for s in sources))
+
+    asked = [index for index, job in enumerate(jobs) if index in decided and job["new_desc"]
+             and not _correcting(job["change"])]
+    for index, job in enumerate(jobs):
+        if index in decided and job["new_desc"] and index not in asked:
+            _page_done()   # a revision's own update: no check (`revised`)
     groups = [asked[k:k + CONTRADICTION_BATCH] for k in range(0, len(asked), CONTRADICTION_BATCH)]
 
     async def check(group: list[int]) -> list[dict | None]:

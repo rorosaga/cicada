@@ -396,6 +396,22 @@ def _relocate(rev: Revision, ev: Evidence) -> Evidence | None:
     return Evidence(episode=rev.episode_id, start=start, end=end, kind=kind, hash=rev.hash)
 
 
+def provenance_row(rev: Revision, ev: Evidence) -> Evidence | None:
+    """A `section_provenance` row into ``rev``'s conversation on the version Sleep read, moved onto the new body: a
+    span located again as a claim's is (:func:`_relocate`, never fuzzily), a whole-conversation row (``reasoning``)
+    stamped with the new hash. ``None`` leaves the row as it is: already current, on some older body, or its words gone
+    (`revision_prose` decides which passages still rest on the old version)."""
+    if ev.episode != rev.episode_id or ev.hash == rev.hash:
+        return None
+    if ev.kind == "reasoning" or ev.start < 0:
+        if ev.hash != rev.prior_hash:
+            return None
+        return Evidence(episode=rev.episode_id, start=-1, end=-1, kind="reasoning", hash=rev.hash)
+    if not _on_prior(rev, ev):
+        return None
+    return _relocate(rev, ev)
+
+
 @dataclass
 class Plan:
     #: claim id -> the revised episode only whose removed text said it.
