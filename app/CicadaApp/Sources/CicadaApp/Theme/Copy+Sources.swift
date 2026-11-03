@@ -16,6 +16,18 @@ extension Copy {
     static let syncStopped = "Stopped — what already came in stays."
     /// A 409 from the bookmark route: the last sync (perhaps one just stopped) is still saving on this Mac.
     static let bookmarkSyncBusy = "Your last bookmark sync is still finishing. Try again in a minute."
+    /// 2026-11-03 — a watched browser's header line (`BrowserFreshness`): what "up to date" is measured against.
+    static func browserUpToDate(_ browser: String, changed: String) -> String {
+        "Up to date with \(browser) on this Mac — its bookmarks here last changed \(changed)"
+    }
+    /// …and, once that file has been quiet a day, how another device's bookmarks get here. Safari: iCloud's own
+    /// sync writes them into Safari's file on this Mac, Safari open or not. The Chromium family: the browser syncs
+    /// them itself, only while it runs.
+    static let browserOtherDevicesICloud = "Ones saved on another device reach Cicada once iCloud copies them into "
+        + "Safari on this Mac; if one is missing, check Safari here."
+    static func browserOtherDevicesOwnSync(_ browser: String) -> String {
+        "Ones saved on another device reach Cicada once \(browser) on this Mac syncs them, which it does while it's open."
+    }
     static let sourceNeedsAccess = "Needs Full Disk Access"
     static let sourceSyncFailed = "The last sync didn't finish"
 

@@ -166,7 +166,7 @@ final class BookmarksV4Tests: XCTestCase {
             },
             peek: { _ in try? await Task.sleep(for: .seconds(30)) },
             diff: diff)
-        watcher.start(store: Store())
+        watcher.start(store: Store.withActiveMemory())
         try await eventually("Chrome's baseline") { diff.hasBaseline("chrome-bookmarks") }
         try await eventually("Chrome's catch-up sync to start (and hang)") { syncsStarted == ["chrome-bookmarks"] }
         XCTAssertEqual(watcher.state(for: "safari-bookmarks"), .blocked)
