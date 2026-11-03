@@ -317,8 +317,27 @@ final class BackendAgentReleaseTests: XCTestCase {
     }
 
     private func plan(_ data: Data?, runtime: CicadaRuntime = CicadaRuntimeTests.release(),
-                      exists: Set<String> = []) -> BackendAgentPolicy.Migration? {
-        BackendAgentPolicy.migration(plistData: data, runtime: runtime, fileExists: { exists.contains($0) })
+                      exists: Set<String> = [], bundleId: String? = nil) -> BackendAgentPolicy.Migration? {
+        BackendAgentPolicy.migration(plistData: data, runtime: runtime, fileExists: { exists.contains($0) },
+                                     bundleId: bundleId)
+    }
+
+    /// G132 ruling 51f — the plist names the app (TN3179's `AssociatedBundleIdentifiers`, written by the script from
+    /// `CICADA_APP_BUNDLE_ID`), so the backend's own LAN connections fall under the app's Local Network answer; a
+    /// release's plist from before is rewritten once.
+    func testTheInstallNamesTheAppAndAPlistThatDoesNotIsRewrittenOnce() {
+        let runtime = CicadaRuntimeTests.release()
+        let env = BackendAgentPolicy.environment(base: ["CICADA_APP_BUNDLE_ID": "spoofed"], runtime: runtime,
+                                                 memoryRoot: "/m", bundleId: "com.example.cicada")
+        XCTAssertEqual(env["CICADA_APP_BUNDLE_ID"], "com.example.cicada")
+        XCTAssertNil(BackendAgentPolicy.environment(base: ["CICADA_APP_BUNDLE_ID": "spoofed"], runtime: runtime,
+                                                    memoryRoot: "/m", bundleId: nil)["CICADA_APP_BUNDLE_ID"],
+                     "no bundle (a bare binary): nothing is passed, never the caller's own value")
+        let home = runtime.cicadaHome.path
+        let current = ["CICADA_PORT": "8000", "CICADA_HOME": home]
+        XCTAssertEqual(plan(plist([launcher], env: current), bundleId: "com.example.cicada"), .init(memoryPath: nil))
+        XCTAssertNil(plan(plist([launcher], env: current.merging(["CICADA_APP_BUNDLE_ID": "com.example.cicada"]) { $1 }),
+                          bundleId: "com.example.cicada"))
     }
 
     func testMigrationPlan() {
@@ -423,8 +442,11 @@ final class BackendAgentReleaseTests: XCTestCase {
         let runner = FakeRunner()
         let release = service(CicadaRuntimeTests.release(), runner: runner)
         let none = await release.migrateIfNeeded(readPlist: { _ in nil })
+        // A current plist names this app too (G132 ruling 51f: `AssociatedBundleIdentifiers` via CICADA_APP_BUNDLE_ID).
+        var currentEnv = ["CICADA_PORT": "8000", "CICADA_HOME": "/Users/x/.cicada"]
+        if let id = Bundle.main.bundleIdentifier { currentEnv["CICADA_APP_BUNDLE_ID"] = id }
         let current = await release.migrateIfNeeded(readPlist: { _ in
-            self.plist([self.launcher], env: ["CICADA_PORT": "8000", "CICADA_HOME": "/Users/x/.cicada"]) })
+            self.plist([self.launcher], env: currentEnv) })
         let developer = BackendAgentService(runner: runner, runtime: .developer(codeRoot: URL(fileURLWithPath: "/R")),
                                             plistURL: URL(fileURLWithPath: "/nonexistent/agent.plist"), uid: 501,
                                             memoryRoot: { "/m" }, envFileContents: { nil }, onInstalled: {})

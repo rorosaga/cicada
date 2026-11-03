@@ -153,6 +153,19 @@ def _count(reason: str, home: Path | None = None) -> None:
     _write(folder(home) / "counters.json", data)
 
 
+def _note_full(home: Path | None = None, *, refused: bool = True) -> None:
+    """The Devices page's "queue full" (ruling 51f D1): set when a write was not kept, with the queue's size then;
+    cleared when a write is kept again. ``counts`` reads it as full until the queue is smaller than at the refusal."""
+    data = _counters(home)
+    if refused:
+        data["fullAt"] = list(_size(home))
+    elif "fullAt" not in data:
+        return
+    else:
+        data.pop("fullAt", None)
+    _write(folder(home) / "counters.json", data)
+
+
 def _reject(entry: dict, status: int | None, code: str | None, home: Path | None = None, *,
             counted: bool = True) -> None:
     path = folder(home) / "rejected.json"
@@ -226,9 +239,11 @@ def submit(entry: dict, send, *, home: Path | None = None, deadline_s: float = 3
     with _locked(home):
         if not _room(entry, home):
             _count("full", home)
+            _note_full(home)
             return "full", None, {"code": "queue_full", "text": full_text(home)}
         name = f"tx-{time.time_ns():020d}-{entry['id'][:12]}.json"
         _write(folder(home) / name, entry)
+        _note_full(home, refused=False)
         outcome = _flush_locked(send, home=home, deadline_s=deadline_s, now=time.time)
     return outcome.get(entry["id"], ("queued", None, {}))
 
@@ -290,7 +305,7 @@ def _flush_locked(send, *, home: Path | None, deadline_s: float, now) -> dict[st
 
 
 def counts(home: Path | None = None) -> dict:
-    """``{waiting, held, dropped, expired, rejected, oldestAt}`` — numbers only."""
+    """``{waiting, held, full, dropped, expired, rejected, oldestAt}`` — numbers and one flag only."""
     waiting = held = 0
     oldest = None
     for path in entries(home):
@@ -303,7 +318,12 @@ def counts(home: Path | None = None) -> dict:
         if isinstance(at, (int, float)) and (oldest is None or at < oldest):
             oldest = at
     c = _counters(home)
-    return {"waiting": waiting, "held": held, "expired": int(c.get("expired") or 0), "refusedFull": int(c.get("full") or 0),
+    # ``full``: the last write was not kept and nothing has left the queue since, or not even a small one would fit
+    # (the Devices page says so in words; ruling 51f D1).
+    n, total = _size(home)
+    at = c.get("fullAt")
+    full = not _room({}, home) or (isinstance(at, list) and len(at) == 2 and (n, total) >= (int(at[0]), int(at[1])))
+    return {"waiting": waiting, "held": held, "full": full, "expired": int(c.get("expired") or 0), "refusedFull": int(c.get("full") or 0),
             "dropped": sum(int(v) for k, v in c.items() if k.startswith("dropped_")),
             "rejected": int(c.get("rejected") or 0), "oldestAt": oldest}
 

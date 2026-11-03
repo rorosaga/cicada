@@ -415,6 +415,49 @@ words, while Sleep runs here, for a demo memory and while this Mac shares its ow
 a demo (the backend's `demo` and the Store's roster both ask). A failed refresh keeps what the card last showed. The app
 keeps talking to this Mac's own backend in both cases (`headless.md`, "A computer keeps a copy").
 DR-40, DR-59, DR-76.
+**Relay** (G132 phase 3b; `RelaySection`, `RelayModel`, `RelayPairSheet`, `RelayPairModel`, `Copy.Relay`; not a Store
+domain, read with the page; drawn only when this app is not a server's client), **under *Advanced*** (ruling 51f, owner
+D9: never a default) — a folded card (DR-39's form exception), the viewer's choice kept in
+`cicada.settings.devices.advancedOpen`, "Relay on" beside the label while folded with one set, opened by a search hit on
+the row: the relay address, **off by default**
+(`PUT /sync/relay`, `wss://` only, `ws://` only to this Mac; *Turn off* clears it), with one plain line for either
+state. With a relay set on a computer that shares its memory, *Pair a computer through the relay* opens the sheet: the
+QR (v2, sorted keys, drawn here with Core Image inside a ring, DR-9) beside the code and the relay's address for typing
+(DR-19); then the name of the computer that answered — and on the typed path the six digits both screens show, in mono
+because they are compared — with one confirmation (DR-40); "Two devices answered this code, so neither was added" when
+a second answered; closing while it waits cancels the code. On a computer that keeps its own memory and shares nothing,
+*Join with a code* takes the code and the relay's address, shows the same six digits with *They match*, and the
+backend starts again as a copy. Revoke's confirmation now says "Revoking cannot take back the copy it already holds."
+Both G132 cards' models (`MemoryCopyModel`, `RelayModel`) are owned and refreshed by the page (on appear and every
+30 s): a `.task` on a card that hides itself until its first read never ran (2026-11-03).
+**The home-network door, the app's side** (ruling 51f slice 1; `LanDiscovery`, `LocalNetworkStep`, `LanRules`,
+`Copy.LocalNetwork`; network.md, "Discovery on the LAN"). *When Local Network is asked (owner D4):* once, at the
+person's first *Share this memory…*, *Keep a full copy here* or *Pair a device* click — a step titled by that act (the
+pair sheet draws it before any code is made): the Permissions step's own row (`PermissionList`, `.localNetwork`, never
+in onboarding's list or Privacy's), "If macOS asks about incoming connections, choose Allow." only when the firewall is
+on (`socketfilterfw --getglobalstate`, read only), and *Continue*, which never waits on the row. *Allow…* raises the
+prompt by the app's first Bonjour call: a throwaway `cicada-probe-<random>` instance on port 9 (no socket, so no firewall
+question) seen in its own browse is a yes, a policy refusal that never saw it a no (`LocalNetworkMemory`,
+`cicada.permission.localNetwork`; macOS has no preflight). The answer goes to the backend as `lanAllowed`; the door
+stays on loopback until it is a yes. Skipped or refused, the same row sits on the devices card above *Pair a device*
+(`cicada.devices.localNetworkStepSeen`). *Bonjour, once allowed:* `DNSServiceRegister` advertises the door's port under
+`/sync/discovery`'s instance name (an `NWListener` can advertise only its own port), `NWBrowser` browses `_cicada._tcp`
+(a conflict-renamed "c-… (2)" matches), each match is resolved with `DNSServiceResolve` + `DNSServiceGetAddrInfo` —
+never a connection, which would spend the door's handshake budget — and private and unique-local addresses are posted
+as `doors` (`POST /sync/discovered`, at most 16, again only when the set changed or after 5 min). A refusal later in
+System Settings is noticed by the browse; a refused answer is looked at again, silently, on the app's return — only after the person's own *Allow…* asked once
+(`cicada.permission.localNetwork.askedAt`), at most once per 30 s and never two probes at once. A bank switch refreshes
+Bonjour at once (another memory is another instance name). *Hints:*
+`NWPathMonitor` posts `{event: changed}` after a 2 s settle, the app's return `{event: returned}` at most every 30 s,
+only while this memory is shared or this computer keeps a copy. *Route state, in words, never an address or a port:* a
+device row's `how` reads "Same network" for a door on this network (a door request stamps `agent_seen` as `lan` or
+`tailscale`); a copy's row says its route to its home from `/sync/routes` ("Same network · reached just now", "Tailscale",
+"Your address", "Relay", or "Queued") — the "Following <address>" line is gone — and, in `danger`, "Queue full: nothing
+waiting was lost, but new changes aren't kept until the home answers." while `outbox.full`. The bundle carries
+`NSLocalNetworkUsageDescription` and `NSBonjourServices` (`_cicada._tcp`) in both builds; the background service's
+install passes `CICADA_APP_BUNDLE_ID` (the plist's `AssociatedBundleIdentifiers`, TN3179), and a release's plist that
+does not name the app is rewritten once. No new pattern, no motion. DR-5, DR-9, DR-10, DR-19, DR-38, DR-39, DR-40,
+DR-52, DR-59, DR-60, DR-76; §9 2026-11-03.
 Agents' last card holds *Command-line tool* (G180, ruling 21; on General's Setup card until B11; `CommandLineTool`,
 `CommandLineToolRow`): one neutral *Install the command-line tool* button (DR-40) that links `~/.local/bin/cicada`
 with no admin.

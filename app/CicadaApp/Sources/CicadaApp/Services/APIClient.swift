@@ -3902,10 +3902,92 @@ actor APIClient {
         _ = try await delete("/devices/pairing/\(encodedID(id))")
     }
 
+    // MARK: G132 phase 3b — the relay (off by default) and pairing through it
+
+    /// `GET /sync/relay` — the relay address this computer uses, or none.
+    func fetchRelay() async throws -> RelaySetting {
+        try await get("/sync/relay", timeout: Self.refreshTimeout)
+    }
+
+    /// `PUT /sync/relay` — set (wss://) or clear it; the backend starts or stops its link at once.
+    func setRelay(url: String?) async throws -> RelaySetting {
+        let value: Any = url ?? NSNull()
+        return try await put("/sync/relay", body: ["url": value])
+    }
+
+    /// `POST /devices/pairing/relay` — a one-time code with its QR (v2) for a computer that reaches this one only
+    /// through the relay.
+    func createRelayPairing() async throws -> RelayPairingCreated {
+        try await post("/devices/pairing/relay")
+    }
+
+    func relayPairing(_ id: String) async throws -> RelaySession {
+        let answer: RelaySessionAnswer = try await get("/devices/pairing/relay/\(encodedID(id))",
+                                                       timeout: Self.refreshTimeout)
+        return answer.session
+    }
+
+    func confirmRelayPairing(_ id: String) async throws -> RelaySession {
+        let answer: RelaySessionAnswer = try await post("/devices/pairing/relay/\(encodedID(id))/confirm")
+        return answer.session
+    }
+
+    func cancelRelayPairing(_ id: String) async throws {
+        _ = try await delete("/devices/pairing/relay/\(encodedID(id))")
+    }
+
+    /// `POST /sync/relay/join` — this computer joins with the code the other shows and the relay's address.
+    func joinOverRelay(code: String, relay: String) async throws -> RelayJoinState {
+        try await post("/sync/relay/join", body: ["code": code, "relay": relay])
+    }
+
+    func joinState() async throws -> RelayJoinState {
+        try await get("/sync/relay/join", timeout: Self.refreshTimeout)
+    }
+
+    func confirmJoin() async throws -> RelayJoinState {
+        try await post("/sync/relay/join/confirm")
+    }
+
+    func cancelJoin() async throws {
+        _ = try await delete("/sync/relay/join")
+    }
+
     /// `PUT /connections/{id}/key` with the check flag (G50): 422 = refused (nothing saved), 503 = unreachable — the
     /// caller then offers "Save without checking", which resends with `check: false`.
     func saveKey(_ id: String, key: String, check: Bool) async throws -> ConnectionStatus {
         try await put("/connections/\(encodedID(id))/key", body: ["key": key, "check": check])
+    }
+
+    // MARK: G132 ruling 51f — the home-network door's app side (Bonjour, hints, route state)
+
+    /// `GET /sync/discovery` — what to advertise and browse for; nil while nothing is shared (404).
+    func fetchDiscovery() async throws -> DiscoveryPlan? {
+        do {
+            let plan: DiscoveryPlan = try await get("/sync/discovery", timeout: Self.refreshTimeout)
+            return plan
+        } catch APIError.httpError(404, _) {
+            return nil
+        }
+    }
+
+    /// `POST /sync/discovered` — the doors Bonjour resolved, and the person's Local Network answer (the door binds this
+    /// network only once it is a yes).
+    func postDiscovered(doors: [FoundDoor], lanAllowed: Bool) async throws {
+        let rows: [[String: Any]] = doors.map { ["host": $0.host, "port": $0.port] }
+        _ = try await post("/sync/discovered", body: ["doors": rows, "lanAllowed": lanAllowed]) as Data
+    }
+
+    /// `POST /sync/network` — the network changed (`changed`) or the app is in front again (`returned`).
+    func postNetwork(event: String, lanAllowed: Bool?) async throws {
+        var body: [String: Any] = ["event": event]
+        if let lanAllowed { body["lanAllowed"] = lanAllowed }
+        _ = try await post("/sync/network", body: body) as Data
+    }
+
+    /// `GET /sync/routes` — this computer's routes to its home as kinds and states, never an address.
+    func fetchRoutes() async throws -> SyncRoutes {
+        try await get("/sync/routes", timeout: Self.refreshTimeout)
     }
 
     /// `GET /agent-api/tokens` (G213) — machine-global, outside every bank; not a Store domain.

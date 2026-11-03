@@ -38,6 +38,15 @@
   never bound, its carrier's other subscribers never let in; an exit node is not recognised (the accepted fail-safe). **Pick up here:** #586 lands on `dev` alone,
   carrying #572 (closed as landed through it); the app's half follows (#573: Relay under Advanced, the Local Network and firewall step at first share, Bonjour and the
   network hint).
+- **2026-11-03 — the app's half of ruling 51f slice 1 (#573, merged with dev after #586).** Settings → Devices: the relay
+  under *Advanced*, folded, off (D9); one first-share step (D4) — Local Network's row from the Permissions step, the
+  firewall line only when the firewall is on — before the person's first share, keep-a-copy or pair; nothing is asked
+  before that click, and the door binds the LAN only after the app reports a yes. The app's Bonjour advertises the
+  door's port and posts found doors; `NWPathMonitor` and the app's return post `/sync/network` (2 s settle, a return at
+  most every 30 s). Route state in words — the home's rows "Same network · 23 seconds ago" (a door request now stamps
+  `how`), a copy's "Same network · reached just now" / "Queued", and "Queue full" (`tx_outbox.counts`' `full`: the last
+  write was not kept and nothing left since). Verified on two scratch backends and two scratch apps; the Allow click
+  itself (a real TCC prompt) was not pressed in the verify run, so the granted path is covered by tests only.
 - **2026-10-30 — one transport, direct first, the relay as fallback (ruling 51c, G132 phase 3b; branches
   `feat/g132-direct-first`, backend — lands in #586 (includes #572's one-transport work) — and
   `feat/g132-direct-first-app`, Settings → Devices' Relay, #573).** Owner: "cant we just
