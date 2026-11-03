@@ -71,6 +71,9 @@ class Store:
         self.clock = clock
         self.db = sqlite3.connect(str(path), isolation_level=None, check_same_thread=False)
         self.db.executescript(SCHEMA)
+        cols = {r[1] for r in self.db.execute("PRAGMA table_info(banks)")}
+        if "connects" not in cols:      # G132 phase 3b: a bank its home never came back to is purged sooner
+            self.db.execute("ALTER TABLE banks ADD COLUMN connects INTEGER NOT NULL DEFAULT 1")
         self.db.execute("PRAGMA synchronous=NORMAL")
 
     def close(self) -> None:
@@ -109,8 +112,8 @@ class Store:
                 raise Refused("mailbox_exists")
             if self.db.execute("SELECT COUNT(*) FROM banks").fetchone()[0] >= self.config.max_banks:
                 raise Refused("relay_full")
-            self.db.execute("INSERT INTO banks VALUES (?,?,?,?,?,?)",
-                            (mb, statement["home"], statement["epoch"], frame_raw, now, now))
+            self.db.execute("INSERT INTO banks (mb, home, epoch, epoch_frame, created, last_seen, connects) "
+                            "VALUES (?,?,?,?,?,?,0)", (mb, statement["home"], statement["epoch"], frame_raw, now, now))
             for d in statement["devices"]:
                 self.db.execute("INSERT INTO members (mb, dev) VALUES (?,?)", (mb, d["ed"]))
             self.db.execute("UPDATE members SET hw=? WHERE mb=? AND dev=?", (ctr, mb, statement["home"]))
@@ -160,6 +163,10 @@ class Store:
 
     def touch(self, mb: str) -> None:
         self.db.execute("UPDATE banks SET last_seen=? WHERE mb=?", (self.clock(), mb))
+
+    def connected(self, mb: str) -> None:
+        """One more authenticated connection to ``mb`` (the create's own is the first)."""
+        self.db.execute("UPDATE banks SET last_seen=?, connects=connects+1 WHERE mb=?", (self.clock(), mb))
 
     # -- frames -------------------------------------------------------------------------------------------------
     def usage(self, mb: str) -> dict:
@@ -363,7 +370,8 @@ class Store:
         out = {}
         with self._tx():
             for mb in online:
-                self.db.execute("UPDATE banks SET last_seen=? WHERE mb=?", (now, mb))
+                # Still connected at a purge: in use, never "abandoned at creation".
+                self.db.execute("UPDATE banks SET last_seen=?, connects=MAX(connects, 1) WHERE mb=?", (now, mb))
             expired = self.db.execute("SELECT rseq FROM frames WHERE expires<=?", (now,)).fetchall()
             self.db.executemany("DELETE FROM recips WHERE rseq=?", expired)
             self.db.execute("DELETE FROM frames WHERE expires<=?", (now,))
@@ -374,8 +382,9 @@ class Store:
                 self.db.execute("DELETE FROM slot_msgs WHERE slot=?", (slot,))
             self.db.execute("DELETE FROM slots WHERE expires<=?", (now,))
             out["slots"] = len(gone)
-            idle = [r[0] for r in self.db.execute("SELECT mb FROM banks WHERE last_seen<=?",
-                                                  (now - self.config.idle_purge_s,))]
+            idle = [r[0] for r in self.db.execute(
+                "SELECT mb FROM banks WHERE last_seen<=? OR (connects=0 AND last_seen<=?)",
+                (now - self.config.idle_purge_s, now - self.config.unconfirmed_purge_s))]
             for mb in idle:
                 for table in ("frames", "recips", "members", "status", "slots", "banks"):
                     self.db.execute(f"DELETE FROM {table} WHERE mb=?", (mb,))

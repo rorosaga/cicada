@@ -6,10 +6,16 @@
   expired windows off the front (each pop O(1), each entry popped once); if the table is still full, the create is
   refused (``busy``) rather than scanned or another network's count forgotten.
 - **Only success counts:** ``allow`` reads, ``record`` writes, and the server records only after the bank was created.
+- **A wider cap per site (G132 phase 3b):** a /64 is one key, but one customer is often handed a whole /48 — 65,536
+  /64s — so creation is also capped per **IPv6 /48** (and per IPv4 /24, the same idea for a small IPv4 allocation):
+  ``wide_key``, its own limiter, its own hourly budget (``RELAY_CREATES_PER_48_PER_HOUR``).
 - **Behind a proxy:** the peer address is the proxy's, so every client would share one key. ``RELAY_TRUSTED_PROXIES``
-  (comma-separated networks, empty by default) names the proxies whose ``X-Forwarded-For`` is believed; the right-most
-  entry is the one that proxy appended. From any other peer the header is ignored. With no trusted proxy, TLS should
-  terminate in the relay itself (``RELAY_TLS_CERT``/``RELAY_TLS_KEY``), as the Dockerfile documents.
+  (comma-separated networks, empty by default) names the proxies whose ``X-Forwarded-For`` is believed. The header is
+  read whole — every ``X-Forwarded-For`` line, in order (a client may send its own, and a proxy appends another line
+  or another entry) — and walked from the right: each entry a trusted proxy appended is skipped, and the first one no
+  trusted proxy added is the client (a chain of proxies, a CDN in front of a TLS proxy, works). From any other peer
+  the header is ignored. With no trusted proxy, TLS should terminate in the relay itself
+  (``RELAY_TLS_CERT``/``RELAY_TLS_KEY``), as the Dockerfile documents.
 
 Addresses live here in memory only, for the counts; they are never logged or stored.
 """
@@ -33,6 +39,19 @@ def net_key(ip: str) -> str:
     return str(addr)
 
 
+def wide_key(ip: str) -> str:
+    """The site an address belongs to: an IPv6 /48, an IPv4 /24 (``?`` when it is no address)."""
+    try:
+        addr = ipaddress.ip_address(str(ip).split("%", 1)[0])
+    except ValueError:
+        return "?"
+    if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped is not None:
+        addr = addr.ipv4_mapped
+    if isinstance(addr, ipaddress.IPv6Address):
+        return str(ipaddress.IPv6Network((addr, 48), strict=False))
+    return str(ipaddress.IPv4Network((addr, 24), strict=False))
+
+
 def parse_networks(spec: str) -> list:
     out = []
     for part in (spec or "").split(","):
@@ -42,23 +61,39 @@ def parse_networks(spec: str) -> list:
     return out
 
 
+def _forwarded(headers) -> list[str]:
+    """Every ``X-Forwarded-For`` entry, in order, across every header line (``get_all`` when the mapping has it)."""
+    if headers is None:
+        return []
+    lines = headers.get_all("X-Forwarded-For") if hasattr(headers, "get_all") else (
+        [headers.get("X-Forwarded-For")] if headers.get("X-Forwarded-For") else [])
+    return [part.strip() for line in lines or () for part in str(line).split(",") if part.strip()]
+
+
+def _addr(text: str):
+    try:
+        return ipaddress.ip_address(str(text).split("%", 1)[0])
+    except ValueError:
+        return None
+
+
 def client_ip(peer: str, headers, trusted: list) -> str:
-    """The client's address: the peer's, unless the peer is a trusted proxy that appended ``X-Forwarded-For``."""
+    """The client's address: the peer's, unless the peer is a trusted proxy. Then the forwarded chain is walked from
+    the right, past every entry a trusted proxy appended, and the first one no trusted proxy added is the client. A
+    chain that is malformed where it matters, or made only of trusted proxies, answers the peer."""
     if not trusted:
         return peer
-    try:
-        addr = ipaddress.ip_address(str(peer).split("%", 1)[0])
-    except ValueError:
+    addr = _addr(peer)
+    if addr is None or not any(addr in net for net in trusted):
         return peer
-    if not any(addr in net for net in trusted):
-        return peer
-    forwarded = (headers.get("X-Forwarded-For") or "") if headers is not None else ""
-    last = forwarded.split(",")[-1].strip()
-    try:
-        ipaddress.ip_address(last)
-    except ValueError:
-        return peer
-    return last
+    for entry in reversed(_forwarded(headers)):
+        hop = _addr(entry)
+        if hop is None:
+            return peer
+        if any(hop in net for net in trusted):
+            continue
+        return str(hop)
+    return peer
 
 
 class CreateLimiter:

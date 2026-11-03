@@ -31,7 +31,6 @@ from __future__ import annotations
 import json
 import os
 import shutil
-import socket
 import tempfile
 import threading
 import time
@@ -127,14 +126,12 @@ def request(method: str, path: str, *, body: bytes | None = None, headers: dict 
             timeout: float = TIMEOUT_S, to_file: Path | None = None, environ=os.environ,
             token: str | None = None, open_route: bool = False):
     """One request to the home with this copy's device token. ``(status, headers, body)``: body is decoded JSON (or
-    the file path for ``to_file``). ``status`` None when the home was not reached. Never follows a redirect.
+    the file path for ``to_file``). ``status`` None when the home was not reached. Never follows a redirect. Carried
+    by ``sync_transport`` (direct first, the relay as fallback).
 
     ``token`` is the person's setup only (``PUT /sync/replica`` checking a token before it is saved); ``open_route``
     (the home's ``/pair``) sends no credential at all. Otherwise the token is :func:`_token` and nothing else; with
     none, nothing is sent (:class:`NoDeviceToken`)."""
-    import urllib.error
-    import urllib.request
-
     from api.services import runtime_layout
 
     try:
@@ -148,33 +145,15 @@ def request(method: str, path: str, *, body: bytes | None = None, headers: dict 
         if not credential or not credential.startswith(runtime_layout.DEVICE_TOKEN_PREFIX):
             raise NoDeviceToken()
         h["Authorization"] = f"Bearer {credential}"
-    req = urllib.request.Request(f"{base}{path}", data=body, method=method, headers=h)
-    try:
-        with runtime_layout.opener().open(req, timeout=timeout) as resp:
-            status, rheaders = resp.status, dict(resp.headers.items())
-            if to_file is not None:
-                with open(to_file, "wb") as fh:
-                    shutil.copyfileobj(resp, fh, 1024 * 1024)
-                return status, rheaders, to_file
-            raw = resp.read()
-    except urllib.error.HTTPError as exc:
-        try:
-            parsed = json.loads(exc.read().decode("utf-8"))
-        except Exception:  # noqa: BLE001
-            parsed = None
-        return exc.code, dict(exc.headers.items()) if exc.headers else {}, parsed
-    except (urllib.error.URLError, socket.timeout, TimeoutError, ConnectionError, OSError) as exc:
-        # Review of #566: a request sent and not answered in time may have landed; one that never connected did not.
-        reason = getattr(exc, "reason", exc)
-        timed_out = isinstance(exc, (socket.timeout, TimeoutError)) or isinstance(reason, (socket.timeout,
-                                                                                            TimeoutError))
-        return None, {NO_ANSWER: "timeout" if timed_out else "unreachable"}, None
-    if not raw:
-        return status, rheaders, None
-    try:
-        return status, rheaders, json.loads(raw.decode("utf-8"))
-    except ValueError:
-        return status, rheaders, raw
+    # G132 phase 3b: one transport — direct to the home's address, the relay when that does not answer (and only
+    # when the person set one; unset, this is the direct request exactly as before). A verified LAN address the app
+    # found for the home is used first only when this backend may dial it (``sync_discovery``).
+    from api.services import sync_discovery, sync_transport
+
+    if not token and not open_route:
+        base = sync_discovery.preferred_home_base(base)
+
+    return sync_transport.request(base, method, path, body=body, headers=h, timeout=timeout, to_file=to_file)
 
 
 def _json_or_raise(status, body):
@@ -670,6 +649,11 @@ def _events_reader() -> None:
 
     delay = 1.0
     while not _STOP.is_set():
+        door = _watch_door()
+        if door == "watched":
+            delay = 1.0
+            _STOP.wait(0.5)       # never a tight loop on a door that hangs up at once
+            continue
         try:
             base = home_base()
         except ValueError:
@@ -703,8 +687,45 @@ def _events_reader() -> None:
                 continue
         except Exception:  # noqa: BLE001 — offline, a reset, a timeout: try again
             pass
-        _STOP.wait(delay)
+        # A copy with a door route looks again soon: the follower may have moved to the door meanwhile.
+        _STOP.wait(min(delay, 5.0) if door == "possible" else delay)
         delay = min(delay * 2, BACKOFF_MAX_S)
+
+
+def _watch_door() -> str:
+    """Ruling 51f: while the home's door is this copy's route, hold a watch on it — each commit wakes the follower at
+    once, the way ``/sync/events`` does on the configured address. ``watched`` (it ran until the door hung up),
+    ``possible`` (a door route is known but not the one in use), or ``none``."""
+    from api.services import sync_door, sync_routes
+
+    try:
+        try:
+            base = home_base()
+        except ValueError:
+            base = None
+        routes, target = sync_routes.home_routes(base, relay=False)
+        doors = [r for r in routes if r.carrier == "door"]
+        if target is None or not doors:
+            return "none"
+        active = next((r for r in doors if r.key == sync_routes.BOOK.active), None)
+        identity = sync_door.own_identity()
+        if active is None or identity is None:
+            return "possible"
+        conn = sync_door.connect(active.host, active.port, target, identity, timeout=active.connect_s,
+                                 on_routes=sync_routes.learn)
+    except Exception:  # noqa: BLE001 — the door did not answer: the follower's next request moves on
+        return "possible"
+
+    def on_head(head):
+        with _COND:
+            _STATE.last_contact = time.time()
+            known = _STATE.sha
+        if head and head != known:
+            _NOTIFIED[0] = time.perf_counter()
+            wake()
+
+    sync_door.watch(conn, on_head, _STOP)
+    return "watched"
 
 
 def _on_event(event: str, data: str) -> None:
