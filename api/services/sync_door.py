@@ -55,7 +55,6 @@ import asyncio
 import base64
 import contextlib
 import ctypes
-import ctypes.util
 import hashlib
 import ipaddress
 import json
@@ -205,6 +204,17 @@ _Ifaddrs._fields_ = [("ifa_next", ctypes.POINTER(_Ifaddrs)), ("ifa_name", ctypes
                      ("ifa_data", ctypes.c_void_p)]
 
 
+_LIBC: list = []
+
+
+def _libc():
+    """The C library, loaded once: ``CDLL(None)`` is this process's own symbols (libc among them on macOS and Linux) —
+    never ``ctypes.util.find_library``, which runs ``ldconfig`` in a subprocess on Linux."""
+    if not _LIBC:
+        _LIBC.append(ctypes.CDLL(None, use_errno=True))
+    return _LIBC[0]
+
+
 def interface_addresses() -> dict[str, list[str]]:
     """``{interface name: [its IPv4 and IPv6 addresses]}`` from the C library's ``getifaddrs`` (no process, no new
     dependency). Empty when it cannot be read — then no tailnet is recognised (the safe way to be wrong)."""
@@ -213,7 +223,7 @@ def interface_addresses() -> dict[str, list[str]]:
     if sys.platform not in ("darwin", "linux"):
         return {}
     try:
-        libc = ctypes.CDLL(ctypes.util.find_library("c") or None, use_errno=True)
+        libc = _libc()
         head = ctypes.POINTER(_Ifaddrs)()
         if libc.getifaddrs(ctypes.byref(head)) != 0:
             return {}

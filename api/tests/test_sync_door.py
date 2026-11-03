@@ -519,3 +519,24 @@ def test_a_request_that_fails_part_way_leaves_no_spill(tmp_path):
         asyncio.run(sync_inprocess.run_in_process(app, sender=None, device_id=None, method="GET", path="/x",
                                                   query="", headers={}, body=b"", spill_to=tmp_path))
     assert list(tmp_path.glob("answer-*")) == []
+
+
+def test_reading_this_computers_addresses_starts_no_process(monkeypatch):
+    """The 5 s rebind and the network fingerprint read the interfaces: never a subprocess (``find_library`` runs
+    ``ldconfig`` on Linux)."""
+    import subprocess
+
+    started = []
+
+    def refuse(*a, **k):
+        started.append(a)
+        raise AssertionError("a process was started")
+
+    monkeypatch.setattr(subprocess, "Popen", refuse)
+    monkeypatch.setattr(os, "posix_spawn", refuse, raising=False)
+    monkeypatch.setattr(os, "fork", refuse, raising=False)
+    sync_door._LIBC.clear()                                  # noqa: SLF001 — load it fresh under the watch
+    for _ in range(3):
+        sync_door.local_addresses()
+        sync_door.network_fingerprint()
+    assert started == []
