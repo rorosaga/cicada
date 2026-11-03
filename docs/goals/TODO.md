@@ -32,8 +32,10 @@
   pairing redeems only its own code, a revoke closes the device's sessions and watch at once, a failed request
   leaves no spill, IPv6 sources share their /64's bucket, and the never-expiring outbox is capped at 256 MB as well
   as 5,000 entries, a full queue said in words. The re-check found carrier-grade NAT counted as a tailnet (both live
-  in 100.64.0.0/10): a 100.64/10 address now counts only when this computer also holds Tailscale's IPv6 range,
-  otherwise it is public — never bound, its carrier's other subscribers never let in. **Pick up here:** merge #572, then this PR (retarget to `dev`); the
+  in 100.64.0.0/10): a 100.64/10 address now counts only on Tailscale's own interface (`utun*`, `tailscale*`, read
+  with `getifaddrs`) holding its 100.x and `fd7a:` pair, and only when that 100.x is not the default route's IPv4
+  source (a stray router advertisement's `fd7a:` address on Wi-Fi fooled the first fix); otherwise it is public —
+  never bound, its carrier's other subscribers never let in; an exit node is not recognised (the accepted fail-safe). **Pick up here:** merge #572, then this PR (retarget to `dev`); the
   app's half follows (#573: Relay under Advanced, the Local Network and firewall step at first share, Bonjour and the
   network hint).
 - **2026-10-30 — one transport, direct first, the relay as fallback (ruling 51c, G132 phase 3b; branches

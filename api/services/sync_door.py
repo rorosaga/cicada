@@ -54,6 +54,8 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
+import ctypes
+import ctypes.util
 import hashlib
 import ipaddress
 import json
@@ -189,29 +191,108 @@ def _probe_local(family: int, target: str) -> str | None:
         return None
 
 
-def local_addresses(probe=None) -> dict:
-    """This computer's own addresses by class, read from the routing table without a packet: the default route's
-    (IPv4, IPv6) and Tailscale's when it runs.
+class _Sockaddr(ctypes.Structure):
+    _fields_ = [("sa_head", ctypes.c_ubyte * 2)]
 
-    **A tailnet is Tailscale's only when it is really there.** Tailscale gives every device an IPv6 address in
-    ``fd7a:115c:a1e0::/48`` beside its 100.x one, and routes ``100.100.100.100`` and that range through its own
-    interface. So this computer is on a tailnet only when the route to Tailscale's IPv6 range leaves from an address in
-    it; only then is the 100.x address that answers for ``100.100.100.100`` its tailnet address. Any other address in
-    100.64.0.0/10 — a carrier-grade NAT uplink, a 5G or satellite home line — is ``public``: never bound, never a route,
-    never a door to its neighbours. (A tailnet with IPv6 turned off is not recognised: the safe way to be wrong.)"""
+
+class _Ifaddrs(ctypes.Structure):
+    pass
+
+
+_Ifaddrs._fields_ = [("ifa_next", ctypes.POINTER(_Ifaddrs)), ("ifa_name", ctypes.c_char_p),
+                     ("ifa_flags", ctypes.c_uint), ("ifa_addr", ctypes.POINTER(_Sockaddr)),
+                     ("ifa_netmask", ctypes.POINTER(_Sockaddr)), ("ifa_dstaddr", ctypes.POINTER(_Sockaddr)),
+                     ("ifa_data", ctypes.c_void_p)]
+
+
+def interface_addresses() -> dict[str, list[str]]:
+    """``{interface name: [its IPv4 and IPv6 addresses]}`` from the C library's ``getifaddrs`` (no process, no new
+    dependency). Empty when it cannot be read — then no tailnet is recognised (the safe way to be wrong)."""
+    import sys
+
+    if sys.platform not in ("darwin", "linux"):
+        return {}
+    try:
+        libc = ctypes.CDLL(ctypes.util.find_library("c") or None, use_errno=True)
+        head = ctypes.POINTER(_Ifaddrs)()
+        if libc.getifaddrs(ctypes.byref(head)) != 0:
+            return {}
+    except Exception:  # noqa: BLE001
+        return {}
+    out: dict[str, list[str]] = {}
+    try:
+        node = head
+        while node:
+            ifa = node.contents
+            if ifa.ifa_addr and ifa.ifa_name:
+                ptr = ctypes.cast(ifa.ifa_addr, ctypes.c_void_p).value
+                head2 = ctypes.string_at(ptr, 2)           # read only as far as the family says the address goes
+                family = head2[1] if sys.platform == "darwin" else int.from_bytes(head2, sys.byteorder)
+                addr = None
+                if family == socket.AF_INET:
+                    addr = socket.inet_ntop(socket.AF_INET, ctypes.string_at(ptr, 8)[4:8])
+                elif family == socket.AF_INET6:
+                    addr = socket.inet_ntop(socket.AF_INET6, ctypes.string_at(ptr, 24)[8:24])
+                if addr:
+                    out.setdefault(ifa.ifa_name.decode("utf-8", "replace"), []).append(addr)
+            node = ifa.ifa_next
+    finally:
+        libc.freeifaddrs(head)
+    return out
+
+
+def _tailscale_interface(name: str, platform: str | None = None) -> bool:
+    """Tailscale's own interface: ``utun*`` on a Mac (its network extension), ``tailscale*`` on Linux."""
+    import sys
+
+    platform = platform or sys.platform
+    if platform == "darwin":
+        return name.startswith("utun")
+    if platform == "linux":
+        return name.startswith("tailscale")
+    return False
+
+
+def tailscale_addresses(interfaces: dict[str, list[str]], default_v4: str | None) -> list[str]:
+    """This computer's Tailscale addresses, or none. Both must hold (security re-check of #586):
+
+    1. **On Tailscale's own interface.** One interface named as Tailscale's holds both a 100.64.0.0/10 address and
+       one in ``fd7a:115c:a1e0::/48`` (Tailscale assigns the pair). A router advertisement on the LAN can make this
+       computer give itself an ``fd7a:`` address on its Wi-Fi interface, and a carrier can hand it a 100.x uplink; neither
+       is on Tailscale's interface.
+    2. **Not the default route's IPv4 source.** A carrier's 100.x uplink is where the default route leaves from;
+       Tailscale's is not (no router advertisement changes IPv4 source selection). So Tailscale used as an exit node —
+       its 100.x then the default route's source — is not recognised: the accepted fail-safe, as is a tailnet with
+       IPv6 turned off."""
+    found: list[str] = []
+    default = _ip(default_v4) if default_v4 else None
+    for name, addrs in sorted(interfaces.items()):
+        if not _tailscale_interface(name):
+            continue
+        v4 = [a for a in addrs if (ip := _ip(a)) is not None and ip.version == 4 and ip in TAILNET_V4]
+        v6 = [a for a in addrs if (ip := _ip(a)) is not None and ip.version == 6 and ip in TAILNET_V6]
+        v4 = [a for a in v4 if _ip(a) != default]
+        if v4 and v6:
+            found += [a for a in v4 + v6 if a not in found]
+    return found
+
+
+def local_addresses(probe=None, interfaces=None) -> dict:
+    """This computer's own addresses by class, read from the routing table without a packet (the default route's IPv4
+    and IPv6 sources) and from its interfaces (:func:`tailscale_addresses`). **A tailnet is Tailscale's only when it
+    is really there**: any address in Tailscale's ranges that :func:`tailscale_addresses` does not vouch for — a
+    carrier-grade NAT uplink, an ``fd7a:`` address a stray router advertisement gave — is ``public``: never bound,
+    never a route, never a door to the neighbours."""
     probe = probe or _probe_local
-    found: dict[str, list[str]] = {"lan": [], "tailnet": [], "ipv6": [], "public": []}
-    t6 = probe(socket.AF_INET6, "fd7a:115c:a1e0::53")
-    real = bool(t6) and (_ip(t6) is not None and _ip(t6).version == 6 and _ip(t6) in TAILNET_V6)
-    t4 = probe(socket.AF_INET, "100.100.100.100") if real else None
-    mine = {h for h in (t6 if real else None, t4 if t4 and _ip(t4) is not None and _ip(t4) in TAILNET_V4 else None)
-            if h}
-    for family, target in ((socket.AF_INET, "192.0.2.1"), (socket.AF_INET6, "2001:db8::1"),
-                           (socket.AF_INET, "100.100.100.100"), (socket.AF_INET6, "fd7a:115c:a1e0::53")):
-        got = probe(family, target)
+    interfaces = interface_addresses() if interfaces is None else interfaces
+    default_v4 = probe(socket.AF_INET, "192.0.2.1")
+    mine = tailscale_addresses(interfaces, default_v4)
+    found: dict[str, list[str]] = {"lan": [], "tailnet": list(mine), "ipv6": [], "public": []}
+    for got in (default_v4, probe(socket.AF_INET6, "2001:db8::1"), probe(socket.AF_INET, "100.100.100.100"),
+                probe(socket.AF_INET6, "fd7a:115c:a1e0::53")):
         kind = address_class(got) if got else None
         if kind == "tailnet" and got not in mine:
-            kind = "public"             # carrier-grade NAT (or anything in Tailscale's ranges that is not Tailscale)
+            kind = "public"
         if kind in found and got not in found[kind]:
             found[kind].append(got)
     return found

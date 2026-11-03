@@ -715,15 +715,18 @@ never a bank path**. The backend's HTTP API still binds `127.0.0.1`.
 - **Who may connect.** T3 Code's rule, made exact: a connection on the loopback socket from loopback, on a private
   socket from a private address, on a Tailscale socket from Tailscale's ranges; anything else is closed before a byte
   is read.
-- **A tailnet is Tailscale's only when it is really there** (security re-check of #586). `100.64.0.0/10` is also
-  carrier-grade NAT's shared space: a computer whose ISP uplink is CGNAT (common on 5G and satellite home lines)
-  holds an address there with no Tailscale at all. So this computer counts as on a tailnet only when the route to
-  Tailscale's IPv6 range (`fd7a:115c:a1e0::/48`, which Tailscale assigns beside every 100.x address) leaves from an
-  address in it; only then is the address that answers for `100.100.100.100` its tailnet address. Any other
-  100.64/10 address is public — never bound, never advertised, never a door its carrier's other subscribers can
-  reach (`own_tailnet`, `bindable`; `test_sync_door.py`: CGNAT alone, Tailscale alone, both). A tailnet with IPv6
-  turned off is not recognised — the safe way to be wrong; its devices still reach the door on the LAN or the
-  configured address.
+- **A tailnet is Tailscale's only when it is really there** (security re-checks of #586). `100.64.0.0/10` is also
+  carrier-grade NAT's shared space — a computer whose ISP uplink is CGNAT (common on 5G and satellite home lines)
+  holds an address there with no Tailscale at all — and a stray router advertisement on the LAN can make a computer
+  give itself an address in Tailscale's IPv6 range on its Wi-Fi. So an address counts as this computer's tailnet only
+  when both hold (`tailscale_addresses`): (1) **it sits on Tailscale's own interface** (`utun*` on a Mac, `tailscale*`
+  on Linux, read with the C library's `getifaddrs` — no process, no new dependency), which holds both a 100.64/10
+  address and one in `fd7a:115c:a1e0::/48`; (2) **its 100.x is not the default route's IPv4 source** — a carrier's
+  uplink is, Tailscale's is not, and no router advertisement changes IPv4 source selection. Anything else in those
+  ranges is public: never bound, never advertised, never a door its neighbours can reach (`test_sync_door.py`: CGNAT
+  alone, a stray router advertisement, Tailscale on `utun`/`tailscale0`, both, an exit node). Tailscale used as an exit
+  node, and a tailnet with IPv6 turned off, are not recognised — the accepted fail-safe; their devices still reach
+  the door on the LAN or the configured address.
 - **Where it listens: never a wildcard, never a public or global address** (security review of #586). It binds
   loopback (`127.0.0.1`, `::1`) and each of this computer's own private (RFC 1918, IPv6 unique-local) and Tailscale
   addresses (below), read from the routing table, one socket each; every 5 s it compares that list with what it holds,

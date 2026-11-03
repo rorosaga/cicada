@@ -480,8 +480,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   only under Advanced — else it queues; an unsent outbox item never expires. **The door** is the one listener besides
   loopback: sealed frames only, never the HTTP API or a token, open only while a memory is shared; **it binds loopback
   and each of this computer's own private (RFC 1918, IPv6 ULA) and Tailscale addresses, one socket each, rebound when
-  the network changes — never a wildcard, a public or global address, nor a carrier's 100.64/10 (a tailnet is one only
-  when this computer also holds Tailscale's `fd7a:115c:a1e0::/48`)** (on a Mac, loopback until the app's permissions
+  the network changes — never a wildcard, a public or global address, nor a carrier's 100.64/10 (a tailnet only on Tailscale's
+  own interface holding its 100.x and `fd7a:` pair, the 100.x not the default route's source)** (on a Mac, loopback until the app's permissions
   step); a peer only of its socket's own kind, a first packet that proves no pairing key dropped without a byte,
   rate-limited, fuzzed. Identity
   is the pairing keys, never an address. The phone is for now a capture device on that list (`network.md`, "The route

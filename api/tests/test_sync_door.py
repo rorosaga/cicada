@@ -163,27 +163,49 @@ def _routing(table: dict):
 
 
 CGNAT_ONLY = {("v4", "192.0.2.1"): "100.72.1.5", ("v4", "100.100.100.100"): "100.72.1.5"}
+CGNAT_IFS = {"lo0": ["127.0.0.1", "::1"], "en0": ["100.72.1.5"]}
+# A stray router advertisement on the LAN with a prefix in Tailscale's range: the computer gives itself an fd7a:
+# address on its Wi-Fi, and source selection picks it toward Tailscale's range. No Tailscale at all.
+ROGUE_RA = {("v4", "192.0.2.1"): "100.72.1.5", ("v4", "100.100.100.100"): "100.72.1.5",
+            ("v6", "fd7a:115c:a1e0::53"): "fd7a:115c:a1e0:1234::5"}
+ROGUE_RA_IFS = {"lo0": ["127.0.0.1", "::1"], "en0": ["100.72.1.5", "fd7a:115c:a1e0:1234::5"]}
 TAILSCALE_ONLY = {("v4", "192.0.2.1"): "192.168.1.4", ("v4", "100.100.100.100"): "100.101.2.3",
                   ("v6", "fd7a:115c:a1e0::53"): "fd7a:115c:a1e0::2"}
+TS_IFS = {"darwin": {"en0": ["192.168.1.4"], "utun4": ["100.101.2.3", "fd7a:115c:a1e0::2"]},
+          "linux": {"eth0": ["192.168.1.4"], "tailscale0": ["100.101.2.3", "fd7a:115c:a1e0::2"]}}
 BOTH = {("v4", "192.0.2.1"): "100.72.1.5", ("v4", "100.100.100.100"): "100.101.2.3",
         ("v6", "fd7a:115c:a1e0::53"): "fd7a:115c:a1e0::2"}
+BOTH_IFS = {"en0": ["100.72.1.5"], "utun4": ["100.101.2.3", "fd7a:115c:a1e0::2"]}
+# Tailscale as an exit node: the default route leaves from its own 100.x. Not recognised (the accepted fail-safe).
+EXIT_NODE = {("v4", "192.0.2.1"): "100.101.2.3", ("v4", "100.100.100.100"): "100.101.2.3",
+             ("v6", "fd7a:115c:a1e0::53"): "fd7a:115c:a1e0::2", ("v6", "2001:db8::1"): "2001:db8:9::4"}
+EXIT_IFS = {"en0": ["192.168.1.4", "2001:db8:9::4"], "utun4": ["100.101.2.3", "fd7a:115c:a1e0::2"]}
 
 
-@pytest.mark.parametrize("platform", ["linux", "darwin"])
-def test_a_carriers_100_64_uplink_is_never_a_tailnet(keys, monkeypatch, platform):
-    """The re-check's blocker: a computer behind its ISP's CGNAT, with no Tailscale, holds an address in 100.64.0.0/10.
-    It is public: never bound, never a route, and the carrier's other subscribers are never let in."""
+def _setup(monkeypatch, platform):
     from api.services import sync_routes
 
     monkeypatch.delenv(sync_door.HOST_ENV, raising=False)
     monkeypatch.setattr(__import__("sys"), "platform", platform)
     sync_routes.set_lan_allowed(True)
-    found = sync_door.local_addresses(_routing(CGNAT_ONLY))
-    assert found["tailnet"] == [] and found["public"] == ["100.72.1.5"]
+
+
+@pytest.mark.parametrize("platform", ["linux", "darwin"])
+@pytest.mark.parametrize("table,ifs", [(CGNAT_ONLY, CGNAT_IFS), (ROGUE_RA, ROGUE_RA_IFS)], ids=["cgnat", "rogue-ra"])
+def test_a_carriers_100_64_or_a_stray_fd7a_is_never_a_tailnet(keys, monkeypatch, platform, table, ifs):
+    """A computer behind its ISP's CGNAT, with no Tailscale — and the same with a stray router advertisement in
+    Tailscale's IPv6 range on its Wi-Fi: nothing in Tailscale's ranges is bound, and the neighbours are refused."""
+    from api.services import sync_routes
+
+    _setup(monkeypatch, platform)
+    found = sync_door.local_addresses(_routing(table), ifs)
+    assert found["tailnet"] == [] and "100.72.1.5" in found["public"]
     mine = frozenset(found["tailnet"])
     assert sync_door.bind_hosts(found=found) == ["127.0.0.1", "::1"]
     assert sync_door.bindable("100.72.1.5", mine) is False
+    assert sync_door.bindable("fd7a:115c:a1e0:1234::5", mine) is False
     assert sync_door.allowed_peer("100.72.1.5", "100.99.200.7", tailnet=mine) is False
+    assert sync_door.allowed_peer("fd7a:115c:a1e0:1234::5", "fd7a:115c:a1e0:1234::9", tailnet=mine) is False
     monkeypatch.setattr(sync_door, "own_tailnet", lambda: frozenset())
     assert sync_door.bind_hosts({sync_door.HOST_ENV: "100.72.1.5"}) == ["127.0.0.1"]   # named, still refused
     monkeypatch.setattr(sync_routes, "_TAILNET_SELF", [None, -1e9])
@@ -191,13 +213,10 @@ def test_a_carriers_100_64_uplink_is_never_a_tailnet(keys, monkeypatch, platform
     assert sync_routes._i_am_on_a_tailnet() is False                                    # noqa: SLF001
 
 
-def test_tailscale_present_is_bound_and_its_peers_let_in(keys, monkeypatch):
-    from api.services import sync_routes
-
-    monkeypatch.delenv(sync_door.HOST_ENV, raising=False)
-    monkeypatch.setattr(__import__("sys"), "platform", "linux")
-    sync_routes.set_lan_allowed(True)
-    found = sync_door.local_addresses(_routing(TAILSCALE_ONLY))
+@pytest.mark.parametrize("platform", ["linux", "darwin"])
+def test_tailscale_on_its_own_interface_is_bound_and_its_peers_let_in(keys, monkeypatch, platform):
+    _setup(monkeypatch, platform)
+    found = sync_door.local_addresses(_routing(TAILSCALE_ONLY), TS_IFS[platform])
     assert found["tailnet"] == ["100.101.2.3", "fd7a:115c:a1e0::2"] and found["lan"] == ["192.168.1.4"]
     mine = frozenset(found["tailnet"])
     assert sync_door.bind_hosts(found=found) == ["127.0.0.1", "::1", "192.168.1.4", "100.101.2.3",
@@ -205,21 +224,39 @@ def test_tailscale_present_is_bound_and_its_peers_let_in(keys, monkeypatch):
     assert sync_door.allowed_peer("100.101.2.3", "100.80.0.9", tailnet=mine) is True
     assert sync_door.allowed_peer("fd7a:115c:a1e0::2", "fd7a:115c:a1e0::77", tailnet=mine) is True
     assert sync_door.allowed_peer("192.168.1.4", "100.80.0.9", tailnet=mine) is False
+    # The same addresses on an interface that is not Tailscale's are not a tailnet.
+    other = {"en0": ["192.168.1.4"], "en5": ["100.101.2.3", "fd7a:115c:a1e0::2"]}
+    assert sync_door.local_addresses(_routing(TAILSCALE_ONLY), other)["tailnet"] == []
 
 
 def test_tailscale_beside_a_cgnat_uplink_binds_only_tailscales_address(keys, monkeypatch):
-    from api.services import sync_routes
-
-    monkeypatch.delenv(sync_door.HOST_ENV, raising=False)
-    monkeypatch.setattr(__import__("sys"), "platform", "linux")
-    sync_routes.set_lan_allowed(True)
-    found = sync_door.local_addresses(_routing(BOTH))
+    _setup(monkeypatch, "darwin")
+    found = sync_door.local_addresses(_routing(BOTH), BOTH_IFS)
     assert found["tailnet"] == ["100.101.2.3", "fd7a:115c:a1e0::2"] and found["public"] == ["100.72.1.5"]
     mine = frozenset(found["tailnet"])
     hosts = sync_door.bind_hosts(found=found)
     assert "100.72.1.5" not in hosts and "100.101.2.3" in hosts
     assert sync_door.allowed_peer("100.72.1.5", "100.99.200.7", tailnet=mine) is False   # the carrier's side
     assert sync_door.allowed_peer("100.101.2.3", "100.80.0.9", tailnet=mine) is True     # the tailnet's side
+
+
+@pytest.mark.parametrize("platform", ["linux", "darwin"])
+def test_tailscale_as_an_exit_node_is_not_recognised_and_nothing_public_is_bound(keys, monkeypatch, platform):
+    _setup(monkeypatch, platform)
+    ifs = {("tailscale0" if platform == "linux" and k == "utun4" else k): v for k, v in EXIT_IFS.items()}
+    found = sync_door.local_addresses(_routing(EXIT_NODE), ifs)
+    assert found["tailnet"] == []
+    hosts = sync_door.bind_hosts(found=found)
+    assert hosts == ["127.0.0.1", "::1"] + (["192.168.1.4"] if "192.168.1.4" in found["lan"] else [])
+    assert all(sync_door.address_class(h) in ("loopback", "lan") for h in hosts)
+    assert "2001:db8:9::4" not in hosts and "100.101.2.3" not in hosts
+
+
+def test_this_computers_interfaces_are_read_without_a_process():
+    got = sync_door.interface_addresses()
+    assert isinstance(got, dict)
+    if got:
+        assert any("127.0.0.1" in addrs or "::1" in addrs for addrs in got.values())
 
 
 def test_a_source_that_keeps_failing_runs_out_of_tries():
