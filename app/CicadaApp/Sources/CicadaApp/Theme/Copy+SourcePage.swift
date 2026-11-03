@@ -12,6 +12,9 @@ extension Copy {
         /// "last item today" — the day the newest item came in, after the status word.
         static func lastItem(_ day: String) -> String { "last item \(day)" }
         static let nothingYet = "nothing in yet"
+        /// 2026-11-03 — a chat reader's last check of the ticked chats, and the newest message in them (`ChatCheck`).
+        static func checked(_ when: String) -> String { "checked \(when)" }
+        static func newestMessage(_ day: String) -> String { "newest message \(day)" }
         static let signInAgain = "sign in again"
         static let connectAnAgent = "connect an agent on this Mac"
         static let allowAccess = "allow Full Disk Access"

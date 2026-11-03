@@ -248,6 +248,37 @@ final class WhatsAppReaderTests: XCTestCase {
         XCTAssertTrue(all.contains("H1"), "history read on the person's ask")
     }
 
+    /// 2026-11-03 (live) — the owner's case: one ticked chat whose newest message is six days old, outside the recheck
+    /// window. A pass posts nothing (so the backend's last sync stays days back), and the watcher still says when it
+    /// checked and how new the chat's newest message is; the page says that, not the last post.
+    @MainActor
+    func testAQuietTickedChatIsCheckedAndSaysSoWithoutPosting() async throws {
+        let sixDaysAgo = now.timeIntervalSinceReferenceDate - 6 * 86_400
+        let friend = store.session(friendJid, name: "Bob Example", last: sixDaysAgo)
+        store.message(friend, "Q1", at: sixDaysAgo, text: "the last word, six days ago")
+        let api = FakeChatSourcesAPI()
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "whatsapp-test-\(UUID().uuidString)"))
+        let checkedAt = now
+        let watcher = WhatsAppWatcher(api: api, reader: reader(), defaults: defaults, folder: store.dir,
+                                      makeWatch: { _, _ in nil }, lookUpCards: { _ in [:] }, clock: { checkedAt })
+        await watcher.loadList()
+        let chat = try XCTUnwrap(watcher.chats.first)
+        try await watcher.setTicked(chat, true)
+        _ = try await watcher.syncNow()
+        XCTAssertEqual(api.posts.count, 0, "nothing new and nothing in the window: nothing posted")
+        let newest = Date(timeIntervalSinceReferenceDate: sixDaysAgo)
+        XCTAssertEqual(watcher.check, ChatCheck(at: checkedAt, newest: newest))
+        // What the page says two minutes later — never the day of the last post.
+        let us = Locale(identifier: "en_US")
+        let status = SourcePageStatus.of(row: .connected, run: .synced(newest), latest: nil, check: watcher.check)
+        let viewed = checkedAt.addingTimeInterval(120)
+        let detail = status.detail(today: ISODay.today(now: viewed), now: viewed, locale: us) ?? ""
+        XCTAssertTrue(detail.hasPrefix("checked 2 min. ago · newest message "), detail)
+        // Unticked: nothing is said any more.
+        try await watcher.setTicked(chat, false)
+        XCTAssertNil(watcher.check)
+    }
+
     /// #502 review B1: a busy chat — more already-posted rows in the recheck window than a batch holds — still reaches
     /// its new row on the next pass.
     @MainActor

@@ -44,8 +44,14 @@ enum SourcePageStatus: Equatable {
     case needsYou(String)
     /// Not reading now; `lastItem` is the newest thing it brought in before, when it holds any.
     case off(lastItem: String?)
+    /// 2026-11-03 (live) — a chat reader on this Mac that reads on every change of its app's store: when it last
+    /// checked the ticked chats and the newest message in them (`ChatCheck`), instead of the day something last came in.
+    /// "Connected · last item Oct 28" (and the list's "4 days ago") read as a stopped reader while it was checking on
+    /// every WhatsApp write and the ticked chat had simply had nothing new.
+    case checked(ChatCheck)
 
-    static func of(row: SourceCatalogStatus, run: SourceRowStatus, latest: String?) -> SourcePageStatus {
+    static func of(row: SourceCatalogStatus, run: SourceRowStatus, latest: String?,
+                   check: ChatCheck? = nil) -> SourcePageStatus {
         if case .syncing(let detail, _, _) = run { return .syncing(detail: detail) }
         switch row {
         case .needsSignIn: return .needsYou(Copy.SourcePage.signInAgain)
@@ -55,13 +61,13 @@ enum SourcePageStatus: Equatable {
             if case .problem(let why) = run {
                 return .needsYou(why == Copy.sourceNeedsAccess ? Copy.SourcePage.allowAccess : why)
             }
-            return .connected(lastItem: latest)
+            return check.map(SourcePageStatus.checked) ?? .connected(lastItem: latest)
         }
     }
 
     var tone: StatusWord.Tone {
         switch self {
-        case .connected, .syncing: .on
+        case .connected, .syncing, .checked: .on
         case .needsYou: .attention
         case .off: .off
         }
@@ -69,7 +75,7 @@ enum SourcePageStatus: Equatable {
 
     var word: String {
         switch self {
-        case .connected: Copy.SourcePage.connected
+        case .connected, .checked: Copy.SourcePage.connected
         case .syncing: Copy.SourcePage.syncing
         case .needsYou: Copy.SourcePage.needsYou
         case .off: Copy.SourcePage.off
@@ -78,8 +84,13 @@ enum SourcePageStatus: Equatable {
 
     /// What follows the word on the same line — never a sentence about the source (DR-38): the last item's day, the
     /// run's own progress, or the one action. Off says only what it still holds (the settings below hold the switch).
-    func detail(today: ISODay, locale: Locale = .autoupdatingCurrent) -> String? {
+    func detail(today: ISODay, now: Date = Date(), locale: Locale = .autoupdatingCurrent) -> String? {
         switch self {
+        case .checked(let check):
+            let checked = Copy.SourcePage.checked(SourceCatalog.ago(check.at, now: now, locale: locale))
+            guard let newest = check.newest else { return checked }
+            let day = Self.cameIn(ISODay.today(now: newest), today: today)
+            return "\(checked) · \(Copy.SourcePage.newestMessage(Self.dayWord(day, today: today, locale: locale)))"
         case .connected(let latest):
             guard let day = ISODay(latest) else { return Copy.SourcePage.nothingYet }
             return Copy.SourcePage.lastItem(Self.dayWord(Self.cameIn(day, today: today), today: today, locale: locale))
@@ -104,8 +115,8 @@ enum SourcePageStatus: Equatable {
     }
 
     /// The line spoken and shown: "Connected · last item today".
-    func line(today: ISODay, locale: Locale = .autoupdatingCurrent) -> String {
-        [word, detail(today: today, locale: locale)].compactMap { $0 }.joined(separator: " · ")
+    func line(today: ISODay, now: Date = Date(), locale: Locale = .autoupdatingCurrent) -> String {
+        [word, detail(today: today, now: now, locale: locale)].compactMap { $0 }.joined(separator: " · ")
     }
 }
 

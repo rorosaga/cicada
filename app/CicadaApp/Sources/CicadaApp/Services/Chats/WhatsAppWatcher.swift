@@ -11,6 +11,13 @@ import Observation
 /// a tick, on Refresh, and on an FSEvents change in WhatsApp's group container (it writes the store's `-wal` on every
 /// message) — debounced `debounce` and floored at `minimumInterval`. Every read runs off the main actor
 /// (`Task.detached`); the main actor only keeps state and posts.
+///
+/// **What "up to date" means (2026-11-03, live).** A pass posts only rows it found, so the backend's `last_sync` is the
+/// last pass that had something to post (or re-post: the recheck window re-reads the last 48 hours), never the last
+/// check. The owner's one ticked chat had nothing new for six days while WhatsApp kept writing other chats; those writes
+/// kept running passes, each found nothing past the cursor, and the row said "synced" four days back (the last
+/// re-read of the window). `check` keeps the last successful pass and the newest message in the ticked chats, and the source page says
+/// both (`ChatCheck`, `SourcePageStatus.checked`).
 @MainActor
 @Observable
 final class WhatsAppWatcher {
@@ -36,6 +43,12 @@ final class WhatsAppWatcher {
     private(set) var listing = false
     /// File change → posted, seconds, the last 50 live passes — the area doc's number.
     private(set) var liveSeconds: [Double] = []
+    /// 2026-11-03 — the last successful pass and the newest message in the ticked chats (`ChatCheck`); nil before this
+    /// memory's first pass, or with nothing ticked.
+    private(set) var check: ChatCheck?
+    /// The newest message the pass in progress found in the ticked chats, kept as `check` once it succeeds.
+    @ObservationIgnored private var passNewest: Date?
+    @ObservationIgnored private let clock: @Sendable () -> Date
 
     @ObservationIgnored private let api: any ChatSourcesAPI
     @ObservationIgnored private let reader: WhatsAppReader
@@ -66,8 +79,10 @@ final class WhatsAppWatcher {
          folder: URL = WhatsAppReader.container, debounce: Duration = .seconds(3), minimumInterval: Duration = .seconds(15),
          makeWatch: FolderWatchFactory? = nil, bank: @escaping @MainActor () -> String = { "default" },
          lookUpCards: @escaping @Sendable ([String]) async -> [String: MessagesContactCard] = { await MessagesContacts.cards(for: $0) },
-         lookUpContactsAllowed: @escaping @Sendable () -> Bool = { MessagesContacts.allowed }) {
+         lookUpContactsAllowed: @escaping @Sendable () -> Bool = { MessagesContacts.allowed },
+         clock: @escaping @Sendable () -> Date = { Date() }) {
         self.api = api
+        self.clock = clock
         self.reader = reader
         self.lights = lights
         self.activity = activity
@@ -108,6 +123,7 @@ final class WhatsAppWatcher {
         let answer = try? await api.fetchChatTicks(source: Self.source)
         tickedIds = answer?.tickedIds ?? []
         historyIds = Set(answer?.conversations.filter(\.history).map(\.id) ?? [])
+        check = nil   // another memory: its own first pass says when it was checked
         guard !tickedIds.isEmpty else {
             disarm()
             return
@@ -226,6 +242,8 @@ final class WhatsAppWatcher {
         switch result {
         case .success:
             status = .watching
+            // Only for the memory on screen: a pass that read for one the person has since left says nothing here.
+            if self.bank() == bank { check = ChatCheck(at: clock(), newest: passNewest) }
             if let changedAt {
                 liveSeconds = Array((liveSeconds + [Self.seconds(ContinuousClock.now - changedAt)]).suffix(50))
                 self.changedAt = nil
@@ -242,6 +260,7 @@ final class WhatsAppWatcher {
         let reader = self.reader
         let ticked = tickedIds
         let found = try await Task.detached(priority: .utility) { try reader.chats(ids: ticked) }.value
+        passNewest = found.compactMap(\.lastActivity).max()
         var posted = 0
         for chat in found {
             let name = postedName(of: chat)
@@ -313,6 +332,7 @@ final class WhatsAppWatcher {
     private func disarm() {
         watch?.stop()
         watch = nil
+        check = nil
         pending?.cancel()
         pending = nil
         if running == nil { status = .idle }

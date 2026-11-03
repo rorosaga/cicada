@@ -1502,7 +1502,11 @@ agent reads (`agent_methods`), not an install.
   `SourcePageViews.swift`, DESIGN_RULES §9 2026-10-29):** DR-74's head; **one status line** (`SourcePageStatus`, pure:
   *Connected · last item <day>* / *Syncing · <the reader's words>* / *Needs you · <one action>* / *Off*, which also says
   its last item when it holds any — the day is the items route's `latest`, ruling 39's received day when later, never a
-  day still ahead) with *What Cicada reads* as a quiet text button opening the source's full words (its blurb, what it
+  day still ahead; **2026-11-03, live:** a chat reader on this Mac — WhatsApp, Messages — says *Connected · checked
+  <when> · newest message <day>* instead, from its last successful pass and the newest message in the ticked chats
+  (`ChatCheck`, `SourcePageStatus.checked`, DR-58; the list row's age counts that check too, and its facts add when it
+  reads), because the day something last came in read as a stopped reader while the ticked chat was only quiet —
+  `capture-and-sleep.md`, "What up to date means") with *What Cicada reads* as a quiet text button opening the source's full words (its blurb, what it
   reads, where an export comes from, its honest limit) as a `ConnectFactsPage` sheet; **one search**
   (`CicadaSearchField`, "Search 6 chats") that replaces the "What came in" heading and narrows the list on the backend
   (`q`); **what came in** (`SourceItemsSection`) in the source's own unit — a chat (face, name, *N conversations*, its
