@@ -24,6 +24,8 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
     static let openAtLogin = SettingsRowID("openAtLogin")
     // General → Startup → Show in menu bar (round-4 decision 6, R-HO16)
     static let showInMenuBar = SettingsRowID("showInMenuBar")
+    // General → Startup → Suggest connecting apps (G231): the notch's connect suggestion, and its No list
+    static let connectSuggest = SettingsRowID("connectSuggest")
     static let backgroundService = SettingsRowID("backgroundService")
     // Devices → Where your memory lives (G181 phase 3): This Mac or a server
     static let memoryHome = SettingsRowID("memoryHome")

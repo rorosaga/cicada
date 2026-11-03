@@ -1356,6 +1356,61 @@ label). An older backend sends no `more`, and the panel then suggests nothing (i
 the budget, no download path in the panel's sources); the backend in `test_saved_why.py`. Shots (render harness — the real
 panel needs a Chrome bookmark): `~/cicada-redesign-2026-10-22/shots/save-notch/`. Detecting saves in other apps is G221.
 
+**Connect from the notch (G231, 2026-11-03; owner: "when you enter an app they support a connection for, they suggest
+from the notch to connect to it … with our own aesthetic").** When the person brings to the front an app whose source
+is not set up in the active memory, the notch offers it once. *Trigger:* `NSWorkspace.didActivateApplicationNotification`
+(a bundle id, no permission), and only once that app has stayed in front for `ConnectSuggestPolicy.dwell` (1.5 s — a ⌘-Tab
+that passes through is not entering it). *Apps* (`ConnectSuggestApps`, bundle id → Sources catalogue entry): WhatsApp
+(`net.whatsapp.WhatsApp` → `whatsapp`), Telegram (`ru.keepcoder.Telegram`, `org.telegram.desktop` → `telegram-chats`),
+Messages, Notes, Calendar, Reminders, Contacts, every browser Cicada reads bookmarks from (`BrowserInventory.catalog`,
+`supported` only — Arc, Firefox, Edge and Opera never), Wispr Flow (`com.electron.wispr-flow`), Notion (`notion.id`) and
+Hex (`anomaly.hex` → `hex`, the meeting recorders' entry, read with the app's meeting folders so a Hex whose own
+folder is connected never reads Off). Readwise is gone. **A website
+in the front tab is not a trigger:** the only permission-free tab read is the star-click prefill (owner ruling
+2026-10-19), and reading the tab on every activation would be watching browsing without the person's act — activity
+traces' ground (G218). *Connected* is the catalogue's own word for that entry (`ConnectSuggestApps.status` →
+`SourceCatalog.status`, the Store's `channels` and `sourcesOverview` with this Mac's readers): only `off` is offered;
+connected, needs sign-in and waiting for an agent never are, and an entry not read yet or absent here is never guessed.
+*Respect* (`ConnectSuggestPolicy`, pure, clock injected): on by default (Settings → General → **Suggest connecting apps**;
+the offer only ever names an app the person just chose to open, and the caps keep it to a handful a month); once per
+source, ever; **Not now** — and the panel leaving on its own after `timeout` (12 s, the ask-why question's patience; the
+pointer resting on it holds it; measured on `systemUptime`, as the ask-why panel's clock is, so a wall clock stepped back
+never freezes it), the person leaving the app, or the ask-why question taking the notch (`SaveWhyCenter.willShow`, set
+by `ConnectSuggestCenter.yields(to:)` at launch, so it holds with the main window closed) — allows one more
+offer no sooner than 14 days later, and that is the last (`maxShows` 2); **No** is never again, undone by *Suggest
+again* in that Settings card; **Yes** is never asked again (the source's page is where it is finished); at most one
+offer a day across sources (rolling 24 h); never in the first minute after the app launched or after Cicada did; never
+deferred to later (a refused offer waits for the next time the app is brought forward — it belongs to the moment of
+entering); never while the ask-why panel shows, never in a demo memory, never before the active memory is known, and
+**never before that memory's setup ran or was skipped** (`OnboardingState`; found live: a Yes over the Welcome opened the
+source behind it, and setup's own Sources step offers every source). A show is counted at once, so a quit while it
+shows never makes it free again. *Where it is kept:* `cicada.connectSuggest.enabled` and `cicada.connectSuggest.memory`
+(per source: shown count, last shown, the answer and when, the app's name for Settings) in the app's defaults — per Mac,
+per viewer chrome, never in a bank: it is about the apps on this Mac, and a memory handed to someone else must not
+carry "never suggest WhatsApp"; whether a source is connected is never stored, it is read from the active memory each
+time. *The panel* (`ConnectSuggestPanelController`, `ConnectSuggestPanelView`) is the same notch as the ask-why
+question — `SaveWhyNotch` placement on the front app's screen, `SaveWhyNotchShape` on `CicadaMotion.notchGrow` /
+`notchShrink` (drawn grown and only fading under Reduce Motion), notch black and the notch's text ladder, the same
+468 pt card: the bookworm (`curious`) beside the app's own icon as macOS draws it, the question "Connect Notes to
+Cicada?", one tertiary line on what is read ("macOS asks you first.", "Only the chats you tick are read."; a browser
+its own entry's: Chrome "Bookmarks; tab groups and watched videos only if you turn them on.", Safari "Bookmarks and
+Reading List; iCloud tabs only if you import them.", any other "Only your bookmarks are read."), two or three ringed chips of what Cicada does with it (`Copy.ConnectSuggest.uses`, e.g.
+"Remember what friends tell you · Find that link someone sent · Recall plans you made"), and **No · Not now · Yes**.
+It **never takes the keyboard**: `ConnectSuggestNSPanel.canBecomeKey` is always false (there is no field), its buttons
+answer the first click (`ConnectSuggestHostingView.acceptsFirstMouse`), it is shown with `orderFrontRegardless`, and a
+button pressed within `armDelay` (0.5 s) of it showing is ignored. *Yes* opens Sources on that entry
+(`AppRouter.routeToCatalogEntry` → `SourcesPageView.openPendingEntry`, held until a browser's entry is in the list,
+dropped when the page goes) — the same detail a click on its row opens, with its own connect control; for Messages,
+WhatsApp and Safari while Full Disk Access is missing (a preflight, `LiveMacPermissionProbe`), it lands instead on
+that permission's row in Settings → Privacy & data → Permissions, the onboarding step's own rows with the drag helper
+(`ConnectSuggestApps.landing`); Contacts, Calendar, Reminders and Notes ask macOS's prompt from their own Connect, so
+they go straight to the source. Nothing is connected or asked by the Yes itself. *Log:* `com.cicada.app`, category `connect-suggest`,
+the entry id and the decision or outcome enum only; no telemetry ledger event. Tested in `ConnectSuggestTests` (25: every
+respect rule against a fake clock, the panel's clock, the apps, the catalogue status, the copy, the center end to end with
+a fake presenter and front app, and a source guard that the panel never makes itself key or asks a permission).
+Shots (a scratch, separately identified app copy, Notes brought forward on the verify Mac; window-only captures):
+`~/cicada-verify-evidence/g231-notch/app/` and `~/cicada-verify-evidence/g231-notch-b/app/`.
+
 **Bookmarks in the menu bar (G191 v3).** The status menu's **Bookmarks…** (⌘B) opens `BookmarkHistoryController`, a
 Maccy-like panel under the status item (borderless, key without activating the app, closed by Esc, a click elsewhere or
 opening a row): a search field, then every bookmark (`origin` `<browser>-bookmark`) from the Store's `sources`
