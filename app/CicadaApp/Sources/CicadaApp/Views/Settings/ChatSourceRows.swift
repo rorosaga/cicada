@@ -78,8 +78,9 @@ struct WhatsAppPanel: View {
     @State private var query = ""
 
     var body: some View {
+        // 2026-11-03 (owner: "this text is extremely unnecessary in all pages that have it, remove it") — the list
+        // opens on its search; the Full Disk Access fix still shows, exactly, when the read fails.
         SettingsSheet(title: Copy.Chats.whatsAppTitle, onClose: onDone) {
-            ChatSheetSentence(text: Copy.Chats.whatsAppWhatItReads)
             switch watcher.status {
             case .needsAccess(let fix):
                 FullDiskAccessHint(error: fix) { Task { await watcher.loadList() } }
@@ -218,12 +219,9 @@ struct TelegramPanel: View {
 
     // MARK: Steps
 
-    /// Signed in: what's next in one line, the chats, then Disconnect and the sheet's only "Done".
+    /// Signed in: the chats, then Disconnect and the sheet's only "Done" (2026-11-03: no standing line above them).
     @ViewBuilder
     private var connectedStep: some View {
-        Text(Copy.Chats.connectedLine)
-            .font(CicadaTheme.bodyFont)
-            .foregroundStyle(CicadaTheme.textSecondary)
         chatList
         errorLine
         HStack(spacing: CicadaTheme.spacingSM) {
@@ -444,16 +442,6 @@ struct ChatSourceHead<Trailing: View>: View {
             Spacer()
             trailing
         }
-    }
-}
-
-struct ChatSheetSentence: View {
-    let text: String
-    var body: some View {
-        Text(text)
-            .font(CicadaTheme.bodyFont)
-            .foregroundStyle(CicadaTheme.textSecondary)
-            .fixedSize(horizontal: false, vertical: true)
     }
 }
 

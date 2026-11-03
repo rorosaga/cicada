@@ -103,9 +103,6 @@ enum SourceCatalog {
                            tile: .reddit, site: "reddit"),
         SourceCatalogEntry(id: "pinterest", group: .accounts, title: "Pinterest", origin: "pinterest",
                            channels: ["pinterest"], tile: .pinterest),
-        // Ruling 47 tier 2: highlights with their sources, through the person's own Readwise token.
-        SourceCatalogEntry(id: "readwise", group: .accounts, title: "Readwise", origin: "readwise",
-                           channels: ["readwise"]),
         // G32: Spotify is export-only (its terms bar an API connector): the library and the listening, from the
         // person's own download.
         SourceCatalogEntry(id: "spotify", group: .accounts, title: "Spotify", origin: "spotify-saved",
@@ -229,7 +226,7 @@ enum SourceCatalog {
     /// The channels a person signs in to (`ChannelActions.connectorChannels`). Only these can need a sign-in: a reader
     /// on this Mac whose failure happens to say "not authorized" or "token" needs a permission or a retry, never an
     /// account (2026-10-23).
-    static let signInChannels: Set<String> = ["pinterest", "reddit", "x", "readwise", "notion-api"]
+    static let signInChannels: Set<String> = ["pinterest", "reddit", "x", "notion-api"]
     /// G206 (#426): the sites whose saved list the person's own agent can keep current from their signed-in browser
     /// (`reading_settings.SAVED_LISTS`).
     static let savedListSites: Set<String> = ["x", "instagram", "linkedin"]
@@ -308,13 +305,20 @@ enum SourceCatalog {
         }
     }
 
-    /// The groups in their fixed order, each in the catalogue's order; an empty group is not drawn.
+    /// The groups in their fixed order; an empty group is not drawn. 2026-11-03 (owner: "those sources that are
+    /// connected make them go to the top of the section so its easy to see whats connected and whats not") — inside a
+    /// group every source that is set up (connected, or waiting on a sign-in or an agent) comes first, then the ones
+    /// that are off, each part in the catalogue's own order (a stable partition, so nothing else moves).
     static func grouped(_ rows: [SourceCatalogRow]) -> [(group: SourceCatalogGroup, rows: [SourceCatalogRow])] {
         SourceCatalogGroup.allCases.compactMap { group in
             let inGroup = rows.filter { $0.entry.group == group }
-            return inGroup.isEmpty ? nil : (group, inGroup)
+            let ordered = inGroup.filter { $0.status != .off } + inGroup.filter { $0.status == .off }
+            return ordered.isEmpty ? nil : (group, ordered)
         }
     }
+
+    /// The rows in the order the page draws them (`grouped`, flattened): what the arrow keys walk.
+    static func drawnOrder(_ rows: [SourceCatalogRow]) -> [SourceCatalogRow] { grouped(rows).flatMap(\.rows) }
 
     /// "Sources · 6 connected" — the eyebrow counts what is connected; a list waiting for an agent is not.
     static func connectedCount(_ rows: [SourceCatalogRow]) -> Int {
