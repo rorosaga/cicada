@@ -56,6 +56,8 @@ enum OriginIconography {
         "reminders-local", "notion-export",
         // Ruling 47 tier 2: Readwise highlights and the live Notion connection (`connectors/readwise.py`, `notion.py`).
         "readwise", "notion-api",
+        // G230: GitHub — a starred repository, a pasted one, one the person owns (`connectors/github.py`).
+        "github", "github-starred", "github-added", "github-owned",
         // G32: Spotify's own download — its library (saved) and its plays (listening days).
         "spotify-saved", "spotify-history",
         // G135 R-R26: a remote connector's app, as its episodes stamp it
@@ -104,6 +106,8 @@ enum OriginIconography {
         case "reminders-local": "Reminders"
         case "notion-export", "notion-api": "Notion"
         case "readwise": "Readwise"
+        case "github", "github-added", "github-owned": "GitHub"
+        case "github-starred": "GitHub stars"
         case "imessage": "Messages"
         case "whatsapp": "WhatsApp"
         case "telegram-chats": "Telegram chats"
@@ -181,6 +185,7 @@ enum OriginIconography {
         case "reminders-local": "checklist"
         case "notion-export", "notion-api": "doc.text"
         case "readwise": "highlighter"
+        case "github", "github-starred", "github-added", "github-owned": "chevron.left.forwardslash.chevron.right"
         case "imessage": "message.fill"
         case "whatsapp": "phone.bubble.fill"
         case "telegram-chats": "paperplane.fill"
@@ -301,6 +306,7 @@ enum OriginIconography {
         case "linkedin-saved": "linkedin"
         case "tiktok-saved", "tiktok-history": "tiktok"
         case "spotify-saved", "spotify-history": "spotify"
+        case "github", "github-starred", "github-added", "github-owned": "github"
         case "instagram-saved": "instagram"
         case "youtube-playlist", "youtube-history": "youtube"
         // G135 R-R26/R-R34 — a remote app wears the same mark as its local

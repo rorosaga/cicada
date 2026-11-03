@@ -2997,6 +2997,35 @@ actor APIClient {
         try await get("/entities/\(encodedID(id))/paper")
     }
 
+    // MARK: - GitHub repositories (G230)
+    //
+    // Not Store domains: the Sources panel's lists and a page's repository card are read on demand and kept in memory
+    // by their views, read again after every write (CLAUDE.md, Sync).
+
+    /// A repository page's card (or a linked project's): GitHub's record as the page keeps it, and its README preview.
+    /// The backend reads the README through GitHub's API when it is missing or a week old — so this may take a moment.
+    func fetchRepository(id: String) async throws -> RepositoryDetail {
+        try await get("/entities/\(encodedID(id))/repository", timeout: 20)
+    }
+
+    /// The repositories the last sync found the person owns (each with the project it already is) and every
+    /// repository page in memory. Reads the bank only.
+    func fetchGitHubRepos() async throws -> RepoLists {
+        try await get("/sources/github/repos")
+    }
+
+    /// The person adds one repository by its link (or `owner/name`).
+    func addGitHubRepo(_ url: String) async throws -> RepoAddResult {
+        try await post("/sources/github/repos", body: ["url": url])
+    }
+
+    /// The person's "this is my project": link `fullName` to `project`, or (nil) make a project of it.
+    func makeRepoProject(fullName: String, project: String? = nil) async throws -> RepoProjectResult {
+        var body: [String: Any] = ["fullName": fullName, "via": "app"]
+        if let project { body["project"] = project }
+        return try await post("/sources/github/repos/project", body: body)
+    }
+
     /// Ruling 48 (16), DR-80 — one citation marker's popover: reference `n` as cited by the line ending at `at`, or by
     /// the belief sentence `claim`. Read when the marker opens, never on card open.
     func fetchCitation(entityId: String, n: Int, at: Int?, claim: String?) async throws -> PageCitationDetail {
