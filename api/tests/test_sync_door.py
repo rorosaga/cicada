@@ -183,7 +183,7 @@ def live(keys, tmp_path, monkeypatch):
     monkeypatch.setattr(sync_door, "own_routes", lambda port=None: {"v": 1, "port": port, "lan": [], "tailnet": []})
     loop = asyncio.new_event_loop()
     threading.Thread(target=loop.run_forever, daemon=True).start()
-    server = sync_door.Server(_echo_app, tmp_path, port=0, host="127.0.0.1")
+    server = sync_door.Server(_echo_app, tmp_path, port=0, hosts=["127.0.0.1"])
     server.lookup = _lookup_for(keys["dev"])
     from api.services import device_key
 
@@ -308,16 +308,106 @@ def test_a_device_not_yet_in_the_group_is_let_in_only_with_the_qrs_secret(keys):
     assert got is not None and got[0].kind == "pairing" and got[0].jwk == phone.jwk
 
 
+FOUND = {"lan": ["192.168.1.4", "fd12:3456::7"], "tailnet": ["100.70.1.2", "fd7a:115c:a1e0::9"],
+         "ipv6": ["2001:db8::5"], "public": ["203.0.113.5"]}
+
+
+@pytest.mark.parametrize("platform", ["linux", "darwin"])
+def test_the_door_never_binds_a_wildcard_a_public_or_a_global_address(keys, monkeypatch, platform):
+    """The security review's blocker: a server with a public address must never listen on it."""
+    from api.services import sync_routes
+
+    monkeypatch.delenv(sync_door.HOST_ENV, raising=False)
+    monkeypatch.setattr(__import__("sys"), "platform", platform)
+    sync_routes.set_lan_allowed(True)
+    hosts = sync_door.bind_hosts(found=FOUND)
+    assert hosts == ["127.0.0.1", "::1", "192.168.1.4", "fd12:3456::7", "100.70.1.2", "fd7a:115c:a1e0::9"]
+    assert all(sync_door.address_class(h) in sync_door.BINDABLE for h in hosts)
+    for bad in ("0.0.0.0", "::", "203.0.113.5", "2001:db8::5", "8.8.8.8", "fe80::1", "example.com"):
+        assert bad not in hosts
+        assert sync_door.bind_hosts({sync_door.HOST_ENV: bad}, found=FOUND) == ["127.0.0.1"]
+    assert sync_door.bind_hosts({sync_door.HOST_ENV: "0.0.0.0,192.168.1.4"}, found=FOUND) == ["192.168.1.4"]
+
+
 def test_on_a_mac_the_door_stays_on_loopback_until_the_person_allowed_the_lan(keys, monkeypatch):
-    """Binding every interface raises the application firewall's question: never before the app's permissions step."""
+    """Binding a LAN address raises the application firewall's question: never before the app's permissions step."""
     from api.services import sync_routes
 
     monkeypatch.delenv(sync_door.HOST_ENV, raising=False)
     monkeypatch.setattr(__import__("sys"), "platform", "darwin")
-    assert sync_door.wanted_host() == "127.0.0.1"
+    assert sync_door.bind_hosts(found=FOUND) == ["127.0.0.1", "::1"]
     sync_routes.set_lan_allowed(True)
-    assert sync_door.wanted_host() is None
-    assert sync_door.wanted_host({sync_door.HOST_ENV: "192.168.1.4"}) == "192.168.1.4"
-    monkeypatch.setattr(__import__("sys"), "platform", "linux")
-    sync_routes.set_lan_allowed(False)
-    assert sync_door.wanted_host() is None
+    assert "192.168.1.4" in sync_door.bind_hosts(found=FOUND)
+
+
+def test_a_live_door_holds_only_bindable_sockets_and_rebinds_when_the_network_changes(keys, tmp_path):
+    plan = ["127.0.0.1", "0.0.0.0", "::", "203.0.113.5", "2001:db8::5"]
+    loop = asyncio.new_event_loop()
+    threading.Thread(target=loop.run_forever, daemon=True).start()
+    server = sync_door.Server(_echo_app, tmp_path, port=0, hosts=lambda: list(plan))
+    run = lambda coro: asyncio.run_coroutine_threadsafe(coro, loop).result(5)   # noqa: E731
+    try:
+        run(server.start())
+
+        def socknames():
+            return [sock.getsockname()[0] for srv in server.bound.values() for sock in srv.sockets]
+
+        assert socknames() == ["127.0.0.1"] and server.hosts() == ["127.0.0.1"]
+        plan.append("::1")                                   # a new address appears: bound at the next rebind
+        run(server.rebind())
+        got = socknames()
+        assert all(sync_door.address_class(h) == "loopback" for h in got), got
+        assert "0.0.0.0" not in got and "::" not in got
+        plan.remove("::1")                                   # and gone again: closed
+        run(server.rebind())
+        assert server.hosts() == ["127.0.0.1"]
+        assert server.wire()["bound"] == {"loopback": 1, "lan": 0, "tailnet": 0}
+    finally:
+        run(server.stop())
+        loop.call_soon_threadsafe(loop.stop)
+
+
+def test_an_ipv6_source_spends_its_64s_bucket_however_many_addresses_it_rotates():
+    assert sync_door.bucket_key("2001:db8:1:2::1") == sync_door.bucket_key("2001:db8:1:2:ffff::9") == \
+        "2001:db8:1:2::/64"
+    assert sync_door.bucket_key("2001:db8:1:3::1") != sync_door.bucket_key("2001:db8:1:2::1")
+    assert sync_door.bucket_key("192.168.1.9") == "192.168.1.9"
+    assert sync_door.bucket_key("::ffff:192.168.1.9") == "192.168.1.9"
+
+
+def test_a_revoked_devices_watch_ends_at_once(live, tmp_path):
+    server, target, ident = live
+    git = tmp_path / ".git"
+    (git / "refs" / "heads").mkdir(parents=True)
+    (git / "HEAD").write_text("ref: refs/heads/main\n")
+    (git / "refs" / "heads" / "main").write_text("a" * 40 + "\n")
+    heads, stop = [], threading.Event()
+    conn = sync_door.connect("127.0.0.1", server.port, target, ident)
+    t = threading.Thread(target=sync_door.watch, args=(conn, heads.append, stop), daemon=True)
+    t.start()
+    deadline = time.monotonic() + 5
+    while not heads and time.monotonic() < deadline:
+        time.sleep(0.05)
+    started = time.monotonic()
+    async def revoke():
+        return server.close_device("d1")
+
+    assert asyncio.run_coroutine_threadsafe(revoke(), server.loop).result(5) == 1
+    t.join(5)
+    assert not t.is_alive() and time.monotonic() - started < 2
+
+
+def test_a_request_that_fails_part_way_leaves_no_spill(tmp_path):
+    from api.services import sync_inprocess
+
+    async def app(scope, receive, send):
+        await receive()
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b"x" * (sync_inprocess.SPILL_AFTER + 10),
+                    "more_body": True})
+        raise RuntimeError("broke part way")
+
+    with pytest.raises(RuntimeError):
+        asyncio.run(sync_inprocess.run_in_process(app, sender=None, device_id=None, method="GET", path="/x",
+                                                  query="", headers={}, body=b"", spill_to=tmp_path))
+    assert list(tmp_path.glob("answer-*")) == []

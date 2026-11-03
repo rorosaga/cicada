@@ -26,8 +26,14 @@
   once; a dead LAN route costs 1.0 s once a minute; idle, a copy on the door costs less than on `/sync/events` (home
   0.39–0.46 vs 0.50–0.83 s, copy 0.30–0.33 vs 0.54–0.70 s of CPU per 120 s). Slice 2 (router port, IPv6, the DHT
   record) is planned in [the plan](../plans/2026-11-03-g132-routes.md), not built; hole punching design notes only.
-  **Pick up here:** merge #572, then this PR (retarget to `dev`); the app's half follows (#573: Relay under Advanced,
-  the Local Network and firewall step at first share, Bonjour and the network hint).
+  **Security review of #572/#586 (2026-11-03), fixed on the branch:** the door bound wildcard addresses, so a
+  server with a public address would have listened on it — it now binds loopback and its own private and tailnet
+  addresses only, one socket each, rebound on a network change; also the pairing tag in constant time, a door
+  pairing redeems only its own code, a revoke closes the device's sessions and watch at once, a failed request
+  leaves no spill, IPv6 sources share their /64's bucket, and the never-expiring outbox is capped at 256 MB as well
+  as 5,000 entries, a full queue said in words. **Pick up here:** merge #572, then this PR (retarget to `dev`); the
+  app's half follows (#573: Relay under Advanced, the Local Network and firewall step at first share, Bonjour and the
+  network hint).
 - **2026-10-30 — one transport, direct first, the relay as fallback (ruling 51c, G132 phase 3b; branches
   `feat/g132-direct-first`, backend, and `feat/g132-direct-first-app`, Settings → Devices' Relay).** Owner: "cant we just
   connect between devices". Every device-to-device request goes through `sync_transport`: direct to the configured

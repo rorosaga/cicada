@@ -478,8 +478,11 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   runs an ordered route list (T3 Code's: first that answers, learned routes kept, re-checked each minute and on a
   network change, moved back) — the home's door on the LAN, a tailnet if present, the configured address, the relay
   only under Advanced — else it queues; an unsent outbox item never expires. **The door** is the one listener besides
-  loopback: sealed frames only, never the HTTP API or a token, open only while a memory is shared, loopback/private/
-  tailnet peers only, a first packet that proves no pairing key dropped without a byte, rate-limited, fuzzed. Identity
+  loopback: sealed frames only, never the HTTP API or a token, open only while a memory is shared; **it binds loopback
+  and each of this computer's own private (RFC 1918, IPv6 ULA) and tailnet addresses, one socket each, rebound when
+  the network changes — never a wildcard, never a public or global address** (on a Mac, loopback until the app's
+  permissions step); loopback/private/tailnet peers only, a first packet that proves no pairing key dropped without
+  a byte, rate-limited, fuzzed. Identity
   is the pairing keys, never an address. The phone is for now a capture device on that list (`network.md`, "The route
   list"); away-from-home reach (router port, IPv6, a DHT record) waits behind an off switch.
   Phase 1 A built: the home may publish its log (off by default, never a demo; a rewritten history freezes it).

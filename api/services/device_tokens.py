@@ -478,7 +478,7 @@ class DeviceStore:
         return self.pairing(pairing_id)
 
     def redeem(self, code: str, name: str, *, now: datetime | None = None, key_thumbprint: str | None = None,
-               kind: str | None = None) -> tuple[Device, str]:
+               kind: str | None = None, pairing_id: str | None = None) -> tuple[Device, str]:
         """Spend a code: the device the new machine named is issued its own token. ``KeyError`` for a code that
         matches nothing waiting — unknown, used, cancelled and expired all look the same to the asker. The code is
         spent in the same statement that checks it, so two redeems of one code make one device.
@@ -496,9 +496,12 @@ class DeviceStore:
         stamp = (now or datetime.now(timezone.utc)).replace(microsecond=0).isoformat()
         with self._db() as db:
             db.execute("BEGIN IMMEDIATE")
+            # Ruling 51f: a door pairing's secret redeems only its own pairing's code (``pairing_id``).
+            only = " AND id=?" if pairing_id else ""
             spent = db.execute(
                 "UPDATE pairings SET used_at=? WHERE code_hash=? AND used_at IS NULL AND cancelled_at IS NULL "
-                "AND expires_at > ?", (stamp, _hash(normal), stamp)).rowcount
+                "AND expires_at > ?" + only, (stamp, _hash(normal), stamp) + ((pairing_id,) if pairing_id else ())
+            ).rowcount
             if spent != 1:
                 raise KeyError("code")
             row = db.execute("SELECT id, kind FROM pairings WHERE code_hash=?", (_hash(normal),)).fetchone()

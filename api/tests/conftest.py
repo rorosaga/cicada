@@ -46,6 +46,8 @@ os.environ["CICADA_SUITE_CALLER_HOMES"] = os.pathsep.join(
 os.environ["CICADA_SUITE_ROOT"] = str(_SUITE_ROOT)
 os.environ["HOME"] = str(_SUITE_ROOT / "home")
 os.environ["CICADA_HOME"] = str(_SUITE_ROOT / "home" / ".cicada")
+# Ruling 51f: a door any test opens binds loopback only — never this computer's LAN, tailnet or a wildcard address.
+os.environ["CICADA_SYNC_DOOR_HOST"] = "127.0.0.1"
 _atexit.register(_shutil.rmtree, _SUITE_ROOT, ignore_errors=True)
 
 # A developer checkout's settings file (`api/.env`, `api/settings_file.py`) never reaches the suite: off before any

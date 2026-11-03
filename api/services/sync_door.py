@@ -8,6 +8,11 @@ scanner learns only that a port accepted a connection. Requests it carries run i
 device token reaches (``sync_inprocess``), held to that device's rules (a capture-only phone reaches only
 ``auth.CAPTURE_ROUTES``), keyed by the same ``Idempotency-Key`` — a write carried twice, by two routes, applies once.
 
+**Where it listens: never a wildcard, never a public or global address** (:func:`bind_hosts`). Loopback, and each of
+this computer's own private (RFC 1918, IPv6 unique-local) and tailnet addresses, one socket each, re-read every
+:data:`REBIND_S` so a new network binds its address and a gone one is closed; on a Mac, loopback only until the app's
+permissions step. A server with a public address never listens on it, so nothing on a device listens on a public port.
+
 **Who may connect (T3 Code's rule).** Both ends of the connection must be loopback, private (RFC 1918, IPv6
 unique-local) or tailnet (100.64.0.0/10, Tailscale's IPv6 range); a connection from any other address is closed
 before it is read. Slice 2's "Reach my memory away from home" switch is the only thing that will ever widen this.
@@ -94,9 +99,13 @@ WATCH_POLL_S = 0.5
 DOOR_FILE = "door.json"
 DOOR_ENV = "CICADA_SYNC_DOOR"
 PORT_ENV = "CICADA_SYNC_DOOR_PORT"
-#: Where the door binds: every interface by default (T3's rule then closes anything not private); ``127.0.0.1`` keeps
-#: it on this computer (the suite: no firewall prompt on a developer's Mac).
+#: The addresses the door binds, comma-separated, instead of its own choice (:func:`bind_hosts`); ``127.0.0.1`` keeps it
+#: on this computer (the suite). An address that is not loopback, private or tailnet is never bound, named or not.
 HOST_ENV = "CICADA_SYNC_DOOR_HOST"
+LOOPBACK_HOSTS = ("127.0.0.1", "::1")
+#: How often the door compares the addresses it should bind with those it holds (a new network, a VPN up or down).
+REBIND_S = 5.0
+BINDABLE = ("loopback", "lan", "tailnet")
 PORT_RANGE = (49152, 65000)
 
 TAILNET_V4 = ipaddress.ip_network("100.64.0.0/10")
@@ -283,13 +292,11 @@ def own_routes(port: int | None = None) -> dict | None:
     if server is None or not server.running():
         return None
     state = door_state(create=False) or {}
-    found = local_addresses()
-    if server.host and server.host not in ("0.0.0.0", "::"):
-        # Bound to one address: only that one is a route (none, when it is loopback).
-        cls = address_class(server.host)
-        found = {"lan": [server.host] if cls == "lan" else [], "tailnet": [server.host] if cls == "tailnet" else []}
+    bound = server.hosts()
+    # Only the addresses the door is bound to are routes (none beyond loopback, when it is loopback only).
     return {"v": 1, "port": int(port or server.port), "key": state.get("pub"),
-            "lan": found["lan"], "tailnet": found["tailnet"]}
+            "lan": [h for h in bound if address_class(h) == "lan"],
+            "tailnet": [h for h in bound if address_class(h) == "tailnet"]}
 
 
 # --- the handshake (pure: tested and fuzzed without a socket) -----------------------------------------------------------
@@ -394,7 +401,9 @@ def server_open(hello: bytes, door_priv, door_pub: bytes, lookup, sign, replays:
         return None
     device = lookup(jwk)
     if device is None and pairing is not None and tag != b"\0" * 32:
-        device = pairing(lambda secret: _pair_tag(secret, e_c, ts, xy) == tag, jwk)
+        import hmac
+
+        device = pairing(lambda secret: hmac.compare_digest(_pair_tag(secret, e_c, ts, xy), tag), jwk)
     if device is None:
         return None
     if not replays.spend(e_c, t):
@@ -467,6 +476,17 @@ def frame_length(header: bytes) -> int | None:
 
 # --- the server --------------------------------------------------------------------------------------------------------
 
+def bucket_key(peer: str) -> str:
+    """Whose bucket a connection spends: its IPv4 address, or its IPv6 /64 — one network, however many addresses it
+    rotates through."""
+    addr = _ip(peer)
+    if addr is None:
+        return str(peer)
+    if addr.version == 6:
+        return str(ipaddress.ip_network(f"{addr}/64", strict=False))
+    return str(addr)
+
+
 class Buckets:
     def __init__(self):
         self.b: dict[str, tuple[float, float]] = {}
@@ -535,12 +555,15 @@ def registry_lookup(memory_path):
 
 
 class Server:
-    def __init__(self, app, memory_path: Path, *, port: int, host: str | None = None):
-        self.host = (os.environ.get(HOST_ENV) or "").strip() or None if host is None else (host or None)
+    def __init__(self, app, memory_path: Path, *, port: int, hosts=None):
+        """``hosts``: the addresses to bind (a list, or a callable giving them); by default :func:`bind_hosts`."""
+        self.plan = (lambda: list(hosts)) if isinstance(hosts, (list, tuple)) else (hosts or bind_hosts)
+        self.bound: dict[str, asyncio.base_events.Server] = {}
+        self.rebind_task: asyncio.Task | None = None
+        self.by_device: dict[str, set] = {}
         self.app = app
         self.memory_path = Path(memory_path)
         self.port = port
-        self.servers: list[asyncio.base_events.Server] = []
         self.buckets = Buckets()
         self.replays = Replays()
         self.pending = 0
@@ -573,14 +596,25 @@ class Server:
         return None
 
     def running(self) -> bool:
-        return bool(self.servers)
+        return bool(self.bound)
+
+    def hosts(self) -> list[str]:
+        return list(self.bound)
+
+    async def _bind(self, host: str):
+        if address_class(host) not in BINDABLE:          # never a wildcard, a public or a global address
+            raise OSError("not a private address")
+        return await asyncio.start_server(self._on_conn, host=host, port=self.port, reuse_address=True,
+                                          limit=MAX_FRAME + 8)
 
     async def start(self) -> None:
+        """Bind loopback first (it fixes the port), then every other planned address on the same port; an address
+        that cannot be bound now (gone, or no IPv6) is skipped and tried again at the next rebind."""
+        self.loop = asyncio.get_running_loop()
         last: Exception | None = None
         for _attempt in range(4):
             try:
-                v4 = await asyncio.start_server(self._on_conn, host=self.host or "0.0.0.0", port=self.port,
-                                                reuse_address=True, limit=MAX_FRAME + 8)
+                first = await self._bind(LOOPBACK_HOSTS[0])
             except OSError as exc:
                 last = exc
                 if self.port == 0 or os.environ.get(PORT_ENV):
@@ -589,29 +623,58 @@ class Server:
                 st = door_state() or {}
                 _write_private(_door_path(), {**st, "port": self.port})
                 continue
-            self.servers.append(v4)
-            self.port = v4.sockets[0].getsockname()[1]
-            if self.host:
-                return            # one address the person (or the suite) named
-            try:
-                self.servers.append(await asyncio.start_server(self._on_conn, host="::", port=self.port,
-                                                               reuse_address=True, limit=MAX_FRAME + 8))
-            except OSError:
-                pass          # no IPv6 here: the IPv4 door alone
+            self.port = first.sockets[0].getsockname()[1]
+            self.bound[LOOPBACK_HOSTS[0]] = first
+            await self.rebind()
+            self.rebind_task = asyncio.create_task(self._rebind_loop())
             return
         raise last or OSError("no port")
 
+    async def rebind(self) -> None:
+        """Hold exactly the planned addresses: bind the new ones, close the ones this computer no longer has."""
+        try:
+            wanted = [h for h in await asyncio.to_thread(self.plan) if address_class(h) in BINDABLE]
+        except Exception:  # noqa: BLE001 — keep what is bound
+            return
+        if LOOPBACK_HOSTS[0] not in wanted:
+            wanted.insert(0, LOOPBACK_HOSTS[0])
+        for host in [h for h in self.bound if h not in wanted]:
+            srv = self.bound.pop(host)
+            srv.close()
+        for host in [h for h in wanted if h not in self.bound]:
+            try:
+                self.bound[host] = await self._bind(host)
+            except OSError:
+                pass
+
+    async def _rebind_loop(self) -> None:
+        while self.bound:
+            await asyncio.sleep(REBIND_S)
+            await self.rebind()
+
     async def stop(self) -> None:
-        for s in self.servers:
-            s.close()
+        if self.rebind_task is not None:
+            self.rebind_task.cancel()
+        for srv in list(self.bound.values()):
+            srv.close()
             with contextlib.suppress(Exception):
-                await s.wait_closed()
-        self.servers.clear()
+                await srv.wait_closed()
+        self.bound.clear()
         if self.watch_task is not None:
             self.watch_task.cancel()
 
+    def close_device(self, device_id: str) -> int:
+        """A revoked device's open sessions (its watch included) end at once. Returns how many."""
+        writers = self.by_device.pop(device_id, set())
+        for w in writers:
+            with contextlib.suppress(Exception):
+                w.transport.abort()
+        return len(writers)
+
     def wire(self) -> dict:
-        return {"open": self.running(), "port": self.port, **self.counts, "sessions": self.sessions}
+        kinds = [address_class(h) for h in self.bound]
+        return {"open": self.running(), "port": self.port, **self.counts, "sessions": self.sessions,
+                "bound": {k: kinds.count(k) for k in BINDABLE}}
 
     # -- one connection ----------------------------------------------------------------------------------------------
     async def _on_conn(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
@@ -620,7 +683,8 @@ class Server:
         if not allowed_peer(local, peer):
             self.counts["refusedPeer"] += 1
             return self._close(writer)
-        if self.pending >= MAX_PENDING or self.sessions >= MAX_SESSIONS or not self.buckets.take(peer):
+        who = bucket_key(peer)
+        if self.pending >= MAX_PENDING or self.sessions >= MAX_SESSIONS or not self.buckets.take(who):
             self.counts["limited"] += 1
             return self._close(writer)
         self.pending += 1
@@ -639,11 +703,13 @@ class Server:
             self.pending -= 1
         if opened is None:
             self.counts["dropped"] += 1
-            self.buckets.charge(peer, FAILED_COST - 1)
+            self.buckets.charge(who, FAILED_COST - 1)
             return self._close(writer)          # silently: not one byte was sent
         device, keys, reply = opened
         self.counts["accepted"] += 1
         self.sessions += 1
+        if device.device_id:
+            self.by_device.setdefault(device.device_id, set()).add(writer)
         if device.kind != "pairing":
             self._note_route(device.device_id, address_class(peer) or "lan")
         try:
@@ -662,6 +728,8 @@ class Server:
                 logger.info(f"door: a session ended ({type(exc).__name__})")
         finally:
             self.sessions -= 1
+            if device.device_id:
+                self.by_device.get(device.device_id, set()).discard(writer)
             self._close(writer)
 
     @staticmethod
@@ -723,7 +791,7 @@ class Server:
                 ask = json.loads(body or b"{}")
                 made, _token = await asyncio.to_thread(
                     device_tokens.store().redeem, str(ask.get("code") or ""), str(ask.get("name") or "Phone"),
-                    key_thumbprint=device_key.thumbprint(device.jwk), kind="capture")
+                    key_thumbprint=device_key.thumbprint(device.jwk), kind="capture", pairing_id=device.pairing_id)
                 status, answer = 201, {"device": made.wire()}
                 self.lookup.forget()
             except device_tokens.FullDeviceKey:
@@ -821,42 +889,49 @@ def _spool_dir() -> Path:
 SERVER: Server | None = None
 
 
-def wanted_host(environ=os.environ) -> str | None:
-    """Where the door binds now: ``CICADA_SYNC_DOOR_HOST`` when set; on a Mac, loopback until the app says the person
-    went through its permissions step (``sync_routes``' ``lanAllowed``) — binding every interface raises the
-    application firewall's question, which nothing may ask unasked; elsewhere every interface (None)."""
+def bind_hosts(environ=os.environ, *, found: dict | None = None) -> list[str]:
+    """Every address the door binds now — **never a wildcard, never a public or global address**: loopback, then this
+    computer's own private (RFC 1918, IPv6 unique-local) and tailnet addresses, read from the routing table. On a Mac,
+    loopback only until the app says the person went through its permissions step (``sync_routes``' ``lanAllowed``):
+    binding a LAN address raises the application firewall's question, which nothing may ask unasked.
+    ``CICADA_SYNC_DOOR_HOST`` names the addresses instead (only the bindable ones are kept)."""
     import sys
 
     raw = (environ.get(HOST_ENV) or "").strip()
     if raw:
-        return raw
+        named = [h.strip() for h in raw.split(",") if address_class(h.strip()) in BINDABLE]
+        return named or [LOOPBACK_HOSTS[0]]
+    hosts = list(LOOPBACK_HOSTS)
     if sys.platform == "darwin":
         from api.services import sync_routes
 
-        return None if sync_routes.lan_allowed() else "127.0.0.1"
-    return None
+        if not sync_routes.lan_allowed():
+            return hosts
+    found = found if found is not None else local_addresses()
+    for h in list(found.get("lan") or []) + list(found.get("tailnet") or []):
+        if address_class(h) in ("lan", "tailnet") and h not in hosts:
+            hosts.append(h)
+    return hosts
 
 
 async def start(app, memory_path) -> Server | None:
     global SERVER
     if not enabled():
         return None
-    host = await asyncio.to_thread(wanted_host)
     if SERVER is not None and SERVER.running():
-        if SERVER.host == host:
-            return SERVER
-        await stop()              # the person allowed the LAN since: the door opens to it
+        await SERVER.rebind()         # the person allowed the LAN since, or this computer joined another network
+        return SERVER
     st = await asyncio.to_thread(door_state)
     raw_port = (os.environ.get(PORT_ENV) or "").strip()
     port = int(raw_port) if raw_port.isdigit() else int(st["port"])
-    server = Server(app, memory_path, port=port, host=host or "")
+    server = Server(app, memory_path, port=port)
     try:
         await server.start()
     except OSError as exc:
         logger.warning(f"door: not opened ({type(exc).__name__})")
         return None
     SERVER = server
-    logger.info("door: open for this memory's devices (home network and tailnet only)")
+    logger.info("door: open for this memory's devices (loopback, home network and tailnet addresses only)")
     return server
 
 

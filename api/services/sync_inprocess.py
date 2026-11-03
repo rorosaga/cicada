@@ -12,6 +12,7 @@ Stdlib and ``auth`` only: importing this imports nothing relay-side (``test_sync
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import secrets
 from pathlib import Path
@@ -82,6 +83,14 @@ async def run_in_process(app, *, sender: str | None, device_id: str | None, meth
 
     try:
         await app(scope, receive, send)
+    except BaseException:
+        if out["fh"] is not None:
+            out["fh"].close()
+            out["fh"] = None
+        if out["file"] is not None:
+            with contextlib.suppress(OSError):
+                os.unlink(out["file"])           # a request that failed part way leaves no spill behind
+        raise
     finally:
         if out["fh"] is not None:
             out["fh"].close()

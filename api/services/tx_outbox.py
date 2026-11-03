@@ -24,6 +24,8 @@ own entry landed in that flush, else ``queued``. The keep / drop / hold rules ar
   ``rejected.json`` for the Devices page (the G132 g1 gate: shown, never silently lost).
 
 What the outbox shows beside the queue is counts (:func:`counts`): waiting, held, dropped and rejected — never a body.
+Bounded by :data:`MAX_ENTRIES` and :data:`MAX_TOTAL_BYTES`: a write that does not fit is **not kept and said so**
+(``full``, :func:`full_text`) — never queued in words and dropped in fact.
 """
 from __future__ import annotations
 
@@ -40,6 +42,11 @@ from pathlib import Path
 EXPIRE_S = 7 * 24 * 3600
 HOLD_RETRY_S = 600.0
 MAX_ENTRIES = 5000
+#: With nothing ever expiring unsent, the outbox is bounded by size too: what waits may take at most this much disk.
+MAX_TOTAL_BYTES = 256 * 1024 * 1024
+FULL_TEXT = ("Not kept: this device's queue for the home is full ({waiting} changes, {mb} MB wait already). Nothing "
+             "that waits was dropped. Once the computer that holds your memory is reachable they are sent, and this "
+             "can be made again.")
 MAX_BODY_BYTES = 32 * 1024 * 1024
 REJECTED_KEEP = 200
 DROP_STATUSES = frozenset({400, 404, 405, 413, 422})
@@ -106,6 +113,29 @@ def rest_entry(method: str, path: str, query: str, body: bytes, content_type: st
     return {"v": 2, "id": key or uuid.uuid4().hex, "kind": "rest", "bankId": bank_id, "baseSeq": base_seq,
             "method": method, "path": path, "query": query or "", "contentType": content_type or "",
             "body": base64.b64encode(body).decode("ascii"), "queuedAt": time.time(), "attempts": 0}
+
+
+def _size(home: Path | None = None) -> tuple[int, int]:
+    """``(entries, bytes)`` waiting."""
+    paths = entries(home)
+    total = 0
+    for path in paths:
+        try:
+            total += path.stat().st_size
+        except OSError:
+            pass
+    return len(paths), total
+
+
+def _room(entry: dict, home: Path | None = None) -> bool:
+    n, total = _size(home)
+    return n < MAX_ENTRIES and total + len(json.dumps(entry)) <= MAX_TOTAL_BYTES
+
+
+def full_text(home: Path | None = None) -> str:
+    """The queue is full, in words — said every time a write is not kept, never a silent drop."""
+    n, total = _size(home)
+    return FULL_TEXT.format(waiting=n, mb=max(1, round(total / (1024 * 1024))))
 
 
 def describe(entry: dict) -> str:
@@ -182,7 +212,7 @@ def keep(entry: dict, *, home: Path | None = None) -> bool:
         for path in waiting:
             if path.name.endswith(tag) and (_read(path) or {}).get("id") == entry["id"]:
                 return True          # kept already (a reconcile done again after a cut): kept once
-        if len(waiting) >= MAX_ENTRIES:
+        if not _room(entry, home):
             return False
         _write(folder(home) / f"tx-{time.time_ns():020d}{tag}", entry)
     return True
@@ -194,8 +224,9 @@ def submit(entry: dict, send, *, home: Path | None = None, deadline_s: float = 3
     # One hold across the write and its flush (review of #566): a flush racing in between (the follower's) could send
     # this entry and leave this caller answering "queued" for a write that landed.
     with _locked(home):
-        if len(entries(home)) >= MAX_ENTRIES:
-            return "full", None, {}
+        if not _room(entry, home):
+            _count("full", home)
+            return "full", None, {"code": "queue_full", "text": full_text(home)}
         name = f"tx-{time.time_ns():020d}-{entry['id'][:12]}.json"
         _write(folder(home) / name, entry)
         outcome = _flush_locked(send, home=home, deadline_s=deadline_s, now=time.time)
@@ -272,7 +303,7 @@ def counts(home: Path | None = None) -> dict:
         if isinstance(at, (int, float)) and (oldest is None or at < oldest):
             oldest = at
     c = _counters(home)
-    return {"waiting": waiting, "held": held, "expired": int(c.get("expired") or 0),
+    return {"waiting": waiting, "held": held, "expired": int(c.get("expired") or 0), "refusedFull": int(c.get("full") or 0),
             "dropped": sum(int(v) for k, v in c.items() if k.startswith("dropped_")),
             "rejected": int(c.get("rejected") or 0), "oldestAt": oldest}
 

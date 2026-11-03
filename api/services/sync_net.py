@@ -100,6 +100,7 @@ async def on_revoke(device) -> None:
     door = sys.modules.get("api.services.sync_door")
     if door is not None and door.SERVER is not None:
         door.SERVER.lookup.forget()
+        door.SERVER.close_device(device.id)          # its open sessions and its watch end now, not at their timeout
 
     link = sync_transport._link()   # noqa: SLF001
     if link is None or not link.is_home or not getattr(device, "relay_ed", None):

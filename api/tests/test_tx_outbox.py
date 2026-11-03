@@ -144,3 +144,34 @@ def test_every_capture_route_keeps_its_key_longer_than_an_outbox_entry_waits():
             assert route in SAME_BY_CONTENT, f"{route}: key it (8 days) or name how a resend stays one write"
     assert {r for r in captures if r not in SAME_BY_CONTENT} == {
         "POST /capture/note", "POST /capture/file", "POST /sources/save"}
+
+
+def test_a_full_outbox_says_so_in_words_and_drops_nothing_that_waits(home, monkeypatch):
+    """Ruling 51f: nothing unsent expires, so the outbox is bounded by bytes too — and a write that does not fit is
+    refused in words, never queued in words and lost in fact."""
+    away = lambda e: (None, {"_noAnswer": "unreachable"})   # noqa: E731
+    tx_outbox.submit(_tool(key="first"), away, home=home)
+    monkeypatch.setattr(tx_outbox, "MAX_TOTAL_BYTES", 1)
+    verdict, status, body = tx_outbox.submit(_tool(key="second"), away, home=home)
+    assert verdict == "full" and status is None and body["code"] == "queue_full"
+    assert "full" in body["text"] and "Nothing that waits was dropped" in body["text"]
+    assert [p.name.endswith("-first.json") for p in tx_outbox.entries(home)] == [True]
+    assert tx_outbox.counts(home)["refusedFull"] == 1
+    assert tx_outbox.keep(_tool(key="third"), home=home) is False
+
+
+def test_the_tool_door_tells_a_full_queue_in_words(monkeypatch):
+    import asyncio
+
+    from api.routers import tools
+    from api.services import replica
+
+    monkeypatch.setattr(tx_outbox, "submit", lambda entry, send, **kw: ("full", None, {"code": "queue_full",
+                                                                                     "text": "queue is full"}))
+    monkeypatch.setattr(replica, "seq", lambda: 3)
+
+    class _Req:
+        headers = {}
+
+    got = asyncio.run(tools._to_home(tools.ToolCallRequest(tool="cicada_save_episode", arguments={}), _Req(), None))
+    assert got["code"] == "queue_full" and got["error"] == "queue is full" and got["code"] != "queued_for_home"

@@ -713,9 +713,14 @@ demo, `CICADA_SYNC_DOOR=off` to keep it shut. It is **a sealed-frame endpoint on
 never a bank path**. The backend's HTTP API still binds `127.0.0.1`.
 
 - **Who may connect.** T3 Code's rule: both ends of the connection loopback, private (RFC 1918, IPv6 unique-local) or
-  tailnet (`100.64.0.0/10`, Tailscale's IPv6 range); anything else is closed before a byte is read. It binds every
-  interface (`CICADA_SYNC_DOOR_HOST` names one), on a port chosen once and kept (`$CICADA_HOME/sync/door.json`, 0600,
-  with the door's X25519 key).
+  tailnet (`100.64.0.0/10`, Tailscale's IPv6 range); anything else is closed before a byte is read.
+- **Where it listens: never a wildcard, never a public or global address** (security review of #586). It binds
+  loopback (`127.0.0.1`, `::1`) and each of this computer's own private (RFC 1918, IPv6 unique-local) and tailnet
+  addresses, read from the routing table, one socket each; every 5 s it compares that list with what it holds,
+  binds a new network's address and closes a gone one. A server with a public IPv4 or a global IPv6 address never
+  listens on it, so "nothing on a device listens on a public port" holds; slice 2's switch is the only thing that may
+  ever amend that. `CICADA_SYNC_DOOR_HOST` names the addresses instead (a non-bindable one is ignored). The port is
+  chosen once and kept (`$CICADA_HOME/sync/door.json`, 0600, with the door's X25519 key).
 - **The handshake proves both ends and hides who connects.** The client's first packet is fixed-length: a fresh X25519
   key, then — sealed under `DH(fresh, door key)` — its P-256 public key and its signature over the door key, the fresh
   key and the time. The key must be a device of the group: its registered signing key (`sign_jwk`) or the key its
@@ -728,14 +733,15 @@ never a bank path**. The backend's HTTP API still binds `127.0.0.1`.
   repeats a fresh key already seen, or names no device of the group is closed without one byte sent back. Over TCP a
   scanner learns only that a port accepted a connection; it never learns what listens (the UDP door of slice 2's punch
   would show nothing at all).
-- **Rate-limited.** Per source address a bucket of 10 handshakes refilled one per 2 s (a failed one costs 3); at most 32
+- **Rate-limited.** Per source (an IPv4 address, an IPv6 /64) a bucket of 10 handshakes refilled one per 2 s (a failed one costs 3); at most 32
   connections waiting for their hello (3 s each) and 128 sessions; a frame at most 513 KiB, a request body 32 MiB, an
   idle session closes after 120 s.
 - **Small and fuzzed.** The parser is two fixed-length reads and one bounded length; `test_sync_door.py` feeds it random
   bytes, truncations and single-bit flips (3,300 hellos, 500 replies) and checks it only ever drops.
 - **What it carries.** Requests run **in process** through the same routes a device token reaches
   (`sync_inprocess`, shared with the relay link), as the device the handshake proved (`auth.RELAY_DEVICE_SCOPE`,
-  `auth.DOOR_DEVICE_SCOPE`): its row is looked up again per request (a revoke is a 401 at once), the master-only rules
+  `auth.DOOR_DEVICE_SCOPE`): its row is looked up again per request (a revoke is a 401 at once, and the revoked
+  device's open sessions and watch are closed then and there), the master-only rules
   hold, a capture-only phone reaches only `auth.CAPTURE_ROUTES`, and a write carries its `Idempotency-Key` into the
   same `idempotency.run_once` — sent twice by two routes, applied once. A copy holds a watch on the door: the door
   reads the home's `HEAD` every 0.5 s only while a device watches and tells it of each commit at once.
@@ -743,19 +749,22 @@ never a bank path**. The backend's HTTP API still binds `127.0.0.1`.
   beside the unchanged QR v1: the home's device id and signing key, the door key, port and addresses, and a one-time
   256-bit secret (ten minutes, one use) — the phone app's later QR v2. A device not yet in the group proves the secret
   with an HMAC in its hello's last 32 bytes; that session may make exactly one request, `POST /pair` with the code,
-  redeemed capture-only and bound to the key its hello proved. The answer is the device's id — never a token.
+  redeemed capture-only and bound to the key its hello proved — only that pairing's own code (a secret never spends
+  another pairing's), the tag compared in constant time. The answer is the device's id — never a token.
 - **macOS.** Accepting connections needs no Local Network permission (TN3179); dialing a LAN address does, so a copy
   dials a non-loopback LAN door only when the app reports the permission and the agent plist names the app
-  (`CICADA_SYNC_LAN_DIAL=on|off` overrides; Linux always may). Binding every interface raises the application
+  (`CICADA_SYNC_LAN_DIAL=on|off` overrides; Linux always may). Binding a LAN address raises the application
   firewall's question (whether the backend may accept incoming connections) when the firewall is on, so **on a Mac the
   door stays on loopback until the app reports its permissions step** (`lanAllowed` on `POST /sync/discovered` or
-  `POST /sync/network`), then reopens on every interface — nothing asks the person anything unasked; the app's
+  `POST /sync/network`), then binds its private and tailnet addresses — nothing asks the person anything unasked; the app's
   first-share step (D4) covers Local Network and the firewall together.
 
 **The outbox never drops an unsent write (D1).** With no mailbox, a write that never reached the home waits however
 long and applies once when a route answers; only an entry the home may have seen (it answered, or a send's answer was
 lost) keeps the 7-day bound before the home's 8-day key, and one that lapses is listed with the rejected ones
-(`expired_may_have_landed`), never silently lost.
+(`expired_may_have_landed`), never silently lost. Since nothing unsent expires, the outbox is bounded by 5,000
+entries and 256 MB: a write that does not fit is refused in words ("this device's queue for the home is full … Nothing
+that waits was dropped"; `queue_full` from the tool door, 507 from the route table), never queued in words and lost.
 
 **Which route was used** is one telemetry row (`sync_route`) when a device's route changes or it starts queueing, and
 once an hour per device and route at the door — `side`, `route`, `event`, `before` as enums only, never an address,

@@ -772,8 +772,9 @@ and it moves back as soon as one answers; switching Wi-Fi never re-pairs and fet
 The door is a sealed-frame endpoint a computer opens only while it shares a memory or has a paired device: never the
 HTTP API (which still binds `127.0.0.1`), never a token; a device proves its pairing key in its first packet and
 anything else is closed without a byte; only loopback, private and tailnet peers; rate-limited. A phone pairs in the
-same room through it with the QR's one-time secret. On a server, the door binds every interface by default
-(`CICADA_SYNC_DOOR_HOST` to pin one, `CICADA_SYNC_DOOR=off` to keep it shut) and its port is kept in
+same room through it with the QR's one-time secret. On a server, the door binds loopback and the server's own private
+and tailnet addresses only — **never a wildcard, never its public IPv4 or global IPv6** — rebinding when its
+addresses change (`CICADA_SYNC_DOOR_HOST` to name them, `CICADA_SYNC_DOOR=off` to keep it shut); its port is kept in
 `$CICADA_HOME/sync/door.json`. Details, numbers and the threat model: [`network.md`](network.md), "The route list and
 the home-network door".
 
