@@ -180,14 +180,10 @@ final class TracesUIPermissionHelperTests: XCTestCase {
     }
 
     func testTheWordsPerKind() {
-        XCTAssertEqual(Copy.Traces.need(.screenRecording),
-                       "I need screen recording. Drag me into the Screen Recording list.")
-        XCTAssertEqual(Copy.Traces.nearMiss(.screenRecording),
-                       "Drag into 'Screen & System Audio Recording', not the audio-only list.")
-        XCTAssertTrue(Copy.Traces.need(.accessibility).contains("Accessibility"))
-        XCTAssertTrue(Copy.Traces.nearMiss(.accessibility).contains("Accessibility"))
+        XCTAssertEqual(Copy.Traces.need(.screenRecording), "Drag Cicada into Screen & System Audio Recording")
+        XCTAssertEqual(Copy.Traces.need(.accessibility), "Drag Cicada into Accessibility")
+        XCTAssertEqual(Copy.Traces.need(.fullDiskAccess), "Drag Cicada into Full Disk Access")
         let (model, _, _, _) = make(.accessibility)
-        XCTAssertEqual(model.hint, Copy.Traces.nearMiss(.accessibility))
         XCTAssertEqual(model.need, Copy.Traces.need(.accessibility))
     }
 

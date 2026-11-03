@@ -421,7 +421,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   **The redesign (ruling 48, owner 2026-10-28):** a page is an article carrying its beliefs as citations, never a stacked
   fold; the Inbox lives on Home and each page, off the rail (DESIGN_RULES §9 2026-10-28, DR-77…DR-81).
 - **Bookmarks (G191 v3, 2026-10-15):** the app removes a bookmark from the person's browser only on their click, after
-  asking in words — Chrome through Apple Events (the Automation prompt only then), never Safari, never the backend; it
+  asking in words — Chrome through Apple Events (the Automation prompt only then, or from the Permissions row's own click, owner 2026-11-03), never Safari, never the backend; it
   sees Chrome's bookmark bubble from window bounds alone (no title, no permission), read only in the moment after the
   person's own click in a frontmost Chrome — never on a steady timer (G191 v4) — and posts no answer until a sync confirms the bookmark (`app.md`).
   An answer given is never dropped for a dismissal or a late sync, and a touched panel closes only on the person's act;
