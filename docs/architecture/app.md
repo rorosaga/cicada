@@ -1364,7 +1364,8 @@ that passes through is not entering it). *Apps* (`ConnectSuggestApps`, bundle id
 (`net.whatsapp.WhatsApp` → `whatsapp`), Telegram (`ru.keepcoder.Telegram`, `org.telegram.desktop` → `telegram-chats`),
 Messages, Notes, Calendar, Reminders, Contacts, every browser Cicada reads bookmarks from (`BrowserInventory.catalog`,
 `supported` only — Arc, Firefox, Edge and Opera never), Wispr Flow (`com.electron.wispr-flow`), Notion (`notion.id`) and
-Hex (`anomaly.hex` → `hex`, inert until the meeting recorders' catalogue entry exists, #579). Readwise is gone. **A website
+Hex (`anomaly.hex` → `hex`, the meeting recorders' entry, read with the app's meeting folders so a Hex whose own
+folder is connected never reads Off). Readwise is gone. **A website
 in the front tab is not a trigger:** the only permission-free tab read is the star-click prefill (owner ruling
 2026-10-19), and reading the tab on every activation would be watching browsing without the person's act — activity
 traces' ground (G218). *Connected* is the catalogue's own word for that entry (`ConnectSuggestApps.status` →

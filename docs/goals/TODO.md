@@ -15,7 +15,7 @@
 - **2026-11-03 — the notch offers to connect the app in front (G231; branch `feat/notch-connect-suggest`).** Owner:
   "when you enter an app they support a connection for, they suggest from the notch to connect to it … with our own
   aesthetic". Bringing WhatsApp, Telegram, Messages, Notes, Calendar, Reminders, Contacts, a browser Cicada reads,
-  Wispr Flow, Notion (or Hex once #579's entry lands) to the front, when its Sources entry reads Off in the active
+  Wispr Flow, Notion or Hex (offered until its own meeting folder is connected) to the front, when its Sources entry reads Off in the active
   memory, drops the ask-why notch's second voice: worm + the app's icon, "Connect Notes to Cicada?", what is read, two
   or three things Cicada does with it, No · Not now · Yes. Once per source; Not now (or untouched for 12 s, or leaving
   the app) once more after ≥ 14 days, then never; No never, undone in Settings → General; ≤ 1 a day; never in an app's
@@ -23,8 +23,7 @@
   takes the keyboard. Websites in the front tab are deliberately not a trigger (the star-click prefill is the only
   permission-free tab read, owner 2026-10-19). Seen on a scratch app copy: Notes brought forward → the panel in ≈ 1.5–2 s,
   12 s untouched → recorded Not now, Yes → Sources on Apple Notes. Found live and fixed: a Yes over the Welcome opened
-  the source behind it, so nothing is offered before setup. Waiting on the owner: nothing; a follow-up passes
-  `hexPresent` to the suggestion's catalogue lookup once #579 merges.
+  the source behind it, so nothing is offered before setup. Waiting on the owner: nothing.
 - **2026-11-03 — meeting recorders on Sources: Hex, Wispr Flow, a folder of transcripts (G95, ruling 52; branch
   `feat/meeting-recorders`).** Hex (anoma.ly/hex, 3.3.0, MIT) writes one Markdown file per meeting to the Hex
   meetings folder (Hex's `meetings.output_folder` setting, else its default) with a title, Date/Duration bullets, an
