@@ -230,7 +230,7 @@ _DEVICE_READABLE = frozenset({("GET", "/devices"), ("GET", "/devices/status")})
 #: the person's Sleep page on any of their full devices asks the home to move (`POST /sync/home/move`).
 #: G132 phase 3b: the relay setting, joining over the relay and the app's LAN finds are this computer's own acts.
 MASTER_ONLY_WRITE_PREFIXES = ("/remote", "/agent-api", "/sync/publish", "/sync/replica", "/sync/home/take-over",
-                              "/sync/relay", "/sync/discovered")
+                              "/sync/relay", "/sync/discovered", "/sync/network")
 _MASTER_ONLY_WRITE_METHODS = frozenset({"POST", "PUT", "PATCH"})
 
 
@@ -287,6 +287,10 @@ def request_device(request: Request):
 #: device row it belongs to. A network server never sets a custom scope key, so no client can claim either.
 RELAY_SENDER_SCOPE = "cicada.relay_sender"
 RELAY_DEVICE_SCOPE = "cicada.relay_device"
+#: G132 ruling 51f (D3): the device the home-network door's handshake proved (its signing key against the registry),
+#: set by ``sync_door`` alone on a request it runs in process. Read by the open peer routes (``/sync/peer``) the way
+#: a relay frame's sender is; a device route is admitted through ``RELAY_DEVICE_SCOPE`` as before.
+DOOR_DEVICE_SCOPE = "cicada.door_device"
 
 
 async def require_token(

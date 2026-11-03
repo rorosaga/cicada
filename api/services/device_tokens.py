@@ -73,10 +73,12 @@ CREATE TABLE IF NOT EXISTS devices (
 #: G132 phase 3b: ``relay_ed`` / ``relay_x`` — the PUBLIC halves of the keys the device uses at the relay (its frames'
 #: signing key, the key its epoch keys are sealed to), so a home knows which device a relay frame came from and a new
 #: home can wrap keys to every device; ``copy_head`` — the commit its copy is at (the home coalesces a lagging
-#: device's deltas into one bundle from there).
+#: device's deltas into one bundle from there). Ruling 51f: ``door`` — where the device's home-network door answers
+#: (``sync_door``: its port, its public key and its LAN and tailnet addresses, JSON), so every device learns the
+#: routes of a device that may become the home; addresses only, outside every bank, never in the telemetry ledger.
 _SYNC_COLUMNS = (("sign_jwk", "TEXT"), ("address", "TEXT"), ("copy_bank_id", "TEXT"), ("copy_seq", "INTEGER"),
                  ("copy_at", "TEXT"), ("is_self", "INTEGER NOT NULL DEFAULT 0"), ("relay_ed", "TEXT"),
-                 ("relay_x", "TEXT"), ("copy_head", "TEXT"))
+                 ("relay_x", "TEXT"), ("copy_head", "TEXT"), ("door", "TEXT"))
 #: G212 (owner 2026-10-29): a **key-bound** device's token works only with a proof signed by the device's own key
 #: (``device_proof``, RFC 9449's shape). ``key_thumbprint`` is that public key's RFC 7638 thumbprint — a hash of a
 #: public key, never a secret — set at pairing (the redeem carried a proof) or once by the device itself
@@ -126,6 +128,7 @@ class Device:
     relay_ed: str | None = None
     relay_x: str | None = None
     copy_head: str | None = None
+    door: str | None = None
 
     @property
     def active(self) -> bool:
@@ -180,7 +183,8 @@ def _row(row: sqlite3.Row) -> Device:
                   is_self=bool(row["is_self"]) if "is_self" in keys else False,
                   relay_ed=row["relay_ed"] if "relay_ed" in keys else None,
                   relay_x=row["relay_x"] if "relay_x" in keys else None,
-                  copy_head=row["copy_head"] if "copy_head" in keys else None)
+                  copy_head=row["copy_head"] if "copy_head" in keys else None,
+                  door=row["door"] if "door" in keys else None)
 
 
 #: Stores whose schema this process already made or migrated, by path — so the auth gate, which opens the store on
@@ -284,7 +288,8 @@ class DeviceStore:
         return self.get(device.id), token
 
     def announce(self, device_id: str, *, sign_jwk: dict | None = None, address: str | None = None,
-                 bank_id: str | None = None, seq: int | None = None, head: str | None = None) -> Device:
+                 bank_id: str | None = None, seq: int | None = None, head: str | None = None,
+                 door: dict | None = None) -> Device:
         """What a device says about itself (``POST /sync/devices/me``): its signing key — set once; another key is
         ``ValueError``, a new key is a new pairing — where it is reached, and the copy it keeps. ``KeyError`` for an
         unknown or revoked device."""
@@ -307,6 +312,10 @@ class DeviceStore:
                            (bank_id, seq, _now(), device_id))
             if head is not None:
                 db.execute("UPDATE devices SET copy_head=? WHERE id=?", (head or None, device_id))
+            if door is not None:
+                wanted = _json.dumps(door, sort_keys=True) if door else None
+                if row["door"] != wanted:
+                    db.execute("UPDATE devices SET door=? WHERE id=?", (wanted, device_id))
         return self.get(device_id)
 
     def set_relay_key(self, device_id: str, ed: str, x: str) -> Device:
@@ -341,7 +350,7 @@ class DeviceStore:
         undone; ``is_self`` is this computer's own row only (``me``). Returns how many rows it took."""
         cols = ("id", "name", "token_hash", "created_at", "revoked_at", "last_used_at", "use_count", "kind",
                 "key_thumbprint", "key_bound_at", "sign_jwk", "address", "copy_bank_id", "copy_seq", "copy_at",
-                "relay_ed", "relay_x", "copy_head")
+                "relay_ed", "relay_x", "copy_head", "door")
         taken = 0
         with self._db() as db:
             db.execute("BEGIN IMMEDIATE")

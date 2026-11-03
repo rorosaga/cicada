@@ -50,6 +50,7 @@ from urllib.parse import parse_qs, urlsplit
 from loguru import logger
 
 from api.services.sync_relay_client import RelayClient, check_url
+from api.services.sync_inprocess import ANSWER_HEADERS, DENIED_PREFIXES, REQUEST_HEADERS, run_in_process  # noqa: F401
 from api.services.sync_relay_crypto import Endpoint, Home, Keys, Refused, b64d, b64e
 
 STATE_FILE = "relay-state.json"
@@ -83,11 +84,6 @@ SAME_ASK_S = 600.0
 TX_RESEND_S = 6 * 86_400
 #: Answers to transactions kept for a resend after the caller stopped waiting (an outbox retries later).
 ANSWERS_KEPT = 1000
-#: Headers a request carries over the relay (never ``Authorization``) and an answer brings back.
-REQUEST_HEADERS = ("content-type", "idempotency-key", "x-cicada-bank-id", "accept")
-ANSWER_HEADERS = ("content-type", "x-cicada-seq", "x-cicada-head", "x-cicada-bank-id", "x-cicada-build-ms")
-#: Paths a relay frame may never reach: pairing and the relay's own settings are the person's, on their screen.
-DENIED_PREFIXES = ("/sync/relay", "/pair", "/devices/pairing", "/remote")
 
 LINK: "Link | None" = None
 
@@ -139,60 +135,7 @@ def _endpoint_from(state: dict, memory_path) -> Endpoint:
     return Endpoint.from_state(ep, spool_dir=spool)
 
 
-# --- the ASGI call, in process ---------------------------------------------------------------------------------------------
-
-async def run_in_process(app, *, sender: str, device_id: str | None, method: str, path: str, query: str,
-                         headers: dict, body: bytes, spill_to: Path | None = None) -> tuple[int, dict, bytes, Path | None]:
-    """Run one request through the app as the device whose verified frame carried it. ``(status, headers, body,
-    file)``: an answer larger than 4 MiB (a bundle) is written to a file under ``spill_to`` instead of memory."""
-    from api.services import auth
-
-    if any(path == p or path.startswith(p + "/") for p in DENIED_PREFIXES):
-        return 403, {"content-type": "application/json"}, b'{"detail":"not over the relay"}', None
-    scope = {"type": "http", "asgi": {"version": "3.0", "spec_version": "2.3"}, "http_version": "1.1",
-             "method": method.upper(), "scheme": "http", "path": path, "raw_path": path.encode("utf-8"),
-             "query_string": (query or "").encode("latin-1"), "root_path": "",
-             "headers": [(k.lower().encode("latin-1"), str(v).encode("latin-1")) for k, v in headers.items()
-                         if k.lower() in REQUEST_HEADERS] + [(b"host", b"relay")],
-             "client": None, "server": ("relay", 0), "state": {}, auth.RELAY_SENDER_SCOPE: sender}
-    if device_id:
-        scope[auth.RELAY_DEVICE_SCOPE] = device_id
-    sent = {"body": False}
-
-    async def receive():
-        if sent["body"]:
-            await asyncio.sleep(3600)
-            return {"type": "http.disconnect"}
-        sent["body"] = True
-        return {"type": "http.request", "body": body or b"", "more_body": False}
-
-    out = {"status": 500, "headers": {}, "chunks": [], "size": 0, "file": None, "fh": None}
-
-    async def send(message):
-        if message["type"] == "http.response.start":
-            out["status"] = message["status"]
-            out["headers"] = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in message.get("headers", [])}
-        elif message["type"] == "http.response.body":
-            chunk = message.get("body", b"")
-            out["size"] += len(chunk)
-            if out["fh"] is None and spill_to is not None and out["size"] > 4 * 1024 * 1024:
-                path_ = spill_to / f"answer-{secrets.token_hex(8)}.bin"
-                out["file"] = path_
-                out["fh"] = open(os.open(path_, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb")
-                out["fh"].write(b"".join(out["chunks"]))
-                out["chunks"] = []
-            if out["fh"] is not None:
-                out["fh"].write(chunk)
-            else:
-                out["chunks"].append(chunk)
-
-    try:
-        await app(scope, receive, send)
-    finally:
-        if out["fh"] is not None:
-            out["fh"].close()
-    keep = {k: v for k, v in out["headers"].items() if k in ANSWER_HEADERS}
-    return out["status"], keep, b"".join(out["chunks"]), out["file"]
+# --- the ASGI call, in process: ``sync_inprocess`` (shared with the home-network door) -----------------------------
 
 
 # --- the link --------------------------------------------------------------------------------------------------------------

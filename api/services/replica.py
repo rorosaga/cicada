@@ -649,6 +649,11 @@ def _events_reader() -> None:
 
     delay = 1.0
     while not _STOP.is_set():
+        door = _watch_door()
+        if door == "watched":
+            delay = 1.0
+            _STOP.wait(0.5)       # never a tight loop on a door that hangs up at once
+            continue
         try:
             base = home_base()
         except ValueError:
@@ -682,8 +687,45 @@ def _events_reader() -> None:
                 continue
         except Exception:  # noqa: BLE001 — offline, a reset, a timeout: try again
             pass
-        _STOP.wait(delay)
+        # A copy with a door route looks again soon: the follower may have moved to the door meanwhile.
+        _STOP.wait(min(delay, 5.0) if door == "possible" else delay)
         delay = min(delay * 2, BACKOFF_MAX_S)
+
+
+def _watch_door() -> str:
+    """Ruling 51f: while the home's door is this copy's route, hold a watch on it — each commit wakes the follower at
+    once, the way ``/sync/events`` does on the configured address. ``watched`` (it ran until the door hung up),
+    ``possible`` (a door route is known but not the one in use), or ``none``."""
+    from api.services import sync_door, sync_routes
+
+    try:
+        try:
+            base = home_base()
+        except ValueError:
+            base = None
+        routes, target = sync_routes.home_routes(base, relay=False)
+        doors = [r for r in routes if r.carrier == "door"]
+        if target is None or not doors:
+            return "none"
+        active = next((r for r in doors if r.key == sync_routes.BOOK.active), None)
+        identity = sync_door.own_identity()
+        if active is None or identity is None:
+            return "possible"
+        conn = sync_door.connect(active.host, active.port, target, identity, timeout=active.connect_s,
+                                 on_routes=sync_routes.learn)
+    except Exception:  # noqa: BLE001 — the door did not answer: the follower's next request moves on
+        return "possible"
+
+    def on_head(head):
+        with _COND:
+            _STATE.last_contact = time.time()
+            known = _STATE.sha
+        if head and head != known:
+            _NOTIFIED[0] = time.perf_counter()
+            wake()
+
+    sync_door.watch(conn, on_head, _STOP)
+    return "watched"
 
 
 def _on_event(event: str, data: str) -> None:

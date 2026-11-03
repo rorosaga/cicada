@@ -59,13 +59,37 @@ def test_keep_drop_hold_and_rejected(home):
     assert counts["held"] == 1 and counts["waiting"] == 1 and counts["rejected"] == 1
 
 
-def test_an_entry_expires_before_the_homes_key(home):
+def test_an_entry_the_home_may_have_seen_expires_before_the_homes_key(home):
     assert tx_outbox.EXPIRE_S < idempotency.TOOLS_TTL_S
-    tx_outbox.submit(_tool(key="old"), lambda e: (None, None), home=home)
+    # Sent, and its answer lost: the home may hold its key, so it expires a day before the key does — listed, never
+    # silently lost.
+    tx_outbox.submit(_tool(key="old"), lambda e: (None, {"_noAnswer": "timeout"}), home=home)
     sent = []
     decided = tx_outbox.flush(lambda e: (sent.append(1) or 200, {}), home=home,
                               now=lambda: __import__("time").time() + tx_outbox.EXPIRE_S + 1)
     assert decided["old"][0] == "expired" and sent == [] and tx_outbox.counts(home)["expired"] == 1
+    assert tx_outbox.rejected(home)[-1]["code"] == "expired_may_have_landed"
+
+
+def test_an_entry_that_never_reached_the_home_never_expires(home):
+    """Ruling 51f D1: "we sync when a machine is on" — a write that never reached the home waits however long."""
+    tx_outbox.submit(_tool(key="never"), lambda e: (None, {"_noAnswer": "unreachable"}), home=home)
+    tx_outbox.submit(_tool(key="notoken"), lambda e: (None, None), home=home)
+    far = __import__("time").time() + 90 * 86_400
+    assert tx_outbox.flush(lambda e: (None, {"_noAnswer": "unreachable"}), home=home, now=lambda: far)["never"][0] \
+        == "wait"
+    sent = []
+    decided = tx_outbox.flush(lambda e: (sent.append(e["id"]) or 200, {}), home=home, now=lambda: far)
+    assert decided["never"][0] == "landed" and decided["notoken"][0] == "landed" and sent == ["never", "notoken"]
+    assert tx_outbox.counts(home)["expired"] == 0
+
+
+def test_an_entry_from_before_the_rule_keeps_the_old_one(home):
+    entry = {**_tool(key="legacy"), "v": 1, "attempts": 2}
+    tx_outbox.keep(entry, home=home)
+    decided = tx_outbox.flush(lambda e: (200, {}), home=home,
+                              now=lambda: __import__("time").time() + tx_outbox.EXPIRE_S + 1)
+    assert decided["legacy"][0] == "expired"
 
 
 def test_a_rest_entry_keeps_its_bytes_and_a_capture_too_large_is_refused(home):

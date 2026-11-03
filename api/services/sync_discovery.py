@@ -116,9 +116,15 @@ def plan(memory_path) -> dict | None:
         return None
     from api.services import sync_direct_listen
 
+    import sys
+
     bind = sync_direct_listen.bound()
+    door = getattr(sys.modules.get("api.services.sync_door"), "SERVER", None)
+    # Ruling 51f: the home-network door is what a device dials on the LAN; the configured https address otherwise.
+    port = door.port if door is not None and door.running() else (bind[1] if bind else None)
     return {"type": SERVICE_TYPE, "browse": instance_name(bank_id),
-            "advertise": {"name": instance_name(bank_id), "port": bind[1]} if bind else None,
+            "advertise": {"name": instance_name(bank_id), "port": port, "door": bool(door and door.running())}
+            if port else None,
             "nonce": issue_nonce()}
 
 

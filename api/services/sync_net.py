@@ -1,5 +1,5 @@
-"""Starting and stopping the relay link from the backend's lifespan (G132 phase 3b). Unset or off — no relay set, or
-nothing shared — nothing starts and nothing relay-side is imported. The direct path needs nothing started: it is the
+"""Starting and stopping the home-network door and the relay link from the backend's lifespan (G132 phase 3b, ruling
+51f). Nothing shared — nothing starts. No relay set — nothing relay-side is imported. The direct path needs nothing started: it is the
 address the person already configured (``sync_direct_listen`` shows it; the backend still binds 127.0.0.1)."""
 from __future__ import annotations
 
@@ -21,21 +21,42 @@ def _shared(memory_path) -> bool:
 
 
 async def on_start(app, settings) -> None:
-    """After the backend knows its part (home or replica) and before a replica's follower starts."""
+    """After the backend knows its part (home or replica) and before a replica's follower starts: the home-network
+    door while the memory is shared (ruling 51f D3), then the relay link when the person set a relay."""
     import asyncio
 
     from api.services import sync_transport
 
-    if sync_transport.relay_url() is None or not await asyncio.to_thread(_shared, settings.memory_path):
+    shared = await asyncio.to_thread(_shared, settings.memory_path)
+    if shared:
+        await ensure_door(app, settings.memory_path, shared=True)
+    if sync_transport.relay_url() is None or not shared:
         return
-    if sync_transport.relay_url() is not None:
-        await restart_link(app, settings.memory_path)
+    await restart_link(app, settings.memory_path)
+
+
+async def ensure_door(app, memory_path, *, shared: bool | None = None) -> None:
+    """Open the door when this memory is shared and closed when it is not (the publish switch, a copy started or
+    left). Off until a memory is shared; never for a demo; ``CICADA_SYNC_DOOR=off`` keeps it shut."""
+    import asyncio
+
+    from api.services import sync_door
+
+    if shared is None:
+        shared = await asyncio.to_thread(_shared, memory_path)
+    if shared and sync_door.enabled():
+        await sync_door.start(app, memory_path)
+    else:
+        await sync_door.stop()
 
 
 async def on_stop() -> None:
     mod = sys.modules.get("api.services.sync_relay_link")
     if mod is not None:
         await mod.stop()
+    door = sys.modules.get("api.services.sync_door")
+    if door is not None:
+        await door.stop()
 
 
 async def restart_link(app, memory_path) -> None:

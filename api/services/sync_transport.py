@@ -37,6 +37,8 @@ import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from api.services.sync_routes import Book as _Book
+
 NO_ANSWER = "x-cicada-no-answer"
 #: With a relay running: how long a direct peer has to accept a TCP connection before the relay is used.
 FALLBACK_AFTER_S = 2.0
@@ -49,8 +51,11 @@ RELAY_ONLY_BASE = "https://home.relay.invalid"
 RELAY_ONLY_HOST = "home.relay.invalid"
 
 _LOCK = threading.Lock()
-_STATS: dict = {"direct": 0, "relay": 0, "fallbacks": 0, "last": None, "lastFallbackMs": None, "directDownUntil": 0.0}
+_STATS: dict = {"direct": 0, "relay": 0, "door": 0, "fallbacks": 0, "last": None, "lastRoute": None,
+                "lastFallbackMs": None, "directDownUntil": 0.0}
 _PROBED: dict[tuple[str, int], float] = {}
+#: The routes of a request to one device (the home-move peer calls): its address, then the relay.
+_PEER_BOOK = _Book("device")
 _DOWN: dict[tuple[str, int], float] = {}
 
 
@@ -204,10 +209,12 @@ def _mark_down(target: tuple[str, int] | None) -> None:
         _STATS["directDownUntil"] = time.time() + DIRECT_RETRY_S
 
 
-def _count(path: str, fallback_ms: float | None = None) -> None:
+def _count(path: str, fallback_ms: float | None = None, route: str | None = None) -> None:
     with _LOCK:
         _STATS[path] = int(_STATS.get(path) or 0) + 1
         _STATS["last"] = path
+        if route:
+            _STATS["lastRoute"] = route
         if fallback_ms is not None:
             _STATS["fallbacks"] = int(_STATS.get("fallbacks") or 0) + 1
             _STATS["lastFallbackMs"] = round(fallback_ms, 1)
@@ -215,27 +222,84 @@ def _count(path: str, fallback_ms: float | None = None) -> None:
 
 # --- the one entry point ------------------------------------------------------------------------------------------------
 
+def _no_answer(kind: str):
+    from api.services.sync_routes import NoAnswer
+
+    return NoAnswer(kind)
+
+
 def request(base: str | None, method: str, path: str, *, body: bytes | None = None, headers: dict | None = None,
             timeout: float = 30.0, to_file: Path | None = None, to: str = "home"):
     """``(status, headers, body)`` from the home (``to="home"``) or one device (``to`` its relay key). ``base`` is
-    the direct address (None or :data:`RELAY_ONLY_BASE`: none). ``headers`` carry the caller's credential for the
-    direct path only — the relay path never carries one: the receiver knows the sender by its signed frame."""
+    the configured direct address (None or :data:`RELAY_ONLY_BASE`: none). ``headers`` carry the caller's credential
+    for the configured route only — the door and the relay never carry one: the receiver knows the sender by its
+    handshake or its signed frame.
+
+    Ruling 51f: the request takes this device's ordered route list (``sync_routes``: the home's door on the LAN, on
+    the tailnet, the configured address, the relay), first that answers. With no door route known and no relay, it
+    is phases 1–2's direct request exactly."""
     link = _link()
-    if link is None:
+    routes, target = [], None
+    if to == "home":
+        from api.services import runtime_layout
+
+        if runtime_layout.is_replica():
+            from api.services import sync_routes
+
+            routes, target = sync_routes.home_routes(base, relay=link is not None)
+    if not any(r.carrier == "door" for r in routes) and link is None:
         if not base:
             return None, {NO_ANSWER: "unreachable"}, None
         return direct(base, method, path, body=body, headers=headers, timeout=timeout, to_file=to_file)
+    from api.services import sync_routes
+
+    if to != "home" or not routes:
+        routes = []
+        if base and _endpoint(base) is not None:
+            routes.append(sync_routes.Route("configured", "http", base=base))
+        routes.append(sync_routes.Route("relay", "relay"))
     started = time.perf_counter()
-    if _direct_usable(base):
-        got = direct(base, method, path, body=body, headers=headers, timeout=timeout, to_file=to_file)
-        if got[0] is not None:
+    carried = {k: v for k, v in (headers or {}).items() if k.lower() != "authorization"}
+    had_direct = bool(base and _endpoint(base))
+    book = sync_routes.BOOK if to == "home" else _PEER_BOOK
+
+    def attempt(route):
+        later = route is not routes[-1]
+        if route.carrier == "http":
+            if (later or link is not None) and not _direct_usable(route.base):
+                raise _no_answer("unreachable")
+            got = direct(route.base, method, path, body=body, headers=headers, timeout=timeout, to_file=to_file)
+            if got[0] is None:
+                _mark_down(_endpoint(route.base))     # died mid-way: the same request (same key) goes on
+                raise _no_answer(got[1].get(NO_ANSWER, "unreachable"))
             _count("direct")
             return got
-        _mark_down(_endpoint(base))          # died mid-way: the same request (same key) goes over the relay
-    relay_headers = {k: v for k, v in (headers or {}).items() if k.lower() != "authorization"}
-    got = link.request(method, path, body=body, headers=relay_headers, timeout=timeout, to_file=to_file, to=to)
-    _count("relay", fallback_ms=(time.perf_counter() - started) * 1000 if base and _endpoint(base) else None)
-    return got
+        if route.carrier == "door":
+            from api.services import sync_door
+
+            identity = sync_door.own_identity()
+            if identity is None or target is None:
+                raise _no_answer("unreachable")
+            try:
+                got = sync_door.request(route.host, route.port, target, identity, method, path, body=body,
+                                        headers=carried, timeout=timeout, to_file=to_file,
+                                        connect_timeout=route.connect_s, on_routes=sync_routes.learn)
+            except sync_door.Unreachable:
+                raise _no_answer("unreachable") from None
+            except sync_door.Dropped:
+                raise _no_answer("timeout") from None
+            _count("door", route=route.kind)
+            return got
+        got = link.request(method, path, body=body, headers=carried, timeout=timeout, to_file=to_file, to=to)
+        if got[0] is None:
+            raise _no_answer(got[1].get(NO_ANSWER, "timeout"))
+        _count("relay", fallback_ms=(time.perf_counter() - started) * 1000 if had_direct else None)
+        return got
+
+    try:
+        return sync_routes.drive(book, routes, attempt)
+    except sync_routes.NoAnswer as exc:
+        return None, {NO_ANSWER: exc.kind}, None
 
 
 def ask_peer(address: str | None, relay_ed: str | None, method: str, path: str, *, token: str,
@@ -253,7 +317,8 @@ def ask_peer(address: str | None, relay_ed: str | None, method: str, path: str, 
 def stats() -> dict:
     """What ``GET /sync/transport`` shows: which path the last request took, counts, the last fallback's time."""
     with _LOCK:
-        out = {"requests": {"direct": int(_STATS["direct"]), "relay": int(_STATS["relay"])},
+        out = {"requests": {"direct": int(_STATS["direct"]), "relay": int(_STATS["relay"]),
+                            "door": int(_STATS["door"])}, "lastRoute": _STATS["lastRoute"],
                "fallbacks": int(_STATS["fallbacks"]), "last": _STATS["last"],
                "lastFallbackMs": _STATS["lastFallbackMs"], "directDownUntil": _STATS["directDownUntil"] or None}
     link = _link()
@@ -266,5 +331,9 @@ def reset_for_tests() -> None:
     with _LOCK:
         _PROBED.clear()
         _DOWN.clear()
-        _STATS.update({"direct": 0, "relay": 0, "fallbacks": 0, "last": None, "lastFallbackMs": None,
-                       "directDownUntil": 0.0})
+        _STATS.update({"direct": 0, "relay": 0, "door": 0, "fallbacks": 0, "last": None, "lastRoute": None,
+                       "lastFallbackMs": None, "directDownUntil": 0.0})
+    _PEER_BOOK.reset()
+    mod = sys.modules.get("api.services.sync_routes")
+    if mod is not None:
+        mod.reset_for_tests()

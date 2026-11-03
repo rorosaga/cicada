@@ -11,8 +11,12 @@ own entry landed in that flush, else ``queued``. The keep / drop / hold rules ar
 
 * **wait** (kept, the flush stops so order holds): no answer, 401/403 (a revoked device — nothing more is sent until
   the token works again), 409 ``sleep_writing`` (also a tool's ``sleep_writing`` refusal code), 5xx;
-* **drop**, its reason counted: 400, 404, 405, 413, 422, and **expired** — an entry older than :data:`EXPIRE_S`
-  (7 days, before the home's 8-day key) is dropped rather than risk a second apply;
+* **drop**, its reason counted: 400, 404, 405, 413, 422, and **expired** — an entry the home **may have seen** (it
+  answered, or a send's answer was lost: ``timeout``) more than :data:`EXPIRE_S` ago (7 days, before the home's 8-day
+  key) is dropped rather than risk a second apply, and listed with the rejected ones so it is never silently lost.
+  **An entry that never reached the home never expires** (ruling 51f D1, owner 2026-11-03: "we sync when a machine
+  is on"): with no mailbox, a write waits for the next time a route answers — however long — and applies once;
+  if the memory moved on meanwhile, the home rejects it with a reason (below);
 * **hold**: 409 ``bank_mismatch`` — the home's memory is another one now; held, never in front of the others, tried
   again at most every :data:`HOLD_RETRY_S`;
 * **rejected**: any other refusal the home answered (an inbox item already answered elsewhere) — the transaction no
@@ -90,7 +94,7 @@ def entries(home: Path | None = None) -> list[Path]:
 
 def tool_entry(tool: str, arguments: dict, *, bank_id: str | None, base_seq: int | None, caller: dict,
                surface: str, options: dict, state: dict | None = None, key: str | None = None) -> dict:
-    return {"v": 1, "id": key or uuid.uuid4().hex, "kind": "tool", "bankId": bank_id, "baseSeq": base_seq,
+    return {"v": 2, "id": key or uuid.uuid4().hex, "kind": "tool", "bankId": bank_id, "baseSeq": base_seq,
             "tool": tool, "arguments": arguments or {}, "caller": caller or {}, "surface": surface,
             "options": options or {}, "state": state or {}, "queuedAt": time.time(), "attempts": 0}
 
@@ -99,7 +103,7 @@ def rest_entry(method: str, path: str, query: str, body: bytes, content_type: st
                base_seq: int | None, key: str | None = None) -> dict:
     if len(body) > MAX_BODY_BYTES:
         raise ValueError("too large to queue")
-    return {"v": 1, "id": key or uuid.uuid4().hex, "kind": "rest", "bankId": bank_id, "baseSeq": base_seq,
+    return {"v": 2, "id": key or uuid.uuid4().hex, "kind": "rest", "bankId": bank_id, "baseSeq": base_seq,
             "method": method, "path": path, "query": query or "", "contentType": content_type or "",
             "body": base64.b64encode(body).decode("ascii"), "queuedAt": time.time(), "attempts": 0}
 
@@ -119,12 +123,33 @@ def _count(reason: str, home: Path | None = None) -> None:
     _write(folder(home) / "counters.json", data)
 
 
-def _reject(entry: dict, status: int | None, code: str | None, home: Path | None = None) -> None:
+def _reject(entry: dict, status: int | None, code: str | None, home: Path | None = None, *,
+            counted: bool = True) -> None:
     path = folder(home) / "rejected.json"
     rows = (_read(path) or {}).get("rows") or []
     rows.append({"id": entry.get("id"), "what": describe(entry), "status": status, "code": code, "at": time.time()})
     _write(path, {"rows": rows[-REJECTED_KEEP:]})
-    _count("rejected", home)
+    if counted:
+        _count("rejected", home)
+
+
+def may_have_landed_at(entry: dict) -> float | None:
+    """When the home first may have seen ``entry`` (it answered, or an answer was lost), or None — never sent, or only
+    ever refused before a connection. An entry from before this rule that was tried is taken to have been seen when it
+    was queued (the old rule)."""
+    at = entry.get("maybeLandedAt")
+    if isinstance(at, (int, float)):
+        return float(at)
+    if int(entry.get("v") or 1) < 2 and int(entry.get("attempts") or 0) > 0:
+        return float(entry.get("queuedAt") or 0)
+    return None
+
+
+def _reached(status: int | None, body) -> bool:
+    """Did this send reach the home? Any answer did; no answer only when it was sent and the answer lost."""
+    if status is not None:
+        return True
+    return isinstance(body, dict) and body.get("_noAnswer") == "timeout"
 
 
 def verdict(entry: dict, status: int | None, body: dict | None) -> str:
@@ -195,9 +220,11 @@ def _flush_locked(send, *, home: Path | None, deadline_s: float, now) -> dict[st
         if entry is None:
             path.unlink(missing_ok=True)
             continue
-        if now() - float(entry.get("queuedAt") or 0) > EXPIRE_S:
+        seen_at = may_have_landed_at(entry)
+        if seen_at is not None and now() - seen_at > EXPIRE_S:
             path.unlink(missing_ok=True)
             _count("expired", home)
+            _reject(entry, None, "expired_may_have_landed", home, counted=False)
             decided[entry.get("id", "")] = ("expired", None, {})
             continue
         if entry.get("heldAt") and now() - float(entry["heldAt"]) < HOLD_RETRY_S:
@@ -206,6 +233,8 @@ def _flush_locked(send, *, home: Path | None, deadline_s: float, now) -> dict[st
             status, body = send(entry)
         except Exception:  # noqa: BLE001 — a send that raised is no answer
             status, body = None, None
+        if _reached(status, body) and entry.get("maybeLandedAt") is None:
+            entry["maybeLandedAt"] = now()
         v = verdict(entry, status, body)
         decided[entry["id"]] = (v, status, body or {})
         if v == "landed":

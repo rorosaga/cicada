@@ -17,7 +17,8 @@ router = APIRouter()
 def _own_token_only(request: Request) -> None:
     from api.services import auth
 
-    if auth.request_device(request) is not None or request.scope.get(auth.RELAY_SENDER_SCOPE):
+    if auth.request_device(request) is not None or request.scope.get(auth.RELAY_SENDER_SCOPE) \
+            or request.scope.get(auth.DOOR_DEVICE_SCOPE):
         raise HTTPException(status_code=403, detail="only the server's own token may do this")
 
 
@@ -262,8 +263,16 @@ class Candidate(BaseModel):
     answer: dict
 
 
+class DoorFound(BaseModel):
+    host: str = Field(..., max_length=64)
+    port: int = Field(..., ge=1, le=65535)
+
+
 class DiscoveredBody(BaseModel):
     candidates: list[Candidate] = Field(default_factory=list, max_length=16)
+    #: Ruling 51f: doors the app's Bonjour resolved on this network (``_cicada._tcp``, this memory's instance name).
+    #: Each is kept only after this backend's own handshake proved it is the home's door.
+    doors: list[DoorFound] = Field(default_factory=list, max_length=16)
     #: The person allowed Cicada to find devices on the local network (the app's own permission state).
     lanAllowed: bool = False
 
@@ -273,6 +282,78 @@ async def post_discovered(body: DiscoveredBody, request: Request, settings: Sett
     _own_token_only(request)
     from api.services import sync_discovery
 
+    from api.services import sync_routes
+
+    await run_in_threadpool(sync_routes.set_lan_allowed, body.lanAllowed)
     kept = await run_in_threadpool(lambda: sync_discovery.accept(
         settings.memory_path, [c.model_dump() for c in body.candidates], lan_allowed=body.lanAllowed))
-    return {"kept": kept, "dial": bool(body.lanAllowed and sync_discovery.associated())}
+    doors = await run_in_threadpool(lambda: _check_doors([d.model_dump() for d in body.doors]))
+    return {"kept": kept, "doors": doors, "dial": bool(body.lanAllowed and sync_discovery.associated())}
+
+
+def _check_doors(doors: list[dict]) -> int:
+    """A found door is the home's only when this backend's handshake with it proves the home's key; kept then, and
+    the follower is woken so the next request may take it. Returns how many were kept."""
+    from api.services import replica, sync_door, sync_routes
+
+    target, _info, _found = sync_routes.home_target()
+    identity = sync_door.own_identity()
+    if target is None or identity is None:
+        return 0
+    kept = 0
+    for d in doors:
+        host, port = str(d.get("host") or ""), int(d.get("port") or 0)
+        cls = sync_door.address_class(host)
+        if cls not in ("loopback", "lan", "tailnet") or (cls == "lan" and not sync_routes.may_dial_lan()):
+            continue
+        try:
+            conn = sync_door.connect(host, port, target, identity, timeout=sync_routes.LAN_CONNECT_S,
+                                     on_routes=sync_routes.learn)
+        except sync_door.Unreachable:
+            continue
+        conn.close()
+        sync_routes.found(target.device_id, host, port)
+        kept += 1
+    if kept:
+        sync_routes.forget_target()
+        sync_routes.BOOK.note_network_change()
+        replica.wake()
+    return kept
+
+
+# --- the route list (ruling 51f) ----------------------------------------------------------------------------------------
+
+@router.get("/sync/routes")
+async def get_routes():
+    """This computer's routes to its home as kinds and states (which answered, which are down), the door here and
+    whether this backend may dial the LAN. Never an address."""
+    from api.services import replica, runtime_layout, sync_routes
+
+    base = None
+    if runtime_layout.is_replica():
+        try:
+            base = replica.home_base()
+        except ValueError:
+            base = None
+    return await run_in_threadpool(sync_routes.wire, base)
+
+
+class NetworkNote(BaseModel):
+    #: ``changed`` — the app saw another network (its path monitor); ``returned`` — the app came back to the front.
+    event: str = Field(..., pattern="^(changed|returned)$")
+    lanAllowed: bool | None = None
+
+
+@router.post("/sync/network")
+async def post_network(body: NetworkNote, request: Request):
+    """The app's word that the network changed or that it is in front again: every earlier route is tried again now,
+    and a copy catches up at once (only what it missed)."""
+    _own_token_only(request)
+    from api.services import replica, sync_door, sync_routes
+
+    if body.lanAllowed is not None:
+        await run_in_threadpool(sync_routes.set_lan_allowed, body.lanAllowed)
+    sync_routes.BOOK.note_network_change()
+    sync_door.POOL.drop()
+    replica.wake()
+    return {"ok": True, **sync_routes.BOOK.wire()}
