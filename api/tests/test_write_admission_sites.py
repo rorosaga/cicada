@@ -440,6 +440,9 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "PUT /agent-methods": (HELD, "api.services.skill_pages.ensure"),
     "POST /agent-methods/skills/{skill}/page": (HELD, "api.services.skill_pages.ensure"),
     "POST /sources/save": (ADMITTED, "api.routers.sources._save_source"),   # G212: wrapped by its Idempotency-Key
+    # G230: GitHub's record read first (nothing held), then the page and its commit as one admitted transaction.
+    "POST /sources/github/repos": (ADMITTED, None),
+    "POST /sources/github/repos/project": (ADMITTED, None),
     "POST /sources/saved-why": (ADMITTED, None),       # G191: the answer on the link's episode, committed alone
     "PUT /sources/saved-why": (ADMITTED, None),        # G191 v3: the person's edit of one answer, committed alone
     "POST /sources/bookmarks/remove": (ADMITTED, None),   # G191 v3: the page archived, the episode tombstoned

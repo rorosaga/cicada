@@ -440,6 +440,13 @@ struct SourceCatalogDetail: View {
                 IntakePanel(origin: .emptyState(.sources), compact: true)
                 tileButton(Copy.Catalog.importFile)
             }
+        case "github":
+            // G230: the token connect panel the accounts use, then adding one repository by its link and the person's
+            // own repositories.
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
+                ConnectorSetupPanel(connectorId: "github", vendors: [], vendor: $vendor)
+                GitHubReposSection()
+            }
         case "notion":
             // G219 slice 1: the export's steps, then the one intake's drop (it reads the zip, previews it, imports).
             // Ruling 47 tier 2: the live connection first, in the same panel the accounts use.

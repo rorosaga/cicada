@@ -73,6 +73,8 @@ enum SourceDisplayName {
         "notion": "Notion",
         // Ruling 47 tier 2 (`source_overview.CATALOG`'s rows).
         "notion-api": "Notion (live)",
+        // G230.
+        "github": "GitHub",
         // G32 (`source_overview.CATALOG`'s rows).
         "spotify": "Spotify",
         "spotify-listening": "Spotify history",

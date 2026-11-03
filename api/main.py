@@ -39,6 +39,7 @@ from api.routers import (
     explore,
     files,
     entities,
+    github_repos,
     episodes,
     graph,
     inbox,
@@ -431,6 +432,7 @@ app.include_router(chat_sources.router, tags=["chat-sources"])
 app.include_router(traces.router, tags=["traces"])
 app.include_router(capture.router, tags=["capture"])
 app.include_router(connectors.router, tags=["connectors"])
+app.include_router(github_repos.router, tags=["github"])
 app.include_router(maintenance.router, tags=["maintenance"])
 app.include_router(memory.router, tags=["memory"])
 app.include_router(connections.router, tags=["connections"])

@@ -86,6 +86,8 @@ enum SourceBlurb {
         "notion": "Pages and database rows from a Notion export.",
         // Ruling 47 tier 2.
         "notion-api": "The Notion pages you shared with your own connection, kept current.",
+        // G230.
+        "github": "Repositories you starred or added, each with a preview of its README, and the ones you own.",
         // G32.
         "spotify": "Your liked songs, saved albums and podcasts, from your Spotify download.",
         "spotify-listening": "What you listened to on Spotify, one entry per day, from your Spotify download.",

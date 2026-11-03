@@ -133,6 +133,7 @@ ROUTES: dict[str, str] = {
     "POST /capture/turn": CAPTURE,
     "POST /capture/transcript": REFUSE,   # names a file on this computer; the hooks send the session itself instead
     "POST /sources/save": CAPTURE,
+    "POST /sources/github/repos": CAPTURE,                # G230: a repository saved, like a link (the home asks GitHub)
     "POST /sources/upload": CAPTURE,
     "POST /sources/calendar-local/sync": CAPTURE,
     "POST /sources/contacts-local/sync": CAPTURE,
@@ -157,6 +158,7 @@ ROUTES: dict[str, str] = {
     "DELETE /reading/asks/{url_hash}": FORWARD,
     "DELETE /sources/calendars": FORWARD,
     "DELETE /sources/connectors/{connector_id}/credentials": REFUSE,   # the home's sign-ins
+    "POST /sources/github/repos/project": FORWARD,        # G230: the person's "this is my project"
     "DELETE /sources/contacts-local/waiting": FORWARD,
     "DELETE /sources/feeds": FORWARD,
     "DELETE /sources/folders/{folder_id}": FORWARD,

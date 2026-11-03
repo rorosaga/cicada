@@ -436,6 +436,25 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   (`assistant` or an export's `*_by_other`) is never moved back to `user` by any later tier-2 read. The first sync
   walks the whole history (Notion's own cursor, 150 pages a sync, "Reading your shared pages: N so far"); the
   high-water mark moves only when nothing older is left.
+  **GitHub (G230, `connectors/github.py` + `github_repos`).** Every sync reads both lists whole (no cursor; GitHub's
+  numeric repository id is the key, so a rename or a transfer keeps its page). *A repository the person owns* is
+  `github:owned:<id>` (origin `github-owned`): its name, description, language, topics and visibility, staged and
+  **index-only** (`history_index.LIST_ORIGINS`, ruling 30's posture — a record GitHub keeps, never the person's words,
+  never a model read, never a mention), dated when the repository was created. It makes **no page**: it is offered on
+  the Sources row (ruling 36 D4 / 45 — a project is born only from the hook, the person's words or the person's act).
+  One gone from a list read whole is tombstoned and kept; a list cut short at 60 pages (3,000 items) tombstones nothing.
+  *A repository the person starred* is a save, like a bookmark: one `media` page (`media.kind: repository`) and one
+  index-only save episode (origin `github-starred`) through `media_ingestor`'s write path, dated when it was starred; a
+  github.com link already saved (a bookmark of it) becomes that page rather than a second one. The page and its
+  episode are written in the same admitted transaction and commit as the episodes (`tier2.Batch.after`). A later sync
+  rewrites the page's `github:` block only when GitHub's record changed (never for a star count or a push), and a
+  repository no longer starred keeps its page with `starred: false` and the day it was seen gone, said on the row in
+  words ("N repositories are no longer starred on GitHub; their pages stay"). Nothing a sync does deletes a page or an
+  episode, and a sync never brings one back: a page the person merged away is followed to the page it became
+  (`page_redirects`; a `media` winner is updated, any other kind left alone), and one removed with no redirect stays
+  gone — only the person's own add makes it again. *A repository the person adds* by its link (`POST /sources/github/repos`, origin `github-added`) is a save
+  they made on purpose: its episode is read by Sleep like any single link they save. Pages are quiet until mentioned
+  (`quiet_pages`: import evidence only).
   Chrome's open tab groups (round 4, G160 first slice): the app reads the default profile's
   `Sessions/Session_<n>` (SNSS; only a clear version-3 file carrying its initial-state marker, never `Tabs_*`, never
   the encrypted directory; commands 25/27 and each member tab's current navigation — never the page state after its

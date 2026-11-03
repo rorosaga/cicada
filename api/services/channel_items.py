@@ -110,7 +110,8 @@ from api.services.channel_registry import CHANNEL_IDS
 #: folds `q` into the ETag's extra).
 #: `g161-12`: 2026-11-03 — a chat row carries `ticked`, `pinned`, `last_at`, `synced_at` and its face's `picture`;
 #: pinned chats list first.
-SHAPE = "g161-12"
+#: `g161-13`: G230 — the GitHub row lists its repository pages.
+SHAPE = "g161-13"
 LIMIT_DEFAULT = 50
 LIMIT_MAX = 200
 TITLE_CAP = 120
@@ -131,8 +132,9 @@ _ORIGIN_CHANNELS = {
     # G32: a Spotify download's listening days, one row each (index-only, opened in the Reader).
     "spotify-listening": ("spotify-history",),
 }
-#: A channel whose items are media pages, by the origins its catalog row owns.
-_MEDIA_CHANNELS = ("safari-tabs", "pinterest", "reddit", "x", "rss", "files")
+#: A channel whose items are media pages, by the origins its catalog row owns. G230: GitHub's row lists the
+#: repository pages (starred or added); the repositories the person owns are offered in its own panel.
+_MEDIA_CHANNELS = ("safari-tabs", "pinterest", "reddit", "x", "rss", "files", "github")
 #: Sources v3 — a saved source with no channel (a one-shot import): listed by its Sources row id, by its origins.
 _SAVED_SOURCE_ROWS = {spec.id: spec.origins for spec in source_overview.CATALOG
                       if spec.channel is None and spec.id in source_overview.SAVED_SOURCES}

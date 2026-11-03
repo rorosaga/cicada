@@ -93,6 +93,9 @@ SAME_BY_CONTENT = {
     "POST /sources/sync-safari-tabs", "POST /sources/tab-groups/sync", "POST /sources/traces/sync",
     "POST /sources/watch-history/sync", "POST /sources/whatsapp/sync", "POST /files/media",
     "POST /files/{file_id}/frames",
+    # G230: a repository is found by GitHub's own id (and its link's index) — a resend updates the same page, never a
+    # second (`test_github_repos::test_a_replayed_add_writes_nothing_new`).
+    "POST /sources/github/repos",
 }
 
 

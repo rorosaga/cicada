@@ -12,6 +12,19 @@
 
 ## Current state and evidence
 
+- **2026-11-03 — repositories on the graph (G230; branch `feat/github-repos`, PR #583).** The owner asked for a
+  repository's name, link and a README preview, and a sync of his own and starred repositories. GitHub is a tier-2 token
+  connector (ruling 47: off until a token is pasted, said in words, Disconnect forgets the token, its cursor and every
+  README; only `GET`s to `api.github.com`, 4 s / ≤ 512 KB through `net_guard`). Starred repositories are indexed saves
+  (ruling 30): a quiet `media` page each (`media.kind: repository`), an index-only episode. Owned ones are index-only
+  records offered on the Sources row, never a page or a project by a sync (ruling 36 D4 / 45); the project each already
+  is is derived on read — a trusted `repo` source, the hook's D2a salted origin hash, or a same-name suggestion — and
+  the person links or makes one in one click. A pasted link or `owner/name` adds any repository (a public one with no
+  connection). The README is read through the API only on the person's add or a page open (behind
+  `CICADA_ALLOW_LOGO_FETCH`), words only, outside every bank. A re-sync rewrites in place and deletes nothing (an
+  unstar keeps the page and says so; a gone owned repository is tombstoned). The repository link is a trusted source
+  with `kept_by: github`, so `source_refresh` never sends Cicada's fetcher to github.com for it. Verified on scratch
+  state against a fake GitHub API (never the owner's token).
 - **2026-11-03 — the notch offers to connect the app in front (G231; branch `feat/notch-connect-suggest`).** Owner:
   "when you enter an app they support a connection for, they suggest from the notch to connect to it … with our own
   aesthetic". Bringing WhatsApp, Telegram, Messages, Notes, Calendar, Reminders, Contacts, a browser Cicada reads,

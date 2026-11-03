@@ -32,6 +32,14 @@ struct EntityDetailCard: View {
         return media?.isPaper ?? true
     }
 
+    /// G230 — should the card ask `GET /entities/{id}/repository`? A `media` page whose kind is unknown (the stub) or
+    /// a repository, and a project (one linked to its repository has a card; any other answers 404, read as nil).
+    static func wantsRepositoryDetail(type: EntityType, media: MediaBlock?) -> Bool {
+        if type == .project { return true }
+        guard type == .media else { return false }
+        return media.map { $0.isRepository } ?? true
+    }
+
     let entity: Entity
     @Environment(GraphViewModel.self) private var graphVM
     @Environment(Store.self) private var store
@@ -67,6 +75,9 @@ struct EntityDetailCard: View {
 
     /// G133 — a paper page's two tiers, fetched once per open.
     @State private var paperDetail: PaperDetail?
+    /// G230 — a repository page's card (or a linked project's), fetched once per open, on its own task: its README may
+    /// be read from GitHub first.
+    @State private var repositoryDetail: RepositoryDetail?
     /// A picture held over the page (owner 2026-10-20: dropping one adds it to the page's looks).
     @State private var lookDropTargeted = false
     /// Ruling 48 (17), DR-81 — nothing on the page folds. Adding a link or a look starts from the page's menu
@@ -337,6 +348,7 @@ struct EntityDetailCard: View {
             repoContexts = []
             pageReadFailed = false
             paperDetail = nil
+            repositoryDetail = nil
             pendingDecayClass = nil
             activeEntityId = entity.id
             addingLink = false
@@ -357,6 +369,7 @@ struct EntityDetailCard: View {
             if Self.wantsPaperDetail(type: entity.type, media: entity.media) {
                 paperDetail = try? await APIClient.shared.fetchPaperDetail(id: entity.id)
             }
+            if Self.wantsRepositoryDetail(type: entity.type, media: entity.media) { loadRepository(entity.id) }
             // Location and directory pages declare a folder. The backend names the path only;
             // the app lists it, so any macOS prompt names Cicada (the ~/Library rail).
             if Self.listsFolder(entity.type) {
@@ -372,6 +385,15 @@ struct EntityDetailCard: View {
                 let contexts = await RepoCard.load(entityId: entity.id)
                 if !Task.isCancelled { repoContexts = contexts }
             }
+        }
+    }
+
+    /// G230 — the repository card, off the card's own task (a README read can take a few seconds); a reply for a page
+    /// the card has left is dropped.
+    private func loadRepository(_ id: String) {
+        Task {
+            let detail = try? await APIClient.shared.fetchRepository(id: id)
+            if id == activeEntityId { repositoryDetail = detail }
         }
     }
 
@@ -462,6 +484,12 @@ struct EntityDetailCard: View {
             // arxiv.org in a preview (R-LS19).
             if let paperDetail {
                 PaperCard(detail: paperDetail)
+            } else if let repositoryDetail {
+                // G230: a repository's own card replaces the link preview (its README as words, never github.com).
+                RepositoryCard(detail: repositoryDetail, open: { navigate(to: $0) }, changed: {
+                    loadRepository(entity.id)
+                    reloadPage()
+                })
             } else if entity.type == .media, let media = entity.media, media.hasURL, !media.isPaper {
                 // G11: rich media preview above the body for `media`-type entities.
                 MediaPreview(model: MediaPreviewModel(block: media, title: entity.name, description: mediaDescription))
