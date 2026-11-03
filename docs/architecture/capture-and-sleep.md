@@ -37,6 +37,19 @@ Seven rails hold across all of them:
   Safari's excerpt, and a sync reads recently saved first and stamps Reading List / Favorites
   counts as the channel's `parts`. Safari's excerpt is scrubbed, capped at 500 characters and used
   only when the page gave no description of its own.
+  **Where Safari keeps them (checked on macOS 27.2, 2026-11-03).** One file: `~/Library/Safari/Bookmarks.plist`
+  holds every bookmark and the Reading List, for every Safari profile (Apple: profiles separate history, website
+  data, extensions and Tab Groups; bookmarks and Favorites are available to all of them). It is written by Safari
+  and — Safari open or not — by iCloud's own Safari sync, `SafariBookmarksSyncAgent`, a launch agent that runs
+  without Safari, receives iCloud's push for another device's change and merges it into that file (its sandbox
+  profile, embedded in the binary, grants it `~/Library/Safari/Bookmarks.plist` and Safari's lock, and its own log
+  strings start a bookmark sync "in response to a push notification"). In Safari's container, `SafariTabs.db` holds Tab Groups and their tabs (its `bookmarks` table is
+  the tab tree, not bookmarks) and `CloudTabs.db` other devices' open tabs. So the app reads the one file, and a
+  bookmark saved on another device reaches Cicada exactly when iCloud has merged it there; a file that has not
+  moved has nothing new. The live case that settled it: Safari's file unchanged for five days, Safari.app not run
+  on that Mac in that time, and the sync agent's one bookmark-container check in its retained log window finding
+  only a settings change — nothing new had reached that Mac to read. The page now says what "up to date" is
+  measured against (`BrowserFreshness`, `app.md`), and a launch reads nothing until the active memory is known.
 - **Ask why at the moment of saving (G191).** A bookmark sync reports what it newly saved: each source's
   `first_sync` (no seen-set before this pass) and `fresh` / `fresh_total` — the bookmarks that got a `url_index` row
   this pass (at most `FRESH_CAP` = 3 listed), each with its episode and `added_at`, the browser's own instant (aware
