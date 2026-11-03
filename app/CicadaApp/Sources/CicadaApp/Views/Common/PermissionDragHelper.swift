@@ -418,7 +418,7 @@ private struct PermissionBanner: View {
                     .fixedSize(horizontal: false, vertical: true)
                 action
             }
-            Spacer(minLength: CicadaTheme.spacingSM)
+            .frame(maxWidth: .infinity, alignment: .leading)
             IconButton(systemName: "xmark", help: Copy.Traces.closeHelper, accessibilityLabel: Copy.Traces.closeHelper) {
                 model.cancel()
             }
