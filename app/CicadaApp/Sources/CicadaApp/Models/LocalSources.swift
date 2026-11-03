@@ -20,22 +20,32 @@ struct FolderRegistration: Codable, Identifiable, Equatable, Sendable {
     var projectId: String?
     var lastSync: String?
     var papersPending: Bool
+    /// G95 (2026-11-03): `"meetings"` for a folder of meeting transcripts (Hex, any recorder's export), else `"notes"`.
+    var kind: String
+    /// The app that writes a meeting folder (`"hex"`), or nil for a plain folder of transcripts.
+    var recorder: String?
 
-    var channelId: String { "folder:\(id)" }
+    static let meetingsKind = "meetings"
+    static let meetingsChannelPrefix = "meetings:"
+
+    var isMeetings: Bool { kind == Self.meetingsKind }
+    /// The backend's `folder_source.channel_for`: a meeting folder syncs as `meetings:<id>`, any other as `folder:<id>`.
+    var channelId: String { isMeetings ? "\(Self.meetingsChannelPrefix)\(id)" : "folder:\(id)" }
 
     /// The globs the person marked "written by an agent" (R-F2), for the Manage field.
     var agentGlobs: [String] { authorship.filter { $0.authorship == "agent" }.map(\.glob) }
 
     enum CodingKeys: String, CodingKey {
-        case id, label, path, device, include, exclude, authorship, projectId, lastSync, papersPending
+        case id, label, path, device, include, exclude, authorship, projectId, lastSync, papersPending, kind, recorder
     }
 
     init(id: String, label: String, path: String, device: String = "", include: [String] = [],
          exclude: [String] = [], authorship: [FolderAuthorshipRule] = [], projectId: String? = nil,
-         lastSync: String? = nil, papersPending: Bool = false) {
+         lastSync: String? = nil, papersPending: Bool = false, kind: String = "notes", recorder: String? = nil) {
         self.id = id; self.label = label; self.path = path; self.device = device
         self.include = include; self.exclude = exclude; self.authorship = authorship
         self.projectId = projectId; self.lastSync = lastSync; self.papersPending = papersPending
+        self.kind = kind; self.recorder = recorder
     }
 
     init(from decoder: Decoder) throws {
@@ -50,6 +60,8 @@ struct FolderRegistration: Codable, Identifiable, Equatable, Sendable {
         projectId = try c.decodeIfPresent(String.self, forKey: .projectId)
         lastSync = try c.decodeIfPresent(String.self, forKey: .lastSync)
         papersPending = try c.decodeIfPresent(Bool.self, forKey: .papersPending) ?? false
+        kind = try c.decodeIfPresent(String.self, forKey: .kind) ?? "notes"
+        recorder = try c.decodeIfPresent(String.self, forKey: .recorder)
     }
 }
 

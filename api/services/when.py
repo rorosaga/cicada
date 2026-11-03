@@ -39,7 +39,8 @@ def zone(tz_name: str | None) -> tzinfo:
             return timezone(sign * timedelta(hours=int(m.group(2)), minutes=int(m.group(3))))
         try:
             return ZoneInfo(name)
-        except (ZoneInfoNotFoundError, ValueError):
+        except (ZoneInfoNotFoundError, ValueError, OSError):
+            # OSError: a name that is a directory of the zone database ("America") raises IsADirectoryError.
             pass
     return timezone.utc
 

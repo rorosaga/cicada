@@ -3620,6 +3620,8 @@ def _get_unprocessed_episodes(
             # G179 groups: who each member is; in a group only the person's own lines are theirs (`promotion`).
             "participants": fm.get("participants") if isinstance(fm.get("participants"), list) else None,
             "group": bool(fm.get("group")),
+            # G95 (2026-11-03): a meeting transcript's own record — its recorder and microphone label (`meeting_note`).
+            **({"meeting": fm["meeting"]} if isinstance(fm.get("meeting"), dict) else {}),
             **({"signals": signals, turn_extras.EXTRAS_KEY: fm.get(turn_extras.EXTRAS_KEY)} if signals else {}),
             # Ruling 36 D4: the hook's own observation of the checkout a harness session ran in (`project_birth`
             # reads the two stored values; nothing opens the path).

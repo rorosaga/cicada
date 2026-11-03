@@ -496,4 +496,6 @@ def test_a_group_sitting_and_a_save_both_keep_whose_words_they_are(bank, monkeyp
 def test_a_meeting_still_counts_every_speaker():
     text = "speaker:alice-example: alpha-hall is lovely\nuser: ok"
     assert promotion.exchanges(text)[0][0] == "alpha-hall is lovely"
-    assert promotion.exchanges(text, persons=promotion.person_kinds({"group": True}))[0][0] == ""
+    # In a group only the person's own lines open one; a member's line before any of theirs is no exchange at all
+    # (2026-11-03, G95: nobody of the person's took part in it).
+    assert promotion.exchanges(text, persons=promotion.person_kinds({"group": True})) == [("ok", "ok")]

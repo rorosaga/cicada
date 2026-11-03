@@ -42,6 +42,21 @@ extension Copy {
             + "dated when they were created; importing again only adds what changed. Cicada never writes to Notion."
         static let calendarFeeds = "Calendar feeds"
 
+        /// G95 (2026-11-03) — meeting recorders: Hex's Markdown folder, Wispr Flow, any folder of transcripts.
+        static let meetings = "Meeting recorders"
+        static let meetingFolders = "Transcripts"
+        static let addHexFolder = "Add Hex's folder"
+        static let hexHow = "Hex saves each meeting it records as a Markdown file in its meetings folder. Pick that "
+            + "folder and Cicada keeps up with new and edited meetings."
+        static let hexPanel = "Choose the Hex meetings folder"
+        static let meetingFolderHow = "Any recorder's transcripts: Markdown, text, subtitles (VTT or SRT) or JSON, one "
+            + "meeting per file. Cicada reads the words, never the audio."
+        static let meetingFolderPanel = "Choose a folder of meeting transcripts"
+        /// Said once under a meeting source: whose words they are, and that Sleep reads them (owner, 2026-11-03).
+        static let meetingWords = "Lines marked You or Me are your own words; everyone else's stay theirs, and the "
+            + "recorder's summary is never yours. Sleep reads every meeting like a conversation."
+        static let addMeetingTitle = "Add a meeting folder"
+
         /// 2026-10-26 — where each platform hands out the file an "Import a file" row takes, in the platform's own
         /// words, checked that day (TikTok against its data-types page; the backend reads today's JSON layout).
         static let howYouTube = "From Google Takeout: Deselect all, tick YouTube and YouTube Music, keep history and "

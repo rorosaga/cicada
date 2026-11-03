@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 
 /// The backend calls a local source makes — `APIClient` in the app, a fake in
 /// tests (the same injection `BrowserWatcher.performSync` uses).
@@ -6,6 +6,7 @@ protocol LocalSourcesAPI: Sendable {
     func fetchFolders() async throws -> [FolderRegistration]
     func registerFolder(label: String, path: String, projectName: String,
                         authorship: [FolderAuthorshipRule]) async throws -> FolderRegistration
+    func registerMeetingFolder(label: String, path: String, recorder: String?) async throws -> FolderRegistration
     func updateFolder(id: String, authorship: [FolderAuthorshipRule]) async throws -> FolderRegistration
     func removeFolder(id: String) async throws
     func syncFolder(id: String, files: [FolderUpload], deleted: [String], preview: Bool,
@@ -133,6 +134,25 @@ final class LocalSourceWatcher {
     /// Wispr Flow is on this Mac — the Integrations row only offers what exists.
     var wisprInstalled: Bool { FileManager.default.fileExists(atPath: WisprFlowReader(root: wisprRoot).database.path) }
 
+    /// G95 (2026-11-03) — Hex (anoma.ly/hex) is on this Mac: the Sources page offers its meeting folder then.
+    static let hexBundleId = "anomaly.hex"
+    /// A LaunchServices lookup, so it is asked on each reload (launch, bank switch), never per view body.
+    private(set) var hexInstalled = false
+    /// The Hex meetings folder: Hex's own `meetings.output_folder` setting when the person chose one in Hex, else Hex's
+    /// default (Documents › Hex Meetings, its docs: "none uses ~/Documents/Hex Meetings"). The app reads that one key of
+    /// Hex's settings file under `~/Library` (the app reads `~/Library`, never the backend); nothing else of it.
+    static func hexMeetingsFolder(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
+        let settings = home.appendingPathComponent("Library/Application Support/hex/settings.json")
+        if let data = try? Data(contentsOf: settings), data.count < 1_000_000,
+           let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let meetings = root["meetings"] as? [String: Any],
+           let chosen = (meetings["output_folder"] as? String)?.trimmingCharacters(in: .whitespaces), !chosen.isEmpty {
+            let path = (chosen as NSString).expandingTildeInPath
+            if path.hasPrefix("/") { return URL(fileURLWithPath: path, isDirectory: true) }
+        }
+        return home.appendingPathComponent("Documents/Hex Meetings", isDirectory: true)
+    }
+
     /// Whether a registered folder can be reached from this Mac at all.
     func isOnThisMac(_ folder: FolderRegistration) -> Bool { resolveRoot(folder.id) != nil }
 
@@ -164,6 +184,7 @@ final class LocalSourceWatcher {
     /// `reload()` for a named bank — the seam a test switches banks through.
     func reload(bank newBank: String) async {
         bank = newBank
+        hexInstalled = NSWorkspace.shared.urlForApplication(withBundleIdentifier: Self.hexBundleId) != nil
         do {
             folders = try await api.fetchFolders()
             foldersBank = newBank
@@ -395,6 +416,14 @@ final class LocalSourceWatcher {
         let rules = agentGlobs.map { FolderAuthorshipRule(glob: $0, authorship: "agent") }
         let folder = try await api.registerFolder(label: label, path: url.path, projectName: projectName,
                                                   authorship: rules)
+        bookmarks.save(url, for: folder.id)
+        folders = (try? await api.fetchFolders()) ?? (folders.filter { $0.id != folder.id } + [folder])
+        return folder
+    }
+
+    /// G95 — register a folder of meeting transcripts the person picked (Hex's, or any recorder's), and remember it.
+    func addMeetingFolder(url: URL, label: String, recorder: String?) async throws -> FolderRegistration {
+        let folder = try await api.registerMeetingFolder(label: label, path: url.path, recorder: recorder)
         bookmarks.save(url, for: folder.id)
         folders = (try? await api.fetchFolders()) ?? (folders.filter { $0.id != folder.id } + [folder])
         return folder

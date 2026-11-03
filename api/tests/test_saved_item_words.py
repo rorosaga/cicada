@@ -132,7 +132,8 @@ def test_a_fetched_description_is_no_exchange_of_the_persons():
     assert count <= promotion.MIN_EXCHANGES
     assert named   # the person's reason names it — their own words still count
     no_reason = SAVE.split("## Why it was saved")[0]
-    assert promotion.measure(TOOL, promotion.exchanges(no_reason, override=evidence.SAVE_KIND)) == (1, False)
+    # The page's own words alone are no exchange of anyone's (2026-11-03, G95: a unit with no words of the person's).
+    assert promotion.measure(TOOL, promotion.exchanges(no_reason, override=evidence.SAVE_KIND)) == (0, False)
 
 
 def test_a_relationship_cited_in_the_description_is_not_the_persons():
