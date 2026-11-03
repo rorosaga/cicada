@@ -112,6 +112,13 @@ class ProjectRepos(CamelModel):
     candidates: list[RepoRow] = []
 
 
+class ConnectStart(CamelModel):
+    user_code: str
+    verification_uri: str
+    expires_at: int
+    interval: int
+
+
 class ConnectStatus(CamelModel):
     #: This build can connect by code (its GitHub app is registered).
     available: bool
@@ -124,15 +131,8 @@ class ConnectStatus(CamelModel):
     install_url: Optional[str] = None
     #: GitHub's own page where the person removes the grant.
     grants_url: str = github_auth.GRANTS_URL
-    pending: Optional[dict] = None
+    pending: Optional[ConnectStart] = None
     words: Optional[str] = None
-
-
-class ConnectStart(CamelModel):
-    user_code: str
-    verification_uri: str
-    expires_at: int
-    interval: int
 
 
 class ConnectPoll(CamelModel):
@@ -174,7 +174,7 @@ def _connect_status(words: str | None = None) -> ConnectStatus:
         installed=bool(account.get("installed")) if how == github_auth.HOW_APP else None,
         selection=account.get("selection") if how == github_auth.HOW_APP else None,
         install_url=github_auth.install_url() if how == github_auth.HOW_APP else None,
-        pending=github_auth.pending(), words=words)
+        pending=ConnectStart(**github_auth.pending()) if github_auth.pending() else None, words=words)
 
 
 @router.get("/sources/github/connect", response_model=ConnectStatus)

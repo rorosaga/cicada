@@ -630,6 +630,10 @@ def test_connect_by_code_keeps_the_token_outside_the_bank_and_offers_the_install
     assert "dev-placeholder-code" not in started.text                                  # the device code stays here
     assert api.post("/sources/github/connect/poll").json()["state"] == "pending"      # too soon: GitHub not asked
     assert len(sign_in.calls) == 1
+    # A panel reopened mid-sign-in gets the same code back, in the wire's own shape.
+    assert api.get("/sources/github/connect").json()["pending"] == {
+        "userCode": "ABCD-1234", "verificationUri": "https://github.com/login/device",
+        "expiresAt": body["expiresAt"], "interval": 5}
     for step in (5, 5, 10):
         sign_in.clock["now"] += step
         answer = api.post("/sources/github/connect/poll").json()
