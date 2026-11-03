@@ -611,7 +611,7 @@ each tick tile shows what it reads and the consent it leads to before the click 
 idle line or a browser's reads, "Needs Full Disk Access" for a browser macOS hides),
 chat history takes a drop or the file panel, *How to get an export* opens `ExportWalkthroughSheet`. Nothing is pre-ticked
 or read before a tick (R-OB6, R-IB12).
-*Saved lists* (`SavedListsStep`, owner 2026-10-26, ruling 39's dated line; step 5 of 7, stored `savedLists`): every
+*Saved lists* (`SavedListsStep`, owner 2026-10-26, ruling 39's dated line; step 6 of 8 since the Permissions step, stored `savedLists`): every
 list the person's own agent can keep current from their signed-in browser (`SavedListItem`: YouTube Watch later and
 history, X Bookmarks, Instagram Saved, LinkedIn Saved posts), each with its platform's mark, **pre-ticked** — except one
 the reading settings record as turned off (`youtubeListsOff` / `savedListsOff`) — under "Keep your saved lists
@@ -704,6 +704,35 @@ words and bodies ≤ 25 (`OnboardingWords`, measured on each step's longest vari
 one wink (Done's title), no "!" or capitals; *Another agent* and *Personal agents* fold under *Other agents*
 (`cicada.onboarding.otherAgents`), and Messages, YouTube, X and Instagram under *More sources*
 (`cicada.onboarding.moreSources`, open by itself when one inside is on) — DR-39. (6) **Sound, soft and rare** (owner 2026-10-24, DESIGN_RULES §9): `OnboardingSound`, one per onboarding run, held by `OnboardingView`, plays macOS's own *Tink* when a permission lands — the drag helper's grant (`FoundTurnOnDeps.live`'s `onPermissionGranted`, passed only by onboarding), a preflight that turns an asked-for row ready (`startGranted`), or the relaunch's fresh look (`resumePermissionTick`) — and *Pop* when the Agents step's `firstCall` lands. Each moment at most once, spent the first time even when silent; at the alert volume (`com.apple.sound.beep.volume`) through `NSSound(named:)`; never with "Play user interface sound effects" off (`com.apple.sound.uiaudio.enabled`), a muted default output (Core Audio's mute, or its volume at zero) or a zero alert volume; never under XCTest, in a demo bank or in a verify-cicada copy (bundle id `com.rorosaga.cicada.verify.*`). Both moments come from outside Cicada, so no key or click in it makes a sound. Nothing else in the app plays one (`OnboardingSoundTests`' source lint).
+
+**The Permissions step (owner 2026-11-03, G92; DESIGN_RULES §9 2026-11-03).** One step after Agents and before Sources
+(`OnboardingPage.permissions`, step 4 of 8, stored `permissions` — a new name, so no saved step moves) asks for every
+macOS permission the app can use, one row each, and the same rows sit in Settings → Privacy & data → *Permissions*
+(`MacPermissionsRows`; row id `permissions`, findable by each permission's name). The inventory (`MacPermission`,
+`Support/MacPermissions.swift`), in order: **Full Disk Access** (Messages, Safari, WhatsApp; drag list),
+**Contacts**, **Calendars**, **Reminders** (macOS's prompt; full access only — a write-only EventKit grant reads
+nothing and stays "not yet"), **Control Chrome** (Automation: the saved page's front tab and removing a bookmark;
+shown only when Chrome is installed), **Control Notes** (Automation for Apple Notes), **Notifications** (an export
+ready, an agent asking), and — only while activity traces are on — **Accessibility** and **Screen Recording** (drag
+lists). Not rows, on purpose: Speech Recognition stays asked only inside `MediaFileIndexer.add(_:)`, the person's own
+drop; Automation for Terminal/Ghostty is the moment of the click that opens one; traces' per-browser Automation is
+traces' own switch; Input Monitoring and Local Network are not used by the app today. Each row
+(`PermissionList`, `ConnectionLine`) shows the app's own icon or a glyph, the name, what it unlocks in one line, and
+either a green dot with *Allowed* or one button (`MacPermissionRows.action`): a drag list's *Allow…* opens its exact
+`x-apple.systempreferences:` list with the drag helper over it at once (`PermissionDragHelper.present(openAtOnce:
+true)`, the place `.onboardingPermissions(rerun:)` or `.settings`, so *Reopen Cicada* comes back to that step or that
+card); a prompt kind's *Allow…* raises macOS's prompt on that click (`LiveMacPermissionAsker`; Automation first opens
+its app in the background, hidden, because macOS asks only while the target runs); a refused prompt reads *Open
+setting* and opens its exact list. **Every state is a preflight** (`LiveMacPermissionProbe`): `authorizationStatus`,
+the notification centre's settings, the drag helper's own probe, and `AEDeterminePermissionToAutomateTarget` with
+`askUserIfNeeded` false — which cannot say while the app is not running (-600), so the last answer seen per app is
+kept (`AutomationMemory`, `cicada.permission.automation.<bundle id>`). The rows look again every
+`CicadaTiming.permissionRowsPoll` (2 s) while they show and when Cicada becomes active; a grant the person asked for
+in this showing plays onboarding's one soft sound. Allowing a permission turns no source on — the Sources step after it
+does. Continue and Skip never wait on a row. Verified on a scratch app copy 2026-11-03 (light and dark; the drag
+helper's ask panel and drag card over System Settings' lower left). Caveat for whoever verifies next: `cv app launch`
+starts the binary directly, so TCC attributes the copy to the launching terminal and its rows show that terminal's
+grants (Automation read *Allowed*); a copy opened through LaunchServices has its own fresh identity.
 
 **Tester readiness (2026-10-26, branch `fix/tester-readiness`; the readiness assessment's blockers 2–3 and two
 should-fixes).** (1) **A list only an agent reads is never "Connected" without one.** `SourceCatalog.status` takes

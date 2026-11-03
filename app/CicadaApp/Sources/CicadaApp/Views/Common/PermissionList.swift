@@ -128,28 +128,12 @@ struct PermissionList: View {
     }
 }
 
-/// The rows this Mac shows, on their card: Chrome's only when it is installed, traces' two only while traces are on
-/// (`MacPermissionRows.visible`). Onboarding's Permissions step and Settings → Privacy & data both draw this.
-struct MacPermissionsCard: View {
-    let place: PermissionPlace
-    var onGranted: ((MacPermission) -> Void)?
-
-    @Environment(TraceRecorder.self) private var traces: TraceRecorder?
-
-    private var permissions: [MacPermission] {
-        let chrome = NSWorkspace.shared.urlForApplication(withBundleIdentifier: MacPermission.chromeBundleId) != nil
-        return MacPermissionRows.visible(tracesOn: traces?.settings.enabled == true, chromeInstalled: chrome)
-    }
-
-    var body: some View {
-        PermissionList(permissions: permissions, place: place, onGranted: onGranted)
-            .settingsCardSurface()
-    }
-}
-
-/// The same rows inside a Settings card that already draws the surface (Settings → Privacy & data).
+/// The rows this Mac shows: Chrome's only when it is installed, traces' two only while traces are on
+/// (`MacPermissionRows.visible`). Settings → Privacy & data draws them inside its own card; onboarding's step through
+/// `MacPermissionsCard`.
 struct MacPermissionsRows: View {
     let place: PermissionPlace
+    var onGranted: ((MacPermission) -> Void)?
 
     @Environment(TraceRecorder.self) private var traces: TraceRecorder?
 
@@ -157,6 +141,16 @@ struct MacPermissionsRows: View {
         let chrome = NSWorkspace.shared.urlForApplication(withBundleIdentifier: MacPermission.chromeBundleId) != nil
         PermissionList(permissions: MacPermissionRows.visible(tracesOn: traces?.settings.enabled == true,
                                                              chromeInstalled: chrome),
-                       place: place)
+                       place: place, onGranted: onGranted)
+    }
+}
+
+/// The same rows on their own card surface (onboarding's Permissions step).
+struct MacPermissionsCard: View {
+    let place: PermissionPlace
+    var onGranted: ((MacPermission) -> Void)?
+
+    var body: some View {
+        MacPermissionsRows(place: place, onGranted: onGranted).settingsCardSurface()
     }
 }

@@ -12,6 +12,7 @@
 
 ## Current state and evidence
 
+- **2026-11-03 — one onboarding Permissions step (G92; branch `onboarding-permissions-step`).** Owner ask: one step for every permission, drag-to-allow where macOS has no prompt. Inventory grepped from the app: Full Disk Access (Messages, Safari, WhatsApp), Contacts, Calendars, Reminders, Automation for Chrome and Notes, Notifications, and Accessibility + Screen Recording only while traces are on — 9 rows, 7 by default. Left out on purpose: Speech Recognition (asked only on a dropped recording), Automation for Terminal/Ghostty (the click that opens one), Input Monitoring and Local Network (not used). Every state is a preflight; a prompt appears only on its row's click; the drag rows open the exact list with the helper at once. The same rows are Settings → Privacy & data → Permissions. Verified on a scratch app copy, light and dark. Caveat: `cv app launch` runs the binary directly, so TCC answers for the launching terminal (Automation read Allowed on a fresh bundle id); a LaunchServices launch is a fresh identity.
 - **2026-11-03 — "are we also syncing WhatsApp?" (G179; branch `fix/whatsapp-live-stale`).** Not a stopped reader:
   read on a read-only copy of the live store (counts, ids, times only), the one ticked chat (the person's own) holds
   24 messages, its newest 6 days old and exactly the reader's cursor; 0 rows past it, 0 in the 48 h window; the 1,670
