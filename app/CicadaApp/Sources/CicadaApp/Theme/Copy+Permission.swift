@@ -2,30 +2,32 @@ import Foundation
 
 // MARK: - Permissions as a designed flow (onboarding v3, 2026-10-24, after HeyClicky's permission rows)
 
-/// The drag helper's first-person lines, one per state (`PermissionAsk`): drag me in when Cicada is not in the list,
-/// flip my toggle on when it is, and reopen to apply it when macOS wants a fresh process. Calm, no "!" (DR-59).
+/// The drag helper's one line per state (`PermissionAsk`; owner 2026-11-03, one banner holding the app's icon): drag the
+/// app in when it is not in the list, turn its switch on when it is, and reopen to apply it when macOS wants a fresh
+/// process. Each says it once — no title repeated in a body. Calm, no "!" (DR-59).
 extension Copy {
     /// The Full Disk Access fix's button (Messages, Safari), which shows the drag helper.
     static let allowFullDiskAccess = "Allow Full Disk Access…"
 
     enum Permission {
-        static func line(_ kind: TracePermission, ask: PermissionAsk) -> String {
+        static func line(_ kind: TracePermission, ask: PermissionAsk, app: String = "Cicada") -> String {
             switch ask {
-            case .drag: Copy.Traces.need(kind)
-            case .flip: flip(kind)
+            case .drag: Copy.Traces.need(kind, app: app)
+            case .flip: flip(kind, app: app)
             case .reopen: reopenLine
             }
         }
 
-        static func flip(_ kind: TracePermission) -> String {
+        static func flip(_ kind: TracePermission, app: String = "Cicada") -> String {
             switch kind {
-            case .screenRecording: "I'm already in the Screen Recording list. Flip my toggle on."
-            case .accessibility: "I'm already in the Accessibility list. Flip my toggle on."
-            case .fullDiskAccess: "I'm already in the Full Disk Access list. Flip my toggle on."
+            case .screenRecording: "Turn on \(app)'s switch in Screen & System Audio Recording"
+            case .accessibility: "Turn on \(app)'s switch in Accessibility"
+            case .fullDiskAccess: "Turn on \(app)'s switch in Full Disk Access"
             }
         }
 
-        static let reopenLine = "Already on? Reopen Cicada to apply it."
+        /// The relaunch state's line; its one button says the act (`reopen`), so the line does not.
+        static let reopenLine = "Already on? macOS applies it after a restart"
         static let reopen = "Reopen Cicada"
         static let alreadyOn = "Already on? Reopen Cicada"
         static let reopenHelp = "Quit and open Cicada again. You come back to this step."
@@ -36,7 +38,7 @@ extension Copy {
         static let deniedTile = "Turned off in macOS. Click to open the setting"
 
         static var labels: [String] {
-            TracePermission.allCases.map(flip) + [reopenLine, reopen, alreadyOn, reopenHelp, retryHelp, deniedTile]
+            TracePermission.allCases.map { flip($0) } + [reopenLine, reopen, alreadyOn, reopenHelp, retryHelp, deniedTile]
         }
     }
 }

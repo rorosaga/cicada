@@ -676,10 +676,10 @@ Same six steps, ids and stored names (Hyrum: no saved step is reset). (1) **Perm
 `PermissionDragHelper` is the Full Disk Access door for Messages and Safari: `FullDiskAccessHint` (Messages' row and
 panel, a browser's row, the import panels) and a hidden browser's tick (`FoundTurnOn` → `FoundTurnOnDeps
 .askFullDiskAccess`, so onboarding's Sources tile and Home's Getting started too) open it instead of System Settings.
-The ask card's line follows `PermissionAsk`: *drag* ("Drag me into the … list.") until Cicada has been seen in that list
-(`PermissionMemory`, `cicada.permission.seen.<kind>`, written on a preflight yes), then *flip* ("I'm already in the …
-list. Flip my toggle on."); back from System Settings with no grant (`didBecomeActive` → `returned()`), Accessibility
-moves to *flip* and Screen Recording / Full Disk Access to *reopen* ("Already on? Reopen Cicada to apply it.", their
+The banner's line follows `PermissionAsk`: *drag* ("Drag Cicada into …") until Cicada has been seen in that list
+(`PermissionMemory`, `cicada.permission.seen.<kind>`, written on a preflight yes), then *flip* ("Turn on Cicada's switch
+in …"); back from System Settings with no grant (`didBecomeActive` → `returned()`), Accessibility
+moves to *flip* and Screen Recording / Full Disk Access to *reopen* ("Already on? macOS applies it after a restart", their
 preflight can stay false until a fresh process) with *Reopen Cicada*; once Settings is open those two also offer
 "Already on? Reopen Cicada" as a quiet text button. *Reopen Cicada* writes `PermissionResume`
 (`cicada.permission.resume`: kind, place, time; read once, dropped after ten minutes) and relaunches through
@@ -730,7 +730,7 @@ kept (`AutomationMemory`, `cicada.permission.automation.<bundle id>`). The rows 
 `CicadaTiming.permissionRowsPoll` (2 s) while they show and when Cicada becomes active; a grant the person asked for
 in this showing plays onboarding's one soft sound. Allowing a permission turns no source on — the Sources step after it
 does. Continue and Skip never wait on a row. Verified on a scratch app copy 2026-11-03 (light and dark; the drag
-helper's ask panel and drag card over System Settings' lower left). Caveat for whoever verifies next: `cv app launch`
+helper's one banner under System Settings' window). Caveat for whoever verifies next: `cv app launch`
 starts the binary directly, so TCC attributes the copy to the launching terminal and its rows show that terminal's
 grants (Automation read *Allowed*); a copy opened through LaunchServices has its own fresh identity.
 
@@ -861,11 +861,15 @@ posts the consent (`TraceRecorder.turnOn`), then two skippable steps — Accessi
 Recording (screenshots) — each through **`PermissionDragHelper(kind:)`**, the one reusable permission component
 (kinds `screenRecording`, `accessibility`, `fullDiskAccess` — the last for Messages and Safari, wired by onboarding v3
 below): a
-small non-activating floating panel with one line ("I need screen recording. Drag me into the Screen Recording list.")
-and *Open*, which deep-links `x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture` /
-`?Privacy_Accessibility` / `?Privacy_AllFiles`; a second card placed over System Settings (by its window bounds only)
-holding the app's icon and name as a draggable tile (the bundle URL as a file, the way Finder drags an app) and a
-near-miss hint ("Drag into 'Screen & System Audio Recording', not the audio-only list."); it polls the preflight only
+single non-activating floating banner (owner 2026-11-03, DESIGN_RULES §9; it replaced a top panel plus a separate
+tile) holding the app's own icon as the drag source (the bundle URL as a file, the way Finder drags an app; the icon
+hops twice as the banner arrives and again as System Settings opens, `CicadaMotion.helperBounce`, still under Reduce
+Motion), one line in the app's own name that names the exact list ("Drag Cicada into Screen & System Audio Recording",
+so the audio-only list beside it is not the target), at most one action (`PermissionBannerAction`: *Open* before System
+Settings is open, which deep-links `x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture` /
+`?Privacy_Accessibility` / `?Privacy_AllFiles`; then nothing, or the quiet "Already on? Reopen Cicada"; *Reopen
+Cicada* in the relaunch state) and ×; once System Settings shows, the banner sits centred under its window (inside its
+lower edge when the screen has no room), by its window bounds only; it polls the preflight only
 (`TracePermissionProbe` → `CGPreflightScreenCaptureAccess` / `AXIsProcessTrusted`, every `CicadaTiming.permissionPoll`,
 1 s) and closes itself and ticks the step on a grant — **no prompting API is ever called**. On, `TracesControls` holds
 the state line, Pause (1 hour · until tomorrow · until I resume) / Resume, *Forget the last 15 minutes*, *Wipe all

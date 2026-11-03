@@ -568,3 +568,24 @@ extension View {
     /// See `MarkHover` — for brand marks (rasters); glyphs use `iconHover()`.
     func markHover(hovering: Bool? = nil) -> some View { modifier(MarkHover(hovering: hovering)) }
 }
+
+// MARK: - The permission banner's arrival (owner 2026-11-03)
+
+/// The drag helper's banner holds the app's icon to drag; when the banner arrives (and again as System Settings opens
+/// under it) the icon hops twice so the eye finds it — owner: *"maybe bounces a bit at the start so the user notices"*.
+/// A quick rise, a springy landing; under Reduce Motion it does not move at all (DR-66): the icon is simply there.
+extension CicadaMotion {
+    static let helperBounceUpDuration: TimeInterval = 0.16
+    static let helperBounceDownDuration: TimeInterval = 0.34
+    static let helperBounceSpring: Double = 0.5
+    /// Points the icon rises per hop.
+    static let helperBounceRise: CGFloat = 8
+    static let helperBounceHops = 2
+
+    /// The rise (`up`) or the landing; nil under Reduce Motion, where no hop runs.
+    static func helperBounce(up: Bool, reduceMotion: Bool) -> Animation? {
+        guard !reduceMotion else { return nil }
+        return up ? CicadaCurve.out(helperBounceUpDuration)
+            : .spring(duration: helperBounceDownDuration, bounce: helperBounceSpring)
+    }
+}
