@@ -150,7 +150,11 @@ struct SourcesPageView: View {
         // Sources v3 — Sources clicked again in the sidebar: back to the root, like a tab bar.
         .onRailReselect(.sources, router: router) { popToRoot() }
         .onChange(of: rows.map(\.id)) { _, _ in reconcile() }
-        .onChange(of: catalog.map(\.id)) { _, _ in reconcile() }
+        .onChange(of: catalog.map(\.id)) { _, _ in reconcile(); openPendingEntry() }
+        // G231 — the notch's Yes lands on its source's entry (a browser's entry once this Mac's browsers are read).
+        .onAppear { openPendingEntry() }
+        .onChange(of: router.pendingCatalogEntry) { _, _ in openPendingEntry() }
+        .onDisappear { router.pendingCatalogEntry = nil }
         .onChange(of: contributorsVM.contributors.map(\.author)) { _, _ in reconcile() }
     }
 
@@ -266,6 +270,14 @@ struct SourcesPageView: View {
         guard let id = router.consumeSourceDetail(), let row = rows.first(where: { $0.id == id }) else { return }
         let entry = catalog.first { SourceCatalog.overviewRow(for: $0.entry, in: [row]) != nil }
         Instant.run { columns.open(entry.map { .entry($0.id) } ?? .source(id)) }
+    }
+
+    /// G231 — a catalogue entry staged by the notch's Yes, opened once it is in the list (kept staged until then, and
+    /// dropped when the page goes, so it never opens long after the click).
+    private func openPendingEntry() {
+        guard let id = router.pendingCatalogEntry, catalog.contains(where: { $0.id == id }) else { return }
+        router.pendingCatalogEntry = nil
+        Instant.run { columns.open(.entry(id)) }
     }
 
     /// G217 — a hand-off naming one tile (Settings' old Integrations rows, a walkthrough) opens that tile's entry.

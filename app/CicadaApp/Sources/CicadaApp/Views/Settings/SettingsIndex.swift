@@ -69,7 +69,7 @@ enum SettingsIndex {
     /// holds the entries to the pages — a task that adds a row adds it here
     /// in the same commit (R-O1).
     static let staticIDs: [SettingsRowID] = [
-        .appearance, .textSize, .openAtLogin, .showInMenuBar, .backgroundService,
+        .appearance, .textSize, .openAtLogin, .showInMenuBar, .connectSuggest, .backgroundService,
         .runSetup, .guidedTour, .demoMemory, .appVersion, .autoUpdate, .reportProblem,
         .ownerName, .ownerPhoto, .ownerEmail, .ownerProfiles, .ownerHandle, .ownerPage,
         .engineChoice, .plansAndKeys, .sleepUsePlan, .engineOverage, .engineAutoClaude,
@@ -109,6 +109,7 @@ enum SettingsIndex {
         SettingsEntry(.textSize, .general, Copy.textSize, keywords: ["zoom", "font", "bigger", "smaller", "larger", "scale"]),
         SettingsEntry(.openAtLogin, .general, Copy.openAtLogin, keywords: ["login", "startup", "start", "launch", "boot"]),
         SettingsEntry(.showInMenuBar, .general, Copy.showInMenuBar, keywords: ["menu bar", "status", "bookworm", "icon", "tray", "hide"]),
+        SettingsEntry(.connectSuggest, .general, Copy.ConnectSuggest.settingTitle, keywords: ["notch", "suggest", "suggestion", "connect", "apps", "offer"]),
         SettingsEntry(.backgroundService, .general, Copy.keepMemoryWorking, keywords: ["background", "launchd", "service", "closed", "always on", "sync"]),
         SettingsEntry(.runSetup, .general, Copy.setup, keywords: ["onboarding", "first run", "welcome", "start over", "checklist"]),
         SettingsEntry(.guidedTour, .general, Copy.Tour.settingsTitle, keywords: ["tour", "walkthrough", "tutorial", "guide", "help", "learn"]),
