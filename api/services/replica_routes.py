@@ -111,6 +111,7 @@ ROUTES: dict[str, str] = {
     "POST /entities/{entity_id}/read": LOCAL,             # this viewer's "read" mark, outside every bank
     "POST /entities/{entity_id}/repos/observed": LOCAL,   # this computer's own repositories, a cache outside banks
     "PUT /sources/messages/photos": LOCAL,                # ticked chats' photos read here, kept outside every bank
+    "PUT /sources/catch-up": LOCAL,                       # G229: this computer's readers' catch-up, in memory here
     "POST /capture/hook-context": LOCAL,                  # this computer's continuity index ($CICADA_HOME)
     # --- the sealed activity traces live on the computer that captured them (ruling 38) -------------------------------
     "POST /sources/traces/delete": LOCAL,

@@ -88,6 +88,9 @@ struct CicadaApp: App {
     @State private var browserWatcher: BrowserWatcher
     /// Round 4 (R-SR17) — the one registry of running syncs every `SourceRow` reads, and where its × goes.
     @State private var syncActivity: SyncActivity
+    /// G229 — the sync the readers do when the app opens after being closed, reported to the backend and shown under
+    /// the Sleep page's machines strip and in Home's Today.
+    @State private var awaySync = AwaySyncTracker()
     /// G191 — "What made you save this?": listens to the bookmark watch's syncs and, when the person turned it on,
     /// drops a small panel from the notch for one bookmark made a moment ago. The controller is held here because the
     /// center keeps its presenter weakly.
@@ -400,6 +403,7 @@ struct CicadaApp: App {
             .environment(browserWatcher)
             .environment(saveWhy)
             .environment(syncActivity)
+            .environment(awaySync)
             .environment(localSources)
             .environment(calendarReader)
             .environment(notesWatcher)
@@ -512,6 +516,13 @@ struct CicadaApp: App {
         whatsApp.start()
         // G218 — records only if the person turned traces on (the backend holds that choice; no answer, no recording).
         Task { await traceRecorder.start() }
+        // G229 — after every reader above is armed: what they catch up on since the app was last open, said to the
+        // backend and shown under the Sleep page's machines strip and in Home's Today. Once per launch.
+        awaySync.start { [store, syncActivity, browserWatcher, calendarReader, notesWatcher, remindersReader,
+                          contactsReader] in
+            AwaySyncProbes.live(store: store, activity: syncActivity, lights: browserWatcher, calendar: calendarReader,
+                                notes: notesWatcher, reminders: remindersReader, contacts: contactsReader)
+        }
         // R-IB22 — the export someone was waiting for arrived (a sniff
         // recognised its vendor): its wait, in the active memory, is done.
         intakeRouter.onVendorSniffed = { [exportWaits, store] vendor in

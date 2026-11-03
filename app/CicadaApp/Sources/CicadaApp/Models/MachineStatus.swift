@@ -12,15 +12,21 @@ struct MachineStatus: Codable, Equatable, Identifiable {
     var how: String?
     var lastSeenAt: String?
     var queue: Int
+    /// The machine whose token asked (this one).
+    var current: Bool
+    /// G229 — what that machine's app is catching up on after it was closed; nil when it is not.
+    var catchUp: MachineAwaySync?
 
     var id: String { deviceId ?? "server" }
 
-    enum CodingKeys: String, CodingKey { case deviceId = "id", name, role, connected, how, lastSeenAt, queue }
+    enum CodingKeys: String, CodingKey {
+        case deviceId = "id", name, role, connected, how, lastSeenAt, queue, current, catchUp
+    }
 
     init(deviceId: String?, name: String, role: String = "device", connected: Bool, how: String?,
-         lastSeenAt: String? = nil, queue: Int) {
+         lastSeenAt: String? = nil, queue: Int, current: Bool = false, catchUp: MachineAwaySync? = nil) {
         self.deviceId = deviceId; self.name = name; self.role = role; self.connected = connected; self.how = how
-        self.lastSeenAt = lastSeenAt; self.queue = queue
+        self.lastSeenAt = lastSeenAt; self.queue = queue; self.current = current; self.catchUp = catchUp
     }
 
     init(from decoder: Decoder) throws {
@@ -32,6 +38,8 @@ struct MachineStatus: Codable, Equatable, Identifiable {
         how = try c.decodeIfPresent(String.self, forKey: .how)
         lastSeenAt = try c.decodeIfPresent(String.self, forKey: .lastSeenAt)
         queue = try c.decodeIfPresent(Int.self, forKey: .queue) ?? 0
+        current = try c.decodeIfPresent(Bool.self, forKey: .current) ?? false
+        catchUp = try c.decodeIfPresent(MachineAwaySync.self, forKey: .catchUp)
     }
 
     /// How it connects, in one word.

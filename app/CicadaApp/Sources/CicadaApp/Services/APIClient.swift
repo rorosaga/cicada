@@ -3727,6 +3727,14 @@ actor APIClient {
         try await get("/devices/status", timeout: Self.refreshTimeout)
     }
 
+    /// `PUT /sources/catch-up` (G229) — the app's readers' catch-up after it was closed, its whole word each time;
+    /// the answer is this machine's view, counted from the bank. A demo memory answers 409 (no reader reads into one).
+    func putCatchUp(_ report: AwaySyncReport) async throws -> MachineAwaySync? {
+        struct Answer: Decodable { let catchUp: MachineAwaySync? }
+        let answer: Answer = try await put("/sources/catch-up", body: report.body)
+        return answer.catchUp
+    }
+
     /// `GET /devices` — outside every bank, so never a Store domain (`DeviceDirectory` keeps it in memory).
     func getDevicesList() async throws -> DeviceList {
         try await get("/devices", timeout: Self.refreshTimeout)

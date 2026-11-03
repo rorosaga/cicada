@@ -12,6 +12,15 @@
 
 ## Current state and evidence
 
+- **2026-11-03 — the app says when it is syncing after it was closed (G229; branch `feat/g229-away-sync`).** The
+  app's readers report to `PUT /sources/catch-up` (in memory, `reader_catch_up`); `GET /devices/status` carries each
+  machine's `catchUp` with what came in while the app was closed and since it opened, counted from the bank. Shown
+  under the Sleep page's machines strip and as a row in Home's Today: "Syncing Messages and Notes — 14 new
+  conversations so far. 9 conversations came in while you were away." → "Synced …", a source that could not be read
+  in its warning clause with its fix. Verified on scratch state (`verify-cicada`, run `g229-away-sync`): three harness
+  captures made while the app was closed read "3 conversations came in while you were away"; a second device's report
+  showed reading, a failed source with its fix, and done with its new count. Open: a CLI line; an SSE push for other
+  viewers.
 - **2026-10-29 — the home moves (ruling 51a, G132 phase 2; branches `feat/g132-move-home`, backend, and
   `feat/g132-move-home-app`, the Sleep page's strip).** The Sleep page names the device that runs consolidation and
   every other device's lag; picking one and confirming (or `cicada home move <device>`) closes the home, parks Sleep,

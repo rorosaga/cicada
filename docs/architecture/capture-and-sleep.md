@@ -16,6 +16,11 @@ Seven rails hold across all of them:
 
 - **The app reads `~/Library`, the backend parses bytes.** The launchd backend has no Full Disk
   Access and must never open those paths itself. An unreadable file shows the exact fix in the app.
+  **So the app has a sync to do when it opens after being closed (G229, 2026-11-03):** a harness's own hook kept
+  capturing meanwhile, the app's readers did not. The app says what its readers are doing (`PUT /sources/catch-up`,
+  `reader_catch_up`, in memory) and every client reads it on `GET /devices/status` as each machine's `catchUp`, with
+  what came in while the app was closed and since it opened counted from the bank (`api.md`, `app.md`). It writes
+  nothing into a bank and reads no path.
   Apple Notes is the same: the app runs the AppleScript as its own child `osascript`
   (`AppleNotesReader`, `NSAppleEventsUsageDescription`) and posts the dump to `POST /sources/sync-notes`,
   which 422s without one — run from the launchd backend, macOS asked whether "python3.12" may control Notes.
