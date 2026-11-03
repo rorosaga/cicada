@@ -47,6 +47,8 @@ class ChatConversationUpdate(CamelModel):
     clear_actor: bool = False
     #: Telegram only (ruling 47a amendment): the person confirms the other person agreed that Cicada's AI reads it.
     consent: bool | None = None
+    #: 2026-11-03 — the person's pin: the chat lists first on its source's page (ids only; a tick is not needed).
+    pinned: bool | None = None
 
 
 class ChatSettingsUpdate(CamelModel):
@@ -60,6 +62,7 @@ class ChatConversationState(CamelModel):
     history: bool = False
     reads_from: str | None = None
     marked: dict | None = None
+    pinned: bool = False
 
 
 class ChatSettingsResponse(CamelModel):
@@ -251,12 +254,14 @@ def _settings_response(memory_path, spec) -> ChatSettingsResponse:
     data = chat_live.load_settings(memory_path, spec)["conversations"]
     return ChatSettingsResponse(conversations=[
         ChatConversationState(id=cid, ticked=c["ticked"], group=c["group"], history=c["reads_from"] == chat_live.EPOCH,
-                              reads_from=c["reads_from"], marked=c["actor"]) for cid, c in data.items()])
+                              reads_from=c["reads_from"], marked=c["actor"], pinned=c["pinned"])
+        for cid, c in data.items()])
 
 
 async def _update(memory_path, spec, req: ChatSettingsUpdate) -> ChatSettingsResponse:
     c = req.conversation
-    conversation = {"id": c.id, "name": c.name, "group": c.group, "ticked": c.ticked, "history": c.history}
+    conversation = {"id": c.id, "name": c.name, "group": c.group, "ticked": c.ticked, "history": c.history,
+                    "pinned": c.pinned}
     if c.clear_actor:
         conversation["actor"] = None
     elif c.actor is not None:

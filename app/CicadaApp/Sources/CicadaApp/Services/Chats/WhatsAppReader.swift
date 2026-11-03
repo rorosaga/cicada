@@ -168,13 +168,23 @@ struct WhatsAppReader: Sendable {
             // the file's path in the container), read only where this Mac's copy has the table.
             let pics = try Self.columns("ZWAPROFILEPICTUREITEM", db)
             let joinPics = pics.contains("ZJID") && pics.contains("ZPATH")
+            // 2026-11-03 (owner's picker: "29 Oct 9026", "3 Nov 8026" beside "3 Nov") — the session's
+            // `ZLASTMESSAGEDATE` is the list's sort key, not always a date: some chats carry a value thousands of years
+            // ahead (the day and month kept, the year not) while the others read true. The chat's newest message is
+            // the date the apps show, so it is read from the messages themselves; the session's value stands only
+            // where no message is listed, and never when it lies in the future (`ChatDates`).
+            let msg = try Self.columns("ZWAMESSAGE", db)
+            let newest = msg.contains("ZCHATSESSION") && msg.contains("ZMESSAGEDATE")
+                ? "(SELECT MAX(m.ZMESSAGEDATE) FROM ZWAMESSAGE m WHERE m.ZCHATSESSION = s.Z_PK)" : "NULL"
             let sql = """
                 SELECT s.Z_PK AS pk, s.ZCONTACTJID AS jid, \(Self.pick("ZPARTNERNAME", from: "s", in: have, as: "name")),
                        \(Self.pick("ZLASTMESSAGEDATE", from: "s", in: have, as: "last")),
+                       \(newest) AS newest,
                        \(joinPics ? "(SELECT MAX(p.ZPATH) FROM ZWAPROFILEPICTUREITEM p WHERE p.ZJID = s.ZCONTACTJID)"
                                   : "NULL") AS picture
-                FROM ZWACHATSESSION s ORDER BY last DESC
+                FROM ZWACHATSESSION s ORDER BY COALESCE(newest, last) DESC
                 """
+            let now = self.now()
             var out: [WhatsAppChat] = []
             for row in try db.query(sql, binds: []) {
                 guard let pk = Self.int(row["pk"]), let jid = row["jid"] as? String, Self.isListed(jid: jid) else { continue }
@@ -183,8 +193,9 @@ struct WhatsAppReader: Sendable {
                 let group = jid.hasSuffix("@g.us")
                 out.append(WhatsAppChat(id: id, sessionPk: pk, jid: jid, partnerName: (row["name"] as? String) ?? "",
                                         group: group,
-                                        lastActivity: (row["last"] as? NSNumber).map {
-                                            Date(timeIntervalSinceReferenceDate: $0.doubleValue) },
+                                        lastActivity: ChatDates.whatsAppLastActivity(
+                                            session: (row["last"] as? NSNumber)?.doubleValue,
+                                            newest: (row["newest"] as? NSNumber)?.doubleValue, now: now),
                                         isSelf: !group && own.contains(Self.account(jid: jid)),
                                         picturePath: (row["picture"] as? String).flatMap { $0.isEmpty ? nil : $0 }))
                 if ids == nil && out.count >= listLimit { break }

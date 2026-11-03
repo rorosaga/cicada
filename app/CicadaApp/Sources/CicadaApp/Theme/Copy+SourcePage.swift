@@ -18,10 +18,6 @@ extension Copy {
         static let signInAgain = "sign in again"
         static let connectAnAgent = "connect an agent on this Mac"
         static let allowAccess = "allow Full Disk Access"
-        /// The quiet link to the source's full words (the connect sheets' words, DESIGN_RULES 2026-10-29).
-        static let whatItReads = Copy.Connect.whatItReads
-        static let factsTitle = "What Cicada reads"
-        static let close = "Close"
         /// The one search, its prompt naming what the list holds ("Search 6 chats").
         static func searchPrompt(total: Int?, noun: (one: String, many: String)) -> String {
             guard let total, total > 0 else { return "Search" }

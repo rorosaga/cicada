@@ -1,4 +1,4 @@
-"""Ruling 47 tier 2: the shared framework (`connectors/tier2.py`), Readwise and Notion.
+"""Ruling 47 tier 2: the shared framework (`connectors/tier2.py`) and Notion (Readwise removed 2026-11-03).
 
 Hermetic: no real account and no network. Every reply comes from a fake server that answers with the recorded
 shapes in `fixtures/connectors/` (placeholders only) and records every request it was sent.
@@ -16,11 +16,9 @@ import pytest
 from api.services import episode_staging, evidence, markdown_parser, sleep_cycle, sync_state
 from api.services.connections import base as connections_base
 from api.services.connections import secrets
-from api.services.connectors import ADAPTERS, notion, readwise, tier2
+from api.services.connectors import ADAPTERS, notion, tier2
 
 FIX = Path(__file__).parent / "fixtures" / "connectors"
-RW = json.loads((FIX / "readwise_export_full.json").read_text())
-RW_CHANGED = json.loads((FIX / "readwise_export_changed.json").read_text())
 NO = json.loads((FIX / "notion_api.json").read_text())
 TOKEN = "placeholder-token-0123456789abcdef"
 
@@ -65,136 +63,35 @@ def _episodes(memory) -> dict[str, dict]:
     return out
 
 
-def _readwise_routes(pages=RW["pages"], changed=None):
+def _notion_routes(search=NO["search"], trash=NO["trash"], markdown=NO["markdown"]):
     def routes(method, url, params, body):
-        assert method == "GET" and url.startswith(readwise.API_BASE)
-        if url.endswith("/auth/"):
-            return 204, None, {}
-        if "ids" in params:
-            return 200, changed["whole_book_101"], {}
-        if "updatedAfter" in params:
-            return 200, changed["incremental"], {}
-        index = 1 if params.get("pageCursor") == "cursor-page-2" else 0
-        return 200, pages[index], {}
+        assert url.startswith(notion.API_BASE)
+        path = url[len(notion.API_BASE):]
+        if path == "users/me":
+            return 200, NO["users_me_bot"], {}
+        if path == "search":
+            assert method == "POST" and "query" not in body           # never a search for a name or subject
+            return 200, (trash if body["filter"].get("in_trash") else search), {}
+        if path.startswith("pages/") and path.endswith("/markdown"):
+            return 200, markdown[path.split("/")[1]], {}
+        if path.startswith("data_sources/"):
+            return 200, NO["data_source"], {}
+        return 404, {"object": "error"}, {}
     return routes
 
 
-# --- Readwise ------------------------------------------------------------------------------------------------------
-
-
-def test_readwise_first_sync_stages_one_episode_per_document_and_highlight_day(bank):
-    _connect(readwise)
-    server = FakeServer(_readwise_routes())
-    result = asyncio.run(readwise.sync(bank, http_fn=server))
-    assert result["status"] == "ok" and result["new"] == 5, result
-    eps = _episodes(bank)
-    assert sorted(eps) == ["readwise:101:2026-09-01", "readwise:101:2026-09-05", "readwise:101:doc",
-                           "readwise:202:2026-10-02", "readwise:202:doc"]
-    day = eps["readwise:101:2026-09-01"]
-    assert day["fm"]["origin"] == "readwise" and day["fm"]["connector"] == "readwise"
-    assert day["fm"]["timestamp"].startswith("2026-09-01T10:00")       # dated when highlighted, read on time
-    body = day["body"]
-    assert "> The first highlighted line." in body and "user: This is my own thought." in body
-    assert "Deleted before Cicada saw it." not in "".join(e["body"] for e in eps.values())
-    # The quote is the document's words (`page`); the note on it is the person's (`user`).
-    quote_at = body.index("The first highlighted line.")
-    note_at = body.index("This is my own thought.")
-    assert evidence.kind_for("ep_x", body, quote_at) == "page"
-    assert evidence.kind_for("ep_x", body, note_at) == "user"
-    doc = eps["readwise:101:doc"]["body"]
-    assert "user: Read this for alpha-project." in doc and "**By:** Author A" in doc
-    article = eps["readwise:202:doc"]
-    assert article["fm"]["url"] == "https://example.com/an-article"
-    assert "[Example Article](https://example.com/an-article)" in article["body"]
-
-
-def test_readwise_requests_only_its_own_host_with_the_token_header_and_no_names(bank):
-    _connect(readwise)
-    server = FakeServer(_readwise_routes())
-    asyncio.run(readwise.sync(bank, http_fn=server))
-    assert server.calls and all(c["url"].startswith("https://readwise.io/api/v2/") for c in server.calls)
-    assert all(c["headers"]["Authorization"] == f"Token {TOKEN}" for c in server.calls)
-    assert all(c["method"] == "GET" for c in server.calls)          # read only
-    assert set().union(*(c["params"] for c in server.calls)) <= {"includeDeleted", "pageCursor", "updatedAfter", "ids"}
+# Readwise was removed by owner direction (2026-11-03: "yeah remove readwise"); the framework's rails below run on
+# Notion, the tier-2 source that remains.
 
 
 def test_the_token_never_reaches_the_bank_and_the_cursor_lives_outside_it(bank, tmp_path):
-    _connect(readwise)
-    asyncio.run(readwise.sync(bank, http_fn=FakeServer(_readwise_routes())))
+    _connect(notion)
+    asyncio.run(notion.sync(bank, http_fn=FakeServer(_notion_routes())))
     for path in bank.rglob("*"):
         if path.is_file():
             assert TOKEN not in path.read_text(encoding="utf-8", errors="replace"), path
-    cursors = list((tmp_path / "home" / "connectors").glob("readwise-*.json"))
+    cursors = list((tmp_path / "home" / "connectors").glob("notion-api-*.json"))
     assert len(cursors) == 1 and (cursors[0].stat().st_mode & 0o777) == 0o600
-    assert "updated_after" in json.loads(cursors[0].read_text())
-    assert sync_state.read_sync_state(bank)["readwise"]["count"] == 5
-
-
-def test_readwise_incremental_reads_a_changed_book_whole_and_rewrites_its_days_in_place(bank):
-    _connect(readwise)
-    asyncio.run(readwise.sync(bank, http_fn=FakeServer(_readwise_routes())))
-    before = _episodes(bank)
-    server = FakeServer(_readwise_routes(changed=RW_CHANGED))
-    result = asyncio.run(readwise.sync(bank, http_fn=server))
-    assert result["status"] == "ok", result
-    assert any("updatedAfter" in c["params"] for c in server.calls)
-    assert any(c["params"].get("ids") == "101" for c in server.calls)
-    after = _episodes(bank)
-    assert after["readwise:101:2026-09-01"]["path"] == before["readwise:101:2026-09-01"]["path"]   # in place
-    assert "user: My thought, revised." in after["readwise:101:2026-09-01"]["body"]
-    assert after["readwise:101:2026-09-01"]["fm"]["processed"] is False                             # re-queued
-    # The day whose one highlight was deleted, and the deleted article, are tombstoned and kept.
-    for sid in ("readwise:101:2026-09-05", "readwise:202:doc", "readwise:202:2026-10-02"):
-        assert after[sid]["fm"].get("source_deleted_at"), sid
-    assert not after["readwise:101:doc"]["fm"].get("source_deleted_at")
-    assert sync_state.read_sync_state(bank)["readwise"]["count"] == 2
-
-
-def test_an_unchanged_resync_writes_nothing(bank):
-    _connect(readwise)
-    asyncio.run(readwise.sync(bank, http_fn=FakeServer(_readwise_routes())))
-    stamps = {p: p.stat().st_mtime_ns for p in (bank / "episodes").glob("*.md")}
-    for path in (tier2._cursor_path("readwise", bank),):
-        path.unlink()      # forget the cursor: the whole library is read again, and nothing moves
-    result = asyncio.run(readwise.sync(bank, http_fn=FakeServer(_readwise_routes())))
-    assert result["status"] == "ok" and result["new"] == 0 and result["updated"] == 0
-    assert {p: p.stat().st_mtime_ns for p in (bank / "episodes").glob("*.md")} == stamps
-
-
-def test_a_document_links_only_to_a_page_that_matches_exactly(bank):
-    from api.services import media_ingestor
-
-    media_ingestor.save_url_index(bank, {media_ingestor.url_hash("https://example.com/an-article"):
-                                         {"media_entity_id": "media-an-article", "episode_id": "ep_1"}})
-    (bank / "entities" / "example-book-one.md").write_text(
-        "---\nid: example-book-one\ntitle: Example Book One\ntype: concept\n---\n# Example Book One\n")
-    (bank / "entities" / "person-with-that-title.md").write_text(
-        "---\nid: person-with-that-title\ntitle: Example Article\ntype: person\n---\n# x\n")
-    _connect(readwise)
-    asyncio.run(readwise.sync(bank, http_fn=FakeServer(_readwise_routes())))
-    eps = _episodes(bank)
-    assert eps["readwise:202:doc"]["fm"]["media_entity_id"] == "media-an-article"     # by its URL
-    assert eps["readwise:101:doc"]["fm"]["media_entity_id"] == "example-book-one"      # by its exact title
-    assert sorted(p.name for p in (bank / "entities").glob("*.md")) == ["example-book-one.md",
-                                                                         "person-with-that-title.md"]  # none made
-
-
-def test_two_pages_with_the_title_link_neither(bank):
-    for i in (1, 2):
-        (bank / "entities" / f"page-{i}.md").write_text(
-            f"---\nid: page-{i}\ntitle: Example Book One\ntype: concept\n---\n# x\n")
-    _connect(readwise)
-    asyncio.run(readwise.sync(bank, http_fn=FakeServer(_readwise_routes())))
-    assert _episodes(bank)["readwise:101:doc"]["fm"].get("media_entity_id") is None
-
-
-def test_a_refused_token_is_said_in_words_and_nothing_is_staged(bank):
-    _connect(readwise)
-    result = asyncio.run(readwise.sync(bank, http_fn=FakeServer(lambda *a: (401, {"detail": "x"}, {}))))
-    assert result["status"] == "error" and "readwise.io/access_token" in result["error"]
-    assert not list((bank / "episodes").glob("*.md"))
-    entry = sync_state.read_sync_state(bank)["readwise"]
-    assert entry["last_error"] == readwise.REFUSED_WORDS and TOKEN not in json.dumps(entry)
 
 
 def test_a_429_waits_its_retry_after_once(bank, monkeypatch):
@@ -205,13 +102,13 @@ def test_a_429_waits_its_retry_after_once(bank, monkeypatch):
 
     monkeypatch.setattr(tier2, "wait", fake_sleep)
     answers = iter([(429, None, {"retry-after": "7"})])
-    base_routes = _readwise_routes()
+    base_routes = _notion_routes()
 
     def routes(*a):
         return next(answers, None) or base_routes(*a)
 
-    _connect(readwise)
-    result = asyncio.run(readwise.sync(bank, http_fn=FakeServer(routes)))
+    _connect(notion)
+    result = asyncio.run(notion.sync(bank, http_fn=FakeServer(routes)))
     assert result["status"] == "ok" and waits == [7.0]
 
 
@@ -220,10 +117,10 @@ def test_a_second_429_stops_in_words_without_advancing(bank, monkeypatch):
         return None
 
     monkeypatch.setattr(tier2, "wait", fake_sleep)
-    _connect(readwise)
-    result = asyncio.run(readwise.sync(bank, http_fn=FakeServer(lambda *a: (429, None, {"retry-after": "1"}))))
+    _connect(notion)
+    result = asyncio.run(notion.sync(bank, http_fn=FakeServer(lambda *a: (429, None, {"retry-after": "1"}))))
     assert result["status"] == "error" and "slow down" in result["error"]
-    assert not tier2._cursor_path("readwise", bank).exists()
+    assert not tier2._cursor_path("notion-api", bank).exists()
 
 
 # --- the framework's rails -----------------------------------------------------------------------------------------
@@ -231,51 +128,51 @@ def test_a_second_429_stops_in_words_without_advancing(bank, monkeypatch):
 
 def test_a_scheduled_sync_never_starts_while_sleep_holds_the_pages(bank, monkeypatch):
     monkeypatch.setattr(sleep_cycle, "is_writing", lambda: True)
-    _connect(readwise)
-    server = FakeServer(_readwise_routes())
-    result = asyncio.run(readwise.sync(bank, http_fn=server, scheduled=True))
+    _connect(notion)
+    server = FakeServer(_notion_routes())
+    result = asyncio.run(notion.sync(bank, http_fn=server, scheduled=True))
     assert result["status"] == "skipped" and server.calls == []
-    assert sync_state.read_sync_state(bank)["readwise"]["last_skip_reason"] == tier2.WAITED_FOR_SLEEP
+    assert sync_state.read_sync_state(bank)["notion-api"]["last_skip_reason"] == tier2.WAITED_FOR_SLEEP
 
 
 def test_a_sync_whose_fetch_overlapped_sleep_writes_nothing_and_keeps_its_cursor(bank, monkeypatch):
     """The person's Refresh fetches (their click), then Sleep opens its window before the staging: the admitted
     transaction is refused, nothing is written, and the cursor stays where it was."""
-    _connect(readwise)
+    _connect(notion)
     state = {"writing": False}
     monkeypatch.setattr(sleep_cycle, "is_writing", lambda: state["writing"])
-    base_routes = _readwise_routes()
+    base_routes = _notion_routes()
 
     def routes(*a):
         state["writing"] = True        # Sleep starts while the fetch is in flight
         return base_routes(*a)
 
-    result = asyncio.run(readwise.sync(bank, http_fn=FakeServer(routes)))
+    result = asyncio.run(notion.sync(bank, http_fn=FakeServer(routes)))
     assert result["status"] == "skipped" and result["reason"] == tier2.WAITED_FOR_SLEEP
     assert not list((bank / "episodes").glob("*.md"))
-    assert not tier2._cursor_path("readwise", bank).exists()
+    assert not tier2._cursor_path("notion-api", bank).exists()
 
 
 def test_a_scheduled_sync_is_gated_and_a_person_sync_is_not(bank, monkeypatch):
     monkeypatch.setenv("CICADA_ALLOW_CONNECTOR_FETCH", "off")
-    _connect(readwise)
-    monkeypatch.setattr(tier2, "http_transport", FakeServer(_readwise_routes()))
-    result = asyncio.run(tier2.run(readwise, bank, scheduled=True))
+    _connect(notion)
+    monkeypatch.setattr(tier2, "http_transport", FakeServer(_notion_routes()))
+    result = asyncio.run(tier2.run(notion, bank, scheduled=True))
     assert result["status"] == "skipped" and result["reason"] == "network disabled"
-    assert sync_state.read_sync_state(bank)["readwise"]["last_skip_reason"] == tier2.GATE_CLOSED
-    server = FakeServer(_readwise_routes())
-    assert asyncio.run(readwise.sync(bank, http_fn=server, allow_fetch=True))["status"] == "ok"
+    assert sync_state.read_sync_state(bank)["notion-api"]["last_skip_reason"] == tier2.GATE_CLOSED
+    server = FakeServer(_notion_routes())
+    assert asyncio.run(notion.sync(bank, http_fn=server, allow_fetch=True))["status"] == "ok"
 
 
 def test_off_by_default_and_a_demo_bank_takes_nothing(bank, monkeypatch):
-    server = FakeServer(_readwise_routes())
-    assert asyncio.run(readwise.sync(bank, http_fn=server))["reason"] == "not connected"
+    server = FakeServer(_notion_routes())
+    assert asyncio.run(notion.sync(bank, http_fn=server))["reason"] == "not connected"
     assert server.calls == []
-    _connect(readwise)
+    _connect(notion)
     from api.services import demo_guard
 
     monkeypatch.setattr(demo_guard, "is_demo", lambda path: True)
-    assert asyncio.run(readwise.sync(bank, http_fn=server))["status"] == "skipped" and server.calls == []
+    assert asyncio.run(notion.sync(bank, http_fn=server))["status"] == "skipped" and server.calls == []
 
 
 def test_sleeps_tail_never_runs_a_tier_two_sync(tmp_path, monkeypatch):
@@ -295,9 +192,9 @@ def test_every_connector_secret_is_kept_from_engine_children():
 
 
 def test_a_request_off_the_services_host_is_refused():
-    client = tier2.Client(readwise, TOKEN, FakeServer(lambda *a: (200, {}, {})))
+    client = tier2.Client(notion, TOKEN, FakeServer(lambda *a: (200, {}, {})))
     with pytest.raises(Exception) as exc:
-        asyncio.run(client.get("https://elsewhere.example/api/v2/"))
+        asyncio.run(client.get("https://elsewhere.example/v1/users/me"))
     assert "off its own host" in str(exc.value)
 
 
@@ -316,32 +213,10 @@ def api(bank, monkeypatch):
     config.get_settings.cache_clear()
 
 
-def test_status_says_what_it_reads_and_never_returns_the_token(api, monkeypatch):
-    body = api.get("/sources/connectors/readwise").json()
-    assert body["tier"] == 2 and body["connected"] is False and "only reads" in body["reads"]
-    assert body["tokenHelp"] == "readwise.io/access_token"
-    monkeypatch.setattr(tier2, "http_transport", FakeServer(_readwise_routes()))
-    saved = api.put("/sources/connectors/readwise/credentials", json={"fields": {readwise.TOKEN_ENV: TOKEN}})
-    assert saved.status_code == 200 and saved.json()["connected"] is True
-    assert TOKEN not in saved.text and TOKEN not in api.get("/sources/connectors").text
-    synced = api.post("/sources/connectors/readwise/sync").json()
-    assert synced["status"] == "ok" and synced["new"] == 5 and synced["resourcesRead"] >= 2
-    gone = api.delete("/sources/connectors/readwise/credentials").json()
-    assert gone["connected"] is False and not secrets.has_secret(readwise.TOKEN_ENV)
-    assert not list(tier2._cursor_path("readwise", bank_path(api)).parent.glob("readwise-*.json"))
-
-
 def bank_path(api) -> Path:
     from api import config
 
     return config.get_settings().memory_path
-
-
-def test_a_refused_token_is_never_saved(api, monkeypatch):
-    monkeypatch.setattr(tier2, "http_transport", FakeServer(lambda *a: (401, None, {})))
-    answer = api.put("/sources/connectors/readwise/credentials", json={"fields": {readwise.TOKEN_ENV: TOKEN}})
-    assert answer.status_code == 422 and "readwise.io/access_token" in answer.json()["detail"]
-    assert not secrets.has_secret(readwise.TOKEN_ENV)
 
 
 def test_a_notion_personal_token_is_refused_at_save(api, monkeypatch):
@@ -361,38 +236,21 @@ def test_the_cli_reads_the_token_from_stdin_only(monkeypatch):
 
     def fake_call(boot, method, path, **kw):
         if method == "GET":
-            return {"label": "Readwise", "loginMode": "credentials", "reads": "r", "tokenHelp": "h",
-                    "fields": [{"name": readwise.TOKEN_ENV, "label": "Token", "secret": True}]}
+            return {"label": "Notion", "loginMode": "credentials", "reads": "r", "tokenHelp": "h",
+                    "fields": [{"name": notion.TOKEN_ENV, "label": "Token", "secret": True}]}
         sent.update(kw.get("body") or {})
-        return {"label": "Readwise", "connected": True}
+        return {"label": "Notion", "connected": True}
 
     monkeypatch.setattr(cli_app, "call", fake_call)
     monkeypatch.setattr(cli_app, "require_person", lambda what: None)
     monkeypatch.setattr(cli_app, "read_token", lambda label: TOKEN)
     from types import SimpleNamespace
 
-    out = cli_app.cmd_connector_connect(SimpleNamespace(probe={}), SimpleNamespace(connector="readwise"))
-    assert sent == {"fields": {readwise.TOKEN_ENV: TOKEN}} and TOKEN not in out.text
+    out = cli_app.cmd_connector_connect(SimpleNamespace(probe={}), SimpleNamespace(connector="notion-api"))
+    assert sent == {"fields": {notion.TOKEN_ENV: TOKEN}} and TOKEN not in out.text
 
 
 # --- Notion --------------------------------------------------------------------------------------------------------
-
-
-def _notion_routes(search=NO["search"], trash=NO["trash"], markdown=NO["markdown"]):
-    def routes(method, url, params, body):
-        assert url.startswith(notion.API_BASE)
-        path = url[len(notion.API_BASE):]
-        if path == "users/me":
-            return 200, NO["users_me_bot"], {}
-        if path == "search":
-            assert method == "POST" and "query" not in body           # never a search for a name or subject
-            return 200, (trash if body["filter"].get("in_trash") else search), {}
-        if path.startswith("pages/") and path.endswith("/markdown"):
-            return 200, markdown[path.split("/")[1]], {}
-        if path.startswith("data_sources/"):
-            return 200, NO["data_source"], {}
-        return 404, {"object": "error"}, {}
-    return routes
 
 
 def test_notion_pages_become_episodes_keyed_by_page_id(bank):
@@ -569,17 +427,9 @@ def test_a_page_the_connection_cannot_read_is_skipped_not_the_sync(bank):
     assert "could not be read" in sync_state.read_sync_state(bank)["notion-api"]["words"]
 
 
-def test_a_new_bank_reads_the_whole_history_whatever_the_cursor_says(bank):
-    _connect(readwise)
-    tier2.write_cursor("readwise", bank, {"updated_after": "2026-10-28T00:00:00+00:00"})
-    server = FakeServer(_readwise_routes())
-    result = asyncio.run(readwise.sync(bank, http_fn=server))
-    assert result["new"] == 5 and not any("updatedAfter" in c["params"] for c in server.calls)
-
-
 def test_cicadas_own_secrets_never_reach_a_child(monkeypatch):
     for name in ("CICADA_API_TOKEN", "CICADA_TELEGRAM_BOT_TOKEN", "CICADA_TELEGRAM_WEBHOOK_SECRET",
-                 readwise.TOKEN_ENV, "REDDIT_PASSWORD"):
+                 notion.TOKEN_ENV, "REDDIT_PASSWORD"):
         monkeypatch.setenv(name, "placeholder-secret")
         assert name not in connections_base.scrubbed_env() and name not in connections_base.secretless_env()
     # The helper children start from the secretless environment, never a copy of the backend's.

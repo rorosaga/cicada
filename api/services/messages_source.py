@@ -122,7 +122,7 @@ def _clean_name(value) -> str:
 
 
 def load_settings(memory_path: Path) -> dict:
-    """``{suggest_agents, conversations: {id: {name, service, ticked, actor?, history}}}`` — never raises."""
+    """``{suggest_agents, conversations: {id: {name, service, ticked, actor?, history, pinned}}}`` — never raises."""
     try:
         data = json.loads(settings_path(memory_path).read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -142,6 +142,8 @@ def load_settings(memory_path: Path) -> dict:
             "ticked": bool(entry.get("ticked")),
             "actor": actor,
             "history": [h for h in entry.get("history") or [] if isinstance(h, dict)][-50:],
+            # 2026-11-03 — the person's pin on the Sources page (`chat_live.load_settings`'s rule).
+            "pinned": bool(entry.get("pinned")),
         }
     return {"suggest_agents": bool(data.get("suggest_agents", True)), "conversations": conversations}
 
@@ -158,8 +160,8 @@ def update_settings(memory_path: Path, *, suggest_agents: bool | None = None, co
                     now: str | None = None) -> tuple[dict, bool]:
     """Tick or untick one conversation, or mark who it is with; ``(settings, actor_changed)``.
 
-    ``conversation``: ``{id, name?, service?, ticked?, actor?}`` where ``actor`` is ``{kind: agent|person, label?}``
-    or ``{kind: null}`` to clear the person's mark. Every mark is kept in the entry's ``history`` (the spec: "persist
+    ``conversation``: ``{id, name?, service?, ticked?, actor?, pinned?}`` where ``actor`` is ``{kind: agent|person,
+    label?}`` or ``{kind: null}`` to clear the person's mark; ``pinned`` is the Sources page's pin (2026-11-03). Every mark is kept in the entry's ``history`` (the spec: "persist
     attribution corrections with their history"). Unticking keeps the entry, and every saved episode."""
     memory_path = Path(memory_path)
     at = now or episode_ids.utc_now_iso()
@@ -173,7 +175,9 @@ def update_settings(memory_path: Path, *, suggest_agents: bool | None = None, co
             if not CONVERSATION_ID_RE.match(cid):
                 raise PayloadError("a conversation id is the app's hash of the chat, 16–64 hex characters")
             entry = data["conversations"].setdefault(cid, {"name": "", "service": "iMessage", "ticked": False,
-                                                            "actor": None, "history": []})
+                                                            "actor": None, "history": [], "pinned": False})
+            if conversation.get("pinned") is not None:
+                entry["pinned"] = bool(conversation["pinned"])
             if conversation.get("name"):
                 entry["name"] = _clean_name(conversation["name"])
             if conversation.get("service") in SERVICES:
