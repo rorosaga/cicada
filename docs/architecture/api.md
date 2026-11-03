@@ -438,8 +438,18 @@ name a `cicada_…` tool; `llms.txt` maps each to its operation), `data`'s shape
   ids and hyphenated slugs not on the keep list (channel and agent ids); a line where a name, URL or email still
   survives keeps only its structure (time, level, logger, exception class, file:line) and reads `[message withheld]`.
   It sends nothing; the app shows it before the person copies, saves or sends it.
-- `GET /devices/status` — `{devices: [{id, name, role: server|device, current, connected, how, lastSeenAt, queue}],
-  connectedWithinSeconds}`: this server first, named by its own Computer Name (macOS `scutil`, else the host name),
+- `PUT /sources/catch-up` (G229, 2026-11-03) — the app's word on the sync its readers do after it was closed:
+  `{session, openedAt, awaySince?, readers: [{channel, label, state: reading|done|failed, fix?}], done}`, the whole word
+  each time (idempotent). Held in memory per (reporter, bank) by `reader_catch_up` — the reporter is the device whose
+  token signed it, none for this server's own app — outside every bank, never logged; a new `session` starts a new
+  one, a finished one takes no further word, one left `reading` 15 min is dropped, a finished one shown 10 min.
+  Answers `{catchUp}` (the reporter's view, below). Demo bank 409 (`_DEMO_GATE`); write-admission class `outside`;
+  replica `local`. `fix` is kept only on a `failed` reader.
+- `GET /devices/status` — `{devices: [{id, name, role: server|device, current, connected, how, lastSeenAt, queue,
+  catchUp}], connectedWithinSeconds}`. `catchUp` (G229) is that machine's live sync or null: `{state: reading|done,
+  openedAt, awaySince, doneAt, readers, arrived, new}` — `arrived` = waiting episodes whose file changed between
+  `awaySince` and `openedAt` (null without `awaySince`), `new` = since `openedAt` (frozen at `doneAt`), both from the
+  same `bank_index` header scan as `queue`, never from the app: this server first, named by its own Computer Name (macOS `scutil`, else the host name),
   then each active device token by the name the person gave it. `how` is read from the device's last request
   (`agent_seen.how_from_request`: a Tailscale Serve header or tailnet address → `tailscale`, another private address →
   `lan`, a device token on loopback → `ssh`), stamped in `auth.require_token` once a minute. `queue` = that machine's
