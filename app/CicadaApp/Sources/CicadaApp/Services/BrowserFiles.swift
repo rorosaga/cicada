@@ -101,9 +101,12 @@ enum BrowserFile: CaseIterable {
         }
     }
 
-    /// The browser's own name, for the Chromium family's "missing" sentence.
-    fileprivate var browserName: String? {
+    /// The browser's own name, for the Chromium family's "missing" sentence and a watched browser's "up to date with"
+    /// line (`BrowserFreshness`).
+    var browserName: String? {
         switch self {
+        case .safariBookmarks: "Safari"
+        case .chromeBookmarks: "Chrome"
         case .braveBookmarks: "Brave"
         case .vivaldiBookmarks: "Vivaldi"
         case .cometBookmarks: "Comet"

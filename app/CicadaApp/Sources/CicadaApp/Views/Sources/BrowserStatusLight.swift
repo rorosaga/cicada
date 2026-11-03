@@ -80,7 +80,10 @@ struct BrowserStatusLight: View {
     static func explanation(for state: BrowserWatchState) -> String {
         switch state {
         case .watching:
-            "Anything you bookmark shows up in the Sleep queue within a few seconds."
+            // 2026-11-03: "this browser on this Mac" — a bookmark saved on another device arrives only once the
+            // browser brings it into its file here (`BrowserFreshness`), never within seconds of the save.
+            "Anything you bookmark here shows up in the Sleep queue within a few seconds; from another device, once "
+                + "the browser brings it to this Mac."
         case .syncing:
             "Reading what changed."
         case .stale:

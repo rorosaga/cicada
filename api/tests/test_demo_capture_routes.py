@@ -82,6 +82,8 @@ GATED = {
     # Ruling 43: an agent's own memory notes, posted by its hook, and their switch.
     ("POST", "/capture/agent-memory"): "/capture/agent-memory",
     ("PUT", "/capture/agent-memory/settings"): "/capture/agent-memory/settings",
+    # G229: the app's readers' catch-up — in memory, but no reader reads into a demo bank, so none catches up there.
+    ("PUT", "/sources/catch-up"): "/sources/catch-up",
     # G166: "Add to your graph" writes a skill page into the bank.
     ("POST", "/agent-methods/skills/{skill}/page"): "/agent-methods/skills/browser-harness/page",
 }

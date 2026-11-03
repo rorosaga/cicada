@@ -5,7 +5,9 @@ from pathlib import Path
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response, UploadFile
 from starlette.concurrency import run_in_threadpool
 from loguru import logger
-from pydantic import BaseModel
+from typing import Literal
+
+from pydantic import BaseModel, Field
 
 from api.config import Settings, get_settings
 from api.models.schemas import (
@@ -63,6 +65,7 @@ from api.services import (
     reading_service,
     reading_settings,
     reading_walls,
+    reader_catch_up,
     safari_tabs,
     saved_at as saved_at_service,
     saved_why,
@@ -1293,6 +1296,43 @@ async def list_source_channels(
             feed_fetch_allowed=feed_fetch,
         )
     return SourceChannelsResponse(channels=[SourceChannel(**c) for c in channels])
+
+
+class CatchUpReader(BaseModel):
+    channel: str = Field(..., min_length=1, max_length=200)
+    label: str = Field(..., min_length=1, max_length=80)
+    state: Literal["reading", "done", "failed"]
+    #: A failed reader's own sentence, naming the exact fix (the capture rail); dropped for any other state.
+    fix: str | None = Field(None, max_length=400)
+
+
+class CatchUpReport(BaseModel):
+    #: One per app launch: a new one starts a new catch-up.
+    session: str = Field(..., min_length=1, max_length=64)
+    opened_at: datetime | None = Field(None, alias="openedAt")
+    #: When the app was last open, as the app remembers it; none on its first launch.
+    away_since: datetime | None = Field(None, alias="awaySince")
+    readers: list[CatchUpReader] = Field(default_factory=list, max_length=reader_catch_up.MAX_READERS)
+    done: bool = False
+
+
+@router.put("/sources/catch-up", dependencies=_DEMO_GATE)
+async def report_catch_up(body: CatchUpReport, request: Request, settings: Settings = Depends(get_settings)):
+    """G229 — the app's readers' catch-up after it was closed: which are reading, which finished, which failed and the
+    fix, and whether it is over. Held in memory, outside every bank (`reader_catch_up`); every client reads it on
+    `GET /devices/status` as each machine's `catchUp`. Answers this reporter's view, its counts from the bank, so the
+    app that reported draws it at once. A demo bank answers 409: no reader reads into one."""
+    asking = getattr(request.state, "device", None)
+    reporter = asking.id if asking is not None else None
+    memory_path = settings.memory_path
+
+    def work():
+        reader_catch_up.report(reporter, memory_path, session=body.session, opened_at=body.opened_at,
+                               away_since=body.away_since, readers=[r.model_dump() for r in body.readers],
+                               done=body.done)
+        return reader_catch_up.view(reporter, memory_path)
+
+    return {"catchUp": await run_in_threadpool(work)}
 
 
 @router.get("/sources/channels/{channel_id}/items")

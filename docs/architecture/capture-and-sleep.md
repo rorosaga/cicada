@@ -16,6 +16,11 @@ Seven rails hold across all of them:
 
 - **The app reads `~/Library`, the backend parses bytes.** The launchd backend has no Full Disk
   Access and must never open those paths itself. An unreadable file shows the exact fix in the app.
+  **So the app has a sync to do when it opens after being closed (G229, 2026-11-03):** a harness's own hook kept
+  capturing meanwhile, the app's readers did not. The app says what its readers are doing (`PUT /sources/catch-up`,
+  `reader_catch_up`, in memory) and every client reads it on `GET /devices/status` as each machine's `catchUp`, with
+  what came in while the app was closed and since it opened counted from the bank (`api.md`, `app.md`). It writes
+  nothing into a bank and reads no path.
   Apple Notes is the same: the app runs the AppleScript as its own child `osascript`
   (`AppleNotesReader`, `NSAppleEventsUsageDescription`) and posts the dump to `POST /sources/sync-notes`,
   which 422s without one — run from the launchd backend, macOS asked whether "python3.12" may control Notes.
@@ -37,6 +42,19 @@ Seven rails hold across all of them:
   Safari's excerpt, and a sync reads recently saved first and stamps Reading List / Favorites
   counts as the channel's `parts`. Safari's excerpt is scrubbed, capped at 500 characters and used
   only when the page gave no description of its own.
+  **Where Safari keeps them (checked on macOS 27.2, 2026-11-03).** One file: `~/Library/Safari/Bookmarks.plist`
+  holds every bookmark and the Reading List, for every Safari profile (Apple: profiles separate history, website
+  data, extensions and Tab Groups; bookmarks and Favorites are available to all of them). It is written by Safari
+  and — Safari open or not — by iCloud's own Safari sync, `SafariBookmarksSyncAgent`, a launch agent that runs
+  without Safari, receives iCloud's push for another device's change and merges it into that file (its sandbox
+  profile, embedded in the binary, grants it `~/Library/Safari/Bookmarks.plist` and Safari's lock, and its own log
+  strings start a bookmark sync "in response to a push notification"). In Safari's container, `SafariTabs.db` holds Tab Groups and their tabs (its `bookmarks` table is
+  the tab tree, not bookmarks) and `CloudTabs.db` other devices' open tabs. So the app reads the one file, and a
+  bookmark saved on another device reaches Cicada exactly when iCloud has merged it there; a file that has not
+  moved has nothing new. The live case that settled it: Safari's file unchanged for five days, Safari.app not run
+  on that Mac in that time, and the sync agent's one bookmark-container check in its retained log window finding
+  only a settings change — nothing new had reached that Mac to read. The page now says what "up to date" is
+  measured against (`BrowserFreshness`, `app.md`), and a launch reads nothing until the active memory is known.
 - **Ask why at the moment of saving (G191).** A bookmark sync reports what it newly saved: each source's
   `first_sync` (no seen-set before this pass) and `fresh` / `fresh_total` — the bookmarks that got a `url_index` row
   this pass (at most `FRESH_CAP` = 3 listed), each with its episode and `added_at`, the browser's own instant (aware

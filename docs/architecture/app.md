@@ -1038,7 +1038,24 @@ bound to the memory it read for (`BankScope.bound`) and its signature is recorde
 never read for. The old per-connection signature moves, once, to the active memory at the first launch after the
 upgrade — only once the roster has loaded and `Store.bank` names it (before `hydrate()` it is the placeholder `default`,
 and the old signature is then only read, never moved) — and the consent it implied is written down explicitly so no other memory reads as
-turned off. *No self-opening field* — every chip and click from the panel goes through
+turned off. *Nothing is read before the memory is known* (2026-11-03): `start(store:)` runs before `hydrate()`, so the
+launch catch-up used to ask the placeholder `default` what was synced, find nothing, and read the whole file for a
+memory nobody had open (the server refuses that write, and the light read "Sync failed" until the next save). A
+catch-up or a watch event before the roster names the active memory is owed instead (`catchUpOwed`) and runs once it
+does — `bankChanged` when `Store.bank` moves, `rosterLoaded` (the app's hook on `store.banks.value?.active`) when the
+active memory has the placeholder's own name and `Store.bank` never moves (`testTheLaunchCatchUpWaitsForTheActiveMemory`).
+*What "up to date" is measured against* (2026-11-03, live): Safari keeps every bookmark and the Reading List in one
+file, `~/Library/Safari/Bookmarks.plist`, shared by every Safari profile, written by Safari and — Safari open or not —
+by iCloud's own Safari sync, which merges another device's bookmarks into it (`capture-and-sleep.md`). Cicada reads
+that file and nothing else can be read: a bookmark saved on another device reaches Cicada exactly when it lands there.
+The owner's row read "Watching · Last synced 5 days ago" while bookmarks were being saved elsewhere and the file had not
+moved in five days — both true, neither the reason. The watcher now keeps when the browser last changed its file
+(`browserChanged(for:)`, the file's own modification time, only for a browser the person turned on), and a watched,
+up-to-date browser's header line says it (`BrowserFreshness`, DR-58's relative words): "Up to date with Safari on this
+Mac — its bookmarks here last changed 5 days ago", plus, once that has been quiet a day, how another device's bookmarks
+arrive (Safari: once iCloud copies them into Safari here, "if one is missing, check Safari here"; the Chromium family:
+once the browser on this Mac syncs them, while it is open). The light's Watching sentence says "here … from another
+device, once the browser brings it to this Mac". *No self-opening field* — every chip and click from the panel goes through
 `SaveWhyCenter.input`, which ignores a choice (and a click elsewhere) within `SaveWhyPolicy.armDelay` (0.5 s) of the
 panel showing — at 0.5 s after a save the hand is still on the page beneath — and `SaveWhyNSPanel.canBecomeKey` is false
 until a mouse-down lands in it, so no activation or stray key can press a chip or type; only `tapOther` opens the field.
@@ -1616,6 +1633,29 @@ agent reads (`agent_methods`), not an install.
   while connected, how (Local · Tailscale · SSH · Local network), *N waiting*. A click opens that machine's queue in
   Waiting (rows rebuilt from its own episodes; `GET /sleep/episodes` rows carry `device`, shape `episodes-3`). The
   engine line is UI-A's.
+- **Syncing after the app was closed (G229, owner 2026-11-03).** `AwaySyncTracker` (app-level, in the environment;
+  `Support/AwaySync.swift`) starts once per launch after every reader is armed. It reads when the app was last open
+  (`AppPresence`, `cicada.app.lastOpenAt` in the app's defaults, stamped once a minute while it runs) before stamping
+  this launch, then looks at every reader once a second (`AwaySyncProbes.live`: `SyncActivity`'s runs, the watch lights
+  and their errors, Calendar/Notes/Reminders/Contacts status — the state each Sources row already shows) and sends its
+  whole word to `PUT /sources/catch-up` whenever it changes (a keep-alive each minute). Nothing shows while it fails: a
+  refusal that cannot change this launch (409 a demo memory, 404/405 a server without the route) ends it at once;
+  anything else (backend starting or down) is retried every 5 s for at most 15 min, the backend's own silence limit,
+  then never again this launch — only the once-a-minute presence stamp keeps running. Rules (`AwaySyncRules`): a reader is listed once seen reading (then `done`) or while it
+  fails or is refused (its own sentence naming the fix); it is over when nothing reads, 3 s after the last reader
+  stopped and at least 10 s after the backend first heard; once over, a reader that starts later is ordinary reading.
+  The answer is drawn **under the machines strip** (`AwaySyncLines`, caption face, centred in the 760 pt column, DR-36):
+  one line per machine syncing — this one unnamed (the strip's polled row when it is in the same state as the tracker's
+  answer, for its fresher counts; the tracker's when the state moved on), another by its name and "…came in while its
+  app was closed" — "Syncing Messages and Notes — 14 new
+  conversations so far. 9 conversations came in while you were away." / "Synced Messages and Notes — 14 new
+  conversations." / "Synced." — with a static `arrow.triangle.2.circlepath` or `checkmark` glyph in `textTertiary` (no
+  motion, DR-61), then one line per failed source: "Calendar couldn't be read." in `warning` (DR-7: the first clause of
+  a failed source) and the reader's own fix in `textSecondary`; a click opens Sources. The strip polls every
+  `machinePollWhileSyncing` (5 s) while any machine syncs; the home strip's refusal sentence is still cleared only at
+  the 30 s pace. **Home's Today** carries the same line as one row under
+  *N waiting* (failures as their warning clause; the row opens Sleep). The finished line shows for 10 min. "Syncing",
+  the word a Sources row says while it reads — never "catching up", which is Home's *Catch me up* chat.
 - **Sleep's home strip (G132 phase 2, ruling 51a; owner 2026-10-29: "Sleep page on the app should show the selected
   device running consolidation and you should be able to easily switch"):** under the machines strip, only while this
   memory is shared with another device (`GET /sync/home` → `shared: true`; one computer that shares nothing sees

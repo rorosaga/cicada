@@ -148,6 +148,7 @@ Graph node search and reveal navigation. Remaining adjacent work: G136 completed
 ### G129
 
 Live Chrome/Safari bookmark watch, catch-up and user-decided removal proposals. Remaining adjacent work: G119 additional browsers.
+2026-11-03 follow-up (on the row in `memory-evolution.md`): what "up to date" is measured against, and a launch catch-up that waits for the active memory.
 
 ### G136
 
