@@ -17,24 +17,25 @@ extension Copy {
         static let failed = "Couldn't add that right now. Try again in a moment."
         static let couldNotRead = "Couldn't read your repositories right now."
         static let yoursTitle = "Your repositories"
-        static let yoursIntro = "From your last sync. Each stays a suggestion until you make it a project or add it."
+        static let yoursIntro = "From your last sync. Each stays a suggestion until you add it as a project."
         static let yoursEmpty = "Connect GitHub above and sync to see the repositories you own here."
         static let starredTitle = "In your memory"
         static func starredCount(_ n: Int) -> String {
             n == 1 ? "1 repository page — starred or added." : "\(UsageFormat.count(n)) repository pages — starred or added."
         }
-        static let addToMemory = "Add"
-        static let addToMemoryHelp = "Add this repository to your memory as a page."
         static let inMemory = "In memory"
-        static let makeProject = "Make it a project"
-        static let makeProjectHelp = "Start a project of yours from this repository, linked to it."
+        /// One of the person's own repositories has one action (owner 2026-11-03: "i'd rather it said 'Add as a
+        /// project'"): this, or `linkTo` when a project already has its name. `add` stays for anyone else's.
+        static let addAsProject = "Add as a project"
+        static let addAsProjectHelp = "Add this repository of yours as one of your projects, linked to it."
         static func linkTo(_ name: String) -> String { "Link to \(name)" }
         static func linkToHelp(_ name: String) -> String {
             "Your project \(name) has this repository's name. Link them, so the project page shows the repository."
         }
         static func yourProject(_ name: String) -> String { "Your project \(name)" }
         static func linked(_ name: String) -> String { "Linked to your project \(name)." }
-        static func started(_ name: String) -> String { "Started your project \(name)." }
+        static func started(_ name: String) -> String { "Added \(name) as your project." }
+        static func alreadyProject(_ name: String) -> String { "That repository is already your project \(name)." }
 
         // Flags, as `Tag`s.
         static let isPrivate = "Private"

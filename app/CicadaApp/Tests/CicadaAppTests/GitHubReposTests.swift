@@ -104,6 +104,46 @@ final class GitHubReposTests: XCTestCase {
         XCTAssertEqual(model.note, "GitHub has no repository there.")
     }
 
+    /// Owner 2026-11-03: "i'd rather it said 'Add as a project'". One of the person's own repositories — a row, or a
+    /// pasted link to it — has one action, the make-project route; only anyone else's is added as a page.
+    func testYourOwnRepositoryIsAddedAsAProjectAndAnyoneElsesAsAPage() async {
+        XCTAssertEqual(Copy.GitHub.addAsProject, "Add as a project")
+        let fresh = repo("bob-example/alpha-project")
+        let named = repo("bob-example/beta-notes", project: RepoProject(project: "beta", name: "Beta", how: "name"))
+        let settled = repo("bob-example/gamma", project: RepoProject(project: "gamma", name: "Gamma", how: "origin"))
+        let lists = RepoLists(connected: true, owned: [fresh, named, settled])
+        XCTAssertEqual(GitHubReposLogic.owned("https://github.com/Bob-Example/alpha-project/issues", in: lists)?.fullName,
+                       "bob-example/alpha-project")
+        XCTAssertNil(GitHubReposLogic.owned("example-org/widget-kit", in: lists))
+        XCTAssertNil(GitHubReposLogic.owned("bob-example/alpha-project", in: RepoLists()))   // before a sync
+
+        var added: [String] = []
+        var projects: [(String, String?)] = []
+        let model = GitHubReposModel(deps: .init(
+            fetch: { lists },
+            add: { added.append($0); return RepoAddResult(entityId: "widget-kit", fullName: $0, created: true) },
+            project: { projects.append(($0, $1)); return RepoProjectResult(project: $1 ?? "alpha-project",
+                                                                           created: $1 == nil) }))
+        await model.load()
+        let made = await model.submit("github.com/bob-example/alpha-project")
+        XCTAssertTrue(made)
+        XCTAssertEqual(projects.last?.0, "bob-example/alpha-project")
+        XCTAssertNil(projects.last?.1)
+        XCTAssertEqual(model.note, Copy.GitHub.started("alpha-project"))
+        let linked = await model.submit("bob-example/beta-notes")
+        XCTAssertTrue(linked)
+        XCTAssertEqual(projects.last?.1, "beta")
+        XCTAssertEqual(model.note, Copy.GitHub.linked("Beta"))
+        let already = await model.submit("bob-example/gamma")
+        XCTAssertFalse(already)
+        XCTAssertEqual(projects.count, 2)                 // nothing sent for a project it already is
+        XCTAssertEqual(model.note, Copy.GitHub.alreadyProject("Gamma"))
+        XCTAssertTrue(added.isEmpty)                      // none of the person's own became a repository page
+        let page = await model.submit("example-org/widget-kit")
+        XCTAssertTrue(page)
+        XCTAssertEqual(added, ["example-org/widget-kit"])
+    }
+
     func testGitHubIsACatalogueAccountRoutedLikeTheTokenConnectors() {
         let entries = SourceCatalog.entries(browsers: [], wisprPresent: false, overview: [])
         XCTAssertEqual(entries.first { $0.id == "github" }?.group, .accounts)

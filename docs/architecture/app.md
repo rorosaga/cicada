@@ -1727,17 +1727,23 @@ agent reads (`agent_methods`), not an install.
   — one `cicadaField` (DR-76) and a neutral Add (DR-40) taking a repository's link or `owner/name`, checked in the app
   (`GitHubReposLogic.repository`, the backend's `parse_repo` rule) before any request, so a public repository needs no
   connection — then *Your repositories* from the last sync in their own scroll (the controls stay in reach): each row's
-  name and "Private · Python · …", *Add* (or *In memory*, opening its page) and its offer — *Your project <name>*
-  (a settled match, a `TextButton` to it), *Link to <name>* (a project with its name, a suggestion), else *Make it a
-  project*. Every write is the person's click; the lists are read on open and after each write, never a Store domain.
+  name and "Private · Python · …", *In memory* when a repository page exists (a `TextButton` opening it), and its one
+  offer — *Your project <name>* (a settled match, a `TextButton` to it), *Link to <name>* (a project with its name, a
+  suggestion), else *Add as a project* (`POST /sources/github/repos/project`, ruling 45's own act). **One of the
+  person's own repositories is never added as a repository page** (owner 2026-11-03: "i'd rather it said 'Add as a
+  project'"): the field's button follows the same rule — a pasted link to a repository the last sync listed as theirs
+  (`GitHubReposLogic.owned`) reads that row's offer and `GitHubReposModel.submit` runs it; anyone else's (and any link
+  before a sync) reads *Add* and makes the `media` page. Every write is the person's click; the lists are read on open
+  and after each write, never a Store domain.
   **A repository page's card** (`Views/Graph/RepositoryCard.swift`) sits where a paper's card and a saved link's
   preview sit, above the article: `GET /entities/{id}/repository` is asked for a `media` page whose kind is unknown
   (the graph stub) or `repository`, and for a project (a 404 for any other is nil), on its own task because the README
   may be read first. It draws the owner and language, what the person did ("You starred it Sep 12", "No longer starred
   since …", "You added it", DR-58), the flags and at most five topics as `Tag`s (DR-44, DR-81), *Open on GitHub* (the
-  system browser, github.com only) and the same project offer, then the README under a `SectionLabel` (DR-47) as clean
-  lines (`RepositoryText.lines`, DR-56: headings, bullets, fences and rules dropped) — never a picture or a link it names
-  — or its state in words (none, not read yet), with when it was read.
+  system browser, github.com only) and the same one project offer (*Link to <name>* or *Add as a project*), then the
+  README under a `SectionLabel` (DR-47) as clean lines (`RepositoryText.lines`, DR-56: headings, bullets, fences and
+  rules dropped) — never a picture or a link it names — or its state in words (none, not read yet), with when it was
+  read.
 - **Inbox top cards (G205, G61):** `agent_request` (`InboxKind.agentRequest`) and the grouped *Confirm N links* review
   (`asks: sources`, `review: true`) are cards above the questions, out of the list, its tabs and the quick review
   (`InboxViewModel.questions`). A request: the agent's tile, *Sign in to <site>*, whose and why, **I signed in**

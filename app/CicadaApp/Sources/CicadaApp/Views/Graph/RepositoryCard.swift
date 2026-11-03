@@ -162,12 +162,14 @@ struct RepositoryCard: View {
         if let project = repo.project, project.isSettled {
             TextButton(title: Copy.GitHub.yourProject(project.name), help: project.name) { open(project.project) }
         } else if repo.owned {
+            // One action, as on the Sources row (owner 2026-11-03).
             if let project = repo.project {
                 NeutralButton(title: Copy.GitHub.linkTo(project.name), size: .compact, isDisabled: busy,
                               help: Copy.GitHub.linkToHelp(project.name)) { act(link: project) }
+            } else {
+                NeutralButton(title: Copy.GitHub.addAsProject, size: .compact, isDisabled: busy,
+                              help: Copy.GitHub.addAsProjectHelp) { act(link: nil) }
             }
-            NeutralButton(title: Copy.GitHub.makeProject, size: .compact, isDisabled: busy,
-                          help: Copy.GitHub.makeProjectHelp) { act(link: nil) }
         }
     }
 

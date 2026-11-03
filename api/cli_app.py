@@ -907,7 +907,8 @@ def cmd_github_repos(boot, args) -> Result:
     lines = []
     if not data.get("connected") and not owned:
         lines.append("GitHub is not connected: `cicada connector connect github` reads your own and starred "
-                     "repositories; `cicada github add <link>` adds one without connecting.")
+                     "repositories; without connecting, `cicada github project <owner/name>` adds one of yours as a "
+                     "project and `cicada github add <link>` adds anyone else's.")
     if owned:
         lines += ["Yours:", *(f"  {_repo_line(r)}" for r in owned)]
     if pages:
@@ -925,14 +926,16 @@ def cmd_github_add(boot, args) -> Result:
 
 
 def cmd_github_project(boot, args) -> Result:
-    require_person("Making a repository one of your projects")
+    require_person("Adding a repository as one of your projects")
     body = {"fullName": args.full_name, "via": "cli"}
     if args.project:
         body["project"] = args.project
     result = call(boot, "POST", "/sources/github/repos/project", body=body, timeout=60)
-    verb = "Started" if result.get("created") else "Linked"
-    return Result(text=f"{verb} {result.get('project')} as your project for {args.full_name}.", data=result,
-                  warnings=_warn(boot))
+    if result.get("created"):
+        text = f"Added {args.full_name} as your project {result.get('project')}."
+    else:
+        text = f"Linked {args.full_name} to your project {result.get('project')}."
+    return Result(text=text, data=result, warnings=_warn(boot))
 
 
 # --- connectors (ruling 47 tier 2) ---------------------------------------------------------------------------------

@@ -475,10 +475,17 @@ def test_the_cli_commands_call_the_backends_routes_as_the_person(monkeypatch):
     added = cli_app.cmd_github_add(boot, SimpleNamespace(url="example-org/widget-kit"))
     assert added.text == "Added example-org/widget-kit (widget-kit)."
     linked = cli_app.cmd_github_project(boot, SimpleNamespace(full_name="bob-example/alpha-project", project="alpha"))
-    assert linked.text.startswith("Linked alpha")
+    assert linked.text == "Linked bob-example/alpha-project to your project alpha."
     assert sent[-1] == ("POST", "/sources/github/repos/project",
                         {"fullName": "bob-example/alpha-project", "via": "cli", "project": "alpha"})
     assert len(asked) == 2                               # both writes refuse from an agent's shell
+    # Owner 2026-11-03 ("i'd rather it said 'Add as a project'"): one of yours is added as a project, and the help
+    # says which command is for whose repository.
+    monkeypatch.setattr(cli_app, "call", lambda boot, method, path, **kw: {"project": "alpha-project", "created": True})
+    made = cli_app.cmd_github_project(boot, SimpleNamespace(full_name="bob-example/alpha-project", project=None))
+    assert made.text == "Added bob-example/alpha-project as your project alpha-project."
+    assert rows["github project"].summary.startswith("Add a repository you own as a project")
+    assert "`cicada github project`" in rows["github add"].summary
 
 
 # --- review of #583: the real size cap, rate limits, a replayed add, a stale link row ---------------------------------
