@@ -162,6 +162,7 @@
   longer reads the whole file for the placeholder memory before the roster loads. Waiting on the owner: where the
   missing bookmarks were saved (phone or Mac), and whether they show in Safari on the Mac.
 
+- **2026-11-03 — sync with nothing rented: make the home reachable, else queue (G132, ruling 51c; branch `docs/g132-no-rent-transport`, docs only, #574).** [Research](../research/2026-11-03-sync-without-a-rented-relay.md) §12 after the owner's answers (cloud mailboxes out, Developer Program later, "why hold off" on direct): routes in order — LAN frame socket; the home's router port mapping or IPv6 for that one socket; its address as a signed, encrypted Mainline DHT record; a measured DHT-signalled punch; else queue (no mailbox; never-delivered outbox items never expire). T3 Code's "from anywhere" is rented (a managed Cloudflare tunnel per machine); Tailscale and Syncthing map ports the same way. The connector: one click drives `tailscale funnel` for the G135 port only. #572: a route list, heartbeat only live, QR `relay` optional, frame socket not a pinned-cert listener, the outbox rule; #573: Relay under Advanced. **Waits on the owner: D1′, D3, D-new-1…4, D6′, D9′** (§12.8). Nothing built.
 - **2026-10-29 — the home moves (ruling 51a, G132 phase 2; branches `feat/g132-move-home`, backend, and
   `feat/g132-move-home-app`, the Sleep page's strip).** The Sleep page names the device that runs consolidation and
   every other device's lag; picking one and confirming (or `cicada home move <device>`) closes the home, parks Sleep,
