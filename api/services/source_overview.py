@@ -251,7 +251,7 @@ def source_key(fm: dict) -> str:
         return "harness:" + (str(fm.get("harness") or "").strip() or UNKNOWN)
     # G133: one card per watched folder, not one "folder" card for all of them.
     if origin == folder_source.ORIGIN and fm.get("folder_id"):
-        return folder_source.channel_id(str(fm["folder_id"]))
+        return folder_source.channel_id(str(fm["folder_id"]), fm.get("folder_kind"))
     if not origin:
         # A save's episode written before origins were stamped, or from a bookmarks file imported through Files and
         # links (2026-10-23: it read as a row called "unknown"): the Files & links card, where its nil-origin page is
@@ -271,7 +271,7 @@ def _new_state(key: str, labels: dict[str, str] | None = None) -> dict:
         spec = _BY_ID[key]
         label, kind, mark, origins, channel = spec.label, spec.kind, spec.mark, list(spec.origins), spec.channel
         harness = None
-    elif key.startswith(folder_source.CHANNEL_PREFIX):
+    elif folder_source.folder_id_of(key) is not None:
         known = (labels or {})
         label, kind, mark, origins, channel = (
             known.get(key, "Folder (removed)"), "import", "folder", [folder_source.ORIGIN],
@@ -313,7 +313,7 @@ def build_overview(memory_path: Path, *, channels: list[dict], today: _date | No
     memory_path = Path(memory_path)
     states: dict[str, dict] = {}
     episode_key: dict[str, str] = {}
-    labels = {folder_source.channel_id(f["id"]): str(f.get("label") or "Folder")
+    labels = {folder_source.channel_for(f): str(f.get("label") or "Folder")
               for f in folder_source.list_folders(memory_path)}
     today = today or datetime.now(timezone.utc).date()
     window_start = (today - timedelta(days=ACTIVITY_DAYS - 1)).isoformat()

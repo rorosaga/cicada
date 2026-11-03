@@ -494,6 +494,31 @@ def agent_session_note(episode: dict) -> str | None:
             "to the person (submit, send, pay, confirm) is not done.]\n\n")
 
 
+#: G95 (owner ruling 52, 2026-11-03, "Meetings ofc should also be consolidated in memory"): a meeting transcript from a
+#: recorder's folder is read like any conversation; only the lines the recorder labels as the person's are theirs (52a).
+MEETING_NOTE_PREFIX = "[Source: a recorded meeting's transcript"
+
+
+def meeting_note(episode: dict) -> str | None:
+    """The note for a meeting transcript (``meeting_transcripts``): ``user:`` lines are the person's own (the recorder
+    labelled them ``You``/``Me``), every ``speaker:<label>:`` line is someone else in the meeting, and ``assistant:``
+    lines are the recorder's own model-written summary, never the person's words. ``None`` for every other episode."""
+    meeting = episode.get("meeting")
+    if not isinstance(meeting, dict):
+        return None
+    from api.services import meeting_transcripts
+
+    recorder = meeting_transcripts.RECORDERS.get(str(meeting.get("recorder") or ""), "")
+    by = f", written by {recorder} on the person's computer" if recorder else ", kept in the person's meeting folder"
+    own = [str(x) for x in meeting.get("own_labels") or [] if str(x).strip()]
+    own_line = (f' Lines starting "user:" are the person\'s own words (the recorder labelled them '
+                f'"{own[0]}").' if own else " None of its lines is marked as the person's own words.")
+    return (f'{MEETING_NOTE_PREFIX}{by}.{own_line} Each line starting "speaker:<label>:" is someone else in the '
+            'meeting, labelled by the recorder: their words, never the person\'s, and "I" in such a line is that '
+            'speaker. Lines starting "assistant:" are the recorder\'s own model-written summary, never the person\'s '
+            "words. What someone says about the person is that speaker's statement, not something the person said.]\n\n")
+
+
 def project_note(episode: dict) -> str | None:
     """Ruling 45 addendum: the provider's own project grouping (a ChatGPT ``g-p-`` id) or the relaying app's word on the
     project, told to the model as context — the conversation sits in a project the person made there. Never a claim by
@@ -935,7 +960,7 @@ async def extract(
         # G179: a message conversation says who its other side is, before every chunk.
         # A harness session says whose its assistant lines are, and that their acts are not the person's.
         source_note = (correspondent_note(episode.get("correspondent")) or agent_session_note(episode)
-                       or agent_save_note(episode))
+                       or agent_save_note(episode) or meeting_note(episode))
         # Ruling 45 addendum: the provider's project grouping, or the relaying app's word on it, as context.
         if (in_project := project_note(episode)) is not None:
             source_note = (source_note or "") + in_project

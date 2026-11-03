@@ -40,6 +40,10 @@ extension Copy {
         static func notes(_ n: Int, locale: Locale = .autoupdatingCurrent) -> String {
             "\(UsageFormat.count(n, locale: locale)) \(n == 1 ? "note" : "notes")"
         }
+        /// G95 — a meeting folder's count.
+        static func meetings(_ n: Int, locale: Locale = .autoupdatingCurrent) -> String {
+            "\(UsageFormat.count(n, locale: locale)) \(n == 1 ? "meeting" : "meetings")"
+        }
         static let manage = "Manage"
         static let readNow = "Read now"
         static let readNowHelp = "Read the folder again now. Edits also arrive on their own."

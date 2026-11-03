@@ -326,7 +326,14 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   fails for any module that mints an episode id without it. `api/services/episode_staging.py` is the
   G20 stager they share: an `EpisodeDraft` keyed by `source_id`, the hash over the scrubbed body, an
   edit rewritten in place with `processed: false`, a rename kept by content hash, a deletion
-  tombstoned (`source_deleted_at`) and never unlinked. A multi-turn source records G118's per-turn
+  tombstoned (`source_deleted_at`) and never unlinked. **An edit in place says it is one** (owner 2026-11-03: "re-ingested
+  items are updates, not new"; G95): `update_in_place` writes `revised: {count, at, previous_hash, consolidated_hash?}`
+  (`episode_staging.REVISED_KEY`, `revision_record`) — the number of body edits so far, when the latest landed, the
+  `content_hash` of the body it replaced, and the `content_hash` of the last body that was consolidated (processed by
+  Sleep or an agent, never by a parser or the index), kept through later edits until Sleep reads the episode again and
+  absent while no revision was ever consolidated. It is what Sleep reads to treat a re-queued episode as a newer
+  revision of what it already filed; the earlier body is in git. A new episode, a metadata-only refresh, a re-date, a
+  rename and a tombstone write none. A multi-turn source records G118's per-turn
   sidecar `turns: [{offset, ts, speaker, model?, effort?}, …]` (R-PB4: an entry only for a turn with
   a time, the last key, outside `content_hash`, capped head-stable at 500; `model`/`effort` only on
   an agent turn (round 4 C1)) — the one shape `evidence.turn_stamps`
@@ -521,6 +528,45 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   gains their link and facts then, and nothing is ever said about anyone without one. Nothing is fetched: the link is
   where to look the person up; the profile-photo rung may use it only once the person takes the source (its own
   off-by-default gate, `person_photo`, unchanged).
+- **Meeting transcripts — Hex, any recorder's folder (G95, owner ruling 2026-11-03: "Meetings ofc should also be
+  consolidated in memory").** A meeting folder is a watched folder of `kind: meetings` (`folder_source.register(kind=,
+  recorder=)`; set on the first add, never flipped — a folder added before G95 has no `kind` and is notes
+  (`kind_of`), and adding an already-watched folder as the other kind is a 409 with its words, `KIND_REFUSAL`, nothing
+  written): the app holds the bookmark, watches it and posts the bytes of changed
+  files to the same `POST /sources/folders/{id}/sync` with the Mac's IANA zone (`tzName`; a name this machine cannot read, a directory such as `America` included, is
+  this machine's zone instead); the backend never opens it.
+  It anchors no project, has no papers step and no authorship rules, and syncs as its own channel, `meetings:<id>`
+  (`channel_for`, `folder_id_of`; a notes folder stays `folder:<id>`). `meeting_transcripts` is the one parser: **one
+  episode per file** through the stager (`source_id` `meetings:<folder>:<relpath>` — an edited transcript is rewritten
+  in place and re-queued, a rename keeps the episode by content hash, a deletion is tombstoned), `queue_for_sleep` like
+  any conversation — unlike a recording the person adds as a media file (`media_files`, never read by Sleep). Dated by
+  the meeting's own start (ruling 39): the file name's `YYYY-MM-DD HHMM` (Hex's), else a `Date:` line, read as wall time
+  in the posted zone, else the file's time; a day with no time is the file's own time when that falls on the same day,
+  else that day's midday (never its midnight, which a reader in another zone shows as the day before); the id day is
+  the meeting's local day (ruling 34); each turn's `ts` is the start plus its offset when the start is stated to the
+  minute, else the offset alone. Formats, read by content: **Hex** (anoma.ly/hex, MIT; `<YYYY-MM-DD HHMM> <title>.md` in the
+  Hex meetings folder — the app resolves it from Hex's own `meetings.output_folder` setting, that one key of Hex's
+  settings file, else Hex's default under Documents; the file is never renamed, so its relpath keys the meeting) — `# title`, `- **Date:**` / `- **Duration:**` /
+  `- **Attendees:**` bullets, an optional `<!-- hex:notes -->` summary block with its writer's footer, `## Transcript`
+  with `**You** · 00:00` / `**Them** · 00:05` headers (the older `**[mm:ss] You:** text` too); a Hex folder excludes
+  Hex's `audio/**` bundle (WAVs, `manifest.json`, duplicate and translated transcripts). **WebVTT / SRT** (a `<v Name>`
+  voice or a `Name:` prefix; same-speaker cues merge), **JSON** segments (Whisper / WhisperX `segments`, `utterances`,
+  ndjson; `speaker`/`source`, `start` or `*_ms`), and **text** (`Name: words` only in a file where several lines say so,
+  `[00:01:02] Name:`, `Name (00:01:02):`, `**Name:**`, Otter's `Name  0:00` header over its words). A file holding no
+  transcript (`manifest.json`) is the sync error "not a meeting transcript", never an episode. **Whose words (TODO
+  ruling 52a, decided 2026-11-03):** a line the recorder labels `You` (Hex's microphone track) or `Me` (the same
+  convention elsewhere) is a `user:` line — the person's own words, an exchange for promotion; every other utterance is
+  `speaker:<label>:` (evidence kind `speaker`, G134's seam; Hex's `Them` is `speaker:them`), a line with no speaker
+  `speaker:unknown`, and the recorder's model-written summary an `assistant:` line — never the person's, never an
+  exchange. Every line of the summary is quoted (`> `, `meeting_transcripts.summary_text`, the chat importer's
+  attachment convention), so a summary line reading `User: …` or `speaker:x: …` never opens a turn. No name is ever guessed to be the person; nothing is unmarked, so R4 never credits the person with an
+  unlabelled line, and no `evidence_kind` is declared. The episode's `meeting` record (`recorder`, `format`, `speakers`,
+  `own_labels`, `duration_s`, `summary_writer`, `attendees` — a calendar's invitees as the file lists them, never G179's
+  `participants` rows) reaches Stage 1 (`sleep_cycle` passes it), whose `meeting_note` says which lines are the
+  person's, that `speaker:` lines are someone else's, and that the summary is the recorder's; `consent: unknown` (G95's
+  rail). An edited transcript carries the stager's `revised` record (above), so Sleep reads it as a revision. Wispr Flow's meetings stay
+  on their own reader (above), now under the same Sources section; their summary and notes blocks are quoted through the
+  same `summary_text` (#579 review, 2026-11-03), so a model line reading `User: …` opens no turn there either.
 - **Messages conversations the person ticks (G179, 2026-10-15).** The app lists `chat.db`'s 200 most recent chats for
   the Settings picker (names, last activity, per-side counts — `MessagesReader.conversations`; a ticked chat below that
   cap is appended so it can be unticked). **Group chats (2026-10-28):** `chat.style` 43 is listed too, with its
@@ -2039,6 +2085,9 @@ entries, or two relationships in the conversation (the prompt defines confidence
 summary and for every relationship); "an explicit link" was any relationship the model drew to any page at 0.6. Now:
 - **>3 exchanges** is counted by Stage 1 on the conversation itself (`promotion.exchanges` / `measure`, no model):
   an exchange opens at each turn of a person (the owner, or a `speaker:` in a meeting) and runs through the replies;
+  what comes before any such turn (a recorder's summary at a meeting's head, an agent's opening line, a page's own
+  description) is no exchange at all (2026-11-03, the #579 review: it had counted as one, so a summary naming a
+  project turned the person's three exchanges into four and promoted it);
   a document with no turn markers is the person's own writing, one exchange per paragraph — **except a saved item**
   (2026-10-29, `authorship.of`): its title, header lines and fetched description are the page's words and no exchange
   of the person's; only its reason or note section is (`evidence.PERSON_SECTIONS`) — **nor an agent's saved note**
