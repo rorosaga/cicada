@@ -13,6 +13,22 @@ enum SourcePictures {
         return "/sources/messages/chats/\(face.id)/photo?v=\(photo)"
     }
 
+    /// 2026-11-03 — the picture of the page a chat stands for (`ChannelItemChat.picture`): only a path the backend's
+    /// one precedence builds (`/entities/<id>/picture?v=` or `/photo`, `entity_picture.resolve`), never anything
+    /// else a row could name — no scheme, no host, no `..`.
+    static func pagePicturePath(_ raw: String?) -> String? {
+        guard let raw, raw.count <= 300, raw.hasPrefix("/entities/"), !raw.contains(".."), !raw.contains("//"),
+              raw.allSatisfy({ $0.isASCII && !$0.isWhitespace }) else { return nil }
+        let path = raw.split(separator: "?", maxSplits: 1).first.map(String.init) ?? raw
+        guard path.hasSuffix("/picture") || path.hasSuffix("/photo") else { return nil }
+        return raw
+    }
+
+    /// The face a chat row asks for: the page's picture first, the chat's own photo after it, else none (a monogram).
+    static func chatFacePaths(id: String, photo: String?, picture: String?) -> [String] {
+        [pagePicturePath(picture), chatPhotoPath((id, photo))].compactMap { $0 }
+    }
+
     /// A YouTube video id (the backend's own pin: letters, digits, `-` and `_`), asked by the day it was watched on
     /// (review of #358: the backend checks the id against that one day's record).
     static func stillPath(episode: String, videoId: String?) -> String? {
@@ -167,12 +183,22 @@ private struct FaceView: View {
 }
 
 /// A Messages chat's face: the photo the chat shares (Cicada's own copy, `GET /sources/messages/chats/{id}/photo`),
-/// else a ring with the first letter of who it is with — never a solid fill.
+/// else a ring with the first letter of who it is with — never a solid fill. 2026-11-03: the page the chat stands for
+/// draws first (`picture` — the person's own chat is the owner's page), the chat's photo after it.
 struct ChatFace: View {
     let id: String
     let label: String
     let photo: String?
+    var picture: String? = nil
     let side: CGFloat
+
+    init(id: String, label: String, photo: String?, picture: String? = nil, side: CGFloat) {
+        self.id = id; self.label = label; self.photo = photo; self.picture = picture; self.side = side
+    }
+
+    init(chat: ChannelItemChat, side: CGFloat) {
+        self.init(id: chat.id, label: chat.label, photo: chat.photo, picture: chat.picture, side: side)
+    }
 
     @Environment(Store.self) private var store: Store?
     @State private var image: NSImage?
@@ -194,9 +220,13 @@ struct ChatFace: View {
         }
         .frame(width: side, height: side)
         .accessibilityHidden(true)
-        .task(id: "\(store?.bank ?? "")|\(id)|\(photo ?? "")") {
-            guard let path = SourcePictures.chatPhotoPath((id, photo)) else { image = nil; return }
-            image = await SourcePictureStore.shared.image(path: path, bank: store?.bank ?? "")
+        .task(id: "\(store?.bank ?? "")|\(id)|\(photo ?? "")|\(picture ?? "")") {
+            var found: NSImage?
+            for path in SourcePictures.chatFacePaths(id: id, photo: photo, picture: picture) {
+                found = await SourcePictureStore.shared.image(path: path, bank: store?.bank ?? "")
+                if found != nil { break }
+            }
+            image = found
         }
     }
 }

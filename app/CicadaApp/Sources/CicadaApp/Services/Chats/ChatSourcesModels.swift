@@ -39,6 +39,28 @@ struct ChatCheck: Equatable, Sendable {
     let newest: Date?
 }
 
+/// 2026-11-03 (owner's WhatsApp picker: "29 Oct 9026" and "3 Nov 8026" beside a true "3 Nov") — a chat's last
+/// activity as the apps show it. WhatsApp's session row keeps `ZLASTMESSAGEDATE` as the list's sort key, and some chats
+/// carry a value thousands of years ahead (day and month kept); the newest message's own date is the true one. One
+/// rule for every chat source's list: a date more than a day ahead of now is not a last activity (no clock skew
+/// explains it), so it is never shown — the class, wherever a reader or a backend hands one over.
+enum ChatDates {
+    /// The most a Mac's clock or a time zone puts a real message ahead of now.
+    static let futureSlack: TimeInterval = 86_400
+
+    static func plausible(_ date: Date?, now: Date) -> Date? {
+        guard let date, date.timeIntervalSince(now) <= futureSlack else { return nil }
+        return date
+    }
+
+    /// WhatsApp: both values are Core Data seconds since 2001-01-01; the newest message wins, the session's value
+    /// stands in only when no message is listed, and either is dropped when it lies in the future.
+    static func whatsAppLastActivity(session: Double?, newest: Double?, now: Date) -> Date? {
+        if let newest, let date = plausible(Date(timeIntervalSinceReferenceDate: newest), now: now) { return date }
+        return plausible(session.map { Date(timeIntervalSinceReferenceDate: $0) }, now: now)
+    }
+}
+
 struct ChatTickAnswer: Decodable, Equatable, Sendable {
     var conversations: [ChatTickState] = []
     var tickedIds: Set<String> { Set(conversations.filter(\.ticked).map(\.id)) }

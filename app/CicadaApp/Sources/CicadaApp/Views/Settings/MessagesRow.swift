@@ -79,9 +79,11 @@ enum MessagesRowText {
         }
     }
 
-    /// "Oct 14" for this year, "Oct 14, 2025" before — the list's last activity.
+    /// "Oct 14" for this year, "Oct 14, 2025" before — the list's last activity. Every chat picker reads it (Messages,
+    /// WhatsApp, Telegram); 2026-11-03: a date more than a day ahead is no last activity and says nothing
+    /// (`ChatDates.plausible`) — "3 Nov 8026" was a sort key, not a date.
     static func lastActivity(_ date: Date?, now: Date = .now, calendar: Calendar = .current) -> String? {
-        guard let date else { return nil }
+        guard let date = ChatDates.plausible(date, now: now) else { return nil }
         let sameYear = calendar.component(.year, from: date) == calendar.component(.year, from: now)
         return date.formatted(sameYear ? .dateTime.month(.abbreviated).day() : .dateTime.month(.abbreviated).day().year())
     }
@@ -94,15 +96,9 @@ struct MessagesPanel: View {
     @State private var error: String?
 
     var body: some View {
+        // 2026-11-03 (owner: "this text is extremely unnecessary in all pages that have it, remove it") — no standing
+        // paragraph above the list; a missing permission still shows its exact fix where the read failed (`content`).
         SettingsSheet(title: Copy.Messages.title, onClose: onDone) {
-            Text(Copy.Messages.whatItReads)
-                .font(CicadaTheme.bodyFont)
-                .foregroundStyle(CicadaTheme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-            Text(Copy.Messages.whoIsWho)
-                .font(CicadaTheme.captionFont)
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
             content
             Toggle(Copy.Messages.suggestAgents, isOn: Binding(
                 get: { watcher.suggestAgents },

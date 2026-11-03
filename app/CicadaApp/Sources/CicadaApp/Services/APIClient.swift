@@ -2909,6 +2909,14 @@ actor APIClient {
         return try await put("/sources/messages/settings", body: ["conversation": conversation])
     }
 
+    /// 2026-11-03 — pin or unpin a chat on its source's page: the source's own settings route (`whatsapp`, `telegram`,
+    /// `messages`), one `user` commit of its settings file; nothing else about the chat changes.
+    func setChatPinned(source: String, id: String, pinned: Bool) async throws {
+        guard ["whatsapp", "telegram", "messages"].contains(source) else { throw APIError.serverUnreachable }
+        let _: ChatPinAnswer = try await put("/sources/\(source)/settings",
+                                             body: ["conversation": ["id": id.filter(\.isHexDigit), "pinned": pinned]])
+    }
+
     /// `PUT /sources/messages/settings` — turn the AI-agent suggestions on or off for this memory.
     func setMessagesSuggestAgents(_ on: Bool) async throws -> MessagesSettingsAnswer {
         try await put("/sources/messages/settings", body: ["suggestAgents": on])

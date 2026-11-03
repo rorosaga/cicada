@@ -88,18 +88,16 @@ final class SourceCatalogTests: XCTestCase {
         XCTAssertEqual(row("x", in: r)?.status, .off)
     }
 
-    /// Ruling 47 tier 2: Readwise is an account row, off until connected; Notion's one row is connected by its live
-    /// connection or its export, and a refused token reads as Needs sign-in.
+    /// Ruling 47 tier 2: Notion's one row is connected by its live connection or its export. Readwise is gone from the
+    /// catalogue by owner direction (2026-11-03: "yeah remove readwise"), whatever a backend still lists.
     func testTokenConnectorsAreRowsOfTheCatalogueTheyAlreadyHave() {
-        XCTAssertEqual(row("readwise", in: rows())?.entry.group, .accounts)
-        XCTAssertEqual(row("readwise", in: rows())?.status, .off)
+        XCTAssertNil(row("readwise", in: rows()))
         let r = rows(channels: [
             SourceChannel(id: "notion-api", label: "Notion", connected: true, lastSync: "2026-10-28T10:00:00Z"),
-            SourceChannel(id: "readwise", label: "Readwise", connected: true,
-                          lastError: "Readwise refused the access token. Get a new one at readwise.io/access_token"),
+            SourceChannel(id: "readwise", label: "Readwise", connected: true),
         ])
         XCTAssertEqual(row("notion", in: r)?.status, .connected)
-        XCTAssertEqual(row("readwise", in: r)?.status, .needsSignIn)
+        XCTAssertNil(row("readwise", in: r))
     }
 
     /// G32: Spotify is a file import (its terms bar an API connector) that says where Spotify hands the file out, and

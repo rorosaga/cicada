@@ -34,15 +34,16 @@ final class ConnectorSetupTests: XCTestCase {
     /// payload (no `reads`) still decodes.
     func testATokenConnectorDecodesWhatItReadsAndAsksForTheToken() throws {
         let json = """
-        {"id": "readwise", "label": "Readwise", "connected": false,
-         "fields": [{"name": "CICADA_READWISE_TOKEN", "label": "Readwise access token", "secret": true,
+        {"id": "notion-api", "label": "Notion", "connected": false,
+         "fields": [{"name": "CICADA_NOTION_TOKEN", "label": "Notion connection token", "secret": true,
                      "present": false}],
          "lastSync": null, "lastError": null, "detail": null, "loginMode": "credentials",
-         "reads": "Reads your Readwise highlights.", "tokenHelp": "readwise.io/access_token", "tier": 2}
+         "reads": "Reads the pages you shared with the connection.", "tokenHelp": "notion.so/profile/integrations",
+         "tier": 2}
         """.data(using: .utf8)!
         let status = try JSONDecoder().decode(ConnectorStatus.self, from: json)
         XCTAssertTrue(status.isTokenConnector)
-        XCTAssertEqual(status.reads, "Reads your Readwise highlights.")
+        XCTAssertEqual(status.reads, "Reads the pages you shared with the connection.")
         XCTAssertEqual(ConnectorSetupState.stepLabel(status), "Paste your own token")
         let older = """
         {"id": "reddit", "label": "Reddit", "connected": false, "fields": [], "loginMode": "credentials"}
