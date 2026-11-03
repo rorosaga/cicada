@@ -237,10 +237,13 @@ final class PermissionDragHelper {
 
     /// Shows the helper for `kind`. `onGranted` runs once, when the preflight says yes; the panels then close.
     /// `onFinish(granted)` runs once either way, so a host row can turn into its *Open* link after ×. `place` is where a
-    /// relaunch brings the person back (onboarding's Sources step, Traces, the Sources page).
+    /// relaunch brings the person back (onboarding's Sources step, Traces, the Sources page). `openAtOnce` (the
+    /// Permissions rows, owner 2026-11-03): the person's click already was the ask, so System Settings opens on the list
+    /// with the drag card over it at once — the ask panel stays for its line, its states and ×.
     @discardableResult
     static func present(kind: TracePermission, probe: any TracePermissionProbe = LiveTracePermissionProbe(),
-                        place: PermissionPlace = .sources, onFinish: ((Bool) -> Void)? = nil,
+                        place: PermissionPlace = .sources, openAtOnce: Bool = false,
+                        onFinish: ((Bool) -> Void)? = nil,
                         onGranted: @escaping () -> Void) -> PermissionDragHelperModel {
         current?.model.cancel()
         let model = PermissionDragHelperModel(kind: kind, probe: probe, opener: LivePermissionSettingsOpener(),
@@ -263,6 +266,7 @@ final class PermissionDragHelper {
                 forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak helper] _ in
                 MainActor.assumeIsolated { helper?.returned() }
             }
+            if openAtOnce { helper.openSettings() }
         }
         return model
     }
@@ -288,9 +292,7 @@ final class PermissionDragHelper {
     private func showAskPanel() {
         let panel = Self.makePanel()
         let host = NSHostingView(rootView: PermissionAskCard(model: model, onOpen: { [weak self] in
-            self?.model.open()
-            self?.showDragCard()
-            self?.resizeAskPanel()
+            self?.openSettings()
         }, onReopen: { [weak self] in self?.model.reopen() }))
         panel.contentView = host
         let size = host.fittingSize
@@ -299,6 +301,13 @@ final class PermissionDragHelper {
                               width: size.width, height: size.height), display: false)
         panel.orderFrontRegardless()
         askPanel = panel
+    }
+
+    /// Open: the exact list in System Settings, and the drag card over it.
+    private func openSettings() {
+        model.open()
+        showDragCard()
+        resizeAskPanel()
     }
 
     /// The ask card's words change with its state (drag → toggle → Reopen): the panel keeps its top edge and fits.

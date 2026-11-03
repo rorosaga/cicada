@@ -376,7 +376,11 @@ struct ContentView: View {
     /// closes at once when the grant took, or asks again. Onboarding's own marker waits for onboarding (`OnboardingView`).
     private func resumePermissionStep() {
         guard let marker = PermissionResume.take(matching: { !$0.isOnboarding }) else { return }
-        if marker.place == .traces { router.routeToSourceDetail(SourceCatalog.tracesId) } else { router.routeToSources() }
+        switch marker.place {
+        case .traces: router.routeToSourceDetail(SourceCatalog.tracesId)
+        case .settings: router.open(.settings(.privacy, .permissions))
+        default: router.routeToSources()
+        }
         PermissionDragHelper.present(kind: marker.kind, place: marker.place) {}
     }
 

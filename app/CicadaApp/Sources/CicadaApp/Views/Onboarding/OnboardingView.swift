@@ -213,6 +213,11 @@ struct OnboardingView: View {
         switch page {
         case .intelligence: IntelligenceStep()
         case .agents: AgentsStep(live: live)
+        case .permissions:
+            PermissionsStep(place: .onboardingPermissions(rerun: mode == .rerun)) { _ in
+                playSound(.permissionGranted)
+                Task { await inventory.refresh() }
+            }
         case .sources:
             SourcesStep(imports: entries, snapshots: Dictionary(uniqueKeysWithValues: s.map { ($0.id, $0) }),
                         dropTargeted: dropTargeted,
@@ -524,6 +529,7 @@ struct OnboardingView: View {
         guard let savedName = owner?.name, OnboardingFlow.canStart(name: savedName),
               let marker = PermissionResume.take(matching: \.isOnboarding) else { return }
         ownerSaved = true
+        if marker.place.isPermissionsStep { resumePermissionsStep(marker); return }
         furthest = max(furthest, .sources)
         go(.sources, .keyboard)
         guard let browser = marker.place.browser,
@@ -531,6 +537,14 @@ struct OnboardingView: View {
         // Back from the relaunch a grant needed, and the fresh process's preflight sees it: the permission sound.
         if inventory.items.first(where: { $0.id == entry.id })?.readiness == .ready { playSound(.permissionGranted) }
         tick(entry, true)
+    }
+
+    /// The Permissions step's own relaunch lands back on it, and the helper looks again by preflight: it closes at once
+    /// when the grant took (the sound with it), or asks again.
+    private func resumePermissionsStep(_ marker: PermissionResume) {
+        furthest = max(furthest, .permissions)
+        go(.permissions, .keyboard)
+        PermissionDragHelper.present(kind: marker.kind, place: marker.place) { playSound(.permissionGranted) }
     }
 }
 
