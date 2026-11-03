@@ -35,9 +35,19 @@ struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
     /// were kept) and whether it is a group chat. Nil for every other row and from an older backend.
     var messages: Int? = nil
     var group: Bool? = nil
+    /// 2026-11-03 (`channel_items._chat_rows`) — a chat row: whether the chat is ticked now (its green dot), whether
+    /// the person pinned it (it lists first), when its newest stored message was said (`last_at`, the apps' order) and
+    /// when Cicada last stored its words (`synced_at`), both aware ISO instants. Nil elsewhere and from an older backend.
+    var ticked: Bool? = nil
+    var pinned: Bool? = nil
+    var lastAt: String? = nil
+    var syncedAt: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case kind, id, title, day, left, host, site, why, chat, videos, sittings, video, received, messages, group
+        case ticked, pinned
+        case lastAt = "last_at"
+        case syncedAt = "synced_at"
     }
 
     init(kind: Kind, id: String, title: String, day: String? = nil, left: String? = nil, host: String? = nil,
@@ -66,6 +76,10 @@ struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
         received = try? c.decodeIfPresent(String.self, forKey: .received)
         messages = try? c.decodeIfPresent(Int.self, forKey: .messages)
         group = try? c.decodeIfPresent(Bool.self, forKey: .group)
+        ticked = try? c.decodeIfPresent(Bool.self, forKey: .ticked)
+        pinned = try? c.decodeIfPresent(Bool.self, forKey: .pinned)
+        lastAt = try? c.decodeIfPresent(String.self, forKey: .lastAt)
+        syncedAt = try? c.decodeIfPresent(String.self, forKey: .syncedAt)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -85,15 +99,24 @@ struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
         try c.encodeIfPresent(received, forKey: .received)
         try c.encodeIfPresent(messages, forKey: .messages)
         try c.encodeIfPresent(group, forKey: .group)
+        try c.encodeIfPresent(ticked, forKey: .ticked)
+        try c.encodeIfPresent(pinned, forKey: .pinned)
+        try c.encodeIfPresent(lastAt, forKey: .lastAt)
+        try c.encodeIfPresent(syncedAt, forKey: .syncedAt)
     }
 }
 
 /// Sources v4 — the chat a Messages row came from: the app's conversation hash, who it is with, and the stored
 /// photo's hash when the chat shares one (`GET /sources/messages/chats/{id}/photo?v=`).
+///
+/// 2026-11-03 — `picture`: the page the chat stands for draws its face by the one precedence (the person's own chat →
+/// the owner's page; a linked correspondent → their page), an API path on Cicada (`/entities/<id>/picture?v=…` or
+/// `/photo…`); it outranks `photo`. Nil when the chat stands for no page with a picture.
 struct ChannelItemChat: Codable, Hashable, Sendable {
     let id: String
     let label: String
     var photo: String? = nil
+    var picture: String? = nil
 }
 
 /// Sources v3 — why the person saved a link, as a row shows it: the reasons they tapped ("The design") and their own

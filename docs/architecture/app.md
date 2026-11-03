@@ -1522,6 +1522,25 @@ agent reads (`agent_methods`), not an install.
   `sourceDetailHeadShown`, so their own *What came in* fold draws nothing (`CapturedItemsList`): the page's list is the
   one list. A how-to or honest limit (an export's *where the file comes from*, Telegram's, Instagram's, Notion's) shows
   in Settings only while the source is Off; otherwise it is one tap away under *What Cicada reads*.
+  **Owner pass, 2026-11-03 (DESIGN_RULES §9 2026-11-03; `ChatSourcePage.swift`, `ChatSourceList.swift`):** *What Cicada
+  reads* is gone from every source page — the status line is the status, and a chat reader's "checked" sentence is its
+  hover (`SourceStatusLine.help`). The pickers' standing paragraphs (Messages, WhatsApp, Telegram's connected step) are
+  gone too; a failed read still shows `FullDiskAccessHint`. Each catalogue section lists what is set up first, then
+  what is off, each part in the catalogue's order (`SourceCatalog.grouped`; the arrow keys walk `drawnOrder`). **A chat
+  source's list is its chats** (`ChatSourceRow`, for `imessage`, `whatsapp`, `telegram-chats`): every chat, no *All N*
+  cap, pinned first then the newest stored message (the backend's order); the face draws `chat.picture` (the page the
+  chat stands for, by the one precedence — the person's own chat is the owner's page) before `chat.photo`, else a
+  monogram (`SourcePictures.chatFacePaths`, only `/entities/<id>/picture|photo` paths); the second line is a
+  `StatusWord` — green *Last synced <ago>* (the later of `synced_at` and this Mac's last check) for a ticked chat, grey
+  *Not syncing* otherwise; the recency on the right as the apps say it (`ChatSourcePage.recency`, DR-58). Right-click
+  *Pin to Top* / *Unpin* writes the chat's own settings route (`APIClient.setChatPinned`, then the list re-reads); a
+  click opens `ChatConversationColumn` in the trailing column the Reader uses (`ChatPanelRouter`, page-local, never a
+  Store domain; opening one closes the other): the newest three sittings from `GET /sources/messages/chats/{id}/sittings`,
+  each read with `GET /episodes/{id}/text` and drawn by the Reader's chat rows, *Earlier messages* for more, opening at
+  the bottom; an unticked chat (the row's `ticked`, or the route's `ticked: false`) shows only its face, name, recency
+  and one line. Esc, the close button, the sidebar re-click and opening another source close it. **Decided:** the page
+  and the picker stay two things — the page is what Cicada holds, from the backend (the same on a client or a replica);
+  the picker (*Choose…*) is the consent act and reads this Mac's own chat list.
   Instagram is offered with **Turn on** = the reading switch, saying the browser reader is still coming (G206) and
   offering the data export. Obsidian's entry is gone (a vault is a folder). Contacts stays (ruling 33).
 - **One catalogue (Hyrum mode B):** the *Add a source* grid opens from nowhere now. The eyebrow keeps DR-75's labelled
@@ -1587,10 +1606,10 @@ agent reads (`agent_methods`), not an install.
   Markdown & CSV with subpages) and holds the one intake's drop (`IntakePanel`); the preview reads "Notion pages" with
   "N pages · N database rows" (`IntakeCounts.pages`/`rows`, `IntakeSummary`), and the row reads Connected once an
   import fed memory (the backend's `notion` origin row, like a chat export).
-  **Ruling 47 tier 2 (2026-10-29):** *Accounts* gains **Readwise** (id `readwise`), and Notion's row also speaks for the
-  live connection (`channels: ["notion", "notion-api"]`). Both details open `ConnectorSetupPanel` — the panel Reddit,
+  **Ruling 47 tier 2 (2026-10-29):** Notion's row also speaks for the live connection (`channels: ["notion",
+  "notion-api"]`; *Accounts* also carried Readwise until the owner removed it, 2026-11-03). Its detail opens `ConnectorSetupPanel` — the panel Reddit,
   Pinterest and X already use, so no new pattern (DR-40 buttons, DR-20/DR-2 caption text, DR-81 no fold, DR-52 marks:
-  Readwise draws the `highlighter` symbol, Notion its export's symbol) — which says what the connector reads
+  Notion its export's symbol; an earlier Readwise episode still draws the `highlighter` symbol in the Reader) — which says what the connector reads
   (`reads`) and where the token comes from (`tokenHelp`) before Save, then Refresh and Disconnect. A refused token reads
   Needs sign-in (`signInChannels`). Notion's detail keeps the export's steps and drop below the live panel.
   **G32 (2026-10-29):** *Accounts* gains **Spotify** (id `spotify`, `verb: .importFile`, channels `spotify` — the
@@ -1813,7 +1832,8 @@ pending from that category, as a small notification."*
 - **Rows say each thing once.** A list row's title drops a trailing " · <its own day>" (`channel_items._without_day`).
   Messages lists one row per chat — its face, who it is with, its newest day and "N sittings" — opening in place to
   its sittings by day and message count, each opening in the Reader (`ChatSittingsRow`, `GET /sources/messages/chats/
-  {id}/sittings`, `ChannelItemsCache.refreshSittings`); the list follows the overview too, so a chat photo reaches it. A conversation row inside its
+  {id}/sittings`, `ChannelItemsCache.refreshSittings`; since 2026-11-03 a chat source's page opens the chat panel
+  instead, above, and the drill stays only where `CapturedItemsList` draws a chat); the list follows the overview too, so a chat photo reaches it. A conversation row inside its
   harness's list shows neither the harness badge nor "Saved once" (`ConversationRow.inSourceList`); a conversation saved more than once says "Saved 3 times" (its `episodeCount`, never "episodes", ruling 39), and the pages it wrote are neutral `Tag`s by name, the id in `.help` (as Past reads' run detail). The conversations'
   find moved out from under the header into the list's own header, behind its magnifier and ⌘F (DR-46; kept, not
   dropped, because the list holds the newest 200 and find is how an older one is reached by title, and where the
@@ -1832,8 +1852,8 @@ pending from that category, as a small notification."*
   not be. Tests: `SourcesV4Tests`; screenshots render offscreen in `SourcesV4RenderTests` (skipped without
   `SOURCES_V4_RENDER_DIR`).
 
-**Explore saved sites (G166 slice 1, owner 2026-10-14).** A neutral **Explore saved sites** button beside "Add a source"
-in the Sources eyebrow (hidden when the backend answers 404) opens `ExploreSheet`: sites not explored yet or every saved
+**Explore saved sites (G166 slice 1, owner 2026-10-14).** A neutral **Explore saved sites** button (on a browser's
+source page since 2026-11-03; it sat beside "Add a source" in the Sources eyebrow before) (hidden when the backend answers 404) opens `ExploreSheet`: sites not explored yet or every saved
 site, with counts, a checkbox per browser when there are several, the run's size (Light / Medium / Heavy and minutes with
 four agents, never a price — ruling 12), whether the agent will use the signed-in session, and what is left out. The
 Explore button is disabled with a `.help` saying why (reading off, no site, the demo, an unverified capture script;
@@ -2226,8 +2246,9 @@ scroll — no title (the "Sleep Cycle" `PageTitle` retired; the page opens on an
 2 h ago", `SleepEyebrow` — what waits is the room's headline ("23 to read.") and the Waiting tab's count, so the eyebrow
 no longer counts it a third time (say it once, 2026-10-19; the pinned tab keeps the total once the room scrolls away) — with the staleness chip at its right, R-A12); then the room **out of its card**, on the page
 ground, drawn at a whole 5, 4 or 3 pt per lattice cell by the width the art may take (`SleepLayout.artScale`: 5 from
-880, 4 from 720, else 3 — 2 only under ⌘+ zoom with the Reader open; `StudyRoom(cell:)`), its floor fading into the
-page over its bottom five cells (`RoomFloorFade`, a mask on the art layer only, never the pile). **The painted room is
+880, 4 from 720, else 3 — 2 only under ⌘+ zoom with the Reader open; `StudyRoom(cell:)`), ending in a hard edge —
+its floor opaque to the last row, no mask, ring or shadow (owner 2026-11-03: "remove that fade effect from everywhere";
+the floor fade `RoomFloorFade` is gone from Sleep and onboarding, `SleepRoomEdgeTests`). **The painted room is
 the lattice (2026-10-16):** the backdrop's wall, floor and trim span all 160 columns, so the pile stands on the room's
 floor in its own columns and the worm, props, pile and every hotspot sit inside `DeskSceneLayout.paintedFrame` at every
 step (`SleepRoomFrameTests`; the backdrop was 110 columns, which the old card hid). **The pile is books (owner pick
@@ -2733,6 +2754,10 @@ three of that pass's own leftovers:
   detail head and onboarding draw — and only a title-only row the dense 24 pt (`SourceCatalogRowView.tileSize`).
 - **Sources, the header.** *Reading in your browser* is a compact `NeutralButton` with a `globe` glyph beside *Explore
   saved sites* and the labelled add (*Import chats or files* since CIC8); as bare text it read as a label (DR-40).
+  **2026-11-03 (owner: "i dont get why these buttons are here if they dont influence whatsapp"):** the header keeps
+  only the labelled add, and only while no source is open; the two buttons sit in the settings of the sources they act
+  on (`SourcePageActions`: *Reading in your browser* on an account read in the browser and YouTube, *Explore saved
+  sites* on a browser's page). A hand-off asking for the reading switches still opens the sheet from the page.
 - **Sources, the detail.** The head shows the source's mark, name and status once: the source's own row under it
   (`CalendarRow`, `ContactsRow`, `MessagesRow`, `WisprFlowRow`, a browser's row) draws only its line and buttons when
   `\.sourceDetailHeadShown` is set (`SourceCatalogDetail` sets it; `SourceRow(showsIdentity:)`), never a second, smaller

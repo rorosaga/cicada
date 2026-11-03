@@ -69,14 +69,13 @@ from __future__ import annotations
 
 from types import ModuleType
 
-from api.services.connectors import github, notion, pinterest, readwise, reddit, x
+from api.services.connectors import github, notion, pinterest, reddit, x
 
 ADAPTERS: dict[str, ModuleType] = {
     pinterest.CHANNEL_ID: pinterest,
     reddit.CHANNEL_ID: reddit,
     x.CHANNEL_ID: x,
     # Ruling 47 tier 2 (`tier2.py`): the person's own token, staged as episodes, on their own schedule.
-    readwise.CHANNEL_ID: readwise,
     notion.CHANNEL_ID: notion,
     # G230: the person's own repositories and their stars, through their own GitHub token.
     github.CHANNEL_ID: github,

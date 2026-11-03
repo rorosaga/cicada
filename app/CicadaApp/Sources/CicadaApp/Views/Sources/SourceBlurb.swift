@@ -86,7 +86,6 @@ enum SourceBlurb {
         "notion": "Pages and database rows from a Notion export.",
         // Ruling 47 tier 2.
         "notion-api": "The Notion pages you shared with your own connection, kept current.",
-        "readwise": "Your Readwise highlights, with your notes and the book or article each came from.",
         // G230.
         "github": "Repositories you starred or added, each with a preview of its README, and the ones you own.",
         // G32.

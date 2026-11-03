@@ -416,16 +416,11 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   and while reading), part zips one level down only (256 MB each, a zip inside a part never opened); everything left
   out is a preview warning. A second import of the same zip skips everything (the stager's hash); an edited page
   updates in place. A page missing from a later export is never tombstoned — an export can be one page's.
-  **Ruling 47 tier 2 — Readwise and Notion live (`connectors/tier2.py`, 2026-10-29).** A connected source's sync stages
+  **Ruling 47 tier 2 — Notion live (`connectors/tier2.py`, 2026-10-29; Readwise, built beside it, was removed by owner direction 2026-11-03 — its origin still scrubs and draws its mark for a bank's earlier episodes).** A connected source's sync stages
   through `episode_staging` like every capture (no model, scrubbed, `connector: <id>` in the frontmatter) and commits
   only its paths as `user` (trigger `capture/<id>`), the staging and commit as one admitted transaction: while Sleep
   holds the pages it is refused, nothing is written and the cursor stays, so the next sync fetches the same items. The
-  scheduled sync runs on the backend's scheduler (every 6 h), never in Sleep's tail. *Readwise:* `readwise:<book>:doc`
-  (title, author, kind, source link, the person's document note as `user:`) and `readwise:<book>:<UTC day>` (that day's
-  highlights, each `attachment [<title>]:` with its lines quoted — `page` evidence — and the person's note on it as
-  `user:`), dated when highlighted (read on time); an edit or deletion rewrites or tombstones that day in place; a
-  deleted book tombstones all its units; `media_entity_id` names an existing page only on the same saved URL or a
-  unique exact title (never a person page, never a page made). *Notion:* a shared page is `notion:<id>` — the export's
+  scheduled sync runs on the backend's scheduler (every 6 h), never in Sleep's tail. *Notion:* a shared page is `notion:<id>` — the export's
   key, so the live read rewrites an exported page in place — split by H2 like the export, dated when created, a row
   with its database's title and properties; trash tombstones; unsharing keeps the page as it was (origin
   `notion-api`). A page is the person's words only when Notion names the connection's owner and that user created

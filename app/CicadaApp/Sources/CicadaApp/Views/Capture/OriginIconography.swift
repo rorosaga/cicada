@@ -54,7 +54,8 @@ enum OriginIconography {
         "whatsapp", "telegram-chats",
         // G219: a ticked Reminders list's reminder, and a Notion export's page or row.
         "reminders-local", "notion-export",
-        // Ruling 47 tier 2: Readwise highlights and the live Notion connection (`connectors/readwise.py`, `notion.py`).
+        // Ruling 47 tier 2: the live Notion connection (`notion.py`). Readwise was removed as a source by owner
+        // direction (2026-11-03); its mark stays so a bank's earlier Readwise episodes still draw it in the Reader.
         "readwise", "notion-api",
         // G230: GitHub — a starred repository, a pasted one, one the person owns (`connectors/github.py`).
         "github", "github-starred", "github-added", "github-owned",

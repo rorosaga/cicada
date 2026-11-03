@@ -108,8 +108,10 @@ from api.services.channel_registry import CHANNEL_IDS
 #: `g161-10`: chats-ux-v2 — WhatsApp and Telegram list one row per chat too; a chat row carries `messages` and `group`.
 #: `g161-11`: source-page-v3, on top of `g161-10` — a page carries `all` and `latest`, and `q` narrows it (the route
 #: folds `q` into the ETag's extra).
-#: `g161-12`: G230 — the GitHub row lists its repository pages.
-SHAPE = "g161-12"
+#: `g161-12`: 2026-11-03 — a chat row carries `ticked`, `pinned`, `last_at`, `synced_at` and its face's `picture`;
+#: pinned chats list first.
+#: `g161-13`: G230 — the GitHub row lists its repository pages.
+SHAPE = "g161-13"
 LIMIT_DEFAULT = 50
 LIMIT_MAX = 200
 TITLE_CAP = 120
@@ -125,9 +127,8 @@ _ORIGIN_CHANNELS = {
     "whatsapp": ("whatsapp",),
     "telegram-chats": ("telegram-chats",),
     "notion": ("notion-export",),
-    # Ruling 47 tier 2: what the person's own connection brought in (a Readwise document with a page lists as it).
+    # Ruling 47 tier 2: what the person's own connection brought in (a live Notion page).
     "notion-api": ("notion-api",),
-    "readwise": ("readwise",),
     # G32: a Spotify download's listening days, one row each (index-only, opened in the Reader).
     "spotify-listening": ("spotify-history",),
 }
@@ -601,17 +602,88 @@ CHAT_CHANNELS = {"imessage": messages_source.ORIGIN, "whatsapp": "whatsapp", "te
 CHAT_ORIGINS = frozenset(CHAT_CHANNELS.values())
 #: A chat with the person themselves (WhatsApp's "message yourself", `self_chat`) is named for what it is.
 SELF_CHAT_TITLE = "Notes to yourself"
+#: A ticked chat with no name kept and nothing stored yet.
+UNNAMED_CHAT_TITLE = "Unnamed chat"
+
+
+def _chat_settings(memory_path: Path, origin: str) -> dict[str, dict]:
+    """Each chat's settings entry for a chat source (its name, tick and pin), keyed by the chat's id."""
+    from api.services import chat_live, telegram_source, whatsapp_source
+
+    if origin == messages_source.ORIGIN:
+        return messages_source.load_settings(memory_path)["conversations"]
+    spec = {s.origin: s for s in (whatsapp_source.SPEC, telegram_source.SPEC)}.get(origin)
+    if spec is None:
+        return {}
+    return chat_live.load_settings(memory_path, spec)["conversations"]
 
 
 def _chat_names(memory_path: Path, origin: str) -> dict[str, str]:
     """The name the person sees for each chat of a live chat source (a group's own name too), from its settings."""
-    from api.services import chat_live, telegram_source, whatsapp_source
-
-    spec = {s.origin: s for s in (whatsapp_source.SPEC, telegram_source.SPEC)}.get(origin)
-    if spec is None:
+    if origin == messages_source.ORIGIN:
         return {}
-    return {cid: c["name"] for cid, c in chat_live.load_settings(memory_path, spec)["conversations"].items()
-            if c.get("name")}
+    return {cid: c["name"] for cid, c in _chat_settings(memory_path, origin).items() if c.get("name")}
+
+
+def _iso(at: datetime | None) -> str | None:
+    return at.astimezone(timezone.utc).isoformat().replace("+00:00", "Z") if at else None
+
+
+def _owner_page(memory_path: Path) -> str | None:
+    """The bank's ``owner: true`` page when ``_state.md`` names none yet (a bank before its first Sleep): the first by
+    id, the `owner_identity.owner_page_id` tie-break without its observer read."""
+    owners = sorted(f.stem for f in bank_index.files(memory_path, "entities")
+                    if (f.frontmatter or {}).get("owner") is True)
+    return owners[0] if owners else None
+
+
+def _chat_pictures(memory_path: Path, self_chats: set[str], newest: dict[str, tuple[str, dict]]) -> dict[str, str]:
+    """2026-11-03 (owner, on a self-chat's monogram beside the picker's photo: "then why doesnt the pfp appear") — the
+    picture a chat's face draws by the one precedence (`entity_picture.resolve_page`) when the chat stands for a page:
+    the person's own chat → the owner's page; a one-to-one chat whose newest sitting's correspondent record resolves to
+    a page (`messages_photos.chat_pages`, Stage 2's rule) → that page, so the person's own choice and a Contacts photo
+    outrank the chat's own photo there too. ``{chat id: an API path on Cicada}``; a chat with no page, or a page with no
+    picture, keeps the chat's own photo or its monogram. Reads only pages already on the record; nothing is fetched."""
+    from api.services import entity_picture, everyday_names, messages_photos
+
+    pages: dict[str, str] = {}
+    owner = (everyday_names.owner_id(memory_path) or _owner_page(memory_path)) if self_chats else None
+    if owner:
+        pages.update({cid: owner for cid in self_chats})
+    try:
+        for cid, page in messages_photos.chat_pages(memory_path, set(newest) - set(self_chats), newest=newest).items():
+            pages.setdefault(cid, page)
+    except Exception:  # noqa: BLE001 — a face without a page's picture keeps its own photo or monogram
+        pass
+    out: dict[str, str] = {}
+    resolved: dict[str, str | None] = {}
+    shared: dict = {}
+    if pages:
+        # The bank's logo sets, people-photo index and chat links, read once for every page (the graph builder's way).
+        from api.services import logo_service, person_photo
+
+        try:
+            bank = logo_service.bank_name(memory_path)
+            shared = {"cached": logo_service.cached_ids(bank), "missed": logo_service.missed_ids(bank),
+                      "photos": person_photo.read_meta(bank), "chats": messages_photos.links(memory_path)}
+        except Exception:  # noqa: BLE001 — each page then reads its own, as a single-page caller does
+            shared = {}
+    for cid, page in pages.items():
+        if not page or "/" in page or page.startswith("."):
+            continue
+        if page not in resolved:
+            f = bank_index.file(memory_path, "entities", f"{page}.md")
+            url = None
+            if f is not None:
+                try:
+                    url = entity_picture.resolve_page(memory_path, page, f.frontmatter or {}, "",
+                                                      page_mtime=f.mtime_ns / 1e9, **shared)[0].url
+                except Exception:  # noqa: BLE001 — the same: never a failed list for a picture
+                    url = None
+            resolved[page] = url
+        if resolved[page]:
+            out[cid] = resolved[page]
+    return out
 
 
 def _count(raw) -> int:
@@ -625,10 +697,19 @@ def _chat_rows(memory_path: Path, origin: str = messages_source.ORIGIN) -> list[
     """One row per chat (review of #358: "one row per chat, newest day, N sittings"; every chat source since
     chats-ux-v2), titled by who it is with — the sittings' ``correspondent`` record, else the chat's own name (a
     group's), else the title — dated by its newest sitting, carrying the chat, how many sittings and messages it holds
-    and whether it is a group. A sitting with no chat hash (never written today) stays its own episode row."""
+    and whether it is a group. A sitting with no chat hash (never written today) stays its own episode row.
+
+    2026-11-03 (owner: the synced chats "in the same order as the apps themselves", "right click → pin", "a green dot
+    for chats that are synced, and a last synced text") — each chat also says whether it is ticked now (``ticked``)
+    and pinned (``pinned``; pinned rows list first, `items`), when its newest stored message was said (``last_at``, the
+    apps' order) and when Cicada last stored its words (``synced_at``: the newest write of any of its sittings), and
+    its face's ``picture`` when the chat stands for a page (`_chat_pictures`)."""
     photos = source_overview._chat_photos(memory_path)
+    states = _chat_settings(memory_path, origin)
     names = _chat_names(memory_path, origin)
     chats: dict[str, dict] = {}
+    selves: set[str] = set()
+    records: dict[str, tuple[str, dict]] = {}   # each chat's newest sitting's correspondent record
     rows = []
     for f in _episode_index(memory_path).origins((origin,)):
         fm = f.frontmatter or {}
@@ -642,33 +723,80 @@ def _chat_rows(memory_path: Path, origin: str = messages_source.ORIGIN) -> list[
         record = fm.get("correspondent") if isinstance(fm.get("correspondent"), dict) else {}
         name = ((SELF_CHAT_TITLE if fm.get("self_chat") else "") or _title(record.get("name"), fallback="")
                 or _title(names.get(cid), fallback=""))
+        if fm.get("self_chat"):
+            selves.add(cid)
+        last = str(fm.get("sitting_last_at") or fm.get("timestamp") or "")
+        if not fm.get("source_deleted_at") and (cid not in records or last >= records[cid][0]):
+            records[cid] = (last, record)
         held = chats.get(cid)
         if held is None:
             chats[cid] = held = {**_row("chat", cid, name or row["title"], row["day"], None), "sittings": 0,
                                  "messages": 0}
             held["_sort"] = row["_sort"]
+            held["_last"] = held["_synced"] = None
         held["sittings"] += 1
         held["messages"] += _count(fm.get("message_count"))
         if fm.get("group"):
             held["group"] = True
+        said = _instant(fm.get("sitting_last_at")) or _instant(fm.get("timestamp"))
+        if said and (held["_last"] is None or said > held["_last"]):
+            held["_last"] = said
+        written = datetime.fromtimestamp(f.mtime_ns / 1e9, tz=timezone.utc)
+        if held["_synced"] is None or written > held["_synced"]:
+            held["_synced"] = written
         if row["_sort"] >= held["_sort"]:
             held["_sort"], held["day"] = row["_sort"], row["day"]
             if name:
                 held["title"] = name
+    pictures = _chat_pictures(memory_path, selves, records) if chats else {}
     for cid, held in chats.items():
         held["chat"] = {"id": cid, "label": held["title"], "photo": photos.get(cid)}
+        if pictures.get(cid):
+            held["chat"]["picture"] = pictures[cid]
         if not held["messages"]:
             del held["messages"]       # sittings written before counts were kept: no number rather than a false 0
+        state = states.get(cid) or {}
+        held["ticked"] = bool(state.get("ticked"))
+        if state.get("pinned"):
+            held["pinned"] = True
+        last, synced = held.pop("_last"), held.pop("_synced")
+        if last:
+            held["last_at"] = _iso(last)
+            held["_sort"] = max(held["_sort"], last.timestamp())
+        if synced:
+            held["synced_at"] = _iso(synced)
         rows.append(held)
+    # 2026-11-03 — a chat the person ticked lists at once, before its first message is stored (live from the tick):
+    # its name from its settings, "Synced", no recency; it opens to an empty conversation. Ids and names only.
+    for cid, state in states.items():
+        if cid in chats or not state.get("ticked") or not messages_source.CONVERSATION_ID_RE.match(cid):
+            continue
+        title = _title(state.get("name"), fallback="") or UNNAMED_CHAT_TITLE
+        row = {**_row("chat", cid, title, None, None), "sittings": 0, "ticked": True}
+        row["chat"] = {"id": cid, "label": title, "photo": photos.get(cid)}
+        if state.get("group"):
+            row["group"] = True
+        if state.get("pinned"):
+            row["pinned"] = True
+        rows.append(row)
     return rows
 
 
 def chat_sittings(memory_path: Path, conversation: str) -> dict | None:
-    """One chat's sittings, newest first — what its row opens to: each sitting's episode (it opens in the Reader), its
-    day and how many messages it holds. Titles are not repeated: the row above already names the chat. Any chat
-    source's chat (each reader hashes its own ids). None for an id that is not a chat hash or has no live sitting."""
+    """One chat's sittings, newest first — what its row opens to: each sitting's episode (its stored conversation, read
+    with `GET /episodes/{id}/text`), its day and how many messages it holds. Titles are not repeated: the row above
+    already names the chat. Any chat source's chat (each reader hashes its own ids). None for an id that is not a chat
+    hash, or a chat Cicada holds nothing of and the person has not ticked.
+
+    2026-11-03 (G179's ticked-only rail, on the chat page's panel: an unticked chat shows its name, picture and recency,
+    never its messages) — ``ticked`` says whether the chat is ticked now on any chat source, and an unticked chat
+    lists no sittings, so no client of this route opens its words from the chat's page; what was stored stays in
+    memory, read where it is cited (the Reader). A ticked chat with nothing stored yet answers an empty list."""
+    from api.services import messages_photos
+
     if not messages_source.CONVERSATION_ID_RE.match(str(conversation or "")):
         return None
+    ticked = conversation in messages_photos.ticked_chats(Path(memory_path))
     out = []
     for f in _episode_index(Path(memory_path)).by_conversation.get(conversation, ()):
         fm = f.frontmatter or {}
@@ -678,10 +806,11 @@ def chat_sittings(memory_path: Path, conversation: str) -> dict | None:
         row = _episode_row(fm, f.stem)
         out.append({"id": row["id"], "day": row["day"], "messages": _count(fm.get("message_count")) or None,
                     "_sort": row["_sort"]})
-    if not out:
+    if not out and not ticked:
         return None
     out.sort(key=lambda r: (-r["_sort"], r["id"]))
-    return {"conversation": conversation, "sittings": [{k: v for k, v in r.items() if k != "_sort"} for r in out]}
+    sittings = [{k: v for k, v in r.items() if k != "_sort"} for r in out] if ticked else []
+    return {"conversation": conversation, "ticked": ticked, "sittings": sittings}
 
 
 #: A watched day's videos on the wire: at most this many (a day keeps at most `watch_history.MAX_PER_DAY`).
@@ -898,7 +1027,8 @@ def items(memory_path: Path, channel_id: str, *, offset: int = 0, limit: int = L
     query = str(q or "").strip()[:Q_MAX]
     if text_fold.fold(query).strip():
         rows = _search(memory_path, rows, query)
-    rows.sort(key=lambda r: (-r["_sort"], r["title"].casefold(), r["id"]))
+    # A chat the person pinned lists first (2026-11-03, `_chat_rows`); every other row has no pin.
+    rows.sort(key=lambda r: (not r.get("pinned"), -r["_sort"], r["title"].casefold(), r["id"]))
     page = [_enrich(memory_path, r) for r in rows[offset:offset + limit]]
     return {"channel": channel_id, "total": len(rows), "all": everything, "latest": latest, "offset": offset,
             "limit": limit, "items": page}

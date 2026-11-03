@@ -526,6 +526,19 @@ the node's `contentHash` only when true, so a lit node's hash is unchanged; `GET
 `saved-why-2`, G191 v3: items gained `savedWhyHistory`, `lastSavedAt` and `captureThumb`). Neither moved a component,
 so `VersionVector` was unchanged by those — but G191 v3 also folds the `captures` component into `/sources`' ETag (a
 new site capture gives a bookmark's row its thumbnail), so `VersionVector` maps `captures` → `.sources`.
+**Chat source pages (2026-11-03, shape `g161-12`, overview `overview-v12`).** On `GET /sources/channels/{id}/items` for a
+chat source (`imessage`, `whatsapp`, `telegram-chats`) each chat row adds `ticked` (now), `pinned` (only when set),
+`last_at` (the newest stored message, aware UTC) and `synced_at` (the newest write of any of its sittings), and its
+`chat` adds `picture` — an API path on Cicada (`/entities/<id>/picture?v=` or `/photo`) when the chat stands for a page
+(the person's own chat → the owner's page; a one-to-one chat → its correspondent's page, `messages_photos.chat_pages`);
+pinned rows list first, then the apps' order. A ticked chat with nothing stored yet lists too (no `day`). The pin is
+written through each source's own settings route (`PUT /sources/{messages|whatsapp|telegram}/settings`
+`{conversation: {id, pinned}}`, the tick's route, one `user` commit of the settings file; a pin never ticks), and the
+three settings files ride the `sources` component by mtime (`sync_service.CHAT_SETTINGS_FILENAMES`; client mapping
+unchanged, `sources` → `.sources`). `GET /sources/messages/chats/{id}/sittings` (any chat source) adds `ticked` and
+lists **no** sittings for an unticked chat (G179's ticked-only rail on the chat page's panel; 404 only when it is not a
+chat hash, or holds nothing and is not ticked); its ETag now rides `sources` with `episodes`. Readwise's rows are gone
+from the overview (`overview-v12`); the connector routes are the generic ones and stay.
 **G191 v4.** `/sources` items gained `leftBrowser` `[{browser, channel, since}]` (shape `saved-why-3`): the browsers a
 bookmark has left, read from the bookmark seen-set's `left` map. That file (`sources/bookmark_seen.json`) is not `*.md`, so
 the `sources` component's directory fingerprint never saw it — it now rides the component by its own mtime (client
