@@ -192,6 +192,11 @@ def test_a_resync_updates_in_place_and_deletes_nothing(bank):
     assert owned["github:owned:502"].get("source_deleted_at") and not owned["github:owned:501"].get("source_deleted_at")
     words = sync_state.read_sync_state(bank)["github"].get("words") or ""
     assert "no longer starred" in words and "page stays" in words
+    from api.services import channel_registry
+
+    row = channel_registry._connector_channel("github", "GitHub", sync_state.read_sync_state(bank), "repository",
+                                              connected=True)
+    assert row["detail"].endswith("1 repository is no longer starred on GitHub; its page stays.")
     assert [r["full_name"] for r in github_repos.owned(bank)] == ["bob-example/alpha-project"]
 
 

@@ -234,6 +234,9 @@ def _connector_channel(
         # it is true in this branch ONLY.
         detail = f"synced {_short_date(last)}"
         count_noun, count_is_delta = noun, True
+        # A tier-2 sync's own line (`tier2.Batch.words`: a cap reached, repositories no longer starred), said on the row.
+        if entry.get("words"):
+            detail = f"{detail} · {entry['words']}"
     elif connected:
         detail = "Connected · not synced yet"
     else:
