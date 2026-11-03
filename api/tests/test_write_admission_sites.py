@@ -569,6 +569,8 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "DELETE /sync/relay/join": (OUTSIDE, None),
     "POST /sync/enrol": (OUTSIDE, None),
     "POST /sync/discovered": (OUTSIDE, None),
+    # Ruling 51f: the app's word that the network changed: route state in memory and routes.json, outside every bank.
+    "POST /sync/network": (OUTSIDE, None),
     "POST /devices/pairing/relay": (OUTSIDE, None),
     "POST /devices/pairing/relay/{session_id}/confirm": (OUTSIDE, None),
     "DELETE /devices/pairing/relay/{session_id}": (OUTSIDE, None),

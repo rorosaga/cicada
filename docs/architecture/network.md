@@ -619,6 +619,10 @@ direct request, the same code**: nothing relay-side is imported or started (`tes
 - **the relay-only address** — a device paired over the relay with no direct address follows
   `https://home.relay.invalid` (RFC 2606: never resolves), so a direct try costs nothing.
 
+**Ruling 51f (owner, 2026-11-03) replaces "direct, then the relay" with an ordered route list, and makes the relay an
+Advanced option**; the next section is how requests travel now. What follows about the relay stays true when a person
+sets one.
+
 **What travels over the relay.** The home's link pushes each new HEAD as one `delta` to every device (`previous..HEAD`,
 with `seq`, `head` and `base` inside the ciphertext); a device keeps it until its follower asks for that base, so a copy
 catches up from the mailbox while the home is asleep. A device that stays away is **coalesced**: once four deltas wait
@@ -662,6 +666,101 @@ starts the group again: a new mailbox rooted in the taker's key, the same device
 signed take-over record; a device follows it only when that record verifies against the registry, outranks the record
 it holds and names the device whose relay key sent the notice.
 
+### The route list and the home-network door (ruling 51f, G132 phase 3b slice 1 — built; on while a memory is shared)
+
+Owner, 2026-11-03: *"yes i think we should copy t3 code … if we can make it all run nicely and for free awesome"*; no
+rented server, no cloud mailbox, no Tailscale requirement; *"we sync when a machine is on"*. The design is T3 Code's
+connection model (research: [`2026-11-03-sync-without-a-rented-relay.md`](../research/2026-11-03-sync-without-a-rented-relay.md) §12).
+
+**The route list (`sync_routes`).** Each device keeps an ordered list of routes to its home and uses the first that
+answers: `lan` (the home's door at a private address of this network) → `tailnet` (the door at its tailnet address,
+only when Tailscale already runs on both; never required) → `configured` (the address the person set — their
+`tailscale serve` or their own TLS proxy — phases 1–2's HTTP request with the device token) → `mapped`/`ipv6` (slice 2,
+not built) → `relay` (only if the person set one under Advanced) → **queue**. A route that did not answer is skipped for
+60 s and then tried first again, so an earlier route is re-checked every minute; on a network change — this computer's
+own addresses, read from the routing table every 5 s without a packet, or the app's word (`POST /sync/network`
+`{event: changed|returned}`, its path monitor and its return to the front) — every route is tried again at once, and
+the device moves back as soon as an earlier one answers. A LAN address that does not answer away from home costs one
+1 s connect, then nothing for a minute. With no door route known and no relay set, a request is phases 1–2's direct
+request exactly (`test_sync_transport.py`). `GET /sync/routes` shows the routes as kinds and states, never an address.
+
+**Learned routes; identity is the keys.** A door tells every device that reaches it where it is now (its first frame),
+and every device's own door is on its registry row (`door`: port, door key, LAN and tailnet addresses), so each device
+keeps the routes of every device that may become the home. The app's Bonjour finds the door on a new network (`POST
+/sync/discovered` `doors: [{host, port}]`), and the backend keeps a found door only after its own handshake proved it
+is the home's. Switching Wi-Fi never means pairing again: the device reaches the same home, by its keys, on another
+route, and fetches `cursor..HEAD` — only what it missed (`test_sync_door_three_machines.py`).
+
+**The door (`sync_door`, D3: "encryption and security above all").** One TCP listener a computer opens only while it
+shares a memory — it publishes its log, it is a copy, or a device is paired with it (a capture-only phone) — never for a
+demo, `CICADA_SYNC_DOOR=off` to keep it shut. It is **a sealed-frame endpoint only: never the HTTP API, never a token,
+never a bank path**. The backend's HTTP API still binds `127.0.0.1`.
+
+- **Who may connect.** T3 Code's rule: both ends of the connection loopback, private (RFC 1918, IPv6 unique-local) or
+  tailnet (`100.64.0.0/10`, Tailscale's IPv6 range); anything else is closed before a byte is read. It binds every
+  interface (`CICADA_SYNC_DOOR_HOST` names one), on a port chosen once and kept (`$CICADA_HOME/sync/door.json`, 0600,
+  with the door's X25519 key).
+- **The handshake proves both ends and hides who connects.** The client's first packet is fixed-length: a fresh X25519
+  key, then — sealed under `DH(fresh, door key)` — its P-256 public key and its signature over the door key, the fresh
+  key and the time. The key must be a device of the group: its registered signing key (`sign_jwk`) or the key its
+  token is bound to (a phone's Secure-Enclave key). The door answers with its own fresh key and **its computer's device
+  key signature over the hello**, checked by the client against the registry's key for the device it meant to reach
+  (a stolen door key alone cannot pose as the home). Session keys come from both DH results and the transcript: forward
+  secret. Frames are `u32 length ‖ ChaCha20-Poly1305` with a counter nonce per direction; a replayed, dropped or
+  reordered frame fails and closes the connection.
+- **Unauthenticated first packets are dropped silently.** A hello that does not open, is more than 5 min old or new,
+  repeats a fresh key already seen, or names no device of the group is closed without one byte sent back. Over TCP a
+  scanner learns only that a port accepted a connection; it never learns what listens (the UDP door of slice 2's punch
+  would show nothing at all).
+- **Rate-limited.** Per source address a bucket of 10 handshakes refilled one per 2 s (a failed one costs 3); at most 32
+  connections waiting for their hello (3 s each) and 128 sessions; a frame at most 513 KiB, a request body 32 MiB, an
+  idle session closes after 120 s.
+- **Small and fuzzed.** The parser is two fixed-length reads and one bounded length; `test_sync_door.py` feeds it random
+  bytes, truncations and single-bit flips (3,300 hellos, 500 replies) and checks it only ever drops.
+- **What it carries.** Requests run **in process** through the same routes a device token reaches
+  (`sync_inprocess`, shared with the relay link), as the device the handshake proved (`auth.RELAY_DEVICE_SCOPE`,
+  `auth.DOOR_DEVICE_SCOPE`): its row is looked up again per request (a revoke is a 401 at once), the master-only rules
+  hold, a capture-only phone reaches only `auth.CAPTURE_ROUTES`, and a write carries its `Idempotency-Key` into the
+  same `idempotency.run_once` — sent twice by two routes, applied once. A copy holds a watch on the door: the door
+  reads the home's `HEAD` every 0.5 s only while a device watches and tells it of each commit at once.
+- **Pairing in the same room.** Creating a capture pairing (`POST /devices/pairing`) opens the door and returns `door`
+  beside the unchanged QR v1: the home's device id and signing key, the door key, port and addresses, and a one-time
+  256-bit secret (ten minutes, one use) — the phone app's later QR v2. A device not yet in the group proves the secret
+  with an HMAC in its hello's last 32 bytes; that session may make exactly one request, `POST /pair` with the code,
+  redeemed capture-only and bound to the key its hello proved. The answer is the device's id — never a token.
+- **macOS.** Accepting connections needs no Local Network permission (TN3179); dialing a LAN address does, so a copy
+  dials a non-loopback LAN door only when the app reports the permission and the agent plist names the app
+  (`CICADA_SYNC_LAN_DIAL=on|off` overrides; Linux always may). The application firewall, when on, asks once whether
+  the backend may accept incoming connections — the app's first-share permissions step must cover it (D4).
+
+**The outbox never drops an unsent write (D1).** With no mailbox, a write that never reached the home waits however
+long and applies once when a route answers; only an entry the home may have seen (it answered, or a send's answer was
+lost) keeps the 7-day bound before the home's 8-day key, and one that lapses is listed with the rejected ones
+(`expired_may_have_landed`), never silently lost.
+
+**Which route was used** is one telemetry row (`sync_route`) when a device's route changes or it starts queueing, and
+once an hour per device and route at the door — `side`, `route`, `event`, `before` as enums only, never an address,
+host or port. It is how the share of homes that need slice 2 gets measured, not guessed.
+
+**Measured** (loopback, three backends, synthetic bank, this Mac; the door reached through forwarders the test cuts):
+see the PR and TODO.md's entry for the 5× runs. A copy on the door fast-forwards a commit in the same few hundred ms as
+the configured address (one watch notice, then the same pack); after a network switch, a copy that found the home at
+its new address had the five commits it missed in ~0.3 s, over about a third of the bytes a full copy takes; it moved
+back to the door within one request of the app's word.
+
+**The phone, for now a capture device** (owner 2026-11-03: *"for now, the phone i mainly want it as a way to capture,
+so wether im outside, same wifi or wherever, i can send stuff to the same queue to get digested"*). It runs the same
+route list with no copy and no follower: its captures go to the existing capture routes (`/capture/note`, `/capture/file`,
+`/sources/save`) with an `Idempotency-Key`, through the door, its capture-only token's scope applied in process; while
+the home is asleep they wait in its own outbox, never expiring, and land once on the next overlap — on the same Wi-Fi
+today, from anywhere once slice 2 makes the home reachable. `api/tests/_phone_like.py` is the reference client the phone
+app's later build implements (G91).
+
+**Slice 2, not built: reach away from home.** Behind "Reach my memory away from home" (off): the home maps the door's
+port on its router (PCP, NAT-PMP, UPnP-IGD) and uses IPv6 where inbound is allowed, and publishes its current address as
+a signed, encrypted record in the public Mainline DHT (re-published when the address changes, a TTL); the door admits a
+public peer only then. The plan, libraries and rails: [`docs/plans/2026-11-03-g132-routes.md`](../plans/2026-11-03-g132-routes.md).
+
 **Pairing over the relay** (Settings → Devices, the app's PR): `POST /devices/pairing/relay` issues a one-time code
 through `device_tokens` (ten minutes, single use) and the QR v2 `{v, code, relay, slot, home: {ed, x}}` (plus `url` when
 the home has a direct address), and opens the typed path's Argon2id slot too. The new computer posts the QR or the typed
@@ -679,7 +778,8 @@ daemon started by launchd"*, root, and Terminal/SSH tools, but *"The exception f
 launchd agents"*. The backend is a launchd agent (`com.cicada.backend`), so a Bonjour call from it would raise the
 Local Network alert on its own, under no app's name. So the app (which may ask, with its usage text) advertises and
 browses `_cicada._tcp` with the instance name `c-<hash>` — the first 80 bits of `sha256("cicada-lan-v1\0" + bank id)`,
-never a name, hostname or the bank id — and hands the backend what it resolved (`POST /sync/discovered`). An address is
+never a name, hostname or the bank id — and hands the backend what it resolved (`POST /sync/discovered`; since ruling 51f the advertised port is the door's, and a
+found door is checked by the door's own handshake). An `https` address is
 trusted only after the peer signs a fresh nonce the backend issued (`GET /sync/discovery` → the peer's open
 `GET /sync/hello`) with the device key the registry holds for it — no token is sent to it before that — and only an
 `https` address is kept (a token never crosses a LAN in the clear). The backend dials a verified LAN address only when
@@ -688,10 +788,10 @@ the app says the person allowed local network access **and** its launchd plist n
 passes its bundle id); otherwise the configured address and the relay carry everything. Off on a single-machine install:
 nothing is advertised and `/sync/hello` answers 404.
 
-**The bind.** The backend still binds `127.0.0.1` only; `GET /sync/transport` shows it in words, with where the person's
-other devices reach it (their tailnet's `tailscale serve`, or `CICADA_DEVICE_URL`). No LAN listener is built: one on
-the LAN address itself would serve the API over plain HTTP with no certificate a peer could check (Needs the owner:
-a self-signed certificate whose fingerprint the device key signs, pinned by the peer).
+**The bind.** The backend's HTTP API still binds `127.0.0.1` only; `GET /sync/transport` shows it in words, with where
+the person's other devices reach it (their tailnet's `tailscale serve`, or `CICADA_DEVICE_URL`). The HTTP API is never
+served on the LAN: #572's pinned-certificate HTTPS listener was not built — ruling 51f's door (above) is the one LAN
+listener, sealed frames only, no token.
 
 **Before any hosted relay goes live (pre-go-live, as far as code goes).** Creation is also capped per IPv6 /48 (an
 IPv4 /24): 20 an hour (`RELAY_CREATES_PER_48_PER_HOUR`), so one site handed 65,536 /64s is still one budget; a bank no

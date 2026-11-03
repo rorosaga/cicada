@@ -2703,3 +2703,34 @@ A whole row moves to DONE only after its remaining implementation and required a
     movable. **Revisit** a if a measured workload needs two devices to apply writes while partitioned; b if a lost phone's
     replica is found readable by anyone but the person; c if the relay is ever found to see plaintext or to need TLS
     termination to work.
+    **f — Routes, not a relay; nothing rented (owner, 2026-11-03, on the research of #574 §12; amends c).** Owner:
+    *"yes i think we should copy t3 code or any other better way done by any other software … if we can make it all
+    run nicely and for free awesome"*; *"if the option where you tell me we can avoid using tailscale works well then
+    lets just do that … most people … will not have an always on server, so only phone and their mac, and i want that
+    to work perfectly, and macs are not always on most of the time."* **f1 — The route list (T3 Code's model).** Each
+    device keeps an ordered list of routes; the first that answers wins; routes learned from a connected peer are
+    saved; earlier routes are re-checked on a network change, when the app returns and every minute, and the device
+    moves back as soon as one works. T3's listener rule: a connection closes unless the peer address is loopback,
+    private or tailnet. **f2 — No rented infrastructure, no cloud mailbox, no Tailscale requirement.** Tailscale, when
+    already present, is one more route (its stable address), never required. The relay is optional and moves under
+    Advanced, never a default. **f3 — D1, no mailbox:** *"we sync when a machine is on."* An outbox item that was never
+    delivered never expires (amends the 7-day expiry), so no write is ever lost. **f4 — D3, a home-network door:** yes,
+    with *"encryption and security above all"*: a sealed-frame endpoint only — never the HTTP API, never a token over
+    it — off until a memory is shared; unauthenticated first packets dropped silently, so a scanner sees nothing;
+    rate-limited; a small, fuzzed parser. **f5 — Away from home:** the router port (UPnP-IGD / NAT-PMP / PCP), IPv6, and
+    the home's signed, encrypted address record in the public Mainline DHT are accepted in principle as the no-account
+    way to reach the home away from home, behind a **"Reach my memory away from home"** switch, off until the person
+    turns it on. **f6 — Identity is the pairing keys, not addresses:** switching Wi-Fi never means pairing or syncing
+    again; a network change re-runs the route checks and fast-forwards only what was missed. **f7 — The phone, for
+    now, is a capture device** (owner, the same day: *"for now, the phone i mainly want it as a way to capture, so
+    wether im outside, same wifi or wherever, i can send stuff to the same queue to get digested … right now i want
+    this simple approach."*): its captures reach the home's episode queue through the same route list, wait in a
+    durable outbox on the phone while the home is asleep or unreachable, never expire, and apply exactly once by
+    `Idempotency-Key`, under its capture-only token scope (`auth.CAPTURE_ROUTES`) and the existing capture routes. The
+    full-device phone of b (ruling 38 §2's reversal) is **deferred**; a computer's copy (phase 1 B) stays as built.
+    **Built in slice 1 (2026-11-03, stacked on #572):** the route list (`sync_routes`), the door (`sync_door`, TCP,
+    a handshake on the P-256 pairing keys, pairing a phone in the same room with the QR's one-time secret), the outbox
+    rule, Tailscale as a route, the `sync_route` telemetry enums, the network-change re-check
+    ([plan](../plans/2026-11-03-g132-routes.md); `network.md`, "The route list and the home-network door"). Slice 2
+    (f5) is planned, not built. **Revisit** f4 if the door is ever found to answer a byte before a device proved its
+    key; f3 if an outbox entry is ever found applied twice; f7 when the owner asks for the phone as a full device.
