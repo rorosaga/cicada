@@ -426,7 +426,9 @@ bot channel (G29, `CICADA_TELEGRAM_BOT_TOKEN`) is unchanged. Built on `feat/tele
 **The tier-2 framework (`api/services/connectors/tier2.py`, 2026-10-29).** One module behind every token connector
 after Telegram. An adapter is a module in `ADAPTERS` with `TIER = 2`, so its Sources row, `GET/PUT/DELETE
 /sources/connectors/{id}[/credentials]` and `POST …/sync` are the existing connector routes; it declares `TOKEN_ENV`,
-`API_BASE`, `READS` (what it reads, in words — served as `reads`, with `tokenHelp`, on the status), `REFUSED_WORDS`,
+`API_BASE`, `READS` (what it reads, in words, one short line — served as `reads`, with `tokenHelp`, on the status;
+the panel draws them as one line, `ConnectorSetupState.readsLine`, the token's place only until connected — owner
+2026-11-03: "this text is extremely unnecessary in all pages that have it, remove it"), `REFUSED_WORDS`,
 `auth_headers`, `check(client)` and `fetch(client, cursor, bank) -> Batch`.
 - **Connect** is the person's Save: `check` makes one read-only request to the service's own host with the pasted
   token; a refusal (or no answer) saves nothing and the 422 says why in words. **Disconnect** forgets every name in

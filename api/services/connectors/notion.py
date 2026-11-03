@@ -60,9 +60,8 @@ SECRET_NAMES: tuple[str, ...] = (TOKEN_ENV,)
 API_BASE = "https://api.notion.com/v1/"
 NOTION_VERSION = "2026-03-11"
 TOKEN_HELP = "notion.so/profile/integrations"
-READS = ("Reads only the Notion pages and databases you share with your own connection (Add connections on a page), "
-         "as text, with each row's properties. Give the connection Read content only; Cicada never changes anything "
-         "in Notion. Disconnect forgets the token; you can also delete the connection in Notion.")
+#: One short line (owner 2026-11-03); the panel adds where the token comes from while it is not connected.
+READS = "Read-only: only the pages and databases you share with your connection."
 REFUSED_WORDS = ("Notion refused the token. Check the connection in Notion's developer portal (it may have been "
                  "deleted or lost access), then paste its token again in Settings → Sources → Notion.")
 PERSONAL_TOKEN_WORDS = ("That token acts as you, with every page you can open. Cicada reads only what you choose to "

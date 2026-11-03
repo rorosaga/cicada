@@ -6,8 +6,7 @@ extension Copy {
     enum GitHub {
         // The Sources panel.
         static let addTitle = "Add a repository"
-        static let addIntro = "Paste a repository's link. Its page shows its name, link and a preview of its README. "
-            + "A public one needs no connection."
+        static let addIntro = "A public one needs no connection."
         static let linkPrompt = "github.com/owner/name"
         static let add = "Add"
         static let addHelp = "Add this repository to your memory."
@@ -17,7 +16,7 @@ extension Copy {
         static let failed = "Couldn't add that right now. Try again in a moment."
         static let couldNotRead = "Couldn't read your repositories right now."
         static let yoursTitle = "Your repositories"
-        static let yoursIntro = "From your last sync. Each stays a suggestion until you add it as a project."
+        static let yoursIntro = "From your last sync."
         static let yoursEmpty = "Connect GitHub above and sync to see the repositories you own here."
         static let starredTitle = "In your memory"
         static func starredCount(_ n: Int) -> String {

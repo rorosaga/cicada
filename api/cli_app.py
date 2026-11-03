@@ -980,7 +980,7 @@ def cmd_connector_connect(boot, args) -> Result:
     if status.get("reads"):
         sys.stderr.write(status["reads"] + "\n")
     if status.get("tokenHelp"):
-        sys.stderr.write(f"Get your token at {status['tokenHelp']}.\n")
+        sys.stderr.write(f"Get a token at {status['tokenHelp']}.\n")
     value = read_token(field.get("label") or "Token")
     if not value:
         raise UsageError("no token on standard input; nothing was changed")

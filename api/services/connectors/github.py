@@ -56,10 +56,9 @@ API_BASE = "https://api.github.com/"
 API_HOST = "api.github.com"
 WEB_HOSTS = frozenset({"github.com", "www.github.com"})
 TOKEN_HELP = "github.com/settings/personal-access-tokens"
-READS = ("Reads the list of repositories you own and the ones you starred, with each one's name, description and "
-         "link, using a token you make on GitHub. A README is read only when you add a repository or open its page. "
-         "Cicada only reads; it never changes anything on GitHub. Disconnect forgets the token; you can also delete "
-         "it at github.com/settings/personal-access-tokens.")
+#: One short line (owner 2026-11-03: "this text is extremely unnecessary in all pages that have it, remove it"); the
+#: panel adds where the token comes from while it is not connected, so neither says it twice.
+READS = "Read-only: the repositories you own and the ones you starred."
 #: GitHub's rate limits (the primary hourly one, or a secondary one for too many requests at once). A sync reads both
 #: lists whole each time, so a sync a limit stopped saved nothing and the next one starts again from the top.
 RATE_WORDS = ("GitHub asked Cicada to slow down, so nothing was saved this time; the next sync reads your repositories "

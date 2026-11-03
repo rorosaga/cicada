@@ -112,7 +112,7 @@ def test_github_is_a_tier_two_connector_off_until_a_token_is_pasted(bank):
     assert ADAPTERS["github"] is github and github.TIER == 2 and not github.is_connected()
     result = _sync(bank, FakeGitHub())
     assert result["status"] == "skipped" and result["reason"] == "not connected"
-    assert "only reads" in github.READS and "never changes anything" in github.READS
+    assert github.READS.startswith("Read-only") and "personal-access-tokens" not in github.READS   # said once
 
 
 def test_a_first_sync_offers_owned_repositories_and_saves_starred_ones_as_quiet_pages(bank):
