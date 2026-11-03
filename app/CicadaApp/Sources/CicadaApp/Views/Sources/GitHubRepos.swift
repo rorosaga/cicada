@@ -1,9 +1,10 @@
 import SwiftUI
 
 // G230 — GitHub's row on the Sources page, under the connect panel every token account uses: add one repository by its
-// link (a public one needs no connection), and the repositories the person owns from the last sync, each offered —
-// added to memory as a page, made a project, or linked to the project that has its name. Nothing here makes a page on
-// its own: every write is the person's click (ruling 45; ruling 36 D4).
+// link (a public one needs no connection), and the repositories the person owns from the last sync, each offered one
+// action — added as a project, or linked to the project that has its name (owner 2026-11-03: "i'd rather it said 'Add
+// as a project'"). A pasted link to one of their own is offered the same; anyone else's is added as a page. Nothing
+// here makes a page on its own: every write is the person's click (ruling 45; ruling 36 D4).
 //
 // Not a Store domain: `GET /sources/github/repos` is read when the panel opens and after every write, kept here in
 // memory (CLAUDE.md, Sync).
@@ -44,8 +45,15 @@ enum GitHubReposLogic {
         case project(id: String, name: String)
         /// A project has its name: link them, or start a new one.
         case link(id: String, name: String)
-        /// Nothing yet: start a project from it.
+        /// Nothing yet: add it as a project.
         case make
+    }
+
+    /// The person's own repository a pasted link names, as the last sync listed it — nil for anyone else's (or before
+    /// a sync), which the field adds as a page.
+    static func owned(_ text: String, in lists: RepoLists) -> RepoRow? {
+        guard let full = repository(text)?.lowercased() else { return nil }
+        return lists.owned.first { $0.fullName.lowercased() == full }
     }
 
     static func offer(_ repo: RepoRow) -> Offer {
@@ -113,8 +121,26 @@ final class GitHubReposModel {
         return true
     }
 
-    /// "Make it a project" (`project` nil) or "Link to <name>".
-    func project(_ repo: RepoRow, link project: RepoProject?) async {
+    /// The field's one button (and its Return): a link to one of the person's own repositories gets that
+    /// repository's offer — added as a project, or linked to the project with its name — anyone else's is added as a
+    /// page. Returns whether it landed (the field clears then).
+    @discardableResult
+    func submit(_ text: String) async -> Bool {
+        guard let mine = GitHubReposLogic.owned(text, in: lists) else { return await add(text) }
+        switch GitHubReposLogic.offer(mine) {
+        case .project(_, let name):
+            note = Copy.GitHub.alreadyProject(name)
+            return false
+        case .link:
+            return await project(mine, link: mine.project)
+        case .make:
+            return await project(mine, link: nil)
+        }
+    }
+
+    /// "Add as a project" (`project` nil) or "Link to <name>".
+    @discardableResult
+    func project(_ repo: RepoRow, link project: RepoProject?) async -> Bool {
         busy = true
         defer { busy = false }
         do {
@@ -122,9 +148,10 @@ final class GitHubReposModel {
             note = result.created ? Copy.GitHub.started(repo.name) : Copy.GitHub.linked(project?.name ?? repo.name)
         } catch {
             note = Self.describe(error)
-            return
+            return false
         }
         await load()
+        return true
     }
 
     static func describe(_ error: Error) -> String {
@@ -170,9 +197,7 @@ struct GitHubReposSection: View {
                     .focused($focused)
                     .cicadaField(isFocused: focused, prompt: Copy.GitHub.linkPrompt, isEmpty: linkText.isEmpty)
                     .onSubmit { add() }
-                NeutralButton(title: Copy.GitHub.add, size: .compact,
-                              isDisabled: linkText.trimmingCharacters(in: .whitespaces).isEmpty || model.busy,
-                              help: Copy.GitHub.addHelp) { add() }
+                fieldAction
             }
         }
     }
@@ -211,11 +236,6 @@ struct GitHubReposSection: View {
             Spacer(minLength: CicadaTheme.spacingSM)
             if let page = repo.entityId {
                 TextButton(title: Copy.GitHub.inMemory, help: repo.fullName) { router.routeToEntity(page) }
-            } else {
-                NeutralButton(title: Copy.GitHub.addToMemory, size: .compact, isDisabled: model.busy,
-                              help: Copy.GitHub.addToMemoryHelp) {
-                    Task { await model.add(repo.fullName) }
-                }
             }
             offerView(repo)
         }
@@ -233,15 +253,36 @@ struct GitHubReposSection: View {
                 Task { await model.project(repo, link: repo.project) }
             }
         case .make:
-            NeutralButton(title: Copy.GitHub.makeProject, size: .compact, isDisabled: model.busy,
-                          help: Copy.GitHub.makeProjectHelp) {
+            NeutralButton(title: Copy.GitHub.addAsProject, size: .compact, isDisabled: model.busy,
+                          help: Copy.GitHub.addAsProjectHelp) {
                 Task { await model.project(repo, link: nil) }
             }
         }
     }
 
+    /// The field's button: Add for anyone else's repository, the row's own offer for one of the person's.
+    @ViewBuilder
+    private var fieldAction: some View {
+        if let mine = GitHubReposLogic.owned(linkText, in: model.lists) {
+            switch GitHubReposLogic.offer(mine) {
+            case .project(let id, let name):
+                TextButton(title: Copy.GitHub.yourProject(name), help: name) { router.routeToProject(id) }
+            case .link(_, let name):
+                NeutralButton(title: Copy.GitHub.linkTo(name), size: .compact, isDisabled: model.busy,
+                              help: Copy.GitHub.linkToHelp(name)) { add() }
+            case .make:
+                NeutralButton(title: Copy.GitHub.addAsProject, size: .compact, isDisabled: model.busy,
+                              help: Copy.GitHub.addAsProjectHelp) { add() }
+            }
+        } else {
+            NeutralButton(title: Copy.GitHub.add, size: .compact,
+                          isDisabled: linkText.trimmingCharacters(in: .whitespaces).isEmpty || model.busy,
+                          help: Copy.GitHub.addHelp) { add() }
+        }
+    }
+
     private func add() {
         let text = linkText
-        Task { if await model.add(text) { linkText = "" } }
+        Task { if await model.submit(text) { linkText = "" } }
     }
 }

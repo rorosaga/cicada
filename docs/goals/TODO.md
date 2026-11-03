@@ -60,7 +60,9 @@
   `CICADA_ALLOW_LOGO_FETCH`), words only, outside every bank. A re-sync rewrites in place and deletes nothing (an
   unstar keeps the page and says so; a gone owned repository is tombstoned). The repository link is a trusted source
   with `kept_by: github`, so `source_refresh` never sends Cicada's fetcher to github.com for it. Verified on scratch
-  state against a fake GitHub API (never the owner's token).
+  state against a fake GitHub API (never the owner's token). **Follow-up (owner 2026-11-03, PR #587):** "i'd rather it
+  said 'Add as a project', no?" — one of the person's own repositories (a row, a pasted link to it, its card) has one
+  action, *Add as a project* or *Link to <project>*; *Add* (a repository page) stays for starred and anyone else's.
 - **2026-11-03 — the notch offers to connect the app in front (G231; branch `feat/notch-connect-suggest`).** Owner:
   "when you enter an app they support a connection for, they suggest from the notch to connect to it … with our own
   aesthetic". Bringing WhatsApp, Telegram, Messages, Notes, Calendar, Reminders, Contacts, a browser Cicada reads,

@@ -426,7 +426,9 @@ bot channel (G29, `CICADA_TELEGRAM_BOT_TOKEN`) is unchanged. Built on `feat/tele
 **The tier-2 framework (`api/services/connectors/tier2.py`, 2026-10-29).** One module behind every token connector
 after Telegram. An adapter is a module in `ADAPTERS` with `TIER = 2`, so its Sources row, `GET/PUT/DELETE
 /sources/connectors/{id}[/credentials]` and `POST …/sync` are the existing connector routes; it declares `TOKEN_ENV`,
-`API_BASE`, `READS` (what it reads, in words — served as `reads`, with `tokenHelp`, on the status), `REFUSED_WORDS`,
+`API_BASE`, `READS` (what it reads, in words, one short line — served as `reads`, with `tokenHelp`, on the status;
+the panel draws them as one line, `ConnectorSetupState.readsLine`, the token's place only until connected — owner
+2026-11-03: "this text is extremely unnecessary in all pages that have it, remove it"), `REFUSED_WORDS`,
 `auth_headers`, `check(client)` and `fetch(client, cursor, bank) -> Batch`.
 - **Connect** is the person's Save: `check` makes one read-only request to the service's own host with the pasted
   token; a refusal (or no answer) saves nothing and the 422 says why in words. **Disconnect** forgets every name in
@@ -449,7 +451,7 @@ after Telegram. An adapter is a module in `ADAPTERS` with `TIER = 2`, so its Sou
 
 | Connector | Token | What is read | Terms |
 |---|---|---|---|
-| Notion (`notion.py`) | an internal connection with Read content only, shared page by page; a personal access token is refused | `POST /v1/search` (pages, no query), `GET /v1/pages/{id}/markdown`, `GET /v1/data_sources/{id}` (a row's database title), `GET /v1/users/me` on Save; Notion-Version 2026-03-11 | developers.notion.com: internal connections are for "syncing data from external tools"; 180 requests a minute per connection outside Business plans, honoured through `Retry-After` |
+| Notion (`notion.py`) | an internal connection with Read content only, shared page by page; a personal access token is refused; a first sync that finds nothing shared says how to share a page (`NOTHING_SHARED_WORDS`, review of #587) | `POST /v1/search` (pages, no query), `GET /v1/pages/{id}/markdown`, `GET /v1/data_sources/{id}` (a row's database title), `GET /v1/users/me` on Save; Notion-Version 2026-03-11 | developers.notion.com: internal connections are for "syncing data from external tools"; 180 requests a minute per connection outside Business plans, honoured through `Retry-After` |
 | GitHub (`github.py`, G230) | a token the person makes (fine-grained, read-only "Metadata", "Contents" and "Starring"; or classic with no scope for public repositories) | `GET /user` (on Save, and once a sync to tell its own repositories apart; the login is kept only as a hash), `GET /user/repos?affiliation=owner&sort=full_name` and `GET /user/starred` (the `star+json` type, for when each was starred), 50 a page — a real 100-row page measured 633,641 bytes, past the 512 KB rail, a starred row ~6.1 KB — ≤ 60 pages each (3,000 items); `GET /repos/{owner}/{name}` and `…/readme` only for one repository the person adds or opens | GitHub's REST API with the person's own token: 5,000 requests an hour; a 403 with `x-ratelimit-remaining: 0`, a `retry-after` or a message naming a rate limit (the secondary limit) is read as the rate limit it is, never as a refused token; it says the next sync reads the lists again from the start (it does: every sync reads them whole) |
 **GitHub's transport (G230).** GitHub is the one tier-2 adapter with its own live transport (`github.TRANSPORT`,
 picked up by `tier2.Client`): `https://api.github.com` only, every request through `net_guard`'s address rule, no

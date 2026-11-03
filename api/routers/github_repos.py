@@ -148,6 +148,24 @@ async def _record(full_name: str) -> github_repos.Repo:
     return repo
 
 
+def _owned_row(memory_path, full: str) -> dict | None:
+    """The person's own repository ``full`` names, as the last sync listed it, with the project it already is."""
+    rows = [r for r in github_repos.owned(memory_path) if str(r.get("full_name") or "").lower() == full.lower()]
+    return github_repos.with_matches(memory_path, rows)[0] if rows else None
+
+
+def _own_repo_words(row: dict) -> str:
+    full, project = str(row["full_name"]), row.get("project") or {}
+    if project and project.get("how") != "name":
+        return f"{full} is already your project {project.get('name')}; nothing was added."
+    if project:
+        return (f"{full} is one of your repositories and your project {project.get('name')} has its name: link them "
+                f"(Sources → GitHub, or `cicada github project {full} --project {project.get('project')}`). "
+                "Nothing was added.")
+    return (f"{full} is one of your repositories: add it as a project (Sources → GitHub, or `cicada github project "
+            f"{full}`). Nothing was added.")
+
+
 async def _commit(memory_path, paths: list[str], subject: str) -> None:
     if not paths or not (memory_path / ".git").exists():
         return
@@ -165,8 +183,13 @@ async def add_repo(request: RepoAddRequest, settings: Settings = Depends(get_set
     full = github.parse_repo(request.url)
     if full is None:
         raise HTTPException(422, NOT_A_REPO)
-    repo = await _record(full)
     memory_path = settings.memory_path
+    # One of the person's own (the last sync listed it) is added as a project, never as a repository page (owner
+    # 2026-11-03: "i'd rather it said 'Add as a project'"): every door steers it to the project route.
+    mine = await asyncio.to_thread(_owned_row, memory_path, full)
+    if mine is not None:
+        raise HTTPException(409, _own_repo_words(mine))
+    repo = await _record(full)
 
     async def write():
         entity_id, status, paths = await asyncio.to_thread(github_repos.add, memory_path, repo)

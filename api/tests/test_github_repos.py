@@ -112,7 +112,7 @@ def test_github_is_a_tier_two_connector_off_until_a_token_is_pasted(bank):
     assert ADAPTERS["github"] is github and github.TIER == 2 and not github.is_connected()
     result = _sync(bank, FakeGitHub())
     assert result["status"] == "skipped" and result["reason"] == "not connected"
-    assert "only reads" in github.READS and "never changes anything" in github.READS
+    assert github.READS.startswith("Read-only") and "personal-access-tokens" not in github.READS   # said once
 
 
 def test_a_first_sync_offers_owned_repositories_and_saves_starred_ones_as_quiet_pages(bank):
@@ -408,10 +408,14 @@ def test_the_lists_and_make_it_a_project(api, bank):
     assert row["project"] == {"project": pid, "name": "alpha-project", "how": "linked"}
     card = api.get(f"/entities/{pid}/repository").json()
     assert card["project"]["project"] == pid
-    # The person's own repository added by its link: its page knows it is theirs and which project it is.
-    page = api.post("/sources/github/repos", json={"url": "bob-example/alpha-project"}).json()["entityId"]
-    mine = api.get(f"/entities/{page}/repository").json()
-    assert mine["owned"] is True and mine["project"] == {"project": pid, "name": "alpha-project", "how": "linked"}
+    # The person's own repository by its link is steered to the project route, never made a repository page (owner
+    # 2026-11-03: "i'd rather it said 'Add as a project'"): one already a project says so, one not yet says how.
+    pages_before = sorted(p.name for p in (bank / "entities").glob("*.md"))
+    again = api.post("/sources/github/repos", json={"url": "https://github.com/Bob-Example/alpha-project"})
+    assert again.status_code == 409 and "already your project alpha-project" in again.json()["detail"]
+    fresh = api.post("/sources/github/repos", json={"url": "bob-example/side-notes"})
+    assert fresh.status_code == 409 and "`cicada github project bob-example/side-notes`" in fresh.json()["detail"]
+    assert sorted(p.name for p in (bank / "entities").glob("*.md")) == pages_before
     # A starred repository someone else owns never gets a same-name suggestion.
     _project(bank, "widget-kit")
     kit = next(r for r in api.get("/sources/github/repos").json()["starred"] if r["fullName"].endswith("widget-kit"))
@@ -475,10 +479,17 @@ def test_the_cli_commands_call_the_backends_routes_as_the_person(monkeypatch):
     added = cli_app.cmd_github_add(boot, SimpleNamespace(url="example-org/widget-kit"))
     assert added.text == "Added example-org/widget-kit (widget-kit)."
     linked = cli_app.cmd_github_project(boot, SimpleNamespace(full_name="bob-example/alpha-project", project="alpha"))
-    assert linked.text.startswith("Linked alpha")
+    assert linked.text == "Linked bob-example/alpha-project to your project alpha."
     assert sent[-1] == ("POST", "/sources/github/repos/project",
                         {"fullName": "bob-example/alpha-project", "via": "cli", "project": "alpha"})
     assert len(asked) == 2                               # both writes refuse from an agent's shell
+    # Owner 2026-11-03 ("i'd rather it said 'Add as a project'"): one of yours is added as a project, and the help
+    # says which command is for whose repository.
+    monkeypatch.setattr(cli_app, "call", lambda boot, method, path, **kw: {"project": "alpha-project", "created": True})
+    made = cli_app.cmd_github_project(boot, SimpleNamespace(full_name="bob-example/alpha-project", project=None))
+    assert made.text == "Added bob-example/alpha-project as your project alpha-project."
+    assert rows["github project"].summary.startswith("Add a repository you own as a project")
+    assert "`cicada github project`" in rows["github add"].summary
 
 
 # --- review of #583: the real size cap, rate limits, a replayed add, a stale link row ---------------------------------

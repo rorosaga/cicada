@@ -34,6 +34,14 @@ enum ConnectorSetupState {
         return status.isTokenConnector ? .connect : .saveKeys
     }
 
+    /// Ruling 47 tier 2's words, said once (owner 2026-11-03: "this text is extremely unnecessary in all pages that
+    /// have it, remove it"): what it reads, and — until it is connected — where the token comes from, on one line.
+    static func readsLine(_ status: ConnectorStatus) -> String? {
+        let help = status.connected ? nil : status.tokenHelp.map { "Get a token at \($0)." }
+        let parts = [status.reads, help].compactMap { $0 }.filter { !$0.isEmpty }
+        return parts.isEmpty ? nil : parts.joined(separator: " ")
+    }
+
     /// What a "Sync now" press actually did — never a bare "done".
     static func syncSummary(_ result: ConnectorSyncResult) -> String {
         switch result.status {
@@ -103,16 +111,11 @@ struct ConnectorSetupPanel: View {
                 }
 
                 // Ruling 47 tier 2: what it reads is said in words before anything is saved, and stays said.
-                if let reads = status.reads {
+                if let reads = ConnectorSetupState.readsLine(status) {
                     Text(reads)
                         .font(CicadaTheme.captionFont)
                         .foregroundStyle(CicadaTheme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
-                }
-                if !status.connected, let help = status.tokenHelp {
-                    Text("Get your token at \(help).")
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(CicadaTheme.textSecondary)
                         .textSelection(.enabled)
                 }
 
