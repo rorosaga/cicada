@@ -25,6 +25,18 @@
   unstar keeps the page and says so; a gone owned repository is tombstoned). The repository link is a trusted source
   with `kept_by: github`, so `source_refresh` never sends Cicada's fetcher to github.com for it. Verified on scratch
   state against a fake GitHub API (never the owner's token).
+- **2026-11-03 — the notch offers to connect the app in front (G231; branch `feat/notch-connect-suggest`).** Owner:
+  "when you enter an app they support a connection for, they suggest from the notch to connect to it … with our own
+  aesthetic". Bringing WhatsApp, Telegram, Messages, Notes, Calendar, Reminders, Contacts, a browser Cicada reads,
+  Wispr Flow, Notion or Hex (offered until its own meeting folder is connected) to the front, when its Sources entry reads Off in the active
+  memory, drops the ask-why notch's second voice: worm + the app's icon, "Connect Notes to Cicada?", what is read, two
+  or three things Cicada does with it, No · Not now · Yes. Once per source; Not now (or untouched for 12 s, or leaving
+  the app) once more after ≥ 14 days, then never; No never, undone in Settings → General; ≤ 1 a day; never in an app's
+  or Cicada's first minute, over the ask-why panel, in a demo, or before setup ran or was skipped; on by default; never
+  takes the keyboard. Websites in the front tab are deliberately not a trigger (the star-click prefill is the only
+  permission-free tab read, owner 2026-10-19). Seen on a scratch app copy: Notes brought forward → the panel in ≈ 1.5–2 s,
+  12 s untouched → recorded Not now, Yes → Sources on Apple Notes. Found live and fixed: a Yes over the Welcome opened
+  the source behind it, so nothing is offered before setup. Waiting on the owner: nothing.
 - **2026-11-03 — an edited conversation is read as a revision (G104; PR #581).** The owner asked whether updates should be told from new material at consolidation. Measured on a scratch bank (Claude plan, haiku; four synthetic notes consolidated, then edited in place: a changed value, an added line, a removed line, whitespace only): the second Sleep re-read all four whole (8 calls), left the removed line's claim open, read every old span `stale`, doubled 5 claims' spans, asked a conflict question for the whitespace edit and gave four once-said names pages. Now `episode_revision` diffs against the version Sleep read (git), reads only what changed, re-anchors spans, closes what only the removed text said (superseded by the same revision's value with no question, else a Sleep `retracts` record), and keeps a different conversation's word an update or conflict: the same run took 5 calls, 0 questions, 0 new pages, 1 withdrawn. Left: prose regeneration from corrected claims (G104 row).
 - **2026-11-03 — meeting recorders on Sources: Hex, Wispr Flow, a folder of transcripts (G95, ruling 52; branch
   `feat/meeting-recorders`).** Hex (anoma.ly/hex, 3.3.0, MIT) writes one Markdown file per meeting to the Hex

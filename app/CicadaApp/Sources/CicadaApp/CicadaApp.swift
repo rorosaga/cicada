@@ -96,6 +96,10 @@ struct CicadaApp: App {
     /// center keeps its presenter weakly.
     @State private var saveWhy = SaveWhyCenter()
     @State private var saveWhyPanel = SaveWhyPanelController()
+    /// G231 — when the person brings an app Cicada can read to the front and its source is not connected in this
+    /// memory, the notch may offer it (Settings → General's switch, on by default, at most once a day).
+    @State private var connectSuggest = ConnectSuggestCenter()
+    @State private var connectSuggestPanel = ConnectSuggestPanelController()
     /// G191 v3 — Chrome's bookmark bubble, seen from the window list (no permission), opens the question at once.
     @State private var bookmarkBubbles = BookmarkBubbleWatcher()
     /// G191 v3 — the menu bar's bookmark history.
@@ -406,6 +410,7 @@ struct CicadaApp: App {
             .environment(homeSearch)
             .environment(browserWatcher)
             .environment(saveWhy)
+            .environment(connectSuggest)
             .environment(syncActivity)
             .environment(awaySync)
             .environment(localSources)
@@ -427,6 +432,48 @@ struct CicadaApp: App {
             .environment(inventory)
             .environment(exportWaits)
             .environment(menuBarManager)
+    }
+
+    /// G231 — the notch's connect suggestion: what it reads of the active memory (the Sources catalogue's own status
+    /// for the source, the same word its row shows), and where its Yes goes. A reopened window's second `launch()`
+    /// finds the observer already there (`start` is guarded).
+    private func startConnectSuggest() {
+        connectSuggest.attach(presenter: connectSuggestPanel)
+        connectSuggest.memoryKnown = { [store] in
+            guard let active = store.banks.value?.active else { return false }
+            return active == store.bank
+        }
+        connectSuggest.setUp = { [store] in OnboardingState.isOnboarded(bank: store.bank) }
+        connectSuggest.isDemo = { [store] in DemoMode.isActive(store.banks.value) }
+        // The ask-why question always wins the notch, window or no window (app-level, through its own center).
+        connectSuggest.yields(to: saveWhy)
+        connectSuggest.status = { [store, calendarReader, contactsReader, tabGroups, watchHistory, browserWatcher,
+                                   notesWatcher, traceRecorder, remindersReader, localSources] entryId in
+            guard let channels = store.channels.value, let overview = store.sourcesOverview.value else { return nil }
+            let readers = LocalReaders.on(calendar: calendarReader, contacts: contactsReader, tabGroups: tabGroups,
+                                          watchHistory: watchHistory, browsers: browserWatcher, notes: notesWatcher,
+                                          traces: traceRecorder, reminders: remindersReader)
+            return ConnectSuggestApps.status(of: entryId, channels: channels, overview: overview, localReaders: readers,
+                                             meetingFolders: localSources.folders)
+        }
+        // Yes: the source's page — or, while the Full Disk Access it needs is missing, that permission's row with its
+        // drag helper (Settings → Privacy & data → Permissions, the onboarding step's own rows). A preflight only.
+        connectSuggest.onYes = { [appRouter] entryId in
+            Task { @MainActor in
+                var granted: [MacPermission: Bool] = [:]
+                if let permission = ConnectSuggestApps.dragPermission(entryId: entryId) {
+                    granted[permission] = await LiveMacPermissionProbe().state(permission) == .granted
+                }
+                switch ConnectSuggestApps.landing(entryId: entryId, permissionGranted: { granted[$0] ?? true }) {
+                case .permission:
+                    appRouter.showMainWindow()
+                    appRouter.openSettings(.privacy, row: .permissions)
+                case .source(let id):
+                    appRouter.routeToCatalogEntry(id)
+                }
+            }
+        }
+        connectSuggest.start()
     }
 
     /// What the window's `.onAppear` runs (unchanged; moved out of `body` for the type checker).
@@ -480,6 +527,7 @@ struct CicadaApp: App {
         // G191 v7 — the person's earlier answers in the active memory rank the suggested reasons (nothing new stored).
         saveWhy.pastPicks = { [store] in SaveWhySuggest.picks(from: store.sources.value ?? []) }
         bookmarkBubbles.start()
+        startConnectSuggest()
         // G191 v3 — the app's own diff needs a "before" for each watched browser: read once now, so the
         // first bookmark after launch is named from the file without waiting for the backend.
         if saveWhy.prefs.enabled {

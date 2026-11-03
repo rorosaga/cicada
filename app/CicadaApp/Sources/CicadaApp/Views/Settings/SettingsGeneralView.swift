@@ -105,6 +105,8 @@ struct SettingsGeneralView: View {
                         .labelsHidden()
                 }
             }
+            // G231 — the notch's connect suggestion, and the apps the person said No to.
+            ConnectSuggestSettingCard()
             SettingsGroupCard {
                 // G181 phase 3 — on a server nothing runs on this Mac for the memory, so nothing is offered.
                 let onServer = ServerConnection.current.isServer
