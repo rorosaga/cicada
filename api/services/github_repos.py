@@ -51,6 +51,10 @@ GITHUB_KEY = "github"
 SITE = "github.com"
 WEBSITE = "website"
 REPO_PREDICATE = "repo"
+#: On the repository's own source: GitHub's record behind this link is kept by the GitHub sync (and a page's open),
+#: so Cicada's own fetcher never visits the github.com page for it (``source_refresh.checker``).
+KEPT_BY = "kept_by"
+KEPT_BY_GITHUB = "github"
 ADDED_ORIGIN = "github-added"
 README_DIR = "readmes"
 PREVIEW_CHARS = 6000
@@ -205,7 +209,7 @@ def _source(fm: dict, url: str, predicate: str, today: str) -> bool:
            and fact_sources.same_predicate(s.get("predicate"), predicate) for s in sources):
         return False
     fm["sources"] = [*sources, {"ref": url, "kind": fact_sources.KIND_URL, "predicate": predicate,
-                                "added_by": fact_sources.USER, "added_at": today}]
+                                "added_by": fact_sources.USER, "added_at": today, KEPT_BY: KEPT_BY_GITHUB}]
     return True
 
 
@@ -277,15 +281,16 @@ def upsert(memory_path: Path, repo: Repo, idx: dict, *, origin: str, starred: bo
         known[repo.id] = entity_id
     parsed = markdown_parser.parse(page)
     fm = parsed.frontmatter
-    if status == "created" or is_repository_page(fm) or str(fm.get("type") or "") == "media":
-        media = fm.get("media") if isinstance(fm.get("media"), dict) else {}
-        before = dict(media)
-        media["kind"] = KIND
-        media["media_type"] = KIND
-        fm["media"] = media
-        changed = before != media
-    else:
-        changed = False
+    if str(fm.get("type") or "") != "media":
+        # The link is already saved as another kind of page (a paper's alias, say): that page is left as it is.
+        return entity_id, "same", paths
+    # A saved github.com link (a bookmark of it) becomes the repository's page: the same page, now with its record.
+    media = fm.get("media") if isinstance(fm.get("media"), dict) else {}
+    before = dict(media)
+    media["kind"] = KIND
+    media["media_type"] = KIND
+    fm["media"] = media
+    changed = before != media
     changed |= _merge_block(fm, repo, starred=starred, starred_at=starred_at, added=added, owned=owned)
     changed |= _source(fm, repo.url, WEBSITE, date.today().isoformat())
     if changed or status == "created":
@@ -338,6 +343,10 @@ def apply_stars(memory_path: Path, stars: list[tuple[Repo, str | None]], *, logi
     bank_index.invalidate(memory_path)
     out["paths"] = list(dict.fromkeys(out["paths"]))
     out.pop("same", None)
+    if out["unstarred"]:
+        n = out["unstarred"]
+        out["words"] = (f"{n} {'repository is' if n == 1 else 'repositories are'} no longer starred on GitHub; "
+                        f"{'its page stays' if n == 1 else 'their pages stay'}.")
     return out
 
 
@@ -471,14 +480,15 @@ def link_project(memory_path: Path, project_id: str, repo: Repo) -> list[str]:
     return [f"entities/{project_id}.md"] if changed else []
 
 
-def make_project(memory_path: Path, repo: Repo, *, by: str = "user") -> tuple[str, list[str]]:
-    """The person's "Make it a project": a project page in their list (``mine: {via: app}``) named after the
-    repository, then linked to it. Raises ``project_ownership.OwnershipError`` when the name is taken (the person
-    links that page instead)."""
+def make_project(memory_path: Path, repo: Repo, *, via: str = "app", by: str = "user") -> tuple[str, list[str]]:
+    """The person's "Make it a project" (ruling 45: their act, from the app or their own shell): a project page in
+    their list (``mine: {via}``) named after the repository, then linked to it. Raises
+    ``project_ownership.OwnershipError`` when the name is taken (the person links that page instead)."""
     from api.services import project_ownership
 
-    eid, paths = project_ownership.create(Path(memory_path), repo.name, repo.description,
-                                          via=project_ownership.VIA_APP, by=by, listed=True)
+    door = project_ownership.VIA_CLI if via == "cli" else project_ownership.VIA_APP
+    eid, paths = project_ownership.create(Path(memory_path), repo.name, repo.description, via=door, by=by,
+                                          listed=True)
     return eid, list(dict.fromkeys([*paths, *link_project(memory_path, eid, repo), f"entities/{eid}.md"]))
 
 

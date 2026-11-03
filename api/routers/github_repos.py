@@ -25,6 +25,7 @@ from api.services.sleep_refusal import SleepWriting
 router = APIRouter()
 _DEMO_GATE = [Depends(refuse_capture_into_demo)]
 BUSY = "Sleep is updating your memory — add the repository again in a moment."
+VIAS = frozenset({"app", "cli"})
 NOT_A_REPO = "That is not a GitHub repository link. Paste one like https://github.com/owner/name."
 
 
@@ -74,6 +75,8 @@ class RepoProjectRequest(CamelModel):
     full_name: str
     #: An existing project page to link; absent, a new project is made (in the person's list).
     project: Optional[str] = None
+    #: Which of the person's doors made it (ruling 45's ``mine.via``): ``app`` or ``cli``.
+    via: str = "app"
 
 
 class RepoProjectResponse(CamelModel):
@@ -184,8 +187,11 @@ async def repo_project(request: RepoProjectRequest, settings: Settings = Depends
     full = github.parse_repo(request.full_name)
     if full is None:
         raise HTTPException(422, NOT_A_REPO)
+    if request.via not in VIAS:
+        raise HTTPException(422, "via is app or cli")
     memory_path = settings.memory_path
-    block = next((r for r in github_repos.owned(memory_path) if r.get("full_name") == full), None)
+    owned = await asyncio.to_thread(github_repos.owned, memory_path)
+    block = next((r for r in owned if str(r.get("full_name") or "").lower() == full.lower()), None)
     repo = github_repos.Repo.from_block(block) if block else None
     if repo is None:
         repo = await _record(full)
@@ -199,7 +205,7 @@ async def repo_project(request: RepoProjectRequest, settings: Settings = Depends
             await _commit(memory_path, paths, "Repository linked to its project")
             return request.project, False
         try:
-            eid, paths = await asyncio.to_thread(github_repos.make_project, memory_path, repo)
+            eid, paths = await asyncio.to_thread(github_repos.make_project, memory_path, repo, via=request.via)
         except project_ownership.OwnershipError as exc:
             raise HTTPException(409, str(exc)) from exc
         await _commit(memory_path, paths, "Project made from a repository")

@@ -22,6 +22,8 @@ from api.services import bank_registry, demo_guard, sleep_cycle
 #: with a concrete path to call (R-CS15).
 GATED = {
     ("POST", "/sources/save"): "/sources/save",
+    ("POST", "/sources/github/repos"): "/sources/github/repos",             # G230: the person adds a repository
+    ("POST", "/sources/github/repos/project"): "/sources/github/repos/project",   # G230: a repository as a project
     ("POST", "/sources/saved-why"): "/sources/saved-why",
     ("PUT", "/sources/saved-why"): "/sources/saved-why",          # G191 v3: the person's edit of one answer
     ("POST", "/sources/bookmarks/remove"): "/sources/bookmarks/remove",   # G191 v3: Remove on a bookmark's page

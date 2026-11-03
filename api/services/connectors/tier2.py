@@ -181,8 +181,8 @@ class Batch:
     seen: int = 0
     words: str | None = None
     #: An adapter's own writes beside the staged episodes (GitHub's starred pages), run in the same admitted
-    #: transaction after the staging: ``after(memory_path) -> {paths, created, updated, live}``; its paths ride the
-    #: same commit, its ``live`` adds to the row's count.
+    #: transaction after the staging: ``after(memory_path) -> {paths, created, updated, live, words?}``; its paths
+    #: ride the same commit, its ``live`` adds to the row's count, its ``words`` join the row's line.
     after: Callable[[Path], dict] | None = None
 
 
@@ -379,6 +379,7 @@ async def run(adapter: ModuleType, memory_path: Path, *, http_fn: Transport | No
                 out["paths"] = [*out["paths"], *more.get("paths", [])]
                 for key in ("created", "updated", "live"):
                     out[key] += int(more.get(key) or 0)
+                out["words"] = more.get("words")
             await folder_source.commit_paths_for(memory_path, out["paths"], subject=f"{adapter.LABEL} sync",
                                                  trigger=f"capture/{channel}", channel=channel)
             return out
@@ -395,7 +396,8 @@ async def run(adapter: ModuleType, memory_path: Path, *, http_fn: Transport | No
             return {**_empty("error", error=message), "seen": batch.seen, "resources_read": client.requests}
 
         write_cursor(channel, memory_path, batch.cursor)
-        extra = {"words": batch.words} if batch.words else None
+        words = " ".join(w for w in (batch.words, out.get("words")) if w)
+        extra = {"words": words} if words else None
         sync_state.record_sync(memory_path, channel, count=out["live"], extra=extra)
         units = len(batch.drafts)
         logger.info(f"{channel}: {units} unit(s) read, {out['created']} new, {out['updated']} changed, "
