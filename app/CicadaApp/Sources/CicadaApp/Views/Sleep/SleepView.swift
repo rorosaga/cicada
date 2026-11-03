@@ -300,8 +300,12 @@ struct SleepView: View {
         .task { await videoCache.refresh() }
         // G212 — the machines strip, asked while the page shows; a failed poll keeps the last answer.
         .task {
+            var cleared = Date.distantPast
             while !Task.isCancelled {
-                await sleepVM.loadMachines()
+                // The home strip's refusal sentence is cleared at the slow poll's pace only, however fast this runs.
+                let clearing = Date().timeIntervalSince(cleared) >= CicadaTiming.machinePoll
+                if clearing { cleared = Date() }
+                await sleepVM.loadMachines(clearingProblem: clearing)
                 // G229 — faster while a machine syncs after it was closed, so its count and its end land promptly.
                 let syncing = sleepVM.machines.contains { $0.catchUp?.isReading == true }
                     || awaySync?.view?.isReading == true

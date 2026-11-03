@@ -189,6 +189,7 @@ final class AwaySyncTracker {
     @ObservationIgnored private var heardAt: Date?
     @ObservationIgnored private var doneAt: Date?
     @ObservationIgnored private var failedAt: Date?
+    @ObservationIgnored private var failingSince: Date?
 
     init(probe: @escaping @MainActor () -> [ReaderProbe] = { [] },
          send: @escaping (AwaySyncReport) async throws -> MachineAwaySync? = { try await APIClient.shared.putCatchUp($0) },
@@ -208,7 +209,8 @@ final class AwaySyncTracker {
             while !Task.isCancelled {
                 guard let self else { return }
                 await self.step()
-                // Once over and shown, only the presence stamp is left to do: look again a minute later, not each second.
+                // Once over and shown, or given up on, only the presence stamp is left (so the next launch's window
+                // stays true): wake once a minute for it, never send again.
                 try? await Task.sleep(for: self.finished ? .seconds(Self.stampEvery) : self.tick)
                 let at = self.now()
                 if at.timeIntervalSince(stamped) >= Self.stampEvery {
@@ -234,8 +236,10 @@ final class AwaySyncTracker {
     /// A refused or unanswered report (the backend still starting, a demo memory's 409) is tried again this often.
     static let retryAfter: TimeInterval = 5
 
-    /// Over, and its line no longer shown: nothing left to look at.
-    var finished: Bool { lastSent?.done == true && view == nil }
+    /// Over, and its line no longer shown — or given up on: nothing left to look at or send this launch.
+    var finished: Bool { gaveUp || (lastSent?.done == true && view == nil) }
+    /// No report will be sent again this launch (`isFinal`, or `giveUpAfter` of failures).
+    private(set) var gaveUp = false
 
     func stop() {
         task?.cancel()
@@ -249,7 +253,7 @@ final class AwaySyncTracker {
             view = nil
             return
         }
-        guard var current = report, lastSent?.done != true else { return }
+        guard !gaveUp, var current = report, lastSent?.done != true else { return }
         current.readers = rules.readers(probe(), now: at)
         current.done = rules.settle(current.readers, heardAt: heardAt, now: at)
         report = current
@@ -261,13 +265,30 @@ final class AwaySyncTracker {
             lastSent = current
             lastSentAt = at
             failedAt = nil
+            failingSince = nil
             if heardAt == nil { heardAt = at }
             view = answer
             if current.done { doneAt = at }
         } catch {
-            // The backend is not up yet, or refused (a demo memory, 409): try again shortly. Nothing shows meanwhile.
+            // Nothing shows meanwhile. A refusal that will not change this launch — a demo memory (409), a server
+            // without the route (404/405) — ends it at once; anything else (the backend still starting, or down) is
+            // tried again every `retryAfter` for at most `giveUpAfter`, the backend's own silence limit.
             failedAt = at
+            let since = failingSince ?? at
+            failingSince = since
+            if Self.isFinal(error) || at.timeIntervalSince(since) >= Self.giveUpAfter {
+                gaveUp = true
+                view = nil
+            }
         }
+    }
+
+    /// The backend's own silence limit (`reader_catch_up.READING_TTL_S`): a sync it never heard about that long is over.
+    static let giveUpAfter: TimeInterval = 15 * 60
+
+    static func isFinal(_ error: Error) -> Bool {
+        if case APIError.httpError(let code, _) = error { return [404, 405, 409].contains(code) }
+        return false
     }
 }
 
@@ -379,7 +400,9 @@ enum AwaySyncWords {
                 : (names.isEmpty ? "." : " — \(Copy.AwaySync.nothingNew)")
         }
         if let arrived = c.arrived, arrived > 0 {
-            main += " " + Copy.AwaySync.whileAway(arrived, locale)
+            // "while you were away" is this machine's; another machine's app was closed, not the person away.
+            main += " " + (machine == nil ? Copy.AwaySync.whileAway(arrived, locale)
+                                           : Copy.AwaySync.whileClosed(arrived, locale))
         }
         return main
     }
@@ -399,11 +422,20 @@ enum AwaySyncWords {
         }
     }
 
-    /// Whose catch-up lines the Sleep page draws: this machine's from the tracker's fresher answer when it has one
-    /// (else its own row), then every other machine catching up, by name.
+    /// Whose sync lines the Sleep page draws: this machine's first, unnamed, then every other machine syncing, by name.
+    /// For this machine the two answers differ in age, not truth: the strip's row is polled (every 5 s while a machine
+    /// syncs), so its counts are the fresher; the tracker's own answer comes back the moment the app reports, so a
+    /// change of state (reading → done) shows there first. So the row, unless the tracker already knows the state
+    /// moved on — or there is no row yet.
     static func machines(own: MachineAwaySync?, rows: [MachineStatus]) -> [(name: String?, catchUp: MachineAwaySync)] {
         var out: [(name: String?, catchUp: MachineAwaySync)] = []
-        if let mine = own ?? rows.first(where: \.current)?.catchUp { out.append((nil, mine)) }
+        let row = rows.first(where: \.current)?.catchUp
+        let mine: MachineAwaySync?
+        switch (own, row) {
+        case let (own?, row?): mine = own.state == row.state ? row : own
+        default: mine = own ?? row
+        }
+        if let mine { out.append((nil, mine)) }
         for row in rows where !row.current {
             if let other = row.catchUp { out.append((row.name, other)) }
         }

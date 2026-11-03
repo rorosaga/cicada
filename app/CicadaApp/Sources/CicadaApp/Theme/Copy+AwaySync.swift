@@ -23,6 +23,10 @@ extension Copy {
         static func whileAway(_ n: Int, _ locale: Locale = .autoupdatingCurrent) -> String {
             "\(Copy.SleepV5.conversations(n, locale)) came in while you were away."
         }
+        /// The same for another machine, named before it: its app was closed, not the person away.
+        static func whileClosed(_ n: Int, _ locale: Locale = .autoupdatingCurrent) -> String {
+            "\(Copy.SleepV5.conversations(n, locale)) came in while its app was closed."
+        }
         /// A failed source's first clause, the one part in `warning` (DR-7).
         static func couldNotRead(_ label: String) -> String { "\(label) couldn't be read." }
         /// A light that failed with no sentence of its own: its row says the fix.

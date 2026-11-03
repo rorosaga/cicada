@@ -1621,17 +1621,22 @@ agent reads (`agent_methods`), not an install.
   (`AppPresence`, `cicada.app.lastOpenAt` in the app's defaults, stamped once a minute while it runs) before stamping
   this launch, then looks at every reader once a second (`AwaySyncProbes.live`: `SyncActivity`'s runs, the watch lights
   and their errors, Calendar/Notes/Reminders/Contacts status — the state each Sources row already shows) and sends its
-  whole word to `PUT /sources/catch-up` whenever it changes (a keep-alive each minute; a refusal or no backend retried
-  every 5 s, nothing shown). Rules (`AwaySyncRules`): a reader is listed once seen reading (then `done`) or while it
+  whole word to `PUT /sources/catch-up` whenever it changes (a keep-alive each minute). Nothing shows while it fails: a
+  refusal that cannot change this launch (409 a demo memory, 404/405 a server without the route) ends it at once;
+  anything else (backend starting or down) is retried every 5 s for at most 15 min, the backend's own silence limit,
+  then never again this launch — only the once-a-minute presence stamp keeps running. Rules (`AwaySyncRules`): a reader is listed once seen reading (then `done`) or while it
   fails or is refused (its own sentence naming the fix); it is over when nothing reads, 3 s after the last reader
   stopped and at least 10 s after the backend first heard; once over, a reader that starts later is ordinary reading.
   The answer is drawn **under the machines strip** (`AwaySyncLines`, caption face, centred in the 760 pt column, DR-36):
-  one line per machine syncing — this one unnamed, another by its name — "Syncing Messages and Notes — 14 new
+  one line per machine syncing — this one unnamed (the strip's polled row when it is in the same state as the tracker's
+  answer, for its fresher counts; the tracker's when the state moved on), another by its name and "…came in while its
+  app was closed" — "Syncing Messages and Notes — 14 new
   conversations so far. 9 conversations came in while you were away." / "Synced Messages and Notes — 14 new
   conversations." / "Synced." — with a static `arrow.triangle.2.circlepath` or `checkmark` glyph in `textTertiary` (no
   motion, DR-61), then one line per failed source: "Calendar couldn't be read." in `warning` (DR-7: the first clause of
   a failed source) and the reader's own fix in `textSecondary`; a click opens Sources. The strip polls every
-  `machinePollWhileSyncing` (5 s) while any machine syncs. **Home's Today** carries the same line as one row under
+  `machinePollWhileSyncing` (5 s) while any machine syncs; the home strip's refusal sentence is still cleared only at
+  the 30 s pace. **Home's Today** carries the same line as one row under
   *N waiting* (failures as their warning clause; the row opens Sleep). The finished line shows for 10 min. "Syncing",
   the word a Sources row says while it reads — never "catching up", which is Home's *Catch me up* chat.
 - **Sleep's home strip (G132 phase 2, ruling 51a; owner 2026-10-29: "Sleep page on the app should show the selected

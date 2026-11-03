@@ -97,12 +97,12 @@ final class AwaySyncTests: XCTestCase {
         XCTAssertTrue(tracker.finished)
     }
 
-    func testARefusedReportShowsNothingAndIsTriedAgainLater() async {
+    func testAnUnansweredReportShowsNothingAndIsTriedAgainLater() async {
         var clock = t0
         var attempts = 0
         let tracker = AwaySyncTracker(probe: { [] }, send: { _ in
             attempts += 1
-            throw APIError.httpError(409, "demo")
+            throw APIError.httpError(503, "starting")
         }, defaults: defaults(), now: { clock })
         tracker.begin()
         await tracker.step()
@@ -112,6 +112,47 @@ final class AwaySyncTests: XCTestCase {
         clock = t0.addingTimeInterval(AwaySyncTracker.retryAfter)
         await tracker.step()
         XCTAssertEqual(attempts, 2)
+        XCTAssertNil(tracker.view)
+    }
+
+    /// Review of #577: a send that always fails must not report every 5 s for the app's whole life (each PUT counts as
+    /// a local write). A refusal that cannot change this launch ends it at once; anything else, after the backend's
+    /// own silence limit.
+    func testASendThatAlwaysFailsGivesUp() async {
+        for (code, final) in [(409, true), (404, true), (405, true), (500, false)] {
+            var clock = t0
+            var attempts = 0
+            let tracker = AwaySyncTracker(probe: { [] }, send: { _ in
+                attempts += 1
+                throw APIError.httpError(code, "refused")
+            }, defaults: defaults(), now: { clock })
+            tracker.begin()
+            await tracker.step()
+            XCTAssertEqual(tracker.gaveUp, final, "\(code)")
+            XCTAssertEqual(tracker.finished, final, "\(code): the loop drops to its once-a-minute stamp")
+            clock = t0.addingTimeInterval(AwaySyncTracker.retryAfter)
+            await tracker.step()
+            XCTAssertEqual(attempts, final ? 1 : 2, "\(code)")
+        }
+        // Down (no answer at all): retried every few seconds, then over at the bound.
+        var clock = t0
+        var attempts = 0
+        let tracker = AwaySyncTracker(probe: { [] }, send: { _ in
+            attempts += 1
+            throw URLError(.cannotConnectToHost)
+        }, defaults: defaults(), now: { clock })
+        tracker.begin()
+        while clock.timeIntervalSince(t0) <= AwaySyncTracker.giveUpAfter + 10 {
+            await tracker.step()
+            clock = clock.addingTimeInterval(1)
+        }
+        XCTAssertTrue(tracker.gaveUp)
+        XCTAssertTrue(tracker.finished)
+        let bound = Int(AwaySyncTracker.giveUpAfter / AwaySyncTracker.retryAfter) + 1
+        XCTAssertEqual(attempts, bound, "one try per retryAfter until the bound, then none")
+        clock = clock.addingTimeInterval(3600)
+        await tracker.step()
+        XCTAssertEqual(attempts, bound, "never again this launch")
         XCTAssertNil(tracker.view)
     }
 
@@ -136,8 +177,10 @@ final class AwaySyncTests: XCTestCase {
         XCTAssertEqual(AwaySyncWords.line(MachineAwaySync(state: "done", arrived: 0), locale: en), "Synced.")
         XCTAssertEqual(AwaySyncWords.line(reading, machine: "studio-example", locale: en).prefix(36),
                        "studio-example is syncing Messages a")
-        XCTAssertEqual(AwaySyncWords.line(done, machine: "studio-example", locale: en).prefix(30),
-                       "studio-example synced Messages")
+        XCTAssertEqual(AwaySyncWords.line(done, machine: "studio-example", locale: en),
+                       "studio-example synced Messages — 1 new conversation. "
+                       + "1 conversation came in while its app was closed.",
+                       "another machine's app was closed, not the person away")
     }
 
     func testAListOfManyNamesTwoAndACount() {
@@ -172,9 +215,13 @@ final class AwaySyncTests: XCTestCase {
         XCTAssertNil(rows[2].catchUp)
         let entries = AwaySyncWords.machines(own: nil, rows: rows)
         XCTAssertEqual(entries.map(\.name), [nil, "laptop-example"], "this machine unnamed, another by its name")
-        let fresher = MachineAwaySync(state: "done", newCount: 5)
-        XCTAssertEqual(AwaySyncWords.machines(own: fresher, rows: rows).first?.catchUp, fresher,
-                       "this machine's own report answers before the strip's poll does")
+        let stale = MachineAwaySync(state: "reading", newCount: 1)
+        XCTAssertEqual(AwaySyncWords.machines(own: stale, rows: rows).first?.catchUp, rows[0].catchUp,
+                       "same state: the strip's poll has the fresher counts")
+        let moved = MachineAwaySync(state: "done", newCount: 5)
+        XCTAssertEqual(AwaySyncWords.machines(own: moved, rows: rows).first?.catchUp, moved,
+                       "the app's own report knows the sync ended before the poll does")
+        XCTAssertEqual(AwaySyncWords.machines(own: stale, rows: []).first?.catchUp, stale, "no row yet")
     }
 
     func testTheReportCarriesTheWholeWord() {
