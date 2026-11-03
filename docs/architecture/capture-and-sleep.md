@@ -525,6 +525,37 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   gains their link and facts then, and nothing is ever said about anyone without one. Nothing is fetched: the link is
   where to look the person up; the profile-photo rung may use it only once the person takes the source (its own
   off-by-default gate, `person_photo`, unchanged).
+- **Meeting transcripts — Hex, any recorder's folder (G95, owner ruling 2026-11-03: "Meetings ofc should also be
+  consolidated in memory").** A meeting folder is a watched folder of `kind: meetings` (`folder_source.register(kind=,
+  recorder=)`; set on the first add, never flipped): the app holds the bookmark, watches it and posts the bytes of changed
+  files to the same `POST /sources/folders/{id}/sync` with the Mac's IANA zone (`tzName`); the backend never opens it.
+  It anchors no project, has no papers step and no authorship rules, and syncs as its own channel, `meetings:<id>`
+  (`channel_for`, `folder_id_of`; a notes folder stays `folder:<id>`). `meeting_transcripts` is the one parser: **one
+  episode per file** through the stager (`source_id` `meetings:<folder>:<relpath>` — an edited transcript is rewritten
+  in place and re-queued, a rename keeps the episode by content hash, a deletion is tombstoned), `queue_for_sleep` like
+  any conversation — unlike a recording the person adds as a media file (`media_files`, never read by Sleep). Dated by
+  the meeting's own start (ruling 39): the file name's `YYYY-MM-DD HHMM` (Hex's), else a `Date:` line, read as wall time
+  in the posted zone, else the file's time; the id day is the meeting's local day (ruling 34); each turn's `ts` is the
+  start plus its offset. Formats, read by content: **Hex** (anoma.ly/hex, MIT; `<YYYY-MM-DD HHMM> <title>.md` in the
+  Hex meetings folder — the app resolves it from Hex's own `meetings.output_folder` setting, that one key of Hex's
+  settings file, else Hex's default under Documents; the file is never renamed, so its relpath keys the meeting) — `# title`, `- **Date:**` / `- **Duration:**` /
+  `- **Attendees:**` bullets, an optional `<!-- hex:notes -->` summary block with its writer's footer, `## Transcript`
+  with `**You** · 00:00` / `**Them** · 00:05` headers (the older `**[mm:ss] You:** text` too); a Hex folder excludes
+  Hex's `audio/**` bundle (WAVs, `manifest.json`, duplicate and translated transcripts). **WebVTT / SRT** (a `<v Name>`
+  voice or a `Name:` prefix; same-speaker cues merge), **JSON** segments (Whisper / WhisperX `segments`, `utterances`,
+  ndjson; `speaker`/`source`, `start` or `*_ms`), and **text** (`Name: words` only in a file where several lines say so,
+  `[00:01:02] Name:`, `Name (00:01:02):`, `**Name:**`, Otter's `Name  0:00` header over its words). A file holding no
+  transcript (`manifest.json`) is the sync error "not a meeting transcript", never an episode. **Whose words (TODO
+  ruling 52a, decided 2026-11-03):** a line the recorder labels `You` (Hex's microphone track) or `Me` (the same
+  convention elsewhere) is a `user:` line — the person's own words, an exchange for promotion; every other utterance is
+  `speaker:<label>:` (evidence kind `speaker`, G134's seam; Hex's `Them` is `speaker:them`), a line with no speaker
+  `speaker:unknown`, and the recorder's model-written summary an `assistant:` line — never the person's, never an
+  exchange. No name is ever guessed to be the person; nothing is unmarked, so R4 never credits the person with an
+  unlabelled line, and no `evidence_kind` is declared. The episode's `meeting` record (`recorder`, `format`, `speakers`,
+  `own_labels`, `duration_s`, `summary_writer`) reaches Stage 1 (`sleep_cycle` passes it), whose `meeting_note` says
+  which lines are the person's, that `speaker:` lines are someone else's, and that the summary is the recorder's;
+  `participants` holds a calendar's attendees, `consent: unknown` (G95's rail). Wispr Flow's meetings stay
+  on their own reader (above), now under the same Sources section.
 - **Messages conversations the person ticks (G179, 2026-10-15).** The app lists `chat.db`'s 200 most recent chats for
   the Settings picker (names, last activity, per-side counts — `MessagesReader.conversations`; a ticked chat below that
   cap is appended so it can be unticked). **Group chats (2026-10-28):** `chat.style` 43 is listed too, with its

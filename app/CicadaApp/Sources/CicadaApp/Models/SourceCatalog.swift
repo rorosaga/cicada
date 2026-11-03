@@ -6,7 +6,7 @@ import Foundation
 /// (`/sources/channels`, `/sources/overview`, the browsers on this Mac, the sites an agent may read), so the words and
 /// the order are tested without a view.
 enum SourceCatalogGroup: String, CaseIterable, Identifiable {
-    case accounts, thisMac, exports, feeds, conversations
+    case accounts, thisMac, meetings, exports, feeds, conversations
 
     var id: String { rawValue }
 
@@ -14,6 +14,7 @@ enum SourceCatalogGroup: String, CaseIterable, Identifiable {
         switch self {
         case .accounts: Copy.Catalog.accounts
         case .thisMac: Copy.Catalog.thisMac
+        case .meetings: Copy.Catalog.meetings
         case .exports: Copy.Catalog.exports
         case .feeds: Copy.Catalog.feeds
         case .conversations: Copy.Catalog.conversations
@@ -85,6 +86,10 @@ enum SourceCatalog {
     static let wisprChannel = "wispr-flow"
     /// G218 — activity traces' entry, origin and `localReaders` key: recorded by the app, kept by This Mac's backend.
     static let tracesId = "traces"
+    /// G95 (2026-11-03) — Meeting recorders: Hex's own Markdown folder, and any other folder of transcripts. Both are
+    /// meeting folders (`FolderRegistration.isMeetings`), told apart by the folder's `recorder`.
+    static let hexId = "hex"
+    static let meetingFoldersId = "meeting-folders"
 
     /// The fixed entries. Browsers on this Mac and watched folders are added from what is present (`entries`).
     /// The Obsidian vault entry is gone for now (owner 2026-10-22); a vault is a folder.
@@ -155,9 +160,11 @@ enum SourceCatalog {
                            verb: .connect(Copy.Chats.connect)),
     ]
 
-    /// Every entry: the fixed ones, one per browser on this Mac (or one that synced before), Wispr Flow once it is
-    /// here, and — until the Agents page holds them — one per agent whose conversations the overview lists.
-    static func entries(browsers: [BrowserSpec], wisprPresent: Bool,
+    /// Every entry: the fixed ones, one per browser on this Mac (or one that synced before), the meeting recorders
+    /// (Hex once it is here or has a folder, Wispr Flow once it is here, a folder of transcripts always), and — until
+    /// the Agents page holds them — one per agent whose conversations the overview lists.
+    static func entries(browsers: [BrowserSpec], wisprPresent: Bool, hexPresent: Bool = false,
+                        meetingFolders: [FolderRegistration] = [],
                         overview: [SourceOverview]) -> [SourceCatalogEntry] {
         var all = fixed
         let browserEntries = browsers.map { spec in
@@ -170,12 +177,24 @@ enum SourceCatalog {
         // Browsers sit after Messages, before Apple Notes: the Mac's own apps first.
         let at = all.firstIndex { $0.id == "notes" } ?? all.endIndex
         all.insert(contentsOf: browserEntries, at: at)
-        if wisprPresent {
-            let folders = all.firstIndex { $0.id == "folders" } ?? all.endIndex
-            all.insert(SourceCatalogEntry(id: wisprChannel, group: .thisMac, title: "Wispr Flow",
-                                          origin: "wispr-flow", channels: [wisprChannel]),
-                       at: folders + 1)
+        // G95 (2026-11-03): Meeting recorders sit after This Mac, before the exports.
+        let meetings = meetingFolders.filter(\.isMeetings)
+        let hexChannels = meetings.filter { $0.recorder == hexId }.map(\.channelId)
+        var recorders: [SourceCatalogEntry] = []
+        if hexPresent || !hexChannels.isEmpty {
+            recorders.append(SourceCatalogEntry(id: hexId, group: .meetings, title: "Hex", origin: hexId,
+                                                channels: hexChannels, verb: .connect(Copy.Catalog.addHexFolder)))
         }
+        if wisprPresent {
+            recorders.append(SourceCatalogEntry(id: wisprChannel, group: .meetings, title: "Wispr Flow",
+                                                origin: "wispr-flow", channels: [wisprChannel]))
+        }
+        recorders.append(SourceCatalogEntry(id: meetingFoldersId, group: .meetings, title: Copy.Catalog.meetingFolders,
+                                            origin: meetingFoldersId,
+                                            channels: meetings.filter { $0.recorder != hexId }.map(\.channelId),
+                                            verb: .connect(Copy.Catalog.addFolder)))
+        let exports = all.firstIndex { $0.group == .exports } ?? all.endIndex
+        all.insert(contentsOf: recorders, at: exports)
         let claimed = Set(all.flatMap(\.channels))
         for row in overview where row.kind == .harness && !claimed.contains(row.id)
             && !claimed.contains(row.channelId ?? "") {

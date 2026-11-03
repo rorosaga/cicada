@@ -12,6 +12,15 @@
 
 ## Current state and evidence
 
+- **2026-11-03 — meeting recorders on Sources: Hex, Wispr Flow, a folder of transcripts (G95, ruling 52; branch
+  `feat/meeting-recorders`).** Hex (anoma.ly/hex, 3.3.0, MIT) writes one Markdown file per meeting to the Hex
+  meetings folder (Hex's `meetings.output_folder` setting, else its default) with a title, Date/Duration bullets, an
+  optional model-written Summary block and a `You`/`Them` transcript with offsets; a per-meeting `audio/` bundle sits
+  beside it. A meeting folder is a G133 watched folder of `kind: meetings` (`meeting_transcripts`, one episode per
+  file, edited in place, its own start date, consolidated by Sleep); `You`/`Me` lines are the person's (52a). Built and
+  verified on scratch state with made-up transcripts only; the owner's folder was looked at for names, layout and
+  counts, never text. **Next:** the coordinator confirms 52a with the owner; the owner adds the Hex meetings folder.
+
 - **2026-11-03 — "are we also syncing WhatsApp?" (G179; branch `fix/whatsapp-live-stale`).** Not a stopped reader:
   read on a read-only copy of the live store (counts, ids, times only), the one ticked chat (the person's own) holds
   24 messages, its newest 6 days old and exactly the reader's cursor; 0 rows past it, 0 in the 48 h window; the 1,670
@@ -2732,3 +2741,19 @@ A whole row moves to DONE only after its remaining implementation and required a
     movable. **Revisit** a if a measured workload needs two devices to apply writes while partitioned; b if a lost phone's
     replica is found readable by anyone but the person; c if the relay is ever found to see plaintext or to need TLS
     termination to work.
+52. **Meetings are consolidated in memory (owner, 2026-11-03: "Meetings ofc should also be consolidated in memory";
+    G95, G134; branch `feat/meeting-recorders`).** A meeting transcript a recorder writes — Hex's Markdown folder, any
+    folder of transcripts — is an episode Sleep reads and consolidates like any conversation: one per meeting, its own
+    date, through the folder stager (`meeting_transcripts`). It is **not** a `media_files` derivative: a recording or
+    video the person adds keeps its words outside every bank and is never read by Sleep; a recorder's transcript is a
+    conversation. **52a — speaker attribution (decided 2026-11-03 under this ruling, from the owner's facts about Hex
+    relayed by the coordinator; the coordinator confirms with the owner):** a line the recorder labels `You` (Hex's
+    microphone track, its Transcript reads "You 00:00") is the person's own words — `user`, counted for promotion's
+    exchanges; `Them` and every other labelled speaker is someone else's, never the person's (`speaker:<label>`); the
+    recorder's model-written Summary is `assistant`, never the person's words and never an exchange. A folder of
+    transcripts follows the same convention, `Me` included (`meeting_transcripts.OWN_LABELS`); no name is ever guessed
+    to be the person. Wispr Flow keeps its shipped rule (a label in the person's own listed names is `user`, R-LS22).
+    One meeting is one episode, keyed on Hex's own file (never renamed by Hex), its timestamp the meeting's start
+    (ruling 39). **Revisit** 52a if the owner says otherwise (flipping a label re-renders the existing meeting episodes
+    in place, body changed, re-queued), or if a recorder is found whose `You`/`Me` is not its own microphone; 52 itself
+    only if a meeting's words are found to leave the bank or to be credited to the person without a recorder's mark.

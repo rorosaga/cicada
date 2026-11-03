@@ -162,9 +162,9 @@ def known(memory_path: Path, channel_id: str) -> bool:
         return True
     if channel_id in {tab_groups.channel_id(b) for b in tab_groups.BROWSERS}:
         return True
-    if channel_id.startswith(folder_source.CHANNEL_PREFIX):
-        folder_id = channel_id[len(folder_source.CHANNEL_PREFIX):]
-        return folder_source.get_folder(memory_path, folder_id) is not None
+    if (folder_id := folder_source.folder_id_of(channel_id)) is not None:
+        folder = folder_source.get_folder(memory_path, folder_id)
+        return folder is not None and folder_source.channel_for(folder) == channel_id
     return False
 
 
@@ -571,8 +571,8 @@ def _collect(memory_path: Path, channel_id: str) -> list[dict]:
         origins = set(_ORIGIN_CHANNELS[channel_id])
         return _episodes(memory_path, lambda fm: str(fm.get("origin") or "") in origins, media=media,
                          among=_episode_index(memory_path).origins(_ORIGIN_CHANNELS[channel_id]))
-    if channel_id.startswith(folder_source.CHANNEL_PREFIX):
-        return _folder(memory_path, channel_id[len(folder_source.CHANNEL_PREFIX):])
+    if (folder_id := folder_source.folder_id_of(channel_id)) is not None:
+        return _folder(memory_path, folder_id)
     return []
 
 
@@ -785,7 +785,8 @@ def _folder(memory_path: Path, folder_id: str) -> list[dict]:
         name = relpath.rsplit("/", 1)[-1]
         stem_name = name.rsplit(".", 1)[0] if "." in name.lstrip(".") else name
         row = _episode_row(fm, stem)
-        row["title"] = _title(stem_name, fallback=row["title"])
+        if fm.get("folder_kind") != "meetings":   # a meeting is listed by its own title (G95), a note by its file
+            row["title"] = _title(stem_name, fallback=row["title"])
         rows.append(row)
     return rows
 

@@ -53,6 +53,11 @@ from api.services.id_utils import sanitize_id
 FOLDERS_FILENAME = "folders.json"
 ORIGIN = "folder"
 CHANNEL_PREFIX = "folder:"
+#: A meeting folder's channel (G95, 2026-11-03): its own prefix, so the Sources page shows it under Meeting recorders
+#: and never among the notes folders. Its episodes keep ``origin: folder`` and the folder's ``folder_id``.
+MEETINGS_CHANNEL_PREFIX = "meetings:"
+#: What a folder holds: notes (G133, the default) or meeting transcripts (``meeting_transcripts``).
+KINDS = ("notes", "meetings")
 #: The commit trigger when saved rules relabel existing episodes (F2-back R-B6).
 AUTHORSHIP_TRIGGER = "folder/authorship"
 DEFAULT_INCLUDE = ("**/*.md", "**/*.markdown", "**/*.txt")
@@ -115,8 +120,25 @@ def get_folder(memory_path: Path, folder_id: str) -> dict | None:
     return next((f for f in list_folders(memory_path) if f.get("id") == folder_id), None)
 
 
-def channel_id(folder_id: str) -> str:
-    return f"{CHANNEL_PREFIX}{folder_id}"
+def channel_id(folder_id: str, kind: str | None = None) -> str:
+    return f"{MEETINGS_CHANNEL_PREFIX if kind == 'meetings' else CHANNEL_PREFIX}{folder_id}"
+
+
+def is_meetings(folder: dict | None) -> bool:
+    return isinstance(folder, dict) and folder.get("kind") == "meetings"
+
+
+def channel_for(folder: dict) -> str:
+    """The channel a registered folder syncs as — ``meetings:<id>`` for a meeting folder, else ``folder:<id>``."""
+    return channel_id(folder["id"], folder.get("kind"))
+
+
+def folder_id_of(channel: str) -> str | None:
+    """The folder id a ``folder:`` or ``meetings:`` channel names, else ``None``."""
+    for prefix in (CHANNEL_PREFIX, MEETINGS_CHANNEL_PREFIX):
+        if channel.startswith(prefix) and len(channel) > len(prefix):
+            return channel[len(prefix):]
+    return None
 
 
 def _clean_rules(rules) -> list[dict]:
@@ -131,7 +153,8 @@ def _clean_rules(rules) -> list[dict]:
 
 
 def register(memory_path: Path, *, label: str, path: str, include=None, exclude=None,
-             authorship=None, project_id: str | None = None, device: str | None = None) -> dict:
+             authorship=None, project_id: str | None = None, device: str | None = None,
+             kind: str | None = None, recorder: str | None = None) -> dict:
     """Create or update the folder at ``(device, path)`` (R-LS9: an upsert, so a
     re-pick of the same folder keeps its id, its episodes and its history).
 
@@ -145,30 +168,43 @@ def register(memory_path: Path, *, label: str, path: str, include=None, exclude=
     device = device or local_refs.current_device_id()
     with _LOCK:
         return _register_locked(memory_path, label=label, path=path, include=include, exclude=exclude,
-                                authorship=authorship, project_id=project_id, device=device)
+                                authorship=authorship, project_id=project_id, device=device,
+                                kind=kind, recorder=recorder)
 
 
 def _register_locked(memory_path: Path, *, label: str, path: str, include, exclude, authorship,
-                     project_id: str | None, device: str) -> dict:
-    folders = list_folders(memory_path)
-    from api.services import local_refs
+                     project_id: str | None, device: str, kind: str | None = None,
+                     recorder: str | None = None) -> dict:
+    from api.services import local_refs, meeting_transcripts
 
+    folders = list_folders(memory_path)
     existing = next((f for f in folders
                      if local_refs.same_device(f.get("device"), device) and f.get("path") == path), None)
     key = hashlib.sha1(f"{device}\x00{path}".encode()).hexdigest()[:6]
     slug = (sanitize_id(label) or "folder")[:40].strip("-") or "folder"
     record = existing if existing is not None else {"id": f"{slug}-{key}", "created_at": episode_ids.utc_now_iso()}
+    # A folder's kind is set when it is first added and never flips: its episodes, channel and source ids follow it.
+    kind = record.get("kind") or (kind if kind in KINDS else "notes")
+    meetings = kind == "meetings"
+    recorder = recorder if recorder in meeting_transcripts.RECORDERS else record.get("recorder")
+    default_include = meeting_transcripts.DEFAULT_INCLUDE if meetings else DEFAULT_INCLUDE
+    default_exclude = DEFAULT_EXCLUDE + (meeting_transcripts.RECORDER_EXCLUDE.get(recorder or "", ()) if meetings else ())
     record.update({
         "label": (label or "").strip() or Path(path).name or "Folder",
         "path": path,
         "device": device,
-        "include": list(include) if include else list(record.get("include") or DEFAULT_INCLUDE),
-        "exclude": list(exclude) if exclude else list(record.get("exclude") or DEFAULT_EXCLUDE),
-        "authorship": _clean_rules(authorship) if authorship is not None
+        "kind": kind,
+        "include": list(include) if include else list(record.get("include") or default_include),
+        "exclude": list(exclude) if exclude else list(record.get("exclude") or default_exclude),
+        # A meeting's words are its speakers' (`meeting_transcripts`), never decided by a glob.
+        "authorship": [] if meetings
+        else _clean_rules(authorship) if authorship is not None
         else _clean_rules(record["authorship"]) if "authorship" in record
         else [dict(r) for r in DEFAULT_AUTHORSHIP],
-        "project_id": project_id or record.get("project_id"),
+        "project_id": None if meetings else project_id or record.get("project_id"),
     })
+    if meetings and recorder:
+        record["recorder"] = recorder
     if existing is None:
         folders.append(record)
     _save(memory_path, folders)
@@ -183,7 +219,7 @@ def update(memory_path: Path, folder_id: str, *, label: str | None = None, autho
             return None
         if label is not None and label.strip():
             record["label"] = label.strip()
-        if authorship is not None:
+        if authorship is not None and not is_meetings(record):
             record["authorship"] = _clean_rules(authorship)
         _save(memory_path, folders)
         return record
@@ -306,7 +342,15 @@ def split_sections(text: str) -> list[tuple[str, str, str]]:
     return out
 
 
-def drafts_for_file(folder: dict, relpath: str, text: str, *, mtime_iso: str, sha: str) -> list[episode_staging.EpisodeDraft]:
+def drafts_for_file(folder: dict, relpath: str, text: str, *, mtime_iso: str, sha: str,
+                    tz_name: str | None = None) -> list[episode_staging.EpisodeDraft]:
+    if is_meetings(folder):
+        # G95 (2026-11-03): one meeting per file, its own date, its speakers' words (`meeting_transcripts`).
+        from api.services import meeting_transcripts
+
+        draft = meeting_transcripts.draft_for_file(folder, relpath, text, mtime_iso=mtime_iso, sha=sha,
+                                                   tz_name=tz_name)
+        return [draft] if draft is not None else []
     authorship = authorship_for(relpath, folder.get("authorship") or [])
     base = f"{channel_id(folder['id'])}:{relpath}"
     extra = {"folder_id": folder["id"], "relpath": relpath, "authorship": authorship,
@@ -360,7 +404,7 @@ def reapply_authorship(memory_path: Path, folder_id: str) -> dict:
     out: dict = {"paths": [], "touched": {}, "to_owner": 0, "to_agent": 0}
     with _LOCK:
         folder = get_folder(memory_path, folder_id)
-        if folder is None:
+        if folder is None or is_meetings(folder):   # a meeting's words are its speakers', never a rule's
             return out
         rules = folder.get("authorship") or []
         index, _ = episode_staging.scan(memory_path / "episodes")
@@ -386,7 +430,7 @@ def reapply_authorship(memory_path: Path, folder_id: str) -> dict:
 
 
 def sync(memory_path: Path, folder: dict, files: list[IncomingFile], deleted: list[str], *,
-         preview: bool = False) -> dict:
+         preview: bool = False, tz_name: str | None = None) -> dict:
     """Stage (or, with ``preview``, only count) one posted batch. Never opens
     the folder; decodes and re-hashes what the app sent. Returns the counts the
     route serialises, plus ``_staged`` (the ``StageResult``) and ``_texts``
@@ -399,11 +443,11 @@ def sync(memory_path: Path, folder: dict, files: list[IncomingFile], deleted: li
     projection churn ``sleep.next_at`` was taken out of ``_state.md`` for.
     ``sync_state.json`` still records that the sync ran."""
     with _LOCK:
-        return _sync_locked(Path(memory_path), folder, files, deleted, preview=preview)
+        return _sync_locked(Path(memory_path), folder, files, deleted, preview=preview, tz_name=tz_name)
 
 
 def _sync_locked(memory_path: Path, folder: dict, files: list[IncomingFile], deleted: list[str], *,
-                 preview: bool) -> dict:
+                 preview: bool, tz_name: str | None = None) -> dict:
     # Re-read under the lock: the caller's copy may predate a Manage save that
     # landed while this batch waited, and the rules decide authorship.
     folder = get_folder(memory_path, folder["id"]) or folder
@@ -413,6 +457,7 @@ def _sync_locked(memory_path: Path, folder: dict, files: list[IncomingFile], del
     include = folder.get("include") or DEFAULT_INCLUDE
     exclude = folder.get("exclude") or DEFAULT_EXCLUDE
     rules = folder.get("authorship") or []
+    meetings = is_meetings(folder)
     out = {"preview": preview, "files_new": 0, "files_changed": 0, "files_unchanged": 0,
            "files_deleted": 0, "agent_files": 0, "stage1_passes": 0, "errors": [],
            "created": 0, "updated": 0, "renamed": 0, "tombstoned": 0}
@@ -445,23 +490,26 @@ def _sync_locked(memory_path: Path, folder: dict, files: list[IncomingFile], del
             # NaN, ±inf or a year past 9999: one bad file, not a 500 for the batch.
             out["errors"].append({"relpath": rel, "reason": "bad mtime"})
             continue
-        who = authorship_for(rel, rules)
-        kind = "user" if who == "user" else "assistant"
+        who = "meeting" if meetings else authorship_for(rel, rules)
+        kind = None if meetings else "user" if who == "user" else "assistant"
         existing = mine.get(rel, [])
         live = [e for _, e in existing if not e.fm.get("source_deleted_at")]
         # Idempotent on (relpath, sha256) AND the authorship the rules give it now
-        # — a glob flip must re-stage the same bytes (R-LS10).
+        # — a glob flip must re-stage the same bytes (R-LS10). A meeting declares none: its speakers decide.
         if live and all(e.fm.get("content_sha") == sha and e.fm.get("evidence_kind") == kind for e in live):
             out["files_unchanged"] += 1
             continue
         text = raw.decode("utf-8", errors="replace").lstrip("﻿")
         texts[rel] = text
+        new = drafts_for_file(folder, rel, text, mtime_iso=mtime_iso, sha=sha, tz_name=tz_name)
+        if meetings and not new:
+            out["errors"].append({"relpath": rel, "reason": "not a meeting transcript"})
+            continue
         out["files_changed" if existing else "files_new"] += 1
         if who == "agent":
             out["agent_files"] += 1
         else:
             out["stage1_passes"] += stage1_passes(text)
-        new = drafts_for_file(folder, rel, text, mtime_iso=mtime_iso, sha=sha)
         drafts.extend(new)
         new_sids = {d.source_id for d in new}
         deleted_sids += [sid for sid, e in existing if sid not in new_sids and not e.fm.get("source_deleted_at")]

@@ -5113,6 +5113,9 @@ class FolderRecord(CamelModel):
     created_at: Optional[str] = None
     last_sync: Optional[str] = None
     papers_pending: bool = False
+    # G95 (2026-11-03): ``meetings`` for a folder of meeting transcripts (Hex, any recorder's export), else ``notes``.
+    kind: str = "notes"
+    recorder: Optional[str] = None
     channel_id: str = ""
 
 
@@ -5128,6 +5131,10 @@ class FolderRegisterRequest(CamelModel):
     authorship: Optional[list[FolderAuthorshipRule]] = None
     # R-LS13 — the app pre-fills the folder's name; "" means "no project".
     project_name: Optional[str] = None
+    # G95 (2026-11-03): a folder of meeting transcripts (no project, no papers, no authorship rules); ``recorder`` is
+    # the app that writes it (``hex``), or none for a plain folder of transcripts. Set on the first add, never flipped.
+    kind: Literal["notes", "meetings"] = "notes"
+    recorder: Optional[Literal["hex"]] = None
 
 
 class FolderUpdateRequest(CamelModel):
@@ -5147,6 +5154,8 @@ class FolderFileIn(CamelModel):
 class FolderSyncRequest(CamelModel):
     files: list[FolderFileIn] = []
     deleted: list[str] = []
+    # The Mac's IANA zone: a meeting file names its local start ("2026-11-03 1601 …"), read in this zone (ruling 34).
+    tz_name: Optional[str] = Field(default=None, max_length=64)
 
 
 class FolderSyncError(CamelModel):

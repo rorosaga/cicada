@@ -40,6 +40,12 @@ actor FakeLocalSourcesAPI: LocalSourcesAPI {
         folders.append(folder)
         return folder
     }
+    func registerMeetingFolder(label: String, path: String, recorder: String?) async throws -> FolderRegistration {
+        let folder = FolderRegistration(id: "meetings-1", label: label, path: path, include: ["**/*.md", "**/*.vtt"],
+                                        kind: FolderRegistration.meetingsKind, recorder: recorder)
+        folders.append(folder)
+        return folder
+    }
     func updateFolder(id: String, authorship: [FolderAuthorshipRule]) async throws -> FolderRegistration {
         guard let i = folders.firstIndex(where: { $0.id == id }) else { throw URLError(.badURL) }
         folders[i].authorship = authorship
