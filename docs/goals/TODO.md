@@ -12,6 +12,10 @@
 
 ## Current state and evidence
 
+- **2026-11-03 — the study room ends in a hard edge (G176; PR #582).** Owner, on onboarding's
+  room: "remove that fade effect from everywhere." The floor fade (a mask over the room's bottom five cells on the Sleep
+  page and in onboarding) is removed and its type deleted; no ring is added (the room sits on the page ground out of
+  its card, DESIGN_RULES §9 2026-11-03). Seen on a scratch app copy in light and dark.
 - **2026-11-03 — "are we also syncing WhatsApp?" (G179; branch `fix/whatsapp-live-stale`).** Not a stopped reader:
   read on a read-only copy of the live store (counts, ids, times only), the one ticked chat (the person's own) holds
   24 messages, its newest 6 days old and exactly the reader's cursor; 0 rows past it, 0 in the 48 h window; the 1,670
