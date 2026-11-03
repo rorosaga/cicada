@@ -1038,7 +1038,24 @@ bound to the memory it read for (`BankScope.bound`) and its signature is recorde
 never read for. The old per-connection signature moves, once, to the active memory at the first launch after the
 upgrade — only once the roster has loaded and `Store.bank` names it (before `hydrate()` it is the placeholder `default`,
 and the old signature is then only read, never moved) — and the consent it implied is written down explicitly so no other memory reads as
-turned off. *No self-opening field* — every chip and click from the panel goes through
+turned off. *Nothing is read before the memory is known* (2026-11-03): `start(store:)` runs before `hydrate()`, so the
+launch catch-up used to ask the placeholder `default` what was synced, find nothing, and read the whole file for a
+memory nobody had open (the server refuses that write, and the light read "Sync failed" until the next save). A
+catch-up or a watch event before the roster names the active memory is owed instead (`catchUpOwed`) and runs once it
+does — `bankChanged` when `Store.bank` moves, `rosterLoaded` (the app's hook on `store.banks.value?.active`) when the
+active memory has the placeholder's own name and `Store.bank` never moves (`testTheLaunchCatchUpWaitsForTheActiveMemory`).
+*What "up to date" is measured against* (2026-11-03, live): Safari keeps every bookmark and the Reading List in one
+file, `~/Library/Safari/Bookmarks.plist`, shared by every Safari profile, written by Safari and — Safari open or not —
+by iCloud's own Safari sync, which merges another device's bookmarks into it (`capture-and-sleep.md`). Cicada reads
+that file and nothing else can be read: a bookmark saved on another device reaches Cicada exactly when it lands there.
+The owner's row read "Watching · Last synced 5 days ago" while bookmarks were being saved elsewhere and the file had not
+moved in five days — both true, neither the reason. The watcher now keeps when the browser last changed its file
+(`browserChanged(for:)`, the file's own modification time, only for a browser the person turned on), and a watched,
+up-to-date browser's header line says it (`BrowserFreshness`, DR-58's relative words): "Up to date with Safari on this
+Mac — its bookmarks here last changed 5 days ago", plus, once that has been quiet a day, how another device's bookmarks
+arrive (Safari: once iCloud copies them into Safari here, "if one is missing, check Safari here"; the Chromium family:
+once the browser on this Mac syncs them, while it is open). The light's Watching sentence says "here … from another
+device, once the browser brings it to this Mac". *No self-opening field* — every chip and click from the panel goes through
 `SaveWhyCenter.input`, which ignores a choice (and a click elsewhere) within `SaveWhyPolicy.armDelay` (0.5 s) of the
 panel showing — at 0.5 s after a save the hand is still on the page beneath — and `SaveWhyNSPanel.canBecomeKey` is false
 until a mouse-down lands in it, so no activation or stray key can press a chip or type; only `tapOther` opens the field.

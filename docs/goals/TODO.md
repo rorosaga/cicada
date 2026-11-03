@@ -21,6 +21,14 @@
   captures made while the app was closed read "3 conversations came in while you were away"; a second device's report
   showed reading, a failed source with its fix, and done with its new count. Open: a CLI line; an SSE push for other
   viewers.
+- **2026-11-03 — Safari bookmarks "never appeared" (G129; branch `fix/safari-bookmarks-catchup`).** Not a missed
+  read: Safari keeps every bookmark and the Reading List in `~/Library/Safari/Bookmarks.plist` (all profiles), written
+  by Safari and, Safari closed, by iCloud's sync agent; the owner's file had not moved in five days, Safari.app had not
+  run on the Mac, and Cicada had read all 512 leaves one second after its last write. The page now says what "up to
+  date" is measured against and how another device's bookmarks arrive (`BrowserFreshness`); the launch catch-up no
+  longer reads the whole file for the placeholder memory before the roster loads. Waiting on the owner: where the
+  missing bookmarks were saved (phone or Mac), and whether they show in Safari on the Mac.
+
 - **2026-10-29 — the home moves (ruling 51a, G132 phase 2; branches `feat/g132-move-home`, backend, and
   `feat/g132-move-home-app`, the Sleep page's strip).** The Sleep page names the device that runs consolidation and
   every other device's lag; picking one and confirming (or `cicada home move <device>`) closes the home, parks Sleep,

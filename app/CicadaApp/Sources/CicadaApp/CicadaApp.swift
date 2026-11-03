@@ -352,6 +352,10 @@ struct CicadaApp: App {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             browserWatcher.refreshAccess()
         }
+        // 2026-11-03 — the bookmark catch-up the launch owed until the active memory was known (`rosterLoaded`).
+        .onChange(of: store.banks.value?.active) { _, _ in
+            Task { await browserWatcher.rosterLoaded() }
+        }
         .onChange(of: store.bank) { _, _ in
             Task { await localSources.reload() }
             // Round-4 D2 — the new memory gets the calendar too (a demo's 409 is said in words).
