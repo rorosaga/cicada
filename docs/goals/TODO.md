@@ -12,6 +12,15 @@
 
 ## Current state and evidence
 
+- **2026-11-03 — a Sleep run the network left waits for it (G163; branch `fix/sleep-offline-transient`).** Live: a
+  scheduled 3 AM run on a laptop slept ~3 h mid-read; on wake four `claude -p` calls answered "Request timed out"
+  (`api_error`, no status) before the network was back, and the run stopped as "The engine needs a look", told the
+  person to check the sign-in, badged 4 conversations *could not be read* and drew Sort ✗. Now the transport's own
+  timeouts are a lost connection; `machine_state` reads machine sleep (two monotonic clocks) and a route (UDP
+  connect, nothing sent); an offline failure is never the conversation's, and the drain waits within the run (no route:
+  poll to 10 min awake, settle 15 s; dropping connection: 30 s / 2 min / 5 min; ≤ 3 waits in a row; the person's Pause
+  honoured) and reads the same batch again; a network that never returns pauses as `engine_kind: offline` in words about
+  the network. Stage 1's total failure now leaves the strip on Read. Not ruling 15: nothing is armed past the run.
 - **2026-11-03 — the app says when it is syncing after it was closed (G229; branch `feat/g229-away-sync`).** The
   app's readers report to `PUT /sources/catch-up` (in memory, `reader_catch_up`); `GET /devices/status` carries each
   machine's `catchUp` with what came in while the app was closed and since it opened, counted from the bank. Shown

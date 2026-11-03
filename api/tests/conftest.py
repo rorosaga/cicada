@@ -198,6 +198,22 @@ def _no_real_plan_account(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _machine_online_and_awake(monkeypatch):
+    """A Sleep run asks this machine whether it has a network and whether it slept (`machine_state`, 2026-11-03). No
+    test may read the runner's own route table or a lid closed mid-suite: every test is online and awake unless it
+    says otherwise (`test_sleep_offline.py`)."""
+    from api.services import machine_state, sleep_drain
+
+    monkeypatch.setattr(machine_state, "has_route", lambda: True)
+    monkeypatch.setattr(machine_state, "slept_s", lambda since: 0.0)
+    # A run that waits for the network waits in milliseconds here, never the shipped seconds and minutes.
+    monkeypatch.setattr(sleep_drain, "OFFLINE_POLL_S", 0.001)
+    monkeypatch.setattr(sleep_drain, "OFFLINE_WAIT_S", 0.01)
+    monkeypatch.setattr(sleep_drain, "OFFLINE_SETTLE_S", 0.001)
+    monkeypatch.setattr(sleep_drain, "CONNECTION_BACKOFF_S", (0.001, 0.001, 0.001))
+
+
+@pytest.fixture(autouse=True)
 def _no_real_auto_tool_rungs(monkeypatch):
     """Ruling 46: Auto's last rungs read the person's own Cursor and OpenCode. No test may find the developer's own
     install of either: the rungs are empty unless a test puts them back (with stub tools on a scratch PATH), and the

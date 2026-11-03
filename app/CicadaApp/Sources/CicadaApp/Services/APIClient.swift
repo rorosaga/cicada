@@ -1262,6 +1262,8 @@ struct SleepDrainInfo: Codable, Equatable {
     var ownerPage: SleepOwnerPageCount? = nil
     var reserve: SleepReserveInfo? = nil
     var resumed: Bool? = nil
+    /// While the run waits for the network to come back (2026-11-03): `asleep | no_network | connection`.
+    var waiting: String? = nil
 
     init(id: String = "", frozen: Int = 0, batchSize: Int = 0, batch: Int = 0, batches: Int = 0, filed: Int = 0,
          requeued: Int = 0, skipped: Int = 0, active: Bool = false, finished: Bool = false, stop: Stop? = nil,
@@ -1292,12 +1294,13 @@ struct SleepDrainInfo: Codable, Equatable {
         ownerPage = (try? c.decodeIfPresent(SleepOwnerPageCount.self, forKey: .ownerPage)) ?? nil
         reserve = (try? c.decodeIfPresent(SleepReserveInfo.self, forKey: .reserve)) ?? nil
         resumed = (try? c.decodeIfPresent(Bool.self, forKey: .resumed)) ?? nil
+        waiting = (try? c.decodeIfPresent(String.self, forKey: .waiting)) ?? nil
     }
 
     enum CodingKeys: String, CodingKey {
         case id, frozen, batchSize, batch, batches, filed, requeued, skipped, active, finished, stop, arrivedSince
         case startedBy, firstRun, committedBatches, calls, elapsedMs, pausedMs, batchState, stages, byOrigin
-        case parked, ownerPage, reserve, resumed
+        case parked, ownerPage, reserve, resumed, waiting
     }
 }
 
