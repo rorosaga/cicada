@@ -40,6 +40,9 @@ class Config:
     max_status_bytes: int = 16 * 1024
     #: A bank no device has connected to for this long is purged whole; its home re-creates it from its statement.
     idle_purge_s: int = 30 * DAY
+    #: A bank whose home never came back after creating it (no connection after the one that created it, by it or any device) is purged
+    #: sooner: a create costs nothing, so an abandoned or scripted one should not hold its row for a month.
+    unconfirmed_purge_s: int = 2 * DAY
     purge_interval_s: int = 60
     #: A frame dated later than this past the relay's clock is refused.
     max_clock_skew_s: int = 300
@@ -63,6 +66,8 @@ class Config:
     #: /64 (``limits.py``). The table of networks is hard-capped; full, a new network's create is refused, never
     #: scanned. Addresses are held in memory only for the counts, never logged or stored.
     creates_per_ip_per_hour: int = 5
+    #: The same per IPv6 /48 (an IPv4 /24): one site handed 65,536 /64s still creates this many banks an hour at most.
+    creates_per_48_per_hour: int = 20
     max_unauthenticated_per_ip: int = 16
     max_tracked_networks: int = 50_000
     #: Proxies (comma-separated networks) whose ``X-Forwarded-For`` is believed. Empty by default: TLS terminates in

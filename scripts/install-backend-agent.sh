@@ -30,6 +30,10 @@
 #   CICADA_BACKEND_PROGRAM  release: the launcher the plist runs instead of the venv's uvicorn
 #   CICADA_LOG_DIR          where launchd writes the backend's output (default: <repo>/logs, release: $CICADA_HOME/logs)
 #   PLIST_LABEL             the agent's label (default: com.cicada.backend; tests use their own)
+#   CICADA_APP_BUNDLE_ID    the app's bundle id, when the app installs the agent: written as the plist's
+#                           AssociatedBundleIdentifiers (Apple TN3179: the app is the agent's responsible code, so the
+#                           person's Local Network answer to the app covers the backend) and as CICADA_APP_BUNDLE_ID
+#                           (G132 phase 3b: only then may the backend dial a LAN address the app found)
 # Exit: 0 installed · 2 bad flag · 3 no Python environment · 4 launchd refused
 set -euo pipefail
 
@@ -115,6 +119,12 @@ else
     <string>--port</string><string>$PORT</string>"
   EXTRA_ENV="    <key>PYTHONPATH</key><string>$(xml "$REPO")</string>"
 fi
+ASSOCIATED_XML=""
+if [ -n "${CICADA_APP_BUNDLE_ID:-}" ]; then
+  ASSOCIATED_XML="  <key>AssociatedBundleIdentifiers</key><string>$(xml "$CICADA_APP_BUNDLE_ID")</string>"
+  EXTRA_ENV="$EXTRA_ENV
+    <key>CICADA_APP_BUNDLE_ID</key><string>$(xml "$CICADA_APP_BUNDLE_ID")</string>"
+fi
 # CICADA_ALLOW_FEED_FETCH=1 is the opt-in for the nightly RSS-feed + ICS-calendar
 # refresh at the tail of every Sleep cycle (G114 R5); the user-initiated
 # POST /sources/poll-feeds and POST /sources/poll-calendars are gated by the same
@@ -140,6 +150,7 @@ $PROGRAM_XML
     <key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>
 $EXTRA_ENV
   </dict>
+$ASSOCIATED_XML
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>StandardOutPath</key><string>$(xml "$LOG_DIR")/backend.out.log</string>

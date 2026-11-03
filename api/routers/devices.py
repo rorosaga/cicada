@@ -75,7 +75,16 @@ async def revoke_device(device_id: str):
         device = await run_in_threadpool(device_tokens.store().revoke, device_id)
     except KeyError:
         raise HTTPException(status_code=404, detail="No such device.") from None
-    return {"device": device.wire()}
+    # G132 phase 3b: it leaves the relay group too (a new epoch; the relay closes its socket). Nothing without a relay.
+    from api.services import sync_net
+
+    await sync_net.on_revoke(device)
+    return {"device": device.wire(), "text": REVOKE_TEXT}
+
+
+#: G132 phase 3b: what revoking means, in words the Devices page shows beside its confirmation.
+REVOKE_TEXT = ("This device can no longer read or change your memory, and nothing new reaches it. Revoking cannot "
+               "take back the copy it already holds.")
 
 
 # ── G212: pairing a new device with a one-time code ─────────────────────────────
@@ -136,7 +145,7 @@ def _pair_url(raw: str | None) -> str | None:
 
 
 @router.post("/devices/pairing", status_code=201)
-async def create_pairing(req: PairingCreateRequest, settings: Settings = Depends(get_settings)):
+async def create_pairing(req: PairingCreateRequest, request: Request, settings: Settings = Depends(get_settings)):
     """A one-time code. ``qr`` stays exactly ``{v: 1, url, code}`` (the phone app decodes it). With no ``url`` given,
     the backend fills it with this machine's tailnet address for the backend's port when — and only when — the
     person's own ``tailscale serve`` already proves one (``reach.tailnet_backend``: one bounded, read-only ServeConfig
@@ -156,8 +165,17 @@ async def create_pairing(req: PairingCreateRequest, settings: Settings = Depends
         pairing, code = await run_in_threadpool(lambda: device_tokens.store().create_pairing(kind=req.kind))
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from None
+    # Ruling 51f: pairing a device is sharing this memory — the home-network door opens, and the pairing carries what
+    # a phone needs to reach it with no address of its own (``door``; the phone app's later QR v2). ``qr`` is unchanged.
+    from api.services import sync_net
+
+    door = None
+    if pairing.kind == "capture":
+        await sync_net.ensure_door(request.app, settings.memory_path, shared=await run_in_threadpool(
+            sync_net.may_open_door, settings.memory_path))
+        door = await run_in_threadpool(sync_net.pairing_door, pairing.id)
     return {"pairing": pairing.wire(), "code": code, "kind": pairing.kind, "reach": reach_info,
-            "qr": {"v": 1, "url": url, "code": code}}
+            "qr": {"v": 1, "url": url, "code": code}, "door": door}
 
 
 @router.get("/devices/pairing/{pairing_id}")
@@ -212,6 +230,11 @@ async def redeem_pairing(req: PairRequest, request: Request):
     except KeyError:
         raise HTTPException(status_code=404, detail="No pairing waits with that code — it was used, cancelled or "
                                                     "expired. Ask for a new one.") from None
+    # Ruling 51f: a paired device is a memory shared — the home-network door opens for it (a phone's captures).
+    from api.config import get_settings
+    from api.services import sync_net
+
+    await sync_net.ensure_door(request.app, get_settings().memory_path)
     return {"device": device.wire(), "token": token}
 
 

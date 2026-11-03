@@ -12,6 +12,42 @@
 
 ## Current state and evidence
 
+- **2026-11-03 — routes, not a relay (ruling 51f, G132 phase 3b slice 1; branch `feat/g132-routes`, #586 (includes
+  #572's one-transport work)).** Owner: "yes i think we should copy t3 code … if we can make it all run nicely and for free awesome"; the
+  phone, for now, a capture device. Each device's ordered route list (the home's door on the LAN → on a tailnet if
+  present → the configured address → the relay only under Advanced → queue; re-checked each minute and on a network
+  change, moved back); the door (sealed frames on the pairing keys, never the HTTP API or a token, silent to anything
+  unproven, private peers only, rate-limited, fuzzed); a capture-only phone paired in the same room over the door with
+  the QR's one-time secret; an unsent outbox item never expires; route enums in the ledger. Measured on loopback (three
+  backends, a phone-shaped client, 5 runs beside a full gate run): door handshake p50 1.28 ms; a commit reaches a copy
+  over the door p50 384 ms (n=25); after a network switch the copy found the home at its new address and had the 5
+  commits it missed in p50 315 ms over ~5.3 KB (a full copy ~15.9 KB), nothing re-paired; moved back to the door in
+  p50 0.91 s after the app's word; the phone's three queued captures landed in 18–40 ms once the home answered, each
+  once; a dead LAN route costs 1.0 s once a minute; idle, a copy on the door costs less than on `/sync/events` (home
+  0.39–0.46 vs 0.50–0.83 s, copy 0.30–0.33 vs 0.54–0.70 s of CPU per 120 s). Slice 2 (router port, IPv6, the DHT
+  record) is planned in [the plan](../plans/2026-11-03-g132-routes.md), not built; hole punching design notes only.
+  **Security review of #572/#586 (2026-11-03), fixed on the branch:** the door bound wildcard addresses, so a
+  server with a public address would have listened on it — it now binds loopback and its own private and tailnet
+  addresses only, one socket each, rebound on a network change; also the pairing tag in constant time, a door
+  pairing redeems only its own code, a revoke closes the device's sessions and watch at once, a failed request
+  leaves no spill, IPv6 sources share their /64's bucket, and the never-expiring outbox is capped at 256 MB as well
+  as 5,000 entries, a full queue said in words. The re-check found carrier-grade NAT counted as a tailnet (both live
+  in 100.64.0.0/10): a 100.64/10 address now counts only on Tailscale's own interface (`utun*`, `tailscale*`, read
+  with `getifaddrs`) holding its 100.x and `fd7a:` pair, and only when that 100.x is not the default route's IPv4
+  source (a stray router advertisement's `fd7a:` address on Wi-Fi fooled the first fix); otherwise it is public —
+  never bound, its carrier's other subscribers never let in; an exit node is not recognised (the accepted fail-safe). **Pick up here:** #586 lands on `dev` alone,
+  carrying #572 (closed as landed through it); the app's half follows (#573: Relay under Advanced, the Local Network and firewall step at first share, Bonjour and the
+  network hint).
+- **2026-10-30 — one transport, direct first, the relay as fallback (ruling 51c, G132 phase 3b; branches
+  `feat/g132-direct-first`, backend — lands in #586 (includes #572's one-transport work) — and
+  `feat/g132-direct-first-app`, Settings → Devices' Relay, #573).** Owner: "cant we just
+  connect between devices". Every device-to-device request goes through `sync_transport`: direct to the configured
+  address (unset relay = phases 1–2 exactly), the relay when direct does not answer in 2 s or dies mid-request; the home
+  pushes commits to the mailbox, a write is a sealed transaction applied once whichever path carried it, the home moves
+  and a first copy is made over the relay alone; pairing over the relay (QR v2, six digits) and revoke rotating the
+  group. Discovery is the app's (TN3179), checked by a signed hello; no LAN listener. No relay is hosted or deployed.
+  Measured on a synthetic owner-scale bank (8,000 pages, 9,000 episodes, 470 inbox items; loopback, this Mac at nice 10, a relay in process): a home commit reaches the copy in p50 365 / p95 412 ms direct and p50 473 / p95 518 ms over the relay alone (n=20 each, interleaved); a write made right after direct fails lands at the home in ~0.55 s (refused, or forwarded with its answer dropped: resent over the relay under the same key, applied once); a copy that starts with the home asleep and 10 commits waiting is caught up 0.17 s after its backend is up (from the mailbox alone; 61 s before a sleeping home's reads were made short); a first copy over the relay (pairing confirmed → HEAD equal, its restart included) 8.1 s against 7.2 s direct; idle, a relay set costs the home +0.27–0.38 s and the copy +0.06–0.14 s of CPU per 120 s (two alternating rounds).
+  Report: `reports/g132-phase3b.md`.
 - **2026-11-03 — repositories on the graph (G230; branch `feat/github-repos`, PR #583).** The owner asked for a
   repository's name, link and a README preview, and a sync of his own and starred repositories. GitHub is a tier-2 token
   connector (ruling 47: off until a token is pasted, said in words, Disconnect forgets the token, its cursor and every
@@ -2797,6 +2833,37 @@ A whole row moves to DONE only after its remaining implementation and required a
     movable. **Revisit** a if a measured workload needs two devices to apply writes while partitioned; b if a lost phone's
     replica is found readable by anyone but the person; c if the relay is ever found to see plaintext or to need TLS
     termination to work.
+    **f — Routes, not a relay; nothing rented (owner, 2026-11-03, on the research of #574 §12; amends c).** Owner:
+    *"yes i think we should copy t3 code or any other better way done by any other software … if we can make it all
+    run nicely and for free awesome"*; *"if the option where you tell me we can avoid using tailscale works well then
+    lets just do that … most people … will not have an always on server, so only phone and their mac, and i want that
+    to work perfectly, and macs are not always on most of the time."* **f1 — The route list (T3 Code's model).** Each
+    device keeps an ordered list of routes; the first that answers wins; routes learned from a connected peer are
+    saved; earlier routes are re-checked on a network change, when the app returns and every minute, and the device
+    moves back as soon as one works. T3's listener rule: a connection closes unless the peer address is loopback,
+    private or tailnet. **f2 — No rented infrastructure, no cloud mailbox, no Tailscale requirement.** Tailscale, when
+    already present, is one more route (its stable address), never required. The relay is optional and moves under
+    Advanced, never a default. **f3 — D1, no mailbox:** *"we sync when a machine is on."* An outbox item that was never
+    delivered never expires (amends the 7-day expiry), so no write is ever lost. **f4 — D3, a home-network door:** yes,
+    with *"encryption and security above all"*: a sealed-frame endpoint only — never the HTTP API, never a token over
+    it — off until a memory is shared; unauthenticated first packets dropped silently, so a scanner sees nothing;
+    rate-limited; a small, fuzzed parser. **f5 — Away from home:** the router port (UPnP-IGD / NAT-PMP / PCP), IPv6, and
+    the home's signed, encrypted address record in the public Mainline DHT are accepted in principle as the no-account
+    way to reach the home away from home, behind a **"Reach my memory away from home"** switch, off until the person
+    turns it on. **f6 — Identity is the pairing keys, not addresses:** switching Wi-Fi never means pairing or syncing
+    again; a network change re-runs the route checks and fast-forwards only what was missed. **f7 — The phone, for
+    now, is a capture device** (owner, the same day: *"for now, the phone i mainly want it as a way to capture, so
+    wether im outside, same wifi or wherever, i can send stuff to the same queue to get digested … right now i want
+    this simple approach."*): its captures reach the home's episode queue through the same route list, wait in a
+    durable outbox on the phone while the home is asleep or unreachable, never expire, and apply exactly once by
+    `Idempotency-Key`, under its capture-only token scope (`auth.CAPTURE_ROUTES`) and the existing capture routes. The
+    full-device phone of b (ruling 38 §2's reversal) is **deferred**; a computer's copy (phase 1 B) stays as built.
+    **Built in slice 1 (2026-11-03; lands in #586, which includes #572's one-transport work):** the route list (`sync_routes`), the door (`sync_door`, TCP,
+    a handshake on the P-256 pairing keys, pairing a phone in the same room with the QR's one-time secret), the outbox
+    rule, Tailscale as a route, the `sync_route` telemetry enums, the network-change re-check
+    ([plan](../plans/2026-11-03-g132-routes.md); `network.md`, "The route list and the home-network door"). Slice 2
+    (f5) is planned, not built. **Revisit** f4 if the door is ever found to answer a byte before a device proved its
+    key; f3 if an outbox entry is ever found applied twice; f7 when the owner asks for the phone as a full device.
 52. **Meetings are consolidated in memory (owner, 2026-11-03: "Meetings ofc should also be consolidated in memory";
     G95, G134; branch `feat/meeting-recorders`).** A meeting transcript a recorder writes — Hex's Markdown folder, any
     folder of transcripts — is an episode Sleep reads and consolidates like any conversation: one per meeting, its own

@@ -465,7 +465,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   scraping; an unofficial client that breaks a service's terms or risks a ban never is (WhatsApp stays local, `network.md`).
 - **Credentials** live in `~/.cicada/secrets.env` (0600), or the keychain where the app holds them (a connection's
   session too, ruling 47) — never in a bank, a log or the repo.
-- **Headless (G181):** the bank's **home** (a server or any computer; ruling 51 (1), phase 2) is its one writer and binds 127.0.0.1 only; reach from another machine is an
+- **Headless (G181):** the bank's **home** (a server or any computer; ruling 51 (1), phase 2) is its one writer and binds its API to 127.0.0.1 only; reach from another machine is an
   overlay the person runs (never a public port, never funnel — only the G135 listener may be, by the person, ruling 32), and no installer creates or copies a credential (`headless.md`).
   **One click (owner 2026-10-29, amends G132 (c)):** Settings → Devices may run exactly the shown `tailscale serve --bg
   --https=8443 <port>` (tailnet only) or that one mapping's off — argv built by the backend, 10 s, never `funnel` or `up` (`network.md`).
@@ -474,6 +474,18 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   **Ruling 51 (owner 2026-10-29, G132; decided, not built — amends this rail as each phase ships):** one movable home
   writes, mints, commits and runs Sleep; other devices (the phone a full one) hold replicas and send writes as
   transactions; all dial out to an E2E relay that never sees plaintext; nothing merged by git (`headless.md`).
+  **Ruling 51f (owner 2026-11-03, amends c):** nothing rented, no cloud mailbox, no Tailscale requirement. Each device
+  runs an ordered route list (T3 Code's: first that answers, learned routes kept, re-checked each minute and on a
+  network change, moved back) — the home's door on the LAN, a tailnet if present, the configured address, the relay
+  only under Advanced — else it queues; an unsent outbox item never expires. **The door** is the one listener besides
+  loopback: sealed frames only, never the HTTP API or a token, open only while a memory is shared; **it binds loopback
+  and each of this computer's own private (RFC 1918, IPv6 ULA) and Tailscale addresses, one socket each, rebound when
+  the network changes — never a wildcard, a public or global address, nor a carrier's 100.64/10 (a tailnet only on Tailscale's
+  own interface holding its 100.x and `fd7a:` pair, the 100.x not the default route's source)** (on a Mac, loopback until the app's permissions
+  step); a peer only of its socket's own kind, a first packet that proves no pairing key dropped without a byte,
+  rate-limited, fuzzed. Identity
+  is the pairing keys, never an address. The phone is for now a capture device on that list (`network.md`, "The route
+  list"); away-from-home reach (router port, IPv6, a DHT record) waits behind an off switch.
   Phase 1 A built: the home may publish its log (off by default, never a demo; a rewritten history freezes it).
   Phase 1 B built — rail (2) in effect: a client machine may instead run in **replica mode** (`replica_of`): a
   read-only copy it fast-forwards, every bank writer refused but the apply, its writes transactions to the home.
