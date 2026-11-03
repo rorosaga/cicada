@@ -12,6 +12,23 @@
 
 ## Current state and evidence
 
+- **2026-11-03 — Sources and chat pages, the owner's pass (G179, G161, G223; branch `sources-page-owner-feedback`).**
+  Eight items, one PR. *What Cicada reads* left every source page; the chat pickers' standing paragraphs are gone (a
+  missing permission still shows its fix). The page's top right keeps only *Import chats or files* while no source is
+  open; *Reading in your browser* sits on the account and YouTube pages, *Explore saved sites* on a browser's. Each
+  section lists what is set up first (stable). A chat source's page is its chats: pinned first (right-click; `pinned`
+  in the chat's settings file, backend state), then the newest stored message; green *Last synced* / grey *Not
+  syncing*; a click opens the stored conversation in the trailing panel through the backend's sittings route, which
+  now lists none for an unticked chat (`ticked: false`). Decided: the page and the picker stay two things (the page
+  is what Cicada holds, readable on a client or replica; the picker is the consent act reading this Mac). Faces: the
+  person's own chat draws the owner's page picture, a one-to-one chat its correspondent's page by the one precedence.
+  The "9026" date: WhatsApp keeps a pinned chat's `ZLASTMESSAGEDATE` thousands of years ahead (measured: +6,000 and
+  +7,000 years exactly on a live store's two such chats, numbers only); the reader now lists by the newest message's
+  own date and every picker drops a date more than a day ahead. Readwise removed (adapter, fixtures, catalogue,
+  copy). Verified on scratch runs of `origin/dev` and the branch, light and dark (synthetic chats only). Cost: a chat
+  list now resolves each chat's page and picture — synthetic 300 chats / 3,000 sittings / 500 pages, uncached,
+  median 19 → 35 ms (an indexed `correspondents.page_finder` and the shared picture inputs read once; folding every
+  page per chat had cost ~400 ms); a repeat is a 304.
 - **2026-11-03 — "are we also syncing WhatsApp?" (G179; branch `fix/whatsapp-live-stale`).** Not a stopped reader:
   read on a read-only copy of the live store (counts, ids, times only), the one ticked chat (the person's own) holds
   24 messages, its newest 6 days old and exactly the reader's cursor; 0 rows past it, 0 in the 48 h window; the 1,670
