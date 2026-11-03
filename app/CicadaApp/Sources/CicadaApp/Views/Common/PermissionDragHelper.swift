@@ -424,7 +424,7 @@ private struct PermissionBanner: View {
             }
         }
         .padding(CicadaTheme.spacingMD)
-        .frame(width: CicadaTheme.scaled(380), alignment: .leading)
+        .frame(width: CicadaTheme.scaled(420), alignment: .leading)
         .floatingSurface(in: CicadaTheme.shape(CicadaTheme.cornerRadius))
         .padding(CicadaTheme.spacingXL)   // room for the light theme's one soft shadow inside the clear window
         .onAppear { hop(CicadaMotion.helperBounceHops) }
