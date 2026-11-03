@@ -21,7 +21,11 @@ before it is read. Slice 2's "Reach my memory away from home" switch is the only
   its ES256 signature over ``domain ‖ S ‖ e_c ‖ ts``. ``P`` must be a device of the group: the key it registered
   (``sign_jwk``) or the key its token is bound to (a phone's Secure-Enclave key, ``key_thumbprint``). A hello that does
   not open, is older or newer than :data:`CLOCK_SKEW_S`, repeats an ``e_c`` already seen, or names no device of the
-  group is dropped silently;
+  group is dropped silently. The hello's last 32 bytes are zero — except for **pairing**: a device not yet in the
+  group (a phone scanning the QR in the same room) proves it holds the QR's one-time 256-bit secret with an HMAC over
+  ``domain ‖ e_c ‖ ts ‖ P``. Such a session may make exactly one request, ``POST /pair`` with the code, which redeems
+  it bound to ``P`` and answers the new device's id — never its token (the door never carries one, and the phone
+  needs none: its key is its identity);
 * the door answers ``e_s ‖ AEAD(k_r, ver ‖ sig_home)`` (:data:`REPLY_LEN` bytes), where ``sig_home`` is the door
   computer's own device-key signature over ``domain ‖ sha256(hello) ‖ e_s`` — the client checks it against the key the
   registry holds for the device it meant to reach, so a stolen door key alone cannot pose as the home;
@@ -63,9 +67,11 @@ from loguru import logger
 VERSION = 1
 HELLO_DOMAIN = b"cicada-door-hello-v1\x00"
 REPLY_DOMAIN = b"cicada-door-reply-v1\x00"
+PAIR_DOMAIN = b"cicada-door-pair-v1\x00"
+PAIR_TTL_S = 600
 FRAME_AAD = b"CD1F"
 TAG = 16
-HELLO_PLAIN = 1 + 8 + 64 + 64
+HELLO_PLAIN = 1 + 8 + 64 + 64 + 32
 HELLO_LEN = 32 + HELLO_PLAIN + TAG
 REPLY_PLAIN = 1 + 64
 REPLY_LEN = 32 + REPLY_PLAIN + TAG
@@ -88,6 +94,9 @@ WATCH_POLL_S = 0.5
 DOOR_FILE = "door.json"
 DOOR_ENV = "CICADA_SYNC_DOOR"
 PORT_ENV = "CICADA_SYNC_DOOR_PORT"
+#: Where the door binds: every interface by default (T3's rule then closes anything not private); ``127.0.0.1`` keeps
+#: it on this computer (the suite: no firewall prompt on a developer's Mac).
+HOST_ENV = "CICADA_SYNC_DOOR_HOST"
 PORT_RANGE = (49152, 65000)
 
 TAILNET_V4 = ipaddress.ip_network("100.64.0.0/10")
@@ -275,6 +284,10 @@ def own_routes(port: int | None = None) -> dict | None:
         return None
     state = door_state(create=False) or {}
     found = local_addresses()
+    if server.host and server.host not in ("0.0.0.0", "::"):
+        # Bound to one address: only that one is a route (none, when it is loopback).
+        cls = address_class(server.host)
+        found = {"lan": [server.host] if cls == "lan" else [], "tailnet": [server.host] if cls == "tailnet" else []}
     return {"v": 1, "port": int(port or server.port), "key": state.get("pub"),
             "lan": found["lan"], "tailnet": found["tailnet"]}
 
@@ -312,7 +325,14 @@ class Keys:
     recv: bytes
 
 
-def client_hello(identity: Identity, door_pub: bytes, *, now: float | None = None) -> tuple[bytes, object]:
+def _pair_tag(secret: bytes, e_c: bytes, ts: int, xy: bytes) -> bytes:
+    import hmac
+
+    return hmac.new(secret, PAIR_DOMAIN + e_c + struct.pack(">Q", ts) + xy, hashlib.sha256).digest()
+
+
+def client_hello(identity: Identity, door_pub: bytes, *, now: float | None = None,
+                 pair_secret: bytes | None = None) -> tuple[bytes, object]:
     eph = _x25519_new()
     e_c = _x_pub(eph)
     ts = int(now if now is not None else time.time())
@@ -320,7 +340,9 @@ def client_hello(identity: Identity, door_pub: bytes, *, now: float | None = Non
     sig = _b64d(identity.sign(signed))
     if len(sig) != 64:
         raise ValueError("signature")
-    plain = bytes([VERSION]) + struct.pack(">Q", ts) + _jwk_xy(identity.jwk) + sig
+    xy = _jwk_xy(identity.jwk)
+    tag = _pair_tag(pair_secret, e_c, ts, xy) if pair_secret else b"\0" * 32
+    plain = bytes([VERSION]) + struct.pack(">Q", ts) + xy + sig + tag
     dh1 = _x_dh(eph, door_pub)
     k_h = _hkdf(dh1, door_pub, b"cicada-door-v1 hello")
     hello = e_c + _aead(k_h).encrypt(b"\0" * 12, plain, e_c + door_pub)
@@ -344,7 +366,7 @@ class Replays:
 
 
 def server_open(hello: bytes, door_priv, door_pub: bytes, lookup, sign, replays: Replays, *,
-                now: float | None = None):
+                now: float | None = None, pairing=None):
     """``(device, keys, reply)`` for a hello that proves a device of the group, else None (drop it silently).
     ``lookup(jwk) -> device | None``; ``sign(bytes) -> b64`` is this computer's device key."""
     from api.services import device_key
@@ -365,12 +387,14 @@ def server_open(hello: bytes, door_priv, door_pub: bytes, lookup, sign, replays:
     t = now if now is not None else time.time()
     if abs(t - ts) > CLOCK_SKEW_S:
         return None
-    xy, sig = plain[9:73], plain[73:137]
+    xy, sig, tag = plain[9:73], plain[73:137], plain[137:169]
     jwk = _xy_jwk(xy)
     signed = HELLO_DOMAIN + door_pub + e_c + struct.pack(">Q", ts)
     if not device_key.verify(jwk, signed, _b64e(sig)):
         return None
     device = lookup(jwk)
+    if device is None and pairing is not None and tag != b"\0" * 32:
+        device = pairing(lambda secret: _pair_tag(secret, e_c, ts, xy) == tag, jwk)
     if device is None:
         return None
     if not replays.spend(e_c, t):
@@ -466,8 +490,10 @@ class Buckets:
 @dataclass
 class Peer:
     device_id: str
-    kind: str
+    kind: str        # full | capture — or ``pairing``: a device the QR's secret let in, for its one redeem
     local: bool      # a row of this computer's own store: its routes are admitted as that device
+    jwk: dict | None = None
+    pairing_id: str | None = None
 
 
 def registry_lookup(memory_path):
@@ -509,7 +535,8 @@ def registry_lookup(memory_path):
 
 
 class Server:
-    def __init__(self, app, memory_path: Path, *, port: int):
+    def __init__(self, app, memory_path: Path, *, port: int, host: str | None = None):
+        self.host = host or (os.environ.get(HOST_ENV) or "").strip() or None
         self.app = app
         self.memory_path = Path(memory_path)
         self.port = port
@@ -526,6 +553,24 @@ class Server:
         self.priv = _x_load(_b64d(st["key"]))
         self.pub = _x_pub(self.priv)
         self.lookup = registry_lookup(memory_path)
+        self.pairings: dict[str, tuple[bytes, float]] = {}
+
+    # -- pairing over the door ---------------------------------------------------------------------------------------
+    def open_pairing(self, pairing_id: str) -> str:
+        """A one-time secret for the QR of pairing ``pairing_id`` (ten minutes, one use)."""
+        now = time.monotonic()
+        for k in [k for k, (_s, at) in self.pairings.items() if now - at > PAIR_TTL_S]:
+            self.pairings.pop(k, None)
+        secret = secrets.token_bytes(32)
+        self.pairings[pairing_id] = (secret, now)
+        return _b64e(secret)
+
+    def _pairing_peer(self, matches, jwk):
+        now = time.monotonic()
+        for pid, (secret, at) in list(self.pairings.items()):
+            if now - at <= PAIR_TTL_S and matches(secret):
+                return Peer("", "pairing", False, jwk=jwk, pairing_id=pid)
+        return None
 
     def running(self) -> bool:
         return bool(self.servers)
@@ -534,8 +579,8 @@ class Server:
         last: Exception | None = None
         for _attempt in range(4):
             try:
-                v4 = await asyncio.start_server(self._on_conn, host="0.0.0.0", port=self.port, reuse_address=True,
-                                                limit=MAX_FRAME + 8)
+                v4 = await asyncio.start_server(self._on_conn, host=self.host or "0.0.0.0", port=self.port,
+                                                reuse_address=True, limit=MAX_FRAME + 8)
             except OSError as exc:
                 last = exc
                 if self.port == 0 or os.environ.get(PORT_ENV):
@@ -546,6 +591,8 @@ class Server:
                 continue
             self.servers.append(v4)
             self.port = v4.sockets[0].getsockname()[1]
+            if self.host:
+                return            # one address the person (or the suite) named
             try:
                 self.servers.append(await asyncio.start_server(self._on_conn, host="::", port=self.port,
                                                                reuse_address=True, limit=MAX_FRAME + 8))
@@ -586,7 +633,8 @@ class Server:
             if hello is not None:
                 from api.services import device_key
 
-                opened = server_open(hello, self.priv, self.pub, self.lookup, device_key.sign, self.replays)
+                opened = server_open(hello, self.priv, self.pub, self.lookup, device_key.sign, self.replays,
+                                     pairing=self._pairing_peer if self.pairings else None)
         finally:
             self.pending -= 1
         if opened is None:
@@ -596,7 +644,8 @@ class Server:
         device, keys, reply = opened
         self.counts["accepted"] += 1
         self.sessions += 1
-        self._note_route(device.device_id, address_class(peer) or "lan")
+        if device.kind != "pairing":
+            self._note_route(device.device_id, address_class(peer) or "lan")
         try:
             writer.write(reply)
             out, inn = Sealer(keys.send), Sealer(keys.recv)
@@ -658,7 +707,33 @@ class Server:
                 if k != b"B" or len(body) + len(d) > MAX_REQUEST_BODY:
                     raise ValueError("body")
                 body += d
+            if device.kind == "pairing":
+                await self._pair(writer, out, device, req, bytes(body))
+                return
             await self._serve(writer, out, device, req, bytes(body))
+
+    async def _pair(self, writer, out: Sealer, device: Peer, req: dict, body: bytes) -> None:
+        """The one request a pairing session may make: ``POST /pair`` with the code — redeemed bound to the key the
+        hello proved. The answer is the new device's id and kind; never its token."""
+        from api.services import device_key, device_tokens
+
+        status, answer = 404, {"detail": "No pairing waits with that code."}
+        if req.get("m") == "POST" and req.get("p") == "/pair" and self.pairings.pop(device.pairing_id, None):
+            try:
+                ask = json.loads(body or b"{}")
+                made, _token = await asyncio.to_thread(
+                    device_tokens.store().redeem, str(ask.get("code") or ""), str(ask.get("name") or "Phone"),
+                    key_thumbprint=device_key.thumbprint(device.jwk), kind="capture")
+                status, answer = 201, {"device": made.wire()}
+                self.lookup.forget()
+            except device_tokens.FullDeviceKey:
+                status, answer = 409, {"detail": "Only a phone pairs over this path."}
+            except (KeyError, ValueError, TypeError):
+                pass
+        writer.write(out.seal(b"S", json.dumps({"s": status, "h": {"content-type": "application/json"}}).encode()))
+        writer.write(out.seal(b"B", json.dumps(answer).encode()))
+        writer.write(out.seal(b"E", b""))
+        await writer.drain()
 
     async def _serve(self, writer, out: Sealer, device: Peer, req: dict, body: bytes) -> None:
         from api.services import sync_inprocess
@@ -809,7 +884,7 @@ class Conn:
 
 
 def connect(host: str, port: int, target: Target, identity: Identity, *, timeout: float = 2.0,
-            on_routes=None) -> Conn:
+            on_routes=None, pair_secret: bytes | None = None) -> Conn:
     """A session with ``target``'s door at ``host:port``: ``Unreachable`` when nothing answered as that device."""
     try:
         sock = socket.create_connection((host, int(port)), timeout=timeout)
@@ -817,7 +892,7 @@ def connect(host: str, port: int, target: Target, identity: Identity, *, timeout
         raise Unreachable("connect") from exc
     try:
         sock.settimeout(timeout + 2.0)
-        hello, state = client_hello(identity, target.door_pub)
+        hello, state = client_hello(identity, target.door_pub, pair_secret=pair_secret)
         sock.sendall(hello)
         reply = bytearray()
         while len(reply) < REPLY_LEN:
@@ -980,3 +1055,18 @@ def request(host: str, port: int, target: Target, identity: Identity, method: st
     got = call(conn, method, path_q, body=body, headers=headers, timeout=timeout, to_file=to_file)
     pool.give(key, conn)
     return got
+
+
+def pair(host: str, port: int, target: Target, identity: Identity, *, secret: bytes, code: str, name: str,
+         timeout: float = 5.0) -> dict:
+    """A phone in the same room pairs through the door with what the QR carried (the home's ids and keys, the door's
+    address, the one-time secret and the code). Returns the new device's wire (``id``, ``kind``); never a token."""
+    conn = connect(host, port, target, identity, timeout=timeout, pair_secret=secret)
+    try:
+        status, _h, body = call(conn, "POST", "/pair", body=json.dumps({"code": code, "name": name}).encode(),
+                                headers={"Content-Type": "application/json"}, timeout=timeout)
+    finally:
+        conn.close()
+    if status != 201 or not isinstance(body, dict):
+        raise Unreachable("pairing")
+    return body["device"]

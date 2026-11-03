@@ -79,13 +79,17 @@ def _bank_id() -> str | None:
 
 
 def shared(memory_path) -> bool:
-    """Discovery exists only for a memory shared between devices (a publishing home, or a copy)."""
+    """Discovery exists only for a memory shared between devices (a publishing home, a copy, or a home whose door is
+    open for a paired device — a capture-only phone, ruling 51f)."""
+    import sys
+
     from api.services import demo_guard, runtime_layout, sync_publish
 
     try:
         if demo_guard.is_demo(Path(memory_path)):
             return False
-        return runtime_layout.is_replica() or sync_publish.publishable(memory_path)
+        door = getattr(sys.modules.get("api.services.sync_door"), "SERVER", None)
+        return runtime_layout.is_replica() or sync_publish.publishable(memory_path) or bool(door and door.running())
     except Exception:  # noqa: BLE001
         return False
 

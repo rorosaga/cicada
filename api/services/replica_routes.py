@@ -59,6 +59,8 @@ ROUTES: dict[str, str] = {
     "POST /sync/relay/join/confirm": LOCAL,
     "DELETE /sync/relay/join": LOCAL,
     "POST /sync/discovered": LOCAL,
+    # Ruling 51f: the app's word that the network changed is this computer's own (its routes are re-checked).
+    "POST /sync/network": LOCAL,
     "POST /sync/enrol": REFUSE,
     "POST /devices/pairing/relay": REFUSE,
     "POST /devices/pairing/relay/{session_id}/confirm": REFUSE,

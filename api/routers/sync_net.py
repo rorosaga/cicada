@@ -296,6 +296,7 @@ def _check_doors(doors: list[dict]) -> int:
     the follower is woken so the next request may take it. Returns how many were kept."""
     from api.services import replica, sync_door, sync_routes
 
+    sync_routes.forget_target()           # read the mirror afresh: the app found it just now
     target, _info, _found = sync_routes.home_target()
     identity = sync_door.own_identity()
     if target is None or identity is None:

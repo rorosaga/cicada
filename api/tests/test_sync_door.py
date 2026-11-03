@@ -183,7 +183,7 @@ def live(keys, tmp_path, monkeypatch):
     monkeypatch.setattr(sync_door, "own_routes", lambda port=None: {"v": 1, "port": port, "lan": [], "tailnet": []})
     loop = asyncio.new_event_loop()
     threading.Thread(target=loop.run_forever, daemon=True).start()
-    server = sync_door.Server(_echo_app, tmp_path, port=0)
+    server = sync_door.Server(_echo_app, tmp_path, port=0, host="127.0.0.1")
     server.lookup = _lookup_for(keys["dev"])
     from api.services import device_key
 
@@ -288,3 +288,21 @@ def test_a_watch_hears_each_new_commit(live, tmp_path):
     assert heads[:2] == ["a" * 40, "b" * 40]
     stop.set()
     conn.close()
+
+
+def test_a_device_not_yet_in_the_group_is_let_in_only_with_the_qrs_secret(keys):
+    phone = Key()
+    ident = sync_door.Identity("", phone.jwk, phone.sign)
+    secret = os.urandom(32)
+
+    def pairing(matches, jwk):
+        return sync_door.Peer("", "pairing", False, jwk=jwk, pairing_id="p1") if matches(secret) else None
+
+    def opened(hello):
+        return sync_door.server_open(hello, keys["priv"], keys["pub"], lambda jwk: None, keys["home"].sign,
+                                     sync_door.Replays(), pairing=pairing)
+
+    assert opened(sync_door.client_hello(ident, keys["pub"])[0]) is None                    # no secret
+    assert opened(sync_door.client_hello(ident, keys["pub"], pair_secret=os.urandom(32))[0]) is None   # wrong one
+    got = opened(sync_door.client_hello(ident, keys["pub"], pair_secret=secret)[0])
+    assert got is not None and got[0].kind == "pairing" and got[0].jwk == phone.jwk

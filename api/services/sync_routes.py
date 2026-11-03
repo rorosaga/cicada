@@ -336,7 +336,14 @@ def _fingerprint() -> str:
 BOOK.fingerprint = _fingerprint
 
 
+TAILNET_ENV = "CICADA_SYNC_TAILNET"
+
+
 def _i_am_on_a_tailnet() -> bool:
+    """Tailscale is a route only when it already runs here (never required). ``CICADA_SYNC_TAILNET=off`` leaves it
+    out (the suite: a developer's own tailnet never carries a test)."""
+    if (os.environ.get(TAILNET_ENV) or "").strip().lower() in ("off", "0", "false"):
+        return False
     now = time.monotonic()
     if now - _TAILNET_SELF[1] > 30.0:
         from api.services import sync_door
