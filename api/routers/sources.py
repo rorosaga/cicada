@@ -1515,9 +1515,11 @@ async def get_messages_chat_sittings(conversation: str, request: Request, respon
                                      settings: Settings = Depends(get_settings)):
     """Sources v4 (review of #358) — one Messages chat's sittings, newest first: what its row opens to
     (`channel_items.chat_sittings`; each sitting opens in the Reader). Titles only, never a body; not a Store domain —
-    the app keeps it in memory and revalidates with this ETag."""
+    the app keeps it in memory and revalidates with this ETag. 2026-11-03: an unticked chat lists none (G179's
+    ticked-only rail on the chat page's panel), so the ETag rides `sources` too, where the chat settings' ticks move."""
     memory_path = settings.memory_path
-    etag = sync_service.etag_for(memory_path, "episodes", extra=f"{channel_items.SHAPE}|sittings|{conversation}")
+    etag = sync_service.etag_for(memory_path, "sources", "episodes",
+                                 extra=f"{channel_items.SHAPE}|sittings|{conversation}")
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     page = await run_in_threadpool(channel_items.chat_sittings, memory_path, conversation)

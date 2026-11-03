@@ -141,6 +141,33 @@ def find_page(pages: list[dict], ident: Identity) -> dict | None:
     return None
 
 
+def page_finder(pages: list[dict]):
+    """:func:`find_page` for many correspondents over one list of pages: the same answer, from an index of the pages'
+    folded names and aliases built once (a chat source's list resolves every chat's page, and folding every page per
+    chat was quadratic — ~1.5 s for 300 chats over 500 pages)."""
+    named: dict[tuple[str, str], list[dict]] = {}
+    aliased: dict[tuple[str, str], list[dict]] = {}
+    for page in pages:
+        fm = page.get("frontmatter") or {}
+        if fm.get("owner") is True:
+            continue
+        kind = str(fm.get("type") or "").lower()
+        name, aliases = _page_names(page)
+        if name:
+            named.setdefault((kind, agent_detectors.fold(str(name))), []).append(page)
+        for key in {agent_detectors.fold(str(a)) for a in aliases if a}:
+            aliased.setdefault((kind, key), []).append(page)
+
+    def find(ident: Identity) -> dict | None:
+        at = (ident.page_type, ident.key)
+        for group in (named.get(at), aliased.get(at)):
+            if group:
+                return min(group, key=lambda p: str(p.get("id") or ""))
+        return None
+
+    return find
+
+
 def free_id(ident: Identity, taken, entities_dir: Path | None = None) -> str:
     """The id a new correspondent page is written under — and, while it waits below the promotion bar, its pending
     line's key: always ``<id>-agent`` / ``<id>-person`` (then ``-2``, ``-3``…), never the name's plain id, so a

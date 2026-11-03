@@ -326,7 +326,7 @@ ROWS: tuple[Row, ...] = (
     _app(("feed", "remove"), "Stop following a feed.", (_p("url"),), via="backend", mutates=True),
     _app(("feed", "poll"), "Fetch every followed feed now.", via="backend", mutates=True, person=True),
     # Ruling 47 tier 2 (and the saved-content connectors): the person's own accounts, by their own token.
-    _app(("connector", "list"), "The accounts Cicada can read with your own token (Readwise, Notion, …): what each "
+    _app(("connector", "list"), "The accounts Cicada can read with your own token (Notion, …): what each "
                                 "reads, whether it is connected, its last sync.", via="backend"),
     _app(("connector", "connect"), "Connect one with your own token, read from standard input (never an argument); "
                                    "Cicada checks it with the service before saving it.", (_p("connector"),),

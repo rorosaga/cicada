@@ -23,8 +23,8 @@ struct SourcesPageView: View {
     /// The browsers on this Mac (one Launch Services pass per appearance, never per body evaluation).
     @State private var browsers = BrowserInventory.empty
     @Environment(LocalSourceWatcher.self) private var localSources
-    /// G166 exploring — the Explore sheet; the run card sits atop the grid.
-    @State private var showExploreSheet = false
+    /// 2026-11-03 — the chat whose stored conversation the right-hand panel shows (a chat source's page).
+    @State private var chatPanel = ChatPanelRouter()
     /// Reading the web's switches (the master switch, the signed-in session, YouTube lists, Never explore, how the
     /// agent reads), in one sheet since D6 retired the Settings page (2026-10-22 fix round).
     @State private var showReadingSheet = false
@@ -81,29 +81,24 @@ struct SourcesPageView: View {
         let rows = self.rows
         let catalog = self.catalog
         let segments = ContributorShare.segments(contributorsVM.contributors)
-        let order = catalog.map { SourcesSelection.entry($0.id) }
+        let order = SourceCatalog.drawnOrder(catalog).map { SourcesSelection.entry($0.id) }
         let detailOpen = columns.openId.map {
             SourcesModel.present(rows: rows, contributors: contributorsVM.contributors, catalog: catalog).contains($0)
         } ?? false
-        ProgressiveColumns(hasDetail: detailOpen, hasTrailing: provenance.isPresented,
+        let trailingOpen = provenance.isPresented || chatPanel.isPresented
+        ProgressiveColumns(hasDetail: detailOpen, hasTrailing: trailingOpen,
                            navWidth: ShellMetrics.navWidth(labelled: labelledSidebar)) { plan in
             EyebrowRow(eyebrow: Eyebrow.text(Copy.sources, Copy.Catalog.eyebrow(SourceCatalog.connectedCount(catalog))),
-                       horizontalPadding: !detailOpen && !provenance.isPresented ? plan.gutter : CicadaTheme.spacingXL) {
-                // G217 — the page IS the catalogue, so it no longer adds through a second one (the "Add a source" sheet's
-                // grid); Explore saved sites keeps its door (DR-40).
-                HStack(spacing: CicadaTheme.spacingSM) {
-                    // Looks pass 2 (2026-10-23): text alone in a row of bordered buttons read as a label. It opens a
-                    // sheet of switches as Explore opens its own, so it is the same kind of button (DR-40); same words.
-                    NeutralButton(title: Copy.Reading.inBrowserTitle, systemImage: "globe", size: .compact,
-                                  help: Copy.Reading.inBrowserHelp) { showReadingSheet = true }
-                    if !exploreCache.isGone {
-                        NeutralButton(title: Copy.Explore.button, systemImage: "safari", size: .compact,
-                                      help: Copy.Explore.buttonHelp) { showExploreSheet = true }
-                    }
-                    // DR-75 — the page's one labelled add; every other way in is a row of the catalogue below. CIC8
-                    // (2026-10-29): it opened Files and links, whose line speaks of bookmarks, so a person holding a
-                    // chat export read it as the wrong door. It opens the one intake — every export it reads, each
-                    // chat app's export page and steps, *Choose a file…* in Downloads — named for what people bring.
+                       horizontalPadding: !detailOpen && !trailingOpen ? plan.gutter : CicadaTheme.spacingXL) {
+                // 2026-11-03 (owner, on WhatsApp's page: "i dont get why these buttons are here if they dont influence
+                // whatsapp or some of the other sources at all") — the page's top right holds only what applies to the
+                // whole list: the one labelled add (DR-75), and only while no source is open (a source's page is about
+                // that source). *Reading in your browser* and *Explore saved sites* moved into the settings of the
+                // sources they act on (`SourceCatalogDetail.browserActions`): the accounts read in the browser and
+                // YouTube; the browsers whose saved sites Explore walks.
+                if !detailOpen {
+                    // CIC8 (2026-10-29): it opens the one intake — every export it reads, each chat app's export page
+                    // and steps, *Choose a file…* in Downloads — named for what people bring.
                     PageAddButton(title: Copy.Catalog.importChatsOrFiles, help: Copy.Catalog.dropHint) {
                         intake.present(from: .emptyState(.sources))
                     }
@@ -123,13 +118,21 @@ struct SourcesPageView: View {
         } detail: { plan in
             detail(plan, rows: rows, catalog: catalog, segments: segments)
         } trailing: { _ in
-            ReaderColumn().focused($focus, equals: .reader)
+            // 2026-11-03 — a chat source's chat opens its stored conversation here, where the Reader opens (the two
+            // never share the column: opening one closes the other).
+            if let target = chatPanel.target {
+                ChatConversationColumn(target: target, onClose: { closeChatPanel() })
+                    .id("\(target.channel)|\(target.item.id)")
+                    .focused($focus, equals: .reader)
+            } else {
+                ReaderColumn().focused($focus, equals: .reader)
+            }
         }
         .background(CicadaTheme.bgBase)
-        // Presented in place (R-S9): the header means the catalog root, not one staged tile, so no bounce to the Feed.
-        .sheet(isPresented: $showExploreSheet) {
-            ExploreSheet { showExploreSheet = false }
-        }
+        .environment(chatPanel)
+        .onChange(of: provenance.isPresented) { _, open in if open { chatPanel.close() } }
+        .onChange(of: columns.openId) { _, _ in chatPanel.close() }
+        // A hand-off asking for the reading switches (`pendingReadingSheet`) still lands here, whatever is open.
         .sheet(isPresented: $showReadingSheet, onDismiss: { Task { await reading.load() } }) {
             ReadingInBrowserSheet { showReadingSheet = false }
         }
@@ -220,9 +223,13 @@ struct SourcesPageView: View {
         }
     }
 
-    /// DR-28 — the Reader, then the detail (back to the grid).
+    /// DR-28 — the Reader (or a chat's panel), then the detail (back to the grid).
     private func escape() {
         Instant.run {
+            if chatPanel.isPresented {
+                chatPanel.close()
+                return
+            }
             switch columns.escape(readerOpen: provenance.isPresented) {
             case .closeReader: provenance.close()
             case .closeDetail: columns.close()
@@ -234,22 +241,31 @@ struct SourcesPageView: View {
     private func close() {
         withAnimation(CicadaMotion.columns(reduceMotion: reduceMotion)) {
             provenance.close()
+            chatPanel.close()
             columns.close()
         }
     }
 
+    /// A pointer close of the chat panel slides it out on the columns' curve (DR-61); Esc closes it instantly.
+    private func closeChatPanel() {
+        withAnimation(CicadaMotion.columns(reduceMotion: reduceMotion)) { chatPanel.close() }
+    }
+
     private func showList() {
         withAnimation(CicadaMotion.columns(reduceMotion: reduceMotion)) {
-            if provenance.isPresented { provenance.close() } else { columns.close() }
+            if chatPanel.isPresented { chatPanel.close() }
+            else if provenance.isPresented { provenance.close() } else { columns.close() }
         }
     }
 
     /// Sources v3 — the sidebar's Sources clicked while Sources shows: the Reader and the detail close together. A
     /// pointer click closes on the columns' curve; the ⌘ shortcut never animates (DR-60).
     private func popToRoot() {
-        guard SourcesModel.popsToRoot(detailOpen: columns.openId != nil, readerOpen: provenance.isPresented) else { return }
+        guard SourcesModel.popsToRoot(detailOpen: columns.openId != nil,
+                                      readerOpen: provenance.isPresented || chatPanel.isPresented) else { return }
         let change = {
             provenance.close()
+            chatPanel.close()
             columns.close()
         }
         router.popToRoot(reduceMotion: reduceMotion, change)
