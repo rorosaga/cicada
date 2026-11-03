@@ -110,6 +110,16 @@ def test_hex_markdown_is_one_meeting_with_its_speakers_and_its_model_summary():
     assert d.queue_for_sleep is True   # owner 2026-11-03: Sleep consolidates meetings
 
 
+def test_a_day_with_no_time_is_the_files_own_time_that_day_else_its_midday():
+    # Saved 18:00 UTC on 2026-11-03 = 19:00 in Madrid, the named day: the file's own time.
+    same = _draft("2026-11-03 call.srt", SRT)
+    assert same.timestamp == "2026-11-03T18:00:00+00:00" and same.original_date == "2026-11-03"
+    assert same.turns[0].ts == "00:00:01"   # no stated start: offsets stay offsets
+    # Saved on another day: that day's midday, never its midnight (a reader west of the zone would see the day before).
+    other = _draft("2026-11-01 call.srt", SRT)
+    assert other.timestamp == "2026-11-01T11:00:00+00:00" and other.original_date == "2026-11-01"
+
+
 def test_hex_file_name_is_local_wall_time_in_the_posted_zone():
     d = _draft(HEX_NAME, HEX)
     # 16:01 in Madrid on 2026-11-03 (CET, UTC+1) is 15:01 UTC; the id day is the meeting's own local day.

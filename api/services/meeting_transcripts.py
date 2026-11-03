@@ -434,16 +434,28 @@ def _from_text(value: str) -> tuple[datetime | None, bool]:
     return None, False
 
 
-def started_at(t: Transcript, relpath: str, tz_name: str | None) -> datetime | None:
+def started_at(t: Transcript, relpath: str, tz_name: str | None, mtime_iso: str | None = None) -> datetime | None:
     """When the meeting began, aware, from the file's own record: its name's time, its Date line, then either's day.
     ``None`` when neither says (the caller falls back to the file's time). Naive moments are the person's wall time,
-    read in the zone the app posted (``tz_name``), else this machine's."""
+    read in the zone the app posted (``tz_name``), else this machine's. A day with no time is the file's own time when
+    that falls on the same day (a transcript is saved as its meeting ends), else that day's midday — never its
+    midnight, which a reader in another zone would show as the day before."""
     by_name, name_timed = _from_name(relpath)
     by_text, text_timed = _from_text(t.date_text)
     timed = [m for m, has_time in ((by_name, name_timed), (by_text, text_timed)) if m is not None and has_time]
     moment = (timed or [m for m in (by_name, by_text) if m is not None] or [None])[0]
-    if moment is not None and moment.tzinfo is None:
-        moment = moment.replace(tzinfo=when.zone(tz_name or _machine_zone()))
+    if moment is None:
+        return None
+    zone = moment.tzinfo or when.zone(tz_name or _machine_zone())
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=zone)
+    if not timed:
+        saved = None
+        try:
+            saved = datetime.fromisoformat(str(mtime_iso).replace("Z", "+00:00")).astimezone(zone) if mtime_iso else None
+        except ValueError:
+            saved = None
+        moment = saved if saved is not None and saved.date() == moment.date() else moment.replace(hour=12, minute=0)
     return moment
 
 
@@ -477,7 +489,9 @@ def draft_for_file(folder: dict, relpath: str, text: str, *, mtime_iso: str, sha
     recorder = folder.get("recorder") if folder.get("recorder") in RECORDERS else None
     if t.format == "hex":
         recorder = "hex"
-    start = started_at(t, relpath, tz_name)
+    start = started_at(t, relpath, tz_name, mtime_iso)
+    # A turn's absolute time only from a start the file states to the minute; a day alone keeps the offsets.
+    timed = start is not None and (_from_name(relpath)[1] or _from_text(t.date_text)[1])
     stamp = episode_ids.to_utc_iso(start) if start is not None else mtime_iso
     if start is not None:
         day = start.date().isoformat()   # ruling 34: the meeting's own local day
@@ -492,7 +506,7 @@ def draft_for_file(folder: dict, relpath: str, text: str, *, mtime_iso: str, sha
         if line.label and line.label not in labels and len(labels) < MAX_LABELS:
             labels.append(line.label)
         ts = (episode_ids.to_utc_iso(start + timedelta(seconds=line.offset))
-              if start is not None and line.offset is not None else _offset_text(line.offset))
+              if timed and line.offset is not None else _offset_text(line.offset))
         turns.append(Turn(line.text, marker(line.label), ts))
     meeting = {"recorder": recorder, "format": t.format, "speakers": labels}
     own = [label for label in labels if is_own(label)]

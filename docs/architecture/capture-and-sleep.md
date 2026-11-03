@@ -535,8 +535,10 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   in place and re-queued, a rename keeps the episode by content hash, a deletion is tombstoned), `queue_for_sleep` like
   any conversation — unlike a recording the person adds as a media file (`media_files`, never read by Sleep). Dated by
   the meeting's own start (ruling 39): the file name's `YYYY-MM-DD HHMM` (Hex's), else a `Date:` line, read as wall time
-  in the posted zone, else the file's time; the id day is the meeting's local day (ruling 34); each turn's `ts` is the
-  start plus its offset. Formats, read by content: **Hex** (anoma.ly/hex, MIT; `<YYYY-MM-DD HHMM> <title>.md` in the
+  in the posted zone, else the file's time; a day with no time is the file's own time when that falls on the same day,
+  else that day's midday (never its midnight, which a reader in another zone shows as the day before); the id day is
+  the meeting's local day (ruling 34); each turn's `ts` is the start plus its offset when the start is stated to the
+  minute, else the offset alone. Formats, read by content: **Hex** (anoma.ly/hex, MIT; `<YYYY-MM-DD HHMM> <title>.md` in the
   Hex meetings folder — the app resolves it from Hex's own `meetings.output_folder` setting, that one key of Hex's
   settings file, else Hex's default under Documents; the file is never renamed, so its relpath keys the meeting) — `# title`, `- **Date:**` / `- **Duration:**` /
   `- **Attendees:**` bullets, an optional `<!-- hex:notes -->` summary block with its writer's footer, `## Transcript`
