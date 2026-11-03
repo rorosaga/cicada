@@ -5,52 +5,47 @@ import SwiftUI
 // connected and not so much text.") — one template every source's page is drawn on, top to bottom:
 //
 //   1. the head (`DetailHeader`, DR-74) and ONE status line (`SourceStatusLine`): dot + word + what follows it
-//      ("Connected · last item today"), and "What Cicada reads" as a quiet text button opening the full words (the
-//      connect sheets' pattern, DESIGN_RULES §9 2026-10-29) — no paragraph above the list;
+//      ("Connected · last item today") — no paragraph above the list, and since 2026-11-03 no "What Cicada reads"
+//      button either (owner: "unnecessary");
 //   2. one search (`CicadaSearchField`, the in-page field every list uses) as the list's own header — it replaces
 //      the "What came in" heading, so nothing names the list twice (DR-38);
 //   3. what came in (`SourceItemsSection`): one row per the source's natural unit — a chat, a watched day, a saved
 //      thing, a note, a conversation — at most `SourceItemsRules.cap` rows, then a plain "All N" (DR-81); a group row
-//      and "All N" open in the column's place, never in place (DR-81), with "‹ <source>" and Esc to return;
+//      and "All N" open in the column's place, never in place (DR-81), with "‹ <source>" and Esc to return. A chat
+//      source lists its chats instead (`ChatSourceList`, 2026-11-03): every chat, pinned first, then the apps' order,
+//      each opening its stored conversation in the panel at the right;
 //   4. the source's own settings, last, under one label (`SourcePageSettings`), the same shape everywhere.
 
 /// The status line under a source page's head.
+///
+/// 2026-11-03 (owner, on the "What Cicada reads" button at the head of every source page: "this of what cicada reads
+/// in all pages i see it unnecessary") — the line is the status alone; the button and its sheet are gone. What a
+/// chat reader's "checked" measures stays one hover away on the line's words (`help`), never a standing sentence.
 struct SourceStatusLine: View {
     let status: SourcePageStatus
-    /// The full words behind "What Cicada reads"; no link when there are none.
-    let facts: [String]
-    let title: String
-
-    @State private var showFacts = false
+    /// What the detail's words measure, on hover; nil keeps the detail itself as the hover.
+    var help: String? = nil
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: SourceRowText.refreshInterval)) { _ in
-            let today = ISODay.today()
+        TimelineView(.periodic(from: .now, by: SourceRowText.refreshInterval)) { context in
+            let today = ISODay.today(now: context.date)
             HStack(spacing: CicadaTheme.spacingSM) {
                 if case .syncing = status { ProgressView().controlSize(.small) }
                 StatusWord(word: status.word, tone: status.tone)
-                if let detail = status.detail(today: today) {
+                if let detail = status.detail(today: today, now: context.date) {
                     Text("· \(detail)")  // count-lint:ok — words (a day, an action, a reader's own progress line)
                         .font(CicadaTheme.metaFont)
                         .monospacedDigit()
                         .foregroundStyle(status.tone == .attention ? CicadaTheme.warning : CicadaTheme.textTertiary)
                         .lineLimit(1)
                         .truncationMode(.tail)
-                        .help(detail)
+                        .help(help.map { "\(detail). \($0)" } ?? detail)
                 }
                 Spacer(minLength: CicadaTheme.spacingSM)
-                if !facts.isEmpty {
-                    TextButton(title: Copy.SourcePage.whatItReads, inline: true) { showFacts = true }
-                }
             }
             .frame(minHeight: CicadaTheme.scaled(24))
             .accessibilityElement(children: .contain)
-            .accessibilityLabel(status.line(today: today))
-        }
-        .sheet(isPresented: $showFacts) {
-            SettingsSheet(title: title, onClose: { showFacts = false }) {
-                ConnectFactsPage(paragraphs: facts) { showFacts = false }
-            }
+            .accessibilityLabel(status.line(today: today, now: context.date))
         }
     }
 }
@@ -120,7 +115,8 @@ struct SourceItemsSection: View {
             } else {
                 let rows = cap.map { Array(list.items.prefix($0)) } ?? list.items
                 let today = ISODay.today()
-                LazyVStack(spacing: saved ? CicadaTheme.scaled(RowMetrics.twoLineGap) : 0) {
+                let chats = ChatSourcePage.isChatSource(channel)
+                LazyVStack(spacing: saved || chats ? CicadaTheme.scaled(RowMetrics.twoLineGap) : 0) {
                     ForEach(rows, id: \.self) { item in row(item, today: today) }
                 }
                 footer(list, shown: rows.count, cache: cache)
@@ -149,7 +145,10 @@ struct SourceItemsSection: View {
 
     @ViewBuilder
     private func row(_ item: ChannelItem, today: ISODay) -> some View {
-        if item.kind == .chat {
+        if item.kind == .chat && ChatSourcePage.isChatSource(channel) {
+            // 2026-11-03 — a chat source's chat opens its conversation in the panel at the right, never a list of days.
+            ChatSourceRow(item: item, channel: channel, now: Date())
+        } else if item.kind == .chat {
             SourceGroupRow(item: item, today: today) { onDrill(.chat(item)) }
         } else if item.videos != nil {
             SourceGroupRow(item: item, today: today, dayTitle: true) { onDrill(.day(item)) }
@@ -233,7 +232,7 @@ struct SourceGroupRow: View {
         Button(action: open) {
             HStack(spacing: CicadaTheme.spacingSM) {
                 if let chat = item.chat {
-                    ChatFace(id: chat.id, label: chat.label, photo: chat.photo, side: CicadaTheme.scaled(22))
+                    ChatFace(chat: chat, side: CicadaTheme.scaled(22))
                 }
                 Text(title)
                     .font(CicadaTheme.bodyFont)

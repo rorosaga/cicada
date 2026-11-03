@@ -577,9 +577,11 @@ final class SleepViewModel {
     }
 
     /// One poll of the machines strip; a failed poll keeps the last answer (never blank).
-    func loadMachines() async {
+    /// `clearingProblem: false` on G229's 5 s poll while a machine syncs: a refused move's sentence stays its usual
+    /// half-minute, never gone in five seconds.
+    func loadMachines(clearingProblem: Bool = true) async {
         if let list = try? await fetchMachines() { machines = list.devices }
-        await homeStrip.load(clearingProblem: true)   // the slow poll: a refusal's sentence goes once it answers
+        await homeStrip.load(clearingProblem: clearingProblem)   // the slow poll: a refusal's sentence goes once it answers
     }
 
     /// A run's detail, cached by id and freshness key: a second open under the same key is a dictionary hit; a

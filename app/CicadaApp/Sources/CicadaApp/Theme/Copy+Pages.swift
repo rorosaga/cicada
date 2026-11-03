@@ -25,6 +25,8 @@ extension Copy {
         static let changed = "the page changed"
         static let dead = "not reachable"
         static let unconfirmed = "not confirmed yet"
+        /// G230 — a link whose record an official API keeps (a repository's GitHub page): never visited, never stale.
+        static let kept = "read through its official API"
         static let suggestedBy = "suggested"
 
         // Ongoing (ruling 48 (4))

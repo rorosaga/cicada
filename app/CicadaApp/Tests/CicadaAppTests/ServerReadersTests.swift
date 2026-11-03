@@ -96,6 +96,52 @@ final class BookmarksPerBankTests: XCTestCase {
         XCTAssertEqual(posted, ["beta"])
     }
 
+    /// 2026-11-03 — the same race after the move: the watcher starts before `hydrate()` reads the roster, so its
+    /// launch catch-up asked about the placeholder "default", found no signature there, and read the whole file into
+    /// a memory nobody had open (the server refuses a write named for a memory that is not active, and the light then
+    /// read "Sync failed" until the next save). A catch-up before the memory is known waits for it, then runs once.
+    func testTheLaunchCatchUpWaitsForTheActiveMemory() async throws {
+        let sig = BrowserFileSignature(path: dir.appendingPathComponent("Bookmarks").path)!
+        defaults.set(try JSONEncoder().encode(sig), forKey: BrowserWatcher.signatureKey("chrome-bookmarks", bank: "alpha"))
+        defaults.set(true, forKey: BrowserWatchPolicy.enabledKey("chrome-bookmarks"))
+        var posted: [String?] = []
+        let w = BrowserWatcher(
+            defaults: defaults,
+            channels: [("chrome-bookmarks", .chromeBookmarks)],
+            paths: { [dir] _ in [dir!.appendingPathComponent("Bookmarks")] },
+            debounce: .milliseconds(60), minimumInterval: .milliseconds(1),
+            performSync: { _, _ in posted.append(BankScope.origin); return "ok" })
+        w.start(store: store)          // Store.bank is still "default"; no roster yet
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertTrue(posted.isEmpty, "nothing is read before the memory is known")
+        let alpha = MemoryBank(name: "alpha", active: true, entityCount: 0, episodeCount: 0, createdAt: "2026-10-01",
+                               description: nil)
+        store.banks.value = BanksResponse(banks: [alpha], active: "alpha")
+        store.bank = "alpha"
+        await w.rosterLoaded()
+        XCTAssertTrue(posted.isEmpty, "alpha's file has not moved since alpha's last read")
+        w.stop()                       // the app quits
+        // A file that moved while the app was closed is read once the memory is known — into that memory.
+        try "{\"changed\": true}".write(to: dir.appendingPathComponent("Bookmarks"), atomically: true, encoding: .utf8)
+        let w2 = BrowserWatcher(
+            defaults: defaults,
+            channels: [("chrome-bookmarks", .chromeBookmarks)],
+            paths: { [dir] _ in [dir!.appendingPathComponent("Bookmarks")] },
+            debounce: .milliseconds(60), minimumInterval: .milliseconds(1),
+            performSync: { _, _ in posted.append(BankScope.origin); return "ok" })
+        let fresh = Store()
+        w2.start(store: fresh)
+        defer { w2.stop() }
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertTrue(posted.isEmpty)
+        fresh.banks.value = BanksResponse(banks: [alpha], active: "alpha")
+        fresh.bank = "alpha"
+        await w2.rosterLoaded()
+        XCTAssertEqual(posted, ["alpha"])
+        await w2.rosterLoaded()
+        XCTAssertEqual(posted, ["alpha"], "owed once, not on every roster refresh")
+    }
+
     /// Review blocker: the app's Store names its placeholder "default" until `hydrate()` reads the roster, and the
     /// watcher starts before that. The old signature must not move to "default" then — it would leave the memory that
     /// really had it to read every bookmark again — only to the memory the roster says is active.

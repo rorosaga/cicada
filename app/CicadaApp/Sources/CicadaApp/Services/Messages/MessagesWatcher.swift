@@ -43,6 +43,12 @@ final class MessagesWatcher {
     private(set) var suggestAgents = true
     /// What Sleep has not read yet, per conversation — the bubbles.
     private(set) var waiting: [MessagesWaitingItem] = []
+    /// 2026-11-03 — the last successful pass and the newest message in the ticked conversations (`ChatCheck`): the
+    /// backend's `last_sync` moves only when a pass posts, so a quiet conversation read as a stopped reader. Nil before
+    /// this memory's first pass, or with nothing ticked.
+    private(set) var check: ChatCheck?
+    @ObservationIgnored private var passNewest: Date?
+    @ObservationIgnored private let clock: @Sendable () -> Date
 
     @ObservationIgnored private let api: any MessagesAPI
     @ObservationIgnored private let reader: MessagesReader
@@ -80,8 +86,9 @@ final class MessagesWatcher {
          lookUpCards: @escaping @Sendable ([String]) async -> [String: MessagesContactCard] = { await MessagesContacts.cards(for: $0) },
          lookUpContactsAllowed: @escaping @Sendable () -> Bool = { MessagesContacts.allowed },
          lookUpSharedPhotos: (@Sendable ([String]) async -> [String: Data]?)? = nil,
-         sharedRecheck: Duration = .seconds(3600)) {
+         sharedRecheck: Duration = .seconds(3600), clock: @escaping @Sendable () -> Date = { Date() }) {
         self.api = api
+        self.clock = clock
         self.reader = reader
         self.lights = lights
         self.activity = activity
@@ -129,6 +136,7 @@ final class MessagesWatcher {
         // Another memory: its picture cache has none of this one's posts, so every ticked chat is looked up and posted.
         sharedCheckedAt = [:]
         sharedPosted = [:]
+        check = nil   // another memory: its own first pass says when it was checked
         guard !tickedIds.isEmpty else {
             disarm()
             return
@@ -347,6 +355,7 @@ final class MessagesWatcher {
         case .success:
             status = .watching
             if watch == nil { arm() }
+            if self.bank() == bank { check = ChatCheck(at: clock(), newest: passNewest) }
         case .failure(let error) where SyncCancellation.isCancellation(error):
             status = .watching
         case .failure(let error as BrowserFileError):
@@ -364,6 +373,7 @@ final class MessagesWatcher {
         let reader = self.reader
         let ticked = tickedIds
         let read = try await Task.detached(priority: .utility) { try reader.conversations(ids: ticked) }.value
+        passNewest = read.compactMap(\.lastActivity).max()
         for fresh in read {
             if let at = conversations.firstIndex(where: { $0.id == fresh.id }) { conversations[at] = fresh }
         }
@@ -467,6 +477,7 @@ final class MessagesWatcher {
     private func disarm() {
         watch?.stop()
         watch = nil
+        check = nil
         pending?.cancel()
         pending = nil
         if running == nil { status = .idle }

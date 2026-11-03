@@ -46,6 +46,8 @@ os.environ["CICADA_SUITE_CALLER_HOMES"] = os.pathsep.join(
 os.environ["CICADA_SUITE_ROOT"] = str(_SUITE_ROOT)
 os.environ["HOME"] = str(_SUITE_ROOT / "home")
 os.environ["CICADA_HOME"] = str(_SUITE_ROOT / "home" / ".cicada")
+# Ruling 51f: a door any test opens binds loopback only — never this computer's LAN, tailnet or a wildcard address.
+os.environ["CICADA_SYNC_DOOR_HOST"] = "127.0.0.1"
 _atexit.register(_shutil.rmtree, _SUITE_ROOT, ignore_errors=True)
 
 # A developer checkout's settings file (`api/.env`, `api/settings_file.py`) never reaches the suite: off before any
@@ -195,6 +197,22 @@ def _no_real_plan_account(monkeypatch):
     engine_identity.clear()
     yield
     engine_identity.clear()
+
+
+@pytest.fixture(autouse=True)
+def _machine_online_and_awake(monkeypatch):
+    """A Sleep run asks this machine whether it has a network and whether it slept (`machine_state`, 2026-11-03). No
+    test may read the runner's own route table or a lid closed mid-suite: every test is online and awake unless it
+    says otherwise (`test_sleep_offline.py`)."""
+    from api.services import machine_state, sleep_drain
+
+    monkeypatch.setattr(machine_state, "has_route", lambda: True)
+    monkeypatch.setattr(machine_state, "slept_s", lambda since: 0.0)
+    # A run that waits for the network waits in milliseconds here, never the shipped seconds and minutes.
+    monkeypatch.setattr(sleep_drain, "OFFLINE_POLL_S", 0.001)
+    monkeypatch.setattr(sleep_drain, "OFFLINE_WAIT_S", 0.01)
+    monkeypatch.setattr(sleep_drain, "OFFLINE_SETTLE_S", 0.001)
+    monkeypatch.setattr(sleep_drain, "CONNECTION_BACKOFF_S", (0.001, 0.001, 0.001))
 
 
 @pytest.fixture(autouse=True)

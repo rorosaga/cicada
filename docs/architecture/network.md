@@ -375,7 +375,7 @@ I think. But for some specific things if we can do api integration that is aweso
   tier) and the app's Mac readers. Every rail above is unchanged: the person's own signed-in session, Cicada never signs
   in on their behalf there, ticked or allowed sites only, the read limits, no backend scraping.
 - **Tier 2 — an official API for a specific high-value source where one exists.** Telegram first (47a); candidates
-  Notion, Readwise, Google, YouTube, Letterboxd (Spotify was one; it is export-only, see the table). "Cicada never signs in" is amended for this tier only: a
+  Notion, Google, YouTube, Letterboxd (Spotify was one; it is export-only, see the table). "Cicada never signs in" is amended for this tier only: a
   connection is an API client the person authorised, never a browser session, cookie or profile, and the backend still
   never fetches a login-walled page. The existing Reddit, X and Pinterest connectors (`api/services/connectors/`) are
   of this kind.
@@ -389,7 +389,7 @@ way. As applied on 2026-10-28:
 | Telegram | API (47a) | full chat history and live updates; no harness sees them |
 | Spotify | export only: the person's own "Extended streaming history" download (Spotify's privacy page), through G32's import; no API connector | Spotify's Developer Terms (v10, 15 May 2025) forbid it: §IV.2(b)(i) bars "using the Spotify Platform or any Spotify Content to train a machine learning or AI model or otherwise ingesting Spotify Content into a machine learning or AI model", and §IV.3(a) says "you may not store, aggregate or create compilations or databases of Spotify Content" and "Do not store Spotify Content indefinitely" — the bank is a lasting compilation that agents read, so the ToS rail rules the API out (2026-10-29). The download is the person's own data, given to them, not taken through the Spotify Platform. Capturing what is playing through the macOS harness waits on an owner ruling (G223) |
 | Notion | API | a workspace's pages as structured blocks; a harness sees one page at a time |
-| Readwise | API | highlights with their sources, complete |
+| Readwise | none (built on tier 2 2026-10-29, removed by owner direction 2026-11-03) | — |
 | Google | Calendar on the Mac reader; API only for what the Mac cannot read (Drive, Docs), on ask | the Mac already reads Calendar |
 | YouTube | harness (G71 browser history, Watch later through the agent) | the official API does not return watch history |
 | Letterboxd | harness, plus its public per-diary RSS through the feed gate | its API is granted by request; adopt it only if granted |
@@ -440,7 +440,7 @@ after Telegram. An adapter is a module in `ADAPTERS` with `TIER = 2`, so its Sou
   pages. Sleep's tail never runs a tier-2 sync.
 - **Errors** on the Sources row are the adapter's sentence or "<service> answered HTTP <status>" — never a URL, body or
   token (`sync_state.json` is in the bank and committed).
-- **Credentials** — `CICADA_READWISE_TOKEN`, `CICADA_NOTION_TOKEN` in `secrets.env` (0600); every connector secret (the
+- **Credentials** — `CICADA_READWISE_TOKEN`, `CICADA_NOTION_TOKEN`, `CICADA_GITHUB_TOKEN` in `secrets.env` (0600); every connector secret (the
   saved-content connectors' too) is in `connections.base.CONNECTOR_SECRET_ENV`, stripped from every engine child, so a
   model with tools never holds a key to the person's accounts. `CICADA_SECRET_ENV` (the master `CICADA_API_TOKEN`,
   the Telegram bot token and webhook secret) is stripped the same way, and the embedding worker and the PDF page
@@ -449,8 +449,24 @@ after Telegram. An adapter is a module in `ADAPTERS` with `TIER = 2`, so its Sou
 
 | Connector | Token | What is read | Terms |
 |---|---|---|---|
-| Readwise (`readwise.py`) | the person's access token, readwise.io/access_token (no read-only scope exists; only GETs are made) | `GET /api/v2/export/` (highlights with their books), `GET /api/v2/auth/` on Save | readwise.io/tos §8: "connect AI assistants and other tools to your content … through our APIs"; §3's scraper ban excepts the APIs |
 | Notion (`notion.py`) | an internal connection with Read content only, shared page by page; a personal access token is refused | `POST /v1/search` (pages, no query), `GET /v1/pages/{id}/markdown`, `GET /v1/data_sources/{id}` (a row's database title), `GET /v1/users/me` on Save; Notion-Version 2026-03-11 | developers.notion.com: internal connections are for "syncing data from external tools"; 180 requests a minute per connection outside Business plans, honoured through `Retry-After` |
+| GitHub (`github.py`, G230) | a token the person makes (fine-grained, read-only "Metadata", "Contents" and "Starring"; or classic with no scope for public repositories) | `GET /user` (on Save, and once a sync to tell its own repositories apart; the login is kept only as a hash), `GET /user/repos?affiliation=owner&sort=full_name` and `GET /user/starred` (the `star+json` type, for when each was starred), 50 a page — a real 100-row page measured 633,641 bytes, past the 512 KB rail, a starred row ~6.1 KB — ≤ 60 pages each (3,000 items); `GET /repos/{owner}/{name}` and `…/readme` only for one repository the person adds or opens | GitHub's REST API with the person's own token: 5,000 requests an hour; a 403 with `x-ratelimit-remaining: 0`, a `retry-after` or a message naming a rate limit (the secondary limit) is read as the rate limit it is, never as a refused token; it says the next sync reads the lists again from the start (it does: every sync reads them whole) |
+**GitHub's transport (G230).** GitHub is the one tier-2 adapter with its own live transport (`github.TRANSPORT`,
+picked up by `tier2.Client`): `https://api.github.com` only, every request through `net_guard`'s address rule, no
+redirect followed, no cookie kept, **4 s and ≤ 512 KB a response — the ToS rail's numbers, not the framework's 15 s**;
+a longer answer is a refusal in words, never a partial read. Only `GET`s; Cicada never writes to GitHub. What a request
+names is the person's own account endpoints and, for a repository's record or README, that repository's own
+`owner/name` sent to GitHub alone — GitHub's own identifier for its own record, never a lookup of a person.
+**A README is never read during a sync:** only when the person adds a repository (their click) or opens its page (the
+person's view, like a saved link's icon — so behind `CICADA_ALLOW_LOGO_FETCH`, the picture-and-preview gate), with the
+token when connected and none for a public repository (GitHub allows 60 requests an hour without one). The preview is
+kept outside every bank (`$CICADA_HOME/readmes/<bank>/<entity>.json`, 0600), read again when a week old, and
+**Disconnect forgets every README** with the token and the cursor; the pages and episodes stay, the person's to keep.
+The repository's page link (`https://github.com/<owner>/<name>`) is its trusted source with `kept_by: github`, so the
+source refresh never sends Cicada's own fetcher to github.com for it — the API's record is the re-check. The page's
+picture is the organisation's avatar (`avatars.githubusercontent.com`, through `media_preview`'s ToS rail) only when an
+organisation owns the repository; a personal account's avatar is never asked.
+
 **47a amended — one-to-one chats only, each with the other person's consent (owner, 2026-10-28).** Telegram's terms, read the same day: API Terms §1.5 — "you are prohibited from using, accessing or aggregating data obtained from the Telegram platform to train … or otherwise engage in the development, enhancement or deployment of artificial intelligence, machine learning models" — and telegram.org/tos/content-licensing, "Large Language Models and AI": "Telegram firmly prohibits the scraping, indexing, harvesting, aggregation or use of data obtained from its platform to train, fine-tune, validate or otherwise engage in the development, enhancement, benchmarking or deployment of artificial intelligence, machine learning models and similar technologies. Exceptions may be granted in instances where all relevant users individually provide explicit, informed, affirmative and continued consent that is strictly limited to the specific content and chat, channel, or non-global context window for which it was requested." Sleep reads a sitting with a model, so the owner chose "1:1 with consent": group chats and channels are never offered and the backend refuses them; ticking a one-to-one chat needs the person to confirm, per chat and in plain words, that the other person agreed — explicitly, knowing what it means, for that chat only — said to be the person's responsibility, which Cicada cannot verify; the confirmation is kept with its date outside every bank (`$CICADA_HOME/telegram/consents.json`, 0600, a chat id and a time); unticking withdraws it and stops the reading. **Revisit** if Telegram grants Cicada an exception or changes those terms.
 
 **How 47a is built.** `telegram_port` is the one seam to Telegram (plain values out, a fake in every test): Telethon v1
@@ -619,6 +635,10 @@ direct request, the same code**: nothing relay-side is imported or started (`tes
 - **the relay-only address** — a device paired over the relay with no direct address follows
   `https://home.relay.invalid` (RFC 2606: never resolves), so a direct try costs nothing.
 
+**Ruling 51f (owner, 2026-11-03) replaces "direct, then the relay" with an ordered route list, and makes the relay an
+Advanced option**; the next section is how requests travel now. What follows about the relay stays true when a person
+sets one.
+
 **What travels over the relay.** The home's link pushes each new HEAD as one `delta` to every device (`previous..HEAD`,
 with `seq`, `head` and `base` inside the ciphertext); a device keeps it until its follower asks for that base, so a copy
 catches up from the mailbox while the home is asleep. A device that stays away is **coalesced**: once four deltas wait
@@ -662,6 +682,134 @@ starts the group again: a new mailbox rooted in the taker's key, the same device
 signed take-over record; a device follows it only when that record verifies against the registry, outranks the record
 it holds and names the device whose relay key sent the notice.
 
+### The route list and the home-network door (ruling 51f, G132 phase 3b slice 1 — built; on while a memory is shared)
+
+Owner, 2026-11-03: *"yes i think we should copy t3 code … if we can make it all run nicely and for free awesome"*; no
+rented server, no cloud mailbox, no Tailscale requirement; *"we sync when a machine is on"*. The design is T3 Code's
+connection model (research: [`2026-11-03-sync-without-a-rented-relay.md`](../research/2026-11-03-sync-without-a-rented-relay.md) §12).
+
+**The route list (`sync_routes`).** Each device keeps an ordered list of routes to its home and uses the first that
+answers: `lan` (the home's door at a private address of this network) → `tailnet` (the door at its tailnet address,
+only when Tailscale already runs on both; never required) → `configured` (the address the person set — their
+`tailscale serve` or their own TLS proxy — phases 1–2's HTTP request with the device token) → `mapped`/`ipv6` (slice 2,
+not built) → `relay` (only if the person set one under Advanced) → **queue**. A route that did not answer is skipped for
+60 s and then tried first again, so an earlier route is re-checked every minute; on a network change — this computer's
+own addresses, read from the routing table every 5 s without a packet, or the app's word (`POST /sync/network`
+`{event: changed|returned}`, its path monitor and its return to the front) — every route is tried again at once, and
+the device moves back as soon as an earlier one answers. A LAN address that does not answer away from home costs one
+1 s connect, then nothing for a minute. With no door route known and no relay set, a request is phases 1–2's direct
+request exactly (`test_sync_transport.py`). `GET /sync/routes` shows the routes as kinds and states, never an address.
+
+**Learned routes; identity is the keys.** A door tells every device that reaches it where it is now (its first frame),
+and every device's own door is on its registry row (`door`: port, door key, LAN and tailnet addresses), so each device
+keeps the routes of every device that may become the home. The app's Bonjour finds the door on a new network (`POST
+/sync/discovered` `doors: [{host, port}]`), and the backend keeps a found door only after its own handshake proved it
+is the home's. Switching Wi-Fi never means pairing again: the device reaches the same home, by its keys, on another
+route, and fetches `cursor..HEAD` — only what it missed (`test_sync_door_three_machines.py`).
+
+**The door (`sync_door`, D3: "encryption and security above all").** One TCP listener a computer opens only while it
+shares a memory — it publishes its log, it is a copy, or a device is paired with it (a capture-only phone) — never for a
+demo, `CICADA_SYNC_DOOR=off` to keep it shut. It is **a sealed-frame endpoint only: never the HTTP API, never a token,
+never a bank path**. The backend's HTTP API still binds `127.0.0.1`.
+
+- **Who may connect.** T3 Code's rule, made exact: a connection on the loopback socket from loopback, on a private
+  socket from a private address, on a Tailscale socket from Tailscale's ranges; anything else is closed before a byte
+  is read.
+- **A tailnet is Tailscale's only when it is really there** (security re-checks of #586). `100.64.0.0/10` is also
+  carrier-grade NAT's shared space — a computer whose ISP uplink is CGNAT (common on 5G and satellite home lines)
+  holds an address there with no Tailscale at all — and a stray router advertisement on the LAN can make a computer
+  give itself an address in Tailscale's IPv6 range on its Wi-Fi. So an address counts as this computer's tailnet only
+  when both hold (`tailscale_addresses`): (1) **it sits on Tailscale's own interface** (`utun*` on a Mac, `tailscale*`
+  on Linux, read with the C library's `getifaddrs` — no process, no new dependency), which holds both a 100.64/10
+  address and one in `fd7a:115c:a1e0::/48`; (2) **its 100.x is not the default route's IPv4 source** — a carrier's
+  uplink is, Tailscale's is not, and no router advertisement changes IPv4 source selection. Anything else in those
+  ranges is public: never bound, never advertised, never a door its neighbours can reach (`test_sync_door.py`: CGNAT
+  alone, a stray router advertisement, Tailscale on `utun`/`tailscale0`, both, an exit node). Tailscale used as an exit
+  node, and a tailnet with IPv6 turned off, are not recognised — the accepted fail-safe; their devices still reach
+  the door on the LAN or the configured address.
+- **Where it listens: never a wildcard, never a public or global address** (security review of #586). It binds
+  loopback (`127.0.0.1`, `::1`) and each of this computer's own private (RFC 1918, IPv6 unique-local) and Tailscale
+  addresses (below), read from the routing table, one socket each; every 5 s it compares that list with what it holds,
+  binds a new network's address and closes a gone one. A server with a public IPv4 or a global IPv6 address never
+  listens on it, so "nothing on a device listens on a public port" holds; slice 2's switch is the only thing that may
+  ever amend that. `CICADA_SYNC_DOOR_HOST` names the addresses instead (a non-bindable one is ignored). The port is
+  chosen once and kept (`$CICADA_HOME/sync/door.json`, 0600, with the door's X25519 key).
+- **The handshake proves both ends and hides who connects.** The client's first packet is fixed-length: a fresh X25519
+  key, then — sealed under `DH(fresh, door key)` — its P-256 public key and its signature over the door key, the fresh
+  key and the time. The key must be a device of the group: its registered signing key (`sign_jwk`) or the key its
+  token is bound to (a phone's Secure-Enclave key). The door answers with its own fresh key and **its computer's device
+  key signature over the hello**, checked by the client against the registry's key for the device it meant to reach
+  (a stolen door key alone cannot pose as the home). Session keys come from both DH results and the transcript: forward
+  secret. Frames are `u32 length ‖ ChaCha20-Poly1305` with a counter nonce per direction; a replayed, dropped or
+  reordered frame fails and closes the connection.
+- **Unauthenticated first packets are dropped silently.** A hello that does not open, is more than 5 min old or new,
+  repeats a fresh key already seen, or names no device of the group is closed without one byte sent back. Over TCP a
+  scanner learns only that a port accepted a connection; it never learns what listens (the UDP door of slice 2's punch
+  would show nothing at all).
+- **Rate-limited.** Per source (an IPv4 address, an IPv6 /64) a bucket of 10 handshakes refilled one per 2 s (a failed one costs 3); at most 32
+  connections waiting for their hello (3 s each) and 128 sessions; a frame at most 513 KiB, a request body 32 MiB, an
+  idle session closes after 120 s.
+- **Small and fuzzed.** The parser is two fixed-length reads and one bounded length; `test_sync_door.py` feeds it random
+  bytes, truncations and single-bit flips (3,300 hellos, 500 replies) and checks it only ever drops.
+- **What it carries.** Requests run **in process** through the same routes a device token reaches
+  (`sync_inprocess`, shared with the relay link), as the device the handshake proved (`auth.RELAY_DEVICE_SCOPE`,
+  `auth.DOOR_DEVICE_SCOPE`): its row is looked up again per request (a revoke is a 401 at once, and the revoked
+  device's open sessions and watch are closed then and there; from then on its key is dropped at the door like a
+  stranger's, so over the door alone it sees its home as unreachable — the door never tells an unproven key anything), the master-only rules
+  hold, a capture-only phone reaches only `auth.CAPTURE_ROUTES`, and a write carries its `Idempotency-Key` into the
+  same `idempotency.run_once` — sent twice by two routes, applied once. A copy holds a watch on the door: the door
+  reads the home's `HEAD` every 0.5 s only while a device watches and tells it of each commit at once.
+- **Pairing in the same room.** Creating a capture pairing (`POST /devices/pairing`) opens the door and returns `door`
+  beside the unchanged QR v1: the home's device id and signing key, the door key, port and addresses, and a one-time
+  256-bit secret (ten minutes, one use) — the phone app's later QR v2. A device not yet in the group proves the secret
+  with an HMAC in its hello's last 32 bytes; that session may make exactly one request, `POST /pair` with the code,
+  redeemed capture-only and bound to the key its hello proved — only that pairing's own code (a secret never spends
+  another pairing's), the tag compared in constant time. The answer is the device's id — never a token.
+- **macOS.** Accepting connections needs no Local Network permission (TN3179); dialing a LAN address does, so a copy
+  dials a non-loopback LAN door only when the app reports the permission and the agent plist names the app
+  (`CICADA_SYNC_LAN_DIAL=on|off` overrides; Linux always may). Binding a LAN address raises the application
+  firewall's question (whether the backend may accept incoming connections) when the firewall is on, so **on a Mac the
+  door stays on loopback until the app reports its permissions step** (`lanAllowed` on `POST /sync/discovered` or
+  `POST /sync/network`), then binds its private and tailnet addresses — nothing asks the person anything unasked; the app's
+  first-share step (D4) covers Local Network and the firewall together.
+
+**The outbox never drops an unsent write (D1).** With no mailbox, a write that never reached the home waits however
+long and applies once when a route answers; only an entry the home may have seen (it answered, or a send's answer was
+lost) keeps the 7-day bound before the home's 8-day key, and one that lapses is listed with the rejected ones
+(`expired_may_have_landed`), never silently lost. Since nothing unsent expires, the outbox is bounded by 5,000
+entries and 256 MB: a write that does not fit is refused in words ("this device's queue for the home is full … Nothing
+that waits was dropped"; `queue_full` from the tool door, 507 from the route table), never queued in words and lost.
+
+**Which route was used** is one telemetry row (`sync_route`) when a device's route changes or it starts queueing, and
+once an hour per device and route at the door — `side`, `route`, `event`, `before` as enums only, never an address,
+host or port. It is how the share of homes that need slice 2 gets measured, not guessed.
+
+**Measured** (2026-11-03; loopback on this Mac, three backends and a phone-shaped client, synthetic data, the door
+reached through forwarders the test cuts; the 5 end-to-end runs beside a full gate run, nice 10):
+
+| What | Result |
+|---|---|
+| Door handshake (connect + both proofs), n=100 | p50 1.28 ms, p95 1.42 ms; a request on the session 0.2 ms |
+| A dead LAN route away from home | 1.0 s once (the connect timeout), then skipped for a minute |
+| A home commit reaches a copy over the door (watch → pack), n=25 | p50 384 ms; each run's first commit after the configured address is cut, 1.0–1.2 s (the copy moving its watch to the door) |
+| Network switch: the home found at another address → copy caught up, 5 missed commits, n=5 | 290–603 ms (p50 315); ~5.3 KB over the new route, every handshake and status read included, against a ~15.9 KB full copy |
+| Move back to the door after the app's word, n=5 | 0.8–1.8 s (p50 0.91 s; one request on the next commit) |
+| Phone-shaped client: a capture on the same network / three queued captures after the home answered on a new network, n=5 | 11–18 ms / 18–40 ms; each kept once, one re-sent after a lost answer |
+| Idle CPU per 120 s, a copy on the door's watch vs on the configured address's `/sync/events` (two alternating rounds) | home 0.39–0.46 s vs 0.50–0.83 s; copy 0.30–0.33 s vs 0.54–0.70 s — the door is cheaper idle |
+
+**The phone, for now a capture device** (owner 2026-11-03: *"for now, the phone i mainly want it as a way to capture,
+so wether im outside, same wifi or wherever, i can send stuff to the same queue to get digested"*). It runs the same
+route list with no copy and no follower: its captures go to the existing capture routes (`/capture/note`, `/capture/file`,
+`/sources/save`) with an `Idempotency-Key`, through the door, its capture-only token's scope applied in process; while
+the home is asleep they wait in its own outbox, never expiring, and land once on the next overlap — on the same Wi-Fi
+today, from anywhere once slice 2 makes the home reachable. `api/tests/_phone_like.py` is the reference client the phone
+app's later build implements (G91).
+
+**Slice 2, not built: reach away from home.** Behind "Reach my memory away from home" (off): the home maps the door's
+port on its router (PCP, NAT-PMP, UPnP-IGD) and uses IPv6 where inbound is allowed, and publishes its current address as
+a signed, encrypted record in the public Mainline DHT (re-published when the address changes, a TTL); the door admits a
+public peer only then. The plan, libraries and rails: [`docs/plans/2026-11-03-g132-routes.md`](../plans/2026-11-03-g132-routes.md).
+
 **Pairing over the relay** (Settings → Devices, the app's PR): `POST /devices/pairing/relay` issues a one-time code
 through `device_tokens` (ten minutes, single use) and the QR v2 `{v, code, relay, slot, home: {ed, x}}` (plus `url` when
 the home has a direct address), and opens the typed path's Argon2id slot too. The new computer posts the QR or the typed
@@ -679,7 +827,8 @@ daemon started by launchd"*, root, and Terminal/SSH tools, but *"The exception f
 launchd agents"*. The backend is a launchd agent (`com.cicada.backend`), so a Bonjour call from it would raise the
 Local Network alert on its own, under no app's name. So the app (which may ask, with its usage text) advertises and
 browses `_cicada._tcp` with the instance name `c-<hash>` — the first 80 bits of `sha256("cicada-lan-v1\0" + bank id)`,
-never a name, hostname or the bank id — and hands the backend what it resolved (`POST /sync/discovered`). An address is
+never a name, hostname or the bank id — and hands the backend what it resolved (`POST /sync/discovered`; since ruling 51f the advertised port is the door's, and a
+found door is checked by the door's own handshake). An `https` address is
 trusted only after the peer signs a fresh nonce the backend issued (`GET /sync/discovery` → the peer's open
 `GET /sync/hello`) with the device key the registry holds for it — no token is sent to it before that — and only an
 `https` address is kept (a token never crosses a LAN in the clear). The backend dials a verified LAN address only when
@@ -688,10 +837,10 @@ the app says the person allowed local network access **and** its launchd plist n
 passes its bundle id); otherwise the configured address and the relay carry everything. Off on a single-machine install:
 nothing is advertised and `/sync/hello` answers 404.
 
-**The bind.** The backend still binds `127.0.0.1` only; `GET /sync/transport` shows it in words, with where the person's
-other devices reach it (their tailnet's `tailscale serve`, or `CICADA_DEVICE_URL`). No LAN listener is built: one on
-the LAN address itself would serve the API over plain HTTP with no certificate a peer could check (Needs the owner:
-a self-signed certificate whose fingerprint the device key signs, pinned by the peer).
+**The bind.** The backend's HTTP API still binds `127.0.0.1` only; `GET /sync/transport` shows it in words, with where
+the person's other devices reach it (their tailnet's `tailscale serve`, or `CICADA_DEVICE_URL`). The HTTP API is never
+served on the LAN: #572's pinned-certificate HTTPS listener was not built — ruling 51f's door (above) is the one LAN
+listener, sealed frames only, no token.
 
 **Before any hosted relay goes live (pre-go-live, as far as code goes).** Creation is also capped per IPv6 /48 (an
 IPv4 /24): 20 an hour (`RELAY_CREATES_PER_48_PER_HOUR`), so one site handed 65,536 /64s is still one budget; a bank no

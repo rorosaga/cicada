@@ -119,7 +119,7 @@ final class BrowserWatcherTests: XCTestCase {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defaults = UserDefaults(suiteName: suite)
         defaults.removePersistentDomain(forName: suite)
-        store = Store()
+        store = Store.withActiveMemory()
     }
 
     override func tearDown() async throws {
@@ -220,6 +220,31 @@ final class BrowserWatcherTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(400))
         XCTAssertTrue(second.isEmpty, "an unchanged file must not be re-read on every launch")
         XCTAssertEqual(relaunched.state(for: "chrome-bookmarks"), .watching)
+        relaunched.stop()
+    }
+
+    /// 2026-11-03 (live): a launch whose browser file has not moved since the last sync reads nothing — correctly —
+    /// and the watcher now says when the browser itself last changed that file, so the page can say "up to date
+    /// with a file last changed five days ago" instead of a bare, healthy-looking "Last synced 5 days ago".
+    func testTheWatcherReportsWhenTheBrowserLastChangedItsFile() async throws {
+        turnOn()
+        try atomicallyReplace(with: "{}")
+        let fiveDaysAgo = Date().addingTimeInterval(-5 * 86_400)
+        try FileManager.default.setAttributes([.modificationDate: fiveDaysAgo], ofItemAtPath: bookmarks.path)
+        var synced: [String] = []
+        let watcher = makeWatcher { synced.append($0) }
+        watcher.start(store: store)
+        try await eventually("the catch-up sync") { watcher.state(for: "chrome-bookmarks") == .watching }
+        watcher.stop()
+
+        var second: [String] = []
+        let relaunched = makeWatcher { second.append($0) }
+        relaunched.start(store: store)
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertTrue(second.isEmpty, "the file has not moved since the last sync: nothing to read")
+        let changed = try XCTUnwrap(relaunched.browserChanged(for: "chrome-bookmarks"))
+        XCTAssertEqual(changed.timeIntervalSince1970, fiveDaysAgo.timeIntervalSince1970, accuracy: 1)
+        XCTAssertNil(relaunched.browserChanged(for: "safari-bookmarks"), "not a channel this watcher reads")
         relaunched.stop()
     }
 
@@ -397,5 +422,19 @@ final class BrowserWatcherTests: XCTestCase {
         XCTAssertNil(defaults.data(forKey: BrowserWatcher.signatureKey("chrome-bookmarks", bank: "default")),
                      "no signature: the next change re-reads")
         watcher.stop()
+    }
+}
+
+extension Store {
+    /// A Store whose roster names its active memory, as the app's is once `hydrate()` has read it. The bookmark watch
+    /// reads nothing before then (2026-11-03, `BrowserWatcher.catchUp`), so a test of what it reads starts here.
+    @MainActor
+    static func withActiveMemory(_ name: String = "default") -> Store {
+        let store = Store()
+        store.banks.value = BanksResponse(banks: [MemoryBank(name: name, active: true, entityCount: 0, episodeCount: 0,
+                                                             createdAt: "2026-10-01", description: nil)],
+                                          active: name)
+        store.bank = name
+        return store
     }
 }

@@ -274,6 +274,9 @@ async def _forward(scope, receive, send, *, queue: bool) -> None:
     else:
         status, answer = await asyncio.to_thread(replica.send, entry)
         verdict = tx_outbox.verdict(entry, status, answer)
+    if verdict == "full":
+        await _json(send, 507, {"code": "queue_full", "detail": (answer or {}).get("text") or tx_outbox.full_text()})
+        return
     if status is None or (queue and verdict not in ("landed", "rejected", "drop")):
         if queue:
             await _json(send, 202, {"status": "queued", "code": "queued", "detail": QUEUED_TEXT, "id": entry["id"]})

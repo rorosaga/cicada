@@ -22,6 +22,8 @@ from api.services import bank_registry, demo_guard, sleep_cycle
 #: with a concrete path to call (R-CS15).
 GATED = {
     ("POST", "/sources/save"): "/sources/save",
+    ("POST", "/sources/github/repos"): "/sources/github/repos",             # G230: the person adds a repository
+    ("POST", "/sources/github/repos/project"): "/sources/github/repos/project",   # G230: a repository as a project
     ("POST", "/sources/saved-why"): "/sources/saved-why",
     ("PUT", "/sources/saved-why"): "/sources/saved-why",          # G191 v3: the person's edit of one answer
     ("POST", "/sources/bookmarks/remove"): "/sources/bookmarks/remove",   # G191 v3: Remove on a bookmark's page
@@ -82,6 +84,8 @@ GATED = {
     # Ruling 43: an agent's own memory notes, posted by its hook, and their switch.
     ("POST", "/capture/agent-memory"): "/capture/agent-memory",
     ("PUT", "/capture/agent-memory/settings"): "/capture/agent-memory/settings",
+    # G229: the app's readers' catch-up — in memory, but no reader reads into a demo bank, so none catches up there.
+    ("PUT", "/sources/catch-up"): "/sources/catch-up",
     # G166: "Add to your graph" writes a skill page into the bank.
     ("POST", "/agent-methods/skills/{skill}/page"): "/agent-methods/skills/browser-harness/page",
 }

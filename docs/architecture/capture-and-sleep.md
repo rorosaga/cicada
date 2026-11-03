@@ -16,6 +16,11 @@ Seven rails hold across all of them:
 
 - **The app reads `~/Library`, the backend parses bytes.** The launchd backend has no Full Disk
   Access and must never open those paths itself. An unreadable file shows the exact fix in the app.
+  **So the app has a sync to do when it opens after being closed (G229, 2026-11-03):** a harness's own hook kept
+  capturing meanwhile, the app's readers did not. The app says what its readers are doing (`PUT /sources/catch-up`,
+  `reader_catch_up`, in memory) and every client reads it on `GET /devices/status` as each machine's `catchUp`, with
+  what came in while the app was closed and since it opened counted from the bank (`api.md`, `app.md`). It writes
+  nothing into a bank and reads no path.
   Apple Notes is the same: the app runs the AppleScript as its own child `osascript`
   (`AppleNotesReader`, `NSAppleEventsUsageDescription`) and posts the dump to `POST /sources/sync-notes`,
   which 422s without one — run from the launchd backend, macOS asked whether "python3.12" may control Notes.
@@ -37,6 +42,19 @@ Seven rails hold across all of them:
   Safari's excerpt, and a sync reads recently saved first and stamps Reading List / Favorites
   counts as the channel's `parts`. Safari's excerpt is scrubbed, capped at 500 characters and used
   only when the page gave no description of its own.
+  **Where Safari keeps them (checked on macOS 27.2, 2026-11-03).** One file: `~/Library/Safari/Bookmarks.plist`
+  holds every bookmark and the Reading List, for every Safari profile (Apple: profiles separate history, website
+  data, extensions and Tab Groups; bookmarks and Favorites are available to all of them). It is written by Safari
+  and — Safari open or not — by iCloud's own Safari sync, `SafariBookmarksSyncAgent`, a launch agent that runs
+  without Safari, receives iCloud's push for another device's change and merges it into that file (its sandbox
+  profile, embedded in the binary, grants it `~/Library/Safari/Bookmarks.plist` and Safari's lock, and its own log
+  strings start a bookmark sync "in response to a push notification"). In Safari's container, `SafariTabs.db` holds Tab Groups and their tabs (its `bookmarks` table is
+  the tab tree, not bookmarks) and `CloudTabs.db` other devices' open tabs. So the app reads the one file, and a
+  bookmark saved on another device reaches Cicada exactly when iCloud has merged it there; a file that has not
+  moved has nothing new. The live case that settled it: Safari's file unchanged for five days, Safari.app not run
+  on that Mac in that time, and the sync agent's one bookmark-container check in its retained log window finding
+  only a settings change — nothing new had reached that Mac to read. The page now says what "up to date" is
+  measured against (`BrowserFreshness`, `app.md`), and a launch reads nothing until the active memory is known.
 - **Ask why at the moment of saving (G191).** A bookmark sync reports what it newly saved: each source's
   `first_sync` (no seen-set before this pass) and `fresh` / `fresh_total` — the bookmarks that got a `url_index` row
   this pass (at most `FRESH_CAP` = 3 listed), each with its episode and `added_at`, the browser's own instant (aware
@@ -188,8 +206,9 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   and the identical rendered text at its old offset — and remapped to wherever it sits now; a reply that slid onto an
   old offset never inherits another's. **The G104
   costs the ruling accepted, stated plainly:** (1) while an over-cap session is active, every Stop with a new turn
-  changes the body and re-queues the episode for a whole-body re-extraction — no `metadata` short-cut, unlike the
-  head-only cap it replaced; (2) when the tail slides, a claim quoting a turn that slid out is re-extracted as
+  changes the body and re-queues the episode — no `metadata` short-cut, unlike the head-only cap it replaced (since
+  2026-11-03 Sleep reads it as a revision: only the changed tail with its context, `episode_revision`, and a
+  transcript's slid-out turns close nothing); (2) when the tail slides, a claim quoting a turn that slid out is re-extracted as
   `reasoning`, and an existing span into the old tail (or into the 60–100k region, once the cap is first crossed)
   reads `stale` — the claim is still written; (3) more `body_revision` mismatches between Sleep's read and its
   retirement while the session runs; (4) the person's words in the dropped middle leave the bank (they are disclosed
@@ -307,7 +326,14 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   fails for any module that mints an episode id without it. `api/services/episode_staging.py` is the
   G20 stager they share: an `EpisodeDraft` keyed by `source_id`, the hash over the scrubbed body, an
   edit rewritten in place with `processed: false`, a rename kept by content hash, a deletion
-  tombstoned (`source_deleted_at`) and never unlinked. A multi-turn source records G118's per-turn
+  tombstoned (`source_deleted_at`) and never unlinked. **An edit in place says it is one** (owner 2026-11-03: "re-ingested
+  items are updates, not new"; G95): `update_in_place` writes `revised: {count, at, previous_hash, consolidated_hash?}`
+  (`episode_staging.REVISED_KEY`, `revision_record`) — the number of body edits so far, when the latest landed, the
+  `content_hash` of the body it replaced, and the `content_hash` of the last body that was consolidated (processed by
+  Sleep or an agent, never by a parser or the index), kept through later edits until Sleep reads the episode again and
+  absent while no revision was ever consolidated. It is what Sleep reads to treat a re-queued episode as a newer
+  revision of what it already filed; the earlier body is in git. A new episode, a metadata-only refresh, a re-date, a
+  rename and a tombstone write none. A multi-turn source records G118's per-turn
   sidecar `turns: [{offset, ts, speaker, model?, effort?}, …]` (R-PB4: an entry only for a turn with
   a time, the last key, outside `content_hash`, capped head-stable at 500; `model`/`effort` only on
   an agent turn (round 4 C1)) — the one shape `evidence.turn_stamps`
@@ -398,16 +424,11 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   and while reading), part zips one level down only (256 MB each, a zip inside a part never opened); everything left
   out is a preview warning. A second import of the same zip skips everything (the stager's hash); an edited page
   updates in place. A page missing from a later export is never tombstoned — an export can be one page's.
-  **Ruling 47 tier 2 — Readwise and Notion live (`connectors/tier2.py`, 2026-10-29).** A connected source's sync stages
+  **Ruling 47 tier 2 — Notion live (`connectors/tier2.py`, 2026-10-29; Readwise, built beside it, was removed by owner direction 2026-11-03 — its origin still scrubs and draws its mark for a bank's earlier episodes).** A connected source's sync stages
   through `episode_staging` like every capture (no model, scrubbed, `connector: <id>` in the frontmatter) and commits
   only its paths as `user` (trigger `capture/<id>`), the staging and commit as one admitted transaction: while Sleep
   holds the pages it is refused, nothing is written and the cursor stays, so the next sync fetches the same items. The
-  scheduled sync runs on the backend's scheduler (every 6 h), never in Sleep's tail. *Readwise:* `readwise:<book>:doc`
-  (title, author, kind, source link, the person's document note as `user:`) and `readwise:<book>:<UTC day>` (that day's
-  highlights, each `attachment [<title>]:` with its lines quoted — `page` evidence — and the person's note on it as
-  `user:`), dated when highlighted (read on time); an edit or deletion rewrites or tombstones that day in place; a
-  deleted book tombstones all its units; `media_entity_id` names an existing page only on the same saved URL or a
-  unique exact title (never a person page, never a page made). *Notion:* a shared page is `notion:<id>` — the export's
+  scheduled sync runs on the backend's scheduler (every 6 h), never in Sleep's tail. *Notion:* a shared page is `notion:<id>` — the export's
   key, so the live read rewrites an exported page in place — split by H2 like the export, dated when created, a row
   with its database's title and properties; trash tombstones; unsharing keeps the page as it was (origin
   `notion-api`). A page is the person's words only when Notion names the connection's owner and that user created
@@ -415,6 +436,25 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   (`assistant` or an export's `*_by_other`) is never moved back to `user` by any later tier-2 read. The first sync
   walks the whole history (Notion's own cursor, 150 pages a sync, "Reading your shared pages: N so far"); the
   high-water mark moves only when nothing older is left.
+  **GitHub (G230, `connectors/github.py` + `github_repos`).** Every sync reads both lists whole (no cursor; GitHub's
+  numeric repository id is the key, so a rename or a transfer keeps its page). *A repository the person owns* is
+  `github:owned:<id>` (origin `github-owned`): its name, description, language, topics and visibility, staged and
+  **index-only** (`history_index.LIST_ORIGINS`, ruling 30's posture — a record GitHub keeps, never the person's words,
+  never a model read, never a mention), dated when the repository was created. It makes **no page**: it is offered on
+  the Sources row (ruling 36 D4 / 45 — a project is born only from the hook, the person's words or the person's act).
+  One gone from a list read whole is tombstoned and kept; a list cut short at 60 pages (3,000 items) tombstones nothing.
+  *A repository the person starred* is a save, like a bookmark: one `media` page (`media.kind: repository`) and one
+  index-only save episode (origin `github-starred`) through `media_ingestor`'s write path, dated when it was starred; a
+  github.com link already saved (a bookmark of it) becomes that page rather than a second one. The page and its
+  episode are written in the same admitted transaction and commit as the episodes (`tier2.Batch.after`). A later sync
+  rewrites the page's `github:` block only when GitHub's record changed (never for a star count or a push), and a
+  repository no longer starred keeps its page with `starred: false` and the day it was seen gone, said on the row in
+  words ("N repositories are no longer starred on GitHub; their pages stay"). Nothing a sync does deletes a page or an
+  episode, and a sync never brings one back: a page the person merged away is followed to the page it became
+  (`page_redirects`; a `media` winner is updated, any other kind left alone), and one removed with no redirect stays
+  gone — only the person's own add makes it again. *A repository the person adds* by its link (`POST /sources/github/repos`, origin `github-added`) is a save
+  they made on purpose: its episode is read by Sleep like any single link they save. Pages are quiet until mentioned
+  (`quiet_pages`: import evidence only).
   Chrome's open tab groups (round 4, G160 first slice): the app reads the default profile's
   `Sessions/Session_<n>` (SNSS; only a clear version-3 file carrying its initial-state marker, never `Tabs_*`, never
   the encrypted directory; commands 25/27 and each member tab's current navigation — never the page state after its
@@ -507,6 +547,45 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   gains their link and facts then, and nothing is ever said about anyone without one. Nothing is fetched: the link is
   where to look the person up; the profile-photo rung may use it only once the person takes the source (its own
   off-by-default gate, `person_photo`, unchanged).
+- **Meeting transcripts — Hex, any recorder's folder (G95, owner ruling 2026-11-03: "Meetings ofc should also be
+  consolidated in memory").** A meeting folder is a watched folder of `kind: meetings` (`folder_source.register(kind=,
+  recorder=)`; set on the first add, never flipped — a folder added before G95 has no `kind` and is notes
+  (`kind_of`), and adding an already-watched folder as the other kind is a 409 with its words, `KIND_REFUSAL`, nothing
+  written): the app holds the bookmark, watches it and posts the bytes of changed
+  files to the same `POST /sources/folders/{id}/sync` with the Mac's IANA zone (`tzName`; a name this machine cannot read, a directory such as `America` included, is
+  this machine's zone instead); the backend never opens it.
+  It anchors no project, has no papers step and no authorship rules, and syncs as its own channel, `meetings:<id>`
+  (`channel_for`, `folder_id_of`; a notes folder stays `folder:<id>`). `meeting_transcripts` is the one parser: **one
+  episode per file** through the stager (`source_id` `meetings:<folder>:<relpath>` — an edited transcript is rewritten
+  in place and re-queued, a rename keeps the episode by content hash, a deletion is tombstoned), `queue_for_sleep` like
+  any conversation — unlike a recording the person adds as a media file (`media_files`, never read by Sleep). Dated by
+  the meeting's own start (ruling 39): the file name's `YYYY-MM-DD HHMM` (Hex's), else a `Date:` line, read as wall time
+  in the posted zone, else the file's time; a day with no time is the file's own time when that falls on the same day,
+  else that day's midday (never its midnight, which a reader in another zone shows as the day before); the id day is
+  the meeting's local day (ruling 34); each turn's `ts` is the start plus its offset when the start is stated to the
+  minute, else the offset alone. Formats, read by content: **Hex** (anoma.ly/hex, MIT; `<YYYY-MM-DD HHMM> <title>.md` in the
+  Hex meetings folder — the app resolves it from Hex's own `meetings.output_folder` setting, that one key of Hex's
+  settings file, else Hex's default under Documents; the file is never renamed, so its relpath keys the meeting) — `# title`, `- **Date:**` / `- **Duration:**` /
+  `- **Attendees:**` bullets, an optional `<!-- hex:notes -->` summary block with its writer's footer, `## Transcript`
+  with `**You** · 00:00` / `**Them** · 00:05` headers (the older `**[mm:ss] You:** text` too); a Hex folder excludes
+  Hex's `audio/**` bundle (WAVs, `manifest.json`, duplicate and translated transcripts). **WebVTT / SRT** (a `<v Name>`
+  voice or a `Name:` prefix; same-speaker cues merge), **JSON** segments (Whisper / WhisperX `segments`, `utterances`,
+  ndjson; `speaker`/`source`, `start` or `*_ms`), and **text** (`Name: words` only in a file where several lines say so,
+  `[00:01:02] Name:`, `Name (00:01:02):`, `**Name:**`, Otter's `Name  0:00` header over its words). A file holding no
+  transcript (`manifest.json`) is the sync error "not a meeting transcript", never an episode. **Whose words (TODO
+  ruling 52a, decided 2026-11-03):** a line the recorder labels `You` (Hex's microphone track) or `Me` (the same
+  convention elsewhere) is a `user:` line — the person's own words, an exchange for promotion; every other utterance is
+  `speaker:<label>:` (evidence kind `speaker`, G134's seam; Hex's `Them` is `speaker:them`), a line with no speaker
+  `speaker:unknown`, and the recorder's model-written summary an `assistant:` line — never the person's, never an
+  exchange. Every line of the summary is quoted (`> `, `meeting_transcripts.summary_text`, the chat importer's
+  attachment convention), so a summary line reading `User: …` or `speaker:x: …` never opens a turn. No name is ever guessed to be the person; nothing is unmarked, so R4 never credits the person with an
+  unlabelled line, and no `evidence_kind` is declared. The episode's `meeting` record (`recorder`, `format`, `speakers`,
+  `own_labels`, `duration_s`, `summary_writer`, `attendees` — a calendar's invitees as the file lists them, never G179's
+  `participants` rows) reaches Stage 1 (`sleep_cycle` passes it), whose `meeting_note` says which lines are the
+  person's, that `speaker:` lines are someone else's, and that the summary is the recorder's; `consent: unknown` (G95's
+  rail). An edited transcript carries the stager's `revised` record (above), so Sleep reads it as a revision. Wispr Flow's meetings stay
+  on their own reader (above), now under the same Sources section; their summary and notes blocks are quoted through the
+  same `summary_text` (#579 review, 2026-11-03), so a model line reading `User: …` opens no turn there either.
 - **Messages conversations the person ticks (G179, 2026-10-15).** The app lists `chat.db`'s 200 most recent chats for
   the Settings picker (names, last activity, per-side counts — `MessagesReader.conversations`; a ticked chat below that
   cap is appended so it can be unticked). **Group chats (2026-10-28):** `chat.style` 43 is listed too, with its
@@ -631,6 +710,36 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   chat source's). The Sources list serves one row per chat for WhatsApp and Telegram too (`channel_items`). Measured on fixtures (2026-10-28): file change → posted,
   the app's read of a 20,000-row store plus the post, p95 9 ms over 20 (`WhatsAppReaderTests`); the backend's stage
   into a chat of 40 sittings, p95 11 ms over 30 (`test_chat_live`) — the 3 s debounce dominates.
+  **What "up to date" means (2026-11-03, live).** The owner asked whether WhatsApp was still syncing: its row said
+  "synced" four days back while Messages and Telegram said today. Read on a read-only copy of the live store (counts,
+  ids and times only): one chat ticked (the person's own), 24 messages, its newest 6 days old and exactly the cursor;
+  0 rows past it, 0 in the 48 h window; the 1,670 messages since were all in 43 unticked chats. The last post was the
+  window's re-read of that newest message, 7 s before it left the 48 h window — so the reader was running and nothing
+  new existed to read. The gap was in the words: a pass posts only rows it found, so the backend's `last_sync` is the
+  last pass that posted (or re-posted inside the window), never the last check, and it is the same for Messages
+  (`imessage`, posts only a pass with rows) and Telegram (`record_sync` only on a flush with messages). The app's two
+  readers on this Mac now keep their last successful pass and the newest message in the ticked chats as their app's
+  own store lists it (`ChatCheck`: `WhatsAppWatcher.check`, `MessagesWatcher.check`; in memory, cleared on a bank
+  switch and when nothing is ticked), and the source page says "Connected · checked 2 min. ago · newest message
+  Friday" (`SourcePageStatus.checked`, DR-58) in place of "last item <day>"; the Sources list's row counts the check
+  as its last sync (`SourceCatalog.rows(checked:)`), and "What Cicada reads" adds when it reads and that a phone's
+  message arrives once the app on this Mac has it. A reader that stopped now shows as an old "checked", not as a quiet
+  chat. Telegram is the backend's own listener (push, `listening` in its status), so it has no pass to report; its
+  page keeps "last item <day>". The backend's `last_sync` keeps its meaning (other readers and agents read it).
+  **The reader heard its own copy (found verifying the above).** A pass clones `ChatStorage.sqlite` and its `-wal`
+  (`FileManager.copyItem`, an APFS clone), and cloning a file raises an FSEvent on the source — `ItemCloned`, whose
+  flags can also carry the file's recent `Modified`/`Created` history (measured 2026-11-03), so flags cannot tell it
+  from a write. Every pass therefore ran the next one at the 15 s floor, forever, cloning the store and re-posting the
+  48 h window each time: the scratch app posted 50 times in about 15 minutes with one message written, and a unit test
+  on a real stream counted 30 posts in 3 s at a zero floor. (So the owner's `last_sync` kept moving for 48 h after the
+  newest message, then stopped: consistent with the loop, and with nothing new.) A change event now runs a pass only
+  when the store's or the `-wal`'s size or modification time moved since the last pass began
+  (`WhatsAppReader.signature`; `WhatsAppReaderTests.testThePassesOwnCopyNeverRunsTheNextPass`: 1 post, then none until
+  a write, which is read). Two edges (#578 review): a write that lands during a pass joins that pass's run, so when a
+  pass ends with the signature moved since it began it runs once more (`testAWriteDuringAPassIsReadWhenThePassEnds`);
+  a pass that failed (a refused post, the backend down) clears the signature, so the next change event retries it at
+  the debounce and floor (`testAFailedPassIsRetriedOnTheNextEvent`). Messages opens `chat.db` in place and clones only the nickname store, at most hourly per
+  chat, so it never looped; Telegram has no file watch.
 - **Telegram chats the person ticks (ruling 47a and its amendment, 2026-10-28).** The backend's own client
   (`telegram_account`, `telegram_port`, network.md) listens while the person is connected; events wait in memory for
   1 s and are then staged per chat in the active bank (never the demo bank), under write admission, one `capture`
@@ -1207,6 +1316,62 @@ or `updated` write queues anything. A job held back by Sleep, a re-embed or the 
    with the conversations it came from (see *A skill page carries its conversations*).
 5. **Nudge generation, clarification queue & versioning** — snapshot, git commit.
 
+**An edited conversation is read as a revision of itself (G104, owner 2026-11-03).** Many sources re-stage an episode
+Sleep already consolidated — an edited note or meeting transcript, a chat whose 48 h window is re-posted, a re-imported
+export upgrading in place, a resumed session — and `episode_staging` rewrites it in place with `processed: false`.
+Measured before this (scratch bank, Claude plan at haiku, four synthetic notes consolidated then edited in place): the
+second Sleep re-read all four whole (8 calls, 42,142 input tokens); every one of 10 spans into the four read `stale`
+and 5 claims gained a second span beside it; the removed line's claim stayed open; the whitespace-only edit asked a
+conflict question ("MIT" vs "MIT license"); four names said once in unchanged lines got pages (the link rung, with a
+page now existing); the page prose kept the old fact beside the new. `episode_revision` makes the edit a revision:
+- **The version last consolidated is git's.** The stager's edit-in-place record (`revised: {count, at,
+  previous_hash, consolidated_hash?}`, `episode_staging`, G95) names it: the committed version whose `content_hash` is
+  `consolidated_hash` (consolidated by Sleep or an agent). Sleep refreshes `consolidated_hash` to the body it retires
+  (`episode_revision.mark_consolidated`, under `episode_lock` in `_mark_episodes_processed`) and never starts a record
+  on an episode that was never edited. With no record (a transcript, a writer that does not stage) the prior is the
+  version committed `processed: true, processed_by: sleep`. Each loaded batch's waiting episodes are read at the bank's
+  `HEAD` in one `git cat-file --batch` (no capture writer commits by default, so `HEAD` holds it until Sleep's next
+  commit); with the capture log published (G132 51e) the file's own history is walked, at most 20 commits. A parser's
+  version (`processed_by: parser`) is never a prior. No git, or no such version: read whole, as before. Reads only.
+- **The diff is by line, on the words** (`difflib`, whitespace ignored): `changed` ranges in the new body, `removed`
+  ranges in the read one. Only whitespace moved is a **no-op**: no engine call, the spans re-anchored, the episode
+  retired. A pure removal also reads nothing.
+- **Stage 1 reads what changed** (`windows`): each changed range with 2 unchanged lines after it and at least 2 lines and 4,000 characters before it, merged; past 60%
+  of the body the whole body. Each window carries `REVISION_NOTE` ("this conversation was edited after it was read…").
+  Evidence is still located against the whole stored body. Of the answer, a relationship or value located only in
+  unchanged text, and a name said only there, are the first read's and dropped (`keep_changed`): a re-read is never a
+  second chance at promotion. One with no locatable span is kept — provenance never blocks memory.
+- **Stage 3, before the reconciler** (`reanchor`): every span into a revised episode minted on the read version (its
+  hash, or a grown prefix of it) is located again in the matching lines of the new body — exact, whitespace,
+  case-insensitive, never fuzzy — and takes the new offsets and hash. An open claim whose only support is spans the
+  new body no longer holds is marked; never one another conversation also says, the person's own (`is_human`), an
+  agent's write (`recorded_ts`), an event, a record, one with a `reasoning` entry or a span on an older body for that
+  episode, nor anything in a transcript (`capture_kind: transcript` drops old turns by its session cap, not by
+  revision).
+- **The same source revising itself is not a conflict** (`claim_reconciler._place_claim`, `revised`): a new value read
+  from that same episode closes a marked claim on its slot (`superseded_by`, the owner's-words rail `may_close` still
+  holding) — no question. A value from any OTHER conversation meets the trust table as before: a later conversation
+  saying something different is an update or a conflict, which is how memory evolves.
+- **After the reconciler** (`settle`): a marked claim stays open when another conversation read in the same batch now
+  supports it (its evidence or `source_episodes` cite another episode — an unsent message splitting a Messages sitting
+  does this), or when the revision said it again: Stage 3 reports every marked claim it reinforced from that revision
+  (`revision_restated`), whatever the evidence kind — an unlocatable quote arrives as `reasoning`, which `_reinforce`
+  drops for a conversation the claim already cites (R8), and is still a restatement (provenance never blocks memory). A
+  restated claim with a located new span keeps only that span. Every other is withdrawn by a born-closed `retracts`
+  record (`authored_by: cicada`, reason "The conversation this came from was edited and no longer says it.", evidence
+  `reasoning` on the episode with the revision's body hash) — never deleted.
+- **The same conversation.** The episode keeps its id, so the 2+ conversations rule, promotion and decay credit count
+  it once; `processed_by` stays `sleep`. A revision Stage 1 failed to read stays queued with its claims untouched.
+  The claim pipeline logs the counts (spans re-anchored, no longer in the text, replaced, withdrawn).
+- **Measured after** (the same four notes, Claude plan at haiku): the second Sleep made 5 calls, 22,927 input tokens
+  (extraction ran for the two edits with new words only), 0 questions, 0 pages, 5 spans re-anchored, 1 claim withdrawn
+  (the removed line), 0 duplicated spans. `test_episode_revision_sleep.py` pins the four cases on the engine seam
+  (2 extraction calls, the changed value superseded with no question).
+- **Left (G104):** the page prose (Key Facts, History, Summary) still carries what the removed text said — claims are
+  corrected, prose is not regenerated from them; `section_provenance` items into a revised episode keep the old hash;
+  claims held in the pending store for page-less names keep their old spans; a transcript's replaced reply (Cursor's
+  final reply for a generation) closes nothing.
+
 **A title is never joined on the name alone when it could be two things (G227, 2026-10-29).** Stage 2's exact-title
 join used to take whichever page held the name (one per title in `existing_by_name`, last writer wins), whatever its
 kind: a program said where only an IDE had the name landed on the IDE's page. Now an exact title joins only the one page
@@ -1651,8 +1816,8 @@ reads in a mixed batch. Once doomed, the batch starts no further Stage-1 calls; 
 The sidecar persists timeout observations by episode across Continue and process restarts. Each previously
 observed id that times out again can receive its second conversation attempt and be parked (`timed_out`), even
 when multiple ids time out together or the batch has no healthy neighbor. A newly affected id still pauses first;
-its discarded leg retains observations but charges no content attempt. Connection loss always pauses and never
-charges a timeout/content attempt.
+its discarded leg retains observations but charges no content attempt. Connection loss never charges a timeout/content
+attempt; it waits for the network within the run before it pauses (below, 2026-11-03).
 An unnamed `EngineFailed` during extraction is content `other` only when another conversation was read in the
 same batch. It then gets the normal next-batch retry-then-park without discarding healthy reads. A lone retry
 may use already-filed work in this run plus its existing attempt as that evidence. When nothing was read and
@@ -1685,6 +1850,35 @@ available in Details, while the page speaks provider-neutral pause/fix copy.
 Routing-discovery authorization/account errors and the reading engine's authentication/login and low-credit
 diagnoses are explicitly non-transient. Failed-turn warning events only inform connectivity detection, not model,
 auth or quota matching; a timeout stays a timeout despite an unrelated unsupported-config warning.
+**The network left — the Mac asleep, offline, a request that timed out (G163, 2026-11-03).** Live case: a scheduled
+run on a laptop, the lid closed mid-read for about three hours; on wake all four `claude -p` calls answered
+`terminal_reason: api_error`, no status, "Request timed out" while the network was not back yet, and the run stopped as
+`engine/needs_fix` ("Run `claude auth status`…"), badged the four conversations *could not be read* and drew Sort as the
+failed stage. Now: (1) the transport's own timeouts ("request timed out", "connection timed out", "socket hang up",
+`ECONNABORTED`, undici's connect timeout…) are `EngineConnectionLost`. (2) `machine_state` reads two local signals and
+sends nothing: `has_route()` (a UDP `connect` to a documentation address asks the kernel for a route — no packet, no DNS;
+`ENETUNREACH` means offline) and `slept_s(mark)` (a clock that counts sleep minus one that does not:
+`CLOCK_MONOTONIC − CLOCK_UPTIME_RAW` on macOS, `CLOCK_BOOTTIME − CLOCK_MONOTONIC` on Linux; never the wall clock).
+(3) `sleep_drain.offline_cause` sorts a failed call into `asleep` (it overlapped ≥ 30 s of machine sleep), `no_network`
+(no route) or `connection` (a transport failure with a route); a sign-in, plan limit or refused model is never offline,
+and an unnamed failure counts only with the machine's own evidence (asleep or no route). A pause-class stop met in the
+same batch — the plan breaker, a sign-out, a refused model — outranks an offline one whichever came first, so a plan
+limit keeps its `resets_at` (ruling 15 arms on it); the offline ids stay requeued. Stage 1's hook marks each read's
+start; a later stage's escaped error is checked against the batch's start, only while nothing is on disk
+(`write_started` false). (4) An offline failure is `engine_failed` (never `could not be read`, no attempt or timeout
+charged) and dooms the batch before its first write; the drain then **waits in the same run** (`_wait_for_network`):
+with no route it polls every 5 s up to 10 min, settles 15 s and reads the same batch again under its own number; with
+a route and a dropping connection it backs off 30 s / 2 min / 5 min. Waits count in `asyncio.sleep` steps, whose clock
+stops while the machine sleeps, so a closed lid spends none of the bound. At most 3 waits in a row (a committed batch
+resets the count); the person's Pause is honoured on every poll; the write window is shut and no engine is called while
+it waits; the engine resolved at the start is the one it reads with again (ruling 4). It is not ruling 15's
+continue-after-reset — no plan limit is involved and nothing is armed past the run. While waiting the drain's wire
+carries `waiting: asleep | no_network | connection` (status and SSE). (5) A network that never comes back pauses as
+reason `engine`, `engine_kind: offline`, no `error`, with a sentence about the network ("This computer was asleep and
+the network was not back yet… Continue once it is online"; "computer", since the backend also runs headless), and the
+record's `offline_cause` (`asleep | no_network | connection`, on the wire too) says which; Past reads records the pause
+as `offline`, or `connection` for a dropping connection with a network present. (6) `SleepState.stage` (stages completed) moves to 1 only after Stage 1's
+total-failure checks, so a Stage 1 that failed draws Read as the failed stage, never Sort.
 An id another writer marked processed meanwhile is `skipped`, and a bank switch between batches stops the run (`bank_switched`; `activate`, `demo`,
 `leave-demo` and the active bank's rename answer **409** while `SleepState.drain_run`). **A scheduled cycle drains too**
 (ruling 16: both scheduler entry points pass `drain=True`) but with `user_triggered=False`, so automatic engine
@@ -1910,6 +2104,9 @@ entries, or two relationships in the conversation (the prompt defines confidence
 summary and for every relationship); "an explicit link" was any relationship the model drew to any page at 0.6. Now:
 - **>3 exchanges** is counted by Stage 1 on the conversation itself (`promotion.exchanges` / `measure`, no model):
   an exchange opens at each turn of a person (the owner, or a `speaker:` in a meeting) and runs through the replies;
+  what comes before any such turn (a recorder's summary at a meeting's head, an agent's opening line, a page's own
+  description) is no exchange at all (2026-11-03, the #579 review: it had counted as one, so a summary naming a
+  project turned the person's three exchanges into four and promoted it);
   a document with no turn markers is the person's own writing, one exchange per paragraph — **except a saved item**
   (2026-10-29, `authorship.of`): its title, header lines and fetched description are the page's words and no exchange
   of the person's; only its reason or note section is (`evidence.PERSON_SECTIONS`) — **nor an agent's saved note**

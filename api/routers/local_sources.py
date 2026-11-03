@@ -95,7 +95,7 @@ _DEMO_GATE = [Depends(refuse_capture_into_demo)]
 
 
 def _record(folder: dict) -> FolderRecord:
-    return FolderRecord(**folder, channel_id=folder_source.channel_id(folder["id"]))
+    return FolderRecord(**folder, channel_id=folder_source.channel_for(folder))
 
 
 @router.get("/sources/folders", response_model=FolderListResponse)
@@ -134,17 +134,25 @@ async def register_folder(req: FolderRegisterRequest, settings: Settings = Depen
     memory_path = settings.memory_path
     device = local_refs.current_device_id()
     name = req.label if req.project_name is None else req.project_name
-    project_id, created = await run_in_threadpool(
+    # G95 (2026-11-03): a folder of meeting transcripts anchors no project — a recorder's folder is not one.
+    existing = next((f for f in folder_source.list_folders(memory_path)
+                     if local_refs.same_device(f.get("device"), device) and f.get("path") == req.path), None)
+    if existing is not None and folder_source.kind_of(existing) != req.kind:
+        # A folder's kind is set when it is first added and never flips: re-read as meetings, a notes folder's episodes
+        # would be replaced by meetings and its notes tombstoned (and the reverse). Nothing is written.
+        raise HTTPException(409, folder_source.KIND_REFUSAL[folder_source.kind_of(existing)])
+    meetings = req.kind == "meetings"
+    project_id, created = ("", False) if meetings else await run_in_threadpool(
         folder_source.ensure_project, memory_path, name, path=req.path, device=device)
     folder = folder_source.register(
         memory_path, label=req.label, path=req.path, include=req.include, exclude=req.exclude,
         authorship=[r.model_dump() for r in req.authorship] if req.authorship is not None else None,
-        project_id=project_id or None, device=device)
+        project_id=project_id or None, device=device, kind=req.kind, recorder=req.recorder)
     paths = [f"sources/{folder_source.FOLDERS_FILENAME}"]
     if project_id:
         paths.append(f"entities/{project_id}.md")
     trigger = "user/companion_app"
-    if req.authorship is not None:
+    if req.authorship is not None and not meetings:
         # A re-pick that carries rules is a rules change too (R-B6); a new folder has nothing to move.
         moved = await _reapply_authorship(memory_path, folder)
         if moved:
@@ -152,7 +160,7 @@ async def register_folder(req: FolderRegisterRequest, settings: Settings = Depen
             trigger = folder_source.AUTHORSHIP_TRIGGER
     await folder_source.commit_paths_for(
         memory_path, paths, subject=f"Folder added ({folder['label']})", trigger=trigger,
-        channel=folder_source.channel_id(folder["id"]))
+        channel=folder_source.channel_for(folder))
     return _record(folder)
 
 
@@ -167,13 +175,13 @@ async def update_folder(folder_id: str, req: FolderUpdateRequest, settings: Sett
         raise HTTPException(404, f"No folder {folder_id!r}")
     paths = [f"sources/{folder_source.FOLDERS_FILENAME}"]
     trigger = "user/companion_app"
-    if req.authorship is not None:
+    if req.authorship is not None and not folder_source.is_meetings(folder):
         # F2-back R-B6: the rules and the episodes they relabel land in ONE `user` commit.
         paths += await _reapply_authorship(memory_path, folder)
         trigger = folder_source.AUTHORSHIP_TRIGGER
     await folder_source.commit_paths_for(
         memory_path, paths, subject=f"Folder settings ({folder['label']})", trigger=trigger,
-        channel=folder_source.channel_id(folder_id))
+        channel=folder_source.channel_for(folder))
     return _record(folder)
 
 
@@ -210,24 +218,28 @@ async def sync_folder(
     if sum(len(f.content_b64) for f in req.files) * 3 // 4 > folder_source.MAX_BATCH_BYTES:
         raise HTTPException(413, "batch too large — send fewer files per request")
     files = [folder_source.IncomingFile(f.relpath, f.mtime, f.sha256, f.content_b64) for f in req.files]
-    out = await run_in_threadpool(folder_source.sync, memory_path, folder, files, req.deleted, preview=preview)
+    out = await run_in_threadpool(folder_source.sync, memory_path, folder, files, req.deleted, preview=preview,
+                                  tz_name=req.tz_name)
+    channel = folder_source.channel_for(folder)
+    meetings = folder_source.is_meetings(folder)
     staged = out.pop("_staged")
     texts = out.pop("_texts")
     if preview:
         # The sheet shows how many papers a folder holds before anything lands
         # — counted from the posted bytes, nothing written (R-F3).
-        out["papers_found"] = await run_in_threadpool(papers.count_papers, list(texts.values()))
+        if not meetings:
+            out["papers_found"] = await run_in_threadpool(papers.count_papers, list(texts.values()))
         return FolderSyncResponse(**out)
     attempted = len(files)
     if attempted and len(out["errors"]) == attempted:
-        sync_state.record_error(memory_path, folder_source.channel_id(folder_id),
-                                f"{attempted} file(s) could not be read")
+        sync_state.record_error(memory_path, channel, f"{attempted} file(s) could not be read")
     else:
-        sync_state.record_sync(memory_path, folder_source.channel_id(folder_id),
+        sync_state.record_sync(memory_path, channel,
                                count=folder_source.live_file_count(memory_path, folder_id))
     paths = list(staged.paths)
     registry_moved = bool(staged.paths)  # ``sync`` stamped ``last_sync``
-    paper_work = bool(staged.touched or staged.tombstoned_sources)
+    # A meeting folder has no papers (G95): its files are transcripts, never a reading list.
+    paper_work = not meetings and bool(staged.touched or staged.tombstoned_sources)
     if write_admission.holding():
         # R-LS17: Stage 5 may be rewriting the same pages; the episodes are
         # staged, the paper step waits for the next sync or the Sleep tail.
@@ -255,8 +267,8 @@ async def sync_folder(
     if paths:
         await folder_source.commit_paths_for(
             memory_path, paths, subject=f"Folder sync ({folder['label']})", trigger="folder/sync",
-            channel=folder_source.channel_id(folder_id))
-    if resolve:
+            channel=channel)
+    if resolve and not meetings:
         # R-LS18: the person asked (first add, or "Sync now") — fetch details
         # after the response, one run per process, skipped while Sleep runs.
         background.add_task(paper_metadata.resolve_in_background, memory_path)
@@ -512,7 +524,7 @@ async def put_messages_settings(req: MessagesSettingsUpdate, settings: Settings 
     conversation = None
     if req.conversation is not None:
         c = req.conversation
-        conversation = {"id": c.id, "name": c.name, "service": c.service, "ticked": c.ticked}
+        conversation = {"id": c.id, "name": c.name, "service": c.service, "ticked": c.ticked, "pinned": c.pinned}
         if c.clear_actor:
             conversation["actor"] = None
         elif c.actor is not None:

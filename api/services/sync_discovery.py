@@ -79,13 +79,17 @@ def _bank_id() -> str | None:
 
 
 def shared(memory_path) -> bool:
-    """Discovery exists only for a memory shared between devices (a publishing home, or a copy)."""
+    """Discovery exists only for a memory shared between devices (a publishing home, a copy, or a home whose door is
+    open for a paired device — a capture-only phone, ruling 51f)."""
+    import sys
+
     from api.services import demo_guard, runtime_layout, sync_publish
 
     try:
         if demo_guard.is_demo(Path(memory_path)):
             return False
-        return runtime_layout.is_replica() or sync_publish.publishable(memory_path)
+        door = getattr(sys.modules.get("api.services.sync_door"), "SERVER", None)
+        return runtime_layout.is_replica() or sync_publish.publishable(memory_path) or bool(door and door.running())
     except Exception:  # noqa: BLE001
         return False
 
@@ -116,9 +120,15 @@ def plan(memory_path) -> dict | None:
         return None
     from api.services import sync_direct_listen
 
+    import sys
+
     bind = sync_direct_listen.bound()
+    door = getattr(sys.modules.get("api.services.sync_door"), "SERVER", None)
+    # Ruling 51f: the home-network door is what a device dials on the LAN; the configured https address otherwise.
+    port = door.port if door is not None and door.running() else (bind[1] if bind else None)
     return {"type": SERVICE_TYPE, "browse": instance_name(bank_id),
-            "advertise": {"name": instance_name(bank_id), "port": bind[1]} if bind else None,
+            "advertise": {"name": instance_name(bank_id), "port": port, "door": bool(door and door.running())}
+            if port else None,
             "nonce": issue_nonce()}
 
 

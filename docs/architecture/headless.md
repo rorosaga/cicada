@@ -759,6 +759,34 @@ another machine is the person's tailnet or the relay. Details, the measured numb
 [`network.md`](network.md), "One transport". `GET /sync/transport` shows the path the last request took, the counts,
 the last fallback's time and the bind.
 
+## The route list and the home-network door (G132 ruling 51f — built; on while a memory is shared)
+
+Owner 2026-11-03: no rented server, no cloud mailbox, no Tailscale requirement — *"most people … will not have an always
+on server, so only phone and their mac, and i want that to work perfectly"*. A copy (and the phone, for now a capture
+device) keeps an ordered list of routes to its home and uses the first that answers: the home's **door** on the LAN,
+the door on a tailnet when Tailscale already runs, the configured address, the relay only if set under Advanced — and
+otherwise **queues**: reads come from its own copy, writes wait in its outbox and never expire until they reached the
+home (*"we sync when a machine is on"*). Earlier routes are re-checked every minute and at once on a network change,
+and it moves back as soon as one answers; switching Wi-Fi never re-pairs and fetches only what was missed.
+
+The door is a sealed-frame endpoint a computer opens only while it shares a memory or has a paired device: never the
+HTTP API (which still binds `127.0.0.1`), never a token; a device proves its pairing key in its first packet and
+anything else is closed without a byte; only loopback, private and tailnet peers; rate-limited. A phone pairs in the
+same room through it with the QR's one-time secret. On a server, the door binds loopback and the server's own private
+and tailnet addresses only — **never a wildcard, never its public IPv4 or global IPv6** — rebinding when its
+addresses change (`CICADA_SYNC_DOOR_HOST` to name them, `CICADA_SYNC_DOOR=off` to keep it shut); its port is kept in
+`$CICADA_HOME/sync/door.json`. Details, numbers and the threat model: [`network.md`](network.md), "The route list and
+the home-network door".
+
+**What a laptop home and a phone experience (the target household).** With the Mac awake on the same Wi-Fi, a capture
+lands in its episode queue at once (~10 ms on loopback) and a copy is told of each commit by the door's watch. With the
+Mac asleep (lid closed — the normal state), the phone's captures and a copy's writes wait on that device, reads come
+from the device's own copy (as fresh as its last contact), and nothing is lost however long it stays shut; the
+moment both are awake and a route answers, everything waiting lands once, in order, and a copy fetches `cursor..HEAD`.
+Away from home, nothing reaches the Mac until slice 2 (router port mapping, IPv6, the DHT address record) or the
+person's own tailnet; until then, away-from-home captures land at the next time the phone is home with the Mac awake.
+No push wakes the phone (that needs a server holding Cicada's push key): it learns of new inbox questions when opened.
+
 ## Decided, not built (G132, ruling 51)
 
 Everything above describes what ships (the home's publishing, just above, is phase 1's first half). This section

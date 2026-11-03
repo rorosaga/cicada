@@ -157,10 +157,12 @@ async def get_publish(settings: Settings = Depends(get_settings)):
 
 
 @router.put("/publish")
-async def put_publish(body: PublishSwitch, settings: Settings = Depends(get_settings)):
-    from api.services import sync_publish
+async def put_publish(body: PublishSwitch, request: Request, settings: Settings = Depends(get_settings)):
+    from api.services import sync_net, sync_publish
 
     await run_in_threadpool(sync_publish.set_enabled, body.publish)
+    # Ruling 51f D3: the home-network door opens with the first share and closes when nothing is shared.
+    await sync_net.ensure_door(request.app, settings.memory_path)
     return await run_in_threadpool(_switch_body, settings)
 
 
@@ -427,6 +429,7 @@ class AnnounceBody(BaseModel):
     bankId: str | None = None
     seq: int | None = None
     head: str | None = Field(None, max_length=64)
+    door: dict | None = None
 
 
 def _refused_move(exc) -> JSONResponse:
@@ -531,9 +534,14 @@ async def post_sync_devices_me(body: AnnounceBody, request: Request, settings: S
                 raise HTTPException(status_code=400, detail=str(exc)) from None
         else:
             address = ""
+    door = None
+    if body.door is not None:
+        from api.services import sync_routes
+
+        door = sync_routes._clean_door(body.door) or {}   # noqa: SLF001 — a door only of the shapes a door sends
     try:
         await run_in_threadpool(lambda: device_tokens.store().announce(
-            device.id, sign_jwk=body.signKey, address=address, bank_id=body.bankId, seq=body.seq,
+            device.id, sign_jwk=body.signKey, address=address, bank_id=body.bankId, seq=body.seq, door=door,
             head=body.head if body.head is None or all(c in "0123456789abcdef" for c in body.head) else None))
     except KeyError:
         raise HTTPException(status_code=404, detail="No such device.") from None
@@ -552,7 +560,8 @@ async def get_peer(request: Request, settings: Settings = Depends(get_settings))
 
     token = auth.credential(request.headers.get("authorization"))
     relay_ed = request.scope.get(auth.RELAY_SENDER_SCOPE)     # phase 3b: a peer's signed relay frame, no token
-    if await run_in_threadpool(home_move.peer_caller, settings.memory_path, token, relay_ed) is None:
+    door = request.scope.get(auth.DOOR_DEVICE_SCOPE)          # ruling 51f: the device the door's handshake proved
+    if await run_in_threadpool(home_move.peer_caller, settings.memory_path, token, relay_ed, door) is None:
         raise HTTPException(status_code=401, detail="missing or invalid bearer token")
     if await run_in_threadpool(home_move.role, settings.memory_path) == "local":
         raise HTTPException(status_code=404)

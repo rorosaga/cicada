@@ -14,8 +14,12 @@ enum PermissionPlace: Equatable {
     /// after the relaunch, so the first-run gate would not raise onboarding again: the app shell reopens the rerun
     /// itself (`ContentView.evaluateFirstRun`).
     case onboardingRerun(browser: String?)
+    /// Onboarding's Permissions step (owner 2026-11-03), first run or rerun.
+    case onboardingPermissions(rerun: Bool)
     /// Sources → Traces (Screen Recording, Accessibility).
     case traces
+    /// Settings → Privacy & data's Permissions card.
+    case settings
     /// Anywhere else (Messages, a browser row, Home's Getting started): the Sources page.
     case sources
 
@@ -23,7 +27,9 @@ enum PermissionPlace: Equatable {
         switch self {
         case .onboarding(let browser): browser.map { "onboarding:\($0)" } ?? "onboarding"
         case .onboardingRerun(let browser): browser.map { "rerun:\($0)" } ?? "rerun"
+        case .onboardingPermissions(let rerun): rerun ? "rerun-permissions" : "permissions"
         case .traces: "traces"
+        case .settings: "settings"
         case .sources: "sources"
         }
     }
@@ -31,6 +37,9 @@ enum PermissionPlace: Equatable {
     init?(word: String) {
         switch word {
         case "traces": self = .traces
+        case "settings": self = .settings
+        case "permissions": self = .onboardingPermissions(rerun: false)
+        case "rerun-permissions": self = .onboardingPermissions(rerun: true)
         case "sources": self = .sources
         case "onboarding": self = .onboarding(browser: nil)
         case "rerun": self = .onboardingRerun(browser: nil)
@@ -50,18 +59,26 @@ enum PermissionPlace: Equatable {
     /// Onboarding's own places, first run or rerun: onboarding consumes their marker, never the app shell.
     var isOnboarding: Bool {
         switch self {
-        case .onboarding, .onboardingRerun: true
-        case .traces, .sources: false
+        case .onboarding, .onboardingRerun, .onboardingPermissions: true
+        case .traces, .sources, .settings: false
         }
     }
 
-    var isRerun: Bool { if case .onboardingRerun = self { true } else { false } }
+    var isRerun: Bool {
+        switch self {
+        case .onboardingRerun, .onboardingPermissions(rerun: true): true
+        default: false
+        }
+    }
+
+    /// Onboarding's Permissions step asked (its relaunch lands there, not on Sources).
+    var isPermissionsStep: Bool { if case .onboardingPermissions = self { true } else { false } }
 
     /// The browser whose tick asked, for either onboarding place.
     var browser: String? {
         switch self {
         case .onboarding(let browser), .onboardingRerun(let browser): browser
-        case .traces, .sources: nil
+        case .onboardingPermissions, .traces, .sources, .settings: nil
         }
     }
 }

@@ -59,13 +59,37 @@ def test_keep_drop_hold_and_rejected(home):
     assert counts["held"] == 1 and counts["waiting"] == 1 and counts["rejected"] == 1
 
 
-def test_an_entry_expires_before_the_homes_key(home):
+def test_an_entry_the_home_may_have_seen_expires_before_the_homes_key(home):
     assert tx_outbox.EXPIRE_S < idempotency.TOOLS_TTL_S
-    tx_outbox.submit(_tool(key="old"), lambda e: (None, None), home=home)
+    # Sent, and its answer lost: the home may hold its key, so it expires a day before the key does — listed, never
+    # silently lost.
+    tx_outbox.submit(_tool(key="old"), lambda e: (None, {"_noAnswer": "timeout"}), home=home)
     sent = []
     decided = tx_outbox.flush(lambda e: (sent.append(1) or 200, {}), home=home,
                               now=lambda: __import__("time").time() + tx_outbox.EXPIRE_S + 1)
     assert decided["old"][0] == "expired" and sent == [] and tx_outbox.counts(home)["expired"] == 1
+    assert tx_outbox.rejected(home)[-1]["code"] == "expired_may_have_landed"
+
+
+def test_an_entry_that_never_reached_the_home_never_expires(home):
+    """Ruling 51f D1: "we sync when a machine is on" — a write that never reached the home waits however long."""
+    tx_outbox.submit(_tool(key="never"), lambda e: (None, {"_noAnswer": "unreachable"}), home=home)
+    tx_outbox.submit(_tool(key="notoken"), lambda e: (None, None), home=home)
+    far = __import__("time").time() + 90 * 86_400
+    assert tx_outbox.flush(lambda e: (None, {"_noAnswer": "unreachable"}), home=home, now=lambda: far)["never"][0] \
+        == "wait"
+    sent = []
+    decided = tx_outbox.flush(lambda e: (sent.append(e["id"]) or 200, {}), home=home, now=lambda: far)
+    assert decided["never"][0] == "landed" and decided["notoken"][0] == "landed" and sent == ["never", "notoken"]
+    assert tx_outbox.counts(home)["expired"] == 0
+
+
+def test_an_entry_from_before_the_rule_keeps_the_old_one(home):
+    entry = {**_tool(key="legacy"), "v": 1, "attempts": 2}
+    tx_outbox.keep(entry, home=home)
+    decided = tx_outbox.flush(lambda e: (200, {}), home=home,
+                              now=lambda: __import__("time").time() + tx_outbox.EXPIRE_S + 1)
+    assert decided["legacy"][0] == "expired"
 
 
 def test_a_rest_entry_keeps_its_bytes_and_a_capture_too_large_is_refused(home):
@@ -93,6 +117,9 @@ SAME_BY_CONTENT = {
     "POST /sources/sync-safari-tabs", "POST /sources/tab-groups/sync", "POST /sources/traces/sync",
     "POST /sources/watch-history/sync", "POST /sources/whatsapp/sync", "POST /files/media",
     "POST /files/{file_id}/frames",
+    # G230: a repository is found by GitHub's own id (and its link's index) — a resend updates the same page, never a
+    # second (`test_github_repos::test_a_replayed_add_writes_nothing_new`).
+    "POST /sources/github/repos",
 }
 
 
@@ -117,3 +144,34 @@ def test_every_capture_route_keeps_its_key_longer_than_an_outbox_entry_waits():
             assert route in SAME_BY_CONTENT, f"{route}: key it (8 days) or name how a resend stays one write"
     assert {r for r in captures if r not in SAME_BY_CONTENT} == {
         "POST /capture/note", "POST /capture/file", "POST /sources/save"}
+
+
+def test_a_full_outbox_says_so_in_words_and_drops_nothing_that_waits(home, monkeypatch):
+    """Ruling 51f: nothing unsent expires, so the outbox is bounded by bytes too — and a write that does not fit is
+    refused in words, never queued in words and lost in fact."""
+    away = lambda e: (None, {"_noAnswer": "unreachable"})   # noqa: E731
+    tx_outbox.submit(_tool(key="first"), away, home=home)
+    monkeypatch.setattr(tx_outbox, "MAX_TOTAL_BYTES", 1)
+    verdict, status, body = tx_outbox.submit(_tool(key="second"), away, home=home)
+    assert verdict == "full" and status is None and body["code"] == "queue_full"
+    assert "full" in body["text"] and "Nothing that waits was dropped" in body["text"]
+    assert [p.name.endswith("-first.json") for p in tx_outbox.entries(home)] == [True]
+    assert tx_outbox.counts(home)["refusedFull"] == 1
+    assert tx_outbox.keep(_tool(key="third"), home=home) is False
+
+
+def test_the_tool_door_tells_a_full_queue_in_words(monkeypatch):
+    import asyncio
+
+    from api.routers import tools
+    from api.services import replica
+
+    monkeypatch.setattr(tx_outbox, "submit", lambda entry, send, **kw: ("full", None, {"code": "queue_full",
+                                                                                     "text": "queue is full"}))
+    monkeypatch.setattr(replica, "seq", lambda: 3)
+
+    class _Req:
+        headers = {}
+
+    got = asyncio.run(tools._to_home(tools.ToolCallRequest(tool="cicada_save_episode", arguments={}), _Req(), None))
+    assert got["code"] == "queue_full" and got["error"] == "queue is full" and got["code"] != "queued_for_home"

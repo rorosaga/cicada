@@ -250,6 +250,21 @@ def ensure_own_identity() -> str | None:
     return device.id
 
 
+def own_door() -> dict | None:
+    """Where this computer's home-network door answers (ruling 51f): ``{port, key, lan, tailnet}``, or ``{}`` when no
+    door is open here (an empty one clears what the registry held). Never logged."""
+    import sys as _sys
+
+    mod = _sys.modules.get("api.services.sync_door")
+    if mod is None:
+        return {}
+    try:
+        got = mod.own_routes()
+    except Exception:  # noqa: BLE001
+        return {}
+    return {k: got[k] for k in ("port", "key", "lan", "tailnet")} if got else {}
+
+
 def own_address() -> str | None:
     """Where the person's other devices reach this computer's backend: ``CICADA_DEVICE_URL`` when set (checked like
     ``CICADA_API_BASE``), else the address this computer serves on the person's tailnet when it serves one (the
@@ -330,14 +345,26 @@ def registry(memory_path) -> list[dict]:
         return list(rows.values())
     own = store.own()
     if own is not None:
-        store.announce(own.id, address=own_address() or "", sign_jwk=device_key.public_jwk(create=True))
+        store.announce(own.id, address=own_address() or "", sign_jwk=device_key.public_jwk(create=True),
+                       door=own_door())
     return store.export()
+
+
+def registry_rows_for_door(memory_path) -> list[dict]:
+    """The rows a door checks a device against, without the home's own-row refresh :func:`registry` makes."""
+    from api.services import device_tokens, runtime_layout
+
+    rows = {r.get("id"): r for r in device_tokens.store().export()}
+    if runtime_layout.is_replica():
+        rows.update({r.get("id"): r for r in load_mirror(memory_path) if isinstance(r, dict)})
+    return list(rows.values())
 
 
 def registry_digest(rows: list[dict]) -> str:
     """What changes when a device joins, leaves, moves address or registers its key — never a seq or a time — so a
     replica asks for the registry again only when it changed."""
-    keys = ("id", "token_hash", "revoked_at", "kind", "key_thumbprint", "sign_jwk", "address", "is_self", "relay_ed")
+    keys = ("id", "token_hash", "revoked_at", "kind", "key_thumbprint", "sign_jwk", "address", "is_self", "relay_ed",
+            "door")
     flat = sorted(json.dumps({k: r.get(k) for k in keys}, sort_keys=True) for r in rows if isinstance(r, dict))
     return hashlib.sha256("\n".join(flat).encode("utf-8")).hexdigest()[:16]
 
@@ -375,12 +402,18 @@ def _token_ok(token: str, rows: list[dict]) -> str | None:
     return device_id if hmac.compare_digest(str(r.get("token_hash") or ""), digest) else None
 
 
-def peer_caller(memory_path, token: str | None, relay_ed: str | None = None) -> str | None:
+def peer_caller(memory_path, token: str | None, relay_ed: str | None = None,
+                door_device: str | None = None) -> str | None:
     """``GET /sync/peer``'s check: a device of the group (this computer's own store, or the registry it mirrored) —
     by its bearer token on a direct path, or (phase 3b) by the relay key its frame was signed with (``relay_ed``,
     verified by ``sync_relay_link`` before the request runs; no token crosses the relay)."""
     from api.services import device_tokens
 
+    if door_device:
+        # Ruling 51f: the door already proved this device's key against this computer's registry (its own store,
+        # or the one it mirrored); only a full device asks who the home is.
+        r = row(registry_rows_for_door(memory_path), door_device)
+        return door_device if r is not None and not r.get("revoked_at") and r.get("kind") in (None, "full") else None
     try:
         device = device_tokens.store().by_relay_key(relay_ed) if relay_ed else device_tokens.store().verify(token)
     except Exception:  # noqa: BLE001
@@ -1448,7 +1481,7 @@ def announce_body(memory_path: Path, seq: int | None) -> dict:
     from api.services import sync_service
 
     # Phase 3b: the commit the copy is at, so the home can coalesce a lagging device's deltas from there.
-    return {"signKey": device_key.public_jwk(create=True), "address": own_address() or "",
+    return {"signKey": device_key.public_jwk(create=True), "address": own_address() or "", "door": own_door() or {},
             "bankId": pin.id if pin is not None else None, "seq": seq,
             "head": sync_service.git_head(Path(memory_path)) or None}
 

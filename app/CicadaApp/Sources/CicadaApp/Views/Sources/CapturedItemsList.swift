@@ -204,7 +204,7 @@ struct CapturedItemRow: View {
         HStack(spacing: CicadaTheme.spacingSM) {
             // Sources v4 — a Messages row leads with the chat's face (its photo, else a ring with a letter).
             if let chat = item.chat {
-                ChatFace(id: chat.id, label: chat.label, photo: chat.photo, side: CicadaTheme.scaled(20))
+                ChatFace(chat: chat, side: CicadaTheme.scaled(20))
             }
             Text(item.title)
                 .font(CicadaTheme.bodyFont)

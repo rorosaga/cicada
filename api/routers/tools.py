@@ -77,6 +77,10 @@ async def _to_home(req: ToolCallRequest, request: Request, pin) -> dict:
     if verdict == "landed" and isinstance(answer, dict):
         await asyncio.to_thread(replica.wait_for_seq, answer.get("seq"))
         return {**answer, "bank": bank, "bankId": bank_id, "homeSeq": answer.get("seq"), "seq": replica.seq()}
+    if verdict == "full":
+        return {"text": "", "code": "queue_full", "data": None, "segments": None,
+                "error": (answer or {}).get("text") or tx_outbox.full_text(), "state": req.state.model_dump(),
+                "bank": bank, "bankId": bank_id}
     if verdict in ("rejected", "drop") and isinstance(answer, dict):
         text = answer.get("text") or answer.get("detail") or ""
         return {"text": "", "code": answer.get("code"), "data": None, "segments": None,

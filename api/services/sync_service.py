@@ -25,6 +25,10 @@ from api.services.graph_builder import file_mtime, inbox_stamp
 from api.services.sync_state import SYNC_STATE_FILENAME
 from api.services.wispr_flow import SETTINGS_FILENAME as WISPR_SETTINGS_FILENAME
 
+#: The chat sources' settings files under ``sources/`` (Messages, WhatsApp, Telegram) — spelled here rather than
+#: imported (those modules import this one's neighbours); `test_chat_source_page` pins them to the readers' own names.
+CHAT_SETTINGS_FILENAMES = ("messages.json", "whatsapp.json", "telegram.json")
+
 
 @dataclass
 class VersionInfo:
@@ -260,6 +264,9 @@ def _builders(mp: Path, sleep_state, reuse: dict) -> dict:
             # G191 v4: the bookmark seen-set carries which links left a browser (`leftBrowser` on `/sources`, `left`
             # on a bookmark channel's items); the directory fingerprint reads only `*.md`, so it rides by its mtime.
             f":{file_mtime(mp / 'sources' / 'bookmark_seen.json'):.6f}"
+            # 2026-11-03: the chat sources' settings carry each chat's tick and pin, which a chat source's page lists
+            # (`channel_items._chat_rows`): a pin moves no other component.
+            + "".join(f":{file_mtime(mp / 'sources' / name):.6f}" for name in CHAT_SETTINGS_FILENAMES)
         ),
         # The logo cache lives at `$CICADA_HOME/logos/<bank>/`, *outside* the
         # memory bank, so no other component notices when a warm-up or an

@@ -28,7 +28,7 @@ def _line(path_and_query: str) -> str:
     "/conversations/recent?limit=200&q=release%20notes",
     "/episodes/ep_2026-10-01_001/evidence?focus=exact%20words",
     "/anything/new?query=private",
-    "/sources/connectors/readwise/callback?code=abc123&state=x",
+    "/sources/connectors/x/callback?code=abc123&state=x",
     "/connections/notion/callback/n0nce?code=abc123",
     "/sources/channels/notes/items?Q=upper%20case",
 ])

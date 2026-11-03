@@ -37,7 +37,10 @@ def _base_env(home: Path, cicada_home: Path) -> dict:
     """A clean environment: nothing from the shell running the suite (no harness session, no capture switch)."""
     return {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(home), "CICADA_HOME": str(cicada_home),
             "PYTHONPATH": str(REPO), "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
-            "CICADA_ALLOW_CONNECTOR_FETCH": "off", "CICADA_ALLOW_LOGO_FETCH": "off", "LANG": "C.UTF-8"}
+            "CICADA_ALLOW_CONNECTOR_FETCH": "off", "CICADA_ALLOW_LOGO_FETCH": "off", "LANG": "C.UTF-8",
+            # Ruling 51f: a shared memory's door stays on loopback and is dialed only where the test sends it (never
+            # this computer's own LAN or tailnet address).
+            "CICADA_SYNC_DOOR_HOST": "127.0.0.1", "CICADA_SYNC_LAN_DIAL": "off", "CICADA_SYNC_TAILNET": "off"}
 
 
 class Backend:

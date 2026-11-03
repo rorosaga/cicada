@@ -51,6 +51,7 @@ WRITERS = frozenset({
     "notion",  # G219: a Notion export's pages and database rows
     "agent-memory",  # ruling 43: an agent's own memory notes, posted by the harness's hook
     "readwise",  # ruling 47 tier 2: Readwise highlights, their notes and their documents
+    "github",  # G230: a repository the person owns — its name, description and topics
     "listening-history",  # G32: a Spotify listening day's titles, artists and albums
 })
 
