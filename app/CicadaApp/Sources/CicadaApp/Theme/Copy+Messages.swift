@@ -9,6 +9,10 @@ extension Copy {
         static let whatItReads = "Cicada reads only the conversations you tick here — each message's words, who sent "
             + "it and when, its reactions, replies and edits, and the names of attachments, never the files — from "
             + "Messages on this Mac, which macOS lets an app open only with Full Disk Access."
+        /// 2026-11-03 — what "checked" above measures (`ChatCheck`): Messages' store on this Mac, read on every change.
+        static let whenItReads = "Cicada checks the conversations you tick each time Messages on this Mac saves one; "
+            + "“checked” is the last time, “newest message” the newest one in them. A message reaches Cicada once "
+            + "Messages on this Mac has it."
         /// 2026-10-20: sittings saved before reactions, replies and attachments were kept get them only on a re-read.
         static let readAgain = "Read again"
         static let readAgainHelp = "Read your ticked conversations again from the start, to add reactions, replies, "

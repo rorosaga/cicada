@@ -26,6 +26,19 @@ struct ChatTickState: Decodable, Equatable, Sendable {
     }
 }
 
+/// 2026-11-03 (live) — what a chat reader on this Mac (WhatsApp, Messages) is up to date *with*: when its last pass
+/// finished reading every ticked chat, and the newest message among them as the app's own store lists it. The backend's
+/// `last_sync` moves only when a pass posts rows, so a quiet chat read as a stopped reader: the owner's WhatsApp row
+/// said "synced" four days back while the reader was checking on every WhatsApp write and its one ticked chat had
+/// simply had nothing new since. The page says both instead (`SourcePageStatus.checked`, DR-58: relative words are
+/// computed when read). In memory only, per memory: a bank switch clears it until that memory's own first pass.
+struct ChatCheck: Equatable, Sendable {
+    /// When the last successful pass finished.
+    let at: Date
+    /// The newest message in the ticked chats on this Mac; nil when the store lists none.
+    let newest: Date?
+}
+
 struct ChatTickAnswer: Decodable, Equatable, Sendable {
     var conversations: [ChatTickState] = []
     var tickedIds: Set<String> { Set(conversations.filter(\.ticked).map(\.id)) }

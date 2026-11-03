@@ -9,6 +9,10 @@ extension Copy {
             + "on this Mac: each message's words, who sent it and when, which message it replies to, and the names of "
             + "attachments, never the files. A tick reads what's said from now on; ask for a chat's history to read "
             + "what WhatsApp already keeps. macOS lets an app open WhatsApp's chats only with Full Disk Access."
+        /// 2026-11-03 — what "checked" above measures (`ChatCheck`): the store on this Mac, read on every change.
+        static let whatsAppWhenItReads = "Cicada checks the chats you tick each time WhatsApp on this Mac saves a "
+            + "message, in any chat; “checked” is the last time, “newest message” the newest one in them. A message "
+            + "sent from your phone reaches Cicada once WhatsApp on this Mac has it, which it gets while it's open."
         static let telegramWhatItReads = "Cicada reads only the one-to-one chats you tick here, through your own Telegram "
             + "account: each message's words, who sent it and when, replies, reactions and edits, and the names of "
             + "attachments, never the files. A tick reads what's said from now on; ask for a chat's history to read what "

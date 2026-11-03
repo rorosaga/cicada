@@ -192,6 +192,8 @@ struct SourceCatalogDetail: View {
     @Environment(BrowserWatcher.self) private var watcher
     @Environment(SyncActivity.self) private var activity: SyncActivity?
     @Environment(InboxViewModel.self) private var inboxVM
+    @Environment(WhatsAppWatcher.self) private var whatsApp: WhatsAppWatcher?
+    @Environment(MessagesWatcher.self) private var messagesWatcher: MessagesWatcher?
 
     private var channels: [SourceChannel] { store.channels.value ?? [] }
 
@@ -209,12 +211,21 @@ struct SourceCatalogDetail: View {
     private var savedStyle: Bool { overview?.intent == .saved }
 
     /// The status: the catalogue's word, the first channel's run (a read in progress, a failure, missing access) and
-    /// the day the newest item came in.
+    /// the day the newest item came in — or, for a chat reader on this Mac, when it last checked the ticked chats and
+    /// the newest message in them (2026-11-03, `ChatCheck`).
     private var pageStatus: SourcePageStatus {
         let channel = mine.first
         let watch = channel.flatMap { watcher.state(for: $0.id) }
         let run = SourceRowText.status(channel: channel, watch: watch, run: channel.flatMap { activity?.run(for: $0.id) })
-        return SourcePageStatus.of(row: row.status, run: run, latest: latest)
+        return SourcePageStatus.of(row: row.status, run: run, latest: latest, check: chatCheck)
+    }
+
+    private var chatCheck: ChatCheck? {
+        switch row.entry.id {
+        case WhatsAppWatcher.channel: whatsApp?.check
+        case MessagesWatcher.channel: messagesWatcher?.check
+        default: nil
+        }
     }
 
     private var latest: String? {
@@ -232,8 +243,8 @@ struct SourceCatalogDetail: View {
         if let overview { out.append(SourceBlurb.text(for: overview)) }
         else if let blurb = entry.channels.lazy.compactMap(SourceBlurb.text(id:)).first { out.append(blurb) }
         switch entry.id {
-        case MessagesWatcher.channel: out.append(Copy.Messages.whatItReads)
-        case WhatsAppWatcher.channel: out.append(Copy.Chats.whatsAppWhatItReads)
+        case MessagesWatcher.channel: out += [Copy.Messages.whatItReads, Copy.Messages.whenItReads]
+        case WhatsAppWatcher.channel: out += [Copy.Chats.whatsAppWhatItReads, Copy.Chats.whatsAppWhenItReads]
         case TelegramChats.channel: out.append(Copy.Chats.telegramWhatItReads)
         case "telegram": out.append(Copy.Catalog.telegramHonest)
         case "notion": out.append(Copy.Catalog.notionHow)

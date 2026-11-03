@@ -110,6 +110,16 @@ struct WhatsAppReader: Sendable {
         }
     }
 
+    /// 2026-11-03 — the store's and its `-wal`'s size and modification time (-1 for a file that is not there): what a
+    /// write by WhatsApp moves and the reader's own clone does not (`WhatsAppWatcher.changed`).
+    func signature() -> [Double] {
+        [store, URL(fileURLWithPath: store.path + "-wal")].flatMap { url -> [Double] in
+            guard let values = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]),
+                  let size = values.fileSize, let modified = values.contentModificationDate else { return [-1, -1] }
+            return [Double(size), modified.timeIntervalSince1970]
+        }
+    }
+
     /// Clone the store and its WAL into a private folder, open the copy, run `body` in one read transaction.
     private func withCopy<T>(_ body: (SQLiteReadOnly) throws -> T) throws -> T {
         try checkAccess()

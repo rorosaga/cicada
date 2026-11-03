@@ -43,8 +43,19 @@ struct SourcesPageView: View {
             overview: overview)
         return SourceCatalog.rows(entries: entries, channels: channels, overview: overview,
                                   readableSites: reading.readableSites, localReaders: localReaders,
-                                  savedListsOn: reading.savedListsOn, localAgent: agents.connectedLocally)
+                                  savedListsOn: reading.savedListsOn, localAgent: agents.connectedLocally,
+                                  checked: chatChecks)
     }
+
+    /// 2026-11-03 — when each chat reader on this Mac last read its ticked chats (`ChatCheck`).
+    private var chatChecks: [String: Date] {
+        var out: [String: Date] = [:]
+        out[WhatsAppWatcher.channel] = whatsApp?.check?.at
+        out[MessagesWatcher.channel] = messagesWatcher?.check?.at
+        return out
+    }
+    @Environment(WhatsAppWatcher.self) private var whatsApp: WhatsAppWatcher?
+    @Environment(MessagesWatcher.self) private var messagesWatcher: MessagesWatcher?
 
     /// Tester readiness (2026-10-26) — whether an agent on this Mac is connected, polled while the page shows
     /// (`GET /agents/live`, ids and times only): a list read in the browser is Connected only with one.

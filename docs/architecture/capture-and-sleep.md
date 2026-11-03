@@ -649,6 +649,36 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   chat source's). The Sources list serves one row per chat for WhatsApp and Telegram too (`channel_items`). Measured on fixtures (2026-10-28): file change → posted,
   the app's read of a 20,000-row store plus the post, p95 9 ms over 20 (`WhatsAppReaderTests`); the backend's stage
   into a chat of 40 sittings, p95 11 ms over 30 (`test_chat_live`) — the 3 s debounce dominates.
+  **What "up to date" means (2026-11-03, live).** The owner asked whether WhatsApp was still syncing: its row said
+  "synced" four days back while Messages and Telegram said today. Read on a read-only copy of the live store (counts,
+  ids and times only): one chat ticked (the person's own), 24 messages, its newest 6 days old and exactly the cursor;
+  0 rows past it, 0 in the 48 h window; the 1,670 messages since were all in 43 unticked chats. The last post was the
+  window's re-read of that newest message, 7 s before it left the 48 h window — so the reader was running and nothing
+  new existed to read. The gap was in the words: a pass posts only rows it found, so the backend's `last_sync` is the
+  last pass that posted (or re-posted inside the window), never the last check, and it is the same for Messages
+  (`imessage`, posts only a pass with rows) and Telegram (`record_sync` only on a flush with messages). The app's two
+  readers on this Mac now keep their last successful pass and the newest message in the ticked chats as their app's
+  own store lists it (`ChatCheck`: `WhatsAppWatcher.check`, `MessagesWatcher.check`; in memory, cleared on a bank
+  switch and when nothing is ticked), and the source page says "Connected · checked 2 min. ago · newest message
+  Friday" (`SourcePageStatus.checked`, DR-58) in place of "last item <day>"; the Sources list's row counts the check
+  as its last sync (`SourceCatalog.rows(checked:)`), and "What Cicada reads" adds when it reads and that a phone's
+  message arrives once the app on this Mac has it. A reader that stopped now shows as an old "checked", not as a quiet
+  chat. Telegram is the backend's own listener (push, `listening` in its status), so it has no pass to report; its
+  page keeps "last item <day>". The backend's `last_sync` keeps its meaning (other readers and agents read it).
+  **The reader heard its own copy (found verifying the above).** A pass clones `ChatStorage.sqlite` and its `-wal`
+  (`FileManager.copyItem`, an APFS clone), and cloning a file raises an FSEvent on the source — `ItemCloned`, whose
+  flags can also carry the file's recent `Modified`/`Created` history (measured 2026-11-03), so flags cannot tell it
+  from a write. Every pass therefore ran the next one at the 15 s floor, forever, cloning the store and re-posting the
+  48 h window each time: the scratch app posted 50 times in about 15 minutes with one message written, and a unit test
+  on a real stream counted 30 posts in 3 s at a zero floor. (So the owner's `last_sync` kept moving for 48 h after the
+  newest message, then stopped: consistent with the loop, and with nothing new.) A change event now runs a pass only
+  when the store's or the `-wal`'s size or modification time moved since the last pass began
+  (`WhatsAppReader.signature`; `WhatsAppReaderTests.testThePassesOwnCopyNeverRunsTheNextPass`: 1 post, then none until
+  a write, which is read). Two edges (#578 review): a write that lands during a pass joins that pass's run, so when a
+  pass ends with the signature moved since it began it runs once more (`testAWriteDuringAPassIsReadWhenThePassEnds`);
+  a pass that failed (a refused post, the backend down) clears the signature, so the next change event retries it at
+  the debounce and floor (`testAFailedPassIsRetriedOnTheNextEvent`). Messages opens `chat.db` in place and clones only the nickname store, at most hourly per
+  chat, so it never looped; Telegram has no file watch.
 - **Telegram chats the person ticks (ruling 47a and its amendment, 2026-10-28).** The backend's own client
   (`telegram_account`, `telegram_port`, network.md) listens while the person is connected; events wait in memory for
   1 s and are then staged per chat in the active bank (never the demo bank), under write admission, one `capture`

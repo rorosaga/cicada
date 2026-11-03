@@ -12,6 +12,18 @@
 
 ## Current state and evidence
 
+- **2026-11-03 — "are we also syncing WhatsApp?" (G179; branch `fix/whatsapp-live-stale`).** Not a stopped reader:
+  read on a read-only copy of the live store (counts, ids, times only), the one ticked chat (the person's own) holds
+  24 messages, its newest 6 days old and exactly the reader's cursor; 0 rows past it, 0 in the 48 h window; the 1,670
+  messages since were all in 43 unticked chats. The row's "synced" four days back was the recheck window's last
+  re-post of that newest message (7 s before it left the window). The backend's `last_sync` moves only when a pass
+  posts, for Messages and Telegram too, so a quiet chat read as a dead reader. The app's WhatsApp and Messages
+  readers now keep their last successful pass and the newest message in the ticked chats (`ChatCheck`); the page says
+  "Connected · checked 2 min. ago · newest message Friday" and the list row counts the check. Telegram is a backend
+  listener (no pass to report) and keeps "last item". Found while verifying: the WhatsApp reader heard its own APFS
+  clone of the store as a change (FSEvents `ItemCloned`), so it ran a pass every 15 s forever, re-posting the 48 h
+  window; a change now runs a pass only when the store or its `-wal` moved (size or mtime). Waiting on the owner:
+  whether more chats should be ticked.
 - **2026-11-03 — a Sleep run the network left waits for it (G163; branch `fix/sleep-offline-transient`).** Live: a
   scheduled 3 AM run on a laptop slept ~3 h mid-read; on wake four `claude -p` calls answered "Request timed out"
   (`api_error`, no status) before the network was back, and the run stopped as "The engine needs a look", told the

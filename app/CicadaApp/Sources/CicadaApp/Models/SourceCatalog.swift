@@ -291,15 +291,20 @@ enum SourceCatalog {
         return overviewRow(for: entry, in: overview)?.lastActivityDate
     }
 
+    /// `checked` (2026-11-03): when a chat reader on this Mac last read its ticked chats, by entry id (`ChatCheck`) — a
+    /// read that found nothing new is still a sync, so the row's "4 days ago" (the last read that POSTED) never stands
+    /// for a reader that checked a minute ago.
     static func rows(entries: [SourceCatalogEntry], channels: [SourceChannel], overview: [SourceOverview],
                      readableSites: Set<String>, localReaders: [String: Bool] = [:],
-                     savedListsOn: Set<String> = [], localAgent: Bool = false) -> [SourceCatalogRow] {
+                     savedListsOn: Set<String> = [], localAgent: Bool = false,
+                     checked: [String: Date] = [:]) -> [SourceCatalogRow] {
         entries.map { entry in
-            SourceCatalogRow(entry: entry,
-                             status: status(for: entry, channels: channels, overview: overview,
-                                            readableSites: readableSites, localReaders: localReaders,
-                                            savedListsOn: savedListsOn, localAgent: localAgent),
-                             lastSync: lastSync(for: entry, channels: channels, overview: overview))
+            let synced = lastSync(for: entry, channels: channels, overview: overview)
+            return SourceCatalogRow(entry: entry,
+                                    status: status(for: entry, channels: channels, overview: overview,
+                                                   readableSites: readableSites, localReaders: localReaders,
+                                                   savedListsOn: savedListsOn, localAgent: localAgent),
+                                    lastSync: [synced, checked[entry.id]].compactMap { $0 }.max())
         }
     }
 
@@ -320,12 +325,17 @@ enum SourceCatalog {
     /// on the right says the rest — never a sentence, design-refs pattern 4).
     static func line(_ row: SourceCatalogRow, now: Date, locale: Locale = .autoupdatingCurrent) -> String? {
         guard row.status == .connected || row.status == .needsSignIn, let last = row.lastSync else { return nil }
-        guard now.timeIntervalSince(last) >= 60 else { return Copy.Catalog.justNow }
+        return ago(last, now: now, locale: locale)
+    }
+
+    /// "just now" under a minute, else the short relative words ("4 days ago", "2 min. ago"), computed when read (DR-58).
+    static func ago(_ date: Date, now: Date, locale: Locale = .autoupdatingCurrent) -> String {
+        guard now.timeIntervalSince(date) >= 60 else { return Copy.Catalog.justNow }
         let f = RelativeDateTimeFormatter()
         f.unitsStyle = .short
         f.dateTimeStyle = .numeric
         f.locale = locale
-        return f.localizedString(for: last, relativeTo: now)
+        return f.localizedString(for: date, relativeTo: now)
     }
 }
 

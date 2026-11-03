@@ -24,12 +24,12 @@ struct SourceStatusLine: View {
     @State private var showFacts = false
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: SourceRowText.refreshInterval)) { _ in
-            let today = ISODay.today()
+        TimelineView(.periodic(from: .now, by: SourceRowText.refreshInterval)) { context in
+            let today = ISODay.today(now: context.date)
             HStack(spacing: CicadaTheme.spacingSM) {
                 if case .syncing = status { ProgressView().controlSize(.small) }
                 StatusWord(word: status.word, tone: status.tone)
-                if let detail = status.detail(today: today) {
+                if let detail = status.detail(today: today, now: context.date) {
                     Text("· \(detail)")  // count-lint:ok — words (a day, an action, a reader's own progress line)
                         .font(CicadaTheme.metaFont)
                         .monospacedDigit()
@@ -45,7 +45,7 @@ struct SourceStatusLine: View {
             }
             .frame(minHeight: CicadaTheme.scaled(24))
             .accessibilityElement(children: .contain)
-            .accessibilityLabel(status.line(today: today))
+            .accessibilityLabel(status.line(today: today, now: context.date))
         }
         .sheet(isPresented: $showFacts) {
             SettingsSheet(title: title, onClose: { showFacts = false }) {

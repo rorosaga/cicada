@@ -159,6 +159,31 @@ final class MessagesWatcherTests: XCTestCase {
         XCTAssertEqual((api.posts.last?["messages"] as? [Any])?.count, 1)
     }
 
+    /// 2026-11-03 (live) — a pass over a ticked conversation with nothing new posts nothing (the backend's last sync
+    /// stays where it was) and still says when it checked and the newest message in it; another memory with nothing
+    /// ticked says nothing.
+    func testAQuietPassSaysWhenItCheckedWithoutPosting() async throws {
+        let api = FakeMessagesAPI()
+        let checkedAt = Date(timeIntervalSince1970: 1_793_000_000)
+        let w = MessagesWatcher(api: api, reader: MessagesReader(database: synthetic.url), defaults: defaults,
+                                folder: synthetic.dir, debounce: .milliseconds(10), minimumInterval: .zero,
+                                makeWatch: { _, _ in nil }, bank: { [unowned self] in self.bank },
+                                lookUpCards: { _ in [:] }, lookUpContactsAllowed: { false }, clock: { checkedAt })
+        XCTAssertNil(w.check, "nothing is said before a pass")
+        await w.loadList()
+        let conversation = try XCTUnwrap(w.conversations.first { $0.id == instinctId })
+        try await w.setTicked(conversation, true)
+        let posted = api.posts.count
+        _ = try await w.syncNow()
+        XCTAssertEqual(api.posts.count, posted, "nothing new: nothing posted, so the backend's last sync cannot move")
+        XCTAssertNotNil(conversation.lastActivity)
+        XCTAssertEqual(w.check, ChatCheck(at: checkedAt, newest: conversation.lastActivity))
+        api.ticked = []
+        bank = "beta"
+        await w.bankChanged()
+        XCTAssertNil(w.check, "another memory with nothing ticked says nothing")
+    }
+
     /// 250 chats, the ticked one the oldest: the Settings list stops at 200, the pass reads it by its own id anyway.
     /// #527 review B3: at launch the first pass runs before the list or the bubbles read any card. It looks the
     /// one-to-one handle up itself, and says "" (none or several cards) only for a handle it really looked up.
