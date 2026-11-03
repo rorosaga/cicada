@@ -423,3 +423,41 @@ def test_the_demo_bank_refuses_every_write_door(api, bank):
     assert api.post("/sources/github/repos", json={"url": "example-org/widget-kit"}).status_code == 409
     assert api.post("/sources/github/repos/project", json={"fullName": "bob-example/alpha-project"}).status_code == 409
     assert not list((bank / "entities").glob("*.md"))
+
+
+def test_the_cli_commands_call_the_backends_routes_as_the_person(monkeypatch):
+    from types import SimpleNamespace
+
+    from api import cli_app
+    from api.services import cli_map
+
+    rows = {r.name: r for r in cli_map.ROWS}
+    assert not rows["github repos"].mutates
+    assert rows["github add"].person and rows["github add"].via == "backend"
+    assert rows["github project"].person and [a.prop for a in rows["github project"].args] == ["full_name", "project"]
+    sent: list[tuple] = []
+    asked: list[str] = []
+
+    def fake_call(boot, method, path, **kw):
+        sent.append((method, path, kw.get("body")))
+        if path == "/sources/github/repos" and method == "GET":
+            return {"connected": True, "owned": [{"fullName": "bob-example/alpha-project", "private": True,
+                                                  "project": {"project": "alpha", "name": "alpha", "how": "origin"}}],
+                    "starred": [{"fullName": "example-org/widget-kit", "starred": True, "entityId": "widget-kit"}]}
+        if path == "/sources/github/repos":
+            return {"fullName": "example-org/widget-kit", "entityId": "widget-kit", "created": True}
+        return {"project": "alpha", "created": False}
+
+    monkeypatch.setattr(cli_app, "call", fake_call)
+    monkeypatch.setattr(cli_app, "require_person", asked.append)
+    boot = SimpleNamespace(probe={})
+    listed = cli_app.cmd_github_repos(boot, SimpleNamespace())
+    assert "bob-example/alpha-project [private] — your project alpha (alpha)" in listed.text
+    assert "example-org/widget-kit (starred) — widget-kit" in listed.text
+    added = cli_app.cmd_github_add(boot, SimpleNamespace(url="example-org/widget-kit"))
+    assert added.text == "Added example-org/widget-kit (widget-kit)."
+    linked = cli_app.cmd_github_project(boot, SimpleNamespace(full_name="bob-example/alpha-project", project="alpha"))
+    assert linked.text.startswith("Linked alpha")
+    assert sent[-1] == ("POST", "/sources/github/repos/project",
+                        {"fullName": "bob-example/alpha-project", "via": "cli", "project": "alpha"})
+    assert len(asked) == 2                               # both writes refuse from an agent's shell

@@ -344,6 +344,8 @@ PERSON_ARGV = {
     "connector connect": ["connector", "connect", "readwise"],
     "connector disconnect": ["connector", "disconnect", "readwise"],
     "connector sync": ["connector", "sync", "readwise"],
+    "github add": ["github", "add", "example-org/widget-kit"],
+    "github project": ["github", "project", "bob-example/alpha-project"],
     "maintenance move-watched-rows": ["maintenance", "move-watched-rows", "--apply"],
 }
 
