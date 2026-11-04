@@ -37,6 +37,21 @@ extension EnvironmentValues {
     @Entry var revealedNumbers: [String: String] = [:]
 }
 
+/// A passage outside the Reader that may hold a token (a question's quote), with its digits asked for when drawn.
+struct RevealingPassage: View {
+    let segments: [CitedSpan.Segment]
+    @State private var numbers: [String: String] = [:]
+
+    var body: some View {
+        CitedPassage(segments: NumberTokens.shown(segments, numbers))
+            .task(id: segments.map(\.text).joined()) {
+                let tokens = NumberTokens.ids(in: segments.map(\.text).joined())
+                guard !tokens.isEmpty, let answer = await APIClient.shared.revealNumbers(tokens) else { return }
+                numbers = answer.numbers
+            }
+    }
+}
+
 /// A person's current numbers on their page (DR-81: nothing to say, nothing drawn). Fetched here rather than sent in the
 /// page's blocks (DR-78), because a page's blocks reach other clients and must never carry a digit.
 struct PersonNumbersRow: View {

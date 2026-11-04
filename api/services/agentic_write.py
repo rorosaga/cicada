@@ -527,6 +527,7 @@ def write_claim(
                 and not phone_numbers.same_number(c.object, new_claim.object, settings) for c in existing_claims):
             # Proposed ruling 55: asked here it would wait with no question (this door raises none), and an agent's word
             # closes no number. Said to the person, their own words change it through Sleep.
+            phone_numbers.discard_unused(memory_path, phone_numbers.token_ids(new_claim.object)[0])
             return {"subject": subject_raw, "entity_id": entity_id, "claim_id": None, "action": "error",
                     "observer": observer,
                     "error": "This page holds a different number. A number changes only on the person's own words, so "

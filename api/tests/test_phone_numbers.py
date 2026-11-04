@@ -1438,6 +1438,9 @@ def test_an_agents_different_number_is_refused_in_words_and_changes_nothing(memo
     out = agentic_write.write_claim(memory, "Ana Diaz", "phone", B, observer="external:claude-code", object_kind="literal")
     assert out["action"] == "error" and "person's own words" in out["error"]
     assert (memory / "entities" / "ana-diaz.md").read_text() == before
+    # nothing was written: the refused number is not in the vault either, and the page's one still is
+    held = json.loads(people_directory.path(memory.name, phone_numbers.VAULT_FILE).read_text())["numbers"]
+    assert [v["forms"] for v in held.values()] == [[A]]
 
 
 def test_an_agent_restating_the_same_number_changes_nothing_new(memory):

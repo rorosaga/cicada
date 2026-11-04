@@ -424,6 +424,27 @@ def mint_many(bank, raws: Iterable[str]) -> dict[str, str]:
     return out
 
 
+def discard_unused(bank, tid: str) -> None:
+    """A number minted for a write that was then refused: out of the vault unless the bank already points at it."""
+    root = Path(bank) if isinstance(bank, Path) else None
+    needle = token(tid)
+    with _vault_lock(bank):
+        data = _read(_name(bank))
+        if not data or tid not in data["numbers"]:
+            return
+        if root is not None:
+            for sub in ("entities", "episodes"):
+                folder = root / sub
+                if folder.is_dir() and any(needle in f.read_text(encoding="utf-8", errors="ignore")
+                                           for f in folder.iterdir() if f.is_file()):
+                    return
+            pending = root / "pending_entities.jsonl"
+            if pending.is_file() and needle in pending.read_text(encoding="utf-8", errors="ignore"):
+                return
+        del data["numbers"][tid]
+        people_directory.save_json(_name(bank), VAULT_FILE, data)
+
+
 def known_id(bank, raw: str | None) -> str | None:
     """The token id ``raw`` would get, minting nothing: for comparing digits with what is stored."""
     digits = _digits(raw)
