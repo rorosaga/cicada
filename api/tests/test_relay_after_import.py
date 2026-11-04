@@ -3,6 +3,7 @@ marked as relayed, with the imported part still the person's own words. One conv
 part keeps its own provenance; Sleep reads only what grew; a later export upgrades whichever turns it holds."""
 from __future__ import annotations
 
+import subprocess
 from datetime import date
 
 import pytest
@@ -12,7 +13,7 @@ from api import config
 from api.remote import catalog
 from api.remote.runtime import RemoteRuntime
 from api.services import (
-    authorship, entity_extractor, episode_revision, episode_staging, evidence, markdown_parser, mcp_tools, promotion,
+    authorship, entity_extractor, episode_actor, episode_revision, episode_staging, evidence, markdown_parser, mcp_tools, promotion,
     provenance, relay_capture, turn_capture,
 )
 
@@ -257,6 +258,31 @@ def test_only_the_tail_is_read_on_a_long_import(memory):
     assert "Message number 0," not in read and THIRD in read and REPLY2 in read
 
 
+def _git(memory, *args):
+    subprocess.run(["git", "-C", str(memory), "-c", "user.name=Verify", "-c", "user.email=verify@example.invalid", *args],
+                   check=True, capture_output=True)
+
+
+def test_the_version_sleep_read_comes_from_git_through_the_cycles_own_door(memory):
+    """`episode_revision.attach`, the call the cycle makes: its diff starts where the later turns do."""
+    door = _Local(memory)
+    door.send(SECOND, REPLY)
+    episode_staging.stage([_export(*BASE)], memory / "episodes")
+    [path] = _episodes(memory)
+    prior, _ = _sleep_read(path)
+    if not (memory / ".git").exists():
+        _git(memory, "init", "-q")
+    _git(memory, "add", "-A")
+    _git(memory, "commit", "-qm", "Sleep cycle")
+    door.send(THIRD, REPLY2)
+    stored = _parsed(path)
+    episode = {"id": path.stem, "content": stored.body, "filepath": path, **stored.frontmatter}
+    assert episode_revision.prior_bodies(memory, [episode]) == {path.stem: prior}
+    revision = episode_revision.attach(memory, [episode])[path.stem]
+    assert revision.changed and all(start >= stored.frontmatter["relay"]["tail_at"] for start, _ in revision.changed)
+    assert not revision.removed
+
+
 def test_stage_one_is_told_what_the_marker_means(memory, imported):
     door, path = imported
     assert entity_extractor.relayed_note(_parsed(path).frontmatter) is None
@@ -328,6 +354,12 @@ def test_the_reader_sides_each_part_by_its_marker(memory, imported):
     assert doc.relay is None        # an upgraded episode is no relay as a whole
     by = [(t.role, t.marker) for t in doc.turns]
     assert by[0] == ("user", "user") and ("assistant", "relayed [Claude]") in by
+
+
+def test_an_upgraded_episode_is_named_as_the_export_it_is_not_as_a_relay(memory, imported):
+    door, path = imported
+    door.send(THIRD, REPLY2)
+    assert "relayed" not in (episode_actor.actor(_parsed(path).frontmatter) or "")
 
 
 def test_an_older_upgraded_episode_with_no_imported_hash_still_takes_later_turns(memory, imported):

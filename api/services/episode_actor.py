@@ -55,7 +55,8 @@ def actor(fm: dict | None, *, ids: bool = True) -> str | None:
     session = str(fm.get("session_id") or "").strip()
     source = str(fm.get("source") or "").strip()
     origin = str(fm.get("origin") or "").strip()
-    if isinstance(fm.get("relay"), dict):
+    # An upgraded episode holds the export's words (ruling 32), and a later relayed turn says so by its own marker.
+    if isinstance(fm.get("relay"), dict) and not fm["relay"].get("upgraded_at"):
         how = "by its model" if fm["relay"].get("channel") == "local" else "through the remote connector"
         return f"{_label(harness) if harness else 'an app'}, relayed {how}"
     from api.services import authorship
