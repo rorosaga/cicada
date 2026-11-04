@@ -227,7 +227,7 @@ enum SourceTiles {
     static let openIds = ["imessage", "youtube", "x", "instagram"]
 
     /// The popular ones: Calendar, Contacts, each supported browser on this Mac, Messages, YouTube, X, Instagram,
-    /// and chat history. Apple Notes, Wispr Flow, tab groups and the rest stay one click away on the Sources page.
+    /// and chat history. Apple Notes, tab groups and the rest stay one click away on the Sources page.
     static func tiles(imports: [ImportEntry]) -> [SourceTile] {
         var out: [SourceTile] = []
         let calendar = imports.first { $0.id == .app(AppSourceDrivers.calendar) }

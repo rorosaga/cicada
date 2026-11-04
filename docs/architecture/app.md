@@ -925,7 +925,7 @@ behind the `+` on the Sleep page's tab row (the Feed's, until 2026-10-16). Both 
 two surfaces. Round 3 added **Notes & files** (Apple Notes and, when Obsidian is installed, *Obsidian vault*; the
 watched folders and *Add a folder* moved to Settings → Privacy & data on 2026-10-14, and Notes & files keeps one
 pointer, "Folders are in Search & files ›") and **Voice & meetings** (Wispr Flow once it is on this
-Mac) — both standing connections, so both live here; their marks are the installed apps' own icons.
+Mac, while on offer) — both standing connections, so both live here; their marks are the installed apps' own icons.
 Harness rows wear their app's real mark ("Other agents" a neutral glyph); a folder's Manage, Wispr
 Flow and a connector's Connect/Manage open as sheets (`SettingsSheet`), never popovers; the
 add-folder sheet labels its fields and asks which subfolders an agent wrote as a checklist
@@ -952,7 +952,7 @@ Contacts (G154), both app-owned rows.
 **Meeting recorders (G95, ruling 52, 2026-11-03).** Sources gains a **Meeting recorders** group after This Mac
 (`SourceCatalogGroup.meetings`): **Hex** (`SourceCatalog.hexId`, shown once Hex is on this Mac — `LocalSourceWatcher.
 hexInstalled`, a LaunchServices lookup made on each reload, never per body — or a Hex folder exists; its mark is the
-installed app's icon, `anomaly.hex`), **Wispr Flow** (moved here from This Mac, its row unchanged) and **Transcripts**
+installed app's icon, `anomaly.hex`), **Wispr Flow** (moved here from This Mac, its row unchanged; off the offer since 2026-11-04, below) and **Transcripts**
 (`meetingFoldersId`, always: any folder of transcripts; the shorter name fits the list column). `SourceCatalog.entries(hexPresent:meetingFolders:)` takes the watcher's
 folders: a meeting folder (`FolderRegistration.isMeetings`, `kind: meetings`) syncs as `meetings:<id>`, so it never
 counts for Folders; Hex's own (`recorder: hex`) speak for Hex, the rest for the folder of transcripts. The detail lists
@@ -1463,7 +1463,7 @@ is not set up in the active memory, the notch offers it once. *Trigger:* `NSWork
 that passes through is not entering it). *Apps* (`ConnectSuggestApps`, bundle id → Sources catalogue entry): WhatsApp
 (`net.whatsapp.WhatsApp` → `whatsapp`), Telegram (`ru.keepcoder.Telegram`, `org.telegram.desktop` → `telegram-chats`),
 Messages, Notes, Calendar, Reminders, Contacts, every browser Cicada reads bookmarks from (`BrowserInventory.catalog`,
-`supported` only — Arc, Firefox, Edge and Opera never), Wispr Flow (`com.electron.wispr-flow`), Notion (`notion.id`) and
+`supported` only — Arc, Firefox, Edge and Opera never), Wispr Flow (`com.electron.wispr-flow`, only while `SourceCatalog.wisprOffered`), Notion (`notion.id`) and
 Hex (`anomaly.hex` → `hex`, the meeting recorders' entry, read with the app's meeting folders so a Hex whose own
 folder is connected never reads Off). Readwise is gone. **A website
 in the front tab is not a trigger:** the only permission-free tab read is the star-click prefill (owner ruling
@@ -1799,12 +1799,23 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   Flow reads Off with *Not installed* on its row and *Off · not installed* on its page (`SourcePageStatus.notInstalled`).
   Its database stays in `~/Library` after the app is removed, so `wisprInstalled` (the database) could not tell. Its
   mark is the vendor's bundled one (`OriginIconography.logoName("wispr-flow") == "wispr"`), so it shows with the app gone.
+- **Wispr Flow is off the offer for now (owner 2026-11-04: "remove wisprflow also from sources for now").**
+  `SourceCatalog.wisprOffered = false` is the one line; `true` brings all of this back. No row on Sources, no onboarding
+  row or tile, no driver (`AppSourceDrivers.live`), no notch offer (`ConnectSuggestApps.target`, `.status`), nothing in
+  Settings' list of Noes (`ConnectSuggestApps.offered`), and a checklist that ticked it drops the row
+  (`GettingStartedProgress.rows`). **The reader stops for everyone, connected or not**
+  (`LocalSourceWatcher.wisprReads`): a row that is gone cannot explain a reader still running. Its `enabled` setting
+  and read cursor are left as they are, so it resumes where it stopped. What came in stays: the overview row is drawn
+  from evidence, so someone with Wispr episodes still finds the source in ⌘K and from Sleep (`SourceDetailView`, what came
+  in by name, no Refresh), and search and the Feed are untouched. A fresh memory has no such row. No wire change: the
+  `/capture/local-source/wispr-flow` routes, the `wispr-flow` channel row and `source_overview.CATALOG` stay, the last
+  because it names old episodes' origin, and an older app keeps working. `ThisMacSourcesTests`, `LocalSourceWatcherTests`.
 `ThisMacSourcesTests`, `test_source_collections.py`.
 
 **The redesign, Sources · Inbox · entity card · Sleep (G217, G205, G212, G61, G206; ruling 36 D5/D6, 2026-10-22).**
 - **Sources is the one catalogue** (`SourceCatalog`, pure; `SourceCatalogViews`). Every way in, on or off, grouped
   *Accounts and browser* (X, YouTube, Instagram, LinkedIn, Reddit, Pinterest, TikTok) · *This Mac* (Calendar, Contacts,
-  Messages, each browser on this Mac, Apple Notes, Folders, Wispr Flow once present) · *Exports* (Files and links; Chat
+  Messages, each browser on this Mac, Apple Notes, Folders; Wispr Flow once present, while on offer) · *Exports* (Files and links; Chat
   exports, which point at their agent — `AppRouter.routeToAgents`, the Agents page) ·
   *Feeds* (RSS, Calendar feeds, Telegram), then *Agents' conversations* for an overview harness row no entry speaks for.
   A row is a `LogoTile` (through the `SourceLogoTile` adapter: an origin key or an umbrella logo slug in), the name, the

@@ -65,7 +65,7 @@ struct OnboardingView: View {
     }
 
     private var entries: [ImportEntry] {
-        ImportCatalog.entries(ImportContext(browsers: browsers, wisprInstalled: local.wisprInstalled,
+        ImportCatalog.entries(ImportContext(browsers: browsers, wisprInstalled: SourceCatalog.wisprOffered && local.wisprInstalled,
                                             wisprDictation: local.wisprSettings.includeDictation))
     }
 

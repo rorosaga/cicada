@@ -168,7 +168,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   drops — never on the capture path, on by default only if measured better, no setting (G207).
 - **The app reads `~/Library`, the backend parses bytes.** The launchd backend has no Full Disk Access and never opens
   those paths, never stats a path a request names, never runs git in a declared repo; the app reads (browsers, Notes via
-  its own `osascript`, Calendar, Contacts, Chrome tab groups, watched folders, Wispr Flow) and posts bytes. A browser is
+  its own `osascript`, Calendar, Contacts, Chrome tab groups, watched folders; Wispr Flow's reader is off for now, `app.md`) and posts bytes. A browser is
   read only after the person turned it on. An unreadable file shows the exact fix in the app. Chrome's history is read
   from a copy, YouTube video pages only; watch history is one episode per day, never a save (G71, `capture-and-sleep.md`);
   it and saves from a platform's saved list are indexed, never read by a model (ruling 30).

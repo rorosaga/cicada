@@ -30,6 +30,16 @@
   Detail: `capture-and-sleep.md`, `app.md`. **Known residue:** `UserDefaults(suiteName:)` in Swift tests lands in the real
   `~/Library/Preferences` whatever `HOME` says (cfprefsd ignores it): 5,621 `contacts-<uuid>.plist` files since 2026-09-24,
   test values only. These two suites now empty theirs, leaving a 42-byte file; the class is not fixed.
+- **2026-11-04 — Wispr Flow off the offer for now (G134; branch `wispr-hide-from-sources`, #613).** Owner: "remove
+  wisprflow also from sources for now." `SourceCatalog.wisprOffered = false` is the one line that brings it back. Gone from
+  Sources, onboarding, the notch and Settings' list of Noes; a Getting started row that ticked it drops. The Permissions
+  step and the find palette never offered it (⌘K lists a source only with evidence, and that row opens what came in, with
+  no Refresh). **The reader stops for everyone, connected or not**, because a row that is gone cannot explain a reader
+  still running; the setting and cursor stay, so it resumes where it stopped. Nothing captured is deleted or retired.
+  **Kept on purpose:** the routes, the channel row and `source_overview.CATALOG` (it names old episodes' origin, and a row
+  there needs evidence, so it offers nothing), so an older app keeps working. Wispr's own hosted connector stays among the
+  recommended skills: it is not a source Cicada reads, and the owner's words were about sources.
+
 - **2026-11-04 — three owner reports: a tool inside its app, a plan that is back, one inbox (G50, ROR-52, ROR-96, ROR-46;
   branch `fix/g50-bundled-tool-detection`).** OpenCode.app's `opencode-cli` is found; an app without the tool Sleep needs
   says *Not ready* and the line to run, on the cards and in Auto's skip sentence (`Status.not_ready`). The real bundled
