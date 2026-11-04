@@ -1687,12 +1687,17 @@ async def _index_without_model_safely(memory_path: Path) -> None:
             logger.warning(f"Indexing without a model skipped: tree status unreadable ({type(exc).__name__})")
             return
     try:
+        from api.services import saved_mentions
+
         retired = await asyncio.to_thread(history_index.retire, memory_path, skip=skip)
         months = await asyncio.to_thread(watch_history.rollup, memory_path, bank=memory_path.name)
+        # Ruling 62: an indexed save whose page a conversation lit since gets its one real read. After `retire`: a save
+        # that just went in was checked by it.
+        woken = await asyncio.to_thread(saved_mentions.wake_lit, memory_path, at=episode_ids.utc_now_iso())
     except Exception as exc:
         logger.warning(f"Indexing without a model failed: {type(exc).__name__}: {exc}")
         return
-    paths = sorted(set(retired.paths) | {p for p in months.paths if p not in skip})
+    paths = sorted(set(retired.paths) | {p for p in [*months.paths, *woken] if p not in skip})
     if retired.paths or months.created or months.updated:
         logger.info(f"Indexed without a model: {len(retired.paths)} queued episode(s) marked read "
                     f"({dict(sorted(retired.by_kind.items()))}), {months.created} month summary(ies) written, "
@@ -1719,7 +1724,10 @@ async def _embed_indexed_episodes_safely(memory_path: Path) -> None:
     a month's summary, a list save) never reaches a model batch, whose end is where the episode vectors are synced —
     so the tail syncs them when one was written after the vector index last was. Incremental by content hash (only
     the new passages are embedded), with the model the table already holds (``defer_model_switch``). A bank with no
-    vector index yet waits for its first sync. No git, no model call. Never raises."""
+    vector index yet waits for its first sync. No git, no model call. Never raises.
+
+    Ruling 62: a bare save's page (``media``) is found by meaning too, and no batch may ever come to sync it: a page
+    written after the last sync is embedded here, also incrementally."""
     from api.services import history_index, vector_index
 
     db = memory_path / vector_index.INDEX_DB_FILE
@@ -1734,10 +1742,17 @@ async def _embed_indexed_episodes_safely(memory_path: Path) -> None:
     since = max(stamps)
 
     def sync() -> None:
-        if not any(f.mtime_ns > since and history_index.is_index_only(f.frontmatter)
-                   for f in bank_index.files(memory_path, "episodes")):
+        episodes = any(f.mtime_ns > since and history_index.is_index_only(f.frontmatter)
+                       for f in bank_index.files(memory_path, "episodes"))
+        pages = any(f.mtime_ns > since and (f.frontmatter or {}).get("type") == "media"
+                    for f in bank_index.files(memory_path, "entities"))
+        if not episodes and not pages:
             return
-        vector_index.SqliteVecIndexer(memory_path, defer_model_switch=True).index_episodes()
+        indexer = vector_index.SqliteVecIndexer(memory_path, defer_model_switch=True)
+        if episodes:
+            indexer.index_episodes()
+        if pages:
+            indexer.index_entities()
 
     try:
         await asyncio.to_thread(sync)
@@ -2251,7 +2266,9 @@ async def _drain(
         except Exception:  # noqa: BLE001
             ds.first_run = False
         _sample_owner(ds, memory_path, "at_start")
-    ds.batches = ds.batch + sleep_drain.batches_for(len(remaining), size)
+    # Ruling 62: a batch is bounded by what it holds as well as by count (`sleep_drain.BATCH_BYTES`).
+    sizes = sleep_progress.sizes_of(memory_path, remaining)
+    ds.batches = ds.batch + sleep_drain.batches_left(remaining, size, sizes)
     ds.new_since = sleep_progress.new_since_by_origin(
         {i: o for i, o in waiting_map.items() if i not in parked_now}, set(ids))
     ds.arrived_since = sum(ds.new_since.values())
@@ -2368,7 +2385,7 @@ async def _drain(
         ds.skipped += len(gone)
         ds.skipped_ids |= gone
         ds.settled |= gone
-        batch_ids, more = sleep_drain.next_batch_retrying(ids, waiting, ds.settled, size, ds.attempts)
+        batch_ids, more = sleep_drain.next_batch_retrying(ids, waiting, ds.settled, size, ds.attempts, sizes=sizes)
         if not batch_ids:
             ds.finished = True   # a cancel that came too late has nothing left to stop
             break
@@ -2381,7 +2398,8 @@ async def _drain(
             break
 
         ds.batch += 1
-        ds.batches = ds.batch + sleep_drain.batches_for(more, size)
+        ds.batches = ds.batch + sleep_drain.batches_left(
+            [i for i in ids if i not in ds.settled and i in waiting and i not in set(batch_ids)], size, sizes)
         is_last = more == 0
         before_read, before_total = dict(_state.read_by_origin), _state.episodes_total
         _reset_batch_counters()
@@ -3467,6 +3485,17 @@ async def _run_stages(
     requeued = len(episodes) - len(processed_episodes)
     _state.episodes_processed = await asyncio.to_thread(_mark_episodes_processed, processed_episodes)
     _state.episodes_requeued = requeued
+    # Ruling 62: a bare save these conversations name in the person's own words gets its one real read, next run.
+    # Inside the batch's window, committed with it (`_finalize`).
+    try:
+        from api.services import saved_mentions
+
+        woken = await asyncio.to_thread(saved_mentions.wake_mentioned, memory_path, processed_episodes,
+                                        at=episode_ids.utc_now_iso())
+        if woken:
+            logger.info(f"Saved items mentioned: {len(woken)} queued for a read")
+    except Exception as e:  # noqa: BLE001 - a later mention wakes it
+        logger.warning(f"Saved mentions skipped: {type(e).__name__}")
     # G207: Sleep's reading is the one that counts — what a quick read held provisionally for these is settled.
     try:
         from api.services import awake_read

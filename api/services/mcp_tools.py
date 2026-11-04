@@ -38,7 +38,7 @@ from typing import Callable
 
 from api.services import agent_commits, agentic_write, demo_guard, episode_ids, episode_scrub, episode_time
 from api.services import entity_relations, episode_actor, page_blocks
-from api.services import search_service
+from api.services import history_index, saved_lookup, search_service
 # One fence rule for every frontmatter reader (L final review, finding 2).
 from api.services import (bank_index, entity_bands, link_views, markdown_parser, page_lock, same_name, search_index,
                           write_admission)
@@ -2287,6 +2287,13 @@ def _recall(ctx: ToolContext, query: str) -> str:
         output_parts.append("**Not yet read by Sleep (provisional — a quick read of conversations since the last "
                             "Sleep; Sleep confirms, corrects or drops each):**\n" + "\n".join(provisional))
 
+    # === Ruling 62: saved items the query's words find, unread: enough for an agent to look further ===
+    # A title and a link are the page's, not the person's words, so no scope gates them; a tab group's are its body's.
+    saved_hits = saved_lookup.find(memory_path, query, k=RECALL_SAVED_SHOWN, min_shared=1,
+                                   exclude=frozenset(entity_block_ids), episodes=ctx.raw_excerpts)
+    if saved_hits:
+        output_parts.append(f"{SAVED_HEADING}\n" + "\n".join(saved_lookup.line(h) for h in saved_hits))
+
     # === Wikilink traversal: one hop out — only when the floor left a single page (2026-10-27) ===
     # With two or more pages shown, their own `Related:` lines already name the neighbours; the heads of pages no leg
     # ranked were most of what a recall carried and rarely what was asked.
@@ -2334,6 +2341,8 @@ def _recall(ctx: ToolContext, query: str) -> str:
             if ep_id in quoted:
                 continue   # 2026-10-27: one passage per conversation (the vector leg alone returned the same one 3x)
             quoted.add(ep_id)
+            if _is_bare_save(memory_path, ep_id):
+                continue   # ruling 62: a saved link is no conversation; its line above says what it is
             snippet = (ep.get("text") or "")[:RECALL_EXCERPT_CHARS].strip().replace("\n", " ")
             if _mostly_links(snippet):
                 continue   # 2026-10-27: a bare link (a mail client's wrapped URL) says nothing an agent can use
@@ -2376,6 +2385,16 @@ def _recall(ctx: ToolContext, query: str) -> str:
 
 
 RECALL_PICTURES_SHOWN = 3
+RECALL_SAVED_SHOWN = 3
+SAVED_HEADING = ("**Saved links on this (no reason given and nobody has read them; the page's words, not the person's. "
+                 "Follow a link to look further):**")
+
+
+def _is_bare_save(memory_path: Path, episode_id: str) -> bool:
+    entry = bank_index.file(memory_path, "episodes", f"{episode_id}.md") if str(episode_id).startswith("ep_") else None
+    return entry is not None and history_index.kind(entry.frontmatter) == "saved"
+
+
 _PICTURE_FROM = {"look": "a look you saved", "capture": "a screenshot of the saved site",
                  "preview": "the saved link's own picture", "still": "the video's still",
                  "frame": "a frame of a video you added"}
@@ -3001,8 +3020,6 @@ def _episode_read(ctx: ToolContext, episode_id: str) -> str | Reply:
         return Reply(f"Could not read conversation '{episode_id}' ({type(exc).__name__}).", code="error")
     fm = parsed.frontmatter or {}
     day = str(fm.get("timestamp") or "")[:10] or episode_id[3:13]
-    from api.services import history_index
-
     kind = history_index.kind(fm)
     if kind is not None:
         # Ruling 30: a watched day, a month's summary, a saved-list item or a trace day is indexed, never read by a
@@ -3010,6 +3027,12 @@ def _episode_read(ctx: ToolContext, episode_id: str) -> str | Reply:
         if kind == "locked":
             return Reply(f"`{episode_id}` is a locked note: Cicada does not read it.",
                          data={"episode_id": episode_id, "index_only": kind})
+        if kind == "saved":
+            # Ruling 62: unread on purpose, and an agent may look further: the page's own words, never the person's.
+            title = " ".join(str(fm.get("title") or "").split())
+            where = f" {fm['url']}" if fm.get("url") else ""
+            return Reply(f"`{episode_id}` · {day} is a link the person saved with no reason given, and nobody has read "
+                         f"it: {title}{where}", data={"episode_id": episode_id, "index_only": kind})
         what = {"history": "a day of the person's watch history", "month": "a month's summary of the watch history",
                 "list": "a save from one of the person's saved lists", "traces": "an activity-trace day",
                 "reading": "a day of pages the person read",

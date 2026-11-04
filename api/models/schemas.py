@@ -398,6 +398,8 @@ class SourceOverview(CamelModel):
     # stored) or the site a saved thing came from (`kind: site`, `id` = the saved page the site's mark is asked by) —
     # with how many more there are.
     waiting: int = 0
+    # Ruling 62: this source's saves kept for lookup, unread until the person talks about one (the detail's one line).
+    kept: int = 0
     faces: list[SourceFace] = Field(default_factory=list)
     faces_more: int = 0
 
@@ -4094,6 +4096,8 @@ class SleepQueueResponse(CamelModel):
     total: int
     offset: int = 0
     items: list[SleepQueueItem] = Field(default_factory=list)
+    #: Ruling 62: saves kept for lookup, unread until the person talks about one (the Sleep page's one line).
+    kept: int = 0
 
 
 class SleepEngineChoice(CamelModel):
