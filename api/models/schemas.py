@@ -3890,6 +3890,10 @@ class SleepEngineCandidate(CamelModel):
     model_note: Optional[str] = None
     # The exact command that signs the person in to this tool (they run it; Cicada never signs in for them).
     sign_in: Optional[str] = None
+    # ROR-52, additive: `available` is false yet this is not "not installed": the tool's app (or an old copy of the tool)
+    # is on this computer and Sleep can't run it. `detail` says what is missing; `next_command` is the one line to run.
+    not_ready: bool = False
+    next_command: Optional[str] = None
     # Vision item 4 (2026-10-28) — `models` described (`model_catalogue`): where each came from and when, its family,
     # when Cicada first saw it, what an alias last resolved to, and a format change in words. Additive.
     catalogue: Optional["ModelCatalogue"] = None

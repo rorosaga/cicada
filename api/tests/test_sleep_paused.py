@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import stat
+import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -208,6 +209,32 @@ def test_only_a_continue_body_continues_and_a_bare_trigger_clears_the_pause(tmp_
     rig.on_extract = None
     _run(memory, cid="sleep_fresh")
     assert sleep_paused.load(memory) is None and waiting(memory) == []
+
+
+def test_a_weekly_pause_past_its_reset_really_resumes_on_continue(tmp_path, monkeypatch):
+    """ROR-96: staying paused past the reset is ruling 15's design, so the person's Continue must carry it. The route
+    and the real run, with the record's reset an hour and a half gone: same run id, nothing left waiting, no pause."""
+    ids = episode_ids(9)
+    memory = seed_bank(tmp_path, ids)
+    rig = install(monkeypatch)
+    rig.on_extract = _pause_by("seven_day")
+    cfg, _ = _run(memory)
+    rec = sleep_paused.get_paused(memory)
+    assert (rec["reason"], rec["limit"]) == ("plan_weekly", "seven_day")
+    rec["resets_at"] = int(time.time()) - 5400
+    sleep_paused.save(memory, rec)
+    run_id = rec["run_id"]
+
+    rig.on_extract = None
+    sleep_cycle.get_sleep_state().status = "idle"
+    main.app.dependency_overrides[get_settings] = lambda: cfg
+    client = TestClient(main.app)
+    assert client.get("/sleep/status").json()["paused"]["canContinue"] is True
+    assert client.post("/sleep/trigger", json={"continue": True}).json()["message"] == "Sleep run resumed"
+    state = sleep_cycle.get_sleep_state()
+    assert state.drain.drain_id == run_id and state.drain.stop is None
+    assert sleep_paused.load(memory) is None and waiting(memory) == []
+    assert client.get("/sleep/status").json()["paused"] is None
 
 
 def test_end_this_run_deletes_the_record_and_leaves_the_queue_alone(tmp_path, monkeypatch):

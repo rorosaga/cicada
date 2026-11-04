@@ -21,6 +21,17 @@
   claude.ai on web and phone and ChatGPT reach the relay only through a public address, today a tunnel the person runs;
   not built here. A chat that goes on after its import keeps its later turns, marked as relayed, in the same episode
   (ruling 58, amended the same day).
+- **2026-11-04 — three owner reports: a tool inside its app, a plan that is back, one inbox (G50, ROR-52, ROR-96, ROR-46;
+  branch `fix/g50-bundled-tool-detection`).** OpenCode.app's `opencode-cli` is found; an app without the tool Sleep needs
+  says *Not ready* and the line to run, on the cards and in Auto's skip sentence (`Status.not_ready`). The real bundled
+  tool (1.3.3, scratch home) has no `--pure`, so on the owner's Mac it reads too old until the app is updated or the tool
+  installed; rail 3 is never loosened to make it run. A message after `--file` was read as a second file on it, so the
+  message now comes first. A paused run past its reset says the plan is back and to continue, on its own at that moment
+  (`nextClockEdge`), no past time anywhere on the page; Continue resumes the same run, proved with the route and the real
+  run on a reset an hour and a half gone. Ruling 15 stands: a weekly pause still waits for the click. Sources wears `tray`,
+  the Inbox page `tray.full`, ⌘K's word for it. **Pick up here:** a signed-in call through a bundled tool, and a spawn from
+  the launchd agent, are unverified (G50's row); Grok's install line points at an address that answered 404.
+
 - **2026-11-04 — This Mac source pages: accounts → collections → items (G161, G154, G95; branch `this-mac-sources`,
   PR #599, on the standard layout #593).** Owner: Apple Notes, Reminders, Contacts and Calendar "should
   have a better user experience and UI". One browser fills the standard page's content slot (`ThisMacSourceContent`):
