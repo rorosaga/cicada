@@ -13,6 +13,14 @@ enum SourcePictures {
         return "/sources/messages/chats/\(face.id)/photo?v=\(photo)"
     }
 
+    /// G154 — a card's thumbnail from this Mac's own book. Both parts are hashes the backend made, hex only.
+    static let contactPhotoPrefix = "/sources/contacts-local/book/"
+
+    static func contactPhotoPath(key: String, photo: String?) -> String? {
+        guard let photo, isHex(key), isHex(photo) else { return nil }
+        return "\(contactPhotoPrefix)\(key)/photo?v=\(photo)"
+    }
+
     /// 2026-11-03 — the picture of the page a chat stands for (`ChannelItemChat.picture`): only a path the backend's
     /// one precedence builds (`/entities/<id>/picture?v=` or `/photo`, `entity_picture.resolve`), never anything
     /// else a row could name — no scheme, no host, no `..`.
@@ -68,6 +76,8 @@ actor SourcePictureStore {
     static let maxConcurrent = 4
     private var running = 0
     private var waiting: [CheckedContinuation<Void, Never>] = []
+    /// Moved by `forget`: an ask already under way when the pictures were forgotten is not kept.
+    private var generation = 0
 
     init(fetch: @escaping Fetcher = { try await APIClient.shared.fetchSourcePicture(path: $0) }) { self.fetch = fetch }
 
@@ -88,7 +98,16 @@ actor SourcePictureStore {
         images["\(bank)|\(path)"] = image
     }
 
+    /// Every picture under a path, in every bank, misses too: Contacts stopped, so its faces leave memory at once.
+    func forget(pathPrefix: String) {
+        generation &+= 1
+        let marker = "|" + pathPrefix
+        images = images.filter { !$0.key.contains(marker) }
+        misses = misses.filter { !$0.contains(marker) }
+    }
+
     func image(path: String, bank: String) async -> NSImage? {
+        let started = generation
         let key = "\(bank)|\(path)"
         if let hit = images[key] { return hit }
         if misses.contains(key) { return nil }
@@ -108,6 +127,7 @@ actor SourcePictureStore {
         inFlight[key] = task
         let answer = await task.value
         inFlight[key] = nil
+        guard started == generation else { return nil }
         if let answer { images[key] = answer } else { misses.insert(key) }
         return answer
     }

@@ -79,6 +79,10 @@ async def revoke_device(device_id: str):
     from api.services import sync_net
 
     await sync_net.on_revoke(device)
+    # The address book it posted for its own Contacts page (`contacts_book`) stays with no one.
+    from api.services import contacts_book
+
+    await run_in_threadpool(contacts_book.forget_device, device_id)
     return {"device": device.wire(), "text": REVOKE_TEXT}
 
 

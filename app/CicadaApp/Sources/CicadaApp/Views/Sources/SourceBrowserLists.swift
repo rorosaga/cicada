@@ -1,8 +1,8 @@
 import SwiftUI
 
-// 2026-11-04 — the two This Mac pages whose items are not notes in folders: the meeting recorders (recorder → folder →
-// meetings, each with its day and how long it ran) and Contacts (the people in memory as a grid of faces). Both fill
-// the standard source page's `content` slot and read the backend's lists (`ChannelItemsCache`), never this Mac's store.
+// 2026-11-04 — the meeting recorders' page, whose items are not notes in folders (recorder → folder → meetings, each
+// with its day and how long it ran). It fills the standard source page's `content` slot and reads the backend's lists
+// (`ChannelItemsCache`), never this Mac's store. Contacts has its own grid (`ContactsGrid`).
 
 /// Hex's folder as the person knows it: a path under the home folder as `~/…`. Pure (`ThisMacSourcesTests`).
 enum HexConnectText {
@@ -182,111 +182,5 @@ enum MeetingRowText {
         full.dateStyle = .full
         return ([short.string(from: date), length].compactMap { $0 }.joined(separator: " · "),
                 [full.string(from: date), length].compactMap { $0 }.joined(separator: " · "))
-    }
-}
-
-/// Contacts: the people in memory that a card matched, as a grid of faces — each person's picture by the one picture
-/// precedence (the person's choice, then their Contacts photo, …), else their monogram — under the page's one search.
-/// A face opens the person's page. Never a card's other facts (G154): the backend lists the page's name only.
-struct ContactsGrid: View {
-    static let channel = "contacts-local"
-
-    @Environment(ChannelItemsCache.self) private var cache: ChannelItemsCache?
-    @Environment(AppRouter.self) private var router: AppRouter?
-    @Environment(ProvenanceRouter.self) private var provenance: ProvenanceRouter?
-    @Environment(Store.self) private var store: Store?
-    @State private var query = ""
-
-    private var refreshKey: String {
-        "\(SourceSearch.normalized(query))|\(store?.channels.loadedAt?.timeIntervalSinceReferenceDate ?? 0)"
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            SourceSearchHeader(query: $query, prompt: Copy.SourceBrowser.search(
-                cache?.list(Self.channel)?.all ?? cache?.list(Self.channel)?.total, channel: Self.channel))
-            grid
-        }
-        .task(id: refreshKey) {
-            if !SourceSearch.normalized(query).isEmpty {
-                try? await Task.sleep(for: SourceSearch.debounce)
-                guard !Task.isCancelled else { return }
-            }
-            await cache?.refresh(Self.channel, query: query)
-        }
-    }
-
-    @ViewBuilder
-    private var grid: some View {
-        if let cache {
-            let list = cache.list(Self.channel, query: query)
-                ?? (SourceSearch.normalized(query).isEmpty ? nil : cache.list(Self.channel))
-            if let list {
-                if list.items.isEmpty {
-                    InPlaceNote(text: SourceSearch.normalized(query).isEmpty ? Copy.SourceBrowser.contactsNone
-                                : Copy.SourcePage.noMatch(query))
-                } else {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: CicadaTheme.scaled(ContactsGridMetrics.cell),
-                                                           maximum: CicadaTheme.scaled(ContactsGridMetrics.cell + 24)),
-                                                 spacing: CicadaTheme.spacingSM)],
-                              alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                        ForEach(list.items, id: \.self) { item in
-                            ContactCell(item: item) {
-                                SourcePageRouting.go(.entity(item.id), router: router, provenance: provenance)
-                            }
-                        }
-                    }
-                    if list.hasMore {
-                        TextButton(title: cache.isLoadingMore(Self.channel, query: query) ? Copy.capturedLoadingMore
-                                   : Copy.capturedShowMore) {
-                            Task { await cache.loadMore(Self.channel, query: query) }
-                        }
-                    }
-                }
-            } else if case .failed(let why) = cache.phase(Self.channel, query: query) {
-                InPlaceNote(text: why)
-            } else {
-                ListSkeleton(message: Copy.SourceBrowser.loading, rows: 2)
-            }
-        }
-    }
-}
-
-enum ContactsGridMetrics {
-    /// A cell's side: the face (48) and the name under it.
-    static let cell: CGFloat = 96
-    static let face: CGFloat = 48
-}
-
-/// One person: their face, their name under it in one line; hover a fill (DR-48).
-struct ContactCell: View {
-    let item: ChannelItem
-    let open: () -> Void
-
-    @State private var hovering = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        Button(action: open) {
-            VStack(spacing: CicadaTheme.spacingXS) {
-                EntityPicture(id: item.id, name: item.title, type: .person, size: ContactsGridMetrics.face)
-                Text(item.title)
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textPrimary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, CicadaTheme.spacingSM)
-            .padding(.horizontal, CicadaTheme.spacingXS)
-            .rowHoverFill(hovering: hovering)
-            .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.cicadaPlain)
-        .onHover { hovering = $0 }
-        .help(Copy.SourceBrowser.contactHelp(item.title))
-        .accessibilityLabel(item.title)
-        .accessibilityHint(Copy.SourceBrowser.contactHelp(item.title))
     }
 }
