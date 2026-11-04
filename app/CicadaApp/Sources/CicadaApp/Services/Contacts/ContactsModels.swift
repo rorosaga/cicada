@@ -44,6 +44,25 @@ struct ContactsSyncPayload: Encodable, Equatable, Sendable {
     var connection: String? = nil
 }
 
+/// `PUT /sources/contacts-local/book` — every card, for the Contacts page's faces alone (`contacts_book`): its names
+/// and thumbnail, never which facts it holds.
+struct ContactsBookPayload: Encodable, Equatable, Sendable {
+    struct Card: Encodable, Equatable, Sendable {
+        let id: String
+        let givenName: String
+        let familyName: String
+        let photoB64: String?
+    }
+
+    let cards: [Card]
+    var connection: String? = nil
+
+    init(records: [ContactRecord], connection: String?) {
+        cards = records.map { Card(id: $0.id, givenName: $0.givenName, familyName: $0.familyName, photoB64: $0.photoB64) }
+        self.connection = connection
+    }
+}
+
 /// Task 3's answer; lenient, so a backend one field ahead or behind never fails the sync.
 struct ContactsSyncResult: Decodable, Equatable, Sendable {
     var contacts = 0, matched = 0, people = 0, ambiguous = 0, unmatched = 0, sourcesAdded = 0, sourcesRemoved = 0,
@@ -69,6 +88,9 @@ struct ContactsSyncResult: Decodable, Equatable, Sendable {
     }
 }
 
+/// What the book's `PUT` answers; nothing here reads it.
+struct ContactsBookSavedAnswer: Decodable, Sendable {}
+
 enum ContactsAccess: Equatable, Sendable { case notDetermined, granted, denied, restricted }
 
 enum ContactsReadError: Error, Equatable, LocalizedError {
@@ -93,6 +115,10 @@ protocol ContactsSyncAPI: Sendable {
     /// Review of #391: Contacts stopped — every bank's waiting cards are deleted on the backend; `connection` names the
     /// connection that ended, so a sync of it still in flight is dropped (review of #393).
     func forgetWaitingContacts(connection: String?) async throws
+    /// Every card, for the Contacts page's faces. Kept where this Mac's backend is; never read by a match.
+    func putContactsBook(_ payload: ContactsBookPayload) async throws
+    /// The same forget under a route that runs on this computer: on a copy, the one above goes to the home.
+    func forgetContactsBook(connection: String?) async throws
 }
 
 extension APIClient: ContactsSyncAPI {}

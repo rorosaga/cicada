@@ -114,7 +114,10 @@ final class ContactsReader {
         let api = self.api
         let connection = defaults.string(forKey: connectionKey)
         defaults.removeObject(forKey: connectionKey)
-        forgetTask = Task { try? await api.forgetWaitingContacts(connection: connection) }
+        forgetTask = Task {
+            try? await api.forgetContactsBook(connection: connection)
+            try? await api.forgetWaitingContacts(connection: connection)
+        }
     }
 
     func syncNow() async { await sync() }
@@ -187,8 +190,11 @@ final class ContactsReader {
         try Task.checkCancellation()
         guard !records.isEmpty else { throw ContactsReadError.empty }
         activity?.progressed(Self.channel, detail: Copy.contactsMatching(records.count))
-        let result = try await api.syncLocalContacts(
-            ContactsSyncPayload(contacts: records, connection: defaults.string(forKey: connectionKey)))
+        let connection = defaults.string(forKey: connectionKey)
+        // The page's faces first, best effort: the sync can be refused while Sleep runs, and the grid need not wait.
+        try? await api.putContactsBook(ContactsBookPayload(records: records, connection: connection))
+        try Task.checkCancellation()
+        let result = try await api.syncLocalContacts(ContactsSyncPayload(contacts: records, connection: connection))
         try Task.checkCancellation()
         defaults.set(token, forKey: tokenKey(bank))
         defaults.set(now(), forKey: lastPostKey(bank))

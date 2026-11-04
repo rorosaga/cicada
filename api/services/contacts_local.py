@@ -35,6 +35,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import threading
 import time
 from dataclasses import dataclass, field
@@ -535,6 +536,10 @@ def _forget_files(root: Path) -> int:
                 photos.rmdir()
             except OSError:
                 pass
+        # The Contacts page's faces (`contacts_book`) go with the rest; `forgotten` keeps counting the waiting cards.
+        book = folder / people_directory.CONTACTS_BOOK_DIR
+        if book.is_dir() and not book.is_symlink():
+            shutil.rmtree(book, ignore_errors=True)
     return forgotten
 
 

@@ -7,7 +7,9 @@ rename), until a page for that person exists:
 
 - ``linkedin-connections.json`` — the person's LinkedIn export (``linkedin_people``);
 - ``contacts.json`` + ``contacts/<key>.<jpg|png>`` — the Mac's address-book cards that matched no page, with exactly
-  what G154 posts (names, which facts the card holds, a thumbnail ≤ 64 KB) and nothing else (``contacts_local``).
+  what G154 posts (names, which facts the card holds, a thumbnail ≤ 64 KB) and nothing else (``contacts_local``);
+- ``contacts-book/<scope>/`` — every card of the book, names and thumbnails, for the Contacts page's faces alone
+  (``contacts_book``; never read by a match).
 
 This module owns the folder: where it is, how a file is read and written, the folded name keys both sources match on,
 and what a bank's trash or rename does to it. Nothing here is ever in a bank, in git, or in a log.
@@ -23,6 +25,10 @@ from pathlib import Path
 from loguru import logger
 
 from api.services import text_fold
+
+
+#: ``contacts_book``'s folder, named here so ``contacts_local``'s forget removes it without importing that module.
+CONTACTS_BOOK_DIR = "contacts-book"
 
 
 def folder(bank: str) -> Path:

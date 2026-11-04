@@ -33,7 +33,20 @@ final class FakeContactsAPI: ContactsSyncAPI {
         forgets += 1
         forgotConnections.append(connection)
     }
+    /// The Contacts page's faces (`contacts_book`).
+    private(set) var books: [ContactsBookPayload] = []
+    private(set) var bookForgets: [String?] = []
+    /// Every call in order, to prove the faces do not wait on the sync.
+    private(set) var calls: [String] = []
+    var bookFails = false
+    func putContactsBook(_ payload: ContactsBookPayload) async throws {
+        calls.append("book")
+        books.append(payload)
+        if bookFails { throw APIError.httpError(404, "") }
+    }
+    func forgetContactsBook(connection: String?) async throws { bookForgets.append(connection) }
     func syncLocalContacts(_ payload: ContactsSyncPayload) async throws -> ContactsSyncResult {
+        calls.append("sync")
         payloads.append(payload)
         banks.append(BankScope.origin)
         if hold { try await Task.sleep(for: .seconds(30)) }
@@ -88,6 +101,47 @@ final class ContactsReaderTests: XCTestCase {
         let json = String(decoding: try JSONEncoder().encode(api.payloads[0]), as: UTF8.self)
         XCTAssertFalse(json.contains("Example Co"), "an employer's name never crosses the wire (R-SR8)")
         XCTAssertFalse(json.contains("photoB64"), "no photo, no key")
+    }
+
+    /// G154 (owner 2026-11-04): every card reaches the page's faces, a one-part name too, with its names and thumbnail
+    /// only; first, because the sync can be refused while Sleep runs; and a failure there never fails the sync.
+    func testTheFacesGetEveryCardNamesAndThumbnailOnlyBeforeTheSync() async throws {
+        let store = FakeContactStore()
+        store.records = [
+            ContactMapper.record(id: "C1", given: "Bob", family: "Example", organization: "Example Co", jobTitle: "Lead",
+                                 emails: 2, phones: 1, hasBirthday: true, thumbnail: Data([1, 2])),
+            ContactMapper.record(id: "C2", given: "Mononym", family: "", organization: "", jobTitle: "", emails: 0,
+                                 phones: 1, hasBirthday: false, thumbnail: nil),
+        ]
+        let api = FakeContactsAPI()
+        let defaults = self.defaults()
+        await reader(store, api, defaults).connect()
+        XCTAssertEqual(api.calls, ["book", "sync"])
+        let book = try XCTUnwrap(api.books.first)
+        XCTAssertEqual(book.cards.map(\.id), ["C1", "C2"])
+        XCTAssertEqual(book.connection, api.payloads.first?.connection)
+        let wire = String(decoding: try JSONEncoder().encode(book), as: UTF8.self)
+        for word in ["hasPhone", "hasEmail", "hasOrganization", "Example Co", "Lead", "isMe"] {
+            XCTAssertFalse(wire.contains(word), word)
+        }
+        XCTAssertTrue(wire.contains("Mononym") && wire.contains("photoB64"))
+
+        api.bookFails = true
+        await reader(store, api, defaults).syncNow()
+        XCTAssertEqual(api.payloads.count, 2, "a refused book never stops the sync")
+    }
+
+    /// The forget reaches this computer's own book as well as the waiting cards, under the connection that ended.
+    func testStoppingForgetsTheFacesToo() async {
+        let store = FakeContactStore()
+        let api = FakeContactsAPI()
+        let r = reader(store, api, defaults())
+        await r.connect()
+        let connection = api.payloads.first?.connection
+        r.disconnect()
+        await r.forgetTask?.value
+        XCTAssertEqual(api.bookForgets, [connection])
+        XCTAssertEqual(api.forgotConnections, [connection])
     }
 
     func testDeniedSaysSoAndReadsNothing() async {
