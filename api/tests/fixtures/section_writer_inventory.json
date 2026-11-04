@@ -1213,6 +1213,20 @@
       "disposition": "fresh_frontmatter_untracked"
     }
   ],
+  "services/revision_prose.py": [
+    {
+      "function": "write",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "refresh_or_preserve"
+    },
+    {
+      "function": "run.move",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "refresh_or_preserve"
+    }
+  ],
   "services/bookmark_forget.py": [
     {
       "function": "forget",

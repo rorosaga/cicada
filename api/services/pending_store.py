@@ -460,6 +460,33 @@ def hold(
         return out
 
 
+def reanchor_held(memory_path: Path, move: Callable[[list[Claim]], int]) -> int:
+    """G104 (#581's "left" list): the held claims' spans into a conversation edited since they were heard, moved onto
+    its new body. ``move`` changes the claims' evidence in place and returns how many spans it moved
+    (`episode_revision.reanchor`). Only the ``evidence`` of a held dict is replaced, every other field kept byte for
+    byte; one read, and one write only when a span moved. Returns how many moved."""
+    with _LOCK:
+        entries = load(memory_path)
+        moved = 0
+        for line in entries:
+            parsed: list[tuple[int, Claim]] = []
+            for i, data in enumerate(line.held_claims):
+                try:
+                    parsed.append((i, Claim.from_dict(data)))
+                except (TypeError, ValueError):
+                    continue
+            if not parsed:
+                continue
+            n = move([c for _, c in parsed])
+            if n:
+                for i, claim in parsed:
+                    line.held_claims[i] = {**line.held_claims[i], "evidence": [e.to_dict() for e in claim.evidence]}
+                moved += n
+        if moved:
+            save(memory_path, entries)
+        return moved
+
+
 def ready(memory_path: Path, target_of: Callable[[str, str], str],
           decided: Iterable[str] = ()) -> list[Release]:
     """Read-only: the holding lines whose claims can go onto a page NOW (R-HP5).

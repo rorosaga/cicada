@@ -69,8 +69,15 @@ async def resolve_and_prune(
     decay: bool = True,
     cancel_check=None,
     progress_callback=None,
+    revised: dict[str, frozenset[str]] | None = None,
 ) -> list[dict]:
     """Apply conflict resolution and temporal decay to all entities.
+
+    ``revised`` (G104 slice 2): ``{episode id: the words its edit took away}`` (`revision_prose.changes_of`) for the
+    conversations this batch read again as revisions of themselves. The contradiction check is still asked; a
+    contradiction it finds is filed unless the old side is only the revised conversation's own removed words
+    (:func:`_answered_by_revision`) — then the source corrected itself (the claim layer closes the old value without a
+    question, #581, and Stage 5.58 rewrites the passages that said it, `revision_prose`).
 
     The synthesis and contradiction calls — the long, paid part of this stage — overlap
     across pages, at most ``agent_max_concurrency`` calls at once (1 is one call after
@@ -186,6 +193,10 @@ async def resolve_and_prune(
             change["synthesized_body"] = synthesized
             if job["section_aware"]:
                 change['section_aware_synthesis'] = True
+        if (contradiction and contradiction.get("has_unresolvable_contradiction") and revised
+                and _answered_by_revision(change, contradiction, revised, existing_by_id, settings)):
+            logger.info("Stage 3: a contradiction the edited conversation itself resolved — not asked (G104)")
+            contradiction = None
         if contradiction and contradiction.get("has_unresolvable_contradiction"):
             conflicts_found += 1
             progress.set_postfix_str(f"conflicts={conflicts_found}", refresh=False)
@@ -1223,7 +1234,39 @@ def _selected_page_inputs(entity: dict, sections: dict[str, str],
     except (KeyError, TypeError, ValueError, AttributeError):
         selected[section_provenance.INPUTS] = section_provenance.merge_selected(
             {section_provenance.INPUTS: old_records}, {}, selected)
+    selected[section_provenance.INPUTS] = list(selected[section_provenance.INPUTS]) + _split_fact_inputs(
+        entity, selected, old_records, original_body)
     return selected
+
+
+def _split_fact_inputs(entity: dict, selected: dict, old_records: list[dict], original_body: str) -> list[dict]:
+    """G104 slice 2 (2026-11-04): a Key Fact this write split off an orientation (`entity_body.retain_orientation`,
+    `merge_sections_fallback`'s displaced sentences) carries the source rows of the orientation it was cut from — the
+    incoming summary/description (its conversation and body hash, `section_provenance.attach`) or the page's old
+    Summary (its matched rows) — when its words are a contiguous part of that text. Only a fact NEW in this write: a
+    Key Fact the page already held keeps whatever rows it had (none, for one written before this rule), never
+    recertified from a later conversation that happens to repeat it."""
+    def norm(text: str) -> str:
+        return entity_body._normalize_fact(text)
+
+    on_page = {norm(i.text) for i in section_provenance.scan(original_body or '').get('key_facts', [])}
+    exact = {norm(r['text']) for r in selected.get(section_provenance.INPUTS) or [] if r.get('field') == 'key_facts'}
+    sources = [r for r in [*(entity.get(section_provenance.INPUTS) or []), *old_records]
+               if isinstance(r, dict) and r.get('field') in ('summary', 'description') and r.get('evidence')
+               and str(r.get('text') or '').strip()]
+    out = []
+    for fact in selected.get('key_facts') or []:
+        key = norm(fact)
+        if not key or key in on_page or key in exact:
+            continue
+        rows: dict = {}
+        for record in sources:
+            if key in norm(record['text']):
+                for ev in record['evidence']:
+                    rows.setdefault(tuple(sorted(ev.items())), ev)
+        if rows:
+            out.append({'field': 'key_facts', 'text': fact, 'evidence': list(rows.values())})
+    return out
 
 
 def _is_human_edited(frontmatter: dict, sections: dict[str, str]) -> bool:
@@ -1492,6 +1535,51 @@ def _merge_history_entries(body: str, new_entries: list[dict]) -> str:
         return body.rstrip() + "\n" + "\n".join(new_lines) + "\n"
 
     return body.rstrip() + "\n\n## History\n" + "\n".join(new_lines) + "\n"
+
+
+def _answered_by_revision(change: dict, contradiction: dict, revised: dict, existing_by_id: dict, settings) -> bool:
+    """G104 slice 2 (review of #589, B1): the contradiction is the edited conversation correcting itself — the old
+    side's words are words this batch's revision of one of the update's own conversations took away, and NOTHING else
+    the page rests on still says them: no other conversation in the page's ``source_episodes`` (their text), no claim
+    on the page in the person's own words or citing another conversation, no line the person fixed or rewrote (a
+    pinned ``corrections`` row, hand-written prose). Anything unreadable counts as saying them: the question is asked."""
+    from api.services import claim_reconciler, claims as claims_mod, entity_body, evidence, page_edits
+    from api.services.revision_prose import tokens
+
+    sources = set(_change_source_episodes(change))
+    own = {ep: revised[ep] for ep in sources if ep in revised}
+    if not own:
+        return False
+    gone = set().union(*own.values())
+    labels = []
+    for option in contradiction.get("options") or []:
+        label = option.get("label") if isinstance(option, dict) else option
+        if isinstance(label, str) and label.strip():
+            labels.append(label)
+    old_words = set().union(*(tokens(label) & gone for label in labels)) if labels else set()
+    if not old_words:
+        return False      # the old side is not something the revision removed
+    page = existing_by_id.get(change.get("id")) or {}
+    fm, body = page.get("frontmatter") or {}, page.get("body") or ""
+    if entity_body.has_human_prose(fm, entity_body.parse_sections(claims_mod.strip_claims_block(body))):
+        return False
+    if any(old_words & (tokens(row.get("new", "")) | tokens(row.get("old", ""))) for row in page_edits.corrections(fm)):
+        return False
+    memory_path = getattr(settings, "memory_path", None)
+    for ep in {str(e) for e in fm.get("source_episodes") or [] if e} - own.keys():
+        text = evidence.source_text(memory_path, ep) if memory_path else None
+        if text is None or tokens(text) & old_words:
+            return False
+    try:
+        page_claims = claims_mod.parse_claims(body)
+    except Exception:  # noqa: BLE001 - claims that cannot be read may say anything
+        return False
+    for claim in page_claims:
+        if claim.valid_to is None and tokens(f"{claim.text} {claim.object}") & old_words:
+            others = {e.episode for e in claim.evidence} | set(claim.source_episodes or [])
+            if claim_reconciler.is_human(claim) or others - own.keys():
+                return False
+    return True
 
 
 def _change_source_episodes(change: dict) -> list[str]:

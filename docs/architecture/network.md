@@ -769,6 +769,14 @@ shares a memory — it publishes its log, it is a copy, or a device is paired wi
 demo, `CICADA_SYNC_DOOR=off` to keep it shut. It is **a sealed-frame endpoint only: never the HTTP API, never a token,
 never a bank path**. The backend's HTTP API still binds `127.0.0.1`.
 
+- **TCP, decided (ruling 51f, owner 2026-11-04).** The door's carrier stays TCP (owner 2026-11-04: "if you find TCP
+  working better than UDP, then let's go for TCP"); a UDP door is parked in #590 (draft) after three security-review
+  rounds each found a new availability bug in its hand-rolled reliable channel — unbounded reassembly memory, quadratic
+  CPU from tiny pieces, then a session deadlock once its held-piece cap was reached — while the TCP door passed three
+  rounds clean, and on real Wi-Fi the throughput difference does not matter. Revisit with slice 3 (the hole punch needs
+  UDP), with a vetted transport (QUIC behind the authenticated gate, or a maintained library), never a hand-rolled
+  channel. The app's Bonjour stays `_cicada._tcp`.
+
 - **Who may connect.** T3 Code's rule, made exact: a connection on the loopback socket from loopback, on a private
   socket from a private address, on a Tailscale socket from Tailscale's ranges; anything else is closed before a byte
   is read.
@@ -801,8 +809,8 @@ never a bank path**. The backend's HTTP API still binds `127.0.0.1`.
   reordered frame fails and closes the connection.
 - **Unauthenticated first packets are dropped silently.** A hello that does not open, is more than 5 min old or new,
   repeats a fresh key already seen, or names no device of the group is closed without one byte sent back. Over TCP a
-  scanner learns only that a port accepted a connection; it never learns what listens (the UDP door of slice 2's punch
-  would show nothing at all).
+  scanner learns only that a port accepted a connection; it never learns what listens (a UDP door would show nothing
+  at all — parked until slice 3, above).
 - **Rate-limited.** Per source (an IPv4 address, an IPv6 /64) a bucket of 10 handshakes refilled one per 2 s (a failed one costs 3); at most 32
   connections waiting for their hello (3 s each) and 128 sessions; a frame at most 513 KiB, a request body 32 MiB, an
   idle session closes after 120 s.

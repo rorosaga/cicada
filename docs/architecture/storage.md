@@ -753,6 +753,23 @@ do not locate, the person's own, an agent's write (`recorded_ts`), an event, or 
 turn said is never closed this way. A withdrawn claim restated later is a fresh assertion, as
 for any withdrawal.
 
+**The prose follows (G104 slice 2, owner 2026-11-03; `revision_prose`, `capture-and-sleep.md`).** On a page where the
+revision closed a claim, or whose passage was written from the version Sleep read and says a word the revision took
+away, Sleep makes at most one call to rewrite or remove only those passages (Summary, Article, Key Facts, Open
+Questions — never History, which gains a dated line saying what changed). This is a dated exception to "the record
+sections are unioned, never shortened": a Key Fact the source itself stopped saying leaves the list, and git keeps it.
+Only a passage whose `section_provenance` rows prove Sleep wrote it from the edited conversation — and cite no other
+source still saying the removed word — is rewritten; a passage with no rows (legacy prose, an edited or typed line, a
+line a page merge carried) never is, and is at most asked about. `section_provenance.refresh` never gives rows to an
+item that was on the page with none before the write — not by exact text, not by fold — so repetition by a later
+conversation never makes such a line rewritable. A Key Fact Sleep cuts off a summary — Stage 2's losing summary, Stage 5's bounded
+Summary — carries that summary's rows (`merge_selected(split=True)`, `conflict_resolver._split_fact_inputs`), so it is
+correctable; one written before 2026-11-04 has none and stays as it is. A passage the person or an agent wrote or fixed (`has_human_prose`, a pinned
+`corrections` row on the changed words, a line git blames on a `Page edit` commit) becomes, instead, one `page_edit`
+inbox item per page, `origin: revision`. `section_provenance` rows into a revised episode move onto its new body (`remap`): spans located
+again never fuzzily, whole-conversation rows restamped — except on a passage still saying a removed word. The pending
+store's held claims take the same re-anchoring (`pending_store.reanchor_held`), only their `evidence` replaced.
+
 **Reading provenance back (G118 slice 2, server half).** Three engine-free, bank-only reads, all
 built in `api/services/provenance.py` and fetched on demand — none is a Store domain, so each ETag
 serves the client's in-memory cache and there is no `VersionVector` mapping: `GET

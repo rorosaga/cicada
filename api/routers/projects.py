@@ -453,9 +453,11 @@ def _suggestable_stem(memory_path, project_id: str) -> str:
     return page.stem
 
 
-async def _commit_as(memory_path, subject: str, paths: list[str], verb: str = "updated") -> None:
+async def _commit_as(memory_path, subject: str, paths: list[str], verb: str = "updated",
+                     verbs: dict[str, str] | None = None) -> None:
     message = git_service.build_commit_message(
-        subject, [f"{p}: {verb} (source: n/a, trigger: {PROJECT_TRIGGER})" for p in dict.fromkeys(paths)],
+        subject, [f"{p}: {(verbs or {}).get(p, verb)} (source: n/a, trigger: {PROJECT_TRIGGER})"
+                  for p in dict.fromkeys(paths)],
         authors=["user"])
     try:
         await git_service.commit_paths(memory_path, message, sorted(set(paths)))
@@ -474,15 +476,20 @@ async def create_project(body: ProjectCreate, settings: Settings = Depends(get_s
     from api.services import project_ownership
 
     mp = settings.memory_path
+    if len(body.pages) > project_ownership.MAX_ATTACH:
+        raise HTTPException(400, f"Attach at most {project_ownership.MAX_ATTACH} pages at once.")
     async with _write_lock:
         try:
-            eid, paths = await run_in_threadpool(
-                project_ownership.create, mp, body.name, body.description,
+            # All or nothing (review of #595, B1): a refusal or any failure while attaching takes back every file
+            # this request wrote.
+            eid, paths, created = await run_in_threadpool(
+                project_ownership.create_with_pages, mp, body.name, body.description, body.pages,
                 via=project_ownership.VIA_CLI if body.via == "cli" else project_ownership.VIA_APP, by="user",
-                listed=True, today=_now().date())
+                today=_now().date())
         except project_ownership.OwnershipError as exc:
             raise HTTPException(409 if "already a page" in str(exc) else 400, str(exc))
-        await _commit_as(mp, f"Project created {eid}", paths, "created")
+        # One commit, the person's: the new page created, each repository page's back-link updated (G230).
+        await _commit_as(mp, f"Project created {eid}", paths, verbs={p: "created" for p in created})
     return ProjectOwnershipResponse(id=eid, action="created", mine=True)
 
 
@@ -626,7 +633,8 @@ async def tie_page(project_id: str, body: PageTie, settings: Settings = Depends(
     async with _write_lock:
         stem = _project_stem(mp, project_id)
         try:
-            paths = await run_in_threadpool(project_ownership.tie_page, mp, stem, body.entity, remove=body.remove)
+            # A repository page is one of the project's repositories (ruling 53); any other page a hand tie.
+            paths = await run_in_threadpool(project_ownership.attach, mp, stem, body.entity, remove=body.remove)
         except project_ownership.OwnershipError as exc:
             raise _refuse(exc)
         if paths:

@@ -1483,10 +1483,83 @@ page now existing); the page prose kept the old fact beside the new. `episode_re
   (extraction ran for the two edits with new words only), 0 questions, 0 pages, 5 spans re-anchored, 1 claim withdrawn
   (the removed line), 0 duplicated spans. `test_episode_revision_sleep.py` pins the four cases on the engine seam
   (2 extraction calls, the changed value superseded with no question).
-- **Left (G104):** the page prose (Key Facts, History, Summary) still carries what the removed text said — claims are
-  corrected, prose is not regenerated from them; `section_provenance` items into a revised episode keep the old hash;
-  claims held in the pending store for page-less names keep their old spans; a transcript's replaced reply (Cursor's
-  final reply for a generation) closes nothing.
+- **Left (G104):** a transcript's replaced reply (Cursor's final reply for a generation) closes nothing; a held claim
+  only the removed text said keeps its span `stale` in the pending store rather than being closed there. The prose,
+  the section rows and the held spans are slice 2, below.
+
+**A page's prose follows the revision (G104 slice 2, owner 2026-11-03: "Sleep regenerates a page's prose from its
+corrected claims when a revision closes one, limited to the pages a revision touched").** Measured before (the same
+four notes plus a fifth whose city changes and a person's pinned fix on it; Claude plan at haiku): after the second
+Sleep, Key Facts said Friday twice beside Thursday twice, "targets Linux only" twice, Lisbon twice beside Porto twice
+— the claims were closed, the prose was not. Stage 5.58 (`revision_prose`, after the claim pipeline, before the hubs):
+- **What changed** (`changes_of`): each replaced or removed block of the line diff that took a word away — the tokens
+  of its old lines the new body no longer has anywhere (`gone`), and those its replacement brings (`fresh`). An
+  addition, a reworded line saying the same things, whitespace, and a capped transcript's slide are no change: a no-op
+  revision costs nothing.
+- **Which pages:** one where this batch's revision closed or withdrew a claim (`run_claim_pipeline`'s
+  `revision_closed`), or one with a passage written from the version Sleep read (a `section_provenance` row into the
+  revised episode at its old hash) that says a gone word. The second rung exists because the claim layer is the
+  extractor's choice: #581's haiku run held the meeting as a node, never as a day, yet its Key Fact said Friday.
+- **Which passages — provenance only** (review of #589): in Summary, Article, Key Facts and Open Questions, a passage
+  saying a gone word is offered only when its rows name the revised episode (on a version before this one) and no other
+  source it cites still says that word — a passage resting also on another conversation that says it is that
+  conversation's word too, never settled by this edit (#581's settle rule). **A passage with no rows is never
+  rewritten**: legacy prose, the person's typed or edited line (an edit drops its rows), a line a page merge carried
+  (where `git blame` names the merge, not the person) — protection by default. **Rows are never handed to a line that
+  had none** (`section_provenance.refresh`, review of #589 B3): a Sleep write that meets a conversation saying the same
+  words — exactly, or as a shorter fact the line extends — leaves the line rowless, so a merged-in or typed line never
+  becomes rewritable by being repeated. Only a line a write adds, or one that already had rows, is recorded. Beside the
+  offered ones, the passages
+  this batch wrote from the revision's fresh words (rows at the new hash), so the writer keeps the current fact once.
+  **History is never rewritten.**
+- **Held, never rewritten:** a passage in a Summary or Article someone rewrote (`has_human_prose`), one carrying a
+  pinned fix (G198 `corrections`) about the changed words, or one with a line `git blame` puts on a page-edit commit
+  (any door). Its proposed rewrite becomes ONE `page_edit` inbox item per page (`origin: revision`, Cicada's own;
+  never a second while one waits), applied or left with one tap. A passage with no rows that says a removed word is
+  held the same way — nothing proves Sleep wrote it — so it reaches the person only as this question. If git cannot
+  answer the blame, the page's
+  passages are all held. A word-level pinned fix elsewhere is applied again over what is written (`apply_corrections`).
+- **One call per touched page at most** (stage `merge`, the cycle's engine and consolidation model, ≤
+  `agent_max_concurrency` at once, ≤ 40 pages and 40 passages), inside Sleep's write window, committed with the batch
+  under Sleep's trailers. The answer: passages rewritten or emptied (removed), and a History sentence per change.
+  **Rails in code:** a rewrite keeps no gone word its passage had, adds no capitalised word, number or `[[link]]` that
+  neither the passage nor the change gives, holds no heading, fence or relative time word, and never empties the lead;
+  a rewrite that now repeats another passage of its section word for word is removed; a removal that would take the
+  last passage carrying a fresh word is undone. A History line must name what was there before; one that does not
+  gives way to Cicada's plain line ("An edited conversation changed “…” to “…”"). It is dated the day the conversation
+  was edited (the stager's `revised.at`, local), merged by date. A change History already records — a line with the
+  old and new words that does not call them a conflict, or for a removal one that says the words went — gets no line.
+  A failed call or a refused answer leaves the page as it was.
+- **No conflict question when the source corrected itself** (`conflict_resolver._answered_by_revision`, review of
+  #589): the contradiction check is still asked; a contradiction it finds is not filed only when its old side is words
+  a revision of one of the update's own conversations took away, and nothing else the page rests on says them — no
+  other conversation in its `source_episodes` (their text), no open claim in the person's own words or citing another
+  conversation, no pinned fix, no hand-written lead or article. Anything unreadable counts as saying them. (Two
+  2026-11-04 runs asked "Lisbon or Porto?" and "Friday or Thursday?" of a note that had answered it; a page saying
+  "lives in Berlin" from another conversation is still asked about.)
+- **Provenance moves** (`section_provenance.remap`, `episode_revision.provenance_row`): on every page citing a revised
+  episode, a span row is located again on the new body (never fuzzily) and a whole-conversation row takes the new hash,
+  except on a passage still saying a gone word (it rests on the old version). A rewritten passage keeps its rows into
+  other conversations plus the revision. **Held spans move too** (`pending_store.reanchor_held`, before any release):
+  only a held dict's `evidence` is replaced.
+- **Measured after** (the same notes plus the pinned case, run on the provenance-only rule): every passage whose rows
+  prove it came from the edited lines was corrected (Friday, Linux and the unpinned Lisbon fact removed); the pinned
+  Key Fact kept and asked about; History gained the three changes, dated; one prose call, 2,086 input / 1,215 output
+  tokens; no conflict question. Two Key Facts Sleep had cut off a summary with no rows still said Friday and Linux —
+  closed by the next bullet: rerun, nothing outside History says Friday, Linux or Lisbon but the pinned fact (kept,
+  asked once), with 22 of 23 Key Facts carrying rows before the edits. Case by case on the G104 row. `test_revision_prose.py` pins the cases end to end through `sleep_cycle.run` on the engine seam,
+  plus a pinned fix, a blame-only edit, a merge-carried edit, a passage citing a second conversation and one with no rows.
+- **A Key Fact cut off a summary keeps that summary's rows (2026-11-04).** Two places cut a summary into Key Facts and
+  used to drop its provenance, so the provenance-only rule could never correct them: Stage 2's merge of two extractions
+  of one page (the shorter summary loses; its sentences become facts — `entity_resolver._merge_entity_payload`, now
+  `section_provenance.merge_selected(split=True)`), and Stage 5's bounded Summary (`bound_summary` →
+  `retain_orientation`, `merge_sections_fallback`'s displaced sentences — `conflict_resolver._split_fact_inputs`). A fact
+  that is a contiguous part of an input summary or description, or of the page's old Summary, carries that text's rows
+  (its conversation and body hash), through the same `section_provenance.refresh` writer. Only a fact new in that write:
+  a Key Fact already on a page keeps what it had — **facts written before this change have no rows and stay untouched
+  by the revision pass**, as does a fact cut off a summary a model rewrote (its words are no input's).
+- **Left:** two passages the same batch's merge wrote that say the current value in different words are not always
+  folded into one.
 
 **A title is never joined on the name alone when it could be two things (G227, 2026-10-29).** Stage 2's exact-title
 join used to take whichever page held the name (one per title in `existing_by_name`, last writer wins), whatever its
