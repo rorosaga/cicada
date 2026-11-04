@@ -72,7 +72,7 @@ from typing import Any, Callable
 
 from loguru import logger
 
-from api.services import bank_index, episode_scrub, inbox_service, markdown_parser, session_stats, sync_service
+from api.services import bank_index, episode_scrub, inbox_service, markdown_parser, sensitive_flags, session_stats, sync_service
 from api.services.claims import strip_claims_block
 from api.services.hub_builder import _one_line_summary
 from api.services.skill_tag import is_agent_skill
@@ -581,7 +581,9 @@ def _conversations(memory_path: Path, n: int) -> list[dict]:
     rows = session_stats.aggregate_conversations(memory_path, limit=max(1, n) + RECORD_HEADROOM,
                                                  transcript_exists=lambda *_: False)
     rows = [r for r in rows if not inbox_tend.record_origin(r.get("origin"))][:max(1, n)]
-    return [{"id": r["conversation_id"], "harness": r["harness"], "title": r["title"][:TITLE_LIMIT],
+    # G235: a capture's title is its first line, which may be the very line; this list rides every agent's primer.
+    return [{"id": r["conversation_id"], "harness": r["harness"],
+             "title": sensitive_flags.title_for_others(r["title"])[:TITLE_LIMIT],
              "last_seen": r["last_seen"], "episode_count": r["episode_count"]} for r in rows]
 
 

@@ -69,6 +69,7 @@ from api.routers import (
     ways_in as ways_in_router,
 )
 from api.services import bank_binding, bank_registry, response_compression, search_index, sleep_refusal, sleep_scheduler
+from api.services import sensitive_hold
 from api.services.providers import warm_query_embedder
 from api.services.auth import auth_enabled, get_token, require_token
 from api.services.bank_migrations import run_bank_migrations
@@ -160,6 +161,7 @@ async def _replica_lifespan(app: FastAPI, settings):
     app.state.scheduler = None
     asyncio.get_running_loop().run_in_executor(None, warm_query_embedder, settings.memory_path)
     search_index.warm_in_background(settings.memory_path)
+    asyncio.get_running_loop().run_in_executor(None, sensitive_hold.warm, settings.memory_path)
     # G132 phase 3b: the relay link (when the person set a relay) before the follower, so its first ask can take
     # either path; the direct listener when CICADA_DEVICE_URL names this computer's private address.
     from api.services import sync_net
@@ -288,6 +290,8 @@ async def lifespan(app: FastAPI):
     # never raises (a cold build takes a few seconds; until it lands, /search
     # serves the frontmatter fallback and says `indexState: building`).
     search_index.warm_in_background(settings.memory_path)
+    # G235: the door to every engine reads the bank once, so the first model call after launch does not wait for it.
+    asyncio.get_running_loop().run_in_executor(None, sensitive_hold.warm, settings.memory_path)
 
     entities_count = len(list((settings.memory_path / "entities").glob("*.md")))
     episodes_count = len(list((settings.memory_path / "episodes").glob("*.md")))

@@ -87,6 +87,7 @@ struct InboxPage: View {
                                   // questions.
                                   InboxTopCards(requests: viewModel.agentRequests,
                                                 reviews: viewModel.whereToCheckReviews,
+                                                sensitive: viewModel.sensitiveReviews,
                                                 answer: { item, resolution in viewModel.answer(item, resolution) },
                                                 openPage: { router.routeToClustersEntity($0) })
                                   // Say it once: under All each kind's group carries its own review.

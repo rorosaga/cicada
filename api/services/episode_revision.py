@@ -172,12 +172,16 @@ def build(episode: dict, prior: str) -> Revision | None:
     noop = not changed and not removed and _norm(prior) == _norm(body)
     if not changed and not removed and not noop:
         return None   # only line breaks moved inside words: read it whole, as before
-    from api.services import authorship
+    from api.services import authorship, sensitive_flags
 
+    # G235: the person took flagged text out. A transcript's revision closes nothing because its cap slides turns out;
+    # this one is the person's act. And when that is ALL that changed, nothing needs reading.
+    removal = sensitive_flags.removal_pending({sensitive_flags.KEY: episode.get(sensitive_flags.KEY)})
+    only_removal = removal and sensitive_flags.same_after_removal(prior, body, episode)
     return Revision(
         episode_id=str(episode["id"]), prior=prior, body=body, noop=noop, changed=changed, removed=removed,
-        windows=() if noop else _windows(body, changed), blocks=blocks,
-        closes=str(episode.get("capture_kind") or "") != "transcript",
+        windows=() if noop or only_removal else _windows(body, changed), blocks=blocks,
+        closes=removal or str(episode.get("capture_kind") or "") != "transcript",
         override=authorship.of_episode(episode), gaps=tuple(episode.get("gaps") or ()))
 
 

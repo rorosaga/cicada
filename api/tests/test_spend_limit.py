@@ -420,3 +420,14 @@ def test_link_backfill_is_the_runs_counted_and_held_to_the_limit(tmp_path, monke
     asyncio.run(sleep_cycle._backfill_links_safely(tmp_path, settings, user_triggered=True))
     assert seen["drain"] is drain and guard.spent_usd > 1.0 and len(stub.requests) == 1
     assert sleep_drain.drain_for("c9-links") is None
+
+
+def test_a_claude_keys_call_goes_through_the_one_door_for_sensitive_text(monkeypatch):
+    """G235, ruling 60 meets G237: a key's direct path is no way around what is held back."""
+    from api.services import sensitive_hold
+
+    stub = StubAnthropic(answer=lambda b: "{}")
+    stub.install(monkeypatch)
+    monkeypatch.setattr(sensitive_hold, "hold_back", lambda messages, _bank: [{"role": "user", "content": "held"}])
+    _fn("ask", scope="ask:one", is_async=False)(messages=[{"role": "user", "content": "alpha"}])
+    assert stub.requests[0]["messages"][-1]["content"] == "held"

@@ -883,6 +883,21 @@ def rebuild(memory_path: Path) -> int:
         return _full_build(memory_path, state)
 
 
+def rebuild_fresh(memory_path: Path) -> int:
+    """G235: a full rebuild on a NEW file. ``DROP TABLE`` frees pages without clearing them, so words the person removed
+    would stay readable in the old file until SQLite reused the space. Derived and disposable, so the file simply goes;
+    a reader's open handle keeps its old view only until its query ends."""
+    memory_path = Path(memory_path)
+    if not fts5_available() or not _is_bank(memory_path):
+        return 0
+    state = _state(memory_path)
+    with state.lock:
+        _discard_files(db_path(memory_path))
+        state.stamps = None
+        state.generation = None
+        return _full_build(memory_path, state)
+
+
 def refresh(memory_path: Path) -> str:
     """Sleep's call, beside the vector index: bring the file up to date
     incrementally — only the documents whose ``(mtime, size)`` stamp moved are
