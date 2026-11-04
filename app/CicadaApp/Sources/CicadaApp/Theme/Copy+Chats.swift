@@ -4,7 +4,10 @@ import Foundation
 extension Copy {
     enum Chats {
         static let whatsAppTitle = "WhatsApp"
-        static let telegramTitle = "Telegram chats"
+        /// 2026-11-04 (owner: "remove 'chats' from 'Telegram chats' and just keep 'Telegram'").
+        static let telegramTitle = "Telegram"
+        /// The bot feed, told apart from the person's own Telegram now that it is named as the service is.
+        static let telegramBotTitle = "Telegram bot"
         /// 2026-11-03 — what "checked" measures (`ChatCheck`): the store on this Mac, read on every change. On the status
         /// line's hover only (owner 2026-11-03: the pickers' and pages' standing paragraphs are gone).
         static let whatsAppWhenItReads = "Cicada checks the chats you tick each time WhatsApp on this Mac saves a "

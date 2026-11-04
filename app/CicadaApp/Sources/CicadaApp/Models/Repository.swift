@@ -174,10 +174,14 @@ struct GitHubConnectStatus: Codable, Equatable, Sendable {
     var reconnect: Bool
     var pending: GitHubConnectCode?
     var words: String?
+    /// 2026-11-04 — the first sync the backend starts itself once a sign-in completes (or an install is seen) is
+    /// running: the page says Syncing and reads its lists again when it ends.
+    var syncing: Bool = false
 
     init(available: Bool = false, connected: Bool = false, how: String? = nil, installed: Bool? = nil,
          installUrl: String? = nil, grantsUrl: String? = nil, reconnect: Bool = false,
-         pending: GitHubConnectCode? = nil, words: String? = nil) {
+         pending: GitHubConnectCode? = nil, words: String? = nil, syncing: Bool = false) {
+        self.syncing = syncing
         self.available = available
         self.connected = connected
         self.how = how
@@ -200,6 +204,7 @@ struct GitHubConnectStatus: Codable, Equatable, Sendable {
         reconnect = try c.decodeIfPresent(Bool.self, forKey: .reconnect) ?? false
         pending = try? c.decodeIfPresent(GitHubConnectCode.self, forKey: .pending)
         words = try c.decodeIfPresent(String.self, forKey: .words)
+        syncing = try c.decodeIfPresent(Bool.self, forKey: .syncing) ?? false
     }
 }
 
