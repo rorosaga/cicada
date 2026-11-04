@@ -202,6 +202,13 @@ struct SourceCatalogDetail: View {
     @Environment(ExploreCache.self) private var exploreCache
     @State private var showReadingSheet = false
     @State private var showExploreSheet = false
+    @Environment(CalendarReader.self) private var calendarReader: CalendarReader?
+    @Environment(WatchHistoryWatcher.self) private var watchHistory: WatchHistoryWatcher?
+    @Environment(TabGroupWatcher.self) private var tabGroups: TabGroupWatcher?
+    @Environment(ContactsReader.self) private var contacts: ContactsReader?
+    @Environment(IntakeRouter.self) private var intake
+    /// What the footer's last Refresh said.
+    @State private var feedNote: String?
 
     private var channels: [SourceChannel] { store.channels.value ?? [] }
 
@@ -210,10 +217,30 @@ struct SourceCatalogDetail: View {
     /// The lists this page shows: the overview row's own list (Messages by chat, watched days, a saved source's saves,
     /// a harness's conversations), else each connected channel's.
     private var listChannels: [(id: String, label: String?)] {
-        if let overview, overview.kind != .harness { return [(overview.itemsListId, nil)] }
-        if overview != nil { return [] }
+        // 2026-11-04 — every list the entry holds, each its own labelled section (YouTube: History, then Saved), where
+        // the page showed only the first overview row's list.
+        let rows = overviewRows
+        if let overview, overview.kind == .harness { return [] }
+        if !rows.isEmpty {
+            return rows.map { ($0.itemsListId, rows.count > 1 ? SourceSectionTitle.of($0) : nil) }
+        }
         let on = mine.filter(\.connected)
         return on.map { ($0.id, on.count > 1 ? $0.label : nil) }
+    }
+
+    /// Every overview row this entry speaks for, once per list, in the entry's own channel order.
+    private var overviewRows: [SourceOverview] {
+        guard let overview else { return [] }
+        if overview.kind == .harness || row.entry.overviewId != nil || row.entry.id == "folders" { return [overview] }
+        let all = store.sourcesOverview.value ?? []
+        var seen = Set<String>()
+        var out: [SourceOverview] = []
+        for channel in row.entry.channels {
+            for item in all where item.kind != .harness && (item.id == channel || item.channelId == channel) {
+                if seen.insert(item.itemsListId).inserted { out.append(item) }
+            }
+        }
+        return out.isEmpty ? [overview] : out
     }
 
     private var savedStyle: Bool { overview?.intent == .saved }
@@ -225,7 +252,8 @@ struct SourceCatalogDetail: View {
         let channel = mine.first
         let watch = channel.flatMap { watcher.state(for: $0.id) }
         let run = SourceRowText.status(channel: channel, watch: watch, run: channel.flatMap { activity?.run(for: $0.id) })
-        return SourcePageStatus.of(row: row.status, run: run, latest: latest, check: chatCheck)
+        return SourcePageStatus.of(row: row.status, run: run, latest: latest, check: chatCheck,
+                                   notInstalled: row.notInstalled)
     }
 
     private var chatCheck: ChatCheck? {
@@ -284,49 +312,33 @@ struct SourceCatalogDetail: View {
     }
 
     var body: some View {
-        // source-page-v3 — the one template (`SourcePageViews.swift`): head, one status line, one search, what came
-        // in, the source's settings last.
-        VStack(alignment: .leading, spacing: 0) {
-            DetailHeader(title: row.entry.title, backLabel: hiddenListCount.map { Copy.Lists.sourcesBack($0) },
-                         onShowList: onShowList, closeHelp: Copy.Lists.closeSource,
-                         closeShortcut: KeyboardShortcut("[", modifiers: .command), onClose: onClose) {
-                SourceLogoTile(origin: row.entry.origin)
-            }
-            .padding(.horizontal, CicadaTheme.spacingXL)
-            SourceStatusLine(status: pageStatus, help: statusHelp)
-                .padding(.horizontal, CicadaTheme.spacingXL)
-                .padding(.bottom, CicadaTheme.spacingMD)
-            ScrollView {
-                VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
-                    if let drill {
-                        drilled(drill)
-                    } else {
-                        if let overview, overview.kind != .harness, !removalsEmpty(overview) {
-                            ChannelRemovals(source: overview)
-                        }
-                        cameIn
-                        if row.entry.id == TabGroupWatcher.channel { TabGroupsOpenNow() }
-                        SourcePageSettings {
-                            VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-                                importHow
-                                controls
-                                browserActions
-                                if let site = row.entry.site { readingToggle(site) }
-                                if let site = row.entry.site, SourceCatalog.savedListSites.contains(site) {
-                                    savedListToggle(site)
-                                }
-                            }
-                            .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-                }
-                .padding(.horizontal, CicadaTheme.spacingXL)
-                .padding(.bottom, CicadaTheme.spacingXL)
-            }
+        // GitHub draws its own page on the same layout: its status comes from its sign-in, not the catalogue alone.
+        if row.entry.id == "github" {
+            GitHubSourcePage(row: row, backLabel: hiddenListCount.map { Copy.Lists.sourcesBack($0) },
+                             onShowList: onShowList, onClose: onClose)
+        } else {
+            page
         }
-        .frame(maxWidth: CicadaTheme.scaled(ColumnLayout.questionMaxWidth + 64), maxHeight: .infinity,
-               alignment: .topLeading)
-        .frame(maxWidth: .infinity, alignment: .top)
+    }
+
+    /// The standard source page (owner 2026-11-04; `SourcePageLayout`): head, connect area, content, footer.
+    private var page: some View {
+        SourcePageLayout(title: row.entry.title, origin: row.entry.origin, status: pageStatus, statusHelp: statusHelp,
+                         backLabel: hiddenListCount.map { Copy.Lists.sourcesBack($0) }, onShowList: onShowList,
+                         onClose: onClose) {
+            if drill == nil { connectSlot }
+        } content: {
+            if let drill {
+                drilled(drill)
+            } else {
+                if let overview, overview.kind != .harness, !removalsEmpty(overview) {
+                    ChannelRemovals(source: overview)
+                }
+                contentSlot
+            }
+        } footer: {
+            if drill == nil { footerSlot }
+        }
         .sheet(item: $flowTile) { tile in
             AddSourceSheet(initialTile: tile, onClose: { flowTile = nil }, flowOnly: true)
         }
@@ -363,166 +375,316 @@ struct SourceCatalogDetail: View {
         }
     }
 
-    // MARK: - The source's own control
+    // MARK: - The connect area
 
-    /// 2026-11-03 (owner: "i dont get why these buttons are here if they dont influence whatsapp or some of the other
-    /// sources at all") — the two actions that left the Sources page's top right, each only on the pages it acts on
-    /// (`SourcePageActions`), the same neutral buttons and words (DR-40).
+    /// The connect area, by source: one primary and at most one line for its state, then its ways in.
     @ViewBuilder
-    private var browserActions: some View {
-        let actions = SourcePageActions.of(row.entry, exploreGone: exploreCache.isGone)
-        if !actions.isEmpty {
-            HStack(spacing: CicadaTheme.spacingSM) {
-                if actions.contains(.readingInBrowser) {
-                    NeutralButton(title: Copy.Reading.inBrowserTitle, systemImage: "globe", size: .compact,
-                                  help: Copy.Reading.inBrowserHelp) { showReadingSheet = true }
-                }
-                if actions.contains(.exploreSavedSites) {
-                    NeutralButton(title: Copy.Explore.button, systemImage: "safari", size: .compact,
-                                  help: Copy.Explore.buttonHelp) { showExploreSheet = true }
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var controls: some View {
+    private var connectSlot: some View {
         let entry = row.entry
         switch entry.id {
         case CalendarRow.channelId:
-            CalendarRow(channel: mine.first)
-        case ContactsReader.channel:
-            ContactsRow(channel: mine.first)
-        case RemindersReader.channel:
-            RemindersRow(channel: mine.first)
-        case AppleBooksReader.channel:
-            AppleBooksRow(channel: mine.first)
-        case "goodreads":
-            GoodreadsImportRow()
-        case MessagesWatcher.channel:
-            MessagesRow(channel: mine.first)
-        case WhatsAppWatcher.channel:
-            WhatsAppSourceRow(channel: mine.first)
-        case TelegramChats.channel:
-            TelegramSourceRow(channel: mine.first)
+            CalendarSlot(slot: .connect)
+            if calendarOn { SourceConnectArea(ways: [googleCalendarWay]) }
+        case ContactsReader.channel: ContactsSlot(slot: .connect)
+        case RemindersReader.channel: RemindersSlot(slot: .connect)
+        case AppleBooksReader.channel: AppleBooksSlot(slot: .connect, channel: mine.first)
+        case "goodreads": GoodreadsSlot()
+        case MessagesWatcher.channel: ChatPickerSlot(slot: .connect, kind: .messages)
+        case WhatsAppWatcher.channel: ChatPickerSlot(slot: .connect, kind: .whatsApp)
+        case TelegramChats.channel: TelegramSlot(slot: .connect)
+        case AppleNotesWatcher.channel: NotesSlot(slot: .connect)
+        case LocalSourceWatcher.wisprChannel: WisprSlot(slot: .connect, notInstalled: row.notInstalled)
+        case "folders": FolderSlot(slot: .connect, meetings: nil, hasFolders: !mine.isEmpty)
+        case SourceCatalog.hexId: FolderSlot(slot: .connect, meetings: SourceCatalog.hexId, hasFolders: !mine.isEmpty)
+        case SourceCatalog.meetingFoldersId: FolderSlot(slot: .connect, meetings: "", hasFolders: !mine.isEmpty)
         case SourceCatalog.tracesId:
             // Owner 2026-10-26 — once traces were ever on they have their own page; Sources keeps a link to it.
             if tracesPage { TracesSourcesLink() } else { TracesControls() }
-        case LocalSourceWatcher.wisprChannel:
-            WisprFlowRow(channel: mine.first)
-        case SourceCatalog.hexId, SourceCatalog.meetingFoldersId:
-            // G95 (2026-11-03) — a meeting folder per row (the folder rows' own grammar), then the way to add one.
-            VStack(alignment: .leading, spacing: 2) {
-                ForEach(mine) { FolderChannelRow(channel: $0) }
-                AddMeetingFolderRow(recorder: entry.id == SourceCatalog.hexId ? SourceCatalog.hexId : nil)
-            }
-        case "folders":
-            VStack(alignment: .leading, spacing: 2) {
-                ForEach(mine) { FolderChannelRow(channel: $0) }
-                AddFolderRow.folder
-            }
         case "youtube":
-            VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                TimelineView(.periodic(from: .now, by: SourceRowText.refreshInterval)) { context in
-                    WatchHistoryRow(channel: mine.first, now: context.date)
-                }
-                ForEach(YouTubeList.allCases) { youtubeListToggle($0) }
-                tileButton(Copy.Catalog.importFile)
-            }
+            SourceConnectArea(ways: youtubeWays) { WatchHistoryState() }
         case SourceCatalog.substackId:
-            // G89 (2026-11-04) — the three lists the person's own agent keeps current, then what it follows.
-            VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                offLine(Copy.Reading.substackIntro)
-                ForEach(SubstackList.allCases) { substackListToggle($0) }
-                let following = SubstackFollowing.count(store.feeds.value ?? [])
-                if following > 0 {
-                    Text(Copy.Reading.substackFollowing(following))
-                        .font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-        case AppleNotesWatcher.channel:
-            NotesControls()
-        case "telegram":
-            // 2026-10-23: the detail drew the channel's actions — Telegram has none — so it showed nothing at all.
-            VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                offLine(Copy.Catalog.telegramHonest)
-                tileButton(Copy.Catalog.howToSetUp)
+            // G89 — the three lists the person's own agent keeps current, as switches; how many publications the
+            // person follows is the area's one line.
+            SourceConnectArea(line: substackFollowing, ways: substackWays)
+        case "spotify", "files":
+            // Nothing in yet: the export's own drop, its where-from on hover — the source's mark on a file, never the
+            // chat vendors'. Once something came in, the next import is one quiet way row above the list.
+            if row.status == .off {
+                IntakePanel(origin: .emptyState(.sources), compact: true, mark: entry.origin,
+                            how: SourceCatalog.exportHow(entry.id))
+            } else {
+                SourceConnectArea(ways: [.importFile(origin: entry.origin, help: SourceCatalog.exportHow(entry.id)) {
+                    chooseExport()
+                }])
             }
         case "chat-exports":
-            // CIC8 (2026-10-29) — the import itself, here: this row used to say "each chat export sits on its agent's
-            // row" and send the person to Agents, whose *Import its chat export* sent them back to an empty Sources.
-            // The one intake's panel (drop, *Choose a file…* opening in Downloads, each app's export page and steps).
-            VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                IntakePanel(origin: .emptyState(.sources))
-            }
-        case "spotify":
-            // G32: where the file comes from, then the one intake's drop — the "files" row's controls, no new pattern.
-            VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                IntakePanel(origin: .emptyState(.sources), compact: true)
-            }
-        case "files":
-            VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                IntakePanel(origin: .emptyState(.sources), compact: true)
-                tileButton(Copy.Catalog.importFile)
-            }
-        case "github":
-            // G230: connecting with a code (the token only behind "Use a token instead"), then the person's own
-            // repositories, each with its page from the sync.
-            GitHubSourcePanel(vendor: $vendor)
+            // A chat export is the chat vendors' own file: their marks are the right ones here. Each app's "request
+            // your export" is a way in (its export page; its steps on hover). The reminder menu stays in the window's
+            // intake overlay and Getting started: a menu of delays is not a switch or a button.
+            IntakePanel(origin: .emptyState(.sources), compact: true, how: SourceCatalog.exportHow(entry.id))
+            SourceConnectArea(ways: ChatVendor.allCases.map(ChatExportWay.of))
         case "notion":
-            // G219 slice 1: the export's steps, then the one intake's drop (it reads the zip, previews it, imports).
-            // Ruling 47 tier 2: the live connection first, in the same panel the accounts use.
-            ConnectorSetupPanel(connectorId: "notion-api", vendors: [], vendor: $vendor)
-            VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                offLine(Copy.Catalog.notionHow)
-                IntakePanel(origin: .emptyState(.sources), compact: true)
+            // The live connection is the primary; the export is one more way in, the file chooser of the one intake.
+            let export = SourceWayIn.importFile(origin: entry.origin, help: Copy.Catalog.notionHow) { chooseExport() }
+            if let api = channels.first(where: { $0.id == "notion-api" }) {
+                ConnectorSlot(slot: .connect, channel: api, title: "Notion", ways: [export],
+                              needsSignIn: row.status == .needsSignIn)
+            } else {
+                SourceConnectArea(ways: [export])
             }
+        case "telegram":
+            // The bot feed needs a public address Cicada never opens: its steps are one click away.
+            SourceConnectArea(primary: entry.tile.map { tile in
+                SourcePrimaryAction(title: Copy.Catalog.howToSetUp, help: Copy.Catalog.telegramHonest) {
+                    flowTile = tile
+                }
+            })
         default:
             if entry.id.hasPrefix(SourceCatalog.browserPrefix) {
-                BrowsersSection(channels: channels,
-                                inventory: BrowserInventory(installed: browsers.installed.filter {
-                                    SourceCatalog.browserPrefix + $0.id == entry.id
-                                }))
+                let mine = BrowserInventory(installed: browsers.installed.filter {
+                    SourceCatalog.browserPrefix + $0.id == entry.id
+                })
+                if let spec = mine.installed.first { BrowserWays(spec: spec, inventory: mine) }
             } else if entry.overviewId != nil {
-                NeutralButton(title: Copy.Catalog.openAgents, size: .compact) { router.routeToAgents() }
-            } else if entry.verb == .turnOn {
-                VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                    offLine(Copy.Catalog.instagramHonest)
-                    tileButton(Copy.Catalog.importFile)
+                EmptyView()
+            } else if let connector = Self.connectorChannel(in: mine) {
+                ConnectorSlot(slot: .connect, channel: connector, title: entry.title, ways: siteWays,
+                              vendors: entry.tile?.vendors ?? [], needsSignIn: row.status == .needsSignIn)
+            } else if entry.site != nil || entry.verb == .importFile {
+                SourceConnectArea(ways: siteWays)
+            } else if let feed = mine.first, feed.actions.contains("manage"), let tile = entry.tile {
+                // A feed: the Subscribe field and the list are its flow.
+                if feed.count == 0 {
+                    SourceConnectArea(primary: SourcePrimaryAction(title: verbTitle(entry.verb)) { flowTile = tile },
+                                      line: feed.lastError)
+                } else if let error = feed.lastError, !error.isEmpty {
+                    SourceConnectLine(text: error, isAttention: true)
                 }
-            } else if !mine.isEmpty {
-                // A feed's "manage" opens its tile's flow (the Subscribe field and the list) — 2026-10-23: the bar
-                // drew only Refresh, so RSS and Calendar feeds offered no way to add a feed at all.
-                ForEach(mine) { channel in
-                    ChannelActionsBar(channel: channel, tile: entry.tile,
-                                      flowTitle: channel.count > 0 ? Copy.Catalog.manage : verbTitle(entry.verb),
-                                      openFlow: entry.tile.map { tile in { flowTile = tile } })
-                }
-            } else {
-                VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                    tileButton(verbTitle(entry.verb))
-                }
+            } else if let tile = entry.tile, row.status == .off {
+                SourceConnectArea(primary: SourcePrimaryAction(title: verbTitle(entry.verb)) { flowTile = tile })
             }
         }
     }
 
-    /// 2026-10-26 (owner: "For TikTok there's an 'Import a file' option. Is this true?") — every source that imports a
-    /// file says, before the button, exactly where the platform hands that file out (`SourceCatalog.exportHow`).
-    /// source-page-v3: said in the settings only while the source is off (the first step); once on it lives behind
-    /// "What Cicada reads" with the rest of the source's words.
-    @ViewBuilder
-    private var importHow: some View {
-        if let how = SourceCatalog.exportHow(row.entry.id) { offLine(how) }
+    /// The one intake's file chooser; what it reads runs in the window's intake overlay, as a drop would.
+    private func chooseExport() {
+        let urls = IntakePicker.choose()
+        guard !urls.isEmpty else { return }
+        intake.accept(urls: urls, from: .emptyState(.sources))
     }
 
-    /// A source's how-to or honest limit, drawn in its settings only while it is off; always in its full words.
+    private var calendarOn: Bool {
+        LocalReaders.calendarOn(calendarReader?.status ?? .off)
+    }
+
+    /// Google calendars join through macOS's Internet Accounts (asks macOS for nothing).
+    private var googleCalendarWay: SourceWayIn {
+        SourceWayIn(id: "google", icon: .symbol("person.crop.circle.badge.plus"), title: Copy.calendarAddGoogle,
+                    control: .button(Copy.SourceLayout.open) { NSWorkspace.shared.open(CalendarRow.internetAccountsURL) },
+                    help: Copy.calendarGoogleHow)
+    }
+
+    /// An account's ways in beyond its connector: the browser reader's per-site switch, the saved list it keeps
+    /// current, and the export (the source's own mark on a file, its where-from on hover).
+    private var siteWays: [SourceWayIn] {
+        var ways: [SourceWayIn] = []
+        if let site = row.entry.site {
+            ways.append(.browser(on: reading.readableSites.contains(site)) { flip(site, on: $0) })
+            if SourceCatalog.savedListSites.contains(site) {
+                ways.append(SourceWayIn(id: "saved", icon: .symbol("bookmark"), title: Copy.SourceLayout.savedList,
+                                        control: .toggle(reading.savedListsOn.contains(site)) { flipSavedList(site, on: $0) },
+                                        help: Copy.Catalog.readSavedList(site)))
+            }
+        }
+        if let tile = row.entry.tile, row.entry.verb == .importFile || row.entry.site != nil {
+            ways.append(.importFile(origin: row.entry.origin, help: SourceCatalog.exportHow(row.entry.id)) {
+                flowTile = tile
+            })
+        }
+        return ways
+    }
+
+    /// YouTube's ways in: the history Chrome keeps on this Mac, the two lists the person's agent keeps current, and
+    /// the Takeout file.
+    private var youtubeWays: [SourceWayIn] {
+        var ways: [SourceWayIn] = []
+        if let history = watchHistory {
+            ways.append(SourceWayIn(id: "chrome", icon: .mark("chrome-bookmark"), title: Copy.SourceLayout.historyInChrome,
+                                    control: .toggle(history.enabled) { on in
+                                        if on { Task { await history.enable() } } else { history.disable() }
+                                    },
+                                    help: Copy.watchHistoryOffLine))
+        }
+        for list in YouTubeList.allCases {
+            let on = reading.enabled && (reading.settings?.youtubeLists.isOn(list) ?? false)
+            ways.append(SourceWayIn(id: "list-\(list.id)", icon: .symbol("globe"), title: Copy.SourceLayout.youtubeList(list),
+                                    control: .toggle(on) { flipYouTube(list, on: $0) },
+                                    help: YouTubeListWords.detail(list, on: on, status: reading.settings?.youtube)))
+        }
+        if let tile = row.entry.tile {
+            ways.append(.importFile(origin: row.entry.origin, help: SourceCatalog.exportHow("youtube")) {
+                flowTile = tile
+            })
+        }
+        return ways
+    }
+
+    /// G89 — Substack's three lists (Saved, History, Subscriptions), each the switch its own agent keeps current; the
+    /// first-use sheet first while agent reading is not yet on (`flipSubstack`). What each reads is its hover; why it
+    /// goes through the person's own agent (Substack offers readers no connection) is every switch's hover too.
+    private var substackWays: [SourceWayIn] {
+        Self.substackWays(isOn: { reading.enabled && (reading.settings?.isOn($0) ?? false) },
+                          status: reading.settings?.substack) { flipSubstack($0, on: $1) }
+    }
+
+    static func substackWays(isOn: (SubstackList) -> Bool, status: SubstackListsStatus?,
+                             flip: @escaping (SubstackList, Bool) -> Void) -> [SourceWayIn] {
+        SubstackList.allCases.map { list in
+            let on = isOn(list)
+            return SourceWayIn(id: "substack-\(list.id)", icon: .symbol("globe"), title: SubstackListWords.title(list),
+                               control: .toggle(on) { flip(list, $0) },
+                               help: SubstackListWords.detail(list, on: on, status: status) + " "
+                                   + Copy.Reading.substackIntro)
+        }
+    }
+
+    /// "Following N publications" — the area's one line, only when the person follows any.
+    private var substackFollowing: String? {
+        let following = SubstackFollowing.count(store.feeds.value ?? [])
+        return following > 0 ? Copy.Reading.substackFollowing(following) : nil
+    }
+
+    // MARK: - The content
+
+    /// A connector's channel, in either state: the backend sends `["connect"]` before it is connected and
+    /// `["sync", "disconnect"]` after (`channel_registry._connector_channel`), so matching "connect" alone lost a
+    /// connected account's Disconnect and a lapsed one's Reconnect (review of #593).
+    nonisolated static func connectorChannel(in channels: [SourceChannel]) -> SourceChannel? {
+        channels.first { $0.actions.contains("connect") || $0.actions.contains("disconnect") }
+    }
+
+    /// The This Mac sources whose content is their own browser (#599: accounts → collections → items).
+    static let thisMacContent: Set<String> = [
+        CalendarRow.channelId, ContactsReader.channel, RemindersReader.channel, AppleNotesWatcher.channel,
+        SourceCatalog.hexId, LocalSourceWatcher.wisprChannel, SourceCatalog.meetingFoldersId,
+    ]
+
+    /// The content seam for the This Mac sources: until their browser lands (#599, `ThisMacSourceContent(entry:
+    /// channels:)`), the lists the page drew before.
     @ViewBuilder
-    private func offLine(_ text: String) -> some View {
-        if row.status == .off {
-            Text(text)
-                .font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
+    private var thisMacContent: some View {
+        switch row.entry.id {
+        case SourceCatalog.hexId, SourceCatalog.meetingFoldersId:
+            if !mine.isEmpty {
+                SourceSection(title: Copy.SourceLayout.folders) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(mine) { FolderChannelRow(channel: $0) }
+                    }
+                }
+                .environment(\.sourceDetailHeadShown, true)
+            }
+            cameIn
+        case RemindersReader.channel:
+            RemindersRow(channel: mine.first, pickerOnly: true)
+                .environment(\.sourceDetailHeadShown, true)
+            cameIn
+        default:
+            cameIn
+        }
+    }
+
+    @ViewBuilder
+    private var contentSlot: some View {
+        switch row.entry.id {
+        case let id where Self.thisMacContent.contains(id):
+            thisMacContent
+        case "folders":
+            if !mine.isEmpty {
+                SourceSection(title: Copy.SourceLayout.folders) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(mine) { FolderChannelRow(channel: $0) }
+                    }
+                }
+                .environment(\.sourceDetailHeadShown, true)
+            }
+            cameIn
+        default:
+            cameIn
+            if row.entry.id == TabGroupWatcher.channel { TabGroupsOpenNow() }
+        }
+    }
+
+    // MARK: - The footer
+
+    @ViewBuilder
+    private var footerSlot: some View {
+        let entry = row.entry
+        switch entry.id {
+        case CalendarRow.channelId: CalendarSlot(slot: .footer)
+        case ContactsReader.channel: ContactsSlot(slot: .footer)
+        case RemindersReader.channel: RemindersSlot(slot: .footer)
+        case AppleBooksReader.channel: AppleBooksSlot(slot: .footer, channel: mine.first)
+        case MessagesWatcher.channel: ChatPickerSlot(slot: .footer, kind: .messages)
+        case WhatsAppWatcher.channel: ChatPickerSlot(slot: .footer, kind: .whatsApp)
+        case TelegramChats.channel: TelegramSlot(slot: .footer)
+        case AppleNotesWatcher.channel: NotesSlot(slot: .footer)
+        case LocalSourceWatcher.wisprChannel: WisprSlot(slot: .footer, notInstalled: row.notInstalled)
+        case "folders": FolderSlot(slot: .footer, meetings: nil, hasFolders: !mine.isEmpty)
+        case SourceCatalog.hexId: FolderSlot(slot: .footer, meetings: SourceCatalog.hexId, hasFolders: !mine.isEmpty)
+        case SourceCatalog.meetingFoldersId: FolderSlot(slot: .footer, meetings: "", hasFolders: !mine.isEmpty)
+        case "notion":
+            if let api = channels.first(where: { $0.id == "notion-api" }) {
+                ConnectorSlot(slot: .footer, channel: api, title: "Notion", needsSignIn: row.status == .needsSignIn)
+            }
+        default:
+            if let connector = Self.connectorChannel(in: mine) {
+                ConnectorSlot(slot: .footer, channel: connector, title: entry.title, needsSignIn: false)
+            } else {
+                SourcePageFooter(actions: plainFooter, note: feedNote)
+            }
+        }
+    }
+
+    /// The quiet actions of a source with no reader of its own: Refresh where something can be read again, a feed's
+    /// Manage, and — on the pages they act on — browser reading and exploring saved sites.
+    private var plainFooter: [SourceFooterAction] {
+        var out: [SourceFooterAction] = []
+        if let channel = mine.first(where: { $0.connected }), let tile = row.entry.tile,
+           channel.actions.contains("manage") {
+            out.append(SourceFooterAction(id: "manage", title: Copy.Catalog.manage) { flowTile = tile })
+        }
+        if let channel = mine.first(where: { $0.connected && $0.actions.contains("poll") && $0.count > 0 }) {
+            out.append(.refresh { Task { feedNote = (try? await ChannelActions.poll(channel.id)) ?? nil } })
+        } else if let channel = mine.first(where: { $0.connected && $0.actions.contains("sync") }) {
+            out.append(.refresh { refresh(channel.id) })
+        }
+        let actions = SourcePageActions.of(row.entry, exploreGone: exploreCache.isGone)
+        if actions.contains(.exploreSavedSites) {
+            out.append(SourceFooterAction(id: "explore", title: Copy.Explore.button, help: Copy.Explore.buttonHelp) {
+                showExploreSheet = true
+            })
+        }
+        if actions.contains(.readingInBrowser) {
+            out.append(SourceFooterAction(id: "reading", title: Copy.SourceLayout.browserSettings,
+                                          help: Copy.SourceLayout.browserSettingsHelp) { showReadingSheet = true })
+        }
+        if row.entry.overviewId != nil {
+            out.append(SourceFooterAction(id: "agents", title: Copy.Catalog.openAgents) { router.routeToAgents() })
+        }
+        return out
+    }
+
+    private func refresh(_ id: String) {
+        Task {
+            do {
+                feedNote = try await ChannelActions.sync(id, store: store, watcher: watcher, local: localSources,
+                                                         calendar: calendarReader, tabGroups: tabGroups,
+                                                         contacts: contacts, messages: messagesWatcher,
+                                                         watchHistory: watchHistory)
+            } catch {
+                feedNote = AddSourceSheet.friendlyError(error)
+            }
+            await store.refresh([.channels, .sources, .sourcesOverview, .status])
         }
     }
 
@@ -532,84 +694,6 @@ struct SourceCatalogDetail: View {
         case .turnOn: Copy.Catalog.turnOn
         case .importFile: Copy.Catalog.importFile
         case .openAgents: Copy.Catalog.openAgents
-        }
-    }
-
-    @ViewBuilder
-    private func tileButton(_ title: String) -> some View {
-        if let tile = row.entry.tile {
-            NeutralButton(title: title, size: .compact) { flowTile = tile }
-        }
-    }
-
-    /// The per-site reading control (Reading the web left Settings, ruling 36 D6). The Turn on row's switch.
-    private func readingToggle(_ site: String) -> some View {
-        let on = reading.readableSites.contains(site)
-        return VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-            Toggle(isOn: Binding(get: { on }, set: { value in flip(site, on: value) })) {
-                Text(Copy.Catalog.readSite(row.entry.title))
-                    .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textPrimary)
-            }
-            .toggleStyle(.switch)
-            .controlSize(.small)
-            if let note = reading.note {
-                Text(note).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-
-    /// G206 (#426) — the saved list the person's own agent keeps current from their signed-in browser (app.md's spec,
-    /// first slice, 2026-10-23: the switch and its off line). The backend refuses it while agent reading is off or
-    /// unacknowledged, so the first-use sheet comes first then; a refusal's sentence shows under the reading switch.
-    private func savedListToggle(_ site: String) -> some View {
-        let on = reading.savedListsOn.contains(site)
-        return VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-            Toggle(isOn: Binding(get: { on }, set: { value in flipSavedList(site, on: value) })) {
-                Text(Copy.Catalog.readSavedList(site))
-                    .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textPrimary)
-            }
-            .toggleStyle(.switch)
-            .controlSize(.small)
-            if !on {
-                Text(Copy.Catalog.savedListOff).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-
-    /// 2026-10-26 — the YouTube lists the person's own agent keeps current (G71), on the YouTube row itself: on by
-    /// default (onboarding asks once, pre-ticked; an existing install's are on when this memory holds YouTube), the
-    /// same words as Reading in your browser's group, the first-use sheet first when agent reading is not yet on.
-    private func youtubeListToggle(_ list: YouTubeList) -> some View {
-        let on = reading.enabled && (reading.settings?.youtubeLists.isOn(list) ?? false)
-        return VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-            Toggle(isOn: Binding(get: { on }, set: { value in flipYouTube(list, on: value) })) {
-                Text(YouTubeListWords.title(list))
-                    .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textPrimary)
-            }
-            .toggleStyle(.switch)
-            .controlSize(.small)
-            Text(YouTubeListWords.detail(list, on: on, status: reading.settings?.youtube))
-                .font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    /// G89 — one Substack list's switch, the YouTube lists' words and rule (the first-use sheet first when agent
-    /// reading is not yet on).
-    private func substackListToggle(_ list: SubstackList) -> some View {
-        let on = reading.enabled && (reading.settings?.isOn(list) ?? false)
-        return VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-            Toggle(isOn: Binding(get: { on }, set: { value in flipSubstack(list, on: value) })) {
-                Text(SubstackListWords.title(list))
-                    .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textPrimary)
-            }
-            .toggleStyle(.switch)
-            .controlSize(.small)
-            Text(SubstackListWords.detail(list, on: on, status: reading.settings?.substack))
-                .font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
         }
     }
 

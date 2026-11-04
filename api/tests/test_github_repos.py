@@ -617,6 +617,11 @@ def sign_in(monkeypatch):
                         "expires_in": 28800, "token_type": "bearer"}])
     monkeypatch.setattr(github_auth, "POST", fake)
     fake.clock = clock
+    # The first sync a completed sign-in starts runs in the background (its own test below); here each test drives
+    # GitHub's answers in order, so the background read never takes one of them.
+    from api.routers import github_repos as door
+
+    monkeypatch.setattr(door, "start_first_sync", lambda memory_path: False)
     return fake
 
 
@@ -879,7 +884,8 @@ def test_the_cli_commands_call_the_backends_routes_as_the_person(monkeypatch):
     assert "bob-example/alpha-project [private] — media-alpha · in alpha (alpha)" in listed.text
     assert "example-org/widget-kit — widget-kit" in listed.text
     connected = cli_app.cmd_github_connect(boot, SimpleNamespace())
-    assert connected.text.startswith("GitHub is connected. To bring in your own repositories, install Cicada")
+    assert connected.text.startswith("GitHub is connected. Your stars are coming in now. To bring in your own "
+                                     "repositories too, install Cicada")
     linked = cli_app.cmd_github_project(boot, SimpleNamespace(full_name="bob-example/alpha-project", project="alpha",
                                                               remove=False))
     assert linked.text == "Linked bob-example/alpha-project to your project alpha."
@@ -975,4 +981,49 @@ def test_a_secondary_rate_limit_is_a_rate_limit_never_a_refused_token(real_cap):
     with pytest.raises(tier2.Refused) as exc:
         asyncio.run(github.client("placeholder").get("user"))
     assert exc.value.kind == "sign-in"
+
+
+# --- the first sync after a sign-in (2026-11-04) ------------------------------------------------------------------
+
+
+def test_a_completed_sign_in_starts_the_first_sync_at_once(api, bank, sign_in, monkeypatch):
+    """Live, 2026-11-04: connected by code, `lastSync` null — nothing read GitHub until a Refresh, an "I installed
+    it" or the scheduled job hours later, so not even the stars (which need no install) came in. The sign-in
+    completing now starts the sync itself, on the active bank, once."""
+    from api.routers import github_repos as door
+
+    started = []
+    monkeypatch.setattr(door, "start_first_sync", lambda memory_path: started.append(memory_path) or True)
+    sign_in.answers = [{"access_token": "ghu_placeholder", "refresh_token": "ghr_placeholder", "expires_in": 28800}]
+    assert api.post("/sources/github/connect").status_code == 200
+    assert api.post("/sources/github/connect/poll").json()["state"] == "pending"    # too soon: nothing starts
+    assert started == []
+    sign_in.clock["now"] += 5
+    assert api.post("/sources/github/connect/poll").json()["state"] == "connected"
+    assert started == [bank]
+    assert api.get("/sources/github/connect").json()["syncing"] is False
+
+
+def test_the_first_sync_runs_once_in_the_background_and_says_so(bank, monkeypatch):
+    from api.routers import github_repos as door
+
+    runs = []
+
+    async def fake_sync(memory_path, *, allow_fetch=None, **_):
+        runs.append((memory_path, allow_fetch))
+        await asyncio.sleep(0.01)
+        return {"status": "ok", "new": 3}
+
+    monkeypatch.setattr(github, "sync", fake_sync)
+
+    async def scenario():
+        assert door.start_first_sync(bank) is True
+        assert door.first_sync_running() is True
+        assert door._connect_status().syncing is True
+        assert door.start_first_sync(bank) is False                 # one at a time
+        await door._first_sync
+        assert door.first_sync_running() is False
+
+    asyncio.run(scenario())
+    assert runs == [(bank, True)]                                   # the person's act: never gated
 

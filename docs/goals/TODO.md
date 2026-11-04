@@ -12,7 +12,28 @@
 
 ## Current state and evidence
 
-- **2026-11-04 — books: scan an ISBN, Apple Books, a Goodreads export (G233, G39; branch `books-g39` + cicada-app `feat/scan-a-book`).** Owner: "integrate ISBN codes to include books I'm reading … iBooks too, to track progress … save books I want to read (maybe including Goodreads)"; then "be able to consolidate highlights and such is important", not started as its own status, the scanner in the phone app. `POST /capture/isbn` is the phone's contract (`{isbn, status?, id?}`, keep it stable); the home resolves the number behind the connector gate; `books.apply_pending` makes one `media` page per work with dated `reading-status` claims and happenings (`progress.py`). Apple Books is read by the app after Turn on; Goodreads only by its export (no API keys since 2020). Highlights are read by Sleep, revision-read as they grow. Verified on scratch state with a synthetic library, a sample export and a capture-only phone (`feature-status.md`). **Owner's steps:** the four decisions on the G233 row; a real-iPhone camera test once the Apple Developer Program signup is done.
+- **2026-11-04 — books: scan an ISBN, Apple Books, a Goodreads export (G233, G39; branch `books-g39` + cicada-app `feat/scan-a-book`).** Owner: "integrate ISBN codes to include books I'm reading … iBooks too, to track progress … save books I want to read (maybe including Goodreads)"; then "be able to consolidate highlights and such is important", not started as its own status, the scanner in the phone app. `POST /capture/isbn` is the phone's contract (`{isbn, status?, id?}`, keep it stable); the home resolves the number behind the connector gate; `books.apply_pending` makes one `media` page per work with dated `reading-status` claims and happenings (`progress.py`). Apple Books is read by the app after Connect; Goodreads only by its export (no API keys since 2020); both on the standard source page (`BooksSlots.swift`). Highlights are read by Sleep, revision-read as they grow. Verified on scratch state with a synthetic library, a sample export and a capture-only phone (`feature-status.md`). **Owner's steps:** the four decisions on the G233 row; a real-iPhone camera test once the Apple Developer Program signup is done.
+- **2026-11-04 — a question about two people rests on a conversation naming both; never the owner without their own
+  words (G209; branch `fix/person-dedup-evidence`).** Owner: "why tf would <handle> be me?" about "Is <handle> the same
+  as <owner>?" (guess 0.90, evidence a chat naming neither). Cause: a post BY the handle linked on the owner's page read
+  as the owner's account, raised whenever any mention matched the owner's page, with that mention's conversation and
+  extraction confidence. Now (`pair_evidence`): no owner pair without self-reference; a person pair only on a
+  conversation naming both (it becomes the card's evidence); the guess is the pair's, ≤ 0.8; Sleep retires the open
+  ones that should never have been asked (`owner_unsaid`, `no_pair_evidence`, undoable). Copy of the owner's bank, 210
+  open duplicate questions: 1 owner pair, 148 on a conversation not naming both, 20 between people → 4 retired, 16
+  left, all 16 cards on a conversation naming both (10 before). **Proposed ruling 54 below waits for the owner:** a
+  public handle settled by a web lookup (built behind it, off until the owner rules; 1 of the 20 qualifies).
+- **2026-11-04 — one layout for every source page; GitHub syncs on connect (G161, G230; branch
+  `sources-standard-layout`, PR #593).** Owner, from screenshots: "so much text", the export drop showing "the logos of
+  AI companies instead of the logo of Spotify", "standardize the layout for all the sources pages". Every source page is
+  `SourcePageLayout` — head and one status line, a connect area (one primary, at most one line, ways in as option rows
+  with their own icons), the source's own sections, a quiet footer; spec in `app.md` ("The standard source page"), rule
+  in DESIGN_RULES §9 2026-11-04. GitHub's live `lastSync: null` after a code sign-in: nothing started a sync (the poll
+  only stamped credentials; the scheduler's first run is 6 h after start); the completed sign-in now starts it. Telegram
+  chats is *Telegram*. **Pick up here:** the This Mac pages' content (Notes, Reminders, Contacts, Calendar, Hex, Wispr
+  Flow, transcripts) is another worker's, in the layout's `content` slot; Telegram's missing chat pictures are the chat
+  images worker's (backend data, not the page layout).
+
 - **2026-11-04 — ways in for Spotify, Reddit, Pinterest, TikTok and Instagram (G232; branch `feat/g232-ways-in`).**
   Owner: "is there no way to do similar to GitHub … offer the website connection through browser harness, just like a
   toggle switch, and then also the file export". Researched against each service's docs and terms (table in
@@ -3012,3 +3033,32 @@ A whole row moves to DONE only after its remaining implementation and required a
     merged follows its redirect and one they removed is never made again. **Revisit** if a GitHub App user token stops
     needing an installation for the account's own repositories (the install step goes), or if the person unlinks most
     of what the origin rule links.
+54. **PROPOSED — not binding until the owner says yes (owner direction 2026-11-04; G209; amends ruling 44's public test
+    for this one question; branch `fix/person-dedup-evidence`).** The owner's words, on "is <handle> the same as
+    <person>?": "could've been resolved from a search, like how claude code would solve it if i ask it rn." **Proposed
+    text:** *A question whether a public handle is a named person may be settled by a web lookup on a plan run, with a
+    cited claim, undoable — only when: both sides are person pages, one a handle and the other a full name; neither is
+    the owner, a role-only page, on the person's address book or LinkedIn import, or known personally on the record
+    (ruling 44's local checks); no chat (Messages, WhatsApp, Telegram chats, e-mail, LinkedIn, a profile read on request)
+    says either name outside a link to public content, in its title or as its correspondent; and each name is said in
+    public content the person read or saved (a saved link or bookmark, a watched video, a read page, a paper, a
+    repository, a tab group). What is sent: to the plan's own web search, exactly two pinned queries, each alone — the
+    handle with the one platform word the record links it on (or "@handle"), and the full name; the prompt goes to the
+    engine that already read those conversations, with at most two scrubbed mention lines and nobody else's name. What
+    settles: only a quote, with the link of the public page it came from, that names both the handle and the person.
+    Cicada itself checks that the quote names both, never on the model's word; whether the quote is really on the cited
+    page rests on the lookup, as in ruling 27. It writes one cited "<Name> goes by <handle>" claim on the named page and
+    never merges the pages.
+    Never a metered key; a private person's name never reaches any service.* **Built behind it** (`public_handle`,
+    `web_lookup`'s handle prompt, `cicada_record_check` with `proposed_value="same"`). **Off until the owner rules**
+    (coordinator, 2026-11-04: a privacy-rail change is built switched off and decided by the owner): Sleep's own lookup
+    runs only with `CICADA_PUBLIC_HANDLE_LOOKUP=on`; meanwhile only the person's own local agent, asked by them, may
+    settle one through `cicada_record_check`. A "yes" flips the default; declining this text removes the path.
+    **Measured** on a copy of the owner's bank: of 20 open person pairs, 1 qualifies (the example above); 11 are not a
+    handle against a name, 1 is a held mention, 1 the owner's page. **Disclosed deviation (2026-11-04):** while building
+    this, the worker ran real lookups for that one pair on the bank copy, on the plan with haiku: four calls, each
+    searching the full name alone and the handle (`<handle> twitter` twice, `@<handle>`, `<handle> github`). Each
+    answered "not sure" and nothing was written. That sent a real person's full name to the plan's web
+    search before the owner ruled on this text, which ruling 44 forbids for a person without its encyclopedia match.
+    No more lookups were run; the shipped tier (`web_check_agent_model`, sonnet) never was. **Revisit** if a settled handle is undone by the person, or a name the
+    test called public turns out to be someone they know.

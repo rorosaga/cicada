@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from api.services import inbox_generator, markdown_parser, predicates
 from api.services.claim_reconciler import _conflict_nudge
 from api.services.claims import Claim
@@ -266,6 +268,7 @@ def test_clarification_collision_bumps_updated_date_instead_of_duplicating(tmp_p
     assert fm["updated_date"] == str(__import__("datetime").date.today())
 
 
+@pytest.mark.usefixtures("pair_conversations")   # the dedup key, not the evidence (`test_pair_evidence`)
 def test_a_different_uncertainty_about_the_same_mention_is_a_new_question(tmp_path):
     from api.services.clarification_manager import ClarificationManager
 

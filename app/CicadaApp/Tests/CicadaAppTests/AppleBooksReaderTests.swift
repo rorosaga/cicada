@@ -100,18 +100,22 @@ final class AppleBooksReaderTests: XCTestCase {
         XCTAssertEqual(AppleBooksStore.changed(moved, sent: sent).map(\.assetId), ["A1"])
     }
 
-    func testTheRowSaysWhatCameIn() {
+    func testThePageLineSaysWhatCameIn() {
         let now = Date()
-        XCTAssertEqual(BooksRowText.appleBooks(.off, now: now), Copy.appleBooksOff)
-        let line = BooksRowText.appleBooks(.synced(at: now, books: 284, highlights: 1, notKept: 0), now: now,
-                                           locale: Locale(identifier: "en_US"))
-        XCTAssertTrue(line.hasSuffix("· 284 books · 1 highlight"), line)
-        // Re-check of #600: what a book's cap left out is said on the row, never silent.
-        let over = BooksRowText.appleBooks(.synced(at: now, books: 2, highlights: 3000, notKept: 26), now: now,
-                                           locale: Locale(identifier: "en_US"))
-        XCTAssertTrue(over.hasSuffix("· 3,000 highlights · 26 highlights past a book's limit not kept"), over)
+        let en = Locale(identifier: "en_US")
+        XCTAssertNil(BooksRowText.appleBooks(.off))
+        XCTAssertEqual(BooksRowText.appleBooks(.syncing), .init(text: Copy.appleBooksSyncing))
+        XCTAssertEqual(BooksRowText.appleBooks(.failed("why")), .init(text: "why", isProblem: true))
+        XCTAssertEqual(BooksRowText.appleBooks(.synced(at: now, books: 284, highlights: 1, notKept: 0), locale: en),
+                       .init(text: "284 books · 1 highlight"))
+        // Re-check of #600: what a book's cap left out is said on the page's one line, never silent.
+        XCTAssertEqual(BooksRowText.appleBooks(.synced(at: now, books: 2, highlights: 3000, notKept: 26), locale: en),
+                       .init(text: "2 books · 3,000 highlights · 26 highlights past a book's limit not kept"))
+        // A read the backend refused outranks the counts, as the one thing to fix.
+        XCTAssertEqual(BooksRowText.appleBooks(.synced(at: now, books: 2, highlights: 1, notKept: 0), lastError: "bad"),
+                       .init(text: "bad", isProblem: true))
         let preview = GoodreadsPreview(books: 3, finished: 1, reading: 1, want: 1, reviews: 1, rated: 1)
-        XCTAssertEqual(BooksRowText.goodreadsPreview(preview, locale: Locale(identifier: "en_US")),
+        XCTAssertEqual(BooksRowText.goodreadsPreview(preview, locale: en),
                        "3 books: 1 finished · 1 reading · 1 want to read · 1 review")
     }
 

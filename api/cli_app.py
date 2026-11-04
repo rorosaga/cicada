@@ -936,12 +936,13 @@ def cmd_github_connect(boot, args) -> Result:
     status = answer.get("status") or {}
     if answer.get("state") != "connected":
         raise Refusal("refused", answer.get("words") or "The code expired before it was used. Nothing was connected.")
+    # 2026-11-04: the backend starts the first sync itself the moment the sign-in completes.
     text = "GitHub is connected."
     if status.get("installed") is False and status.get("installUrl"):
-        text += (f" To bring in your own repositories, install Cicada on your account: {status['installUrl']} — "
-                 "then `cicada connector sync github`.")
+        text += (" Your stars are coming in now. To bring in your own repositories too, install Cicada on your "
+                 f"account: {status['installUrl']} — then `cicada connector sync github`.")
     else:
-        text += " `cicada connector sync github` reads it now; it syncs every few hours."
+        text += " Your repositories and stars are coming in now; it syncs again every few hours."
     return Result(text=text, data={"connected": True, "installed": status.get("installed")}, warnings=_warn(boot))
 
 

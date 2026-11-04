@@ -36,21 +36,26 @@ struct GoodreadsImportResult: Decodable, Equatable, Sendable {
     let unchanged: Int
 }
 
-/// The Reading rows' lines, pure (`AppleBooksReaderTests`).
+/// The Reading pages' lines, pure (`AppleBooksReaderTests`).
 enum BooksRowText {
-    static func appleBooks(_ status: AppleBooksReader.Status, now: Date, locale: Locale = .autoupdatingCurrent) -> String {
+    /// The connect area's one line (`SourceConnectArea`); `isProblem` when it is the one thing to fix.
+    struct Line: Equatable {
+        let text: String
+        var isProblem = false
+    }
+
+    /// Apple Books' line: what the reader is doing, what is in, what a book's cap left out, or its failure. When it
+    /// last came in is the status line's. A read that failed at the backend (`lastError`) outranks the counts.
+    static func appleBooks(_ status: AppleBooksReader.Status, lastError: String? = nil,
+                           locale: Locale = .autoupdatingCurrent) -> Line? {
         switch status {
-        case .off: return Copy.appleBooksOff
-        case .syncing: return Copy.appleBooksSyncing
-        case .failed(let why): return why
-        case .synced(let at, let books, let highlights, let notKept):
-            let relative = RelativeDateTimeFormatter()
-            relative.unitsStyle = .full
-            relative.dateTimeStyle = .named
-            relative.locale = locale
-            let line = Copy.appleBooksSynced(relative.localizedString(for: at, relativeTo: now), books: books,
-                                             highlights: highlights, locale: locale)
-            return notKept > 0 ? line + " · " + Copy.appleBooksNotKept(notKept, locale: locale) : line
+        case .off: return nil
+        case .syncing: return Line(text: Copy.appleBooksSyncing)
+        case .failed(let why): return Line(text: why, isProblem: true)
+        case .synced(_, let books, let highlights, let notKept):
+            if let lastError, !lastError.isEmpty { return Line(text: lastError, isProblem: true) }
+            let line = Copy.appleBooksHolds(books: books, highlights: highlights, locale: locale)
+            return Line(text: notKept > 0 ? line + " · " + Copy.appleBooksNotKept(notKept, locale: locale) : line)
         }
     }
 

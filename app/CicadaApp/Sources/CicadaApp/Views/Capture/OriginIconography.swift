@@ -117,7 +117,7 @@ enum OriginIconography {
         case "github-starred": "GitHub stars"
         case "imessage": "Messages"
         case "whatsapp": "WhatsApp"
-        case "telegram-chats": "Telegram chats"
+        case "telegram-chats": "Telegram"
         case "apple-notes": "Apple Notes"
         case "share-sheet": "Share Sheet"
         case "instagram-saved": "Instagram Saved"

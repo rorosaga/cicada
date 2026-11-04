@@ -77,6 +77,8 @@ struct SourceCatalogRow: Identifiable, Equatable {
     let entry: SourceCatalogEntry
     let status: SourceCatalogStatus
     let lastSync: Date?
+    /// 2026-11-04 — the app this source reads was removed from this Mac: Off, and the row says why.
+    var notInstalled = false
     var id: String { entry.id }
 }
 
@@ -144,11 +146,11 @@ enum SourceCatalog {
                            channels: ["notes"], tile: .appleNotes, verb: .connect(Copy.Catalog.connectNotes)),
         SourceCatalogEntry(id: "folders", group: .thisMac, title: Copy.Catalog.folders, origin: "folder",
                            channels: [], verb: .connect(Copy.Catalog.addFolder)),
-        // G39 — Apple Books on this Mac, read by the app (`AppleBooksReader`) only after Turn on; G233 — a Goodreads
+        // G39 — Apple Books on this Mac, read by the app (`AppleBooksReader`) only after Connect; G233 — a Goodreads
         // export the person chooses.
         SourceCatalogEntry(id: AppleBooksReader.channel, group: .reading, title: Copy.appleBooksTitle,
                            origin: AppleBooksReader.channel, channels: [AppleBooksReader.channel],
-                           verb: .connect(Copy.appleBooksTurnOn)),
+                           verb: .connect(Copy.SourceLayout.connect(Copy.appleBooksTitle))),
         SourceCatalogEntry(id: "goodreads", group: .reading, title: Copy.goodreadsTitle, origin: "goodreads",
                            channels: ["goodreads"], verb: .importFile),
         SourceCatalogEntry(id: "files", group: .exports, title: Copy.Catalog.filesAndLinks, origin: "bookmark",
@@ -165,7 +167,7 @@ enum SourceCatalog {
                            verb: .connect(Copy.Catalog.addFeed)),
         SourceCatalogEntry(id: "calendar", group: .feeds, title: Copy.Catalog.calendarFeeds, origin: "calendar",
                            channels: ["calendar"], tile: .calendar, verb: .connect(Copy.Catalog.addFeed)),
-        SourceCatalogEntry(id: "telegram", group: .feeds, title: "Telegram", origin: "telegram",
+        SourceCatalogEntry(id: "telegram", group: .feeds, title: Copy.Chats.telegramBotTitle, origin: "telegram",
                            channels: ["telegram"], tile: .telegram),
         // Ruling 47a: the person's own Telegram chats, read through their own account by the backend.
         SourceCatalogEntry(id: TelegramChats.channel, group: .accounts, title: Copy.Chats.telegramTitle,

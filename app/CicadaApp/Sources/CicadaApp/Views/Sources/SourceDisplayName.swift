@@ -66,7 +66,7 @@ enum SourceDisplayName {
         "tiktok-history": "TikTok history",
         "rss": "RSS",
         "calendar": "Calendars",
-        "telegram": "Telegram",
+        "telegram": "Telegram bot",
         "notes": "Apple Notes",
         // G219: Apple Reminders and a Notion export (`source_overview.CATALOG`'s G219 rows).
         "reminders-local": "Reminders",
