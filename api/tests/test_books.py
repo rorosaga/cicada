@@ -406,6 +406,8 @@ def test_each_door_lists_its_books_on_its_source_page(client):
     assert page["total"] == overview["goodreads"]["items"] > 0
     assert page["latest"]
     assert {row["id"] for row in page["items"]} == {"quiet-engines", "someday-shelf", "the-lantern-orchard"}
+    # A book has no saved link, so a click opens its page, never an empty Saved.
+    assert {row["kind"] for row in page["items"]} == {"page"}
 
 
 def test_a_file_that_is_not_a_goodreads_export_is_refused(client):

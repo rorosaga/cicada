@@ -35,8 +35,9 @@ means wherever the bank records it, and says so channel by channel below:
   listed (they are counted from these days). A day opens to its videos through
   :func:`watched_day` (Sources v4, owner 2026-10-19: "what I watched in one
   day: a dropdown and you see all the videos I watched that day").
-* ``apple-books``, ``goodreads``, ``book-scan`` (G39, G233) — one row per book that door's records hold, listed as its
-  book page once it has one (a book page's own origin is ``book``, so the media-origin lists never find it).
+* ``apple-books``, ``goodreads``, ``book-scan`` (G39, G233) — one row per book that door's records hold, a ``page`` row
+  once it has its book page (a book page's own origin is ``book``, so the media-origin lists never find it, and it has
+  no saved link, so the Feed holds no row for it to open).
 * ``imessage``, ``whatsapp``, ``telegram-chats`` (chats-ux-v2) — one row per chat (``kind: chat``), titled by **who the chat is
   with** (its sittings' ``correspondent`` record), dated by its newest sitting,
   with ``sittings`` and ``chat``: the app's conversation hash, that name, and
@@ -569,8 +570,10 @@ def _collect(memory_path: Path, channel_id: str) -> list[dict]:
     if channel_id in _MEDIA_CHANNELS:
         return media.by_origins(_catalog_origins(channel_id), unstamped=channel_id == "files")
     if channel_id in books.DOORS:
-        return _episodes(memory_path, lambda fm: fm.get("origin") == channel_id, media=media,
+        rows = _episodes(memory_path, lambda fm: fm.get("origin") == channel_id, media=media,
                          among=_episode_index(memory_path).origins((channel_id,)))
+        # A book has no saved link, so the Feed holds no row for it: its row opens the book's page.
+        return [{**row, "kind": "page"} if row["kind"] == "media" else row for row in rows]
     if channel_id in _SAVED_SOURCE_ROWS:
         return media.by_origins(tuple(_SAVED_SOURCE_ROWS[channel_id]))
     if channel_id in _HISTORY_ROWS:
