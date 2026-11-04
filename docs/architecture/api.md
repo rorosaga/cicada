@@ -541,6 +541,13 @@ the node's `contentHash` only when true, so a lit node's hash is unchanged; `GET
 `saved-why-2`, G191 v3: items gained `savedWhyHistory`, `lastSavedAt` and `captureThumb`). Neither moved a component,
 so `VersionVector` was unchanged by those — but G191 v3 also folds the `captures` component into `/sources`' ETag (a
 new site capture gives a bookmark's row its thumbnail), so `VersionVector` maps `captures` → `.sources`.
+**Where a source's items live (2026-11-04, shape `g161-15`).** `GET /sources/channels/{id}/collections` answers `{channel,
+accounts: [{name, provider, count, collections: [{id, name, count, latest}]}]}` for `notes`, `calendar-local` and
+`reminders-local`, and no accounts for any other channel the bank knows; an unknown channel is a 404. Read-only and
+engine-free. Its ETag is `sources` + `episodes` with `extra` = `channel_items.SHAPE|collections|<channel>|<digest of the
+kept names>`, and `GET …/items?collection=<id>` narrows a page under its own ETag. Neither is a Store domain, so no
+`VersionVector` mapping: `ChannelItemsCache` revalidates when a page opens and whenever the channels move, and a 304 or a
+failure keeps what it holds (`capture-and-sleep.md`, "Where an item lives").
 **Chat source pages (2026-11-03, shape `g161-12`, overview `overview-v12`).** On `GET /sources/channels/{id}/items` for a
 chat source (`imessage`, `whatsapp`, `telegram-chats`) each chat row adds `ticked` (now), `pinned` (only when set),
 `last_at` (the newest stored message, aware UTC) and `synced_at` (the newest write of any of its sittings), and its

@@ -7,6 +7,9 @@ struct CalendarInfo: Encodable, Equatable, Sendable {
     let id: String
     let title: String
     let account: String?
+    /// 2026-11-04 — the account's kind from EventKit's own source type (`SourceAccountProvider`), so the Sources page
+    /// draws iCloud, Google, Exchange and this Mac apart, each with its mark. Nil from a store that cannot say.
+    var provider: String? = nil
 }
 
 struct CalendarEventRecord: Encodable, Equatable, Sendable {

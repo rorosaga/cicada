@@ -314,6 +314,10 @@ enum OriginIconography {
         case "rss": "rss"
         case "telegram", "telegram-chats": "telegram"
         case "whatsapp": "whatsapp"
+        // 2026-11-04 (owner: "whisperflow in the sources page doesn't have the logo of Whisperflow") — the vendor's own
+        // mark was bundled (LOGOS.md `wispr`) but no origin claimed it, so the row fell to the installed app's icon and,
+        // with the app removed, to a waveform glyph.
+        case "wispr-flow": "wispr"
         case "pinterest": "pinterest"
         case "reddit-saved", "reddit": "reddit"
         case "x-bookmarks", "x-likes", "x": "x"

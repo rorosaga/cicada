@@ -49,6 +49,12 @@ _EXPECTED_FIELDS = 6  # id, name, body, created, modified, folder
 #: spelling would re-emit every note an older sync already kept. A 6-field record (an older app) still parses. The
 #: offset is today's, so a note from the other side of a daylight-saving change is an hour off (its day rarely moves).
 _DATED_FIELDS = 8
+#: 2026-11-04 (owner: "replicate this layout inside Apple Notes, starting from those that are iCloud … and then you go
+#: into it … you can see folders") — a ninth field after the offset: the Notes ACCOUNT the folder belongs to ("iCloud",
+#: "On My Mac", a mail account's name), so the Sources page browses account → folder → notes. Kept in the index
+#: (`account`, `folder`), never in a note's dedup key: an 8-field record still parses, and a note an older sync kept is
+#: placed on the next read without a new episode.
+_ACCOUNT_FIELDS = 9
 
 # A note body beyond this is truncated before it becomes an episode — an
 # episode is a lightweight staging chunk, not a full document store; the Sleep
@@ -69,6 +75,8 @@ class NoteRecord:
     folder: str
     #: When the note was last modified, aware ISO-8601; '' when the app did not send it (an older app).
     modified_at: str = ""
+    #: The Notes account the folder belongs to; '' from an older app.
+    account: str = ""
 
 
 def parse_notes_dump(raw: str) -> list[NoteRecord]:
@@ -87,11 +95,12 @@ def parse_notes_dump(raw: str) -> list[NoteRecord]:
         if not chunk.strip():
             continue
         fields = chunk.split(FIELD_SEP)
-        if len(fields) not in (_EXPECTED_FIELDS, _DATED_FIELDS):
+        if len(fields) not in (_EXPECTED_FIELDS, _DATED_FIELDS, _ACCOUNT_FIELDS):
             logger.debug(f"Skipping malformed note record ({len(fields)} field(s), expected {_EXPECTED_FIELDS})")
             continue
         note_id, name, body, created, modified, folder = fields[:_EXPECTED_FIELDS]
-        modified_at = _aware(*fields[_EXPECTED_FIELDS:]) if len(fields) == _DATED_FIELDS else ""
+        modified_at = _aware(*fields[_EXPECTED_FIELDS:_DATED_FIELDS]) if len(fields) >= _DATED_FIELDS else ""
+        account = fields[_DATED_FIELDS].strip() if len(fields) == _ACCOUNT_FIELDS else ""
         records.append(NoteRecord(
             note_id=note_id.strip(),
             name=name.strip(),
@@ -100,6 +109,7 @@ def parse_notes_dump(raw: str) -> list[NoteRecord]:
             modified=modified.strip(),
             folder=folder.strip(),
             modified_at=modified_at,
+            account=account,
         ))
     return records
 
@@ -197,6 +207,7 @@ def _write_note_episode(episodes_dir: Path, note: NoteRecord) -> str:
         "content_hash": content_hash,
         "note_id": note.note_id,
         "folder": note.folder or None,
+        "account": note.account or None,
         # Folder name as a tag hint for the Sleep extractor/entity tagging —
         # mirrors bookmark_sync tagging synced items with their origin.
         "tags": [note.folder] if note.folder else [],
@@ -208,7 +219,19 @@ def _write_note_episode(episodes_dir: Path, note: NoteRecord) -> str:
 # --- Sync (diff + emit only what's new/changed) -----------------------------
 
 
-async def sync_notes(memory_path: Path, *, dump: str) -> dict[str, Any]:
+def _placement(note: NoteRecord, known: dict | None = None) -> tuple[str | None, str | None]:
+    """The note's account and folder as the index keeps them. A record that names no account (an older app) keeps
+    the one already known."""
+    return note.account or (known or {}).get("account") or None, note.folder or None
+
+
+def _index_entry(episode_id: str, note: NoteRecord, known: dict | None = None) -> dict:
+    account, folder = _placement(note, known)
+    return {"episode_id": episode_id, "modified": note.modified, "note_id": note.note_id,
+            "account": account, "folder": folder}
+
+
+async def sync_notes(memory_path: Path, *, dump: str, accounts: dict[str, str] | None = None) -> dict[str, Any]:
     """Parse ``dump`` and write one episode per new or modified note.
 
     A brand-new note id -> new episode. A previously-seen note whose
@@ -229,6 +252,11 @@ async def sync_notes(memory_path: Path, *, dump: str) -> dict[str, Any]:
     """
     memory_path = Path(memory_path)
     notes = parse_notes_dump(dump)
+    # 2026-11-04 — the app sends each note's account beside the dump (`note_accounts`), so a backend that predates it
+    # still reads the 8-field records; a ninth field in the dump itself is read too.
+    for note in notes:
+        if not note.account and accounts and (named := accounts.get(note.note_id)):
+            note.account = " ".join(str(named).split())[:120]
     excluded_folders = {
         f.strip().casefold()
         for f in os.environ.get("CICADA_NOTES_EXCLUDE_FOLDERS", "").split(",")
@@ -250,29 +278,29 @@ async def sync_notes(memory_path: Path, *, dump: str) -> dict[str, Any]:
     skipped_count = 0
     episodes_dir = memory_path / "episodes"
 
+    placed = 0
     for note in notes:
         key = _note_key(note)
         existing = idx.get(key)
         if existing is None:
             episode_id = _write_note_episode(episodes_dir, note)
-            idx[key] = {
-                "episode_id": episode_id,
-                "modified": note.modified,
-                "note_id": note.note_id,
-            }
+            idx[key] = _index_entry(episode_id, note)
             new_count += 1
         elif existing.get("modified") != note.modified:
             episode_id = _write_note_episode(episodes_dir, note)
-            idx[key] = {
-                "episode_id": episode_id,
-                "modified": note.modified,
-                "note_id": note.note_id,
-            }
+            idx[key] = _index_entry(episode_id, note, existing)
             updated_count += 1
         else:
             skipped_count += 1
+            # 2026-11-04 — where a note lives (its account and folder) is kept current in the index alone: a note moved
+            # to another folder, or kept by a sync from before accounts were sent, is placed without a new episode
+            # (nothing Sleep reads changed).
+            now_placed = _placement(note, existing)
+            if now_placed != (existing.get("account"), existing.get("folder")):
+                existing["account"], existing["folder"] = now_placed
+                placed += 1
 
-    if new_count or updated_count:
+    if new_count or updated_count or placed:
         _save_notes_index(memory_path, idx)
         try:
             await _commit_notes_sync(memory_path, new_count, updated_count)

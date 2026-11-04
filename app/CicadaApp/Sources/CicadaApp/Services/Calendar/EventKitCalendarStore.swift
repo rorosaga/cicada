@@ -38,7 +38,10 @@ final class EventKitCalendarStore: CalendarStore, @unchecked Sendable {
             let predicate = store.predicateForEvents(withStart: from, end: to, calendars: nil)
             let events = store.events(matching: predicate)
             let infos = calendars.map {
-                CalendarInfo(id: $0.calendarIdentifier, title: $0.title, account: $0.source?.title)
+                CalendarInfo(id: $0.calendarIdentifier, title: $0.title, account: $0.source?.title,
+                             provider: $0.source.map {
+                                 SourceAccountProvider.of(sourceType: $0.sourceType.rawValue, title: $0.title).rawValue
+                             })
             }
             let records = CalendarEventMapper.firstById(events.map(Self.record(_:)))
             return (infos, records)

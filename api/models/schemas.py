@@ -5031,6 +5031,9 @@ class NotesSyncRequest(CamelModel):
     # The raw delimited dump the companion app read from Notes.app
     # (`AppleNotesReader.swift`). Required: the backend never runs osascript.
     notes_dump: str
+    # 2026-11-04 — each note's Notes account by note id ("iCloud", "On My Mac", a mail account's name), beside the dump
+    # rather than in it, so a backend that predates it ignores the key and still reads every note.
+    note_accounts: Optional[dict[str, str]] = Field(default=None, max_length=100_000)
 
 
 class NotesSyncResponse(CamelModel):
@@ -5242,6 +5245,10 @@ class CalendarLocalCalendar(CamelModel):
     id: str
     title: str = ""
     account: Optional[str] = None
+    # 2026-11-04 — what kind of account the calendar is in (`icloud`, `google`, `exchange`, `local`, `subscribed`,
+    # `other`), from EventKit's own source type, so the Sources page draws each account with its own mark. Optional:
+    # an older app sends none.
+    provider: Optional[str] = Field(default=None, max_length=32)
 
 
 class CalendarLocalEvent(CamelModel):
@@ -5287,6 +5294,8 @@ class RemindersLocalList(CamelModel):
     title: str = ""
     account: Optional[str] = None
     shared: bool = False
+    # 2026-11-04 — the account's kind, as for a calendar (`CalendarLocalCalendar.provider`).
+    provider: Optional[str] = Field(default=None, max_length=32)
 
 
 class RemindersLocalReminder(CamelModel):
