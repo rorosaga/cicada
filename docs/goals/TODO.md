@@ -67,6 +67,18 @@
   **Done 2026-11-04:** the app is registered (`github.com/apps/cicada-memory`, Device Flow on, no secret or key) and
   its client id and slug ship in `github_auth`; a real device-code request returned a code. **Owner's step left:** make
   the app public on GitHub, or only the owner's account can install it.
+- **2026-11-04 — the door carrier stays TCP (ruling 51f, owner 2026-11-04; G132).** Ruling 51f gains: the door's carrier
+  stays TCP (owner 2026-11-04: "if you find TCP working better than UDP, then let's go for TCP"); a UDP door is parked
+  in #590 (draft) after three security-review rounds each found a new availability bug in its hand-rolled reliable
+  channel — unbounded reassembly memory, quadratic CPU from tiny pieces, then a session deadlock once its held-piece cap
+  was reached — while the TCP door passed three rounds clean, and on real Wi-Fi the throughput difference does not
+  matter. Revisit with slice 3 (the hole punch needs UDP), with a vetted transport (QUIC behind the authenticated gate,
+  or a maintained library), never a hand-rolled channel. Asked on 2026-11-03 "keep the door on TCP until hole punching,
+  or UDP?", the owner had leaned UDP ("If we can work on tcp and udp directly probably best to do udp, no?") for silence
+  and for the punch; the reviews, not the measurements, decided it. What #590 keeps for slice 3: the silence and
+  hello-memory design, WireGuard-style roaming, a lossy UDP test forwarder, and the macOS finding that a UDP door's LAN
+  answers need the Local Network privilege (TN3179: sending UDP to the LAN does, accepting TCP does not). Nothing in
+  `dev` speaks UDP: the door is #586's TCP listener and the app's Bonjour is #573's `_cicada._tcp`.
 - **2026-11-03 — routes, not a relay (ruling 51f, G132 phase 3b slice 1; branch `feat/g132-routes`, #586 (includes
   #572's one-transport work)).** Owner: "yes i think we should copy t3 code … if we can make it all run nicely and for free awesome"; the
   phone, for now, a capture device. Each device's ordered route list (the home's door on the LAN → on a tailnet if
