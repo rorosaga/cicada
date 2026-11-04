@@ -12,6 +12,17 @@
 
 ## Current state and evidence
 
+- **2026-11-03 — GitHub connects with a code; your repositories are pages; a project lists its repositories (ruling
+  53, G230; branch `feat/g230-oauth-sync`).** Owner: "why are you asking for a token for github? cant we just do oauth?"
+  and "always sync and make their initial markdowns … a project might reference several repos". Connect GitHub shows
+  a code for github.com/login/device (GitHub's device flow for Cicada's read-only GitHub App; no secret, no server),
+  then offers *Install on GitHub* until the app is on the person's account (a GitHub App user token sees an account's
+  repositories only there). Every owned repository is a `media` page on sync with its first markdown (README summary
+  read once); the paste field and per-row Add are gone. A project's `repositories:` list (the person's or a trusted
+  agent's link from either page, or the hook's D2a origin hash) with back-links; `cicada_project` and
+  `cicada_repo_context` list them. **Owner's step (once):** register the app from `github_auth.register_url()` (the
+  link in `network.md`, "Connecting GitHub"), tick "Enable Device Flow", and put its client id and slug in
+  `github_auth.CLIENT_ID` / `APP_SLUG`; until then the token is the fallback behind "Use a token instead".
 - **2026-11-03 — routes, not a relay (ruling 51f, G132 phase 3b slice 1; branch `feat/g132-routes`, #586 (includes
   #572's one-transport work)).** Owner: "yes i think we should copy t3 code … if we can make it all run nicely and for free awesome"; the
   phone, for now, a capture device. Each device's ordered route list (the home's door on the LAN → on a tailnet if
@@ -2892,3 +2903,32 @@ A whole row moves to DONE only after its remaining implementation and required a
     (ruling 39). **Revisit** 52a if the owner says otherwise (flipping a label re-renders the existing meeting episodes
     in place, body changed, re-queued), or if a recorder is found whose `You`/`Me` is not its own microphone; 52 itself
     only if a meeting's words are found to leave the bank or to be credited to the person without a recorder's mark.
+53. **GitHub connects with a code, and every repository the person owns is a page on sync; a project lists its
+    repositories (owner, 2026-11-03: "there shouldn't be added manually, always sync and make their initial markdowns,
+    and develop them if needed. Also a project might reference several repos so take that into account." and "why are
+    you asking for a token for github? cant we just do oauth? like a connect?"; G230; amends ruling 36 D4 and ruling 45
+    for repositories; branch `feat/g230-oauth-sync`).** **Connecting:** GitHub's device flow for Cicada's own GitHub App
+    — a short code entered at github.com/login/device, no client secret, no server of Cicada's; the client id is public
+    and ships in the build; the token (8 h, refreshed with the client id alone for a device-flow token, a 6-month
+    refresh token) is kept in `secrets.env` like every connector credential, never in a bank; Disconnect forgets all of
+    it and says where GitHub's own grant is removed. **A GitHub App, not an OAuth App,** because its permissions are
+    read-only (Metadata and Contents read on repositories, Starring read on the account) where an OAuth App reaches a
+    private repository only through `repo`, full read and write; the cost is a second step — the app must be installed
+    on the person's account to see their repositories (GitHub: "The app can only access resources in an account where
+    it is installed"); stars need no install. Until the owner registers the app (one link,
+    `github_auth.register_url()`, plus "Enable Device Flow"), the pasted token stays as a fallback behind "Use a token
+    instead", never the default. **Repositories:** every repository the person owns gets a `media` page
+    (`media.kind: repository`, `github.owned: true`) on each sync, with a first markdown — description, a summary from
+    its README (read once, when the page is born), link, language, topics — that Sleep develops like any page; never by
+    hand: the paste-a-link add and every per-row "Add" are removed (no strong reason to keep one for anyone else's: a
+    star brings it in). Starred repositories keep their quiet pages. A repository page is not a project page.
+    **Projects:** a project lists its repositories (`repositories: [{entity, url, how, by, day}]`, `github_repos` the one
+    writer; each repository page names its projects back in `github.projects`); a link is made by the person's act or a
+    trusted agent's (`cicada_link_entity` on a repository page) from either page, or by Cicada when the hook's D2a salted
+    origin hash of the ONE project's own checkout is the repository's (`how: origin`, Cicada's own commit) — never by a
+    name alone (a suggestion). The person's unlink is remembered (`repositories_removed`) and nothing automatic puts it
+    back. `repos:` keeps its meaning (local checkouts). **Existing banks:** each own-repository row with no page gets
+    its page on the next sync — one page and one index-only save episode each, in the sync's commit; a page the person
+    merged follows its redirect and one they removed is never made again. **Revisit** if a GitHub App user token stops
+    needing an installation for the account's own repositories (the install step goes), or if the person unlinks most
+    of what the origin rule links.

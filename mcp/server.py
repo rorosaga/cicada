@@ -974,7 +974,7 @@ TOOLS = [
         # Decision 10 (owner 2026-10-28): Pages in this project, tied by hand. A harness on the person's trust list
         # ties at once; any other proposes.
         "name": "cicada_link_entity",
-        "description": "Tie a page already in memory (a person, a tool, a place, a document) to one of the person's projects when it is part of that project and nothing ties it yet, or take back one you tied (`remove`). Give a one-sentence `reason`. If the person listed your app as one that may edit their memory directly it is tied at once; otherwise it waits on the project's page as your proposal. A page the person said is not part of the project stays out.",
+        "description": "Tie a page already in memory (a person, a tool, a place, a document) to one of the person's projects when it is part of that project and nothing ties it yet, or take back one you tied (`remove`). Give a one-sentence `reason`. If the person listed your app as one that may edit their memory directly it is tied at once; otherwise it waits on the project's page as your proposal. A page the person said is not part of the project stays out. A repository page tied by an app the person listed becomes one of the project's repositories (a project may span several).",
         "inputSchema": {"type": "object", "required": ["project", "entity", "reason"], "properties": {
             "project": {"type": "string", "description": "The project page (id or name)."},
             "entity": {"type": "string", "description": "The page to tie (id or name)."},
@@ -1070,7 +1070,7 @@ TOOLS = [
     },
     {
         "name": "cicada_repo_context",
-        "description": "Return live git context (branch, ahead/behind, dirty files, worktrees, last commit) for a repo Cicada knows about — either an entity that declares a `repos:` link, or a raw filesystem path. Use when the user asks about the state of a project's git repo/checkout, or before suggesting git actions, so you're grounded in what's actually on disk right now rather than guessing. Degrades gracefully (e.g. 'repo context unavailable (...)') when the path is missing, not a git repo, or belongs to a different device.",
+        "description": "Return live git context (branch, ahead/behind, dirty files, worktrees, last commit) for a repo Cicada knows about — either an entity that declares a `repos:` link, or a raw filesystem path. For a project it also names the GitHub repositories the project lists. Use when the user asks about the state of a project's git repo/checkout, or before suggesting git actions, so you're grounded in what's actually on disk right now rather than guessing. Degrades gracefully (e.g. 'repo context unavailable (...)') when the path is missing, not a git repo, or belongs to a different device.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -2116,8 +2116,15 @@ def handle_repo_context(entity_id: str | None, path: str | None) -> str:
         resolved_id = str(data.get("entity") or entity_id)
     else:
         resolved_id, declared, refusal = repo_context.declared_repos(get_memory_path(), entity_id)
+        # G230: the GitHub repositories a project lists (a project may span several), beside its local checkouts.
+        from api.services import github_repos
+
+        hosted = github_repos.repositories_line(get_memory_path(), resolved_id)
         if refusal is not None:
-            return refusal
+            return f"{refusal}\n{hosted}" if hosted else refusal
+        contexts = [repo_context.resolve_repo_context(d) for d in declared]
+        text = _render_repo_context(resolved_id, contexts)
+        return f"{text}\n\n{hosted}" if hosted else text
 
     contexts = [repo_context.resolve_repo_context(d) for d in declared]
     return _render_repo_context(resolved_id, contexts)

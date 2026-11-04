@@ -123,5 +123,26 @@
     "size": 355,
     "encoding": "base64",
     "content": "PHAgYWxpZ249ImNlbnRlciI+PGltZyBzcmM9Imh0dHBzOi8vZXhhbXBsZS5pbnZhbGlkL2xvZ28ucG5nIiB3aWR0aD0iODAiPjwvcD4KCiMgV2lkZ2V0IEtpdAoKWyFbQnVpbGRdKGh0dHBzOi8vZXhhbXBsZS5pbnZhbGlkL2JhZGdlLnN2ZyldKGh0dHBzOi8vZXhhbXBsZS5pbnZhbGlkL2NpKQoKQSBzbWFsbCBraXQgb2Ygd2lkZ2V0cyBmb3IgW2V4YW1wbGUgYXBwc10oaHR0cHM6Ly9leGFtcGxlLmludmFsaWQvZG9jcykuCgo8IS0tIGEgY29tbWVudCB0aGUgcHJldmlldyBkcm9wcyAtLT4KCiMjIEluc3RhbGwKCiAgICBwaXAgaW5zdGFsbCB3aWRnZXQta2l0CgpbcmVmXTogaHR0cHM6Ly9leGFtcGxlLmludmFsaWQvcmVmCg=="
+  },
+  "readme_alpha_project": {
+    "name": "README.md",
+    "path": "README.md",
+    "sha": "0000000000000000000000000000000000000000",
+    "encoding": "base64",
+    "content": "IyBBbHBoYSBQcm9qZWN0CgpbIVtidWlsZF0oaHR0cHM6Ly9leGFtcGxlLmNvbS9iYWRnZS5zdmcpXShodHRwczovL2V4YW1wbGUuY29tL2NpKQoKQWxwaGEgUHJvamVjdCBrZWVwcyBub3RlcyBvbiBhbiBleGFtcGxlIHByb2plY3QgaW4gcGxhaW4gbWFya2Rvd24gZmlsZXMsIG9uZSBwZXIgaWRlYS4gSXQgaXMgYSBwbGFjZWhvbGRlciBmb3IgdGVzdHMuCgojIyBJbnN0YWxsCgpgYGAKcGlwIGluc3RhbGwgYWxwaGEtcHJvamVjdApgYGAK"
+  },
+  "installations": {
+    "total_count": 1,
+    "installations": [
+      {
+        "id": 77,
+        "app_slug": "cicada-memory",
+        "repository_selection": "all",
+        "account": {
+          "login": "bob-example",
+          "type": "User"
+        }
+      }
+    ]
   }
 }

@@ -1,7 +1,9 @@
-"""G230: GitHub repositories on the graph — the tier-2 connector, the repository pages, the README preview, the doors.
+"""G230: GitHub repositories on the graph — connecting by a code, the tier-2 sync, the repository pages and their first
+markdown, a project's repositories, the README preview, the doors.
 
 Hermetic: no real account, no network. GitHub's API is a fake that answers with the recorded shapes in
-`fixtures/connectors/github_api.json` (placeholders only) and records every request it was sent.
+`fixtures/connectors/github_api.json` (placeholders only) and records every request it was sent; GitHub's sign-in
+endpoints are a second fake (`FakeSignIn`).
 """
 
 from __future__ import annotations
@@ -18,18 +20,20 @@ import pytest
 from api.services import bank_index, history_index, markdown_parser, sleep_cycle, source_refresh, sync_state
 from api.services import github_repos
 from api.services.connections import secrets
-from api.services.connectors import ADAPTERS, github, tier2
+from api.services.connectors import ADAPTERS, github, github_auth, tier2
 
 FIX = json.loads((Path(__file__).parent / "fixtures" / "connectors" / "github_api.json").read_text())
 TOKEN = "placeholder-token-0123456789abcdef"
+SALT = "0123456789abcdef0123456789abcdef"
 
 
 class FakeGitHub:
     """api.github.com as recorded: every request kept; ``fix`` is the account's state (copied, so a test edits it)."""
 
-    def __init__(self, fix=None, *, status: int | None = None):
+    def __init__(self, fix=None, *, status: int | None = None, installed: bool = True):
         self.fix = copy.deepcopy(fix or FIX)
         self.status = status
+        self.installed = installed
         self.calls: list[dict] = []
 
     async def __call__(self, method, url, *, headers, params=None, json=None):
@@ -41,14 +45,20 @@ class FakeGitHub:
         page = int((params or {}).get("page") or 1)
         if path == "user":
             return tier2.Response(200, self.fix["user"], {})
+        if path == "user/installations":
+            return tier2.Response(200, self.fix["installations"] if self.installed else
+                                  {"total_count": 0, "installations": []}, {})
         if path == "user/repos":
-            return tier2.Response(200, self.fix["owned"] if page == 1 else [], {})
+            # A GitHub App's user token sees the account's repositories only where the app is installed.
+            return tier2.Response(200, self.fix["owned"] if page == 1 and self.installed else [], {})
         if path == "user/starred":
             assert headers.get("Accept") == "application/vnd.github.star+json"
             return tier2.Response(200, self.fix["starred"] if page == 1 else [], {})
         if path.startswith("repos/") and path.endswith("/readme"):
             if path == "repos/example-org/widget-kit/readme":
                 return tier2.Response(200, self.fix["readme_widget_kit"], {})
+            if path == "repos/bob-example/alpha-project/readme":
+                return tier2.Response(200, self.fix["readme_alpha_project"], {})
             return tier2.Response(404, {"message": "Not Found"}, {})
         if path.startswith("repos/"):
             full = path[len("repos/"):]
@@ -57,6 +67,23 @@ class FakeGitHub:
                     return tier2.Response(200, row, {})
             return tier2.Response(404, {"message": "Not Found"}, {})
         return tier2.Response(404, {"message": "Not Found"}, {})
+
+
+class FakeSignIn:
+    """github.com's two sign-in endpoints: ``answers`` are what the token endpoint says, one per poll, in order."""
+
+    def __init__(self, answers=(), *, start=None):
+        self.answers = list(answers)
+        self.start = start or {"device_code": "dev-placeholder-code", "user_code": "ABCD-1234",
+                               "verification_uri": "https://github.com/login/device", "expires_in": 900,
+                               "interval": 5}
+        self.calls: list[tuple[str, dict]] = []
+
+    async def __call__(self, url, form):
+        self.calls.append((url, dict(form)))
+        if url.endswith(github_auth.DEVICE_CODE_PATH):
+            return tier2.Response(200, self.start, {})
+        return tier2.Response(200, self.answers.pop(0) if self.answers else {"error": "authorization_pending"}, {})
 
 
 def _git(memory: Path, *args: str) -> str:
@@ -75,9 +102,14 @@ def bank(tmp_path, monkeypatch):
     _git(memory, "commit", "-q", "-m", "start")
     monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
     monkeypatch.setattr(sleep_cycle, "is_writing", lambda: False)
-    monkeypatch.delenv(github.TOKEN_ENV, raising=False)
+    for name in github.SECRET_NAMES:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.delenv(github_auth.CLIENT_ID_ENV, raising=False)
+    github_auth.cancel()
     yield memory
-    os.environ.pop(github.TOKEN_ENV, None)
+    for name in github.SECRET_NAMES:
+        os.environ.pop(name, None)
+    github_auth.cancel()
 
 
 def _connect():
@@ -93,7 +125,8 @@ def _pages(memory) -> dict[str, dict]:
     for path in sorted((memory / "entities").glob("*.md")):
         parsed = markdown_parser.parse(path)
         block = parsed.frontmatter.get("github") or {}
-        out[str(block.get("full_name") or path.stem)] = {"fm": parsed.frontmatter, "id": path.stem}
+        out[str(block.get("full_name") or path.stem)] = {"fm": parsed.frontmatter, "id": path.stem,
+                                                         "body": parsed.body}
     return out
 
 
@@ -105,33 +138,66 @@ def _files(memory) -> set[str]:
     return {str(p.relative_to(memory)) for p in memory.rglob("*") if p.is_file() and ".git" not in p.parts}
 
 
+def _salted():
+    from api.hooks import workspace_identity
+    from api.services.auth import cicada_home
+
+    cicada_home().mkdir(parents=True, exist_ok=True)
+    (cicada_home() / workspace_identity.SALT_FILE).write_text(SALT)
+
+
+def _project(memory, eid, **fm):
+    markdown_parser.write(memory / "entities" / f"{eid}.md",
+                          {"name": fm.pop("name", eid), "type": "project", "status": "active", **fm}, "A project.\n")
+    bank_index.invalidate(memory)
+
+
 # --- the sync ------------------------------------------------------------------------------------------------------
 
 
-def test_github_is_a_tier_two_connector_off_until_a_token_is_pasted(bank):
+def test_github_is_a_tier_two_connector_off_until_connected(bank):
     assert ADAPTERS["github"] is github and github.TIER == 2 and not github.is_connected()
     result = _sync(bank, FakeGitHub())
     assert result["status"] == "skipped" and result["reason"] == "not connected"
     assert github.READS.startswith("Read-only") and "personal-access-tokens" not in github.READS   # said once
 
 
-def test_a_first_sync_offers_owned_repositories_and_saves_starred_ones_as_quiet_pages(bank):
+def test_a_first_sync_makes_a_page_for_each_of_your_repositories_and_quiet_pages_for_your_stars(bank):
+    from api.services import quiet_pages
+
     _connect()
-    server = FakeGitHub()
-    result = _sync(bank, server)
+    result = _sync(bank, FakeGitHub())
     assert result["status"] == "ok", result
     episodes = _episodes(bank)
     owned = [e for e in episodes if e.get("origin") == github.ORIGIN_OWNED]
-    assert sorted(e["source_id"] for e in owned) == ["github:owned:501", "github:owned:502"]
-    # A repository the person owns is a record GitHub keeps: index-only, never read by a model, and no page.
-    assert all(history_index.is_index_only(e) and e["processed"] is True and e["processed_by"] == "index"
-               for e in owned)
+    # The record GitHub keeps (staged, tombstoned when gone) and the page's own save — every one index-only.
+    assert sorted(e["source_id"] for e in owned if e.get("source_id")) == ["github:owned:501", "github:owned:502"]
+    assert all(history_index.is_index_only(e) and e["processed"] is True for e in owned)
     pages = _pages(bank)
-    assert set(pages) == {"example-org/widget-kit", "ada-example/tiny-lib"}       # starred only; owned mint nothing
-    assert not any(p["fm"].get("type") == "project" for p in pages.values())
+    assert set(pages) == {"bob-example/alpha-project", "bob-example/side-notes", "example-org/widget-kit",
+                          "ada-example/tiny-lib"}
+    assert not any(p["fm"].get("type") == "project" for p in pages.values())          # a repository is not a project
+    alpha = pages["bob-example/alpha-project"]
+    assert alpha["fm"]["type"] == "media" and alpha["fm"]["media"]["kind"] == "repository"
+    assert alpha["fm"]["github"]["owned"] is True and alpha["fm"].get("origin") == github.ORIGIN_OWNED
+    # Its first markdown: what it is, a summary of its README, its link, language and topics.
+    body = alpha["body"]
+    assert body.startswith("## Summary\nNotes on an example project.")
+    assert "Alpha Project keeps notes on an example project in plain markdown files, one per idea." in body
+    assert "- [bob-example/alpha-project](https://github.com/bob-example/alpha-project)" in body
+    assert "- Language: Python" in body and "- Topics: notes" in body
+    assert "pip install" not in body and "badge" not in body and "](https://example.com" not in body
+    side = pages["bob-example/side-notes"]
+    assert side["body"].startswith("## Summary\nScratch notes.") and "- Private" in side["body"]   # no README: no summary
+    # The README it was read for is the page's preview too, outside every bank.
+    kept = github_repos.read_readme(bank.name, alpha["id"])
+    assert kept and "Alpha Project" in kept["text"] and github_repos.readme_state(kept) == "fresh"
+    # Quiet until the person mentions it, like any import.
+    assert quiet_pages.page_is_quiet(bank, alpha["id"])
     kit = pages["example-org/widget-kit"]["fm"]
     assert kit["type"] == "media" and kit["media"]["kind"] == "repository"
     assert kit["github"]["starred"] is True and kit["github"]["starred_at"].startswith("2026-09-12T08:30")
+    assert pages["example-org/widget-kit"]["body"].startswith("## Summary\nSaved repository")   # a star stays a save
     # The repository's own GitHub link is its trusted source, kept by the sync — never visited by Cicada's fetcher.
     [source] = kit["sources"]
     assert source["ref"] == "https://github.com/example-org/widget-kit" and source["predicate"] == "website"
@@ -145,18 +211,20 @@ def test_a_first_sync_offers_owned_repositories_and_saves_starred_ones_as_quiet_
     # The organisation's avatar is the picture; a personal account's never is.
     assert kit["media"]["thumbnail"].startswith("https://avatars.githubusercontent.com/u/2002")
     assert not pages["ada-example/tiny-lib"]["fm"]["media"].get("thumbnail")
-    # A star is a save from a platform's list: indexed, never a conversation, never the person's words.
+    assert not alpha["fm"]["media"].get("thumbnail")
     saves = [e for e in episodes if e.get("origin") == github.ORIGIN_STARRED]
     assert len(saves) == 2 and all(history_index.is_index_only(e) for e in saves)
-    assert sync_state.read_sync_state(bank)["github"]["count"] == 4
+    assert "2 of your repositories got their page." in (sync_state.read_sync_state(bank)["github"].get("words") or "")
 
 
-def test_the_sync_asks_only_its_own_account_endpoints_read_only_with_the_token(bank):
+def test_the_sync_asks_only_its_own_account_endpoints_read_only_and_a_readme_only_for_a_new_page(bank):
     _connect()
     server = FakeGitHub()
     _sync(bank, server)
     assert server.calls and all(c["method"] == "GET" for c in server.calls)
-    assert {c["url"] for c in server.calls} == {github.API_BASE + p for p in ("user", "user/repos", "user/starred")}
+    assert {c["url"] for c in server.calls} == {github.API_BASE + p for p in (
+        "user", "user/repos", "user/starred", "repos/bob-example/alpha-project/readme",
+        "repos/bob-example/side-notes/readme")}
     assert all(c["headers"]["Authorization"] == f"Bearer {TOKEN}" for c in server.calls)
     assert set().union(*(c["params"] for c in server.calls)) <= {"per_page", "page", "affiliation", "sort"}
     for path in bank.rglob("*"):
@@ -164,6 +232,9 @@ def test_the_sync_asks_only_its_own_account_endpoints_read_only_with_the_token(b
             assert TOKEN not in path.read_text(encoding="utf-8", errors="replace"), path
     cursor = json.loads(next((bank.parent / "home" / "connectors").glob("github-*.json")).read_text())
     assert "bob-example" not in json.dumps(cursor)        # the account is a hash, never the login
+    again = FakeGitHub()
+    _sync(bank, again)
+    assert not [c for c in again.calls if c["url"].endswith("/readme")]   # the pages exist: no README read
 
 
 def test_an_unchanged_resync_writes_and_commits_nothing(bank):
@@ -178,12 +249,16 @@ def test_an_unchanged_resync_writes_and_commits_nothing(bank):
     assert _git(bank, "rev-parse", "HEAD") == head
 
 
-def test_a_resync_updates_in_place_and_deletes_nothing(bank):
+def test_a_resync_updates_in_place_keeps_your_words_and_deletes_nothing(bank):
     _connect()
     _sync(bank, FakeGitHub())
+    alpha = _pages(bank)["bob-example/alpha-project"]
+    page = bank / "entities" / f"{alpha['id']}.md"
+    markdown_parser.write(page, alpha["fm"], alpha["body"] + "\n\n## Notes\nThe person's own line.")
     before = _files(bank)
     later = FakeGitHub()
     later.fix["starred"][0]["repo"]["description"] = "A bigger kit of widgets."
+    later.fix["owned"][0]["description"] = "Notes, renamed."
     del later.fix["starred"][1]                          # unstarred on GitHub
     del later.fix["owned"][1]                            # deleted or transferred on GitHub
     result = _sync(bank, later)
@@ -191,17 +266,15 @@ def test_a_resync_updates_in_place_and_deletes_nothing(bank):
     assert _files(bank) == before                        # nothing removed, nothing new
     pages = _pages(bank)
     assert pages["example-org/widget-kit"]["fm"]["github"]["description"] == "A bigger kit of widgets."
+    assert pages["bob-example/alpha-project"]["fm"]["github"]["description"] == "Notes, renamed."
+    assert "The person's own line." in pages["bob-example/alpha-project"]["body"]          # the words are kept
     gone = pages["ada-example/tiny-lib"]["fm"]["github"]
     assert gone["starred"] is False and gone["unstarred_on"]
-    owned = {e["source_id"]: e for e in _episodes(bank) if e.get("origin") == github.ORIGIN_OWNED}
+    assert "bob-example/side-notes" in pages                                               # its page stays
+    owned = {e["source_id"]: e for e in _episodes(bank) if e.get("source_id", "").startswith("github:owned:")}
     assert owned["github:owned:502"].get("source_deleted_at") and not owned["github:owned:501"].get("source_deleted_at")
     words = sync_state.read_sync_state(bank)["github"].get("words") or ""
     assert "no longer starred" in words and "page stays" in words
-    from api.services import channel_registry
-
-    row = channel_registry._connector_channel("github", "GitHub", sync_state.read_sync_state(bank), "repository",
-                                              connected=True)
-    assert row["detail"].endswith("1 repository is no longer starred on GitHub; its page stays.")
     assert [r["full_name"] for r in github_repos.owned(bank)] == ["bob-example/alpha-project"]
 
 
@@ -213,14 +286,14 @@ def test_a_list_cut_short_tombstones_nothing(bank, monkeypatch):
     result = _sync(bank, FakeGitHub())
     assert result["status"] == "ok"
     assert not any(e.get("source_deleted_at") for e in _episodes(bank))
-    assert all(p["fm"]["github"].get("starred") for p in _pages(bank).values())
+    assert all(p["fm"]["github"].get("starred") for p in _pages(bank).values() if not p["fm"]["github"].get("owned"))
 
 
 def test_a_refused_token_is_said_in_words_and_nothing_is_written(bank):
     _connect()
     before = _files(bank)
     result = _sync(bank, FakeGitHub(status=401))
-    assert result["status"] == "error" and "github.com/settings/personal-access-tokens" in result["error"]
+    assert result["status"] == "error" and "Connect GitHub again" in result["error"]
     assert _files(bank) - before <= {"sync_state.json"}
 
 
@@ -228,6 +301,7 @@ def test_a_demo_bank_takes_nothing(bank):
     _connect()
     (bank / "_bank.yaml").write_text("kind: demo\n")
     assert _sync(bank, FakeGitHub())["reason"] == "the demo memory is open"
+    assert not list((bank / "entities").glob("*.md"))
 
 
 def test_a_bookmarked_github_link_becomes_the_repository_page_not_a_second_one(bank):
@@ -242,7 +316,45 @@ def test_a_bookmarked_github_link_becomes_the_repository_page_not_a_second_one(b
     _sync(bank, FakeGitHub())
     pages = _pages(bank)
     assert pages["example-org/widget-kit"]["id"] == made.media_entity_id
-    assert len(pages) == 2
+    assert len(pages) == 4
+
+
+def test_an_older_bank_gets_a_page_for_each_suggestion_row_on_its_next_sync(bank):
+    """Existing banks (#583/#587): the person's own repositories were index-only rows with no page; the next sync
+    makes their pages — one write each — and never one the person removed."""
+    _connect()
+    real = github_repos.apply_owned
+    github_repos.apply_owned = lambda *a, **k: {"paths": [], "created": 0, "updated": 0}
+    try:
+        _sync(bank, FakeGitHub())
+    finally:
+        github_repos.apply_owned = real
+    assert set(_pages(bank)) == {"example-org/widget-kit", "ada-example/tiny-lib"}      # the old shape
+    result = _sync(bank, FakeGitHub())
+    assert result["new"] == 2 and {"bob-example/alpha-project", "bob-example/side-notes"} <= set(_pages(bank))
+
+
+def test_a_sync_never_remakes_a_page_you_removed_or_merged(bank):
+    _connect()
+    _sync(bank, FakeGitHub())
+    pages = _pages(bank)
+    (bank / "entities" / f"{pages['bob-example/side-notes']['id']}.md").unlink()
+    bank_index.invalidate(bank)
+    server = FakeGitHub()
+    assert _sync(bank, server)["status"] == "ok"
+    assert "bob-example/side-notes" not in _pages(bank)
+    assert not [c for c in server.calls if c["url"].endswith("/readme")]       # nothing read for a page not made
+
+
+def test_not_installed_the_stars_come_in_and_no_record_is_tombstoned(bank, monkeypatch):
+    _connect()
+    _sync(bank, FakeGitHub())
+    monkeypatch.setenv(github_auth.HOW_ENV, github_auth.HOW_APP)          # signed in with the app, not installed
+    result = _sync(bank, FakeGitHub(installed=False))
+    assert result["status"] == "ok"
+    assert not any(e.get("source_deleted_at") for e in _episodes(bank))
+    assert github.NOT_INSTALLED_WORDS in (sync_state.read_sync_state(bank)["github"].get("words") or "")
+    assert github_auth.account()["installed"] is False
 
 
 # --- URLs and the README preview ------------------------------------------------------------------------------------
@@ -292,35 +404,57 @@ def test_the_transport_refuses_any_other_host():
         asyncio.run(github.client("", transport=FakeGitHub()).get("https://elsewhere.example/user"))
 
 
-# --- projects --------------------------------------------------------------------------------------------------------
+def test_a_readme_summary_is_its_first_paragraph_of_prose():
+    md = github_repos.decode_readme(FIX["readme_alpha_project"])
+    assert github_repos.readme_summary(md) == ("Alpha Project keeps notes on an example project in plain markdown "
+                                               "files, one per idea. It is a placeholder for tests.")
+    assert github_repos.readme_summary("# Title\n\n![x](y)\n\n- a list\n- of things\n") == ""
+    long = "Word " * 300 + "end."
+    assert len(github_repos.readme_summary(long)) <= github_repos.SUMMARY_CHARS + 1
 
 
-def _project(memory, eid, **fm):
-    markdown_parser.write(memory / "entities" / f"{eid}.md",
-                          {"name": fm.pop("name", eid), "type": "project", "status": "active", **fm}, "A project.\n")
-    bank_index.invalidate(memory)
+# --- a project's repositories ----------------------------------------------------------------------------------------
 
 
-def test_an_owned_repository_matches_its_project_by_the_hooks_salted_origin_hash(bank):
+def test_a_project_links_its_own_checkouts_repository_by_the_hooks_salted_origin_hash(bank):
     from api.hooks import workspace_identity
-    from api.services.auth import cicada_home
 
-    salt = "0123456789abcdef0123456789abcdef"
-    (cicada_home()).mkdir(parents=True, exist_ok=True)
-    (cicada_home() / workspace_identity.SALT_FILE).write_text(salt)
-    hashed = github_repos.remote_hash("https://github.com/bob-example/alpha-project", salt)
+    _salted()
+    hashed = github_repos.remote_hash("https://github.com/bob-example/alpha-project", SALT)
     assert hashed == workspace_identity.remote_hash(
-        workspace_identity.normalise_remote(b"git@github.com:bob-example/alpha-project.git"), salt)
+        workspace_identity.normalise_remote(b"git@github.com:bob-example/alpha-project.git"), SALT)
     _project(bank, "renamed-thing", name="Renamed thing", born={"origin": "repo", "repo": {"remote": hashed}})
     _project(bank, "side-notes")
-    rows = {r["full_name"]: r for r in github_repos.with_matches(bank, [
-        {"full_name": "bob-example/alpha-project"}, {"full_name": "bob-example/side-notes"},
-        {"full_name": "bob-example/nothing"}])}
-    assert rows["bob-example/alpha-project"]["project"] == {"project": "renamed-thing", "name": "Renamed thing",
-                                                           "how": "origin"}
-    assert rows["bob-example/side-notes"]["project"]["how"] == "name"     # a suggestion only
-    assert rows["bob-example/nothing"]["project"] is None
-    assert "bob-example" not in (bank / "entities" / "renamed-thing.md").read_text()   # nothing written
+    _connect()
+    assert _sync(bank, FakeGitHub())["status"] == "ok"
+    pages = _pages(bank)
+    alpha = pages["bob-example/alpha-project"]
+    fm = markdown_parser.parse(bank / "entities" / "renamed-thing.md").frontmatter
+    [row] = fm["repositories"]
+    assert row["entity"] == alpha["id"] and row["how"] == "origin" and row["by"] == "cicada"
+    assert row["url"] == "https://github.com/bob-example/alpha-project"
+    assert alpha["fm"]["github"]["projects"] == ["renamed-thing"]                     # the page links back
+    # Cicada's inference is its own commit, never folded into the person's sync.
+    assert "Cicada-Author: cicada" in _git(bank, "log", "-1", "--format=%B")
+    assert "renamed-thing.md" in _git(bank, "show", "--name-only", "--format=", "HEAD")
+    # A name alone is a suggestion, never a link.
+    side = markdown_parser.parse(bank / "entities" / "side-notes.md").frontmatter
+    assert "repositories" not in side
+    [suggested] = [r for r in github_repos.with_matches(bank, github_repos.owned(bank))
+                   if r["full_name"] == "bob-example/side-notes"]
+    assert suggested["project"]["how"] == "name" and suggested["projects"] == []
+    assert "bob-example" not in (bank / "entities" / "side-notes.md").read_text()
+
+
+def test_two_projects_on_one_remote_link_neither(bank):
+    _salted()
+    hashed = github_repos.remote_hash("https://github.com/bob-example/alpha-project", SALT)
+    for eid in ("one-thing", "other-thing"):
+        _project(bank, eid, born={"origin": "repo", "repo": {"remote": hashed}})
+    _connect()
+    _sync(bank, FakeGitHub())
+    assert not any("repositories" in markdown_parser.parse(bank / "entities" / f"{e}.md").frontmatter
+                   for e in ("one-thing", "other-thing"))
 
 
 # --- the doors -------------------------------------------------------------------------------------------------------
@@ -343,108 +477,347 @@ def api(bank, monkeypatch):
     config.get_settings.cache_clear()
 
 
-def test_a_pasted_link_adds_the_repository_with_its_readme_kept_outside_the_bank(api, bank):
-    answer = api.post("/sources/github/repos", json={"url": "https://github.com/example-org/widget-kit/issues"})
-    assert answer.status_code == 200, answer.text
-    body = answer.json()
-    assert body["fullName"] == "example-org/widget-kit" and body["created"] is True
-    eid = body["entityId"]
-    fm = markdown_parser.parse(bank / "entities" / f"{eid}.md").frontmatter
-    assert fm["github"]["added"] is True and fm["media"]["kind"] == "repository"
-    # The person's own save: its episode is read by Sleep like any link they save.
-    [episode] = [e for e in _episodes(bank) if e.get("media_entity_id") == eid]
-    assert episode["origin"] == github_repos.ADDED_ORIGIN and not history_index.is_index_only(episode)
-    assert "Repository added" in _git(bank, "log", "-1", "--format=%s")
-    # The README: through the official API, kept outside every bank, words only.
-    assert any(c["url"].endswith("repos/example-org/widget-kit/readme") for c in api.server.calls)
-    assert not any("pip install widget-kit" in p.read_text(errors="replace") for p in bank.rglob("*")
-                   if p.is_file() and ".git" not in p.parts)
-    assert list((bank.parent / "home" / "readmes").rglob("*.json"))
-    card = api.get(f"/entities/{eid}/repository").json()
-    assert card["readme"]["state"] == "fresh" and "# Widget Kit" in card["readme"]["text"]
-    assert card["fullName"] == "example-org/widget-kit" and card["url"] == "https://github.com/example-org/widget-kit"
-    # Added again: the same page, never a second.
-    again = api.post("/sources/github/repos", json={"url": "example-org/widget-kit"}).json()
-    assert again["entityId"] == eid and again["created"] is False
-
-
-def test_a_link_that_is_not_a_repository_is_refused_in_words(api):
-    answer = api.post("/sources/github/repos", json={"url": "https://example.com/a"})
-    assert answer.status_code == 422 and "github.com/owner/name" in answer.json()["detail"]
-    missing = api.post("/sources/github/repos", json={"url": "https://github.com/bob-example/no-such"})
-    assert missing.status_code == 404 and "GitHub connected" in missing.json()["detail"]
-
-
-def test_a_repository_with_no_readme_says_so(api, bank):
-    eid = api.post("/sources/github/repos", json={"url": "ada-example/tiny-lib"}).json()["entityId"]
-    assert api.get(f"/entities/{eid}/repository").json()["readme"]["state"] == "none"
-
-
-def test_the_readme_is_not_fetched_on_open_while_the_picture_gate_is_off(api, bank, monkeypatch):
-    eid = api.post("/sources/github/repos", json={"url": "ada-example/tiny-lib"}).json()["entityId"]
-    for path in (bank.parent / "home" / "readmes").rglob("*.json"):
-        path.unlink()
-    monkeypatch.setenv("CICADA_ALLOW_LOGO_FETCH", "off")
-    calls = len(api.server.calls)
-    assert api.get(f"/entities/{eid}/repository").json()["readme"]["state"] == "missing"
-    assert len(api.server.calls) == calls
-
-
-def test_the_lists_and_make_it_a_project(api, bank):
+def _synced(api):
     _connect()
     assert api.post("/sources/connectors/github/sync").json()["status"] == "ok"
+    return {r["fullName"]: r for r in api.get("/sources/github/repos").json()["owned"]}
+
+
+def test_a_project_lists_two_repositories_by_the_persons_link_and_each_links_back(api, bank):
+    _project(bank, "alpha-project", name="alpha-project")
+    owned = _synced(api)
+    assert all(r["entityId"] for r in owned.values())                                    # every one has its page
+    assert owned["bob-example/alpha-project"]["project"]["how"] == "name"               # a suggestion only
+    for full in ("bob-example/alpha-project", "bob-example/side-notes"):
+        linked = api.post("/sources/github/repos/project", json={"fullName": full, "project": "alpha-project"})
+        assert linked.status_code == 200 and linked.json() == {"project": "alpha-project", "created": False,
+                                                               "linked": True}, linked.text
+    assert "Repository linked to its project" in _git(bank, "log", "-1", "--format=%s")
+    fm = markdown_parser.parse(bank / "entities" / "alpha-project.md").frontmatter
+    assert [(r["url"], r["how"], r["by"]) for r in fm["repositories"]] == [
+        ("https://github.com/bob-example/alpha-project", "user", "user"),
+        ("https://github.com/bob-example/side-notes", "user", "user")]
+    listed = api.get("/entities/alpha-project/repositories").json()
+    assert [r["fullName"] for r in listed["repos"]] == ["bob-example/alpha-project", "bob-example/side-notes"]
+    assert all(r["entityId"] and r["how"] == "user" for r in listed["repos"])
+    assert not {r["entityId"] for r in listed["candidates"]} & {r["entityId"] for r in listed["repos"]}
+    for full in ("bob-example/alpha-project", "bob-example/side-notes"):
+        card = api.get(f"/entities/{owned[full]['entityId']}/repository").json()
+        assert [p["project"] for p in card["projects"]] == ["alpha-project"]
+        assert "alpha-project" not in [c["project"] for c in card["candidates"]]
+        assert _pages(bank)[full]["fm"]["github"]["projects"] == ["alpha-project"]
+    assert api.get("/entities/alpha-project/repository").status_code == 404           # a project is not a repository
     lists = api.get("/sources/github/repos").json()
-    assert lists["connected"] is True
-    assert [r["fullName"] for r in lists["owned"]] == ["bob-example/alpha-project", "bob-example/side-notes"]
-    assert {r["fullName"] for r in lists["starred"]} == {"example-org/widget-kit", "ada-example/tiny-lib"}
-    made = api.post("/sources/github/repos/project", json={"fullName": "bob-example/alpha-project"})
-    assert made.status_code == 200, made.text
+    assert {p["project"] for r in lists["owned"] for p in r["projects"]} == {"alpha-project"}
+    # The agent's view: both repositories, each with its page.
+    from api.services import mcp_tools
+
+    ctx = mcp_tools.ToolContext(memory_path=lambda: bank, session_id="ses_test", harness="claude-code")
+    reply = mcp_tools.project(ctx, "alpha-project")
+    assert "Repositories: bob-example/alpha-project (" in str(reply) and "bob-example/side-notes (" in str(reply)
+    assert [r["full_name"] for r in reply.data["repositories"]] == ["bob-example/alpha-project",
+                                                                    "bob-example/side-notes"]
+    assert github_repos.repositories_line(bank, "alpha-project").startswith(
+        "GitHub repositories: bob-example/alpha-project (page ")
+
+
+def test_the_persons_unlink_is_remembered_and_no_automatic_link_puts_it_back(api, bank):
+    _salted()
+    hashed = github_repos.remote_hash("https://github.com/bob-example/alpha-project", SALT)
+    _project(bank, "renamed-thing", born={"origin": "repo", "repo": {"remote": hashed}})
+    _synced(api)
+    assert markdown_parser.parse(bank / "entities" / "renamed-thing.md").frontmatter["repositories"]
+    gone = api.post("/sources/github/repos/project", json={"fullName": "bob-example/alpha-project",
+                                                           "project": "renamed-thing", "remove": True})
+    assert gone.status_code == 200 and gone.json()["linked"] is False
+    fm = markdown_parser.parse(bank / "entities" / "renamed-thing.md").frontmatter
+    assert "repositories" not in fm and fm["repositories_removed"] == ["https://github.com/bob-example/alpha-project"]
+    assert "projects" not in _pages(bank)["bob-example/alpha-project"]["fm"]["github"]
+    assert api.post("/sources/connectors/github/sync").json()["status"] == "ok"
+    assert "repositories" not in markdown_parser.parse(bank / "entities" / "renamed-thing.md").frontmatter
+    # An agent cannot put it back either; the person's own link lifts the removal.
+    eid = _pages(bank)["bob-example/alpha-project"]["id"]
+    with pytest.raises(github_repos.LinkRefused):
+        github_repos.link(bank, "renamed-thing", eid, by="claude-code", how="agent")
+    assert github_repos.link(bank, "renamed-thing", eid)
+    assert "repositories_removed" not in markdown_parser.parse(bank / "entities" / "renamed-thing.md").frontmatter
+
+
+def test_a_new_project_from_a_repository_lists_it(api, bank):
+    _synced(api)
+    made = api.post("/sources/github/repos/project", json={"fullName": "bob-example/side-notes"})
+    assert made.status_code == 200 and made.json()["created"] is True, made.text
     pid = made.json()["project"]
     fm = markdown_parser.parse(bank / "entities" / f"{pid}.md").frontmatter
-    assert fm["type"] == "project" and fm["mine"]["via"] == "app" and fm["github"]["owned"] is True
-    assert any(s["predicate"] == "repo" and s["ref"] == "https://github.com/bob-example/alpha-project"
-               for s in fm["sources"])
-    row = next(r for r in api.get("/sources/github/repos").json()["owned"] if r["fullName"].endswith("alpha-project"))
-    assert row["project"] == {"project": pid, "name": "alpha-project", "how": "linked"}
-    card = api.get(f"/entities/{pid}/repository").json()
-    assert card["project"]["project"] == pid
-    # The person's own repository by its link is steered to the project route, never made a repository page (owner
-    # 2026-11-03: "i'd rather it said 'Add as a project'"): one already a project says so, one not yet says how.
-    pages_before = sorted(p.name for p in (bank / "entities").glob("*.md"))
-    again = api.post("/sources/github/repos", json={"url": "https://github.com/Bob-Example/alpha-project"})
-    assert again.status_code == 409 and "already your project alpha-project" in again.json()["detail"]
-    fresh = api.post("/sources/github/repos", json={"url": "bob-example/side-notes"})
-    assert fresh.status_code == 409 and "`cicada github project bob-example/side-notes`" in fresh.json()["detail"]
-    assert sorted(p.name for p in (bank / "entities").glob("*.md")) == pages_before
-    # A starred repository someone else owns never gets a same-name suggestion.
-    _project(bank, "widget-kit")
-    kit = next(r for r in api.get("/sources/github/repos").json()["starred"] if r["fullName"].endswith("widget-kit"))
-    assert api.get(f"/entities/{kit['entityId']}/repository").json()["project"] is None
-    # Linking to an existing page instead; a page that is not a project is refused.
-    _project(bank, "notes-project")
-    linked = api.post("/sources/github/repos/project",
-                      json={"fullName": "bob-example/side-notes", "project": "notes-project"})
-    assert linked.status_code == 200 and linked.json() == {"project": "notes-project", "created": False}
+    assert fm["type"] == "project" and fm["mine"]["via"] == "app" and "github" not in fm
+    assert [r["url"] for r in fm["repositories"]] == ["https://github.com/bob-example/side-notes"]
+    missing = api.post("/sources/github/repos/project", json={"fullName": "bob-example/no-such", "project": pid})
+    assert missing.status_code == 404 and "Repositories come in with a GitHub sync" in missing.json()["detail"]
     assert api.post("/sources/github/repos/project",
                     json={"fullName": "bob-example/side-notes", "project": "nope"}).status_code == 404
 
 
-def test_disconnect_forgets_the_token_and_the_readmes_and_keeps_the_pages(api, bank):
-    _connect()
-    eid = api.post("/sources/github/repos", json={"url": "example-org/widget-kit"}).json()["entityId"]
-    readmes = bank.parent / "home" / "readmes"
-    assert list(readmes.rglob("*.json"))
-    gone = api.delete("/sources/connectors/github/credentials").json()
-    assert gone["connected"] is False and not secrets.has_secret(github.TOKEN_ENV)
-    assert not list(readmes.rglob("*.json"))
-    assert (bank / "entities" / f"{eid}.md").exists()
+def test_a_trusted_agent_links_a_repository_page_and_any_other_only_proposes(api, bank):
+    from api.services import mcp_tools
+
+    _project(bank, "alpha-project")
+    _synced(api)
+    eid = _pages(bank)["bob-example/side-notes"]["id"]
+    trusted = mcp_tools.ToolContext(memory_path=lambda: bank, session_id="ses_test", harness="claude-code")
+    reply = str(mcp_tools.link_entity(trusted, "alpha-project", eid, reason="The notes live there."))
+    assert "as one of its repositories" in reply
+    [row] = markdown_parser.parse(bank / "entities" / "alpha-project.md").frontmatter["repositories"]
+    assert row["how"] == "agent" and row["by"] == "claude-code" and row["session"] == "ses_test"
+    assert "Cicada-Author: claude-code" in _git(bank, "log", "-1", "--format=%B")
+    other = mcp_tools.ToolContext(memory_path=lambda: bank, session_id="ses_x", harness="cursor")
+    assert "Proposed" in str(mcp_tools.link_entity(other, "alpha-project", _pages(bank)["bob-example/alpha-project"]["id"],
+                                                   reason="Maybe."))
+    assert len(markdown_parser.parse(bank / "entities" / "alpha-project.md").frontmatter["repositories"]) == 1
+
+
+def test_there_is_no_hand_add_any_more(api):
+    assert api.post("/sources/github/repos", json={"url": "example-org/widget-kit"}).status_code == 405
+
+
+def test_the_readme_is_not_fetched_on_open_while_the_picture_gate_is_off(api, bank, monkeypatch):
+    _synced(api)
+    eid = _pages(bank)["ada-example/tiny-lib"]["id"]
+    monkeypatch.setenv("CICADA_ALLOW_LOGO_FETCH", "off")
+    calls = len(api.server.calls)
+    assert api.get(f"/entities/{eid}/repository").json()["readme"]["state"] == "missing"
+    assert len(api.server.calls) == calls
+    monkeypatch.setenv("CICADA_ALLOW_LOGO_FETCH", "on")
+    assert api.get(f"/entities/{eid}/repository").json()["readme"]["state"] == "none"   # it has none
+    kit = api.get(f"/entities/{_pages(bank)['example-org/widget-kit']['id']}/repository").json()
+    assert kit["readme"]["state"] == "fresh" and "# Widget Kit" in kit["readme"]["text"]
+    assert not any("pip install widget-kit" in p.read_text(errors="replace") for p in bank.rglob("*")
+                   if p.is_file() and ".git" not in p.parts)
 
 
 def test_the_demo_bank_refuses_every_write_door(api, bank):
     (bank / "_bank.yaml").write_text("kind: demo\n")
-    assert api.post("/sources/github/repos", json={"url": "example-org/widget-kit"}).status_code == 409
     assert api.post("/sources/github/repos/project", json={"fullName": "bob-example/alpha-project"}).status_code == 409
+    assert api.post("/sources/github/connect").status_code == 409
+    assert api.post("/sources/github/connect/poll").status_code == 409
+    assert api.post("/sources/github/connect/installation").status_code == 409
+    assert api.post("/sources/connectors/github/sync").status_code == 409
     assert not list((bank / "entities").glob("*.md"))
+
+
+# --- connecting by a code -------------------------------------------------------------------------------------------
+
+
+@pytest.fixture
+def sign_in(monkeypatch):
+    clock = {"now": 1_000_000.0}
+    monkeypatch.setattr(github_auth, "_now", lambda: clock["now"])
+    monkeypatch.setenv(github_auth.CLIENT_ID_ENV, "Iv1.placeholder0000")
+    fake = FakeSignIn([{"error": "authorization_pending"}, {"error": "slow_down", "interval": 10},
+                       {"access_token": "ghu_placeholder", "refresh_token": "ghr_placeholder",
+                        "expires_in": 28800, "token_type": "bearer"}])
+    monkeypatch.setattr(github_auth, "POST", fake)
+    fake.clock = clock
+    return fake
+
+
+def test_connect_by_code_keeps_the_token_outside_the_bank_and_offers_the_install(api, bank, sign_in):
+    status = api.get("/sources/github/connect").json()
+    assert status["available"] is True and status["connected"] is False
+    started = api.post("/sources/github/connect")
+    assert started.status_code == 200, started.text
+    body = started.json()
+    assert body["userCode"] == "ABCD-1234" and body["verificationUri"] == "https://github.com/login/device"
+    assert "dev-placeholder-code" not in started.text                                  # the device code stays here
+    assert api.post("/sources/github/connect/poll").json()["state"] == "pending"      # too soon: GitHub not asked
+    assert len(sign_in.calls) == 1
+    # A panel reopened mid-sign-in gets the same code back, in the wire's own shape.
+    assert api.get("/sources/github/connect").json()["pending"] == {
+        "userCode": "ABCD-1234", "verificationUri": "https://github.com/login/device",
+        "expiresAt": body["expiresAt"], "interval": 5}
+    for step in (5, 5, 10):
+        sign_in.clock["now"] += step
+        answer = api.post("/sources/github/connect/poll").json()
+    assert answer["state"] == "connected", answer
+    # The device flow is the client id alone: no secret is ever sent.
+    assert all("client_secret" not in form and form["client_id"] == "Iv1.placeholder0000" for _, form in sign_in.calls)
+    assert sign_in.calls[-1][1]["grant_type"] == github_auth.DEVICE_GRANT
+    stored = secrets.load_secrets()
+    assert stored[github.TOKEN_ENV] == "ghu_placeholder" and stored[github_auth.REFRESH_ENV] == "ghr_placeholder"
+    assert stored[github_auth.HOW_ENV] == "app" and int(stored[github_auth.EXPIRES_ENV]) == 1_000_000 + 20 + 28800
+    assert answer["status"]["how"] == "app" and answer["status"]["installed"] is True     # the fake has it installed
+    for path in bank.rglob("*"):
+        if path.is_file() and ".git" not in path.parts:
+            assert "ghu_placeholder" not in path.read_text(errors="replace")
+    # Not installed yet: the panel offers the install, and asks again after it.
+    api.server.installed = False
+    asked = api.post("/sources/github/connect/installation").json()
+    assert asked["installed"] is False and asked["installUrl"] == "https://github.com/apps/cicada-memory/installations/new"
+    api.server.installed = True
+    assert api.post("/sources/github/connect/installation").json()["installed"] is True
+
+
+def test_a_cancelled_or_expired_code_connects_nothing(api, bank, sign_in):
+    sign_in.answers = [{"error": "access_denied"}]
+    api.post("/sources/github/connect")
+    sign_in.clock["now"] += 5
+    denied = api.post("/sources/github/connect/poll").json()
+    assert denied["state"] == "denied" and "cancelled" in denied["words"] and not github.is_connected()
+    api.post("/sources/github/connect")
+    sign_in.clock["now"] += 901
+    assert api.post("/sources/github/connect/poll").json()["state"] == "expired"
+    assert api.post("/sources/github/connect/poll").json()["state"] == "none"
+
+
+def test_without_a_registered_app_the_token_is_the_fallback(api, monkeypatch):
+    monkeypatch.setattr(github_auth, "CLIENT_ID", "")
+    assert api.get("/sources/github/connect").json()["available"] is False
+    refused = api.post("/sources/github/connect")
+    assert refused.status_code == 409 and "Use a token instead" in refused.json()["detail"]
+    fields = api.get("/sources/connectors/github").json()["fields"]
+    assert [f["name"] for f in fields] == [github.TOKEN_ENV]                  # the token path stays, behind it
+
+
+def test_a_token_about_to_lapse_is_renewed_with_the_client_id_alone(bank, sign_in):
+    sign_in.answers = [{"access_token": "ghu_second", "refresh_token": "ghr_second", "expires_in": 28800}]
+    github_auth.save({"access_token": "ghu_first", "refresh_token": "ghr_first", "expires_in": 100})
+    asyncio.run(github_auth.fresh_token())
+    [(url, form)] = sign_in.calls
+    assert url.endswith(github_auth.TOKEN_PATH) and form == {"client_id": "Iv1.placeholder0000",
+                                                             "grant_type": "refresh_token",
+                                                             "refresh_token": "ghr_first"}
+    assert secrets.load_secrets()[github.TOKEN_ENV] == "ghu_second"
+    asyncio.run(github_auth.fresh_token())                                       # fresh now: nothing asked
+    assert len(sign_in.calls) == 1
+
+
+def test_revoke_forgets_every_part_of_the_sign_in_and_keeps_the_pages(api, bank, sign_in):
+    sign_in.answers = [{"access_token": "ghu_placeholder", "refresh_token": "ghr_placeholder", "expires_in": 28800}]
+    api.post("/sources/github/connect")
+    sign_in.clock["now"] += 5
+    assert api.post("/sources/github/connect/poll").json()["state"] == "connected"
+    assert api.post("/sources/connectors/github/sync").json()["status"] == "ok"
+    pages = sorted(p.name for p in (bank / "entities").glob("*.md"))
+    readmes = bank.parent / "home" / "readmes"
+    assert pages and list(readmes.rglob("*.json"))
+    gone = api.delete("/sources/connectors/github/credentials").json()
+    assert gone["connected"] is False
+    assert not any(secrets.has_secret(n) for n in github.SECRET_NAMES)
+    assert not list(readmes.rglob("*.json")) and github_auth.account() == {}
+    assert sorted(p.name for p in (bank / "entities").glob("*.md")) == pages
+    assert api.get("/sources/github/connect").json()["connected"] is False
+
+
+def test_the_sign_in_transport_refuses_any_other_address():
+    for url in ("https://elsewhere.example/login/device/code", "https://github.com/login/other",
+                "http://github.com/login/device/code", "https://github.com/login/device/code?x=1"):
+        with pytest.raises(tier2.base.ConnectorError):
+            asyncio.run(github_auth.oauth_transport(url, {}))
+
+
+def test_the_registration_link_asks_for_read_only_permissions_and_no_webhook():
+    from urllib.parse import parse_qs, urlparse
+
+    link = urlparse(github_auth.register_url())
+    assert link.netloc == "github.com" and link.path == "/settings/apps/new"
+    q = {k: v[0] for k, v in parse_qs(link.query).items()}
+    assert {k: q[k] for k in ("metadata", "contents", "starring")} == {"metadata": "read", "contents": "read",
+                                                                     "starring": "read"}
+    assert q["webhook_active"] == "false" and q["public"] == "true"
+    assert all(v == "read" for v in github_auth.MANIFEST["default_permissions"].values())
+    assert not any(k.endswith("_url") or k == "callback_urls[]" for k in q)        # nothing to redirect to
+
+
+# --- review of #588 -----------------------------------------------------------------------------------------------
+
+
+def test_a_project_merge_keeps_its_repositories_and_the_persons_unlink_wins(bank):
+    """Blocker 1: a merge (Sleep's dedup, the inbox, a join) carried neither key, so the person's links vanished and a
+    lost unlink let the origin rule link the repository again. Both lists union; an unlink on either side wins; the
+    repository pages name the merged project, never the page that is gone."""
+    from api.services import entity_merge
+
+    _salted()
+    hashed = github_repos.remote_hash("https://github.com/bob-example/alpha-project", SALT)
+    _project(bank, "alpha", born={"origin": "repo", "repo": {"remote": hashed}})
+    _project(bank, "alpha-two")
+    _connect()
+    _sync(bank, FakeGitHub())
+    pages = _pages(bank)
+    alpha, side = pages["bob-example/alpha-project"]["id"], pages["bob-example/side-notes"]["id"]
+    github_repos.link(bank, "alpha-two", side)
+    github_repos.link(bank, "alpha", alpha, remove=True)          # the person's unlink of the origin link
+    assert markdown_parser.parse(bank / "entities" / f"{side}.md").frontmatter["github"]["projects"] == ["alpha-two"]
+    footprint = entity_merge.merge_footprint(bank, "alpha-two", "alpha")
+    assert f"entities/{side}.md" in footprint
+    result = entity_merge.merge_entities(bank, loser_id="alpha-two", winner_id="alpha")
+    assert f"entities/{side}.md" in result["paths"] and set(result["paths"]) <= set(footprint)
+    fm = markdown_parser.parse(bank / "entities" / "alpha.md").frontmatter
+    assert [r["url"] for r in fm["repositories"]] == ["https://github.com/bob-example/side-notes"]
+    assert fm["repositories_removed"] == ["https://github.com/bob-example/alpha-project"]
+    assert markdown_parser.parse(bank / "entities" / f"{side}.md").frontmatter["github"]["projects"] == ["alpha"]
+    bank_index.invalidate(bank)
+    github_repos.link_by_origin(bank)                             # the origin rule still respects the unlink
+    assert [r["url"] for r in markdown_parser.parse(bank / "entities" / "alpha.md").frontmatter["repositories"]] == [
+        "https://github.com/bob-example/side-notes"]
+    # An unlink on the losing page wins over the winner's link too.
+    from api.services import project_ownership
+
+    winner = {"repositories": [{"entity": "x", "url": "https://github.com/a-b/c", "how": "user"}]}
+    project_ownership.carry_on_merge(winner, {"repositories_removed": ["https://github.com/a-b/c"]})
+    assert "repositories" not in winner and winner["repositories_removed"] == ["https://github.com/a-b/c"]
+
+
+def test_a_pasted_token_replaces_the_code_sign_in_whole(api, bank, sign_in):
+    """Blocker 2: a pasted token left the code sign-in's refresh token, expiry and "app" mark behind, so the next
+    renewal put the old sign-in's token back over it. The paste forgets them."""
+    sign_in.answers = [{"access_token": "ghu_old", "refresh_token": "ghr_old", "expires_in": 100}]
+    api.post("/sources/github/connect")
+    sign_in.clock["now"] += 5
+    assert api.post("/sources/github/connect/poll").json()["state"] == "connected"
+    assert github_auth.account()                                       # the install state was checked
+    saved = api.put("/sources/connectors/github/credentials", json={"fields": {github.TOKEN_ENV: TOKEN}})
+    assert saved.status_code == 200, saved.text
+    stored = secrets.load_secrets()
+    assert stored[github.TOKEN_ENV] == TOKEN
+    assert not any(stored.get(n) for n in (github_auth.REFRESH_ENV, github_auth.EXPIRES_ENV, github_auth.HOW_ENV))
+    assert github_auth.account() == {} and not github_auth.is_app_token()
+    sign_in.clock["now"] += 10_000                                     # past the old sign-in's expiry
+    calls = len(sign_in.calls)
+    asyncio.run(github_auth.fresh_token())
+    assert len(sign_in.calls) == calls and secrets.load_secrets()[github.TOKEN_ENV] == TOKEN
+    assert api.get("/sources/github/connect").json()["how"] == "token"
+
+
+def test_a_lapsed_refresh_token_asks_to_reconnect(api, bank, sign_in):
+    sign_in.answers = [{"access_token": "ghu_a", "refresh_token": "ghr_a", "expires_in": 100},
+                       {"error": "bad_refresh_token"},
+                       {"access_token": "ghu_b", "refresh_token": "ghr_b", "expires_in": 28800}]
+    api.post("/sources/github/connect")
+    sign_in.clock["now"] += 5
+    api.post("/sources/github/connect/poll")
+    asyncio.run(github_auth.fresh_token())                             # due: GitHub says the refresh token is no good
+    status = api.get("/sources/github/connect").json()
+    assert status["connected"] is True and status["reconnect"] is True and "Connect again" in status["words"]
+    api.post("/sources/github/connect")
+    sign_in.clock["now"] += 5
+    assert api.post("/sources/github/connect/poll").json()["state"] == "connected"
+    assert api.get("/sources/github/connect").json()["reconnect"] is False
+
+
+def test_a_repository_left_out_of_a_selected_install_is_said_and_never_marked_gone(bank, monkeypatch):
+    _connect()
+    _sync(bank, FakeGitHub())
+    monkeypatch.setenv(github_auth.HOW_ENV, github_auth.HOW_APP)
+    server = FakeGitHub()
+    server.fix["installations"]["installations"][0]["repository_selection"] = "selected"
+    del server.fix["owned"][1]                                         # side-notes is not in the selection
+    assert _sync(bank, server)["status"] == "ok"
+    assert not any(e.get("source_deleted_at") for e in _episodes(bank))
+    words = sync_state.read_sync_state(bank)["github"].get("words") or ""
+    assert github.not_shared_words(1) in words and words.count("isn't shared with Cicada") == 1
+    assert "3 of your repositories aren't shared" in github.not_shared_words(3)
+    assert [r["full_name"] for r in github_repos.owned(bank)] == ["bob-example/alpha-project",
+                                                                  "bob-example/side-notes"]
 
 
 def test_the_cli_commands_call_the_backends_routes_as_the_person(monkeypatch):
@@ -454,45 +827,54 @@ def test_the_cli_commands_call_the_backends_routes_as_the_person(monkeypatch):
     from api.services import cli_map
 
     rows = {r.name: r for r in cli_map.ROWS}
-    assert not rows["github repos"].mutates
-    assert rows["github add"].person and rows["github add"].via == "backend"
-    assert rows["github project"].person and [a.prop for a in rows["github project"].args] == ["full_name", "project"]
+    assert not rows["github repos"].mutates and "github add" not in rows
+    assert rows["github connect"].person and rows["github connect"].mutates
+    assert rows["github project"].person and [a.prop for a in rows["github project"].args] == [
+        "full_name", "project", "remove"]
     sent: list[tuple] = []
     asked: list[str] = []
+    polls = iter([{"state": "pending", "interval": 1},
+                  {"state": "connected", "status": {"installed": False,
+                                                    "installUrl": "https://github.com/apps/x/installations/new"}}])
 
     def fake_call(boot, method, path, **kw):
         sent.append((method, path, kw.get("body")))
         if path == "/sources/github/repos" and method == "GET":
             return {"connected": True, "owned": [{"fullName": "bob-example/alpha-project", "private": True,
-                                                  "project": {"project": "alpha", "name": "alpha", "how": "origin"}}],
+                                                  "entityId": "media-alpha",
+                                                  "projects": [{"project": "alpha", "name": "alpha", "how": "user"}]}],
                     "starred": [{"fullName": "example-org/widget-kit", "starred": True, "entityId": "widget-kit"}]}
-        if path == "/sources/github/repos":
-            return {"fullName": "example-org/widget-kit", "entityId": "widget-kit", "created": True}
+        if path == "/sources/github/connect":
+            return {"userCode": "ABCD-1234", "verificationUri": "https://github.com/login/device", "interval": 1,
+                    "expiresAt": 0}
+        if path == "/sources/github/connect/poll":
+            return next(polls)
         return {"project": "alpha", "created": False}
 
     monkeypatch.setattr(cli_app, "call", fake_call)
     monkeypatch.setattr(cli_app, "require_person", asked.append)
+    import time as _time
+
+    monkeypatch.setattr(_time, "sleep", lambda s: None)
     boot = SimpleNamespace(probe={})
     listed = cli_app.cmd_github_repos(boot, SimpleNamespace())
-    assert "bob-example/alpha-project [private] — your project alpha (alpha)" in listed.text
-    assert "example-org/widget-kit (starred) — widget-kit" in listed.text
-    added = cli_app.cmd_github_add(boot, SimpleNamespace(url="example-org/widget-kit"))
-    assert added.text == "Added example-org/widget-kit (widget-kit)."
-    linked = cli_app.cmd_github_project(boot, SimpleNamespace(full_name="bob-example/alpha-project", project="alpha"))
+    assert "bob-example/alpha-project [private] — media-alpha · in alpha (alpha)" in listed.text
+    assert "example-org/widget-kit — widget-kit" in listed.text
+    connected = cli_app.cmd_github_connect(boot, SimpleNamespace())
+    assert connected.text.startswith("GitHub is connected. To bring in your own repositories, install Cicada")
+    linked = cli_app.cmd_github_project(boot, SimpleNamespace(full_name="bob-example/alpha-project", project="alpha",
+                                                              remove=False))
     assert linked.text == "Linked bob-example/alpha-project to your project alpha."
     assert sent[-1] == ("POST", "/sources/github/repos/project",
-                        {"fullName": "bob-example/alpha-project", "via": "cli", "project": "alpha"})
-    assert len(asked) == 2                               # both writes refuse from an agent's shell
-    # Owner 2026-11-03 ("i'd rather it said 'Add as a project'"): one of yours is added as a project, and the help
-    # says which command is for whose repository.
-    monkeypatch.setattr(cli_app, "call", lambda boot, method, path, **kw: {"project": "alpha-project", "created": True})
-    made = cli_app.cmd_github_project(boot, SimpleNamespace(full_name="bob-example/alpha-project", project=None))
-    assert made.text == "Added bob-example/alpha-project as your project alpha-project."
-    assert rows["github project"].summary.startswith("Add a repository you own as a project")
-    assert "`cicada github project`" in rows["github add"].summary
+                        {"fullName": "bob-example/alpha-project", "via": "cli", "remove": False, "project": "alpha"})
+    unlinked = cli_app.cmd_github_project(boot, SimpleNamespace(full_name="bob-example/alpha-project",
+                                                                project="alpha", remove=True))
+    assert unlinked.text.startswith("Unlinked bob-example/alpha-project from alpha")
+    assert len(asked) == 3                               # every write refuses from an agent's shell
 
 
-# --- review of #583: the real size cap, rate limits, a replayed add, a stale link row ---------------------------------
+# --- review of #583: the real size cap, rate limits ------------------------------------------------------------------
+
 
 
 def _realistic_star(n: int) -> dict:
@@ -576,57 +958,3 @@ def test_a_secondary_rate_limit_is_a_rate_limit_never_a_refused_token(real_cap):
         asyncio.run(github.client("placeholder").get("user"))
     assert exc.value.kind == "sign-in"
 
-
-def test_a_replayed_add_writes_nothing_new(api, bank):
-    """A copy's outbox may resend the same add days later (`test_tx_outbox.SAME_BY_CONTENT`): the same page, no
-    second episode, no commit."""
-    first = api.post("/sources/github/repos", json={"url": "example-org/widget-kit"}).json()
-    files, head = _files(bank), _git(bank, "rev-parse", "HEAD")
-    again = api.post("/sources/github/repos", json={"url": "https://github.com/example-org/widget-kit"})
-    assert again.status_code == 200 and again.json() == {**first, "created": False}
-    assert _files(bank) == files and _git(bank, "rev-parse", "HEAD") == head
-
-
-def test_a_link_row_whose_page_is_gone_gets_the_page_again(api, bank):
-    eid = api.post("/sources/github/repos", json={"url": "example-org/widget-kit"}).json()["entityId"]
-    (bank / "entities" / f"{eid}.md").unlink()
-    bank_index.invalidate(bank)
-    again = api.post("/sources/github/repos", json={"url": "example-org/widget-kit"})
-    assert again.status_code == 200, again.text
-    body = again.json()
-    assert body["created"] is True and (bank / "entities" / f"{body['entityId']}.md").exists()
-
-
-def test_a_sync_never_brings_back_a_page_the_person_merged_away(api, bank):
-    """Re-review of #583: the person folds a starred repository's page into a `tool` page (the merge deletes it and
-    leaves a redirect); the next sync follows the redirect and leaves the tool page alone — never a second page."""
-    _connect()
-    assert api.post("/sources/connectors/github/sync").json()["status"] == "ok"
-    kit = next(r for r in api.get("/sources/github/repos").json()["starred"] if r["fullName"].endswith("widget-kit"))
-    markdown_parser.write(bank / "entities" / "widget-kit-tool.md",
-                          {"name": "Widget Kit", "type": "tool", "status": "active"}, "A kit the person uses.\n")
-    _git(bank, "add", "-A")
-    _git(bank, "commit", "-q", "-m", "tool page")
-    bank_index.invalidate(bank)
-    merged = api.post(f"/entities/{kit['entityId']}/merge", json={"into": "widget-kit-tool"})
-    assert merged.status_code == 200, merged.text
-    assert not (bank / "entities" / f"{kit['entityId']}.md").exists()
-    tool_before = (bank / "entities" / "widget-kit-tool.md").read_text()
-    entities_before = sorted(p.name for p in (bank / "entities").glob("*.md"))
-    assert api.post("/sources/connectors/github/sync").json()["status"] == "ok"
-    assert sorted(p.name for p in (bank / "entities").glob("*.md")) == entities_before
-    assert (bank / "entities" / "widget-kit-tool.md").read_text() == tool_before
-    # The person's own add of the same link lands on the page they merged it into, never a second page.
-    again = api.post("/sources/github/repos", json={"url": "example-org/widget-kit"}).json()
-    assert again["entityId"] == "widget-kit-tool" and again["created"] is False
-    assert sorted(p.name for p in (bank / "entities").glob("*.md")) == entities_before
-
-
-def test_a_sync_never_remakes_a_page_removed_with_no_redirect(api, bank):
-    _connect()
-    api.post("/sources/connectors/github/sync")
-    kit = next(r for r in api.get("/sources/github/repos").json()["starred"] if r["fullName"].endswith("widget-kit"))
-    (bank / "entities" / f"{kit['entityId']}.md").unlink()
-    bank_index.invalidate(bank)
-    assert api.post("/sources/connectors/github/sync").json()["status"] == "ok"
-    assert not (bank / "entities" / f"{kit['entityId']}.md").exists()

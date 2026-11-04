@@ -22,6 +22,7 @@ carries them through every rewrite (``conflict_resolver`` updates the page's own
 ``description`` / ``description_by``        the person's header line and who last set it (Sleep never writes it)
 ``conversations_added`` / ``conversations_removed``   conversations tied or untied by hand (``project_conversations``)
 ``entities_added`` / ``entities_removed``   pages tied to the project by hand, or "Not part of it" (``project_pages``)
+``repositories`` / ``repositories_removed``   its GitHub repositories and the person's unlinks (``github_repos``, G230)
 ``provider_projects: [{provider, id, name?, episode?, docs?}]``   the project's own id in Claude or ChatGPT
 
 ``born`` keeps its D4 meaning (where the page came from); ``mine`` is whose list it is in. The two are independent.
@@ -646,6 +647,31 @@ def carry_on_merge(winner_fm: dict, loser_fm: dict) -> None:
     for key, rows in ((PAGES_ADDED_KEY, kept), (PAGES_REMOVED_KEY, gone)):
         if rows:
             winner_fm[key] = rows[-MAX_TIED:]
+    _carry_repositories(winner_fm, loser_fm)
+
+
+def _carry_repositories(winner_fm: dict, loser_fm: dict) -> None:
+    """G230 / ruling 53: a project's repositories (``repositories:``) and the person's unlinks
+    (``repositories_removed:``) union across a merge; an unlink on either side wins, as an untie does, so no automatic
+    link (``github_repos.link_by_origin``) puts back what the person took off either page."""
+    from api.services import github_repos
+
+    gone = list(dict.fromkeys(
+        [u for u in winner_fm.get(github_repos.REPOS_REMOVED_KEY) or [] if isinstance(u, str)]
+        + [u for u in loser_fm.get(github_repos.REPOS_REMOVED_KEY) or [] if isinstance(u, str)]))
+    dropped = {github_repos._norm(u) for u in gone}
+    rows, seen = [], set()
+    for row in github_repos.link_entries(winner_fm) + github_repos.link_entries(loser_fm):
+        url = github_repos._norm(row["url"])
+        if url in seen or url in dropped:
+            continue
+        seen.add(url)
+        rows.append(row)
+    for key, value in ((github_repos.REPOS_KEY, rows), (github_repos.REPOS_REMOVED_KEY, gone)):
+        if value:
+            winner_fm[key] = value
+        else:
+            winner_fm.pop(key, None)
 
 
 # --- page-less suggestions (a ChatGPT project with no name) -----------------------------------------------------------

@@ -143,6 +143,10 @@ async def set_credentials(
             raise HTTPException(status_code=422, detail=exc.words)
     for name, value in body.fields.items():
         secret_store.set_secret(name, value)
+    # A pasted token replaces whatever sign-in came before it (GitHub: the code sign-in's refresh token, expiry and
+    # install state), so nothing later swaps the person's token back for the old one.
+    if (saved := getattr(adapter, "on_token_saved", None)) is not None:
+        saved()
     logger.info(f"{connector_id}: stored {len(body.fields)} credential field(s)")
     # Fix round 1, M2: a credential save lands only in secrets.env, outside
     # memory_path — bump sync_state.json so the "sources" SSE component
