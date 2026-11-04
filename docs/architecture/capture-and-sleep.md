@@ -1389,14 +1389,19 @@ Sleep, Key Facts said Friday twice beside Thursday twice, "targets Linux only" t
   source it cites still says that word — a passage resting also on another conversation that says it is that
   conversation's word too, never settled by this edit (#581's settle rule). **A passage with no rows is never
   rewritten**: legacy prose, the person's typed or edited line (an edit drops its rows), a line a page merge carried
-  (where `git blame` names the merge, not the person) — protection by default. Beside the offered ones, the passages
+  (where `git blame` names the merge, not the person) — protection by default. **Rows are never handed to a line that
+  had none** (`section_provenance.refresh`, review of #589 B3): a Sleep write that meets a conversation saying the same
+  words — exactly, or as a shorter fact the line extends — leaves the line rowless, so a merged-in or typed line never
+  becomes rewritable by being repeated. Only a line a write adds, or one that already had rows, is recorded. Beside the
+  offered ones, the passages
   this batch wrote from the revision's fresh words (rows at the new hash), so the writer keeps the current fact once.
   **History is never rewritten.**
 - **Held, never rewritten:** a passage in a Summary or Article someone rewrote (`has_human_prose`), one carrying a
   pinned fix (G198 `corrections`) about the changed words, or one with a line `git blame` puts on a page-edit commit
   (any door). Its proposed rewrite becomes ONE `page_edit` inbox item per page (`origin: revision`, Cicada's own;
-  never a second while one waits), applied or left with one tap. A passage with no rows reaches the writer only when
-  one of these says it is the person's — and then only as this question. If git cannot answer the blame, the page's
+  never a second while one waits), applied or left with one tap. A passage with no rows that says a removed word is
+  held the same way — nothing proves Sleep wrote it — so it reaches the person only as this question. If git cannot
+  answer the blame, the page's
   passages are all held. A word-level pinned fix elsewhere is applied again over what is written (`apply_corrections`).
 - **One call per touched page at most** (stage `merge`, the cycle's engine and consolidation model, ≤
   `agent_max_concurrency` at once, ≤ 40 pages and 40 passages), inside Sleep's write window, committed with the batch

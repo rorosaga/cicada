@@ -27,8 +27,8 @@ so the writer can keep the current fact once instead of twice.
 
 **Never over the person's or an agent's words.** A passage is held (:func:`_held`) when it sits in a Summary or Article
 someone rewrote (`entity_body.has_human_prose`), carries a pinned fix (G198 ``corrections``) about the words that
-changed, or has a line git blames on a page edit (`page_edits` commits, any door); a passage with no rows is asked about
-only when one of these says it is the person's, and otherwise left alone. A held passage is never rewritten:
+changed, or has a line git blames on a page edit (`page_edits` commits, any door) — and so is every passage with no
+rows, which nothing proves Sleep wrote. A held passage is never rewritten:
 the writer's proposal for it becomes ONE ``page_edit`` question per page in the inbox, Cicada's own (``origin:
 revision``), which the person applies or leaves with one tap. A word-level pinned fix elsewhere in a rewritten passage
 is applied again over what is written (`page_edits.apply_corrections`).
@@ -240,8 +240,9 @@ def page_job(memory_path: Path, entity_id: str, path: Path, revisions: dict, cha
     removed word — a passage resting also on another conversation that says it is that conversation's word too (#581's
     settle rule), never settled here. A passage with no rows is never rewritten: legacy prose, the person's typed or
     edited line (an edit drops its rows), or a line a page merge carried over — protection by default, whatever git
-    blame says. Such a passage is only *asked about* when it is identifiably the person's (a pinned fix on the changed
-    words, a hand-rewritten lead or article, a line blamed on a page edit)."""
+    blame says. Such a passage saying a removed word is only ever *asked about* (held: the writer's proposal becomes the
+    page's one question). Rows are never handed to a line that had none (`section_provenance.refresh`), so a line stays
+    protected however often a conversation repeats it."""
     parsed = markdown_parser.parse(path, ledger=False)
     fm, body = parsed.frontmatter, parsed.body
     records = section_provenance.matched(fm, body)
@@ -274,7 +275,7 @@ def page_job(memory_path: Path, entity_id: str, path: Path, revisions: dict, cha
                 rev = revisions[ep]
                 gone = set().union(*(c.gone for c in chs)) & said
                 if gone and not rows:
-                    hand_gone |= gone        # asked about only if it is identifiably the person's (below)
+                    hand_gone |= gone        # no rows: held, only ever asked about (below)
                 elif gone and any(ev.episode == ep and ev.hash != rev.hash for ev in rows):
                     others = {ev.episode for ev in rows if ev.episode != ep}
                     if all((words := still_says(o)) is not None and not words & gone for o in others):
@@ -312,8 +313,9 @@ def page_job(memory_path: Path, entity_id: str, path: Path, revisions: dict, cha
         held = "git could not say who wrote it" if hand is None else _held(section, item.text, gone_all, fm, human,
                                                                              hand)
         if role == "hand":
-            if held is None or hand is None:
-                continue             # no provenance and nothing says it is the person's: left alone, not asked
+            # No rows: nothing proves Sleep wrote it — the person's line, one a page merge carried (whose blame now
+            # names the merge), legacy prose. Never rewritten; the writer's proposal for it is only a question.
+            held = held or "nothing proves Sleep wrote it"
             role = "old"
         passages.append(Passage(len(passages) + 1, section, item.text, item.ranges, rows, role, held, gone))
     if not any(p.role == "old" for p in passages):

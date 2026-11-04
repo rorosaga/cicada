@@ -353,6 +353,12 @@ def refresh(frontmatter: dict, original_body: str, body: str, entity: dict, *, s
     decoded = decoded or {}
     unavailable = unavailable_sections(original_body, decoded) | unavailable_sections(body, decoded)
     records = {section: items for section, items in decoded.items() if section in unavailable}
+    # An item already on the page with NO rows before this write — a person's typed or edited line, one a page merge
+    # carried, legacy prose — never gains rows here, by exact text or by fold (review of #589, B3): only an item this
+    # write adds, or one that already had rows, is recorded. Rows are what lets `revision_prose` rewrite a line.
+    rowless = {(section, item.key, item.text_hash) for section, items in scan(original_body).items()
+               if section not in unavailable for item in items
+               if not (item.key in old.get(section, {}) and old[section][item.key][0] == item.text_hash)}
     current = scan(body)
     for section, items in current.items():
         if section in unavailable:
@@ -362,7 +368,7 @@ def refresh(frontmatter: dict, original_body: str, body: str, entity: dict, *, s
         present = {item.key for item in items}
         folded = [(key, text) for key, text in texts.get(section, {}).items() if key not in present] if fold else []
         for item in items:
-            if item.ambiguous:
+            if item.ambiguous or (section, item.key, item.text_hash) in rowless:
                 continue
             evs = []
             for candidates in (old, incoming):

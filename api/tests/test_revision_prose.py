@@ -394,7 +394,9 @@ def test_only_a_passage_resting_on_the_revision_alone_is_rewritten(tmp_path, mon
     assert "The design review meeting is on Friday." not in facts                  # its own: removed
     assert "The design review and the team sync are both on Friday." in facts      # another conversation's word too
     assert "Release planning is on Friday mornings." in facts                      # no provenance: never offered
-    assert "team sync" not in prompts[0] and "Release planning" not in prompts[0]
+    assert "team sync" not in prompts[0]
+    # The rowless line reaches the writer only as a held passage (a question at most), never as one to rewrite.
+    assert "(held) Release planning" in prompts[0]
 
 
 def test_a_hand_edit_a_page_merge_carried_is_never_rewritten(tmp_path, monkeypatch):
@@ -425,7 +427,55 @@ def test_a_hand_edit_a_page_merge_carried_is_never_rewritten(tmp_path, monkeypat
     facts = _facts(_prose(memory))
     assert "The demo rehearsal is on Friday, in the small hall." in facts
     assert "The design review meeting is on Friday." not in facts
-    assert "rehearsal" not in prompts[0] and not list((memory / "inbox").rglob("inbox-*.md"))
+    assert "(held) The demo rehearsal" in prompts[0]      # asked about at most, never rewritten
+
+
+def test_a_merged_in_person_line_a_conversation_repeats_is_never_rewritten(tmp_path, monkeypatch):
+    """Review of #589 (B3, re-check), the reviewer's sequence through `sleep_cycle.run`: a page merge carries the
+    person's two lines in (no rows; blame names the merge); a Sleep reads conversations that say the same — one line
+    word for word, the other as a shorter fact the line extends; the conversations are then edited. Stage 5 used to hand
+    both lines the conversations' rows (exact text, fold), and Stage 5.58 then rewrote the one and removed the other
+    with no question. Now neither gains rows, neither is rewritten or removed, and the extended one is only asked about."""
+    from api.services import entity_merge
+
+    memory = _bank(tmp_path)
+    person_lisbon = "The alpha-project public demo will be held in Lisbon, in the university hall."
+    person_linux = "alpha-project targets Linux only."
+    markdown_parser.write(memory / "entities" / "alpha-project.md",
+                          {"name": "alpha-project", "type": "project", "status": "active", "confidence": 0.9},
+                          "## Summary\nalpha-project is a synthetic project.\n")
+    markdown_parser.write(memory / "entities" / "beta-project.md",
+                          {"name": "beta-project", "type": "project", "status": "active", "confidence": 0.9},
+                          f"## Summary\nbeta-project is a synthetic project.\n\n## Key Facts\n- {person_lisbon}\n"
+                          f"- {person_linux}\n")
+    _git(memory, "init", "-q")
+    _git(memory, "add", "-A")
+    _git(memory, "commit", "-qm", "Page edit 2026-10-31")
+    entity_merge.merge_entities(memory, loser_id="beta-project", winner_id="alpha-project")
+    for k, body in V1.items():
+        _write(memory, k, body)
+    _git(memory, "add", "-A")
+    _git(memory, "commit", "-qm", "Merge pages 2026-11-01")
+
+    def rows_of(text):
+        parsed = markdown_parser.parse(memory / "entities" / "alpha-project.md", ledger=False)
+        (item,) = [i for i in section_provenance.scan(parsed.body)["key_facts"] if i.text == text]
+        return section_provenance.matched(parsed.frontmatter, parsed.body).get("key_facts", {}).get(item.key)
+
+    _run(memory, monkeypatch, [])
+    _git(memory, "add", "-A")
+    _git(memory, "commit", "-qm", "Sleep cycle")
+    assert rows_of(person_lisbon) is None and rows_of(person_linux) is None    # repeated, still rowless
+    for k, body in V2.items():
+        _write(memory, k, body, revised={"count": 1, "at": "2026-11-03T12:00:00Z", "previous_hash": _digest(V1[k]),
+                                         "consolidated_hash": _digest(V1[k])})
+    calls: list = []
+    _run(memory, monkeypatch, calls)
+    facts = _facts(_prose(memory))
+    assert person_lisbon in facts and person_linux in facts                    # neither rewritten nor removed
+    proposals = [markdown_parser.parse(p).frontmatter for p in (memory / "inbox").rglob("inbox-*.md")]
+    (fm,) = [p for p in proposals if p.get("kind") == "page_edit" and p.get("origin") == "revision"]
+    assert fm["edit"]["edits"][0]["old"] == person_lisbon                       # only asked about
 
 
 def test_an_edit_that_adds_to_a_sleep_fact_leaves_it_with_no_rows(tmp_path):
