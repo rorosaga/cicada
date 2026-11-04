@@ -1539,6 +1539,14 @@ def parse_rss(xml: str) -> list[RawItem]:
                 fallback = href.strip()
         return fallback
 
+    from api.services import substack
+
+    # G89 (i)/(iii): the publication — the RSS channel's (or the Atom feed's) own title — rides each item as its
+    # ``channel``, so a post says which publication it came from.
+    channel_node = next((el for el in root.iter() if local(el.tag) == "channel"), None)
+    publication = first_child_text(channel_node if channel_node is not None else root, "title")
+    publication = " ".join(publication.split())[:120] if publication else None
+
     items: list[RawItem] = []
     # An <item> is RSS, an <entry> is Atom — search the whole tree so a
     # namespaced or nested channel still matches.
@@ -1555,6 +1563,10 @@ def parse_rss(xml: str) -> list[RawItem]:
             or first_child_text(entry, "description")
             or first_child_text(entry, "summary")
         )
+        # G89 (vii): a paid post's feed body is a stub — a few words and a "Read more" link (Substack, measured
+        # 2026-09-01). It is not the post, so it never stands in for its words.
+        if substack.is_paywall_stub(summary):
+            summary = None
         tags: list[str] = []
         for child in entry:
             if local(child.tag) == "category":
@@ -1565,6 +1577,7 @@ def parse_rss(xml: str) -> list[RawItem]:
             url=link.strip(),
             title=title or None,
             tags=tags,
+            channel=publication,
             preview=summary or None,
             published_at=_feed_published(
                 first_child_text(entry, "pubDate") or first_child_text(entry, "published")

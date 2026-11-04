@@ -250,7 +250,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **An edited conversation is a revision of itself (G104, owner 2026-11-03):** diffed against the version Sleep read
   (git), only what changed is read, spans re-anchored never fuzzily; what only removed text said is superseded by the
   same revision's value (no question) or withdrawn by a record, never deleted; still one conversation for every count;
-  another conversation's word stays an update or a conflict (`episode_revision`, `capture-and-sleep.md`).
+  another conversation's word stays an update or a conflict (`episode_revision`, `capture-and-sleep.md`). **Slice 2:** the
+  passages that said the removed words are rewritten or removed, one call a page at most, never History (it gains the
+  change, dated) and never a passage the person or an agent wrote or pinned — that is one inbox question a page (`revision_prose`).
 - **Entity promotion:** a first mention stays in the index; a page needs 2+ conversations, >3 exchanges with the person's
   own words, or a link the person made to a high-confidence page other than the owner's — counted on the conversation,
   never guessed (`promotion`) — or the person's own words naming in full exactly one waiting Contacts card, never the "me"
@@ -400,7 +402,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   (only ruling 47's tier 2 — an official API the person connects — signs in, never as a browser session, `network.md`). Only a
   link the person asked about, or a wall page of a site they allowed, can be recorded — and (owner 2026-10-16, G71) the
   person's YouTube Watch later or history page, a standing ask once they turn that list on, stdio only; their saved list on X, Instagram or LinkedIn the same way, one site at a time, ≤ 10 reads a day, each item an
-  indexed save (G206, 2026-10-22, `mcp.md`); one person's
+  indexed save (G206, 2026-10-22, `mcp.md`) — and on Reddit, Pinterest or TikTok the same way, off by default until the
+  person turns it on (G232, 2026-11-04; never Spotify, its terms); one person's
   LinkedIn profile only through the link their page lists, on the person's ask, ≤ 10 a day, stdio only (2026-10-16,
   `mcp.md`). Imported LinkedIn connections enrich existing people only, never mint a page. The backend never fetches a
   login-walled page. **Exploring saved sites (ruling 25):** only the person's click or a trusted local agent they asked

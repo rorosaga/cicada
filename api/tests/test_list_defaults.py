@@ -65,3 +65,19 @@ def test_the_settings_route_applies_the_defaults(tmp_path, monkeypatch):
         config.get_settings.cache_clear()
     assert body["savedLists"] == {"x": False, "instagram": False, "linkedin": True, "reddit": False, "pinterest": False, "tiktok": False}
     assert body["savedListsOff"] == {"x": False, "instagram": False, "linkedin": False, "reddit": False, "pinterest": False, "tiktok": False}
+
+
+def test_the_g232_lists_stay_off_after_onboarding_whatever_the_memory_shows(tmp_path):
+    """Review of #596: Reddit, Pinterest and TikTok have no switch or onboarding row in the app yet, so no default
+    may turn them on — not even for an account the memory plainly shows, and not over the person's own on."""
+    bank = _bank(tmp_path, ["reddit-saved", "pinterest", "pinterest-saved", "tiktok-saved", "tiktok-history",
+                            "x-likes"])
+    reading_settings.update(acknowledge=True, today=date(2026, 11, 4))
+    assert list_defaults.apply(bank) == ["saved:x"]
+    for key in ("reddit", "pinterest", "tiktok"):
+        assert not saved_lists.allowed(key), key
+    assert saved_lists.due(bank) == ["x"], "the agent is never nudged to read reddit.com, pinterest.com or tiktok.com"
+    # Turning one on is the person's act alone; the default never touches it either way.
+    reading_settings.update(saved_lists_={"reddit": True})
+    assert list_defaults.apply(bank) == [] and saved_lists.allowed("reddit")
+    assert not saved_lists.allowed("pinterest") and not saved_lists.allowed("tiktok")

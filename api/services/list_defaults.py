@@ -26,10 +26,8 @@ ACCOUNT_ORIGINS: dict[str, frozenset[str]] = {
     "x": frozenset({"x-bookmarks", "x-likes"}),
     "instagram": frozenset({"instagram-saved"}),
     "linkedin": frozenset({"linkedin-saved"}),
-    # G232: an export, a connector sync or an earlier list read from each.
-    "reddit": frozenset({"reddit-saved"}),
-    "pinterest": frozenset({"pinterest", "pinterest-saved"}),
-    "tiktok": frozenset({"tiktok-saved", "tiktok-history"}),
+    # G232's Reddit, Pinterest and TikTok lists are never turned on here: off until the person turns one on
+    # (`reading_settings.DEFAULT_ON_SAVED_LISTS`, review of #596).
 }
 
 
@@ -68,9 +66,11 @@ def apply(memory_path: Path) -> list[str]:
     left to decide: no bank read once every list has a recorded choice or the sheet is not acknowledged."""
     if not reading_settings.agent_enabled():
         return []
+    defaultable = set(reading_settings.DEFAULT_ON_SAVED_LISTS)
     decided = (set(reading_settings.youtube_lists()) | set(reading_settings.youtube_lists_off())
-               | {f"s:{k}" for k in reading_settings.saved_lists()} | {f"s:{k}" for k in reading_settings.saved_lists_off()})
-    if len(decided) >= len(reading_settings.YOUTUBE_LISTS) + len(reading_settings.SAVED_LISTS):
+               | {f"s:{k}" for k in (set(reading_settings.saved_lists()) | set(reading_settings.saved_lists_off()))
+                  if k in defaultable})
+    if len(decided) >= len(reading_settings.YOUTUBE_LISTS) + len(reading_settings.DEFAULT_ON_SAVED_LISTS):
         return []
     # A list turned on here was never read, so it holds no pause to lift.
     return reading_settings.apply_list_defaults(detected=detected(memory_path), read_before=read_before())
