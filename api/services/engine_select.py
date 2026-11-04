@@ -699,7 +699,8 @@ async def _cli_rungs(registry, *, user_triggered: bool, cli_wait: float | None) 
     Every rung reads ``cli_engines``' cached status — never a fresh probe of its own; a stale or missing answer is
     refreshed in the background, both tools at once, and waited on only up to ``cli_wait``. A tool that is not
     installed is passed over silently; one installed but unusable (signed out, no subscription model, no answer in
-    time) is skipped for this run with its reason, which the no-engine sentence carries."""
+    time) or whose app is here without the tool it needs (ROR-52) is skipped for this run with its reason, which the
+    no-engine sentence carries."""
     from api.services import cli_engines
 
     specs = [s for s in cli_engines.AUTO_SPECS if user_triggered or _schedule_may_use(s.mode, registry)]
@@ -719,8 +720,8 @@ async def _cli_rungs(registry, *, user_triggered: bool, cli_wait: float | None) 
                 skipped.append(f"{spec.name}'s status isn't known yet, so Auto skipped it for this run.")
             elif st.timed_out:
                 skipped.append(f"{st.detail} Auto skipped it for this run.")
-            elif st.available:
-                skipped.append(st.detail)
+            elif st.available or st.not_ready:
+                skipped.append(st.sentence)
         return None, skipped
     finally:
         for read in reads:

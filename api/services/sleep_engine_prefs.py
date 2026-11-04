@@ -242,7 +242,8 @@ async def _candidates(settings: Settings, reg, *, mode: str, model: str | None) 
             id=spec.mode, label=spec.name, kind="plan", engine=spec.label, mark=spec.mode,
             available=st.available, connected=st.connected,
             models=cli_engines.model_choices(spec, st, saved),
-            detail=st.detail, billing_note=spec.billing_note, sign_in=spec.sign_in,
+            detail=st.detail, billing_note=spec.billing_note, sign_in=st.sign_in or spec.sign_in,
+            not_ready=st.not_ready, next_command=st.next_command,
             model_note=cli_engines.stale_model_sentence(spec, st, saved),
         ))
     _attach_catalogues(cards, agent_catalogue=agent_catalogue, snap=snap, configured_codex=configured_codex,

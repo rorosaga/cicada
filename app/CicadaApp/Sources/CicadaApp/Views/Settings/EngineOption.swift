@@ -37,7 +37,7 @@ enum EngineOption {
             case .ready: return "Ready"
             }
         default:
-            if !candidate.available { return "Not installed" }
+            if !candidate.available { return candidate.notReady ? Copy.Intelligence.notReady : Copy.Intelligence.notInstalled }
             return candidate.connected ? "Signed in" : "Not signed in"
         }
     }

@@ -38,9 +38,17 @@ struct SleepEngineCandidate: Codable, Identifiable, Hashable {
     var modelNote: String? = nil
     /// The exact command the person runs to sign in to the tool.
     var signIn: String? = nil
+    /// ROR-52 — `available` is false, yet the tool's app (or an old copy of the tool) is here: "Not ready", never
+    /// "Not installed". Absent on an older backend.
+    var notReady: Bool = false
+    /// The one line to run when that isn't a sign-in (installing the tool the app doesn't carry).
+    var nextCommand: String? = nil
     /// Engine picker v2 (ruling 48 part 11) — `models` described by the backend's catalogue (`model_catalogue`): each
     /// model's family, newest first, its source and age, "New". Absent on an older backend: the list is then `models`.
     var catalogue: ModelCatalogue? = nil
+
+    /// The command a card draws for this tool's next step: installing what's missing, else signing in.
+    var stepCommand: String? { nextCommand ?? (available && !connected ? signIn : nil) }
 }
 
 /// Wire mirror of `api.models.schemas.ModelCatalogue`: one card's model list as its own harness reported it.
@@ -127,6 +135,8 @@ extension SleepEngineCandidate {
         billingNote = (try? c.decodeIfPresent(String.self, forKey: .billingNote)) ?? nil
         modelNote = (try? c.decodeIfPresent(String.self, forKey: .modelNote)) ?? nil
         signIn = (try? c.decodeIfPresent(String.self, forKey: .signIn)) ?? nil
+        notReady = ((try? c.decodeIfPresent(Bool.self, forKey: .notReady)) ?? nil) ?? false
+        nextCommand = (try? c.decodeIfPresent(String.self, forKey: .nextCommand)) ?? nil
         catalogue = (try? c.decodeIfPresent(ModelCatalogue.self, forKey: .catalogue)) ?? nil
     }
 }

@@ -9,7 +9,8 @@ Rails, each one a test in ``test_cli_engines.py``:
 
 1. **The person's own login, never ours.** Cicada spawns the CLI the person installed and signed into. It never reads,
    copies or stores the tool's credential files, never signs in for them and never installs anything; a missing or
-   signed-out tool says the exact command the person runs. The key variables that would move a tool off its sign-in
+   signed-out tool says the exact command the person runs, and an app on this computer without the tool Sleep needs
+   says that, not "isn't installed" (``Status.not_ready``, ROR-52). The key variables that would move a tool off its sign-in
    (``CURSOR_API_KEY``, ``XAI_API_KEY`` …) are stripped from every child (``base.scrubbed_env``).
 2. **Plan, not metered.** Cursor runs on the person's Cursor plan (Cursor bills usage past the included amount only if
    the person turned that on in their Cursor account — said in words on the card). OpenCode routes to many providers:
@@ -35,6 +36,7 @@ import asyncio
 import json
 import os
 import re
+import shlex
 import sys
 import tempfile
 import threading
@@ -65,6 +67,10 @@ class EngineSpec:
     flag_model: str = "--model"
     #: Always pass an explicit model (review of #494): a tool's own config default could be a key-backed model.
     explicit_model: bool = False
+    #: ROR-52: the tool's Mac app, whose presence alone never makes the tool runnable, and the one line that installs
+    #: the tool (what ``Status.next_command`` offers).
+    app: str = ""
+    install_command: str = ""
 
 
 #: Cursor's billing in words (ruling 46): shown on its card, and wherever Auto names Cursor as the engine that ran.
@@ -75,6 +81,7 @@ CURSOR = EngineSpec(
     binaries=("cursor-agent", "agent"),
     install="Install Cursor's command line (curl https://cursor.com/install -fsS | bash), then run `agent login`.",
     sign_in="agent login",
+    app="Cursor.app", install_command="curl https://cursor.com/install -fsS | bash",
     # Cursor's own Auto model is part of every plan; the live `agent models` list adds the rest.
     default_models=("auto",),
     billing_note=(f"Runs on your Cursor plan. {CURSOR_USAGE_NOTE} Auto and scheduled runs use only Cursor's own "
@@ -85,6 +92,7 @@ OPENCODE = EngineSpec(
     binaries=("opencode",),
     install="Install OpenCode (curl -fsSL https://opencode.ai/install | bash), then run `opencode auth login`.",
     sign_in="opencode auth login",
+    app="OpenCode.app", install_command="curl -fsSL https://opencode.ai/install | bash",
     billing_note=("Only a subscription you signed in to through OpenCode (GitHub Copilot or OpenCode Go). "
                   "A model on an API key is never used here — choose an API key as the engine for that."),
     flag_model="-m", explicit_model=True,
@@ -308,10 +316,13 @@ def build_call(spec: EngineSpec, *, model: str, prompt: str, cwd: Path, binary: 
     if spec is OPENCODE:
         prompt_path = cwd / "request.md"
         prompt_path.write_text(prompt, encoding="utf-8")
-        argv = [binary, "run", "--format", "json", "--pure", "--dir", str(cwd)]
+        # The message first: `--file` is an array that takes every word after it, so a message behind it is read as a
+        # second file and the call stops with "File not found" (the real tool, 2026-11-04).
+        argv = [binary, "run", "Answer the request in the attached file, following its instructions.",
+                "--format", "json", "--pure", "--dir", str(cwd)]
         if model:
             argv += [spec.flag_model, model]
-        argv += ["--file", str(prompt_path), "Answer the request in the attached file, following its instructions."]
+        argv += ["--file", str(prompt_path)]
         return argv, opencode_env(), None
     # Grok
     prompt_path = cwd / "request.md"
@@ -436,7 +447,7 @@ PARSERS: dict[str, Callable[[str | None], ExecResult]] = {
 def check(spec: EngineSpec, result: CliResult, parsed: ExecResult) -> None:
     """Raise the ``EngineError`` a failed call means; return on success."""
     if result.rc == 127:
-        raise engine_errors.EngineUnavailable(f"{spec.name} isn't installed. {spec.install}")
+        raise engine_errors.EngineUnavailable(_tool_missing(spec).sentence)
     if parsed.cost_usd is not None:
         # Rail 2: a charged cost is API-key traffic, not the plan. The answer is kept; nothing after it runs.
         raise engine_errors.EngineOverage(
@@ -452,7 +463,7 @@ def check(spec: EngineSpec, result: CliResult, parsed: ExecResult) -> None:
         raise engine_errors.EngineThrottled(f"Your {spec.plan_name} hit its usage limit — Sleep paused. "
                                             f"({(reason or result.stderr or '').strip()[:160]})")
     if any(m in blob for m in _SIGNED_OUT) or _STATUS_401.search(blob):
-        raise engine_errors.EngineUnavailable(f"{spec.name} is signed out — run `{spec.sign_in}`, then Sleep again.")
+        raise engine_errors.EngineUnavailable(f"{spec.name} is signed out — run `{sign_in_command(spec)}`, then Sleep again.")
     if any(m in blob for m in _NOT_FOUND):
         raise engine_errors.EngineModelNotFound(f"{spec.name} rejected the model: {reason[:200] or blob.strip()[:200]}")
     transport = f"{reason} {result.stderr or ''}"
@@ -533,7 +544,7 @@ def complete(spec: EngineSpec, *, messages: list[dict], model: str, stage: str |
         raise exc
     binary = resolve_binary(spec)
     if binary is None:
-        exc = engine_errors.EngineUnavailable(f"{spec.name} isn't installed. {spec.install}")
+        exc = engine_errors.EngineUnavailable(_tool_missing(spec).sentence)
         exc.spawned = False
         raise exc
     cwd = _empty_cwd(spec)
@@ -589,6 +600,18 @@ class Status:
     #: The model listing answered with text this parser read no model id from — its format changed (vision item 4,
     #: 2026-10-28): said in words by `model_catalogue`, never an empty list passed off as "no models".
     drift: bool = False
+    #: ROR-52: ``available`` is False, yet this is not "not installed" — the tool's app (or an old copy of the tool) is
+    #: on this computer and Sleep still can't run it. ``detail`` says what is missing, ``next_command`` what to run.
+    not_ready: bool = False
+    next_command: str | None = None
+    #: The line that signs in here, when it isn't the spec's: a tool inside an app is not on the person's PATH.
+    sign_in: str | None = None
+
+    @property
+    def sentence(self) -> str:
+        """``detail`` with the next step in it, for the places that draw no command of their own (Auto's skip note, a
+        cycle's pre-flight, an engine error)."""
+        return f"{self.detail} Run `{self.next_command}`." if self.next_command else self.detail
 
 
 def listing_drifted(stdout: str | None, rc: int, found: list[str]) -> bool:
@@ -649,7 +672,15 @@ def probe_now(spec: EngineSpec, *, runner=None, timeout: float | None = None) ->
     run = runner or agent_engine._default_runner()
     binary = resolve_binary(spec)
     if binary is None:
-        return Status(False, False, f"{spec.name} isn't installed. {spec.install}", as_of=time.time())
+        return _tool_missing(spec)
+    if spec is OPENCODE:
+        too_old = _opencode_too_old(binary, run, timeout)
+        if too_old is None:
+            return _hung(spec, timeout)
+        if too_old:
+            return Status(False, False, f"{spec.name} is here, but its command-line tool is too old for Sleep. Update "
+                                        "the app, or install the tool.", as_of=time.time(), not_ready=True,
+                          next_command=spec.install_command)
     if spec is CURSOR:
         from concurrent.futures import ThreadPoolExecutor
 
@@ -677,8 +708,9 @@ def probe_now(spec: EngineSpec, *, runner=None, timeout: float | None = None) ->
             return Status(True, False, "OpenCode's model list changed shape, so Cicada couldn't read it.",
                           as_of=time.time(), drift=True)
         if not plan:
-            return Status(True, False, "OpenCode has no subscription signed in — run `opencode auth login` and "
-                                       "choose GitHub Copilot or OpenCode Go.", as_of=time.time())
+            command = sign_in_command(spec)
+            return Status(True, False, f"OpenCode has no subscription signed in — run `{command}` and "
+                                       "choose GitHub Copilot or OpenCode Go.", as_of=time.time(), sign_in=command)
         return Status(True, True, "Signed in to a subscription in OpenCode.", plan, time.time())
     if listing.rc != 0 or _signed_out(text):
         return Status(True, False, f"Grok is signed out — run `{spec.sign_in}`.", as_of=time.time())
@@ -691,6 +723,66 @@ def probe_now(spec: EngineSpec, *, runner=None, timeout: float | None = None) ->
         return Status(True, False, "Grok lists none of xAI's own grok-… models — run `grok login` with your Grok "
                                    "subscription.", as_of=time.time())
     return Status(True, True, "Signed in to Grok.", builtin, time.time())
+
+
+def _tool_missing(spec: EngineSpec) -> Status:
+    """No tool to run. With the tool's app here that is a step away, not "not installed" (ROR-52)."""
+    from api.services.connections import base
+
+    if spec.app and base.app_path(spec.app):
+        return Status(False, False, f"{spec.name} is here, but not the command-line tool Sleep needs.",
+                      as_of=time.time(), not_ready=True, next_command=spec.install_command or None)
+    return Status(False, False, f"{spec.name} isn't installed. {spec.install}", as_of=time.time())
+
+
+def sign_in_command(spec: EngineSpec) -> str:
+    """The sign-in line the person can paste: the spec's, or for a tool found inside its app that tool's own path,
+    since the app does not put it on their PATH (``opencode`` would say "command not found")."""
+    from api.services.connections import base
+
+    for name in spec.binaries:
+        path = base.resolve_binary(name)
+        if path and path == base.bundled_tool(name):
+            home = os.path.expanduser("~")
+            shown = "~/" + shlex.quote(path[len(home) + 1:]) if path.startswith(home + os.sep) else shlex.quote(path)
+            return f"{shown} {spec.sign_in.partition(' ')[2]}".strip()
+    return spec.sign_in
+
+
+#: Rail 3 runs OpenCode with ``--pure`` (no plugins), and a copy older than that flag refuses the whole call with its
+#: usage text (OpenCode.app 1.3.3's ``opencode-cli``, 2026-11-04). The flag is never dropped to make it run. Kept per
+#: path and modification time, so an updated app is read again.
+_OPENCODE_TOO_OLD: dict[tuple[str, float], bool] = {}
+
+
+def _opencode_too_old(binary: str, run, timeout: float) -> bool | None:
+    """``True`` only on positive evidence: its help lists ``--format`` and neither help lists ``--pure``. ``None`` = it
+    didn't answer in time. Help text that can't be read is not evidence, and a real call then says what it says."""
+    from api.services.connections import base
+
+    path = base.resolve_binary(binary) or binary
+    try:
+        key = (path, os.stat(path).st_mtime)
+    except OSError:
+        key = None
+    if key in _OPENCODE_TOO_OLD:
+        return _OPENCODE_TOO_OLD[key]
+    env = opencode_env()
+    on_run = run([binary, "run", "--help"], stdin=None, timeout=timeout, cwd=None, env_overrides=env)
+    if on_run.rc == 124:
+        return None
+    text = f"{on_run.stdout}\n{on_run.stderr}"
+    if on_run.rc != 0 or "--format" not in text:
+        return False
+    old = False
+    if "--pure" not in text:
+        at_root = run([binary, "--help"], stdin=None, timeout=timeout, cwd=None, env_overrides=env)
+        if at_root.rc == 124:
+            return None
+        old = "--pure" not in f"{at_root.stdout}\n{at_root.stderr}"
+    if key:
+        _OPENCODE_TOO_OLD[key] = old
+    return old
 
 
 _REFRESHING: set[str] = set()
@@ -801,7 +893,7 @@ async def preflight(spec: EngineSpec, settings) -> tuple[bool, str, str | None]:
     becomes the first plan model the tool lists (said in the sentence); Cursor runs its own default with no flag."""
     st = await astatus(spec, fresh=True)
     if not st.connected:
-        return False, st.detail, None
+        return False, st.sentence, None
     saved = model_for_stage(settings, None)
     for model in {saved, model_for_stage(settings, "disambiguation")} - {""}:
         refused = metered_refusal(spec, model)

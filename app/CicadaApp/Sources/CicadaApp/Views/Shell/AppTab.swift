@@ -65,8 +65,8 @@ enum AppTab: String, CaseIterable {
         case .graph: "point.3.connected.trianglepath.dotted"
         case .clusters: "circle.grid.2x2"
         case .sleep: "moon"
-        case .inbox: "tray"
-        case .sources: "tray.2"
+        case .inbox: "tray.full"
+        case .sources: "tray"   // ROR-46: one inbox, not two trays; `.inbox` keeps `tray.full`, ⌘K's word for it
         case .projects: "point.topleft.down.to.point.bottomright.curvepath"
         case .skills: "puzzlepiece.extension"
         case .agents: "powerplug"   // looks pass 2026-10-23: `cable.connector` is a solid glyph among outlines (DR-53)
