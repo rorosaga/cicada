@@ -23,6 +23,9 @@ final class AVImportLintTests: XCTestCase {
         // frame sampling). Not a media surface; every AVFoundation call sits behind `Transcribing`/`FrameSampling`,
         // which its tests fake, so the rest of the app stays testable without it.
         "Support/MediaFileIndexer.swift",
+        // Chat images (2026-11-04): a chat video's or voice message's length for its tile, `asset.load(.duration)`
+        // only — never playback (a click opens Quick Look, not a player).
+        "Services/Chats/ChatMediaDuration.swift",
     ]
 
     private static let needles = ["import AVKit", "import AVFoundation"]

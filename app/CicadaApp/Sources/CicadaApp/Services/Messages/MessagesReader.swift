@@ -66,7 +66,7 @@ struct MessagesReader: Sendable {
         }
     }
 
-    private func open() throws -> SQLiteReadOnly {
+    func open() throws -> SQLiteReadOnly {
         try checkAccess()
         do {
             return try SQLiteReadOnly(url: database)

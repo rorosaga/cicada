@@ -94,7 +94,11 @@ def _is_oauth_callback_path(path: str) -> bool:
     if len(parts) != 5 or parts[1:3] != ["sources", "connectors"] or parts[4] != "callback":
         return False
     adapter = ADAPTERS.get(parts[3])
-    return adapter is not None and getattr(adapter, "LOGIN_MODE", None) == "oauth"
+    if adapter is None:
+        return False
+    from api.services.connectors import base
+
+    return base.signs_in(adapter)
 
 
 class _OpenPaths:

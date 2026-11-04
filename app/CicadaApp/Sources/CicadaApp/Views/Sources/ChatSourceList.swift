@@ -257,8 +257,11 @@ struct ChatConversationColumn: View {
             let scalars = ScalarText(doc.text)
             let blocks = ReaderLayout.blocks(doc: doc, scalars: scalars, focus: nil, focusStyle: .focus)
             VStack(alignment: .leading, spacing: 0) {
+                // 2026-11-04 — a one-to-one chat's other side wears the chat's own face; its pictures show in
+                // place (`ChatMediaTile`, from the doc's own attachments).
                 ReaderChatRows(rows: ReaderChat.rows(blocks: blocks, doc: doc), landingTurn: nil, revealed: true,
-                               messagesChat: ReaderChat.messagesChat(doc))
+                               messagesChat: ReaderChat.messagesChat(doc),
+                               chatFace: item.group == true ? nil : item.chat)
             }
             .padding(.bottom, CicadaTheme.scaled(16))
         } else if failed.contains(sitting.id) {

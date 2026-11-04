@@ -387,7 +387,7 @@ way. As applied on 2026-10-28:
 | Source | Path | Why |
 |---|---|---|
 | Telegram | API (47a) | full chat history and live updates; no harness sees them |
-| Spotify | export only: the person's own "Extended streaming history" download (Spotify's privacy page), through G32's import; no API connector | Spotify's Developer Terms (v10, 15 May 2025) forbid it: §IV.2(b)(i) bars "using the Spotify Platform or any Spotify Content to train a machine learning or AI model or otherwise ingesting Spotify Content into a machine learning or AI model", and §IV.3(a) says "you may not store, aggregate or create compilations or databases of Spotify Content" and "Do not store Spotify Content indefinitely" — the bank is a lasting compilation that agents read, so the ToS rail rules the API out (2026-10-29). The download is the person's own data, given to them, not taken through the Spotify Platform. Capturing what is playing through the macOS harness waits on an owner ruling (G223) |
+| Spotify | export only: the person's own "Extended streaming history" download (Spotify's privacy page), through G32's import; no API connector | Spotify's Developer Terms (v10, 15 May 2025) forbid it: §IV.2(b)(i) bars "using the Spotify Platform or any Spotify Content to train a machine learning or AI model or otherwise ingesting Spotify Content into a machine learning or AI model", and §IV.3(a) says "you may not store, aggregate or create compilations or databases of Spotify Content" and "Do not store Spotify Content indefinitely" — the bank is a lasting compilation that agents read, so the ToS rail rules the API out (2026-10-29). The download is the person's own data, given to them, not taken through the Spotify Platform. Capturing what is playing through the macOS harness waits on an owner ruling (G223). **Re-checked 2026-11-04 (G232):** the terms are unchanged (v10), the browser is ruled out the same way (its User Guidelines bar "crawling" or "scraping … by automated means" and "ingesting Spotify Content into a machine learning or AI model"), and since 11 Feb 2026 a Development Mode app needs its owner on Premium and serves at most 5 users, so one app could not serve every install anyway |
 | Notion | API | a workspace's pages as structured blocks; a harness sees one page at a time |
 | Readwise | none (built on tier 2 2026-10-29, removed by owner direction 2026-11-03) | — |
 | Google | Calendar on the Mac reader; API only for what the Mac cannot read (Drive, Docs), on ask | the Mac already reads Calendar |
@@ -396,6 +396,53 @@ way. As applied on 2026-10-28:
 | Substack | harness (the person's agent reads Saved, History and Subscriptions in their own browser, G89, built 2026-11-04), plus each publication's public `/feed` through the feed gate | researched 2026-11-04: no reader API or OAuth app programme (its OAuth server, `substack.com/.well-known/oauth-authorization-server`, serves only its own MCP connector at `mcp.substack.com/api/v1/mcp`, which is publisher analytics for an admin of a Bestseller publication and "cannot access profile data or Notes activity"); no reader export (Exports are a publisher's; a reader can only email a privacy request); no Mac app (iPhone, iPad, Apple TV, Vision Pro); the terms (6 Oct 2026) forbid crawling or scraping "through use of manual or automated means". The private `substack.com/api/v1/...` reader endpoints with the person's session cookie are scraping behind authentication — out (the ToS rail). Revisit if Substack opens its OAuth to third-party apps with a reader scope |
 | WhatsApp | local database, read by the app (built 2026-10-28, `whatsapp_source`; no network at all) | no sanctioned personal-account API; an unofficial client risks a ban |
 | Pocket | export only | the service closed in 2025 |
+
+**Ways in, per source (G232, owner 2026-11-04: "why can't we sync Spotify another way? Is there no way to do similar
+to GitHub … offer the website connection through browser harness, just like a toggle switch, and then also the file
+export. Same for TikTok, same for Pinterest, same for Reddit, same for Instagram").** Researched that day against each
+service's own developer documentation and terms; `ways_in.py` serves the result (`GET /sources/ways-in[/<source>]`,
+read-only) for the standard source page's connect area: the official connection as the one `primary` action when it
+exists, the browser toggle and the file import as `ways`, and every way that does not exist in `notOffered` with its
+reason in words.
+
+| Source | Official API for a desktop app with no secret or server | Read-only scopes | One app for every install | Data download | Browser (G206) | Offered |
+|---|---|---|---|---|---|---|
+| Spotify | Web API, Authorization Code with PKCE (no secret) — but ruled out by its terms (row above) | `user-read-recently-played` (last 50 plays only), `user-library-read`, `playlist-read-private` | no: Development Mode since 2026-02-11 is 5 users and the owner on Premium; extended quota is for organisations (2025-05-15) | Account data / Extended streaming history (JSON, emailed, up to 30 days) | ruled out (User Guidelines: no automated access, no AI ingestion) | **file** (plays, library and — G232 — playlists) |
+| Reddit | yes: an *installed app* "cannot keep a secret, and therefore, does not receive one" (Reddit's OAuth2 wiki) — code flow, Basic auth with the client id and an empty password, `duration=permanent` for a refresh token; no PKCE | `identity history mysubreddits` (saved and upvoted are `history`) | yes, but new access needs Reddit's approval since the Responsible Builder Policy (2025-11-11 ended self-service keys); free tier 100 queries a minute per client id | Settings → Request your data (CSV in a zip): `saved_posts.csv`, `saved_comments.csv`, `post_votes.csv`, `subscribed_subreddits.csv` | Saved | **account** once the client id ships (Connect Reddit), the person's own script app behind "Use your own app"; **browser**; **file** |
+| Pinterest | no: the token exchange is HTTP Basic with the client id and secret, no PKCE (developers.pinterest.com, "Set up authentication") | `boards:read`, `pins:read` (`*_read_secret` for secret boards) | no: an app registered on or after 2026-09-14 gets `PINNER_DATA_ACCESS_DENIED` reading boards and pins of anyone but the Business account that authorised it, without approval through an account manager | Settings → Privacy and data → Request your data (a link by email within 48 h, via SendSafely); its layout is not documented | Saved Pins | the person's own (older) app only, behind "Use your own app"; **browser**; no file reader until a real download's member names have been seen |
+| TikTok | no: Login Kit for desktop requires PKCE but its token requests carry the client secret, "from your server" | `user.info.*`, `video.list` (own public videos) — no likes, favourites or history; the Data Portability API (`portability.*`) is EEA/UK users only, after a security review | — | Settings and privacy → Account → Download your data (JSON or TXT) | Favorites | **browser**; **file** (likes and favourites; history only on request) |
+| Instagram | no: Basic Display was retired on 2024-12-04; the Instagram API serves Business and Creator accounts only and returns no saved or liked posts | — | — | Accounts Center → Export your information (JSON) | Saved (G206) | **browser**; **file** |
+
+The browser rows carry the site's own terms on automated access — Pinterest ("scrape, collect … by using automated
+means (without our express prior permission)"), TikTok ("scrape, crawl, export or otherwise extract any data … for any
+purpose" with automated tools), Reddit and Instagram alike — the same posture G206 took for Instagram and LinkedIn: the
+person's own agent in their own signed-in session, a standing ask for one list page, ≤ 10 reads a day, the person's
+account carrying the risk (the v3 acknowledgement says so). Spotify is the one excluded, because its terms add the AI
+clause the 2026-10-29 ruling rested on.
+
+**Connect Reddit (G232).** `connectors/reddit.py` signs in with Cicada's own installed app: `POST
+/sources/connectors/reddit/authorize` returns Reddit's consent page (`client_id`, `response_type=code`, `state`,
+`redirect_uri=http://127.0.0.1:8000/sources/connectors/reddit/callback` — Reddit matches it exactly, so a backend on
+another address is told so in words — `duration=permanent`, `scope=identity history mysubreddits`); the shared
+callback (nonce-gated; open only while the build carries a client id, `base.signs_in`) exchanges the code at
+`https://www.reddit.com/api/v1/access_token` with Basic `client_id:` (no secret), asks `GET /api/v1/me` for the
+account's name, and keeps the access token, refresh token, expiry, name and `HOW` in `secrets.env` (0600; every name in
+`CONNECTOR_SECRET_ENV`). The hour-long token is renewed the same way two minutes before it lapses; a refused renewal
+marks the connection *Reconnect* in words. A sync reads `GET /user/<name>/saved`, `/user/<name>/upvoted` (each newest
+first to its cursor, ≤ 10 pages of 100) and `/subreddits/mine/subscriber` on `oauth.reddit.com` only. **Disconnect** is
+one click: `POST /api/v1/revoke_token` (the refresh token, Basic `client_id:`), then everything is forgotten. Signing in
+removes the person's own script-app fields and saving those fields removes the sign-in — one way connected at a time.
+`reddit.CLIENT_ID` is blank until the app is registered; until then Connect is not offered and the source page leads
+with the browser.
+
+**Registering Cicada's Reddit app (the owner, once).** (1) Request API access under Reddit's Responsible Builder
+Policy (its help-centre article, support.reddithelp.com "Responsible Builder Policy", links the developer request
+form): a personal, non-commercial memory app
+that reads a signed-in user's own saved items, upvotes and subscriptions, read-only, no data resold or used to train a
+model. (2) Once approved, at `https://www.reddit.com/prefs/apps` → *create another app…*: name *Cicada*, type
+**installed app**, redirect uri `http://127.0.0.1:8000/sources/connectors/reddit/callback`, about url
+`https://cicada.rorosaga.com`. (3) Put the id shown under the app's name (a public value, never a secret) in
+`reddit.CLIENT_ID`. Nothing else ships: an installed app has no secret.
 
 What every tier-2 connection keeps:
 
@@ -423,6 +470,13 @@ when they ask. The session secret lives in `~/.cicada/secrets.env` (0600) or a 0
 in a bank. The connect step says in plain words that Cicada keeps a signed-in session to their account and how to end it
 (Disconnect in Cicada, or Telegram's own Settings → Devices). Off until connected; only ticked chats are read (G179); the
 bot channel (G29, `CICADA_TELEGRAM_BOT_TOKEN`) is unchanged. Built on `feat/telegram-live` (its own PR).
+**Chat images and faces (2026-11-04, G179).** When the person opens a ticked, consented chat, each of its turns'
+attachments is asked of Telegram through the same session (`GET /sources/telegram/chats/{id}/media`, `/media/full`
+for a photo opened large): the chat's peer and the turn's time only (`TelegramPort.around`, then `media_bytes` —
+Telegram's own photo size nearest 320 px, or the photo at most 20 MB), never a name; kept under
+`$CICADA_HOME/telegram/media/<chat>/` (0700/0600) until untick or sign-out, never in a bank, never sent anywhere else.
+Each start and sign-in keeps every ticked chat's profile photo (`Account.keep_photos`; it was asked only at the tick
+before), at most one ask per chat a week.
 
 **The tier-2 framework (`api/services/connectors/tier2.py`, 2026-10-29).** One module behind every token connector
 after Telegram. An adapter is a module in `ADAPTERS` with `TIER = 2`, so its Sources row, `GET/PUT/DELETE

@@ -22,6 +22,26 @@
   open duplicate questions: 1 owner pair, 148 on a conversation not naming both, 20 between people → 4 retired, 16
   left, all 16 cards on a conversation naming both (10 before). **Proposed ruling 54 below waits for the owner:** a
   public handle settled by a web lookup (built behind it, off until the owner rules; 1 of the 20 qualifies).
+- **2026-11-04 — ways in for Spotify, Reddit, Pinterest, TikTok and Instagram (G232; branch `feat/g232-ways-in`).**
+  Owner: "is there no way to do similar to GitHub … offer the website connection through browser harness, just like a
+  toggle switch, and then also the file export". Researched against each service's docs and terms (table in
+  `network.md`, "Ways in, per source"): only Reddit has an official sign-in a desktop app can use with no secret and no
+  server (an installed app); Spotify stays file-only (ruling 47's 2026-10-29 amendment re-checked: its User Guidelines
+  also bar automated access and AI ingestion, so no browser toggle either; Development Mode is 5 users since
+  2026-02-11); Pinterest needs a secret and blocks new apps from personal boards since 2026-09-14; TikTok and Instagram
+  APIs return no saves for a personal account. Built: Connect Reddit (installed app, saved + upvoted + joined
+  communities, revoke on Disconnect), browser lists for Reddit, Pinterest and TikTok (off by default until the app
+  shows their switches — review of #596), Reddit's votes and communities
+  and Spotify's playlists from their downloads, `GET /sources/ways-in` for #593's connect area. **Owner's step:**
+  request Reddit API access (Responsible Builder Policy), register an *installed app* with redirect
+  `http://127.0.0.1:8000/sources/connectors/reddit/callback`, put its id in `reddit.CLIENT_ID` (`network.md`,
+  "Registering Cicada's Reddit app"). **Pick up:** the app side on #593's `SourceConnectArea` (follow-up PR).
+- **2026-11-04 — chat images and Telegram faces (G179; branch `feat/chat-panel-images`).** Owner: "I don't see images appearing when I open the chat inside the app" and "I don't know why the profile pictures don't appear in the chats" (Telegram). Attachments of WhatsApp, Messages and Telegram chats now show as the files in the chat
+  panel and the Reader, resolved by the app at view time for ticked chats only (Telegram's through the backend's
+  own connection), thumbnails outside every bank, gone on untick; nothing new is stored in the bank, so chats
+  already synced show their pictures as they are. Telegram's root cause: a ticked chat's photo was asked only in
+  the tick's own request, never again — now on every start and sign-in. **Owner's check:** open the own WhatsApp
+  chat on the Sources page; on Telegram, restart the backend once so the photos are asked.
 - **2026-11-04 — New project is a page; an empty Projects list says nothing (G222; branch `feat/projects-new-page`).** Owner: "remove the text that appears when no projects" and "more like claude desktop app, and not two input text lines". New project opens as the detail column: the name as the H1, a large editor for the person's own paragraphs (kept as written, ≤ 4,000 characters, the page's lead; Sleep never writes it), and a picker over every page in memory by kind with each page's picture or its source's mark. Create is one `POST /projects` with `pages` (checked first, one person commit; a repository joins `repositories:` under ruling 53); `POST /projects/{id}/pages` routes a repository the same way, and the day the person started a project counts as activity, so a new one sits in Current. Verified on a scratch app (light and dark). **For the owner:** the live install suggests 750 projects; by construction that is every project page with no `mine` mark (the ~700 pre-D4 pages, `whyKind: none`) plus fallback concepts and repository births — whether legacy `none` pages are suggested at all is a ruling-45 call (G222's row).
 - **2026-11-04 — Claude chats: the export picked up from Downloads, and a weekly nudge (G197 layer c, G105; branch
   `claude-desktop-capture`).** Owner: "I don't see conversations I have on Claude chats or claude.ai being captured."
@@ -3013,15 +3033,20 @@ A whole row moves to DONE only after its remaining implementation and required a
     repository, a tab group). What is sent: to the plan's own web search, exactly two pinned queries, each alone — the
     handle with the one platform word the record links it on (or "@handle"), and the full name; the prompt goes to the
     engine that already read those conversations, with at most two scrubbed mention lines and nobody else's name. What
-    settles: only a public page whose quoted words name both the handle and the person, checked by Cicada, never on the
-    model's word; it writes one cited "<Name> goes by <handle>" claim on the named page and never merges the pages.
+    settles: only a quote, with the link of the public page it came from, that names both the handle and the person.
+    Cicada itself checks that the quote names both, never on the model's word; whether the quote is really on the cited
+    page rests on the lookup, as in ruling 27. It writes one cited "<Name> goes by <handle>" claim on the named page and
+    never merges the pages.
     Never a metered key; a private person's name never reaches any service.* **Built behind it** (`public_handle`,
     `web_lookup`'s handle prompt, `cicada_record_check` with `proposed_value="same"`). **Off until the owner rules**
     (coordinator, 2026-11-04: a privacy-rail change is built switched off and decided by the owner): Sleep's own lookup
     runs only with `CICADA_PUBLIC_HANDLE_LOOKUP=on`; meanwhile only the person's own local agent, asked by them, may
     settle one through `cicada_record_check`. A "yes" flips the default; declining this text removes the path.
     **Measured** on a copy of the owner's bank: of 20 open person pairs, 1 qualifies (the example above); 11 are not a
-    handle against a name, 1 is a held mention, 1 the owner's page. One real lookup on the plan (haiku): exactly the two
-    pinned searches, answer "not sure", nothing written; the shipped lookup tier (`web_check_agent_model`, sonnet) was
-    not run under the worker's haiku-only rule. **Revisit** if a settled handle is undone by the person, or a name the
+    handle against a name, 1 is a held mention, 1 the owner's page. **Disclosed deviation (2026-11-04):** while building
+    this, the worker ran real lookups for that one pair on the bank copy, on the plan with haiku: four calls, each
+    searching the full name alone and the handle (`<handle> twitter` twice, `@<handle>`, `<handle> github`). Each
+    answered "not sure" and nothing was written. That sent a real person's full name to the plan's web
+    search before the owner ruled on this text, which ruling 44 forbids for a person without its encyclopedia match.
+    No more lookups were run; the shipped tier (`web_check_agent_model`, sonnet) never was. **Revisit** if a settled handle is undone by the person, or a name the
     test called public turns out to be someone they know.
