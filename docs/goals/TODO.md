@@ -19,6 +19,17 @@
   value.** **Pick up here:** the owner's "remove any sensitive data" is applied with `scripts/sensitive_removal.py`:
   read its dry run, then `--apply`. It removes from memory only: a password stays in the Notes app or chat that holds it,
   and any real one among these should be changed, because what an engine read cannot be unread.
+- **2026-11-04 — the Contacts page shows every card (G154, G161; branch `g154-contacts-grid`, PR #602).** Owner: "only 6
+  contacts synced". Coordinator's numbers: 370 cards waiting, 6 matched, and the page listed the 6; one-part names were
+  kept nowhere (196 + 139 raw records across two account sources, which overlap). `contacts_book` keeps every card's names
+  and thumbnail for the grid alone; ruling 33's match rules are untouched. Thumbnails: few is true of the book, at most
+  6 of 969 raw records (count-only query of the store files; size and format not measured, because no shell here has a
+  Contacts grant). The grid reads it: a card with a page opens it, the rest are quiet discs that are not controls.
+  Review of #602 caught the page going blank for someone already connected (no sync due, so no book posted): the book's
+  own state now decides when it is posted, and the page draws a skeleton while it is on its way.
+  Detail: `capture-and-sleep.md`, `app.md`. **Known residue:** `UserDefaults(suiteName:)` in Swift tests lands in the real
+  `~/Library/Preferences` whatever `HOME` says (cfprefsd ignores it): 5,621 `contacts-<uuid>.plist` files since 2026-09-24,
+  test values only. These two suites now empty theirs, leaving a 42-byte file; the class is not fixed.
 - **2026-11-04 — three owner reports: a tool inside its app, a plan that is back, one inbox (G50, ROR-52, ROR-96, ROR-46;
   branch `fix/g50-bundled-tool-detection`).** OpenCode.app's `opencode-cli` is found; an app without the tool Sleep needs
   says *Not ready* and the line to run, on the cards and in Auto's skip sentence (`Status.not_ready`). The real bundled
