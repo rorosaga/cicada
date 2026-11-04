@@ -2012,6 +2012,13 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   checkouts, `GET /entities/{id}/repositories` — each repository it lists with *Open* (its page; *Unlink* in the row's
   context menu) and *Link a repository* (the person's own first, one with the project's name before the rest). Drawn
   only when there is one to show or to link.
+- **What may be sensitive (G235, ruling 60):** `InboxKind.sensitive` is a top card (`SensitiveReviewCard`, DR-37, DR-9,
+  DR-40, DR-54): the server's title, one line of what Remove does and what it cannot, then a row per conversation, its title
+  opening the Reader, "A password held back from <their engine> · Nov 4" under it, *Remove* (neutral, asks once in one line) and *Leave it* (text),
+  answered optimistically; past three rows *All N* opens a sheet. A last line says how many conversations had what looked
+  like a key or code replaced. A run's card says "N conversations may hold…" with *Review* outside its own button, and a
+  run's detail says how many had something replaced. Naming the engine here is the person's own choice shown back, the one
+  exception this feature exists for.
 - **Inbox top cards (G205, G61):** `agent_request` (`InboxKind.agentRequest`) and the grouped *Confirm N links* review
   (`asks: sources`, `review: true`) are cards above the questions, out of the list, its tabs and the quick review
   (`InboxViewModel.questions`). A request: the agent's tile, *Sign in to <site>*, whose and why, **I signed in**

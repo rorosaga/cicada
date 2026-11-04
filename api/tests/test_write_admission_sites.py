@@ -373,6 +373,7 @@ REMOTE = "remote: runs one remote tool through RemoteRuntime.call, which takes a
 ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /ask": (NONE, None),
     "POST /inbox/{item_id}/resolve": (ADMITTED, "api.services.inbox_service.resolve"),
+    "POST /sensitive/remove": (ADMITTED, None),   # G235: the person's Remove, run_admitted in the route itself
     # Ruling 48 (8): the catch-up chat's turn reads and calls the engine, writing nothing (its answer is applied
     # through /resolve above); its record is one source-keyed episode per session (capture-shaped, never a page).
     "POST /inbox/catchup/turn": (NONE, None),

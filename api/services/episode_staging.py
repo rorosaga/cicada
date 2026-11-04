@@ -71,7 +71,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Iterable
 
-from api.services import agent_turns, bank_index, episode_ids, episode_scrub, evidence, history_index, markdown_parser, turn_extras
+from api.services import (agent_turns, bank_index, episode_ids, episode_scrub, evidence, history_index, markdown_parser,
+                          sensitive_flags, turn_extras)
 
 #: Keys of one ``turns`` sidecar entry (R-PB4) — the coordination contract, exactly.
 #: Round 4 C1 adds ``model``/``effort``: written on an agent turn only, only when the
@@ -920,6 +921,12 @@ def mark_removed(path: Path, at: str | None) -> bool:
         return True
 
 
+def keep_turns_last(fm: dict) -> None:
+    """R-PB4: the sidecar stays the last key, for a writer that just added one (G235's record)."""
+    if "turns" in fm:
+        fm["turns"] = fm.pop("turns")
+
+
 @_under_episode_lock
 def _tombstone(path: Path, at: str) -> None:
     parsed = markdown_parser.parse(path)
@@ -994,6 +1001,10 @@ def _stage_locked(drafts: list[EpisodeDraft], episodes_dir: Path, *,
     relays: dict[tuple[str, str], list[IndexEntry]] | None = None
     for draft in drafts:
         writer = draft.writer
+        # G235: the person took text out of this conversation; a source sending it again never brings it back.
+        known = index.get(draft.source_id) if draft.source_id else None
+        if known is not None and sensitive_flags.removed_kinds(known.fm):
+            draft = sensitive_flags.reapply_draft(draft, known.fm)
         body, stamps, n = render(draft)
         result.scrubbed += n
         digest = content_hash(body)

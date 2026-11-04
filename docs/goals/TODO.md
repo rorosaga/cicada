@@ -20,6 +20,13 @@
   nudge and Downloads pickup are gone; it never reached a release. claude.ai on web and phone and ChatGPT reach the
   relay only through a public address: ruling 59's one click, whose first real run is the owner's. A chat that goes on after its import keeps its later turns, marked as relayed, in the same episode
   (ruling 58, amended the same day).
+- **2026-11-04 — what may be sensitive: held back or reported, one review, Remove (G235, ROR-94, ruling 60; branch
+  `g235-sensitive-flags`, PR #611).** Owner: "surface anything that may be sensitive… so the person knows if it passed
+  through a provider"; "Yes hold them back"; "remove any sensitive data". Numbers, measured kinds and what stays open are
+  on the row. Real bank: 16 conversations of 9,478 hold a hit; **precision on real data is unknown, since nobody read a
+  value.** **Pick up here:** the owner's "remove any sensitive data" is applied with `scripts/sensitive_removal.py`:
+  read its dry run, then `--apply --plan <its stamp>`. It commits the older version first, then removes from memory only: a password stays in the Notes app or chat that holds it,
+  and any real one among these should be changed, because what an engine read cannot be unread.
 - **2026-11-04 — a save with no reason gets a lean pass; a batch is bounded by what it holds (ruling 62, G236; branch
   `feat/g236-lean-pass`).** Owner: "a leaner initial pass … on those things who have no reason/user intent attached, but
   enough info so that it can come up in a relevant conversation and an agent can look further into it." A bare save is
@@ -3371,3 +3378,20 @@ A whole row moves to DONE only after its remaining implementation and required a
     switch never touches Tailscale"); a down listener's port is asked, never assumed free; other public mappings are shown
     with their off to copy and never run, since Cicada keeps no record of what it opened; a clean quit still leaves it open,
     because only a click may reopen it (`network.md`).
+60. **A confident sensitive hit is held back from the engine; an unsure one is reported (owner 2026-11-04, G235).** Asked
+    "hold back confident hits and only report unsure ones", the owner: "Yes hold them back." Before any engine read,
+    `sensitive_text` finds likely credentials, card and bank numbers and ID numbers with no model. Confident
+    (`Hit.sure`: a number that passed its own checksum, a vendor shape, a value in a connection URL or a secret's env line,
+    a password with letters and digits together, digits someone claimed; a weak word like "clave" or "pass" only with the
+    system it belongs to): every engine Cicada runs, on every job, reads a
+    typed mark wherever that value stands (one door, `sensitive_hold`, Ask's own model included); the stored body and every
+    offset stay. An agent the person talks to reads the record as stored until they remove it: their own agent, on their own
+    ask. Unsure (letters only, digits no one claimed, an account or ID number nothing can check): read,
+    and the person is told. No setting. Either way the value is taken back out of what the model answered, and a flag never
+    repeats it, nor a hash of it. **Why not hold back everything:** a held-back wrong alarm costs a word the record may
+    need, and the detector's precision on real data is unmeasured; unsure is where that risk sits. The owner also ruled that
+    git history stays as it is, since it is local only. **A wrong alarm never rewrites something unrelated:** only a confident,
+    distinctive value rare in the bank (three other conversations, six other files) leaves more than its own conversation
+    and the lines speaking of a secret in what cites it, and a token more than a few conversations hold is not masked by value
+    at the door. **Revisit** on the Remove and Leave it answers (G113): if Leave it
+    dominates a confident class, that class moves to unsure.

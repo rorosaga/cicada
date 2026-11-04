@@ -14,7 +14,8 @@ from tqdm import tqdm
 
 from api.config import Settings
 from api.services import (act_object, authorship, contact_identity, turn_signals, correspondents, decay_policy, engine_errors, entity_types, episode_time,
-                          episode_revision, evidence, fact_policy, participation, project_birth, promotion, section_provenance, source_dates)
+                          episode_revision, evidence, fact_policy, participation, project_birth, promotion, section_provenance,
+                          sensitive_flags, source_dates)
 from api.services.json_parse import parse_json_object
 
 EXTRACTION_SYSTEM_PROMPT = """You are an entity extraction system for a personal knowledge graph.
@@ -808,6 +809,7 @@ async def extract(
     on_episode_read: Callable[[dict], None] | None = None,
     on_episode_failed: Callable[[dict, BaseException], None] | None = None,
     on_episode_skipped: Callable[[dict], None] | None = None,
+    on_sensitive: Callable[[dict, dict, str | None, dict], None] | None = None,
     stop_check: Callable[[], bool] | None = None,
     today: date | None = None,
     stage: str = "extraction",
@@ -965,7 +967,10 @@ async def extract(
         # G110 gate B2: blank the episode's own gap range on the WHOLE body, then slice.
         gaps = tuple(episode.get("gaps") or ())
         masked = evidence.mask_gaps(content, gaps)
-        chunks = [masked[s:e] for s, e in spans]
+        # G235: what these windows hold that is likely sensitive, found with no model before any is sent. Ruling 60: the
+        # engine reads a typed mark where a confident hit was; the stored body and every offset stay as they are.
+        guard = sensitive_flags.Guard.of(episode, spans)
+        chunks = [guard.chunk(masked, s, e) for s, e in spans]
         # G194 A1: every chunk is told when the conversation took place and what day it is now.
         ep_day = source_dates.episode_day(episode)
         # "Facts yes, activity no" (owner 2026-10-08): a memory export entry's date is the summary's, not a
@@ -1012,6 +1017,8 @@ async def extract(
                 return
             if on_episode_started is not None:
                 on_episode_started(episode)
+            if guard.hits and on_sensitive is not None:
+                on_sensitive(episode, guard.kinds(), _engine, guard.held())   # before the send: the record outlives a crash
             try:
                 # Extract from all chunks and merge results
                 all_entities = []
@@ -1069,6 +1076,9 @@ async def extract(
                         revision, all_entities, all_relationships, all_values)
                     if left:
                         logger.info(f"  {ep_id}: revision — {left} item(s) from unchanged lines left as first read")
+                # G235: a value is taken back out of what the model answered, whatever it was shown; a page never
+                # repeats it. After the spans above: a quote is consumed there and never stored.
+                all_entities, all_relationships, all_values = guard.clean(all_entities, all_relationships, all_values)
                 # What the model was given counts as said: the conversation, the owner's name and the source note.
                 given = "\n".join(t for t in (masked, owner or "", source_note or "") if t)
                 if plan_ids and engine_identity.scrub_extraction(all_entities, all_relationships, all_values,

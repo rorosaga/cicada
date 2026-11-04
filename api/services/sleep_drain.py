@@ -153,6 +153,10 @@ class DrainState:
     #: ``OFFLINE_CAUSES`` value, else ``None``); ``offline_waits`` counts the waits this leg took.
     waiting: str | None = None
     offline_waits: int = 0
+    #: G235: this leg's conversations an engine read holding something likely sensitive (id -> kinds), and the ones
+    #: holding something already replaced. Folded into the run's summary; never a word.
+    sensitive: dict[str, list[str]] = field(default_factory=dict)
+    replaced_ids: set[str] = field(default_factory=set)
     engine_label: str | None = None                       # the engine the run resolved once, and its model
     engine_model: str | None = None
     engine_shown: str | None = None                       # its model as the Sleep page shows one (`engine_select.shown_model`)

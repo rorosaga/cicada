@@ -222,6 +222,7 @@ ROUTES: dict[str, str] = {
     "POST /inbox/tidy/apply": FORWARD,
     "POST /inbox/web-check": FORWARD,
     "POST /inbox/{item_id}/resolve": FORWARD,
+    "POST /sensitive/remove": FORWARD,
     "POST /intake/import": FORWARD,
     "POST /nudges/{nudge_id}/resolve": FORWARD,
     "POST /projects": FORWARD,
