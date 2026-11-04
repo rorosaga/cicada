@@ -870,7 +870,7 @@ async def extract(
     from api.services import application_page as _application_page
 
     on_record = _application_page.standing(getattr(settings, "memory_path", None))
-    plan_name = engine_select.PLAN_NAMES.get(_engine, "Claude plan")
+    plan_name = engine_select.PLAN_NAMES.get(_engine, "The API key")
     from api.services import cli_engines
 
     _cli_spec = cli_engines.spec_for(_engine)

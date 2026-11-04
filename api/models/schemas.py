@@ -3938,6 +3938,8 @@ class ModelCatalogue(CamelModel):
 class SleepEngineModelPrice(CamelModel):
     input_per_million_usd: Optional[float] = None
     output_per_million_usd: Optional[float] = None
+    # Ruling 12: where the figure comes from, when Cicada keeps it itself (G237); none = the installed LiteLLM's table.
+    basis: Optional[str] = None
 
 
 class SleepEngineUsage(CamelModel):

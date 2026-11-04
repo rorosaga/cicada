@@ -886,8 +886,10 @@ def _stage1_failure_message(engine: str, engine_detail: str | None = None, *,
     if breaker:
         n = _state.episodes_total
         # R-E22: name the plan that actually ran — the breaker is shared by
-        # both plan engines (R-E19).
-        plan = engine_select.PLAN_NAMES.get(engine, "Claude plan")
+        # both plan engines (R-E19). G237: a key's limit is the key's; its sentence says so, no plan named.
+        plan = engine_select.PLAN_NAMES.get(engine)
+        if plan is None:
+            return f"Stopped cleanly, {n} episode(s) left queued. {breaker}"
         return f"{plan} throttled — stopped cleanly, {n} episode(s) left queued. ({breaker})"
     if engine == "claude-cli":
         return (
@@ -2954,6 +2956,15 @@ async def _run_stages(
         if guard is not None:
             # The reserve line, read from the snapshot this pre-flight already took (no second probe).
             guard.observe_snapshot(codex_engine.last_snapshot())
+    elif engine_select.claude_key_model(settings):
+        # G237: a run on a Claude key reads the key's model list when the last answer is over a day old (a read that
+        # bills nothing, 6 s at most; a failure waits a day), and says when a retired id moved forward.
+        from api.services import anthropic_models
+
+        await asyncio.to_thread(anthropic_models.refresh_if_stale)
+        moved = anthropic_models.forwarded_sentence(engine_select.claude_key_model(settings))
+        if moved:
+            _state.engine_detail = engine_select.run_detail(engine_why, moved)
     elif _state.last_engine in engine_select.CLI_ENGINE_LABELS:
         # G49/G50: the person's own Cursor, OpenCode or Grok — installed, signed in, the saved model still offered
         # and on a plan, all BEFORE the first spawn; a refusal names the exact command or choice that fixes it.
@@ -4177,6 +4188,9 @@ async def _finalize(
         disambig = (settings.litellm_disambiguation_model or "").strip()
         if disambig and disambig not in resolved_authors:
             resolved_authors.append(disambig)
+    from api.services import direct_engines
+
+    engine = direct_engines.trailer_engine(engine, resolved_authors) or engine
 
     message = git_service.build_commit_message(
         f"Sleep cycle {date_str}{subject_suffix}", body_lines, authors=resolved_authors,

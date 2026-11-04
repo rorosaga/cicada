@@ -52,3 +52,13 @@ def for_model(model: str | None) -> DirectEngine | None:
 def engine_label(model: str | None) -> str | None:
     engine = for_model(model)
     return engine.label if engine else None
+
+
+def trailer_engine(engine: str | None, authors: list[str] | None) -> str | None:
+    """The engine a commit names. ``litellm`` is the wire's word for any key; a commit's ``Cicada-Engine`` says what
+    actually served it, so a key whose every model went through a provider's own SDK names that SDK. Mixed or unknown
+    authors keep what they had: omitted or general rather than guessed."""
+    if engine != "litellm":
+        return engine
+    labels = {engine_label(a) for a in (authors or []) if a}
+    return labels.pop() if len(labels) == 1 and None not in labels else engine

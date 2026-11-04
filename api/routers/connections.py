@@ -137,6 +137,11 @@ async def set_key(connection_id: str, body: KeyBody, reg: Registry = Depends(_re
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     reg.invalidate()
+    if adapter.provider == "anthropic":
+        # G237: what this key can use, for the engine's card. A read that bills nothing, off this request.
+        from api.services import anthropic_models
+
+        anthropic_models.refresh_in_background()
     return await reg.status_with_powers(connection_id, fresh=True)
 
 

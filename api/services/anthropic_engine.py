@@ -70,7 +70,7 @@ def _build_client(key: str):
     return anthropic.Anthropic(api_key=key, base_url=BASE_URL, max_retries=MAX_RETRIES)
 
 
-def make_client(*, timeout: float | None = None, max_retries: int = MAX_RETRIES):
+def make_client(*, timeout: float | None = None, max_retries: int | None = None):
     """The SDK client for the key in the environment, one per key, reused for its connection pool. Raises
     ``EngineUnavailable`` with no key or no SDK, in words. The cache is keyed by the key's hash, never the key."""
     key = (os.environ.get(anthropic_models.KEY_ENV) or "").strip()
@@ -89,7 +89,7 @@ def make_client(*, timeout: float | None = None, max_retries: int = MAX_RETRIES)
             _clients.clear()   # a changed key never keeps the old one's client
             client = built
             _clients[slot] = client
-    return client.with_options(max_retries=max_retries,
+    return client.with_options(max_retries=MAX_RETRIES if max_retries is None else max_retries,
                                **({"timeout": timeout} if timeout is not None else {}))
 
 

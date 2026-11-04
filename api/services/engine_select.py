@@ -156,6 +156,16 @@ def no_engine_sentence(why: str | None) -> str:
             "is still waiting." + (f" {notes}" if notes else ""))
 
 
+def claude_key_model(settings) -> str | None:
+    """The model a resolved copy reads with when that is a Claude key (G237), else ``None``. Stand-ins read as none."""
+    if engine_label(settings) != "litellm":
+        return None
+    from api.services import anthropic_models
+
+    model = str(getattr(settings, "litellm_model", "") or "")
+    return model if anthropic_models.is_claude(model) else None
+
+
 def shown_model(settings) -> str:
     """The model a resolved engine is shown running — the Sleep page's engine line and a run's pinned pair
     (``DrainState.engine_shown``), one rule so the two compare. Unlike :func:`author_model` (provenance), a
@@ -445,6 +455,30 @@ def _model_overrides(registry, mode: str) -> dict:
             updates["litellm_disambiguation_model"] = disambiguation
         return updates
     return {}
+
+
+def _one_provider_key(settings, updates: dict) -> dict:
+    """G237: a key reads every stage on its own provider. A model pinned for one stage in the environment, or the
+    shipped judge default, belongs to another provider's key the person may not hold: the merges and the judge would
+    fail, or bill a key they did not choose for this. What the person set on purpose for the judge stays."""
+    from api.services import anthropic_models
+    from api.services.connections import byok
+
+    main = str(updates.get("litellm_model") or getattr(settings, "litellm_model", "") or "")
+    if not main:
+        return {}
+    provider = byok.provider_for_model(main)
+    out: dict = {}
+    consolidation = str(getattr(settings, "consolidation_model", "") or "").strip()
+    if consolidation and "litellm_model" in updates and byok.provider_for_model(consolidation) != provider:
+        out["consolidation_model"] = ""
+    if anthropic_models.is_claude(main):
+        judge = str(updates.get("litellm_disambiguation_model") or getattr(settings, "litellm_disambiguation_model", "")
+                    or "").strip()
+        pinned = "litellm_disambiguation_model" in getattr(settings, "model_fields_set", ())
+        if judge and byok.provider_for_model(judge) != provider and not pinned:
+            out["litellm_disambiguation_model"] = anthropic_models.default_model()
+    return out
 
 
 def _prefs_allow_overage(registry) -> bool:
@@ -863,6 +897,8 @@ async def resolve_settings(
         updates.update(_model_overrides(registry, mode))
         if _prefs_allow_overage(registry):
             updates["agent_allow_overage"] = True
+    if mode == "byok":
+        updates.update(_one_provider_key(settings, updates))
     if mode == "cursor":
         # Ruling 46a holds whatever set the mode — the app's choice or a `CICADA_LLM_MODE` pin (a headless server's
         # .env): Cursor counts as chosen only when the operator pinned `cursor` itself, or the person picked it.

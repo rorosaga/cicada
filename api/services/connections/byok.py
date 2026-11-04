@@ -42,7 +42,9 @@ class Provider:
 # Card order on Plans & keys: the four that shipped first keep their places.
 PROVIDERS: tuple[Provider, ...] = (
     Provider("openai", "OpenAI", "OPENAI_API_KEY", "gpt-5.4-mini", "https://platform.openai.com/api-keys"),
-    Provider("anthropic", "Anthropic", "ANTHROPIC_API_KEY", "anthropic/claude-haiku-4-5",
+    # G237: the small tier the plan's `haiku` means today. `anthropic_models.default_model` follows the key's own list;
+    # this is the floor with no key yet.
+    Provider("anthropic", "Anthropic", "ANTHROPIC_API_KEY", "anthropic/claude-haiku-5-5",
              "https://console.anthropic.com/settings/keys"),
     Provider("openrouter", "OpenRouter", "OPENROUTER_API_KEY", "openrouter/openai/gpt-oss-120b",
              "https://openrouter.ai/settings/keys"),

@@ -36,8 +36,8 @@ from api.models.schemas import (
     SleepReserveStatus,
     SleepReserveWindow,
 )
-from api.services import (agent_engine, cli_engines, codex_app_server, codex_engine, cycle_usage, engine_select,
-                          model_catalogue, telemetry)
+from api.services import (agent_engine, anthropic_models, cli_engines, codex_app_server, codex_engine, cycle_usage,
+                          engine_select, model_catalogue, price_supplement, telemetry)
 from api.services.connections import byok, secrets
 from api.services.connections import registry as registry_module
 
@@ -190,7 +190,13 @@ async def _candidates(settings: Settings, reg, *, mode: str, model: str | None) 
     key_models: list[str] = []
     if selected_card(mode, model) == "openrouter" or (settings.litellm_model or "").startswith("openrouter/"):
         with_key = [p for p in byok.PICKER if secrets.has_secret(p.env)]
-        key_models = [(with_key or list(byok.PICKER))[0].default_model]
+        key_models = [_provider_default((with_key or list(byok.PICKER))[0])]
+    # G237: a chosen Claude key lists what that key can use (the saved model first, so a tap keeps it), read from the
+    # key's own list, the documented floor before one. No read here: a list is read on a click, a save or a run.
+    claude_model = model if mode == "byok" and anthropic_models.is_claude(model) else None
+    claude_catalogue = None
+    if claude_model:
+        key_models, claude_catalogue = anthropic_models.card(claude_model)
 
     cards = [
         SleepEngineCandidate(
@@ -248,12 +254,21 @@ async def _candidates(settings: Settings, reg, *, mode: str, model: str | None) 
         ))
     _attach_catalogues(cards, agent_catalogue=agent_catalogue, snap=snap, configured_codex=configured_codex,
                        ollama_models=ollama_models, cli_statuses=dict(zip(cli_engines.SPECS, statuses_cli)),
-                       mode=mode, model=model)
+                       mode=mode, model=model, claude_catalogue=claude_catalogue)
     key_model = (model if mode == "byok" and model and selected_card(mode, model) != "openrouter" else None) \
         or (key_models[0] if key_models else None) or settings.litellm_model
     await _attach_usage(cards, snap, or_models=or_models, key_model=key_model,
-                        bank=telemetry.bank_name(settings))
+                        bank=telemetry.bank_name(settings), key_models=key_models if claude_model else None)
+    if claude_model:
+        card = next(c for c in cards if c.id == "byok")
+        card.model_note = anthropic_models.forwarded_sentence(claude_model)
     return cards
+
+
+def _provider_default(provider) -> str:
+    """The model a provider's key starts on: for Claude, the small tier of the key's own list (G237), the table's
+    default for every other provider."""
+    return anthropic_models.default_model() if provider.id == "anthropic" else provider.default_model
 
 
 async def refresh_models(settings: Settings, card_id: str) -> bool:
@@ -271,11 +286,15 @@ async def refresh_models(settings: Settings, card_id: str) -> bool:
         return True
     if card_id == "local":
         return True   # Ollama's tags are read live on every GET already
+    if card_id == "byok" and secrets.has_secret(anthropic_models.KEY_ENV):
+        # G237: the one key card with a list of its own: a read that bills nothing, on the person's click.
+        await asyncio.to_thread(anthropic_models.refresh)
+        return True
     return False
 
 
 def _attach_catalogues(cards, *, agent_catalogue: dict, snap, configured_codex: str, ollama_models: list[str],
-                       cli_statuses: dict, mode: str, model: str | None) -> None:
+                       cli_statuses: dict, mode: str, model: str | None, claude_catalogue: dict | None = None) -> None:
     """Vision item 4: each card's ``models`` described — where each came from and when — from the reads this request
     already made (no probe of its own). The key cards list one default, said as ``default``."""
     import time as _time
@@ -294,6 +313,9 @@ def _attach_catalogues(cards, *, agent_catalogue: dict, snap, configured_codex: 
             source="ollama tags", saved=model if mode == "local" else None))
     for card_id in ("openrouter", "byok"):
         if (c := by_id.get(card_id)) is not None:
+            if card_id == "byok" and claude_catalogue is not None:
+                c.catalogue = ModelCatalogue(**claude_catalogue)
+                continue
             c.catalogue = ModelCatalogue(**model_catalogue.catalogue(
                 "litellm", [(m, "default") for m in c.models], as_of=None, source="default"))
     for spec_mode, st in cli_statuses.items():
@@ -324,17 +346,19 @@ def _plan_window_usage(snap) -> SleepEngineUsage | None:
                             resets_at=resets, as_of=snap.as_of, source="codex-snapshot")
 
 
-async def _attach_usage(cards, snap, *, or_models: list[str], key_model: str, bank: str | None = None) -> None:
+async def _attach_usage(cards, snap, *, or_models: list[str], key_model: str, bank: str | None = None,
+                        key_models: list[str] | None = None) -> None:
     """Fill each card's caption source. The ledger read and litellm's price
     table are off the event loop (the table's import is slow and cached)."""
     by_id = {c.id: c for c in cards}
     last = await asyncio.to_thread(cycle_usage.last_cycles, None, bank)
-    wanted = list(dict.fromkeys([*or_models, key_model]))
+    wanted = list(dict.fromkeys([*or_models, key_model, *(key_models or [])]))
     prices = await asyncio.to_thread(lambda: {m: cycle_usage.list_price_per_million(m) for m in wanted})
 
     def _price(m: str) -> SleepEngineModelPrice:
         i, o = prices[m]
-        return SleepEngineModelPrice(input_per_million_usd=i, output_per_million_usd=o)
+        return SleepEngineModelPrice(input_per_million_usd=i, output_per_million_usd=o,
+                                     basis=price_supplement.price_basis(m))
 
     if (c := by_id.get("codex")) is not None:
         c.usage = _plan_window_usage(snap)
@@ -353,7 +377,7 @@ async def _attach_usage(cards, snap, *, or_models: list[str], key_model: str, ba
         c.usage.last_run_share = list(run.get("share") or [])
         c.usage.last_run_equiv_usd = run.get("equiv_usd")
     for card_id, model_id, models in (("openrouter", or_models[0] if or_models else None, or_models),
-                                      ("byok", key_model, [key_model])):
+                                      ("byok", key_model, key_models or [key_model])):
         card = by_id.get(card_id)
         if card is None or not model_id:
             continue
@@ -464,7 +488,7 @@ async def build_response(settings: Settings, reg) -> SleepEngineResponse:
     # R-AG11: the picker — ids, names and key PRESENCE only, never a value.
     providers = [
         SleepEngineProvider(id=p.id, label=p.brand, connection_id=p.connection_id,
-                            has_key=secrets.has_secret(p.env), default_model=p.default_model,
+                            has_key=secrets.has_secret(p.env), default_model=_provider_default(p),
                             key_url=p.key_url)
         for p in byok.PICKER
     ]
@@ -557,4 +581,6 @@ def validate_and_write(body: SleepEngineChoice, reg) -> None:
     # is an OpenAI model and cannot run on an Anthropic, Groq or OpenRouter key.
     if (body.mode == "byok" and "model" in body.model_fields_set and body.model
             and "disambiguation_model" not in body.model_fields_set):
-        reg.set_pref(PREF_KEY, "disambiguation_model", body.model)
+        # G237: on a Claude key the judge is the small tier, as on the plan, whatever the main model is.
+        judge = anthropic_models.default_model() if anthropic_models.is_claude(body.model) else body.model
+        reg.set_pref(PREF_KEY, "disambiguation_model", judge)
