@@ -563,11 +563,14 @@ def _stamp(memory_path: Path) -> tuple:
     out: list[int] = []
     folder = people_directory.folder(Path(memory_path).name)
     paths = [Path(memory_path) / "episodes", Path(memory_path) / "entities", folder]
-    if folder.is_dir():
-        paths += sorted(folder.iterdir())
-        book = folder / CONTACTS_BOOK_DIR
-        if book.is_dir():
-            paths += sorted(book.iterdir())
+    try:
+        if folder.is_dir():
+            paths += sorted(folder.iterdir())
+            book = folder / CONTACTS_BOOK_DIR
+            if book.is_dir():
+                paths += sorted(book.iterdir())
+    except OSError as exc:
+        raise GuardUnreadable(type(exc).__name__) from exc
     for path in paths:
         try:
             out.append(path.stat().st_mtime_ns)
