@@ -220,7 +220,7 @@ def test_every_refusal_is_a_class_above_understands_and_says_nothing_of_the_prov
 
 
 def test_a_429_trips_the_breaker_once_and_every_later_call_fails_before_anything_is_sent(monkeypatch):
-    stub = StubAnthropic(fail=[(429, error_body("rate_limit_error", "slow down"), {"retry-after": "30"})])
+    stub = StubAnthropic(fail=[(429, error_body("rate_limit_error", "slow down"), {"retry-after": "600"})])
     stub.install(monkeypatch)
     events: list[telemetry.UsageEvent] = []
     fn = _fn(events)

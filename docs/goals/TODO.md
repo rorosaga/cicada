@@ -12,6 +12,13 @@
 
 ## Current state and evidence
 
+- **2026-11-04 — Sleep on a Claude key through the official SDK (G237, ruling 63; branch `g237-claude-key-parity`).** Owner:
+  "having cicada work the same or as good as through Claude code is crucial and priority." The audit found a Claude key
+  could not have run Sleep through LiteLLM at all. `anthropic_engine` serves it now, with `direct_engines` as the seam the
+  next provider's SDK slots into. Caching, the key's own model list, tiers, retired ids moved forward in words, prices with
+  their basis, a 429 as a pause. Proved on stand-ins at the HTTP layer, the real SDK in between; the plan leg ran for real
+  on Haiku 5.5. **Pick up here:** the owner enters a key and runs G237's one command (a cap of 40,000 uncached tokens,
+  expected about $0.02). Nothing has reached the real API yet. **The owner decides:** the spend guard, the plan-only steps.
 - **2026-11-04 — three owner reports: a tool inside its app, a plan that is back, one inbox (G50, ROR-52, ROR-96, ROR-46;
   branch `fix/g50-bundled-tool-detection`).** OpenCode.app's `opencode-cli` is found; an app without the tool Sleep needs
   says *Not ready* and the line to run, on the cards and in Auto's skip sentence (`Status.not_ready`). The real bundled
@@ -3097,3 +3104,37 @@ A whole row moves to DONE only after its remaining implementation and required a
     search before the owner ruled on this text, which ruling 44 forbids for a person without its encyclopedia match.
     No more lookups were run; the shipped tier (`web_check_agent_model`, sonnet) never was. **Revisit** if a settled handle is undone by the person, or a name the
     test called public turns out to be someone they know.
+63. **A Claude key is served by Anthropic's own SDK, and the next provider's SDK slots in the same way (owner, 2026-11-04;
+    G237; amends the G50 note that every key goes through LiteLLM).** Owner: "Well having cicada work the same or as good
+    as through Claude code is crucial and priority." And: "have all official sdk's integrated where possible." **The
+    finding that decided it:** with a stub client on LiteLLM 1.83.4, a Claude key could not have run Sleep. `extra_body`
+    reached the API as a literal top-level field on every extraction and judge call (the API refuses unknown fields),
+    `response_format` was dropped, every model its table does not list got `max_tokens: 4096` while thinking counts
+    toward it, `temperature` went out (a 400 on current models), no `cache_control` was ever sent, and no current model
+    had a price. **What is binding:**
+    (a) `direct_engines` is the seam: a key whose provider has a row there is served by that provider's own SDK, behind
+    the plan's own semaphore, breaker, drain retry and ledger, and raises only `engine_errors`. Every other key stays on
+    LiteLLM. `openrouter/anthropic/…` is OpenRouter's. The wire's engine id stays `litellm` (to the app it means "the API
+    key engine"); the ledger and `Cicada-Engine` say `anthropic-api`.
+    (b) Caching: one breakpoint at the end of the system prompt, 1-hour TTL, the first call on a prefix goes first. All
+    three are measured or documented: `claude -p` writes 1-hour entries and reads them after 5.5 minutes; three parallel
+    calls read nothing and write three times (2026-11-04, Haiku 5.5, 19,338-character extraction prompt).
+    (c) The model list is the key's own (Models API: `line`, `lifecycle`, limits, capabilities), read on a save, on
+    Refresh and once a day at a run's start, never on a page view. Tiers follow the vendor's lines; a saved `anthropic/sonnet`
+    is the plan's alias. A retired or refused id moves to its line's newest, said in words. With no key, a documented floor.
+    (d) A key reads every stage on its own provider: another provider's `CICADA_CONSOLIDATION_MODEL` is set aside and the
+    judge is the small tier, as on the plan.
+    (e) Prices live in `price_supplement` with their basis and read date (the API gives none); a model newer than the table
+    reads unknown with its tokens shown, never a guess.
+    (f) A key's rate limit is a pause with the provider-neutral words, `limit: key_limit`, never the person's plan; the SDK
+    rides out `retry-after` first (4 retries), and a limit lifting within 2 minutes is waited out by the batch's later
+    stages so what was already read is filed.
+    **Decided against, for now:** the Message Batches API (50% off, but 29-day retention and no zero-retention option for
+    a person's words, up to 24 hours a stage, and no pause; worth cents a batch on Haiku 5.5. **Revisit** for a large first
+    import on Sonnet, on the owner's word). **Not built, proposed:** a spend guard for a scheduled metered run ("stop a
+    run past $N"), since ruling 4 says a metered run spends with no limit Cicada sets: the ledger already has the figure,
+    and the drain's reserve line is the place. **Plan-only steps stay plan-only, on the owner's ruling:** ruling 44's web
+    context (`web_context.py`, the `metered_only` branch) and proposed ruling 54's handle settling (`web_lookup.py`'s
+    `why != "plan"`); each is a one-line change, costed in G237. Changed-source reads need no engine at all (`source_refresh`).
+    **Not yet proved:** no call has reached the real API; G237 names the one small run that does. **Revisit** if that run
+    differs from the plan's own spread on pages, claims or spans, or if the first real 429 does not read as designed.

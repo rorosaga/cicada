@@ -246,6 +246,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   only), headless with no tools or MCP context, on their own sign-in; a key-billed path is refused or stops the run (`cli_engines`).
   **Ruling 46 (owner, 2026-10-28):** Auto is Claude plan → ChatGPT plan → Cursor → OpenCode (subscription model only), each
   read from cached status, an unknown or hung tool skipped in words, never a stall; Grok never on Auto (`capture-and-sleep.md`).
+  **Ruling 63 (owner 2026-11-04):** a key whose provider has an official SDK row (`direct_engines`: Claude today) is served by that
+  SDK behind the plan's own seam, every other key by LiteLLM; a Claude key's list, tiers and prices keep current without a release,
+  a retired id moves forward in words, a key's limit is a pause that never says the person's plan (`capture-and-sleep.md`, "A Claude key").
   **46a (owner 2026-10-28):** Auto and schedules run Cursor only on Cursor's own models; a third-party one there is labelled "billed separately at list price", never auto-picked. Continue-after-reset is opt-in,
   off (ruling 15). A scheduled time the Mac slept or was off through runs once, after a short settle, as a scheduled
   run — never over a pause or a running cycle (`sleep_catch_up`, owner 2026-10-19, `features.md`).

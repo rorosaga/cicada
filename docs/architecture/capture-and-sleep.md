@@ -2075,6 +2075,36 @@ kept off the plan (`engine_select.SCHEDULE_DEGRADED`) also names *Scheduled runs
 as a fix — named, never flipped (ruling 4b). The provider's raw text never reaches the wire. A cause outranks G117's
 "no engine chosen" guess (a refused key on such an install names both doors); no recognised cause keeps the generic
 sentence, and Cicada's own engine errors (the plan CLIs) keep their own words.
+**A Claude key (G237, ruling 63, 2026-11-04).** A key whose model is `anthropic/…` or a bare `claude-…` is served by
+Anthropic's own SDK (`anthropic_engine`), never LiteLLM: `direct_engines` is the seam, one row per provider, and every other
+key stays on LiteLLM. `providers.resolve_llm_fn` routes there only when the completion it was given is LiteLLM's own, so a
+test's fake stays the answer. It sits where a plan's CLI sits: the shared semaphore (`agent_max_concurrency`), the scope's
+breaker, the drain's seam retry, one ledger row a call (`engine: anthropic-api`, `billing: usage`, `cost_source: table`). The
+prompts are the plan's own (`marshal_prompt`, `JSON_ONLY_SUFFIX`) without `CONTEXT_GUARD`: the API attaches no context. A
+caller's "reasoning off" is `output_config.effort` at `agent_low_effort`, sent only to a model that takes it; `temperature`,
+`response_format` and `extra_body` go nowhere. Every call streams, so `max_tokens` is 64,000 (the model's own limit when the list
+gives one; output limits count tokens as they are produced, never `max_tokens`), a caller's cap gains 2,048 for thinking, and
+`timeout` is checked as a wall clock while the answer arrives. A refusal (`stop_reason: refusal`) is `EngineRefused`: the
+conversation's own `refused`, never retried; a cut-off or empty answer is `EngineProtocolError`, one retry.
+**Caching.** One breakpoint at the end of the system prompt, TTL 1 hour: the same bytes every call of a stage, and a user
+message that differs every call, so anything marked later would be written and never read. A drain's next batch reaches the
+same prompt past 5 minutes, so the 2× write pays by its second batch. The first call on a prefix goes first and the rest wait
+for its first byte (bounded 30 s): an entry is readable only once its response starts streaming, and parallel calls otherwise
+all write. Cache reads do not count toward a key's input-token rate limit. **Limits.** The SDK rides out `retry-after` (4
+retries). Past that a 429 trips the scope's breaker with `limit: key_limit` and the rate-limit sentence; a 429 or 400 naming a
+spending limit is `EngineExhausted`, and a 401/403 `EngineUnavailable`, each in `engine_cause`'s words. It stops as `plan_limit`
+for the drain's mechanics, with a pause reason of `key_limit` that never says the person's plan, and arms nothing automatic.
+A limit lifting within 2 minutes is waited out by the batch's later stages, so what was read is filed.
+**Comparing with the plan.** `benchmarks/engine_parity.py` runs the same synthetic conversations through the production drain
+on a scratch bank per engine and compares pages, claims, evidence spans, questions and failures, with what Past reads would
+show. The one real run, once a key is entered (about $0.02 on Haiku 5.5, 19 calls, about 94k input of which 16k uncached,
+about 26k output, measured from the plan leg):
+```sh
+api/.venv/bin/python -m benchmarks.engine_parity run --leg plan --model haiku --out /tmp/cicada-parity/plan
+api/.venv/bin/python -m benchmarks.engine_parity run --leg key --model anthropic/claude-haiku-5-5 --out /tmp/cicada-parity/key \
+    --key-file ~/.cicada/secrets.env --max-input-tokens 40000 --yes-spend
+api/.venv/bin/python -m benchmarks.engine_parity compare /tmp/cicada-parity/plan /tmp/cicada-parity/key
+```
 **Connectivity (owner, 2026-10-07):** failed CLI transport diagnostics (routing discovery, exhausted reconnect
 warnings, DNS, refused/reset connections and offline/network errors) become `EngineConnectionLost`, a retryable
 `EngineFailed` subtype. The existing one-retry/2-second policy then pauses with Continue; repeated connectivity
