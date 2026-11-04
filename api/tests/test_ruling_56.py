@@ -143,7 +143,9 @@ def test_new_project_adopts_an_existing_project_page_and_mints_nothing(client, b
     assert fm["source_episodes"] == ["ep_2026-09-01_001"] and fm["aliases"] == ["An Old Name"]
     parsed = markdown_parser.parse(bank / "entities" / "omega-project.md")
     assert "History the person would hate to lose." in parsed.body
-    assert "Cicada-Author: user" in _git(bank, "log", "-1", "--format=%B")
+    log = _git(bank, "log", "-1", "--format=%B")
+    assert "Project started omega-project" in log and "Cicada-Author: user" in log
+    assert "entities/omega-project.md: updated" in log                            # never reported as created
     assert len(_git(bank, "log", "--format=%h", "--", "entities/omega-project.md").split()) == 2   # history intact
     assert "omega-project" in {x["id"] for x in client.get("/projects").json()["projects"]}
 

@@ -491,7 +491,8 @@ async def create_project(body: ProjectCreate, settings: Settings = Depends(get_s
         except project_ownership.OwnershipError as exc:
             raise HTTPException(409 if project_ownership.name_taken(exc) else 400, str(exc))
         # One commit, the person's: the new page created, each repository page's back-link updated (G230).
-        await _commit_as(mp, f"Project created {eid}", paths, verbs={p: "created" for p in created})
+        await _commit_as(mp, f"Project {'created' if created else 'started'} {eid}", paths,
+                         verbs={p: "created" for p in created})
     return ProjectOwnershipResponse(id=eid, action="created" if created else "started", mine=True)
 
 
