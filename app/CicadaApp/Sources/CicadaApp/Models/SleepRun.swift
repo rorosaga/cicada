@@ -111,6 +111,13 @@ struct SleepPausedRun: Codable, Equatable {
     var engineLabel: String?
     var autoContinue: AutoContinue?
 
+    /// ROR-96 — the limit this run paused at has reset (ruling 15: a weekly limit still waits for the person's click,
+    /// so the record outlives its limit). `false` without a vendor time: an absent reset is never guessed.
+    func planIsBack(now: Date) -> Bool {
+        guard ["plan_window", "plan_weekly", "overage", "reserve"].contains(reason), let resetsAt else { return false }
+        return Date(timeIntervalSince1970: TimeInterval(resetsAt)) <= now
+    }
+
     init(runId: String = "run", startedBy: String = "user", reason: String, sentence: String? = nil,
          resetsAt: Int? = nil, limit: String? = nil, filed: Int = 0, frozen: Int = 0, calls: Int = 0,
          committedBatches: Int = 0, pausedAt: String? = nil, canContinue: Bool = true,
