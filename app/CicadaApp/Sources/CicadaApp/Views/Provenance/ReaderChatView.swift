@@ -24,6 +24,9 @@ struct ReaderChatRows: View {
     let revealed: Bool
     /// The Messages chat this sitting belongs to, for its picture.
     var messagesChat: String? = nil
+    /// 2026-11-04 — the one-to-one chat the chat panel shows (WhatsApp, Telegram), so the other side's runs wear the
+    /// chat's own face (`ChatFace`: its page's picture, else its photo) instead of a monogram. Nil elsewhere.
+    var chatFace: ChannelItemChat? = nil
     /// 0…1 — the brief ring on the message a pointer jump landed on (`ReaderColumn.citedEmphasis`); a keyboard jump
     /// leaves it 0 (DR-60).
     var emphasis: Double = 0
@@ -36,7 +39,7 @@ struct ReaderChatRows: View {
         // at its top.
         ForEach(rows, id: \.scrollID) { row in
             ReaderChatRowView(row: row, landingTurn: landingTurn, revealed: revealed, messagesChat: messagesChat,
-                              emphasis: emphasis, onToggle: onToggle, onJump: onJump)
+                              chatFace: chatFace, emphasis: emphasis, onToggle: onToggle, onJump: onJump)
                 .padding(.top, Self.space(row.gap))
                 .id(row.scrollID)
         }
@@ -73,6 +76,7 @@ private struct ReaderChatRowView: View {
     let landingTurn: Int?
     let revealed: Bool
     let messagesChat: String?
+    var chatFace: ChannelItemChat? = nil
     let emphasis: Double
     let onToggle: (Int) -> Void
     let onJump: (ReaderBlock.Key) -> Void
@@ -89,7 +93,7 @@ private struct ReaderChatRowView: View {
                 .accessibilityLabel("\(Copy.Provenance.notCaptured): \(words)")
         case let .message(message):
             ReaderChatMessageView(message: message, ink: ink(for: message.block), revealed: revealed,
-                                  messagesChat: messagesChat, emphasis: emphasis, onJump: onJump)
+                                  messagesChat: messagesChat, chatFace: chatFace, emphasis: emphasis, onJump: onJump)
         case let .toggle(turn, side, expanded):
             HStack(spacing: 0) {
                 if side == .person { Spacer(minLength: 0) }
@@ -126,6 +130,7 @@ struct ReaderChatMessageView: View {
     let ink: Color
     let revealed: Bool
     let messagesChat: String?
+    var chatFace: ChannelItemChat? = nil
     let emphasis: Double
     let onJump: (ReaderBlock.Key) -> Void
 
@@ -144,7 +149,7 @@ struct ReaderChatMessageView: View {
     var body: some View {
         VStack(alignment: side == .person ? .trailing : .leading, spacing: CicadaTheme.spacingXS) {
             if let header = message.header {
-                ReaderChatHeader(header: header, side: side, messagesChat: messagesChat)
+                ReaderChatHeader(header: header, side: side, messagesChat: messagesChat, chatFace: chatFace)
             }
             if let extras = message.extras {
                 above(extras)
@@ -179,10 +184,14 @@ struct ReaderChatMessageView: View {
         }
     }
 
-    /// Attachments, then reactions and "Edited", under the words — `Tag`s, the one pill (DR-44).
+    /// Attachments, then reactions and "Edited", under the words — `Tag`s, the one pill (DR-44). A chat source's
+    /// attachment is its own tile instead (2026-11-04, `ChatMediaTile`): the picture where the chat app holds it.
     @ViewBuilder
     private func below(_ extras: ReaderChat.Extras) -> some View {
-        ForEach(Array(extras.attachments.enumerated()), id: \.offset) { _, words in
+        ForEach(Array(extras.files.enumerated()), id: \.offset) { _, file in
+            ChatMediaTile(file: file, side: side)
+        }
+        ForEach(Array(extras.attachments.dropFirst(extras.files.count).enumerated()), id: \.offset) { _, words in
             Tag(text: words)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -307,6 +316,7 @@ private struct ReaderChatHeader: View {
     let header: ReaderChat.Header
     let side: ReaderChat.Side
     let messagesChat: String?
+    var chatFace: ChannelItemChat? = nil
 
     @Environment(MessagesWatcher.self) private var watcher: MessagesWatcher?
     @Environment(Store.self) private var store: Store?
@@ -339,6 +349,10 @@ private struct ReaderChatHeader: View {
         switch header.avatar {
         case let .mark(origin):
             OriginMark(origin: origin, size: CicadaTheme.scaled(Self.avatarSize))
+        case .face where messagesChat == nil && chatFace != nil:
+            // 2026-11-04 (owner: "the profile pictures don't appear in the chats") — a WhatsApp or Telegram chat's
+            // other side wears the chat's own face, as its row on the Sources page does.
+            if let chatFace { ChatFace(chat: chatFace, side: CicadaTheme.scaled(Self.avatarSize)) }
         case let .face(name):
             // The chat's own picture in Messages (`MessageBubbles.face`'s precedence), else a monogram — nothing from
             // the web, and never a page found by name.

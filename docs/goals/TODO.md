@@ -26,6 +26,12 @@
   request Reddit API access (Responsible Builder Policy), register an *installed app* with redirect
   `http://127.0.0.1:8000/sources/connectors/reddit/callback`, put its id in `reddit.CLIENT_ID` (`network.md`,
   "Registering Cicada's Reddit app"). **Pick up:** the app side on #593's `SourceConnectArea` (follow-up PR).
+- **2026-11-04 — chat images and Telegram faces (G179; branch `feat/chat-panel-images`).** Owner: "I don't see images appearing when I open the chat inside the app" and "I don't know why the profile pictures don't appear in the chats" (Telegram). Attachments of WhatsApp, Messages and Telegram chats now show as the files in the chat
+  panel and the Reader, resolved by the app at view time for ticked chats only (Telegram's through the backend's
+  own connection), thumbnails outside every bank, gone on untick; nothing new is stored in the bank, so chats
+  already synced show their pictures as they are. Telegram's root cause: a ticked chat's photo was asked only in
+  the tick's own request, never again — now on every start and sign-in. **Owner's check:** open the own WhatsApp
+  chat on the Sources page; on Telegram, restart the backend once so the photos are asked.
 - **2026-11-04 — New project is a page; an empty Projects list says nothing (G222; branch `feat/projects-new-page`).** Owner: "remove the text that appears when no projects" and "more like claude desktop app, and not two input text lines". New project opens as the detail column: the name as the H1, a large editor for the person's own paragraphs (kept as written, ≤ 4,000 characters, the page's lead; Sleep never writes it), and a picker over every page in memory by kind with each page's picture or its source's mark. Create is one `POST /projects` with `pages` (checked first, one person commit; a repository joins `repositories:` under ruling 53); `POST /projects/{id}/pages` routes a repository the same way, and the day the person started a project counts as activity, so a new one sits in Current. Verified on a scratch app (light and dark). **For the owner:** the live install suggests 750 projects; by construction that is every project page with no `mine` mark (the ~700 pre-D4 pages, `whyKind: none`) plus fallback concepts and repository births — whether legacy `none` pages are suggested at all is a ruling-45 call (G222's row).
 - **2026-11-04 — Claude chats: the export picked up from Downloads, and a weekly nudge (G197 layer c, G105; branch
   `claude-desktop-capture`).** Owner: "I don't see conversations I have on Claude chats or claude.ai being captured."

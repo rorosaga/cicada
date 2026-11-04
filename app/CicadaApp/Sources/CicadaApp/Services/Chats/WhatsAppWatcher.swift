@@ -131,6 +131,8 @@ final class WhatsAppWatcher {
     func bankChanged() async {
         let answer = try? await api.fetchChatTicks(source: Self.source)
         tickedIds = answer?.tickedIds ?? []
+        // Chat images (2026-11-04): thumbnails of a chat unticked elsewhere go once the ticks are known.
+        if let answer { ChatMediaCache.keepOnly(.whatsApp, ticked: answer.tickedIds) }
         historyIds = Set(answer?.conversations.filter(\.history).map(\.id) ?? [])
         check = nil   // another memory: its own first pass says when it was checked
         guard !tickedIds.isEmpty else {
@@ -209,6 +211,10 @@ final class WhatsAppWatcher {
         let answer = try await api.updateChat(source: Self.source, id: chat.id, name: postedName(of: chat), group: chat.group,
                                               ticked: on, history: nil)
         tickedIds = answer.tickedIds
+        if !on {
+            // Chat images (2026-11-04): the thumbnails the chat panel kept of it go with the tick.
+            ChatMediaStore.shared.forget(ChatMediaSource(channel: .whatsApp, chat: chat.id))
+        }
         if on {
             arm()
             await run()
