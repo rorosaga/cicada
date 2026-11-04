@@ -8,7 +8,8 @@ field is left alone; only prose is text. Every file is replaced atomically or no
 never rewritten.
 
 **A common word is guarded** (`sensitive_text.distinctive`): it is only ever taken from a file tied to that conversation,
-and only on a line or item that speaks of a secret. A distinctive value's exact token is its own tie."""
+and only on a line or item that speaks of a secret; so is a token that is unsure or common in the bank
+(`sensitive_text.Guarded`). Only a confident, rare, distinctive value's exact token is its own tie."""
 from __future__ import annotations
 
 import json
@@ -111,9 +112,11 @@ def _body(body: str, marks: dict[str, str]) -> str:
 
 
 def _fence(payload: str, marks: dict[str, str]) -> str:
-    """A claim fence: its entries loaded, walked, and written in the one encoder, only if one changed. One that does not
-    load is already broken and left for the person to see; a distinctive value still goes, as text, since no parse depends
-    on it."""
+    """A claim fence by what it holds: JSON lines, each loaded, walked and written back in the one encoder only if it
+    changed, or the legacy YAML list. One that does not load is left for the person to see (`residue` counts it); a
+    distinctive value still goes, as text, since no parse depends on it."""
+    if payload.lstrip().startswith("{"):
+        return _jsonl(payload, marks)
     try:
         loaded = markdown_parser.load_yaml(payload)
     except Exception:  # noqa: BLE001
@@ -154,7 +157,7 @@ def _jsonl(text: str, marks: dict[str, str]) -> str:
             out.append(sensitive_text.take_out(line, {k: v for k, v in marks.items() if sensitive_text.distinctive(k)})[0])
             continue
         entry, n = _walk(loaded, marks)
-        out.append(json.dumps(entry, ensure_ascii=False, default=str) if n else line)
+        out.append(claims._jsonl_line(entry) if n else line)
     return "\n".join(out)
 
 
@@ -182,50 +185,63 @@ def _could_hold(text: str, marks: dict[str, str]) -> bool:
     return any(not k.isascii() or sensitive_text.holds(text, k) for k in marks)
 
 
+def _names(text: str, ids: tuple[str, ...]) -> bool:
+    """Does this file name one of these conversations, as a whole id? ``_001`` is no tie to ``_0011``."""
+    return any(i and re.search(rf"(?<![\w-]){re.escape(i)}(?![\w-])", text) for i in ids)
+
+
+def _new_text(path: Path, text: str, marks: dict[str, str], tied_ids: tuple[str, ...] | None) -> str:
+    """What ``text`` becomes. ``tied_ids``: the conversations it must name for a value that is not distinctive to be touched
+    (``None``: the caller knows the file is theirs). The same text when nothing goes or the file does not parse."""
+    here = marks
+    if tied_ids is not None and not _names(text, tied_ids):
+        here = {k: v for k, v in marks.items() if sensitive_text.distinctive(k)}
+    if not here or not _could_hold(text, here):
+        return text
+    try:
+        return cleaned(path, text, here)
+    except Exception as exc:  # noqa: BLE001 - a file that does not parse is no reason to damage it
+        logger.warning(f"Sensitive purge left a file it could not read: {type(exc).__name__}")
+        return text
+
+
+def would_change(path: Path, text: str, marks: dict[str, str], *, tied_ids: tuple[str, ...] | None = None) -> bool:
+    """A dry run's answer for one file already read. Writes nothing."""
+    return _new_text(path, text, marks, tied_ids) != text
+
+
 def clean_file(path: Path, marks: dict[str, str], *, tied_ids: tuple[str, ...] | None = None) -> bool:
-    """Take ``marks``' values out of one file, atomically. ``tied_ids``: the conversations it must name for a word that is
-    not distinctive to be touched (``None``: the caller knows the file is theirs). Raises when the file cannot be written,
-    so a removal can stop while the value is still findable. An unreadable or unparsable file is left, never damaged."""
+    """Take ``marks``' values out of one file, atomically. Raises when the file cannot be written, so a removal can stop
+    while the value is still findable. An unreadable or unparsable file is left, never damaged."""
     try:
         text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return False
-    here = marks
-    if tied_ids is not None and not any(i in text for i in tied_ids):
-        here = {k: v for k, v in marks.items() if sensitive_text.distinctive(k)}
-    if not here or not _could_hold(text, here):
-        return False
-    try:
-        new = cleaned(path, text, here)
-    except Exception as exc:  # noqa: BLE001 - a file that does not parse is no reason to damage it
-        logger.warning(f"Sensitive purge left a file it could not read: {type(exc).__name__}")
-        return False
+    new = _new_text(path, text, marks, tied_ids)
     if new == text:
         return False
     markdown_parser.write_document(path, new)
     return True
 
 
-def residue(memory_path: Path, values) -> int:
-    """How many files still hold one of these exact values after a purge (a key field, a file that does not parse). A
-    count only. Reads files only."""
-    distinct = [v for v in values if sensitive_text.distinctive(v)]
-    if not distinct:
+def residue(memory_path: Path, values, tied_ids: tuple[str, ...] = ()) -> int:
+    """How many files, conversations included, still hold what Remove was to take out (a key field, a line or a file that
+    does not parse). A distinctive value anywhere; any other only where Remove would take it: in a file naming
+    ``tied_ids``, on a line that speaks of a secret. Its word elsewhere is that word. A :class:`Guarded` value left in other
+    files on purpose is the caller's other count. A count only. Reads files only."""
+    free = [v for v in values if sensitive_text.distinctive(v)]
+    guarded = {v: "x" for v in values if not sensitive_text.distinctive(v)}
+    if not free and not guarded:
         return 0
-    marks = {v: "x" for v in distinct}
+    marks = {**{v: "x" for v in free}, **guarded}
     found = 0
-    for path in bank_files(Path(memory_path)):
+    for path in (*bank_files(Path(memory_path)), *sorted((Path(memory_path) / "episodes").glob("*.md"))):
         try:
             text = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
-        if any(sensitive_text.holds(text, v) for v in distinct):
+        if (any(sensitive_text.holds(text, v) for v in free)
+                or (guarded and _names(text, tied_ids) and sensitive_text.take_out(text, guarded)[1])
+                or would_change(path, text, marks, tied_ids=tied_ids)):
             found += 1
-            continue
-        if any(not v.isascii() for v in distinct) and path.suffix == ".md":
-            try:
-                if cleaned(path, text, marks) != text:
-                    found += 1
-            except Exception as exc:  # noqa: BLE001
-                logger.debug(f"sensitive residue skipped one: {type(exc).__name__}")
     return found

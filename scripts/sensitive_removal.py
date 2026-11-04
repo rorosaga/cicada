@@ -1,18 +1,20 @@
 """What Remove would touch on a bank, and applying it (G235, ruling 60). A dry run unless ``--apply``.
 
-The dry run reads the bank's episode files only: no backend, git, index, network or telemetry. It prints one line per
-conversation (a row id, kinds with counts, how many are unsure, source, day, whether Sleep has read it) and totals. Never a
-value, a title, a path or a line of text; a source outside the known list prints as ``other``.
+The dry run reads the bank's files only: no backend, git, index, network or telemetry. It prints one line per conversation
+(a row id, kinds with counts, how many are unsure, source, day, whether Sleep has read it, and what it would touch beyond
+itself: other conversations, files, and tokens that stay out of other files) and totals. Never a value, a title, a path or
+a line of text; a source outside the known list prints as ``other``.
 
 ``--apply`` asks the RUNNING backend to do it (`POST /sensitive/remove`, the same writer as the review card's Remove): one
 git writer per bank, under Sleep's write window. It needs ``--plan``, the stamp a dry run printed (ids and counts, nothing
 of what they hold), so it removes what that dry run listed or nothing: the backend refuses if a row was swapped, added or
-grew since. It prints counts only, including how many files still hold a removed value.
+grew since. It prints counts only, including how many files still hold what it was to take out and how many tokens it left
+in other files on purpose.
 
-**What Remove does and does not do.** The older version is committed first; if it cannot be, nothing is removed. The value
-leaves the conversation, every other conversation holding the same distinctive value, and every file that repeated it; a
-value that could be an ordinary word stays out of that spread (only its own place, and a tied file's line that speaks of a
-secret). The word index is rebuilt and the vector index's passages holding it are deleted. Git history keeps the older
+**What Remove does and does not do.** The older version is committed first; if it cannot be, nothing is removed. A value
+leaves its own conversation, and a line or claim that speaks of a secret in a file citing that conversation. Only a value
+that is confident, distinctive and rare in this bank leaves anything else: every other conversation and file holding it. An
+unsure one, an ordinary word, or a token more than a few other conversations hold stays out of that spread. The word index is rebuilt and the vector index's passages holding it are deleted. Git history keeps the older
 version, and is never rewritten. The source (the Notes app, a chat, the transcript) still holds it: Cicada never edits a source, and takes it out
 again if that source sends it. What an engine already read cannot be unread. A wrong alarm loses that word from the
 conversation too, so read the dry run first; the older version in git is how to get it back.
@@ -38,11 +40,13 @@ if str(REPO_ROOT) not in sys.path:
 from api.services import sensitive_flags  # noqa: E402
 
 
-def _print_plan(rows: list[dict]) -> None:
+def _print_plan(rows: list[dict], reach: dict[str, dict]) -> None:
     for r in rows:
         kinds = " ".join(f"{k}:{n}" for k, n in sorted(r["kinds"].items()))
         unsure = f" unsure:{r['unsure']}" if r["unsure"] else ""
-        print(f"{r['row']}  {kinds}{unsure}  {r['source']}  {r['day'] or 'no-date'}  {'read' if r['read'] else 'waiting'}")
+        far = reach[r["row"]]
+        print(f"{r['row']}  {kinds}{unsure}  {r['source']}  {r['day'] or 'no-date'}  {'read' if r['read'] else 'waiting'}"
+              f"  other-conversations:{far['conversations']} files:{far['files']} stays:{far['stays']}")
     by_kind: Counter = Counter()
     for r in rows:
         by_kind.update(r["kinds"])
@@ -71,7 +75,7 @@ def main(argv=None) -> int:
             print(f"{len(unknown)} row id(s) are not in the plan")
             return 2
         rows = [r for r in rows if r["row"] in wanted]
-    _print_plan(rows)
+    _print_plan(rows, sensitive_flags.plan_reach(args.memory, rows))
     stamp = sensitive_flags.plan_stamp(rows)
     print(f"plan: {stamp}")
     if not args.apply:
@@ -98,7 +102,8 @@ def main(argv=None) -> int:
         print(f"refused: {exc.code}")     # never the body: nothing from the bank goes to a terminal unchecked
         return 1
     print(f"removed: {answer.get('removed')}  failed: {answer.get('failed')}  files: {answer.get('files')}  "
-          f"committed: {answer.get('committed')}  left: {answer.get('left')}  still found in files: {answer.get('still_found')}")
+          f"committed: {answer.get('committed')}  left: {answer.get('left')}  still found in files: {answer.get('still_found')}  "
+          f"tokens left in other files on purpose: {answer.get('stayed')}")
     return 1 if answer.get("failed") or not answer.get("committed") else 0
 
 

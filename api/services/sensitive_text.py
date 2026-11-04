@@ -207,7 +207,8 @@ def _password_value(value: str, *, quoted: bool, mine: bool, weak: bool, ends: b
 
 def _sure_password(value: str, *, claimed: bool, weak: bool) -> bool:
     """Letters and digits together are a password however it is said; digits alone only when someone's or something's;
-    letters alone never (it may be a word), nor a weak word's value no one claimed."""
+    letters alone never (it may be a word). A weak word ("clave", "pass") is claimed only by the system it belongs to: "mi
+    clave es gpt-4o" is a word about a model as often as a login."""
     digits, letters = any(c.isdigit() for c in value), any(c.isalpha() for c in value)
     if weak and not claimed:
         return False
@@ -272,7 +273,7 @@ def _passwords(line: str, base: int, ctx: Context) -> Iterable[Hit]:
         if not _password_value(value, quoted=quoted, mine=mine or yours, weak=weak, ends=ends, agent=agent):
             continue
         at = m.start("rest") + start
-        yield Hit(PASSWORD, base + at, base + at + len(value), _sure_password(value, claimed=mine or yours or system, weak=weak))
+        yield Hit(PASSWORD, base + at, base + at + len(value), _sure_password(value, claimed=system if weak else mine or yours or system, weak=weak))
     if agent or _CODE_LINE_RE.search(line):
         return
     for rx in (_CHANGED_RE, _LOGIN_RE):
@@ -575,7 +576,7 @@ def _ids(line: str, base: int, ctx: Context) -> Iterable[Hit]:
 _FENCE_RE = re.compile(r"^\s*(?:(?:user|human|assistant|ai|chatgpt|claude|system|speaker:[^:]*)\s*:\s*)?(?:```|~~~)", re.IGNORECASE)
 #: Quick refusal: a line none of the families could match costs one search.
 _ANY_RE = re.compile(
-    rf"\d{{3,}}|{_WORD}|\b(?:sk|ghp|gho|ghu|ghs|ghr|github_pat|xox|AKIA|AIza|eyJ|glpat|npm|hf|SG|xai|gsk|pplx|rk)[-_.]|://|"
+    rf"\d{{3,}}|{_WORD}|\b(?:sk|ghp|gho|ghu|ghs|ghr|github_pat|glpat|npm|hf|SG|xai|gsk|pplx|rk)[-_.]|\b(?:xox|AKIA|AIza|eyJ)|://|"
     r"PASSWORD|PASSWD|SECRET|_KEY|_TOKEN|\bapi\s+(?:key|token)|\b(?:access|auth)\s+token|\bbearer\b|\bssn\b|\bcvc|\bcvv", re.IGNORECASE)
 
 
@@ -676,9 +677,22 @@ _SPEAKS_RE = re.compile(
     r"licen[cs]e|licencia|c[eé]dula|nit|rfc|tax\s+id)\b|\[(?:held back|removed)", re.IGNORECASE)
 
 
+#: A password is not repeated widely. A token more than this many OTHER conversations hold is a word of this bank,
+#: whatever one line called it: it does not travel on Remove, and the door does not mask it by value.
+RARE_CONVERSATIONS = 3
+
+
+class Guarded(str):
+    """A value that looks like a token and has not earned that: unsure, or common in this bank. :func:`distinctive` says no,
+    so everything by value treats it as it treats a common word: only a line that speaks of a secret, only where tied."""
+
+
 def distinctive(value: str) -> bool:
     """Is this exact token evidence by itself? A word (``guatemala``) or a short number is not: found elsewhere, it is
-    almost surely that word. Anything mixed, or a long number, is: finding it again means finding it again."""
+    almost surely that word. Anything mixed, or a long number, is: finding it again means finding it again. Unless
+    :class:`Guarded`."""
+    if isinstance(value, Guarded):
+        return False
     v = value.strip()
     if len(v) < 6 or all(c.isalpha() for c in v):
         return False

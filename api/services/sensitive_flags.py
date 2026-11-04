@@ -701,68 +701,123 @@ def _ids_to_kinds(body: str, hits: list[Hit]) -> dict[str, str]:
     return {body[h.start:h.end]: h.kind for h in sensitive_text.with_echoes(body, hits)}
 
 
-def _echoing(memory_path: Path, values, skip: Path) -> list[Path]:
-    """Other conversations holding one of these distinctive values, as exact tokens. Bodies only; a substring test first,
-    since this reads a whole bank."""
-    values = [v for v in values if sensitive_text.distinctive(v)]
-    out: list[Path] = []
-    if not values:
+def _spoken(f) -> str:
+    """Everything a conversation's file says of itself: its words, and the strings a writer keeps beside them."""
+    return f"{f.body() or ''}\n{json.dumps(f.frontmatter or {}, ensure_ascii=False, default=str)}"
+
+
+def _conversations_holding(memory_path: Path, values, skip: Path) -> dict[str, list[Path]]:
+    """Each value -> the other conversations holding it as an exact token, in their words or beside them. A substring test
+    first, since this reads a whole bank."""
+    out: dict[str, list[Path]] = {v: [] for v in values}
+    if not out:
         return out
     for f in bank_index.files(memory_path, "episodes"):
         if f.path == skip:
             continue
         try:
-            body = f.body() or ""
+            spoken = _spoken(f)
         except Exception as exc:  # noqa: BLE001 - one unreadable conversation is no echo
             logger.debug(f"sensitive echo skipped one: {type(exc).__name__}")
             continue
-        if any(v in body and sensitive_text.holds(body, v) for v in values):
-            out.append(f.path)
+        for value, paths in out.items():
+            if value in spoken and sensitive_text.holds(spoken, value):
+                paths.append(f.path)
     return out
 
 
-def _flagged_values(memory_path: Path, episode_id: str) -> tuple[Path | None, dict[str, str]]:
+def _files_holding(memory_path: Path, values) -> Counter:
+    """Each value -> how many files other than conversations hold it as an exact token."""
+    found: Counter = Counter()
+    if not values:
+        return found
+    for path in sensitive_purge.bank_files(memory_path):
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        found.update(v for v in values if v in text and sensitive_text.holds(text, v))
+    return found
+
+
+@dataclass
+class Reach:
+    """Where Remove takes one conversation's values, decided once before anything is written. ``kinds``: value -> its kind,
+    a value that stays near home :class:`~sensitive_text.Guarded`. ``echoes``: the other conversations a value leaves."""
+    path: Path
+    kinds: dict[str, str]
+    echoes: list[Path]
+
+    @property
+    def marks(self) -> dict[str, str]:
+        return {v: REMOVED_MARK.format(kind=k) for v, k in self.kinds.items()}
+
+
+#: A value on more pages than this has been written up as a thing, whatever one line called it. A password that reached a
+#: page from each of a few conversations stays under it.
+_RARE_FILES = 6
+
+
+def _reach(memory_path: Path, episode_id: str) -> Reach | None:
+    """**A wrong alarm never rewrites something unrelated.** A value leaves its own conversation and what cites it only when
+    it is confident, distinctive and rare in this bank: any other is guarded, and stays out of every other conversation and
+    every file not tied to this one. One that is common is left there and said in the count, not hunted."""
     path = _episode_path(memory_path, episode_id)
     if path is None:
-        return None, {}
+        return None
     parsed = markdown_parser.parse(path)
-    return path, _ids_to_kinds(parsed.body, hits_of(dict(parsed.frontmatter), parsed.body))
+    hits = hits_of(dict(parsed.frontmatter), parsed.body)
+    kinds_of = _ids_to_kinds(parsed.body, hits)
+    confident = {parsed.body[h.start:h.end] for h in hits if h.sure}
+    candidates = [v for v in kinds_of if v in confident and sensitive_text.distinctive(v)]
+    holding = _conversations_holding(memory_path, candidates, path)
+    pages = _files_holding(memory_path, candidates)
+    free = {v for v, paths in holding.items()
+            if len(paths) <= sensitive_text.RARE_CONVERSATIONS and pages[v] <= _RARE_FILES}
+    kinds = {(v if v in free or not sensitive_text.distinctive(v) else sensitive_text.Guarded(v)): k
+             for v, k in kinds_of.items()}
+    return Reach(path, kinds, list(dict.fromkeys(p for v in free for p in holding[v])))
 
 
 def _take_out_echoes(path: Path, kinds_of: dict[str, str], at: str) -> bool:
-    """Another conversation that repeated the value. It keeps its words around it, and reads as a revision too."""
+    """Another conversation that repeated a value. It keeps its words around it. In its words, it reads as a revision too;
+    only beside them (a description), the file changes and Sleep has nothing new to read."""
     with episode_ids.episode_lock(path.parent):
         parsed = markdown_parser.parse(path)
-        hits = [h for value, kind in kinds_of.items() if sensitive_text.distinctive(value)
-                for h in sensitive_text.occurrences(parsed.body, value, kind)]
-        if not hits:
+        fm = dict(parsed.frontmatter)
+        marks = {v: REMOVED_MARK.format(kind=k) for v, k in kinds_of.items()}
+        hits = [h for value, kind in kinds_of.items() for h in sensitive_text.occurrences(parsed.body, value, kind)]
+        new_fm, new_body = fm, parsed.body
+        if hits:
+            new_fm, new_body, _marks = _take_out(fm, parsed.body, hits, {h.kind for h in hits}, at=at, pending=True)
+        new_fm = {k: (v if k == KEY else _strip_fm_strings(v, marks, key=k)) for k, v in new_fm.items()}
+        if new_fm == fm and new_body == parsed.body:
             return False
-        new_fm, new_body, _marks = _take_out(dict(parsed.frontmatter), parsed.body, hits, {h.kind for h in hits}, at=at,
-                                             pending=True)
         markdown_parser.write(path, new_fm, new_body)
     return True
 
 
-def remove_episode(memory_path: Path, episode_id: str, touched: list[str] | None = None) -> tuple[list[str], dict[str, str]]:
-    """Take what is flagged out of one conversation and out of everything that repeated it. ``(bank-relative paths
-    written, value -> mark)``. The caller holds admission and the page lock, committed the older version and commits this;
-    the values leave with its frame. **The body goes last:** when a write raises, the value is still findable in it, the
-    row still stands, and what was already written (in ``touched``, when given) is whole, since each file is replaced
-    atomically and doing it again changes nothing."""
+def remove_episode(memory_path: Path, episode_id: str, touched: list[str] | None = None,
+                   reach: Reach | None = None) -> tuple[list[str], dict[str, str]]:
+    """Take what is flagged out of one conversation and out of what :func:`_reach` allows. ``(bank-relative paths written,
+    value -> mark)``. The caller holds admission and the page lock, committed the older version and commits this; the values
+    leave with its frame. **The body goes last:** when a write raises, the value is still findable in it, the row still
+    stands, and what was already written (in ``touched``, when given) is whole, since each file is replaced atomically and
+    doing it again changes nothing."""
     memory_path = Path(memory_path)
     written = touched if touched is not None else []
-    path, kinds_of = _flagged_values(memory_path, episode_id)
-    if path is None or not kinds_of:
+    reach = reach or _reach(memory_path, episode_id)
+    if reach is None or not reach.kinds:
         return written, {}
-    marks = {v: REMOVED_MARK.format(kind=k) for v, k in kinds_of.items()}
+    path, marks = reach.path, reach.marks
     at = episode_ids.utc_now_iso()
-    echoes = _echoing(memory_path, kinds_of, path)
-    tied = (episode_id, *(p.stem for p in echoes))
+    tied = (episode_id,)
     for target in sensitive_purge.bank_files(memory_path):
         if sensitive_purge.clean_file(target, marks, tied_ids=tied):
             written.append(target.relative_to(memory_path).as_posix())
-    for echo in echoes:
-        if _take_out_echoes(echo, kinds_of, at):
+    travelling = {v: k for v, k in reach.kinds.items() if sensitive_text.distinctive(v)}
+    for echo in reach.echoes:
+        if _take_out_echoes(echo, travelling, at):
             written.append(echo.relative_to(memory_path).as_posix())
     with episode_ids.episode_lock(path.parent):
         parsed = markdown_parser.parse(path)
@@ -773,12 +828,13 @@ def remove_episode(memory_path: Path, episode_id: str, touched: list[str] | None
             marks.update(now)
             markdown_parser.write(path, new_fm, new_body)
             written.append(path.relative_to(memory_path).as_posix())
-    for stem in tied:
-        (memory_path / ".awake" / f"{stem}.json").unlink(missing_ok=True)
+    (memory_path / ".awake" / f"{episode_id}.json").unlink(missing_ok=True)
+    for echo in reach.echoes:
+        (memory_path / ".awake" / f"{echo.stem}.json").unlink(missing_ok=True)
     return written, marks
 
 
-def _keep_older_versions(memory_path: Path, episode_ids_: list[str]) -> None:
+def _keep_older_versions(memory_path: Path, reaches: list[Reach]) -> None:
     """Commit what these conversations, and those holding the same value, say now, before a word changes: one still waiting
     for Sleep was never committed, so git would otherwise hold no copy at all. The owner's ruling: git is local, history
     keeps it. Verified against ``HEAD``; anything less refuses, and nothing has been written."""
@@ -786,14 +842,7 @@ def _keep_older_versions(memory_path: Path, episode_ids_: list[str]) -> None:
 
     if not (memory_path / ".git").exists():
         raise RemovalRefused("This memory has no history to keep the older version in.")
-    paths: list[Path] = []
-    for episode_id in episode_ids_:
-        path, kinds_of = _flagged_values(memory_path, episode_id)
-        if path is None:
-            continue
-        paths.append(path)
-        paths.extend(_echoing(memory_path, kinds_of, path))
-    rels = list(dict.fromkeys(p.relative_to(memory_path).as_posix() for p in paths))
+    rels = list(dict.fromkeys(p.relative_to(memory_path).as_posix() for r in reaches for p in (r.path, *r.echoes)))
     if not rels:
         return
     day = date.today().isoformat()
@@ -821,13 +870,18 @@ class Removed:
 
 
 def remove_rows(memory_path: Path, episode_ids_: list[str]) -> Removed:
-    """Every step up to the commit, under the caller's page lock. One conversation failing stops only that one."""
+    """Every step up to the commit, under the caller's page lock. One conversation failing stops only that one. Each row's
+    reach is decided before any of them is written: taking one row out must not make another's value look rare."""
     out = Removed()
-    _keep_older_versions(memory_path, episode_ids_)
+    reaches = {episode_id: _reach(memory_path, episode_id) for episode_id in episode_ids_}
+    _keep_older_versions(memory_path, [r for r in reaches.values() if r is not None])
     for episode_id in episode_ids_:
         try:
-            _written, marks = remove_episode(memory_path, episode_id, out.touched)
-            out.marks.update(marks)
+            _written, marks = remove_episode(memory_path, episode_id, out.touched, reach=reaches[episode_id])
+            for value, mark in marks.items():
+                if sensitive_text.distinctive(value):
+                    out.marks.pop(value, None)       # one row allowed it to travel: it is not guarded for the counts
+                out.marks.setdefault(value, mark)
             out.done.append(episode_id)
         except Exception as exc:  # noqa: BLE001 - this row stands, its value still findable; the others go on
             logger.warning(f"Sensitive removal stopped on one conversation: {type(exc).__name__}")
@@ -940,6 +994,27 @@ _SESSION_SOURCES = frozenset({"claude-code", "codex", "cursor", "gemini", "gemin
                               "mcp", "mcp-remote", "cli"})
 
 
+def plan_reach(memory_path: Path, rows: list[dict]) -> dict[str, dict]:
+    """What each row of a :func:`plan` would touch beyond itself: ``conversations`` and ``files`` rewritten, and ``stays``, how
+    many of its tokens stay out of other files for being unsure or common in this bank. Counts by row id. Reads files only."""
+    memory_path = Path(memory_path)
+    files: list[tuple[Path, str]] = []
+    for path in sensitive_purge.bank_files(memory_path):
+        try:
+            files.append((path, path.read_text(encoding="utf-8")))
+        except (OSError, UnicodeDecodeError):
+            continue
+    out: dict[str, dict] = {}
+    for row in rows:
+        reach = _reach(memory_path, row["episode"])
+        marks = reach.marks if reach is not None else {}
+        out[row["row"]] = {
+            "conversations": len(reach.echoes) if reach is not None else 0,
+            "files": sum(sensitive_purge.would_change(p, t, marks, tied_ids=(row["episode"],)) for p, t in files) if marks else 0,
+            "stays": sum(isinstance(v, sensitive_text.Guarded) for v in marks)}
+    return out
+
+
 def plan_stamp(rows: list[dict]) -> str:
     """What a dry run saw, as one short word: each row's id, kinds with their counts and how many unsure. Ids and counts
     only, so it says nothing of what the rows hold. A row swapped, added or grown since changes it."""
@@ -950,8 +1025,9 @@ def plan_stamp(rows: list[dict]) -> str:
 def remove_planned(memory_path: Path, rows: list[str], *, stamp: str, before=None) -> dict:
     """Remove on exactly the rows a dry run listed, named by id with that run's :func:`plan_stamp`. A row gone or a plan
     changed refuses before a word changes, so nothing is removed that was never looked at. Commits as the person's, and
-    brings the review in step. Counts only; ``still_found`` is how many files still hold a removed value (a key field, a
-    file that does not parse), and ``committed`` whether the commit took."""
+    brings the review in step. Counts only; ``still_found`` is how many files, conversations included, still hold what this
+    was to take out (a key field, a file that does not parse), ``stayed`` how many tokens were left in other files on purpose
+    (unsure, or common in this bank), and ``committed`` whether the commit took."""
     from api.services import git_service, page_lock
 
     memory_path = Path(memory_path)
@@ -983,7 +1059,8 @@ def remove_planned(memory_path: Path, rows: list[str], *, stamp: str, before=Non
     if removed.marks:
         forget_in_indexes(memory_path, removed.marks, tuple(removed.done))
     return {"removed": len(removed.done), "failed": len(removed.failed), "files": len(touched), "committed": committed,
-            "left": len(plan(memory_path)), "still_found": sensitive_purge.residue(memory_path, removed.marks)}
+            "left": len(plan(memory_path)), "still_found": sensitive_purge.residue(memory_path, removed.marks, tuple(removed.done)),
+            "stayed": sum(isinstance(v, sensitive_text.Guarded) for v in removed.marks)}
 
 
 def forget_in_indexes(memory_path: Path, marks: dict[str, str], episodes: tuple[str, ...] = ()) -> None:
