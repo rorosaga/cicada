@@ -315,11 +315,12 @@ def _elsewhere_in(path: Path, relay: dict, said: set[str], now) -> str | None:
     return str(fm.get("id") or path.stem)
 
 
-def _kept_elsewhere(episodes_dir: Path, relay: dict, first: str | None) -> str | None:
+def _kept_elsewhere(episodes_dir: Path, relay: dict, first: str | None, said_at: str) -> str | None:
     """A connector added on claude.ai also shows in the desktop app beside its local connection, and both ask the model
     to relay. The id of the episode the app's other door holds for this conversation, so it stays one episode: one of
     that door's person turns, written in the last minutes, is this message whole (a model calling both, or one that went
-    on calling after it was told to stop). Only the person's whole turn counts: a reply that offers a prompt to paste, or
+    on calling after it was told to stop), measured from when this turn was said, so a turn that waited in an outbox still
+    finds its copy. Only the person's whole turn counts: a reply that offers a prompt to paste, or
     a turn that quotes this message inside a longer one, is another conversation. ``None`` for a message too short to tell
     apart (the match key's 24 characters). Runs under the episode lock, so two doors called together cannot both start
     one. Reads other episodes of the day: whatever is wrong with one of them (a hand edit's YAML, a body that is not a
@@ -331,7 +332,7 @@ def _kept_elsewhere(episodes_dir: Path, relay: dict, first: str | None) -> str |
     # A later turn keeps a 2k head where a first keeps 16k: the same words, however the other door held them.
     later, _ = clean_turn("user", first, first=False)
     said = {first} | ({later.text} if later is not None else set())
-    now = datetime.now(timezone.utc)
+    now = datetime.fromisoformat(said_at.replace("Z", "+00:00")).astimezone(timezone.utc)
     for offset in (0, -1, 1):       # an episode id carries the conversation's local day
         day = (now + timedelta(days=offset)).date().isoformat()
         for path in episodes_dir.glob(f"ep_{day}*.md"):
@@ -417,7 +418,7 @@ def capture_turns(
         _merge(kept, ids, posted, turn_id=turn_id, retry=retry, now=now, model=model, counts=counts,
                host=strip_host)
         if relay is not None and stored is None:
-            other = _kept_elsewhere(episodes_dir, relay, next((t.text for t in kept if t.role == "user"), None))
+            other = _kept_elsewhere(episodes_dir, relay, next((t.text for t in kept if t.role == "user"), None), now)
             if other is not None:
                 return tc.CaptureResult("elsewhere", other, 0, 0, {})
         key = {id(t): k for t, k in zip(kept, ids)}

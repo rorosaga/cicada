@@ -445,6 +445,19 @@ def test_the_prompt_inside_a_longer_person_turn_is_a_new_chat(memory):
     assert relay_capture.capture_local(_ctx(memory), PROMPT, conversation="new", queue_index=False).data["status"] == "created"
 
 
+def test_a_turn_that_waited_in_an_outbox_still_finds_its_copy_on_the_other_door(memory):
+    """Measured from when it was said, not when it landed: the remote door kept it then, and this one queued hours."""
+    runtime, connector = _remote(memory)
+    runtime.call(connector, "cicada_capture_turns", {"message": FIRST})
+    [path] = _relayed(memory)
+    stored = markdown_parser.parse(path)
+    said = datetime.now(timezone.utc) - timedelta(hours=3)
+    markdown_parser.write(path, {**stored.frontmatter, "last_turn_at": said.isoformat()}, stored.body)
+    reply = relay_capture.capture_local(_ctx(memory), FIRST, conversation="new", queue_index=False,
+                                        said_at=said.isoformat(), utc_offset_minutes=0)
+    assert reply.data["status"] == "elsewhere" and len(_relayed(memory)) == 1
+
+
 def test_and_the_reverse_direction_on_the_remote_door(memory):
     relay_capture.capture_local(_ctx(memory), FIRST, conversation="new", queue_index=False)
     [path] = _relayed(memory)

@@ -444,8 +444,9 @@ def _marker(line: str) -> tuple[str, str, int, str | None] | None:
 
 def quote_markers(text: str) -> str:
     """Words that may sit after someone's own in one episode: any line that would open a turn is quoted, so a relayed
-    "user: I said so" can never read as the person's (the attachment rule)."""
-    return "\n".join(f"> {line}" if _marker(line) else line for line in text.split("\n"))
+    "user: I said so" can never read as the person's (the attachment rule). Split as the grammar splits (`splitlines`, so a
+    bare CR or a U+2028 opens a line there too) and rejoined on plain newlines, which also survive a read of the file."""
+    return "\n".join(f"> {line}" if _marker(line) else line for line in text.splitlines())
 
 
 def speaker_kind(text: str, start: int, gaps: Gaps = (), *, saved: bool = False) -> str:
