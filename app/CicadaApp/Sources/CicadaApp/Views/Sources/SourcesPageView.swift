@@ -25,6 +25,7 @@ struct SourcesPageView: View {
     @Environment(LocalSourceWatcher.self) private var localSources
     /// 2026-11-03 — the chat whose stored conversation the right-hand panel shows (a chat source's page).
     @State private var chatPanel = ChatPanelRouter()
+    @State private var pageBack = SourcePageBack()
     /// Reading the web's switches (the master switch, the signed-in session, YouTube lists, Never explore, how the
     /// agent reads), in one sheet since D6 retired the Settings page (2026-10-22 fix round).
     @State private var showReadingSheet = false
@@ -131,6 +132,7 @@ struct SourcesPageView: View {
         }
         .background(CicadaTheme.bgBase)
         .environment(chatPanel)
+        .environment(pageBack)
         .onChange(of: provenance.isPresented) { _, open in if open { chatPanel.close() } }
         .onChange(of: columns.openId) { _, _ in chatPanel.close() }
         // A hand-off asking for the reading switches (`pendingReadingSheet`) still lands here, whatever is open.
@@ -239,7 +241,7 @@ struct SourcesPageView: View {
             }
             switch columns.escape(readerOpen: provenance.isPresented) {
             case .closeReader: provenance.close()
-            case .closeDetail: columns.close()
+            case .closeDetail: if !pageBack.run() { columns.close() }
             case .none: break
             }
         }

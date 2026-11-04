@@ -58,6 +58,7 @@ struct MeetingsBrowser: View {
                 }
             }
         }
+        .sourcePageBack(active: open != nil && folders.count > 1) { Instant.run { open = nil; query = "" } }
     }
 
     private var shownChannel: String? { folders.count == 1 ? folders[0].id : open }

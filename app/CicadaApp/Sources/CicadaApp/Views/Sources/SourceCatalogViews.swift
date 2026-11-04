@@ -212,6 +212,7 @@ struct SourceCatalogDetail: View {
     @Environment(WatchHistoryWatcher.self) private var watchHistory: WatchHistoryWatcher?
     @Environment(TabGroupWatcher.self) private var tabGroups: TabGroupWatcher?
     @Environment(ContactsReader.self) private var contacts: ContactsReader?
+    @Environment(RemindersReader.self) private var remindersReader: RemindersReader?
     @Environment(IntakeRouter.self) private var intake
     /// What the footer's last Refresh said.
     @State private var feedNote: String?
@@ -354,6 +355,7 @@ struct SourceCatalogDetail: View {
         .sheet(isPresented: $showExploreSheet) {
             ExploreSheet { showExploreSheet = false }
         }
+        .sourcePageBack(active: drill != nil) { drill = nil }
         .task { await reading.loadSettings() }
         // G136 R-SU18 — a palette conversation row lands on its agent's page with the search filled.
         .onAppear { takeConversationQuery() }
@@ -570,8 +572,10 @@ struct SourceCatalogDetail: View {
                 .environment(\.sourceDetailHeadShown, true)
             }
         case RemindersReader.channel:
-            RemindersRow(channel: mine.first, pickerOnly: true)
-                .environment(\.sourceDetailHeadShown, true)
+            if remindersReader?.isEnabled == true {
+                RemindersRow(channel: mine.first, pickerOnly: true)
+                    .environment(\.sourceDetailHeadShown, true)
+            }
         default:
             EmptyView()
         }

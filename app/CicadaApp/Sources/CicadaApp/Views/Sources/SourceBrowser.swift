@@ -85,6 +85,7 @@ struct SourceBrowser: View {
             if case .items = SourceBrowserText.start(tree) { await cache?.refresh(channel) }
         }
         .onChange(of: channel) { _, _ in path = []; query = "" }
+        .sourcePageBack(active: !path.isEmpty) { pop() }
     }
 
     // MARK: - What shows
@@ -187,6 +188,41 @@ struct SourceBrowser: View {
             query = ""
             _ = path.popLast()
         }
+    }
+}
+
+/// Esc on a source page steps back one level before it closes the page. The detail column is what holds the keyboard
+/// focus, so its `onExitCommand` takes Esc ahead of a back button's `.cancelAction`, and a level opened in the page's
+/// place (DR-81) says so here while it is open.
+@Observable
+@MainActor
+final class SourcePageBack {
+    @ObservationIgnored var step: (() -> Void)?
+
+    /// Steps back when a level is open; false when Esc should close the page.
+    func run() -> Bool {
+        guard let step else { return false }
+        step()
+        return true
+    }
+}
+
+extension View {
+    /// While `active`, Esc on the source page runs `step`.
+    func sourcePageBack(active: Bool, step: @escaping () -> Void) -> some View {
+        modifier(SourcePageBackModifier(active: active, step: step))
+    }
+}
+
+private struct SourcePageBackModifier: ViewModifier {
+    let active: Bool
+    let step: () -> Void
+    @Environment(SourcePageBack.self) private var back: SourcePageBack?
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: active, initial: true) { _, on in back?.step = on ? step : nil }
+            .onDisappear { if active { back?.step = nil } }
     }
 }
 

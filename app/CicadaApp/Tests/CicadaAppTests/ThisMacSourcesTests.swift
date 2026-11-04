@@ -270,6 +270,16 @@ final class ThisMacSourcesTests: XCTestCase {
         }
     }
 
+    /// Esc steps back one level while one is open, and only then does it close the page.
+    func testEscStepsBackALevelBeforeItClosesThePage() {
+        let back = SourcePageBack()
+        XCTAssertFalse(back.run())
+        var steps = 0
+        back.step = { steps += 1 }
+        XCTAssertTrue(back.run())
+        XCTAssertEqual(steps, 1)
+    }
+
     static func path(_ rel: String) -> String {
         URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().appendingPathComponent("Sources/CicadaApp/\(rel)").path
