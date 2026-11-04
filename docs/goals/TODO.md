@@ -19,6 +19,17 @@
   their basis, a 429 as a pause. Proved on stand-ins at the HTTP layer, the real SDK in between; the plan leg ran for real
   on Haiku 5.5. **Pick up here:** the owner enters a key and runs G237's one command (a cap of 40,000 uncached tokens,
   expected about $0.02). Nothing has reached the real API yet. **The owner decides:** the spend guard, the plan-only steps.
+- **2026-11-04 — rulings 54, 54a: the settling step works like an agent; what leaves is held in code; a page's own
+  sources come first (G209, G61; branch `g209-ruling-54`).** A model with no tool reads anything in memory through a table
+  Cicada runs; `name_guard` checks every query and link; a separate search hand holds only cleared queries; Cicada opens
+  pages on the link rail. On by default on the Claude plan, off everywhere else. 6 searches, 6 pages, 8 turns a question; 3
+  handles and 5 questions a drain. `contacts_book`'s names (#602) are guarded too. Owner decisions are in the ruling's row and the PR.
+- **2026-11-04 — one click to a public address for the connector (ruling 59, G135, G132's D6′; branch
+  `feat/g135-funnel-one-click`).** Owner: yes to D6′, since claude.ai and the phone apps can only reach a public address
+  and `/remote/status` on the live install reported no listener and no funnel. Built and proved on a stand-in binary and a
+  scratch listener; **no real funnel has run**, that is the owner's click. Read-only `tailscale status --json` on this Mac
+  (key names only): HTTPS certificates and the `funnel` attribute are not yet granted, so the first click meets the
+  tailnet step and shows Tailscale's link. Waiting on the owner: that first click and a request from a device off the tailnet.
 - **2026-11-04 — the Contacts page shows every card (G154, G161; branch `g154-contacts-grid`, PR #602).** Owner: "only 6
   contacts synced". Coordinator's numbers: 370 cards waiting, 6 matched, and the page listed the 6; one-part names were
   kept nowhere (196 + 139 raw records across two account sources, which overlap). `contacts_book` keeps every card's names
@@ -84,8 +95,8 @@
   conversation naming both (it becomes the card's evidence); the guess is the pair's, ≤ 0.8; Sleep retires the open
   ones that should never have been asked (`owner_unsaid`, `no_pair_evidence`, undoable). Copy of the owner's bank, 210
   open duplicate questions: 1 owner pair, 148 on a conversation not naming both, 20 between people → 4 retired, 16
-  left, all 16 cards on a conversation naming both (10 before). **Proposed ruling 54 below waits for the owner:** a
-  public handle settled by a web lookup (built behind it, off until the owner rules; 1 of the 20 qualifies).
+  left, all 16 cards on a conversation naming both (10 before). Ruling 54 (decided the same day, see its row) settles a
+  public handle; 1 of the 20 qualified under the proposed test.
 - **2026-11-04 — one layout for every source page; GitHub syncs on connect (G161, G230; branch
   `sources-standard-layout`, PR #593).** Owner, from screenshots: "so much text", the export drop showing "the logos of
   AI companies instead of the logo of Spotify", "standardize the layout for all the sources pages". Every source page is
@@ -1427,6 +1438,27 @@ These are attached to permanent rows instead of becoming a second queue. Older d
 - **G133:** reproduce garbled imported-paper titles with synthetic files. **G103:** humanize raw-predicate fallback. **G76:** distinguish capture enabled from recall connected. **G145/G173:** versioning untouched generated demo data, if the stale-demo trigger persists.
 - **G7:** centrality premise remains unproved; no tracked measurement was found, so it is not archived as done.
 - **G92/G19:** old bank-history size is historical, not permission to rewrite git history. No destructive cleanup is implied.
+
+## Open on the remote listener's public face (review of #607, 2026-11-04)
+
+- **A stranger can hold `/register` at its limit** (`oauth.Limits.register`: one global bucket, 10 then 2 a minute), which
+  blocks a real app's sign-in by registration while it lasts. Pre-existing, and now one click from public. A metadata
+  document client is not affected. Not fixed in #607: a per-source bucket needs its own look, since a tunnel's forwarded
+  source is what the limit would rest on. Row growth from `/authorize` itself is fixed there.
+- **Nothing pushes "another program is public" to a person who never opens the page.** The log and `cicada funnel status`
+  say it too. A Home notice would need its own design.
+- **A notice on Home for an address left open (G135, ruling 59). Required before the one-click address goes beyond the
+  owner and testers.** The mapping is the daemon's and survives a crash, a reboot or a read that couldn't check it at the
+  moment the switch went off (`funnelNote`, seen once). With the connector down, only the page, the log and
+  `cicada funnel status` say so today.
+  Home should say it, read from Tailscale, with the off, whenever an address is open and the listener isn't up.
+
+## Known flaky tests
+
+A test here is not fixed and not skipped: each line says what was seen and on what basis. Look here before chasing a
+failure; add to the counts when one comes back.
+
+None at present.
 
 ## Maintaining this queue
 
@@ -3096,35 +3128,131 @@ A whole row moves to DONE only after its remaining implementation and required a
     merged follows its redirect and one they removed is never made again. **Revisit** if a GitHub App user token stops
     needing an installation for the account's own repositories (the install step goes), or if the person unlinks most
     of what the origin rule links.
-54. **PROPOSED — not binding until the owner says yes (owner direction 2026-11-04; G209; amends ruling 44's public test
-    for this one question; branch `fix/person-dedup-evidence`).** The owner's words, on "is <handle> the same as
-    <person>?": "could've been resolved from a search, like how claude code would solve it if i ask it rn." **Proposed
-    text:** *A question whether a public handle is a named person may be settled by a web lookup on a plan run, with a
-    cited claim, undoable — only when: both sides are person pages, one a handle and the other a full name; neither is
-    the owner, a role-only page, on the person's address book or LinkedIn import, or known personally on the record
-    (ruling 44's local checks); no chat (Messages, WhatsApp, Telegram chats, e-mail, LinkedIn, a profile read on request)
-    says either name outside a link to public content, in its title or as its correspondent; and each name is said in
-    public content the person read or saved (a saved link or bookmark, a watched video, a read page, a paper, a
-    repository, a tab group). What is sent: to the plan's own web search, exactly two pinned queries, each alone — the
-    handle with the one platform word the record links it on (or "@handle"), and the full name; the prompt goes to the
-    engine that already read those conversations, with at most two scrubbed mention lines and nobody else's name. What
-    settles: only a quote, with the link of the public page it came from, that names both the handle and the person.
-    Cicada itself checks that the quote names both, never on the model's word; whether the quote is really on the cited
-    page rests on the lookup, as in ruling 27. It writes one cited "<Name> goes by <handle>" claim on the named page and
-    never merges the pages.
-    Never a metered key; a private person's name never reaches any service.* **Built behind it** (`public_handle`,
-    `web_lookup`'s handle prompt, `cicada_record_check` with `proposed_value="same"`). **Off until the owner rules**
-    (coordinator, 2026-11-04: a privacy-rail change is built switched off and decided by the owner): Sleep's own lookup
-    runs only with `CICADA_PUBLIC_HANDLE_LOOKUP=on`; meanwhile only the person's own local agent, asked by them, may
-    settle one through `cicada_record_check`. A "yes" flips the default; declining this text removes the path.
-    **Measured** on a copy of the owner's bank: of 20 open person pairs, 1 qualifies (the example above); 11 are not a
-    handle against a name, 1 is a held mention, 1 the owner's page. **Disclosed deviation (2026-11-04):** while building
-    this, the worker ran real lookups for that one pair on the bank copy, on the plan with haiku: four calls, each
-    searching the full name alone and the handle (`<handle> twitter` twice, `@<handle>`, `<handle> github`). Each
-    answered "not sure" and nothing was written. That sent a real person's full name to the plan's web
-    search before the owner ruled on this text, which ruling 44 forbids for a person without its encyclopedia match.
-    No more lookups were run; the shipped tier (`web_check_agent_model`, sonnet) never was. **Revisit** if a settled handle is undone by the person, or a name the
-    test called public turns out to be someone they know.
+54. **The settling step: a question worked the way an agent would, with what leaves held in code (owner, decided
+    2026-11-04; G209; amends ruling 44's public test and ruling 27 for this one question; branch `g209-ruling-54`).** The
+    owner, on "is <handle> the same as <person>?": "could've been resolved from a search, like how claude code would solve
+    it if i ask it rn." Proposed that day as two pinned searches behind an off switch; approved and **widened** the same
+    day, then corrected: "the settling step works like an agent does now", reading is allowed ("that stays between Cicada
+    and the plan's model"), and "the one limit is on what leaves in a web search".
+    **What widened:** on by default on plan runs (`CICADA_PUBLIC_HANDLE_LOOKUP=off` still closes it; no new setting); no
+    pinned queries, no two-search cap; the model may read chats and contacts. **What stayed:** a cited claim, undoable
+    under "Settled by a check", never a merge, never the owner's page, plan runs only.
+    **The limit (`name_guard`), enforced in code on every query and every link:** no query may contain the name of someone
+    known only from the person's record. A **tie** blocks always, and public content never clears it: a Contacts card (the
+    waiting set, the contacts book, a page carrying a card), a LinkedIn connection and its slug, a chat's correspondent,
+    a group member, a speaker label in a chat or meeting, a page the record says the person knows, a person page or held
+    name public content never says, the owner's names; an owner's project as a whole phrase. A **mention** (words said
+    anywhere that is not public content) blocks unless the same words are also said in public content, so a public figure
+    the person also talked about passes and a neighbour does not. **A mention is a name, not any words someone used:** a
+    query's words are asked only when name-shaped (capitalised in the query, written as a name in the record, a handle's
+    shape, or a pair said in a chat, where names are typed in lower case); generic words alone are never asked. **Public
+    content is a positive decision per writer and section, defaulting to private** (`name_guard.WRITERS`): a saved link's
+    description and, when the page was really read, its title, never its note, reason, folder or a line the writer does not
+    name; an agent's quotes from a page or a video; a watched, listened or Substack day's rows. A LinkedIn or Instagram save, a
+    tab group, a day read across every site, the person's own repositories and any unknown source are private. A real name is
+    held in every word order, through initials, squeezed forms and full transliteration. A blocked query is dropped, counted
+    against the budget, never rewritten; two blocks stop the question. If a store that exists cannot be read or holds an
+    unexpected shape, nothing leaves; one malformed episode is read as private text and stops nothing. A link leaves too: only
+    a link a search returned or the page's own tracked source may be opened, exact to the character. A returned link is held to
+    ties only, since the model did not choose it, and a blocked one never counts toward the stop.
+    **How it runs (`settling_agent`).** The plan's own web tool cannot be intercepted: hooks are off in the pinned
+    `--safe-mode`, a permission tool needs MCP, and a query reaches the provider before the stream reports it. So the model
+    that reads holds no tool (`--tools ""`, the unchanged pinned argv, `CICADA_CAPTURE=off`, `CICADA_RECALL=off`); each turn
+    it names calls from a table this process runs (`recall`, `page`, `conversation`, `where_to_check`, `contacts`, `open`,
+    `search`), with no writing call to ask for. `ask` is left out: it is a model call over the same reads. A cleared query
+    goes to a separate search hand, `claude -p` with `WebSearch` alone. It holds its prompt, the cleared queries and what the
+    CLI attaches to every spawn (the account's email, its scratch working directory, the platform and shell; no flag
+    removes the email), nothing from the person's record. Nothing mechanical stops a hand that disobeys from typing that
+    email into a query: it is told not to, and what it reports is audited, so a search that differs voids the round and
+    stops the question. The scan behind the guard runs off the event loop, from `bank_index`'s cached headers into one
+    in-memory index, and never under write admission. Pages are opened by Cicada on the link rail (`_stream_html`: 4 s, ≤ 512 KB, no cookies,
+    `net_guard`, a block never retried, walls retired without a byte), never by the plan's web fetch, which holds none of
+    those limits. **Every other engine does not run the step** (`metered_only`, or `engine_for`'s reason): a metered key,
+    the ChatGPT plan, a local model, Cursor, OpenCode, Grok.
+    **Budget, one question:** 6 searches (the tool's own `searchCount`, a dropped query included), 6 pages, 12 reads, 8 model
+    turns, 2 sends-back. **Per drain or sweep:** 3 handle questions, 5 questions worked in all, 5 changed-source reads,
+    inside `web_check_per_run`. A question left open waits 30 days. Worst case one question is 14 spawns.
+    **What settles is the model's judgement (owner, 2026-11-04):** "One site is enough to settle a question, let the agent do
+    this work don't tell it how to do it. That why we depend on Claude code as the intelligence for consolidation, because
+    if I asked you now you'd resolve it." So there is no list of what counts, no two-source rule, and no parody or namesake
+    rule: the prompt gives the goal and what is at stake, and the model answers whether it is sure, with a confidence and a
+    citation. **The one code check** (`public_handle.cited`): the citation is real, a page Cicada opened with all of the
+    quote on it (exact, whitespace, case; never fuzzy; 12 characters at least), since a model can invent one, and it is the
+    page's own text that is stored. A confidence of 0 or not a number is no answer. One that is not real is sent back at most
+    twice. A signed-in page is never opened, so it cannot be cited. Parody, a namesake, a stale handle are the model's to judge;
+    the person's undo is the floor under it.
+    **The person's own local agent** (`cicada_record_check`, on their ask) keeps the stricter proposed test and its two
+    searches: Cicada cannot see that agent's queries, so the limit there can only be who is offered.
+    **Measured** on synthetic banks with one widely known public figure, on the plan with haiku; the shipped tier
+    (`web_check_agent_model`) was not run. A real Sleep settled it on one site at the model's own confidence (0.95): 1 search, 2 pages opened, no
+    query or link blocked, 6 reads, 5 turns, 34.7 s; undo put the question back. One question measured apart, with its plan usage
+    (`equiv_cost_usd`): 1 search, 2 pages, 5 spawns, 26.1 s, 17,644 input tokens, 1,403 output, $0.0146. The guard's scan on a
+    synthetic bank of the live shape (9,478 episodes, 62 MB): 12.5 s off the event loop, most of it inside SQLite, then
+    about a millisecond a query. A private friend in the same bank got no model call. Wikipedia answered 403 to Cicada's `User-Agent` in every run (never retried), so its encyclopedia
+    route did not fire. **Disclosed deviation (2026-11-04):** while the text was only proposed, an earlier worker ran
+    four lookups for one pair on a copy of the owner's bank, sending a real full name to the plan's web search; each
+    answered "not sure" and nothing was written. No lookup has touched that bank since.
+    **Revisit** if a settled handle is undone by the person, if a name the guard cleared turns out to be someone they know,
+    or if the CLI offers a way to intercept a query before it leaves (the hand could go).
+    **54a (owner, 2026-11-04): "for a private person, the way to learn and update facts is not a search engine but the
+    page's Where to check sources".** The settling step opens a page's tracked sources first, by code, before the model's
+    first turn; a search comes only for a public handle or public thing, when no source answered; a private person's name
+    never reaches one. It also answers an open conflict on any page, a private person's included, from those sources alone.
+    **Which rule writes:** ruling 26. A tracked source's reading is a dated citation, the newest evidence wins, and the same
+    day or undated stays the one question it already is; only a predicate the vocabulary knows is single-valued closes
+    another value, so every unknown predicate is not settled this way (ruling 26's own fold adds its values). **`works-at`
+    is no conflict at all (owner, 2026-11-04: "Works at really doesn't matter … And I can be working in different things at
+    the same time"):** checked, and nothing needed changing. It has been multi-valued in the seed since 2026-10-14, the seed
+    wins over a stale bank map (`build_cardinality_fn`, `cardinality`), the nudge writer drops a conflict on it, Sleep's tending
+    dismisses an open card as `multi_valued`, and a re-check adds its value. Pinned by a test. "Are you still working at
+    <org>?" (`still_questions`, owner 2026-10-28) is a different question and stays. **The one new dated exception to the S3 rail:** that reading may also close the question it answers, undoable
+    under "Settled by a check". `check_record` stays shadow. **The update path is ruling 26's, unchanged, with one gap
+    filled:** a tracked public page that changed with no machine-readable fact waited for the person's agent; on a plan run
+    the model now reads it first, through `source_refresh.apply`, and what it cannot read keeps waiting.
+    `web_context` reads a public page's tracked sources before its pinned search. `org_sites` and `source_proposals` are
+    unchanged. No second refresher.
+    **Walled:** a tracked walled source is never requested. It is already on ruling 26's listing (`agent_due`), gated by the
+    person's Reading switches, so Sleep queues nothing and the question stays open.
+    **Imported LinkedIn links (owner, 2026-11-04):** "maybe for LinkedIn only when asked or limit it to the most frequently
+    talked about people, and do save the links as resources to check." Saving already existed (`linkedin_people`, existing
+    people only, never minting a page, a removal remembered). A link on a confident match now counts as given as a place to
+    check, the photo rung's own rule (`from_connections`); an alias-only one stays what it was, a guess saved with `match:
+    alias` that counts for nothing until the person takes it; `cicada_record_profile` refuses it, saying so, and writes no
+    `works-at` or `role` from it until then. A confident link is deliberately NOT `trusted`: that would make it a tracked
+    source, which ruling 26 lists for a visit on a cadence. **Reading one stays on the person's ask** (`cicada_record_profile`,
+    ≤ 10 a day, stdio only, their own agent and browser). A standing read of the most talked-about people is a small later
+    switch, not built: automated visits risk the person's LinkedIn account.
+    **First names (owner, 2026-11-04: "Yeah leave it allowed"):** a first name said only in chats does not block a full name
+    public content says. A name known only from chats or contacts stays blocked.
+    **Finding a source:** the model may propose a link literally in a conversation it names, on a page of the question;
+    it lands as a proposal in the one grouped review (ruling 36 D5), never opened, trusted or re-checked until taken. Never
+    guessed from a name; `sources_removed` holds. A sweep writes no proposals; Sleep does.
+59. **One click may open the connector's own port to the internet (owner, 2026-11-04: "YES to one-click Tailscale Funnel
+    for the claude.ai and phone connector"; G135, G132's D6′; amends G132 (c), the headless rail's "never `funnel`" and the
+    2026-10-29 one-click rail; branch `feat/g135-funnel-one-click`).** Why: claude.ai and the phone apps relay through the
+    remote connector (ruling 32, 57) and can only reach it at a public address. **The rule:** the person's click, or
+    their own shell, may run exactly the shown `tailscale funnel --bg --https=<443|10000> <the connector's port>`, or that
+    one mapping's off (`tailscale funnel --https=<its port> --set-path=/ off`). Off until clicked; never at install, on
+    start, by an agent, or from an agent's shell. No port or argv from a request; the API's port and the door's refused;
+    never `up`, a login or `reset`; a port holding anything is never used; 8443 (the backend's tailnet mapping) is never a
+    candidate; nothing about it is stored, every answer is read back from Tailscale. What is exposed stays MCP and `/v1` on
+    that listener with its tokens and OAuth as they are, consent only in the app by typing the code. **Evidence that decides
+    the code, read from Tailscale's CLI source (v1.104, `serve_v2.go`), not its docs:** a funnel on a held port replaces
+    its `/` without asking and opens every other path on it; an off with no `--set-path` deletes every handler on the port;
+    with Funnel not allowed it prints a link and waits, or exits 0 having changed nothing, so the return code never decides.
+    The obvious `tailscale funnel --bg 8765` from our own docs fights `headless.md`'s example serve of the API on 443: it
+    would have silently taken that serve away and made the connector public there, and made public anything mounted on
+    another path of that port, an API included. Details: `network.md`. **Revisit** if embedded `tsnet` (D6′'s "later") is built, if
+    Tailscale changes those behaviours, or if an app refuses the 10000 address. **In the same PR, the same class on this
+    seam:** `/remote/status`'s `funnelCommand` no longer offers the bare command that took over a held 443 (the port the
+    click would use, or a harmless shell comment when none is safe); `cicada setup` says `cicada funnel on`; *Stop serving*
+    and the copy-only unfunnel now name `--set-path=/`, since without it the CLI deletes every handler on the port (the
+    2026-10-29 rail's shown command changes with them); and what enabling HTTPS publishes, for good, is said before the
+    click. The off keeps its confirmation, as *Stop serving* does (coordinator 2026-11-04; the owner can overrule). **Review
+    of #607, the mapping outlives the listener:** the switch now closes the connector's address in the same act (amends "the
+    switch never touches Tailscale"); a down listener's port is asked, never assumed free; other public mappings are shown
+    with their off to copy and never run, since Cicada keeps no record of what it opened; a clean quit still leaves it open,
+    because only a click may reopen it (`network.md`).
 63. **A Claude key is served by Anthropic's own SDK, and the next provider's SDK slots in the same way (owner, 2026-11-04;
     G237; amends the G50 note that every key goes through LiteLLM).** Owner: "Well having cicada work the same or as good
     as through Claude code is crucial and priority." And: "have all official sdk's integrated where possible." **The

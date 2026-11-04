@@ -390,24 +390,60 @@ the page the name was weighed against (`includes`, `creates`, `alternative-to`, 
 `different`), moves the question to `settled/` with the record Undo reads, and the claim on the record keeps the pair
 from being asked again. **A check never merges:** "they are the same" settles nothing — the question stays for the
 person's tap. Pairs come after clarifications and before conflicts in a run's eight (`KIND_ORDER`).
-**A public handle and a named person (PROPOSED ruling 54, owner direction 2026-11-04, `public_handle`).** The one
-person pair a lookup may answer: "Is <handle> the same as <full name>?" between two person pages, where one side is a
-handle and the other a full name; neither the owner, a role-only page, the address book or LinkedIn import, or known
-personally on the record (ruling 44's own checks, `web_context.known_personally`); no chat (Messages, WhatsApp,
-Telegram chats, e-mail, LinkedIn, a profile read on request) says either name outside a link, in its title or as its
-correspondent; and each name is said in public content the person read or saved (a saved link, a bookmark, a watched
-video, a read page, a paper, a repository, a tab group). **Sent:** to the plan's own web search, exactly two pinned
-queries — the handle with the one platform word the record links it on (`<handle> twitter`/`github`/`instagram`/
-`linkedin`, else `@<handle>`) and the full name alone — plus the prompt to the engine that already read those
-conversations (at most two scrubbed mention lines, other people's names out); plan runs only, never a metered key
-(`metered_only`). **Settles** only a sure "same" whose quote, checked here, names both: one cited `goes-by` claim on the
-named page ("<Name> goes by “<handle>” online", its object the handle's page, observer `agent`, `external`,
-`web-check`), never a merge; while it stands the pair is not asked again (`pair_evidence.answered_by_check`); undo
-under "Settled by a check". The person's own agent settles it the same way (`cicada_record_check`,
-`proposed_value="same"`). **Off until the owner rules:** Sleep's own lookup runs only with
-`CICADA_PUBLIC_HANDLE_LOOKUP=on`; meanwhile only the person's own local agent, asked by them, may settle one. Measured on a copy of the owner's bank: 1 of the 20 open person pairs qualifies; four real
-lookup calls on the plan with haiku each made exactly two pinned searches and answered "not sure" (nothing written) —
-a disclosed deviation, since they sent a real full name before the owner ruled (TODO.md, ruling 54); no more were run.
+**The settling step (rulings 54, 54a, `settling_agent`, `name_guard`, `public_handle`).** Two kinds of question on the Claude
+plan, on by default (`CICADA_PUBLIC_HANDLE_LOOKUP=off` closes the handle half): "Is <handle> the same as <full name>?" between
+two person pages, one a handle and one a full name, neither the owner or a role-only page; and an open conflict on a page
+with a tracked source Cicada may open, on a predicate the vocabulary knows is single-valued.
+**The model** holds no tool: the pinned argv, `--tools ""`, `CICADA_CAPTURE=off`, `CICADA_RECALL=off`. Each turn it answers one
+JSON object naming calls this process runs: `recall`, `page`, `conversation`, `where_to_check`, `contacts`, `open`, `search`.
+No writing call exists; a call to anything else is told "No such tool". Page text and what memory holds reach it between
+fence markers it cannot forge.
+**What leaves.** The plan's web tool cannot be intercepted (hooks are off in `--safe-mode`, a permission tool needs MCP, a query
+reaches the provider before the stream reports it), so a model that has read the record never holds it. `name_guard` checks
+each query; a cleared one goes to a search hand, `claude -p` with `WebSearch` alone, holding its prompt, the cleared queries and
+what the CLI attaches to every spawn (the account's email, a scratch working directory, the platform and shell). Its reported
+queries are audited against what it was given (a stray voids the round and stops the question), and its `searchCount` is what
+counts. A blocked query is dropped, counts, and is never rewritten; two blocks stop the question. Only the Claude plan runs the
+step, enforced at one place (`web_lookup.look_up(settling=…)`): `metered_only`, or `engine_for`'s reason, otherwise.
+**The guard** (`name_guard`). A tie always blocks: Contacts' waiting cards and contacts book, LinkedIn connections and slugs, pages
+carrying either, chat correspondents, group members, speaker labels, pages `web_context.known_personally` flags, person pages and
+held names no public content says, the owner's names; an owner's project as a whole phrase. A mention blocks unless the same
+words are also in public content, and only a name-shaped one: capitalised in the query, written as a name in the record, a
+handle's shape, or a pair said in a chat. Ordinary words someone used are not asked. A returned link is held to ties only and
+never counts toward the stop. `api/scripts/name_guard_census.py` counts what a bank blocks, for a fixed synthetic list. **Public content is a positive decision per writer and section** (`WRITERS`, default private):
+a saved link's description and, when the page was read, its title and channel, never its note, reason or folder; a post's
+handle from its link; an agent's quotes from a page or a video; a watched, listened or Substack day's rows. Every pair of a query's
+words and every window of three is asked in every order, a long unknown token as each split of it; a middle initial changes
+nothing and an initial makes the word beside it stricter; folding is full (NFKD plus `TRANSLIT`). The question's own name and
+handle, once cleared, are taken out first. A store that exists and cannot be read or holds an unexpected shape raises
+`GuardUnreadable`: nothing leaves. It is built once a run from `bank_index`'s cached headers into a contentless in-memory FTS5
+index, off the event loop, never under write admission (`public_handle.settle(tested=…)` does not rebuild it), and released after.
+**Pages.** Tracked sources are opened by code before the first turn (54a); after that only a link a search returned, exact,
+passing `check_url`, not removed from the page. All on the link rail (`_stream_html`). A walled source is never requested.
+**By what a question's page holds:**
+
+| Source | What happens | Question |
+|---|---|---|
+| Open tracked page | Opened by Cicada on the link rail, first; the model answers from it | May settle |
+| Walled or blocked tracked page | Never requested; already on ruling 26's listing for the person's agent, under their Reading switches | Stays |
+| LinkedIn link from the person's connections (confident match) | Kept as a place to check, counted as given; never requested and never on a re-check list; read only on the person's ask (`cicada_record_profile`) | Stays, or a public handle may search |
+| Proposed source | Never opened; waits in the grouped review | Stays, or a public handle may search |
+| No source | No model call for a conflict or a private pair | Stays, or a public handle may search |
+
+**What settles a handle is the model's judgement** (owner 2026-11-04: "One site is enough … let the agent do this work don't
+tell it how to do it"). It is given the goal and what is at stake, and answers sure or not, with a confidence and a citation.
+The one code check (`public_handle.cited`): the page was opened here and all of the quote is on it, 12 characters at least, and
+the page's own text is what is stored. A confidence of 0 or not a number is no answer. One that is not is sent back at most
+twice. It writes one `goes-by` claim on the named page ("<Name> goes by “<handle>” online", observer `agent`, `external`,
+`web-check`, the model's confidence), citing that page in one `web-check` episode; while it stands the pair is not asked again
+(`pair_evidence.answered_by_check`).
+**What settles a conflict** (ruling 26's rule, `web_settle.settle(via_source=True)`): the model's answer, its quote on the opened
+page, on a predicate the vocabulary knows is single-valued, and every other option said before today; the same day or undated
+stays the question. Its record has `scope: source`.
+**Budget:** one question 6 searches, 6 pages, 12 reads, 8 turns, 2 sends-back; a drain or sweep 3 handles, 5 questions, 5 changed
+sources, counting every attempt; that same change waits 30 days after a read with nothing to show, and a later change does not. `Report.questions` keeps each question's numbers and the log line their totals, never a query, link or name.
+**The person's own agent** settles a handle through `cicada_record_check` (`proposed_value="same"`) under the stricter test
+(`_agent_test`): no chat or card touching either name, its two pinned searches, a quote naming both.
 The settled question moves to `inbox/settled/<id>.md` with a `settled:` block naming exactly what it wrote, and is
 served by `GET /inbox/settled` (not a Store domain). **The Inbox shows it under "Settled by a check"** (closed until
 asked for, below the questions and on the empty page): the answer, the quote and the site with when and who

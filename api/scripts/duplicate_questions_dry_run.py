@@ -17,7 +17,7 @@ searched alone on the plan's own web search) and the ``outcome`` the new code wo
   2026-10-23), no question;
 * ``relation_claim`` — the judge names a relation: a claim on the page, no question;
 * ``settle_by_check`` — a public pair the check answers with a cited relation, undoable under "Settled by a check";
-  a public handle and a named person (proposed ruling 54, ``public_handle``) with a cited "goes by" claim;
+  a public handle and a named person (ruling 54, ``public_handle``) with a cited "goes by" claim;
 * ``retired`` — a person pair that should never have been asked (owner 2026-11-04, ``pair_evidence``): the owner's
   page with no words of theirs naming themselves so (``owner_unsaid``), or two people no conversation names together
   (``no_pair_evidence``) — Sleep's engine-free tending retires it, nothing written but its record, undoable;
@@ -117,7 +117,7 @@ async def _check(rows: list[dict], memory: Path, settings) -> None:
     report = web_lookup.Report(engine=label)
     fn = web_lookup.default_llm_fn(resolved, sink=lambda *_a, **_k: None)
     by_id = {r["id"]: r for r in rows}
-    for c, a in await web_lookup.look_up(fn, todo, report):
+    for c, a in await web_lookup.look_up(fn, todo, report, memory_path=memory, facts=facts, settling=why == "plan"):
         by_id[c.item_id]["check"] = {"ok": a.ok, "reason": a.reason, "relation": a.relation, "url": a.url,
                                      "quote": a.quote, "queries": list(web_settle.queries_for(c))}
 

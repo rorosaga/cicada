@@ -934,6 +934,9 @@ Round 4 (C2–C4):
   engine-free step's `agent` proposals and Contacts cards stay on their pages. Engine-free, read from the frontmatter
   cache, ETag over `entities` plus `source_roster.SHAPE`; it writes nothing — the Sources area adds and removes through
   the page's own routes, so `fact_sources` stays the one writer.
+  **A plan run reads a changed page first (54a, 2026-11-04):** a tracked public page marked `changed` is read by the settling
+  step's model through `source_refresh.apply`, its quote checked on the bytes opened, and keeps waiting for the person's agent
+  if it cannot be read. A conflict on the page may be answered from its tracked sources too (`features.md`).
   **Re-checked, dated, the newest evidence wins (G61, TODO ruling 26, owner 2026-10-14).** A tracked source (trusted, not
   `only_me`, a `url`) keeps its re-check state on its own entry: `refresh: {at, outcome, good, episode, hash, changed?,
   asked?, tries?, blocked?, misses?: [{at, outcome}], dead?: {since, at, outcome}}` and the person's cadence

@@ -1395,7 +1395,9 @@ async def _web_check_safely(memory_path: Path, settings: Settings, *, user_trigg
             sleep_drain.unregister_batch(batch_id)
     # Counts and enums only — never a name, a query, a link or an answer.
     logger.info(f"Web check: {report.looked_up} looked up, {report.settled} settled, skipped {report.skipped}"
-                + (f" ({report.reason})" if report.reason else ""))
+                + (f" ({report.reason})" if report.reason else "")
+                + (f"; settling step {report.totals()}" if report.questions else "")
+                + (f"; sources held {report.source_kinds}" if report.source_kinds else ""))
     if not report.paths or not (memory_path / ".git").exists():
         return
     message = web_settle.commit_message("Web check", report.lines, authors=report.models or [report.engine or "agent"],
