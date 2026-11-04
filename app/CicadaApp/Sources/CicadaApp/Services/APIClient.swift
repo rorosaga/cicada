@@ -3834,6 +3834,19 @@ actor APIClient {
         return try await put("/remote/settings", body: body)
     }
 
+    /// Ruling 59. `check` fetches this machine's own public address, up to 3 s.
+    func fetchRemoteFunnel(check: Bool = false) async throws -> RemoteFunnel {
+        try await get("/remote/funnel" + (check ? "?check=true" : ""), timeout: check ? 15 : nil)
+    }
+
+    /// Ruling 59. The app sends the action and the command the person read, compared and never run: the backend builds
+    /// the argv from its own connector port.
+    func runRemoteFunnel(action: String, shown: String?) async throws -> RemoteFunnelRun {
+        var body: [String: Any] = ["action": action]
+        if let shown { body["shown"] = shown }
+        return try await post("/remote/funnel", body: body)
+    }
+
     func fetchRemoteConnectors() async throws -> [RemoteConnector] {
         try await get("/remote/connectors")
     }

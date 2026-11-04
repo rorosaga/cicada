@@ -384,6 +384,27 @@ def _name_keys(c: Connection) -> set[str]:
     return people_directory.name_keys(c.first, c.last)
 
 
+def from_connections(source: dict) -> bool:
+    """The link the person's own connections put on a page they matched confidently: their data, so it counts as given
+    (a photo, and where to look this person up), never an alias-only guess. It is no tracked source: nothing re-reads it on
+    a schedule (ruling 54a, owner 2026-11-04). A visit stays on the person's ask, ≤ 10 a day (``cicada_record_profile``)."""
+    return (str(source.get("added_by") or "").strip().lower() == AUTHOR
+            and str(source.get("predicate") or "").strip().lower() == SOURCE_PREDICATE
+            and source.get(MATCH_KEY) in CONFIDENT_MATCHES)
+
+
+def alias_only(memory_path: Path, entity_id: str, url: str) -> bool:
+    """Is this page's link for ``url`` only an alias-only guess from the connections, not yet taken by the person?"""
+    path = Path(memory_path) / "entities" / f"{entity_id}.md"
+    if not path.exists():
+        return False
+    for source in fact_sources.as_sources(markdown_parser.parse(path).frontmatter.get("sources")):
+        if profile_url(source.get("ref")) == profile_url(url) and not fact_sources.trusted(source) \
+                and str(source.get("added_by") or "").strip().lower() == AUTHOR and source.get(MATCH_KEY) == MATCH_ALIAS:
+            return True
+    return False
+
+
 def basis(idx: _Index, entity_id: str, c: Connection) -> str | None:
     """How ``c`` is this page's connection: the person or an identified agent already listed its link as their account (``link``, :func:`_vouched`), its full name
     is the page's own name (``name``), or only an alias (``alias``). ``None`` when only Cicada's own earlier link ties

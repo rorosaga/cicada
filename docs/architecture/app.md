@@ -80,6 +80,15 @@ Agents page, ⌘9, `AppTab.agents`, appended so no shortcut moved — DR-22).
   (`stopCommand`) before it runs (`POST /devices/reach/serve`, the action only; `DeviceReachText.action`). A refusal or
   failure is one danger caption under it; the state and check refresh from the answer. The unfunnel step stays copy-only.
   *Memory on* and the folded *Apps outside this machine* (the remote connector, `page:remote`) follow.
+  **One click to the internet (ruling 59; DR-19, DR-40, DR-41):** *How apps reach this Mac* shows one line ("This makes
+  the connector reachable from the internet."), the exact command in a `CommandBox`, the certificate-log warning and a
+  compact `NeutralButton` *Turn on*; open, *Reachable at <address>* only when a probe just answered (`RemoteReach.of`,
+  `.funnelOpen`), and a `TextButton` *Turn off* with a confirmation naming the off, the serve's pattern. A refusal is one
+  danger caption with *Open Tailscale settings* when there is a place to fix it. The connectors card offers an opened
+  address only once it answered. The switch closes the address as it turns the connector off, with one caption saying so.
+  If a mapping still outlives it, one card says so and keeps the off, and another program on the port comes first, in
+  danger. Other public mappings are listed with their off in a `CommandBox`, to copy. An
+  older backend (404) or no Tailscale keeps the page as it was: the command to copy, ngrok, the download.
 - **Privacy & data** gains Search & memory's one row (*Search runs on this Mac* and the sharper-model download); the
   fade card shows only while it holds a suggestion or a chosen pace. Watched folders are sources (`WatchedFoldersGroup`
   is kept whole for the Sources page). Under *Agent conversations*, *Your agents' notes* (ruling 43, `.agentNotes`) is

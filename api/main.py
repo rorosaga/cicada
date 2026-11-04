@@ -329,6 +329,7 @@ async def lifespan(app: FastAPI):
     from api.remote import listener as remote_listener
 
     await remote_listener.start_if_enabled()
+    asyncio.get_running_loop().create_task(remote_listener.warn_if_exposed())
 
     # Ruling 47a: a Telegram session the person connected resumes listening; with none kept, nothing at all happens
     # (no import of the client, no socket). Never raises into boot.

@@ -1287,8 +1287,8 @@ weighed against the rails:
   export, picked up from Downloads"). Staging is per conversation and idempotent, so each export brings only what is
   new or grew and upgrades relayed episodes in place.
 - **(d) The remote connector plus relay — unchanged, never the only path.** It is real time, but it depends on the
-  app's model calling the tool (ruling 32's disclosed exception), and the person must run a public tunnel. The
-  one-click Funnel (G132's D6′) waits on the owner (TODO, 2026-11-03). A connector added on claude.ai also appears in
+  app's model calling the tool (ruling 32's disclosed exception), and the person needs a public address: one click
+  since ruling 59 (`network.md`). A connector added on claude.ai also appears in
   the desktop and phone apps, so this one path covers all three.
 
 **Per-turn capture (`api/services/turn_capture.py`, `POST /capture/turn`).** The hook posts `{harness, session_id,
@@ -2805,7 +2805,7 @@ Measured on the copy (210 open "Possible duplicate" questions; dry run, nothing 
 no conversation); 2 carried a guess ≥ 0.9. Of the 20 between people, 4 are retired (1 owner, 3 with no conversation
 naming both) and 16 stay; their cards' conversation names both sides on 16 (10 before); 1 of them is a public handle
 a check may answer
-(proposed ruling 54, `public_handle`, `features.md`; off until the owner rules). The other 190 are thing pairs: the plan's judge (haiku) called
+(ruling 54, `public_handle`, `features.md`). The other 190 are thing pairs: the plan's judge (haiku) called
 125 different or a relation (not the same), 21 the same, 44 unsure — Stage 2's relation judge (2026-10-29) keeps new
 ones from being asked; the open ones wait for Sleep's tending judge or the person.
 

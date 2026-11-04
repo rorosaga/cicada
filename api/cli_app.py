@@ -1034,6 +1034,57 @@ def cmd_connector_sync(boot, args) -> Result:
     return Result(text=text, data=result, warnings=_warn(boot))
 
 
+# --- the remote connector's public address (ruling 59) ---------------------------------------------------------------
+
+def _funnel_others(funnel: dict) -> str:
+    return "".join(f"\n{o.get('message')}" + (f"\n  Close it with: {o['command']}" if o.get("command") else "")
+                   for o in funnel.get("others") or [])
+
+
+def _funnel_text(funnel: dict) -> str:
+    step = funnel.get("step")
+    if step == "on":
+        text = funnel.get("message") or (f"Open to the internet at {funnel['url']}." if funnel.get("url")
+                                         else "Open to the internet.")
+        if funnel.get("stopCommand") and funnel.get("answers") is False:
+            text += " `cicada funnel off` closes it."
+    elif step == "off":
+        text = (f"Not open to the internet. `cicada funnel on` runs: {funnel.get('command')}\n"
+                f"{funnel.get('message') or ''}").rstrip()
+    else:
+        text = funnel.get("message") or str(step)
+    return text + _funnel_others(funnel)
+
+
+def cmd_funnel_status(boot, args) -> Result:
+    data = call(boot, "GET", "/remote/funnel", query={"check": "true"}, timeout=30)
+    return Result(text=_funnel_text(data), data=data, warnings=_warn(boot))
+
+
+def _funnel_run(boot, action: str, shown: str | None) -> Result:
+    result = call(boot, "POST", "/remote/funnel", body={"action": action, "shown": shown}, bank_header=False, timeout=60)
+    if not result.get("ok"):
+        fix = f" {result['fixUrl']}" if result.get("fixUrl") else ""
+        raise Refusal("refused", f"{result.get('message')}{fix}{_funnel_others(result.get('funnel') or {})}")
+    return Result(text=f"Ran: {result.get('ran')}\n{_funnel_text(result.get('funnel') or {})}", data=result,
+                  warnings=_warn(boot))
+
+
+def cmd_funnel_on(boot, args) -> Result:
+    import sys
+
+    require_person("Opening the connector to the internet")
+    shown = call(boot, "GET", "/remote/funnel", timeout=30)
+    if shown.get("step") == "off" and shown.get("message"):
+        sys.stderr.write(shown["message"] + "\n")  # what it can publish, for good, before it runs
+    return _funnel_run(boot, "on", shown.get("command"))
+
+
+def cmd_funnel_off(boot, args) -> Result:
+    require_person("Closing the connector's public address")
+    return _funnel_run(boot, "off", None)
+
+
 def refuse_harness_folder(path: Path) -> None:
     """The rail: transcripts under ~/.claude are read only by the Stop hook's capture — never imported, by either
     import path, file or folder."""
@@ -1749,6 +1800,7 @@ COMMANDS = {
     "feed list": cmd_feed_list, "feed add": cmd_feed_add, "feed remove": cmd_feed_remove, "feed poll": cmd_feed_poll,
     "connector list": cmd_connector_list, "connector connect": cmd_connector_connect,
     "connector disconnect": cmd_connector_disconnect, "connector sync": cmd_connector_sync,
+    "funnel status": cmd_funnel_status, "funnel on": cmd_funnel_on, "funnel off": cmd_funnel_off,
     "github connect": cmd_github_connect, "github repos": cmd_github_repos, "github project": cmd_github_project,
     "settings owner": cmd_settings_owner, "engine list": cmd_engine_list, "engine connect": cmd_engine_connect,
     "picture set": cmd_picture_set, "picture initials": cmd_picture_initials, "picture clear": cmd_picture_clear,

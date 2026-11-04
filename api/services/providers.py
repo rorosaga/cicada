@@ -589,6 +589,7 @@ def resolve_llm_fn(
                     # The searches the call made (the web lookup holds them to its pinned query).
                     resp["tool_uses"] = envelope.get("_tool_uses") or []
                     resp["tool_results"] = envelope.get("_tool_results") or []
+                    resp["search_results"] = envelope.get("_search_results") or []
                     # Every model the call used, with its output tokens (the dry run's --trace-raw): the search's own
                     # side-call is one of them.
                     resp["model_usage"] = {str(k): int((v or {}).get("outputTokens") or 0)
