@@ -855,6 +855,11 @@ def reading_queue(ctx: ToolContext, limit=None) -> str:
 
     if not ctx.is_remote:
         yt_lines += saved_lists.queue_lines(memory_path, can_record=ctx.can("cicada_record_saved_list"))
+    # G89 (2026-11-04): a Substack list the person turned on — only when no other site's list is due (one at a time).
+    from api.services import substack_lists
+
+    if not ctx.is_remote:
+        yt_lines += substack_lists.queue_lines(memory_path, can_record=ctx.can("cicada_record_substack_list"))
     yt_text = "\n".join(yt_lines)
     if not rows:
         return yt_text or "Nothing is waiting: no link is waiting for an agent to read right now."
@@ -1800,6 +1805,190 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
     extra = f" {dropped} row(s) were not {p.name} posts and were left out." if dropped else ""
     return (f"Recorded the person's {p.name} {p.label}. {created} new post(s) saved; {duplicates} already in memory. "
             f"Saved posts are kept for lookup, not read.{extra}")
+
+
+#: At most this many rows in one ``cicada_record_substack_list`` call (a few screens of a list, never a whole archive).
+MAX_SUBSTACK_LIST_ITEMS = 200
+SUBSTACK_LIST_SLEEPING = ("Not recorded: Cicada is consolidating memory right now, and this list is written into it. "
+                          "Nothing was saved. Keep what you read and record it with `cicada_record_substack_list` "
+                          "when Cicada has finished.")
+
+
+def _substack_saved(ctx: ToolContext, memory_path: Path, rows: list) -> tuple[list[str], list[str], str, int]:
+    """Saved posts: each an indexed save where saved links go (ruling 30), under ``substack-saved``."""
+    from api.services import media_ingestor, substack, substack_lists
+    from api.services.media_ingestor import MediaMeta, PreparedItem, RawItem
+
+    idx = media_ingestor.load_url_index(memory_path)
+    created = duplicates = listed = dropped = 0
+    seen: set[str] = set()
+    paths: list[str] = []
+    for row in rows:
+        row = row if isinstance(row, dict) else {}
+        found = substack.post(row.get("url"))
+        if found is None:
+            dropped += 1
+            continue
+        url, aliases = found
+        if url in seen:
+            continue
+        seen.add(url)
+        title = _one_line(row.get("title"), 200)
+        author = _one_line(row.get("author"), 60)
+        publication = _one_line(row.get("publication"), 120) or None
+        title = title or (f"Post by {author}" if author else media_ingestor._fallback_title(url))
+        # The list's origin makes the save index-only (`history_index.kind`): the post's words are never the person's.
+        item = RawItem(url=url, title=title, folder=substack_lists.FOLDER_SAVED, origin=substack_lists.ORIGIN_SAVED,
+                       aliases=list(aliases), channel=publication, defer_enrich=True)
+        meta = MediaMeta(title=title, description=f"By {author}" if author else "", site=media_ingestor._site_of(url),
+                         channel=publication, media_type=media_ingestor._classify(url))
+        res = media_ingestor.write_prepared(PreparedItem(item, meta), memory_path, idx, append_list=True)
+        if res.status == "created":
+            created += 1
+            paths += [f"entities/{res.media_entity_id}.md", f"episodes/{res.episode_id}.md"]
+        else:
+            duplicates += 1
+            if res.collection_added:
+                listed += 1
+                paths.append(f"entities/{res.media_entity_id}.md")
+    index_file = memory_path / "sources" / "url_index.json"
+    index_changed = False
+    if created or duplicates:
+        before_index = index_file.read_bytes() if index_file.is_file() else None
+        media_ingestor.save_url_index(memory_path, idx)
+        index_changed = (index_file.read_bytes() if index_file.is_file() else None) != before_index
+    if index_changed:
+        paths.append("sources/url_index.json")
+    lines = ([f"sources/url_index.json: updated (trigger: {ctx.trigger})"] if index_changed else []) + (
+        [f"{created} saved Substack post(s) (trigger: {ctx.trigger})"] if created else []) + (
+        [f"{listed} saved link(s) now list Substack Saved (trigger: {ctx.trigger})"] if listed else [])
+    said = (f"{created} new post(s) saved; {duplicates} already in memory. Saved posts are kept for lookup, not "
+            "read.")
+    return paths, lines, said, dropped
+
+
+def _substack_history(ctx: ToolContext, memory_path: Path, rows: list) -> tuple[list[str], list[str], str, int]:
+    """Reading history: reading days (``substack_reads``), never saves."""
+    from api.services import substack_reads
+
+    seen_on = datetime.now().astimezone().date()
+    reads = []
+    dropped = 0
+    for row in rows:
+        row = row if isinstance(row, dict) else {}
+        r = substack_reads.make(row.get("url"), read_on=row.get("read_on"), seen_on=seen_on, title=row.get("title"),
+                                author=row.get("author"), publication=row.get("publication"))
+        if r is None:
+            dropped += 1
+        else:
+            reads.append(r)
+    result = substack_reads.record(memory_path, reads, bank=memory_path.name)
+    lines = [f"{p}: written (trigger: {ctx.trigger})" for p in result.paths]
+    return result.paths, lines, substack_reads.summary(result), dropped
+
+
+def _substack_subscriptions(ctx: ToolContext, memory_path: Path, rows: list) -> tuple[list[str], list[str], str, int]:
+    """Subscriptions: each publication followed through its own public feed (G89) — never one the person
+    unsubscribed from in Cicada."""
+    from api.services import feed_registry, media_ingestor, substack, substack_lists
+
+    before = feed_registry.list_feeds(memory_path)
+    known = {media_ingestor.normalize_url(str(f.get("url") or "")) for f in before}
+    added = refused = already = dropped = 0
+    seen: set[str] = set()
+    for row in rows:
+        row = row if isinstance(row, dict) else {}
+        found = substack.publication(row.get("url"))
+        if found is None:
+            dropped += 1
+            continue
+        _home, feed = found
+        norm = media_ingestor.normalize_url(feed)
+        if norm in seen:
+            continue
+        seen.add(norm)
+        name = _one_line(row.get("name"), 120) or None
+        record = feed_registry.subscribe_feed(memory_path, feed, tags=[substack_lists.FEED_TAG], title=name,
+                                              via=substack_lists.FEED_VIA, automatic=True)
+        if record is None:
+            refused += 1
+        elif norm in known:
+            already += 1
+        else:
+            added += 1
+    feeds_file = memory_path / feed_registry.FEEDS_FILENAME
+    changed = feed_registry.list_feeds(memory_path) != before
+    paths = [feed_registry.FEEDS_FILENAME] if changed and feeds_file.is_file() else []
+    lines = [f"{feed_registry.FEEDS_FILENAME}: {added} Substack publication(s) followed (trigger: {ctx.trigger})"] \
+        if paths else []
+    gate = ("" if feed_registry.fetch_allowed() else
+            " Their posts come in once the person lets Cicada check feeds (Settings).")
+    said = (f"{added} publication(s) now followed through their own feeds; {already} already followed"
+            + (f"; {refused} the person unfollowed in Cicada, left alone" if refused else "") + f".{gate}")
+    return paths, lines, said, dropped
+
+
+@_holding_pages
+def record_substack_list(ctx: ToolContext, list_name: str, outcome: str, items=None, via: str | None = None) -> str:
+    """``cicada_record_substack_list`` (G89, owner 2026-11-04): what the person's own agent read on their Substack —
+    Saved, History or Subscriptions — in their signed-in browser, after the person turned that list on.
+
+    Refusals, in order, write nothing: a demo bank, agent reading off, an unknown list or outcome, a list the person
+    has not turned on, the day's saved-list reads spent. ``needs_login`` / ``blocked`` pause every Substack list for a
+    week (no bank write) and ask the person to sign in (G205); ``failed`` is noted. A ``read``: **Saved** posts become
+    indexed saves (``substack-saved``, never read by a model, ruling 30); **History** becomes reading days
+    (``substack_reads``, never saves); **Subscriptions** follow each publication's own public feed (``feed_registry``,
+    tag ``substack``). Nothing is fetched here. Committed as the harness."""
+    from api.services import reading_settings, saved_lists, substack_lists
+
+    memory_path = ctx.memory_path()
+    if (refusal := _demo_refusal(memory_path)) is not None:
+        return refusal
+    if not reading_settings.agent_enabled():
+        return _READING_OFF
+    name = str(list_name or "").strip().lower()
+    if name not in substack_lists.LISTS:
+        return Reply("Error: list must be saved, history or subscriptions.", code="invalid_arguments")
+    outcome = str(outcome or "").strip().lower()
+    if outcome not in substack_lists.OUTCOMES:
+        return Reply(f"Error: outcome must be one of {', '.join(substack_lists.OUTCOMES)}.", code="invalid_arguments")
+    spec = substack_lists.LISTS[name]
+    if not substack_lists.allowed(name):
+        return Reply(f"Not recorded: the person has not asked their agent to keep their Substack {spec.label} current "
+                     "(Sources). Nothing was read into memory.", code="refused")
+    if outcome in substack_lists.PAUSING:
+        substack_lists.note(memory_path, name, outcome)
+        _ask_sign_in_for_list(ctx, memory_path, saved_lists.Platform(
+            "substack", "Substack", spec.label, spec.url, spec.how, substack_lists.ORIGIN_SAVED,
+            substack_lists.FOLDER_SAVED, substack_lists.SITE, "to read your saved posts, history and subscriptions"))
+        return ("Recorded: Substack needs the person to sign in (or blocked the page). Stop: do not sign in, type "
+                "credentials or try another route. Their Substack lists are paused for a week, or until the person "
+                "signs in and says so in Cicada.")
+    if outcome == "failed":
+        substack_lists.note(memory_path, name, outcome)
+        return "Recorded: the read failed. Nothing was written; the list is offered again later."
+    rows = items if isinstance(items, list) else []
+    if not rows:
+        return Reply(f"Error: a read needs `items` — the rows the page showed, each {spec.shape}. Record `failed` if "
+                     "the page showed none.", code="invalid_arguments")
+    if len(rows) > MAX_SUBSTACK_LIST_ITEMS:
+        return Reply(f"Error: at most {MAX_SUBSTACK_LIST_ITEMS} items in one call; record the rest in a second call.",
+                     code="invalid_arguments")
+    if saved_lists.reads_today(memory_path) >= saved_lists.DAILY_READS:
+        return Reply(f"Not recorded: {saved_lists.DAILY_READS} saved-list reads have been recorded today, the most "
+                     "Cicada takes in a day. Nothing was saved; the list is offered again tomorrow.", code="refused")
+    if ctx.sleep_answer:
+        return SUBSTACK_LIST_SLEEPING
+    writer = {"saved": _substack_saved, "history": _substack_history,
+              "subscriptions": _substack_subscriptions}[name]
+    paths, lines, said, dropped = writer(ctx, memory_path, rows)
+    substack_lists.note(memory_path, name, "read", items=len(rows) - dropped)
+    if paths:
+        agent_commits.commit_write(memory_path, subject=ctx.commit_subject, lines=lines, paths=paths,
+                                   author=ctx.author, session=ctx.session_id)
+    what = "publications" if name == "subscriptions" else "Substack posts"
+    extra = f" {dropped} row(s) were not {what} and were left out." if dropped else ""
+    return f"Recorded the person's Substack {spec.label}. {said}{extra}"
 
 
 PROFILE_SLEEPING = ("Not recorded: Cicada is consolidating memory right now, and this profile is written into it. "

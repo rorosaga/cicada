@@ -220,14 +220,25 @@ def note(memory_path: Path, key: str, outcome: str, *, items: int = 0, now: date
         if outcome == "read":
             entry.update(read_at=moment.isoformat(), items=int(items))
             pauses.pop(key, None)
-            today = moment.date().isoformat()
-            # Only today's count is kept: the bound is a day's, and older days are never read.
-            days = data.setdefault("days", {})
-            days[bank] = {today: int((days.get(bank) or {}).get(today) or 0) + 1}
+            _count(data, bank, moment)
         elif outcome in PAUSING:
             pauses[key] = (moment + PAUSE).isoformat()
         if not pauses:
             data.pop("paused_until", None)
+
+
+def _count(data: dict, bank: str, moment: datetime) -> None:
+    today = moment.date().isoformat()
+    # Only today's count is kept: the bound is a day's, and older days are never read.
+    days = data.setdefault("days", {})
+    days[bank] = {today: int((days.get(bank) or {}).get(today) or 0) + 1}
+
+
+def count_read(memory_path: Path, now: datetime | None = None) -> None:
+    """A saved list kept elsewhere was read (Substack's, ``substack_lists``, G89): it spends the same day's bound —
+    :data:`DAILY_READS` across every walled site's list, one site at a time."""
+    with _locked() as data:
+        _count(data, _bank_key(memory_path), _now(now))
 
 
 def resume(keys) -> None:
