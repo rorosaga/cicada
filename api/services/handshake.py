@@ -596,6 +596,8 @@ def _now_block(state: dict | None, bank: str, *, remote: bool = False, tz: str |
         if p.get("backlog_open") and personal:
             cursor += f" · backlog: {p['backlog_open']} open"
         lines.append(f"  - `{p['id']}` {p['name']}{tail}{cursor}" + (f" [{repos}]" if repos else ""))
+    if state.get("projects_left_out"):
+        lines.append(f"  - and {state['projects_left_out']} more projects")
     focus = (state.get("focus") or []) if personal else []
     if focus:
         lines.append(f"- In focus (last {state_dictionary.FOCUS_WINDOW_DAYS} days): "
@@ -656,7 +658,30 @@ def _fit(assemble, state: dict | None, max_tokens: int = MAX_TOKENS) -> str:
     if len(text) // 4 <= max_tokens:
         return text
     slim["preferences"] = [{**p, "one_liner": ""} for p in slim.get("preferences", []) or []]
-    return assemble(slim)
+    text = assemble(slim)
+    if len(text) // 4 <= max_tokens:
+        return text
+    # Review of #604 (2026-11-04): seven long titles with a repo each and reading on overflowed at 1,818 against the rail.
+    # What is left to give, least useful first; a project's own row last, and its first row never (R10).
+    slim["projects"] = [{k: v for k, v in p.items() if k not in ("next", "backlog_open")}
+                        for p in slim.get("projects", []) or []]
+    text = assemble(slim)
+    if len(text) // 4 <= max_tokens:
+        return text
+    slim["projects"] = [{**p, "repos": []} for p in slim.get("projects", []) or []]
+    text = assemble(slim)
+    if len(text) // 4 <= max_tokens:
+        return text
+    slim["preferences"] = []
+    text = assemble(slim)
+    projects = list(slim.get("projects") or [])
+    total = len(projects)
+    while len(text) // 4 > max_tokens and len(projects) > 1:
+        projects.pop()
+        slim["projects"] = projects
+        slim["projects_left_out"] = total - len(projects)
+        text = assemble(slim)
+    return text
 
 
 def build(state: dict | None, *, variant: str, bank: str, tz: str | None = None,
@@ -672,14 +697,16 @@ def build(state: dict | None, *, variant: str, bank: str, tz: str | None = None,
 
     ``max_tokens`` (G110): what ``_fit`` aims at — ``MAX_TOKENS`` less the
     SessionStart reserve when a continuity block will ride in the same note.
-    ``_fit`` is not a hard cap (a fixed part it cannot trim stays); the hook's
+    ``_fit`` holds the primer to it unless the fixed part alone is over (a fixed part it cannot trim stays); the hook's
     compositor measures the whole note (``recall_text.compose_note``).
 
     The state block is the only elastic part (the contract is verbatim by
     ruling); when the chars/4 proxy overshoots ``MAX_TOKENS`` rows are
     dropped in a fixed order (G140 Q-R13): people, pages in focus,
     conversations, standing pages, then project one-liners, then the
-    working agreements' one-liners — current before standing, and the
+    working agreements' one-liners, then a project's next and backlog count,
+    its repos, the working agreements, and last the projects from the list's
+    end, counted — current before standing, and the
     projects list (what a cursor exists for, R10) is never dropped whole.
     ``tz`` is the per-request zone ``load_or_build`` passes; never stored.
 

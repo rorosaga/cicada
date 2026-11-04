@@ -242,38 +242,55 @@ def _entries(conv: Conversation, ids: list[str | None]) -> list[dict]:
     return out
 
 
-#: Ruling 57: how close the other door's first turn must be to be this same turn.
+#: Ruling 57: how recently the app's other door must have written for this to be that door's same conversation.
 ELSEWHERE_WINDOW_S = 600
+#: How much of a message is compared against the other door's text: a later turn is kept to a 2k head, a first to 16k.
+ELSEWHERE_HEAD = 400
+
+
+def _recent(stamp, now) -> bool:
+    from datetime import datetime, timezone
+
+    at = datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
+    return abs((now - at.astimezone(timezone.utc)).total_seconds()) <= ELSEWHERE_WINDOW_S
+
+
+def _elsewhere_in(path: Path, relay: dict, key: str, head: str, now) -> str | None:
+    stored = markdown_parser.parse(path)
+    fm = stored.frontmatter
+    other = fm.get(RELAY_KEY)
+    if not isinstance(other, dict) or other.get("app") != relay.get("app") or other.get("channel") == relay.get("channel"):
+        return None
+    if (other.get("first") == key and _recent(fm.get("timestamp"), now)) \
+            or (head in stored.body and _recent(fm.get("last_turn_at"), now)):
+        return str(fm.get("id") or path.stem)
+    return None
 
 
 def _kept_elsewhere(episodes_dir: Path, relay: dict, first: str | None) -> str | None:
     """A connector added on claude.ai also shows in the desktop app beside its local connection, and both ask the model
-    to relay. The id of the episode the app's other door just started for this same first message (exact match key,
-    within minutes), so a conversation stays one episode; ``None`` for a message too short to match on. Runs under the
-    episode lock, so two doors called together cannot both start one."""
+    to relay. The id of the episode the app's other door holds for this conversation, so it stays one episode: that door
+    just started it with this same first message (a model calling both), or holds this message as a later turn (a model
+    that went on calling after it was told to stop). ``None`` for a message too short to match on (the match key's 24
+    characters). Runs under the episode lock, so two doors called together cannot both start one. Reads other episodes
+    of the day: whatever is wrong with one of them (a hand edit's YAML, a body that is not a mapping, a bad stamp) is no
+    reason to lose this turn, so any failure there means that file says nothing."""
     from datetime import datetime, timedelta, timezone
 
     key = relay_match_key(first)
     if key is None:
         return None
+    head = first[:ELSEWHERE_HEAD]
     now = datetime.now(timezone.utc)
     for offset in (0, -1, 1):       # an episode id carries the conversation's local day
         day = (now + timedelta(days=offset)).date().isoformat()
         for path in episodes_dir.glob(f"ep_{day}*.md"):
             try:
-                fm = markdown_parser.parse(path).frontmatter
-            except (OSError, ValueError):   # another episode's bad file is never a reason to lose this turn
+                found = _elsewhere_in(path, relay, key, head, now)
+            except Exception:  # noqa: BLE001 - see the docstring; transcript_capture's own scan does the same
                 continue
-            other = fm.get(RELAY_KEY)
-            if not isinstance(other, dict) or other.get("first") != key or other.get("app") != relay.get("app") \
-                    or other.get("channel") == relay.get("channel"):
-                continue
-            try:
-                at = datetime.fromisoformat(str(fm.get("timestamp")).replace("Z", "+00:00"))
-            except ValueError:
-                continue
-            if abs((now - at.astimezone(timezone.utc)).total_seconds()) <= ELSEWHERE_WINDOW_S:
-                return str(fm.get("id") or path.stem)
+            if found is not None:
+                return found
     return None
 
 

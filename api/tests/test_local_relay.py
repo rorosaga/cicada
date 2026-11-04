@@ -66,8 +66,13 @@ def _ctx(memory, *, client="claude-ai", harness="unknown"):
 
 
 def _relayed(memory):
-    return [p for p in sorted((memory / "episodes").glob("ep_*.md"))
-            if isinstance(markdown_parser.parse(p).frontmatter.get("relay"), dict)]
+    def relayed(path):
+        try:
+            return isinstance(markdown_parser.parse(path).frontmatter.get("relay"), dict)
+        except Exception:  # noqa: BLE001 — the malformed neighbours these tests plant
+            return False
+
+    return [p for p in sorted((memory / "episodes").glob("ep_*.md")) if relayed(p)]
 
 
 # --- telling a client apart -------------------------------------------------------------------------------------------
@@ -180,6 +185,32 @@ def test_the_ask_fits_the_budget(memory):
     assert len(full) // 4 <= handshake.MAX_TOKENS and "cicada_capture_turns" in full
 
 
+def _projects_over_budget(n, name_len=60):
+    return {"projects": [{"id": f"project-{i}", "name": ("Project %d " % i).ljust(name_len, "x"),
+                          "repos": [{"path": f"~/code/some-folder/with-a-rather-long-path-for-the-review-case/project-{i}",
+                                     "branch": "feature/some-branch", "state": "ok"}]}
+                         for i in range(n)]}
+
+
+@pytest.mark.parametrize("relay", [True, False])
+@pytest.mark.parametrize("n", [7, 12, 40, 200])
+@pytest.mark.parametrize("variant", ["desktop", "claude-code", "codex", "generic"])
+def test_fit_holds_the_primer_under_its_budget_with_reading_on(variant, n, relay):
+    """The review's case: 7 projects with 60-character titles, one repo each and reading on overflowed (1,818 there,
+    1,805 on this state, before `_fit` could give up a project's repos)."""
+    text = handshake.build(_projects_over_budget(n), variant=variant, bank="memory", reading=True, relay=relay,
+                           tz="Europe/Madrid")
+    assert len(text) // 4 <= handshake.MAX_TOKENS, len(text) // 4
+    assert "`project-0`" in text and "### Current" in text     # R10: the list a cursor exists for is never dropped whole
+    if n == 7:
+        assert all(f"`project-{i}`" in text for i in range(7)) and "more projects" not in text
+
+
+def test_fit_says_how_many_projects_it_left_out():
+    text = handshake.build(_projects_over_budget(200), variant="desktop", bank="memory", reading=True, relay=True)
+    assert re.search(r"and \d+ more projects", text)
+
+
 # --- stored as relayed ------------------------------------------------------------------------------------------------
 
 def _turn(server, message, conversation, previous=None):
@@ -215,6 +246,138 @@ def test_a_replica_with_no_backend_never_writes_its_copy(server, memory, monkeyp
     _connect(server, "claude-ai")
     result = _turn(server, FIRST, "new")
     assert result["isError"] is True and not _relayed(memory)
+
+
+# --- a queued or a re-sent `new`: still one conversation ----------------------------------------------------------------
+
+def _queued_like_a_home_away(server, monkeypatch):
+    """What `/tools/call` answers on a replica whose home is away (`routers/tools._to_home`), keeping each call as the
+    outbox does. The app's model then has only what the reply told it."""
+    sent = []
+
+    def call(name, args, options=None, *, local=False):
+        sent.append(dict(args))
+        return {"text": "Kept on this computer: it is sent to the computer that holds your memory as soon as it is "
+                        "reachable.", "code": "queued_for_home", "data": {"queued": True, "id": f"tx{len(sent)}"},
+                "error": None, "segments": None, "state": {}}
+
+    monkeypatch.setattr(server.runtime_layout, "is_replica", lambda *a, **k: True)
+    monkeypatch.setattr(server, "_remote_call", call)
+    return sent
+
+
+def test_a_queued_chat_lands_as_one_episode_and_one_conversation(server, memory, monkeypatch):
+    sent = _queued_like_a_home_away(server, monkeypatch)
+    _connect(server, "claude-ai")
+    first = _turn(server, FIRST, "new")
+    assert "isError" not in first
+    text = first["content"][0]["text"]
+    assert "Kept on this computer" in text and "Cicada memory" in text
+    handle = re.search(r'conversation="(lc_[^"]+)"', text).group(1)
+    second = _turn(server, SECOND, handle, REPLY)["content"][0]["text"]
+    assert "Pass conversation" not in second
+    _turn(server, "One more thing about the alpha-project rollback plan.", handle, "Added the rollback step.")
+    assert [a["conversation"] for a in sent] == [handle] * 3 and not _relayed(memory)
+
+    for args in sent:       # the home takes the outbox in order
+        _door(memory, client="claude-ai", args=args)
+    [path] = _relayed(memory)
+    stored = markdown_parser.parse(path)
+    assert stored.frontmatter["session_id"] == handle and stored.body.count("user: ") == 3
+    assert len(promotion.conversation_keys([path.stem], memory)) == 1
+
+
+def test_a_replica_says_the_handle_even_when_its_own_backend_refused_the_first_call(server, memory, monkeypatch):
+    from api.services import tool_client
+
+    def call(*a, **k):
+        raise tool_client.ToolClientError("Cicada's server could not be reached.")
+
+    monkeypatch.setattr(server.runtime_layout, "is_replica", lambda *a, **k: True)
+    monkeypatch.setattr(server, "_remote_call", call)
+    _connect(server, "claude-ai")
+    result = _turn(server, FIRST, "new")
+    assert result["isError"] is True and 'conversation="lc_' in result["content"][0]["text"] and not _relayed(memory)
+
+
+def test_a_backend_that_answered_late_and_the_local_write_are_one_episode(server, memory, monkeypatch):
+    """The call ran at the backend and timed out here, so the stdio door writes it again: the same handle, unchanged."""
+    from api.services import tool_client
+
+    def call(name, args, options=None, *, local=False):
+        relay_capture.capture_local(_ctx(memory), args["message"], args.get("previous_reply"), args["conversation"],
+                                    queue_index=False)
+        raise tool_client.ToolClientError(tool_client.TIMED_OUT_WRITE_TEXT)
+
+    monkeypatch.setattr(server, "_remote_call", call)
+    _connect(server, "claude-ai")
+    text = _turn(server, FIRST, "new")["content"][0]["text"]
+    assert text.startswith("Already captured.") and 'conversation="lc_' in text and len(_relayed(memory)) == 1
+
+
+def test_a_client_machine_mints_too_and_keeps_no_copy(server, memory, monkeypatch):
+    sent = []
+
+    def call(name, args, options=None, *, local=False):
+        assert local is False
+        sent.append(dict(args))
+        return {"text": "Captured.", "code": None, "data": {"status": "created"}, "error": None, "segments": None,
+                "state": {}}
+
+    monkeypatch.setattr(server.runtime_layout, "is_client", lambda *a, **k: True)
+    monkeypatch.setattr(server, "_remote_call", call)
+    _connect(server, "claude-ai")
+    text = _turn(server, FIRST, "new")["content"][0]["text"]
+    assert sent[0]["conversation"] in text and relay_capture.LOCAL_HANDLE_RE.match(sent[0]["conversation"])
+
+
+# --- a bad neighbour never loses a turn --------------------------------------------------------------------------------
+
+BROKEN = {
+    "yaml": "---\nid: a: stray: colon\ntitle: [unclosed\n---\nuser: hi\n",
+    "list": "---\n- one\n- two\n---\nuser: hi\n",
+    "scalar": "---\njust some words\n---\nuser: hi\n",
+    "bad-stamp": "---\nid: ep_x\ntimestamp: not a time\nrelay:\n  app: claude\n  channel: remote\n  first: x\n---\nuser: hi\n",
+    "relay-a-list": "---\nid: ep_x\nrelay: [a, b]\n---\nuser: hi\n",
+    "relay-no-stamp": "---\nid: ep_x\nrelay:\n  app: claude\n  channel: remote\n---\nuser: " + FIRST + "\n",
+}
+
+
+def _broken(memory, kind):
+    path = memory / "episodes" / f"ep_{date.today().isoformat()}_900.md"
+    if kind == "bytes":
+        path.write_bytes(b"---\nid: \xff\xfe\n---\n")
+    else:
+        path.write_text(BROKEN[kind])
+
+
+@pytest.mark.parametrize("kind", [*BROKEN, "bytes"])
+def test_one_malformed_episode_never_stops_a_new_relayed_chat_on_the_local_door(server, memory, kind):
+    _broken(memory, kind)
+    _connect(server, "claude-ai")
+    result = _turn(server, FIRST, "new")
+    assert "isError" not in result, result
+    assert 'conversation="lc_' in result["content"][0]["text"] and len(_relayed(memory)) >= 1
+
+
+@pytest.mark.parametrize("kind", [*BROKEN, "bytes"])
+def test_one_malformed_episode_never_stops_a_new_relayed_chat_on_the_remote_door(memory, kind):
+    _broken(memory, kind)
+    runtime = RemoteRuntime(post=lambda p, d: {"status": "resolved"}, sleep_running=lambda: False)
+    text, status = runtime.call(_connector(), "cicada_capture_turns", {"message": FIRST})
+    assert status == "ok" and str(text).startswith("Captured.")
+
+
+# --- a model that goes on calling ---------------------------------------------------------------------------------------
+
+def test_a_model_that_ignores_stop_makes_no_second_episode(memory):
+    runtime = RemoteRuntime(post=lambda p, d: {"status": "resolved"}, sleep_running=lambda: False)
+    text = runtime.call(_connector(), "cicada_capture_turns", {"message": FIRST})[0]
+    handle = relay_capture.capture_local(_ctx(memory), FIRST, conversation="new", queue_index=False)
+    assert handle.data["status"] == "elsewhere" and str(text).startswith("Captured.")
+    runtime.call(_connector(), "cicada_capture_turns", {"message": SECOND, "previous_reply": REPLY})
+    later = relay_capture.capture_local(_ctx(memory), SECOND, REPLY, conversation="new", queue_index=False)
+    assert later.data["status"] == "elsewhere" and len(_relayed(memory)) == 1
 
 
 def test_a_relayed_chat_is_never_the_persons_own_words(server, memory):

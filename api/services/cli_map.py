@@ -231,7 +231,7 @@ ROWS: tuple[Row, ...] = (
          _f("via"), _f("last_modified"), _f("loaded_at"), _f("pages", "json"), _f("found", "json"),
          _f("robots", "json"), _f("section", "json"), _f("design", "json")), mutates=True),
     Row(("explore", "map"), "cicada_site_map", "The pages found and opened on an explored site.", (_f("site"),)),
-    Row(("capture", "turns"), "cicada_capture_turns", "Keep a hookless app's chat, turn by turn.",
+    Row(("capture-turns",), "cicada_capture_turns", "Keep a hookless app's chat, turn by turn.",
         (_p("message"), _p("conversation"), _f("previous_reply"), _f("project")), mutates=True,
         mcp_only="a turn is relayed by the app that had the conversation; a shell has none (ruling 57)"),
     Row(("explore", "start"), "cicada_explore_start", "Start exploring the person's saved sites.",

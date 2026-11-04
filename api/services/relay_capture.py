@@ -36,8 +36,9 @@ from api.services import mcp_tools, session_identity, turn_capture
 TOOL = "cicada_capture_turns"
 CHANNEL = "remote"
 #: Ruling 57: the Claude desktop app's own local server. One stdio process serves all its chats, so a chat's handle
-#: comes from this tool (``conversation="new"``), never from the process. Its chats are claude.ai's, so ``app`` is the
-#: remote connector's, and that account's export upgrades them.
+#: comes from this tool (``conversation="new"``), never from the process, minted where the call arrives (:func:`begin`),
+#: so a call queued for a home that is away already has its handle. Its chats are claude.ai's, so ``app`` is the remote
+#: connector's, and that account's export upgrades them.
 LOCAL_CHANNEL = "local"
 LOCAL_APP = "claude"
 LOCAL_HARNESS = "claude-desktop"
@@ -46,11 +47,12 @@ LOCAL_HANDLE_RE = re.compile(r"^lc_\d{4}-\d{2}-\d{2}_[0-9a-f]{8}$")
 #: The most one call may carry per turn: the same request bound ``/capture/turn`` holds.
 TEXT_MAX_CHARS = turn_capture.TEXT_MAX_CHARS
 
+#: Said once per conversation, so the person sees it in words (ruling 57): connecting an app is no consent to a tool
+#: they never saw named.
+SAY_ONCE = "Say once, in a few words, that this chat is being kept in their Cicada memory."
+
 _REPLIES = {
-    # Said once per conversation, so the person sees it in words (ruling 57): connecting an app is no consent to a
-    # tool they never saw named.
-    "created": "Captured. Keep calling this every turn. Say once, in a few words, that this chat is being kept in "
-               "their Cicada memory.",
+    "created": f"Captured. Keep calling this every turn. {SAY_ONCE}",
     "updated": "Captured.",
     "unchanged": "Already captured.",
     "metadata": "Captured.",
@@ -151,24 +153,40 @@ def capture_turns(ctx: mcp_tools.ToolContext, message, previous_reply=None, *, a
                            data={"status": result.status, "episode_id": result.episode_id})
 
 
+def begin(conversation) -> tuple[str | None, bool]:
+    """``(handle, started)`` for a local call's ``conversation``: ``"new"`` mints one here, where the call arrived, so it
+    exists whatever happens to the call next (queued for a home that is away, a backend that answered late and the same
+    turn written again here: still one conversation, G104). ``(None, False)`` for anything this tool never gave."""
+    raw = conversation.strip() if isinstance(conversation, str) else ""
+    if raw == NEW_CONVERSATION:
+        return f"lc_{date.today().isoformat()}_{secrets.token_hex(4)}", True
+    return (raw, False) if LOCAL_HANDLE_RE.match(raw) else (None, False)
+
+
+def bad_handle() -> mcp_tools.Reply:
+    return mcp_tools.Reply('Nothing captured: pass conversation="new" on this chat\'s first call, then the handle the '
+                           "reply gives.", code="invalid_arguments")
+
+
+def with_handle(reply, handle: str) -> mcp_tools.Reply:
+    """A chat's first reply carries its handle, whatever became of the call, except where the model is told to stop."""
+    data = getattr(reply, "data", None)
+    code = getattr(reply, "code", None)
+    if code == "demo_bank" or (isinstance(data, dict) and data.get("status") == "elsewhere"):
+        return reply
+    told = f" {SAY_ONCE}" if isinstance(data, dict) and data.get("queued") else ""    # no `created` reply will reach it
+    return mcp_tools.Reply(f'{reply}{told} Pass conversation="{handle}" on every later turn of this chat.', code=code,
+                           data={**(data if isinstance(data, dict) else {}), "conversation": handle})
+
+
 def capture_local(ctx: mcp_tools.ToolContext, message, previous_reply=None, conversation=None, project=None,
                   *, queue_index: bool = True) -> str:
     """Ruling 57: one turn from the Claude desktop app's local connection, as ``claude-desktop``, never the process's
-    own ``unknown`` session. ``conversation`` is ``"new"`` on a chat's first call and the handle the reply gave after,
-    so one process's chats stay one episode each and a chat outlives the process (G104)."""
-    raw = conversation.strip() if isinstance(conversation, str) else ""
-    started = raw == NEW_CONVERSATION
-    if not started and not LOCAL_HANDLE_RE.match(raw):
-        return mcp_tools.Reply('Nothing captured: pass conversation="new" on this chat\'s first call, then the handle '
-                               "the reply gives.", code="invalid_arguments")
-    handle = f"lc_{date.today().isoformat()}_{secrets.token_hex(4)}" if started else raw
+    own ``unknown`` session, so one process's chats stay one episode each and a chat outlives the process (G104)."""
+    handle, started = begin(conversation)
+    if handle is None:
+        return bad_handle()
     relayed = dataclasses.replace(ctx, harness=LOCAL_HARNESS, session_id=handle)
     reply = capture_turns(relayed, message, previous_reply, app=LOCAL_APP, project=project, channel=LOCAL_CHANNEL,
                           queue_index=queue_index)
-    data = getattr(reply, "data", None)
-    if started and isinstance(data, dict) and data.get("status") in ("created", "updated", "unchanged", "metadata"):
-        return mcp_tools.Reply(f'{reply} Pass conversation="{handle}" on every later turn of this chat.', code=None,
-                               data={**data, "conversation": handle})
-    return reply
-
-
+    return with_handle(reply, handle) if started else reply
