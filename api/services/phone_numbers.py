@@ -354,15 +354,25 @@ NOTE = (
     "a key fact, a history entry, a link or an open question: a page's prose does not carry it.]\n\n")
 
 
-
-def _person_span(content: str, tid: str, episode_id: str, *, override, gaps) -> dict | None:
-    """The first of the person's own lines holding this token, as a located span: a token is unique in the body, so
-    this does not depend on what the model quoted."""
+def _person_span(content: str, tid: str, episode_id: str, *, override, gaps, name: str = "") -> dict | None:
+    """One of the person's own lines holding this token, as a located span: the token says which number, so this does
+    not depend on what the model quoted. The line naming ``name`` when one does (a number said twice, of two people,
+    rests on the line about this one), else the first."""
     from api.services import evidence
 
     needle = token(tid)
+    words = [w.casefold() for w in name.split() if len(w) > 1]
+    hits = []
     at = content.find(needle)
     while at != -1:
+        hits.append(at)
+        at = content.find(needle, at + 1)
+
+    def names(at: int) -> bool:
+        line = content[content.rfind("\n", 0, at) + 1:(content.find("\n", at) + 1 or len(content) + 1) - 1].casefold()
+        return any(w in line for w in words)
+
+    for at in sorted(hits, key=lambda a: (not names(a), a)):
         if evidence.kind_for(episode_id, content, at, override, gaps) == "user":
             head = max(content.rfind("\n", 0, at) + 1, at - 100)
             tail = content.find("\n", at)
@@ -375,7 +385,6 @@ def _person_span(content: str, tid: str, episode_id: str, *, override, gaps) -> 
                                  gaps=gaps)
             if ev.kind == "user":
                 return ev.to_dict()
-        at = content.find(needle, at + 1)
     return None
 
 
@@ -446,7 +455,7 @@ def take(entities: list, relationships: list, values: list, content: str, episod
         key = (name.casefold(), tid)
         if key in seen:
             return
-        span = (_person_span(content, tid, episode_id, override=override, gaps=gaps) if raw is None
+        span = (_person_span(content, tid, episode_id, override=override, gaps=gaps, name=name) if raw is None
                 else _raw_person_span(content, raw, episode_id, override=override, gaps=gaps))
         if span is None:
             return

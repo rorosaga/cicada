@@ -280,6 +280,15 @@ def test_a_token_copied_without_its_brackets_is_still_this_conversations_number(
     assert bare not in json.dumps(entities)
 
 
+def test_a_number_said_twice_rests_on_the_line_about_this_person(home):
+    t = tok(SimpleNamespace(name="b"), A)
+    content = f"user: Bob Example shares a phone, {t}\nuser: Ana Diaz's new number is {t}"
+    values = [{"entity": "Ana Diaz", "attribute": "phone number", "value": t}]
+    phone_numbers.take([], [], values, content, "ep_2026-08-29_001", bank="b")
+    span = values[0]["evidence"][0]
+    assert "Ana Diaz" in content[span["start"]:span["end"]]
+
+
 def test_a_relationship_to_a_token_becomes_the_same_entry(home):
     t = tok(SimpleNamespace(name="b"), A)
     rels = [{"source": "Ana Diaz", "target": t, "label": "has phone"}, {"source": "Ana Diaz", "target": "Acme", "label": "works at"}]
@@ -872,12 +881,12 @@ def _messages_chat(tmp_path, memory):
     db.message(agent, utc(2026, 9, 3, 10, 1), from_me=False, text=f"Added Ana Diaz at {A}")
     db.message(agent, utc(2026, 9, 3, 10, 2), from_me=True, text="and Bob Example 2025550177")
     db.db.commit()
-    messages_source.update_settings(memory, conversation={"id": conversation_id(db.chat_guid(agent)), "name": "Instinct",
+    messages_source.update_settings(memory, conversation={"id": conversation_id(db.chat_guid(agent)), "name": "Agent Example",
                                                           "ticked": True, "history": True})
 
     def sync():
         guid = db.chat_guid(agent)
-        body = payload(guid, read_rows(db.path, agent))
+        body = payload(guid, read_rows(db.path, agent), name="Agent Example")
         out = messages_source.ingest(memory, MessagesSyncRequest.model_validate(body).model_dump(by_alias=False), bank=memory.name)
         bank_index.invalidate()
         return out
