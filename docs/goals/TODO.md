@@ -13,7 +13,7 @@
 ## Current state and evidence
 
 - **2026-11-04 — This Mac source pages: accounts → collections → items (G161, G154, G95; branch `this-mac-sources`,
-  PR #599, on top of `sources-standard-layout` #593).** Owner: Apple Notes, Reminders, Contacts and Calendar "should
+  PR #599, on the standard layout #593).** Owner: Apple Notes, Reminders, Contacts and Calendar "should
   have a better user experience and UI". One browser fills the standard page's content slot (`ThisMacSourceContent`):
   accounts by real provider with their own marks → folders/calendars/lists → items, one search, the Reader as the item
   view; Contacts as faces (photo, else monogram); recorders as recorder → folder → meetings (day · length). Backend:
@@ -25,7 +25,11 @@
   before a meeting showed (now *Connect Hex* reads the found folder once, ~1.9 s to the list on a scratch run).
   Calendar's "Google account" was a standing *Add a Google account* line, retired. **Not reproduced:** Hex's "no
   conversations" (dev with Hex-format files lists them; the owner's real folder's shapes match the parser, checked by
-  structure only). *Connect Hex* and the not-installed state sit in the standard connect area.
+  structure only). *Connect Hex* and the not-installed state sit in the standard connect area. Found re-verifying on
+  the layout, fixed: Esc closed the whole page from any level, because the focused detail column takes it ahead of a back
+  button (`SourcePageBack`, drills too); an unticked list's items fell under "Other", because each sync replaced the
+  names kept for the last one (`source_collections.after_sync`). Calendar's Google way row from #593 is gone too, so
+  Cicada no longer links to Internet Accounts: a Google calendar still comes in through macOS.
 - **2026-11-04 — a question about two people rests on a conversation naming both; never the owner without their own
   words (G209; branch `fix/person-dedup-evidence`).** Owner: "why tf would <handle> be me?" about "Is <handle> the same
   as <owner>?" (guess 0.90, evidence a chat naming neither). Cause: a post BY the handle linked on the owner's page read

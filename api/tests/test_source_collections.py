@@ -196,6 +196,30 @@ def test_reminders_lists_are_collections(client, bank):
     assert [i["title"] for i in page["items"]] == ["Send notes"]
 
 
+def test_an_unticked_list_keeps_its_name_while_it_holds_items_and_an_empty_one_goes(client, bank):
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+
+    def sync(lists, reminders):
+        body = {"completedSince": (now - timedelta(days=30)).isoformat(),
+                "lists": [{"id": i, "title": t, "account": "iCloud", "provider": "icloud"} for i, t in lists],
+                "reminders": [{"id": r, "listId": l, "title": r, "created": (now - timedelta(days=1)).isoformat()}
+                              for r, l in reminders]}
+        assert client.post("/sources/reminders-local/sync", json=body).status_code == 200
+
+    def tree():
+        accounts = client.get("/sources/channels/reminders-local/collections").json()["accounts"]
+        return {(a["name"], c["name"], c["count"]) for a in accounts for c in a["collections"]}
+
+    sync([("l1", "Errands"), ("l2", "Reading"), ("l3", "Empty")], [("r1", "l1"), ("r2", "l2")])
+    assert tree() == {("iCloud", "Errands", 1), ("iCloud", "Reading", 1), ("iCloud", "Empty", 0)}
+    # "Reading" and "Empty" unticked: a sync names only what is ticked, so Reading's reminder stays, under its own name.
+    sync([("l1", "Errands")], [("r1", "l1")])
+    assert tree() == {("iCloud", "Errands", 1), ("iCloud", "Reading", 1)}
+    # Named again, it is an ordinary collection.
+    sync([("l1", "Errands"), ("l3", "Empty")], [("r1", "l1")])
+    assert ("iCloud", "Empty", 0) in tree()
+
+
 def test_a_channel_with_no_collections_answers_no_accounts_and_an_unknown_one_404s(client):
     assert client.get("/sources/channels/contacts-local/collections").json() == {"channel": "contacts-local",
                                                                                  "accounts": []}

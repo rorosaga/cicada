@@ -1108,6 +1108,8 @@ def collections(memory_path: Path, channel_id: str) -> dict | None:
         coll["_days"].append(row)
     # A collection the last sync named that holds nothing yet still lists (an empty calendar is still a calendar).
     for cid, record in named.items():
+        if record.get("named") is False:
+            continue
         account = record.get("account") or ""
         acct = groups.setdefault(account, {"name": account or None, "provider": record.get("provider"),
                                            "collections": {}})

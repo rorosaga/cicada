@@ -41,7 +41,8 @@ Seven rails hold across all of them:
   lists it named — `{id, title, account, provider}`, titles the bodies already hold — beside the channel's last sync
   (`sync_state.json`, `source_collections`). `GET /sources/channels/{id}/collections` answers accounts → collections
   (count, newest day) for `notes`, `calendar-local` and `reminders-local` (iCloud first, then this Mac, then the rest
-  by name; a collection by name; one a sync named with nothing in it still listed), no accounts for any other channel;
+  by name; a collection by name; one a sync named with nothing in it still listed; one a later sync no longer names —
+  a list unticked — keeps its name, `named: false`, and lists only while it holds items), no accounts for any other channel;
   `GET …/items?collection=` narrows a page to one collection (a calendar's id, a list's id, a Notes folder's opaque
   `nf-…` id). A meeting row carries `duration_s` (SHAPE `g161-14`). Read-only, engine-free, never a Store domain.
   `POST /sources/sync-bookmarks` likewise 422s without bookmark bytes (there is no local-file fallback), and no

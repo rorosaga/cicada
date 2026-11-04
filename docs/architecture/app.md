@@ -1748,7 +1748,8 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   (`SourceBrowserRow`: the account's mark, its name, *N notes/events/reminders*, a chevron) — and **Recent** (DR-81's
   five rows, then *All N*); an account opens its **collections** (a Notes folder, a calendar, a Reminders list — a
   folder, calendar or list glyph), a collection its **items**; each level opens in the content's place with *‹ <where
-  you were>* and Esc (`SourceBrowserHead`), and an item opens in the Reader. It starts where there is something to
+  you were>* and Esc (`SourceBrowserHead`; the focused detail column takes Esc ahead of a back button, so an open level
+  tells the page through `SourcePageBack`, and Esc closes the page only with no level open), and an item opens in the Reader. It starts where there is something to
   choose (`SourceBrowserText.start`): several accounts → accounts; one account with several collections → its
   collections; one collection → its items; nothing filed → the plain list. The tree is read from the backend
   (`GET /sources/channels/{id}/collections`, `ChannelItemsCache.refreshCollections`, never a Store domain), so a client or

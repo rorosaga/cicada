@@ -53,8 +53,18 @@ def stored(records: list[dict]) -> list[dict]:
     return out
 
 
+def after_sync(memory_path: Path, channel_id: str, records: list[dict]) -> list[dict]:
+    """What to keep after a sync: the collections it named, then the ones it no longer names (a list unticked), marked
+    ``named: false``. Their items stay in the bank, so their names must too; the page lists them only while they hold
+    items (`channel_items.collections`)."""
+    now = stored(records)
+    ids = {r["id"] for r in now}
+    past = [{**r, "named": False} for cid, r in known(memory_path, channel_id).items() if cid not in ids]
+    return (now + past)[:MAX]
+
+
 def known(memory_path: Path, channel_id: str) -> dict[str, dict]:
-    """The collections the channel's last sync named, by id; empty when it named none (an older sync)."""
+    """Every collection the channel's syncs named, by id; empty when none did (an older sync)."""
     entry = sync_state.read_sync_state(memory_path).get(channel_id)
     records = entry.get(KEY) if isinstance(entry, dict) else None
     if not isinstance(records, list):
