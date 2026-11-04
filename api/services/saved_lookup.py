@@ -36,6 +36,9 @@ ABOUT_CHARS = 400
 #: In an unasked note (two words or more): the share of a title's own subject words the message must say. The body of a
 #: feed item can share words with anything; a title shared by half is what the link is about.
 TITLE_COVER = 0.5
+#: …and the share of the message's rare weight, higher than a lookup's: nobody asked. Measured on a worst case, 3,000
+#: titles drawn from the same 70 technical words: two of four rare words in a coding message brought up a link at 0.4.
+NOTE_COVER = 0.6
 #: How much of a description rides on a line.
 LINE_ABOUT_CHARS = 140
 CANDIDATES = 60
@@ -194,6 +197,8 @@ def _find(memory_path: Path, reader, stems: list[str], k: int, min_shared: int, 
         if hit.page is not None and min_shared > 1:
             title = text_fold.subject_terms(hit.title)
             if title and len(title & set(shared)) < TITLE_COVER * len(title):
+                continue
+            if sum(weights[s] for s in shared) < NOTE_COVER * total:
                 continue
         out.append(hit)
         if len(out) == k:

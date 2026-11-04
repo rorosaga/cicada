@@ -1002,6 +1002,60 @@ this Mac, with times — off by default, on only after the consent sheet (Source
   a model, which the rail forbids; "what was that video at 15:20" is answered through the watched day Ask and recall
   already read. Remote doors and other devices never see traces.
 
+**The lean pass (ruling 62, owner 2026-11-04; G236).** Owner: "For chrome bookmarks, and the rest of things I told you we
+can do a leaner initial pass for consolidation on those things who have no reason/user intent attached, but enough info so
+that it can come up in a relevant conversation and an agent can look further into it." What a full read of a bare bookmark
+buys, measured (25 synthetic bookmarks, Claude plan at haiku, connector gate off): 56 to 57 calls and 269k to 272k input
+tokens, about 2.5 minutes: Stage 1 once per item at about 7,900 input tokens (the prompt, mostly cached, for a title of a
+dozen words), then a judge call and a merge call for most items. No retries. It made a page sentence restating the title and
+the folder, and `covers` claims from the title's own words. Recall found the same links without it (below).
+- **What is lean: `history_index.kind` `saved`.** A bare save, by its own record, never by what its body says: the saving
+  door's page link (`media_entity_id` and `url`: a browser bookmark, a single saved link, a feed item, a connector poll, an
+  open Safari tab, any import through the media writer), an older `*-bookmark` episode, or a tab group (`source: tab-group`).
+  A list save stays `list` (ruling 30). **Not lean:** a save with a reason or note (`has_note`, `saved_why`,
+  `saved_why_earlier`, a `## Saved because`, `## User note`, `## Why it was saved` or an agent's `## Note` section, the last
+  because it says why the link matters though it is never the person's words); a book's record (`book`); an agent's report
+  that carries the page's link (`video-watch`, `page-read`) and Cicada's own checks; a conversation; a save anyone already
+  read. **A save read before the ruling stays exactly as it was:** `processed: true` under any writer but `index` is never
+  `saved`, so its claims, pages and every reader's view of it are untouched.
+- **What it costs: nothing.** Capture writes it read (`processed_by: index`, `media_ingestor.write_media_episode`; a tab group's
+  stager draft); an edit to a group spends nothing. No model call, no claim, no page minted (the media page is the save's
+  own, written at capture, link views and all), no question: Stage 5.57, the tail's link backfill and recon pass over its page
+  (`link_enrichment.lean_page`: every episode the page rests on is `saved` or `list`), including the no-model reuse path,
+  which writes a `describes` claim. This narrows G102's "what makes a saved link part of the graph" to saves someone said
+  something about. No engine is needed, so it works with no plan: `_index_without_model_safely` runs before an engine is resolved.
+- **What is kept: enough to come up, `saved_lookup`.** Title, link, site, date and the page's own description when one is
+  already held (no fetch), found by the indexes every episode and page already has: the FTS `med` table, a tab group's
+  passages (`meta.saved_no_page`), the entity vectors. Rarity decides, as in the hook's topic leg: a word held by more than 3%
+  of saved items (floor 5) finds nothing, a hit must carry 40% of the message's rare weight, and an unasked note needs two rare
+  words, 60% of that weight and half of the title's own subject words. Three doors: **recall** (a media page a leg ranks shows `Link:`, its
+  saved day and "nobody has read it"; the rest under *Saved links on this*, at most 3, one rare word enough; a save is no
+  *conversation excerpt*), **Ask** (`SAVED LINKS`, at most 4, words then meaning; a line only the vectors found never earns a
+  model call by itself), **the hook's note** (at most 2 lines under the note's own 400-token cap and a 40 ms reserve, reason
+  `saved`, ids joining the session's window so a link is not repeated turn after turn). `cicada_sources(<id>)` answers one line
+  with the title and link. Vectors: the tail's `_embed_indexed_episodes_safely` also embeds a media page newer than the
+  index, and makes the first sync of a bank that holds nothing but saves, since no batch ever would.
+- **The way back: read once, when the person talks about it (`saved_mentions`).** `read_asked: {why, at}` takes the episode out
+  of `saved` for good and queues it for the next run (`history_index.wake`, under the episode lock), where it is read like any
+  conversation and is `processed_by: sleep` after. Three things wake it: one of the person's own turns (`evidence.turns`, role
+  `user`, never an agent's reply or another speaker's line) holds its link or says its whole title of at least three subject
+  words (`said-the-link`, `said-the-title`, after a batch is read, committed with it, at most 5 per conversation so a paste of
+  fifty links is not fifty reads); a conversation lit its page, so it is no longer quiet (`page-mentioned`, before a run freezes,
+  and `retire` does the same for a queued save whose page was lit before it was ever indexed, which is the first run's case);
+  or they give a reason, the existing `saved_why`, note and Telegram doors (`mark_person_words`). **A retrieval hit is none of
+  these:** nothing on a read path writes. An agent's `cicada_record_read` is its own read, with its own episode and claim, so
+  Sleep does not read the same thing again. A save's text stays `page` (`authorship.of`), never the person's words.
+- **Existing items.** The first run after this lands retires what waits, in the existing `Indexed without a model <date>` `cicada`
+  commits of at most 500 files, before ids freeze, with no engine and nothing else touched; the tail embeds what it indexed.
+  Between the upgrade and that run they are already out of every waiting count (`waits_for_model`, `/sleep/queue`,
+  `/sleep/episodes?processed=false`). Measure with `history_index_dry_run --bank <path>`: `index_only_by_kind.saved` is that
+  number, counts only.
+- **What the pages say.** Sources (`source.kept`, `overview-v17`) and the Sleep page's Waiting (`/sleep/queue`'s `kept`): one
+  line, "371 saved, kept for lookup. One is read when you talk about it." `Copy.keptForLookup`.
+- **Reads everything, still (rulings 13, 16 as amended by 62).** A lean read is a read: everything waiting when a run starts is
+  consolidated by the end of it, the lean part with no model.
+- **Measured.** All on scratch banks, Claude plan at haiku, the connector gate off, input tokens gross of cache. **25 bookmarks:** before 56 and 57 calls, 269k and 272k input tokens, about 2.5 minutes; after 0 calls, 0 tokens, 2 seconds. **The owner's 22-item shape** (7 coding sessions of which 2 long, 5 short chats, 6 bookmarks, 4 tab groups), fresh bank: before 62 calls, 421k tokens, 1 batch, its first commit after 54 calls; after 59 calls, 383k tokens, 4 batches, its first commit after 11 calls, its largest batch 19. The same again on a bank that already has those pages: before 92 calls, 522k tokens, 1 batch, first commit after 66 calls; after 75 calls, 461k tokens, 3 batches, largest 34. Conversations are most of a mixed run, so the lean pass saves little there, and more batches mean more merges (5 to 16 on the fresh bank) and a `skills` call each: the bound buys what a stop can cost, not fewer calls. **Retrieval** (15 messages about 25 bookmarks, 12 sharing words with the title and 3 only meaning; 4 unrelated; real doors, with vectors): recall 12/12 and 3/3 both when Sleep had read them and with the lean pass; the hook's note 3/12 before, 12/12 after, 0/3 by meaning both; Ask 3/4 before, 4/4 after; unrelated messages: the note 0/4 both, Ask 0/1 both, recall 4/4 both (its top-one rule shows the nearest page in a bank that holds nothing else). Words only, read by Sleep: recall 11/12 and 1/3. Nothing woke a save in all of it. **At scale:** 3,000 titles drawn from the same 70 technical words, a worst case: the leg's p95 is 3.9 ms, and 6 of 15 unrelated coding messages drew a line. Real titles have far more words; count `reason: saved` in the ledger on a real bank. **The read back:** a conversation naming one link and one whole title woke those two and not the link only the agent said; the next Sleep read them in 9 calls, and they are read for good. **Lost, disclosed:** the `covers` claims and the page's edges to concepts that a read made from the title's words, so a lean page draws unconnected until it is read. `test_lean_pass.py` pins each case.
+
 **Indexed, not consolidated (owner ruling 2026-10-18; G71, G94).** The owner's Takeout with history brought 45,879
 watches as 2,532 day episodes and 3,156 playlist saves, and every one was queued for a full Stage-1 read — hours of
 plan usage to fill the graph with channel and video pages and "who is X" questions. Owner: "maybe overanalyzing the

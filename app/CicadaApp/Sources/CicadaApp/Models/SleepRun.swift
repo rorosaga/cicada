@@ -286,7 +286,7 @@ struct SleepQueueResponse: Codable, Equatable {
         items = ((try? c.decodeIfPresent([SleepQueueItem].self, forKey: .items)) ?? nil) ?? []
         kept = ((try? c.decodeIfPresent(Int.self, forKey: .kept)) ?? nil) ?? 0
     }
-    enum CodingKeys: String, CodingKey { case total, offset, items }
+    enum CodingKeys: String, CodingKey { case total, offset, items, kept }
 }
 
 /// The owner page's beliefs, sampled at a run's start and after its first batch. `nil` on the wire
