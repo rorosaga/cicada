@@ -1415,6 +1415,8 @@ its `content_hash`, so the queue is derived from the bank — a move or a restor
   `to-read` → want (a happening only for a finish with a Date Read); a custom exclusive shelf records no status; a 1–5 rating is a `rated` claim. One episode per row
   (`goodreads:<Book Id>`, a saved record); only a row with the person's review or private notes (`## User note`) is
   queued for Sleep. Nothing is read from the Goodreads site.
+- **A door's list** (`channel_items`): `GET /sources/channels/{apple-books|goodreads|book-scan}/items` is that door's
+  books, one row each, as its book page once it has one.
 
 **Sleep reads the highlights** (owner 2026-11-04: "be able to consolidate highlights and such is important"). A
 re-sync that adds highlights edits the book's episode in place, and Sleep reads only what changed

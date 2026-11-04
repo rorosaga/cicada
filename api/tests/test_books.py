@@ -396,6 +396,18 @@ def test_goodreads_import_maps_shelves_ratings_and_reviews_onto_the_same_pages(c
     assert (again["created"], again["updated"], again["unchanged"]) == (0, 0, 3)
 
 
+def test_each_door_lists_its_books_on_its_source_page(client):
+    """The page's list and the overview's count agree: a book page's own origin is `book`, so the door lists its records."""
+    c, _, _ = client
+    assert c.get("/sources/channels/apple-books/items").json()["total"] == 0
+    c.post("/sources/goodreads/import", files={"file": ("x.csv", CSV.encode())})
+    page = c.get("/sources/channels/goodreads/items").json()
+    overview = {row["id"]: row for row in c.get("/sources/overview").json()["sources"]}
+    assert page["total"] == overview["goodreads"]["items"] > 0
+    assert page["latest"]
+    assert {row["id"] for row in page["items"]} == {"quiet-engines", "someday-shelf", "the-lantern-orchard"}
+
+
 def test_a_file_that_is_not_a_goodreads_export_is_refused(client):
     c, _, _ = client
     r = c.post("/sources/goodreads/import", files={"file": ("x.csv", b"Name,Url\nA,https://example.com\n")})
