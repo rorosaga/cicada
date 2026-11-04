@@ -114,7 +114,7 @@ def _switch_path() -> Path:
     return Path(root).expanduser() / SWITCH_FILE
 
 
-_switch_memo: tuple[tuple[int, int], bool] | None = None
+_switch_memo: tuple[tuple[str, int, int], bool] | None = None
 
 
 def enabled() -> bool:
@@ -126,7 +126,7 @@ def enabled() -> bool:
         st = path.stat()
     except OSError:
         return False
-    key = (st.st_mtime_ns, st.st_size)
+    key = (str(path), st.st_mtime_ns, st.st_size)
     if _switch_memo is not None and _switch_memo[0] == key:
         return _switch_memo[1]
     try:

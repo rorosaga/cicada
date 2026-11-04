@@ -54,8 +54,8 @@ def bank(tmp_path, home):
 
 
 @pytest.fixture
-def on(monkeypatch):
-    monkeypatch.setenv("CICADA_PHONE_NUMBERS", "on")
+def on(home):
+    phone_numbers.set_enabled(True)
 
 
 def ingest(bank, rows):
@@ -137,8 +137,8 @@ def test_a_written_form_with_a_plus_replaces_one_without(home):
 
 @pytest.mark.parametrize("line", [
     f"Bob's number is {A}", "call him on (202) 555-0143", "202.555.0143 is Bob", "tel:+12025550143",
-    "her number is 202 555 0143", "phone: 2025550143", "su celular es 202 555 0143", "Bob 2025550143",
-    "Bob Example: 202 555 0143", "call Ana at 202-555-0143",
+    "her number is 202 555 0143", "phone: 2025550143", "su celular es 202 555 0143", "Ana's new number is 2025550143",
+    "call Ana at 202-555-0143", "mi móvil: 202 555 0143", "I was texting Ana on 2025550143",
 ])
 def test_these_are_numbers(home, line):
     out, n = phone_numbers.tokenise(line, "b")
@@ -149,6 +149,11 @@ def test_these_are_numbers(home, line):
     "order number 123456789", "invoice 1234567890", "room 101 102 103", "2026-10-28 10:30", "built in 2024 2025 2026",
     "wrote code in 2019", "it cost $1 299 000 000", "sku 123-456-789", "see v1.2.3", "ping 192.168.1.10",
     "the years 1999-2003-2010", "flight 123456789", "a 1730000000 timestamp", "@15550100",
+    # G81 review, item 5: a bare run needs a positive signal, never the mere absence of a negative one.
+    "my order number is 123456789", "my passport number is 123456789", "my flight number is 123456789",
+    "see example.com/product-1234567890", "write to 5550100000@example.com", "it sold for 1 299 000 000",
+    "we met at 40.7128 -74.0060", "isbn 978-0-306-40615-7", "on 12 03 2026 14 30", "Bob 2025550143",
+    "Bob Example: 202 555 0143", "her membership number is 123456789", "phone: 5550100000@example.com",
 ])
 def test_these_are_not(home, line):
     assert phone_numbers.tokenise(line, "b") == (line, 0)
@@ -212,7 +217,7 @@ def test_turning_it_on_moves_no_stored_byte_on_a_read_again(bank, monkeypatch):
         markdown_parser.write(path, {**parsed.frontmatter, "processed": True, "processed_by": "sleep"}, parsed.body)
     bank_index.invalidate()
     frozen = stored(bank)
-    monkeypatch.setenv("CICADA_PHONE_NUMBERS", "on")
+    phone_numbers.set_enabled(True)
     out = ingest(bank, [row("AAA1", T0, f"Ana's number is {A}", me=True),
                         row("AAA2", T0 + 5, "her number is 202 555 0177", me=True),
                         row("AAA3", T0 + 9, f"ok, {B}")])
@@ -225,7 +230,7 @@ def test_turning_it_on_moves_no_stored_byte_on_a_read_again(bank, monkeypatch):
 
 def test_a_new_message_on_an_old_sitting_tokens_only_itself(bank, monkeypatch):
     (old_body, _), = _old_chat(bank).values()
-    monkeypatch.setenv("CICADA_PHONE_NUMBERS", "on")
+    phone_numbers.set_enabled(True)
     ingest(bank, [row("AAA4", T0 + 20, f"Bob's new number is {A}", me=True)])
     (body, _), = stored(bank).values()
     lines = body.split("\n")
@@ -241,10 +246,10 @@ def test_a_tokened_line_posted_again_stays_as_it_is(bank, on):
 
 
 def test_switched_off_again_a_tokened_line_posted_again_stays(bank, monkeypatch):
-    monkeypatch.setenv("CICADA_PHONE_NUMBERS", "on")
+    phone_numbers.set_enabled(True)
     ingest(bank, [row("AAA1", T0, f"Ana's number is {A}", me=True)])
     before = stored(bank)
-    monkeypatch.setenv("CICADA_PHONE_NUMBERS", "off")
+    phone_numbers.set_enabled(False)
     assert ingest(bank, [row("AAA1", T0, f"Ana's number is {A}", me=True)])["updated"] == 0
     assert stored(bank) == before
 
@@ -471,12 +476,22 @@ def test_reading_the_same_conversation_again_writes_nothing_new(table):
     assert len(slot) == 1 and not nudges
 
 
+X = "[number:xxxxxxxxxx]"
+Y = "[number:yyyyyyyyyy]"
+
+
 @pytest.mark.parametrize(("line", "kind"), [
-    ("Ana's new number is X", phone_numbers.CHANGED), ("she changed her number to X", phone_numbers.CHANGED),
-    ("Ana now uses X", phone_numbers.CHANGED), ("el nuevo número de Ana es X", phone_numbers.CHANGED),
-    ("Ana's work number is X", phone_numbers.ADDITIONAL), ("she also has X", phone_numbers.ADDITIONAL),
-    ("su otro móvil es X", phone_numbers.ADDITIONAL), ("her old number was X", phone_numbers.PAST),
-    ("Ana is X", phone_numbers.UNKNOWN), ("Ana's number is X", phone_numbers.UNKNOWN),
+    (f"Ana's new number is {X}", phone_numbers.CHANGED), (f"she changed her number to {X}", phone_numbers.CHANGED),
+    (f"her number is now {X}", phone_numbers.CHANGED), (f"el nuevo número de Ana es {X}", phone_numbers.CHANGED),
+    (f"Ana changed her number, it's {X} now", phone_numbers.CHANGED), (f"{X} is her new number", phone_numbers.CHANGED),
+    (f"Ana's work number is {X}", phone_numbers.ADDITIONAL), (f"she also has {X}", phone_numbers.ADDITIONAL),
+    (f"su otro móvil es {X}", phone_numbers.ADDITIONAL), (f"her old number was {X}", phone_numbers.PAST),
+    (f"Ana is {X}", phone_numbers.UNKNOWN), (f"Ana's number is {X}", phone_numbers.UNKNOWN),
+    # G81 review, item 4: an unclear line asks. Not one of these says the number changed or ended.
+    (f"I was talking to Ana, her number is {X}", phone_numbers.UNKNOWN), (f"I was texting Ana on {X}", phone_numbers.UNKNOWN),
+    (f"Ana got a new job, her desk line is {X}", phone_numbers.UNKNOWN), (f"Ana now uses {X}", phone_numbers.UNKNOWN),
+    (f"new year, Ana's number is {X}", phone_numbers.UNKNOWN), (f"I used to call Ana, she is on {X}", phone_numbers.UNKNOWN),
+    (f"Bob's new number is coming and Ana's number is {X}", phone_numbers.UNKNOWN),
 ])
 def test_what_the_persons_line_says(line, kind):
     assert phone_numbers.classify(line) == kind
@@ -773,14 +788,14 @@ def client(memory, monkeypatch):
 def test_the_reveal_route_answers_the_mac_and_refuses_a_device(client, memory, monkeypatch):
     t = phone_numbers.token_ids(tok(memory, A))[0]
     out = client.post("/people/numbers/reveal", json={"tokens": [t, "not-a-token"]})
-    assert out.status_code == 200 and out.json() == {"numbers": {t: A}}
+    assert out.status_code == 200 and out.json() == {"numbers": {t: A}, "problem": None}
     monkeypatch.setattr("api.routers.local_sources.request_device", lambda _r: SimpleNamespace(id="d", kind="full"))
     assert client.post("/people/numbers/reveal", json={"tokens": [t]}).status_code == 403
     assert client.get("/people/numbers/match-key").status_code == 403
 
 
 def test_the_match_key_is_nothing_while_off(client, monkeypatch):
-    monkeypatch.setenv("CICADA_PHONE_NUMBERS", "off")
+    phone_numbers.set_enabled(False)
     assert client.get("/people/numbers/match-key").json() == {"key": None}
 
 
@@ -901,8 +916,9 @@ def test_messages_the_owners_own_case_through_the_real_reader(bank, tmp_path, on
         before = stored(bank)
         (body, _fm), = before.values()
         lines = body.split("\n")
-        assert phone_numbers.has_token(lines[0]) and "[redacted]" in lines[1] and phone_numbers.has_token(lines[2])
-        assert A_DIGITS not in body and "202 555 0143" not in body and B_DIGITS not in body
+        assert phone_numbers.has_token(lines[0]) and "[redacted]" in lines[1]
+        assert A_DIGITS not in body and "202 555 0143" not in body
+        assert lines[2].endswith("and Bob Example 2025550177")   # no positive signal: the words stay, as today
         assert sync()["updated"] == 0 and stored(bank) == before
     finally:
         db.close()
@@ -915,7 +931,7 @@ def test_messages_turning_it_on_moves_no_stored_byte(bank, tmp_path, monkeypatch
         before = stored(bank)
         (body, _fm), = before.values()
         assert body.startswith("user: Add Ana Diaz, her number is [redacted]") and B_DIGITS in body
-        monkeypatch.setenv("CICADA_PHONE_NUMBERS", "on")
+        phone_numbers.set_enabled(True)
         assert sync()["updated"] == 0
         assert stored(bank) == before
     finally:
@@ -963,3 +979,434 @@ def test_an_agents_claim_is_as_it_was_while_off(bank):
     agentic_write.write_claim(bank, "Ana Diaz", "phone", A, observer="external:claude-code", object_kind="literal")
     got, = [c for c in claims_on(bank, "ana-diaz") if c.predicate == "phone"]
     assert got.object == A
+
+
+# ---- the review of #603, one test per item (the reviewer reproduced each with the switch on) ----
+
+def _phones(memory, stem="ana-diaz"):
+    return {c.object: c for c in claims_on(memory, stem) if c.predicate == "phone"}
+
+
+NAME = {"ana diaz": "ana-diaz"}
+
+
+def _file(memory, day, line, *tokens, name="Ana Diaz", **kw):
+    ep = episode(memory, day, line)
+    filed = extraction(memory, ep, name, tokens[0])
+    for t in tokens[1:]:
+        filed["values"] += extraction(memory, ep, name, t)["values"]
+    return pipeline(memory, filed, name_to_id=NAME, **kw)
+
+
+@pytest.mark.parametrize("order", [(0, 1), (1, 0)])
+def test_item_3_new_then_old_on_one_line_leaves_the_new_one_current(memory, order):
+    page(memory, "ana-diaz", "Ana Diaz")
+    old, new = tok(memory, A), tok(memory, B)
+    _file(memory, "2026-08-20", f"Ana Diaz's number is {old}", old)
+    both = [new, old]
+    _file(memory, "2026-08-25", f"Ana Diaz's new number is {new}, the old one was {old}", both[order[0]], both[order[1]])
+    numbers = _phones(memory)
+    assert numbers[new].valid_to is None and numbers[old].valid_to is not None
+
+
+def test_item_3_a_number_the_line_says_replaced_another_never_closes_a_third(memory):
+    page(memory, "ana-diaz", "Ana Diaz")
+    third, new, old = tok(memory, A), tok(memory, B), tok(memory, "+1 202 555 0166")
+    _file(memory, "2026-08-20", f"Ana Diaz's number is {third}", third)
+    out = _file(memory, "2026-08-25", f"Ana Diaz's new number is {new}, the old one was {old}", new)
+    numbers = _phones(memory)
+    assert numbers[third].valid_to is None and numbers[new].context == phone_numbers.ASKED
+    assert [n for n in out["nudges"] if n["action"] == "divergence_nudge"]
+
+
+@pytest.mark.parametrize("line", ["I was talking to Ana Diaz, her number is {t}", "I was texting Ana Diaz on {t}",
+                                  "Ana Diaz got a new job, her desk line is {t}"])
+def test_item_4_an_unclear_line_asks_and_closes_nothing(memory, line):
+    page(memory, "ana-diaz", "Ana Diaz")
+    held, said = tok(memory, A), tok(memory, B)
+    _file(memory, "2026-08-20", f"Ana Diaz's number is {held}", held)
+    out = _file(memory, "2026-08-25", line.format(t=said), said)
+    numbers = _phones(memory)
+    assert numbers[held].valid_to is None and numbers[said].valid_to is not None
+    assert numbers[said].context == phone_numbers.ASKED
+    assert [n for n in out["nudges"] if n["action"] == "divergence_nudge"]
+
+
+def test_item_4_an_unclear_line_about_a_first_number_lands_open(memory):
+    page(memory, "ana-diaz", "Ana Diaz")
+    said = tok(memory, A)
+    _file(memory, "2026-08-25", f"I was talking to Ana Diaz, her number is {said}", said)
+    assert _phones(memory)[said].valid_to is None
+
+
+def test_item_5_two_numbers_sharing_their_last_nine_digits_keep_two_tokens_and_both_forms(home):
+    a, b = "+1 202 555 0143", "+44 202 555 0143"
+    ids = phone_numbers.mint_many("b", [a, b])
+    assert ids[a] != ids[b]
+    assert phone_numbers.reveal("b", [ids[a], ids[b]]) == {ids[a]: a, ids[b]: b}
+    # the same two again resolve to the same two
+    assert phone_numbers.mint_many("b", [a, b]) == ids
+
+
+def test_item_5_every_written_form_of_a_number_is_kept(home):
+    a, b = "202 555 0143", "(202) 555-0143"
+    ids = phone_numbers.mint_many("b", [a, b])
+    assert ids[a] == ids[b]
+    held = json.loads(people_directory.path("b", phone_numbers.VAULT_FILE).read_text())["numbers"][ids[a]]
+    assert held["forms"] == [a, b]
+
+
+@pytest.mark.parametrize("label", ["phone", "phone_number", "mobile number", "mobile_number", "has_phone", "tel", "cell",
+                                   "whatsapp", "work phone", "contact number", "number", "phone number", "teléfono"])
+def test_item_6_these_labels_say_phone(label):
+    assert phone_numbers.is_phone_label(label)
+
+
+@pytest.mark.parametrize("label", ["membership number", "order number", "passport number", "mobile app version",
+                                   "flight number", "account number", "number of rooms", "", "age"])
+def test_item_6_these_do_not(label):
+    assert not phone_numbers.is_phone_label(label)
+
+
+def test_item_6_a_models_membership_number_stays_what_it_is(home, on):
+    values = [{"entity": "Ana Diaz", "attribute": "membership number", "value": "2025550143"}]
+    assert phone_numbers.take([], [], values, "user: Ana's membership number is 2025550143", "ep_2026-08-29_001", bank="b") == 0
+    assert values == [{"entity": "Ana Diaz", "attribute": "membership number", "value": "2025550143"}]
+
+
+def test_item_6_an_agents_order_number_stays_what_it_is(memory):
+    page(memory, "ana-diaz", "Ana Diaz")
+    agentic_write.write_claim(memory, "Ana Diaz", "order number", "2025550143", observer="external:claude-code",
+                              object_kind="literal")
+    assert not [c for c in claims_on(memory, "ana-diaz") if c.predicate == "phone"]
+
+
+@pytest.mark.parametrize("label", ["phone_number", "mobile_number", "has_phone", "tel", "phone"])
+def test_item_7_an_agents_phone_claim_holds_no_digit_whatever_its_label(memory, label):
+    page(memory, "ana-diaz", "Ana Diaz")
+    out = agentic_write.write_claim(memory, "Ana Diaz", label, "+12025550143", observer="external:claude-code",
+                                    object_kind="literal")
+    assert out["action"] != "error"
+    got, = [c for c in claims_on(memory, "ana-diaz") if c.predicate == "phone"]
+    assert phone_numbers.has_token(got.object)
+    assert A_DIGITS not in (memory / "entities" / "ana-diaz.md").read_text()
+
+
+def test_item_7_changed_from_one_to_another_leaves_no_digit_in_the_line(home):
+    out, n = phone_numbers.tokenise("she changed her number from 2025550143 to 2025550177", "b")
+    assert n == 2 and not any(c.isdigit() for c in out) and len(phone_numbers.token_ids(out)) == 2
+    first, second = phone_numbers.token_ids(out)
+    read = phone_numbers.read_line(out)
+    assert read[first][0] == phone_numbers.PAST and read[second] == (phone_numbers.CHANGED, [first])
+
+
+def test_item_7_the_body_and_prompt_of_that_scenario_hold_no_digit(bank, on):
+    ingest(bank, [row("AAA1", T0, "she changed her number from 2025550143 to 2025550177", me=True)])
+    (body, _fm), = stored(bank).values()
+    assert A_DIGITS not in body and B_DIGITS not in body and phone_numbers.has_token(body)
+
+
+def test_item_7_a_pages_prose_holds_no_number_whoever_wrote_it(memory):
+    page(memory, "ana-diaz", "Ana Diaz")
+    path = memory / "entities" / "ana-diaz.md"
+    parsed = markdown_parser.parse(path)
+    t = tok(memory, B)
+    fence = ('```claims\n{"id": "c1", "text": "x", "subject": "ana-diaz", "predicate": "phone", "object": "' + t +
+             '", "object_kind": "literal"}\n```\n')
+    markdown_parser.write(path, parsed.frontmatter, f"# Ana\n\nHer number is {A}. Also {t}.\n\n{fence}")
+    text = path.read_text()
+    assert A_DIGITS not in text and "202 555 0143" not in text
+    prose = text.split("```claims")[0]
+    assert "[number:" not in prose and t in text
+    # nothing lost: the digits are in the vault
+    tid = phone_numbers.mint_many(memory, [A])[A]
+    assert phone_numbers.reveal(memory, [tid])[tid] == A
+
+
+def test_item_7_while_off_a_pages_digits_are_as_they_were(bank):
+    path = bank / "entities" / "x.md"
+    markdown_parser.write(path, {"name": "X", "type": "person"}, f"Her number is {A}.")
+    assert A in path.read_text()
+
+
+def test_item_7_a_token_never_reaches_prose_even_while_off(bank):
+    path = bank / "entities" / "x.md"
+    markdown_parser.write(path, {"name": "X", "type": "person"}, "Her number is [number:abcdefghij].")
+    assert "[number:" not in path.read_text()
+
+
+def test_item_7_a_digit_fact_from_a_conversation_with_no_token_leaves_the_prose(home, on):
+    entities = [{"name": "Ana Diaz", "summary": f"her number is {A}", "key_facts": [f"her number is {A}", "lives nearby"]}]
+    phone_numbers.take(entities, [], [], f"user: her number is {A}", "ep_2026-08-29_001", bank="b")
+    assert "555" not in json.dumps(entities) and "lives nearby" in json.dumps(entities)
+
+
+def _damage(memory):
+    path = people_directory.path(memory.name, phone_numbers.VAULT_FILE)
+    path.write_text("{ not json")
+    return path, path.read_bytes()
+
+
+def test_item_8_a_damaged_vault_is_never_overwritten_and_gets_no_new_key(memory):
+    tok(memory, A)
+    path, damaged = _damage(memory)
+    with pytest.raises(phone_numbers.VaultUnavailable):
+        phone_numbers.mint_many(memory, [B])
+    with pytest.raises(phone_numbers.VaultUnavailable):
+        phone_numbers.match_key(memory)
+    assert path.read_bytes() == damaged
+    assert "can't be read" in phone_numbers.problem(memory)
+
+
+@pytest.mark.parametrize("content", ['{"numbers": {}}', '{"key": "short", "numbers": {}}', '[]', '{"key": "AAAA", "numbers": 3}'])
+def test_item_8_a_vault_of_the_wrong_shape_counts_as_damaged(memory, content):
+    tok(memory, A)
+    path = people_directory.path(memory.name, phone_numbers.VAULT_FILE)
+    path.write_text(content)
+    with pytest.raises(phone_numbers.VaultUnavailable):
+        phone_numbers.mint_many(memory, [B])
+    assert path.read_text() == content
+
+
+def test_item_8_with_no_usable_vault_a_chat_number_is_redacted_never_stored(bank, on):
+    tok(bank, A)
+    _damage(bank)
+    ingest(bank, [row("AAA1", T0, "her number is 202 555 0177", me=True)])
+    (body, _fm), = stored(bank).values()
+    assert "[redacted]" in body and B_DIGITS[-4:] not in body and "[number:" not in body
+
+
+def test_item_8_a_missing_vault_with_tokens_in_the_bank_is_the_same_case(memory):
+    page(memory, "ana-diaz", "Ana Diaz")
+    t = tok(memory, A)
+    _file(memory, "2026-08-20", f"Ana Diaz's number is {t}", t)
+    people_directory.path(memory.name, phone_numbers.VAULT_FILE).unlink()
+    with pytest.raises(phone_numbers.VaultUnavailable):
+        phone_numbers.mint_many(memory, [B])
+    assert not people_directory.path(memory.name, phone_numbers.VAULT_FILE).exists()
+    assert "gone" in phone_numbers.problem(memory)
+
+
+def test_item_8_a_restatement_with_a_lost_vault_still_reads_as_the_same_number(memory):
+    page(memory, "ana-diaz", "Ana Diaz")
+    t = tok(memory, A)
+    _file(memory, "2026-08-20", f"Ana Diaz's number is {t}", t)
+    _damage(memory)
+    out = _file(memory, "2026-08-25", f"Ana Diaz's number is {t}", t)
+    assert not [n for n in out["nudges"] if n["action"] == "divergence_nudge"]
+    assert _phones(memory)[t].valid_to is None
+
+
+def test_item_8_an_agents_digit_claim_is_refused_in_words_with_no_usable_vault(memory):
+    page(memory, "ana-diaz", "Ana Diaz")
+    tok(memory, A)
+    _damage(memory)
+    out = agentic_write.write_claim(memory, "Ana Diaz", "phone", B, observer="external:claude-code", object_kind="literal")
+    assert out["action"] == "error" and "private file" in out["error"]
+    assert B_DIGITS[-4:] not in (memory / "entities" / "ana-diaz.md").read_text()
+
+
+def test_item_8_a_new_vault_is_the_persons_own_act_and_keeps_the_old_file(memory, client):
+    tok(memory, A)
+    path, damaged = _damage(memory)
+    assert client.post("/people/numbers/reveal", json={"tokens": []}).json()["problem"]
+    kept = client.post("/people/numbers/new-vault").json()["set_aside"]
+    assert (path.parent / kept).read_bytes() == damaged
+    assert client.post("/people/numbers/reveal", json={"tokens": []}).json()["problem"] is None
+    assert phone_numbers.mint_many(memory, [B])
+
+
+def test_item_8_the_trash_keeps_the_vault_beside_the_bank_and_a_restored_bank_finds_it(tmp_path, home):
+    root = tmp_path / "root"
+    memory = root / "banks" / "alpha"
+    (memory / "episodes").mkdir(parents=True)
+    t = tok(memory, A)
+    (memory / "episodes" / "ep_2026-08-20_001.md").write_text(f"---\nid: x\n---\nuser: her number is {t}")
+    trashed = root / ".trash" / "alpha-20261104T000000"
+    trashed.parent.mkdir(parents=True)
+    phone_numbers.park_for_trash("alpha", trashed)
+    parked = trashed.with_name(f"{trashed.name}.numbers.json")
+    assert parked.is_file() and stat.S_IMODE(parked.stat().st_mode) == 0o600
+    people_directory.forget("alpha")
+    assert not people_directory.path("alpha", phone_numbers.VAULT_FILE).exists()
+    # restored by hand: the bank's own folder back, its numbers with it, the same key
+    assert phone_numbers.mint_many(memory, [A])[A] == phone_numbers.token_ids(t)[0]
+    assert phone_numbers.reveal(memory, phone_numbers.token_ids(t))[phone_numbers.token_ids(t)[0]] == A
+    assert not parked.exists()
+
+
+def test_item_8_emptying_the_trash_takes_the_digits(tmp_path, home):
+    root = tmp_path / "root"
+    memory = root / "banks" / "alpha"
+    (memory / "episodes").mkdir(parents=True)
+    tok(memory, A)
+    trashed = root / ".trash" / "alpha-20261104T000000"
+    trashed.parent.mkdir(parents=True)
+    phone_numbers.park_for_trash("alpha", trashed)
+    assert A_DIGITS[-4:] not in every_byte(people_directory.folder("alpha")).decode() if people_directory.folder("alpha").exists() else True
+    trashed.with_name(f"{trashed.name}.numbers.json").unlink()   # what emptying the trash does
+    assert A_DIGITS[-4:] not in every_byte(root).decode()
+
+
+def _revise(memory, ep, new_body):
+    from api.services import episode_revision
+
+    path = memory / "episodes" / f"{ep}.md"
+    parsed = markdown_parser.parse(path)
+    prior = parsed.body
+    markdown_parser.write(path, parsed.frontmatter, new_body)
+    rev = episode_revision.build({"id": ep, "content": new_body}, prior)
+    assert rev is not None
+    return rev
+
+
+def _revision_filed(memory, ep, name, t):
+    day = ep[3:13]
+    values = [{"entity": name, "attribute": "phone number", "value": t}]
+    body = markdown_parser.parse(memory / "episodes" / f"{ep}.md").body
+    phone_numbers.take([], [], values, body, ep, bank=memory)
+    for v in values:
+        v.update(source_episode=ep, source_episode_timestamp=f"{day}T10:00:00+00:00", origin="whatsapp")
+    return {"episode_id": ep, "episode_timestamp": f"{day}T10:00:00+00:00", "origin": "whatsapp", "entities": [],
+            "relationships": [], "values": values}
+
+
+def test_item_9_rewording_a_line_keeps_its_number_with_no_question(memory):
+    page(memory, "ana-diaz", "Ana Diaz")
+    t = tok(memory, A)
+    ep = episode(memory, "2026-08-20", f"Ana Diaz's number is {t}")
+    pipeline(memory, extraction(memory, ep, "Ana Diaz", t), name_to_id=NAME)
+    rev = _revise(memory, ep, f"user: Oh, and Ana Diaz's number is {t}")
+    out = claim_pipeline.run_claim_pipeline(
+        [_revision_filed(memory, ep, "Ana Diaz", t)], [], memory, settings_for(memory), now_date="2026-09-01",
+        name_to_id=NAME, decay=False, revisions={ep: rev})
+    numbers = _phones(memory)
+    assert numbers[t].valid_to is None
+    assert not [n for n in out["nudges"] if n["action"] == "divergence_nudge"]
+    assert not [c for c in claims_on(memory, "ana-diaz") if c.predicate == "retracts"]
+
+
+def test_item_9_fixing_a_typo_in_a_number_supersedes_in_place_and_leaves_one_open(memory):
+    page(memory, "ana-diaz", "Ana Diaz")
+    typo, fixed = tok(memory, "+1 202 555 0134"), tok(memory, A)
+    ep = episode(memory, "2026-08-20", f"Ana Diaz's number is {typo}")
+    pipeline(memory, extraction(memory, ep, "Ana Diaz", typo), name_to_id=NAME)
+    rev = _revise(memory, ep, f"user: Ana Diaz's number is {fixed}")
+    out = claim_pipeline.run_claim_pipeline(
+        [_revision_filed(memory, ep, "Ana Diaz", fixed)], [], memory, settings_for(memory), now_date="2026-09-01",
+        name_to_id=NAME, decay=False, revisions={ep: rev})
+    numbers = _phones(memory)
+    assert numbers[fixed].valid_to is None and numbers[typo].valid_to is not None
+    assert numbers[typo].superseded_by == numbers[fixed].id
+    assert not [n for n in out["nudges"] if n["action"] == "divergence_nudge"]
+
+
+def test_item_9_another_conversations_different_number_still_asks(memory):
+    page(memory, "ana-diaz", "Ana Diaz")
+    a, b = tok(memory, A), tok(memory, B)
+    _file(memory, "2026-08-20", f"Ana Diaz's number is {a}", a)
+    out = _file(memory, "2026-08-25", f"Ana Diaz's number is {b}", b)
+    assert [n for n in out["nudges"] if n["action"] == "divergence_nudge"]
+
+
+CARD = "11111111-1111-1111-1111-111111111111:ABPerson"
+
+
+def test_item_10_stopping_contacts_wipes_the_hashes_and_no_reader_keeps_them(memory):
+    t = tok(memory, A)
+    tid = phone_numbers.token_ids(t)[0]
+    contacts_local.sync(memory, {"contacts": [{"id": CARD, "given_name": "Ana", "family_name": "Diaz", "phone_keys": [tid]}]})
+    path = people_directory.path(memory.name, phone_numbers.CARDS_FILE)
+    assert path.exists()
+    page(memory, "ana", "Ana", sources=[{"ref": f"addressbook://{CARD}", "kind": "app", "predicate": "phone"}])
+    contacts_local.forget_waiting()
+    assert not path.exists() and phone_numbers.cards_of(memory) == {}
+    # the name a card used to settle asks again
+    pipeline(memory, extraction(memory, episode(memory, "2026-08-20", f"Ana's number is {t}"), "Ana", t), name_to_id={"ana": "ana"})
+    assert _phones(memory, "ana")[t].context == phone_numbers.ASKED
+
+
+def test_item_10_a_sync_read_before_the_stop_brings_nothing_back(memory, monkeypatch):
+    monkeypatch.setattr(contacts_local, "forgotten_since", lambda _at: True)
+    contacts_local.sync(memory, {"contacts": [{"id": CARD, "given_name": "Ana", "family_name": "Diaz", "phone_keys": ["abcdefghij"]}]})
+    assert not people_directory.path(memory.name, phone_numbers.CARDS_FILE).exists()
+
+
+def test_item_10_a_client_with_no_key_never_empties_the_file(memory):
+    keys = {"contacts": [{"id": CARD, "given_name": "Ana", "family_name": "Diaz", "phone_keys": ["abcdefghij"]}]}
+    contacts_local.sync(memory, keys)
+    contacts_local.sync(memory, {"contacts": [{"id": CARD, "given_name": "Ana", "family_name": "Diaz"}]})
+    assert phone_numbers.cards_of(memory) == {"abcdefghij": [CARD]}
+
+
+def test_item_11_off_after_on_a_bare_number_posted_again_keeps_its_token(bank, on):
+    lines = [row("AAA1", T0, "her number is 202 555 0143", me=True), row("AAA2", T0 + 5, f"and {B}, phone", me=True)]
+    ingest(bank, lines)
+    before = stored(bank)
+    (body, _fm), = before.values()
+    assert phone_numbers.has_token(body) and A_DIGITS[-4:] not in body
+    phone_numbers.set_enabled(False)
+    assert ingest(bank, lines)["updated"] == 0
+    assert stored(bank) == before
+
+
+def test_item_11_off_after_on_a_real_edit_still_is_one(bank, on):
+    ingest(bank, [row("AAA1", T0, "her number is 202 555 0143", me=True)])
+    phone_numbers.set_enabled(False)
+    assert ingest(bank, [row("AAA1", T0, "her number was lost", me=True)])["updated"] == 1
+
+
+def test_item_11_with_a_lost_vault_a_line_posted_again_still_stays(bank, on):
+    lines = [row("AAA1", T0, "her number is 202 555 0143", me=True)]
+    ingest(bank, lines)
+    before = stored(bank)
+    _damage(bank)
+    assert ingest(bank, lines)["updated"] == 0
+    assert stored(bank) == before
+
+
+def test_item_12_every_process_reads_one_switch_and_the_environment_is_not_it(home, monkeypatch):
+    import subprocess as sp
+    import sys
+
+    root = str(Path(__file__).resolve().parents[2])
+    probe = [sys.executable, "-c", "from api.services import phone_numbers as p; print(p.enabled())"]
+    env = {"CICADA_HOME": str(home), "PYTHONPATH": root, "PATH": "/usr/bin:/bin", "LITELLM_MODE": "PRODUCTION",
+           "CICADA_PHONE_NUMBERS": "on"}
+    assert sp.run(probe, env=env, capture_output=True, text=True, cwd=root).stdout.strip() == "False"
+    phone_numbers.set_enabled(True)
+    env.pop("CICADA_PHONE_NUMBERS")
+    assert sp.run(probe, env=env, capture_output=True, text=True, cwd=root).stdout.strip() == "True"
+    assert phone_numbers.enabled() is True
+    monkeypatch.setenv("CICADA_PHONE_NUMBERS", "off")
+    assert phone_numbers.enabled() is True
+
+
+def test_item_12_a_damaged_switch_is_off(home):
+    phone_numbers.set_enabled(True)
+    phone_numbers._switch_path().write_text("{ not json")
+    assert phone_numbers.enabled() is False
+
+
+def test_item_12_the_yes_is_recorded_with_who_and_when_and_private(home):
+    record = phone_numbers.set_enabled(True)
+    saved = json.loads(phone_numbers._switch_path().read_text())
+    assert saved == record and saved["on"] is True and saved["by"] == "person" and saved["at"]
+    assert stat.S_IMODE(phone_numbers._switch_path().stat().st_mode) == 0o600
+
+
+def test_item_12_the_route_turns_it_on_and_a_device_cannot(client, monkeypatch):
+    assert client.put("/people/numbers/switch", json={"on": False}).json()["on"] is False
+    assert phone_numbers.enabled() is False
+    assert client.put("/people/numbers/switch", json={"on": True}).json()["on"] is True
+    assert client.get("/people/numbers/switch").json()["on"] is True
+    monkeypatch.setattr("api.routers.local_sources.request_device", lambda _r: SimpleNamespace(id="d", kind="full"))
+    assert client.put("/people/numbers/switch", json={"on": False}).status_code == 403
+    assert phone_numbers.enabled() is True
+
+
+def test_item_12_the_vault_routes_are_refused_on_a_replica():
+    from api.services import replica_routes
+
+    for route in ("POST /people/numbers/reveal", "PUT /people/numbers/switch", "POST /people/numbers/new-vault"):
+        assert replica_routes.ROUTES[route] == replica_routes.REFUSE
