@@ -172,6 +172,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   read only after the person turned it on. An unreadable file shows the exact fix in the app. Chrome's history is read
   from a copy, YouTube video pages only; watch history is one episode per day, never a save (G71, `capture-and-sleep.md`);
   it and saves from a platform's saved list are indexed, never read by a model (ruling 30).
+- **Books (G39, G233):** a scanned ISBN (`/capture/isbn`, the phone's contract) resolves at the home behind the connector
+  gate, cached outside every bank; Apple Books is read by the app after the person turns it on; Goodreads only by its
+  export; one `media` page per work, status as dated claims, imports quiet (`capture-and-sleep.md`, "Books").
 - **Two ways in for what the person consumes (ruling 47, owner 2026-10-28):** by default their own browser and Mac,
   through the browser and macOS harnesses (G166, G206, G218 rails unchanged); an official API only for a specific source
   where it gives what the harness cannot (history, metadata, reliability) — the person connects each one (off by default,

@@ -14,7 +14,7 @@ final class SourceCatalogTests: XCTestCase {
 
     func testGroupsComeInTheirFixedOrderAndEveryEntryHasOne() {
         let groups = SourceCatalog.grouped(rows()).map(\.group)
-        XCTAssertEqual(groups, [.accounts, .thisMac, .meetings, .exports, .feeds])
+        XCTAssertEqual(groups, [.accounts, .thisMac, .meetings, .reading, .exports, .feeds])
     }
 
     /// G95 (2026-11-03) — Meeting recorders: Hex once it is here (or has a folder), Wispr Flow moved in from This Mac, a
