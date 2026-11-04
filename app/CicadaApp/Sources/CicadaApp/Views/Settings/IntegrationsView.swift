@@ -138,7 +138,8 @@ struct IntegrationsView: View {
     }
 
     private func showsWispr(_ rows: [SourceChannel]) -> Bool {
-        localSources.wisprInstalled || rows.contains { $0.id == LocalSourceWatcher.wisprChannel }
+        SourceCatalog.wisprOffered
+            && (localSources.wisprInstalled || rows.contains { $0.id == LocalSourceWatcher.wisprChannel })
     }
 
     /// Three grey rows under a spinner rather than a bare spinner: the page's

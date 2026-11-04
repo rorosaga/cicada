@@ -200,7 +200,9 @@ struct SourceDetailHead: View {
             }
             Spacer(minLength: CicadaTheme.spacingSM)
             if let channel {
-                if channel.actions.contains("sync"), let localSources {
+                // What Wispr Flow brought in stays openable from search and Sleep; it reads nothing more, so no Refresh.
+                if channel.actions.contains("sync"), let localSources,
+                   SourceCatalog.wisprOffered || channel.id != SourceCatalog.wisprChannel {
                     actionButton("Refresh") {
                         try await ChannelActions.sync(channel.id, store: store, watcher: watcher, local: localSources,
                                                       calendar: calendarReader, tabGroups: tabGroups,
