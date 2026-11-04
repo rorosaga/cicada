@@ -41,7 +41,12 @@
   without bound (a paired device's 20,000 overlapping 1.1 KB pieces held 22 MB, linear, ~8.6 GiB a session at worst);
   now a piece is kept only if it overlaps none held and the held bytes stay within the window, a piece the read point
   passed is cut, and one device holds at most 16 UDP sessions (its own oldest ends past that). The same flood now
-  holds 20.9 KB.
+  holds 20.9 KB. The re-check found the count of held pieces unbounded (the byte cap counted payload only):
+  2-byte descending pieces cost 11.7 s of CPU at 400k and 47.8 s at 800k, quadratic in `insort`/`pop(0)`. Now at most
+  8,192 pieces are held, each charged 128 B beyond its bytes, a drain leaves the sorted list in one slice, and a piece
+  refused for room leaves its packet unacknowledged so it comes again (no minimum size: the door's own frames are often
+  a few bytes, and refusing an early short piece would cost an honest stream a retransmission); the same floods now
+  cost 0.24 s / 0.43 s of CPU, 8,192 held, ~1 MiB.
 - **2026-11-03 — GitHub connects with a code; your repositories are pages; a project lists its repositories (ruling
   53, G230; branch `feat/g230-oauth-sync`).** Owner: "why are you asking for a token for github? cant we just do oauth?"
   and "always sync and make their initial markdowns … a project might reference several repos". Connect GitHub shows

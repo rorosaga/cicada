@@ -192,8 +192,8 @@ def test_an_overlapping_offset_flood_holds_no_more_than_the_window():
         assert b.receive(_forged(evil, 1 + i, piece), 0.001 * i)
     assert b.segment_bytes <= ch.RECV_WINDOW
     # Only the pieces that overlap none already held were kept: offsets 1, 1101, 2201 … (19 of 20,000).
-    assert len(b.segments) == len(b.starts) == 19 and b.segment_bytes == 19 * len(piece)
-    assert sum(len(v) for v in b.segments.values()) == b.segment_bytes
+    assert len(b.segments) == len(b.starts) == 19
+    assert b.segment_bytes == sum(len(v) + ch.PIECE_OVERHEAD for v in b.segments.values())
     # The read point reaches them: each is taken whole, nothing is left behind the read point.
     assert b.receive(_forged(evil, 0, b"y"), 21.0)
     assert bytes(b.readable) == b"y" + piece * 19 and b.segments == {} and b.starts == [] and b.segment_bytes == 0
@@ -207,7 +207,7 @@ def test_disjoint_pieces_too_many_for_the_window_are_refused_past_it():
         b.receive(_forged(evil, off, piece), 0.0)
         off += len(piece) + 1                              # a one-byte hole between each: disjoint, never readable
         sent += len(piece)
-    assert sent > 0 and b.segment_bytes <= ch.RECV_WINDOW
+    assert sent > 0 and b.segment_bytes <= ch.HELD_BUDGET and len(b.starts) <= ch.MAX_HELD_PIECES
 
 
 def test_a_piece_the_read_point_passed_is_cut_never_left_behind():
@@ -218,3 +218,48 @@ def test_a_piece_the_read_point_passed_is_cut_never_left_behind():
     assert b.recv_off == 200 and b.segments == {} and b.starts == [] and b.segment_bytes == 0
     assert b.receive(_forged(evil, 120, b"late"), 0.2) and b.segments == {}  # behind the read point: nothing kept
 
+
+
+def _tiny_flood(receiver: ch.Channel, sender: ch.Channel, pieces: int, size: int = 2, per: int = 90) -> None:
+    import struct
+
+    gap = size + 1
+    offs = [gap * i + 1 for i in range(pieces)][::-1]        # descending, disjoint, never the in-order one
+    for j in range(0, pieces, per):
+        payload = b"".join(bytes([ch.C_DATA]) + struct.pack(">QH", o, size) + b"a" * size for o in offs[j:j + per])
+        pn = sender.pn
+        sender.pn += 1
+        header = bytes([ch.DATA_T]) + sender.sid + struct.pack(">Q", pn)
+        receiver.receive(header + sender.tx.encrypt(b"\0\0\0\0" + header[1 + ch.SID_LEN:], payload, header), 0.0)
+
+
+def test_a_flood_of_tiny_descending_pieces_holds_a_bounded_count_in_bounded_time():
+    """Re-check of #590: the byte cap counted only payload, so 2-byte disjoint pieces at descending offsets (90 a
+    packet) were all held and every insert shifted the sorted list — 400k pieces cost 11.7 s of CPU and growing as the
+    square. Now no more than MAX_HELD_PIECES are held, each charged PIECE_OVERHEAD within HELD_BUDGET."""
+    import time
+
+    b, evil = _pair()
+    started = time.process_time()
+    _tiny_flood(b, evil, 100_000)
+    assert len(b.starts) == ch.MAX_HELD_PIECES and b.segment_bytes <= ch.HELD_BUDGET
+    b2, evil2 = _pair()
+    _tiny_flood(b2, evil2, 60_000, size=64, per=15)
+    assert len(b2.starts) == ch.MAX_HELD_PIECES and b2.segment_bytes <= ch.HELD_BUDGET
+    assert time.process_time() - started < 5.0
+
+
+def test_a_piece_refused_for_room_is_not_acknowledged_so_it_comes_again():
+    """An acknowledged packet's bytes are never sent again: a refusal must leave its packet unacknowledged."""
+    b, evil = _pair()
+    _tiny_flood(b, evil, ch.MAX_HELD_PIECES)                  # fills the count
+    acked = [list(r) for r in b.ranges]
+    dropped = b.counts["dropped"]
+    assert b.receive(_forged(evil, 3 * ch.MAX_HELD_PIECES + 10, b"zz"), 0.1)     # disjoint, but no room left
+    assert b.ranges == acked and b.counts["dropped"] == dropped + 1              # its packet is not acknowledged
+    a2, b2 = _pair()
+    a2.write(ch.frame(b"B", b"q" * 3000))
+    first, second, third = a2.poll(0.0)
+    assert b2.receive(third, 0.01) and b2.ranges == [[2, 2]]     # held out of order: acknowledged
+    assert b2.receive(second, 0.02) and b2.receive(first, 0.03)
+    assert b2.next_frame() == (b"B", b"q" * 3000) and b2.segments == {}

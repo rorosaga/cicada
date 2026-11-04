@@ -68,6 +68,13 @@ BETA = 0.7
 INIT_CWND_PACKETS = 10
 MAX_CWND = 16 * 1024 * 1024
 RECV_WINDOW = 8 * 1024 * 1024
+#: Out-of-order pieces held at once, at most: an honest sender's whole window in its smallest full packets fits
+#: (8 MiB / ~1,150 bytes ≈ 7,300), and the count bounds the CPU a peer can make reassembly spend (re-check of #590).
+MAX_HELD_PIECES = 8192
+#: What each held piece is charged beyond its bytes (the dict entry, the offset, the object): a flood of tiny pieces
+#: is bounded by memory as well as by count.
+PIECE_OVERHEAD = 128
+HELD_BUDGET = RECV_WINDOW + MAX_HELD_PIECES * PIECE_OVERHEAD
 PACE_TICK_S = 0.002
 PROBE_TRIES = 3
 #: Only a session that is moving bulk (a pack, a first copy) probes: a few control frames never pay for a padded probe.
@@ -184,7 +191,8 @@ class Channel:
         self.recv_off = 0
         self.segments: dict[int, bytes] = {}
         self.starts: list[int] = []                # the held pieces' offsets, sorted (none overlap)
-        self.segment_bytes = 0
+        self.segment_bytes = 0                     # held bytes plus PIECE_OVERHEAD each
+        self.refused = False
         self.readable = bytearray()
         self.consumed = 0
         self.advertised = RECV_WINDOW
@@ -256,6 +264,9 @@ class Channel:
             eliciting = self._chunks(plain, now)
         except (struct.error, ValueError, IndexError):
             return True             # authentic but malformed: the peer's bug; nothing of it is used
+        if self.refused:
+            # A piece of it found no room: the packet goes unacknowledged, so its sender sends those bytes again.
+            return True
         in_order = not self.ranges or pn == self.ranges[0][0] + 1
         if not self.ranges or pn > self.ranges[0][0]:
             self.largest_recv_at = now
@@ -292,6 +303,7 @@ class Channel:
 
     def _chunks(self, plain: bytes, now: float) -> bool:
         i, n, eliciting = 0, len(plain), False
+        self.refused = False
         acks = None
         while i < n:
             c = plain[i]
@@ -319,7 +331,8 @@ class Channel:
                     raise ValueError("data")
                 i += ln
                 eliciting = True
-                self._data(off, piece)
+                if not self._data(off, piece):
+                    self.refused = True
             elif c == C_CLOSE:
                 self.peer_closed = True
             else:
@@ -328,31 +341,45 @@ class Channel:
             self._on_ack(*acks, now)
         return eliciting
 
-    def _data(self, off: int, piece: bytes) -> None:
-        """One stream piece. **Held memory is bounded by the window** (security review of #590): a piece ahead of
-        what was read is kept only if it overlaps no piece already held and the held bytes stay within
-        :data:`RECV_WINDOW`; anything else is dropped (its sender's retransmission brings it again). Our own sender
-        never overlaps — a retransmission carries the same bytes at the same offset — so only a misbehaving peer is
-        refused. Disjoint pieces inside ``[recv_off, advertised)`` cannot exceed the window anyway; the byte check is
-        the second wall."""
+    def _data(self, off: int, piece: bytes) -> bool:
+        """One stream piece; False when it was refused for room, so its packet is not acknowledged and the sender
+        sends it again (an acknowledged packet's bytes are never asked for again — dropping them silently would stall
+        the stream).
+
+        **Held memory and work are bounded** (security review of #590 and its re-check): a piece ahead of the read
+        point is kept only if it overlaps no piece already held (the same piece again counts as had), keeps the held
+        pieces within :data:`MAX_HELD_PIECES`, and keeps their cost — bytes plus :data:`PIECE_OVERHEAD` each — within
+        :data:`HELD_BUDGET`. No minimum size: the door's own frames are often a few bytes (a status, an end, a commit
+        notice), and refusing a short piece that arrived early would cost an honest stream a retransmission; the count
+        cap already bounds what tiny pieces can cost. Our own sender never overlaps (a retransmission
+        carries the same bytes at the same offset) and never comes near the count or the budget inside one window, so
+        only a misbehaving peer is refused. With the count capped, the sorted offsets list stays small enough that
+        ``bisect.insort`` (a memmove of at most 8,192 pointers) is cheap, and a drain removes what it took in one
+        slice."""
         end = off + len(piece)
         if end <= self.recv_off:
-            return                                          # already had it
+            return True                                     # already had it
         if end > self.advertised:
-            return                                          # beyond the window we offered: never kept
+            return False                                    # beyond the window we offered: never kept
         if off < self.recv_off:
             piece, off = piece[self.recv_off - off:], self.recv_off
         if off > self.recv_off:
-            if self.segment_bytes + len(piece) > RECV_WINDOW or self._overlaps(off, off + len(piece)):
+            held = self.segments.get(off)
+            if held is not None and len(held) >= len(piece):
+                return True                                 # the same piece again (its ack was lost)
+            if (len(self.starts) >= MAX_HELD_PIECES
+                    or self.segment_bytes + len(piece) + PIECE_OVERHEAD > HELD_BUDGET
+                    or self._overlaps(off, end)):
                 self.counts["dropped"] += 1
-                return
+                return False
             bisect.insort(self.starts, off)
             self.segments[off] = piece
-            self.segment_bytes += len(piece)
-            return
+            self.segment_bytes += len(piece) + PIECE_OVERHEAD
+            return True
         self.readable += piece
         self.recv_off += len(piece)
         self._drain()
+        return True
 
     def _overlaps(self, start: int, end: int) -> bool:
         i = bisect.bisect_left(self.starts, start)
@@ -365,16 +392,20 @@ class Channel:
 
     def _drain(self) -> None:
         """Move every held piece the stream has reached into ``readable``: one starting at or behind ``recv_off`` is
-        taken off the list either way — its part already read is cut, its rest appended — so nothing is left behind
-        the read point."""
-        while self.starts and self.starts[0] <= self.recv_off:
-            start = self.starts.pop(0)
+        taken either way — its part already read is cut, its rest appended — so nothing is left behind the read point.
+        The taken offsets leave the sorted list in one slice, never one ``pop(0)`` each."""
+        taken = 0
+        while taken < len(self.starts) and self.starts[taken] <= self.recv_off:
+            start = self.starts[taken]
+            taken += 1
             seg = self.segments.pop(start)
-            self.segment_bytes -= len(seg)
+            self.segment_bytes -= len(seg) + PIECE_OVERHEAD
             if start + len(seg) > self.recv_off:
                 tail = seg[self.recv_off - start:]
                 self.readable += tail
                 self.recv_off += len(tail)
+        if taken:
+            del self.starts[:taken]
 
     def _rtt_sample(self, rtt: float) -> None:
         self.latest_rtt = rtt

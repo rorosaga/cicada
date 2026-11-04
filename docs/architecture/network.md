@@ -785,10 +785,13 @@ never a bank path**. The backend's HTTP API still binds `127.0.0.1`.
   5-tuple; it would be a second handshake beside ours, a new dependency tree with a C extension in the release, and
   the phone's Network framework cannot put our hello on the same flow before its own QUIC. Here the pre-auth surface
   stays the hello alone; a reliability bug can stall a session, never admit a stranger. **Memory is bounded per
-  session and per device** (security review of #590): a stream piece ahead of the read point is kept only if it
-  overlaps no piece already held and the held bytes stay within the 8 MiB window — our own sender never overlaps, a
-  retransmission carrying the same bytes at the same offset — and a piece the read point passes is cut, never left
-  behind; one proven device holds at most 16 UDP sessions, a new one past that ending its own least recently heard
+  session and per device** (security review of #590 and its re-check): a stream piece ahead of the read point is
+  held only if it overlaps no piece already held, keeps the held pieces at 8,192 or fewer, and
+  keeps their cost — bytes plus 128 each — within the window plus that overhead; a piece refused for room leaves its
+  packet unacknowledged, so the sender sends it again (an acknowledged packet's bytes are never asked for again). Our
+  own sender never overlaps — a retransmission carries the same bytes at the same offset — and a whole window of its
+  packets stays under both caps. No minimum size (the door's own frames are often a few bytes; the count already
+  bounds what tiny pieces cost). A piece the read point passes is cut, never left behind; one proven device holds at most 16 UDP sessions, a new one past that ending its own least recently heard
   (never locked out, never another device's).
 - **Sessions follow the device** (WireGuard's roaming). A session is its id, never an address: the door answers where
   the last *authenticated* packet came from, so a new source port (a NAT rebinding), a new network or another of the
