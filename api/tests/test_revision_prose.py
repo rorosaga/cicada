@@ -399,6 +399,40 @@ def test_only_a_passage_resting_on_the_revision_alone_is_rewritten(tmp_path, mon
     assert "(held) Release planning" in prompts[0]
 
 
+def test_an_unrelated_held_line_gets_no_proposal(tmp_path, monkeypatch):
+    """Review of #589: a held line that only shares a word with the change ("Friday mornings" under a Friday →
+    Thursday edit) is to be left out of the answer — no inbox question proposing a wrong rewrite for it."""
+    rev = episode_revision.build({"id": EP["a"], "content": V2["a"]}, V1["a"])
+    memory, rev = _rows_bank(tmp_path, {
+        "The design review meeting is on Friday.": [evidence.reasoning(EP["a"], hash=rev.prior_hash)],
+        "Release planning is on Friday mornings.": [],
+    })
+    assert "if it does not state the changed fact (it only shares a word), leave it out" in revision_prose.SYSTEM
+    prompts: list = []
+
+    async def fake(**kw):
+        prompt = kw["messages"][1]["content"]
+        prompts.append(prompt)
+        # The model as the prompt asks: the passage stating the changed fact is rewritten; the held line that only
+        # shares "Friday" is left out of the answer.
+        rows = [{"n": int(n), "text": "The design review meeting is on Thursday."}
+                for n, text in re.findall(r"^(\d+)\. \[[^\]]+\](?: \(held\))? (.*)$", prompt, re.M)
+                if "design review" in text]
+        answer = {"passages": rows, "history": [{"change": 1, "event": "The design review moved from Friday to "
+                                                                          "Thursday."}]}
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps(answer)))])
+
+    async def no_ids(_settings):
+        return frozenset()
+    monkeypatch.setattr("api.services.conflict_resolver._litellm", lambda: SimpleNamespace(acompletion=fake))
+    monkeypatch.setattr("api.services.engine_identity.aidentities", no_ids)
+    report = asyncio.run(revision_prose.run(memory, _settings_for(memory), {EP["a"]: rev}))
+    facts = _facts(_prose(memory))
+    assert "(held) Release planning is on Friday mornings." in prompts[0]
+    assert "The design review meeting is on Thursday." in facts and "Release planning is on Friday mornings." in facts
+    assert report.proposals == 0 and not list((memory / "inbox").rglob("inbox-*.md"))
+
+
 def test_a_hand_edit_a_page_merge_carried_is_never_rewritten(tmp_path, monkeypatch):
     """Review of #589, B3: after `merge_entities`, blame names the merge commit, not the person's edit — the line has
     no provenance, so it is left as they wrote it (and nothing is asked)."""

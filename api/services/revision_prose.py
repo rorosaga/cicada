@@ -334,7 +334,7 @@ The CHANGES are the conversation's own lines before and after the edit (or remov
 - when another passage (one marked (new), or one you keep) already states what the conversation says now, take the changed fact out of this passage: rewrite it with only its other details, or return "" to remove it when nothing else is left;
 - otherwise rewrite it so it says what the conversation says now, keeping every other word, detail and [[link]] as written;
 - when the change only removed the lines, take what they said out of the passage, or return "" when nothing else is left.
-Leave a passage that does not state the changed fact out of your answer. A passage marked (new) was just written from the edited conversation and states the current fact: when two or more passages state the same changed fact, in any words, keep the one that says it best and return "" for each of the others (or rewrite one without that fact when it also says something else). A passage marked (held) was written or fixed by the person: still give the rewrite you would make (never ""); Cicada asks them before changing it. Never return "" for a Summary passage.
+Leave a passage that does not state the changed fact out of your answer. A passage marked (new) was just written from the edited conversation and states the current fact: when two or more passages state the same changed fact, in any words, keep the one that says it best and return "" for each of the others (or rewrite one without that fact when it also says something else). A passage marked (held) is not Cicada's to change: if it states the changed fact, give the rewrite you would make (never "") and Cicada asks the person before changing it; if it does not state the changed fact (it only shares a word), leave it out of your answer. Never return "" for a Summary passage.
 Never add a fact, name, number or link that neither the passage nor the change gives. Never write "currently", "now", "recently" or "soon".
 
 `history`: for each change listed under WRITE A HISTORY SENTENCE, one sentence saying what changed, naming what it was before and what it is now (for example "The design review meeting moved from Friday to Thursday." or "The notes no longer say the project targets Linux only."). No date: Cicada adds it.
@@ -659,8 +659,8 @@ def propose(memory_path: Path, job: Job, proposals: dict[int, str], events: list
     change = next((c for c in job.changes if c.gone & gone), None)
     said = next((e for e in events if tokens(e) & gone), None) or (
         _fallback_history(change) if change is not None else "A conversation this page was written from was edited")
-    reason = (f"{said.rstrip('.')}. The words on the page that still say what it said before were written or fixed "
-              "by hand, so they change only if you say so.")
+    reason = (f"{said.rstrip('.')}. These lines on the page aren't Cicada's to change, so here is the update for you "
+              "to apply or leave.")
     page_edits.write_proposal(memory_path, entity_id=job.entity_id, name=job.name, request=request, reason=reason,
                               author=AUTHOR, session=None, day=today, origin=ORIGIN)
     return True
