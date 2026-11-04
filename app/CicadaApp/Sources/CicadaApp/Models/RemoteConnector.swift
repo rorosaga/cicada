@@ -125,6 +125,49 @@ struct RemoteStatus: Codable, Equatable {
     let ngrokCommand: String
 }
 
+/// Ruling 59 — `GET /remote/funnel`: the connector's public address, read from Tailscale each time, never stored. `step`
+/// is one of `reach.FUNNEL_STEPS`; `command` exactly what a click on `off` runs; `url` only when a probe through that
+/// address just passed (`answers`), never the configuration's say-so.
+struct RemoteFunnel: Codable, Equatable {
+    let step: String
+    var message: String? = nil
+    var command: String? = nil
+    var stopCommand: String? = nil
+    var url: String? = nil
+    var answers: Bool? = nil
+    var fixUrl: String? = nil
+
+    var isOpen: Bool { step == "on" }
+    /// Nothing the app can act on: no Tailscale here, so the other ways in (ngrok, an address of their own) stay on show.
+    var isAbsent: Bool { step == "install" }
+
+    /// A plain poll asks nothing of the address, so it must not flip a known answer back to "Checking…".
+    func keepingAnswer(of old: RemoteFunnel?) -> RemoteFunnel {
+        guard answers == nil, isOpen, let old, old.isOpen, old.stopCommand == stopCommand else { return self }
+        var merged = self
+        merged.answers = old.answers
+        merged.url = old.url
+        merged.message = old.message
+        return merged
+    }
+
+    /// The only addresses offered as a link: Tailscale's own, where the person fixes what stopped the click.
+    static func fixLink(_ raw: String?) -> URL? {
+        guard let raw, let url = URL(string: raw), url.scheme == "https",
+              let host = url.host, host == "login.tailscale.com" || host == "tailscale.com" else { return nil }
+        return url
+    }
+}
+
+/// `POST /remote/funnel`: what the click did, then the state read back.
+struct RemoteFunnelRun: Codable, Equatable {
+    let ok: Bool
+    var message: String? = nil
+    var fixUrl: String? = nil
+    var ran: String? = nil
+    let funnel: RemoteFunnel
+}
+
 /// What a connector may do, in plain verbs (R-R22). Order is the backend's
 /// `catalog.SCOPES`, pinned by `api/tests/fixtures/remote_catalog.json`.
 enum RemoteScope: String, CaseIterable, Identifiable, Hashable {
@@ -388,10 +431,34 @@ enum RemoteReach: Equatable {
     case checking(String)
     case unreachable(String)
     case setUp(message: String, command: String?)
+    /// Ruling 59: Tailscale is ready; the one click runs exactly this command.
+    case funnelReady(command: String)
+    /// Ruling 59: open, and a probe through the address just answered. The only state that names the address.
+    case funnelOpen(String)
+    case funnelChecking
+    case funnelWaiting(String)
+    /// Ruling 59: what stands in the way, in the backend's words.
+    case funnelBlocked(String)
 
-    static func of(_ s: RemoteStatus) -> RemoteReach {
+    /// `funnel` is nil for an older backend without the route: the page is what it was, the command to copy.
+    static func of(_ s: RemoteStatus, funnel: RemoteFunnel? = nil) -> RemoteReach {
         guard s.enabled else { return .off }
         if let error = s.listenerError { return .problem("Cicada couldn't open its door: \(error).") }
+        if let funnel, s.publicBaseUrl == nil, !funnel.isAbsent {
+            switch funnel.step {
+            case "on":
+                switch funnel.answers {
+                case .some(true): if let url = funnel.url { return .funnelOpen(url) }
+                case .some(false): return .funnelWaiting(funnel.message ?? "")
+                case .none: break
+                }
+                return .funnelChecking
+            case "off":
+                if let command = funnel.command { return .funnelReady(command: command) }
+            default:
+                if let message = funnel.message { return .funnelBlocked(message) }
+            }
+        }
         if let url = s.effectiveUrl {
             switch s.reachable {
             case .some(true): return .reachable(url)

@@ -44,6 +44,7 @@ ROUTES: dict[str, str] = {
     "POST /remote/oauth/requests/deny-all": REFUSE,
     "POST /remote/oauth/requests/{ref}/deny": REFUSE,
     "PUT /remote/settings": REFUSE,
+    "POST /remote/funnel": REFUSE,
     "POST /v1/{op}": REFUSE,
     "PUT /sync/publish": REFUSE,
     "POST /sync/publish/from-here": REFUSE,
