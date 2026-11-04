@@ -110,6 +110,28 @@ class ClarificationManager:
                     and entity_relations.known(self.memory_path, sanitize_id(entity_name), second)):
                 logger.info("clarification: merge pair already related on the record — not proposing")
                 return None
+            # Owner 2026-11-04 (`pair_evidence`): the owner's page is never paired with another person without the
+            # person's own words naming themselves so; two people are asked about only on a conversation that names
+            # both, which becomes the question's evidence; "Cicada's guess" is a guess about the pair, bounded.
+            from api.services import pair_evidence
+
+            person = (str(suggested_classification or "").lower().startswith("person")
+                      or pair_evidence._is_person_page(self.memory_path, second))
+            if person and pair_evidence.answered_by_check(self.memory_path, sanitize_id(entity_name), second):
+                logger.info("clarification: a check already answered who this handle is — not proposing")
+                return None
+            verdict = pair_evidence.judge(
+                self.memory_path, a_id=sanitize_id(entity_name), a_name=entity_name, b_id=second,
+                b_name=self._duplicate_candidate(uncertainty_type) or "", person=person,
+                source_episode=str(source_episode or ""), base=suggested_confidence, fresh=False,
+                two_places=bool(isinstance(heard_in, dict) and heard_in.get("mention") and heard_in.get("page")))
+            if not verdict.ask:
+                logger.info("clarification: duplicate question not asked ({})", verdict.reason)
+                return None
+            if verdict.episode and verdict.episode != source_episode:
+                source_episode = verdict.episode
+                source_episode_timestamp = pair_evidence.episode_timestamp(self.memory_path, verdict.episode)
+            suggested_confidence = verdict.guess
         open_path = find_open(self.memory_path, kind, sanitize_id(entity_name), second)
         if open_path is None and is_duplicate and same_title and len(same_title) >= 2:
             # G227 (owner 2026-10-29): one question per mention, never one per pair — a mention already asked about

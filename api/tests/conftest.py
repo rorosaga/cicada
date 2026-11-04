@@ -749,3 +749,14 @@ def pytest_collection_modifyitems(config, items):
                 # The daily tier never waits on a wall-clock budget (suite cut 3): a rail's guard asserts behaviour.
                 raise pytest.UsageError(f"crucial.txt names a `bench` test: {item.nodeid}")
             item.add_marker(pytest.mark.crucial)
+
+
+@pytest.fixture
+def pair_conversations(monkeypatch):
+    """Opt-in (owner 2026-11-04, `pair_evidence`): treat a duplicate question's own conversation as naming both sides.
+    For tests about HOW a lead between two people is found (G209), whose synthetic conversations are ids with no text;
+    whether a conversation really names both is `test_pair_evidence`'s. The owner rule still holds."""
+    from api.services import pair_evidence
+
+    monkeypatch.setattr(pair_evidence, "pair_episode",
+                        lambda memory_path, a_names, b_names, *, first="", also=(), fresh=True: first or None)

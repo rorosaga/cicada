@@ -75,4 +75,18 @@ final class StoredPreviewTests: XCTestCase {
         let block = MediaBlock(url: "https://example.com/a", mediaType: "url", thumbnail: "https://cdn.example.com/a.png")
         XCTAssertFalse(MediaPreviewModel(block: block, title: "A").hasPicture, "a bare provider thumbnail draws nothing")
     }
+
+    /// G233 — a book with no ISBN has no link: YAML's `url: ''` is no URL, so the card draws no "Preview site".
+    func testAnEmptyQuotedURLIsNoLink() {
+        let raw = """
+        ---
+        name: Quiet Engines
+        type: media
+        media:
+          url: ''
+          kind: book
+        ---
+        """
+        XCTAssertFalse(Entity.parseMediaFrontmatter(raw)?.hasURL ?? false)
+    }
 }

@@ -17,6 +17,10 @@ searched alone on the plan's own web search) and the ``outcome`` the new code wo
   2026-10-23), no question;
 * ``relation_claim`` — the judge names a relation: a claim on the page, no question;
 * ``settle_by_check`` — a public pair the check answers with a cited relation, undoable under "Settled by a check";
+  a public handle and a named person (proposed ruling 54, ``public_handle``) with a cited "goes by" claim;
+* ``retired`` — a person pair that should never have been asked (owner 2026-11-04, ``pair_evidence``): the owner's
+  page with no words of theirs naming themselves so (``owner_unsaid``), or two people no conversation names together
+  (``no_pair_evidence``) — Sleep's engine-free tending retires it, nothing written but its record, undoable;
 * ``not_asked`` — the judge says different, or the record already relates the two;
 * ``would_join`` — the judge says same (a fresh run joins the mention; for the backlog the person's tap merges);
 * ``keep_asking`` — a person, or the judge still cannot tell.
@@ -124,8 +128,14 @@ def _outcome(row: dict) -> tuple[str, str]:
     verdict = str(row.get("judge") or "")
     relation = entity_relations.relation_of(verdict)
     check = row.get("check") or {}
+    if row.get("tend") in ("owner_unsaid", "no_pair_evidence"):
+        return "retired", row["tend"]
     if row["known_relation"]:
         return "not_asked", "the record already relates the two"
+    if row["scope_reason"] == "public_handle":
+        if check.get("ok"):
+            return "settle_by_check", "a public page states the handle is theirs"
+        return "keep_asking", "a public handle the check has not answered" if row.get("check") else "public handle"
     if row["origin"] in ("placeholder_person", "alias_lead_person", "held_person") or row["subject_type"] == "person":
         return "keep_asking", "a person: who they are takes the person's own words"
     if relation is not None and not entity_relations.plausible(relation, row["entity_name"], row["target_name"]):
@@ -216,7 +226,7 @@ def main(argv=None) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     from api.config import Settings
-    from api.services import entity_relations, inbox_service, markdown_parser, web_settle
+    from api.services import entity_relations, inbox_service, inbox_tend, markdown_parser, pair_evidence, web_settle
 
     settings = Settings(memory_path=memory, llm_mode="agent", agent_model="haiku",
                         agent_disambiguation_model="haiku", web_check_agent_model="haiku")
@@ -232,6 +242,10 @@ def main(argv=None) -> int:
         target_fm = facts.pages.get(target) or {}
         scope, why = web_settle.classify(memory, fm, parsed.body, facts)
         page = facts.pages.get(str(fm.get("entity_id") or ""))
+        decided, stays = inbox_tend.policy(memory, path, dict(fm))   # engine-free; reads, never writes
+        a_names = pair_evidence.side_names(memory, str(fm.get("entity_id") or ""), str(fm.get("entity_name") or ""))
+        b_names = pair_evidence.side_names(memory, target, "")
+        own_episode = str(fm.get("source_episode") or "")
         rows.append({
             "id": path.stem, "created": str(fm.get("created_date") or ""), "visible": path.stem in visible,
             "said": str(fm.get("source_episode_timestamp") or "")[:10], "episode": str(fm.get("source_episode") or ""),
@@ -243,6 +257,12 @@ def main(argv=None) -> int:
             "target_type": str(target_fm.get("type") or "").lower(),
             "origin": _origin(fm, parsed.body), "scope": scope or "", "scope_reason": why,
             "known_relation": entity_relations.known(memory, str(fm.get("entity_id") or ""), target),
+            "tend": decided.rule if decided is not None else f"stays:{stays}",
+            "evidence_names_both": bool(own_episode) and pair_evidence.names_in(
+                a_names, pair_evidence._text(memory, own_episode)) and pair_evidence.names_in(
+                b_names, pair_evidence._text(memory, own_episode)),
+            "owner_pair": bool(facts.owner_id) and facts.owner_id in (str(fm.get("entity_id") or ""), target),
+            "guess": fm.get("suggested_confidence"),
             "context": parsed.body.strip()[:600],
         })
     if args.judge:
@@ -260,6 +280,10 @@ def main(argv=None) -> int:
         "by_scope": dict(collections.Counter(r["scope_reason"] for r in rows)),
         "by_judge": dict(collections.Counter(str(r.get("judge") or "") for r in rows)),
         "by_outcome": dict(collections.Counter(r["outcome"] for r in rows)),
+        "by_tend": dict(collections.Counter(r["tend"] for r in rows)),
+        "owner_pairs": sum(1 for r in rows if r["owner_pair"]),
+        "evidence_names_both": dict(collections.Counter(str(r["evidence_names_both"]) for r in rows)),
+        "guess_at_or_above_0_9": sum(1 for r in rows if float(r["guess"] or 0) >= 0.9),
         "by_origin_outcome": {o: dict(collections.Counter(r["outcome"] for r in rows if r["origin"] == o))
                               for o in sorted({r["origin"] for r in rows})},
     }

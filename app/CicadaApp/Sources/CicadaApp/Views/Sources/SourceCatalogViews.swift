@@ -387,6 +387,8 @@ struct SourceCatalogDetail: View {
             if calendarOn { SourceConnectArea(ways: [googleCalendarWay]) }
         case ContactsReader.channel: ContactsSlot(slot: .connect)
         case RemindersReader.channel: RemindersSlot(slot: .connect)
+        case AppleBooksReader.channel: AppleBooksSlot(slot: .connect, channel: mine.first)
+        case "goodreads": GoodreadsSlot()
         case MessagesWatcher.channel: ChatPickerSlot(slot: .connect, kind: .messages)
         case WhatsAppWatcher.channel: ChatPickerSlot(slot: .connect, kind: .whatsApp)
         case TelegramChats.channel: TelegramSlot(slot: .connect)
@@ -621,6 +623,7 @@ struct SourceCatalogDetail: View {
         case CalendarRow.channelId: CalendarSlot(slot: .footer)
         case ContactsReader.channel: ContactsSlot(slot: .footer)
         case RemindersReader.channel: RemindersSlot(slot: .footer)
+        case AppleBooksReader.channel: AppleBooksSlot(slot: .footer, channel: mine.first)
         case MessagesWatcher.channel: ChatPickerSlot(slot: .footer, kind: .messages)
         case WhatsAppWatcher.channel: ChatPickerSlot(slot: .footer, kind: .whatsApp)
         case TelegramChats.channel: TelegramSlot(slot: .footer)

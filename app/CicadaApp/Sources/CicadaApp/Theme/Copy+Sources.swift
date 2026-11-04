@@ -178,7 +178,7 @@ extension Copy {
         switch kind {
         case .episode: "Open in the Reader"
         case .media: "Open in Saved"
-        case .page: "Open their card"
+        case .page: "Open the card"
         case .chat, .unknown: ""
         }
     }

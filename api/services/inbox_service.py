@@ -31,7 +31,11 @@ from api.services import (
     inbox_questions,
     inbox_review,
     markdown_parser,
+<<<<<<< HEAD
     phone_numbers,
+=======
+    pair_evidence,
+>>>>>>> origin/dev
     predicates,
     quiet_pages,
     same_name_pick,
@@ -380,7 +384,12 @@ def _extractor_refs(fm: dict, kind: str, context: "inbox_context.InboxContext") 
     out: dict = {"extractor_confidence": None, "extractor_model": None}
     if kind == "decay":
         out["extractor_confidence"] = _as_float(fm.get("priority"))
-    elif kind in ("clarification", "merge_suggestion"):
+    elif kind == "merge_suggestion":
+        # Owner 2026-11-04 (`pair_evidence`): a guess about the pair, below ruling 29's act threshold — a question
+        # raised before this carried the matched mention's extraction confidence (0.9 on "Is <h> the same as you?").
+        value = _as_float(fm.get("suggested_confidence"))
+        out["extractor_confidence"] = None if value is None else min(value, pair_evidence.MAX_GUESS)
+    elif kind == "clarification":
         out["extractor_confidence"] = _as_float(fm.get("suggested_confidence"))
     else:
         claim_id = _opt_str(fm.get("claim_id"))

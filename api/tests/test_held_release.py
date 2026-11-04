@@ -364,6 +364,7 @@ def test_sleeps_same_settle_on_a_held_mention_never_folds_the_page_sharing_its_i
     assert _git(bank, "rev-parse", "HEAD") == head and not _git(bank, "status", "--porcelain").strip()
 
 
+@pytest.mark.usefixtures("pair_conversations")
 def test_stage_2_marks_the_questions_it_raises_about_a_held_mention(tmp_path):
     from api.services import entity_resolver as er
     from api.services.clarification_manager import ClarificationManager

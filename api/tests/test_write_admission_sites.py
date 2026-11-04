@@ -517,6 +517,14 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /capture/telegram": (INTAKE, None),
     "POST /capture/transcript": (CAPTURE, None),
     "POST /capture/turn": (CAPTURE, None),   # capture-everywhere: the same writer as the Stop hook
+    # G233: a scanned ISBN — the episode only; its page is made by `book_jobs`' admitted apply, in the background.
+    "POST /capture/isbn": (CAPTURE, None),
+    # G39/G233: episodes staged (capture), then the pages inside admission; while Sleep holds them the answer says
+    # `deferred` and the tail applies them — never refused.
+    "POST /sources/apple-books/sync": (HELD, "api.services.book_jobs.apply_admitted"),
+    "POST /sources/goodreads/import": (HELD, "api.services.book_jobs.apply_admitted"),
+    "PUT /sources/apple-books/settings": (REGISTRY, None),
+    "POST /sources/goodreads/preview": (NONE, None),
     "POST /capture/note": (CAPTURE, None),   # G212: a note a device sent, staged like every source-keyed capture
     # G91 (ruling 38): a device's shared photo or file — its episode staged like a note, its bytes outside every bank.
     "POST /capture/file": (CAPTURE, None),

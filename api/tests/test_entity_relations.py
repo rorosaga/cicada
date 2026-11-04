@@ -176,6 +176,7 @@ def test_a_pair_the_record_relates_is_judged_and_asked_never_again(tmp_path, mon
     assert calls == [] and [fm["kind"] for fm in _asked(memory)] == ["page_edit"]
 
 
+@pytest.mark.usefixtures("pair_conversations")
 def test_the_clarifier_never_proposes_a_related_pair_but_still_asks_about_people(tmp_path):
     memory = _bank(tmp_path)
     body = write_claims("## Summary\nA database.\n", [Claim(

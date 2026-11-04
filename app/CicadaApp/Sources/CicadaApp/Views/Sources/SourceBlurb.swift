@@ -32,6 +32,8 @@ enum SourceBlurb {
             return "Messages you send to \(label), as notes."
         case .voice:
             return "Meetings and notes from \(label), with who said what."
+        case .reading:
+            return "Books from \(label), with what you're reading and what you highlighted."
         case .import, .unknown:
             return "Links or files you added through \(label)."
         }
@@ -83,6 +85,10 @@ enum SourceBlurb {
         "calendar-local": "Events from the calendars on this Mac.",
         // G219.
         "reminders-local": "Reminders from the lists you ticked.",
+        // G39, G233.
+        "apple-books": "Your Apple Books library: what you're reading and finished, your highlights and notes.",
+        "goodreads": "Your Goodreads shelves, ratings and reviews, from the export you chose.",
+        "book-scan": "Books you scanned with your phone, with what you said you're doing with each.",
         "notion": "Pages and database rows from a Notion export.",
         // Ruling 47 tier 2.
         "notion-api": "The Notion pages you shared with your own connection, kept current.",

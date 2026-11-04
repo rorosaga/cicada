@@ -172,6 +172,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   read only after the person turned it on. An unreadable file shows the exact fix in the app. Chrome's history is read
   from a copy, YouTube video pages only; watch history is one episode per day, never a save (G71, `capture-and-sleep.md`);
   it and saves from a platform's saved list are indexed, never read by a model (ruling 30).
+- **Books (G39, G233):** a scanned ISBN (`/capture/isbn`, the phone's contract) resolves at the home behind the connector
+  gate, cached outside every bank; Apple Books is read by the app after the person turns it on; Goodreads only by its
+  export; one `media` page per work, status as dated claims, imports quiet (`capture-and-sleep.md`, "Books").
 - **Two ways in for what the person consumes (ruling 47, owner 2026-10-28):** by default their own browser and Mac,
   through the browser and macOS harnesses (G166, G206, G218 rails unchanged); an official API only for a specific source
   where it gives what the harness cannot (history, metadata, reliability) — the person connects each one (off by default,
@@ -276,6 +279,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   application lives on that page, the owner's keeps only the link (`application_page`, `capture-and-sleep.md`).
   A Stage-4 skill needs 2+ conversations too; one is held in its own store, `skill_hold` (G112, owner 2026-10-09).
   A speaker's self-reference ("the user", "me", "yo"…) is the owner's page, never a page of its own (G169).
+  **"Same person?" (owner 2026-11-04):** never the owner's page without the person's own words naming themselves so;
+  two people only on a conversation naming both, its evidence; the guess ≤ 0.8 (`pair_evidence`, `capture-and-sleep.md`).
   A person known only by a relation to the owner is titled by the relation, never the owner's name, and asked their
   name; it is merged only on the person's answer or evidence on the record (`role_people`, `capture-and-sleep.md`).
 - **Temporal decay is a signal; age counts from when it was said** (owner 2026-10-09/13, amends G170): what the
@@ -316,7 +321,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   world facts on plan runs (never a metered key), re-checked by use and volatility, never over the person's own words
   about their own life; a private
   person's name never reaches any service; every page says why it matters to the person, derived on read (`web_context`,
-  `page_relevance`, `storage.md`). **A tracked source's
+  `page_relevance`, `storage.md`). PROPOSED ruling 54 (owner direction 2026-11-04; off until the owner rules): a public handle
+  vs a named public person, neither in a chat or contacts, may be settled by two pinned searches and a cited claim; the
+  person's own agent on their ask meanwhile (`public_handle`, `features.md`). **A tracked source's
   dated re-check does (ruling 26):** a new dated fact; the newest evidence wins, even over the person's own words; the same
   day or undated asks once; dead = two failed visits a week apart; walled pages only by the person's agent (`storage.md`).
   **Where to check (ruling 36 D5, 2026-10-22):** an agent (`inferred`) or Sleep's engine-free step may PROPOSE a link

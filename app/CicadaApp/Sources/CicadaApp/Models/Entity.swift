@@ -740,6 +740,8 @@ struct MediaBlock: Codable, Equatable {
     }
 
     var isPaper: Bool { kind == "paper" }
+    /// G39/G233 — a book page (`books.KIND`): its link is a catalogue entry, never fetched for a preview card.
+    var isBook: Bool { kind == "book" }
     /// G230 — a repository page (`github_repos.KIND`).
     var isRepository: Bool { kind == "repository" }
 
@@ -977,7 +979,8 @@ struct Entity: Identifiable, Codable {
             let key = String(trimmed[..<colon]).trimmingCharacters(in: .whitespaces)
             var value = String(trimmed[trimmed.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
             // Strip surrounding quotes if present.
-            if value.count >= 2, value.first == "\"", value.last == "\"" {
+            // Either kind: YAML writes an empty string as `''` (a book with no ISBN), and that is no URL.
+            if value.count >= 2, value.first == value.last, value.first == "\"" || value.first == "'" {
                 value = String(value.dropFirst().dropLast())
             }
             if value == "null" || value == "~" { value = "" }

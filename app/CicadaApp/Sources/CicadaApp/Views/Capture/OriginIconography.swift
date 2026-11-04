@@ -107,6 +107,10 @@ enum OriginIconography {
         case "calendar-local": "Calendar"
         case "contacts-local": "Contacts"
         case "reminders-local": "Reminders"
+        // G39, G233 — books.
+        case "apple-books": "Apple Books"
+        case "goodreads": "Goodreads"
+        case "book-scan": "Book scan"
         case "notion-export", "notion-api": "Notion"
         case "readwise": "Readwise"
         case "github", "github-added", "github-owned": "GitHub"
@@ -188,6 +192,7 @@ enum OriginIconography {
         case "calendar", "calendar-local": "calendar"
         case "contacts-local": "person.crop.circle"
         case "reminders-local": "checklist"
+        case "apple-books", "goodreads", "book-scan", "book": "book.closed"
         case "notion-export", "notion-api": "doc.text"
         case "readwise": "highlighter"
         case "github", "github-starred", "github-added", "github-owned": "chevron.left.forwardslash.chevron.right"
@@ -365,6 +370,8 @@ enum OriginIconography {
         case "contacts-local": "com.apple.AddressBook"
         // G219 — Cicada reads the Reminders app's own store, so the app is here; Apple's marks are never committed.
         case "reminders-local": "com.apple.reminders"
+        // G39 — Cicada reads Apple Books' own store, so the app is here; Apple's marks are never committed.
+        case "apple-books": "com.apple.iBooksX"
         // G179 — Cicada reads the Messages app's own database, so the app is here; Apple's marks are never committed.
         case "imessage": "com.apple.MobileSMS"
         case "whatsapp": "net.whatsapp.WhatsApp"

@@ -37,7 +37,10 @@ from api.services.evidence import AGENT_KIND, SAVE_KIND
 #: is the page's, not the person's — a name in its title, link or byline is never "their own words".
 SAVED_ORIGINS = frozenset({"bookmark", "saved-link", "media", "rss", "pdf", "ingest", "watch-history",
                            "watch-history-month", "video-watch", "page-read", "profile-read", "web-check",
-                           "source-check", "web-history", "safari-tab", "chrome-tab-group", "tab-group"})
+                           "source-check", "web-history", "safari-tab", "chrome-tab-group", "tab-group",
+                           # G39/G233: a book's record in Apple Books or a Goodreads shelf — the book's words and the
+                           # library's fields; the person's notes and review sit under ``## User note``.
+                           "apple-books", "goodreads"})
 SAVED_SUFFIXES = ("-bookmark", "-bookmarks", "-saved", "-history", "-likes", "-playlist", "-tab", "-tabs")
 
 

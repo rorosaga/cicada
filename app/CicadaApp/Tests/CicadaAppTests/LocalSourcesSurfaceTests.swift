@@ -40,7 +40,8 @@ final class LocalSourcesSurfaceTests: XCTestCase {
         let row = try JSONDecoder().decode(SourceOverview.self, from: Data(json.utf8))
         XCTAssertEqual(row.kind, .voice)
         XCTAssertEqual(SourceSections.group([row]).first?.title, "Voice & meetings")
-        XCTAssertEqual(SourceKind.order.firstIndex(of: .voice), SourceKind.order.firstIndex(of: .import).map { $0 - 1 })
+        // G39: Reading sits between Voice & meetings and Files & imports.
+        XCTAssertEqual(SourceKind.order.firstIndex(of: .voice), SourceKind.order.firstIndex(of: .import).map { $0 - 2 })
     }
 
     func testLocalLightsExplainThemselvesInTheirOwnWords() {

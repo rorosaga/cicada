@@ -101,7 +101,10 @@ _ACQUAINTANCE = re.compile(
     r"invited by|invited (?:him|her|them)|invitation (?:from|to)|interviewed by|interviewed with|interview invitation|"
     r"interview(?:ed|ing)? (?:him|her|them)|shares? a chat|group chat|"
     r"taught|teaches|teacher|professor of|supervis\w*|advis(?:or|er|es|ed)|mentor\w*|thesis (?:director|tutor)|"
-    r"boss|manager of|reports to|works? with|worked with|working with|collaborat\w*|co-?authored|alongside|"
+    r"boss|manager of|reports to|(?:works?|worked|working) with(?!\s+(?:ai|agents?|llms?|models?|tools?|code|"
+    # 2026-11-04: "<handle>'s way of working with agents" is how someone works, not someone the owner works with.
+    r"data|software|computers?|robots?|apis?|prompts?|skills?|claude|codex|cursor|python)\b)|collaborat\w*|"
+    r"co-?authored|alongside|"
     r"hired|recruit\w*|referred|referral|offered|forwarded|knows|known personally)\b",
     re.IGNORECASE)
 PUBLIC_ROLE = re.compile(
@@ -403,7 +406,6 @@ def local_verdict(memory_path: Path, page: Page, facts: web_settle.BankFacts) ->
     if not org_sites.proper_name(name):
         return Verdict(False, "name_shape")
     folded = text_fold.fold(name)
-    owner_id = facts.owner_id
     if page.type != "person":
         if folded in facts.project_names:
             return Verdict(False, "project")
@@ -436,24 +438,36 @@ def local_verdict(memory_path: Path, page: Page, facts: web_settle.BankFacts) ->
         return Verdict(False, "relation")
     if folded in facts.owner_names:
         return Verdict(False, "owner")
-    _, by_object = page_relevance.owner_index(memory_path)
-    def knows(predicate) -> bool:
-        return bool(_ACQUAINTANCE.search(str(predicate or "").replace("-", " ").replace("_", " ")))
-
-    if any(knows(c.predicate) for c in by_object.get(page.entity_id, [])):
-        return Verdict(False, "personal_relation")
-    if owner_id and any(c.object_kind == "node" and c.object == owner_id and knows(c.predicate) for c in page.claims):
-        return Verdict(False, "personal_relation")
-    for sentence in _owner_mentions(_prose(page.body), facts.owner_names, page.name):
-        if _ACQUAINTANCE.search(sentence):
-            return Verdict(False, "owner_in_prose")
-    if _personal_channel(memory_path, fm):
-        return Verdict(False, "personal_channel")
+    private = known_personally(memory_path, page, facts)
+    if private:
+        return Verdict(False, private)
     cues = " ".join([_prose(page.body), " ".join(str(t) for t in fm.get("tags") or []),
                      " ".join(str(c.text or "") for c in page.claims)])
     if not PUBLIC_ROLE.search(cues):
         return Verdict(False, "no_public_cue")
     return Verdict(None, "needs_encyclopedia")
+
+
+def known_personally(memory_path: Path, page: Page, facts: web_settle.BankFacts) -> str | None:
+    """The person half of the local test that is not about the name's shape: why the record says the owner knows
+    them (``personal_relation``, ``owner_in_prose``, ``personal_channel``), or ``None``. Shared by the public test and
+    the public-handle test (``public_handle``, proposed ruling 54). Sends nothing."""
+    owner_id = facts.owner_id
+    _, by_object = page_relevance.owner_index(memory_path)
+
+    def knows(predicate) -> bool:
+        return bool(_ACQUAINTANCE.search(str(predicate or "").replace("-", " ").replace("_", " ")))
+
+    if any(knows(c.predicate) for c in by_object.get(page.entity_id, [])):
+        return "personal_relation"
+    if owner_id and any(c.object_kind == "node" and c.object == owner_id and knows(c.predicate) for c in page.claims):
+        return "personal_relation"
+    for sentence in _owner_mentions(_prose(page.body), facts.owner_names, page.name):
+        if _ACQUAINTANCE.search(sentence):
+            return "owner_in_prose"
+    if _personal_channel(memory_path, page.fm):
+        return "personal_channel"
+    return None
 
 
 JsonGet = Callable[[dict], Awaitable[dict | None]]
