@@ -39,6 +39,8 @@ enum RemindersRowText {
 /// The mark is the installed Reminders app's own icon (DR-52; Apple's marks are never committed).
 struct RemindersRow: View {
     let channel: SourceChannel?
+    /// The standard source page (2026-11-04) draws its own connect area and footer: only the list picker here.
+    var pickerOnly = false
     @Environment(RemindersReader.self) private var reader
     @Environment(\.sourceDetailHeadShown) private var headShown
     @State private var confirmStop = false
@@ -49,7 +51,7 @@ struct RemindersRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            row
+            if !pickerOnly { row }
             if reader.isEnabled, reader.status != .denied { picker }
         }
         .confirmationDialog(Copy.remindersStopTitle, isPresented: $confirmStop) {

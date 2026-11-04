@@ -22,6 +22,17 @@
   open duplicate questions: 1 owner pair, 148 on a conversation not naming both, 20 between people → 4 retired, 16
   left, all 16 cards on a conversation naming both (10 before). **Proposed ruling 54 below waits for the owner:** a
   public handle settled by a web lookup (built behind it, off until the owner rules; 1 of the 20 qualifies).
+- **2026-11-04 — one layout for every source page; GitHub syncs on connect (G161, G230; branch
+  `sources-standard-layout`, PR #593).** Owner, from screenshots: "so much text", the export drop showing "the logos of
+  AI companies instead of the logo of Spotify", "standardize the layout for all the sources pages". Every source page is
+  `SourcePageLayout` — head and one status line, a connect area (one primary, at most one line, ways in as option rows
+  with their own icons), the source's own sections, a quiet footer; spec in `app.md` ("The standard source page"), rule
+  in DESIGN_RULES §9 2026-11-04. GitHub's live `lastSync: null` after a code sign-in: nothing started a sync (the poll
+  only stamped credentials; the scheduler's first run is 6 h after start); the completed sign-in now starts it. Telegram
+  chats is *Telegram*. **Pick up here:** the This Mac pages' content (Notes, Reminders, Contacts, Calendar, Hex, Wispr
+  Flow, transcripts) is another worker's, in the layout's `content` slot; Telegram's missing chat pictures are the chat
+  images worker's (backend data, not the page layout).
+
 - **2026-11-04 — ways in for Spotify, Reddit, Pinterest, TikTok and Instagram (G232; branch `feat/g232-ways-in`).**
   Owner: "is there no way to do similar to GitHub … offer the website connection through browser harness, just like a
   toggle switch, and then also the file export". Researched against each service's docs and terms (table in

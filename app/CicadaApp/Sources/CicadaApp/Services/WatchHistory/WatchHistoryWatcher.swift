@@ -30,6 +30,8 @@ final class WatchHistoryWatcher {
     enum Status: Equatable { case off, missing, watching, syncing, failed(String) }
 
     private(set) var status: Status = .off
+    /// The file error behind the last failed read (Full Disk Access's fix needs its kind), nil after any other end.
+    private(set) var failure: BrowserFileError?
     private(set) var enabled: Bool
     /// What memory holds (the backend's count after the last sync) — the row's line.
     private(set) var videos: Int?
@@ -137,6 +139,7 @@ final class WatchHistoryWatcher {
         running = nil
         runningBank = nil
         activity?.ended(Self.channel)
+        failure = nil
         switch result {
         case .success:
             lastStamp = stamp
@@ -144,7 +147,10 @@ final class WatchHistoryWatcher {
         case .failure(let error) where SyncCancellation.isCancellation(error):
             status = enabled ? .watching : .off
         case .failure(let error as BrowserFileError):
-            if case .missing = error { status = .missing } else { status = .failed(error.userMessage) }
+            if case .missing = error { status = .missing } else {
+                failure = error
+                status = .failed(error.userMessage)
+            }
         case .failure(let error):
             status = .failed(Self.failureMessage(error))
         }

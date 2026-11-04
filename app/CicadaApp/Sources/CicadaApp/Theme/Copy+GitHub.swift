@@ -14,12 +14,12 @@ extension Copy {
         static let hideToken = "Hide the token field"
         static let enterCode = "Enter this code on GitHub"
         static let openGitHub = "Open GitHub"
-        static let copyCode = "Copy code"
+        static let copyCode = "Copy"
         static let copied = "Copied"
         static let waiting = "Waiting for you to approve on GitHub…"
         static let cancel = "Cancel"
         static func expiresIn(_ minutes: Int) -> String {
-            minutes <= 1 ? "The code works for about a minute more." : "The code works for \(minutes) more minutes."
+            minutes <= 1 ? "About a minute left" : "\(minutes) minutes left"
         }
         static let connected = "Connected"
         static let signedOut = "GitHub signed Cicada out"
@@ -27,6 +27,14 @@ extension Copy {
             + "in sync; nothing in your memory changes."
         static let reconnect = "Reconnect"
         static let connectedByToken = "Connected with a token"
+        /// 2026-11-04 — the install step, one quiet row: what it adds, the button, the why on hover.
+        static let installLine = "Add your own repositories"
+        static let installHelp = "Install Cicada on your GitHub account, read-only, for all your repositories or the "
+            + "ones you pick. Your stars already come in."
+        static let enterCodeStatus = "enter the code on GitHub"
+        static func codeLabel(_ code: String) -> String { "Code to enter on GitHub: \(code)" }
+        static let disconnectDetail = "Cicada forgets its access; your repository pages stay. To remove the approval "
+            + "on GitHub too, open your GitHub applications."
         static let installTitle = "One more step: install Cicada on your GitHub account"
         static let installWhy = "It lets Cicada read your own repositories — all of them, or the ones you pick — "
             + "read-only. Your stars already come in."

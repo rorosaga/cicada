@@ -13,6 +13,12 @@ struct IntakePanel: View {
     var origin: IntakeOrigin
     /// The `+` root: the drop zone alone, no "how to get it".
     var compact = false
+    /// 2026-11-04 (owner: "the logos of AI companies instead of the logo of Spotify and the icon of a file") — on a
+    /// source's own page, that source's mark (an `OriginIconography` key) on a file glyph, one line, and the export's
+    /// where-from as the zone's hover; never the chat vendors' marks.
+    var mark: String? = nil
+    /// The zone's hover on a source's page: where that export comes from.
+    var how: String? = nil
 
     @Environment(IntakeRouter.self) private var intake
     @Environment(BanksViewModel.self) private var banksVM
@@ -73,20 +79,26 @@ struct IntakePanel: View {
 
     private var dropZone: some View {
         VStack(spacing: CicadaTheme.spacingSM) {
-            HStack(spacing: CicadaTheme.spacingSM) {
-                ForEach(vendors) { VendorMark(vendor: $0, size: CicadaTheme.scaled(28)) }
+            if let mark {
+                SourceWayIcon(icon: .file(mark), points: 28)
+                Text(Copy.SourceLayout.dropExport).font(CicadaTheme.rowFont).foregroundStyle(CicadaTheme.textPrimary)
+            } else {
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    ForEach(vendors) { VendorMark(vendor: $0, size: CicadaTheme.scaled(28)) }
+                }
+                Text(Copy.intakeDropTitle).font(CicadaTheme.headingFont).foregroundStyle(CicadaTheme.textPrimary)
+                Text(Copy.intakeDropSubtitle).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
+                    .multilineTextAlignment(.center)
             }
-            Text(Copy.intakeDropTitle).font(CicadaTheme.headingFont).foregroundStyle(CicadaTheme.textPrimary)
-            Text(Copy.intakeDropSubtitle).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
-                .multilineTextAlignment(.center)
-            Button(Copy.intakeChooseFile) { chooseFile() }
+            Button(mark == nil ? Copy.intakeChooseFile : Copy.SourceLayout.chooseFile) { chooseFile() }
                 .buttonStyle(.bordered)
                 // Overlay only: in the `+` sheet a default action here would take
                 // Return away from the tile grid's own Enter-opens-tile (R10).
                 .keyboardShortcut(origin.host == .overlay && !inline ? KeyboardShortcut.defaultAction : nil)
         }
         .frame(maxWidth: .infinity)
-        .padding(CicadaTheme.spacingLG)
+        .padding(mark == nil ? CicadaTheme.spacingLG : CicadaTheme.spacingMD)
+        .help(how ?? "")
         .background(dropTargeted ? CicadaTheme.meadowWash.opacity(0.4) : CicadaTheme.surface,
                     in: CicadaTheme.shape(CicadaTheme.cornerRadius))
         .overlay(CicadaTheme.shape(CicadaTheme.cornerRadius)

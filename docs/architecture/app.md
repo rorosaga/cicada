@@ -1105,7 +1105,9 @@ only for a number it looked up this session (`lookedUp`) that no card or several
 JID. Telegram's chats post no card: the backend reads them through Telegram's API and never sees a phone number
 (ruling 47a), so there is no handle the app could look up.
 
-**Telegram chats (ruling 47a, 2026-10-28).** The same row and sheet (`TelegramSourceRow`, `TelegramPanel`;
+**Telegram chats (ruling 47a, 2026-10-28; named *Telegram* since 2026-11-04 — owner: "remove 'chats' from 'Telegram
+chats' and just keep 'Telegram'" — and the bot feed *Telegram bot*, on the Sources list, its page and the overview's
+label).** The same row and sheet (`TelegramSourceRow`, `TelegramPanel`;
 `TelegramChats` holds the state, the backend the client). **The connect sheets' one shape (DESIGN_RULES §9,
 2026-10-29; `Views/Settings/ConnectSheet.swift`):** one step at a time, one primary (⏎) with Cancel as a text button, no
 *Done* until connected; under each sign-in step one caption line — one-to-one only, each with the other person's
@@ -1691,6 +1693,51 @@ verified by `scripts/verify-skills.sh`, whose `--print-urls` is pinned offline) 
 with a `terms` line; `macos-harness` states plainly that it can control the whole Mac. Choosing one is Settings, How your
 agent reads (`agent_methods`), not an install.
 
+**The standard source page (owner 2026-11-04; `Views/Sources/SourcePageLayout.swift`, `Copy.SourceLayout`;
+DESIGN_RULES §9 2026-11-04).** Owner: *"we should standardize the layout for all the sources pages"*, *"so much text"*.
+Every source's detail column is one `SourcePageLayout(title:origin:status:statusHelp:backLabel:onShowList:onClose:
+connect:content:footer:)` — four slots, top to bottom, and nothing else on the page (no *Settings* label, no paragraph):
+1. **Header** (drawn by the layout from `title`, `origin`, `status`): DR-74's head with the source's real mark
+   (`SourceLogoTile`), its name, and **one status line** (`SourceStatusLine`, `SourcePageStatus`) under the name. What the
+   words measure goes in `statusHelp` (hover only). A source never adds a line here.
+2. **Connect area** — `SourceConnectArea(primary:line:lineIsAttention:ways:extra:)`, drawn for the state the source is
+   in (`SourceConnectState`: `.notConnected` · `.connecting` · `.connected` · `.needsAttention`; `.of(status)` maps a
+   plain status). Each state is **one** `SourcePrimaryAction` (DR-5: the page's one primary; *Connect GitHub*,
+   *Choose chats…*, *Reconnect*) and **at most one short line** (`line`, meta ink, one line, its whole text on hover;
+   `lineIsAttention` for the one thing to fix). A step's own body — a code to enter, a picker's summary — goes in
+   `extra`, between the line and the ways. **Several ways in** are `ways: [SourceWayIn]`, one 36 pt option row each on
+   one ringed block: an icon, a name and a switch (`.toggle(on, set)`) or a neutral button (`.button(words, action)`).
+   The three standard ways: the official account (`icon: .mark(origin)`), *Read through your browser*
+   (`SourceWayIn.browser(on:set:)`, the browser-harness agent's per-site switch, `globe`), and *Import a file*
+   (`SourceWayIn.importFile(origin:action:)`: the source's **own mark on a file icon**, `.file(origin)` — never another
+   company's mark). A connected source with nothing left to choose passes nothing and the area draws nothing (DR-81).
+3. **Content** — the source's own sections, each a `SourceSection(title:count:rows:)` (a `SectionLabel` with its count
+   as meta, then rows at DR-34's heights), drawn only when it holds something (DR-81): GitHub's *Your repositories* and
+   *Starred*; YouTube's lists; a chat source's chats (`ChatSourceList`); a saved source's saves (`SourceItemsSection`,
+   with the page's one search above it). A list longer than the page shows 12 rows then *All N*, opened in the
+   column's place (`SourceDrill`, *‹ <source>* and Esc return); while a drill is open the connect area and the footer
+   are not drawn.
+4. **Footer** — `SourcePageFooter(actions:note:)`: *Refresh* (`SourceFooterAction.refresh`) and *Disconnect*
+   (`SourceFooterAction.disconnect(source, message:)`, asked first in a confirmation whose button carries the
+   destructive role) as quiet `TextButton`s flush with the column's edge, last on the page; `note` is the last action's
+   result in one line. Only the actions that apply (nothing to refresh, no Refresh).
+A source plugs in by building those three slots from its own state in its own file (GitHub: `GitHubSourcePage`); the
+catalogue's dispatcher (`SourceCatalogDetail`) picks the page by entry id. Words go in `Copy.SourceLayout` or the
+source's own `Copy` namespace, short, provider-neutral (CLAUDE.md), never a how-to paragraph (an export's where-from is
+the *Import a file* row's hover). **Seams for This Mac (#599):** `SourceCatalogRow.notInstalled` → `SourcePageStatus
+.notInstalled` ("Off · not installed", `SourceConnectState.notConnected`, no Connect — Wispr Flow's `WisprSlot`), and
+`SourceCatalogDetail.thisMacContent`, the one content seam for Calendar, Contacts, Reminders, Apple Notes, Hex, Wispr
+Flow and transcripts (`thisMacContent` ids), where their browser plugs in; Hex's connect is its `FolderSlot` case.
+**Review of #593 (2026-11-04):** a connector is found by `connect` or `disconnect` (`connectorChannel(in:)`: the backend
+sends `["connect"]` before and `["sync", "disconnect"]` after), so a connected X, Reddit or Pinterest keeps Disconnect and
+a lapsed one Reconnect; Substack (#594) is three switches (`substackWays`, the first-use sheet first) with "Following N
+publications" as the line; a browser page lists *Unmute all* as one row while the ask-why question is muted on a site
+(`BrowserWayRules.showsUnmute`); the YouTube watch-history read shows Stop while it reads and its failure under its
+switch — Full Disk Access's exact fix when that is what failed (`WatchHistoryWatcher.failure`), else its words as the
+attention line (`WatchHistoryState`, `WatchHistoryLine`), on YouTube's page and Chrome's; chat exports list each app's
+*Request your … export* as a way (`ChatExportWay`; the reminder menu stays in the intake overlay, a menu not being a
+switch or a button).
+
 **The redesign, Sources · Inbox · entity card · Sleep (G217, G205, G212, G61, G206; ruling 36 D5/D6, 2026-10-22).**
 - **Sources is the one catalogue** (`SourceCatalog`, pure; `SourceCatalogViews`). Every way in, on or off, grouped
   *Accounts and browser* (X, YouTube, Instagram, LinkedIn, Reddit, Pinterest, TikTok) · *This Mac* (Calendar, Contacts,
@@ -1715,7 +1762,7 @@ agent reads (`agent_methods`), not an install.
   newest day), a watched day (*N videos*), a saved thing (`SavedItemRow`), an item, an agent's conversation
   (`HarnessConversationsView`'s embedded mode) — at most 12 rows then a plain *All N*; a group row and *All N* open in the
   column's place (`SourceDrill`) with *‹ <source>* and Esc to return, never in place (DR-81); then the removals proposed
-  against the channel and, for tab groups, the groups open now; and **Settings** last (`SourcePageSettings`): the
+  against the channel and, for tab groups, the groups open now; and **Settings** last (`SourcePageSettings`, retired 2026-11-04 for the standard source page above — its controls are the connect area and the footer now): the
   source's own control — the very rows Settings drew (`CalendarRow`, `ContactsRow`, `MessagesRow`, `BrowsersSection`,
   `WatchHistoryRow`, `FolderChannelRow` + *Add a folder*, `WisprFlowRow`), or `ChannelActionsBar` (Connect / Refresh /
   Manage) for a registry channel, or a tile's flow — then the per-site reading switch for a walled site (x, instagram,
@@ -1863,7 +1910,18 @@ agent reads (`agent_methods`), not an install.
   the model asks `POST /sources/github/connect/poll` every interval the backend gives (`GitHubConnectModel`, its
   `Deps` injected) → connected by code but not installed, *Install on GitHub* (the app's install page) and *I installed
   it* (asks again, then syncs at once) → *Connected* (or, once GitHub refuses to renew the sign-in, *GitHub signed Cicada out* with *Reconnect*) with Refresh and Disconnect (which says the grant on GitHub is
-  removed there). `GitHubConnectStep.from` decides the step from the backend's answer alone. The token
+  removed there). `GitHubConnectStep.from` decides the step from the backend's answer alone. **2026-11-04 (owner,
+  live; DESIGN_RULES §9 2026-11-04): `GitHubSourcePage` on the standard layout** — not connected, *Connect GitHub* alone;
+  connecting, `GitHubCodeView` (the code at 28 pt in the copyable face, *Copy*, *Open GitHub*, *Cancel* quiet, "14 minutes
+  left"); connected, `GitHubRepoList` *Your repositories* (name alone) and *Starred* (`owner/name`), each a
+  `GitHubRepoRow` (`GitHubRepoPicture`: the page's own picture — an organisation's avatar — else GitHub's mark; the
+  name with *Private*/*Archived* `Tag`s, the description, the language on the right; a click opens its page, the context
+  menu *Open on GitHub* and its projects), 12 rows then *All N* in the column's place; the install step is one way row
+  (*Add your own repositories* · *Install on GitHub*) and `openInstallAndWatch` asks GitHub every 5 s for 3 min, so there
+  is no *I installed it*; Refresh and Disconnect in the footer. The backend starts the first sync when the code sign-in
+  completes (`start_first_sync`, `syncing` on `GET /sources/github/connect`); the status line reads Syncing and
+  `watchSync` reads the lists again when it ends. The words below about `GitHubConnectPanel` and `GitHubReposSection`
+  describe the retired panel. The token
   (`ConnectorSetupPanel`) is only behind *Use a token instead* — the fallback only where the build's client id is blank
   (the shipped build names Cicada's registered app, 2026-11-04), never the default. Under it **`GitHubReposSection`**: *Your repositories* in their own scroll, each row's name and
   "Private · Python · …", *In <project>* (a `TextButton` to each of at most two projects it belongs to, "+N" after) and

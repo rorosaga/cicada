@@ -76,6 +76,8 @@ struct SourceCatalogRow: Identifiable, Equatable {
     let entry: SourceCatalogEntry
     let status: SourceCatalogStatus
     let lastSync: Date?
+    /// 2026-11-04 — the app this source reads was removed from this Mac: Off, and the row says why.
+    var notInstalled = false
     var id: String { entry.id }
 }
 
@@ -157,7 +159,7 @@ enum SourceCatalog {
                            verb: .connect(Copy.Catalog.addFeed)),
         SourceCatalogEntry(id: "calendar", group: .feeds, title: Copy.Catalog.calendarFeeds, origin: "calendar",
                            channels: ["calendar"], tile: .calendar, verb: .connect(Copy.Catalog.addFeed)),
-        SourceCatalogEntry(id: "telegram", group: .feeds, title: "Telegram", origin: "telegram",
+        SourceCatalogEntry(id: "telegram", group: .feeds, title: Copy.Chats.telegramBotTitle, origin: "telegram",
                            channels: ["telegram"], tile: .telegram),
         // Ruling 47a: the person's own Telegram chats, read through their own account by the backend.
         SourceCatalogEntry(id: TelegramChats.channel, group: .accounts, title: Copy.Chats.telegramTitle,

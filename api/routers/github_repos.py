@@ -136,6 +136,8 @@ class ConnectStatus(CamelModel):
     grants_url: str = github_auth.GRANTS_URL
     pending: Optional[ConnectStart] = None
     words: Optional[str] = None
+    #: The first sync, started by the backend itself the moment a code sign-in completes, is running.
+    syncing: bool = False
 
 
 class ConnectPoll(CamelModel):
@@ -179,7 +181,39 @@ def _connect_status(words: str | None = None) -> ConnectStatus:
         install_url=github_auth.install_url() if how == github_auth.HOW_APP else None,
         reconnect=github_auth.needs_reconnect(),
         pending=ConnectStart(**github_auth.pending()) if github_auth.pending() else None,
-        words=words or (github_auth.RECONNECT_WORDS if github_auth.needs_reconnect() else None))
+        words=words or (github_auth.RECONNECT_WORDS if github_auth.needs_reconnect() else None),
+        syncing=first_sync_running())
+
+
+# --- the first sync after a sign-in ------------------------------------------------------------------------------
+#
+# 2026-11-04 (owner, live: connected by code, "I don't see … any of the repos", the connector's `lastSync` null). A
+# code sign-in stamped the credentials and checked the installation, and nothing read GitHub: the app's panel synced
+# only on "I installed it" or Refresh, and the scheduled job's first run is `tier2.SCHEDULE_HOURS` after the backend
+# starts — so a person who connected saw no stars (which need no install) and no repositories for hours. The sign-in
+# completing is the person's act, so the first sync starts here, at once, for every client (the app, the CLI): in the
+# background, so the poll answers within its interval, never gated (`allow_fetch=True`, the person's click), on the
+# bank active at that moment (the split-brain rule), one at a time. `tier2.run` never raises and yields to Sleep.
+
+_first_sync: Optional[asyncio.Task] = None
+
+
+def first_sync_running() -> bool:
+    return _first_sync is not None and not _first_sync.done()
+
+
+def start_first_sync(memory_path) -> bool:
+    """Start one sync of GitHub into ``memory_path`` in the background, unless one is already running."""
+    global _first_sync
+    if first_sync_running():
+        return False
+
+    async def run() -> None:
+        result = await github.sync(memory_path, allow_fetch=True)
+        logger.info(f"github: first sync after sign-in {result.get('status')}, {int(result.get('new') or 0)} new")
+
+    _first_sync = asyncio.create_task(run())
+    return True
 
 
 @router.get("/sources/github/connect", response_model=ConnectStatus)
@@ -211,6 +245,8 @@ async def connect_poll(settings: Settings = Depends(get_settings)):
     if answer["state"] == "connected":
         sync_state.record_credentials_changed(settings.memory_path, github.CHANNEL_ID)
         await _check_installation()
+        # Stars need no install, and an installed app sees the person's repositories: read them now.
+        start_first_sync(settings.memory_path)
     return ConnectPoll(state=answer["state"], interval=answer.get("interval"), words=answer.get("words"),
                        status=_connect_status())
 
