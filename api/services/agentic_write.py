@@ -36,7 +36,7 @@ from pathlib import Path
 from loguru import logger
 from thefuzz import fuzz
 
-from api.services import decay_policy, entity_body, episode_ids, git_service, markdown_parser, telemetry
+from api.services import decay_policy, entity_body, episode_ids, git_service, markdown_parser, phone_numbers, telemetry
 # Aliased on purpose: `write_claim` takes a keyword argument named `evidence`
 # (the MCP schema, the tests and the docs all use that name), and a bare
 # `from api.services import evidence` would be shadowed inside the function.
@@ -356,6 +356,10 @@ def write_claim(
     predicate_raw = (predicate or "").strip()
     object_raw = (object or "").strip()
     observer = (observer or "agent").strip() or "agent"
+    # Proposed ruling 55: an agent's write holds no digits either, whatever door it came through.
+    number = phone_numbers.claim_value(Path(memory_path).name, predicate_raw, object_raw)
+    if number is not None:
+        predicate_raw, object_raw, object_kind, text = phone_numbers.PREDICATE, number, "literal", None
     from api.config import get_settings
     from api.services import owner_identity
     # `get_settings()` (not `None`) so a `CICADA_OBSERVER_OWNER` power-user

@@ -74,6 +74,11 @@ ASK_NAME = "name"
 ASK_CARD = "card"
 
 
+_PHONE_LABEL = re.compile(r"(?i)\b(phone|cell|mobile|m[oó]vil|celular|tel[eé]fono|telephone|whatsapp|contact number|"
+                          r"number|n[uú]mero|num[eé]ro)\b")
+_ONLY_DIGITS = re.compile(r"^[+()\d][\d .\-()]{5,22}\d$")
+
+
 def enabled() -> bool:
     """OFF until the owner rules on proposed ruling 55; ``CICADA_PHONE_NUMBERS=on`` turns it on."""
     return os.environ.get("CICADA_PHONE_NUMBERS", "off").strip().lower() in ("on", "1", "true", "yes")
@@ -188,6 +193,17 @@ def mint_many(bank: str, raws: Iterable[str]) -> dict[str, str]:
     return out
 
 
+def claim_value(bank: str, label: str | None, stated: str | None) -> str | None:
+    """A phone-labelled value in digits as its token, when the feature is on; ``None`` for everything else."""
+    if not enabled() or not _PHONE_LABEL.search(str(label or "").replace("-", " ")):
+        return None
+    stated = (stated or "").strip()
+    if not _ONLY_DIGITS.match(stated):
+        return None
+    minted = mint_many(bank, [stated])
+    return token(minted[stated]) if stated in minted else None
+
+
 def known_id(bank: str, raw: str | None) -> str | None:
     """The token id ``raw`` would get, minting nothing: for comparing a number a page already holds in clear."""
     digits = match_digits(raw)
@@ -233,7 +249,7 @@ _YEAR_GROUP = re.compile(r"^(?:19|20)\d{2}$")
 def _plausible_bare(raw: str) -> bool:
     """A run with no ``+`` or bracket, after a word or keyword: never a date, a year list or a price's shape."""
     text = raw.strip()
-    if _DATEISH.match(text):
+    if _DATEISH.match(text) or re.fullmatch(r"\d{1,3}(?:\.\d{1,3}){3}", text):
         return False
     groups = re.split(r"[ .\-()]+", text)
     if len(groups) > 1 and all(_YEAR_GROUP.match(g) for g in groups if g):
@@ -241,9 +257,9 @@ def _plausible_bare(raw: str) -> bool:
     return True
 
 
-def _before(text: str, at: int) -> str:
-    match = re.search(r"([^\W\d_]+)\W*$", text[:at])
-    return match.group(1).lower() if match else ""
+def _before(text: str, at: int) -> set[str]:
+    """The two words before ``at``: "order number 123456789" is an order's whichever of them the rule read."""
+    return {w.lower() for w in re.findall(r"[^\W\d_]+", text[:at])[-2:]}
 
 
 def _spans(text: str) -> list[tuple[int, int, str]]:
@@ -262,10 +278,10 @@ def _spans(text: str) -> list[tuple[int, int, str]]:
         for m in rx.finditer(text):
             raw = m.group("num")
             start = m.start("num")
-            before = _before(text, start if rx is _NAMED_RE else m.start())
+            before = _before(text, start)
             digits = sum(c.isdigit() for c in raw)
             least = MIN_DIGITS if rx is _SAID_RE else MATCH_DIGITS
-            if least <= digits <= MAX_DIGITS and before not in _NOT_A_PHONE and _plausible_bare(raw):
+            if least <= digits <= MAX_DIGITS and not before & _NOT_A_PHONE and _plausible_bare(raw):
                 # A currency sign just before it, or a word glued after it, is not a phone.
                 if start and text[start - 1] in "$€£¥":
                     continue
@@ -300,13 +316,16 @@ def tokenise_batch(messages: list, stored: dict, *, writer: str, bank: str) -> i
         return 0
     count = 0
     for m in messages:
-        if not m.from_me or m.unsent or getattr(m, "forwarded_from", None) or not m.text:
+        if m.unsent or not m.text:
             continue
+        mine = m.from_me and not getattr(m, "forwarded_from", None)
         old = stored.get(m.key)
         if old is not None:
             cleaned = episode_scrub.scrub_for(m.text, writer)[0]
             if cleaned == old.text:
                 m.text = old.text
+                continue
+            if not mine:
                 continue
             if enabled():
                 tokened, _ = tokenise(m.text, bank)
@@ -318,7 +337,7 @@ def tokenise_batch(messages: list, stored: dict, *, writer: str, bank: str) -> i
                 if TOKEN_RE.sub(episode_scrub.REDACTED, old.text) == cleaned:
                     m.text = old.text
                     continue
-        if enabled():
+        if enabled() and mine:
             m.text, n = tokenise(m.text, bank)
             count += n
     return count
@@ -334,9 +353,6 @@ NOTE = (
     "number. Never guess whose it is: with no name in the user's words, leave it out. Never put the token in a summary, "
     "a key fact, a history entry, a link or an open question: a page's prose does not carry it.]\n\n")
 
-_PHONE_LABEL = re.compile(r"(?i)\b(phone|cell|mobile|m[oó]vil|celular|tel[eé]fono|telephone|whatsapp|contact number|"
-                          r"number|n[uú]mero|num[eé]ro)\b")
-_ONLY_DIGITS = re.compile(r"^[+()\d][\d .\-()]{5,22}\d$")
 
 
 def _person_span(content: str, tid: str, episode_id: str, *, override, gaps) -> dict | None:

@@ -34,6 +34,7 @@ from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
 from api.models.schemas import (
+    CamelModel,
     CalendarLocalSyncRequest,
     CalendarLocalSyncResponse,
     ContactsLocalSyncRequest,
@@ -86,6 +87,7 @@ from api.services import (
     write_admission,
 )
 from api.routers.capture import refuse_capture_into_demo
+from api.services.auth import request_device
 from api.services.sleep_refusal import SleepWriting
 
 router = APIRouter()
