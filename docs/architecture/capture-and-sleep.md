@@ -1261,18 +1261,20 @@ Cowork's settings), so its stdio server now does what the remote connector does.
   (plus `device` from a client machine); never the person's own words; the same writer, scrub, caps and demo refusal as the
   remote relay. `app: claude` is why a claude.ai export upgrades it in place.
 - **Both doors in one app.** A connector added on claude.ai also shows in the desktop app beside the local connection, and
-  both ask. The first to write a conversation's first turn wins: the other, within 10 minutes and on the exact match key
-  (under the episode lock), writes nothing and is told to stop (`elsewhere`, `turn_capture._kept_elsewhere`). A model that
-  goes on calling is told the same when the other door already holds that message as a turn. A message under the key's 24
-  characters cannot be matched, so it may be kept twice, and a model that calls the second door first on a later turn
-  starts a partial copy there. **Disclosed trade-off:** two separate chats, one on each door, opened within 10 minutes with
-  the same first message are read as one, and the second is not kept. Nothing tells them apart without a second tool
-  call on every turn. A malformed episode among those scanned says nothing and never stops a turn.
+  both ask. A conversation's first call on a door writes nothing and is told to stop (`elsewhere`,
+  `turn_capture._kept_elsewhere`, under the episode lock) when one of the other door's person turns, written in the last 10
+  minutes, is this message whole, by the episode's own offsets: a reply offering a prompt to paste, or a turn quoting it
+  inside a longer one, is another conversation. A message under the match key's 24 characters cannot be matched, so it may
+  be kept twice, and a model that calls the second door first on a later turn starts a partial copy there. **Disclosed
+  trade-off:** a person's message repeated exactly, as the first message of a new chat on the app's other connection, within
+  10 minutes of saying it there, is read as the same conversation, and the new chat is not kept. Nothing tells them apart
+  without a second tool call on every turn. A malformed episode among those scanned says nothing and never stops a turn.
 - **Where it runs.** The backend that holds the bank, through `/tools/call`. On the home: this computer's, so its index
   worker follows; with that backend down the stdio process writes the file, queues no index job, and Sleep's own sync
-  covers it. On a replica: its outbox, which answers "kept" with the handle, and with its own backend down the turn is
-  refused, never written into the copy. On a client machine: the server's, refused when it cannot be reached. Off the home,
-  the day follows the home's zone and when the turn lands, not when it was said (as a remote relay's zone does).
+  covers it. On a replica: its outbox, which answers "Queued for the home" with the handle, and with its own backend down the turn is
+  refused, never written into the copy. On a client machine: the server's, refused when it cannot be reached. Every call
+  carries when it was said and this machine's offset (rulings 34, 39), so a chat that waited days lands with its own day in
+  its id and `timestamp`, and `received_at` the landing.
 - **What the person sees, and the switches.** The tool's description says what it does in the app's own tool list, and the
   app asks before a tool's first use unless they allowed it always. The first reply of each conversation asks the model to
   say so once, in a few words; connecting the app says it in one line (`agent_wiring`); the remote connector's Record scope

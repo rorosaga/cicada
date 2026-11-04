@@ -659,24 +659,26 @@ def _fit(assemble, state: dict | None, max_tokens: int = MAX_TOKENS) -> str:
         return text
     slim["preferences"] = [{**p, "one_liner": ""} for p in slim.get("preferences", []) or []]
     text = assemble(slim)
-    if len(text) // 4 <= max_tokens:
-        return text
     # Review of #604 (2026-11-04): seven long titles with a repo each and reading on overflowed at 1,818 against the rail.
-    # What is left to give, least useful first; a project's own row last, and its first row never (R10).
+    # What is left to give answers to the rail itself, never a caller's lower aim: a SessionStart reserve is the whole
+    # note's to settle (`recall_text.compose_note`), and these rows are worth more to it than a pointer's room. Least
+    # useful first; a project's own row last, and its first row never (R10).
+    if len(text) // 4 <= MAX_TOKENS:
+        return text
     slim["projects"] = [{k: v for k, v in p.items() if k not in ("next", "backlog_open")}
                         for p in slim.get("projects", []) or []]
     text = assemble(slim)
-    if len(text) // 4 <= max_tokens:
+    if len(text) // 4 <= MAX_TOKENS:
         return text
     slim["projects"] = [{**p, "repos": []} for p in slim.get("projects", []) or []]
     text = assemble(slim)
-    if len(text) // 4 <= max_tokens:
+    if len(text) // 4 <= MAX_TOKENS:
         return text
     slim["preferences"] = []
     text = assemble(slim)
     projects = list(slim.get("projects") or [])
     total = len(projects)
-    while len(text) // 4 > max_tokens and len(projects) > 1:
+    while len(text) // 4 > MAX_TOKENS and len(projects) > 1:
         projects.pop()
         slim["projects"] = projects
         slim["projects_left_out"] = total - len(projects)
@@ -697,7 +699,8 @@ def build(state: dict | None, *, variant: str, bank: str, tz: str | None = None,
 
     ``max_tokens`` (G110): what ``_fit`` aims at — ``MAX_TOKENS`` less the
     SessionStart reserve when a continuity block will ride in the same note.
-    ``_fit`` holds the primer to it unless the fixed part alone is over (a fixed part it cannot trim stays); the hook's
+    ``_fit`` aims at it down to the working agreements' one-liners, and holds the primer to ``MAX_TOKENS`` past them
+    unless the fixed part alone is over (a fixed part it cannot trim stays); the hook's
     compositor measures the whole note (``recall_text.compose_note``).
 
     The state block is the only elastic part (the contract is verbatim by

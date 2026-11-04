@@ -115,7 +115,7 @@ def _project_word(value) -> str | None:
 
 def capture_turns(ctx: mcp_tools.ToolContext, message, previous_reply=None, *, app: str | None = None,
                   utc_offset_minutes: int | None = None, project=None, channel: str = CHANNEL,
-                  queue_index: bool = True) -> str:
+                  queue_index: bool = True, said_at: str | None = None) -> str:
     """``utc_offset_minutes`` (ruling 34): the person's offset when the app sent a zone hint (:func:`offset_from_meta`),
     so a new relayed episode's id carries their day; without one (claude.ai sends none, and a model's guess is never
     taken) the id takes this server's zone. ``project`` (ruling 45 addendum): the relaying app's own word on which
@@ -136,7 +136,7 @@ def capture_turns(ctx: mcp_tools.ToolContext, message, previous_reply=None, *, a
         bank_paths=None,  # a relayed conversation is no workspace session: the continuity registry stays out
         relay={"app": app, "connector": ctx.connector_id, "channel": channel, "project": _project_word(project),
                "device": ctx.device_id},
-        utc_offset_minutes=utc_offset_minutes)
+        utc_offset_minutes=utc_offset_minutes, said_at=said_at)
     if result.status == "refused":
         reason = result.reason or "refused"
         if reason == "demo_bank":
@@ -151,6 +151,23 @@ def capture_turns(ctx: mcp_tools.ToolContext, message, previous_reply=None, *, a
         awake_read.after_capture(memory_path, result.episode_id, status=result.status)
     return mcp_tools.Reply(_REPLIES.get(result.status, "Captured."), code=None,
                            data={"status": result.status, "episode_id": result.episode_id})
+
+
+def clean_said_at(value) -> str | None:
+    """The moment a call says its turn was said (rulings 34, 39), as aware UTC; ``None`` for anything else, and a time
+    ahead of this clock is read as now. Off the home a turn can wait days in an outbox: its ``timestamp`` and id's day
+    are when it was said, ``received_at`` when it landed."""
+    from datetime import datetime, timezone
+
+    if not isinstance(value, str) or len(value) > 40:
+        return None
+    try:
+        at = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if at.tzinfo is None:
+        return None
+    return None if at > datetime.now(timezone.utc) else at.astimezone(timezone.utc).isoformat()
 
 
 def begin(conversation) -> tuple[str | None, bool]:
@@ -180,7 +197,7 @@ def with_handle(reply, handle: str) -> mcp_tools.Reply:
 
 
 def capture_local(ctx: mcp_tools.ToolContext, message, previous_reply=None, conversation=None, project=None,
-                  *, queue_index: bool = True) -> str:
+                  *, queue_index: bool = True, said_at=None, utc_offset_minutes: int | None = None) -> str:
     """Ruling 57: one turn from the Claude desktop app's local connection, as ``claude-desktop``, never the process's
     own ``unknown`` session, so one process's chats stay one episode each and a chat outlives the process (G104)."""
     handle, started = begin(conversation)
@@ -188,5 +205,6 @@ def capture_local(ctx: mcp_tools.ToolContext, message, previous_reply=None, conv
         return bad_handle()
     relayed = dataclasses.replace(ctx, harness=LOCAL_HARNESS, session_id=handle)
     reply = capture_turns(relayed, message, previous_reply, app=LOCAL_APP, project=project, channel=LOCAL_CHANNEL,
-                          queue_index=queue_index)
+                          queue_index=queue_index, said_at=clean_said_at(said_at),
+                          utc_offset_minutes=utc_offset_minutes)
     return with_handle(reply, handle) if started else reply

@@ -7,7 +7,7 @@ from __future__ import annotations
 import json
 import re
 import time
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
@@ -21,7 +21,7 @@ from api.routers import conversations as conv
 from api.routers import intake
 from api.services import (
     cli_map, demo_guard, episode_actor, evidence, handshake, markdown_parser, mcp_tools, promotion, relay_capture,
-    state_dictionary, tool_door, turn_capture,
+    state_dictionary, tool_door, turn_capture, tx_outbox,
 )
 
 CC_ID = "11111111-2222-3333-4444-555555555555"
@@ -211,6 +211,27 @@ def test_fit_says_how_many_projects_it_left_out():
     assert re.search(r"and \d+ more projects", text)
 
 
+@pytest.mark.parametrize("harness", ["claude-code", "codex"])
+@pytest.mark.parametrize("n,agreements", [(7, 5), (3, 3)])
+def test_a_reserve_never_costs_a_harness_its_projects_or_agreements(harness, n, agreements):
+    """Claude Code and Codex are captured by their hooks and this PR leaves their notes as they were: with a previous
+    session's pointer riding along (the 300 reserve, `hook_recall`), `_fit`'s new steps do not run, whole note compared."""
+    from api.services import recall_text
+
+    state = {"projects": [{"id": f"project-{i}", "name": ("Project %d " % i).ljust(60, "x"), "one_liner": "A line. " * 8,
+                           "repos": [{"path": f"~/code/project-{i}", "branch": "main", "state": "ok"}]} for i in range(n)],
+             "preferences": [{"id": f"agreement-{i}", "name": f"Agreement {i}", "one_liner": "Say it plainly. " * 3}
+                             for i in range(agreements)]}
+    primer = handshake.build(state, variant=harness, bank="memory", reading=True, tz="Europe/Madrid",
+                             max_tokens=handshake.MAX_TOKENS - 300)
+    assert all(f"`project-{i}`" in primer for i in range(n)) and "How to work with me" in primer
+    assert "more projects" not in primer and "~/code/project-0@main" in primer
+    note, rendering, _ = recall_text.compose_note(
+        recall_text.PRIMER_HEADER, primer, block_for=lambda room: ("Previously: cicada_continue(session=x).", "pointer"),
+        reading=None, max_tokens=handshake.MAX_TOKENS)
+    assert rendering == "pointer" and primer in note and len(note) // 4 <= handshake.MAX_TOKENS
+
+
 # --- stored as relayed ------------------------------------------------------------------------------------------------
 
 def _turn(server, message, conversation, previous=None):
@@ -253,26 +274,26 @@ def test_a_replica_with_no_backend_never_writes_its_copy(server, memory, monkeyp
 def _queued_like_a_home_away(server, monkeypatch):
     """What `/tools/call` answers on a replica whose home is away (`routers/tools._to_home`), keeping each call as the
     outbox does. The app's model then has only what the reply told it."""
-    sent = []
+    sent, options_seen = [], []
 
     def call(name, args, options=None, *, local=False):
         sent.append(dict(args))
-        return {"text": "Kept on this computer: it is sent to the computer that holds your memory as soon as it is "
-                        "reachable.", "code": "queued_for_home", "data": {"queued": True, "id": f"tx{len(sent)}"},
+        options_seen.append(dict(options or {}))
+        return {"text": tx_outbox.QUEUED_TEXT, "code": "queued_for_home", "data": {"queued": True, "id": f"tx{len(sent)}"},
                 "error": None, "segments": None, "state": {}}
 
     monkeypatch.setattr(server.runtime_layout, "is_replica", lambda *a, **k: True)
     monkeypatch.setattr(server, "_remote_call", call)
-    return sent
+    return sent, options_seen
 
 
 def test_a_queued_chat_lands_as_one_episode_and_one_conversation(server, memory, monkeypatch):
-    sent = _queued_like_a_home_away(server, monkeypatch)
+    sent, options = _queued_like_a_home_away(server, monkeypatch)
     _connect(server, "claude-ai")
     first = _turn(server, FIRST, "new")
     assert "isError" not in first
     text = first["content"][0]["text"]
-    assert "Kept on this computer" in text and "Cicada memory" in text
+    assert text.startswith(tx_outbox.QUEUED_TEXT) and "Cicada memory" in text
     handle = re.search(r'conversation="(lc_[^"]+)"', text).group(1)
     second = _turn(server, SECOND, handle, REPLY)["content"][0]["text"]
     assert "Pass conversation" not in second
@@ -280,12 +301,44 @@ def test_a_queued_chat_lands_as_one_episode_and_one_conversation(server, memory,
     assert [a["conversation"] for a in sent] == [handle] * 3 and not _relayed(memory)
     assert cli_map.by_tool()["cicada_capture_turns"].replica_side == "home"     # what sends it to the outbox
 
-    for args in sent:       # the home takes the outbox in order
-        _door(memory, client="claude-ai", args=args)
+    assert all(o["said_at"] and isinstance(o["utc_offset_minutes"], int) for o in options)
+
+    for args, said in zip(sent, options):       # the home takes the outbox in order
+        _door(memory, client="claude-ai", args=args, options=said)
     [path] = _relayed(memory)
     stored = markdown_parser.parse(path)
     assert stored.frontmatter["session_id"] == handle and stored.body.count("user: ") == 3
     assert len(promotion.conversation_keys([path.stem], memory)) == 1
+
+
+def test_a_chat_queued_for_days_is_dated_when_it_was_said_and_received_when_it_landed(memory):
+    """Rulings 34, 39: the id's day and `timestamp` are the conversation's, `received_at` the landing."""
+    said = datetime.now(timezone.utc) - timedelta(days=3)
+    handle = f"lc_{said.date().isoformat()}_abcd1234"
+    _door(memory, client="claude-ai", args={"message": FIRST, "conversation": handle},
+          options={"said_at": said.isoformat(), "utc_offset_minutes": 0})
+    _door(memory, client="claude-ai", args={"message": SECOND, "previous_reply": REPLY, "conversation": handle},
+          options={"said_at": (said + timedelta(minutes=5)).isoformat(), "utc_offset_minutes": 0})
+    [path] = _relayed(memory)
+    fm = markdown_parser.parse(path).frontmatter
+    assert path.stem.startswith(f"ep_{said.date().isoformat()}_")
+    assert fm["timestamp"].startswith(said.date().isoformat())
+    assert fm["received_at"].startswith(datetime.now(timezone.utc).date().isoformat())
+    assert fm["last_turn_at"].startswith((said + timedelta(minutes=5)).date().isoformat())
+
+
+def test_the_real_outbox_entry_keeps_when_it_was_said():
+    entry = tx_outbox.tool_entry("cicada_capture_turns", {"message": FIRST}, bank_id=None, base_seq=1, caller={},
+                                 surface="mcp", options={"said_at": "2026-11-01T10:00:00+00:00"})
+    assert entry["options"]["said_at"] == "2026-11-01T10:00:00+00:00"
+
+
+@pytest.mark.parametrize("bad", [None, 12, "not a time", "2026-11-01T10:00:00", "2999-01-01T00:00:00+00:00", "x" * 60])
+def test_a_said_at_that_makes_no_sense_is_now(memory, bad):
+    assert relay_capture.clean_said_at(bad) is None
+    relay_capture.capture_local(_ctx(memory), FIRST, conversation="new", queue_index=False, said_at=bad)
+    [path] = _relayed(memory)
+    assert path.stem.startswith(f"ep_{date.today().isoformat()}_")
 
 
 def test_a_replica_says_the_handle_even_when_its_own_backend_refused_the_first_call(server, memory, monkeypatch):
@@ -367,6 +420,52 @@ def test_one_malformed_episode_never_stops_a_new_relayed_chat_on_the_remote_door
     runtime = RemoteRuntime(post=lambda p, d: {"status": "resolved"}, sleep_running=lambda: False)
     text, status = runtime.call(_connector(), "cicada_capture_turns", {"message": FIRST})
     assert status == "ok" and str(text).startswith("Captured.")
+
+
+# --- only a person's whole turn is the other door's ------------------------------------------------------------------
+
+PROMPT = "Plan the alpha-project launch checklist and list every owner by name, please."
+
+
+def _remote(memory):
+    return RemoteRuntime(post=lambda p, d: {"status": "resolved"}, sleep_running=lambda: False), _connector()
+
+
+def test_a_prompt_the_other_doors_assistant_offered_is_a_new_chat(memory):
+    runtime, connector = _remote(memory)
+    runtime.call(connector, "cicada_capture_turns", {"message": FIRST})
+    runtime.call(connector, "cicada_capture_turns",
+                 {"message": SECOND, "previous_reply": f"Start a fresh chat and paste this: {PROMPT}"})
+    assert relay_capture.capture_local(_ctx(memory), PROMPT, conversation="new", queue_index=False).data["status"] == "created"
+
+
+def test_the_prompt_inside_a_longer_person_turn_is_a_new_chat(memory):
+    runtime, connector = _remote(memory)
+    runtime.call(connector, "cicada_capture_turns", {"message": f"Before anything else, {PROMPT} And then stop."})
+    assert relay_capture.capture_local(_ctx(memory), PROMPT, conversation="new", queue_index=False).data["status"] == "created"
+
+
+def test_and_the_reverse_direction_on_the_remote_door(memory):
+    relay_capture.capture_local(_ctx(memory), FIRST, conversation="new", queue_index=False)
+    [path] = _relayed(memory)
+    handle = markdown_parser.parse(path).frontmatter["session_id"]
+    relay_capture.capture_local(_ctx(memory), SECOND, f"Start a fresh chat and paste this: {PROMPT}", handle,
+                                queue_index=False)
+    relay_capture.capture_local(_ctx(memory), f"Before anything else, {PROMPT} And then stop.", "A reply.", handle,
+                                queue_index=False)
+    runtime, connector = _remote(memory)
+    text, status = runtime.call(connector, "cicada_capture_turns", {"message": PROMPT})
+    assert status == "ok" and str(text).startswith("Captured.") and len(_relayed(memory)) == 2
+
+
+def test_a_long_message_held_as_a_later_turn_is_still_the_same_turn(memory):
+    """A later turn keeps a 2k head, a first 16k: the whole message either way, so a model that went on calling is told."""
+    long_message = " ".join(f"Word{i}" for i in range(1200))
+    runtime, connector = _remote(memory)
+    runtime.call(connector, "cicada_capture_turns", {"message": FIRST})
+    runtime.call(connector, "cicada_capture_turns", {"message": long_message, "previous_reply": REPLY})
+    reply = relay_capture.capture_local(_ctx(memory), long_message, conversation="new", queue_index=False)
+    assert reply.data["status"] == "elsewhere"
 
 
 # --- a model that goes on calling ---------------------------------------------------------------------------------------
@@ -466,14 +565,14 @@ def test_an_old_identical_first_message_is_a_new_chat(memory, monkeypatch):
 
 # --- the door ---------------------------------------------------------------------------------------------------------
 
-def _door(memory, *, client, harness="unknown", args=None):
+def _door(memory, *, client, harness="unknown", args=None, options=None):
     state = tool_door.SessionState(skipped_inbox_ids=set(), state_hint_sent=False, listed_revisions={})
     ctx = tool_door.context(memory_path=memory, bank_name=None,
                             caller=tool_door.Caller(session_id="ses_2026-11-04_abcd1234", harness=harness,
                                                     project_dir=None, client_name=client, client_version="1"),
                             state=state, surface="mcp", device_id="dev12345", backend_url="", headers=dict)
     return tool_door.run("cicada_capture_turns", args or {"message": FIRST, "conversation": "new"}, ctx=ctx,
-                         state=state, surface="mcp", options={}, root=memory.parent, bank_name=None)
+                         state=state, surface="mcp", options=options or {}, root=memory.parent, bank_name=None)
 
 
 def test_a_client_machines_desktop_app_relays_through_the_door_and_says_which_device(memory):

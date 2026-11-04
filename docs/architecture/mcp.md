@@ -1999,7 +1999,8 @@ which sends no `options.relay`, never ask for a tool they do not hold (R12). A r
 `desktop` prelude without the line. The line is 86 tokens by R10's chars/4, in the fixed part `_fit` trims around: the desktop
 primer's fixed part goes from 1,233 to 1,319 (1,486 with reading on), under the 1,800. `_fit` holds the whole under it unless a
 fixed part alone is over: past the one-liners it gives up a project's next and backlog count, its repos, the working agreements, and
-last the projects from the list's end, counted in one line, the first never (R10). What it stores and how a person turns it
+last the projects from the list's end, counted in one line, the first never (R10). Those last steps answer only to the 1,800, never to
+a SessionStart reserve: `compose_note` settles that note whole, so a pointer riding along never costs a project or an agreement. What it stores and how a person turns it
 off: `capture-and-sleep.md`, "The Claude desktop app, on its local connection".
 
 ## The remote connector's sign-in and capture (ruling 32, owner 2026-10-19)

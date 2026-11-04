@@ -1657,7 +1657,7 @@ def _remote_call(name: str, arguments: dict, options: dict | None = None, *, loc
     return answer
 
 
-def _client_tool(name: str, arguments: dict, *, local: bool = False) -> str:
+def _client_tool(name: str, arguments: dict, *, local: bool = False, options: dict | None = None) -> str:
     """G181 phase 2: this machine is a client — the bank is on the server, so the call is run there. Files the agent
     named are read here first; the repo context's git probe stays here. ``local`` (G132 phase 1 B, a replica): the
     call goes to this computer's own backend, which sends it on to the home through its outbox."""
@@ -1668,7 +1668,8 @@ def _client_tool(name: str, arguments: dict, *, local: bool = False) -> str:
     args = tool_client.inline_files(name, arguments)
     if isinstance(args, str):
         return args
-    options = {"cwd": SESSION.project_dir or os.getcwd()} if name == "cicada_continue" else None
+    if name == "cicada_continue":
+        options = {"cwd": SESSION.project_dir or os.getcwd()}
     answer = _remote_call(name, args, options, local=local)
     data = answer.get("data") if isinstance(answer.get("data"), dict) else None
     text = str(answer.get("text") or "")
@@ -1686,14 +1687,20 @@ def _relay_turn(arguments: dict) -> str:
     a chat stays one episode. The backend that holds the bank writes it (this computer's, so its index worker follows;
     on a replica its outbox; on a client machine the server's). A home with its backend down writes the file here, and
     Sleep's own sync covers it: a re-sent turn changes nothing, so a request answered late is safe to write again."""
+    from datetime import datetime
+
     from api.services import home_move, relay_capture, tool_client
 
     handle, started = relay_capture.begin(arguments.get("conversation"))
     if handle is None:
         return relay_capture.bad_handle()
     client = runtime_layout.is_client()
+    # Rulings 34, 39: it was said now, whenever it lands, on this machine's day.
+    said = datetime.now().astimezone()
+    options = {"said_at": said.isoformat(), "utc_offset_minutes": int(said.utcoffset().total_seconds() // 60)}
     try:
-        reply = _client_tool("cicada_capture_turns", {**arguments, "conversation": handle}, local=not client)
+        reply = _client_tool("cicada_capture_turns", {**arguments, "conversation": handle}, local=not client,
+                             options=options)
     except tool_client.ToolClientError as exc:
         if client or runtime_layout.is_replica():      # never a local copy; the words stay the app's to send again
             reply = mcp_tools.Reply(f"Error: {exc}", code="error")
@@ -1701,7 +1708,7 @@ def _relay_turn(arguments: dict) -> str:
             reply = mcp_tools.Reply(home_move.closed_text(), code="refused")
         else:
             reply = relay_capture.capture_local(_ctx(), arguments.get("message"), arguments.get("previous_reply"), handle,
-                                                arguments.get("project"), queue_index=False)
+                                                arguments.get("project"), queue_index=False, **options)
     return relay_capture.with_handle(reply, handle) if started else reply
 
 

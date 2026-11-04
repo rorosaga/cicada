@@ -3105,8 +3105,9 @@ A whole row moves to DONE only after its remaining implementation and required a
     `CICADA_CAPTURE=off`; anything else is not offered and not asked, so a hook-captured turn is never captured twice (Claude Code
     calling itself `claude-ai` is refused by the session id it injects). Stored as relayed, never the person's own words;
     one episode per conversation by a handle the tool mints where the call arrives; an app's two connections keep one copy.
-    **Disclosed trade-off (2026-11-04):** two separate chats, one on each connection, opened within 10 minutes with the same
-    first message are read as one, and the second is not kept. The person is told in
+    **Disclosed trade-off (2026-11-04):** a person's message repeated exactly, as the first message of a new chat on the app's
+    other connection, within 10 minutes of saying it there, is read as the same conversation, and the new chat is not kept.
+    The person is told in
     words: the tool's description, the app's own first-use ask, one line when it connects, one sentence in the conversation.
     No new setting. **Disclosed limit:** a harness with a hook that calls itself `claude-ai` and injects no session would keep
     a second, relayed copy. **Revisit** if a client is seen doing that, or if the desktop app gains a hook or a readable store.

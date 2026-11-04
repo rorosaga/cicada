@@ -244,49 +244,47 @@ def _entries(conv: Conversation, ids: list[str | None]) -> list[dict]:
 
 #: Ruling 57: how recently the app's other door must have written for this to be that door's same conversation.
 ELSEWHERE_WINDOW_S = 600
-#: How much of a message is compared against the other door's text: a later turn is kept to a 2k head, a first to 16k.
-ELSEWHERE_HEAD = 400
 
 
-def _recent(stamp, now) -> bool:
+def _elsewhere_in(path: Path, relay: dict, said: set[str], now) -> str | None:
     from datetime import datetime, timezone
 
-    at = datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
-    return abs((now - at.astimezone(timezone.utc)).total_seconds()) <= ELSEWHERE_WINDOW_S
-
-
-def _elsewhere_in(path: Path, relay: dict, key: str, head: str, now) -> str | None:
     stored = markdown_parser.parse(path)
     fm = stored.frontmatter
     other = fm.get(RELAY_KEY)
     if not isinstance(other, dict) or other.get("app") != relay.get("app") or other.get("channel") == relay.get("channel"):
         return None
-    if (other.get("first") == key and _recent(fm.get("timestamp"), now)) \
-            or (head in stored.body and _recent(fm.get("last_turn_at"), now)):
-        return str(fm.get("id") or path.stem)
-    return None
+    at = datetime.fromisoformat(str(fm.get("last_turn_at")).replace("Z", "+00:00"))
+    if abs((now - at.astimezone(timezone.utc)).total_seconds()) > ELSEWHERE_WINDOW_S:
+        return None
+    state = _load(stored)       # the kept turns, by the episode's own offsets
+    if state is None or not any(t.role == "user" and t.text in said for t in state[0]):
+        return None
+    return str(fm.get("id") or path.stem)
 
 
 def _kept_elsewhere(episodes_dir: Path, relay: dict, first: str | None) -> str | None:
     """A connector added on claude.ai also shows in the desktop app beside its local connection, and both ask the model
-    to relay. The id of the episode the app's other door holds for this conversation, so it stays one episode: that door
-    just started it with this same first message (a model calling both), or holds this message as a later turn (a model
-    that went on calling after it was told to stop). ``None`` for a message too short to match on (the match key's 24
-    characters). Runs under the episode lock, so two doors called together cannot both start one. Reads other episodes
-    of the day: whatever is wrong with one of them (a hand edit's YAML, a body that is not a mapping, a bad stamp) is no
-    reason to lose this turn, so any failure there means that file says nothing."""
+    to relay. The id of the episode the app's other door holds for this conversation, so it stays one episode: one of
+    that door's person turns, written in the last minutes, is this message whole (a model calling both, or one that went
+    on calling after it was told to stop). Only the person's whole turn counts: a reply that offers a prompt to paste, or
+    a turn that quotes this message inside a longer one, is another conversation. ``None`` for a message too short to tell
+    apart (the match key's 24 characters). Runs under the episode lock, so two doors called together cannot both start
+    one. Reads other episodes of the day: whatever is wrong with one of them (a hand edit's YAML, a body that is not a
+    mapping, a bad stamp) is no reason to lose this turn, so any failure there means that file says nothing."""
     from datetime import datetime, timedelta, timezone
 
-    key = relay_match_key(first)
-    if key is None:
+    if relay_match_key(first) is None:
         return None
-    head = first[:ELSEWHERE_HEAD]
+    # A later turn keeps a 2k head where a first keeps 16k: the same words, however the other door held them.
+    later, _ = clean_turn("user", first, first=False)
+    said = {first} | ({later.text} if later is not None else set())
     now = datetime.now(timezone.utc)
     for offset in (0, -1, 1):       # an episode id carries the conversation's local day
         day = (now + timedelta(days=offset)).date().isoformat()
         for path in episodes_dir.glob(f"ep_{day}*.md"):
             try:
-                found = _elsewhere_in(path, relay, key, head, now)
+                found = _elsewhere_in(path, relay, said, now)
             except Exception:  # noqa: BLE001 - see the docstring; transcript_capture's own scan does the same
                 continue
             if found is not None:
@@ -312,6 +310,7 @@ def capture_turns(
     utc_offset_minutes: int | None = None,
     host: str | None = None,
     device: str | None = None,
+    said_at: str | None = None,
 ) -> tc.CaptureResult:
     """Merge the posted turns into the session's one episode and write it.
 
@@ -321,6 +320,7 @@ def capture_turns(
     (``elsewhere``, :func:`_kept_elsewhere`).
     ``utc_offset_minutes`` (ruling 34): a client's UTC offset, so a new episode's id carries the person's day.
     ``host`` (G228): the app that launched the harness, a label on the episode (``transcript_capture.host_extra``).
+    ``said_at`` (rulings 34, 39): when these turns were said, for a turn that waited in an outbox; else now.
 
     ``status`` is ``transcript_capture``'s vocabulary: ``refused`` (a demo bank,
     a bad harness, session or turn id, or ``state_mismatch``; nothing written),
@@ -357,7 +357,7 @@ def capture_turns(
         else:
             kept, ids, gap, clipped = [], [], None, False
         counts = {"scrubbed": 0, "truncated_turns": 0, "first_request_clipped": clipped}
-        now = episode_ids.utc_now_iso()
+        now = said_at or episode_ids.utc_now_iso()
         # G228: T3 Code's envelopes are unwrapped only under its host — the hook's word, else the episode's own.
         strip_host = None if relay is not None else (
             agent_catalog.clean_host(host)
