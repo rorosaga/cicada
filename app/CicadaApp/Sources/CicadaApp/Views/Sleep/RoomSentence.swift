@@ -320,7 +320,7 @@ private func sentenceTail(_ ctx: RoomContext) -> SentenceTail? {
         // G237: a key's limit is the key's, never the person's plan.
         let keyLimit = drain.stop?.limit == "key_limit"
         let text = vendor.flatMap { !$0.isEmpty && $0.count <= SentenceLine.maxTail ? $0 : nil }
-            ?? (keyLimit ? "Stopped at your API key's limit — details in Past reads."
+            ?? (keyLimit ? Copy.SleepV5.keyLimitTail
                 : vendor == nil ? "Stopped at your plan's limit — the rest wait."
                               : "Stopped at your plan's limit — the reset time is in Past reads.")
         return SentenceTail(text: text, tone: .warning, action: .openDetails(.lastCycle))
@@ -421,6 +421,14 @@ private func pausedTail(_ paused: SleepPausedRun, _ ctx: RoomContext) -> Sentenc
                             action: .openDetails(.lastCycle))
     case "plan_weekly":
         return SentenceTail(text: ctx.resetWhen.map(Copy.SleepV5.resetsThenContinue) ?? Copy.SleepV5.continueWhenItResets,
+                            action: .openDetails(.lastCycle))
+    case "key_limit":
+        // What the limit was and what to do about it: the backend's own sentence ("add credit"), whole or from Details.
+        let said = paused.sentence.flatMap { $0.count <= SentenceLine.maxTail ? sentenceClause($0) : nil }
+        return SentenceTail(text: said ?? Copy.SleepV5.keyLimitTail, tone: .warning, action: .openDetails(.lastCycle))
+    case "spend":
+        // The person's own line doing its job: said plainly (every such sentence fits, `sleep_spend`).
+        return SentenceTail(text: sentenceClause(paused.sentence) ?? Copy.SleepV5.continueWhenYouLike(filed: filed, frozen: frozen, locale),
                             action: .openDetails(.lastCycle))
     case "engine" where paused.engineKind == "offline":
         // A dropping connection with a network present is tried again; no network (or asleep) waits to be online.

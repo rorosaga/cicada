@@ -52,7 +52,7 @@ extension LastCycleRow {
             case "engine":
                 text = drain?.stop?.sentence ?? paused.sentence
                     ?? Copy.SleepV5.pausedText(filed: paused.filed, frozen: paused.frozen, locale)
-            case "plan_window", "plan_weekly", "overage":
+            case "plan_window", "plan_weekly", "overage", "key_limit", "spend":
                 text = paused.sentence ?? Copy.SleepV5.pausedText(filed: paused.filed, frozen: paused.frozen, locale)
             default:
                 text = Copy.SleepV5.pausedText(filed: paused.filed, frozen: paused.frozen, locale)

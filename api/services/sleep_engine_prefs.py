@@ -34,6 +34,7 @@ from api.models.schemas import (
     SleepEngineProvider,
     SleepEngineResponse,
     SleepReserveStatus,
+    SleepSpendStatus,
     SleepReserveWindow,
 )
 from api.services import (agent_engine, anthropic_models, cli_engines, codex_app_server, codex_engine, cycle_usage,
@@ -450,6 +451,14 @@ def _reserve_status(settings: Settings, reg, manual_engine: str) -> SleepReserve
                               applies=applies, windows=windows)
 
 
+def _spend_status(reg, manual_billing: str | None) -> SleepSpendStatus:
+    """The spending limit (ROR-102): what is set, and whether a run you start would be charged per use."""
+    from api.services import sleep_run_prefs, sleep_spend
+
+    return SleepSpendStatus(limit_usd=sleep_run_prefs.load(reg).spend_limit_usd, choices=list(sleep_spend.CHOICES),
+                            applies=manual_billing == "charged")
+
+
 async def build_response(settings: Settings, reg) -> SleepEngineResponse:
     """Assembles the full GET/PUT /sleep/engine body. Called by both routes:
     PUT writes the pref first, then re-reads through this same function so
@@ -497,6 +506,7 @@ async def build_response(settings: Settings, reg) -> SleepEngineResponse:
         source=source, candidates=candidates, preview=preview, allow_overage=allow_overage,
         selected=selected_card(mode, model), provider=provider, providers=providers,
         reserve=_reserve_status(settings, reg, preview.manual.engine),
+        spend=_spend_status(reg, preview.manual.billing),
         run_keeps_engine=run_keeps_engine(settings, preview),
         auto_local_kept_on=_auto_local_kept_on(reg),
     )

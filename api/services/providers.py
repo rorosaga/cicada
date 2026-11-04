@@ -488,6 +488,10 @@ def resolve_llm_fn(
                     usage["cache_read_tokens"], usage["cache_write_tokens"])
                 if equiv is None:
                     equiv = cost
+                if resp is not None and billing == "usage":   # ROR-102: a failure with no response was never charged
+                    from api.services import sleep_drain
+
+                    sleep_drain.note_spend(agent_engine_cycle_id(), cost if cost is not None else equiv)
             sink(telemetry.UsageEvent(
                 kind="llm_call", stage=stage or "unknown", connection=connection,
                 engine=engine_label, model=event_model, bank=bank_label, billing=billing,

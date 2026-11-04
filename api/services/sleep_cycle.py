@@ -11,7 +11,7 @@ from loguru import logger
 
 from api.config import Settings
 from api.services import authorship, bank_index, episode_ids, episode_revision, evidence, git_service, machine_state, markdown_parser
-from api.services import sleep_drain, sleep_reserve
+from api.services import sleep_drain, sleep_reserve, sleep_spend
 
 
 @dataclass
@@ -2303,6 +2303,8 @@ async def _drain(
                 pass
     else:
         ds.reserve_pct = None
+    if engine_lbl == "litellm":   # ROR-102: a key's run stops at the person's figure
+        ds.spend = sleep_spend.guard_for(resolved[0], opts.spend_limit_usd)
     _write_run_record(ds, memory_path, phase="running", engine_label=engine_lbl)
     _record_leg(ds, memory_path, "running")
     try:
@@ -2379,9 +2381,9 @@ async def _drain(
         if _state.cancel_requested:
             stop = sleep_drain.DrainStop("cancelled")
             break
-        if ds.guard is not None and ds.guard.is_reached():
-            resets, kind = ds.guard.stop_values()
-            stop = sleep_drain.DrainStop("reserve", sleep_reserve.SENTENCE, resets, kind)
+        line = ds.guard or ds.spend
+        if line is not None and line.is_reached():
+            stop = _line_stop(line)
             break
 
         ds.batch += 1
@@ -2707,6 +2709,12 @@ async def _wait_for_network(ds: "sleep_drain.DrainState", cause: str,
         ds.waiting = None
 
 
+def _line_stop(line) -> "sleep_drain.DrainStop":
+    """The soft stop for a line the person set: the reserve on a plan, the spending limit on a key."""
+    resets, kind = line.stop_values()
+    return sleep_drain.DrainStop("reserve", line.sentence, resets, kind)
+
+
 def _batch_hooks(live: "sleep_drain.BatchLive", guard, ds: "sleep_drain.DrainState") -> dict:
     """Stage 1's per-conversation hooks for a drain's batch: what started, what was
     read, what failed and whether that was the conversation's or the engine's, what
@@ -2800,7 +2808,7 @@ async def _run_stages(
     label = batch.label if batch is not None else ""
     ds = batch.ds if batch is not None else None
     live = ds.live if ds is not None else None
-    guard = getattr(ds, "guard", None) if ds is not None else None
+    guard = (getattr(ds, "guard", None) or getattr(ds, "spend", None)) if ds is not None else None
     decay_only = bool(batch is not None and batch.decay_only)
     # Only ever a kwarg when False: tests stub these seams with fixed signatures.
     decay_kw = {} if (batch is None or batch.decay) else {"decay": False}
@@ -3002,8 +3010,7 @@ async def _run_stages(
     if guard is not None and guard.is_reached() and not decay_only:
         # Still past the line before a single paid read (a Continue into a window that is
         # still full, or the ChatGPT snapshot the pre-flight just took): pause at once.
-        resets, kind = guard.stop_values()
-        return _StageOutcome(stop=sleep_drain.DrainStop("reserve", sleep_reserve.SENTENCE, resets, kind))
+        return _StageOutcome(stop=_line_stop(guard))
 
     if decay_only:
         extracted = []
@@ -3073,8 +3080,7 @@ async def _run_stages(
             unread_content[i] = live.failed.get(i, "other")   # no hook fired (a stub): unknown, content-class
         pause_class, pause_sentence = live.pause_class, live.pause_sentence
     if guard is not None and guard.is_reached() and not decay_only:
-        resets, kind = guard.stop_values()
-        reserve_stop = sleep_drain.DrainStop("reserve", sleep_reserve.SENTENCE, resets, kind)
+        reserve_stop = _line_stop(guard)
 
     # An unnamed rejection can be the input's fault only with evidence that
     # the engine works. A sole retry may use this run's already-filed work:

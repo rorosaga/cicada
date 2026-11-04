@@ -48,7 +48,8 @@ class DrainStop:
     """Why a drain stopped. ``sentence`` is a plain sentence for the person (the
     vendor's own, for a plan limit); ``resets_at`` the vendor's unix reset time
     when one was measured — never estimated. ``limit`` says which limit
-    (``five_hour | seven_day | overage | unknown``) for a plan stop."""
+    (``five_hour | seven_day | overage | key_limit | unknown``) for a plan stop, ``spend`` for the person's own
+    spending limit (reason ``reserve``, the same soft stop)."""
     reason: str
     sentence: str = ""
     resets_at: int | None = None
@@ -157,6 +158,7 @@ class DrainState:
     engine_model: str | None = None
     engine_shown: str | None = None                       # its model as the Sleep page shows one (`engine_select.shown_model`)
     guard: object | None = None                           # sleep_reserve.ReserveGuard, when a line is set
+    spend: object | None = None                           # sleep_spend.SpendGuard, on a key with a limit
     ended_mono: float | None = None
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
 
@@ -209,6 +211,15 @@ def note_call(cycle_id: str | None) -> None:
     ds = drain_for(cycle_id)
     if ds is not None:
         ds.note_call()
+
+
+def note_spend(cycle_id: str | None, cost_usd: float | None) -> None:
+    """What one metered call cost, ``None`` when it has no known price (``sleep_spend``). Thread-safe; a discarded
+    batch's spend still counts: it was charged."""
+    ds = drain_for(cycle_id)
+    guard = getattr(ds, "spend", None) if ds is not None else None
+    if guard is not None:
+        guard.observe(cost_usd)
 
 
 def batches_for(n: int, size: int) -> int:

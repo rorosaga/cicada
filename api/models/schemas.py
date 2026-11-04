@@ -4028,6 +4028,7 @@ class SleepEngineResponse(CamelModel):
     # the engine a run you start would use, and which windows are enforced (from the last
     # run's observations; ``null`` = nothing could tell yet).
     reserve: Optional["SleepReserveStatus"] = None
+    spend: Optional["SleepSpendStatus"] = None
     # A run of this bank is reading on the engine it resolved at its start or Continue, and that is not
     # what the choice above resolves to now: the change applies from the next start or Continue.
     run_keeps_engine: bool = False
@@ -4043,6 +4044,13 @@ class SleepReserveStatus(CamelModel):
     windows: list[SleepReserveWindow] = Field(default_factory=list)
 
 
+class SleepSpendStatus(CamelModel):
+    """The spending limit (ROR-102): the figure, its choices, whether a run you start would be charged per use."""
+    limit_usd: Optional[float] = None
+    choices: list[int] = Field(default_factory=list)
+    applies: bool = False
+
+
 class SleepRunOptions(CamelModel):
     """Reading options: how often progress is saved, whether a run you start may continue
     itself after its plan window resets (TODO ruling 15; off), and the reserve line
@@ -4055,14 +4063,18 @@ class SleepRunOptions(CamelModel):
     # TODO ruling 4b (owner, 2026-10-16; amended 2026-10-19): this machine lets SCHEDULED runs use the person's plan
     # (Claude or ChatGPT). On by default — only the person's explicit off stops it; nightly runs count against the plan.
     scheduled_use_plan: bool = True
+    # ROR-102: a run on a key stops at this many dollars (`sleep_spend`); null is the person's off.
+    spend_limit_usd: Optional[float] = None
+    spend_limit_choices: list[int] = Field(default_factory=list)
 
 
 class SleepRunOptionsUpdate(CamelModel):
-    """A PUT body; omitted fields are left alone (``reservePct: null`` clears it)."""
+    """A PUT body; omitted fields are left alone (``reservePct: null`` clears it, ``spendLimitUsd: null`` is off)."""
     batch_size: Optional[int] = None
     continue_after_reset: Optional[bool] = None
     reserve_pct: Optional[int] = None
     scheduled_use_plan: Optional[bool] = None
+    spend_limit_usd: Optional[float] = None
 
 
 class SleepTriggerBody(BaseModel):
