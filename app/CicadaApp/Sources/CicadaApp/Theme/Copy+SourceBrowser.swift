@@ -60,5 +60,6 @@ extension Copy {
         // Not installed (owner 2026-11-04: "I deleted Whisperflow today, and the app should have detected that")
         static func notInstalled(_ app: String) -> String { "\(app) isn't on this Mac" }
         static let notInstalledWord = "not installed"
+        static let notInstalledRow = "Not installed"
     }
 }

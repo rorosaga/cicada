@@ -61,7 +61,7 @@ final class ThisMacSourcesTests: XCTestCase {
                                       notInstalled: [SourceCatalog.wisprChannel])
         let wispr = row(SourceCatalog.wisprChannel, in: rows)
         XCTAssertEqual(wispr?.status, .off)
-        XCTAssertEqual(wispr.flatMap { SourceCatalog.line($0, now: .now) }, "Wispr Flow isn't on this Mac")
+        XCTAssertEqual(wispr.flatMap { SourceCatalog.line($0, now: .now) }, "Not installed")
         let page = SourcePageStatus.of(row: .off, run: .idle, latest: "2026-11-03", notInstalled: true)
         XCTAssertEqual(page.line(today: ISODay(year: 2026, month: 11, day: 4)), "Off · not installed")
         XCTAssertEqual(page.tone, .off)

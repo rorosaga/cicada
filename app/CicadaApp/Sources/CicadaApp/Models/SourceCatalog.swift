@@ -362,7 +362,7 @@ enum SourceCatalog {
     /// The second line, only when it says something: when it last synced ("2 h ago"), else nothing (the status word
     /// on the right says the rest — never a sentence, design-refs pattern 4).
     static func line(_ row: SourceCatalogRow, now: Date, locale: Locale = .autoupdatingCurrent) -> String? {
-        if row.notInstalled { return Copy.SourceBrowser.notInstalled(row.entry.title) }
+        if row.notInstalled { return Copy.SourceBrowser.notInstalledRow }
         guard row.status == .connected || row.status == .needsSignIn, let last = row.lastSync else { return nil }
         return ago(last, now: now, locale: locale)
     }
