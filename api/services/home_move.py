@@ -251,7 +251,8 @@ def ensure_own_identity() -> str | None:
 
 
 def own_door() -> dict | None:
-    """Where this computer's home-network door answers (ruling 51f): ``{port, key, lan, tailnet}``, or ``{}`` when no
+    """Where this computer's home-network door answers (ruling 51f): ``{port, key, lan, tailnet, t}`` (``t``: its
+    carriers, ``udp`` and the TCP fallback's ``tcp`` when held), or ``{}`` when no
     door is open here (an empty one clears what the registry held). Never logged."""
     import sys as _sys
 
@@ -262,7 +263,7 @@ def own_door() -> dict | None:
         got = mod.own_routes()
     except Exception:  # noqa: BLE001
         return {}
-    return {k: got[k] for k in ("port", "key", "lan", "tailnet")} if got else {}
+    return {k: got[k] for k in ("port", "key", "lan", "tailnet", "t") if k in got} if got else {}
 
 
 def own_address() -> str | None:

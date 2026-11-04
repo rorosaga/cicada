@@ -704,15 +704,18 @@ def _watch_door() -> str:
         except ValueError:
             base = None
         routes, target = sync_routes.home_routes(base, relay=False)
-        doors = [r for r in routes if r.carrier == "door"]
+        doors = [r for r in routes if r.is_door]
         if target is None or not doors:
             return "none"
         active = next((r for r in doors if r.key == sync_routes.BOOK.active), None)
         identity = sync_door.own_identity()
         if active is None or identity is None:
             return "possible"
+        # The other door addresses of the same carrier: a UDP watch moves to one in the same session when its path
+        # goes quiet (another network), with no second handshake.
+        paths = [(r.host, r.port) for r in doors if r.carrier == active.carrier and r.key != active.key]
         conn = sync_door.connect(active.host, active.port, target, identity, timeout=active.connect_s,
-                                 on_routes=sync_routes.learn)
+                                 on_routes=sync_routes.learn, carrier=active.carrier, paths=paths)
     except Exception:  # noqa: BLE001 — the door did not answer: the follower's next request moves on
         return "possible"
 

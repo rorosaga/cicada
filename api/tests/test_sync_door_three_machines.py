@@ -2,8 +2,9 @@
 
 ALPHA holds the memory and publishes it; BRAVO and CHARLIE keep copies, paired through the configured address (a
 ``Wire`` the test can cut, standing in for the person's tailnet address). Each door stays on loopback and is reached
-only through forwarders the test owns — ``door_a`` (the home network) and ``door_b`` (another network, where the home
-answers at another address) — handed to a copy the way the app's Bonjour does (``POST /sync/discovered``). Shown, with
+only through UDP forwarders the test owns (``UdpWire``; a path that goes away goes silent, as a real one does) —
+``door_a`` (the home network) and ``door_b`` (another network, where the home answers at another address) — handed to
+a copy the way the app's Bonjour does (``POST /sync/discovered``). Shown, with
 synthetic data and placeholder names only:
 
 * the door is preferred over the configured address, carries every catch-up and write with no token on it, and its
@@ -25,6 +26,7 @@ import time
 import pytest
 
 from _synthetic_bank import _entity
+from _udp_wire import UdpWire
 from test_replica_two_machines import Machine, _git, _wait
 from test_sync_relay_three_machines import Wire, _follow, _following, _head, _items, _publish, _tool, _transport
 
@@ -101,7 +103,7 @@ def trio(tmp_path):
         (alpha.memory / "entities").mkdir(parents=True, exist_ok=True)
         _entity(alpha.memory, "alpha-project", type="project", confidence=0.9)
         alpha.start()
-        for i in range(25):           # some history, so "only what it missed" is measured against a real full copy
+        for i in range(60):           # some history, so "only what it missed" is measured against a real full copy
             _tool(alpha, "cicada_add_backlog_item", project="alpha-project", title=f"History {i}",
                   description=os.urandom(1500).hex())
         tokens = {}
@@ -116,8 +118,8 @@ def trio(tmp_path):
             assert _wait(lambda m=m: _following(m, alpha), 60), m.log.read_text()[-3000:]
             assert _wait(lambda m=m: _has_home_door(m), 90), m.log.read_text()[-3000:]
         port = _door_port(alpha)
-        wires["door_a"] = CountingWire(port)
-        wires["door_b"] = CountingWire(port)
+        wires["door_a"] = UdpWire(port)            # the door is UDP: its paths are datagram forwarders
+        wires["door_b"] = UdpWire(port)
         yield alpha, bravo, charlie, wires, tokens
     finally:
         for m in machines:

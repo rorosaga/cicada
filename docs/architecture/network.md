@@ -709,14 +709,50 @@ keeps the routes of every device that may become the home. The app's Bonjour fin
 is the home's. Switching Wi-Fi never means pairing again: the device reaches the same home, by its keys, on another
 route, and fetches `cursor..HEAD` — only what it missed (`test_sync_door_three_machines.py`).
 
-**The door (`sync_door`, D3: "encryption and security above all").** One TCP listener a computer opens only while it
+**The door (`sync_door`, D3: "encryption and security above all").** One UDP port a computer opens only while it
 shares a memory — it publishes its log, it is a copy, or a device is paired with it (a capture-only phone) — never for a
 demo, `CICADA_SYNC_DOOR=off` to keep it shut. It is **a sealed-frame endpoint only: never the HTTP API, never a token,
 never a bank path**. The backend's HTTP API still binds `127.0.0.1`.
 
-- **Who may connect.** T3 Code's rule, made exact: a connection on the loopback socket from loopback, on a private
-  socket from a private address, on a Tailscale socket from Tailscale's ranges; anything else is closed before a byte
-  is read.
+- **UDP, and silent (owner 2026-11-03).** Asked "keep the door on TCP until hole punching, or UDP?", the owner: *"If we
+  can work on tcp and udp directly probably best to do udp, no?"* — for silence (a stranger gets no reply at all, where
+  a TCP port shows open) and because slice 2's punch needs UDP. **Any datagram that is not a valid signed hello, or a
+  packet that opens under an established session's key, is dropped with no reply** (`sync_door_udp`): junk, an HTTP
+  probe, an empty or truncated datagram, an old hello, a valid-looking unsigned hello, a stranger's key, a replayed
+  hello, a packet for a session that does not exist or does not open — 0 bytes back and no ICMP, so an open door looks
+  like a closed port that answers nothing (`test_sync_door.py`, raw socket). A good hello gets exactly one reply
+  datagram, smaller than the hello (no amplification), to the address and port it came from; nothing more is sent
+  until a packet of the device's opens under the session key. A resent hello (the same bytes, when no reply came) is
+  answered from a 10 s memory — only to its first address and port — or dropped again, never charged twice.
+- **The channel** (`sync_door_channel`, pure, simulation-tested). After the handshake every datagram is
+  `0x03 ‖ session id ‖ packet number ‖ ChaCha20-Poly1305(key, nonce = packet number, aad = header)`, one key per
+  direction; a number already seen or more than 8,192 behind is dropped before the AEAD is tried (WireGuard's sliding
+  window). Inside: acks (ranges), stream data, ping, close, padding — one reliable ordered stream carrying the same
+  `u32 length ‖ kind ‖ data` frames the TCP door carried. Loss detection and probe timeouts follow RFC 9002 in small;
+  Reno with a 0.7 decrease; sends paced at 1.25 × cwnd/RTT; an 8 MiB receive window the reader opens as it reads;
+  datagrams of 1,200 bytes (under a tailnet's 1,280 MTU), with one don't-fragment probe at 1,452 once a session moves
+  bulk (64 KiB). *Why not QUIC (`aioquic`) behind a pre-gate:* behind the gate a whole QUIC + TLS 1.3 parser, which
+  answers version-negotiation and retry on its own, becomes reachable by anyone on the LAN who forges a gated
+  5-tuple; it would be a second handshake beside ours, a new dependency tree with a C extension in the release, and
+  the phone's Network framework cannot put our hello on the same flow before its own QUIC. Here the pre-auth surface
+  stays the hello alone; a reliability bug can stall a session, never admit a stranger.
+- **Sessions follow the device** (WireGuard's roaming). A session is its id, never an address: the door answers where
+  the last *authenticated* packet came from, so a new source port (a NAT rebinding), a new network or another of the
+  home's addresses goes on in the same session — no second handshake, nothing re-paired — and what waited is sent
+  again at once (`test_sync_door_udp.py`). A packet that does not open, or one already seen, never moves it. A device
+  pings every 25 s while it holds a session (its watch: every common NAT keeps the mapping) and at once on a network
+  change; a path silent past about eight probe timeouts (2–5 s) ends the session as "may have landed". When the app
+  finds the home at a new address, open sessions to it move there (`offer_path`), a request in flight included.
+- **The TCP fallback**, the same handshake and frames on the same port number, **is not bound unless
+  `CICADA_SYNC_DOOR_TCP=on`**. A door that holds it says so (`t: ["udp", "tcp"]` in its first frame and registry
+  `door`), and a device lists it right after the UDP route of the same kind; a door from before UDP (no `t`) is
+  dialled over TCP. Off because slice 1 reaches the LAN and a tailnet, where UDP between the person's own devices
+  passes wherever TCP does, so a bound TCP port would only be a port a scanner sees open; the networks that block UDP
+  (hotels, captive portals) are slice 2's to decide (plan, 2a).
+
+- **Who may connect.** T3 Code's rule, made exact: a datagram (or TCP connection) on the loopback socket from
+  loopback, on a private socket from a private address, on a Tailscale socket from Tailscale's ranges; anything else is
+  dropped before a byte is parsed.
 - **A tailnet is Tailscale's only when it is really there** (security re-checks of #586). `100.64.0.0/10` is also
   carrier-grade NAT's shared space — a computer whose ISP uplink is CGNAT (common on 5G and satellite home lines)
   holds an address there with no Tailscale at all — and a stray router advertisement on the LAN can make a computer
@@ -738,21 +774,23 @@ never a bank path**. The backend's HTTP API still binds `127.0.0.1`.
   chosen once and kept (`$CICADA_HOME/sync/door.json`, 0600, with the door's X25519 key).
 - **The handshake proves both ends and hides who connects.** The client's first packet is fixed-length: a fresh X25519
   key, then — sealed under `DH(fresh, door key)` — its P-256 public key and its signature over the door key, the fresh
-  key and the time. The key must be a device of the group: its registered signing key (`sign_jwk`) or the key its
+  key and the time — one datagram, `0x01 ‖ hello`. The key must be a device of the group: its registered signing key (`sign_jwk`) or the key its
   token is bound to (a phone's Secure-Enclave key). The door answers with its own fresh key and **its computer's device
   key signature over the hello**, checked by the client against the registry's key for the device it meant to reach
   (a stolen door key alone cannot pose as the home). Session keys come from both DH results and the transcript: forward
-  secret. Frames are `u32 length ‖ ChaCha20-Poly1305` with a counter nonce per direction; a replayed, dropped or
-  reordered frame fails and closes the connection.
+  secret. Over UDP the channel above carries the frames; over the TCP fallback, frames are `u32 length ‖
+  ChaCha20-Poly1305` with a counter nonce per direction, and a replayed, dropped or reordered frame closes the
+  connection.
 - **Unauthenticated first packets are dropped silently.** A hello that does not open, is more than 5 min old or new,
-  repeats a fresh key already seen, or names no device of the group is closed without one byte sent back. Over TCP a
-  scanner learns only that a port accepted a connection; it never learns what listens (the UDP door of slice 2's punch
-  would show nothing at all).
+  repeats a fresh key already seen, or names no device of the group gets nothing back (above). Over the TCP fallback,
+  when held, a scanner learns only that a port accepted a connection.
 - **Rate-limited.** Per source (an IPv4 address, an IPv6 /64) a bucket of 10 handshakes refilled one per 2 s (a failed one costs 3); at most 32
-  connections waiting for their hello (3 s each) and 128 sessions; a frame at most 513 KiB, a request body 32 MiB, an
+  sessions waiting to be confirmed (3 s each) and 128 sessions; a frame at most 513 KiB, a request body 32 MiB, an
   idle session closes after 120 s.
-- **Small and fuzzed.** The parser is two fixed-length reads and one bounded length; `test_sync_door.py` feeds it random
-  bytes, truncations and single-bit flips (3,300 hellos, 500 replies) and checks it only ever drops.
+- **Small and fuzzed.** A datagram is told apart by its first byte and exact length (hello, reply) or bounds (data)
+  before anything else; the hello parser is fixed-length; `test_sync_door.py` feeds it random bytes, truncations and
+  single-bit flips (3,300 hellos, 500 replies), and `test_sync_door_channel.py` 3,000 random datagrams, some under a
+  live session's id — each only ever dropped.
 - **What it carries.** Requests run **in process** through the same routes a device token reaches
   (`sync_inprocess`, shared with the relay link), as the device the handshake proved (`auth.RELAY_DEVICE_SCOPE`,
   `auth.DOOR_DEVICE_SCOPE`): its row is looked up again per request (a revoke is a 401 at once, and the revoked
@@ -767,12 +805,14 @@ never a bank path**. The backend's HTTP API still binds `127.0.0.1`.
   with an HMAC in its hello's last 32 bytes; that session may make exactly one request, `POST /pair` with the code,
   redeemed capture-only and bound to the key its hello proved — only that pairing's own code (a secret never spends
   another pairing's), the tag compared in constant time. The answer is the device's id — never a token.
-- **macOS.** Accepting connections needs no Local Network permission (TN3179); dialing a LAN address does, so a copy
-  dials a non-loopback LAN door only when the app reports the permission and the agent plist names the app
-  (`CICADA_SYNC_LAN_DIAL=on|off` overrides; Linux always may). Binding a LAN address raises the application
-  firewall's question (whether the backend may accept incoming connections) when the firewall is on, so **on a Mac the
-  door stays on loopback until the app reports its permissions step** (`lanAllowed` on `POST /sync/discovered` or
-  `POST /sync/network`), then binds its private and tailnet addresses — nothing asks the person anything unasked; the app's
+- **macOS.** TN3179's table: *"Listening for and accepting incoming TCP connections"* needs no Local Network
+  permission, but *"Sending a UDP unicast"* and *"Connecting a UDP socket"* to a local network address do, and
+  *"Receiving an incoming UDP unicast"* does not. So a copy dials a non-loopback LAN door, and **the UDP door answers on
+  the LAN, only when the app reports the permission and the agent plist names the app** (`may_dial_lan`;
+  `CICADA_SYNC_LAN_DIAL=on|off` overrides; Linux always may). Binding a LAN address also raises the application
+  firewall's question when the firewall is on, so **on a Mac the door stays on loopback until both hold** (`lanAllowed`
+  on `POST /sync/discovered` or `POST /sync/network`, and the agent's `AssociatedBundleIdentifiers`), then binds its
+  private and tailnet addresses — nothing asks the person anything unasked, nor under no app's name; the app's
   first-share step (D4) covers Local Network and the firewall together.
 
 **The outbox never drops an unsent write (D1).** With no mailbox, a write that never reached the home waits however
@@ -783,8 +823,8 @@ entries and 256 MB: a write that does not fit is refused in words ("this device'
 that waits was dropped"; `queue_full` from the tool door, 507 from the route table), never queued in words and lost.
 
 **Which route was used** is one telemetry row (`sync_route`) when a device's route changes or it starts queueing, and
-once an hour per device and route at the door — `side`, `route`, `event`, `before` as enums only, never an address,
-host or port. It is how the share of homes that need slice 2 gets measured, not guessed.
+once an hour per device, route and carrier at the door — `side`, `route`, `event`, `before`, `carrier`
+(`udp|tcp|http|relay`) as enums only, never an address, host or port. It is how the share of homes that need slice 2 gets measured, not guessed.
 
 **Measured** (2026-11-03; loopback on this Mac, three backends and a phone-shaped client, synthetic data, the door
 reached through forwarders the test cuts; the 5 end-to-end runs beside a full gate run, nice 10):
@@ -798,6 +838,22 @@ reached through forwarders the test cuts; the 5 end-to-end runs beside a full ga
 | Move back to the door after the app's word, n=5 | 0.8–1.8 s (p50 0.91 s; one request on the next commit) |
 | Phone-shaped client: a capture on the same network / three queued captures after the home answered on a new network, n=5 | 11–18 ms / 18–40 ms; each kept once, one re-sent after a lost answer |
 | Idle CPU per 120 s, a copy on the door's watch vs on the configured address's `/sync/events` (two alternating rounds) | home 0.39–0.46 s vs 0.50–0.83 s; copy 0.30–0.33 s vs 0.54–0.70 s — the door is cheaper idle |
+
+**Measured again on UDP** (2026-11-04; loopback on this Mac; the end-to-end runs through UDP forwarders the test
+cuts — a gone path is silent, as a real one is, where #586's TCP forwarders refused at once; the throughput and idle
+numbers from a door in its own process, `127.0.0.1`, synthetic bytes):
+
+| What | Result |
+|---|---|
+| Handshake (hello → reply → confirm → the `R` frame), n=100, UDP / the TCP fallback | p50 1.83 / 1.65 ms, p95 2.06 / 1.84 ms |
+| A 90 MB answer (the first copy's size), 3 runs, UDP / TCP | 0.72–0.86 s, 104–124 MB/s / 0.08–0.14 s, 660–1,100 MB/s; door CPU 0.69–0.73 s vs 0.07–0.08 s, client 0.41–0.47 s vs 0.07 s — about nine times the CPU per byte, a Python channel's price; a real LAN, not the channel, is then the limit |
+| A 53 MB answer through a 1 % lossy forwarder (the forwarder in the client's process), 3 runs | 0.96–1.21 s, 44–55 MB/s |
+| Idle CPU per 120 s, a watch held, UDP / TCP (alternating; the first watch in a process pays ~3.3 s of lazy imports on either) | door 0.03–0.07 s / 0.08 s, client 0.00 s / 0.00 s |
+| Network switch → copy caught up (5 missed commits), 3 runs | 436–650 ms; 6.6–7.6 KB over the new route against a ~30 KB full copy; the request in flight moved to the found door in its own session |
+| A home commit reaches a copy over the door (watch → pack), n=15 | p50 376 ms; each run's first, 1.1 s (the watch moving off the configured address) |
+| Move back to the door after the app's word, 3 runs | 0.86–1.07 s |
+| Phone-shaped client: a capture on the same network / three queued captures on a new network, 3 runs | 11–13 ms / 29–53 ms, each kept once |
+| A stale session (the path gone mid-request) | ends in 2 s on a LAN (eight probe timeouts, floored at 2 s, capped at 5 s) as "may have landed", retried once by its key |
 
 **The phone, for now a capture device** (owner 2026-11-03: *"for now, the phone i mainly want it as a way to capture,
 so wether im outside, same wifi or wherever, i can send stuff to the same queue to get digested"*). It runs the same
@@ -828,7 +884,8 @@ connection"* to a local-network address (listening and accepting do not); macOS 
 daemon started by launchd"*, root, and Terminal/SSH tools, but *"The exception for launchd daemons doesn't apply to
 launchd agents"*. The backend is a launchd agent (`com.cicada.backend`), so a Bonjour call from it would raise the
 Local Network alert on its own, under no app's name. So the app (which may ask, with its usage text) advertises and
-browses `_cicada._tcp` with the instance name `c-<hash>` — the first 80 bits of `sha256("cicada-lan-v1\0" + bank id)`,
+browses `_cicada._udp` (the door, ruling 51f 2026-11-03; `_cicada._tcp` only for a configured HTTPS listener with no
+door) with the instance name `c-<hash>` — the first 80 bits of `sha256("cicada-lan-v1\0" + bank id)`,
 never a name, hostname or the bank id — and hands the backend what it resolved (`POST /sync/discovered`; since ruling 51f the advertised port is the door's, and a
 found door is checked by the door's own handshake). An `https` address is
 trusted only after the peer signs a fresh nonce the backend issued (`GET /sync/discovery` → the peer's open

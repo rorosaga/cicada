@@ -308,14 +308,20 @@ def _check_doors(doors: list[dict]) -> int:
         cls = sync_door.address_class(host)
         if cls not in ("loopback", "lan", "tailnet") or (cls == "lan" and not sync_routes.may_dial_lan()):
             continue
-        try:
-            conn = sync_door.connect(host, port, target, identity, timeout=sync_routes.LAN_CONNECT_S,
-                                     on_routes=sync_routes.learn)
-        except sync_door.Unreachable:
-            continue
-        conn.close()
-        sync_routes.found(target.device_id, host, port)
-        kept += 1
+        for carrier in sync_door.CARRIERS:          # UDP, then a door from before it (TCP only)
+            try:
+                conn = sync_door.connect(host, port, target, identity, timeout=sync_routes.LAN_CONNECT_S,
+                                         on_routes=sync_routes.learn, carrier=carrier)
+            except sync_door.Unreachable:
+                continue
+            conn.close()
+            sync_routes.found(target.device_id, host, port, carrier)
+            if carrier == "door":
+                from api.services import sync_door_udp
+
+                sync_door_udp.offer_path(target.device_id, host, port)   # sessions in flight move there now
+            kept += 1
+            break
     if kept:
         sync_routes.forget_target()
         sync_routes.BOOK.note_network_change()

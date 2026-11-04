@@ -769,9 +769,12 @@ otherwise **queues**: reads come from its own copy, writes wait in its outbox an
 home (*"we sync when a machine is on"*). Earlier routes are re-checked every minute and at once on a network change,
 and it moves back as soon as one answers; switching Wi-Fi never re-pairs and fetches only what was missed.
 
-The door is a sealed-frame endpoint a computer opens only while it shares a memory or has a paired device: never the
-HTTP API (which still binds `127.0.0.1`), never a token; a device proves its pairing key in its first packet and
-anything else is closed without a byte; only loopback, private and tailnet peers; rate-limited. A phone pairs in the
+The door is a sealed-frame endpoint — a UDP port (owner 2026-11-03) — a computer opens only while it shares a memory
+or has a paired device: never the HTTP API (which still binds `127.0.0.1`), never a token; a device proves its pairing
+key in its first datagram and anything else gets no reply at all; only loopback, private and tailnet peers;
+rate-limited; a session follows its device to a new address. A server's firewall needs to let that UDP port in from
+the LAN or the tailnet (it never listens elsewhere); the TCP fallback, on the same port number, is held only with
+`CICADA_SYNC_DOOR_TCP=on`. A phone pairs in the
 same room through it with the QR's one-time secret. On a server, the door binds loopback and the server's own private
 and tailnet addresses only — **never a wildcard, never its public IPv4 or global IPv6** — rebinding when its
 addresses change (`CICADA_SYNC_DOOR_HOST` to name them, `CICADA_SYNC_DOOR=off` to keep it shut); its port is kept in

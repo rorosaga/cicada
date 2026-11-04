@@ -247,7 +247,7 @@ def request(base: str | None, method: str, path: str, *, body: bytes | None = No
             from api.services import sync_routes
 
             routes, target = sync_routes.home_routes(base, relay=link is not None)
-    if not any(r.carrier == "door" for r in routes) and link is None:
+    if not any(r.is_door for r in routes) and link is None:
         if not base:
             return None, {NO_ANSWER: "unreachable"}, None
         return direct(base, method, path, body=body, headers=headers, timeout=timeout, to_file=to_file)
@@ -274,7 +274,7 @@ def request(base: str | None, method: str, path: str, *, body: bytes | None = No
                 raise _no_answer(got[1].get(NO_ANSWER, "unreachable"))
             _count("direct")
             return got
-        if route.carrier == "door":
+        if route.is_door:
             from api.services import sync_door
 
             identity = sync_door.own_identity()
@@ -283,7 +283,8 @@ def request(base: str | None, method: str, path: str, *, body: bytes | None = No
             try:
                 got = sync_door.request(route.host, route.port, target, identity, method, path, body=body,
                                         headers=carried, timeout=timeout, to_file=to_file,
-                                        connect_timeout=route.connect_s, on_routes=sync_routes.learn)
+                                        connect_timeout=route.connect_s, on_routes=sync_routes.learn,
+                                        carrier=route.carrier)
             except sync_door.Unreachable:
                 raise _no_answer("unreachable") from None
             except sync_door.Dropped:

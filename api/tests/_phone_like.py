@@ -77,7 +77,7 @@ class PhoneLike:
                                          headers={"Idempotency-Key": entry["id"],
                                                   "Content-Type": entry["contentType"]},
                                          timeout=15, connect_timeout=route.connect_s, on_routes=self._learn,
-                                         pool=self.pool)
+                                         pool=self.pool, carrier=route.carrier)
             except sync_door.Unreachable:
                 raise sync_routes.NoAnswer("unreachable") from None
             except sync_door.Dropped:

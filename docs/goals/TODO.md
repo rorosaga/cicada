@@ -12,6 +12,31 @@
 
 ## Current state and evidence
 
+- **2026-11-04 — the door is UDP (ruling 51f, owner decision 2026-11-03; G132; branch `g132-udp-door`, #PR).**
+  Asked "keep the door on TCP until hole punching, or UDP?", the owner: *"If we can work on tcp and udp directly
+  probably best to do udp, no?"* **Ruling 51f gains:** (a) the door is a UDP port, and any datagram that is not a valid
+  signed hello or a packet that opens under an established session's key gets no reply at all (WireGuard's silence; a
+  good hello gets one reply, smaller than it, to its own address and port, and nothing more until the device's packet
+  opens); (b) reliability is our own sealed channel (`sync_door_channel`: packet numbers under the AEAD, a replay
+  window, ack ranges, RFC 9002 loss rules in small, Reno β 0.7, pacing, a receive window, one MTU probe) — **not QUIC
+  behind a pre-gate**, because behind the gate a whole QUIC + TLS parser (which answers version negotiation and retry
+  itself) is reachable by anyone forging a gated 5-tuple, it would be a second handshake and a new C-extension
+  dependency, and the phone's Network framework cannot send our hello on the flow before its QUIC; (c) sessions follow
+  the device by id (WireGuard's roaming): a new port, network or home address goes on in the same session, nothing
+  re-paired; (d) **the TCP fallback stays, off by default** (`CICADA_SYNC_DOOR_TCP=on`), listed after UDP only for a
+  door that says it holds it — slice 1 reaches the LAN and a tailnet, where UDP passes wherever TCP does, so a bound
+  TCP port would only be a port a scanner sees open; whether slice 2 maps one for UDP-blocking hotel networks is
+  decided with 2a; (e) **on a Mac the door's LAN sockets wait for `may_dial_lan`** — TN3179: sending UDP to the LAN
+  needs the Local Network privilege, accepting TCP does not — so the person's permissions step *and* the agent's
+  attribution to the app; (f) Bonjour advertises `_cicada._udp` while a door is open (#573 must switch its
+  `serviceType` and `NSBonjourServices`). Every rail of #586 and its security review holds unchanged (the bind rule,
+  CGNAT never a tailnet, the signed hello, per-direction keys, replay protection, the proven device, capture-only
+  scope, revoke closes at once, rate limits, no addresses in logs or the ledger, which now also carries a `carrier`
+  enum). Measured on loopback (`network.md`): handshake p50 1.83 ms (TCP 1.65); a 90 MB answer 0.72–0.86 s at
+  104–124 MB/s against TCP's 660–1,100 MB/s, about nine times the CPU per byte; 44–55 MB/s through a 1 % lossy path;
+  idle with a watch held 0.03–0.07 s of door CPU per 120 s (TCP 0.08); after a network switch the copy caught up in
+  436–650 ms over 6.6–7.6 KB (a full copy ~30 KB), the request in flight moved to the found door in its own session;
+  the phone's captures 11–13 ms, queued ones 29–53 ms, once each. Three-machine and phone tests 3/3.
 - **2026-11-03 — routes, not a relay (ruling 51f, G132 phase 3b slice 1; branch `feat/g132-routes`, #586 (includes
   #572's one-transport work)).** Owner: "yes i think we should copy t3 code … if we can make it all run nicely and for free awesome"; the
   phone, for now, a capture device. Each device's ordered route list (the home's door on the LAN → on a tailnet if
