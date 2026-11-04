@@ -82,7 +82,8 @@ CHANNEL_IDS = _NON_CONNECTOR_HEAD + tuple(ADAPTERS.keys()) + _NON_CONNECTOR_TAIL
 #: "connectors-honest" (2026-10-23): a feed row is connected only while feeds are fetched, Messages only while a
 #: conversation is ticked, Wispr Flow only while it is on, Telegram only once a message has arrived.
 #: "g219" (2026-10-23): the always-listed Apple Reminders row and the Notion export row.
-CHANNELS_SHAPE = "g219"
+#: "book-scan" (2026-11-04): the always-listed Book scans row (G233).
+CHANNELS_SHAPE = "book-scan"
 
 
 # R-S5 — there is deliberately no `_plural` here any more. It baked
@@ -420,6 +421,7 @@ def build_channels(
     from api.services import goodreads_export
 
     rows.append(_origin_channel(goodreads_export.CHANNEL_ID, "Goodreads export", "goodreads", by_origin, "book"))
+    rows.append(_origin_channel("book-scan", "Book scans", "book-scan", by_origin, "book"))
     # Round 4 (C9, R-SR15): a Chromium-family browser beyond Chrome gets its row
     # once it has synced — the app's `BrowserInventory` offers it before that, so
     # an install without Brave never carries a Brave row. Appended like every

@@ -142,6 +142,8 @@ ROUTES: dict[str, str] = {
     "POST /capture/isbn": CAPTURE,                       # G233: a scanned book waits in the outbox like a note
     "POST /sources/apple-books/sync": CAPTURE,           # G39: the app's Apple Books read, a reader's posts
     "PUT /sources/apple-books/settings": FORWARD,
+    "POST /sources/apple-books/covers": CAPTURE,         # ruling 61: a reader's post, kept outside every bank
+    "POST /entities/{entity_id}/book-status/undo": FORWARD,
     "POST /sources/goodreads/preview": LOCAL,            # reads the file here, writes nothing
     "POST /sources/goodreads/import": FORWARD,
     "POST /capture/local-source/wispr-flow": CAPTURE,

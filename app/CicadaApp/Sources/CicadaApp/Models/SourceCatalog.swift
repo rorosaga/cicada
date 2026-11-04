@@ -157,6 +157,9 @@ enum SourceCatalog {
                            verb: .connect(Copy.SourceLayout.connect(Copy.appleBooksTitle))),
         SourceCatalogEntry(id: "goodreads", group: .reading, title: Copy.goodreadsTitle, origin: "goodreads",
                            channels: ["goodreads"], verb: .importFile),
+        // G233: what the phone scanned. No control here: the scanner is the phone's.
+        SourceCatalogEntry(id: "book-scan", group: .reading, title: Copy.bookScansTitle, origin: "book-scan",
+                           channels: ["book-scan"]),
         SourceCatalogEntry(id: "files", group: .exports, title: Copy.Catalog.filesAndLinks, origin: "bookmark",
                            channels: ["files"], tile: .bookmarksFile, verb: .importFile),
         // G219 slice 1: a Notion export (Markdown & CSV) through the one intake; ruling 47 tier 2: or live, through the

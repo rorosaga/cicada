@@ -1029,3 +1029,8 @@ stamp differs, the older version cannot be committed, or Sleep holds the pages; 
 `{removed, failed, files, committed, left, still_found, stayed}` (`still_found`: files, conversations included, still holding
 what it was to take out, a key field or one that does not parse; `stayed`: tokens left in other files on purpose, unsure or
 common in the bank). A row in the card's own resolve that could not be done answers 409 and stays.
+**Saves kept for lookup (ruling 62, 2026-11-04).** `GET /sleep/queue` and each row of `GET /sources/overview` carry `kept`:
+the saves indexed with no model read, unread until the person talks about one (`history_index.kind` `saved`,
+`capture-and-sleep.md`, *The lean pass*). `SHAPE` `overview-v17` moves the overview's ETag with the field and the app decodes
+it leniently; `/sleep/queue` has no ETag and is not a Store domain. Neither lists a kept save as waiting, and
+`GET /sleep/episodes?processed=false` no longer lists one a run has not retired yet. The hook's `reason` gains `saved`.

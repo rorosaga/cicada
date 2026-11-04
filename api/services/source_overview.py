@@ -166,8 +166,9 @@ INTENTS = ("saved", "captured")
 #: v8: Readwise and Notion live, ruling 47 tier 2; v9: WhatsApp, G179; v10: Telegram chats, ruling 47a;
 #: v11: Spotify's library and listening, G32; v12: Readwise removed by owner direction, 2026-11-03; v13: GitHub, G230;
 #: v14: Substack's saves and reading days, G89; v15: Telegram chats labelled "Telegram", the bot feed
-#: "Telegram bot", 2026-11-04; v16: Apple Books, Goodreads and book scans, the Reading kind, G39/G233).
-SHAPE = "overview-v16"
+#: "Telegram bot", 2026-11-04; v16: Apple Books, Goodreads and book scans, the Reading kind, G39/G233; v17: `kept`,
+#: ruling 62).
+SHAPE = "overview-v17"
 
 #: Sources v4 (owner 2026-10-19: "I don't understand how Sleep is also a source on the page"). A check record is the
 #: episode Cicada writes as the citation for a question a check settled — `web_settle` (a web lookup Sleep or an agent
@@ -299,6 +300,8 @@ def _new_state(key: str, labels: dict[str, str] | None = None) -> dict:
         # Sources v4 — this source's episodes still waiting for Sleep's read (`history_index.waits_for_model`, the
         # rule Sleep's own queue count uses), so the detail's "Consolidate now · N waiting" is the server's number.
         "waiting": 0,
+        # Ruling 62: this source's saves kept for lookup, unread until the person talks about one.
+        "kept": 0,
         "faces": [], "faces_more": 0,
         # Sparse ISO-UTC-day -> captures that day (R-A16); a silent day has no
         # key, so a gap can never be read as a zero the backend asserted.
@@ -347,6 +350,8 @@ def build_overview(memory_path: Path, *, channels: list[dict], today: _date | No
         state["episodes"] += 1
         if history_index.waits_for_model(fm):
             state["waiting"] += 1
+        elif history_index.kind(fm) == "saved" and not fm.get("source_deleted_at"):
+            state["kept"] += 1
         if key in FACE_CHAT_SOURCES and fm.get("conversation") and not fm.get("source_deleted_at"):
             _note_chat(chats.setdefault(key, {}), fm)
         conversation = str(fm.get("session_id") or fm.get("source_id") or "").strip()

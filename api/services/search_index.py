@@ -556,6 +556,8 @@ def _index_episode(conn, doc_key: str, f, fm: dict, body: str) -> None:
     }
     if history_index.is_index_only(fm):
         meta["index_only"] = True   # ruling 30: a record to look up — Ask's search leg neither counts nor shows it
+    if history_index.is_unread_save(fm) and not fm.get("media_entity_id"):
+        meta["saved_no_page"] = True   # ruling 62: a tab group, found by `saved_lookup` from its passages
     if site := _saved_site(fm):
         meta["site"] = site   # a saved link's own site key: its row's mark (owner 2026-10-20, review of #372)
     gaps = evidence.gap_ranges(fm, body)

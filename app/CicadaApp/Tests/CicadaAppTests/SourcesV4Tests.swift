@@ -79,6 +79,22 @@ final class SourcesV4Tests: XCTestCase {
         XCTAssertEqual(back.waiting, 2)
     }
 
+    /// Ruling 62: one honest line for what a lean read did, the same on the Sources and Sleep pages; nothing kept, no line.
+    func testSavesKeptForLookupSayOneLineAndAnOlderBackendReadsAsNone() throws {
+        let row = try JSONDecoder().decode(SourceOverview.self,
+                                           from: Data(#"{"id":"chrome-bookmarks","kind":"browser","kept":371}"#.utf8))
+        XCTAssertEqual(row.kept, 371)
+        XCTAssertEqual(try JSONDecoder().decode(SourceOverview.self, from: JSONEncoder().encode(row)).kept, 371)
+        let old = try JSONDecoder().decode(SourceOverview.self, from: Data(#"{"id":"rss","kind":"feed"}"#.utf8))
+        XCTAssertEqual(old.kept, 0)
+        let queue = try JSONDecoder().decode(SleepQueueResponse.self, from: Data(#"{"total":0,"kept":371}"#.utf8))
+        XCTAssertEqual(queue.kept, 371)
+        XCTAssertEqual(try JSONDecoder().decode(SleepQueueResponse.self, from: Data(#"{"total":0}"#.utf8)).kept, 0)
+        let en = Locale(identifier: "en_US")
+        XCTAssertEqual(Copy.keptForLookup(371, en), "371 saved, kept for lookup. One is read when you talk about it.")
+        XCTAssertNil(Copy.keptForLookup(0, en))
+    }
+
     func testAMessagesRowCarriesItsChatAndAWatchedDayItsVideoCount() throws {
         let json = #"""
         [{"kind":"episode","id":"ep_1","title":"Alice Example","day":"2026-10-19",

@@ -2758,6 +2758,23 @@ actor APIClient {
         try await postData("/sources/apple-books/sync", json: try JSONEncoder().encode(payload))
     }
 
+    /// `POST /sources/apple-books/covers` — ruling 61: the covers read from Apple Books' cache on this Mac.
+    func postAppleBooksCovers(_ post: AppleBooksCoverPost) async throws -> AppleBooksCoverReply {
+        try await postData("/sources/apple-books/covers", json: try JSONEncoder().encode(post))
+    }
+
+    /// `GET /entities/{id}/book-status` — the book's open status record; 404 for none. Not a Store domain: the card
+    /// reads it on open and holds it in memory.
+    func fetchBookStatus(id: String) async throws -> BookStatusRecord {
+        try await get("/entities/\(encodedID(id))/book-status")
+    }
+
+    /// `POST /entities/{id}/book-status/undo` — "Not right": that record is taken back, the one before it opens.
+    func undoBookStatus(id: String, claimId: String) async throws {
+        let _: BookStatusUndoReply = try await post("/entities/\(encodedID(id))/book-status/undo",
+                                                    body: ["claimId": claimId])
+    }
+
     /// `GET /sources/books` — book pages by status and the scans waiting for their lookup. Not a Store domain.
     func booksSummary() async throws -> BooksSummary { try await get("/sources/books") }
 

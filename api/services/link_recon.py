@@ -128,7 +128,7 @@ def scan_recon(memory_path: Path, settings) -> list[LinkCard]:
     wall) and excluded media types are skipped with the same helpers the
     backfill scan uses, so the two scans can never disagree about a page."""
     from api.services.link_enrichment import (
-        _excluded_media, _extract_description_section, _is_substantive, _saved_sort_key, classify_page,
+        _excluded_media, _extract_description_section, _is_substantive, _saved_sort_key, classify_page, lean_page,
     )
 
     min_len = int(getattr(settings, "link_enrich_min_desc_len", 120) or 120)
@@ -143,6 +143,8 @@ def scan_recon(memory_path: Path, settings) -> list[LinkCard]:
             continue
         fm = parsed.frontmatter or {}
         if fm.get("type") != "media" or fm.get("recon_attempted") or fm.get("enrichment_status") == "junk":
+            continue
+        if lean_page(memory_path, fm):   # ruling 62: related only once it gets its read
             continue
         media = fm.get("media") if isinstance(fm.get("media"), dict) else {}
         url = str(media.get("url") or "")

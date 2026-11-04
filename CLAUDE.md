@@ -171,10 +171,15 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   its own `osascript`, Calendar, Contacts, Chrome tab groups, watched folders; Wispr Flow's reader is off for now, `app.md`) and posts bytes. A browser is
   read only after the person turned it on. An unreadable file shows the exact fix in the app. Chrome's history is read
   from a copy, YouTube video pages only; watch history is one episode per day, never a save (G71, `capture-and-sleep.md`);
-  it and saves from a platform's saved list are indexed, never read by a model (ruling 30).
+  it and saves from a platform's saved list are indexed, never read by a model (ruling 30). **Ruling 62 (owner
+  2026-11-04):** so is every other save with no reason (a bookmark, tab group, saved link, feed item): no model, claim, page
+  or question, found by recall, Ask and the hook; read once when the person's own words name it, a conversation lights its
+  page or they give a reason, never for a retrieval hit; one already read keeps what it made (`capture-and-sleep.md`).
 - **Books (G39, G233):** a scanned ISBN (`/capture/isbn`, the phone's contract) resolves at the home behind the connector
   gate, cached outside every bank; Apple Books is read by the app after the person turns it on; Goodreads only by its
   export; one `media` page per work, status as dated claims, imports quiet (`capture-and-sleep.md`, "Books").
+  **Ruling 61:** the person's own located words in a conversation change a status too, judged by Stage 1 in context, never
+  by keywords: one clear title or held on the episode, dated as said, undoable, through the same writers (`book_said`).
 - **Two ways in for what the person consumes (ruling 47, owner 2026-10-28):** by default their own browser and Mac,
   through the browser and macOS harnesses (G166, G206, G218 rails unchanged); an official API only for a specific source
   where it gives what the harness cannot (history, metadata, reliability) — the person connects each one (off by default,
@@ -236,8 +241,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 
 - **Five stages** (extract → resolve/dedup → conflicts/decay → patterns/skills → nudges + commit) plus an
   **engine-independent tail** on every exit path, in a clean-tree-guarded slot, each step committing only its own paths.
-- **Consolidate reads everything** (rulings 13, 16): every run — the person's and a scheduled one — is a drain over the
-  ids frozen at its start, in committed batches (default 25), so a stop loses at most the batch in progress. Decay and the
+- **Consolidate reads everything** (rulings 13, 16; a lean read counts, ruling 62): every run — the person's and a
+  scheduled one — is a drain over the ids frozen at its start, in committed batches (default 25, and at most 60,000 bytes,
+  ruling 62), so a stop loses at most the batch in progress. Decay and the
   page reads run once per drain. A plan limit is a pause, not a failure. **Ruling 4: a scheduled run uses a Claude or ChatGPT plan only
   through the person's "Scheduled runs may use my plan" switch, on unless they turned it off** (4b 2026-10-16, 4c
   2026-10-19; `SUBSCRIPTION_MODES` the one guard); on a metered engine it spends with no limit Cicada sets, said in words.
@@ -352,7 +358,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **Pictures:** one precedence (the person's choice → Contacts photo → the photo a ticked chat holds (Messages, WhatsApp, Telegram) → a
   person's public-profile photo → a brand's logo → a media thumbnail → a person's monogram; any other page with none draws
   nothing, never a type glyph — owner 2026-10-28). **A logo comes only from a trusted
-  `website` source — never a domain guessed from a name; a person never gets a logo and no service is sent a private person's name (G146/G159).** Owner 2026-10-28 (C, E): a public figure ruling 44's full test matched gets that item's encyclopedia portrait, asked by item, never with the name as a query; a project its trusted site's mark or, only when an organisation owns its repository, that organisation's avatar (`storage.md`). Ruling 40's homepage-confirmed find is trusted, and a public place with one draws its mark. A saved link's own site may show its own icon, asked of that site only (or the icon host its homepage declares, 2026-10-20; an SVG icon only sanitised and drawn to a PNG out of process, never served as SVG, 2026-10-20), on the person's view (owner 2026-10-19; `storage.md`); a watched or saved YouTube video its still, from YouTube's own host for that id only, on the same terms (2026-10-19). A person's photo is asked only
+  `website` source — never a domain guessed from a name; a person never gets a logo and no service is sent a private person's name (G146/G159).** Owner 2026-10-28 (C, E): a public figure ruling 44's full test matched gets that item's encyclopedia portrait, asked by item, never with the name as a query; a project its trusted site's mark or, only when an organisation owns its repository, that organisation's avatar (`storage.md`). Ruling 40's homepage-confirmed find is trusted, and a public place with one draws its mark. A saved link's own site may show its own icon, asked of that site only (or the icon host its homepage declares, 2026-10-20; an SVG icon only sanitised and drawn to a PNG out of process, never served as SVG, 2026-10-20), on the person's view (owner 2026-10-19; `storage.md`); a watched or saved YouTube video its still, from YouTube's own host for that id only, on the same terms (2026-10-19); a book its own copy's cover from Apple Books' cache, else Open Library's by cover id or ISBN, never a title (ruling 61). A person's photo is asked only
   with an identifier already on the page or record and given as their own account — the owner's hashed email, a GitHub,
   X, Instagram or LinkedIn profile link (owner, 2026-10-09; Instagram, D5), never a proposal the person has not taken (`network.md`); a LinkedIn link from the person's connections counts as given
   on a confident match, never an alias-only one (owner 2026-10-17). The photo a chat shares in Messages is its page's

@@ -527,6 +527,9 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /sources/apple-books/sync": (HELD, "api.services.book_jobs.apply_admitted"),
     "POST /sources/goodreads/import": (HELD, "api.services.book_jobs.apply_admitted"),
     "PUT /sources/apple-books/settings": (REGISTRY, None),
+    # Ruling 61: covers kept outside every bank, each page's stamp by the same apply; a take-back inside admission.
+    "POST /sources/apple-books/covers": (HELD, "api.services.book_jobs.apply_admitted"),
+    "POST /entities/{entity_id}/book-status/undo": (HELD, "api.services.write_admission.run_admitted"),
     "POST /sources/goodreads/preview": (NONE, None),
     "POST /capture/note": (CAPTURE, None),   # G212: a note a device sent, staged like every source-keyed capture
     # G91 (ruling 38): a device's shared photo or file — its episode staged like a note, its bytes outside every bank.
