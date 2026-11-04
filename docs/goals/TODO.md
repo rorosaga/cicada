@@ -12,7 +12,7 @@
 
 ## Current state and evidence
 
-- **2026-11-04 — the door is UDP (ruling 51f, owner decision 2026-11-03; G132; branch `g132-udp-door`, #PR).**
+- **2026-11-04 — the door is UDP (ruling 51f, owner decision 2026-11-03; G132; branch `g132-udp-door`, #590).**
   Asked "keep the door on TCP until hole punching, or UDP?", the owner: *"If we can work on tcp and udp directly
   probably best to do udp, no?"* **Ruling 51f gains:** (a) the door is a UDP port, and any datagram that is not a valid
   signed hello or a packet that opens under an established session's key gets no reply at all (WireGuard's silence; a
