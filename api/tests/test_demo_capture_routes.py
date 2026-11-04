@@ -54,6 +54,8 @@ GATED = {
     # G71 (2026-10-16): the YouTube videos watched in Chrome — day episodes.
     ("POST", "/sources/watch-history/sync"): "/sources/watch-history/sync",
     ("POST", "/sources/contacts-local/sync"): "/sources/contacts-local/sync",
+    # G154: the Contacts page's faces, outside the bank, but a demo bank takes in no address book.
+    ("PUT", "/sources/contacts-local/book"): "/sources/contacts-local/book",
     # G219: Apple Reminders — the ticked lists, episodes only.
     ("POST", "/sources/reminders-local/sync"): "/sources/reminders-local/sync",
     # 2026-10-16: LinkedIn connections — the import writes person pages; the preview is pointless into a demo bank.

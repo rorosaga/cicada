@@ -494,6 +494,9 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     # the app sends it once and a 409 would keep a disconnected address book's cards. It stamps a forget marker that
     # every Sleep read of the waiting set honours (Stage 2's index, Stage 5's seed, the rematch and its save back).
     "DELETE /sources/contacts-local/waiting": (MARKED, None),
+    # G154: the Contacts page's faces, outside every bank and read by no match; its forget is the same forget.
+    "PUT /sources/contacts-local/book": (OUTSIDE, None),
+    "DELETE /sources/contacts-local/book": (MARKED, None),
     # The LinkedIn forget is the person's click in a panel that shows a refusal in words: admitted, 409 while Sleep's
     # tail may be reading the kept export.
     "DELETE /sources/linkedin-connections": (ADMITTED, None),

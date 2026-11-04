@@ -925,7 +925,7 @@ behind the `+` on the Sleep page's tab row (the Feed's, until 2026-10-16). Both 
 two surfaces. Round 3 added **Notes & files** (Apple Notes and, when Obsidian is installed, *Obsidian vault*; the
 watched folders and *Add a folder* moved to Settings → Privacy & data on 2026-10-14, and Notes & files keeps one
 pointer, "Folders are in Search & files ›") and **Voice & meetings** (Wispr Flow once it is on this
-Mac) — both standing connections, so both live here; their marks are the installed apps' own icons.
+Mac, while on offer) — both standing connections, so both live here; their marks are the installed apps' own icons.
 Harness rows wear their app's real mark ("Other agents" a neutral glyph); a folder's Manage, Wispr
 Flow and a connector's Connect/Manage open as sheets (`SettingsSheet`), never popovers; the
 add-folder sheet labels its fields and asks which subfolders an agent wrote as a checklist
@@ -952,7 +952,7 @@ Contacts (G154), both app-owned rows.
 **Meeting recorders (G95, ruling 52, 2026-11-03).** Sources gains a **Meeting recorders** group after This Mac
 (`SourceCatalogGroup.meetings`): **Hex** (`SourceCatalog.hexId`, shown once Hex is on this Mac — `LocalSourceWatcher.
 hexInstalled`, a LaunchServices lookup made on each reload, never per body — or a Hex folder exists; its mark is the
-installed app's icon, `anomaly.hex`), **Wispr Flow** (moved here from This Mac, its row unchanged) and **Transcripts**
+installed app's icon, `anomaly.hex`), **Wispr Flow** (moved here from This Mac, its row unchanged; off the offer since 2026-11-04, below) and **Transcripts**
 (`meetingFoldersId`, always: any folder of transcripts; the shorter name fits the list column). `SourceCatalog.entries(hexPresent:meetingFolders:)` takes the watcher's
 folders: a meeting folder (`FolderRegistration.isMeetings`, `kind: meetings`) syncs as `meetings:<id>`, so it never
 counts for Folders; Hex's own (`recorder: hex`) speak for Hex, the rest for the folder of transcripts. The detail lists
@@ -1463,7 +1463,7 @@ is not set up in the active memory, the notch offers it once. *Trigger:* `NSWork
 that passes through is not entering it). *Apps* (`ConnectSuggestApps`, bundle id → Sources catalogue entry): WhatsApp
 (`net.whatsapp.WhatsApp` → `whatsapp`), Telegram (`ru.keepcoder.Telegram`, `org.telegram.desktop` → `telegram-chats`),
 Messages, Notes, Calendar, Reminders, Contacts, every browser Cicada reads bookmarks from (`BrowserInventory.catalog`,
-`supported` only — Arc, Firefox, Edge and Opera never), Wispr Flow (`com.electron.wispr-flow`), Notion (`notion.id`) and
+`supported` only — Arc, Firefox, Edge and Opera never), Wispr Flow (`com.electron.wispr-flow`, only while `SourceCatalog.wisprOffered`), Notion (`notion.id`) and
 Hex (`anomaly.hex` → `hex`, the meeting recorders' entry, read with the app's meeting folders so a Hex whose own
 folder is connected never reads Off). Readwise is gone. **A website
 in the front tab is not a trigger:** the only permission-free tab read is the star-click prefill (owner ruling
@@ -1768,9 +1768,19 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   (Track L). **Why Calendar showed a Google account:** the Calendar app holds every account in Internet Accounts, and the
   old page said so in a standing line with an *Add a Google account* button (`CalendarRow.google` and the layout's
   way row, both removed); the account list now names each account the Mac holds, Google only when there is one.
-- **Contacts** (`ContactsGrid`): the people in memory a card matched, as a grid of faces (`ContactCell`, 48 pt
-  `EntityPicture` by the one picture precedence — the Contacts photo when the card has one, else the person's monogram)
-  with the name under each, under the page's search; a face opens the person's page. Never a card's other facts (G154).
+- **Contacts** (`ContactsGrid`, G154, owner 2026-11-04): every card on this Mac as a grid of 48 pt faces with the name
+  under each, read from `GET /sources/contacts-local/book` (`capture-and-sleep.md`) into `ChannelItemsCache`: not a
+  Store domain, no ETag, in memory, read when the page opens and when the channels move. Nearly every card has no photo,
+  so the page is drawn as monograms. A card with a page comes first and is a control (`ContactPageCell`: `EntityPicture`
+  by the one picture precedence, its hue ring when there is no picture; hover a fill, a click opens the page). A card
+  with none is not (`ContactCardCell`: its thumbnail through `SourcePictureStore`, else a neutral disc in secondary ink;
+  no hover, no press, no click target, static text to VoiceOver). A nameless card reads *No name*, never its
+  organisation. One line beside the search: *376 contacts · 6 in memory*. `ContactsGridPhase` decides what is drawn: an
+  empty answer while the reader is still posting (`bookPending`) is the skeleton, never nothing; it stays until the
+  read after the post answers (`onBookPosted`, an older answer dropped for it), and if that read fails with an empty
+  book held the page says so in words. A run a newer one replaced says nothing about any of this. The search is in memory, folded once when the
+  book is read, and its words never leave the app (0.015 s over 20,000 cards, debug build). `LazyVGrid`: about 85 of
+  800 cells exist at once. Contacts stopping (`ContactsReader.onForget`) drops the names and thumbnails the app holds.
 - **Meeting recorders** (`MeetingsBrowser`): recorder → folder → meetings; one folder lists its meetings directly
   (`MeetingRow`: a waveform glyph, the title, then *Tue, Nov 3 · 32 min* in meta ink, the full date on hover —
   `MeetingRowText`, `duration_s` from the episode's `meeting` record). **Hex in one click** (`FolderSlot`'s connect
@@ -1789,12 +1799,23 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   Flow reads Off with *Not installed* on its row and *Off · not installed* on its page (`SourcePageStatus.notInstalled`).
   Its database stays in `~/Library` after the app is removed, so `wisprInstalled` (the database) could not tell. Its
   mark is the vendor's bundled one (`OriginIconography.logoName("wispr-flow") == "wispr"`), so it shows with the app gone.
+- **Wispr Flow is off the offer for now (owner 2026-11-04: "remove wisprflow also from sources for now").**
+  `SourceCatalog.wisprOffered = false` is the one line; `true` brings all of this back. No row on Sources, no onboarding
+  row or tile, no driver (`AppSourceDrivers.live`), no notch offer (`ConnectSuggestApps.target`, `.status`), nothing in
+  Settings' list of Noes (`ConnectSuggestApps.offered`), and a checklist that ticked it drops the row
+  (`GettingStartedProgress.rows`). **The reader stops for everyone, connected or not**
+  (`LocalSourceWatcher.wisprReads`): a row that is gone cannot explain a reader still running. Its `enabled` setting
+  and read cursor are left as they are, so it resumes where it stopped. What came in stays: the overview row is drawn
+  from evidence, so someone with Wispr episodes still finds the source in ⌘K and from Sleep (`SourceDetailView`, what came
+  in by name, no Refresh), and search and the Feed are untouched. A fresh memory has no such row. No wire change: the
+  `/capture/local-source/wispr-flow` routes, the `wispr-flow` channel row and `source_overview.CATALOG` stay, the last
+  because it names old episodes' origin, and an older app keeps working. `ThisMacSourcesTests`, `LocalSourceWatcherTests`.
 `ThisMacSourcesTests`, `test_source_collections.py`.
 
 **The redesign, Sources · Inbox · entity card · Sleep (G217, G205, G212, G61, G206; ruling 36 D5/D6, 2026-10-22).**
 - **Sources is the one catalogue** (`SourceCatalog`, pure; `SourceCatalogViews`). Every way in, on or off, grouped
   *Accounts and browser* (X, YouTube, Instagram, LinkedIn, Reddit, Pinterest, TikTok) · *This Mac* (Calendar, Contacts,
-  Messages, each browser on this Mac, Apple Notes, Folders, Wispr Flow once present) · *Exports* (Files and links; Chat
+  Messages, each browser on this Mac, Apple Notes, Folders; Wispr Flow once present, while on offer) · *Exports* (Files and links; Chat
   exports, which point at their agent — `AppRouter.routeToAgents`, the Agents page) ·
   *Feeds* (RSS, Calendar feeds, Telegram), then *Agents' conversations* for an overview harness row no entry speaks for.
   A row is a `LogoTile` (through the `SourceLogoTile` adapter: an origin key or an umbrella logo slug in), the name, the

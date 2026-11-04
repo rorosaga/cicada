@@ -168,7 +168,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   drops — never on the capture path, on by default only if measured better, no setting (G207).
 - **The app reads `~/Library`, the backend parses bytes.** The launchd backend has no Full Disk Access and never opens
   those paths, never stats a path a request names, never runs git in a declared repo; the app reads (browsers, Notes via
-  its own `osascript`, Calendar, Contacts, Chrome tab groups, watched folders, Wispr Flow) and posts bytes. A browser is
+  its own `osascript`, Calendar, Contacts, Chrome tab groups, watched folders; Wispr Flow's reader is off for now, `app.md`) and posts bytes. A browser is
   read only after the person turned it on. An unreadable file shows the exact fix in the app. Chrome's history is read
   from a copy, YouTube video pages only; watch history is one episode per day, never a save (G71, `capture-and-sleep.md`);
   it and saves from a platform's saved list are indexed, never read by a model (ruling 30).
@@ -215,6 +215,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   its speaker's (`speaker:<label>`), the summary the recorder's model's (`capture-and-sleep.md`).
 - **Capture never writes into a demo bank** (`demo_guard`, by `_bank.yaml`, never by name): every capture/sources
   POST/PUT answers 409; the Stop hook redirects to the real bank left most recently.
+- **The Contacts page's faces (G154, owner 2026-11-04):** every card's names and thumbnail, outside every bank, per
+  device, for the app's grid alone; no match reads them, no agent door reaches them, every forget wipes them
+  (`contacts_book`, `capture-and-sleep.md`).
 - **A ticked chat's attachments show at view time (G179, 2026-11-04):** the app opens the file the chat app holds on
   this Mac (Telegram's through the person's own session); the bank keeps names only; thumbnails outside every bank,
   gone on untick (`app.md`).
