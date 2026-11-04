@@ -25,6 +25,8 @@ EXEMPT = {
     "api/services/papers.py": "writes its own external claims",
     "api/services/books.py": "a writer of its own reading-status/rated claims (closes only those, by the next record's "
                              "day); reads the open `started reading` thread only to settle it through progress.py",
+    "api/services/book_said.py": "current-only: reads one page's open reading-status records to ask about a same-day "
+                                 "clash; no event has that predicate",
     "api/services/page_read.py": "a writer; closes only the previous read's own `describes` claim by id (G166)",
     "api/services/link_enrichment.py": "a writer; closes only the page's own open `describes` claims when a reason re-read supersedes them (vision item 1)",
     "api/services/source_proposals.py": "current-only: reads open claims (valid_to unset) to find which saves a page rests on; no event is `about`",

@@ -12,6 +12,12 @@
 
 ## Current state and evidence
 
+- **2026-11-04 — books: a chat changes a status, covers (ruling 61, ROR-95; branch `ror95-books-status-covers`).** Stage 1's
+  `reading_status` mark, checked on the record (`book_said`), through `books.set_status` and `progress.py`; held on the episode
+  when no page is clear; *Not right* on the book's page. Covers: Apple Books' own from the app, else Open Library by id or
+  ISBN, never a title. *Book scans* on Sources. Highlights quality is untouched (under separate test). Verified end to end on
+  scratch state at haiku (`capture-and-sleep.md`). **Not yet seen on screen:** the app builds, its tests and a look at the
+  cover and status line wait on the coordinator's run (a scratch `HOME` and the harness are refused in this worktree).
 - **2026-11-04 — the Contacts page shows every card (G154, G161; branch `g154-contacts-grid`, PR #602).** Owner: "only 6
   contacts synced". Coordinator's numbers: 370 cards waiting, 6 matched, and the page listed the 6; one-part names were
   kept nowhere (196 + 139 raw records across two account sources, which overlap). `contacts_book` keeps every card's names
@@ -3118,3 +3124,27 @@ A whole row moves to DONE only after its remaining implementation and required a
     search before the owner ruled on this text, which ruling 44 forbids for a person without its encyclopedia match.
     No more lookups were run; the shipped tier (`web_check_agent_model`, sonnet) never was. **Revisit** if a settled handle is undone by the person, or a name the
     test called public turns out to be someone they know.
+61. **A chat can change a book's status, and books have covers (owner, 2026-11-04; G233, G39, ROR-95).** The owner's words:
+    "Yes, change the book status in that case. But it has to be in the context, we can always go back and correct that's what
+    cicada is about." and "I want the book covers, yes." **(a)** Reverses G233's recommendation to keep status to the person's
+    explicit acts: the person saying "I finished X" changes it, **judged by Stage 1's model in context, never by keywords**
+    (the owner relies on the model as consolidation's intelligence), as a dated `reading-status` claim with a located span of
+    their own turn. Only a `user` turn counts; "my friend finished X", "I'd love to finish X", an agent's "you finished X" and
+    the film of the name do not (measured on haiku, `capture-and-sleep.md`). It lands only on one clear book page (title or
+    alias, then the title without its subtitle, then Stage 2's own join); two pages is unclear and nothing is written. A first
+    mention stays under the promotion rules and ruling 42 is not extended: the mark is held on the episode and applied when
+    a door makes the page, dated as said. Dated by the conversation or the day it states, so a late read never overrides a
+    newer status; one day's clash goes to the status further along, and the person's word saying less than a record asks
+    once (the existing conflict path). No second writer: `books.set_status`, and `progress.py` alone for happenings.
+    *Not right* takes it back, the status before and the reading thread its finish settled reopen, and that conversation never
+    writes it again, whatever day or wording a re-read gives. Said again later with nothing different between: only its episode
+    joins the record as evidence. **(b)** A book's picture: the person's own
+    copy's cover from Apple Books' cache (the app reads, the backend keeps it outside every bank; 1 of 283 assets on the owner's
+    Mac carries an ISBN, 285 cover folders, counts only), else Open Library's by cover id or ISBN behind
+    `CICADA_ALLOW_LOGO_FETCH`, under their limits. **What leaves the Mac:** a book's ISBN-13 or cover id and the address, on a
+    view of that book, Goodreads books included; a cover id redirects through `archive.org` to `ia*.us.archive.org`, so the
+    Internet Archive sees it too. A 403's `Retry-After` is honoured per book (at least an hour, a week at most), and the 90
+    asks per 5 minutes is this process's count, starting again on a restart. **No lookup by title**: not a private name, but it reveals reading beyond
+    what a scan does and answers with a guess at a work (B1). None: nothing drawn. **Revisit** (a) if the person's *Not right*
+    rate on chat-set statuses shows the model misjudging (`resolution` events, `kind: book-status`); (b) a title lookup if
+    Goodreads rows with no ISBN are common and the owner wants them drawn.

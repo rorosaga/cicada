@@ -33,7 +33,8 @@ Three backend gates, and a separate app-side scenery gate below. They do **not**
   KB, no cookies, `net_guard` on every hop, a User-Agent naming the software and never a person; at most 30 numbers a
   run, every answer cached in `$CICADA_HOME/books/isbn_cache.json`; gated on BOTH callers — the background job after a
   scan and Sleep's tail — so a scan waits while it is off; `capture-and-sleep.md`, "Books"). Goodreads is never
-  fetched: its export is the way in. It is **opt-OUT** (on by default; `=off` disables it, which is what the test suite sets).
+  fetched: its export is the way in. **A book's cover is not this gate's** (ruling 61): it is a picture the person's view
+  asks for, behind `CICADA_ALLOW_LOGO_FETCH` (below). It is **opt-OUT** (on by default; `=off` disables it, which is what the test suite sets).
   The backlog's one-off web-check sweep (`POST /inbox/web-check`, ruling 27b) is the person's start, so the gate is
   reported in its counts, never applied — the same pinned query and nothing else leaves.
   A user-initiated `sync_now`, `POST /maintenance/enrich-links`, `POST /maintenance/verify-sites`, the person's
@@ -319,6 +320,26 @@ token copied off the overlay is useless.
 **A failed poll is recorded, not raised** (`sync_state.record_error`) and surfaces per-channel as
 `lastError`; a gate-skipped poll is recorded distinctly (`record_skip`) so a skip never reads as a
 failure or as a stale success.
+
+**Book covers (ruling 61, owner 2026-11-04) are a preview on these terms.** Asked of Open Library's covers host
+(`covers.openlibrary.org/b/id/<id>-M.jpg`, else `/b/isbn/<isbn>-M.jpg`), both `?default=false`. **That host is not the only
+one that sees the ask:** a cover id answers with a redirect through `archive.org` to an `ia*.us.archive.org` host (read
+2026-11-04; one ISBN tried answered directly), so the Internet Archive sees the cover number and this computer's address too,
+each hop through `net_guard`. **What leaves the Mac:** a book's ISBN-13 or cover id and the address, on a view of that book,
+Goodreads books included; never a title, never a person's name. No cover is a 404, never their
+blank image (read 2026-11-04: without it a 43-byte GIF). **Their terms** (openlibrary.org/dev/docs/api/covers): lookups by
+anything but a cover id or OLID are limited to 100 per IP per 5 minutes, a 403 past it; the API is for showing covers, not
+bulk download; don't crawl; a courtesy link to the book's page is appreciated (the page's own link is that). So a cover is
+asked only when the person's view draws that book, once, ever (nothing warms them); a cover id is used before an ISBN; at most
+90 asks per 5 minutes, over that a cover is just not asked yet and no miss is recorded (**the count is this process's own and
+starts again on a restart**, so a restart in the middle of a heavy scroll could reach their limit, where a 403 is the answer);
+a 403 or 429 on that host is their limit, that book asked again as it was, never another way, after an hour or the
+`Retry-After` it sent if longer (a week at most); a real miss waits 7 days. **The query is a cover id or an
+ISBN, never a title.** A title is a public catalogue query and no private person's name, but it reveals what someone reads
+beyond what a scan already does and answers with a guess at a work; the one big ISBN-less set, Apple Books, has its own covers
+on this Mac, and a book with neither draws nothing (the person can add a picture). `cover_id` comes from the ISBN lookup
+already gated by `CICADA_ALLOW_CONNECTOR_FETCH`; no extra request. Apple Books' own covers need no network at all
+(`book_covers`).
 
 **Media previews ride the picture gate (`CICADA_ALLOW_LOGO_FETCH`), like logos.** `GET /entities/{id}/preview` is the
 app drawing a card; the first request for a page's source fetches it once (`media_preview.ensure_preview`) and every
