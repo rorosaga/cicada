@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from api.services import markdown_parser, role_people
 from api.services.claims import parse_claims
 from api.services.clarification_manager import ClarificationManager
@@ -81,6 +83,7 @@ def test_b2_the_repair_leaves_a_named_tia_alone(tmp_path):
 # --- B3: legacy possible-duplicate items now fold whole pages -----------------------------------------------------
 
 
+@pytest.mark.usefixtures("pair_conversations")
 def test_b3_an_old_duplicate_question_about_a_mention_does_not_fold_a_page_promoted_since(tmp_path):
     memory = _git_bank(tmp_path)
     _page(memory, OWNER_ID, {**OWNER_FM}, "The owner.")

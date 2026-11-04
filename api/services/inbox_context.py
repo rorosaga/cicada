@@ -310,6 +310,46 @@ class InboxContext:
 
     # ---------- cause ----------
 
+    #: Per side, how many of a page's own conversations (newest first) a person pair's card may read for its excerpt.
+    PAIR_EPISODES = 6
+
+    def _pair_episode(self, fm: dict, item_ep: str) -> str | None:
+        """Owner 2026-11-04 (`pair_evidence`): the card of "Is A the same as B?" about PEOPLE shows a conversation that
+        names both — the item's own when it does, else one of the two pages' own conversations that does (bounded,
+        no search, derived on read). ``None``: keep the usual tiers (the item's own conversation names both, or none
+        of these does — Sleep retires a person question no conversation pairs)."""
+        from api.services import pair_evidence
+
+        if str(fm.get("kind") or "") != "merge_suggestion":
+            return None
+        a_id, b_id = str(fm.get("entity_id") or ""), str(fm.get("merge_target_hint") or "")
+        person = str(fm.get("suggested_classification") or "").lower().startswith("person") or "person" in (
+            str(self.entity_type(a_id) or "").lower(), str(self.entity_type(b_id) or "").lower())
+        if not person or not b_id:
+            return None
+        a_names = pair_evidence.side_names(self.memory_path, a_id, str(fm.get("entity_name") or ""))
+        b_names = pair_evidence.side_names(self.memory_path, b_id, "")
+
+        def both(ep_id: str) -> bool:
+            ep = self.episode(ep_id)
+            if ep is None:
+                return False
+            body = self._body(ep)
+            return pair_evidence.names_in(a_names, body) and pair_evidence.names_in(b_names, body)
+
+        if item_ep and both(item_ep):
+            return None
+        for eid in (a_id, b_id):
+            page = self.entity(eid)
+            eps = [str(e) for e in ((page.frontmatter.get("source_episodes") or []) if page is not None else [])]
+            for ep_id in eps[-self.PAIR_EPISODES:][::-1]:
+                if ep_id != item_ep and both(ep_id):
+                    return ep_id
+        # Last, the lexical index as it is (never a wait for a build): rare — Sleep retires a person question that no
+        # conversation pairs, so this is a card whose pairing conversation is older than its pages' recent ones.
+        found = pair_evidence.pair_episode(self.memory_path, a_names, b_names, fresh=False)
+        return found if found and found != item_ep else None
+
     def cause_for(self, fm: dict, options: list[dict]) -> Cause:
         """The three tiers of G97, first hit wins (R1)."""
         # G129 slice 2: a `removal` item was raised by a browser sync, not a
@@ -340,6 +380,9 @@ class InboxContext:
 
         candidates: list[tuple[str, str | None, object]] = []
         item_ep = str(fm.get("source_episode", "") or "").strip()
+        pair_ep = self._pair_episode(fm, item_ep)
+        if pair_ep:
+            candidates.append(("item", pair_ep, None))
         if item_ep:
             candidates.append(("item", item_ep, None))
         by_id = {c.id: c for c in self.claims(entity_id)} if claim_ids else {}

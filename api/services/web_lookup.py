@@ -149,7 +149,34 @@ PAIR_SYSTEM_PROMPT = (
 )
 
 
+#: Proposed ruling 54 (`public_handle`): is a public handle this named person? Only a public page stating both settles.
+HANDLE_SYSTEM_PROMPT = (
+    "You check on the web whether a public handle belongs to a named person. Use the web search tool with only the "
+    "queries you are given, word for word, one search each; never add, remove or change a word, and never search for "
+    "anything else. You may also be given the person's own notes about the handle: they are only for telling which "
+    "result is the account they meant, never something to search for or to answer from.\n"
+    "Answer {\"sure\": true, \"relation\": \"same\"} only when one result (the account's own profile page, or a "
+    "page that quotes it) states that this handle is this person's account. Its quote must contain both the handle "
+    "and the person's name, as the result shows them.\n"
+    "Answer {\"sure\": false} in every other case: the results do not say, the handle belongs to several accounts, the "
+    "name belongs to several people and nothing says which, or the handle is someone else's.\n"
+    "Reply with one JSON object and nothing else: {\"sure\": true, \"relation\": \"same\", \"url\": <the link of the "
+    "result that says it>, \"quote\": <the words of that result that say it, as the search showed them to you, at "
+    "most 240 characters>}."
+)
+
+
 def build_messages(c: web_settle.Candidate, context: list[str] | None = None) -> list[dict]:
+    if c.kind == web_settle.PAIR and c.handle is not None:
+        pair = c.handle
+        lines = [f"Handle: {pair.handle}", f"Person: {pair.name}",
+                 "Search queries (use exactly these, one search each): " + " | ".join(web_settle.queries_for(c))]
+        if context:
+            lines.append("The person's own notes about the handle (only for telling which result is the account they "
+                         "meant; never search for these words):")
+            lines += [f"  {line}" for line in context]
+        lines.append(f"Question: is \u201c{pair.handle}\u201d the handle of {pair.name}?")
+        return [{"role": "system", "content": HANDLE_SYSTEM_PROMPT}, {"role": "user", "content": "\n".join(lines)}]
     if c.kind == web_settle.PAIR:
         lines = [f"B: {c.name}", f"A: {c.other_name}",
                  "Search queries (use exactly these, one search each): " + " | ".join(web_settle.queries_for(c))]
@@ -244,6 +271,14 @@ def parse_answer(c: web_settle.Candidate, text: str) -> Answer:
     url, quote = str(data.get("url") or "").strip(), str(data.get("quote") or "").strip()
     if not url or not quote:
         return Answer(c.item_id, False, "no_citation")
+    if c.kind == web_settle.PAIR and c.handle is not None:
+        from api.services import public_handle
+
+        if entity_relations.clean(data.get("relation")) != "same":
+            return Answer(c.item_id, False, "not_same")
+        if not public_handle.quote_states(c.handle, quote):
+            return Answer(c.item_id, False, "quote_unstated")   # the quote must say both, checked here
+        return Answer(c.item_id, True, url=url, quote=quote, relation="same")
     if c.kind == web_settle.PAIR:
         relation = entity_relations.clean(data.get("relation"))
         if relation == "same":
@@ -529,6 +564,14 @@ async def run_tail(
             web_settle.record_event(memory_path, action="skip", item_id=c.item_id, entity_id=c.entity_id,
                                     by_kind="sleep", reason=why, engine=label)
         return report
+    if why != "plan":
+        # Proposed ruling 54: a public handle is looked up on a plan's own web search only, never a metered key.
+        for c, _ in todo:
+            if c.handle is not None:
+                report.skip("metered_only")
+                web_settle.record_event(memory_path, action="skip", item_id=c.item_id, entity_id=c.entity_id,
+                                        by_kind="sleep", reason="metered_only", engine=label)
+        todo = [(c, ctx) for c, ctx in todo if c.handle is None]
     fn = llm_fn or default_llm_fn(resolved)
     answers = await look_up(fn, todo, report)
     by = report.models[0] if report.models else (label or "agent")
@@ -570,6 +613,11 @@ def settle_answer(memory_path: Path, c: web_settle.Candidate, a: Answer, *, by: 
                   facts: web_settle.BankFacts | None = None) -> web_settle.Settled:
     """One sure answer settled by its kind's writer: a pair's relation (`web_settle.settle_pair`), else the option or
     the "what is it" answer (`web_settle.settle`)."""
+    if c.kind == web_settle.PAIR and c.handle is not None:
+        from api.services import public_handle
+
+        return public_handle.settle(memory_path, c.item_id, ref=a.url, quote=a.quote, checker=by,
+                                    checker_kind="sleep", origin="sleep", engine=label, facts=facts)
     if c.kind == web_settle.PAIR:
         return web_settle.settle_pair(memory_path, c.item_id, ref=a.url, quote=a.quote, relation=a.relation or "",
                                       checker=by, checker_kind="sleep", origin="sleep", engine=label, facts=facts)
