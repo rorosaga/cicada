@@ -4569,6 +4569,8 @@ def link_conversation(ctx: ToolContext, project: str, episode: str | None = None
     stem, miss = _project_page(memory_path, project)
     if miss is not None:
         return miss
+    if (unstarted := _not_a_project_yet(memory_path, stem)) is not None:
+        return unstarted
     episodes: list[str] = []
     if episode:
         episodes = [str(episode).strip()]
@@ -4628,6 +4630,8 @@ def link_entity(ctx: ToolContext, project: str, entity: str, remove: bool = Fals
     stem, miss = _project_page(memory_path, project)
     if miss is not None:
         return miss
+    if (unstarted := _not_a_project_yet(memory_path, stem)) is not None:
+        return unstarted
     trusted = page_editors.is_trusted(ctx.author, remote=ctx.is_remote)
     # G230: a repository page tied by a trusted agent is one of the project's repositories (a project may span
     # several); any other agent's stays a proposal on the project's page, like every page.
@@ -4679,6 +4683,15 @@ def _repository_stem(memory_path: Path, entity: str) -> str | None:
         return None
     fm = markdown_parser.parse(page, ledger=False).frontmatter or {}
     return page.stem if github_repos.is_repository_page(fm) and github_repos.page_repo(fm) else None
+
+
+def _not_a_project_yet(memory_path: Path, stem: str) -> Reply | None:
+    """Ruling 56: a concept the person never started has no project page to show a link on, so a link there would be
+    written where nobody can see or undo it. Refused, with nothing written; the page says how it may start."""
+    fm = parse_frontmatter((memory_path / "entities" / f"{stem}.md").read_text(encoding="utf-8"))[0]
+    if str(fm.get("type") or "") == "project":
+        return None
+    return Reply(f"`{stem}` is not a project yet: the person has not started it. Nothing changed.", code="refused")
 
 
 def _session_episodes(memory_path: Path, sid: str) -> list[str]:

@@ -20,7 +20,7 @@ final class ProjectsMineTests: XCTestCase {
         let mine = wire.projects.projects.map(\.id)
         XCTAssertTrue(mine.contains("pick-and-place-demo"))
         XCTAssertTrue(mine.contains("rover-arm-project"), "progress logged in the app counts on day one (Q2)")
-        XCTAssertEqual(try ProjectFixtures.row("garden-sensor-project").mineVia, "accepted")
+        XCTAssertEqual(try ProjectFixtures.timeline("garden-sensor-project").project.mineVia, "accepted")
         let pick = try XCTUnwrap(wire.timelines["pick-and-place-demo"])
         XCTAssertEqual(pick.project.description, "Get the rover arm to pick a part off the bench and place it in a tray.")
         XCTAssertEqual(pick.project.descriptionBy?.isPerson, true)

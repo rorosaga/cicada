@@ -517,6 +517,18 @@ def test_a_page_tie_carries_its_reason_to_the_row(bank):
     assert (row.tie, row.by, row.reason) == ("agent", "claude-code", "Alpha runs on it.")
 
 
+@pytest.mark.parametrize("harness", ["claude-code", "cursor"])
+def test_a_link_on_a_concept_not_started_is_refused_because_nobody_could_see_it(bank, harness):
+    """Found on a scratch run: the reply said it waits on the project's page, and a concept has none."""
+    _write(bank, "said-thing", {"type": "concept", "proposed_type": "project"})
+    _write(bank, "delta-tool", {"type": "tool"})
+    before = (bank / "entities" / "said-thing.md").read_text()
+    for reply in (mcp_tools.link_conversation(_ctx(bank, harness=harness), "said-thing", EP, reason="About it."),
+                  mcp_tools.link_entity(_ctx(bank, harness=harness), "said-thing", "delta-tool", reason="Part of it.")):
+        assert getattr(reply, "code", None) == "refused" and "not a project yet" in str(reply)
+    assert (bank / "entities" / "said-thing.md").read_text() == before
+
+
 def test_a_links_reason_is_scrubbed(bank):
     secret = "sk-ant-api03-" + "a" * 40
     mcp_tools.link_conversation(_ctx(bank), "alpha-project", EP, reason=f"Key was {secret} here.")
