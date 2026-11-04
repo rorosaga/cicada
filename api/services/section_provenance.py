@@ -263,17 +263,27 @@ def attach(entity: dict, episode_id: str, body: str) -> None:
     entity[INPUTS] = records
 
 
-def merge_selected(base: dict, incoming: dict, selected: dict) -> list[dict]:
+def merge_selected(base: dict, incoming: dict, selected: dict, *, split: bool = False) -> list[dict]:
     """Union source rows for exact selected text, including summary-to-fact carry.
 
     One record per (field, text), one copy per evidence row. A description
     copied to Summary cannot multiply the carry on the next Stage-2 merge.
+
+    ``split`` (G104 slice 2, 2026-11-04): a selected Key Fact with no row of its own that is a contiguous part of an
+    input summary or description — a sentence the merge cut off a summary that lost (`entity_resolver`) — carries
+    that summary's rows. Only where every selected text is new (Stage 2's merge of two extractions); a page's own
+    writer never passes it, so a fact already on a page is never recertified this way.
     """
     by_text = {}
+    orientations = {}
     for record in base.get(INPUTS, []) + incoming.get(INPUTS, []):
         rows = by_text.setdefault(record['text'], {})
         for ev in record['evidence']:
             rows.setdefault(tuple(sorted(ev.items())), ev)
+        if split and record.get('field') in ('summary', 'description'):
+            key = entity_body._normalize_fact(record['text'])
+            for ev in record['evidence']:
+                orientations.setdefault(key, {}).setdefault(tuple(sorted(ev.items())), ev)
     records = {}
     for field in ('summary', 'description', 'key_facts'):
         values = selected.get(field) or []
@@ -291,16 +301,28 @@ def merge_selected(base: dict, incoming: dict, selected: dict) -> list[dict]:
                         if other != text and fact_policy.extends(text, other):
                             for key, ev in other_rows.items():
                                 rows.setdefault(key, ev)
+                    if not rows and split and text:
+                        # A sentence cut off a summary that lost the merge carries that summary's rows.
+                        part = entity_body._normalize_fact(text)
+                        for whole, whole_rows in orientations.items():
+                            if part and part in whole:
+                                for key, ev in whole_rows.items():
+                                    rows.setdefault(key, ev)
                 if rows:
                     records.setdefault((field, text), {'field': field, 'text': text, 'evidence': list(rows.values())})
     return list(records.values())
 
 
-def refresh(frontmatter: dict, original_body: str, body: str, entity: dict, *, synthesized: bool = False) -> None:
+def refresh(frontmatter: dict, original_body: str, body: str, entity: dict, *, synthesized: bool = False,
+            fold: bool = True) -> None:
     """Filter links by exact CURRENT old items plus selected incoming text.
 
     Never repair an unmatched guard. Inaccessible sections retain their raw
     records and guards; readable sections cannot resurrect obsolete pre-edit links.
+
+    ``fold=False``: a fact that now says an old one word for word and more does NOT inherit its rows — a person's or
+    an agent's edit (`page_edits`) that adds to a Sleep fact makes it theirs, with no provenance (G104 slice 2: only a
+    fact whose rows prove Sleep wrote it is ever rewritten by `revision_prose`).
     """
     raw = frontmatter.get(FIELD)
     decoded = decode(raw)
@@ -338,7 +360,7 @@ def refresh(frontmatter: dict, original_body: str, body: str, entity: dict, *, s
         # A fact folded into one that says it word for word and then more (`fact_policy.extends`) is gone from the
         # page; its source rows move onto the fact that now holds it, so no source is lost with the repeat.
         present = {item.key for item in items}
-        folded = [(key, text) for key, text in texts.get(section, {}).items() if key not in present]
+        folded = [(key, text) for key, text in texts.get(section, {}).items() if key not in present] if fold else []
         for item in items:
             if item.ambiguous:
                 continue

@@ -1234,7 +1234,39 @@ def _selected_page_inputs(entity: dict, sections: dict[str, str],
     except (KeyError, TypeError, ValueError, AttributeError):
         selected[section_provenance.INPUTS] = section_provenance.merge_selected(
             {section_provenance.INPUTS: old_records}, {}, selected)
+    selected[section_provenance.INPUTS] = list(selected[section_provenance.INPUTS]) + _split_fact_inputs(
+        entity, selected, old_records, original_body)
     return selected
+
+
+def _split_fact_inputs(entity: dict, selected: dict, old_records: list[dict], original_body: str) -> list[dict]:
+    """G104 slice 2 (2026-11-04): a Key Fact this write split off an orientation (`entity_body.retain_orientation`,
+    `merge_sections_fallback`'s displaced sentences) carries the source rows of the orientation it was cut from — the
+    incoming summary/description (its conversation and body hash, `section_provenance.attach`) or the page's old
+    Summary (its matched rows) — when its words are a contiguous part of that text. Only a fact NEW in this write: a
+    Key Fact the page already held keeps whatever rows it had (none, for one written before this rule), never
+    recertified from a later conversation that happens to repeat it."""
+    def norm(text: str) -> str:
+        return entity_body._normalize_fact(text)
+
+    on_page = {norm(i.text) for i in section_provenance.scan(original_body or '').get('key_facts', [])}
+    exact = {norm(r['text']) for r in selected.get(section_provenance.INPUTS) or [] if r.get('field') == 'key_facts'}
+    sources = [r for r in [*(entity.get(section_provenance.INPUTS) or []), *old_records]
+               if isinstance(r, dict) and r.get('field') in ('summary', 'description') and r.get('evidence')
+               and str(r.get('text') or '').strip()]
+    out = []
+    for fact in selected.get('key_facts') or []:
+        key = norm(fact)
+        if not key or key in on_page or key in exact:
+            continue
+        rows: dict = {}
+        for record in sources:
+            if key in norm(record['text']):
+                for ev in record['evidence']:
+                    rows.setdefault(tuple(sorted(ev.items())), ev)
+        if rows:
+            out.append({'field': 'key_facts', 'text': fact, 'evidence': list(rows.values())})
+    return out
 
 
 def _is_human_edited(frontmatter: dict, sections: dict[str, str]) -> bool:

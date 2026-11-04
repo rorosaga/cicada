@@ -280,8 +280,11 @@ def page_job(memory_path: Path, entity_id: str, path: Path, revisions: dict, cha
                     if all((words := still_says(o)) is not None and not words & gone for o in others):
                         old_gone |= gone
                         on_page.add(ep)
-                if any(ev.episode == ep and ev.hash == rev.hash for ev in rows) and any(c.fresh & said for c in chs):
-                    fresh_hit = True
+                if any(ev.episode == ep and ev.hash == rev.hash for ev in rows):
+                    # The page was written from this revision too: its person's lines saying a removed word are
+                    # asked about (never rewritten) even when no Sleep passage carried that word.
+                    on_page.add(ep)
+                    fresh_hit = fresh_hit or any(c.fresh & said for c in chs)
             if old_gone:
                 found.append(("old", section, item, rows, frozenset(old_gone)))
             elif hand_gone:

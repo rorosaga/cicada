@@ -34,8 +34,9 @@ the fence or the page's sections, which this tool does not do.
   sections (Key Facts, History, Links, Open Questions) need no mark: Sleep unions into them and shortens them only in
   one place — `revision_prose` (G104 slice 2) rewrites or removes a Key Fact or Open Question when a conversation it
   came from was edited — and only an item whose ``section_provenance`` rows prove Sleep wrote it from that
-  conversation. An edit here drops the item's rows (its exact-text guard no longer matches), so an edited or typed
-  line is never one of them, whatever ``git blame`` says after a page merge moved it (review of #589).
+  conversation. An edit here drops the item's rows (its exact-text guard no longer matches, and an edit that only adds
+  words never inherits the old item's rows — ``refresh(fold=False)``), so an edited or typed line is never one of
+  them, whatever ``git blame`` says after a page merge moved it (review of #589).
 
 **Blame is git.** The edit commits alone under the harness (``Cicada-Author``), with the conversation
 (``Cicada-Session``); the reason is a ``Reason:`` line of its own and cited words are ``Evidence:`` lines (spans,
@@ -683,7 +684,8 @@ def plan(frontmatter: dict, body: str, request: Request, *, author: str, day: st
             # A word-level fix keeps a machine article the writer's (it restamps only a stamp that held).
             entity_article.carry_stamp(fm, original, new_body)
         # An edited item's evidence rows go (its exact-text guard no longer matches); the rest stay.
-        section_provenance.refresh(fm, original, new_body, {})
+        # An edited item is the editor's: never one that inherits a Sleep fact's rows by extending it (`fold=False`).
+        section_provenance.refresh(fm, original, new_body, {}, fold=False)
     return Outcome(fm, new_body, changes, [t or "(lead)" for t in touched], pinned)
 
 

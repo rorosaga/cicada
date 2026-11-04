@@ -1424,13 +1424,21 @@ Sleep, Key Facts said Friday twice beside Thursday twice, "targets Linux only" t
 - **Measured after** (the same notes plus the pinned case, run on the provenance-only rule): every passage whose rows
   prove it came from the edited lines was corrected (Friday, Linux and the unpinned Lisbon fact removed); the pinned
   Key Fact kept and asked about; History gained the three changes, dated; one prose call, 2,086 input / 1,215 output
-  tokens; no conflict question. Two Key Facts Stage 5 wrote with no rows still say Friday and Linux (below). Case by
-  case on the G104 row. `test_revision_prose.py` pins the cases end to end through `sleep_cycle.run` on the engine seam,
+  tokens; no conflict question. Two Key Facts Sleep had cut off a summary with no rows still said Friday and Linux —
+  closed by the next bullet: rerun, nothing outside History says Friday, Linux or Lisbon but the pinned fact (kept,
+  asked once), with 22 of 23 Key Facts carrying rows before the edits. Case by case on the G104 row. `test_revision_prose.py` pins the cases end to end through `sleep_cycle.run` on the engine seam,
   plus a pinned fix, a blame-only edit, a merge-carried edit, a passage citing a second conversation and one with no rows.
-- **Left:** Stage 5 writes the Key Facts it splits off an orientation (`retain_orientation`) with no `section_provenance`
-  rows, so the provenance-only rule leaves them as they are — in the measured run one of two Friday facts and one of two
-  Linux facts. Recording their rows (the incoming description's) would let them be corrected. Two passages the same
-  batch's merge wrote that say the current value in different words are not always folded into one.
+- **A Key Fact cut off a summary keeps that summary's rows (2026-11-04).** Two places cut a summary into Key Facts and
+  used to drop its provenance, so the provenance-only rule could never correct them: Stage 2's merge of two extractions
+  of one page (the shorter summary loses; its sentences become facts — `entity_resolver._merge_entity_payload`, now
+  `section_provenance.merge_selected(split=True)`), and Stage 5's bounded Summary (`bound_summary` →
+  `retain_orientation`, `merge_sections_fallback`'s displaced sentences — `conflict_resolver._split_fact_inputs`). A fact
+  that is a contiguous part of an input summary or description, or of the page's old Summary, carries that text's rows
+  (its conversation and body hash), through the same `section_provenance.refresh` writer. Only a fact new in that write:
+  a Key Fact already on a page keeps what it had — **facts written before this change have no rows and stay untouched
+  by the revision pass**, as does a fact cut off a summary a model rewrote (its words are no input's).
+- **Left:** two passages the same batch's merge wrote that say the current value in different words are not always
+  folded into one.
 
 **A title is never joined on the name alone when it could be two things (G227, 2026-10-29).** Stage 2's exact-title
 join used to take whichever page held the name (one per title in `existing_by_name`, last writer wins), whatever its

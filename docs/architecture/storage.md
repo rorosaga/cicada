@@ -760,7 +760,9 @@ Questions — never History, which gains a dated line saying what changed). This
 sections are unioned, never shortened": a Key Fact the source itself stopped saying leaves the list, and git keeps it.
 Only a passage whose `section_provenance` rows prove Sleep wrote it from the edited conversation — and cite no other
 source still saying the removed word — is rewritten; a passage with no rows (legacy prose, an edited or typed line, a
-line a page merge carried) never is. A passage the person or an agent wrote or fixed (`has_human_prose`, a pinned
+line a page merge carried) never is. A Key Fact Sleep cuts off a summary — Stage 2's losing summary, Stage 5's bounded
+Summary — carries that summary's rows (`merge_selected(split=True)`, `conflict_resolver._split_fact_inputs`), so it is
+correctable; one written before 2026-11-04 has none and stays as it is. A passage the person or an agent wrote or fixed (`has_human_prose`, a pinned
 `corrections` row on the changed words, a line git blames on a `Page edit` commit) becomes, instead, one `page_edit`
 inbox item per page, `origin: revision`. `section_provenance` rows into a revised episode move onto its new body (`remap`): spans located
 again never fuzzily, whole-conversation rows restamped — except on a passage still saying a removed word. The pending

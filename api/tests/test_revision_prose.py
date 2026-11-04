@@ -428,6 +428,104 @@ def test_a_hand_edit_a_page_merge_carried_is_never_rewritten(tmp_path, monkeypat
     assert "rehearsal" not in prompts[0] and not list((memory / "inbox").rglob("inbox-*.md"))
 
 
+def test_an_edit_that_adds_to_a_sleep_fact_leaves_it_with_no_rows(tmp_path):
+    """2026-11-04 live rerun: the person's edit appended words to a Sleep fact, and the fold rule (`extends`) handed
+    the edited fact the old rows — so after a page merge lost the blame it would read as Sleep's and be rewritten."""
+    from api.routers.entities import _person_edit
+
+    rev = episode_revision.build({"id": EP["a"], "content": V2["a"]}, V1["a"])
+    memory, _ = _rows_bank(tmp_path, {"The design review meeting is on Friday.":
+                                      [evidence.reasoning(EP["a"], hash=rev.prior_hash)]})
+    _person_edit(memory, "alpha-project", page_edits.parse_request(
+        [{"old": "meeting is on Friday.", "new": "meeting is on Friday, in room two.", "pin": False}]), "The room.")
+    parsed = markdown_parser.parse(memory / "entities" / "alpha-project.md", ledger=False)
+    (item,) = [i for i in section_provenance.scan(parsed.body)["key_facts"]
+               if i.text == "The design review meeting is on Friday, in room two."]
+    assert item.key not in section_provenance.matched(parsed.frontmatter, parsed.body).get("key_facts", {})
+
+
+def test_a_fact_split_off_an_orientation_carries_its_rows_and_follows_the_revision(tmp_path, monkeypatch):
+    """2026-11-04 (review rerun): Stage 5 cut the incoming summary's later sentences into Key Facts with no rows, so the
+    provenance-only rule could never correct them. Real Stage 1 → Stage 2 → Stage 5 write: the split-off fact now
+    carries the conversation it came from, and the revision of that conversation removes it. A fact the page held
+    before stays as it was."""
+    from api.services import conflict_resolver, entity_resolver
+
+    memory = _bank(tmp_path)
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(memory))
+    settings = Settings(_env_file=None, litellm_model="synthetic")
+    ep_a, ep_b = "ep_2026-10-07_001", "ep_2026-10-07_002"
+    description = "A synthetic project with enough substantive description to qualify for single-episode promotion. " * 3
+    outputs = [
+        {"entities": [{"name": "alpha-project", "type": "project", "summary": "alpha-project is a synthetic project.",
+                       "description": description, "key_facts": ["Original fact."], "confidence": .95}],
+         "relationships": []},
+        {"entities": [{"name": "alpha-project", "type": "project", "confidence": .95,
+                       "summary": "alpha-project is a synthetic audio project. Its design review meeting is on Friday."}],
+         "relationships": []},
+    ]
+
+    async def fake(**kwargs):
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps(outputs.pop(0))))])
+    monkeypatch.setattr(entity_extractor.litellm, "acompletion", fake)
+    bodies = {}
+    for ep in (ep_a, ep_b):
+        body = "user: alpha-project is my project.\nassistant: Noted.\n" + "\n".join(
+            f"user: alpha-project observation {n} for {ep}\nassistant: Noted." for n in range(4))
+        if ep == ep_b:
+            body += "\nuser: The design review meeting is on Friday."
+        bodies[ep] = body
+        markdown_parser.write(memory / "episodes" / f"{ep}.md", {"id": ep, "timestamp": "2026-10-07T10:00:00Z"}, body)
+        page = memory / "entities" / "alpha-project.md"
+        existing = [] if ep == ep_a else [{"id": "alpha-project", **vars(markdown_parser.parse(page))}]
+        extracted = asyncio.run(entity_extractor.extract([{"id": ep, "content": body, "origin": "synthetic"}],
+                                                         settings))
+        resolved = asyncio.run(entity_resolver.resolve(extracted, existing, settings))
+        conflict_resolver.apply_changes(resolved["changes"], memory)
+    parsed = markdown_parser.parse(memory / "entities" / "alpha-project.md", ledger=False)
+    records = section_provenance.matched(parsed.frontmatter, parsed.body)
+    rows = {i.text: [ev.episode for ev in records.get("key_facts", {}).get(i.key, (None, []))[1]]
+            for i in section_provenance.scan(parsed.body)["key_facts"]}
+    assert rows["Its design review meeting is on Friday."] == [ep_b]       # split off ep_b's summary, with its row
+    assert rows["Original fact."] == [ep_a]                                # an exact fact keeps its own row only
+
+    _git(memory, "init", "-q")
+    _git(memory, "add", "-A")
+    _git(memory, "commit", "-qm", "Sleep cycle 2026-10-07")
+    revised_body = bodies[ep_b].replace("on Friday.", "on Thursday.")
+    rev = episode_revision.build({"id": ep_b, "content": revised_body}, bodies[ep_b])
+    prompts: list = []
+    _prose_engine(monkeypatch, prompts)
+    asyncio.run(revision_prose.run(memory, _settings_for(memory), {ep_b: rev}))
+    facts = _facts(_prose(memory))
+    assert "Its design review meeting is on Friday." not in facts and "Original fact." in facts
+
+
+def test_a_sentence_stage_two_cuts_off_a_losing_summary_keeps_its_rows():
+    """2026-11-04 (live rerun): two extractions of one page in a batch — the shorter summary loses and its sentences
+    become Key Facts (`entity_resolver._merge_entity_payload`). They used to lose the conversation's row there, so
+    "It uses tokio for async work and targets Linux only." reached the page with no provenance."""
+    from api.services import entity_resolver
+
+    def extraction(ep, summary):
+        entity = {"name": "alpha-project", "type": "project", "summary": summary}
+        section_provenance.attach(entity, ep, f"user: notes for {ep}")
+        return entity
+
+    long_summary = "alpha-project is a Rust tool that turns audio recordings into spectrograms for the owner."
+    merged = entity_resolver._merge_entity_payload(
+        extraction(EP["a"], long_summary),
+        extraction(EP["c"], "alpha-project is a project. It uses tokio for async work and targets Linux only."))
+    fact = "It uses tokio for async work and targets Linux only."
+    assert fact in merged["key_facts"]
+    (record,) = [r for r in merged[section_provenance.INPUTS] if r["text"] == fact]
+    assert [ev["episode"] for ev in record["evidence"]] == [EP["c"]]
+    # Without the cut (`split=False`, a page writer's own call), nothing is carried.
+    assert not [r for r in section_provenance.merge_selected(
+        extraction(EP["a"], long_summary), extraction(EP["c"], "x. " + fact), {"key_facts": [fact]})
+        if r["text"] == fact]
+
+
 def test_a_contradiction_is_dropped_only_when_the_old_value_rests_on_the_revision_alone(tmp_path, monkeypatch):
     """Stage 3 (review of #589, B1): the check is always asked; its question is dropped only when the old side is words
     the edited conversation itself took away and nothing else the page rests on says them."""
