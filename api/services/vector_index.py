@@ -860,6 +860,8 @@ class SqliteVecIndexer:
             except Exception:
                 continue
             fm = parsed.frontmatter or {}
+            if fm.get(evidence.LOCKED_NOTE_KEY):
+                continue   # G234: a retired locked note is in no index
             # Gate B2: the dropped-middle marker (the episode's own record) is blanked before chunking.
             body = evidence.mask_gaps(parsed.body, evidence.gap_ranges(fm, parsed.body)).strip()
             if not body:

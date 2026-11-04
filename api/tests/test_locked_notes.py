@@ -1,0 +1,249 @@
+"""G234: a locked Apple Note is never stored, whatever a post carries, and nothing per note stays in the bank.
+
+Every note here is synthetic. The app's half (never requesting the body) is `AppleNotesReaderTests`.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import subprocess
+
+import pytest
+
+from api.services import (
+    channel_items,
+    evidence,
+    history_index,
+    markdown_parser,
+    notes_sync,
+    search_index,
+    sleep_cycle,
+    sync_state,
+)
+from api.services.notes_sync import FIELD_SEP, RECORD_SEP
+
+SECRET = "canary-secret-7f3a"
+TITLE = "canary-title-locked"
+FOLDER = "canary-folder-private"
+
+
+def run(coro):
+    return asyncio.run(coro)
+
+
+@pytest.fixture
+def memory(tmp_path):
+    bank = tmp_path / "memory"
+    for sub in ("episodes", "entities", "sources"):
+        (bank / sub).mkdir(parents=True)
+    return bank
+
+
+def _record(note_id, body, name="A note", modified="m1", folder="Notes", account="iCloud"):
+    return FIELD_SEP.join([note_id, name, body, "c1", modified, folder, "2026-01-02T10:00:00", "3600", account])
+
+
+def _dump(*records):
+    return RECORD_SEP.join(records)
+
+
+def _everything(bank):
+    """Every byte in the bank but its git store."""
+    return "\n".join(p.read_text(encoding="utf-8", errors="replace") for p in bank.rglob("*")
+                     if p.is_file() and ".git" not in p.parts)
+
+
+def _episodes(bank):
+    return sorted((bank / "episodes").glob("*.md"))
+
+
+def _stub(bank):
+    """What an older app left: a locked note's title and folder around no text."""
+    run(notes_sync.sync_notes(bank, dump=_dump(_record("kept", "kept text"))))
+    fm = {"id": "ep_2026-01-02_900", "timestamp": "2026-01-02T09:00:00+00:00", "source": "apple-notes",
+          "origin": "apple-notes", "title": TITLE, "processed": False, "content_hash": "abc", "note_id": "n-locked",
+          "folder": FOLDER, "tags": [FOLDER]}
+    path = bank / "episodes" / "ep_2026-01-02_900.md"
+    markdown_parser.write(path, fm, f"# {TITLE}\n\n**Folder:** {FOLDER}\n**Modified:** m1\n\n")
+    index = json.loads((bank / "sources" / "notes_index.json").read_text())
+    index["n-locked"] = {"episode_id": fm["id"], "modified": "m1", "note_id": "n-locked", "account": "iCloud",
+                         "folder": FOLDER}
+    (bank / "sources" / "notes_index.json").write_text(json.dumps(index))
+    return path
+
+
+def test_a_body_flagged_locked_is_dropped_and_only_a_count_remains(memory):
+    result = run(notes_sync.sync_notes(memory, dump=_dump(_record("n-locked", SECRET, name=TITLE, folder=FOLDER),
+                                                          _record("open", "open text")),
+                                       locked_ids=["n-locked"], accounts={"n-locked": "iCloud"}))
+    assert (result["new"], result["total"], result["locked"]) == (1, 1, 1)
+    held = _everything(memory)
+    assert SECRET not in held and TITLE not in held and FOLDER not in held and "n-locked" not in held
+
+
+def test_the_posted_ids_are_never_stored(memory, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from api import config, main
+
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(memory))
+    config.get_settings.cache_clear()
+    resp = TestClient(main.app).post("/sources/sync-notes", json={"notesDump": _dump(_record("open", "open text")),
+                                                                  "lockedNoteIds": ["n-locked", "n-locked-2"]})
+    assert resp.status_code == 200 and resp.json()["locked"] == 2
+    assert "n-locked" not in _everything(memory)
+    assert sync_state.read_sync_state(memory)["notes"]["locked"] == 2
+    assert notes_sync.locked_count(memory) == 2
+    tree = TestClient(main.app).get("/sources/channels/notes/collections")
+    assert tree.status_code == 200 and tree.json()["locked"] == 2
+    # The count moves the page's validator, so the one line is never stale.
+    etag = tree.headers["etag"]
+    TestClient(main.app).post("/sources/sync-notes", json={"notesDump": "", "lockedNoteIds": ["n-locked"]})
+    again = TestClient(main.app).get("/sources/channels/notes/collections", headers={"If-None-Match": etag})
+    assert again.status_code == 200 and again.json()["locked"] == 1
+
+
+def test_an_older_apps_blank_record_is_taken_as_locked_and_never_staged(memory):
+    result = run(notes_sync.sync_notes(memory, dump=_record("n-locked", "", name=TITLE, folder=FOLDER)))
+    assert (result["new"], result["locked"]) == (0, 1)
+    assert not _episodes(memory)
+    assert TITLE not in _everything(memory)
+
+
+def test_an_older_app_sends_no_ids_so_text_it_read_cannot_be_told_apart(memory):
+    """Stated, not wished away: a locked note open at read time looks like any other note to the backend."""
+    result = run(notes_sync.sync_notes(memory, dump=_record("n-open", "looks ordinary")))
+    assert result["new"] == 1
+
+
+def test_a_new_apps_blank_record_is_dropped_without_counting_as_locked(memory):
+    result = run(notes_sync.sync_notes(memory, dump=_record("n-empty", ""), locked_ids=[]))
+    assert (result["new"], result["locked"]) == (0, 0)
+    assert not _episodes(memory)
+
+
+def test_a_sync_retires_a_stub_leaving_no_title_or_folder(memory):
+    path = _stub(memory)
+    result = run(notes_sync.sync_notes(memory, dump=_record("kept", "kept text"), locked_ids=["n-locked"]))
+    assert result["locked"] == 1 and result["retired"] == 1
+    assert path.exists()   # never unlinked
+    parsed = markdown_parser.parse(path)
+    assert parsed.frontmatter[evidence.LOCKED_NOTE_KEY] is True
+    assert parsed.frontmatter["source_deleted_at"]
+    assert parsed.frontmatter["processed"] is True and parsed.frontmatter["processed_by"] == history_index.INDEXED_BY
+    assert parsed.frontmatter["title"] == notes_sync.LOCKED_TITLE
+    assert parsed.body.strip() == ""
+    held = _everything(memory)
+    assert TITLE not in held and FOLDER not in held and "n-locked" not in held
+
+
+def test_a_note_locked_after_it_was_read_is_hidden_with_its_text_left_for_the_persons_call(memory):
+    run(notes_sync.sync_notes(memory, dump=_record("n-later", SECRET, name=TITLE)))
+    path = _episodes(memory)[0]
+    result = run(notes_sync.sync_notes(memory, dump="", locked_ids=["n-later"]))
+    assert result["retired"] == 1
+    parsed = markdown_parser.parse(path)
+    assert SECRET in parsed.body   # destruction is the person's call
+    assert parsed.frontmatter[evidence.LOCKED_NOTE_KEY] is True
+    assert parsed.frontmatter["processed"] is True
+    assert evidence.source_document(memory, parsed.frontmatter["id"]) is None
+    assert evidence.source_text(memory, parsed.frontmatter["id"]) is None
+    assert "n-later" not in (memory / "sources" / "notes_index.json").read_text()
+
+
+def test_every_episode_of_a_locked_note_is_retired_not_only_the_latest(memory):
+    run(notes_sync.sync_notes(memory, dump=_record("n-later", "first", modified="m1")))
+    run(notes_sync.sync_notes(memory, dump=_record("n-later", "second", modified="m2")))
+    assert len(_episodes(memory)) == 2
+    assert run(notes_sync.sync_notes(memory, dump="", locked_ids=["n-later"]))["retired"] == 2
+
+
+def test_a_note_unlocked_later_is_simply_new(memory):
+    run(notes_sync.sync_notes(memory, dump=_record("n-later", "before", modified="m1")))
+    run(notes_sync.sync_notes(memory, dump="", locked_ids=["n-later"]))
+    result = run(notes_sync.sync_notes(memory, dump=_record("n-later", "after", modified="m1"), locked_ids=[]))
+    assert result["new"] == 1
+    fresh = [p for p in _episodes(memory) if not markdown_parser.parse(p).frontmatter.get(evidence.LOCKED_NOTE_KEY)]
+    assert len(fresh) == 1 and "after" in markdown_parser.parse(fresh[0]).body
+
+
+def test_sleep_guard_retires_a_stub_before_a_run_freezes_it_with_no_sync_first(memory):
+    path = _stub(memory)
+    fm = markdown_parser.parse(path).frontmatter
+    assert history_index.waits_for_model(fm)
+    assert fm["id"] in [e["id"] for e in sleep_cycle._get_unprocessed_episodes(memory, with_body=False)]
+    run(sleep_cycle._index_without_model_safely(memory))
+    assert fm["id"] not in [e["id"] for e in sleep_cycle._get_unprocessed_episodes(memory, with_body=False)]
+    held = _everything(memory)
+    assert TITLE not in held and FOLDER not in held
+    assert not history_index.waits_for_model(markdown_parser.parse(path).frontmatter)
+
+
+def test_sleep_guard_commits_alone_naming_only_paths(memory):
+    subprocess.run(["git", "init", "-q"], cwd=memory, check=True)
+    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@e", "commit", "-q", "--allow-empty", "-m", "0"],
+                   cwd=memory, check=True)
+    _stub(memory)
+    (memory / "untouched.txt").write_text("someone else's")
+    run(notes_sync.retire_stubs_safely(memory))
+    log = subprocess.run(["git", "log", "-1", "--format=%B"], cwd=memory, capture_output=True, text=True).stdout
+    assert "Locked notes retired" in log
+    assert TITLE not in log and FOLDER not in log
+    assert "Cicada-Author: cicada" in log
+    status = subprocess.run(["git", "status", "--short", "--", "untouched.txt"], cwd=memory, capture_output=True,
+                            text=True).stdout
+    assert status.startswith("??")
+
+
+def test_sleep_guard_leaves_a_note_with_text_and_other_sources_alone(memory):
+    run(notes_sync.sync_notes(memory, dump=_record("n-open", "real words")))
+    other = memory / "episodes" / "ep_2026-01-02_901.md"
+    markdown_parser.write(other, {"id": "ep_2026-01-02_901", "origin": "imessage", "source": "imessage",
+                                  "processed": False, "timestamp": "2026-01-02T09:00:00+00:00"}, "")
+    assert notes_sync.retire_locked(memory, set()).paths == []
+    assert markdown_parser.parse(other).frontmatter.get(evidence.LOCKED_NOTE_KEY) is None
+
+
+@pytest.mark.parametrize("body", ["", "\n\n", "# T\n\n**Folder:** F\n**Modified:** m\n\n", "# T\n\n"])
+def test_is_stub_true(body):
+    assert notes_sync.is_stub(body)
+
+
+@pytest.mark.parametrize("body", ["# T\n\n**Folder:** F\n**Modified:** m\n\nT\nwords", "# T\n\nT", "words"])
+def test_is_stub_false(body):
+    assert not notes_sync.is_stub(body)
+
+
+def test_a_retired_note_lists_nowhere_and_the_page_gets_the_count(memory):
+    run(notes_sync.sync_notes(memory, dump=_dump(_record("open", "open text", folder="Kept"),
+                                                 _record("n-later", SECRET, name=TITLE, folder=FOLDER))))
+    run(notes_sync.sync_notes(memory, dump=_record("open", "open text", folder="Kept"), locked_ids=["n-later"]))
+    sync_state.record_sync(memory, "notes", count=1, extra={"locked": 12})
+    page = channel_items.items(memory, "notes")
+    assert page["total"] == 1 and TITLE not in json.dumps(page)
+    tree = channel_items.collections(memory, "notes")
+    assert tree["locked"] == 12
+    assert FOLDER not in json.dumps(tree)
+    assert [c["count"] for a in tree["accounts"] for c in a["collections"]] == [1]
+    assert all(row.frontmatter.get("title") != TITLE for row in sleep_cycle.episode_headers(memory))
+
+
+def test_no_other_channel_says_anything_about_locks(memory):
+    assert "locked" not in channel_items.collections(memory, "reminders-local")
+    assert "locked" not in channel_items.collections(memory, "calendar-local")
+
+
+def test_a_retired_note_is_never_indexed_for_words(memory):
+    if not search_index.fts5_available():
+        pytest.skip("no FTS5")
+    run(notes_sync.sync_notes(memory, dump=_record("n-later", SECRET, name=TITLE)))
+    run(notes_sync.sync_notes(memory, dump="", locked_ids=["n-later"]))
+    search_index.rebuild(memory)
+    db = search_index.db_path(memory)
+    conn = search_index._open(db)
+    try:
+        rows = conn.execute("SELECT doc_key FROM docs WHERE doc_key LIKE 'episodes/%'").fetchall()
+    finally:
+        conn.close()
+    assert rows == []
