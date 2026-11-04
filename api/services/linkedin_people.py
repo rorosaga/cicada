@@ -346,7 +346,7 @@ def _index(memory_path: Path) -> _Index:
         if fm.get("status") == "dropped":
             continue
         kind = str(fm.get("type") or "")
-        labels = [fm.get("name") or f.stem.replace("-", " "), *(fm.get("aliases") or [])]
+        labels = people_directory.labels(fm, f.stem)
         if kind == "company":
             for label in labels:
                 if key := _fold(label):

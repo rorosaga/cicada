@@ -70,6 +70,24 @@ final class ThisMacSourcesTests: XCTestCase {
         XCTAssertEqual(row(SourceCatalog.wisprChannel, in: back)?.status, .connected)
     }
 
+    /// Owner 2026-11-04 ("remove wisprflow also from sources for now"): every surface that offers it follows the one
+    /// flag, whichever way it is set, so bringing it back needs no other line and no change here.
+    func testWisprFlowIsOfferedOnlyWhileItsOneFlagSaysSo() {
+        let flag = SourceCatalog.wisprOffered
+        XCTAssertEqual(ConnectSuggestApps.target(bundleId: LocalSourceWatcher.wisprBundleId) != nil, flag)
+        XCTAssertEqual(ConnectSuggestApps.status(of: SourceCatalog.wisprChannel, channels: [], overview: [],
+                                                 localReaders: [:]) != nil, flag)
+        XCTAssertEqual(ConnectSuggestApps.offered(SourceCatalog.wisprChannel), flag, "Settings' list of Noes")
+        XCTAssertTrue(ConnectSuggestApps.offered("whatsapp"))
+        let defaults = UserDefaults(suiteName: "ThisMacSourcesTests.wispr.\(UUID().uuidString)")!
+        let local = LocalSourceWatcher(lights: BrowserWatcher(defaults: defaults, channels: []), defaults: defaults)
+        XCTAssertEqual(AppSourceDrivers.live(calendar: nil, local: local, store: nil)[AppSourceDrivers.wispr] != nil, flag)
+        // A checklist that ticked it before keeps every other row, and cannot be held open by this one.
+        let ticked = GettingStartedRecord(enabled: [.app(AppSourceDrivers.wispr), .app(AppSourceDrivers.notes)])
+        let expected: [FoundItemID] = (flag ? [.app(AppSourceDrivers.wispr)] : []) + [.app(AppSourceDrivers.notes)]
+        XCTAssertEqual(GettingStartedProgress.rows(GettingStartedInputs(record: ticked)).map(\.id), expected)
+    }
+
     // MARK: - Accounts by their real provider
 
     /// EventKit's source types: local 0, exchange 1, calDAV 2, mobileMe 3, subscribed 4, birthdays 5.

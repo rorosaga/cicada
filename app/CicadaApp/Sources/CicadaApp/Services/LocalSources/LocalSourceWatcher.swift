@@ -77,6 +77,7 @@ final class LocalSourceWatcher {
     private let manifests: FolderManifestStore
     private let bookmarks: FolderBookmarks
     private let wisprRoot: URL
+    private let wisprOffered: Bool
     private let debounce: Duration
     private let minimumInterval: Duration
     private let wisprDebounce: Duration
@@ -107,6 +108,7 @@ final class LocalSourceWatcher {
          defaults: UserDefaults = .standard,
          manifests: FolderManifestStore = .standard,
          wisprRoot: URL = WisprFlowReader.standardRoot,
+         wisprOffered: Bool = SourceCatalog.wisprOffered,
          debounce: Duration = BrowserWatchPolicy.debounce,
          minimumInterval: Duration = BrowserWatchPolicy.minimumInterval,
          wisprDebounce: Duration = .seconds(30),
@@ -121,6 +123,7 @@ final class LocalSourceWatcher {
         let bookmarks = FolderBookmarks(defaults: defaults)
         self.bookmarks = bookmarks
         self.wisprRoot = wisprRoot
+        self.wisprOffered = wisprOffered
         self.debounce = debounce
         self.minimumInterval = minimumInterval
         self.wisprDebounce = wisprDebounce
@@ -130,6 +133,10 @@ final class LocalSourceWatcher {
         self.resolveRoot = resolveRoot ?? { bookmarks.resolve($0) }
         self.makeWatch = makeWatch ?? { path, onChange in FSEventsWatch(path: path, handler: onChange) }
     }
+
+    /// The reader runs only while Wispr Flow is on offer and turned on. Off the offer, a turned-on setting and the cursor
+    /// stay as they are (`SourceCatalog.wisprOffered`), so nothing is read now and nothing is re-read if it returns.
+    private var wisprReads: Bool { wisprOffered && wisprSettings.enabled }
 
     /// Wispr Flow is on this Mac — the Integrations row only offers what exists.
     var wisprInstalled: Bool { FileManager.default.fileExists(atPath: WisprFlowReader(root: wisprRoot).database.path) }
@@ -227,7 +234,7 @@ final class LocalSourceWatcher {
         wisprSettings = (try? await api.fetchWisprSettings()) ?? wisprSettings
         arm()
         for folder in folders { await syncFolder(folder, resolve: false) }
-        if wisprSettings.enabled { await syncWispr() }
+        if wisprReads { await syncWispr() }
     }
 
     private func scheduleReload() {
@@ -268,9 +275,9 @@ final class LocalSourceWatcher {
                 lights.publish(.stale, error: nil, for: folder.channelId)
             }
         }
-        if wisprSettings.enabled, wisprStream == nil, FileManager.default.fileExists(atPath: wisprRoot.path) {
+        if wisprReads, wisprStream == nil, FileManager.default.fileExists(atPath: wisprRoot.path) {
             wisprStream = FSEventsWatch(path: wisprRoot.path) { [weak self] in self?.wisprChanged() }
-        } else if !wisprSettings.enabled {
+        } else if !wisprReads {
             wisprStream?.stop()
             wisprStream = nil
             lights.publish(nil, error: nil, for: Self.wisprChannel)
@@ -555,7 +562,7 @@ final class LocalSourceWatcher {
             saveCursor(cursor)
         }
         arm()
-        if wisprSettings.enabled {
+        if wisprReads {
             lastStarted[Self.wisprChannel] = nil
             await syncWispr()
         }
@@ -572,7 +579,7 @@ final class LocalSourceWatcher {
     /// words (L final review, finding 1). A source that is turned off says so
     /// instead of reporting a sync that never ran.
     func syncWisprNowReporting() async throws -> String {
-        guard wisprSettings.enabled else {
+        guard wisprReads else {
             throw BrowserImportActions.ImportActionError.failed(LocalSourceCopy.wisprTurnedOff)
         }
         let wasSyncing = syncing.contains(Self.wisprChannel)
@@ -585,7 +592,7 @@ final class LocalSourceWatcher {
 
     func syncWispr() async {
         let channel = Self.wisprChannel
-        guard wisprSettings.enabled else { return }
+        guard wisprReads else { return }
         if syncing.contains(channel) {
             dirty[channel] = true
             return
