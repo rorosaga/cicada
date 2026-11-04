@@ -15,7 +15,7 @@
 - **2026-11-04 — waiting on Reddit, not the owner.** Reddit API access was requested 2026-11-04. When Reddit approves,
   register the installed app per `network.md` ("Registering Cicada's Reddit app") and set `reddit.CLIENT_ID`.
 - **2026-11-04 — hookless apps relay as they talk; exports are one-time (rulings 57, 58, below; G105, G197; branch
-  `ruling-57-58-relay-and-one-time-exports`).** The Claude desktop app's local connection is offered and asked for
+  `ruling-57-58-relay-and-one-time-exports`, PR #604).** The Claude desktop app's local connection is offered and asked for
   `cicada_capture_turns` by exact client name; a hook-captured harness never is, whatever it calls itself. #592's weekly
   nudge and Downloads pickup are gone; it never reached a release. **Blocked on the Funnel question (D6′, 2026-11-03):**
   claude.ai on web and phone and ChatGPT reach the relay only through a public address, today a tunnel the person runs;
