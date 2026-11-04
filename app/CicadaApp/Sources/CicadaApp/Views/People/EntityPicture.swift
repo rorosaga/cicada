@@ -109,7 +109,8 @@ struct EntityPicture: View {
     }
 
     var surface: some View {
-        let shape = EntityPictureLayout.clip(type, height: frame.height)
+        let drawn = EntityPictureLayout.drawnFrame(type, source: picture?.source, image: image?.size, well: frame)
+        let shape = EntityPictureLayout.clip(type, height: drawn.height)
         let fit = picture?.source == .logo
         return ZStack {
             if let image {
@@ -117,19 +118,20 @@ struct EntityPicture: View {
                     .resizable()
                     .interpolation(.high)
                     .aspectRatio(contentMode: fit ? .fit : .fill)
-                    .frame(width: frame.width, height: frame.height)
+                    .frame(width: drawn.width, height: drawn.height)
             } else {
                 EntityPictureFallback(type: type, name: name, units: units, frame: frame,
                                       chosenInitials: picture?.source == .initials)
             }
         }
-        .frame(width: frame.width, height: frame.height)
+        .frame(width: drawn.width, height: drawn.height)
         .clipShape(shape)
         .overlay {
             if EntityPictureLayout.ringed(picture?.source, hasImage: image != nil, type: type) {
                 shape.stroke(CicadaTheme.ring(.resting), lineWidth: 1)
             }
         }
+        .frame(width: frame.width, height: frame.height)
     }
 
     private func load() async -> NSImage? {
@@ -168,6 +170,15 @@ enum EntityPictureLayout {
     /// A media page's well is 3:2 (F-11's video frame); everything else is square.
     static func frame(_ type: EntityType, size: CGFloat) -> CGSize {
         shape(type) == .wide ? CGSize(width: (size * 1.5).rounded(), height: size) : CGSize(width: size, height: size)
+    }
+
+    /// Ruling 61: a tall thumbnail in a media page's wide well (a book's cover) is drawn whole at the well's height, never
+    /// cropped to the well; the ring follows the picture, and the well keeps its slot so a row's text keeps its edge.
+    static func drawnFrame(_ type: EntityType, source: PictureSource?, image: CGSize?, well: CGSize) -> CGSize {
+        guard shape(type) == .wide, source == .thumbnail, let image, image.height > image.width, image.height > 0 else {
+            return well
+        }
+        return CGSize(width: (well.height * image.width / image.height).rounded(), height: well.height)
     }
 
     /// Continuous corners that scale with the picture (DR-12).

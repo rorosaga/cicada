@@ -304,6 +304,16 @@ def test_stage_one_is_told_what_the_marker_means(memory, imported):
     assert "never the person's own words" in entity_extractor.relayed_note(_parsed(path).frontmatter)
 
 
+def test_the_cycles_own_loader_carries_what_the_note_reads(memory, imported):
+    """Through `_get_unprocessed_episodes`, never a hand-built dict: the note must reach a real run's Stage 1."""
+    from api.services import sleep_cycle
+
+    door, path = imported
+    door.send(THIRD, REPLY2)
+    episode = next(e for e in sleep_cycle._get_unprocessed_episodes(memory) if e["id"] == path.stem)
+    assert "never the person's own words" in entity_extractor.relayed_note(episode)
+
+
 # --- a later export ---------------------------------------------------------------------------------------------------
 
 def test_the_same_export_again_changes_nothing_and_keeps_the_later_turns(memory, imported):

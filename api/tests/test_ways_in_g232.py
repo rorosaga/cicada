@@ -177,8 +177,8 @@ def test_a_sync_reads_saves_upvotes_and_communities_and_files_the_last_two_index
     for path in (memory / "episodes").glob("*.md"):
         fm = markdown_parser.parse(path).frontmatter
         kinds[fm["folder"]] = history_index.kind(fm)
-    assert kinds == {"r/example": None, "Upvoted": "list", "Joined communities": "list"}, \
-        "a save is still read by Sleep (a connector poll); an upvote and a community are index-only"
+    assert kinds == {"r/example": "saved", "Upvoted": "list", "Joined communities": "list"}, \
+        "a bare save is indexed (ruling 62); an upvote and a community are index-only (ruling 30)"
     pages = [markdown_parser.parse(p).frontmatter for p in (memory / "entities").glob("*.md")]
     assert not any("u_someone" in json.dumps(p) for p in pages), "a person's profile is never a community"
     state = sync_state.read_sync_state(memory)["reddit"]

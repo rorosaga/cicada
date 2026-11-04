@@ -54,6 +54,13 @@ def unprocessed_ids(memory_path: Path) -> dict[str, str]:
     return out
 
 
+def sizes_of(memory_path: Path, ids) -> dict[str, int]:
+    """Each id's episode file size in bytes (cached stamps, never a body): what bounds a batch (``sleep_drain``)."""
+    wanted = set(ids)
+    return {str(f.frontmatter.get("id", f.stem)): int(f.size) for f in bank_index.files(memory_path, "episodes")
+            if str(f.frontmatter.get("id", f.stem)) in wanted}
+
+
 def new_since_by_origin(waiting: dict[str, str], frozen: set[str]) -> dict[str, int]:
     """Waiting episodes that were not in the frozen list, per origin."""
     out: dict[str, int] = {}
