@@ -317,9 +317,9 @@ struct ProjectPaint: Identifiable, Equatable {
         let list = "\u{0}list"
         switch change {
         case .accept(let id, _), .dismiss(let id), .header(let id, _, _): return [list, "t:\(id)"]
-        case .tie(let id, _, true): return ["t:\(id)", "c:\(id)"]
+        case .tie(let id, _, _): return ["t:\(id)", "c:\(id)"]
         case .withdrawInfluence(let id, _, _, _, _), .tiePage(let id, _, _, _, _): return ["t:\(id)"]
-        case .create, .tie, .addInfluence: return []
+        case .create, .addInfluence: return []
         }
     }
 
@@ -337,17 +337,8 @@ struct ProjectPaint: Identifiable, Equatable {
                     out.projects[i].mine = true
                     if let name, !name.isEmpty { out.projects[i].name = name }
                 }
-                out.suggested.removeAll { $0.id == id }
             case .dismiss(let id):
                 if let i = out.projects.firstIndex(where: { $0.id == id }) { out.projects[i].mine = false }
-                if let i = out.suggested.firstIndex(where: { $0.id == id }), !out.suggested[i].dismissed {
-                    out.suggested[i].dismissed = true
-                    out.dismissed += 1
-                } else if let row = list.projects.first(where: { $0.id == id }),
-                          !out.suggested.contains(where: { $0.id == id }) {
-                    out.suggested.append(SuggestedProject(id: id, name: row.name, dismissed: true))
-                    out.dismissed += 1
-                }
             case .header(let id, let name, let description):
                 if let i = out.projects.firstIndex(where: { $0.id == id }) {
                     if let name, !name.isEmpty { out.projects[i].name = name }
@@ -395,8 +386,10 @@ struct ProjectPaint: Identifiable, Equatable {
         -> ProjectConversationsPage {
         var out = page
         for p in paints {
-            if case .tie(let id, let episode, true) = p.change, id == project,
-               out.conversations.contains(where: { $0.episodeId == episode }) {
+            guard case .tie(let id, let episode, let remove) = p.change, id == project else { continue }
+            // Ruling 56 — either answer takes a proposal off the page; a tie waits for the server's row.
+            out.proposed.removeAll { $0.episodeId == episode }
+            if remove, out.conversations.contains(where: { $0.episodeId == episode }) {
                 out.conversations.removeAll { $0.episodeId == episode }
                 out.total = max(0, out.total - 1)
             }

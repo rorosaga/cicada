@@ -89,7 +89,7 @@ def test_an_agents_influence_is_its_own_never_the_persons(bank):
 
 def test_cicada_project_says_whose_it_is(bank):
     reply = mcp_tools.project(_ctx(bank), "alpha-project")
-    assert "Not one of the person's projects" in str(reply)
+    assert "Not in the person's projects" in str(reply)
     project_ownership.accept(bank, "alpha-project")
     reply = mcp_tools.project(_ctx(bank), "alpha-project")
     assert "In the person's projects." in str(reply) and reply.data["mine"] is True

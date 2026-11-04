@@ -103,18 +103,16 @@ def test_a_create_starts_the_page_already_there_and_refuses_one_that_cant_be_a_p
 def test_add_and_remove_never_archive_or_retype(client):
     c, bank = client
     target = "garden-sensor-project"
-    assert target not in {r["id"] for r in c.get("/projects").json()["projects"]}
     status = _fm(bank, target).get("status")
-    assert c.post(f"/projects/{target}/accept").status_code == 200
-    fm = _fm(bank, target)
-    assert fm["mine"]["via"] == "accepted" and fm.get("status") == status and fm["type"] == "project"
-    assert next(r for r in c.get("/projects").json()["projects"] if r["id"] == target)["mine"]
     assert c.post(f"/projects/{target}/dismiss").status_code == 200
     fm = _fm(bank, target)
     assert fm["not_mine"] and "mine" not in fm and fm.get("status") == status and fm["type"] == "project"
     assert target not in {r["id"] for r in c.get("/projects").json()["projects"]}
     assert c.post(f"/projects/{target}/accept").status_code == 200
-    assert "not_mine" not in _fm(bank, target)
+    fm = _fm(bank, target)
+    assert fm["mine"]["via"] == "accepted" and fm.get("status") == status and fm["type"] == "project"
+    assert "not_mine" not in fm
+    assert next(r for r in c.get("/projects").json()["projects"] if r["id"] == target)["mine"]
 
 
 def test_adding_a_fallback_concept_retypes_it_in_place(client):

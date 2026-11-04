@@ -8,7 +8,8 @@ appears in the project — that would pull in every conversation with a frequent
             the birth's own repository family, or a repository the project lists whose origin the checkout points at
             now, ruling 56) — a fact the harness recorded (G110 D2)
 ``named``   the person's own turn names the project (its name or an alias, a whole word), located exactly, never
-            fuzzy (G118) — only the person's turns, never an agent's reply
+            fuzzy (G118) — only the person's turns, never an agent's reply. A one-word name is also an ordinary word
+            ("Garden"), so it needs :data:`ONE_WORD_MENTIONS` (ruling 56: a mere mention ties nothing)
 ``claims``  Sleep wrote a claim on the project (or a sub-project) citing the conversation
 ``added``   the person or a trusted agent tied it by hand (``conversations_added``); another agent's waits as a proposal
 ``provider``  the conversation carries its provider's project id, which the page records (a ChatGPT ``g-p-`` id, a
@@ -35,6 +36,9 @@ from api.services import authorship, evidence, project_birth, project_ownership,
 from api.services.project_timeline import ACTIVITY_DAYS, _Bank, _claim_episodes, _conv_key, _conversation, _ep_day, _sort_ts, _tree
 
 SIGNALS = ("repo", "named", "claims", "added", "provider", "relay")
+#: How many times the person must say a one-word name in one conversation for it to be about the project. Never by case:
+#: the person may type in lowercase. Decided on the rails with no real list to measure (ruling 56: 0 of 711 listed).
+ONE_WORD_MENTIONS = 2
 MAX_RAW_SCAN = 400
 MAX_FTS_HITS = 2000
 PAGE_SIZE = 50
@@ -70,16 +74,26 @@ def _fts_candidates(memory_path: Path, names: list[str]) -> set[str] | None:
     return out
 
 
-def person_named(text: str, pattern: re.Pattern, fm: dict) -> bool:
-    """The person's own turn holds the name as a whole word (exact, any case; never fuzzy, never an agent's turn)."""
+def person_named(text: str, pattern: re.Pattern, fm: dict, *, times: int = 1) -> bool:
+    """The person's own turns hold the name as a whole word, ``times`` times or more (exact, any case; never fuzzy, never
+    an agent's turn)."""
     gaps = evidence.gap_ranges(fm, text)
+    seen = 0
     for turn in evidence.turns(text, override=authorship.of(fm), gaps=gaps):
         if turn.role not in promotion.person_kinds(fm):   # a group member's line is not the person's
             continue
         for m in pattern.finditer(text, turn.content_start, turn.end):
             if not evidence.touches_gap(m.start(), m.end(), gaps):
-                return True
+                seen += 1
+                if seen >= times:
+                    return True
     return False
+
+
+def _several_words(names: list[str]) -> re.Pattern | None:
+    """The names of more than one word: said once, they are about the project."""
+    several = [n for n in names if len(re.findall(r"\w+", n)) > 1]
+    return project_birth._name_pattern({"name": several[0], "aliases": several[1:]}) if several else None
 
 
 def _provider_ids(fm: dict) -> set[tuple[str, str]]:
@@ -150,6 +164,7 @@ def tie_reasons(memory_path: Path, stem: str, *, tz_name: str | None, bank: _Ban
     partial = False
     names = _names(fm, stem)
     pattern = project_birth._name_pattern(entity)
+    several = _several_words(names)
     if pattern is not None and names:
         candidates = _fts_candidates(bank.path, names)
         if candidates is None:
@@ -162,7 +177,9 @@ def tie_reasons(memory_path: Path, stem: str, *, tz_name: str | None, bank: _Ban
             if f is None:
                 continue
             text = bank.episode_text(ep)
-            if text and pattern.search(text) and person_named(text, pattern, f.frontmatter or {}):
+            if text and pattern.search(text) and (
+                    (several is not None and person_named(text, several, f.frontmatter or {}))
+                    or person_named(text, pattern, f.frontmatter or {}, times=ONE_WORD_MENTIONS)):
                 add(ep, "named")
     for ep in project_ownership.tied(fm, project_ownership.REMOVED_KEY):
         reasons.pop(ep, None)

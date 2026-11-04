@@ -2888,8 +2888,6 @@ def recall_detail(ctx: ToolContext, entity_id: str, *, start: int | None = None,
             why = None if fm.get("owner") is True else _relevance_line(memory_path, cid)
             if why:
                 text = text.rstrip("\n") + "\n\n" + why + "\n"
-            if _unstarted_page(path, fm):   # ruling 56: what the Suggested list used to say, to the one who can ask
-                text = text.rstrip("\n") + "\n\n" + _not_started_line(ctx, cid) + "\n"
             budget = REMOTE_DETAIL_BUDGET if ctx.is_remote else RECALL_DETAIL_BUDGET
             if not whole and start is None and len(text) > budget:
                 try:
@@ -2911,8 +2909,15 @@ def recall_detail(ctx: ToolContext, entity_id: str, *, start: int | None = None,
                 data["blocks"] = blocks
                 said = "\n\n" + page_blocks.words(blocks, kinds) + "\n"
                 if getattr(text, "segments", None):
-                    return Reply.framed([*text.segments, ("data", said)], data=data)
-                text = text.rstrip("\n") + said
+                    text = Reply.framed([*text.segments, ("data", said)])
+                else:
+                    text = text.rstrip("\n") + said
+            # Ruling 56: what the Suggested list used to say, to the one who can ask. Cicada's own direction, so outside
+            # the reference markers (G199): inside them an agent is told never to follow it.
+            offer = _start_offer(ctx, cid) if start is None and _unstarted_page(path, fm) else None
+            if offer:
+                parts = getattr(text, "segments", None) or [("data", str(text))]
+                return Reply.framed([*parts, ("own", f"\n{offer}\n")], data=data)
             return Reply(text, data=data, segments=getattr(text, "segments", None))
 
     return Reply(f"Entity '{entity_id}' not found.", code="not_found")
@@ -3099,8 +3104,11 @@ def project(ctx: ToolContext, project: str, since=None, tz: str | None = None) -
         tool = f"`{_cli_spell('cicada_project')}`" if ctx.is_cli else "cicada_project"
         if etype == "project":   # `build` returns None for a dropped project page too
             return Reply(f"`{page.stem}` was dropped from memory — {tool} reads live projects.", code="not_found")
-        offer = f" {_not_started_line(ctx, page.stem)}" if _unstarted_page(page, fm) else ""
-        return Reply(f"`{page.stem}` is a {etype}, not a project — {tool} reads projects.{offer}", code="not_found")
+        said = f"`{page.stem}` is a {etype}, not a project — {tool} reads projects."
+        offer = _start_offer(ctx, page.stem) if _unstarted_page(page, fm) else None
+        if offer:
+            return Reply.framed([("data", said), ("own", f"\n{offer}")], code="not_found")
+        return Reply(said, code="not_found")
     state = project_state.timeline_state(project_state.input_from_timeline(timeline), today)
     telemetry.record_read(timeline.project.id, surface=f"{ctx.read_surface}-project", bank=memory_path.name)
     # G150 (R-B16): the open backlog, from frontmatter alone — never a body.
@@ -3120,7 +3128,7 @@ def project(ctx: ToolContext, project: str, since=None, tz: str | None = None) -
     if ref_.description and ctx.raw_excerpts:
         by = ref_.description_by.by if ref_.description_by else "user"
         extra.append(f"Description ({'the person' if by == 'user' else by + ', on their ask'}): {ref_.description}")
-    extra.append("In the person's projects." if ref_.mine else _not_started_line(ctx, ref_.id))
+    extra.append("In the person's projects." if ref_.mine else NOT_STARTED)
     extra.append(f"Conversations tied: {timeline.conversation_count} · sources and influences: "
                  f"{len(timeline.influences)}.")
     # Decisions 9 and 10 (2026-10-28): the pulse the person sees, counted at the caller's today, and the pages in it.
@@ -3148,7 +3156,11 @@ def project(ctx: ToolContext, project: str, since=None, tz: str | None = None) -
             + (f", and {len(repositories) - 10} more." if len(repositories) > 10 else "."))
     head, _, rest = text.partition("\n")
     text = "\n".join([head, *extra, *([rest] if rest else [])])
-    return Reply(text, data={"project_id": timeline.project.id, "name": timeline.project.name,
+    offer = None if ref_.mine or not _unstarted_page(memory_path / "entities" / f"{ref_.id}.md", {"type": "project"}) \
+        else _start_offer(ctx, ref_.id)
+    return Reply(text + (f"\n{offer}" if offer else ""),
+                 segments=[("data", text), ("own", f"\n{offer}")] if offer else None,
+                 data={"project_id": timeline.project.id, "name": timeline.project.name,
                              "open_backlog": [getattr(i, "id", None) for i in open_items],
                              "mine": ref_.mine, "description": ref_.description if ctx.raw_excerpts else None,
                              "conversations": timeline.conversation_count, "influences": len(timeline.influences),
@@ -4424,15 +4436,20 @@ def _unstarted_page(path: Path, flat_fm: dict) -> bool:
         return False
 
 
-def _not_started_line(ctx: ToolContext, stem: str) -> str:
+#: Ruling 56, as data: a page's standing, stated once wherever an agent reads it.
+NOT_STARTED = "Not in the person's projects: they have not started it."
+
+
+def _start_offer(ctx: ToolContext, stem: str) -> str | None:
     """Ruling 56, in place of the Suggested list: one line where an agent reads a page the person never started. It is
-    the agent's to offer, once and in its own words, never a list and never an inbox question."""
+    the agent's to offer, once and in its own words, never a list and never an inbox question. Named only where the tool
+    exists (R12), and always a reply's ``own`` segment: a direction inside the reference markers is one to ignore."""
     if not ctx.can("cicada_create_project"):
-        return "Not one of the person's projects: they have not started it."
+        return None
     call = (f"`{_cli_spell('cicada_create_project', project=stem)}`" if ctx.is_cli
             else f"`cicada_create_project(project=\"{stem}\", reason=<what they said>)`")
-    return (f"Not one of the person's projects: they have not started it. If they are plainly working on it, offer once, "
-            f"in your own words; only on their yes, {call} makes this page the project.")
+    return (f"{NOT_STARTED} If they are plainly working on it, offer once, in your own words; only on their yes, {call} "
+            "makes this page the project.")
 
 
 def _session_checkout(memory_path: Path, session: str | None, repo: str | None) -> dict | None:

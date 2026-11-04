@@ -226,11 +226,20 @@ that stale identity match. This is one recorded source call, with no chain walk 
 (`CONTRACT_VERSION` 15, A2). The primer and installed skill gently suggest an optional brief `State:`
 (in flight / blocked / next) at the end of working replies; continuity does not depend on it. This line is included
 in the whole ≤1,800 proxy-token handshake budget, including max-primer/startup fixtures; R12 still holds.
-**Projects (ruling 45, 2026-10-27).** `cicada_create_project(project, description?, evidence?, repo?)` starts a project
-the person asked for: a harness on their G198 trust list lands it in their list (`mine: {via: agent}`), any other client
-— a remote app always — leaves a suggestion labelled as its proposal; a name already a page is refused with that page
-named. `cicada_link_conversation(project, reason, episode? | session?, remove?)` ties a conversation (recorded with the
-agent's name); an agent unties only what it tied, and the person's untie is final. `cicada_add_influence(project, what? |
+**Projects (rulings 45 and 56).** `cicada_create_project(project, description?, evidence?, reason?, repo?)` starts a
+project the person asked for, and is refused with neither `reason` nor `evidence`: a harness on their G198 trust list
+lands it in their list (`mine: {via: agent}`), any other client — a remote app always — files one `page_edit` inbox
+question (`start_project`) on a quiet concept page, and only their yes starts it. A name a page holds adopts that page
+(`project_ownership.start_target`): same id, words and history; a person, company, place, repository page or the owner's
+is refused by name, two candidates are refused, never picked; a page the person took out is refused. `repo` records the
+hook's observation as `born.repo` only when it names the checkout this session ran in.
+`cicada_link_conversation(project, reason, episode? | session?, remove?)` ties a conversation, with no `episode` the one
+the agent is in: a trusted harness at once, any other as a proposal on the project's page, never counted until taken
+(ruling 56). Each row keeps the agent's name and `reason`; an agent unties only what it tied, and the person's untie is
+final. **An agent ties proactively**, told by the primer, the skill and the tool descriptions: when the conversation shows
+a thing belongs, with a stated reason, never for a mere mention. **On a page not started** `cicada_recall_detail` and
+`cicada_project` add one line, an `own` segment outside the reference markers (G199), that the agent may offer once in its
+own words; only where `cicada_create_project` exists (R12). `cicada_add_influence(project, what? |
 url?, how?, evidence?)` records what fed a project — a link as the agent's source, a name as a claim with the agent as
 observer (`inspired-by`, `references`, `uses`; a person as `works-on` on their page), plain text when no page matches,
 never a page made. `cicada_link_entity(project, entity, reason, remove?)` (decision 10, 2026-10-28) ties a page
@@ -245,8 +254,10 @@ create|link|tie-page|influence`, proposed spellings; `/v1` `projects_create`, `p
 weeks, what it waits on; Gone quiet is its own "Quiet:" lines) and the pages in the project, proposals apart.
 `cicada_edit_page` takes `name` and `description` for a project (the header, `description_by` the harness; the old name
 stays an alias; untrusted → an inbox proposal). `cicada_project`'s reply says whether the project is in the person's
-list, their description (remote: only with `sources`), and how many conversations and influences are tied. Handshake
-Option A: the primer names none of them; the skill does. `cicada_capture_turns` takes an optional `project` — the
+list, their description (remote: only with `sources`), and how many conversations and influences are tied. The primer
+names the three in one sentence (ruling 56 amends Option A; contract 24, remote 16). Its state lists what the person
+started under "Current projects", then "Recent project pages, not started as projects" (`projects_started`, state schema
+5), the same 7 rows: on a bank where nothing is started an arriving agent still learns what the person works on. `cicada_capture_turns` takes an optional `project` — the
 relaying app's word on which project the conversation is in, only from its own context, kept as `relay.project`.
 **`cicada_note_progress`** (G141) records a happening or a milestone the person
 described — observer always the agent, `record` scope remotely, never creates a page, echoes how the date

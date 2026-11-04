@@ -53,6 +53,11 @@
   already synced show their pictures as they are. Telegram's root cause: a ticked chat's photo was asked only in
   the tick's own request, never again — now on every start and sign-in. **Owner's check:** open the own WhatsApp
   chat on the Sources page; on Telegram, restart the backend once so the photos are asked.
+- **2026-11-04 — ruling 56 recorded; suggestions go, a project starts only on the person's ask, things link by context
+  (G141, G222; branch `ruling-56-projects-by-ask`).** Owner: "yes, hide the project suggestions." Live count: 0 listed of
+  711, so a start now adopts the page that holds the name, the note keeps recent pages said to be what they are, and an
+  agent may offer once. Nothing marks pages in bulk. Sleep writes a concept with the signal, never a project. **For the
+  owner:** the Projects page is empty until they start something; New project with an existing name is the way in.
 - **2026-11-04 — New project is a page; an empty Projects list says nothing (G222; branch `feat/projects-new-page`).** Owner: "remove the text that appears when no projects" and "more like claude desktop app, and not two input text lines". New project opens as the detail column: the name as the H1, a large editor for the person's own paragraphs (kept as written, ≤ 4,000 characters, the page's lead; Sleep never writes it), and a picker over every page in memory by kind with each page's picture or its source's mark. Create is one `POST /projects` with `pages` (checked first, one person commit; a repository joins `repositories:` under ruling 53); `POST /projects/{id}/pages` routes a repository the same way, and the day the person started a project counts as activity, so a new one sits in Current. Verified on a scratch app (light and dark). **For the owner:** the live install suggests 750 projects; by construction that is every project page with no `mine` mark (the ~700 pre-D4 pages, `whyKind: none`) plus fallback concepts and repository births — whether legacy `none` pages are suggested at all is a ruling-45 call (G222's row).
 - **2026-11-04 — Claude chats: the export picked up from Downloads, and a weekly nudge (G197 layer c, G105; branch
   `claude-desktop-capture`).** Owner: "I don't see conversations I have on Claude chats or claude.ai being captured."
@@ -3061,3 +3066,69 @@ A whole row moves to DONE only after its remaining implementation and required a
     search before the owner ruled on this text, which ruling 44 forbids for a person without its encyclopedia match.
     No more lookups were run; the shipped tier (`web_check_agent_model`, sonnet) never was. **Revisit** if a settled handle is undone by the person, or a name the
     test called public turns out to be someone they know.
+56. **A project starts only from the person or an agent on their ask; things link to the projects that exist by context
+    (owner, 2026-11-04; G141, G222; amends ruling 36 D4 and ruling 45; branch `ruling-56-projects-by-ask`).** The owner's
+    words: "yes, hide the project suggestions. Ask an agent to start a project or manually though the app are the better
+    ways imo. then things can have a link/relation to existing projects, which can be done based on context and
+    proactively by the agent." **Why:** the live install's `/projects` suggested 750 pages (705 with no reason, 39
+    fallback, 5 words, 1 repository; coordinator's count, 2026-11-04), and a list nobody can clear teaches nothing.
+    **Measured on the live bank, count only (coordinator, 2026-11-04):** 711 live project pages, **0 listed**
+    (`mine_via` None on all), 39 fallback concepts; 14 observed sessions, 3 with a remote hash. So hiding suggestions
+    leaves an empty page on day one, and that is accepted (#595: an empty list says nothing), but it decided two parts
+    below. **Nothing here marks a page as the owner's in bulk:** that is a bulk bank write, the owner's to decide on
+    per-item answers, and it is not built.
+    **Sleep:** it never makes a project. What `project_birth` read (a repository the hook observed, the person's own
+    located words) is a signal: a mention with no page goes the one way unborn names always went, a held mention below
+    the promotion bar, one `concept` page marked `proposed_type: project` over it, with the signal recorded as `born`.
+    The person's own words clear the bar, because they are the person's act and a held line nobody can see would lose it
+    (Q4's reason stands: they cannot tell "helping with <bob-example>'s mural project" from their own, so they make a page and
+    never a project). A repository alone never clears it: a checkout opened once is no page, and ruling 53 already gives
+    every owned repository its own page. Stage 5 turns any `project` create into the concept, whatever a merged payload
+    says. **The person's words reach an agent as an offer, not a list:** `cicada_recall_detail` and `cicada_project`, on a
+    page not started, tell the agent it may offer once, in its own words, when the person is plainly working on it. That
+    line is Cicada's own direction, so it stays outside the reference markers (G199), and it never becomes an inbox
+    question. **Starting:** New project, `cicada projects new`, *New project from this repository* and
+    `cicada_create_project` all **adopt** a page that already answers to the name (id, alias): same id, words, claims and
+    history, a `concept` or `tool` retyped in place, a signal Sleep recorded kept as `born` so its sessions still tie. On
+    this bank that is the only way anything gets listed, so a duplicate would be the worst failure. A person, company,
+    place, repository page or the owner's own is refused by name; two pages that could be it are refused, never picked
+    by listing order. An agent's create needs the ask on record (`reason` or `evidence`), or nothing changes. A harness
+    on the G198 trust list starts it at once; any other client, remote always, files one `page_edit` inbox question
+    (`start_project`) and only the person's yes starts it. An agent never starts a page the person took out; the person
+    can. **Reachable:** nothing is archived, deleted or retyped in bulk. The other pages stay reachable by search, the
+    graph, recall and `cicada_project`; a page not started shows *Add to my projects* on its own detail, and a listed one
+    *Remove from my projects* in its menu, the only new doors and each replaces a larger one. `/accept` and `/dismiss`
+    stay. `GET /projects` sends only listed rows and an always empty `suggested` / `dismissed`, kept one release for a
+    client built against g141-7..9 (remove after 0.9). A ChatGPT grouping with no page is no longer offered; its id stays
+    on the episodes, so a later door can use it. Follow-ups still read every page: this ruling hides a list, it does not
+    silence a thread already on the record.
+    **What an arriving agent is told (coordinator's correction, 2026-11-04):** the handshake's "Current projects" holds
+    what the person started, then "Recent project pages, not started as projects" up to the same 7 rows. Matching the
+    list literally would have told every agent on this bank nothing on arrival; calling those pages the person's would
+    be untrue. The `projects` hub stays a map of the page type for the same reason.
+    **Links, automatic or proposed:**
+    | Link | By, on what | Which | Why |
+    |---|---|---|---|
+    | A session in a repository the project lists, its checkout pointing there now | Cicada, on the hook's salted origin hash | Automatic, derived on read | A fact, and the person or a trusted agent named the repository. Why D2a's "a shared remote ties nothing" does not apply: this one was listed. A remote the checkout has left ties nothing |
+    | A session in the page's own checkout family, or a folder named for it | Cicada, on the hook's observation | Automatic, derived on read | Ruling 45 Q8, unchanged |
+    | A repository whose origin is the one project's own checkout | Cicada (`how: origin`) | Automatic, only on a project the person started | Ruling 53; a page not started gets nothing it never asked for, and adopting one links it next sync |
+    | A conversation or page, by an agent on the trust list, in the conversation it is in | That agent, with its one-sentence reason | Automatic, at once | G198; the agent read the conversation, and the row shows who and why |
+    | The same, by a remote or untrusted agent | That agent, with its reason | Proposed, on the project's page, never counted until taken | G198 and D5; `conversations_added` gains `proposed` as pages had it. No inbox question: the inbox holds 582 |
+    | The person's own words naming the project | Sleep's read, located, their turns only | Automatic, derived on read; a one-word name needs 2 mentions | Q8, guarded: below |
+    | A claim on the project naming a page, an event's participant | Sleep's explicit claim | Automatic, derived on read | Decision 10, unchanged |
+    | A mere co-mention | Nobody | Never | Ruling 45 Q8, D5; the owner's "based on context" means an agent's judgement, stated |
+    Every agent's row carries `by` and `reason` (scrubbed, shown on hover), every link comes off in one act ("Not part of
+    it", "Not about this project", Unlink), and a removal holds against every writer (`conversations_removed`,
+    `entities_removed`, `repositories_removed`). **The one-word guard:** a one-word name is also an ordinary word, so it
+    needs two mentions in the person's own turns; never by case, because the person may type in lowercase. **Measured,
+    synthetic only:** a corpus and labels written for this (470 conversations, 190 labelled as about a project;
+    `tie_reasons`, seed 56), so the rates describe that mix and show the mechanism, not any real bank. One ordinary word,
+    one mention tying: precision 0.36, recall 1.00; two mentions: 0.84, 0.80. Several words, unchanged: 0.80, 1.00 (a
+    passing mention still ties). Listed repository: 30 of 30 tied, 0 of 40 decoys in a re-pointed checkout. Real precision
+    cannot be measured until something is listed. The recall cost is real: a short conversation saying a one-word name
+    once no longer ties, which the agent in it can fix. **The primer** names the three tools in one sentence (ruling 45's
+    Option A is amended) and pays for it with phrases each tool's schema already holds, so the state block keeps its
+    room; contract 24, remote 16.
+    **Revisit** when the person has listed 3 or more projects (measure the `named` rows they untie, and whether the guard
+    misses what they re-tie); if they turn down most of a harness's links (the trust list is wrong for links); or if they
+    ask to mark pages in bulk, which needs per-item answers first.
