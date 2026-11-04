@@ -20,7 +20,7 @@ from api.remote.runtime import RemoteRuntime
 from api.routers import conversations as conv
 from api.routers import intake
 from api.services import (
-    demo_guard, episode_actor, evidence, handshake, markdown_parser, mcp_tools, promotion, relay_capture,
+    cli_map, demo_guard, episode_actor, evidence, handshake, markdown_parser, mcp_tools, promotion, relay_capture,
     state_dictionary, tool_door, turn_capture,
 )
 
@@ -278,6 +278,7 @@ def test_a_queued_chat_lands_as_one_episode_and_one_conversation(server, memory,
     assert "Pass conversation" not in second
     _turn(server, "One more thing about the alpha-project rollback plan.", handle, "Added the rollback step.")
     assert [a["conversation"] for a in sent] == [handle] * 3 and not _relayed(memory)
+    assert cli_map.by_tool()["cicada_capture_turns"].replica_side == "home"     # what sends it to the outbox
 
     for args in sent:       # the home takes the outbox in order
         _door(memory, client="claude-ai", args=args)
