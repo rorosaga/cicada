@@ -9,6 +9,8 @@ struct RemindersListInfo: Codable, Equatable, Hashable, Sendable, Identifiable {
     let account: String?
     /// The person said others add to this list, so its items are never read as their own words.
     var shared: Bool = false
+    /// 2026-11-04 — the account's kind (`SourceAccountProvider`), as for a calendar.
+    var provider: String? = nil
 }
 
 struct ReminderRecord: Encodable, Equatable, Sendable {

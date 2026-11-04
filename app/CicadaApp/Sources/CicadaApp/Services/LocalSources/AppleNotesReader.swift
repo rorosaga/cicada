@@ -27,6 +27,9 @@ enum AppleNotesReader {
     /// the human date string above it reads differently in every locale) and the Mac's UTC offset in seconds, so the
     /// backend dates a note when it was written (`notes_sync._DATED_FIELDS`, 2026-10-23); the human `modified` string
     /// stays the backend's dedup key.
+    ///
+    /// 2026-11-04 — last, the folder's ACCOUNT ("iCloud", "On My Mac", a mail account's name), so the Sources page
+    /// browses account → folder → notes (`notes_sync._ACCOUNT_FIELDS`); never part of a note's dedup key.
     static let script = """
     set FS to (ASCII character 30)
     set RS to (ASCII character 29)
@@ -34,6 +37,10 @@ enum AppleNotesReader {
     set outList to {}
     tell application "Notes"
         repeat with acc in accounts
+            set accName to ""
+            try
+                set accName to name of acc as string
+            end try
             repeat with fld in folders of acc
                 try
                     set folderName to name of fld as string
@@ -44,7 +51,7 @@ enum AppleNotesReader {
                     set mDates to modification date of every note of fld
                     repeat with i from 1 to count of noteIds
                         try
-                            set end of outList to (item i of noteIds as string) & FS & (item i of noteNames as string) & FS & (item i of noteBodies as string) & FS & (item i of cDates as string) & FS & (item i of mDates as string) & FS & folderName & FS & ((item i of mDates) as «class isot» as string) & FS & utcOffset
+                            set end of outList to (item i of noteIds as string) & FS & (item i of noteNames as string) & FS & (item i of noteBodies as string) & FS & (item i of cDates as string) & FS & (item i of mDates as string) & FS & folderName & FS & ((item i of mDates) as «class isot» as string) & FS & utcOffset & FS & accName
                         end try
                     end repeat
                 end try
@@ -92,7 +99,24 @@ enum AppleNotesReader {
 
     /// Read here, then posted — every Sync now and onboarding's tick come through this one path.
     static func syncNow(run: Runner = runOsascript) async throws -> NoteSyncResult {
-        try await APIClient.shared.syncNotes(dump: read(run: run))
+        let (dump, accounts) = split(try await read(run: run))
+        return try await APIClient.shared.syncNotes(dump: dump, accounts: accounts)
+    }
+
+    /// 2026-11-04 — the script ends each record with the note's account; it travels BESIDE the dump (`noteAccounts`,
+    /// by note id), never in it: a backend that predates it checks a record's field count and would skip every 9-field
+    /// record, while it ignores an unknown key. Pure; tested. A record without the field passes through unchanged.
+    static func split(_ raw: String) -> (dump: String, accounts: [String: String]) {
+        var accounts: [String: String] = [:]
+        let records = raw.components(separatedBy: recordSeparator).map { record -> String in
+            var fields = record.components(separatedBy: fieldSeparator)
+            guard fields.count == 9 else { return record }
+            let account = fields.removeLast().trimmingCharacters(in: .whitespacesAndNewlines)
+            let id = fields[0].trimmingCharacters(in: .whitespacesAndNewlines)
+            if !id.isEmpty, !account.isEmpty { accounts[id] = account }
+            return fields.joined(separator: fieldSeparator)
+        }
+        return (records.joined(separator: recordSeparator), accounts)
     }
 
     /// Pure, so the mapping is tested without a real `osascript`. -1743 is `errAEEventNotPermitted`: the person

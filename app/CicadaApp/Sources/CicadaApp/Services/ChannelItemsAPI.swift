@@ -13,6 +13,8 @@ protocol ChannelItemsAPI: Sendable {
     func fetchWatchedDay(episode: String, etag: String?) async throws -> Conditional<WatchedDay>
     /// Sources v4 (review of #358) — one Messages chat's sittings (`GET /sources/messages/chats/{id}/sittings`).
     func fetchChatSittings(conversation: String, etag: String?) async throws -> Conditional<ChatSittings>
+    /// 2026-11-04 — where a channel's items live: accounts, each with its collections.
+    func fetchChannelCollections(channel: String, etag: String?) async throws -> Conditional<ChannelCollections>
 }
 
 extension ChannelItemsAPI {
@@ -30,6 +32,11 @@ extension ChannelItemsAPI {
     func fetchChatSittings(conversation: String, etag: String?) async throws -> Conditional<ChatSittings> {
         throw APIError.serverUnreachable
     }
+
+    /// A fake that lists items only files them nowhere: the page lists them directly.
+    func fetchChannelCollections(channel: String, etag: String?) async throws -> Conditional<ChannelCollections> {
+        throw APIError.serverUnreachable
+    }
 }
 
 extension APIClient: ChannelItemsAPI {
@@ -39,8 +46,14 @@ extension APIClient: ChannelItemsAPI {
     nonisolated static func channelItemsPath(_ channel: String, offset: Int, limit: Int, query: String = "") -> String {
         var allowed = CharacterSet.urlPathAllowed
         allowed.remove(charactersIn: "/?#")
-        let encoded = channel.addingPercentEncoding(withAllowedCharacters: allowed) ?? channel
-        let path = "/sources/channels/\(encoded)/items?offset=\(max(0, offset))&limit=\(max(1, limit))"
+        // 2026-11-04 — a list of one collection (a calendar, a Reminders list, a Notes folder) rides `collection`.
+        let (base, collection) = SourceListKey.parts(channel)
+        let encoded = base.addingPercentEncoding(withAllowedCharacters: allowed) ?? base
+        var path = "/sources/channels/\(encoded)/items?offset=\(max(0, offset))&limit=\(max(1, limit))"
+        if let collection {
+            path += "&collection=" + (collection.addingPercentEncoding(withAllowedCharacters: SourceSearch.queryAllowed)
+                                      ?? "")
+        }
         let words = SourceSearch.normalized(query)
         guard !words.isEmpty else { return path }
         return path + "&q=" + (words.addingPercentEncoding(withAllowedCharacters: SourceSearch.queryAllowed) ?? "")
@@ -49,6 +62,14 @@ extension APIClient: ChannelItemsAPI {
     func fetchChannelItems(channel: String, offset: Int, limit: Int, etag: String?) async throws
         -> Conditional<ChannelItemsPage> {
         try await getConditional(Self.channelItemsPath(channel, offset: offset, limit: limit), etag: etag)
+    }
+
+    /// 2026-11-04 — where a channel's items live (`GET /sources/channels/{id}/collections`).
+    func fetchChannelCollections(channel: String, etag: String?) async throws -> Conditional<ChannelCollections> {
+        var allowed = CharacterSet.urlPathAllowed
+        allowed.remove(charactersIn: "/?#")
+        let encoded = channel.addingPercentEncoding(withAllowedCharacters: allowed) ?? channel
+        return try await getConditional("/sources/channels/\(encoded)/collections", etag: etag)
     }
 
     func fetchChannelItems(channel: String, offset: Int, limit: Int, query: String, etag: String?) async throws

@@ -65,6 +65,7 @@ number (the drifts above are real and disclosed).
 
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 from datetime import date, datetime, timezone
@@ -91,6 +92,7 @@ from api.services import (
     notes_sync,
     reading_hosts,
     saved_why,
+    source_collections,
     source_overview,
     tab_groups,
     text_fold,
@@ -116,7 +118,9 @@ from api.services.channel_registry import CHANNEL_IDS
 #: pinned chats list first.
 #: `g161-13`: G230 — the GitHub row lists its repository pages.
 #: `g161-14`: G39, G233 — Apple Books, Goodreads and book scans list their books.
-SHAPE = "g161-14"
+#: `g161-15`: 2026-11-04 — a meeting row carries `duration_s`; `collection` narrows a page to one calendar, list or
+#: Notes folder (`collections`).
+SHAPE = "g161-15"
 LIMIT_DEFAULT = 50
 LIMIT_MAX = 200
 TITLE_CAP = 120
@@ -468,16 +472,34 @@ def _notes(memory_path: Path) -> list[dict]:
         index = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     except Exception:
         index = {}
-    wanted = {str(v.get("episode_id")) for v in (index.values() if isinstance(index, dict) else [])
+    # 2026-11-04 — each note's account and folder as the index keeps them (`notes_sync._placement`).
+    placed = {str(v.get("episode_id")): v for v in (index.values() if isinstance(index, dict) else [])
               if isinstance(v, dict) and v.get("episode_id")}
     by_id = _episode_index(memory_path).by_id
-    found = sorted((f for w in wanted for f in by_id.get(w, ())), key=lambda f: f.path.name)
-    return [_episode_row(f.frontmatter or {}, f.stem) for f in found]
+    found = sorted((f for w in placed for f in by_id.get(w, ())), key=lambda f: f.path.name)
+    rows = []
+    for f in found:
+        fm = f.frontmatter or {}
+        row = _episode_row(fm, f.stem)
+        entry = placed.get(str(fm.get("id") or f.stem)) or {}
+        account = str(entry.get("account") or fm.get("account") or "").strip()
+        folder = str(entry.get("folder") or fm.get("folder") or "").strip()
+        row["_account"], row["_folder"] = account, folder
+        row["_collection"] = note_collection_id(account, folder)
+        rows.append(row)
+    return rows
+
+
+def note_collection_id(account: str, folder: str) -> str:
+    """A Notes folder's collection id: opaque and stable — the same account and folder name give the same id."""
+    return "nf-" + hashlib.sha256(f"{account}\0{folder}".encode()).hexdigest()[:12]
 
 
 def _episodes(memory_path: Path, keep, *, among, when_key: str | None = None,
-              media: _Media | None = None) -> list[dict]:
-    """The live episodes ``keep`` takes, read from ``among`` (the index bucket that holds every one of them)."""
+              media: _Media | None = None, collection_key: str | None = None) -> list[dict]:
+    """The live episodes ``keep`` takes, read from ``among`` (the index bucket that holds every one of them).
+    ``collection_key`` (2026-11-04): the frontmatter key naming the collection an item lives in (a calendar's id, a
+    Reminders list's id), kept on the row for :func:`collections` and the ``collection`` filter."""
     rows: list[dict] = []
     seen_media: set[str] = set()
     for f in among:
@@ -492,6 +514,8 @@ def _episodes(memory_path: Path, keep, *, among, when_key: str | None = None,
                 rows.append(row)
             continue
         row = _episode_row(fm, f.stem, when_key=when_key)
+        if collection_key:
+            row["_collection"] = str(fm.get(collection_key) or "")
         # marks-2 — a saved link Sleep has not made a page of yet still names its site, so its row asks that site's
         # icon by the episode's id (`GET /sources/saved/episodes/{id}/site-icon`) instead of drawing a letter.
         if url := saved_episode_url(fm):
@@ -547,7 +571,7 @@ def _collect(memory_path: Path, channel_id: str) -> list[dict]:
     if channel_id == calendar_local.CHANNEL_ID:
         return _episodes(memory_path,
                          lambda fm: str(fm.get("source_id") or "").startswith(calendar_local.SOURCE_PREFIX),
-                         when_key="event_start",
+                         when_key="event_start", collection_key="calendar_id",
                          among=_episode_index(memory_path).by_family.get(calendar_local.SOURCE_PREFIX, ()))
     if channel_id == "calendar":
         return _episodes(memory_path, lambda fm: fm.get("origin") == "calendar", when_key="event_start",
@@ -557,7 +581,7 @@ def _collect(memory_path: Path, channel_id: str) -> list[dict]:
     if channel_id == reminders_local.CHANNEL_ID:
         return _episodes(memory_path,
                          lambda fm: str(fm.get("source_id") or "").startswith(reminders_local.SOURCE_PREFIX),
-                         among=_episode_index(memory_path).by_family.get(reminders_local.SOURCE_PREFIX, ()))
+                         collection_key="reminder_list_id", among=_episode_index(memory_path).by_family.get(reminders_local.SOURCE_PREFIX, ()))
     for browser in tab_groups.BROWSERS:
         if channel_id == tab_groups.channel_id(browser):
             prefix = f"{tab_groups.SOURCE_PREFIX}{browser}:"
@@ -928,6 +952,12 @@ def _folder(memory_path: Path, folder_id: str) -> list[dict]:
         row = _episode_row(fm, stem)
         if fm.get("folder_kind") != "meetings":   # a meeting is listed by its own title (G95), a note by its file
             row["title"] = _title(stem_name, fallback=row["title"])
+        else:
+            # 2026-11-04 (owner: "the view of meeting transcriptions") — a meeting row says how long it ran, when the
+            # recorder wrote it down (`meeting_transcripts`' `duration_s`).
+            meeting = fm.get("meeting") if isinstance(fm.get("meeting"), dict) else {}
+            if isinstance(meeting.get("duration_s"), int) and meeting["duration_s"] > 0:
+                row["duration_s"] = meeting["duration_s"]
         rows.append(row)
     return rows
 
@@ -1021,18 +1051,22 @@ def _search(memory_path: Path, rows: list[dict], q: str) -> list[dict]:
 
 
 def items(memory_path: Path, channel_id: str, *, offset: int = 0, limit: int = LIMIT_DEFAULT,
-          q: str | None = None) -> dict | None:
+          q: str | None = None, collection: str | None = None) -> dict | None:
     """One page of what `channel_id` brought in, newest first — or None for a channel this bank does not know.
 
     source-page-v3 (owner 2026-10-29): ``q`` narrows the list to what it finds (:func:`_search`); ``total`` is then
     the matches' count and ``all`` the channel's whole count, and ``latest`` is the day the newest item came in
-    (:func:`_latest`, over the whole channel whatever ``q`` says)."""
+    (:func:`_latest`, over the whole channel whatever ``q`` says). ``collection`` (2026-11-04) keeps one collection's
+    items (a calendar, a Reminders list, a Notes folder — :func:`collections`' ids); ``all`` and ``latest`` are then
+    that collection's."""
     memory_path = Path(memory_path)
     if not known(memory_path, channel_id):
         return None
     offset = max(0, int(offset))
     limit = max(1, min(int(limit), LIMIT_MAX))
     rows = _collect(memory_path, channel_id)
+    if collection:
+        rows = [r for r in rows if r.get("_collection") == collection]
     everything = len(rows)
     latest = _latest(rows)
     query = str(q or "").strip()[:Q_MAX]
@@ -1043,6 +1077,62 @@ def items(memory_path: Path, channel_id: str, *, offset: int = 0, limit: int = L
     page = [_enrich(memory_path, r) for r in rows[offset:offset + limit]]
     return {"channel": channel_id, "total": len(rows), "all": everything, "latest": latest, "offset": offset,
             "limit": limit, "items": page}
+
+
+#: 2026-11-04 — the channels whose items live in collections the way their own app files them.
+COLLECTION_CHANNELS = ("notes", calendar_local.CHANNEL_ID, reminders_local.CHANNEL_ID)
+
+
+def collections(memory_path: Path, channel_id: str) -> dict | None:
+    """Where a channel's items live, as their own app files them (owner 2026-11-04: "starting from those that are
+    iCloud … then you go into it … you can see folders"): accounts, each holding its collections with how many items
+    each holds and the day the newest came in — or None for a channel this bank does not know. A channel that files
+    nothing this way (Contacts, a meeting folder) answers no accounts, and the page lists its items directly.
+
+    Names come from where the bank already keeps them: a Notes folder and its account from the Notes index; a calendar
+    and a Reminders list from what the channel's last sync named (`source_collections`). A collection the last sync no
+    longer named (a calendar removed, a list unticked) keeps its items, under its id's last known name or, with none,
+    the channel's own word. Accounts list in the order the apps put them — iCloud, then this Mac, then the rest by
+    name; a collection by name. Every name is clipped and scrubbed of nothing new: they are titles the episodes'
+    bodies already hold."""
+    memory_path = Path(memory_path)
+    if not known(memory_path, channel_id):
+        return None
+    if channel_id not in COLLECTION_CHANNELS:
+        return {"channel": channel_id, "accounts": []}
+    rows = _collect(memory_path, channel_id)
+    named = {} if channel_id == "notes" else source_collections.known(memory_path, channel_id)
+    fallback = {calendar_local.CHANNEL_ID: "Calendar", reminders_local.CHANNEL_ID: "Reminders"}.get(channel_id, "Notes")
+    groups: dict[str, dict] = {}
+    for row in rows:
+        cid = str(row.get("_collection") or "")
+        if channel_id == "notes":
+            account, title, kind = row.get("_account") or "", row.get("_folder") or fallback, None
+        else:
+            record = named.get(cid) or {}
+            account, title, kind = record.get("account") or "", record.get("title") or fallback, record.get("provider")
+        acct = groups.setdefault(account, {"name": account or None, "provider": kind, "collections": {}})
+        acct["provider"] = acct["provider"] or kind
+        coll = acct["collections"].setdefault(cid, {"id": cid, "name": title, "count": 0, "_days": []})
+        coll["count"] += 1
+        coll["_days"].append(row)
+    accounts = []
+    for acct in groups.values():
+        colls = [{"id": c["id"], "name": c["name"], "count": c["count"], "latest": _latest(c["_days"])}
+                 for c in acct["collections"].values()]
+        colls.sort(key=lambda c: (str(c["name"]).casefold(), c["id"]))
+        accounts.append({"name": acct["name"], "provider": acct["provider"],
+                         "count": sum(c["count"] for c in colls), "collections": colls})
+    accounts.sort(key=_account_order)
+    return {"channel": channel_id, "accounts": accounts}
+
+
+def _account_order(account: dict) -> tuple:
+    """iCloud first, then this Mac, then the other accounts by name, an unnamed one (an older sync's) last."""
+    name = str(account.get("name") or "")
+    kind = account.get("provider") or {"icloud": "icloud", "on my mac": "local"}.get(name.casefold())
+    rank = 0 if kind == "icloud" else 1 if kind == "local" else 3 if not name else 2
+    return rank, name.casefold()
 
 
 def saved_episode_site(memory_path: Path, episode_id: str) -> str | None:

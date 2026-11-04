@@ -30,6 +30,22 @@ Seven rails hold across all of them:
   record adds the modification date as AppleScript's locale-free `«class isot»` and the Mac's UTC offset, so
   `notes_sync` dates the episode when the note was last written (read on time); the human `modified` string stays the
   dedup key, and a 6-field record from an older app still parses and is dated now.
+  **Where an item lives (2026-11-04, PR #599).** The script's ninth field names the note's Notes **account**
+  ("iCloud", "On My Mac", a mail account's name); the app moves it out of the dump into `noteAccounts` (by note id,
+  `AppleNotesReader.split`) so a backend that predates it, which checks a record's field count, still reads every note
+  and ignores the key (a ninth field in a dump is read too). `notes_sync` keeps `account` and `folder` in each `notes_index.json` entry (and on a new
+  episode's frontmatter), never in the dedup key, and places an unchanged note there without a new episode (a note moved
+  to another folder, or kept by a sync from before accounts were sent; an 8-field record keeps the account already
+  known). Calendar and Reminders post each calendar's and list's **`provider`** (EventKit's source type mapped on the Mac:
+  `icloud`, `google`, `exchange`, `local`, `subscribed`, `other`; optional), and each sync keeps the calendars or ticked
+  lists holding an item — `{id, title, account, provider}`, titles the bodies already hold — beside the channel's last
+  sync (`sync_state.json`, `source_collections.after_sync`). An empty calendar's title stays out of the bank, and the
+  pickers read EventKit, not this. `GET /sources/channels/{id}/collections` answers accounts → collections
+  (count, newest day) for `notes`, `calendar-local` and `reminders-local` (iCloud first, then this Mac, then the rest
+  by name; a collection by name; one a later sync no longer names — a list unticked — keeps its name and lists while it
+  holds items), no accounts for any other channel;
+  `GET …/items?collection=` narrows a page to one collection (a calendar's id, a list's id, a Notes folder's opaque
+  `nf-…` id). A meeting row carries `duration_s` (SHAPE `g161-15`). Read-only, engine-free, never a Store domain.
   `POST /sources/sync-bookmarks` likewise 422s without bookmark bytes (there is no local-file fallback), and no
   route stats a path the request names. Folders a page declares follow it too: `GET /entities/{id}/location`
   returns the path and the app lists it (`LocationLister`), a declared repo's git runs in the app (`GitRunner`,
