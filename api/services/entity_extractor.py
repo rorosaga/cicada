@@ -1196,6 +1196,8 @@ async def extract(
             # G74(a): the agent rung's failures are subprocess-shaped. Each one
             # names its own fix so the Sleep page never says "check API credits"
             # for a plan that has no credits to check.
+            except engine_errors.SpendLimitReached:
+                _note_skipped(episode)   # never sent past the person's limit: nobody's failure, it goes back to wait
             except engine_errors.EngineThrottled as e:
                 failed += 1
                 _note_failed(episode, e)

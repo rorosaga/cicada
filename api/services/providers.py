@@ -31,7 +31,7 @@ import numpy as np
 from loguru import logger
 
 from api.config import Settings
-from api.services import engine_errors, pricing, telemetry
+from api.services import engine_errors, pricing, sleep_spend, telemetry
 
 # ``embed_fn(texts, *, is_query=False) -> np.ndarray`` (float32, 2-D). The same
 # contract the sqlite-vec index has always expected.
@@ -454,8 +454,17 @@ def resolve_llm_fn(
                 out["drain_id"] = drain_id
         return out
 
+    def _spend_line():
+        """The limit this call answers to: a read or a paid step of a drain on a key with one, else ``None``."""
+        from api.services import sleep_drain
+
+        if billing != "usage" or stage not in sleep_spend.LINE_STAGES:
+            return None
+        return getattr(sleep_drain.drain_for(agent_engine_cycle_id()), "spend", None)
+
     def _emit(resp, started: float, ok: bool, *, model_used: str | None = None,
               equiv_override: float | None = None, refs: dict | None = None) -> None:
+        counted = False
         try:
             # One call that spawned, for a drain's "N calls made" (never decreases).
             from api.services import sleep_drain
@@ -492,6 +501,7 @@ def resolve_llm_fn(
                     from api.services import sleep_drain
 
                     sleep_drain.note_spend(agent_engine_cycle_id(), cost if cost is not None else equiv)
+                    counted = True
             sink(telemetry.UsageEvent(
                 kind="llm_call", stage=stage or "unknown", connection=connection,
                 engine=engine_label, model=event_model, bank=bank_label, billing=billing,
@@ -504,6 +514,11 @@ def resolve_llm_fn(
             ))
         except Exception as exc:  # a sink must never break an LLM call
             logger.warning(f"telemetry sink failed: {exc}")
+            if not counted and resp is not None and billing == "usage":
+                # A charged call whose cost cannot be read: the limit cannot hold on it, so it fails closed.
+                from api.services import sleep_drain
+
+                sleep_drain.note_spend(agent_engine_cycle_id(), None)
 
     def _emit_throttle(reason, stream=None) -> None:
         """The first ``kind="throttle"`` event this codebase has ever written.
@@ -681,7 +696,7 @@ def resolve_llm_fn(
                            web_search: bool = False, max_tokens: int | None = None):
         for attempt in range(2):
             try:
-                with _agent_semaphore(getattr(settings, "agent_max_concurrency", 3)):
+                with _agent_semaphore(getattr(settings, "agent_max_concurrency", 3)), sleep_spend.turn(_spend_line()):
                     return _agent_invoke(messages, response_format, timeout, reasoning_off, web_search, max_tokens)
             except engine_errors.RETRYABLE as exc:
                 delay = _drain_retry_delay(attempt, exc)
@@ -711,7 +726,7 @@ def resolve_llm_fn(
         # so a waiting async caller parks a worker thread, never the event
         # loop, while still drawing from the ONE process-wide capacity pool.
         def _run_with_permit():
-            with _agent_semaphore(getattr(settings, "agent_max_concurrency", 3)):
+            with _agent_semaphore(getattr(settings, "agent_max_concurrency", 3)), sleep_spend.turn(_spend_line()):
                 return _agent_invoke(messages, response_format, timeout, reasoning_off, web_search, max_tokens)
 
         for attempt in range(2):
@@ -756,6 +771,24 @@ def resolve_llm_fn(
         return _agent_call
 
     def _call(*, messages, response_format=None, **kw):
+        line = _spend_line()
+        if line is None:
+            return _send(messages=messages, response_format=response_format, **kw)
+        if not inspect.iscoroutinefunction(completion):
+            with sleep_spend.turn(line):
+                return _send(messages=messages, response_format=response_format, **kw)
+
+        async def _when_there_is_room():
+            while not line.try_admit():
+                await asyncio.sleep(sleep_spend.POLL_S)
+            try:
+                return await _send(messages=messages, response_format=response_format, **kw)
+            finally:
+                line.release()
+
+        return _when_there_is_room()
+
+    def _send(*, messages, response_format=None, **kw):
         # The web lookup on a metered engine: the provider's own search, one search per call
         # (litellm's `search_context_size: low` is Anthropic's `max_uses: 1`), at its price (ruling 12).
         web_search = bool(kw.pop("web_search", False))

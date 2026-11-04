@@ -1,6 +1,8 @@
 """ROR-102, ruling 63 (g): a run on a key stops at the person's figure, keeping what it read."""
 from __future__ import annotations
 
+import asyncio
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -170,3 +172,251 @@ def test_an_unpriced_model_stops_before_any_call_is_made(tmp_path, monkeypatch):
     snap, stub = _run(tmp_path, monkeypatch, limit=5.0, model="anthropic/claude-sonnet-9-9")
     assert snap["failures"]["stop"] == "reserve" and snap["failures"]["stop_sentence"] == sleep_spend.NO_PRICE_SENTENCE
     assert stub.requests == [] and snap["episodes_processed"] == 0
+
+
+# ---- how far past the line (the #614 review's three cases, on a costly model) ----------------------------------------
+
+OPUS = "anthropic/claude-opus-5-5"
+#: One read writing all it may, at the stand-in's three characters a token.
+LONG_READ = " " * (sleep_spend.READ_OUTPUT_TOKENS * 3)
+
+
+def _costly(body):
+    system, user = body["system"][0]["text"], body["messages"][-1]["content"]
+    text = _answer(system, user)
+    return text + LONG_READ if "entities" in system[:400].lower() else text
+
+
+def _conversations(n):
+    return [{"source_id": f"spend:{i}", "day": i - n, "turns": [
+        f"alpha-project uses sqlite-tool. gamma{i}-project uses delta-tool.", "Noted.", "alpha-project status building."]}
+        for i in range(n)]
+
+
+def _costly_run(tmp_path, monkeypatch, *, limit, batch, conversations):
+    stub = StubAnthropic(answer=_costly, latency=0.01)
+    stub.install(monkeypatch)
+    monkeypatch.setattr(sleep_run_prefs, "load", lambda _registry: sleep_run_prefs.RunOptions(spend_limit_usd=limit))
+    monkeypatch.setattr(engine_parity, "BATCH_SIZE", batch)
+    snap = engine_parity.run_leg("key", model=OPUS, judge=OPUS, out=tmp_path / "key", conversations=_conversations(conversations))
+    return snap, sleep_cycle.get_sleep_state().drain
+
+
+@pytest.mark.parametrize("limit, batch, conversations", [(5.0, 25, 14), (1.0, 25, 14), (5.0, 50, 6)])
+def test_a_costly_model_passes_the_line_by_about_one_read_and_its_filing(tmp_path, monkeypatch, limit, batch, conversations):
+    snap, ds = _costly_run(tmp_path, monkeypatch, limit=limit, batch=batch, conversations=conversations)
+    one_read = ds.spend.read_cap_usd
+    assert one_read > 1.0, "the point is a model where one read is a large share of the figure"
+    assert limit <= ds.spend.spent_usd <= limit + one_read * 1.2, snap["failures"]
+    assert snap["failures"]["stop"] == "reserve" and snap["episodes_processed"] < conversations, "the rest wait"
+    assert not snap["failures"]["parked"] and not snap["failures"]["unread"], "a read the limit refused is nobody's failure"
+
+
+def test_the_first_call_goes_alone_and_then_only_what_there_is_room_for():
+    guard = sleep_spend.SpendGuard(5.0)
+    assert guard.try_admit() and not guard.try_admit(), "no price is known yet"
+    guard.observe(1.5)
+    guard.release()
+    assert guard.try_admit() and guard.try_admit() and guard.try_admit(), "1.5 + 2 out at 1.5 still leaves room"
+    assert not guard.try_admit(), "1.5 + 3 out at 1.5 + one more would pass it: wait and see"
+    for _ in range(3):
+        guard.observe(1.5)
+        guard.release()
+    with pytest.raises(engine_errors.SpendLimitReached):
+        guard.try_admit()
+
+
+def test_a_batch_is_sized_to_the_allowance_left():
+    guard = sleep_spend.SpendGuard(5.0, read_cap_usd=1.5)
+    assert guard.batch_size(25) == 3, "before any is known, the most one read may write"
+    assert sleep_spend.SpendGuard(5.0, read_cap_usd=0.01).batch_size(25) == 25, "never more than the person's batch"
+    assert sleep_spend.SpendGuard(5.0).batch_size(25) == 25
+    guard.observe(1.0)
+    guard.note_filed(2)
+    assert guard.batch_size(25) == 8, "4.00 left at 0.50 each, read and filing together"
+    guard.observe(3.9)
+    guard.note_filed(0)
+    assert guard.batch_size(25) == 1, "a batch that filed nothing teaches nothing, and the line is what stops a run"
+
+
+# ---- each call answers to the limit, wherever it runs ----------------------------------------------------------------
+
+
+@pytest.fixture
+def past_the_line():
+    guard = sleep_spend.SpendGuard(1.0)
+    guard.observe(1.0)
+    sleep_drain.register_batch("c1", SimpleNamespace(spend=guard, drain_id="d1", note_call=lambda: None))
+    yield guard
+    sleep_drain.unregister_batch("c1")
+
+
+def _fn(stage, *, scope="sleep:c1", sink=lambda e: None, **kw):
+    return providers.resolve_llm_fn(Settings(_env_file=None, llm_mode="byok", litellm_model=KEY), model=KEY,
+                                    stage=stage, sink=sink, bank="b", scope=scope, **kw)
+
+
+@pytest.mark.parametrize("stage", sorted(sleep_spend.LINE_STAGES))
+def test_a_read_or_a_paid_step_past_the_line_is_never_sent(monkeypatch, past_the_line, stage):
+    stub = StubAnthropic(answer=lambda b: "{}")
+    stub.install(monkeypatch)
+    with pytest.raises(engine_errors.SpendLimitReached):
+        _fn(stage, is_async=False)(messages=[{"role": "user", "content": "alpha"}])
+    assert stub.requests == [] and past_the_line.spent_usd == 1.0
+
+
+def test_a_waiting_read_is_checked_again_once_it_holds_its_permit(monkeypatch):
+    """The stop_check before the permit passed: the run crossed the line while this read queued."""
+    stub = StubAnthropic(answer=lambda b: "{}")
+    stub.install(monkeypatch)
+    guard = sleep_spend.SpendGuard(1.0)
+    sleep_drain.register_batch("c1", SimpleNamespace(spend=guard, drain_id="d1", note_call=lambda: None))
+    try:
+        fn = _fn("extraction")
+        assert not guard.is_reached()
+        guard.observe(1.0)
+
+        async def go():
+            await fn(messages=[{"role": "user", "content": "alpha"}])
+
+        with pytest.raises(engine_errors.SpendLimitReached):
+            asyncio.run(go())
+    finally:
+        sleep_drain.unregister_batch("c1")
+    assert stub.requests == [] and guard._out == 0
+
+
+def test_another_keys_read_past_the_line_is_never_sent_and_holds_no_place(past_the_line):
+    sent = []
+
+    async def completion(**kw):
+        sent.append(kw)
+        raise AssertionError("never sent")
+
+    fn = providers.resolve_llm_fn(Settings(_env_file=None, llm_mode="byok", litellm_model="gpt-5.4-mini"), model="gpt-5.4-mini",
+                                  completion=completion, stage="extraction", sink=lambda e: None, bank="b", scope="sleep:c1")
+
+    async def go():
+        await fn(messages=[{"role": "user", "content": "alpha"}])
+
+    with pytest.raises(engine_errors.SpendLimitReached):
+        asyncio.run(go())
+    assert sent == [] and past_the_line._out == 0
+
+
+def test_filing_what_was_read_is_never_refused(monkeypatch, past_the_line):
+    stub = StubAnthropic(answer=lambda b: "{}")
+    stub.install(monkeypatch)
+    _fn("merge", is_async=False)(messages=[{"role": "user", "content": "alpha"}])
+    assert len(stub.requests) == 1, "otherwise the reads already paid for are lost"
+    assert past_the_line.spent_usd > 1.0, "and what it cost still counts"
+
+
+def test_a_call_outside_a_run_is_not_limited_and_shows_in_the_ledger(monkeypatch, past_the_line):
+    stub = StubAnthropic(answer=lambda b: "{}")
+    stub.install(monkeypatch)
+    events: list = []
+    _fn("ask", scope="ask:one", sink=events.append, is_async=False)(messages=[{"role": "user", "content": "alpha"}])
+    assert len(stub.requests) == 1 and past_the_line.spent_usd == 1.0, "Ask is not the run's, whatever the run has spent"
+    assert len(events) == 1 and events[0].cost_usd > 0, "and what it cost is on the record"
+
+
+def test_the_words_say_what_the_limit_does_not_cover():
+    swift = (Path(__file__).parents[2] / "app/CicadaApp/Sources/CicadaApp/Theme/Copy+SleepV5.swift").read_text(encoding="utf-8")
+    words = swift.split("static let spendHelp =", 1)[1].split("static let", 1)[0]
+    for said in ("about one read plus that filing", "Ask", "quick read", "inbox tidying", "repairs", "your clicks",
+                 "aren't limited", "fresh allowance"):
+        assert said in words, said
+    assert "a little past" not in words
+
+
+# ---- a charged call whose cost cannot be read ------------------------------------------------------------------------
+
+
+def _unspent_drain():
+    guard = sleep_spend.SpendGuard(5.0)
+    sleep_drain.register_batch("c1", SimpleNamespace(spend=guard, drain_id="d1", note_call=lambda: None))
+    return guard
+
+
+def test_a_cost_that_cannot_be_read_stops_the_run(monkeypatch):
+    StubAnthropic(answer=lambda b: "{}").install(monkeypatch)
+    guard = _unspent_drain()
+    try:
+        def unreadable(_resp):
+            raise ValueError("usage")
+
+        monkeypatch.setattr(providers.telemetry, "usage_from_response", unreadable)
+        _fn("extraction", is_async=False)(messages=[{"role": "user", "content": "alpha"}])
+    finally:
+        sleep_drain.unregister_batch("c1")
+    assert guard.is_reached() and guard.no_price and guard.sentence == sleep_spend.NO_PRICE_SENTENCE
+
+
+def test_a_ledger_that_cannot_write_is_not_a_cost_nobody_knows(monkeypatch):
+    StubAnthropic(answer=lambda b: "{}").install(monkeypatch)
+    guard = _unspent_drain()
+    try:
+        def broken(_event):
+            raise OSError("disk")
+
+        _fn("extraction", sink=broken, is_async=False)(messages=[{"role": "user", "content": "alpha"}])
+    finally:
+        sleep_drain.unregister_batch("c1")
+    assert guard.spent_usd > 0 and not guard.no_price
+
+
+# ---- the tail ---------------------------------------------------------------------------------------------------------
+
+
+def test_a_run_past_the_limit_with_nothing_left_to_read_skips_the_paid_tail(tmp_path, monkeypatch):
+    ran: list = []
+
+    def spy(name):
+        async def step(*_a, **_k):
+            ran.append(name)
+        return step
+
+    for name in ("_in_short_safely", "_web_check_safely", "_web_context_safely", "_backfill_links_safely"):
+        monkeypatch.setattr(sleep_cycle, name, spy(name))
+    stub = StubAnthropic(answer=lambda b: _answer(b["system"][0]["text"], b["messages"][-1]["content"]))
+    stub.install(monkeypatch)
+    monkeypatch.setattr(sleep_run_prefs, "load", lambda _registry: sleep_run_prefs.RunOptions(spend_limit_usd=0.000001))
+    snap = engine_parity.run_leg("key", model=KEY, judge=KEY, out=tmp_path / "key", conversations=CONVERSATIONS[:1])
+    assert snap["episodes_processed"] == 1 and snap["failures"]["stop"] is None, "everything was read: a finished run"
+    assert sleep_cycle.get_sleep_state().drain.spend.is_reached()
+    assert ran == [], "past the line, the tail's paid steps do not start"
+
+
+def test_link_backfill_is_the_runs_counted_and_held_to_the_limit(tmp_path, monkeypatch):
+    from api.services import agent_engine, engine_select, link_enrichment
+
+    guard = sleep_spend.SpendGuard(1.0)
+    drain = SimpleNamespace(spend=guard, drain_id="d1", note_call=lambda: None)
+    state = sleep_cycle.get_sleep_state()
+    monkeypatch.setattr(state, "cycle_id", "c9", raising=False)
+    monkeypatch.setattr(state, "drain", drain, raising=False)
+    stub = StubAnthropic(answer=lambda b: "{}")
+    stub.install(monkeypatch)
+    seen: dict = {}
+
+    async def backfill(_memory, _resolved, **_kw):
+        scope = agent_engine.current_scope()
+        seen["drain"] = sleep_drain.drain_for(agent_engine.cycle_id_from_scope(scope))
+        fn = _fn("enrichment", scope=None, is_async=False)
+        fn(messages=[{"role": "user", "content": "alpha"}])
+        guard.observe(1.0)
+        with pytest.raises(engine_errors.SpendLimitReached):
+            fn(messages=[{"role": "user", "content": "alpha"}])
+        return SimpleNamespace(selected=0, related=0, skipped=0, reused=0, summarized=0)
+
+    async def resolve(settings, **_kw):
+        return settings, "test"
+
+    monkeypatch.setattr(link_enrichment, "backfill", backfill)
+    monkeypatch.setattr(link_enrichment, "scan_backfill", lambda *_a: SimpleNamespace(junk=[], reuse=[], fetch=[1]))
+    monkeypatch.setattr(engine_select, "resolve_settings", resolve)
+    settings = Settings(_env_file=None, llm_mode="byok", litellm_model=KEY, memory_path=tmp_path)
+    asyncio.run(sleep_cycle._backfill_links_safely(tmp_path, settings, user_triggered=True))
+    assert seen["drain"] is drain and guard.spent_usd > 1.0 and len(stub.requests) == 1
+    assert sleep_drain.drain_for("c9-links") is None

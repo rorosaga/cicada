@@ -599,14 +599,24 @@ async def _backfill_links_safely(memory_path: Path, settings: Settings, *, user_
         # Final review H1: the tail runs after the cycle's own `sleep:<id>`
         # scope has closed, so without this it would share the never-reset
         # ``_unscoped`` bucket with Ask — one throttle there would block every
-        # later backfill until a restart. Its own scope purges on exit.
-        with agent_engine.use_scope(f"links:{uuid.uuid4().hex}"):
-            report = await link_enrichment.backfill(
-                memory_path, resolved, limit=per_cycle,
-                summarize_fn=link_enrichment._summarize_excerpt if fetch_ok else None,
-                fetch_fn=link_enrichment.default_fetch if fetch_ok else None,
-                engine=engine,
-            )
+        # later backfill until a restart. Its own scope purges on exit. On a drain
+        # its calls are the run's, like the web check's: counted, and held to the limit.
+        drain, batch_id = _state.drain, f"{_state.cycle_id}-links"
+        in_drain = drain is not None and bool(_state.cycle_id)
+        scope = f"sleep:{batch_id}" if in_drain else f"links:{uuid.uuid4().hex}"
+        if in_drain:
+            sleep_drain.register_batch(batch_id, drain)
+        try:
+            with agent_engine.use_scope(scope):
+                report = await link_enrichment.backfill(
+                    memory_path, resolved, limit=per_cycle,
+                    summarize_fn=link_enrichment._summarize_excerpt if fetch_ok else None,
+                    fetch_fn=link_enrichment.default_fetch if fetch_ok else None,
+                    engine=engine,
+                )
+        finally:
+            if in_drain:
+                sleep_drain.unregister_batch(batch_id)
         if report.selected or report.related or report.skipped:
             logger.info(
                 f"Link backfill: {report.reused} reused, {report.summarized} summarized, "
@@ -1615,7 +1625,7 @@ async def _run_engine_independent_tail(
         # Ruling 48 part 5: In short for long, busy pages — a model call on the bank alone (nothing from outside), so a
         # demo bank gets it too; never past a run that stopped at the plan's limit.
         if skip_links:
-            logger.info("In short skipped: the run stopped at the plan's limit")
+            logger.info("In short skipped: the run stopped at its limit")
         else:
             await _in_short_safely(memory_path, settings, user_triggered=user_triggered)
         from api.services import demo_guard
@@ -1633,7 +1643,7 @@ async def _run_engine_independent_tail(
             await _source_refresh_safely(memory_path)
             # Owner ruling 2026-10-16: public-thing questions looked up and settled, before any poll's `git add -A`.
             if skip_links:
-                logger.info("web check and light context skipped: the run stopped at the plan's limit")
+                logger.info("web check and light context skipped: the run stopped at its limit")
             else:
                 await _web_check_safely(memory_path, settings, user_triggered=user_triggered)
                 # Owner ruling 44 (G121): public pages' world facts looked up and kept current, same slot.
@@ -1641,8 +1651,8 @@ async def _run_engine_independent_tail(
             await _poll_connectors_safely(memory_path)
             await _poll_feeds_and_calendars_safely(memory_path)
             if skip_links:
-                # A drain that stopped on the plan's limit: the backfill would meet the same one.
-                logger.info("link backfill skipped: the run stopped at the plan's limit")
+                # A drain that stopped on the plan's limit, or passed the person's own: the backfill would meet the same one.
+                logger.info("link backfill skipped: the run stopped at its limit")
             else:
                 await _backfill_links_safely(memory_path, settings, user_triggered=user_triggered)
             await _resolve_papers_safely(memory_path)
@@ -2395,7 +2405,8 @@ async def _drain(
         ds.skipped += len(gone)
         ds.skipped_ids |= gone
         ds.settled |= gone
-        batch_ids, more = sleep_drain.next_batch_retrying(ids, waiting, ds.settled, size, ds.attempts, sizes=sizes)
+        batch_ids, more = sleep_drain.next_batch_retrying(
+            ids, waiting, ds.settled, ds.spend.batch_size(size) if ds.spend else size, ds.attempts, sizes=sizes)
         if not batch_ids:
             ds.finished = True   # a cancel that came too late has nothing left to stop
             break
@@ -2431,6 +2442,8 @@ async def _drain(
         if not last.committed:
             _state.read_by_origin, _state.episodes_total = before_read, before_total
         _fold(last, batch_ids, decays=plan.decay, links=plan.links)
+        if ds.spend is not None and last.committed:
+            ds.spend.note_filed(len(last.filed_ids))
         if last.committed and ds.owner_beliefs is not None and ds.owner_beliefs.get("after_first_batch") is None:
             _sample_owner(ds, memory_path, "after_first_batch")
         if last.committed:
@@ -2535,7 +2548,9 @@ async def _drain(
     _record_leg(ds, memory_path, _run_state(ds, stop), stop=stop, questions_leg=questions_leg)
     return _StageOutcome(
         committed=last.committed, questions_refreshed=last.questions_refreshed,
-        skip_links=bool(stop is not None and stop.reason in ("plan_limit", "reserve")),
+        # A run past the spending limit with nothing left to read ends as a finished run; its tail still stops.
+        skip_links=bool((stop is not None and stop.reason in ("plan_limit", "reserve"))
+                        or (ds.spend is not None and ds.spend.is_reached())),
     )
 
 
@@ -2797,6 +2812,7 @@ def _batch_hooks(live: "sleep_drain.BatchLive", guard, ds: "sleep_drain.DrainSta
 
     def skipped(ep: dict) -> None:
         live.skipped.add(ep["id"])
+        live.started.discard(ep["id"])   # a read the limit refused after it started is not in flight
 
     hooks = {"on_episode_started": started, "on_episode_read": read,
              "on_episode_failed": failed, "on_episode_skipped": skipped}

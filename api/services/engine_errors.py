@@ -53,6 +53,11 @@ class EngineExhausted(EngineError):
         self.resets_at = resets_at
 
 
+class SpendLimitReached(EngineExhausted):
+    """The person's spending limit (``sleep_spend``): this call was never sent, so it cost nothing and is nobody's
+    failure. A read goes back to wait; a paid step past the line stops the way it stops at a plan's limit."""
+
+
 class EngineOverage(EngineExhausted):
     """The plan's included usage is spent and the CLI is billing (or would
     bill) extra usage the person has not opted into — G117's explicit choice,
