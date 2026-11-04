@@ -93,7 +93,8 @@ _SEARCH_RULE = (
     f"search {{query}}: a web search, at most {SEARCH_BUDGET} for this question, each at most 12 words. A query leaves "
     "this machine. Never put in one the name of anyone you know only from the person's memory, nor a phone or an "
     "e-mail. Cicada checks every query and drops one that does, counting it; do not reword it, respell it or split "
-    "it, and if one is dropped, search for something else or answer.\n"
+    "it, and if one is dropped, search for something else or answer. Memory rarely says this alone: search and open "
+    "what you find before you answer not sure.\n"
 )
 HANDLE_RULES = (
     "You answer one question: is this public handle this named person? A wrong answer is expensive; \"not sure\" costs "
