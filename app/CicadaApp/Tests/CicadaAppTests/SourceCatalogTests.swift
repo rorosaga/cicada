@@ -109,6 +109,33 @@ final class SourceCatalogTests: XCTestCase {
         XCTAssertTrue(SourceCatalog.exportHow("spotify")?.contains("Privacy settings") == true)
     }
 
+    /// G89 (2026-11-04) — Substack is an account the person's own agent reads in their browser: Off until a list is on,
+    /// then waiting for an agent here, then Connected; its saves or reading days in memory read Connected too.
+    func testSubstackIsReadByTheAgentAndConnectedOnceItsListsAreOnOrItsReadsCameIn() {
+        let entry = row(SourceCatalog.substackId, in: rows())?.entry
+        XCTAssertEqual(entry?.group, .accounts)
+        XCTAssertEqual(entry?.origin, "substack-saved")
+        XCTAssertNil(entry?.site, "no per-site page grant: the lists are standing asks for their own pages")
+        XCTAssertEqual(row(SourceCatalog.substackId, in: rows())?.status, .off)
+        let entries = SourceCatalog.entries(browsers: [], wisprPresent: false, overview: [])
+        let on: Set<String> = [SourceCatalog.substackId]
+        XCTAssertEqual(row(SourceCatalog.substackId, in: SourceCatalog.rows(
+            entries: entries, channels: [], overview: [], readableSites: [], savedListsOn: on))?.status,
+            .waitingForAgent)
+        XCTAssertEqual(row(SourceCatalog.substackId, in: SourceCatalog.rows(
+            entries: entries, channels: [], overview: [], readableSites: [], savedListsOn: on, localAgent: true))?.status,
+            .connected)
+        let reads = [SourceOverview(id: "substack-history", label: "Substack reading", kind: .social, episodes: 3)]
+        XCTAssertEqual(row(SourceCatalog.substackId, in: rows(overview: reads))?.status, .connected)
+    }
+
+    func testSubstackFollowingCountsOnlyTheFeedsItsSubscriptionsReadFollowed() {
+        let feeds = [FeedSubscription(url: "https://alpha-example.substack.com/feed", tags: ["substack"]),
+                     FeedSubscription(url: "https://bob-example.org/feed")]
+        XCTAssertEqual(SubstackFollowing.count(feeds), 1)
+        XCTAssertEqual(Copy.Reading.substackFollowing(1), "Following 1 publication through its public feed.")
+    }
+
     func testInstagramIsConnectedOnlyOnceItsSiteMayBeReadByAnAgentHere() {
         XCTAssertEqual(row("instagram", in: rows())?.status, .off)
         let entries = SourceCatalog.entries(browsers: [], wisprPresent: false, overview: [])

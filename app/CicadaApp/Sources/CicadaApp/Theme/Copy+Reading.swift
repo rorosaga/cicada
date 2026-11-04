@@ -26,6 +26,24 @@ extension Copy {
         static func youtubePaused(_ day: String) -> String {
             "Your agent wasn't signed in to YouTube. Paused until \(day) — turn it on again to try sooner."
         }
+        // G89 (2026-11-04): the Substack lists the person's own agent keeps current from their signed-in browser.
+        static let substackIntro = "Substack gives readers no way to connect another app, so your own agent reads "
+            + "these pages in your browser and keeps them current here. Saved posts are kept for lookup, never read; "
+            + "what you read becomes one entry per day; each subscription is followed through the publication's "
+            + "public feed. Cicada never signs in for you."
+        static let substackSavedTitle = "Keep Saved current"
+        static let substackHistoryTitle = "Keep reading history current"
+        static let substackSubscriptionsTitle = "Follow my subscriptions"
+        static let substackSavedOff = "Off — your agent never opens your Saved posts."
+        static let substackHistoryOff = "Off — your agent never opens your reading history."
+        static let substackSubscriptionsOff = "Off — your agent never opens your subscriptions."
+        static func substackPaused(_ day: String) -> String {
+            "Your agent wasn't signed in to Substack. Paused until \(day) — turn it on again to try sooner."
+        }
+        static func substackFollowing(_ count: Int) -> String {
+            count == 1 ? "Following 1 publication through its public feed."
+                : "Following \(count) publications through their public feeds."
+        }
         static let switchTitle = "Let an agent read pages for you"
         static let switchDetail = "When Cicada’s reader can’t open a page (a sign-in, a consent page, a refusal), your own agent can read it in your browser. You choose each page with “Ask an agent”, and which sites below. Cicada never signs in for you."
         static let switchLabel = "Let an agent read pages for you"
