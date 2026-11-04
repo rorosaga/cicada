@@ -110,7 +110,11 @@ def on_record(memory_path) -> tuple[dict[str, str], frozenset[str]]:
         for kind, start, end in entry.held:
             marks[body[start:end]] = HELD_MARK.format(kind=kind)
         left.update(body[start:end] for start, end in entry.left)
-    common = _common(key, files, changed, [v for v in marks if sensitive_text.distinctive(v)])
+    try:
+        common = _common(key, files, changed, [v for v in marks if sensitive_text.distinctive(v)])
+    except Exception as exc:  # noqa: BLE001 - not knowing a value is common masks it: the safe way to be wrong
+        logger.warning(f"Sensitive hold could not count a value: {type(exc).__name__}")
+        common = set()
     return ({(sensitive_text.Guarded(v) if v in common else v): m for v, m in marks.items()},
             frozenset(left - set(marks)))
 

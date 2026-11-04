@@ -3257,12 +3257,16 @@ A whole row moves to DONE only after its remaining implementation and required a
     "hold back confident hits and only report unsure ones", the owner: "Yes hold them back." Before any engine read,
     `sensitive_text` finds likely credentials, card and bank numbers and ID numbers with no model. Confident
     (`Hit.sure`: a number that passed its own checksum, a vendor shape, a value in a connection URL or a secret's env line,
-    a password with letters and digits together, digits someone claimed): every engine Cicada runs, on every job, reads a
+    a password with letters and digits together, digits someone claimed; a weak word like "clave" or "pass" only with the
+    system it belongs to): every engine Cicada runs, on every job, reads a
     typed mark wherever that value stands (one door, `sensitive_hold`, Ask's own model included); the stored body and every
     offset stay. An agent the person talks to reads the record as stored until they remove it: their own agent, on their own
     ask. Unsure (letters only, digits no one claimed, an account or ID number nothing can check): read,
     and the person is told. No setting. Either way the value is taken back out of what the model answered, and a flag never
     repeats it, nor a hash of it. **Why not hold back everything:** a held-back wrong alarm costs a word the record may
     need, and the detector's precision on real data is unmeasured; unsure is where that risk sits. The owner also ruled that
-    git history stays as it is, since it is local only. **Revisit** on the Remove and Leave it answers (G113): if Leave it
+    git history stays as it is, since it is local only. **A wrong alarm never rewrites something unrelated:** only a confident,
+    distinctive value rare in the bank (three other conversations, six other files) leaves more than its own conversation
+    and the lines speaking of a secret in what cites it, and a token more than a few conversations hold is not masked by value
+    at the door. **Revisit** on the Remove and Leave it answers (G113): if Leave it
     dominates a confident class, that class moves to unsure.

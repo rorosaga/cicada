@@ -1026,5 +1026,6 @@ its already-existing event day/state fields so a closed event stays dated.
 **`POST /sensitive/remove` (G235):** Remove on exactly what `scripts/sensitive_removal.py` listed: `{rows, plan}`, both
 required, `plan` the dry run's stamp over each row's id, kinds with counts and unsure count. 409 when a row is gone, the
 stamp differs, the older version cannot be committed, or Sleep holds the pages; 403 for `via: agent`. Answers counts only:
-`{removed, failed, files, committed, left, still_found}` (`still_found`: files still holding a removed value, a key field or
-one that does not parse). A row in the card's own resolve that could not be done answers 409 and stays.
+`{removed, failed, files, committed, left, still_found, stayed}` (`still_found`: files, conversations included, still holding
+what it was to take out, a key field or one that does not parse; `stayed`: tokens left in other files on purpose, unsure or
+common in the bank). A row in the card's own resolve that could not be done answers 409 and stays.
