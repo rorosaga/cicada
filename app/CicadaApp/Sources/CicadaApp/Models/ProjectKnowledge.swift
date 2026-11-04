@@ -214,6 +214,8 @@ struct ProjectOwnershipResponse: Decodable, Equatable, Sendable {
     var mine: Bool
     var claimId: String?
     var page: String?
+    /// Ruling 56 — Remove gave the page back as what it was: it has no project view any more.
+    var retyped = false
 
     init(id: String, action: String, mine: Bool = true, claimId: String? = nil, page: String? = nil) {
         self.id = id
@@ -223,13 +225,14 @@ struct ProjectOwnershipResponse: Decodable, Equatable, Sendable {
         self.page = page
     }
 
-    enum CodingKeys: String, CodingKey { case id, action, mine, claimId, page }
+    enum CodingKeys: String, CodingKey { case id, action, mine, claimId, page, retyped }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = c.lenient(.id, "")
         action = c.lenient(.action, "")
         mine = c.lenient(.mine, false)
+        retyped = c.lenient(.retyped, false)
         claimId = c.lenient(.claimId)
         page = c.lenient(.page)
     }

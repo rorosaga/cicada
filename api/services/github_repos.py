@@ -610,6 +610,14 @@ def project_urls(fm: dict | None) -> list[str]:
     return [u for u in dict.fromkeys(out) if u not in gone]
 
 
+def named_urls(fm: dict | None) -> list[str]:
+    """:func:`project_urls` less Cicada's own ``how: origin`` links: the repositories the person or a trusted agent named.
+    Only these may tie a session by a shared remote (ruling 56). Cicada's own link proves the same repository, not the
+    same project, and a remote alone never ties a conversation (`capture-and-sleep.md`)."""
+    own = {_norm(r["url"]) for r in link_entries(fm or {}) if str(r.get("how") or "") == HOW_ORIGIN}
+    return [u for u in project_urls(fm) if u not in own]
+
+
 def linked_projects(memory_path: Path, projects=None) -> dict[str, list[dict]]:
     """``{repository url: [{project, name, how}]}`` over every live project (``how`` the link's own, ``linked`` for one
     from before the list). Derived on read."""

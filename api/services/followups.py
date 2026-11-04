@@ -11,6 +11,10 @@ span): the question, its options and its age are synthesised at read by
 stale. Non-intrusive by construction (UX principle 4): at most one open per
 project, three in the bank, and a "not now" is never asked again for 30 days.
 
+Only on a project the person started (ruling 56, owner 2026-11-04: "Yeah only projects I started."). One already asked on
+a page they never started stays out of the cleanup below, so it is never just deleted: Sleep's tending retires it as its
+own undoable commit (`inbox_tend`, ``not_started``), and it does not count against the three.
+
 Eligibility is the read model's own (`project_timeline` + `project_state`), so
 the Projects page, `cicada_project` and this proposer can never disagree about
 whether a thread is quiet: a quiet `ongoing` happening (quiet ≥ max(21 days,
@@ -30,7 +34,8 @@ from pathlib import Path
 
 from loguru import logger
 
-from api.services import bank_index, git_service, handshake, markdown_parser, project_state, project_timeline
+from api.services import (bank_index, git_service, handshake, markdown_parser, project_ownership, project_state,
+                          project_timeline)
 
 TRIGGER = "sleep/followup"
 AUTHOR = "cicada"
@@ -67,13 +72,14 @@ def _days_since(day: str | None, today: date) -> int | None:
 
 def _eligible(memory_path: Path, today: date, tz_name: str) -> list[tuple[str, list[str], list[_Candidate], int]]:
     """`[(project, tree, candidates in priority order, quiet days of its
-    quietest eligible thread)]` for every ACTIVE project. Read-only."""
+    quietest eligible thread)]` for every ACTIVE project the person started
+    (ruling 56). Read-only."""
     rows = project_timeline.list_projects(memory_path, tz_name=tz_name).projects
     bank = project_timeline._Bank(memory_path, tz_name)
     owner = bank.owner()
     out: list[tuple[str, list[str], list[_Candidate], int]] = []
     for row in rows:
-        if str(row.status or "active") != "active":
+        if str(row.status or "active") != "active" or not row.mine:
             continue
         tree, _ = project_timeline._tree(bank, row.id)
         milestones = project_timeline._milestones(bank, tree)
@@ -108,6 +114,28 @@ def _eligible(memory_path: Path, today: date, tz_name: str) -> list[tuple[str, l
     return out
 
 
+def on_started_project(memory_path: Path, fm: dict, *, bank=None) -> bool:
+    """A follow-up item is about a project the person started (ruling 56): its page is in the tree of one, or, on the
+    owner's own page, it is a thread of one. From what the bank holds now, with no clock, so a re-check inside a settle
+    can only agree or stand down."""
+    bank = bank or project_timeline._Bank(memory_path, None)
+    page, claim = str((fm or {}).get("entity_id") or ""), str((fm or {}).get("claim_id") or "")
+    owner = bank.owner()
+    for root in bank.stems:
+        f = bank.entities.get(root)
+        if f is None or bank.type_of(root) != "project" or not bank.live(root) \
+                or not project_ownership.listed(f.frontmatter, f.path):
+            continue
+        tree = project_timeline._tree(bank, root)[0]
+        if page != owner:
+            if page in tree:
+                return True
+        elif any(t.claim_id == claim for t in project_timeline._threads(
+                bank, root, project_timeline._events(bank, tree, owner))):
+            return True
+    return False
+
+
 def propose(memory_path: Path, today: date, *, skip: frozenset[str] = frozenset(),
             tz_name: str | None = None) -> Report:
     """Clear the follow-ups that no longer stand, then ask at most one per
@@ -126,10 +154,13 @@ def propose(memory_path: Path, today: date, *, skip: frozenset[str] = frozenset(
             eligible.setdefault(c.key, set()).add(project)
 
     open_keys: list[tuple[str, str, str]] = []
+    read = project_timeline._Bank(memory_path, tz_name)
     for f in bank_index.files(memory_path, "inbox"):
         fm = f.frontmatter or {}
         if str(fm.get("kind") or "") != "followup":
             continue
+        if not on_started_project(memory_path, fm, bank=read):
+            continue    # ruling 56: Sleep's tending retires it, undoable (`not_started`); it holds no slot here
         key = (str(fm.get("entity_id") or ""), str(fm.get("predicate") or ""), str(fm.get("claim_id") or ""))
         if key not in eligible and f"entities/{key[0]}.md" not in skip:
             try:

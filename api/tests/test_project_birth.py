@@ -575,11 +575,23 @@ def test_a_start_keeps_the_signal_and_writes_a_birth_only_on_a_page_with_none():
     born = {**_BORN}
     fallback = {"type": "concept", project_birth.PROPOSED_KEY: "project", "born": born}
     assert project_birth.start_page(fallback, {"origin": "created"}) is True
-    assert fallback == {"type": "project", "born": born}
+    assert (fallback["type"], fallback["born"]) == ("project", born) and project_birth.PROPOSED_KEY not in fallback
     bare = {"type": "concept"}
     assert project_birth.start_page(bare, {"origin": "created"}) is True
-    assert bare == {"type": "project", "born": {"origin": "created"}}
+    assert (bare["type"], bare["born"]) == ("project", {"origin": "created"})
     assert project_birth.start_page(fallback, {"origin": "created"}) is False
+
+
+def test_undoing_a_start_gives_the_page_back_as_it_was():
+    born = {**_BORN}
+    for before in ({"type": "concept", project_birth.PROPOSED_KEY: "project", "born": born},
+                   {"type": "concept", project_birth.PROPOSED_KEY: "project"}, {"type": "tool"}):
+        fm = dict(before)
+        project_birth.start_page(fm, {"origin": "created"})
+        assert project_birth.undo_start(fm) is True and fm == before
+    always = {"type": "project", "born": born}
+    assert project_birth.start_page(always, {"origin": "created"}) is False
+    assert project_birth.undo_start(always) is False and always == {"type": "project", "born": born}
 
 
 def test_an_existing_project_page_is_never_retyped_or_archived_by_the_fallback(tmp_path, monkeypatch):

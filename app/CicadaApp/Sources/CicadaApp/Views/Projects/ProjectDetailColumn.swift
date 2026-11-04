@@ -583,8 +583,13 @@ struct ProjectDetailColumn: View {
                     Button(Copy.Projects.openCard) { openEntity(projectId) }
                     // Ruling 56 — the one way off the list, and back: nothing about the page changes.
                     if ref?.mine == true {
-                        Button(Copy.ProjectsMine.removeFromMine) { Task { await change(.dismiss(id: projectId)) } }
-                            .disabled(blocked)
+                        Button(Copy.ProjectsMine.removeFromMine) {
+                            Task {
+                                // A page a start retyped goes back to what it was, and has no project view to stay on.
+                                if await change(.dismiss(id: projectId))?.retyped == true { onClose() }
+                            }
+                        }
+                        .disabled(blocked)
                     }
                 } label: {
                     Image(systemName: "ellipsis").font(CicadaTheme.icon(.list))

@@ -1406,6 +1406,8 @@ Round 4 (C2–C4):
 - `proposed_type: project` (owner 2026-10-23; ruling 56) — on a `concept` page for a thing Stage 1 called a project that
   cleared the promotion bar (the fallback page, `capture-and-sleep.md`), or another client's proposed project. Read by the
   judge (a later project mention meets the page); removed when the person or an agent on their ask starts the page.
+- `started_from: {type, proposed?, wrote_born?}` (ruling 56) — what a start changed on a page that was not a project, so
+  Remove gives it back; a start also revives a faded or archived page, as a mention would.
 - `conversations_added` / `entities_added` rows (ruling 56) — an agent's row is `{episode|entity, by, session?, reason?,
   proposed?}`: `reason` is its one sentence (scrubbed, ≤ 300), shown to the person; `proposed` is an agent off the trust
   list, never counted or drawn as part of the project until the person takes it. `repositories:` rows carry `reason` too.

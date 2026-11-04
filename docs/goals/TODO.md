@@ -3114,13 +3114,19 @@ A whole row moves to DONE only after its remaining implementation and required a
     by listing order. An agent's create needs the ask on record (`reason` or `evidence`), or nothing changes. A harness
     on the G198 trust list starts it at once; any other client, remote always, files one `page_edit` inbox question
     (`start_project`) and only the person's yes starts it. An agent never starts a page the person took out; the person
-    can. **Reachable:** nothing is archived, deleted or retyped in bulk. The other pages stay reachable by search, the
+    can. A start is a mention: it revives a faded or archived page, or the page would be listed and missing from what an
+    agent is told. Remove gives a retyped page back as it was (`started_from`). **Reachable:** nothing is archived, deleted or
+    retyped in bulk. The other pages stay reachable by search, the
     graph, recall and `cicada_project`; a page not started shows *Add to my projects* on its own detail, and a listed one
     *Remove from my projects* in its menu, the only new doors and each replaces a larger one. `/accept` and `/dismiss`
     stay. `GET /projects` sends only listed rows and an always empty `suggested` / `dismissed`, kept one release for a
     client built against g141-7..9 (remove after 0.9). A ChatGPT grouping with no page is no longer offered; its id stays
-    on the episodes, so a later door can use it. Follow-ups still read every page: this ruling hides a list, it does not
-    silence a thread already on the record.
+    on the episodes, so a later door can use it. **Follow-ups (owner, 2026-11-04: "Yeah only projects I started."):** one
+    is raised only on a project the person started. One already pending on a page they never started is retired on
+    Sleep's next tending pass (`not_started`, nothing written, listed under "Settled by Sleep", undoable, and once undone
+    never retired again), never just deleted, and holds no slot of the three. **Imported Claude projects (owner, 2026-11-04:
+    "Yes imported Claude projects are mine."):** they stay listed; that settles the addendum's open question to ruling 45,
+    and `CLAUDE_EXPORT_MINE` is no longer the acting owner's to flip.
     **What an arriving agent is told (coordinator's correction, 2026-11-04):** the handshake's "Current projects" holds
     what the person started, then "Recent project pages, not started as projects" up to the same 7 rows. Matching the
     list literally would have told every agent on this bank nothing on arrival; calling those pages the person's would
@@ -3128,7 +3134,7 @@ A whole row moves to DONE only after its remaining implementation and required a
     **Links, automatic or proposed:**
     | Link | By, on what | Which | Why |
     |---|---|---|---|
-    | A session in a repository the project lists, its checkout pointing there now | Cicada, on the hook's salted origin hash | Automatic, derived on read | A fact, and the person or a trusted agent named the repository. Why D2a's "a shared remote ties nothing" does not apply: this one was listed. A remote the checkout has left ties nothing |
+    | A session in a repository the person or a trusted agent named on the project, its checkout pointing there now | Cicada, on the hook's salted origin hash | Automatic, derived on read | A fact, and they named the repository, which is why D2a's "a shared remote ties nothing" does not apply. Cicada's own `how: origin` link names nothing and ties nothing this way. A remote the checkout has left ties nothing |
     | A session in the page's own checkout family, or a folder named for it | Cicada, on the hook's observation | Automatic, derived on read | Ruling 45 Q8, unchanged |
     | A repository whose origin is the one project's own checkout | Cicada (`how: origin`) | Automatic, only on a project the person started | Ruling 53; a page not started gets nothing it never asked for, and adopting one links it next sync |
     | A conversation or page, by an agent on the trust list, in the conversation it is in | That agent, with its one-sentence reason | Automatic, at once | G198; the agent read the conversation, and the row shows who and why |

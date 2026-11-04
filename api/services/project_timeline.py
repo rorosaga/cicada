@@ -386,12 +386,13 @@ class _Bank:
         return self._current_remotes
 
     def listed_remotes(self, fm: dict) -> set[str]:
-        """The salted hashes of the repositories a project lists (ruling 56): a session whose checkout points at one NOW
-        is in a repository the person or a trusted agent named as the project's, which is why this may tie where a
-        shared remote alone never does (:meth:`page_repo_families`). Compared, never stored; empty with no salt."""
+        """The salted hashes of the repositories the person or a trusted agent named on a project (ruling 56): a session
+        whose checkout points at one NOW is in a repository they named as the project's, which is why this may tie where a
+        shared remote alone never does (:meth:`page_repo_families`). Cicada's own ``how: origin`` link names nothing, so it
+        is left out (`github_repos.named_urls`). Compared, never stored; empty with no salt."""
         from api.services import github_repos
 
-        urls = github_repos.project_urls(fm)
+        urls = github_repos.named_urls(fm)
         if not urls:
             return set()
         if self._salt is _UNREAD:

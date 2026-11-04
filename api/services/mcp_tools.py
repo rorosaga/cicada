@@ -4443,11 +4443,12 @@ NOT_STARTED = "Not in the person's projects: they have not started it."
 def _start_offer(ctx: ToolContext, stem: str, *, standing: bool = True) -> str | None:
     """Ruling 56, in place of the Suggested list: one line where an agent reads a page the person never started. It is
     the agent's to offer, once and in its own words, never a list and never an inbox question. Named only where the tool
-    exists (R12), and always a reply's ``own`` segment: a direction inside the reference markers is one to ignore."""
-    if not ctx.can("cicada_create_project"):
+    exists (R12): the command line does not expose it, so a shell reads the page with no offer. Always a reply's ``own``
+    segment, outside the reference markers, so the id goes in only when it can carry nothing but an id: `sanitize_id` keeps
+    a backtick or a newline, and a hostile page id must not write Cicada's own direction."""
+    if not ctx.can("cicada_create_project") or not re.fullmatch(r"[\w-]+", stem):
         return None
-    call = (f"`{_cli_spell('cicada_create_project', project=stem)}`" if ctx.is_cli
-            else f"`cicada_create_project(project=\"{stem}\", reason=<what they said>)`")
+    call = f"`cicada_create_project(project=\"{stem}\", reason=<what they said>)`"
     offer = f"If they are plainly working on it, offer once, in your own words; only on their yes, {call} makes this page the project."
     return f"{NOT_STARTED} {offer}" if standing else offer
 
@@ -4485,7 +4486,7 @@ def create_project(ctx: ToolContext, name: str, description: str | None = None, 
         return refusal
     if ctx.sleep_running():
         return Reply(PROJECT_SLEEPING, code="sleep_writing")
-    why = " ".join(str(reason or "").split())[:300]
+    why = project_ownership.clean_reason(reason, bank=memory_path.name) or ""
     if not why and not evidence:
         return Reply("A project starts only when the person asks. Say what they said in `reason`, or cite their words "
                      "in `evidence`. Nothing changed.", code="invalid_arguments")
@@ -4587,9 +4588,10 @@ def link_conversation(ctx: ToolContext, project: str, episode: str | None = None
     # One conversation, one page write (`project_ownership.tie` takes every episode of it and checks them all before it
     # writes): a refusal leaves nothing behind, never a half-tied conversation under this agent's name.
     trusted = page_editors.is_trusted(ctx.author, remote=ctx.is_remote)
+    clean = project_ownership.clean_reason(reason, bank=memory_path.name)
     try:
         paths = project_ownership.tie(memory_path, stem, episodes[0], remove=bool(remove), by=ctx.author,
-                                      session=ctx.session_id or None, trusted=trusted, reason=reason)
+                                      session=ctx.session_id or None, trusted=trusted, reason=clean)
     except project_ownership.OwnershipError as exc:
         return Reply(f"Nothing changed — {exc}", code="refused")
     episodes = project_ownership.conversation_episodes(memory_path, episodes[0])
@@ -4597,7 +4599,6 @@ def link_conversation(ctx: ToolContext, project: str, episode: str | None = None
         return f"Nothing to change: {'untied' if remove else 'already tied'}."
     _source_event(ctx, memory_path, stem, "conversation_untied" if remove else
                   ("conversation_tied" if trusted else "conversation_proposed"))
-    clean = " ".join(str(reason).split())[:300]
     agent_commits.commit_write(memory_path, subject=ctx.commit_subject,
                                lines=[f"{p}: updated (trigger: {ctx.trigger})" for p in paths] + ["", f"Reason: {clean}"],
                                paths=paths, author=ctx.author, session=ctx.session_id)
@@ -4633,6 +4634,7 @@ def link_entity(ctx: ToolContext, project: str, entity: str, remove: bool = Fals
     if (unstarted := _not_a_project_yet(memory_path, stem)) is not None:
         return unstarted
     trusted = page_editors.is_trusted(ctx.author, remote=ctx.is_remote)
+    clean = project_ownership.clean_reason(reason, bank=memory_path.name)
     # G230: a repository page tied by a trusted agent is one of the project's repositories (a project may span
     # several); any other agent's stays a proposal on the project's page, like every page.
     if trusted and (repo_page := _repository_stem(memory_path, str(entity))) is not None:
@@ -4640,13 +4642,11 @@ def link_entity(ctx: ToolContext, project: str, entity: str, remove: bool = Fals
 
         try:
             paths = github_repos.link(memory_path, stem, repo_page, by=ctx.author, how=github_repos.HOW_AGENT,
-                                      session=ctx.session_id or None, remove=bool(remove),
-                                      reason=project_ownership.clean_reason(reason, bank=memory_path.name))
+                                      session=ctx.session_id or None, remove=bool(remove), reason=clean)
         except (LookupError, github_repos.LinkRefused) as exc:
             return Reply(f"Nothing changed — {exc}", code="refused")
         if not paths:
             return f"Nothing to change: {'not linked by you' if remove else 'already one of its repositories'}."
-        clean = " ".join(str(reason).split())[:300]
         agent_commits.commit_write(memory_path, subject=ctx.commit_subject,
                                    lines=[f"{p}: updated (trigger: {ctx.trigger})" for p in paths]
                                    + ["", f"Reason: {clean}"], paths=paths, author=ctx.author, session=ctx.session_id)
@@ -4655,13 +4655,12 @@ def link_entity(ctx: ToolContext, project: str, entity: str, remove: bool = Fals
                 "by you.")
     try:
         paths = project_ownership.tie_page(memory_path, stem, str(entity), remove=bool(remove), by=ctx.author,
-                                           session=ctx.session_id or None, trusted=trusted, reason=reason)
+                                           session=ctx.session_id or None, trusted=trusted, reason=clean)
     except project_ownership.OwnershipError as exc:
         return Reply(f"Nothing changed — {exc}", code="refused")
     if not paths:
         return f"Nothing to change: {'not tied by you' if remove else 'already tied'}."
     _source_event(ctx, memory_path, stem, "page_untied" if remove else ("page_tied" if trusted else "page_proposed"))
-    clean = " ".join(str(reason).split())[:300]
     agent_commits.commit_write(memory_path, subject=ctx.commit_subject,
                                lines=[f"{p}: updated (trigger: {ctx.trigger})" for p in paths] + ["", f"Reason: {clean}"],
                                paths=paths, author=ctx.author, session=ctx.session_id)

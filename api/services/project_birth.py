@@ -332,6 +332,9 @@ PROPOSED_KEY = "proposed_type"
 #: ``concept`` is the closed set's general type (``entity_types.FALLBACK``): of the ten, the only one that holds an
 #: endeavour that is not a person, organisation, place, tool, skill or folder — a canoe being built, a garden plan.
 FALLBACK_TYPE = "concept"
+#: What a start changed on a page that was not a project: ``{type, proposed?, wrote_born?}``, so removing it from the
+#: person's projects gives the page back as it was (:func:`undo_start`).
+STARTED_FROM_KEY = "started_from"
 
 
 def proposed(frontmatter: dict | None) -> bool:
@@ -362,15 +365,37 @@ def start_page(frontmatter: dict, birth: dict) -> bool:
     what ties the project's sessions), and ``birth`` is written only on a page with none. True when it changed."""
     fm = frontmatter
     changed = False
-    if str(fm.get("type") or "").lower() != "project":
+    was: dict = {}
+    kind = str(fm.get("type") or "").lower()
+    if kind != "project":
+        was["type"] = kind or FALLBACK_TYPE
         fm["type"] = "project"
         changed = True
     if fm.pop(PROPOSED_KEY, None) is not None:
+        was["proposed"] = True
         changed = True
     if not isinstance(fm.get("born"), dict):
         fm["born"] = birth
+        was["wrote_born"] = True
         changed = True
+    if "type" in was:
+        fm[STARTED_FROM_KEY] = was
     return changed
+
+
+def undo_start(frontmatter: dict) -> bool:
+    """Remove from the person's projects: a page :func:`start_page` retyped goes back to what it was. True when it did;
+    a page that was a project all along has nothing to undo."""
+    fm = frontmatter
+    was = fm.pop(STARTED_FROM_KEY, None)
+    if not isinstance(was, dict) or not was.get("type"):
+        return False
+    fm["type"] = str(was["type"])
+    if was.get("proposed"):
+        fm[PROPOSED_KEY] = "project"
+    if was.get("wrote_born"):
+        fm.pop("born", None)
+    return True
 
 
 # --- reading it back ------------------------------------------------------------------------------------------------

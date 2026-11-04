@@ -661,6 +661,7 @@ def plan(frontmatter: dict, body: str, request: Request, *, author: str, day: st
         project_birth.start_page(fm, {"origin": "created", "via": project_ownership.VIA_ACCEPTED, "day": day})
         fm.pop(project_ownership.NOT_MINE_KEY, None)
         fm[project_ownership.MINE_KEY] = {"via": project_ownership.VIA_ACCEPTED, "day": day, "by": "user"}
+        project_ownership.revive(fm, day)
         changes.append("started as a project")
     if request.name is not None or request.description is not None:
         from api.services import project_ownership

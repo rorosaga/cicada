@@ -10,8 +10,8 @@ archived, deleted, renamed or retyped in bulk. A project is the person's when:
 * they added an existing page to their projects, or accepted a suggestion before suggestions went;
 * they already logged progress on it in the app — a claim with ``origin: companion_app`` on the page (Q2: derived on
   read, never written, so no bulk write ever runs over a bank);
-* they made it in Claude, read from a Claude export's ``projects.json`` (addendum: :data:`CLAUDE_EXPORT_MINE`, one
-  constant the acting owner may flip).
+* they made it in Claude, read from a Claude export's ``projects.json`` (addendum, confirmed by ruling 56:
+  :data:`CLAUDE_EXPORT_MINE`).
 
 **Starting a project whose page already exists adopts that page** (:func:`start_target`, :func:`start`): the same id,
 body, claims and history, never a second page under the same name. Only a page that can honestly be the project is
@@ -24,6 +24,7 @@ carries them through every rewrite (``conflict_resolver`` updates the page's own
 
 ``mine: {via, day, by, session?}``         in the person's list
 ``not_mine: {day}``                         taken out of the person's list; a page they said is not theirs
+``started_from: {type, proposed?, wrote_born?}``   what a start retyped, so Remove gives the page back (`project_birth`)
 ``description`` / ``description_by``        the person's header line and who last set it (Sleep never writes it)
 ``conversations_added`` / ``conversations_removed``   conversations tied or untied by hand (``project_conversations``)
 ``entities_added`` / ``entities_removed``   pages tied to the project by hand, or "Not part of it" (``project_pages``)
@@ -67,8 +68,8 @@ PERSON_KEYS = (MINE_KEY, NOT_MINE_KEY, DESCRIPTION_KEY, DESCRIPTION_BY_KEY, ADDE
 #: How a project came to be the person's (``mine.via``).
 VIA_APP, VIA_CLI, VIA_AGENT, VIA_ACCEPTED, VIA_FOLDER, VIA_IMPORT, VIA_PROGRESS = (
     "app", "cli", "agent", "accepted", "folder", "import", "progress")
-#: Addendum (owner, 2026-10-27): a project the person made in Claude is theirs on import. The acting owner confirms
-#: this with the owner; ``False`` makes every imported Claude project a suggestion instead ("From your Claude export").
+#: Addendum (owner, 2026-10-27): a project the person made in Claude is theirs on import. Confirmed in ruling 56 (owner,
+#: 2026-11-04: "Yes imported Claude projects are mine.").
 CLAUDE_EXPORT_MINE = True
 
 MAX_NAME = 120
@@ -302,6 +303,20 @@ def existing_named(memory_path: Path, name: str) -> str | None:
     return None
 
 
+def revive(fm: dict, day: str) -> bool:
+    """A person starting a project is a mention of it: a faded or archived page comes back, or it would be listed and
+    missing from what an arriving agent is told until Sleep next heard it. `conflict_resolver`'s mention rule, in small."""
+    from api.services.conflict_resolver import RECOVERY_CONFIDENCE
+
+    if str(fm.get("status") or "active") in ("decaying", "archived"):
+        fm["status"] = "active"
+        fm["confidence"] = max(float(fm.get("confidence", 0.0) or 0.0), RECOVERY_CONFIDENCE)
+    fm.pop(decay_policy.FADED_BY_AGE_KEY, None)
+    fm["last_referenced"] = day
+    fm["decayed_through"] = day
+    return True
+
+
 def start_target(memory_path: Path, name: str) -> str | None:
     """The page a start under ``name`` adopts, or ``None`` when no page answers to the name. Raises
     :class:`OwnershipError` in words when pages answer and none can be adopted, or two could and nothing tells them
@@ -360,7 +375,7 @@ def start(memory_path: Path, stem: str, desc: str = "", *, via: str, by: str, se
             changed = True
         if _dict(fm.get(MINE_KEY)) is None:
             fm[MINE_KEY] = _mark(via, by=by, day=day, session=session)
-            changed = True
+            changed = revive(fm, day)
         if str(desc or "").strip():
             changed = bool(apply_header(fm, desc=desc, by=by, day=day, session=session,
                                         bank=Path(memory_path).name)) or changed
@@ -467,15 +482,15 @@ def accept(memory_path: Path, stem: str, *, name: str | None = None, by: str = "
         changed = fm.pop(NOT_MINE_KEY, None) is not None
         if _dict(fm.get(MINE_KEY)) is None:
             fm[MINE_KEY] = _mark(VIA_ACCEPTED, by=by, day=day)
-            changed = True
+            changed = revive(fm, day)
         return changed or None
 
     return _rewrite(memory_path, stem, change)
 
 
 def dismiss(memory_path: Path, stem: str, *, today: date | None = None) -> list[str]:
-    """"Remove from my projects": the page stays as it is (never archived or deleted) and leaves the person's list; it
-    can be added again from its page."""
+    """"Remove from my projects": the page leaves the person's list, never archived or deleted. A page a start retyped goes
+    back to what it was (`project_birth.undo_start`); a project page can be added again from its own head."""
     day = _today(today)
 
     def change(fm: dict):
@@ -485,6 +500,7 @@ def dismiss(memory_path: Path, stem: str, *, today: date | None = None) -> list[
             return False
         fm.pop(MINE_KEY, None)
         fm[NOT_MINE_KEY] = {"day": day}
+        project_birth.undo_start(fm)
         return None
 
     return _rewrite(memory_path, stem, change)

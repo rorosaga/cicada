@@ -2240,6 +2240,7 @@ class ProjectOwnershipResponse(CamelModel):
     claim_id: Optional[str] = None
     page: Optional[str] = None
     episode_id: Optional[str] = None
+    retyped: bool = False   # ruling 56: Remove gave the page back as what it was, so it has no project view now
 
 
 ProjectTimeline.model_rebuild()

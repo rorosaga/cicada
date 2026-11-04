@@ -533,7 +533,9 @@ async def dismiss_project(project_id: str, settings: Settings = Depends(get_sett
             raise _refuse(exc)
         if paths:
             await _commit_as(mp, f"Project dismissed {stem}", paths)
-    return ProjectOwnershipResponse(id=stem, action="dismissed" if paths else "unchanged", mine=False)
+        kind = (markdown_parser.parse(Path(mp) / "entities" / f"{stem}.md", ledger=False).frontmatter or {}).get("type")
+    return ProjectOwnershipResponse(id=stem, action="dismissed" if paths else "unchanged", mine=False,
+                                    retyped=kind != "project")
 
 
 @router.patch("/projects/{project_id}", response_model=ProjectOwnershipResponse)
