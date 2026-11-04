@@ -658,7 +658,11 @@ def find(text: str, *, harness: bool = False, override: str | None = None, gaps=
             kind = marker[0]
             content_at = marker[2]
             if not saved:
-                speaker = ("agent" if kind == "assistant" or override in ("assistant", evidence.AGENT_KIND)
+                # Rulings 57, 58: a relayed person's turn is the model's account for provenance, but it carries what the
+                # person typed, so it is read as theirs here: their password stays out of an engine's read.
+                relayed = marker[1].startswith("relayed") or (kind == "user" and override == "assistant")
+                speaker = ("person" if relayed
+                           else "agent" if kind == "assistant" or override in ("assistant", evidence.AGENT_KIND)
                            else "skip" if kind in ("media", "page", "gap") else "person")
         if _FENCE_RE.match(line):
             fenced = not fenced

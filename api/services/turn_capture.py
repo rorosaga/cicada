@@ -45,10 +45,13 @@ import hashlib
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 
 from loguru import logger
 
-from api.services import agent_catalog, continuity_sessions, demo_guard, episode_ids, evidence, markdown_parser
+from api.services import (
+    agent_catalog, continuity_sessions, demo_guard, episode_ids, evidence, markdown_parser, sensitive_flags,
+)
 from api.services import transcript_capture as tc
 from api.services.transcript_extract import (
     _NOTE_LINE_RE, SESSION_CAP_CHARS, Conversation, Gap, Turn, clean_turn, window,
@@ -268,10 +271,12 @@ def _after_import(memory_path: Path, path: Path, stored, posted: list[Posted], r
     replies = {w for t, w in words if t.marker in ("assistant", "ai")}
     person = [w for t, w in words if t.role == "user" or t.marker.startswith("relayed")]
     marker = _relayed_marker(relay)
+    cleaned = [(p, clean_turn(p.speaker, p.text, first=False, ts=now)[0]) for p in posted]
+    # G235: text the person took out stays out, though the app's model still says it, and a re-send still reads as one.
+    sensitive_flags.reapply_conversation(SimpleNamespace(turns=[t for _, t in cleaned if t is not None]), fm)
     rows: list[dict] = []
     new_reply = False
-    for p in posted:
-        turn, _counts = clean_turn(p.speaker, p.text, first=False, ts=now)
+    for p, turn in cleaned:
         if turn is None:
             continue
         key = staging._turn_key(turn.text)

@@ -584,7 +584,7 @@ def append_relayed(path: Path, fm: dict, body: str, rows: list[dict], *, at: str
     fm = dict(fm)
     relay = dict(fm.get("relay") or {})
     if not has_relayed_tail(fm):
-        relay.setdefault("imported_hash", str(fm.get("content_hash") or content_hash(body)))
+        relay["imported_hash"] = str(fm.get("content_hash") or content_hash(body))     # what is here, a removal included
         relay["tail_at"] = len(body) + 1
     if project:
         relay["project"] = project

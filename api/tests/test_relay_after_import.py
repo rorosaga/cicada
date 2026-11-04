@@ -314,6 +314,46 @@ def test_the_cycles_own_loader_carries_what_the_note_reads(memory, imported):
     assert "never the person's own words" in entity_extractor.relayed_note(episode)
 
 
+# --- ruling 60: a Remove on a chat that went on ------------------------------------------------------------------------
+
+SECRET = f"my password is {'Zebra7' + '-lantern'}"
+
+
+def test_a_remove_in_the_imported_part_moves_where_the_later_turns_start(memory):
+    from api.services import sensitive_flags
+
+    door = _Local(memory)
+    door.send(SECOND, REPLY)
+    export = _export(("user", FIRST), ("assistant", REPLY), ("user", f"{SECOND} Also {SECRET} for the staging box."))
+    episode_staging.stage([export], memory / "episodes")
+    [path] = _episodes(memory)
+    door.send(THIRD, REPLY2)
+    sensitive_flags.remove_episode(memory, path.stem)
+    parsed = _parsed(path)
+    assert "Zebra7" not in parsed.body
+    assert parsed.body[parsed.frontmatter["relay"]["tail_at"]:].startswith(f"assistant: {REPLY2}")
+    assert [t.role for t in episode_staging.relayed_tail(parsed.frontmatter, parsed.body)] == ["assistant", "assistant"]
+    # the same export, taken out the same way, is still a skip; and it never brings the words back
+    episode_staging.stage([export], memory / "episodes")
+    again = _parsed(path)
+    assert again.body == parsed.body and again.frontmatter["relay"]["tail_at"] == parsed.frontmatter["relay"]["tail_at"]
+    assert again.frontmatter.get("revised", {}).get("count") == parsed.frontmatter.get("revised", {}).get("count")
+
+
+def test_a_relayed_turn_the_person_took_text_out_of_never_comes_back_on_a_resend(memory, imported):
+    from api.services import sensitive_flags
+
+    door, path = imported
+    door.send(f"{THIRD} Also {SECRET} for the staging box.", REPLY2)
+    sensitive_flags.remove_episode(memory, path.stem)
+    parsed = _parsed(path)
+    assert "Zebra7" not in parsed.body
+    door.send(f"{THIRD} Also {SECRET} for the staging box.", REPLY2)      # the app's model re-sends it
+    assert _parsed(path).body == parsed.body
+    door.send(f"And again, {SECRET}, on the next machine.", REPLY3)
+    assert "Zebra7" not in _parsed(path).body and "on the next machine" in _parsed(path).body
+
+
 # --- a later export ---------------------------------------------------------------------------------------------------
 
 def test_the_same_export_again_changes_nothing_and_keeps_the_later_turns(memory, imported):

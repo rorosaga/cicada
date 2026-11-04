@@ -82,6 +82,10 @@ def test_who_said_it_decides_how_it_is_read():
     assert _kinds(f"video [0:10]: {line}") == set()            # a video's words
     assert _kinds(line, override=evidence.SAVE_KIND) == set()  # a saved page's public text
     assert _kinds(line, override=evidence.AGENT_KIND) == set()  # an agent's saved note
+    # Rulings 57, 58: a person's turn an app relayed still carries what they typed; its reply is still the model's.
+    assert _kinds(f"user: {line}", override="assistant") == {st.PASSWORD}
+    assert _kinds(f"relayed [Claude]: {line}") == {st.PASSWORD}
+    assert _kinds(f"assistant: {line}", override="assistant") == set()
 
 
 def test_a_code_fence_is_read_only_for_shapes():

@@ -1380,7 +1380,9 @@ Stage 1 is told what the marker means (`relayed_note`). A re-send is `unchanged`
 its last person turn with no new reply, even one the export brought. Over the session cap on what grew, a turn is refused in words.
 **Another import** compares with `imported_hash`, so the same export is a skip. A newer one replaces the imported part (an edit in
 place, `merge_relayed_tail`): the later turns it holds are the person's own now and go, matched in order; the rest stay after it.
-The person sees each later turn in the Reader as "Relayed by Claude", never "You".
+The person sees each later turn in the Reader as "Relayed by Claude", never "You". **Ruling 60 on a relayed chat:** a person's
+turn, relayed before or after the import, is read as theirs when looking for a password, so it stays out of an engine's read and can
+be removed, though its provenance stays the model's. A Remove moves `tail_at`, and text taken out stays out of a re-sent turn.
 
 **Per-turn capture (`api/services/turn_capture.py`, `POST /capture/turn`).** The hook posts `{harness, session_id,
 messages: [{speaker, text}], turn_id?, retry?, model?, cwd?, hook_event, utc_offset_minutes?}` — one turn (Cursor) or one exchange (Gemini
