@@ -8,6 +8,22 @@ final class OnboardingSourceTests: XCTestCase {
         return try String(contentsOf: file, encoding: .utf8)
     }
 
+    /// Ruling 58 — a new memory still starts from an export, and nothing in the app asks for another one or looks for it.
+    func testANewMemoryIsOfferedAnImportAndExportsAreOneTime() throws {
+        let step = try source("Views/Onboarding/SourcesStep.swift")
+        XCTAssertTrue(step.contains("Copy.sourcesHowToExport"), "How to get an export")
+        XCTAssertTrue(step.contains("onSeeHow(.claude)"))
+        for file in ThemeTokenTests.swiftSources() {
+            let text = try String(contentsOf: file, encoding: .utf8)
+            for gone in ["ExportHabit", "ExportArrivalWatcher", "WeeklyReminderItems", "offerArrival"] {
+                XCTAssertFalse(text.contains(gone), "\(gone) in \(file.lastPathComponent)")
+            }
+            let isReminders = file.lastPathComponent == "Reminders.swift"
+            if !isReminders { XCTAssertFalse(text.contains("cicada.exportWeekly"), file.lastPathComponent) }
+            XCTAssertFalse(text.contains("FSEventStream") && text.contains("Downloads"), file.lastPathComponent)
+        }
+    }
+
     /// R-OB5 (kept by v2) — an untouched step keeps the configured engine: the Intelligence step writes only from a
     /// click inside a row (`IntelligenceRow`'s Sign in / Verify / Use), never on appear, Continue or Skip.
     func testTheIntelligenceStepWritesOnlyFromARowsClick() throws {

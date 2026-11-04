@@ -12,6 +12,14 @@
 
 ## Current state and evidence
 
+- **2026-11-04 — waiting on Reddit, not the owner.** Reddit API access was requested 2026-11-04. When Reddit approves,
+  register the installed app per `network.md` ("Registering Cicada's Reddit app") and set `reddit.CLIENT_ID`.
+- **2026-11-04 — hookless apps relay as they talk; exports are one-time (rulings 57, 58, below; G105, G197; branch
+  `ruling-57-58-relay-and-one-time-exports`).** The Claude desktop app's local connection is offered and asked for
+  `cicada_capture_turns` by exact client name; a hook-captured harness never is, whatever it calls itself. #592's weekly
+  nudge and Downloads pickup are gone; it never reached a release. **Blocked on the Funnel question (D6′, 2026-11-03):**
+  claude.ai on web and phone and ChatGPT reach the relay only through a public address, today a tunnel the person runs;
+  not built here. **Open, new:** a chat resumed after its one-time import keeps no later turns (ruling 58).
 - **2026-11-04 — books: scan an ISBN, Apple Books, a Goodreads export (G233, G39; branch `books-g39` + cicada-app `feat/scan-a-book`).** Owner: "integrate ISBN codes to include books I'm reading … iBooks too, to track progress … save books I want to read (maybe including Goodreads)"; then "be able to consolidate highlights and such is important", not started as its own status, the scanner in the phone app. `POST /capture/isbn` is the phone's contract (`{isbn, status?, id?}`, keep it stable); the home resolves the number behind the connector gate; `books.apply_pending` makes one `media` page per work with dated `reading-status` claims and happenings (`progress.py`). Apple Books is read by the app after Connect; Goodreads only by its export (no API keys since 2020); both on the standard source page (`BooksSlots.swift`). Highlights are read by Sleep, revision-read as they grow. Verified on scratch state with a synthetic library, a sample export and a capture-only phone (`feature-status.md`). **Owner's steps:** the four decisions on the G233 row; a real-iPhone camera test once the Apple Developer Program signup is done.
 - **2026-11-04 — a question about two people rests on a conversation naming both; never the owner without their own
   words (G209; branch `fix/person-dedup-evidence`).** Owner: "why tf would <handle> be me?" about "Is <handle> the same
@@ -55,8 +63,9 @@
   the tick's own request, never again — now on every start and sign-in. **Owner's check:** open the own WhatsApp
   chat on the Sources page; on Telegram, restart the backend once so the photos are asked.
 - **2026-11-04 — New project is a page; an empty Projects list says nothing (G222; branch `feat/projects-new-page`).** Owner: "remove the text that appears when no projects" and "more like claude desktop app, and not two input text lines". New project opens as the detail column: the name as the H1, a large editor for the person's own paragraphs (kept as written, ≤ 4,000 characters, the page's lead; Sleep never writes it), and a picker over every page in memory by kind with each page's picture or its source's mark. Create is one `POST /projects` with `pages` (checked first, one person commit; a repository joins `repositories:` under ruling 53); `POST /projects/{id}/pages` routes a repository the same way, and the day the person started a project counts as activity, so a new one sits in Current. Verified on a scratch app (light and dark). **For the owner:** the live install suggests 750 projects; by construction that is every project page with no `mine` mark (the ~700 pre-D4 pages, `whyKind: none`) plus fallback concepts and repository births — whether legacy `none` pages are suggested at all is a ruling-45 call (G222's row).
-- **2026-11-04 — Claude chats: the export picked up from Downloads, and a weekly nudge (G197 layer c, G105; branch
-  `claude-desktop-capture`).** Owner: "I don't see conversations I have on Claude chats or claude.ai being captured."
+- **2026-11-04 — SUPERSEDED by rulings 57 and 58 the same day: what follows was built in #592 and removed, its DECIDE
+  list answered.** Claude chats: the export picked up from Downloads, and a weekly nudge (G197 layer c, G105; branch
+  `claude-desktop-capture`). Owner: "I don't see conversations I have on Claude chats or claude.ai being captured."
   Diagnosis, from the live install's numbers: one relayed episode ever, and every Claude chat in the bank from one
   October export. The remote connector was off, so claude.ai had no way in. The desktop app's only Cicada server is
   stdio, which never serves `cicada_capture_turns`, and its primer asks for no relay. Of the four ways in
@@ -3062,3 +3071,24 @@ A whole row moves to DONE only after its remaining implementation and required a
     search before the owner ruled on this text, which ruling 44 forbids for a person without its encyclopedia match.
     No more lookups were run; the shipped tier (`web_check_agent_model`, sonnet) never was. **Revisit** if a settled handle is undone by the person, or a name the
     test called public turns out to be someone they know.
+57. **Capture for apps without hooks defaults to the tool their model calls as they talk (owner, 2026-11-04; amends ruling 32
+    and G105 for those apps only; G197).** `cicada_capture_turns` on the Claude desktop app's local connection and on the
+    remote connector, and the primer asks for it. Hook capture is exactly as it was for Claude Code, Codex, Cursor, Gemini
+    CLI and the rest. **The evidence that made it worth a model's cooperation:** #592's diagnosis of the owner's bank, one
+    relayed episode ever and every Claude chat from one export; the desktop app keeps no history on disk for a claude.ai
+    account, and reading claude.ai through a browser is what its terms bar. **What it binds:** a client is told apart by one
+    predicate (`relay_capture.local_relay_allowed`): the exact self-reported name, no session a harness named, not
+    `CICADA_CAPTURE=off`; anything else is not offered and not asked, so a hook-captured turn is never captured twice (Claude Code
+    calling itself `claude-ai` is refused by the session id it injects). Stored as relayed, never the person's own words;
+    one episode per conversation by a handle the tool mints; an app's two connections keep one copy. The person is told in
+    words: the tool's description, the app's own first-use ask, one line when it connects, one sentence in the conversation.
+    No new setting. **Disclosed limit:** a harness with a hook that calls itself `claude-ai` and injects no session would keep
+    a second, relayed copy. **Revisit** if a client is seen doing that, or if the desktop app gains a hook or a readable store.
+58. **Exports are one-time (owner, 2026-11-04, verbatim: "never really agreed with the path of the weekly exports; exports
+    should only exist for starting a brand new memory bank or importing data from AI providers like OpenAI and Anthropic.").**
+    #592's weekly nudge and Downloads pickup are removed; a one-time import, its upgrade in place and the one-off *Remind
+    me* stay (that reminder predates #592 and exists because an export comes by email hours later). **Open, for the owner:**
+    #592's "the next export brings its later turns" no longer holds. A later relay into a conversation an export upgraded
+    still writes nothing, so a chat resumed after its one-time import keeps no later turns; the two ways out are a second
+    relayed episode for them (against G104's one-per-conversation) or relayed turns inside the export's own-words body
+    (against provenance), and neither is built. **Revisit** only if the owner asks for a repeating import.

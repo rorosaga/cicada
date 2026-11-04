@@ -222,6 +222,10 @@ person's own words. Each call leaves one ids-only `remote_call` ledger row, file
 else's URL goes through `net_guard` (`is_global`, never `is_private`, because tailnet addresses are
 neither; the name lookup runs off the event loop).
 
+**What the relay needs of this listener (ruling 57, 2026-11-04).** claude.ai on the web and phone and ChatGPT reach Cicada only here,
+so their default relay (`cicada_capture_turns`) needs a public address, which today is a tunnel the person runs. The one-click Funnel
+(D6′, TODO 2026-11-03) is an open owner question and is not built. The Claude desktop app's local relay needs no address.
+
 **Sign-in for the remote connector (ruling 32, owner 2026-10-19).** So claude.ai (web, desktop and its phone apps)
 and ChatGPT can add Cicada as a custom connector, the G135 listener is also an **OAuth 2.1 authorization server**
 (`api/remote/oauth.py`), and still serves nothing else: `/mcp`, the two protected-resource documents,

@@ -84,7 +84,7 @@ named like an episode id still wins). A stdio read returns up to `EPISODE_READ_M
 
 **Who was on the other side (2026-10-27).** `episode_actor.actor(fm)` names it from the episode's own fields, never
 guessed: `a Claude Code session (id <session>, resumable, model <m>)` (resumable for Claude Code and Codex), `an
-agent's saved note from a … session`, `Claude, relayed through the remote connector` (ruling 32), `<name> (an AI
+agent's saved note from a … session`, `Claude, relayed through the remote connector` (ruling 32), `Claude Desktop, relayed by its model` (ruling 57), `<name> (an AI
 agent), over Messages` or `<name>, over Messages` (the episode's `correspondent`), `ChatGPT, from the person's
 exported conversations`; `None` — and no label — for the person's own capture. Ask's prompt labels an agent's turn
 `a Claude Code session — the assistant, not the person` (no id; a caller without the person's verbatim words — a remote
@@ -1988,6 +1988,18 @@ OWN advertised table (stdio `TOOLS` in `mcp/server.py`, remote `REMOTE_TOOLS`), 
 - **The fixture.** `api/tests/fixtures/mcp_stdio_golden.json` pins whole `tools/call` results (`call_tool`), refusals
   and the spelled-number refusal included; `api/tests/test_mcp_error_contract.py` holds the rest.
 
+## A hookless app's own connection (ruling 57, owner 2026-11-04)
+
+`mcp/server.py` holds `cicada_capture_turns` in `TOOLS` for its schema and a `cli_map` row (`capture turns`, MCP only), and
+answers `tools/list` from `tools_for_client()`: only a client `relay_capture.local_relay_allowed` names is offered it, `call_tool`
+refuses every other with the usual "Unknown tool", and the door asks the same question (with `env={}`, since the caller's
+environment is its own machine's). The primer asks exactly where it is offered: `load_or_build(relay=True)` adds one line to the
+`desktop` prelude (R11), part of the cache key and off by default, so `GET /handshake?client=claude-ai` and an older client machine,
+which sends no `options.relay`, never ask for a tool they do not hold (R12). A real desktop app with `CICADA_CAPTURE=off` keeps the
+`desktop` prelude without the line. The line is 86 tokens by R10's chars/4, in the fixed part `_fit` trims around: the desktop
+primer's fixed part goes from 1,233 to 1,319 (1,486 with reading on), under the 1,800. What it stores and how a person turns it
+off: `capture-and-sleep.md`, "The Claude desktop app, on its local connection".
+
 ## The remote connector's sign-in and capture (ruling 32, owner 2026-10-19)
 
 - **Sign-in.** The G135 listener is also an OAuth 2.1 authorization server (`api/remote/oauth.py`; the whole flow,
@@ -1996,8 +2008,7 @@ OWN advertised table (stdio `TOOLS` in `mcp/server.py`, remote `REMOTE_TOOLS`), 
   lists, scopes, the Sleep gate, the ledger and every write's provenance (`Cicada-Author: <app harness>`,
   `Cicada-Session: rc_…`) are the link connector's, unchanged. The secret link (`/c/<token>/mcp`) still works; the docs
   and the From anywhere group steer Claude and ChatGPT to sign-in, which puts no secret in a URL.
-- **`cicada_capture_turns(message, previous_reply?, conversation)`** (`record` scope, remote only —
-  `catalog.REMOTE_ONLY`, so `test_remote_tools.py` classifies every stdio tool plus it). Not read-only, idempotent, not
+- **`cicada_capture_turns(message, previous_reply?, conversation)`** (`record` scope; on stdio, ruling 57 below). Not read-only, idempotent, not
   destructive and not open-world: an app that confirms writes (ChatGPT) asks the person, who can allow it always.
   `REMOTE_CONTRACT_VERSION` 12 puts "Capture every turn" first in the remote contract, only where the connection holds
   the tool (R12 per scope set). What it writes and why it is never the person's own words: `capture-and-sleep.md`,
