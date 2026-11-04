@@ -12,6 +12,12 @@
 
 ## Current state and evidence
 
+- **2026-11-04 — one click to a public address for the connector (ruling 59, G135, G132's D6′; branch
+  `feat/g135-funnel-one-click`).** Owner: yes to D6′, since claude.ai and the phone apps can only reach a public address
+  and `/remote/status` on the live install reported no listener and no funnel. Built and proved on a stand-in binary and a
+  scratch listener; **no real funnel has run**, that is the owner's click. Read-only `tailscale status --json` on this Mac
+  (key names only): HTTPS certificates and the `funnel` attribute are not yet granted, so the first click meets the
+  tailnet step and shows Tailscale's link. Waiting on the owner: that first click and a request from a device off the tailnet.
 - **2026-11-04 — the Contacts page shows every card (G154, G161; branch `g154-contacts-grid`, PR #602).** Owner: "only 6
   contacts synced". Coordinator's numbers: 370 cards waiting, 6 matched, and the page listed the 6; one-part names were
   kept nowhere (196 + 139 raw records across two account sources, which overlap). `contacts_book` keeps every card's names
@@ -1420,6 +1426,27 @@ These are attached to permanent rows instead of becoming a second queue. Older d
 - **G133:** reproduce garbled imported-paper titles with synthetic files. **G103:** humanize raw-predicate fallback. **G76:** distinguish capture enabled from recall connected. **G145/G173:** versioning untouched generated demo data, if the stale-demo trigger persists.
 - **G7:** centrality premise remains unproved; no tracked measurement was found, so it is not archived as done.
 - **G92/G19:** old bank-history size is historical, not permission to rewrite git history. No destructive cleanup is implied.
+
+## Open on the remote listener's public face (review of #607, 2026-11-04)
+
+- **A stranger can hold `/register` at its limit** (`oauth.Limits.register`: one global bucket, 10 then 2 a minute), which
+  blocks a real app's sign-in by registration while it lasts. Pre-existing, and now one click from public. A metadata
+  document client is not affected. Not fixed in #607: a per-source bucket needs its own look, since a tunnel's forwarded
+  source is what the limit would rest on. Row growth from `/authorize` itself is fixed there.
+- **Nothing pushes "another program is public" to a person who never opens the page.** The log and `cicada funnel status`
+  say it too. A Home notice would need its own design.
+- **A notice on Home for an address left open (G135, ruling 59). Required before the one-click address goes beyond the
+  owner and testers.** The mapping is the daemon's and survives a crash, a reboot or a read that couldn't check it at the
+  moment the switch went off (`funnelNote`, seen once). With the connector down, only the page, the log and
+  `cicada funnel status` say so today.
+  Home should say it, read from Tailscale, with the off, whenever an address is open and the listener isn't up.
+
+## Known flaky tests
+
+A test here is not fixed and not skipped: each line says what was seen and on what basis. Look here before chasing a
+failure; add to the counts when one comes back.
+
+None at present.
 
 ## Maintaining this queue
 
@@ -3118,3 +3145,30 @@ A whole row moves to DONE only after its remaining implementation and required a
     search before the owner ruled on this text, which ruling 44 forbids for a person without its encyclopedia match.
     No more lookups were run; the shipped tier (`web_check_agent_model`, sonnet) never was. **Revisit** if a settled handle is undone by the person, or a name the
     test called public turns out to be someone they know.
+
+59. **One click may open the connector's own port to the internet (owner, 2026-11-04: "YES to one-click Tailscale Funnel
+    for the claude.ai and phone connector"; G135, G132's D6′; amends G132 (c), the headless rail's "never `funnel`" and the
+    2026-10-29 one-click rail; branch `feat/g135-funnel-one-click`).** Why: claude.ai and the phone apps relay through the
+    remote connector (ruling 32, 57) and can only reach it at a public address. **The rule:** the person's click, or
+    their own shell, may run exactly the shown `tailscale funnel --bg --https=<443|10000> <the connector's port>`, or that
+    one mapping's off (`tailscale funnel --https=<its port> --set-path=/ off`). Off until clicked; never at install, on
+    start, by an agent, or from an agent's shell. No port or argv from a request; the API's port and the door's refused;
+    never `up`, a login or `reset`; a port holding anything is never used; 8443 (the backend's tailnet mapping) is never a
+    candidate; nothing about it is stored, every answer is read back from Tailscale. What is exposed stays MCP and `/v1` on
+    that listener with its tokens and OAuth as they are, consent only in the app by typing the code. **Evidence that decides
+    the code, read from Tailscale's CLI source (v1.104, `serve_v2.go`), not its docs:** a funnel on a held port replaces
+    its `/` without asking and opens every other path on it; an off with no `--set-path` deletes every handler on the port;
+    with Funnel not allowed it prints a link and waits, or exits 0 having changed nothing, so the return code never decides.
+    The obvious `tailscale funnel --bg 8765` from our own docs fights `headless.md`'s example serve of the API on 443: it
+    would have silently taken that serve away and made the connector public there, and made public anything mounted on
+    another path of that port, an API included. Details: `network.md`. **Revisit** if embedded `tsnet` (D6′'s "later") is built, if
+    Tailscale changes those behaviours, or if an app refuses the 10000 address. **In the same PR, the same class on this
+    seam:** `/remote/status`'s `funnelCommand` no longer offers the bare command that took over a held 443 (the port the
+    click would use, or a harmless shell comment when none is safe); `cicada setup` says `cicada funnel on`; *Stop serving*
+    and the copy-only unfunnel now name `--set-path=/`, since without it the CLI deletes every handler on the port (the
+    2026-10-29 rail's shown command changes with them); and what enabling HTTPS publishes, for good, is said before the
+    click. The off keeps its confirmation, as *Stop serving* does (coordinator 2026-11-04; the owner can overrule). **Review
+    of #607, the mapping outlives the listener:** the switch now closes the connector's address in the same act (amends "the
+    switch never touches Tailscale"); a down listener's port is asked, never assumed free; other public mappings are shown
+    with their off to copy and never run, since Cicada keeps no record of what it opened; a clean quit still leaves it open,
+    because only a click may reopen it (`network.md`).

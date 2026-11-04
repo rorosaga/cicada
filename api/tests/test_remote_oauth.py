@@ -759,3 +759,19 @@ def test_metadata_document_clients_are_pruned_like_registered_ones(world):
     clock.now += timedelta(days=2)
     server._prune_clients(clock.now)
     assert server.get_client(url) is None
+
+
+def test_requests_nothing_can_answer_do_not_pile_up(world):
+    """The review of #607: evicted rows waited for a `/register` or a new metadata client to prune them, about 20 MB a day
+    from one source. A stranger hammering `/authorize` now cleans up after itself."""
+    db, server, _runtime, clock, _docs = world
+    client = oauth.Client(client_id="cic_client_flood", kind="dcr", name=None, redirect_uris=["https://x.example/cb"],
+                          auth_method="none")
+    most = 0
+    for _ in range(2000):
+        clock.now += timedelta(seconds=10)  # the per-source limit's own pace
+        server.start_request(client=client, redirect_uri="https://x.example/cb", code_challenge="c", state=None,
+                             resource="https://testserver/mcp", scopes_asked=[], source="s")
+        with server._db() as conn:
+            most = max(most, conn.execute("SELECT COUNT(*) FROM oauth_requests").fetchone()[0])
+    assert most <= oauth.REQUEST_TTL_S // 10 + oauth.MAX_PENDING + 2, most

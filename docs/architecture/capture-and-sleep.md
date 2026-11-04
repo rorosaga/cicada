@@ -1287,8 +1287,8 @@ weighed against the rails:
   export, picked up from Downloads"). Staging is per conversation and idempotent, so each export brings only what is
   new or grew and upgrades relayed episodes in place.
 - **(d) The remote connector plus relay — unchanged, never the only path.** It is real time, but it depends on the
-  app's model calling the tool (ruling 32's disclosed exception), and the person must run a public tunnel. The
-  one-click Funnel (G132's D6′) waits on the owner (TODO, 2026-11-03). A connector added on claude.ai also appears in
+  app's model calling the tool (ruling 32's disclosed exception), and the person needs a public address: one click
+  since ruling 59 (`network.md`). A connector added on claude.ai also appears in
   the desktop and phone apps, so this one path covers all three.
 
 **Per-turn capture (`api/services/turn_capture.py`, `POST /capture/turn`).** The hook posts `{harness, session_id,

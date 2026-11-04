@@ -204,8 +204,10 @@ def test_a_replay_after_a_bank_switch_runs_in_the_bank_now_open(tmp_path, monkey
     """Keys are scoped by bank too: the same key after a switch never answers with the other bank's episode id."""
     from api import config
     from api.main import app
+    from api.routers import devices as devices_router
     from api.services import bank_registry
 
+    monkeypatch.setattr(devices_router, "_WRONG_CODES", None)  # the /pair bucket is process-wide: an earlier test's 429
     root = tmp_path / "bank-root"
     root.mkdir()
     monkeypatch.setenv("CICADA_MEMORY_PATH", str(root))

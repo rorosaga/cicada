@@ -564,6 +564,7 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /pair": (OUTSIDE, None),
     "POST /devices/me/key": (OUTSIDE, None),   # 2026-10-29: a device binds its own key, in $CICADA_HOME
     "POST /devices/reach/serve": (OUTSIDE, None),   # 2026-10-29: the person's click runs one tailnet serve, no bank
+    "POST /remote/funnel": (OUTSIDE, None),         # ruling 59: the person's click runs one funnel of the connector, no bank
     "POST /devices": (OUTSIDE, None),
     "DELETE /devices/{device_id}": (OUTSIDE, None),
     # G132 phase 1: the publishing switch ($CICADA_HOME/sync/settings.json) and "publish from here" (the log's sidecar).
