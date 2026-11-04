@@ -315,12 +315,12 @@ def test_a_search_comes_back_in_the_shape_the_pinned_query_check_reads(monkeypat
     from api.services import web_lookup
 
     stub = StubAnthropic(answer=lambda b: "{}", search_blocks=[
-        {"type": "server_tool_use", "id": "srvtoolu_x", "name": "web_search", "input": {}}])
+        {"type": "server_tool_use", "id": "srvtoolu_x", "name": "web_search", "input": {"query": "alpha pinned query"}}])
     stub.install(monkeypatch)
     events: list[telemetry.UsageEvent] = []
     resp = _fn(events)(messages=_msgs(), web_search=True)
     assert stub.requests[0]["tools"] == [{"type": "web_search_20250305", "name": "web_search", "max_uses": 1}]
-    assert web_lookup.searched_queries(resp) == [""]
+    assert web_lookup.searched_queries(resp) == ["alpha pinned query"]
     assert events[0].cost_usd >= price_supplement.CLAUDE_SEARCH_USD
     _fn(model="anthropic/claude-sonnet-5-5")(messages=_msgs(), web_search=True)
     assert stub.requests[-1]["tools"][0]["type"] == "web_search_20260209"

@@ -144,6 +144,16 @@ def test_a_spending_limit_stops_without_waiting_and_says_so(tmp_path, monkeypatc
     assert snap["failures"]["error"] is None
 
 
+def test_the_gold_score_reads_prose_and_claims_about_the_subject(tmp_path):
+    bank = tmp_path / "bank"
+    (bank / "entities").mkdir(parents=True)
+    (bank / "entities" / "alpha-project.md").write_text("alpha-project now uses theta-tool.")
+    gold = [{"about": "alpha-project", "says": ["theta-tool"]}, {"about": "alpha-project", "says": ["sqlite-tool"]},
+            {"about": "beta-project", "says": ["gamma-theory"]}]
+    assert engine_parity.score_gold(bank, gold) == {
+        "held": 1, "of": 3, "missing": ["alpha-project: sqlite-tool", "beta-project: gamma-theory"]}
+
+
 def test_estimate_reads_the_measured_tokens_at_list_prices():
     snap = {"usage": {"by_stage": {
         "extraction": {"calls": 3, "input": 30_000, "output": 3_000, "cache_read": 14_000, "cache_write": 7_000},

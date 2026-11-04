@@ -55,8 +55,13 @@ def _message_stream(*, model: str, text: str, usage: dict, stop_reason: str = "e
         {"type": "ping"}]
     index = 0
     for block in extra_blocks or []:
-        events += [{"type": "content_block_start", "index": index, "content_block": block},
-                   {"type": "content_block_stop", "index": index}]
+        # A server tool's input arrives the way the API streams it: empty at the start, then in deltas.
+        start = {**block, "input": {}} if "input" in block else block
+        events.append({"type": "content_block_start", "index": index, "content_block": start})
+        if block.get("input"):
+            events.append({"type": "content_block_delta", "index": index,
+                           "delta": {"type": "input_json_delta", "partial_json": json.dumps(block["input"])}})
+        events.append({"type": "content_block_stop", "index": index})
         index += 1
     if thinking:
         events += [{"type": "content_block_start", "index": index,

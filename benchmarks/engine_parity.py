@@ -10,14 +10,17 @@ failures, and what it cost. Nothing here reads the person's bank or home; ``--ou
         --key-file ~/.cicada/secrets.env --max-input-tokens 80000 --yes-spend
     python -m benchmarks.engine_parity compare OUT/plan OUT/key
 
+Read the comparison by ``gold`` first (the facts the conversations said, ``engine_parity_gold.json``), then span
+location, questions and failures. Exact-claim overlap is noise between any two real runs: compare ``plan`` with a second
+``plan`` to see how much.
+
 The key leg spends the person's money, so it refuses without ``--yes-spend`` and a ``--max-input-tokens`` cap. It takes
 only ``ANTHROPIC_API_KEY`` from ``--key-file`` (or the environment), never prints it, and writes it nowhere; the scratch
 home has no secrets file. Past the cap the run is cancelled at its next safe point, and it says so. The plan leg uses the
 Claude plan the machine is signed in to.
 
 Tests run both legs against stand-ins at the transport (``test_engine_parity``): those prove the harness and the path,
-never model quality. Only real runs compare models, and two real runs of one engine differ too (a model is not
-deterministic): read a comparison against a second run of the same leg in another ``--out``, not against zero.
+never model quality.
 """
 from __future__ import annotations
 
@@ -35,6 +38,10 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parent.parent
 FIXTURE = Path(__file__).with_name("engine_parity_conversations.json")
+#: What the conversations plainly said, written down by hand. Two real runs of one engine share far fewer exact claims
+#: than this (2026-11-04, Haiku 5.5 on the plan twice: exact-claim overlap 0.24, pages 0.5), because a model words each
+#: claim its own way; what a person would ask of the memory is whether it holds these.
+GOLD = Path(__file__).with_name("engine_parity_gold.json")
 #: Conversations a batch reads, the app's default.
 BATCH_SIZE = 25
 
@@ -147,6 +154,22 @@ def _past_reads(drain_id: str | None) -> dict | None:
             "models": [{"model": m.model, "calls": m.calls, "basis": m.basis} for m in usage.models]}
 
 
+def score_gold(bank: Path, gold: list[dict] | None = None) -> dict:
+    """How many of the facts the conversations said the bank holds: in a page about the subject (its name in the file
+    name, or the subject's name on the claim), every word asked for present, the page's prose and claims both counted."""
+    gold = gold if gold is not None else json.loads(GOLD.read_text(encoding="utf-8"))
+    pages = {p.stem.lower(): p.read_text(encoding="utf-8").lower() for p in sorted((bank / "entities").glob("*.md"))}
+    held, missing = 0, []
+    for row in gold:
+        about = row["about"].lower()
+        texts = [t for name, t in pages.items() if about in name or about in t]
+        if any(all(word.lower() in t for word in row["says"]) for t in texts):
+            held += 1
+        else:
+            missing.append(f"{row['about']}: {' + '.join(row['says'])}")
+    return {"held": held, "of": len(gold), "missing": missing}
+
+
 def snapshot(bank: Path, home: Path, *, state: dict) -> dict:
     """What Sleep made, in plain data. Claim text stays here, in the scratch folder: the fixture is synthetic."""
     from api.services import claims as claims_module, markdown_parser
@@ -179,6 +202,7 @@ def snapshot(bank: Path, home: Path, *, state: dict) -> dict:
                        if line.startswith("Cicada-Engine: ")})
     return {
         "past_reads": _past_reads(state.get("drain_id")),
+        "gold": score_gold(bank),
         "pages": pages, "claims": claims, "questions": questions, "episodes_processed": processed,
         "failures": state, "engine_trailers": trailers,
         "usage": {"calls": len(events), "gross_input": gross, "output": sum(e.get("output_tokens") or 0 for e in events),
@@ -281,6 +305,7 @@ def compare(a: dict, b: dict) -> dict:
     facts_a, facts_b = ({t[:2] for t in triples} for triples in (triples_a, triples_b))
     questions_a, questions_b = ({(q["kind"], q["entity"]) for q in s["questions"]} for s in (a, b))
     report = {
+        "gold": {"a": a.get("gold"), "b": b.get("gold")},
         "pages": {"a": len(pages_a), "b": len(pages_b), "jaccard": _jaccard(pages_a, pages_b),
                   "only_a": sorted(pages_a - pages_b), "only_b": sorted(pages_b - pages_a)},
         "claims": {"a": len(triples_a), "b": len(triples_b), "jaccard_exact": _jaccard(triples_a, triples_b),
