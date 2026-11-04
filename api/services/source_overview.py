@@ -27,7 +27,8 @@ from pathlib import Path
 from api.services import agent_catalog, bank_index, episode_time, folder_source
 
 # G134: meetings and dictation are their own section, VOICE & MEETINGS (R-LS25).
-KIND_ORDER = ("harness", "browser", "social", "feed", "messaging", "voice", "import")
+# G39/G233: books — Apple Books, a Goodreads export, a scanned ISBN — are their own section, READING.
+KIND_ORDER = ("harness", "browser", "social", "feed", "messaging", "voice", "reading", "import")
 
 # R-A16: the Memory-sources sparkline's window. Bounded so the payload cannot
 # grow with the age of the bank, and keyed by ABSOLUTE dates so a 304'd
@@ -126,6 +127,10 @@ CATALOG: tuple[SourceSpec, ...] = (
     SourceSpec("telegram-chats", "Telegram", "messaging", "telegram-chats", ("telegram-chats",),
                "telegram-chats"),
     SourceSpec("wispr-flow", "Wispr Flow", "voice", "wispr-flow", ("wispr-flow",), "wispr-flow"),
+    # G39: Apple Books on this Mac (the app reads it); G233: a Goodreads export, and a book scanned on the phone.
+    SourceSpec("apple-books", "Apple Books", "reading", "apple-books", ("apple-books",), "apple-books"),
+    SourceSpec("goodreads", "Goodreads", "reading", "goodreads", ("goodreads",), None),
+    SourceSpec("book-scan", "Book scans", "reading", "book-scan", ("book-scan",), None),
     SourceSpec("notes", "Apple Notes", "import", "apple-notes", ("apple-notes",), "notes"),
     # G219: Apple Reminders (the person's own lists, read by the app) and a Notion export — the person's own words,
     # so `import`, never a saving door (`inbox_tend.saved_origin` reads `browser`/`social`/`feed` as saved text).
@@ -152,7 +157,7 @@ CATALOG: tuple[SourceSpec, ...] = (
 SAVED_SOURCES = frozenset({
     "chrome-bookmarks", "safari-bookmarks", "brave-bookmarks", "vivaldi-bookmarks", "comet-bookmarks", "dia-bookmarks",
     "pinterest", "reddit", "x", "instagram", "youtube", "linkedin", "tiktok", "files", "spotify", "github",
-    "substack",
+    "substack", "goodreads",
 })
 INTENTS = ("saved", "captured")
 #: Folded into `/sources/overview`'s ETag: bump it when the body changes for the same bank files (v3: `intent`;
@@ -161,8 +166,8 @@ INTENTS = ("saved", "captured")
 #: v8: Readwise and Notion live, ruling 47 tier 2; v9: WhatsApp, G179; v10: Telegram chats, ruling 47a;
 #: v11: Spotify's library and listening, G32; v12: Readwise removed by owner direction, 2026-11-03; v13: GitHub, G230;
 #: v14: Substack's saves and reading days, G89; v15: Telegram chats labelled "Telegram", the bot feed
-#: "Telegram bot", 2026-11-04).
-SHAPE = "overview-v15"
+#: "Telegram bot", 2026-11-04; v16: Apple Books, Goodreads and book scans, the Reading kind, G39/G233).
+SHAPE = "overview-v16"
 
 #: Sources v4 (owner 2026-10-19: "I don't understand how Sleep is also a source on the page"). A check record is the
 #: episode Cicada writes as the citation for a question a check settled — `web_settle` (a web lookup Sleep or an agent

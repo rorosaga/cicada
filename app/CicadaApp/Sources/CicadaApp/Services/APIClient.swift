@@ -2732,6 +2732,31 @@ actor APIClient {
         try await postData("/sources/reminders-local/sync", json: try JSONEncoder().encode(payload))
     }
 
+    // MARK: Books (G39, G233)
+
+    /// `PUT /sources/apple-books/settings` — the person's switch; off, a sync is refused.
+    func saveAppleBooksSettings(enabled: Bool) async throws {
+        let _: AppleBooksSettingsReply = try await put("/sources/apple-books/settings", body: ["enabled": enabled])
+    }
+
+    /// `POST /sources/apple-books/sync` — the books that changed since this memory last accepted them.
+    func syncAppleBooks(_ payload: AppleBooksSyncPayload) async throws -> AppleBooksSyncResult {
+        try await postData("/sources/apple-books/sync", json: try JSONEncoder().encode(payload))
+    }
+
+    /// `GET /sources/books` — book pages by status and the scans waiting for their lookup. Not a Store domain.
+    func booksSummary() async throws -> BooksSummary { try await get("/sources/books") }
+
+    /// `POST /sources/goodreads/preview` — what an import of this export would bring, in counts; writes nothing.
+    func previewGoodreads(data: Data, filename: String) async throws -> GoodreadsPreview {
+        try await uploadMultipart(path: "/sources/goodreads/preview", fileData: data, filename: filename)
+    }
+
+    /// `POST /sources/goodreads/import` — one entry per book; a re-import changes nothing.
+    func importGoodreads(data: Data, filename: String) async throws -> GoodreadsImportResult {
+        try await uploadMultipart(path: "/sources/goodreads/import", fileData: data, filename: filename)
+    }
+
     /// G154: the whole address book, as names and which facts each card holds (never a value).
     func syncLocalContacts(_ payload: ContactsSyncPayload) async throws -> ContactsSyncResult {
         try await postData("/sources/contacts-local/sync", json: try JSONEncoder().encode(payload))

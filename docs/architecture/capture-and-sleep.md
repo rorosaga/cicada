@@ -1361,6 +1361,83 @@ or `updated` write queues anything. A job held back by Sleep, a re-embed or the 
   ceiling exists (more new conversations than recall's 3 excerpt slots can hold on one topic, or questions that need
   a fact joined across conversations).
 
+#### Books: a scanned ISBN, Apple Books, a Goodreads export (G39, G233, 2026-11-04)
+
+Three doors, one writer. Each door stages episodes through `episode_staging` (scrub, one id rule, both dates, the demo
+gate); `books.apply_pending` turns every pending book episode into a page and claims with no model, inside the bank's
+write admission from a route (`book_jobs.apply_admitted`) or inside Sleep's window from the tail
+(`sleep_cycle._resolve_books_safely`, after the paper step). An episode is pending until its `book_applied` stamp equals
+its `content_hash`, so the queue is derived from the bank — a move or a restore loses nothing.
+
+- **A scan** — `POST /capture/isbn` `{isbn, status?, id?}` (`api/routers/books.py`). **The phone's contract; keep it
+  stable**: `isbn` is the scanned EAN-13 (an ISBN-10 or hyphens are accepted), `status` one of `reading`, `finished`,
+  `want`, `not_started` or absent (a scan with no tap says nothing about reading), `id` the client's own id;
+  `Idempotency-Key` makes a resend the first answer (kept 8 days, `idempotency.LONG_ROUTES`, the outbox rule). Answers
+  `{status: created|updated|unchanged, episodeId, isbn, book: "waiting"}`; 422 for a number that is not a book's. A
+  capture-only phone may call it (`auth.CAPTURE_ROUTES`); on a replica it is `capture` (waits in the outbox). The
+  episode (`origin: book-scan`, `processed_by: parser`, nothing in it for a model) holds `**Status:** <words>` and
+  `**ISBN:**` lines: the person's act, so its spans are `user`. The lookup and the page follow in the background at the
+  home (`book_jobs.schedule`). The scan's episode is committed with its page, like a note's is not.
+- **The lookup** (`book_lookup`, home only): Open Library's `/isbn/<isbn>.json` then `/authors/<id>.json` (≤ 3), else
+  Google Books `volumes?q=isbn:`; one request a second, a redirect hop paced like any request, the pacer shared
+  across runs (Open Library's unidentified rate, read 2026-11-04), the ToS
+  rail's 4 s / 512 KB / no cookies / ≤ 3 redirects, `net_guard` on every hop, a User-Agent naming the software and no
+  person. Behind `CICADA_ALLOW_CONNECTOR_FETCH` on both callers (the background job after a scan and the tail): off,
+  the scan waits (`GET /sources/books` counts it as `waiting`). Every answer is cached outside every bank
+  (`$CICADA_HOME/books/isbn_cache.json`): a hit is never asked again; a definite miss (Open Library 404 and zero
+  Google results) makes a placeholder page ("Book with ISBN …") and is asked again after 30 days, the page upgraded in
+  place; no answer backs off 10 min → 1 h → 6 h → a day and makes no page. At most 30 numbers a run.
+- **Apple Books** (`apple_books`; the app's `AppleBooksReader`). Turned on by the person (Sources → Reading →
+  Apple Books; `PUT /sources/apple-books/settings`, a sync while off is 409). The APP copies the two stores with their
+  `-wal`/`-shm` into a temporary folder, folds the WAL into the copy and reads it read-only — paths and columns in
+  `apple_books`' docstring, read on macOS 27.2: `~/Library/Containers/com.apple.iBooksX/Data/Documents/BKLibrary/
+  BKLibrary-1-<version>.sqlite` (`ZBKLIBRARYASSET`) and `…/AEAnnotation/AEAnnotation_v<version>_local.sqlite`
+  (`ZAEANNOTATION`, type 2 = highlight; bookmarks and the reading position never read). It posts only books whose
+  status, dates or highlights changed since this memory accepted them (a fingerprint per asset; progress alone is no
+  change) — the incremental re-sync. One episode per book (`apple-books:<asset id>`), a saved record (`authorship`:
+  `apple-books` is a saving door): the status line and each highlight (a `## Highlight, <day>` section, quoted) are
+  the book's words (`page`), the person's note under it a `## User note` section (`user`). Highlights are ordered by
+  when they were made, so new ones append, and the episode's `timestamp` follows the newest highlight (`redate`).
+  **Status from Apple Books' own state, never invented** (owner 2026-11-04): finished (`ZISFINISHED`, on
+  `ZDATEFINISHED`), else reading (progress above 0, on the last open), else not started (on the day it entered the
+  library). Only a finish with `ZDATEFINISHED` is also a dated "Finished reading" happening; Apple Books keeps no day a
+  reading began, so a reading or an undated finish is a status record only (review of #600, B2). One book is trimmed on
+  its own — the oldest 3,000 highlights, each cut at 4,000 characters, the body at 400k — so it never refuses the
+  rest of its request. **Never silent** (re-check of #600): the body ends with one `**Not kept:**` line (no count, so a
+  later highlight does not re-queue the book), the record keeps `trimmed`, the sync answers `trimmed` and
+  `trimmedBooks` (asset id → count), and the Apple Books page's line says "N highlights past a book's limit not kept". The
+  oldest are kept rather than a rolling window: rolling would drop the earliest highlights on every sync, and Sleep
+  reads a removal as the source withdrawing what it said. A book with a highlight or a note is queued for Sleep; a library entry with neither lands read
+  (`processed_by: index`).
+- **Goodreads** (`goodreads_export`). Its public API stopped issuing keys in December 2020 and its pages are walled, so
+  the way in is the member's own "Export Library" CSV, picked in the app (`POST /sources/goodreads/preview` counts,
+  `/import` stages). Shelves: `read` → finished (on Date Read, else Date Added), `currently-reading` → reading,
+  `to-read` → want (a happening only for a finish with a Date Read); a custom exclusive shelf records no status; a 1–5 rating is a `rated` claim. One episode per row
+  (`goodreads:<Book Id>`, a saved record); only a row with the person's review or private notes (`## User note`) is
+  queued for Sleep. Nothing is read from the Goodreads site.
+- **A door's list** (`channel_items`): `GET /sources/channels/{apple-books|goodreads|book-scan}/items` is that door's
+  books, one row each, a `page` row once it has its book page (a book has no saved link, so a click opens the page).
+
+**Sleep reads the highlights** (owner 2026-11-04: "be able to consolidate highlights and such is important"). A
+re-sync that adds highlights edits the book's episode in place, and Sleep reads only what changed
+(`episode_revision`, #581). **Measured (2026-11-04, verify run, Claude plan at haiku, synthetic library):** a first
+read of 5 waiting episodes — 3 Apple Books books carrying 40 highlights and 2 notes (7.2k characters), 1 Goodreads row
+with a review, 1 chat — took 15 calls, 64.6k input and 15.8k output tokens, $0.0128 at list price (the plan's own
+counter: under 1 % of the seven-day window). Three new highlights on one book, re-synced: 1 episode re-read as a
+revision, 3 calls, 14.0k input and 4.9k output tokens, $0.0037. **Estimate for a realistic library** (basis: the
+per-book figure above, ~13–16k input tokens per book episode, most of it Stage 1's own prompt): 500 highlights over 40
+books ≈ 40 episodes ≈ 0.6M input and 0.16M output tokens on the first read, ≈ $0.13 at haiku list price (a larger
+model costs in proportion). It is paced like every read (rulings 13, 16): a drain over the ids frozen at its start, in
+committed batches of 25, a plan limit a pause, never a failure; later syncs cost about one extraction call per changed
+book.
+
+**Pages** are described in `storage.md` ("Book pages"). **Promotion:** a book page is made by a door — a scan, a
+library, a shelf — the way a save makes a media page (a deliberate signal, no promotion gate). A book only ever named
+in a conversation follows the normal rule (2+ conversations, …); Stage 1 never produces `media`, and once a book page
+exists the resolver meets a mention of its title or any alias (each source's own spelling of the title is one) — the
+verify run's chat naming the book was joined to its page by a normal Sleep. Ruling 42's one-conversation exception is
+not extended to books (owner decision listed in G233).
+
 ### Sleep — 5-stage nightly batch
 1. **Entity & relationship extraction** — LLM over episode chunks, structured output.
 2. **Entity resolution & dedup** — exact name, fuzzy match, embedding similarity, LLM disambiguation

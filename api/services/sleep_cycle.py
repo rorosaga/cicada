@@ -652,6 +652,31 @@ async def _resolve_papers_safely(memory_path: Path) -> None:
         logger.warning(f"Paper details failed: {type(e).__name__}: {e}")
 
 
+async def _resolve_books_safely(memory_path: Path) -> None:
+    """G233/G39: the book episodes a door staged while this cycle held the pages, and the scans whose ISBN waited for
+    its lookup, made pages. The lookup (Open Library, then Google Books) is the unattended background call
+    ``CICADA_ALLOW_CONNECTOR_FETCH`` gates (``book_jobs.lookup_waiting`` records a gated skip); the apply is
+    deterministic and runs regardless — a book from Apple Books or Goodreads needs no lookup. Bounded
+    (``book_lookup.RUN_MAX`` numbers, ``books.MAX_APPLY`` episodes), never fatal, in the clean-tree-guarded branch for
+    the paper step's reason, committing only its own paths under ``cicada``. No LLM."""
+    try:
+        from api.services import book_jobs, books, folder_source
+
+        if not await asyncio.to_thread(books.pending, memory_path, limit=1):
+            if not await asyncio.to_thread(books.waiting_isbns, memory_path):
+                return
+        await book_jobs.lookup_waiting(memory_path)
+        report = await asyncio.to_thread(books.apply_pending, memory_path)
+        if report["paths"]:
+            await folder_source.commit_paths_for(memory_path, report["paths"], subject="Books", trigger="books/apply",
+                                                 author="cicada", channel=book_jobs.CHANNEL)
+        if report["applied"] or report["waiting"]:
+            logger.info(f"Books: {report['applied']} applied, {report['pages_created']} new pages, "
+                        f"{report['waiting']} waiting for a lookup")
+    except Exception as e:
+        logger.warning(f"Books failed: {type(e).__name__}")
+
+
 async def _replay_wispr_todos_safely(memory_path: Path) -> None:
     """G134: write the Wispr Flow to-do claims a sync deferred because this cycle
     was running (L final review, finding 5 — the owner's page is Stage 5's to
@@ -1618,6 +1643,7 @@ async def _run_engine_independent_tail(
             else:
                 await _backfill_links_safely(memory_path, settings, user_triggered=user_triggered)
             await _resolve_papers_safely(memory_path)
+            await _resolve_books_safely(memory_path)
             await _replay_wispr_todos_safely(memory_path)
     else:
         logger.warning(

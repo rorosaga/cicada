@@ -114,6 +114,8 @@ SAME_BY_CONTENT = {
     "POST /capture/telegram", "POST /capture/turn", "POST /sources/upload", "POST /sources/calendar-local/sync",
     "POST /sources/contacts-local/sync", "POST /sources/folders/{folder_id}/sync", "POST /sources/messages/sync",
     "POST /sources/reminders-local/sync", "POST /sources/sync-bookmarks", "POST /sources/sync-notes",
+    # G39: one episode per book, staged by its asset id — a resend is the same edit in place.
+    "POST /sources/apple-books/sync",
     "POST /sources/sync-safari-tabs", "POST /sources/tab-groups/sync", "POST /sources/traces/sync",
     "POST /sources/watch-history/sync", "POST /sources/whatsapp/sync", "POST /files/media",
     "POST /files/{file_id}/frames",
@@ -140,7 +142,7 @@ def test_every_capture_route_keeps_its_key_longer_than_an_outbox_entry_waits():
         else:
             assert route in SAME_BY_CONTENT, f"{route}: key it (8 days) or name how a resend stays one write"
     assert {r for r in captures if r not in SAME_BY_CONTENT} == {
-        "POST /capture/note", "POST /capture/file", "POST /sources/save"}
+        "POST /capture/note", "POST /capture/file", "POST /capture/isbn", "POST /sources/save"}
 
 
 def test_a_full_outbox_says_so_in_words_and_drops_nothing_that_waits(home, monkeypatch):

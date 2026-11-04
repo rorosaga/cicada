@@ -1862,6 +1862,23 @@ switch or a button).
   Settings → Internet Accounts (`CalendarRow.internetAccountsURL`) and asks macOS for nothing. A Google calendar's
   secret iCal address through Calendar feeds is not offered: a feed subscription is stored in the bank's
   `calendars.yaml`, and that address is a credential.
+- **Reading: Apple Books and Goodreads (G39, G233; 2026-11-04).** A Sources group of its own, *Reading*, between
+  Meeting recorders and Exports (`SourceCatalogGroup.reading`; the backend's `reading` kind sits before `import`).
+  Both are standard source pages (`Views/Sources/BooksSlots.swift`, in `SourceCatalogDetail`'s connect and footer
+  slots; the content is what came in). *Apple Books* (`AppleBooksSlot`, `AppleBooksReader.shared` in the environment):
+  *Connect Apple Books* (what is read on its hover) PUTs the bank's switch, then
+  the reader copies Apple Books' two stores (found by prefix under `NSHomeDirectory()`'s
+  `Library/Containers/com.apple.iBooksX/Data/Documents`, so a verify run's scratch home is honoured) with their WAL into
+  a temporary folder, folds the WAL into the copy, reads only `AppleBooksColumns`' whitelist read-only, and posts the
+  books whose fingerprint changed (status, dates, highlights — never the progress figure), 500 a request; on launch,
+  every 3 hours, on a bank switch and on Refresh. macOS asks once whether Cicada may read another app's data, with the
+  first read. The area's one line is `BooksRowText.appleBooks`: the read in progress, then "N books · N highlights"
+  and what a book's cap left out, or the failure. The footer's Disconnect (asked first) stops it and deletes nothing.
+  *Goodreads* (`GoodreadsSlot`): one *Import a file* way, the source's mark on a file, where the export comes from on
+  its hover (a file importer); then the preview's counts as the line beside *Import*. No footer: nothing to refresh or
+  disconnect. Book scans have no control on the Mac and no catalogue entry (the phone scans; its overview row stays).
+  A book page shows no link preview (`MediaBlock.isBook`, the paper rule). The Mac camera scanner was made optional by the owner
+  (2026-11-04) and is not built; the phone app scans (`cicada-app`, "Scan a book").
 - **Reminders and Notion (G219, ruling 38: one way in, never written back; 2026-10-23).** *This Mac* gains
   **Reminders** after Contacts (`SourceCatalog.fixed`, id `reminders-local`, the installed Reminders app's icon,
   `com.apple.reminders`). Its detail is `RemindersRow`: `CalendarRow`'s line and buttons (Connect · Refresh ·

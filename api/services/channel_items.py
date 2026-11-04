@@ -35,6 +35,9 @@ means wherever the bank records it, and says so channel by channel below:
   listed (they are counted from these days). A day opens to its videos through
   :func:`watched_day` (Sources v4, owner 2026-10-19: "what I watched in one
   day: a dropdown and you see all the videos I watched that day").
+* ``apple-books``, ``goodreads``, ``book-scan`` (G39, G233) — one row per book that door's records hold, a ``page`` row
+  once it has its book page (a book page's own origin is ``book``, so the media-origin lists never find it, and it has
+  no saved link, so the Feed holds no row for it to open).
 * ``imessage``, ``whatsapp``, ``telegram-chats`` (chats-ux-v2) — one row per chat (``kind: chat``), titled by **who the chat is
   with** (its sittings' ``correspondent`` record), dated by its newest sitting,
   with ``sittings`` and ``chat``: the app's conversation hash, that name, and
@@ -72,6 +75,7 @@ from api.services import (
     bank_index,
     bookmark_seen,
     bookmark_sync,
+    books,
     calendar_local,
     episode_ids,
     episode_time,
@@ -111,7 +115,8 @@ from api.services.channel_registry import CHANNEL_IDS
 #: `g161-12`: 2026-11-03 — a chat row carries `ticked`, `pinned`, `last_at`, `synced_at` and its face's `picture`;
 #: pinned chats list first.
 #: `g161-13`: G230 — the GitHub row lists its repository pages.
-SHAPE = "g161-13"
+#: `g161-14`: G39, G233 — Apple Books, Goodreads and book scans list their books.
+SHAPE = "g161-14"
 LIMIT_DEFAULT = 50
 LIMIT_MAX = 200
 TITLE_CAP = 120
@@ -157,7 +162,7 @@ def known(memory_path: Path, channel_id: str) -> bool:
     """A channel id this bank can list: every fixed row, the always-listed local
     sources, each browser's bookmarks and tab groups, and every registered folder."""
     if (channel_id in CHANNEL_IDS or channel_id in _ORIGIN_CHANNELS or channel_id in _SAVED_SOURCE_ROWS
-            or channel_id in _HISTORY_ROWS):
+            or channel_id in _HISTORY_ROWS or channel_id in books.DOORS):
         return True
     if channel_id in (calendar_local.CHANNEL_ID, contacts_local.CHANNEL_ID, reminders_local.CHANNEL_ID):
         return True
@@ -564,6 +569,11 @@ def _collect(memory_path: Path, channel_id: str) -> list[dict]:
         return _bookmarks(memory_path, channel_id, media)
     if channel_id in _MEDIA_CHANNELS:
         return media.by_origins(_catalog_origins(channel_id), unstamped=channel_id == "files")
+    if channel_id in books.DOORS:
+        rows = _episodes(memory_path, lambda fm: fm.get("origin") == channel_id, media=media,
+                         among=_episode_index(memory_path).origins((channel_id,)))
+        # A book has no saved link, so the Feed holds no row for it: its row opens the book's page.
+        return [{**row, "kind": "page"} if row["kind"] == "media" else row for row in rows]
     if channel_id in _SAVED_SOURCE_ROWS:
         return media.by_origins(tuple(_SAVED_SOURCE_ROWS[channel_id]))
     if channel_id in _HISTORY_ROWS:
