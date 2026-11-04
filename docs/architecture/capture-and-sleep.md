@@ -851,6 +851,23 @@ API gives no one Watch later or watch history, so there are three doors, and the
   *Saved albums*, *Saved podcasts*, *Saved episodes*) at `open.spotify.com/<type>/<id>` with `defer_enrich`: no
   Spotify page or API is ever asked. Every door that brings saved files (`/sources/upload`, `cicada import`) takes
   plays off the save path (`listening_history.split`) and commits their days alone (`user/listening_history`).
+- **Substack reading history (G89, 2026-11-04).** Substack gives a reader no API or export (`network.md`, ruling 47's
+  table), so its History comes in through the person's own agent reading it in their browser
+  (`cicada_record_substack_list`, `mcp.md`). What was read is experience, never a save: `substack_reads` writes **one
+  episode per day**, `reading-history:substack:<day>`, `source: reading-history`, origin `substack-history` — the kind
+  activity traces' reading days are (`history_index.kind == "reading"`), **index-only** (ruling 30: never read by a
+  model, never a mention). **The day (ruling 39):** the one the page shows for a read, when it shows one (never a future
+  day); Substack's History lists reads with no time, so a row with no day is filed under the day the agent first saw it
+  there, and the day's words say each was read on or before it — the first read of a long history lands on one day,
+  every later read adds only what is new. A post is its canonical URL (`substack.post`, the key a saved post and a
+  followed feed's item share) and is recorded once, ever, by this door. A day's rows live in
+  `sources/reading/substack/<day>.json`, committed with the day, never in the episode's frontmatter (the shape #528
+  gave Spotify's plays). Overview row `substack-history` ("Substack reading", captured).
+- **Substack's feeds (G89 (i), (vii), 2026-11-04).** A followed publication's posts come in through its public `/feed`
+  (`feed_registry`, the feed gate) like any feed's: `parse_rss` now gives every item its publication — the RSS
+  channel's (or Atom feed's) own title — as its `channel` (the episode's **Channel:** line), and a paid post's stub (a
+  "Read more" link and at most 400 characters of words, `substack.is_paywall_stub`; measured 2026-09-01 at ~142 bytes)
+  never stands in for the post's words: the item keeps its title, link and date with no body.
 - **One identity.** A video is `media_ingestor.url_hash` of its canonical URL — the key Watch later, bookmarks and
   Takeout playlists share — so `youtu.be/<id>`, `/shorts/<id>` and `watch?v=<id>&t=…` are one video. Within a day a
   video is one row (`url, title, channel, times, via, seen`) in the day's own rows file,
@@ -1115,8 +1132,8 @@ fixtures, not yet run against the installed app.
 | Cursor | `beforeSubmitPrompt`, `afterAgentResponse` in `~/.cursor/hooks.json` | `prompt`; `text` (final reply); `conversation_id`, `generation_id`, `model`; `transcript_path` nullable, format undocumented | Every local chat, per turn (`turn_capture`); unverified |
 | Gemini CLI | `AfterAgent` in `~/.gemini/settings.json` | `prompt`, `prompt_response`, `stop_hook_active`, `session_id`; `transcript_path` format undocumented | Every session, per exchange (`turn_capture`); unverified |
 | T3 Code (G228) | none of its own: the harness it drives fires Cicada's hooks (Claude Code through the Agent SDK with the person's user settings; Codex's `app-server` with `~/.codex/hooks.json` in its "existing login" setup; Cursor's SDK with user settings) | the driving harness's payload; the host is read by the hook from its own launch chain (exec paths only) | Every thread, as its harness's one episode labelled `host: t3code` (below); Claude Code verified only as far as T3 Code's recorded SDK fixtures (SessionStart hooks fire), the rest unverified |
-| Claude app (desktop) | none; MCP only | — | Only what it saves through MCP; its chats arrive by the claude.ai data export import (G197) |
-| Claude on the web and phone, ChatGPT, Grok | none; remote connector (G135) | — | Every turn its model relays through `cicada_capture_turns` (ruling 32, below), stored as relayed; an export upgrades it |
+| Claude app (desktop) | none; MCP only (its local `cicada` server is stdio, which never serves `cicada_capture_turns`) | — | Its chats are claude.ai's: the export, picked up from Downloads while awaited and nudged weekly (G197 layer c, below); a turn relayed only when claude.ai's remote connector is added |
+| Claude on the web and phone, ChatGPT, Grok | none; remote connector (G135) | — | Every turn its model relays through `cicada_capture_turns` (ruling 32, below), stored as relayed; the export (layer c) upgrades it |
 | Windsurf (Cascade) | `pre_user_prompt`, `post_cascade_response` in `~/.codeium/windsurf/hooks.json` | `user_prompt`; `response`; `trajectory_id`, `execution_id` | Not yet: the same shape as Cursor, so it is a registry and an adapter on `/capture/turn` (G197) |
 | GitHub Copilot CLI | `userPromptSubmitted`, `agentStop` in `~/.copilot/hooks/` | `prompt`; the reply only inside `transcriptPath`, format undocumented | Not yet: the reply needs a transcript reader (G197) |
 | OpenCode | JS/TS plugins only (`~/.config/opencode/plugins/`) | events (`message.updated`, `session.idle`) with undocumented payloads | Not yet: needs a plugin, not a command hook (G197) |
@@ -1184,6 +1201,38 @@ that episode in place — same file and id, re-queued, `evidence_kind` and `hook
 `upgraded_by` stamped — instead of adding a second copy. Two candidates, a short first message, another app or a date
 too far apart upgrade nothing (a second episode, as before). A later relay into an upgraded conversation is answered
 "already in Cicada from the export" and writes nothing; the next export brings its later turns.
+
+**Hookless chat apps: what reads without a model (G197 layer c, measured 2026-11-04).** The owner: "I don't see
+conversations I have on Claude chats or claude.ai being captured." The diagnosis: the owner's bank held only one
+relayed episode ever, and every Claude chat in it came from a single October export. The remote connector was off
+(`/remote/status`: not enabled, no listener, no funnel), so claude.ai on the web and phone had no way in. The desktop
+app's only Cicada server is the local stdio one, and stdio never serves `cicada_capture_turns`
+(`catalog.REMOTE_ONLY`). Its primer (`handshake._PRELUDE["desktop"]`) asks for no relay, so a desktop chat reached
+memory only when the model chose `cicada_save_episode`, which G105 rules out as a capture path. The four ways in,
+weighed against the rails:
+
+- **(a) The desktop app's local store — no.** For a claude.ai account the app is a web wrapper with no
+  conversation history on disk. Measured by counts, never content: no cached `chat_conversations` API response among
+  its 64,273 HTTP cache entries; `IndexedDB/https_claude.ai_0` is a 536 KB key-value store holding about two dozen
+  message-shaped fragments in an undocumented serialization (drafts and recent state, not a history);
+  `local-agent-mode-sessions/` holds Cowork's settings and plugins, no transcripts. Anthropic's own docs place Chat
+  history in `local-agent-mode-sessions/` only for the third-party-inference build ("Claude Desktop on 3P keeps
+  conversations … on the device"), so this is a reader worth writing only for a person on that build, and it would be
+  the app's read (the `~/Library` rail).
+- **(b) The person's signed-in browser, read by their agent — not without the owner, and recommended no.** Anthropic's
+  Consumer Terms §3 bar access to the Services "through automated or non-human means, whether through a bot, script, or
+  otherwise" except by API key or where explicitly permitted. An agent paging through claude.ai's conversation list is
+  that, so the ToS rail ("an unofficial client that breaks a service's terms … never is") stops it, unlike the G166
+  reads of sites the person allowed.
+- **(c) The official export — built.** It works on every plan (Settings → Privacy → Export data, on the web or the
+  desktop app, never the phone apps), comes by email, and its link expires in 24 hours. It has no schedule and no API.
+  The app now picks the zip up from Downloads while the person waits for it, and nudges weekly (`app.md`, "The awaited
+  export, picked up from Downloads"). Staging is per conversation and idempotent, so each export brings only what is
+  new or grew and upgrades relayed episodes in place.
+- **(d) The remote connector plus relay — unchanged, never the only path.** It is real time, but it depends on the
+  app's model calling the tool (ruling 32's disclosed exception), and the person must run a public tunnel. The
+  one-click Funnel (G132's D6′) waits on the owner (TODO, 2026-11-03). A connector added on claude.ai also appears in
+  the desktop and phone apps, so this one path covers all three.
 
 **Per-turn capture (`api/services/turn_capture.py`, `POST /capture/turn`).** The hook posts `{harness, session_id,
 messages: [{speaker, text}], turn_id?, retry?, model?, cwd?, hook_event, utc_offset_minutes?}` — one turn (Cursor) or one exchange (Gemini

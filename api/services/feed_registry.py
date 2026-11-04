@@ -46,31 +46,52 @@ def _feeds_path(memory_path: Path) -> Path:
     return Path(memory_path) / FEEDS_FILENAME
 
 
-def _read_feeds_file(memory_path: Path) -> list[dict]:
+def _read_registry(memory_path: Path) -> dict:
     path = _feeds_path(memory_path)
     if not path.exists():
-        return []
+        return {}
     try:
         data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     except Exception:
         # A corrupt registry must never break the caller — degrade to empty.
         logger.warning(f"Corrupt {FEEDS_FILENAME} at {path} — treating as empty")
-        return []
-    feeds = data.get("feeds") if isinstance(data, dict) else None
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _read_feeds_file(memory_path: Path) -> list[dict]:
+    feeds = _read_registry(memory_path).get("feeds")
     return feeds if isinstance(feeds, list) else []
 
 
-def _write_feeds_file(memory_path: Path, feeds: list[dict]) -> bool:
+def _read_removed(memory_path: Path) -> list[dict]:
+    removed = _read_registry(memory_path).get("removed")
+    return [r for r in removed if isinstance(r, dict) and r.get("url")] if isinstance(removed, list) else []
+
+
+def removed_feeds(memory_path: Path) -> set[str]:
+    """The feeds the person unsubscribed from, normalized — an automatic writer (the person's agent reading their
+    Substack subscriptions, G89) never subscribes one of these again; only the person's own subscribe does."""
+    return {normalize_url(str(r["url"])) for r in _read_removed(memory_path)}
+
+
+def _write_feeds_file(memory_path: Path, feeds: list[dict], removed: list[dict] | None = None) -> bool:
     """Write the registry; return whether the file's content actually changed.
 
     ``poll_feeds`` uses the answer to decide whether a 0-new poll still has
     state worth committing (a ``last_polled`` bump is real state — it is what
     the Feed page shows as "last checked") without minting a no-op commit
-    for a same-day re-poll that rewrote byte-identical YAML.
+    for a same-day re-poll that rewrote byte-identical YAML. ``removed`` (the
+    person's unsubscribes, remembered) is kept as it is when not given.
     """
     path = _feeds_path(memory_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    text = yaml.dump({"feeds": feeds}, default_flow_style=False, sort_keys=False)
+    if removed is None:
+        removed = _read_removed(memory_path)
+    body: dict = {"feeds": feeds}
+    if removed:
+        body["removed"] = removed
+    text = yaml.dump(body, default_flow_style=False, sort_keys=False)
     try:
         before = path.read_text(encoding="utf-8") if path.exists() else None
     except OSError:
@@ -79,7 +100,7 @@ def _write_feeds_file(memory_path: Path, feeds: list[dict]) -> bool:
     return text != before
 
 
-# --- Subscription CRUD --------------------------------------------------
+# --- Subscriptions -------------------------------------------------------
 
 
 def list_feeds(memory_path: Path) -> list[dict]:
@@ -87,26 +108,44 @@ def list_feeds(memory_path: Path) -> list[dict]:
     return _read_feeds_file(memory_path)
 
 
-def subscribe_feed(memory_path: Path, url: str, tags: list[str] | None = None) -> dict:
+def subscribe_feed(memory_path: Path, url: str, tags: list[str] | None = None, *, title: str | None = None,
+                   via: str | None = None, automatic: bool = False) -> dict | None:
     """Add (or re-affirm) a feed subscription. Idempotent, deduped on URL.
 
     Re-subscribing an already-watched feed (by normalized URL — same rules as
     ``media_ingestor.normalize_url``) is a no-op on the ``added``/``last_polled``
-    fields; any new tags are merged in rather than duplicating the record.
-    Returns the (created or existing) subscription record.
+    fields; any new tags are merged in rather than duplicating the record, and a
+    ``title`` fills one the record lacks. Returns the (created or existing)
+    subscription record.
+
+    ``automatic`` (G89, 2026-11-04): a writer acting for the person without their
+    click — their agent reading their Substack subscriptions — never subscribes a
+    feed the person unsubscribed from, and gets ``None`` for it. The person's own
+    subscribe lifts that memory.
     """
     clean_url = (url or "").strip()
     if not clean_url:
         raise ValueError("url is required")
 
     feeds = _read_feeds_file(memory_path)
+    removed = _read_removed(memory_path)
     norm = normalize_url(clean_url)
+    was_removed = [r for r in removed if normalize_url(str(r["url"])) == norm]
+    if automatic and was_removed:
+        return None
+    if was_removed:
+        removed = [r for r in removed if r not in was_removed]
     for feed in feeds:
         if normalize_url(feed.get("url", "")) == norm:
-            if tags:
-                merged = set(feed.get("tags") or []) | set(tags)
-                feed["tags"] = sorted(merged)
-                _write_feeds_file(memory_path, feeds)
+            changed = bool(was_removed)
+            if tags and not set(tags) <= set(feed.get("tags") or []):
+                feed["tags"] = sorted(set(feed.get("tags") or []) | set(tags))
+                changed = True
+            if title and not feed.get("title"):
+                feed["title"] = title
+                changed = True
+            if changed:
+                _write_feeds_file(memory_path, feeds, removed)
             return feed
 
     record = {
@@ -115,19 +154,27 @@ def subscribe_feed(memory_path: Path, url: str, tags: list[str] | None = None) -
         "added": datetime.now().strftime("%Y-%m-%d"),
         "last_polled": None,
     }
+    if title:
+        record["title"] = title
+    if via:
+        record["via"] = via
     feeds.append(record)
-    _write_feeds_file(memory_path, feeds)
+    _write_feeds_file(memory_path, feeds, removed)
     return record
 
 
 def unsubscribe_feed(memory_path: Path, url: str) -> bool:
-    """Remove a feed subscription by URL. Returns True iff a record was removed."""
+    """Remove a feed subscription by URL. Returns True iff a record was removed. The removal is remembered
+    (``removed``), so no automatic writer subscribes it again (G61's rule for a source the person removed)."""
     feeds = _read_feeds_file(memory_path)
     norm = normalize_url(url)
-    remaining = [f for f in feeds if normalize_url(f.get("url", "")) != norm]
-    if len(remaining) == len(feeds):
+    gone = [f for f in feeds if normalize_url(f.get("url", "")) == norm]
+    if not gone:
         return False
-    _write_feeds_file(memory_path, remaining)
+    remaining = [f for f in feeds if f not in gone]
+    removed = [r for r in _read_removed(memory_path) if normalize_url(str(r["url"])) != norm]
+    removed.append({"url": str(gone[0].get("url") or url), "day": datetime.now().strftime("%Y-%m-%d")})
+    _write_feeds_file(memory_path, remaining, removed)
     return True
 
 

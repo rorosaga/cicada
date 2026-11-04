@@ -61,6 +61,8 @@ enum OriginIconography {
         "github", "github-starred", "github-added", "github-owned",
         // G32: Spotify's own download — its library (saved) and its plays (listening days).
         "spotify-saved", "spotify-history",
+        // G89 (2026-11-04): the person's Substack, read by their own agent — Saved posts and reading days.
+        "substack-saved", "substack-history",
         // G135 R-R26: a remote connector's app, as its episodes stamp it
         "claude-web", "chatgpt", "perplexity", "claude-code-remote",
         "codex-remote", "vscode", "remote-app",
@@ -124,6 +126,7 @@ enum OriginIconography {
         case "linkedin-saved": "LinkedIn Saved"
         case "tiktok-saved": "TikTok Saved"
         case "spotify-saved", "spotify-history": "Spotify"
+        case "substack-saved", "substack-history": "Substack"
         case "tiktok-history": "TikTok History"
         case "bookmark": "Bookmark"
         // The `files` row's own origin (`source_overview.CATALOG`): what
@@ -202,6 +205,7 @@ enum OriginIconography {
         case "linkedin-saved": "briefcase.fill"
         case "tiktok-saved": "music.note"
         case "spotify-saved", "spotify-history": "music.note"
+        case "substack-saved", "substack-history": "newspaper.fill"
         case "tiktok-history": "clock.arrow.circlepath"
         case "bookmark": "bookmark.fill"
         case "saved-link": "link"
@@ -254,6 +258,7 @@ enum OriginIconography {
         case "linkedin-saved": Color(hex: 0x0A66C2)
         case "tiktok-saved", "tiktok-history": Color(hex: 0xFE2C55)
         case "spotify-saved", "spotify-history": Color(hex: 0x1DB954)
+        case "substack-saved", "substack-history": Color(hex: 0xFF6719)
         // Google blue, the same swatch the Chrome row carries — same vendor,
         // and this tint is only ever seen when the bundled mark is missing.
         case "gemini-export": Color(hex: 0x4285F4)
