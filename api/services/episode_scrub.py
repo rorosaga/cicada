@@ -53,6 +53,7 @@ WRITERS = frozenset({
     "readwise",  # ruling 47 tier 2: Readwise highlights, their notes and their documents
     "github",  # G230: a repository the person owns — its name, description and topics
     "listening-history",  # G32: a Spotify listening day's titles, artists and albums
+    "project",  # G222 (review of #595, B2): a project's description, the person's own paragraphs, from every door
 })
 
 # Secret shapes (G105 R6), moved verbatim from transcript_extract. Ordered

@@ -251,10 +251,16 @@ def clean_name(name) -> str:
     return text
 
 
-def clean_description(text) -> str:
+def clean_description(text, *, bank: str | None = None) -> str:
     """The person's words with their paragraphs and line breaks kept: runs of spaces inside a line fold to one, each
-    line is trimmed, and more than one blank line folds to one."""
-    out = clean_description_lenient(text)
+    line is trimmed, and more than one blank line folds to one. Every door that writes a description comes through here
+    (create, the header's PATCH, ``page_edits``, a provider import), so it scrubs: secrets and one-time codes redacted
+    first, the count ledgered as ``project`` (every writer scrubs; ``backlog._scrub``'s R-B10)."""
+    from api.services import episode_scrub
+
+    scrubbed, n = episode_scrub.scrub(str(text or ""))
+    episode_scrub.record("project", n, bank=bank)
+    out = clean_description_lenient(scrubbed)
     if len(out) > MAX_DESCRIPTION:
         raise OwnershipError(f"A description is at most {MAX_DESCRIPTION} characters.")
     return out
@@ -293,7 +299,7 @@ def create(memory_path: Path, name: str, desc: str = "", *, via: str, by: str, l
     agent), else the page waits under Suggested. Raises :class:`OwnershipError` for a name already taken."""
     memory_path = Path(memory_path)
     name = clean_name(name)
-    desc = clean_description(desc)
+    desc = clean_description(desc, bank=memory_path.name)
     if (taken := existing_named(memory_path, name)) is not None:
         raise OwnershipError(f"'{name}' is already a page in memory ({taken}). Use that page instead.")
     day = _today(today)
@@ -404,14 +410,14 @@ def _rename(fm: dict, new: str) -> bool:
 
 
 def apply_header(fm: dict, *, name: str | None = None, desc: str | None = None, by: str, day: str,
-                 session: str | None = None) -> list[str]:
+                 session: str | None = None, bank: str | None = None) -> list[str]:
     """Rename (the slug never changes; the old name becomes an alias) and set the description with its blame, in a
     frontmatter dict. Returns the changes, in words. ``page_edits.plan`` and the app's PATCH both come through here."""
     changes: list[str] = []
     if name is not None and _rename(fm, clean_name(name)):
         changes.append("renamed")
     if desc is not None:
-        text = clean_description(desc)
+        text = clean_description(desc, bank=bank)
         if text != description(fm):
             if text:
                 fm[DESCRIPTION_KEY] = text
@@ -432,7 +438,8 @@ def set_header(memory_path: Path, stem: str, *, name: str | None = None, desc: s
     def change(fm: dict):
         if not is_project_like(fm):
             raise OwnershipError(f"{stem!r} is not a project.")
-        return bool(apply_header(fm, name=name, desc=desc, by=by, day=day, session=session)) or False
+        return bool(apply_header(fm, name=name, desc=desc, by=by, day=day, session=session,
+                                 bank=Path(memory_path).name)) or False
 
     return _rewrite(memory_path, stem, change)
 
@@ -668,6 +675,44 @@ def attach(memory_path: Path, stem: str, entity: str, *, remove: bool = False) -
     if remove or repo in pages(project, PAGES_REMOVED_KEY):
         paths += tie_page(memory_path, stem, repo, remove=remove)
     return list(dict.fromkeys(paths))
+
+
+def create_with_pages(memory_path: Path, name: str, desc: str, pages, *, via: str, by: str = "user",
+                      today: date | None = None) -> tuple[str, list[str], list[str]]:
+    """New project with the pages the person attached: ``(id, every path written, the paths created)`` — all or
+    nothing (review of #595, B1). Each page is checked first (:func:`check_attachable`); a check that can only run once
+    the page exists (a ``part-of`` claim naming the new project by its name makes that page its sub-project, which
+    :func:`tie_page` refuses) runs in :func:`attach`, and any failure there — or any other exception — takes back every
+    file this call wrote: the new page is removed and each repository page whose back-link was written is restored
+    byte for byte, so a refusal leaves no orphan behind and a retry is not told the name is taken."""
+    memory_path = Path(memory_path)
+    targets = list(dict.fromkeys(check_attachable(memory_path, p) for p in pages))
+    # What `attach` may rewrite besides the new page: a repository page's back-link (`github_repos.sync_backlinks`).
+    saved = {}
+    for stem in targets:
+        if repository_page(memory_path, stem):
+            f = memory_path / "entities" / f"{stem}.md"
+            saved[f] = f.read_bytes()
+    eid, created = create(memory_path, name, desc, via=via, by=by, listed=True, today=today)
+    paths = list(created)
+    try:
+        for page in targets:
+            paths += attach(memory_path, eid, page)
+    except BaseException:
+        _take_back(memory_path, eid, saved)
+        raise
+    return eid, list(dict.fromkeys(paths)), list(created)
+
+
+@page_lock.locked
+def _take_back(memory_path: Path, eid: str, saved: dict) -> None:
+    for suffix in (".md", ".claims.jsonl"):
+        (Path(memory_path) / "entities" / f"{eid}{suffix}").unlink(missing_ok=True)
+    for f, data in saved.items():
+        tmp = f.with_name(f".{f.name}.restore")
+        tmp.write_bytes(data)
+        tmp.replace(f)
+    bank_index.invalidate()
 
 
 def add_provider(fm: dict, entry: dict) -> bool:

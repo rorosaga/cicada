@@ -288,6 +288,60 @@ def test_a_description_keeps_its_paragraphs_within_its_cap():
     text = "  First   line \r\n\r\n\r\n  second  para\nwith a break  "
     assert project_ownership.clean_description(text) == "First line\n\nsecond para\nwith a break"
     assert project_ownership.first_line("\n\nHello there\nmore") == "Hello there"
-    project_ownership.clean_description("x" * project_ownership.MAX_DESCRIPTION)
+    words = "kite " * 2000          # prose, never a token-shaped run the scrub would redact
+    assert len(project_ownership.clean_description(words[:project_ownership.MAX_DESCRIPTION])) <= 4000
     with pytest.raises(project_ownership.OwnershipError):
-        project_ownership.clean_description("x" * (project_ownership.MAX_DESCRIPTION + 1))
+        project_ownership.clean_description(words[:project_ownership.MAX_DESCRIPTION + 2])
+
+
+def test_a_create_whose_attach_is_refused_leaves_nothing_behind_and_a_retry_works(client, bank):
+    """Review of #595, B1: a page whose `part-of` names the new project by name only becomes its sub-project once the
+    page exists, so `tie_page` refuses it after `create` wrote — the create is all or nothing: no orphan page, the
+    repository page's back-link restored, no commit, and the retry without that page is not told the name is taken."""
+    _repo_page(bank)
+    _entity(bank, "kite-wing", type="project", body=write_claims("## Summary\nA wing.\n", [Claim(
+        id="clm_kw1", text="kite wing part of kite lab", subject="kite-wing", predicate="part-of",
+        object="Kite Lab", valid_from="2026-09-01")]))
+    bank_index.invalidate()
+    _git(bank, "add", "-A")
+    _git(bank, "commit", "-qm", "fixture pages")
+    head = _git(bank, "rev-parse", "HEAD")
+    repo_before = (bank / "entities" / "alpha-repo.md").read_bytes()
+    r = client.post("/projects", json={"name": "Kite Lab", "pages": ["alpha-repo", "kite-wing"]})
+    assert r.status_code == 400 and "sub-project" in r.json()["detail"]
+    assert not (bank / "entities" / "kite-lab.md").exists()
+    assert (bank / "entities" / "alpha-repo.md").read_bytes() == repo_before        # its back-link taken back
+    assert _git(bank, "rev-parse", "HEAD") == head and _git(bank, "status", "--porcelain") == ""
+    r = client.post("/projects", json={"name": "Kite Lab", "pages": ["alpha-repo"]})
+    assert r.status_code == 200, r.text
+
+
+def test_any_failure_while_attaching_takes_back_the_new_page(bank, monkeypatch):
+    """B1: not only a refusal — any exception in the attach loop leaves nothing behind."""
+    def boom(*_a, **_k):
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(project_ownership, "attach", boom)
+    with pytest.raises(RuntimeError):
+        project_ownership.create_with_pages(bank, "Kite Lab", "", ["delta-tool"], via="app")
+    assert not (bank / "entities" / "kite-lab.md").exists()
+
+
+def test_every_door_scrubs_the_description_and_ledgers_it_as_project(client, bank, monkeypatch):
+    """Review of #595, B2: the description holds up to 4,000 characters of the person's paragraphs; every door (create,
+    the header's PATCH, `page_edits`, a provider import) comes through `clean_description`, which scrubs and ledgers
+    the count as `project` (R-B10's rule)."""
+    from api.services import episode_scrub
+
+    rows = []
+    monkeypatch.setattr(episode_scrub, "record", lambda writer, n, bank=None: rows.append((writer, n, bank)))
+    secret = "sk-" + "a1B2c3D4e5F6g7H8i9J0k1L2"
+    r = client.post("/projects", json={"name": "Kite Lab", "description": f"Why kites fly.\n\nKey {secret} here."})
+    assert r.status_code == 200, r.text
+    desc = _fm(bank, r.json()["id"])["description"]
+    assert secret not in desc and desc.startswith("Why kites fly.\n\n")
+    assert ("project", 1, bank.name) in rows
+    r = client.patch(f"/projects/{r.json()['id']}", json={"description": f"Now {secret}."})
+    assert r.status_code == 200 and secret not in _fm(bank, "kite-lab")["description"]
+    assert "project" in episode_scrub.WRITERS
+    assert secret not in project_ownership.clean_description(f"x {secret}")

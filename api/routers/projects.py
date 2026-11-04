@@ -480,21 +480,16 @@ async def create_project(body: ProjectCreate, settings: Settings = Depends(get_s
         raise HTTPException(400, f"Attach at most {project_ownership.MAX_ATTACH} pages at once.")
     async with _write_lock:
         try:
-            # Every attached page is checked before anything is written: a refusal writes nothing.
-            attach = list(dict.fromkeys([await run_in_threadpool(project_ownership.check_attachable, mp, p)
-                                         for p in body.pages]))
-            eid, paths = await run_in_threadpool(
-                project_ownership.create, mp, body.name, body.description,
+            # All or nothing (review of #595, B1): a refusal or any failure while attaching takes back every file
+            # this request wrote.
+            eid, paths, created = await run_in_threadpool(
+                project_ownership.create_with_pages, mp, body.name, body.description, body.pages,
                 via=project_ownership.VIA_CLI if body.via == "cli" else project_ownership.VIA_APP, by="user",
-                listed=True, today=_now().date())
-            created = list(paths)
-            for page in attach:
-                paths += await run_in_threadpool(project_ownership.attach, mp, eid, page)
+                today=_now().date())
         except project_ownership.OwnershipError as exc:
             raise HTTPException(409 if "already a page" in str(exc) else 400, str(exc))
         # One commit, the person's: the new page created, each repository page's back-link updated (G230).
-        await _commit_as(mp, f"Project created {eid}", list(dict.fromkeys(paths)),
-                         verbs={p: "created" for p in created})
+        await _commit_as(mp, f"Project created {eid}", paths, verbs={p: "created" for p in created})
     return ProjectOwnershipResponse(id=eid, action="created", mine=True)
 
 

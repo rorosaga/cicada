@@ -2282,9 +2282,12 @@ g141-7; DESIGN_RULES §9 2026-10-27).** The page is back on the rail (`PageSwitc
   Cancel forgets it, a bank switch clears it. Create is ONE `ProjectChange.create(name:description:pages:)` → `POST
   /projects` with `pages`: the server makes the page and attaches everything in one person commit (a repository joins
   `repositories:`, ruling 53), and the new project opens in place of the draft; a refusal keeps the draft and toasts
-  the server's sentence. The person's description is the project page's lead (`ProjectHeaderEditor`, primary ink,
+  the server's sentence. The picker ranks again only when its query, kind, attached set or candidates move
+  (`ProjectPickerMemo`), and the candidates are built once per graph and saved-items load (`ProjectAttachCache`). The person's description is the project page's lead (`ProjectHeaderEditor`, primary ink,
   paragraphs kept; editing it uses the same long field, ⌘⏎ saves, Esc cancels, a click away saves). The day the
-  person started it counts as activity (`project_timeline._tied_days`), so a project made a moment ago is in Current.
+  person started it counts as activity (`project_timeline._tied_days`), so a project made a moment ago is in Current;
+  that day is one of the moment days `project_state.median_gap` reads, so it also sets the rhythm a quiet project's
+  follow-up is measured against until other activity arrives.
   Add on *Pages in this project* opens `AddProjectPageSheet`, the same picker in a sheet. `ProjectNameSheet` now only
   names a provider grouping on accept.
 - **The header** is `ProjectHeaderEditor`: the name and the person's description, edited in place (PATCH), a meta

@@ -111,6 +111,49 @@ enum ProjectAttachModel {
     }
 }
 
+/// The picker's last answer, kept until one of its inputs moves (review of #595: never re-ranked per keystroke
+/// elsewhere on the page). A plain class, so reading it never invalidates the view.
+@MainActor
+final class ProjectPickerMemo {
+    private struct Key: Equatable {
+        let candidates: [ProjectAttachCandidate]
+        let picked: Set<String>
+        let query: String
+        let kind: ProjectAttachKind?
+    }
+
+    private var key: Key?
+    private var value: ([TextTab<ProjectAttachKind>], [ProjectAttachCandidate]) = ([], [])
+    private(set) var computed = 0
+
+    func result(candidates: [ProjectAttachCandidate], picked: Set<String>, query: String,
+                kind: ProjectAttachKind?) -> ([TextTab<ProjectAttachKind>], [ProjectAttachCandidate]) {
+        let next = Key(candidates: candidates, picked: picked, query: query, kind: kind)
+        if next == key { return value }
+        let pool = candidates.filter { !picked.contains($0.id) }
+        let tabs = ProjectAttachModel.tabs(ProjectAttachModel.counts(pool, query: query))
+        value = (tabs, ProjectAttachModel.shown(pool, query: query, kind: tabs.isEmpty ? nil : kind))
+        key = next
+        computed += 1
+        return value
+    }
+}
+
+/// The candidates, built once per graph and saved-items load (keyed on their `loadedAt` and the bank), not per render.
+@MainActor
+final class ProjectAttachCache {
+    private var key: String?
+    private var value: [ProjectAttachCandidate] = []
+
+    func candidates(key: String, build: () -> [ProjectAttachCandidate]) -> [ProjectAttachCandidate] {
+        if key != self.key {
+            value = build()
+            self.key = key
+        }
+        return value
+    }
+}
+
 /// The new project's draft, held by the page so closing the column (Esc, the rail) never loses the words; Cancel
 /// forgets it.
 struct ProjectDraft: Equatable {
@@ -194,11 +237,12 @@ struct ProjectPagePicker: View {
     var autofocus = false
     @State private var query = ""
     @State private var kind: ProjectAttachKind?
+    /// Review of #595: the page re-renders on every keystroke in the description; the filter runs only when the query,
+    /// the kind, the attached set or the candidates move.
+    @State private var memo = ProjectPickerMemo()
 
     var body: some View {
-        let pool = candidates.filter { !picked.contains($0.id) }
-        let tabs = ProjectAttachModel.tabs(ProjectAttachModel.counts(pool, query: query))
-        let rows = ProjectAttachModel.shown(pool, query: query, kind: tabs.isEmpty ? nil : kind)
+        let (tabs, rows) = memo.result(candidates: candidates, picked: picked, query: query, kind: kind)
         VStack(alignment: .leading, spacing: CicadaTheme.scaled(6)) {
             CicadaSearchField(text: $query, prompt: Copy.ProjectsMine.findPage, autofocus: autofocus,
                               onSubmit: { if let first = rows.first { pick(first) } })

@@ -38,6 +38,7 @@ struct ProjectsPage: View {
     @State private var detailFull: ProjectOpen.Full?
     /// Owner 2026-11-04 — New project's draft: kept while the column is closed, forgotten by Cancel or a create.
     @State private var draft = ProjectDraft()
+    @State private var attachCache = ProjectAttachCache()
     @State private var naming: SuggestedProject?
     /// R-PP20 — Sleep is writing: the list's writes wait, their reason in `.help`.
     private var blocked: Bool { ProjectWriteGate.blocked(store.status.value) }
@@ -228,7 +229,11 @@ struct ProjectsPage: View {
 
     /// Every page in memory New project can attach (the graph's nodes, with Sleep › Saved's word on each saved link).
     private var attachCandidates: [ProjectAttachCandidate] {
-        ProjectAttachModel.candidates(nodes: store.graph.value?.nodes ?? [], media: store.sources.value ?? [])
+        let key = "\(store.bank)|\(store.graph.loadedAt?.timeIntervalSince1970 ?? 0)|"
+            + "\(store.sources.loadedAt?.timeIntervalSince1970 ?? 0)"
+        return attachCache.candidates(key: key) {
+            ProjectAttachModel.candidates(nodes: store.graph.value?.nodes ?? [], media: store.sources.value ?? [])
+        }
     }
 
     /// Create: one request (the page and every attached page, one person-authored write on the server), then the new

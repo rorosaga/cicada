@@ -90,6 +90,26 @@ final class ProjectNewColumnTests: XCTestCase {
                      "a create with nothing attached sends the body it always did")
     }
 
+    /// Review of #595: typing the description re-renders the page; the picker ranks again only when its own inputs
+    /// move, and the candidates are built once per load.
+    @MainActor
+    func testThePickerFiltersOnlyWhenItsInputsMove() throws {
+        let pool = try fixture()
+        let memo = ProjectPickerMemo()
+        _ = memo.result(candidates: pool, picked: [], query: "", kind: nil)
+        _ = memo.result(candidates: pool, picked: [], query: "", kind: nil)
+        XCTAssertEqual(memo.computed, 1)
+        XCTAssertEqual(memo.result(candidates: pool, picked: [], query: "bob", kind: nil).1.first?.id, "bob-example")
+        _ = memo.result(candidates: pool, picked: ["bob-example"], query: "bob", kind: nil)
+        XCTAssertEqual(memo.computed, 3)
+        let cache = ProjectAttachCache()
+        var built = 0
+        _ = cache.candidates(key: "a") { built += 1; return pool }
+        _ = cache.candidates(key: "a") { built += 1; return pool }
+        _ = cache.candidates(key: "b") { built += 1; return pool }
+        XCTAssertEqual(built, 2)
+    }
+
     /// Owner 2026-11-04: an empty Projects list says nothing — no sentence, at most the quiet suggestions line.
     func testTheEmptyListDrawsNoSentence() throws {
         let rows = try String(contentsOf: Self.source("Views/Projects/ProjectsRows.swift"), encoding: .utf8)
