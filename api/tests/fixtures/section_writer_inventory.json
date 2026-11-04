@@ -1580,5 +1580,13 @@
       "frontmatter": "fm",
       "disposition": "uninstrumented_guarded"
     }
+  ],
+  "services/notes_sync.py": [
+    {
+      "function": "_retire_file",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    }
   ]
 }

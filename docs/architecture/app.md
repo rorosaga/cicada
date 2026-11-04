@@ -1761,6 +1761,9 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   (`GET /sources/channels/{id}/collections`, `ChannelItemsCache.refreshCollections`, never a Store domain), so a client or
   a replica shows what Cicada holds; one collection's list is asked with `collection=` under its own cache key
   (`SourceListKey`). Searching an account reads the whole source (the backend narrows by collection only) and says so.
+- **Locked notes (G234):** `ChannelCollections.locked` is one meta line at the Notes page's first level, "12 locked notes ·
+  Cicada can't read them", never a row since nothing is behind it, and not drawn at zero (DR-81); an older backend sends
+  no count and the line stays away. No locked note appears in the items or a folder's count (`capture-and-sleep.md`).
 - **Each account by its real provider, with its own mark** (`SourceAccountProvider`): Calendar and Reminders post the kind
   from EventKit's source type (`of(sourceType:title:)`: local, Exchange, CalDAV — iCloud when it says so, Google when its
   name is Google's or a Google address — MobileMe as iCloud, subscribed and birthdays as Subscribed); Notes names only its
