@@ -2928,6 +2928,14 @@ def project(ctx: ToolContext, project: str, since=None, tz: str | None = None) -
     if proposed:
         extra.append("Proposed by an agent, waiting for the person: " +
                      ", ".join(f"{p.name} ({p.id})" for p in proposed[:5]) + ".")
+    # G230: a project may span several repositories (owner 2026-11-03), each with its own page.
+    from api.services import github_repos
+
+    repositories = github_repos.project_repositories(memory_path, timeline.project.id)
+    if repositories:
+        extra.append("Repositories: " + ", ".join(
+            f"{r['full_name']}" + (f" ({r['entity_id']})" if r.get("entity_id") else "") for r in repositories[:10])
+            + (f", and {len(repositories) - 10} more." if len(repositories) > 10 else "."))
     head, _, rest = text.partition("\n")
     text = "\n".join([head, *extra, *([rest] if rest else [])])
     return Reply(text, data={"project_id": timeline.project.id, "name": timeline.project.name,
@@ -2936,7 +2944,10 @@ def project(ctx: ToolContext, project: str, since=None, tz: str | None = None) -
                              "conversations": timeline.conversation_count, "influences": len(timeline.influences),
                              "pulse": {k: pulse[k] for k in ("weeks", "conversations", "done", "waitingTotal",
                                                              "quietTotal")},
-                             "pages": [p.id for p in tied]})
+                             "pages": [p.id for p in tied],
+                             "repositories": [{"full_name": r["full_name"], "url": r["url"],
+                                               "entity_id": r.get("entity_id"), "how": r["how"]}
+                                              for r in repositories]})
 
 
 def _now_in(tz_name: str | None) -> datetime:
@@ -4302,6 +4313,25 @@ def link_entity(ctx: ToolContext, project: str, entity: str, remove: bool = Fals
     if miss is not None:
         return miss
     trusted = page_editors.is_trusted(ctx.author, remote=ctx.is_remote)
+    # G230: a repository page tied by a trusted agent is one of the project's repositories (a project may span
+    # several); any other agent's stays a proposal on the project's page, like every page.
+    if trusted and (repo_page := _repository_stem(memory_path, str(entity))) is not None:
+        from api.services import github_repos
+
+        try:
+            paths = github_repos.link(memory_path, stem, repo_page, by=ctx.author, how=github_repos.HOW_AGENT,
+                                      session=ctx.session_id or None, remove=bool(remove))
+        except (LookupError, github_repos.LinkRefused) as exc:
+            return Reply(f"Nothing changed — {exc}", code="refused")
+        if not paths:
+            return f"Nothing to change: {'not linked by you' if remove else 'already one of its repositories'}."
+        clean = " ".join(str(reason).split())[:300]
+        agent_commits.commit_write(memory_path, subject=ctx.commit_subject,
+                                   lines=[f"{p}: updated (trigger: {ctx.trigger})" for p in paths]
+                                   + ["", f"Reason: {clean}"], paths=paths, author=ctx.author, session=ctx.session_id)
+        return (f"Took back your link of {entity} to {stem}." if remove else
+                f"Linked {entity} to {stem} as one of its repositories; the person sees it on both pages as added "
+                "by you.")
     try:
         paths = project_ownership.tie_page(memory_path, stem, str(entity), remove=bool(remove), by=ctx.author,
                                            session=ctx.session_id or None, trusted=trusted)
@@ -4320,6 +4350,18 @@ def link_entity(ctx: ToolContext, project: str, entity: str, remove: bool = Fals
         return f"Tied {entity} to {stem}; the person sees it in Pages in this project as added by you."
     return (f"Proposed {entity} as part of {stem}: it waits on the project's page, as your proposal, until the person "
             "adds it.")
+
+
+def _repository_stem(memory_path: Path, entity: str) -> str | None:
+    """The repository page ``entity`` names (an id or a name), else ``None``."""
+    from api.services import github_repos, markdown_parser
+    from api.services.id_utils import resolve_entity_file
+
+    page = resolve_entity_file(memory_path, entity.strip()) if entity.strip() else None
+    if page is None:
+        return None
+    fm = markdown_parser.parse(page, ledger=False).frontmatter or {}
+    return page.stem if github_repos.is_repository_page(fm) and github_repos.page_repo(fm) else None
 
 
 def _session_episodes(memory_path: Path, sid: str) -> list[str]:

@@ -87,7 +87,11 @@ enum BackendAgentPolicy {
         return value.isEmpty ? nil : value
     }
 
-    static func environment(base: [String: String], installRoot: URL, memoryRoot: String) -> [String: String] {
+    /// G132 ruling 51f — `bundleId` names this app to the script, which writes it as the plist's
+    /// `AssociatedBundleIdentifiers` (TN3179): the person's Local Network answer to the app then covers the backend's
+    /// own connections to a LAN door. Nil (a bare binary, `swift test`) writes nothing.
+    static func environment(base: [String: String], installRoot: URL, memoryRoot: String,
+                            bundleId: String? = Bundle.main.bundleIdentifier) -> [String: String] {
         var env = base
         for key in AgentConnect.scrubbedKeys { env.removeValue(forKey: key) }
         env["CICADA_CAPTURE"] = "off"
@@ -95,13 +99,16 @@ enum BackendAgentPolicy {
         env["CICADA_REPO"] = installRoot.standardizedFileURL.path
         env["CICADA_MEMORY_PATH"] = memoryRoot
         env["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
+        env.removeValue(forKey: "CICADA_APP_BUNDLE_ID")
+        if let bundleId, !bundleId.isEmpty { env["CICADA_APP_BUNDLE_ID"] = bundleId }
         return env
     }
 
     /// G182 — the same environment for this runtime. A release adds what the script needs to write a plist that
     /// runs the stable launcher (`CICADA_BACKEND_PROGRAM`), logs under Cicada's home, and the port the app reads.
-    static func environment(base: [String: String], runtime: CicadaRuntime, memoryRoot: String) -> [String: String] {
-        var env = environment(base: base, installRoot: runtime.codeRoot, memoryRoot: memoryRoot)
+    static func environment(base: [String: String], runtime: CicadaRuntime, memoryRoot: String,
+                            bundleId: String? = Bundle.main.bundleIdentifier) -> [String: String] {
+        var env = environment(base: base, installRoot: runtime.codeRoot, memoryRoot: memoryRoot, bundleId: bundleId)
         guard runtime.isRelease else { return env }
         env["CICADA_BACKEND_PROGRAM"] = runtime.binDir.appendingPathComponent("cicada-backend").path
         env["CICADA_LOG_DIR"] = runtime.logDir.path
@@ -124,7 +131,8 @@ enum BackendAgentPolicy {
     }
 
     static func migration(plistData: Data?, runtime: CicadaRuntime,
-                          fileExists: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) })
+                          fileExists: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) },
+                          bundleId: String? = Bundle.main.bundleIdentifier)
         -> Migration? {
         guard let plistData,
               let plist = try? PropertyListSerialization.propertyList(from: plistData, format: nil) as? [String: Any],
@@ -135,7 +143,10 @@ enum BackendAgentPolicy {
         let port = (env["CICADA_PORT"] as? String) ?? String(CicadaRuntime.defaultPort)
         let defaultHome = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cicada").path
         let home = (env["CICADA_HOME"] as? String) ?? defaultHome
-        if program == launcher, port == String(runtime.port), home == runtime.cicadaHome.path { return nil }
+        // G132 ruling 51f: a plist that does not name this app (written before it passed its bundle id) is rewritten
+        // once, so the backend inherits the app's Local Network answer (TN3179).
+        let named = bundleId.map { (env["CICADA_APP_BUNDLE_ID"] as? String) == $0 } ?? true
+        if program == launcher, port == String(runtime.port), home == runtime.cicadaHome.path, named { return nil }
         let memory = (env["CICADA_MEMORY_PATH"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         return Migration(memoryPath: memory)
     }

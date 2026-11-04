@@ -286,6 +286,11 @@ def merge_footprint(memory_path: Path, loser_id: str, winner_id: str) -> list[st
     from api.services import design_refs
 
     paths += [p for p in design_refs.repoint_footprint(memory_path, loser_id, winner_id) if p not in paths]
+    # G230: the repository pages whose back-link names either page, or that either project lists.
+    from api.services import github_repos
+
+    paths += [f"entities/{e}.md" for e in github_repos.backlink_pages(memory_path, [loser_id, winner_id], (lfm, wfm))
+              if f"entities/{e}.md" not in paths]
     # Each page's claims ledger that exists: the merge folds it in and writes it back (the loser's is removed). A ledger
     # a write creates is committed with its page (`git_service`), never left behind.
     # The loser's id keeps resolving to the winner (`page_redirects`): its table is always written by a merge.
@@ -415,6 +420,10 @@ def merge_entities(memory_path: Path, loser_id: str, winner_id: str,
     lfm, wfm = dict(lpar.frontmatter), dict(wpar.frontmatter)
     winner_name = str(wfm.get("name", winner_id))
     loser_name = str(lfm.get("name", loser_id))
+    # G230: the repository pages whose back-link (`github.projects`) this merge changes, read before anything moves.
+    from api.services import github_repos
+
+    repo_pages = github_repos.backlink_pages(memory_path, [loser_id, winner_id], (lfm, wfm))
 
     # strict, both sides: a corrupt block must abort the merge — a lenient parse
     # would read as "no claims", and the rewrite (winner) or the delete (loser)
@@ -560,6 +569,9 @@ def merge_entities(memory_path: Path, loser_id: str, winner_id: str,
 
     if page_redirects.add(memory_path, loser_id, winner_id):
         paths.append(page_redirects.FILE)
+    # G230: each repository page names the merged project, never the page that is gone (its projects re-derived).
+    if repo_pages:
+        paths += [p for p in github_repos.sync_backlinks(memory_path, repo_pages) if p not in paths]
     # The loser's ledger claims were read with its page (`markdown_parser.parse` folds them in) and now sit on the
     # winner's page or its ledger; git keeps the loser's file.
     from api.services import claims_ledger

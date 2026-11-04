@@ -85,7 +85,8 @@ extension Copy {
         static let addOnServer = "Add or revoke a device on the server with `cicada device add <name>` and `cicada device revoke <id>`."
         static let revoke = "Revoke"
         static func revokeTitle(_ name: String) -> String { "Revoke \(name)?" }
-        static let revokeMessage = "It stops reaching your memory right away. What it already sent stays, and still says it came from it."
+        static let revokeMessage = "It stops reaching your memory right away, and nothing new reaches it. Revoking "
+            + "cannot take back the copy it already holds. What it already sent stays, and still says it came from it."
         static let thisDevice = "this Mac"
         static let thisServer = "this server"
         static let aDevice = "a device"
@@ -136,7 +137,6 @@ extension Copy {
         static let notForDemo = "A demo memory is never shared or copied. Open your own memory to use this."
         static let whileSharing = "This computer shares its own memory with your other computers, so it doesn't keep "
             + "a copy of another's. Turn sharing off first."
-        static func following(_ host: String) -> String { "Following \(host)." }
         static func behind(_ n: Int) -> String { n == 1 ? "1 change still to copy." : "\(n) changes still to copy." }
         static func onItsWay(_ n: Int) -> String {
             n == 1 ? "1 change made here is on its way." : "\(n) changes made here are on their way."

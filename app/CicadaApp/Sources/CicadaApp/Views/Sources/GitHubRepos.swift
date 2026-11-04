@@ -1,94 +1,50 @@
+import AppKit
 import SwiftUI
 
-// G230 — GitHub's row on the Sources page, under the connect panel every token account uses: add one repository by its
-// link (a public one needs no connection), and the repositories the person owns from the last sync, each offered one
-// action — added as a project, or linked to the project that has its name (owner 2026-11-03: "i'd rather it said 'Add
-// as a project'"). A pasted link to one of their own is offered the same; anyone else's is added as a page. Nothing
-// here makes a page on its own: every write is the person's click (ruling 45; ruling 36 D4).
+// G230 — GitHub's row on the Sources page: connecting with a code (owner 2026-11-03: "why are you asking for a token
+// for github? cant we just do oauth? like a connect?"), then the repositories the person owns, each with its page —
+// made on sync, never added by hand (owner 2026-11-03: "there shouldn't be added manually, always sync and make their
+// initial markdowns") — and the projects it belongs to. Linking a repository to a project happens on either page
+// (`RepositoryCard`, `ProjectRepositoriesSection`): the rows here only open them.
 //
-// Not a Store domain: `GET /sources/github/repos` is read when the panel opens and after every write, kept here in
-// memory (CLAUDE.md, Sync).
+// Not a Store domain: `GET /sources/github/connect` and `GET /sources/github/repos` are read when the panel opens and
+// after every step, kept here in memory (CLAUDE.md, Sync).
 //
-// DR-40 (one neutral Add; each row's action a compact `NeutralButton`, a settled project a `TextButton` to it),
-// DR-44 (flags are `Tag`s), DR-47 (`SectionLabel`), DR-50 (the empty list said in words), DR-76 (the app's field).
+// DR-40 (one primary per step — Connect, then Install — every other control a `NeutralButton` or a `TextButton`),
+// DR-47 (`SectionLabel`), DR-50 (the empty list said in words), DR-56 (the code in the app's monospaced type),
+// DR-71 (theme tokens only, light and dark).
 
-/// The pure decisions: what the field accepts and what each row offers.
+/// The pure decisions: what a row says.
 enum GitHubReposLogic {
-    /// `owner/name` from a pasted repository link (or a bare `owner/name`), as the backend's `parse_repo` reads it;
-    /// nil for anything else, so the field says so before a request is sent.
-    static func repository(_ text: String) -> String? {
-        var raw = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !raw.isEmpty, !raw.contains(" ") else { return nil }
-        if raw.hasPrefix("git@github.com:") {
-            raw = String(raw.dropFirst("git@github.com:".count))
-        } else if let url = URL(string: raw), let scheme = url.scheme?.lowercased() {
-            guard ["http", "https"].contains(scheme), let host = url.host?.lowercased(),
-                  host == "github.com" || host == "www.github.com", url.user == nil, url.port == nil else { return nil }
-            raw = url.path
-        } else if raw.lowercased().hasPrefix("github.com/") || raw.lowercased().hasPrefix("www.github.com/") {
-            raw = String(raw.drop(while: { $0 != "/" }))
-        }
-        let parts = raw.split(separator: "/").map(String.init)
-        guard parts.count >= 2 else { return nil }
-        var name = parts[1]
-        if name.hasSuffix(".git") { name = String(name.dropLast(4)) }
-        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-._"))
-        guard !parts[0].isEmpty, !name.isEmpty, name != ".", name != "..",
-              parts[0].unicodeScalars.allSatisfy({ allowed.contains($0) && $0 != "." && $0 != "_" }),
-              name.unicodeScalars.allSatisfy({ allowed.contains($0) }) else { return nil }
-        return "\(parts[0])/\(name)"
-    }
-
-    /// What one of the person's repositories offers, in order.
-    enum Offer: Equatable {
-        /// It already is a project page (linked, or born from a checkout of it).
-        case project(id: String, name: String)
-        /// A project has its name: link them, or start a new one.
-        case link(id: String, name: String)
-        /// Nothing yet: add it as a project.
-        case make
-    }
-
-    /// The person's own repository a pasted link names, as the last sync listed it — nil for anyone else's (or before
-    /// a sync), which the field adds as a page.
-    static func owned(_ text: String, in lists: RepoLists) -> RepoRow? {
-        guard let full = repository(text)?.lowercased() else { return nil }
-        return lists.owned.first { $0.fullName.lowercased() == full }
-    }
-
-    static func offer(_ repo: RepoRow) -> Offer {
-        guard let project = repo.project else { return .make }
-        return project.isSettled ? .project(id: project.project, name: project.name)
-                                 : .link(id: project.project, name: project.name)
-    }
-
-    /// "Private · Python" — the row's second line.
+    /// "Private · Python · Notes." — the row's second line.
     static func detail(_ repo: RepoRow) -> String {
         Eyebrow.text(repo.isPrivate ? Copy.GitHub.isPrivate : "", repo.archived ? Copy.GitHub.isArchived : "",
                      repo.fork ? Copy.GitHub.isFork : "", repo.language ?? "", repo.description ?? "")
     }
+
+    /// The projects a row shows (at most two), and how many more.
+    static func projects(_ repo: RepoRow, limit: Int = 2) -> (shown: [RepoProject], more: Int) {
+        (Array(repo.projects.prefix(limit)), max(0, repo.projects.count - limit))
+    }
 }
 
-/// The panel's state with no view in it. Every call goes through `Deps`, so tests run with no network.
+/// The repository list's state with no view in it. Every call goes through `Deps`, so tests run with no network.
 @MainActor
 @Observable
 final class GitHubReposModel {
     struct Deps {
         var fetch: @MainActor () async throws -> RepoLists
-        var add: @MainActor (String) async throws -> RepoAddResult
-        var project: @MainActor (String, String?) async throws -> RepoProjectResult
+        var project: @MainActor (String, String?, Bool) async throws -> RepoProjectResult
 
         @MainActor static var live: Deps {
             Deps(fetch: { try await APIClient.shared.fetchGitHubRepos() },
-                 add: { try await APIClient.shared.addGitHubRepo($0) },
-                 project: { try await APIClient.shared.makeRepoProject(fullName: $0, project: $1) })
+                 project: { try await APIClient.shared.makeRepoProject(fullName: $0, project: $1, remove: $2) })
         }
     }
 
     private(set) var lists = RepoLists()
     private(set) var loaded = false
-    private(set) var busy = false
-    /// The last write's sentence, or why a read failed (the list keeps what it had).
+    /// Why a read failed (the list keeps what it had).
     private(set) var note: String?
     @ObservationIgnored private let deps: Deps
 
@@ -99,59 +55,10 @@ final class GitHubReposModel {
         do {
             lists = try await deps.fetch()
             loaded = true
+            note = nil
         } catch {
             note = Copy.GitHub.couldNotRead
         }
-    }
-
-    /// The person's Add. Returns whether it landed (the field clears then).
-    @discardableResult
-    func add(_ text: String) async -> Bool {
-        guard let repo = GitHubReposLogic.repository(text) else { note = Copy.GitHub.notALink; return false }
-        busy = true
-        defer { busy = false }
-        do {
-            let result = try await deps.add(repo)
-            note = result.created ? Copy.GitHub.added(result.fullName) : Copy.GitHub.updated(result.fullName)
-        } catch {
-            note = Self.describe(error)
-            return false
-        }
-        await load()
-        return true
-    }
-
-    /// The field's one button (and its Return): a link to one of the person's own repositories gets that
-    /// repository's offer — added as a project, or linked to the project with its name — anyone else's is added as a
-    /// page. Returns whether it landed (the field clears then).
-    @discardableResult
-    func submit(_ text: String) async -> Bool {
-        guard let mine = GitHubReposLogic.owned(text, in: lists) else { return await add(text) }
-        switch GitHubReposLogic.offer(mine) {
-        case .project(_, let name):
-            note = Copy.GitHub.alreadyProject(name)
-            return false
-        case .link:
-            return await project(mine, link: mine.project)
-        case .make:
-            return await project(mine, link: nil)
-        }
-    }
-
-    /// "Add as a project" (`project` nil) or "Link to <name>".
-    @discardableResult
-    func project(_ repo: RepoRow, link project: RepoProject?) async -> Bool {
-        busy = true
-        defer { busy = false }
-        do {
-            let result = try await deps.project(repo.fullName, project?.project)
-            note = result.created ? Copy.GitHub.started(repo.name) : Copy.GitHub.linked(project?.name ?? repo.name)
-        } catch {
-            note = Self.describe(error)
-            return false
-        }
-        await load()
-        return true
     }
 
     static func describe(_ error: Error) -> String {
@@ -160,17 +67,372 @@ final class GitHubReposModel {
     }
 }
 
+// MARK: - Connecting with a code
+
+/// Where the connect panel is, decided from the backend's answer alone.
+enum GitHubConnectStep: Equatable {
+    /// This build's GitHub app is not registered: the token is the way in.
+    case unavailable
+    case disconnected
+    /// The code is on screen; the panel asks the backend every `interval` seconds.
+    case code(GitHubConnectCode)
+    /// Connected by code, but Cicada is not installed on the person's account: their repositories are out of reach.
+    case install(url: String)
+    /// Connected by code, but the sign-in lapsed (its refresh token expired or was revoked): connect again.
+    case reconnect
+    case connected(byToken: Bool)
+
+    static func from(_ status: GitHubConnectStatus) -> GitHubConnectStep {
+        if let code = status.pending { return .code(code) }
+        if status.connected {
+            if status.how == "app", status.reconnect { return .reconnect }
+            if status.how == "app", status.installed == false, let url = status.installUrl { return .install(url: url) }
+            return .connected(byToken: status.how == "token")
+        }
+        return status.available ? .disconnected : .unavailable
+    }
+
+    /// The whole minutes a code has left at `now` (seconds since 1970).
+    static func minutesLeft(_ code: GitHubConnectCode, now: Double) -> Int {
+        max(0, Int(((Double(code.expiresAt) - now) / 60).rounded(.up)))
+    }
+}
+
+@MainActor
+@Observable
+final class GitHubConnectModel {
+    struct Deps {
+        var status: @MainActor () async throws -> GitHubConnectStatus
+        var start: @MainActor () async throws -> GitHubConnectCode
+        var poll: @MainActor () async throws -> GitHubConnectPoll
+        var installation: @MainActor () async throws -> GitHubConnectStatus
+        var cancel: @MainActor () async throws -> Void
+        var sync: @MainActor () async throws -> ConnectorSyncResult
+        var disconnect: @MainActor () async throws -> Void
+        var open: @MainActor (URL) -> Void
+        var sleep: @MainActor (Int) async -> Void
+
+        @MainActor static var live: Deps {
+            Deps(status: { try await APIClient.shared.fetchGitHubConnect() },
+                 start: { try await APIClient.shared.startGitHubConnect() },
+                 poll: { try await APIClient.shared.pollGitHubConnect() },
+                 installation: { try await APIClient.shared.checkGitHubInstallation() },
+                 cancel: { try await APIClient.shared.cancelGitHubConnect() },
+                 sync: { try await APIClient.shared.syncConnector("github") },
+                 disconnect: { _ = try await APIClient.shared.forgetConnector("github") },
+                 open: { NSWorkspace.shared.open($0) },
+                 sleep: { try? await Task.sleep(nanoseconds: UInt64(max(1, $0)) * 1_000_000_000) })
+        }
+    }
+
+    private(set) var status = GitHubConnectStatus()
+    private(set) var loaded = false
+    private(set) var busy = false
+    /// What the last step did, or why it did not (the backend's own sentence when it has one).
+    private(set) var note: String?
+    /// Set when the last step connected or synced, so the repository list reads again.
+    private(set) var generation = 0
+    @ObservationIgnored private let deps: Deps
+    @ObservationIgnored private var polling: Task<Void, Never>?
+
+    init(deps: Deps) { self.deps = deps }
+    convenience init() { self.init(deps: .live) }
+
+    var step: GitHubConnectStep { .from(status) }
+
+    func load() async {
+        do {
+            status = try await deps.status()
+            loaded = true
+            if case .code = step { startPolling() }
+        } catch {
+            note = Copy.GitHub.couldNotConnect
+        }
+    }
+
+    /// Connect GitHub: the code comes up, GitHub's page opens in the person's browser, and the panel waits.
+    func connect() async {
+        busy = true
+        defer { busy = false }
+        do {
+            let code = try await deps.start()
+            status.pending = code
+            note = nil
+            if let url = URL(string: code.verificationUri), url.host?.lowercased() == "github.com" { deps.open(url) }
+            startPolling()
+        } catch {
+            note = GitHubReposModel.describe(error)
+        }
+    }
+
+    /// One poll; the loop calls it every interval. Returns whether to keep asking.
+    @discardableResult
+    func pollOnce() async -> Bool {
+        do {
+            let answer = try await deps.poll()
+            if let next = answer.status { status = next }
+            switch answer.state {
+            case "pending":
+                if let interval = answer.interval, var code = status.pending {
+                    code.interval = interval
+                    status.pending = code
+                }
+                return true
+            case "connected":
+                status.pending = nil
+                note = nil
+                generation += 1
+                return false
+            default:
+                status.pending = nil
+                note = answer.words
+                return false
+            }
+        } catch {
+            note = Copy.GitHub.couldNotConnect
+            return false
+        }
+    }
+
+    private func startPolling() {
+        polling?.cancel()
+        polling = Task { [weak self] in
+            while let self, !Task.isCancelled, let code = self.status.pending {
+                await self.deps.sleep(code.interval)
+                if Task.isCancelled { return }
+                if !(await self.pollOnce()) { return }
+            }
+        }
+    }
+
+    func stop() {
+        polling?.cancel()
+        polling = nil
+    }
+
+    func cancel() async {
+        stop()
+        try? await deps.cancel()
+        status.pending = nil
+        note = nil
+    }
+
+    func openInstall() {
+        if case .install(let raw) = step, let url = URL(string: raw), url.host?.lowercased() == "github.com" {
+            deps.open(url)
+        }
+    }
+
+    /// I installed it: ask GitHub again; installed, sync at once so the repositories come in.
+    func checkInstalled() async {
+        busy = true
+        defer { busy = false }
+        do {
+            status = try await deps.installation()
+            if status.installed == true {
+                note = ConnectorSetupState.syncSummary(try await deps.sync())
+                generation += 1
+            } else {
+                note = status.words ?? Copy.GitHub.notInstalledYet
+            }
+        } catch {
+            note = GitHubReposModel.describe(error)
+        }
+    }
+
+    func refresh() async {
+        busy = true
+        defer { busy = false }
+        do {
+            note = ConnectorSetupState.syncSummary(try await deps.sync())
+            generation += 1
+        } catch {
+            note = GitHubReposModel.describe(error)
+        }
+    }
+
+    func disconnect() async {
+        busy = true
+        defer { busy = false }
+        do {
+            try await deps.disconnect()
+            status = try await deps.status()
+            note = Copy.GitHub.disconnected
+            generation += 1
+        } catch {
+            note = GitHubReposModel.describe(error)
+        }
+    }
+
+    func openApplications() {
+        if let url = URL(string: status.grantsUrl ?? "https://github.com/settings/applications") { deps.open(url) }
+    }
+}
+
+/// GitHub's connect panel: one primary per step (DR-40) — Connect GitHub, then (by code, not installed yet) Install on
+/// GitHub — and the token, the old way, behind "Use a token instead" (only where the build's app is not registered,
+/// or when the person asks for it).
+struct GitHubConnectPanel: View {
+    @Bindable var model: GitHubConnectModel
+    @Binding var vendor: WalkthroughVendor
+    @State private var showToken = false
+    @State private var copied = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
+            if !model.loaded {
+                ProgressView().controlSize(.small)
+            } else {
+                stepView
+            }
+            if let note = model.note {
+                Text(note).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+            }
+        }
+        .task { await model.load() }
+        .onDisappear { model.stop() }
+    }
+
+    @ViewBuilder
+    private var stepView: some View {
+        switch model.step {
+        case .unavailable:
+            // Until this build's app is registered there is no code to show: the token stays the fallback, behind
+            // its own disclosure — never the panel's default.
+            line(Copy.GitHub.notSetUp)
+            tokenToggle
+            if showToken { ConnectorSetupPanel(connectorId: "github", vendors: [], vendor: $vendor) }
+        case .disconnected:
+            line(Copy.GitHub.reads)
+            HStack(spacing: CicadaTheme.spacingSM) {
+                tokenToggle
+                Spacer(minLength: CicadaTheme.spacingSM)
+                PrimaryActionButton(title: Copy.GitHub.connect) { Task { await model.connect() } }
+                    .disabled(model.busy)
+                    .help(Copy.GitHub.connectHelp)
+            }
+            if showToken { ConnectorSetupPanel(connectorId: "github", vendors: [], vendor: $vendor) }
+        case .code(let code):
+            codeView(code)
+        case .install:
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                Text(Copy.GitHub.installTitle).font(CicadaTheme.font(size: 12, weight: .semibold))
+                    .foregroundStyle(CicadaTheme.textPrimary)
+                line(Copy.GitHub.installWhy)
+            }
+            HStack(spacing: CicadaTheme.spacingSM) {
+                TextButton(title: Copy.GitHub.installedCheck, flushLeading: true) {
+                    Task { await model.checkInstalled() }
+                }
+                .disabled(model.busy)
+                Spacer(minLength: CicadaTheme.spacingSM)
+                PrimaryActionButton(title: Copy.GitHub.install, systemImage: "arrow.up.right") { model.openInstall() }
+                    .disabled(model.busy)
+            }
+            connectedControls
+        case .reconnect:
+            Text(Copy.GitHub.signedOut).font(CicadaTheme.font(size: 12, weight: .semibold))
+                .foregroundStyle(CicadaTheme.textPrimary)
+            line(Copy.GitHub.signedOutWhy)
+            HStack(spacing: CicadaTheme.spacingSM) {
+                Spacer(minLength: CicadaTheme.spacingSM)
+                PrimaryActionButton(title: Copy.GitHub.reconnect) { Task { await model.connect() } }
+                    .disabled(model.busy)
+                    .help(Copy.GitHub.connectHelp)
+            }
+            connectedControls
+        case .connected(let byToken):
+            Text(byToken ? Copy.GitHub.connectedByToken : Copy.GitHub.connected)
+                .font(CicadaTheme.font(size: 12, weight: .semibold)).foregroundStyle(CicadaTheme.textPrimary)
+            line(Copy.GitHub.reads)
+            connectedControls
+        }
+    }
+
+    private func codeView(_ code: GitHubConnectCode) -> some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+            SectionLabel(Copy.GitHub.enterCode)
+            Text(code.userCode)
+                .font(CicadaTheme.font(size: 22, weight: .semibold, design: .monospaced))
+                .foregroundStyle(CicadaTheme.textPrimary)
+                .textSelection(.enabled)
+                .accessibilityLabel("\(Copy.GitHub.enterCode): \(code.userCode)")
+            HStack(spacing: CicadaTheme.spacingSM) {
+                NeutralButton(title: Copy.GitHub.openGitHub, systemImage: "arrow.up.right", size: .compact,
+                              help: code.verificationUri) {
+                    if let url = URL(string: code.verificationUri), url.host?.lowercased() == "github.com" {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+                NeutralButton(title: copied ? Copy.GitHub.copied : Copy.GitHub.copyCode, size: .compact) {
+                    AppPasteboard.copy(code.userCode)
+                    copied = true
+                }
+                Spacer(minLength: CicadaTheme.spacingSM)
+                TextButton(title: Copy.GitHub.cancel) { Task { await model.cancel() } }
+            }
+            HStack(spacing: CicadaTheme.spacingSM) {
+                ProgressView().controlSize(.small)
+                Text(Copy.GitHub.waiting).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
+            }
+            line(Copy.GitHub.expiresIn(GitHubConnectStep.minutesLeft(code, now: Date().timeIntervalSince1970)))
+        }
+    }
+
+    private var connectedControls: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+            HStack(spacing: CicadaTheme.spacingSM) {
+                NeutralButton(title: Copy.GitHub.refresh, size: .compact, isDisabled: model.busy) {
+                    Task { await model.refresh() }
+                }
+                NeutralButton(title: Copy.GitHub.disconnect, size: .compact, isDisabled: model.busy) {
+                    Task { await model.disconnect() }
+                }
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
+    private var tokenToggle: some View {
+        TextButton(title: showToken ? Copy.GitHub.hideToken : Copy.GitHub.useToken, flushLeading: true) {
+            showToken.toggle()
+        }
+    }
+
+    private func line(_ text: String) -> some View {
+        Text(text).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// GitHub's detail on the Sources page: the connect panel, then the repositories — read again after each connect,
+/// install check or sync.
+struct GitHubSourcePanel: View {
+    @Binding var vendor: WalkthroughVendor
+    @State private var connect = GitHubConnectModel()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
+            GitHubConnectPanel(model: connect, vendor: $vendor)
+            GitHubReposSection(generation: connect.generation)
+        }
+    }
+}
+
+// MARK: - The repositories
+
 struct GitHubReposSection: View {
+    /// Bumped by the connect panel after a connect or a sync: the list reads again.
+    var generation: Int = 0
     /// The owned list's own scroll height: the controls above stay in reach.
     var listHeight: CGFloat = 220
     @Environment(AppRouter.self) private var router
     @State private var model = GitHubReposModel()
-    @State private var linkText = ""
-    @FocusState private var focused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-            addForm
             if let note = model.note {
                 Text(note).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -184,22 +446,7 @@ struct GitHubReposSection: View {
                 }
             }
         }
-        .task { await model.load() }
-    }
-
-    private var addForm: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-            SectionLabel(Copy.GitHub.addTitle)
-            Text(Copy.GitHub.addIntro).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: CicadaTheme.spacingSM) {
-                TextField("", text: $linkText)
-                    .focused($focused)
-                    .cicadaField(isFocused: focused, prompt: Copy.GitHub.linkPrompt, isEmpty: linkText.isEmpty)
-                    .onSubmit { add() }
-                fieldAction
-            }
-        }
+        .task(id: generation) { await model.load() }
     }
 
     @ViewBuilder
@@ -234,55 +481,22 @@ struct GitHubReposSection: View {
                 }
             }
             Spacer(minLength: CicadaTheme.spacingSM)
-            if let page = repo.entityId {
-                TextButton(title: Copy.GitHub.inMemory, help: repo.fullName) { router.routeToEntity(page) }
+            let projects = GitHubReposLogic.projects(repo)
+            ForEach(projects.shown, id: \.project) { project in
+                TextButton(title: Copy.GitHub.inProject(project.name), help: project.name) {
+                    router.routeToEntity(project.project)
+                }
             }
-            offerView(repo)
+            if projects.more > 0 {
+                Text(Copy.GitHub.moreProjects(projects.more)).font(CicadaTheme.metaFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+            }
+            if let page = repo.entityId {
+                NeutralButton(title: Copy.GitHub.open, size: .compact, help: repo.fullName) {
+                    router.routeToEntity(page)
+                }
+            }
         }
         .frame(minHeight: CicadaTheme.scaled(RowMetrics.twoLine), alignment: .leading)
-    }
-
-    @ViewBuilder
-    private func offerView(_ repo: RepoRow) -> some View {
-        switch GitHubReposLogic.offer(repo) {
-        case .project(let id, let name):
-            TextButton(title: Copy.GitHub.yourProject(name), help: name) { router.routeToProject(id) }
-        case .link(_, let name):
-            NeutralButton(title: Copy.GitHub.linkTo(name), size: .compact, isDisabled: model.busy,
-                          help: Copy.GitHub.linkToHelp(name)) {
-                Task { await model.project(repo, link: repo.project) }
-            }
-        case .make:
-            NeutralButton(title: Copy.GitHub.addAsProject, size: .compact, isDisabled: model.busy,
-                          help: Copy.GitHub.addAsProjectHelp) {
-                Task { await model.project(repo, link: nil) }
-            }
-        }
-    }
-
-    /// The field's button: Add for anyone else's repository, the row's own offer for one of the person's.
-    @ViewBuilder
-    private var fieldAction: some View {
-        if let mine = GitHubReposLogic.owned(linkText, in: model.lists) {
-            switch GitHubReposLogic.offer(mine) {
-            case .project(let id, let name):
-                TextButton(title: Copy.GitHub.yourProject(name), help: name) { router.routeToProject(id) }
-            case .link(_, let name):
-                NeutralButton(title: Copy.GitHub.linkTo(name), size: .compact, isDisabled: model.busy,
-                              help: Copy.GitHub.linkToHelp(name)) { add() }
-            case .make:
-                NeutralButton(title: Copy.GitHub.addAsProject, size: .compact, isDisabled: model.busy,
-                              help: Copy.GitHub.addAsProjectHelp) { add() }
-            }
-        } else {
-            NeutralButton(title: Copy.GitHub.add, size: .compact,
-                          isDisabled: linkText.trimmingCharacters(in: .whitespaces).isEmpty || model.busy,
-                          help: Copy.GitHub.addHelp) { add() }
-        }
-    }
-
-    private func add() {
-        let text = linkText
-        Task { if await model.submit(text) { linkText = "" } }
     }
 }

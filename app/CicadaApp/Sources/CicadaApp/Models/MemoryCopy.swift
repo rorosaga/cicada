@@ -19,6 +19,8 @@ struct ReplicaState: Decodable, Equatable, Sendable {
         let seq: Int?
         let homeSeq: Int?
         let behind: Int?
+        /// When the home last answered (`replica.state()`), ISO; the route line's "reached …".
+        var lastContact: String?
     }
 
     struct Outbox: Decodable, Equatable, Sendable {
@@ -26,6 +28,8 @@ struct ReplicaState: Decodable, Equatable, Sendable {
         let held: Int
         let rejected: Int
         let captures: Int
+        /// G132 ruling 51f: the next change made here would not be kept (an older backend sends none).
+        var full: Bool?
     }
 
     /// `local`, `client` or `replica`.
@@ -60,6 +64,8 @@ final class MemoryCopyModel {
     var error: String?
     /// The backend restarts to change mode; the page says so until it answers again.
     var restarting = false
+    /// G132 ruling 51f: this copy's routes to its home (`/sync/routes`), read only while it is a copy.
+    var routes: SyncRoutes?
 
     /// Shown only on a computer that keeps its own memory or a copy — never while this app uses a server.
     var shown: Bool { replica.map { $0.mode != "client" } ?? false }
@@ -82,10 +88,22 @@ final class MemoryCopyModel {
         if replica?.mode == "local", let fresh = try? await APIClient.shared.fetchPublish() {
             publish = fresh
         }
+        routes = replica?.isReplica == true ? (try? await APIClient.shared.fetchRoutes()) ?? routes : nil
+    }
+
+    /// The route a copy is using to its home, in words: "Same network · reached 2 minutes ago", "Queued · reached
+    /// yesterday" while no route answers. Never an address or a port. Nil before the backend says anything.
+    nonisolated static func routeLine(_ routes: SyncRoutes?, lastContact: String?, now: Date = Date()) -> String? {
+        guard let routes else { return nil }
+        let word = routes.toHome.queued || routes.toHome.active == nil
+            ? Copy.LocalNetwork.queued : (LanRules.routeWord(routes.toHome.active) ?? Copy.LocalNetwork.queued)
+        let reached = lastContact.flatMap(ISODate.parse).map { Copy.LocalNetwork.reached($0, now: now) }
+        return [word, reached].compactMap { $0 }.joined(separator: " · ")
     }
 
     func setShare(_ on: Bool) async {
         await run { self.publish = try await APIClient.shared.setPublish(on) }
+        await LanDiscovery.shared.refresh()     // the door opens with the share: advertise it (once allowed)
     }
 
     func keepCopy() async {

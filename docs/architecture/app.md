@@ -415,6 +415,49 @@ words, while Sleep runs here, for a demo memory and while this Mac shares its ow
 a demo (the backend's `demo` and the Store's roster both ask). A failed refresh keeps what the card last showed. The app
 keeps talking to this Mac's own backend in both cases (`headless.md`, "A computer keeps a copy").
 DR-40, DR-59, DR-76.
+**Relay** (G132 phase 3b; `RelaySection`, `RelayModel`, `RelayPairSheet`, `RelayPairModel`, `Copy.Relay`; not a Store
+domain, read with the page; drawn only when this app is not a server's client), **under *Advanced*** (ruling 51f, owner
+D9: never a default) — a folded card (DR-39's form exception), the viewer's choice kept in
+`cicada.settings.devices.advancedOpen`, "Relay on" beside the label while folded with one set, opened by a search hit on
+the row: the relay address, **off by default**
+(`PUT /sync/relay`, `wss://` only, `ws://` only to this Mac; *Turn off* clears it), with one plain line for either
+state. With a relay set on a computer that shares its memory, *Pair a computer through the relay* opens the sheet: the
+QR (v2, sorted keys, drawn here with Core Image inside a ring, DR-9) beside the code and the relay's address for typing
+(DR-19); then the name of the computer that answered — and on the typed path the six digits both screens show, in mono
+because they are compared — with one confirmation (DR-40); "Two devices answered this code, so neither was added" when
+a second answered; closing while it waits cancels the code. On a computer that keeps its own memory and shares nothing,
+*Join with a code* takes the code and the relay's address, shows the same six digits with *They match*, and the
+backend starts again as a copy. Revoke's confirmation now says "Revoking cannot take back the copy it already holds."
+Both G132 cards' models (`MemoryCopyModel`, `RelayModel`) are owned and refreshed by the page (on appear and every
+30 s): a `.task` on a card that hides itself until its first read never ran (2026-11-03).
+**The home-network door, the app's side** (ruling 51f slice 1; `LanDiscovery`, `LocalNetworkStep`, `LanRules`,
+`Copy.LocalNetwork`; network.md, "Discovery on the LAN"). *When Local Network is asked (owner D4):* once, at the
+person's first *Share this memory…*, *Keep a full copy here* or *Pair a device* click — a step titled by that act (the
+pair sheet draws it before any code is made): the Permissions step's own row (`PermissionList`, `.localNetwork`, never
+in onboarding's list or Privacy's), "If macOS asks about incoming connections, choose Allow." only when the firewall is
+on (`socketfilterfw --getglobalstate`, read only), and *Continue*, which never waits on the row. *Allow…* raises the
+prompt by the app's first Bonjour call: a throwaway `cicada-probe-<random>` instance on port 9 (no socket, so no firewall
+question) seen in its own browse is a yes, a policy refusal that never saw it a no (`LocalNetworkMemory`,
+`cicada.permission.localNetwork`; macOS has no preflight). The answer goes to the backend as `lanAllowed`; the door
+stays on loopback until it is a yes. Skipped or refused, the same row sits on the devices card above *Pair a device*
+(`cicada.devices.localNetworkStepSeen`). *Bonjour, once allowed:* `DNSServiceRegister` advertises the door's port under
+`/sync/discovery`'s instance name (an `NWListener` can advertise only its own port), `NWBrowser` browses `/sync/discovery`'s `type` — `_cicada._udp` for the door (UDP since #590), with UDP parameters; `_cicada._tcp` only with the door off —
+(a conflict-renamed "c-… (2)" matches), each match is resolved with `DNSServiceResolve` + `DNSServiceGetAddrInfo` —
+never a connection, which would spend the door's handshake budget — and private and unique-local addresses are posted
+as `doors` (`POST /sync/discovered`, at most 16, again only when the set changed or after 5 min). A refusal later in
+System Settings is noticed by the browse; a refused answer is looked at again, silently, on the app's return — only after the person's own *Allow…* asked once
+(`cicada.permission.localNetwork.askedAt`), at most once per 30 s and never two probes at once. A bank switch refreshes
+Bonjour at once (another memory is another instance name). *Hints:*
+`NWPathMonitor` posts `{event: changed}` after a 2 s settle, the app's return `{event: returned}` at most every 30 s,
+only while this memory is shared or this computer keeps a copy. *Route state, in words, never an address or a port:* a
+device row's `how` reads "Same network" for a door on this network (a door request stamps `agent_seen` as `lan` or
+`tailscale`); a copy's row says its route to its home from `/sync/routes` ("Same network · reached just now", "Tailscale",
+"Your address", "Relay", or "Queued") — the "Following <address>" line is gone — and, in `danger`, "Queue full: nothing
+waiting was lost, but new changes aren't kept until the home answers." while `outbox.full`. The bundle carries
+`NSLocalNetworkUsageDescription` and `NSBonjourServices` (`_cicada._udp`, `_cicada._tcp`) in both builds; the background service's
+install passes `CICADA_APP_BUNDLE_ID` (the plist's `AssociatedBundleIdentifiers`, TN3179), and a release's plist that
+does not name the app is rewritten once. No new pattern, no motion. DR-5, DR-9, DR-10, DR-19, DR-38, DR-39, DR-40,
+DR-52, DR-59, DR-60, DR-76; §9 2026-11-03.
 Agents' last card holds *Command-line tool* (G180, ruling 21; on General's Setup card until B11; `CommandLineTool`,
 `CommandLineToolRow`): one neutral *Install the command-line tool* button (DR-40) that links `~/.local/bin/cicada`
 with no admin.
@@ -1721,30 +1764,38 @@ agent reads (`agent_methods`), not an install.
   library's saved items — and `spotify-listening` — the listening days, shown as "Spotify history" within `SourceDisplayName`'s 16 characters). Its detail is the Files & links row's own
   controls (the where-it-comes-from line, then `IntakePanel`): `Copy.Catalog.howSpotify` says to ask Spotify's privacy
   settings for Extended streaming history or Account data and drop the zip it emails. The bundled `spotify` mark.
-  **G230 (2026-11-03):** *Accounts* gains **GitHub** (id `github`, the bundled `github` mark; origins `github-starred`,
-  `github-added`, `github-owned` read "GitHub stars" / "GitHub"). Its detail is `ConnectorSetupPanel` (the token, what it
-  reads, Refresh, Disconnect) and under it `GitHubReposSection` (`Views/Sources/GitHubRepos.swift`): *Add a repository*
-  — one `cicadaField` (DR-76) and a neutral Add (DR-40) taking a repository's link or `owner/name`, checked in the app
-  (`GitHubReposLogic.repository`, the backend's `parse_repo` rule) before any request, so a public repository needs no
-  connection — then *Your repositories* from the last sync in their own scroll (the controls stay in reach): each row's
-  name and "Private · Python · …", *In memory* when a repository page exists (a `TextButton` opening it), and its one
-  offer — *Your project <name>* (a settled match, a `TextButton` to it), *Link to <name>* (a project with its name, a
-  suggestion), else *Add as a project* (`POST /sources/github/repos/project`, ruling 45's own act). **One of the
-  person's own repositories is never added as a repository page** (owner 2026-11-03: "i'd rather it said 'Add as a
-  project'"): the field's button follows the same rule — a pasted link to a repository the last sync listed as theirs
-  (`GitHubReposLogic.owned`) reads that row's offer and `GitHubReposModel.submit` runs it; anyone else's (and any link
-  before a sync) reads *Add* and makes the `media` page; the backend's add route refuses one of the person's own the
-  last sync listed (409, naming the project path), so the CLI cannot make one a page either. Every write is the
-  person's click; the lists are read on open and after each write, never a Store domain.
+  **G230 (2026-11-03; ruling 53):** *Accounts* gains **GitHub** (id `github`, the bundled `github` mark; origins
+  `github-starred`, `github-added`, `github-owned` read "GitHub stars" / "GitHub"). Its detail is `GitHubSourcePanel`
+  (`Views/Sources/GitHubRepos.swift`): **`GitHubConnectPanel`** — connecting with a code (owner 2026-11-03: "cant we
+  just do oauth? like a connect?"), one primary per step (DR-40): *Connect GitHub* (`POST /sources/github/connect`;
+  what it reads said first) → the code in the app's monospaced type (DR-19's allowlist: a code the person types), *Open
+  GitHub* (github.com only) and *Copy code*, "Waiting for you to approve on GitHub…" and the minutes left, *Cancel* —
+  the model asks `POST /sources/github/connect/poll` every interval the backend gives (`GitHubConnectModel`, its
+  `Deps` injected) → connected by code but not installed, *Install on GitHub* (the app's install page) and *I installed
+  it* (asks again, then syncs at once) → *Connected* (or, once GitHub refuses to renew the sign-in, *GitHub signed Cicada out* with *Reconnect*) with Refresh and Disconnect (which says the grant on GitHub is
+  removed there). `GitHubConnectStep.from` decides the step from the backend's answer alone. The token
+  (`ConnectorSetupPanel`) is only behind *Use a token instead* — the fallback while the build's app is not registered,
+  never the default. Under it **`GitHubReposSection`**: *Your repositories* in their own scroll, each row's name and
+  "Private · Python · …", *In <project>* (a `TextButton` to each of at most two projects it belongs to, "+N" after) and
+  *Open* (its page, made on sync). There is no add field and no per-row Add any more (owner 2026-11-03: "there
+  shouldn't be added manually, always sync"): linking a repository to a project happens on either page. *Starred*
+  counts the starred pages. The lists are read on open and after each connect, install check or sync
+  (`generation`), never a Store domain.
   **A repository page's card** (`Views/Graph/RepositoryCard.swift`) sits where a paper's card and a saved link's
   preview sit, above the article: `GET /entities/{id}/repository` is asked for a `media` page whose kind is unknown
-  (the graph stub) or `repository`, and for a project (a 404 for any other is nil), on its own task because the README
-  may be read first. It draws the owner and language, what the person did ("You starred it Sep 12", "No longer starred
-  since …", "You added it", DR-58), the flags and at most five topics as `Tag`s (DR-44, DR-81), *Open on GitHub* (the
-  system browser, github.com only) and the same one project offer (*Link to <name>* or *Add as a project*), then the
-  README under a `SectionLabel` (DR-47) as clean lines (`RepositoryText.lines`, DR-56: headings, bullets, fences and
-  rules dropped) — never a picture or a link it names — or its state in words (none, not read yet), with when it was
-  read.
+  (the graph stub) or `repository` (a 404 for any other is nil), on its own task because the README may be read first.
+  It draws the owner and language, what the person did ("Your repository", "You starred it Sep 12", "No longer
+  starred since …", DR-58), the flags and at most five topics as `Tag`s (DR-44, DR-81), **Projects** — each project it
+  belongs to as a `TextButton` to it (how an agent's or the checkout's link was made said on hover; *Unlink* in its
+  context menu, remembered) — *Open on GitHub* (the system browser, github.com only) and *Link to a project*
+  (`RepoLinkMenu`, R-HS10's disclosure glyph: the suggestion first — "<name> — has its name", "<name> — its checkout"
+  — then every other project, then *New project from this repository*), then the README under a `SectionLabel` (DR-47)
+  as clean lines (`RepositoryText.lines`, DR-56: headings, bullets, fences and rules dropped) — never a picture or a
+  link it names — or its state in words (none, not read yet), with when it was read.
+  **A project's repositories** (`ProjectRepositoriesSection`, in the same file): on a project's page, below its local
+  checkouts, `GET /entities/{id}/repositories` — each repository it lists with *Open* (its page; *Unlink* in the row's
+  context menu) and *Link a repository* (the person's own first, one with the project's name before the rest). Drawn
+  only when there is one to show or to link.
 - **Inbox top cards (G205, G61):** `agent_request` (`InboxKind.agentRequest`) and the grouped *Confirm N links* review
   (`asks: sources`, `review: true`) are cards above the questions, out of the list, its tabs and the quick review
   (`InboxViewModel.questions`). A request: the agent's tile, *Sign in to <site>*, whose and why, **I signed in**

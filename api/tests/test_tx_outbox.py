@@ -117,9 +117,6 @@ SAME_BY_CONTENT = {
     "POST /sources/sync-safari-tabs", "POST /sources/tab-groups/sync", "POST /sources/traces/sync",
     "POST /sources/watch-history/sync", "POST /sources/whatsapp/sync", "POST /files/media",
     "POST /files/{file_id}/frames",
-    # G230: a repository is found by GitHub's own id (and its link's index) — a resend updates the same page, never a
-    # second (`test_github_repos::test_a_replayed_add_writes_nothing_new`).
-    "POST /sources/github/repos",
 }
 
 
@@ -157,7 +154,19 @@ def test_a_full_outbox_says_so_in_words_and_drops_nothing_that_waits(home, monke
     assert "full" in body["text"] and "Nothing that waits was dropped" in body["text"]
     assert [p.name.endswith("-first.json") for p in tx_outbox.entries(home)] == [True]
     assert tx_outbox.counts(home)["refusedFull"] == 1
+    assert tx_outbox.counts(home)["full"] is True, "the Devices page reads the full state from counts"
+    monkeypatch.setattr(tx_outbox, "MAX_TOTAL_BYTES", 256 * 1024 * 1024)
+    assert tx_outbox.counts(home)["full"] is True, "a small one would fit, but the last write was not kept"
+    tx_outbox.submit(_tool(key="fits"), away, home=home)
+    assert tx_outbox.counts(home)["full"] is False, "a write kept again: no longer full (refusedFull stays a counter)"
+    monkeypatch.setattr(tx_outbox, "MAX_TOTAL_BYTES", 1)
     assert tx_outbox.keep(_tool(key="third"), home=home) is False
+    verdict, _s, _b = tx_outbox.submit(_tool(key="fourth"), away, home=home)
+    assert verdict == "full" and tx_outbox.counts(home)["full"] is True
+    monkeypatch.setattr(tx_outbox, "MAX_TOTAL_BYTES", 256 * 1024 * 1024)
+    for p in tx_outbox.entries(home):
+        p.unlink()
+    assert tx_outbox.counts(home)["full"] is False, "the queue drained below where it was refused"
 
 
 def test_the_tool_door_tells_a_full_queue_in_words(monkeypatch):

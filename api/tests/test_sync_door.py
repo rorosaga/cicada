@@ -446,6 +446,21 @@ def test_requests_run_in_process_as_the_proved_device_with_no_token(live, tmp_pa
     assert status == 201 and got == out and out.stat().st_size == 5 * 1024 * 1024 + 7
 
 
+def test_a_device_that_reaches_the_door_is_seen_with_how_and_never_an_address(live, monkeypatch):
+    """The Devices page's *how* and *last seen* (G212) for a device that reached the home over the door: an enum from
+    the peer's class and a time — a loopback or private peer is ``lan``, never its address."""
+    from api.services import agent_seen
+
+    seen: list[tuple] = []
+    monkeypatch.setattr(agent_seen, "stamp_device", lambda device, how: seen.append((device, how)) or True)
+    server, target, ident, carrier = live
+    status, _h, _a = sync_door.request("127.0.0.1", server.port, target, ident, "GET", "/x", pool=sync_door.Pool(),
+                                       carrier=carrier)
+    assert status == 201
+    assert seen and set(seen) == {("d1", "lan")}, seen
+    assert all(how in agent_seen.HOW for _d, how in seen)
+
+
 def test_a_session_is_reused_and_the_routes_are_learned(live):
     server, target, ident, carrier = live
     learned = []

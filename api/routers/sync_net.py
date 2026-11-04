@@ -270,7 +270,8 @@ class DoorFound(BaseModel):
 
 class DiscoveredBody(BaseModel):
     candidates: list[Candidate] = Field(default_factory=list, max_length=16)
-    #: Ruling 51f: doors the app's Bonjour resolved on this network (``_cicada._tcp``, this memory's instance name).
+    #: Ruling 51f: doors the app's Bonjour resolved on this network (``_cicada._udp`` while a door is open, this
+    #: memory's instance name).
     #: Each is kept only after this backend's own handshake proved it is the home's door.
     doors: list[DoorFound] = Field(default_factory=list, max_length=16)
     #: The person allowed Cicada to find devices on the local network (the app's own permission state).

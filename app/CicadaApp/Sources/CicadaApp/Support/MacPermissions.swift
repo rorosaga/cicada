@@ -12,6 +12,8 @@ import Foundation
 /// One permission macOS keeps for Cicada's app.
 enum MacPermission: String, CaseIterable, Identifiable, Sendable {
     case fullDiskAccess, contacts, calendars, reminders, chrome, notes, notifications, accessibility, screenRecording
+    /// G132 ruling 51f: asked only by the first-share step (owner D4), never in onboarding's list.
+    case localNetwork
 
     var id: String { rawValue }
 
@@ -30,7 +32,8 @@ enum MacPermission: String, CaseIterable, Identifiable, Sendable {
         case .fullDiskAccess: .drag(.fullDiskAccess)
         case .accessibility: .drag(.accessibility)
         case .screenRecording: .drag(.screenRecording)
-        case .contacts, .calendars, .reminders, .notifications: .prompt
+        // Local Network has no preflight: macOS's prompt comes from the app's first Bonjour call (`LanDiscovery.ask`).
+        case .contacts, .calendars, .reminders, .notifications, .localNetwork: .prompt
         case .chrome: .automation(bundleId: Self.chromeBundleId)
         case .notes: .automation(bundleId: Self.notesBundleId)
         }
@@ -47,7 +50,7 @@ enum MacPermission: String, CaseIterable, Identifiable, Sendable {
         case .reminders: "com.apple.reminders"
         case .chrome: Self.chromeBundleId
         case .notes: Self.notesBundleId
-        case .fullDiskAccess, .notifications, .accessibility, .screenRecording: nil
+        case .fullDiskAccess, .notifications, .accessibility, .screenRecording, .localNetwork: nil
         }
     }
 
@@ -57,6 +60,7 @@ enum MacPermission: String, CaseIterable, Identifiable, Sendable {
         case .notifications: "bell"
         case .accessibility: "macwindow"
         case .screenRecording: "rectangle.dashed"
+        case .localNetwork: "network"
         default: "app"
         }
     }
@@ -79,6 +83,7 @@ enum MacPermission: String, CaseIterable, Identifiable, Sendable {
         case .calendars: raw = security + "Privacy_Calendars"
         case .reminders: raw = security + "Privacy_Reminders"
         case .chrome, .notes: raw = security + "Privacy_Automation"
+        case .localNetwork: raw = security + "Privacy_LocalNetwork"
         case .notifications:
             raw = "x-apple.systempreferences:com.apple.Notifications-Settings.extension"
                 + (bundleId.map { "?id=\($0)" } ?? "")
@@ -112,9 +117,11 @@ enum MacPermissionAction: Equatable {
 enum MacPermissionRows {
     /// The rows this Mac shows, in order: what reads the person's own things first, then the apps Cicada asks to act
     /// in, then notifications. Chrome only when it is installed. Traces' two only while traces are on — off by default,
-    /// and their own consent sheet asks for them when the person turns traces on (ruling 38).
+    /// and their own consent sheet asks for them when the person turns traces on (ruling 38). Local Network never: it
+    /// is asked only when the person first shares a memory or adds a device (G132, owner D4).
     static func visible(tracesOn: Bool, chromeInstalled: Bool) -> [MacPermission] {
         MacPermission.allCases.filter { permission in
+            if permission == .localNetwork { return false }
             if permission.isTraces { return tracesOn }
             if permission == .chrome { return chromeInstalled }
             return true

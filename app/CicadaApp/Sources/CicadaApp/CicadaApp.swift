@@ -228,6 +228,8 @@ struct CicadaApp: App {
                                          })
         _updates = State(initialValue: updates)
         Task { @MainActor in updates.start() }
+        // G132 ruling 51f: the path monitor and the network hints; Bonjour only once the person allowed it (owner D4).
+        Task { @MainActor in if !ServerConnection.current.isServer { LanDiscovery.shared.start() } }
         let activity = SyncActivity()
         _syncActivity = State(initialValue: activity)
         let lights = BrowserWatcher(activity: activity)
@@ -355,10 +357,13 @@ struct CicadaApp: App {
         // every few seconds while one is refused, for a grant made without coming back here.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             browserWatcher.refreshAccess()
+            if !ServerConnection.current.isServer { LanDiscovery.shared.appBecameActive() }
         }
         // 2026-11-03 — the bookmark catch-up the launch owed until the active memory was known (`rosterLoaded`).
         .onChange(of: store.banks.value?.active) { _, _ in
             Task { await browserWatcher.rosterLoaded() }
+            // G132 ruling 51f: another memory is another instance name — drop the old advert and browse at once.
+            if !ServerConnection.current.isServer { Task { await LanDiscovery.shared.refresh() } }
         }
         .onChange(of: store.bank) { _, _ in
             Task { await localSources.reload() }

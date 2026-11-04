@@ -21,89 +21,102 @@ struct PairDeviceSheet: View {
     @State private var kind: PairingKind = .capture
     @State private var state = "waiting"
     @State private var problem: String?
+    /// G132 ruling 51f, owner D4: the first add-device click asks for Local Network here, before any code is made.
+    @State private var step = LocalNetworkStep.due()
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
             Text(Copy.DevicesPage.pairTitle).font(CicadaTheme.titleFont).foregroundStyle(CicadaTheme.textPrimary)
-            Picker(Copy.DevicesPage.kindLabel, selection: $kind) {
-                Text(Copy.DevicesPage.kindPhone).tag(PairingKind.capture)
-                Text(Copy.DevicesPage.kindComputer).tag(PairingKind.full)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .fixedSize()
-            .onChange(of: kind) { _, _ in Task { await restart() } }
-            if let created {
-                HStack(alignment: .center, spacing: CicadaTheme.spacingXL) {
-                    PairingQRImage(payload: PairingPayload.json(created.qr))
-                        .frame(width: CicadaTheme.scaled(168), height: CicadaTheme.scaled(168))
-                        .padding(CicadaTheme.spacingSM)
-                        .background(CicadaTheme.shape(CicadaTheme.cornerRadius).fill(Color.white))
-                        .ringed(in: CicadaTheme.shape(CicadaTheme.cornerRadius))
-                        .opacity(state == "waiting" ? 1 : 0.3)
-                        .accessibilityLabel(Copy.DevicesPage.pairTitle)
-                    VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                        Text(created.code)
-                            .font(CicadaTheme.font(size: 28, weight: .semibold).monospacedDigit())
-                            .foregroundStyle(CicadaTheme.textPrimary)
-                            .textSelection(.enabled)
-                        // The QR carries this machine's tailnet address when the backend could tell it (the agent-API
-                        // worker's change); then the address is said and scanning is enough. Else one line says
-                        // which address to type.
-                        if let url = created.qr.url {
-                            Text(url)
-                                .font(CicadaTheme.captionFont)
-                                .foregroundStyle(CicadaTheme.textTertiary)
-                                .textSelection(.enabled)
-                        } else if created.reach?.shownServeCommand == nil {
-                            Text(Copy.DevicesPage.noAddress)
-                                .font(CicadaTheme.captionFont)
-                                .foregroundStyle(CicadaTheme.textTertiary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                        if state == "waiting", let expires = created.pairing.expiresAt.flatMap(ISODate.parse) {
-                            Text(Copy.DevicesPage.expires(expires))
-                                .font(CicadaTheme.captionFont.monospacedDigit())
-                                .foregroundStyle(CicadaTheme.textTertiary)
-                        }
-                        if state == "expired" {
-                            Text(Copy.DevicesPage.expired)
-                                .font(CicadaTheme.captionFont)
-                                .foregroundStyle(CicadaTheme.textSecondary)
-                            NeutralButton(title: Copy.DevicesPage.newCode, size: .compact) { Task { await start() } }
-                        }
-                    }
+            if step {
+                LocalNetworkStepBody(onCancel: { onClose(nil) }) {
+                    step = false
+                    Task { await start() }
                 }
-                if created.qr.url != nil {
-                    Text(Copy.DevicesPage.pairScan)
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(CicadaTheme.textSecondary)
-                } else if let command = created.reach?.shownServeCommand {
-                    // #432: the tailnet-only serve of the backend port the person would run (Cicada never runs it).
-                    VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                        Text(Copy.DevicesPage.serveLead)
-                            .font(CicadaTheme.captionFont)
-                            .foregroundStyle(CicadaTheme.textSecondary)
-                        CommandBox(command: command)
-                    }
-                }
-            } else if problem == nil {
-                ProgressView().controlSize(.small)
-            }
-            if let problem {
-                Text(problem).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.danger)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            HStack {
-                Spacer()
-                TextButton(title: Copy.DevicesPage.cancel) { close() }
+            } else {
+                pairing
             }
         }
         .padding(CicadaTheme.spacingXL)
         .frame(width: CicadaTheme.scaled(480))
         .background(CicadaTheme.background)
-        .task { await start() }
+        .task { if !step { await start() } }
         .task(id: created?.pairing.id) { await poll() }
+    }
+
+    @ViewBuilder private var pairing: some View {
+        Picker(Copy.DevicesPage.kindLabel, selection: $kind) {
+            Text(Copy.DevicesPage.kindPhone).tag(PairingKind.capture)
+            Text(Copy.DevicesPage.kindComputer).tag(PairingKind.full)
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .fixedSize()
+        .onChange(of: kind) { _, _ in Task { await restart() } }
+        if let created {
+            HStack(alignment: .center, spacing: CicadaTheme.spacingXL) {
+                PairingQRImage(payload: PairingPayload.json(created.qr))
+                    .frame(width: CicadaTheme.scaled(168), height: CicadaTheme.scaled(168))
+                    .padding(CicadaTheme.spacingSM)
+                    .background(CicadaTheme.shape(CicadaTheme.cornerRadius).fill(Color.white))
+                    .ringed(in: CicadaTheme.shape(CicadaTheme.cornerRadius))
+                    .opacity(state == "waiting" ? 1 : 0.3)
+                    .accessibilityLabel(Copy.DevicesPage.pairTitle)
+                VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                    Text(created.code)
+                        .font(CicadaTheme.font(size: 28, weight: .semibold).monospacedDigit())
+                        .foregroundStyle(CicadaTheme.textPrimary)
+                        .textSelection(.enabled)
+                    // The QR carries this machine's tailnet address when the backend could tell it (the agent-API
+                    // worker's change); then the address is said and scanning is enough. Else one line says
+                    // which address to type.
+                    if let url = created.qr.url {
+                        Text(url)
+                            .font(CicadaTheme.captionFont)
+                            .foregroundStyle(CicadaTheme.textTertiary)
+                            .textSelection(.enabled)
+                    } else if created.reach?.shownServeCommand == nil {
+                        Text(Copy.DevicesPage.noAddress)
+                            .font(CicadaTheme.captionFont)
+                            .foregroundStyle(CicadaTheme.textTertiary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    if state == "waiting", let expires = created.pairing.expiresAt.flatMap(ISODate.parse) {
+                        Text(Copy.DevicesPage.expires(expires))
+                            .font(CicadaTheme.captionFont.monospacedDigit())
+                            .foregroundStyle(CicadaTheme.textTertiary)
+                    }
+                    if state == "expired" {
+                        Text(Copy.DevicesPage.expired)
+                            .font(CicadaTheme.captionFont)
+                            .foregroundStyle(CicadaTheme.textSecondary)
+                        NeutralButton(title: Copy.DevicesPage.newCode, size: .compact) { Task { await start() } }
+                    }
+                }
+            }
+            if created.qr.url != nil {
+                Text(Copy.DevicesPage.pairScan)
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textSecondary)
+            } else if let command = created.reach?.shownServeCommand {
+                // #432: the tailnet-only serve of the backend port the person would run (Cicada never runs it).
+                VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                    Text(Copy.DevicesPage.serveLead)
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                    CommandBox(command: command)
+                }
+            }
+        } else if problem == nil {
+            ProgressView().controlSize(.small)
+        }
+        if let problem {
+            Text(problem).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.danger)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        HStack {
+            Spacer()
+            TextButton(title: Copy.DevicesPage.cancel) { close() }
+        }
     }
 
     private func start() async {

@@ -360,6 +360,9 @@ async def run(adapter: ModuleType, memory_path: Path, *, http_fn: Transport | No
         cursor = read_cursor(channel, memory_path)
         if cursor and not (sync_state.read_sync_state(memory_path).get(channel) or {}).get("count"):
             cursor = {}     # a new or reset bank: the whole history again, never nothing
+        # An adapter whose sign-in lapses renews it first (GitHub's device-flow token, `github.prepare`).
+        if http_fn is None and (prepare := getattr(adapter, "prepare", None)) is not None:
+            await prepare()
         client = Client(adapter, token(adapter), http_fn)
         started = time.perf_counter()
         try:
@@ -377,14 +380,26 @@ async def run(adapter: ModuleType, memory_path: Path, *, http_fn: Transport | No
 
         async def transaction() -> dict:
             out = await asyncio.to_thread(_stage, adapter, memory_path, batch, memory_path.name)
+            then = None
             if batch.after is not None:
                 more = await asyncio.to_thread(batch.after, memory_path)
                 out["paths"] = [*out["paths"], *more.get("paths", [])]
                 for key in ("created", "updated", "live"):
                     out[key] += int(more.get(key) or 0)
                 out["words"] = more.get("words")
+                then = more.get("then")
             await folder_source.commit_paths_for(memory_path, out["paths"], subject=f"{adapter.LABEL} sync",
                                                  trigger=f"capture/{channel}", channel=channel)
+            if then is not None:
+                # What Cicada itself inferred from what came in (GitHub: a repository linked to its project by the
+                # hook's origin hash) is its own commit under its own author, never folded into the person's sync.
+                done = await asyncio.to_thread(then, memory_path)
+                if done.get("paths"):
+                    await folder_source.commit_paths_for(memory_path, done["paths"],
+                                                         subject=done.get("subject") or f"{adapter.LABEL} links",
+                                                         trigger=f"capture/{channel}",
+                                                         author=done.get("author") or "cicada", channel=channel)
+                out["words"] = " ".join(w for w in (out.get("words"), done.get("words")) if w) or None
             return out
 
         try:
