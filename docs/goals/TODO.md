@@ -3220,36 +3220,6 @@ A whole row moves to DONE only after its remaining implementation and required a
     **Finding a source:** the model may propose a link literally in a conversation it names, on a page of the question;
     it lands as a proposal in the one grouped review (ruling 36 D5), never opened, trusted or re-checked until taken. Never
     guessed from a name; `sources_removed` holds. A sweep writes no proposals; Sleep does.
-54. **PROPOSED — not binding until the owner says yes (owner direction 2026-11-04; G209; amends ruling 44's public test
-    for this one question; branch `fix/person-dedup-evidence`).** The owner's words, on "is <handle> the same as
-    <person>?": "could've been resolved from a search, like how claude code would solve it if i ask it rn." **Proposed
-    text:** *A question whether a public handle is a named person may be settled by a web lookup on a plan run, with a
-    cited claim, undoable — only when: both sides are person pages, one a handle and the other a full name; neither is
-    the owner, a role-only page, on the person's address book or LinkedIn import, or known personally on the record
-    (ruling 44's local checks); no chat (Messages, WhatsApp, Telegram chats, e-mail, LinkedIn, a profile read on request)
-    says either name outside a link to public content, in its title or as its correspondent; and each name is said in
-    public content the person read or saved (a saved link or bookmark, a watched video, a read page, a paper, a
-    repository, a tab group). What is sent: to the plan's own web search, exactly two pinned queries, each alone — the
-    handle with the one platform word the record links it on (or "@handle"), and the full name; the prompt goes to the
-    engine that already read those conversations, with at most two scrubbed mention lines and nobody else's name. What
-    settles: only a quote, with the link of the public page it came from, that names both the handle and the person.
-    Cicada itself checks that the quote names both, never on the model's word; whether the quote is really on the cited
-    page rests on the lookup, as in ruling 27. It writes one cited "<Name> goes by <handle>" claim on the named page and
-    never merges the pages.
-    Never a metered key; a private person's name never reaches any service.* **Built behind it** (`public_handle`,
-    `web_lookup`'s handle prompt, `cicada_record_check` with `proposed_value="same"`). **Off until the owner rules**
-    (coordinator, 2026-11-04: a privacy-rail change is built switched off and decided by the owner): Sleep's own lookup
-    runs only with `CICADA_PUBLIC_HANDLE_LOOKUP=on`; meanwhile only the person's own local agent, asked by them, may
-    settle one through `cicada_record_check`. A "yes" flips the default; declining this text removes the path.
-    **Measured** on a copy of the owner's bank: of 20 open person pairs, 1 qualifies (the example above); 11 are not a
-    handle against a name, 1 is a held mention, 1 the owner's page. **Disclosed deviation (2026-11-04):** while building
-    this, the worker ran real lookups for that one pair on the bank copy, on the plan with haiku: four calls, each
-    searching the full name alone and the handle (`<handle> twitter` twice, `@<handle>`, `<handle> github`). Each
-    answered "not sure" and nothing was written. That sent a real person's full name to the plan's web
-    search before the owner ruled on this text, which ruling 44 forbids for a person without its encyclopedia match.
-    No more lookups were run; the shipped tier (`web_check_agent_model`, sonnet) never was. **Revisit** if a settled handle is undone by the person, or a name the
-    test called public turns out to be someone they know.
-
 59. **One click may open the connector's own port to the internet (owner, 2026-11-04: "YES to one-click Tailscale Funnel
     for the claude.ai and phone connector"; G135, G132's D6′; amends G132 (c), the headless rail's "never `funnel`" and the
     2026-10-29 one-click rail; branch `feat/g135-funnel-one-click`).** Why: claude.ai and the phone apps relay through the
