@@ -377,7 +377,9 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   already processed, so an agent's sweep is never the owner's words. Saving new rules re-derives
   every existing episode of the folder in place — frontmatter only, the hash unchanged; agent → owner
   is queued, owner → agent is parked unless Sleep already read it — in one `user` commit (trigger
-  `folder/authorship`), and the papers' why-claims follow (F2-back R-B6, R-B7). Wispr Flow: its SQLite opened
+  `folder/authorship`), and the papers' why-claims follow (F2-back R-B6, R-B7). Wispr Flow (**off for now, owner
+  2026-11-04: nothing new is read, for anyone, while `SourceCatalog.wisprOffered` is false; its episodes stay and
+  Sleep reads them as any other, `app.md`**): its SQLite opened
   read-only by the app through a column whitelist (never audio, screenshots, accessibility or pasted
   text); meetings and notes by default, dictation only when the person turns it on. A meeting line is
   `speaker:<label>:` and counts as `user` evidence only when its label is one of the owner's listed

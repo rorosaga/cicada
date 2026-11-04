@@ -110,7 +110,7 @@ final class ConnectSuggestCenter {
     var declined: [(id: String, name: String)] {
         access(keyPath: \.declined)
         let memory = store.memory
-        return memory.declined.map { ($0, memory.sources[$0]?.name ?? $0) }
+        return memory.declined.filter(ConnectSuggestApps.offered).map { ($0, memory.sources[$0]?.name ?? $0) }
     }
 
     func undoDecline(_ entryId: String) {
