@@ -262,6 +262,10 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   another conversation's word stays an update or a conflict (`episode_revision`, `capture-and-sleep.md`). **Slice 2:** the
   passages that said the removed words are rewritten or removed, one call a page at most, never History (it gains the
   change, dated) and never a passage the person or an agent wrote or pinned — that is one inbox question a page (`revision_prose`).
+- **What may be sensitive (G235, ruling 60):** found with no model before an engine reads it (`sensitive_text`: offsets and a
+  kind, never a value nor a hash of one); a confident hit is held back as a typed mark, the stored body untouched, an unsure
+  one reported; a page never repeats either. One review, one row per conversation, the person's alone. Remove goes through
+  the revision path; git history is never rewritten, and the copy says so (`capture-and-sleep.md`).
 - **Entity promotion:** a first mention stays in the index; a page needs 2+ conversations, >3 exchanges with the person's
   own words, or a link the person made to a high-confidence page other than the owner's — counted on the conversation,
   never guessed (`promotion`) — or the person's own words naming in full exactly one waiting Contacts card, never the "me"

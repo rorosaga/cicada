@@ -12,6 +12,13 @@
 
 ## Current state and evidence
 
+- **2026-11-04 — what may be sensitive: held back or reported, one review, Remove (G235, ROR-94, ruling 60; branch
+  `g235-sensitive-flags`, PR #611).** Owner: "surface anything that may be sensitive… so the person knows if it passed
+  through a provider"; "Yes hold them back"; "remove any sensitive data". Numbers, measured kinds and what stays open are
+  on the row. Real bank: 16 conversations of 9,478 hold a hit; **precision on real data is unknown, since nobody read a
+  value.** **Pick up here:** the owner's "remove any sensitive data" is applied with `scripts/sensitive_removal.py`:
+  read its dry run, then `--apply`. It removes from memory only: a password stays in the Notes app or chat that holds it,
+  and any real one among these should be changed, because what an engine read cannot be unread.
 - **2026-11-04 — This Mac source pages: accounts → collections → items (G161, G154, G95; branch `this-mac-sources`,
   PR #599, on the standard layout #593).** Owner: Apple Notes, Reminders, Contacts and Calendar "should
   have a better user experience and UI". One browser fills the standard page's content slot (`ThisMacSourceContent`):
@@ -3086,3 +3093,15 @@ A whole row moves to DONE only after its remaining implementation and required a
     search before the owner ruled on this text, which ruling 44 forbids for a person without its encyclopedia match.
     No more lookups were run; the shipped tier (`web_check_agent_model`, sonnet) never was. **Revisit** if a settled handle is undone by the person, or a name the
     test called public turns out to be someone they know.
+
+60. **A confident sensitive hit is held back from the engine; an unsure one is reported (owner 2026-11-04, G235).** Asked
+    "hold back confident hits and only report unsure ones", the owner: "Yes hold them back." Before any engine read,
+    `sensitive_text` finds likely credentials, card and bank numbers and ID numbers with no model. Confident
+    (`Hit.sure`: a number that passed its own checksum, a vendor shape, a value in a connection URL or a secret's env line,
+    a password with letters and digits together, digits someone claimed): the engine reads a typed mark; the stored body
+    and every offset stay. Unsure (letters only, digits no one claimed, an account or ID number nothing can check): read,
+    and the person is told. No setting. Either way the value is taken back out of what the model answered, and a flag never
+    repeats it, nor a hash of it. **Why not hold back everything:** a held-back wrong alarm costs a word the record may
+    need, and the detector's precision on real data is unmeasured; unsure is where that risk sits. The owner also ruled that
+    git history stays as it is, since it is local only. **Revisit** on the Remove and Leave it answers (G113): if Leave it
+    dominates a confident class, that class moves to unsure.

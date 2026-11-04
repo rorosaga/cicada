@@ -1011,3 +1011,6 @@ or future start changes currentness at midnight even if no page was edited.
 These are on-demand reads with in-memory caches, not Store domains, and add
 no VersionVector component or wire field. Search's Swift decoder now consumes
 its already-existing event day/state fields so a closed event stays dated.
+
+**`POST /sensitive/remove` (G235):** Remove on what `scripts/sensitive_removal.py` listed: `{expected, rows?}`, `expected`
+required, 409 when the plan holds another count or Sleep holds the pages, 403 for `via: agent`. Answers counts only.

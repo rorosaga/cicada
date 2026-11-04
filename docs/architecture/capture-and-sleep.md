@@ -2233,6 +2233,41 @@ note is logged, the link backfill still runs).
 **Disclosed asymmetries (not fixed here):** Stage 5.57's `recommends` person credit reads only the last batch's changes;
 Home's "Last read" shows the last batch's pages. Details' last-cycle figures — "Last cycle took", "Last engine" and "What it cost" — come from one record the backend finds, `/sleep/status`'s `lastFinishedCycle` (`last_cycle.latest`, 2026-10-16): it walks the newest 200 "Sleep cycle" commits (trailers only, decay skipped) and takes the first that is a plain cycle or a batch of a run whose summary says it ended (`finished | failed | ended`); a batch of a run still running or paused is skipped — and so is any commit since such a run began whose ledger row is missing — so a long or paused drain filling every history row the app holds no longer hides the cycle before it. A drain is one cycle: the run's `read_ms`, its commits' `Cicada-Engine`, and its cost summed by `drain_id` over every call (a discarded batch's included), the ledger window opening at the chosen commit's day and widening only back to the run's own start. The miss path runs off the event loop; cached per (bank, HEAD, runs-file stamp); a chosen commit with no ledger row is retried after 5 s only while it is under 5 minutes old (a demo or pre-ledger bank is not recomputed per poll). `null` = none in the walk; the app falls back to the newest history row's own figures, titled "last batch", only when the key is absent (an older backend). A plan run's line is its window's before → after with no price. The status's in-memory `lastEngine` (reset at every run start) no longer feeds the row; the page rereads status and history on every visit and when the Store's newest Sleep time or Sleep's state moves — at most every 30 s while a run reads (`SleepPageRefresh`). **Pause and a hard plan rejection mid-batch still discard the batch in progress** (no journal of paid answers — the tail must say "the part it was reading is read again", never "read and kept"). A scheduled drain pins its bank for hours (the same 409 as any run) and, on a metered engine, has no ceiling Cicada sets. The **app's own** Projects and Backlog controls key off `writing` (`ProjectWriteGate`; `/status` and the SSE `sleep` event carry it, and the sync version's `sleep` component moves when it flips), so they are disabled, saying "Sleep is running", only inside a batch's write window and come back between batches; an older backend without the field falls back to `running`. After a stop, Details says how many stay filed and never a batch count (the wire's `batches` is the plan); a cancelled or plan-paused strip and tail retire with the backend's cancel window and the vendor's reset time respectively. A drain on a consumer plan is the largest plan spend Cicada makes; the "leave room" reserve covers every window the engine reports (the 5-hour and the weekly one alike), is a line and not a guarantee, and a window the engine never reports is served `enforced: false`.
 
+### What may be sensitive (G235, ruling 60, 2026-11-04)
+
+`episode_scrub` replaces secret shapes before anything is stored and is permanent, so it stays narrow. `sensitive_text`
+finds what ordinary wording gets past it and changes nothing: `Hit(kind, start, end, sure)`, never the words and never a
+hash of them. Pure and engine-free. Kinds, the reading per speaker, and the measured figures are on G235.
+
+- **The send point is `entity_extractor.extract`** (`sensitive_flags.Guard`), so Stage 1 and the quick read share it. A
+  revision is checked only in the windows it sends. A confident hit (`sure`) reaches the model as `[held back: <kind>]`,
+  on the chunk's copy only: `content`, its `revision` and every span stay on the stored body. An unsure one is read.
+- **What the model answers is cleaned either way** (`Guard.clean`, after the spans are located): a value becomes
+  `[removed]`, and a name, a link's end or a value that WAS one is dropped. `sweep_written` passes over the batch's dirty
+  pages before `_finalize`. A question's evidence lines go through `engine_view`, a revision's removed text through
+  `masked_for_engine`, and a conversation's title on its way to an agent's primer or continuation through
+  `title_for_others` (a capture's title is its first line, so it can be the line itself).
+- **The record** is the episode's `sensitive` frontmatter: `read: [{engine, at, kinds, held?}]` written before the send,
+  under `episode_lock`, frontmatter only; `engine` omitted rather than guessed; `kept: {kind: n}`; `removed: {kinds, at,
+  pending?}`. Kinds, counts, labels and dates only. A kind the person left (`kept`) is neither held back nor stripped on a
+  later read, so a wrong alarm stops costing its word.
+- **The review** (`sync_review`, an engine-free tail step before any poll's `git add -A`, a path-scoped `cicada` commit,
+  trigger `sleep/sensitive-review`): ONE inbox item, kind `sensitive`, one row per conversation, each checked against the
+  body as it is now. `sweep_read` finds conversations already read, once per `DETECTOR_VERSION`, kept outside every bank
+  (`$CICADA_HOME/sensitive_sweep/`); it writes nothing on an episode and never runs in a demo bank.
+- **Remove** (`remove_episode`, the person's act): the marks in the body as `[removed: <kind>]`, every sidecar `offset`
+  moved, the title and strings beside it cleaned, a `revised` record, requeued, `removed.pending`. Each value leaves every
+  page, ledger, hub, backlog and inbox file by exact whole-token match at once. One commit as `user`. The word index is
+  rebuilt on a new file (`rebuild_fresh`: a dropped table's bytes stay readable in the old one) and vector passages holding
+  it are deleted (`forget_passages`, `secure_delete`). `build` sees a pending removal: nothing to read when the removal is
+  all that changed, and it closes even on a transcript, whose revisions otherwise close nothing. **Git history keeps the
+  older version and is never rewritten; the source still holds it; what an engine read cannot be unread.**
+- **The words stay out.** `episode_staging` and `transcript_capture.write_session` take them out of what a source re-sends
+  before hashing, so an unchanged source hashes unchanged and a changed one never brings them back; `reapply_waiting`
+  catches any other writer just before a batch reads. Only the kinds the person removed.
+- **`scripts/sensitive_census.py`** counts what the detector would flag on a bank, and **`scripts/sensitive_removal.py`**
+  lists what Remove would touch and applies it through `POST /sensitive/remove`. Neither prints a value, a title or a path.
+
 ### Entity promotion
 Entities are NOT extracted from every mention — that pollutes the graph. First mention stays in the
 vector index only; promotion needs **2+ separate conversations**, OR substantive discussion (>3
