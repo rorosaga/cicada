@@ -99,27 +99,30 @@ async def put_apple_books_settings(req: AppleBooksSettings, settings: Settings =
     return AppleBooksSettings(**out)
 
 
+# No per-field length limits here (review of #600): one book with thousands of highlights or one very long highlight
+# would 422 its whole 500-book request on every sync and block the rest. `apple_books.draft_for` trims each book —
+# its text, its count of highlights, its body — so one book can never stop another.
 class AppleBooksAnnotation(BaseModel):
-    uuid: str | None = Field(None, max_length=128)
-    createdAt: str | None = Field(None, max_length=40)
-    selectedText: str | None = Field(None, max_length=20_000)
-    note: str | None = Field(None, max_length=20_000)
+    uuid: str | None = None
+    createdAt: str | None = None
+    selectedText: str | None = None
+    note: str | None = None
     deleted: bool = False
 
 
 class AppleBooksBook(BaseModel):
-    assetId: str = Field(..., min_length=1, max_length=128)
-    title: str | None = Field(None, max_length=1000)
-    author: str | None = Field(None, max_length=1000)
-    epubId: str | None = Field(None, max_length=256)
+    assetId: str | None = None
+    title: str | None = None
+    author: str | None = None
+    epubId: str | None = None
     contentType: int | None = None
     isFinished: bool = False
     isHidden: bool = False
     progress: float | None = None
-    finishedAt: str | None = Field(None, max_length=40)
-    lastOpenedAt: str | None = Field(None, max_length=40)
-    addedAt: str | None = Field(None, max_length=40)
-    annotations: list[AppleBooksAnnotation] = Field(default_factory=list, max_length=apple_books.MAX_ANNOTATIONS)
+    finishedAt: str | None = None
+    lastOpenedAt: str | None = None
+    addedAt: str | None = None
+    annotations: list[AppleBooksAnnotation] = Field(default_factory=list)
 
 
 class AppleBooksSyncRequest(BaseModel):

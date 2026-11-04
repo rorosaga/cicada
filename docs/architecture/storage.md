@@ -1482,9 +1482,11 @@ Round 4 (C2–C4):
 A book is a `media` page with `media.kind: book` (the paper's shape: no new entity type in the closed set) and a
 `book:` block — `title`, `subtitle`, `authors`, `isbns`, `work_id` (Open Library's), `published`, `pages`,
 `apple_books` (asset ids), `goodreads` (book ids) and `title_from` (`openlibrary`, `googlebooks`, `apple-books`,
-`goodreads` or `placeholder`). **The page is the work, not the copy:** `books.BookIndex` matches any ISBN, the work id,
-a source's own id, or the folded title (series note and subtitle dropped) plus the first author's surname — exact
-keys only. Every ISBN-13 (and, for 978, its ISBN-10) and each source's own spelling of the title are aliases. Decay is
+`goodreads` or `placeholder`). **The page is the work, not the copy:** `books.BookIndex` matches only an identifier —
+any ISBN, the Open Library work id, a source's own id. **Title and author never join two pages** (review of #600, B1:
+"Dune" and "Dune: House Atreides", two volumes of one series, two authors sharing a surname are different works); a copy
+with no shared identifier keeps its own page. Every ISBN-13 (and, for 978, its ISBN-10) and each source's own spelling
+of the title are aliases. Decay is
 evergreen, `enrichment_attempted: true` (never scraped), `media.url` the Open Library work or edition — a link to open,
 never fetched for a card (the app shows no preview for `kind: book`).
 
@@ -1494,7 +1496,10 @@ Claims, all written by `books.py` (the event-readers gate names it) except happe
   record's day; the newest by day (on one day, the later record) is open, every earlier one closed on the next one's
   day with `superseded_by` — never deleted. `GET /sources/books` counts pages by the open one.
 - `happened` through `progress.record_happening` (the one event writer): "Started reading" (`ongoing`) and "Finished
-  reading" (`done`, settling an open "Started reading" that began before it). Want and not started are not events.
+  reading" (`done`, settling an open "Started reading" that began before it) — **only on a day that is the act's
+  own** (review of #600, B2): a scan's (`date_basis: episode`), or a finish date the source gives (Apple Books'
+  `ZDATEFINISHED`, Goodreads' Date Read; `stated`). A fallback day (the last open, the day it was shelved, the import)
+  dates the `reading-status` record only. Want and not started are not events.
 - `rated` (`n/5`) from a Goodreads rating; a newer rating closes the older.
 
 Whose act: the span's kind comes from the episode (`authorship`). A scan is the person's act (`user`) and lights the

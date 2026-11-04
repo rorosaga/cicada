@@ -12,7 +12,8 @@ when it reaches the home). This module asks, in order:
    edition or does not answer. Keyless.
 
 Each request takes the ToS rail's numbers (4 s, ≤ 512 KB read, no cookies, ≤ 3 redirects) and goes through
-``net_guard`` on every hop. Callers check ``CICADA_ALLOW_CONNECTOR_FETCH`` (``connectors.base.network_allowed``) first:
+``net_guard`` on every hop; a redirect is followed here, one paced request at a time, and the pacer is shared across
+runs in the process. Callers check ``CICADA_ALLOW_CONNECTOR_FETCH`` (``connectors.base.network_allowed``) first:
 the capture route's background resolve and Sleep's tail both stop when the person turned fetches off, and the scans
 wait — nothing is lost, the episode is the record (``books.pending``).
 
@@ -61,6 +62,8 @@ _OL_KEY = re.compile(r"^/(?:works|authors|books)/(OL\d+[WAM])$")
 class Response:
     status: int
     body: bytes = b""
+    #: A redirect's target, followed by :func:`_get` one paced hop at a time (never by the HTTP client).
+    location: str | None = None
 
 
 FetchFn = Callable[[str], Awaitable[Response]]
@@ -168,7 +171,7 @@ async def default_fetch(url: str) -> Response:
 
         from api.services import net_guard
 
-        async with httpx.AsyncClient(timeout=TIMEOUT_S, follow_redirects=True, max_redirects=3, trust_env=False,
+        async with httpx.AsyncClient(timeout=TIMEOUT_S, follow_redirects=False, trust_env=False,
                                      headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
                                      event_hooks={"request": [net_guard.httpx_request_guard]}) as client:
             async with client.stream("GET", url) as resp:
@@ -179,7 +182,7 @@ async def default_fetch(url: str) -> Response:
                     size += len(chunk)
                     if size >= MAX_BYTES:
                         break
-                return Response(resp.status_code, b"".join(chunks)[:MAX_BYTES])
+                return Response(resp.status_code, b"".join(chunks)[:MAX_BYTES], resp.headers.get("location"))
     except Exception as exc:  # noqa: BLE001 — recorded as no answer, never raised
         logger.info(f"book lookup: no answer ({type(exc).__name__})")
         return Response(0)
@@ -211,6 +214,37 @@ class _Pacer:
             if gap > 0:
                 await self.sleep(gap)
         self.last = self.clock()
+
+
+_SHARED: "_Pacer | None" = None
+REDIRECTS = 3
+_REDIRECT_CODES = frozenset({301, 302, 303, 307, 308})
+
+
+def _shared_pacer() -> "_Pacer":
+    """One pacer for the process (review of #600): a second run right after a first — the next scan's background job,
+    the Sleep tail — still keeps one request a second, because the spacing does not reset when a run ends."""
+    global _SHARED
+    if _SHARED is None:
+        _SHARED = _Pacer(SPACING_S)
+    return _SHARED
+
+
+async def _get(fetch: FetchFn, pacer: "_Pacer", url: str) -> Response:
+    """One GET, its redirects followed here — each hop paced like any request (Open Library's ``/isbn/`` answers with
+    a redirect to the edition), at most :data:`REDIRECTS`, only to Open Library or Google Books' own hosts."""
+    from urllib.parse import urljoin, urlparse
+
+    for _ in range(REDIRECTS + 1):
+        await pacer.wait()
+        resp = await fetch(url)
+        if resp.status not in _REDIRECT_CODES or not resp.location:
+            return resp
+        nxt = urljoin(url, resp.location)
+        if urlparse(nxt).hostname not in ("openlibrary.org", "www.googleapis.com"):
+            return Response(0)
+        url = nxt
+    return Response(0)
 
 
 def parse_open_library(edition: dict, authors: list[str]) -> dict | None:
@@ -248,9 +282,8 @@ def parse_google(data: dict) -> dict | None:
 async def lookup(isbn: str, *, fetch: FetchFn | None = None, pacer: _Pacer | None = None) -> dict | None:
     """``isbn``'s answer: a hit, ``{"found": False}`` for a definite miss, or None when neither service answered."""
     fetch = fetch or default_fetch
-    pacer = pacer or _Pacer(SPACING_S)
-    await pacer.wait()
-    ol = await fetch(f"{OPEN_LIBRARY}/isbn/{isbn}.json")
+    pacer = pacer or _shared_pacer()
+    ol = await _get(fetch, pacer, f"{OPEN_LIBRARY}/isbn/{isbn}.json")
     ol_missing = ol.status == 404
     if ol.status == 200:
         edition = _json(ol.body)
@@ -260,8 +293,7 @@ async def lookup(isbn: str, *, fetch: FetchFn | None = None, pacer: _Pacer | Non
                 m = _OL_KEY.match(str((ref or {}).get("key") or "")) if isinstance(ref, dict) else None
                 if not m:
                     continue
-                await pacer.wait()
-                got = await fetch(f"{OPEN_LIBRARY}/authors/{m.group(1)}.json")
+                got = await _get(fetch, pacer, f"{OPEN_LIBRARY}/authors/{m.group(1)}.json")
                 name = _clean((_json(got.body) or {}).get("name")) if got.status == 200 else ""
                 if name:
                     names.append(name)
@@ -270,15 +302,13 @@ async def lookup(isbn: str, *, fetch: FetchFn | None = None, pacer: _Pacer | Non
                 return hit
             if hit is not None:
                 # An edition with no author we could read: Google Books may name one; keep Open Library's work.
-                await pacer.wait()
-                gb = await fetch(f"{GOOGLE_BOOKS}?q=isbn:{isbn}")
+                gb = await _get(fetch, pacer, f"{GOOGLE_BOOKS}?q=isbn:{isbn}")
                 other = parse_google(_json(gb.body) or {}) if gb.status == 200 else None
                 if other and other.get("authors"):
                     hit["authors"] = other["authors"]
                 return hit
         ol_missing = True   # a 200 that is not an edition
-    await pacer.wait()
-    gb = await fetch(f"{GOOGLE_BOOKS}?q=isbn:{isbn}")
+    gb = await _get(fetch, pacer, f"{GOOGLE_BOOKS}?q=isbn:{isbn}")
     if gb.status == 200:
         data = _json(gb.body)
         hit = parse_google(data or {})
@@ -293,7 +323,7 @@ async def resolve(isbns: list[str], *, fetch: FetchFn | None = None, max_isbns: 
                   pacer: _Pacer | None = None, now: datetime | None = None) -> dict:
     """Ask about each due ISBN (at most ``max_isbns``), one request a second; remember every answer. The caller has
     checked the network gate. Returns ``{asked, found, missing, failed}`` — counts only."""
-    pacer = pacer or _Pacer(SPACING_S)
+    pacer = pacer or _shared_pacer()
     report = {"asked": 0, "found": 0, "missing": 0, "failed": 0}
     for isbn in isbns:
         if report["asked"] >= max_isbns:

@@ -1373,7 +1373,8 @@ its `content_hash`, so the queue is derived from the bank — a move or a restor
   `**ISBN:**` lines: the person's act, so its spans are `user`. The lookup and the page follow in the background at the
   home (`book_jobs.schedule`). The scan's episode is committed with its page, like a note's is not.
 - **The lookup** (`book_lookup`, home only): Open Library's `/isbn/<isbn>.json` then `/authors/<id>.json` (≤ 3), else
-  Google Books `volumes?q=isbn:`; one request a second (Open Library's unidentified rate, read 2026-11-04), the ToS
+  Google Books `volumes?q=isbn:`; one request a second, a redirect hop paced like any request, the pacer shared
+  across runs (Open Library's unidentified rate, read 2026-11-04), the ToS
   rail's 4 s / 512 KB / no cookies / ≤ 3 redirects, `net_guard` on every hop, a User-Agent naming the software and no
   person. Behind `CICADA_ALLOW_CONNECTOR_FETCH` on both callers (the background job after a scan and the tail): off,
   the scan waits (`GET /sources/books` counts it as `waiting`). Every answer is cached outside every bank
@@ -1393,12 +1394,15 @@ its `content_hash`, so the queue is derived from the bank — a move or a restor
   when they were made, so new ones append, and the episode's `timestamp` follows the newest highlight (`redate`).
   **Status from Apple Books' own state, never invented** (owner 2026-11-04): finished (`ZISFINISHED`, on
   `ZDATEFINISHED`), else reading (progress above 0, on the last open), else not started (on the day it entered the
-  library). A book with a highlight or a note is queued for Sleep; a library entry with neither lands read
+  library). Only a finish with `ZDATEFINISHED` is also a dated "Finished reading" happening; Apple Books keeps no day a
+  reading began, so a reading or an undated finish is a status record only (review of #600, B2). One book is trimmed on
+  its own — the oldest 3,000 highlights, each cut at 4,000 characters, the body at 400k — so it never refuses the
+  rest of its request. A book with a highlight or a note is queued for Sleep; a library entry with neither lands read
   (`processed_by: index`).
 - **Goodreads** (`goodreads_export`). Its public API stopped issuing keys in December 2020 and its pages are walled, so
   the way in is the member's own "Export Library" CSV, picked in the app (`POST /sources/goodreads/preview` counts,
   `/import` stages). Shelves: `read` → finished (on Date Read, else Date Added), `currently-reading` → reading,
-  `to-read` → want; a custom exclusive shelf records no status; a 1–5 rating is a `rated` claim. One episode per row
+  `to-read` → want (a happening only for a finish with a Date Read); a custom exclusive shelf records no status; a 1–5 rating is a `rated` claim. One episode per row
   (`goodreads:<Book Id>`, a saved record); only a row with the person's review or private notes (`## User note`) is
   queued for Sleep. Nothing is read from the Goodreads site.
 

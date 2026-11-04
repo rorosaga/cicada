@@ -14,10 +14,11 @@ writer (:func:`apply_pending`) that turns those episodes into pages and claims, 
 
 **The page** is a ``media`` page with ``media.kind: book`` (the closed set has no ``book`` type and needs none: a book
 is a work someone made and the person consumes, the paper's shape, G133) and a ``book:`` block. It is the work, not
-the copy: a paperback's ISBN, the ebook's and an Apple Books asset all land on one page, matched by any ISBN, an Open
-Library work id, a source's own id, or the folded title plus the first author's surname (:func:`identity_keys`) —
-exact keys only, never fuzzy. Every ISBN (13 and, for 978, 10 digits) is an alias, so a note that names the number
-links to the page.
+the copy: a paperback's ISBN, the ebook's and an Apple Books asset all land on one page, matched only by an identifier
+— any ISBN, an Open Library work id, a source's own id (:func:`identity_keys`). **Title and author never join two
+pages** (review of #600, B1): "Dune" and "Dune: House Atreides", two volumes of a series, two books by authors who
+share a surname are different works, and a copy with no shared identifier is kept on its own page, never merged on a
+guess. Every ISBN (13 and, for 978, 10 digits) is an alias, so a note that names the number links to the page.
 
 **Statuses** — ``reading``, ``finished``, ``want`` (want to read), ``not_started`` (in Apple Books' library, never
 opened; owner 2026-11-04):
@@ -49,7 +50,6 @@ from __future__ import annotations
 
 import hashlib
 import re
-import unicodedata
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -147,28 +147,6 @@ def aliases_for(isbns) -> list[str]:
 # --------------------------------------------------------------------------- #
 
 
-def _fold(text) -> str:
-    decomposed = unicodedata.normalize("NFKD", str(text or ""))
-    plain = "".join(c for c in decomposed if not unicodedata.combining(c)).lower()
-    return " ".join(re.sub(r"[^a-z0-9]+", " ", plain).split())
-
-
-def title_key(title) -> str:
-    """The title folded for matching: a series note in brackets and a subtitle after ``:`` dropped (Goodreads writes
-    "Dune (Dune, #1)", Apple Books often keeps the subtitle), accents and punctuation folded, a leading article kept."""
-    text = re.sub(r"\s*[\(\[][^)\]]*[\)\]]\s*", " ", str(title or ""))
-    return _fold(text.split(":")[0])
-
-
-def author_key(authors) -> str:
-    """The first author's surname, folded ("Herbert, Frank" and "Frank Herbert" agree)."""
-    first = next((str(a) for a in authors or [] if str(a or "").strip()), "")
-    if "," in first:
-        first = first.split(",")[0]
-    words = _fold(first).split()
-    return words[-1] if words else ""
-
-
 @dataclass
 class BookFacts:
     """What one door knows about a book. Every field optional but one way to name it."""
@@ -186,6 +164,9 @@ class BookFacts:
 
 
 def identity_keys(facts: BookFacts) -> list[str]:
+    """The identifiers that make two records one work: an ISBN, the Open Library work id, the source's own id. Never
+    the title or an author (B1): a match on words alone is a guess, and a wrong join closes one book's status with
+    another's and aliases its ISBNs onto the wrong page."""
     keys = [f"isbn:{i}" for i in facts.isbns]
     if facts.work_id:
         keys.append(f"work:{facts.work_id}")
@@ -193,9 +174,6 @@ def identity_keys(facts: BookFacts) -> list[str]:
         keys.append(f"apple:{facts.apple_id}")
     if facts.goodreads_id:
         keys.append(f"goodreads:{facts.goodreads_id}")
-    t, a = title_key(facts.title), author_key(facts.authors)
-    if t and a and facts.title_from != "placeholder":
-        keys.append(f"title:{t}|{a}")
     return keys
 
 
@@ -553,7 +531,7 @@ def scan_draft(isbn: str, status: str | None, *, who: str, ident: str, now: date
     return episode_staging.EpisodeDraft(
         title="Book scan", source_id=f"isbn:{who}:{ident}", timestamp=instant, original_date=day,
         source=SCAN_ORIGIN, origin=SCAN_ORIGIN, body="\n".join(lines) + "\n",
-        extra={EPISODE_KEY: {"isbn": isbn, "status": status, "day": day}}, queue_for_sleep=False,
+        extra={EPISODE_KEY: {"isbn": isbn, "status": status, "day": day, "dated": True}}, queue_for_sleep=False,
         writer=SCAN_ORIGIN)
 
 
@@ -669,11 +647,15 @@ def apply_pending(memory_path: Path, *, today: date | None = None, limit: int = 
                     if set_status(memory_path, entity_id, status=status, day=day, episode_id=episode_id,
                                   quote=quote, observer=observer, today=today_s):
                         paths.append(f"entities/{entity_id}.md")
-                    # A scan is dated by when it was made; a record by the day its source gives.
-                    basis = "episode" if fm.get("origin") == SCAN_ORIGIN else "stated"
-                    paths += record_happening(memory_path, entity_id, status=status, day=day, episode_id=episode_id,
-                                              quote=quote, observer=observer, basis=basis)
-                    if status in ACTED:
+                    # A happening needs a day that is the act's own (review of #600, B2): a scan is dated by when it
+                    # was made (`episode`); a record only by the day its source gives for that status (`stated`: a
+                    # finish date, a Date Read). A fallback day — the last open, the day it was shelved, the import —
+                    # dates the status record and nothing more.
+                    is_scan = fm.get("origin") == SCAN_ORIGIN
+                    if status in ACTED and rec.get("day") and (is_scan or rec.get("dated") is True):
+                        paths += record_happening(memory_path, entity_id, status=status, day=day,
+                                                  episode_id=episode_id, quote=quote, observer=observer,
+                                                  basis="episode" if is_scan else "stated")
                         paths.append(f"entities/{entity_id}.md")
                 rating = rec.get("rating")
                 if isinstance(rating, int) and 1 <= rating <= 5:

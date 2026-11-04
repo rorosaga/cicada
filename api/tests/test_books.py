@@ -74,7 +74,7 @@ def client(tmp_path, monkeypatch):
     bank_index.invalidate()
     monkeypatch.setenv("CICADA_ALLOW_CONNECTOR_FETCH", "on")
     monkeypatch.setattr(book_jobs, "schedule", lambda *a, **k: None)   # the tests run the job themselves
-    monkeypatch.setattr(book_lookup, "_Pacer", lambda *a, **k: _NoWait())
+    monkeypatch.setattr(book_lookup, "_shared_pacer", lambda: _NoWait())
     calls: list[str] = []
     monkeypatch.setattr(book_lookup, "default_fetch", _fake_fetch(calls))
     yield TestClient(main.app), memory, calls
@@ -328,8 +328,9 @@ def test_an_apple_books_copy_and_a_scanned_paperback_are_one_page(client):
     [page] = _books(memory).values()
     assert not _claims(page, books.STATUS_PREDICATE)
     c.put("/sources/apple-books/settings", json={"enabled": True})
+    # The Apple Books copy carries the paperback's ISBN in its epub id: one identifier, one page (B1: never the title).
     c.post("/sources/apple-books/sync", json={"books": [_ab_book("A9", "The Lantern Orchard: A Novel", "Ada Example",
-                                                                    finished=True)]})
+                                                                    finished=True, epub=f"urn:isbn:{PAPERBACK}")]})
     [(eid, page)] = _books(memory).items()
     assert page.frontmatter["book"]["apple_books"] == ["A9"]
     assert "The Lantern Orchard: A Novel" in page.frontmatter["aliases"]      # the source's own spelling
@@ -424,3 +425,135 @@ def test_apple_books_status_follows_its_own_state_and_never_invents_progress():
     assert apple_books.status_of({"progress": 0, "lastOpenedAt": "2026-01-02T00:00:00Z"})[0] == books.NOT_STARTED
     assert apple_books.isbn_of(f"urn:isbn:{PAPERBACK}") == PAPERBACK
     assert apple_books.isbn_of("3A1B2C3D-EPUB-UUID") is None
+
+
+# --- Review of #600: B1, different books by one author never share a page ---------------------------------------
+
+HEAD = ("Book Id,Title,Author,Author l-f,Additional Authors,ISBN,ISBN13,My Rating,Average Rating,Publisher,Binding,"
+        "Number of Pages,Year Published,Original Publication Year,Date Read,Date Added,Bookshelves,"
+        "Bookshelves with positions,Exclusive Shelf,My Review,Spoiler,Private Notes,Read Count,Owned Copies\n")
+
+
+def _row(book_id, title, author, isbn13, shelf, read="", added="2026/01/01"):
+    return (f'{book_id},"{title}",{author},,,"=""""","=""{isbn13}""",0,4.0,Pub,Paperback,300,2020,2020,{read},'
+            f"{added},{shelf},{shelf} (#1),{shelf},,,,1,0\n")
+
+
+def test_two_books_whose_titles_share_a_head_and_whose_authors_share_a_surname_are_two_pages(client):
+    c, memory, _ = client
+    csv_text = HEAD + _row(201, "Dune", "Frank Herbert", PAPERBACK, "read", read="2025/03/01") \
+        + _row(202, "Dune: House Atreides", "Brian Herbert", HARDBACK, "to-read")
+    r = c.post("/sources/goodreads/import", files={"file": ("x.csv", csv_text.encode())})
+    assert r.status_code == 200, r.text
+    pages = _books(memory)
+    assert len(pages) == 2, sorted(pages)
+    by_title = {p.frontmatter["book"]["title"]: p for p in pages.values()}
+    assert by_title["Dune"].frontmatter["book"]["isbns"] == [PAPERBACK]
+    assert by_title["Dune: House Atreides"].frontmatter["book"]["isbns"] == [HARDBACK]
+    # Neither status closed the other's.
+    assert [s.object for s in _claims(by_title["Dune"], books.STATUS_PREDICATE) if not s.valid_to] == ["finished"]
+    assert [s.object for s in _claims(by_title["Dune: House Atreides"], books.STATUS_PREDICATE)
+            if not s.valid_to] == ["want"]
+
+
+def test_volumes_and_subtitles_of_one_series_are_their_own_pages_without_an_isbn(client):
+    c, memory, _ = client
+    c.put("/sources/apple-books/settings", json={"enabled": True})
+    r = c.post("/sources/apple-books/sync", json={"books": [
+        _ab_book("V1", "Berserk (Volume 1)", "Kentaro Example"),
+        _ab_book("V2", "Berserk (Volume 2)", "Kentaro Example"),
+        _ab_book("S1", "Star Wars: Thrawn", "Tim Example"),
+        _ab_book("S2", "Star Wars: Heir to the Empire", "Tim Example"),
+    ]})
+    assert r.status_code == 200, r.text
+    assert len(_books(memory)) == 4
+
+
+def test_a_same_titled_copy_with_no_shared_identifier_is_kept_apart_never_merged(client):
+    """Title and author alone never join two pages (B1): only an ISBN, a work id or the source's own id does."""
+    c, memory, _ = client
+    c.post("/sources/goodreads/import", files={"file": ("x.csv", (HEAD + _row(
+        301, "The Lantern Orchard", "Ada Example", PAPERBACK, "read", read="2026/02/03")).encode())})
+    c.put("/sources/apple-books/settings", json={"enabled": True})
+    c.post("/sources/apple-books/sync", json={"books": [_ab_book("A7", "The Lantern Orchard", "Ada Example")]})
+    pages = _books(memory)
+    assert len(pages) == 2
+    assert all(len(p.frontmatter["book"]["isbns"]) <= 1 for p in pages.values())
+
+
+# --- Review of #600: B2, a finish is dated only by a day the source gave --------------------------------------------
+
+
+def test_a_finish_with_no_finish_date_keeps_its_status_and_writes_no_dated_happening(client):
+    c, memory, _ = client
+    c.put("/sources/apple-books/settings", json={"enabled": True})
+    book = _ab_book("F1", "Undated Finish", "Ada Example", finished=True)
+    book["finishedAt"] = None                     # Apple Books marked it finished but kept no date
+    c.post("/sources/apple-books/sync", json={"books": [book]})
+    csv_text = HEAD + _row(401, "Read Without A Day", "Bea Sample", HARDBACK, "read", read="", added="2025/12/01")
+    c.post("/sources/goodreads/import", files={"file": ("x.csv", csv_text.encode())})
+    pages = {p.frontmatter["name"]: p for p in _books(memory).values()}
+    for name in ("Undated Finish", "Read Without A Day"):
+        page = pages[name]
+        assert [s.object for s in _claims(page, books.STATUS_PREDICATE) if not s.valid_to] == ["finished"], name
+        assert not [h for h in _claims(page, HAPPENED)], name          # no day the source never gave
+    assert "Finished on" not in markdown_parser.parse(
+        next(p for p in (memory / "episodes").glob("*.md")
+             if markdown_parser.parse(p).frontmatter.get("source_id") == "apple-books:F1")).body
+
+
+def test_a_dated_finish_is_a_happening_on_that_day_and_reading_from_a_library_is_not(client):
+    c, memory, _ = client
+    c.put("/sources/apple-books/settings", json={"enabled": True})
+    c.post("/sources/apple-books/sync", json={"books": [
+        _ab_book("F2", "Dated Finish", "Ada Example", finished=True),          # finishedAt 2026-09-12
+        _ab_book("R2", "Last Opened Only", "Ada Example", progress=0.3)]})     # no start date in Apple Books
+    pages = {p.frontmatter["name"]: p for p in _books(memory).values()}
+    [done] = _claims(pages["Dated Finish"], HAPPENED)
+    assert (done.status, done.valid_from, done.date_basis) == ("done", "2026-09-12", "stated")
+    assert not _claims(pages["Last Opened Only"], HAPPENED)
+
+
+# --- Review of #600: one oversized book never blocks the rest of its chunk -----------------------------------------
+
+
+def test_a_book_with_thousands_of_long_highlights_is_trimmed_and_never_refuses_the_sync(client):
+    c, memory, _ = client
+    c.put("/sources/apple-books/settings", json={"enabled": True})
+    huge = _ab_book("BIG", "Very Highlighted", "Ada Example", annotations=[
+        _hl(f"h{n:05d}", "word " * 6000 if n == 0 else f"Highlight number {n}.", f"2026-08-01T{n % 24:02d}:00:00Z")
+        for n in range(2500)])
+    small = _ab_book("SMALL", "Small Book", "Bea Sample")
+    r = c.post("/sources/apple-books/sync", json={"books": [huge, small]})
+    assert r.status_code == 200, r.text[:300]
+    assert {p.frontmatter["name"] for p in _books(memory).values()} == {"Very Highlighted", "Small Book"}
+
+
+def test_the_lookup_paces_the_redirect_hop_and_shares_its_pacer_across_runs(monkeypatch):
+    waits = []
+
+    class Counting(book_lookup._Pacer):
+        def __init__(self):
+            super().__init__(0)
+
+        async def wait(self):
+            waits.append(1)
+
+    shared = Counting()
+    monkeypatch.setattr(book_lookup, "_shared_pacer", lambda: shared)
+    calls = []
+
+    async def fetch(url):
+        calls.append(url)
+        if url.endswith(f"/isbn/{PAPERBACK}.json"):
+            return book_lookup.Response(302, location="/books/OL1M.json")
+        if url.endswith("/books/OL1M.json"):
+            return book_lookup.Response(200, json.dumps(EDITION).encode())
+        if url.endswith("/authors/OL1A.json"):
+            return book_lookup.Response(200, b'{"name": "Ada Example"}')
+        return book_lookup.Response(0)
+
+    hit = asyncio.run(book_lookup.lookup(PAPERBACK, fetch=fetch))
+    assert hit and hit["title"] == "The Lantern Orchard"
+    assert [u.rsplit("/", 1)[-1] for u in calls] == [f"{PAPERBACK}.json", "OL1M.json", "OL1A.json"]
+    assert len(waits) == len(calls)                                    # every request, the redirect hop included

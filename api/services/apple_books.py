@@ -41,8 +41,12 @@ CHANNEL_ID = "apple-books"
 LABEL = "Apple Books"
 SETTINGS_FILENAME = "apple_books.json"
 MAX_BOOKS = 5000
-MAX_ANNOTATIONS = 2000
+#: Per book, so one book never stops another (review of #600): the oldest highlights first (new ones append, so a
+#: revision stays a revision), each highlight and note cut at :data:`MAX_TEXT`, the body stopped at
+#: :data:`MAX_BODY_CHARS`; what is past a cap is left out, counted in ``trimmed``.
+MAX_ANNOTATIONS = 3000
 MAX_TEXT = 4000
+MAX_BODY_CHARS = 400_000
 _URN_ISBN = re.compile(r"(?:urn:isbn:|isbn[:\s]*)?([0-9Xx\- ]{10,17})$", re.IGNORECASE)
 
 
@@ -100,16 +104,22 @@ def isbn_of(epub_id) -> str | None:
     return books.isbn13(m.group(1)) if m else None
 
 
-def status_of(book: dict) -> tuple[str, datetime | None]:
+def status_of(book: dict) -> tuple[str, datetime | None, bool]:
+    """``(status, the record's day, whether that day is the status's own)``. Only ``ZDATEFINISHED`` dates a finish;
+    Apple Books keeps no day a reading began (the last open is not one), so a reading or not-started record is dated
+    by what the library holds but is never a dated happening (review of #600, B2)."""
     if book.get("isFinished"):
-        return books.FINISHED, _instant(book.get("finishedAt")) or _instant(book.get("lastOpenedAt"))
+        finished = _instant(book.get("finishedAt"))
+        if finished is not None:
+            return books.FINISHED, finished, True
+        return books.FINISHED, _instant(book.get("lastOpenedAt")) or _instant(book.get("addedAt")), False
     try:
         progress = float(book.get("progress") or 0)
     except (TypeError, ValueError):
         progress = 0.0
     if progress > 0:
-        return books.READING, _instant(book.get("lastOpenedAt")) or _instant(book.get("addedAt"))
-    return books.NOT_STARTED, _instant(book.get("addedAt"))
+        return books.READING, _instant(book.get("lastOpenedAt")) or _instant(book.get("addedAt")), False
+    return books.NOT_STARTED, _instant(book.get("addedAt")), False
 
 
 def draft_for(book: dict, *, now: datetime) -> EpisodeDraft | None:
@@ -118,7 +128,7 @@ def draft_for(book: dict, *, now: datetime) -> EpisodeDraft | None:
     if not asset or not title or book.get("isHidden"):
         return None
     author = _clean(book.get("author"))
-    status, on = status_of(book)
+    status, on, dated = status_of(book)
     notes = []
     for a in book.get("annotations") or []:
         if not isinstance(a, dict) or a.get("deleted"):
@@ -129,22 +139,30 @@ def draft_for(book: dict, *, now: datetime) -> EpisodeDraft | None:
             continue
         notes.append((_instant(a.get("createdAt")) or now, str(a.get("uuid") or ""), text, note))
     notes.sort(key=lambda n: (n[0], n[1]))
+    total = len(notes)
     notes = notes[:MAX_ANNOTATIONS]
     day = books.utc_day(on.isoformat()) if on else None
     lines = [books.status_line(status)]
-    if status == books.FINISHED and day:
+    if status == books.FINISHED and dated and day:
         lines.append(f"**Finished on:** {day}")
     lines += [f"**Book:** {title}"] + ([f"**Author:** {author}"] if author else [])
     body = "\n".join(lines) + "\n"
+    kept = 0
     for at, _, text, note in notes:
-        body += f"\n## Highlight, {books.utc_day(at.isoformat())}\n{_block(text)}\n" if text else ""
-        body += f"\n## User note\n{note}\n" if note else ""
+        part = f"\n## Highlight, {books.utc_day(at.isoformat())}\n{_block(text)}\n" if text else ""
+        part += f"\n## User note\n{note}\n" if note else ""
+        if len(body) + len(part) > MAX_BODY_CHARS:
+            break
+        body += part
+        kept += 1
+    notes = notes[:kept]
     isbn = isbn_of(book.get("epubId"))
     moment = max((n[0] for n in notes), default=None) or on or _instant(book.get("addedAt")) or now
     kind = {1: "book", 3: "pdf", 5: "audiobook"}.get(book.get("contentType"), "book")
     record = {"asset_id": asset, "title": title, "authors": [author] if author else [],
-              "isbns": [isbn] if isbn else [], "status": status, "day": day, "kind": kind,
-              "highlights": sum(1 for n in notes if n[2]), "notes": sum(1 for n in notes if n[3])}
+              "isbns": [isbn] if isbn else [], "status": status, "day": day, "dated": dated, "kind": kind,
+              "highlights": sum(1 for n in notes if n[2]), "notes": sum(1 for n in notes if n[3]),
+              "trimmed": total - kept}
     return EpisodeDraft(
         title=f"{title} — Apple Books", source_id=f"apple-books:{asset}", timestamp=_z(moment),
         original_date=books.utc_day(moment.isoformat()), source=books.APPLE_ORIGIN, origin=books.APPLE_ORIGIN,
