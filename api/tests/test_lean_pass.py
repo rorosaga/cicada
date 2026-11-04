@@ -509,6 +509,16 @@ def test_the_queue_route_lists_what_waits_and_counts_what_is_kept(tmp_path):
     assert not any(i["title"] == "Bare one" for i in body["items"])
 
 
+def test_a_save_queued_before_this_ruling_is_no_waiting_row_before_a_run_takes_it(tmp_path):
+    """The 371 bookmarks between the upgrade and the first run: nothing says they wait."""
+    memory = _bank(tmp_path)
+    _queued(memory, "ep_2026-08-01_001")
+    bank_index.invalidate()
+    assert "ep_2026-08-01_001" not in {f.stem for f in sleep_cycle.episode_headers(memory, processed=False)}
+    assert "ep_2026-08-01_001" not in sleep_progress.unprocessed_ids(memory)
+    assert history_index.count(memory).as_dict()["index_only_by_kind"] == {"saved": 1}
+
+
 # --- a batch is bounded by what it holds -----------------------------------------------------------------------------
 
 

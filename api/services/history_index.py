@@ -76,8 +76,7 @@ LIST_FOLDERS: dict[str, frozenset[str]] = {
     "x-bookmarks": frozenset({"Bookmarks"}),
 }
 #: Ruling 62: what a bare save is, by its own record, beside the saving door's page link (``media_entity_id``, ``url``):
-#: a tab group or an open-tabs snapshot holds no page link, and an older bookmark episode may not.
-SAVE_ORIGINS = frozenset({"safari-tab"})
+#: a tab group holds no page link, and an older bookmark episode may not.
 SAVE_SUFFIXES = ("-bookmark", "-tab-group")
 SAVE_SOURCES = frozenset({"tab-group"})
 #: Ruling 62: an episode carrying a saved page's link that is NOT a save: an agent's report of what it read or watched,
@@ -143,7 +142,7 @@ def _is_bare_save(fm: dict, origin: str, source: str) -> bool:
         return False
     if fm.get("processed", False) and fm.get("processed_by") != INDEXED_BY:
         return False
-    if origin in SAVE_ORIGINS or source in SAVE_SOURCES or origin.endswith(SAVE_SUFFIXES):
+    if source in SAVE_SOURCES or origin.endswith(SAVE_SUFFIXES):
         return True
     return bool(fm.get("media_entity_id") and fm.get("url"))
 
