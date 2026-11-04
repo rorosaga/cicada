@@ -67,6 +67,8 @@ extension Copy {
         static let pausedPlanWindowLead = "Paused. Your plan window is full."
         static let pausedPlanWeeklyLead = "Paused. Your plan's week is used up."
         static let pausedOverageLead = "Paused at your plan's limit."
+        /// ROR-96 — past the reset: the run still waits for the person (ruling 15), and the plan is no longer the reason.
+        static let planBackLead = "Paused. Your plan is back."
         static func resetsContinue(_ when: String) -> String { "Resets \(when). Continue when you like." }
         static func resetsThenContinue(_ when: String) -> String { "Resets \(when). Continue then." }
         static let continueWhenItResets = "Continue when your plan resets."
@@ -327,6 +329,7 @@ extension Copy {
             case "user": "Paused by you"
             case "reserve": "Paused to leave room in your plan"
             case "plan_window", "plan_weekly", "overage": "Paused at your plan's limit"
+            case "plan_back": planBackLead
             case "engine": "Paused — the engine stopped"
             case "offline": "Paused — this Mac was offline"
             case "connection": "Paused — the connection kept dropping"
@@ -467,7 +470,7 @@ extension Copy {
         SleepV5.pagesItTouched, SleepV5.whatHappened, SleepV5.took, SleepV5.calls, SleepV5.window,
         SleepV5.continueOnSleepPage, SleepV5.stagesLabel, SleepV5.filingLead, SleepV5.pausingLead,
         SleepV5.pausedLead, SleepV5.pausedTitle("reserve"), SleepV5.pausedTitle("user"),
-        SleepV5.pausedTitle("plan_window"), SleepV5.pausedTitle("engine"), SleepV5.pausedTitle("restart"),
+        SleepV5.pausedTitle("plan_window"), SleepV5.pausedTitle("plan_back"), SleepV5.pausedTitle("engine"), SleepV5.pausedTitle("restart"),
         SleepV5.pausedTitle("offline"), SleepV5.pausedTitle("connection"), SleepV5.consolidateAll(287), SleepV5.pausedMenuTitle(filed: 98, frozen: 287), SleepV5.pausedMenuPlain,
         SleepV5.scheduledRunTitle, SleepV5.retryAfterRun,
     ]
@@ -481,7 +484,7 @@ extension Copy {
         SleepV5.pausedByYouTail(filed: 74, frozen: 287), SleepV5.pausedReserveLead,
         SleepV5.continueWhenYouLike(filed: 98, frozen: 287), SleepV5.continuesAfter("3:40 PM", filed: 98, frozen: 287),
         SleepV5.willContinueBySelf("3:40 PM"), SleepV5.pausedPlanWindowLead, SleepV5.pausedPlanWeeklyLead,
-        SleepV5.pausedOverageLead, SleepV5.resetsContinue("after 2:00 PM"), SleepV5.resetsThenContinue("Tue 2:00 PM"),
+        SleepV5.planBackLead, SleepV5.pausedOverageLead, SleepV5.resetsContinue("after 2:00 PM"), SleepV5.resetsThenContinue("Tue 2:00 PM"),
         SleepV5.continueWhenItResets, SleepV5.pausedEngineLead, SleepV5.continueToTryAgain(filed: 98, frozen: 287),
         SleepV5.pausedEngineFixLead, SleepV5.continueWhenFixed(filed: 98, frozen: 287),
         SleepV5.pausedOfflineLead, SleepV5.pausedAsleepLead, SleepV5.pausedConnectionLead,

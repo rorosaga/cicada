@@ -411,7 +411,7 @@ struct EngineChooser: View {
                     .foregroundStyle(CicadaTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if candidate.available, !candidate.connected, let command = candidate.signIn {
+            if let command = candidate.stepCommand {
                 CommandBox(command: command)
             }
         }
