@@ -39,7 +39,7 @@ struct ExportAskRow: View {
                             Task { denied = !(await waits.remind(vendor: vendor.rawValue, bank: store.bank, delay: delay)) }
                         }
                     }
-                    WeeklyReminderItems(vendor: vendor) { denied = true }
+                    WeeklyReminderItems(vendor: vendor)
                 } label: {
                     Label(Copy.reminderRemindMe, systemImage: "bell")
                 }
@@ -91,7 +91,7 @@ struct ExportAskMenu: View {
                         }
                     }
                 }
-                WeeklyReminderItems(vendor: vendor, onDenied: onDenied)
+                WeeklyReminderItems(vendor: vendor)
             }
         } label: {
             HStack(spacing: CicadaTheme.spacingXS) {
@@ -119,7 +119,7 @@ struct ExportReminderMenu: View {
                     Task { if !(await waits.remind(vendor: vendor.rawValue, bank: store.bank, delay: delay)) { denied = true } }
                 }
             }
-            WeeklyReminderItems(vendor: vendor) { denied = true }
+            WeeklyReminderItems(vendor: vendor)
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
@@ -128,10 +128,11 @@ struct ExportReminderMenu: View {
 }
 
 /// G197 layer c (2026-11-04) — the *Remind me* menus' standing half: *Every week* asks for the permission the
-/// one-off delays ask for, and once on, the same place turns it off. No setting elsewhere.
+/// one-off delays ask for, and once on, the same place turns it off. No setting elsewhere. A refusal saves nothing
+/// (a weekly reminder that cannot fire is not on) and is said in one line — not the one-off delays' "waits here",
+/// which would be false for it.
 struct WeeklyReminderItems: View {
     let vendor: ChatVendor
-    var onDenied: () -> Void = {}
     @Environment(ExportWaitStore.self) private var waits
     @Environment(Store.self) private var store
 
@@ -141,7 +142,11 @@ struct WeeklyReminderItems: View {
             Button(Copy.reminderStopWeekly) { waits.stopWeekly(vendor: vendor.rawValue, bank: store.bank) }
         } else {
             Button(Copy.reminderEveryWeek) {
-                Task { if !(await waits.startWeekly(vendor: vendor.rawValue, bank: store.bank)) { onDenied() } }
+                Task {
+                    if !(await waits.startWeekly(vendor: vendor.rawValue, bank: store.bank)) {
+                        store.toast = Copy.reminderWeeklyNeedsNotifications
+                    }
+                }
             }
         }
     }

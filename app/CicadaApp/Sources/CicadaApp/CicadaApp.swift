@@ -369,6 +369,8 @@ struct CicadaApp: App {
         }
         .onChange(of: store.bank) { _, _ in
             Task { await localSources.reload() }
+            // G197 layer c — the Downloads pickup follows the memory's own waits.
+            exportArrivals.sync()
             // Round-4 D2 — the new memory gets the calendar too (a demo's 409 is said in words).
             Task { await calendarReader.bankChanged() }
             Task { await notesWatcher.bankChanged() }
@@ -598,25 +600,25 @@ struct CicadaApp: App {
                 intakeRouter.present(from: .reminder(tap.vendor))
             case .weekly:
                 NSWorkspace.shared.open(tap.vendor.walkthrough.exportURL)
-                Task { await exportWaits.weeklyTapped(vendor: tap.vendor.rawValue, bank: store.bank) }
+                Task { await exportWaits.weeklyTapped(vendor: tap.vendor.rawValue, bank: tap.bank(fallback: store.bank)) }
             case .arrived:
                 appRouter.showMainWindow()
             }
         }
-        // G197 layer c — while an export is awaited, the vendor's zip landing in Downloads opens its preview.
-        exportArrivals.waitedVendors = { [exportWaits, store] in
-            Set(exportWaits.active(bank: store.bank).compactMap { ChatVendor(rawValue: $0.vendor) })
-        }
+        // G197 layer c — while an export the person asked about in this run is awaited in this memory, the vendor's zip
+        // landing in Downloads opens its preview.
+        exportArrivals.waitedVendors = { [exportWaits, store] in exportWaits.armedVendors(bank: store.bank) }
+        exportArrivals.waitsUntil = { [exportWaits, store] in exportWaits.armedUntil(bank: store.bank) }
         exportArrivals.deliver = { [intakeRouter] url, vendor in
-            switch intakeRouter.accept(urls: [url], from: .reminder(vendor)) {
-            case .busy: return false
-            case .accepted, .refused: break
-            }
-            if !NSApp.isActive { Task { await LiveReminderScheduler().announceArrival(vendor) } }
-            return true
+            let offer = intakeRouter.offerArrival(url, vendor: vendor)
+            if offer == .opened, !NSApp.isActive { Task { await LiveReminderScheduler().announceArrival(vendor) } }
+            return offer != .wait
         }
-        exportWaits.onChange = { [exportWaits, exportArrivals] in exportArrivals.sync(anyWait: exportWaits.anyWait) }
-        exportArrivals.sync(anyWait: exportWaits.anyWait)
+        exportArrivals.onRefused = { [store] in store.toast = Copy.arrivalsDownloadsRefused }
+        exportWaits.onChange = { [exportArrivals] in exportArrivals.sync() }
+        exportArrivals.sync()
+        // G197 layer c — saved weekly reminders scheduled again (or dropped, notifications off), never asking.
+        Task { await exportWaits.refreshWeekly() }
         // When SleepViewModel observes a cycle finish (running ->
         // idle, no error), refresh the graph/topics layer in
         // place. Without this, Sleep finishes successfully but

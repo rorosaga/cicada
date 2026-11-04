@@ -506,26 +506,56 @@ Settings' local-folder picker — and check only the chosen file or folder
 **The awaited export, picked up from Downloads, and a weekly nudge (G197 layer c, 2026-11-04).** claude.ai, the Claude
 desktop app's chats and ChatGPT keep their history on the vendor's servers and run no hook, so the person's own export
 is the one way in that needs no model's cooperation (G105; `capture-and-sleep.md`, "Hookless chat apps"). Two steps
-make it a habit rather than a seed, with no new setting: **(1) the pickup** (`Support/ExportArrivals.swift`). While an
-export wait is open (*Remind me*, R-IB22 — the person's own ask), `ExportArrivalWatcher` keeps one FSEvents watch on
-the top of `~/Downloads`. It lists names, sizes and dates only; the baseline is taken when the wait opens, so an export
-already there is never offered. A new `.zip` that keeps its size for one 1.5 s look (`ArrivalTracker`) has its
-**central directory** read (`ZipMembers`: member names only, never a member's bytes, zip64 included, ≤ 32 MB of
-directory); `ExportArrivals.vendor(members:)` names its vendor by the files each export carries (Claude:
-`conversations.json` + `users.json`; ChatGPT: + `user.json`, `chat.html` or `message_feedback.json`; Takeout's Gemini
-Apps activity; both account files at once is nobody's). Only a vendor being waited on in the open memory is handed
-to `IntakeRouter.accept(urls:from: .reminder(vendor))`: the preview, the *Into* picker and Import are the drop's own,
-the sniff clears the wait (`onVendorSniffed`), and the watch closes with the last wait. A busy intake retries at the
-next look; anything else is offered once. When Cicada is not in front, one notification says it arrived (only when
-notifications were already allowed; its tap brings the window). macOS's Files and Folders prompt for Downloads, if it
-asks, follows the person's *Remind me*. If they refuse it, nothing is read and the drop and picker work as before.
-**(2) Every week**, the last item of every *Remind me* menu (`WeeklyReminderItems`, the same three hosts), records
-an `ExportHabit` (defaults `cicada.exportHabits`, per bank × vendor, the weekday it was turned on at 9:00) and one
-repeating local notification ("Time for a fresh Claude export."). Its tap opens that vendor's export page in the
-person's own browser — Cicada clicks nothing there — and opens a wait (*Tomorrow at 9:00*), which arms the pickup.
-The same menu then reads *Stop the weekly reminder*. Taps carry a kind (`ReminderTapKind`: `due` · `weekly` ·
-`arrived`; a pre-existing reminder with none is `due`). Because staging is idempotent per conversation, a weekly
-full export re-imports only what is new or grew, and a relayed conversation is upgraded in place (ruling 32).
+make it a habit rather than a seed, with no new setting.
+
+**(1) The pickup** (`Support/ExportArrivals.swift`). `ExportArrivalWatcher` keeps one FSEvents watch on the top of
+`~/Downloads`. It is open only while a wait the person opened **in this run** of the app (*Remind me* or the weekly
+nudge's tap; `ExportWaitStore.armedVendors` / `armedUntil`) is unexpired in the open memory. A wait left by an earlier
+launch therefore never lists Downloads, or raises macOS's Files and Folders prompt, at launch. The watch closes:
+
+- when the last wait clears;
+- at its 14-day expiry, by its own timer, with no folder event needed;
+- at any look that finds nothing awaited, before anything is read;
+- on a memory switch (`sync`).
+
+A look that awaited across a close never reopens it (an epoch guard). The watcher lists names, sizes and dates only.
+The baseline is taken when the watch opens, so an export already there is never offered. A new `.zip` that keeps its
+size for one 1.5 s look (`ArrivalTracker`) has its **central directory** read (`ZipMembers`: member names only, never
+a member's bytes, zip64 included, ≤ 32 MB of directory). Every bound in `ZipMembers` is checked by subtraction, so a
+crafted offset near `UInt64.max` answers nil rather than trapping. `ExportArrivals.vendor(members:)` names the vendor
+by the files each export carries:
+
+- Claude: `conversations.json` + `users.json`;
+- ChatGPT: `conversations.json` + `user.json`, `chat.html` or `message_feedback.json`;
+- Takeout's Gemini Apps activity;
+- both account files at once is nobody's.
+
+Only a vendor being waited on is offered, through `IntakeRouter.offerArrival`. That is the drop's door
+(`accept(urls:from: .reminder(vendor))`, so the preview, *Into* and Import are the drop's own, and the sniff clears
+the wait) with two differences, because nobody dropped it:
+
+- it is silent while the router is busy: no "finish the import" toast;
+- it never takes the panel from a sniff, preview or import the person has open.
+
+Either way it answers `.wait`, and the file is offered again at the next look. Every other file is offered once.
+When Cicada is not in front, one notification says the export arrived. It is posted only after it `.opened` (never
+after a refusal), only when notifications were already allowed, and its tap brings the window. If macOS refuses
+Downloads, one line says so ("Cicada can't see Downloads, so drop the export on Cicada when it comes."), nothing is
+read, and the drop and picker work as before.
+
+**(2) Every week** is the last item of every *Remind me* menu (`WeeklyReminderItems`, the same three hosts). It is
+saved only when notifications are allowed, because a weekly reminder that cannot fire is not on. A refusal saves
+nothing and says so in one line ("A weekly reminder needs Cicada's notifications, which are off."), never the
+one-off delays' "waits here". On a grant it records an `ExportHabit` (defaults `cicada.exportHabits`, per bank ×
+vendor, the weekday it was turned on, at 9:00) and one repeating local notification ("Time for a fresh Claude
+export."). At launch, the saved habits are scheduled again (`refreshWeekly`). If notifications are no longer allowed,
+they are dropped instead, and launch never asks for the permission. The nudge carries its memory: tapping it opens
+that vendor's export page in the person's own browser (Cicada clicks nothing there) and opens a wait in the memory it
+was set in (*Tomorrow at 9:00*), which arms the pickup. Once on, the same menu reads *Stop the weekly reminder*.
+
+Taps carry a kind (`ReminderTapKind`: `due` · `weekly` · `arrived`); a reminder from before this change carries none
+and is `due`. Because staging is idempotent per conversation, a weekly full export re-imports only what is new or
+grew, and a relayed conversation is upgraded in place (ruling 32).
 
 **Recordings and videos (meaning index 2, 2026-10-28).** **File → Add Recording or Video…** (2026-10-29) is the
 keyboard and VoiceOver twin: the intake's own open panel (`IntakePicker.chooseMedia`, audio and video types, no folders)

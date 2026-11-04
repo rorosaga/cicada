@@ -119,20 +119,23 @@ enum ZipMembers {
             guard eocdAbsolute >= 20, let locator = read(handle, at: eocdAbsolute - 20, count: 20),
                   u32(locator, 0) == 0x0706_4b50 else { return nil }
             let recordAt = u64(locator, 8)
-            guard recordAt < size, let record = read(handle, at: recordAt, count: 56),
+            guard recordAt <= size, size - recordAt >= 56, let record = read(handle, at: recordAt, count: 56),
                   u32(record, 0) == 0x0606_4b50 else { return nil }
             entries = u64(record, 32)
             dirSize = u64(record, 40)
             dirOffset = u64(record, 48)
         }
-        guard dirSize <= UInt64(maxDirectoryBytes), dirOffset + dirSize <= size,
+        // Every bound below is checked by subtraction from a value already known to be smaller, never by adding two
+        // values read from the file: a crafted zip64 offset near `UInt64.max` must answer nil, not trap.
+        guard dirSize <= UInt64(maxDirectoryBytes), dirOffset <= size, dirSize <= size - dirOffset,
               let dir = read(handle, at: dirOffset, count: Int(dirSize)) else { return nil }
         var names: [String] = []
         var at = 0
         while names.count < min(Int(min(entries, UInt64(Int.max))), maxNames) {
-            guard at + 46 <= dir.count, u32(dir, at) == 0x0201_4b50 else { return nil }
+            // `at` ≤ the directory's length (≤ 32 MB) and each length ≤ 65,535, so these sums cannot overflow an Int.
+            guard dir.count - at >= 46, u32(dir, at) == 0x0201_4b50 else { return nil }
             let nameLength = Int(u16(dir, at + 28)), extra = Int(u16(dir, at + 30)), comment = Int(u16(dir, at + 32))
-            guard at + 46 + nameLength <= dir.count else { return nil }
+            guard dir.count - at - 46 >= nameLength else { return nil }
             let raw = dir.subdata(in: (at + 46)..<(at + 46 + nameLength))
             names.append(String(data: raw, encoding: .utf8) ?? String(decoding: raw, as: UTF8.self))
             at += 46 + nameLength + extra + comment
@@ -168,48 +171,78 @@ enum ZipMembers {
     }
 }
 
-/// The live half: one FSEvents watch on the top of Downloads, open only while some export wait is. The app owns one
-/// for its lifetime (`CicadaApp`), and `sync` is called whenever the waits change.
+/// The live half: one FSEvents watch on the top of Downloads, open only while an export the person asked about IN
+/// THIS RUN is awaited in the memory now open (so a wait from an earlier launch never raises macOS's Downloads prompt
+/// at launch). The app owns one for its lifetime (`CicadaApp`) and calls `sync` when the waits or the memory change.
 @MainActor
 final class ExportArrivalWatcher {
-    /// The vendors whose export is being waited on in the memory now open — read at each look, so a bank switch
-    /// needs no call of its own.
+    /// The vendors awaited now (pruned, this memory, asked this run) — read at every look; empty stops the watch.
     var waitedVendors: () -> Set<ChatVendor> = { [] }
-    /// A recognised export: hand it to the intake. `false` means the intake was busy and it should be tried again.
+    /// When the last of those waits expires; `nil` when there is none. The watch closes at that moment by itself.
+    var waitsUntil: () -> Date? = { nil }
+    /// A recognised export: hand it to the intake. `false` means it is busy (an import, or a preview the person has
+    /// open) and the file should be offered again at the next look.
     var deliver: (URL, ChatVendor) -> Bool = { _, _ in true }
+    /// macOS refused to list Downloads: said once per attempt to open the watch.
+    var onRefused: () -> Void = {}
 
     private let folder: URL?
     private let sleep: @Sendable (Duration) async throws -> Void
+    private let expirySleep: @Sendable (Duration) async throws -> Void
+    private let now: () -> Date
     private var watch: FSEventsWatch?
     private var tracker: ArrivalTracker?
     private var looking: Task<Void, Never>?
+    private var expiry: Task<Void, Never>?
+    /// Bumped by every open and close, so a look that awaited across a `stop()` never writes its state back.
+    private var epoch = 0
 
     init(folder: URL? = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first,
-         sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }) {
+         sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
+         expirySleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
+         now: @escaping () -> Date = Date.init) {
         self.folder = folder
         self.sleep = sleep
+        self.expirySleep = expirySleep
+        self.now = now
     }
 
     var isWatching: Bool { tracker != nil }
 
-    /// Open the watch while any wait is (`anyWait`), close it when none is. The baseline is taken here, so the
-    /// listing — and macOS's one Downloads prompt, if it asks — follows the person's own *Remind me*.
-    func sync(anyWait: Bool) {
-        if anyWait, tracker == nil, let folder {
-            guard let baseline = Self.listing(folder) else { return }
+    /// Open the watch while a wait is, close it when none is (or the last one has expired). The baseline is taken
+    /// here, so the listing — and macOS's one Downloads prompt, if it asks — follows the person's own tap.
+    func sync() {
+        guard let until = waitsUntil(), until > now(), !waitedVendors().isEmpty else {
+            stop()
+            return
+        }
+        if tracker == nil, let folder {
+            guard let baseline = Self.listing(folder) else {
+                onRefused()
+                return
+            }
+            epoch &+= 1
             tracker = ArrivalTracker(baseline: baseline)
             watch = FSEventsWatch(path: folder.path) { [weak self] in self?.schedule() }
-        } else if !anyWait, tracker != nil {
-            stop()
+        }
+        guard tracker != nil else { return }
+        expiry?.cancel()
+        let left = until.timeIntervalSince(now())
+        expiry = Task { [weak self, expirySleep] in
+            guard (try? await expirySleep(.milliseconds(Int64(left * 1000) + 1))) != nil, !Task.isCancelled else { return }
+            self?.sync()
         }
     }
 
     func stop() {
+        epoch &+= 1
         watch?.stop()
         watch = nil
         tracker = nil
         looking?.cancel()
         looking = nil
+        expiry?.cancel()
+        expiry = nil
     }
 
     private func schedule() {
@@ -217,25 +250,35 @@ final class ExportArrivalWatcher {
         looking = Task { [weak self] in
             guard let self else { return }
             try? await self.sleep(ExportArrivals.settle)
+            guard !Task.isCancelled else { return }
             await self.lookOnce()
             self.looking = nil
             if self.tracker?.waitingOnGrowth == true { self.schedule() }
         }
     }
 
-    /// One look: list the folder, and read the central directory of each zip that has settled. Internal for tests.
+    /// One look: nothing awaited any more closes the watch before anything is read; otherwise list the folder and
+    /// read the central directory of each zip that has settled. Internal for tests.
     func lookOnce() async {
-        guard let folder, var tracker, let listing = Self.listing(folder) else { return }
-        let ready = tracker.look(listing)
+        guard let folder, var tracker else { return }
         let vendors = waitedVendors()
+        guard !vendors.isEmpty, (waitsUntil() ?? .distantPast) > now() else {
+            stop()
+            return
+        }
+        guard let listing = Self.listing(folder) else { return }
+        let started = epoch
+        let ready = tracker.look(listing)
         for entry in ready {
             let url = folder.appendingPathComponent(entry.name)
             let members = await Task.detached(priority: .utility) { ZipMembers.names(of: url) }.value
+            guard epoch == started else { return }
             guard let vendor = members.flatMap(ExportArrivals.vendor(members:)), vendors.contains(vendor) else {
                 tracker.done(entry)
                 continue
             }
             if deliver(url, vendor) { tracker.done(entry) } else { tracker.retry(entry) }
+            guard epoch == started else { return }
         }
         self.tracker = tracker
     }

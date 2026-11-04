@@ -134,20 +134,48 @@ final class ExportWaitStore {
         persist()
     }
 
-    var anyWait: Bool { !ExportWaits.pruned(waits, now: now()).isEmpty }
+    /// The waits the person opened in THIS run of the app (`remind`), by id. Only these arm the Downloads pickup, so a
+    /// wait left by an earlier launch never lists Downloads — or raises its prompt — before the person touches one.
+    @ObservationIgnored private var openedThisRun: Set<String> = []
+
+    /// The awaited waits that arm the pickup: this memory's, unexpired, opened in this run.
+    private func armed(bank: String) -> [ExportWait] {
+        active(bank: bank).filter { openedThisRun.contains($0.id) }
+    }
+
+    func armedVendors(bank: String) -> Set<ChatVendor> { Set(armed(bank: bank).compactMap { ChatVendor(rawValue: $0.vendor) }) }
+
+    /// When the last arming wait expires (14 days after it was asked), or `nil` when none arms.
+    func armedUntil(bank: String) -> Date? {
+        armed(bank: bank).map { $0.requestedAt.addingTimeInterval(ExportWaits.maxAge) }.max()
+    }
 
     func weekly(vendor: String, bank: String) -> Bool { habits.contains { $0.vendor == vendor && $0.bank == bank } }
 
-    /// *Every week*: the habit is recorded whatever the permission says (the menu says it is on), and scheduled only
-    /// with it — the same rule as `remind`. `false` when notifications are off.
+    /// *Every week*: saved only when notifications are allowed — a weekly reminder that can never fire is not on,
+    /// so a refusal saves nothing and the caller says why in one line. `false` when notifications are off.
     @discardableResult
     func startWeekly(vendor: String, bank: String) async -> Bool {
+        guard await scheduler.requestPermission() else { return false }
         let habit = ExportHabit.starting(vendor: vendor, bank: bank, from: now())
         habits = habits.filter { $0.id != habit.id } + [habit]
         persistHabits()
-        guard await scheduler.requestPermission() else { return false }
         await scheduler.scheduleWeekly(habit)
         return true
+    }
+
+    /// At launch: the saved weekly reminders are scheduled again (a repeating request does not survive everything —
+    /// a reinstall, a reset, notifications turned off and on). Without permission they are dropped instead, so the
+    /// menu never says one is on that cannot fire; never asks for the permission itself.
+    func refreshWeekly() async {
+        guard !habits.isEmpty else { return }
+        guard await scheduler.isAuthorized() else {
+            for h in habits { scheduler.cancelWeekly(h) }
+            habits = []
+            persistHabits()
+            return
+        }
+        for h in habits { await scheduler.scheduleWeekly(h) }
     }
 
     func stopWeekly(vendor: String, bank: String) {
@@ -156,8 +184,8 @@ final class ExportWaitStore {
         persistHabits()
     }
 
-    /// The weekly nudge was tapped: the person is about to ask for the export, so a wait opens — its reminder the
-    /// next morning, as if they had chosen it — and with it the Downloads pickup.
+    /// The weekly nudge was tapped: the person is about to ask for the export, so a wait opens — in the memory the
+    /// nudge was set in, its reminder the next morning, as if they had chosen it — and with it the Downloads pickup.
     func weeklyTapped(vendor: String, bank: String) async {
         _ = await remind(vendor: vendor, bank: bank, delay: .tomorrowMorning)
     }
@@ -168,6 +196,7 @@ final class ExportWaitStore {
     func remind(vendor: String, bank: String, delay: ReminderDelay) async -> Bool {
         let at = now()
         let wait = ExportWait(vendor: vendor, bank: bank, requestedAt: at, remindAt: delay.remindAt(from: at))
+        openedThisRun.insert(wait.id)
         waits = ExportWaits.adding(wait, to: waits)
         persist()
         guard await scheduler.requestPermission() else { return false }

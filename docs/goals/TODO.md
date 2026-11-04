@@ -22,8 +22,12 @@
   non-human means" Anthropic's Consumer Terms §3 bar; the official export is the one path with no model in it; relay
   stays ruling 32's model-dependent exception. Built (app only): while an export wait is open, the vendor's zip in
   Downloads, identified by its central directory's member names, opens the one intake's preview; *Every week* in every
-  *Remind me* menu nudges the person to ask for a fresh export. Tests: `ExportArrivalsTests` 13, plus touched suites
-  (77 across five) and `--filter Lint` (85), all green. **Needs the owner (DECIDE):**
+  *Remind me* menu nudges the person to ask for a fresh export. The review of #592 found four blockers, all fixed, each
+  with a test that failed on the pre-fix sources: a crafted zip64 offset trapped; Downloads stayed watched past a
+  wait's expiry; a busy intake toasted every retry; a refused weekly reminder said it was on. Also fixed: arming only
+  after an in-run tap, a stop during a look being undone, an open preview being replaced, an arrival notice after a
+  refusal, the nudge's memory, and a line for a refused Downloads. Tests: `ExportArrivalsTests` 22, `ExportWaitsTests`
+  7, `IntakeRouterTests` 35, `FeedGuardTests` 10, `CopyConstantsTests` 13, and `--filter Lint` 85, all green. **Needs the owner (DECIDE):**
   (1) the remote stdio relay: should the local stdio server serve `cicada_capture_turns` to the Claude desktop app
   (`clientInfo` `claude-ai`) with the desktop primer asking for it? That would amend ruling 32's "through the remote
   connector" for an app that has no hook on stdio either. **Recommended yes**, as a layer under the export, never

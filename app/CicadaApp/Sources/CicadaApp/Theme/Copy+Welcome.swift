@@ -136,6 +136,8 @@ extension Copy {
     static let reminderWeeklyBody = "Ask for it, and Cicada picks up the .zip when it lands in Downloads."
     static func reminderArrivedTitle(_ vendor: String) -> String { "Your \(vendor) export arrived." }
     static let reminderArrivedBody = "Open Cicada to bring it in."
+    static let reminderWeeklyNeedsNotifications = "A weekly reminder needs Cicada's notifications, which are off."
+    static let arrivalsDownloadsRefused = "Cicada can't see Downloads, so drop the export on Cicada when it comes."
     static func reminderStripLine(_ vendor: String, requested: String) -> String {
         "Waiting for your \(vendor) export · requested \(requested)"
     }
@@ -170,7 +172,8 @@ extension Copy {
     static let welcomeHomeSentences: [String] = [welcomeDemoFailed("the service is not running"),
                                                  gsNothingYet, gsLeaveWhileReading,
                                                  reminderNotificationsOff, reminderTitle("ChatGPT"),
-                                                 reminderWeeklyBody,
+                                                 reminderWeeklyBody, reminderWeeklyNeedsNotifications,
+                                                 arrivalsDownloadsRefused,
                                                  reminderStripLine("ChatGPT", requested: "2 hours ago"),
                                                  reminderMenuLine("ChatGPT", requested: "2 hours ago")]
 }

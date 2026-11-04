@@ -7,6 +7,8 @@ import UserNotifications
 @MainActor
 protocol ReminderScheduling {
     func requestPermission() async -> Bool
+    /// Whether notifications are allowed now, never asking.
+    func isAuthorized() async -> Bool
     func schedule(_ wait: ExportWait) async
     func cancel(_ wait: ExportWait)
     /// G197 layer c — the weekly nudge to ask for a fresh export, repeating until stopped.
@@ -29,6 +31,10 @@ enum ReminderTapKind: String {
 struct ReminderTap: Equatable {
     let vendor: ChatVendor
     let kind: ReminderTapKind
+    /// The memory a weekly nudge was set in; `nil` for the others (and a nudge from before it was carried).
+    var bank: String? = nil
+
+    func bank(fallback: String) -> String { bank.flatMap { $0.isEmpty ? nil : $0 } ?? fallback }
 }
 
 /// `UNUserNotificationCenter.current()` raises in a process with no app bundle
@@ -46,6 +52,7 @@ enum ReminderAvailability {
 struct LiveReminderScheduler: ReminderScheduling {
     nonisolated static let userInfoVendor = "vendor"
     nonisolated static let userInfoKind = "kind"
+    nonisolated static let userInfoBank = "bank"
 
     /// Stateless, so constructible anywhere — `ExportWaitStore`'s default
     /// argument is evaluated outside the main actor.
@@ -54,6 +61,11 @@ struct LiveReminderScheduler: ReminderScheduling {
     func requestPermission() async -> Bool {
         guard ReminderAvailability.current else { return false }
         return (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])) ?? false
+    }
+
+    func isAuthorized() async -> Bool {
+        guard ReminderAvailability.current else { return false }
+        return await UNUserNotificationCenter.current().notificationSettings().authorizationStatus == .authorized
     }
 
     func schedule(_ wait: ExportWait) async {
@@ -78,7 +90,8 @@ struct LiveReminderScheduler: ReminderScheduling {
         let content = UNMutableNotificationContent()
         content.title = Copy.reminderWeeklyTitle(ExportWaits.vendorTitle(habit.vendor))
         content.body = Copy.reminderWeeklyBody
-        content.userInfo = [Self.userInfoVendor: habit.vendor, Self.userInfoKind: ReminderTapKind.weekly.rawValue]
+        content.userInfo = [Self.userInfoVendor: habit.vendor, Self.userInfoKind: ReminderTapKind.weekly.rawValue,
+                            Self.userInfoBank: habit.bank]
         let request = UNNotificationRequest(identifier: Self.identifier(habit), content: content,
                                             trigger: UNCalendarNotificationTrigger(dateMatching: habit.dateComponents,
                                                                                    repeats: true))
@@ -91,9 +104,7 @@ struct LiveReminderScheduler: ReminderScheduling {
     }
 
     func announceArrival(_ vendor: ChatVendor) async {
-        guard ReminderAvailability.current else { return }
-        let settings = await UNUserNotificationCenter.current().notificationSettings()
-        guard settings.authorizationStatus == .authorized else { return }
+        guard await isAuthorized() else { return }
         let content = UNMutableNotificationContent()
         content.title = Copy.reminderArrivedTitle(vendor.title)
         content.body = Copy.reminderArrivedBody
