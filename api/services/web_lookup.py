@@ -521,7 +521,8 @@ def source_items(memory_path: Path, facts: web_settle.BankFacts, *, already: set
         if entity_id == facts.owner_id or page.get("owner") is True:
             continue
         predicate = str(fm.get("predicate") or "")
-        if predicates.cardinality(memory_path, predicate) == "multi" and not web_settle.is_type_predicate(predicate):
+        # Ruling 26: only a predicate the vocabulary KNOWS is single-valued closes an older value.
+        if predicates.cardinality(memory_path, predicate) != "single":
             continue
         tracked, held = settling_agent.tracked_public(memory_path, (entity_id,))
         if kinds is not None:
