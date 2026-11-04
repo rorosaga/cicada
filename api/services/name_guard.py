@@ -73,9 +73,8 @@ NEUTRAL_SOURCES = frozenset({"web-check", "source-check", "source-refresh"})
 #: Conversations with other people, by source: where names are typed in lower case. A record with a correspondent, members or
 #: speaker labels counts too, whatever its source.
 CHAT_SOURCES = frozenset({"imessage", "messages", "whatsapp", "telegram", "telegram-chats", "email", "gmail"})
-#: The folder the contacts book (open PR #602, ``contacts_book``) keeps its per-device ``book.json`` in. Read by layout,
-#: never by import, so the guard covers it the moment it lands.
-CONTACTS_BOOK_DIR = "contacts-book"
+#: The contacts book's per-device ``book.json`` (``contacts_book``): the one thing here that reads it beyond its own routes.
+CONTACTS_BOOK_DIR = people_directory.CONTACTS_BOOK_DIR
 BOOK_FILE = "book.json"
 WAITING_FILE = "contacts.json"
 LINKEDIN_FILE = "linkedin-connections.json"
@@ -510,7 +509,10 @@ def _episode_labels(fm: dict, body: str) -> list[str]:
     record = fm.get("correspondent")
     if isinstance(record, dict) and record.get("name"):
         names.append(str(record["name"]))
-    for member in fm.get("participants") or []:
+    elif isinstance(record, str):
+        names.append(record)
+    members = fm.get("participants") or []
+    for member in members if isinstance(members, list) else [members]:   # one name by hand is still a name, never its letters
         if isinstance(member, dict) and member.get("name"):
             names.append(str(member["name"]))
         elif isinstance(member, str):
@@ -583,14 +585,14 @@ def _scan(memory_path: Path, facts) -> tuple[sqlite3.Connection, list[str], froz
         source = str(fm.get("source") or "").strip().lower()
         if source in NEUTRAL_SOURCES:
             continue
+        known = source in WRITERS
         try:
             body = entry.body() or ""
-        except Exception:  # noqa: BLE001 — one the index could not read: its bytes, as private text, below
+            said, own = public_part(fm, body, pages)
+            labels = [] if known else _episode_labels(fm, body)
+        except Exception:  # noqa: BLE001 — one no reader could read, a header of the wrong shape too: its bytes, as private text, below
             on_disk[entry.path.name] = entry.path
             continue
-        said, own = public_part(fm, body, pages)
-        known = source in WRITERS
-        labels = [] if known else _episode_labels(fm, body)
         add(said, own, labels, chat=bool(labels) or source in CHAT_SOURCES, title="" if known else str(fm.get("title") or ""))
     for path in on_disk.values():   # could not be parsed: whatever it says, it is private
         try:

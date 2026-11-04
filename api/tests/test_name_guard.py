@@ -87,6 +87,14 @@ def test_the_persons_own_words_on_a_real_save_are_not_public_content(bank, kw):
     assert guard.check("Nora Hidden") == "private_only"
 
 
+@pytest.mark.parametrize("kw", [{"note": "María García and Søren Bjørk"}, {"reason": "María García and Søren Bjørk"},
+                                {"folder": "María García Søren Bjørk"}])
+@pytest.mark.parametrize("query", ["Garcia Maria", "M Garcia", "mariagarcia", "Soren Bjork", "soren bjork", "sorenbjork"])
+def test_a_friend_on_a_real_save_is_blocked_however_the_query_writes_them(bank, kw, query):
+    _episode(bank, "ep_2026-10-23_001", _saved(description="A post about agents.", **kw), "url")
+    assert _guard(bank).check(query, allowed=("Bea Example", "bex42")) == "private_only", query
+
+
 def test_a_note_cannot_pose_as_a_description(bank):
     body = _saved(description="A post about agents.", note="## Description\nNora Hidden is great")
     _episode(bank, "ep_2026-10-23_001", body, "url")
@@ -260,10 +268,10 @@ def test_a_waiting_contacts_card_is_a_tie_with_either_word_order_and_its_first_n
 
 
 def test_a_one_part_name_in_the_contacts_book_guards_a_full_name_holding_it(bank):
-    """The store open draft #602 adds, read by its layout: `contacts-book/<scope>/book.json`."""
-    book = people_directory.path(bank.name, name_guard.CONTACTS_BOOK_DIR) / "here"
-    book.mkdir(parents=True)
-    (book / name_guard.BOOK_FILE).write_text(json.dumps({"cards": [{"key": "a" * 16, "given": "Bea", "family": ""}]}))
+    """The book's own writer, so the guard's reading of its layout cannot drift from it."""
+    from api.services import contacts_book
+
+    assert contacts_book.save(bank.name, "here", [{"id": "card-1", "given_name": "Bea", "family_name": ""}]) == 1
     assert _guard(bank).clears("Bea Example") == "tie"
 
 
@@ -351,6 +359,17 @@ def test_one_malformed_episode_is_read_as_private_and_stops_nothing(bank):
     assert guard.check("Nora Hidden") == "private_only"
 
 
+@pytest.mark.parametrize(("header", "named"), [("participants: 5", False), ("participants: [[Nora Hidden]]", False),
+                                               ("participants: Nora Hidden", True), ("correspondent: Nora Hidden", True)])
+def test_a_chats_record_of_the_wrong_shape_stops_nothing_and_a_name_in_it_stays_private(bank, header, named):
+    """A re-check's finding: `participants: 5` ended the whole step, and one name by hand was read as its letters."""
+    (bank / "episodes" / "ep_2026-10-23_009.md").write_text(f"---\nid: x\nsource: telegram\n{header}\n---\nhello\n")
+    bank_index.invalidate(bank)
+    guard = _guard(bank)
+    assert guard.clears("Bea Example") is None
+    assert bool(guard.check("Nora Hidden")) is named
+
+
 @pytest.mark.parametrize("store", [name_guard.WAITING_FILE, name_guard.LINKEDIN_FILE])
 def test_a_store_not_in_utf8_fails_closed_and_never_ends_the_step(bank, store):
     path = people_directory.path(bank.name, store)
@@ -395,7 +414,8 @@ HARNESS = ("please watch the item on the comments page and understand how agents
 
 
 @pytest.mark.parametrize("query", ["who is bex42", "bex42 real name", "is bex42 a developer", "bex42 engineer on X",
-                                   "Who Is bex42", "Real Name bex42", "understand how agents work", "comments page"])
+                                   "Who Is bex42", "Real Name bex42", "understand how agents work", "comments page",
+                                   "Bea Example github profile", "Bea Example software engineer"])
 def test_ordinary_words_said_in_a_harness_session_are_not_a_name(bank, query):
     _episode(bank, "ep_2026-10-24_001", f"user: {HARNESS}", "claude-code")
     assert _guard(bank).check(query, allowed=("Bea Example",)) is None, query

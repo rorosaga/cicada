@@ -4,8 +4,9 @@ The waiting set (``contacts_local``, ruling 33) keeps only the cards Sleep could
 show the rest of the address book: a one-part name is never kept there, by rule. This is a second store with one job,
 drawing the grid, and it is deliberately not a way into the first:
 
-* **Nothing reads it but its own routes.** ``WaitingIndex``, ``seed_page``, ``rematch`` and ``waiting_status`` read
-  ``contacts.json``; none of them knows this file, so a one-part name still never matches or promotes anybody.
+* **Nothing reads it but its own routes, and ``name_guard``.** ``WaitingIndex``, ``seed_page``, ``rematch`` and
+  ``waiting_status`` read ``contacts.json``; none of them knows this file, so a one-part name still never matches or
+  promotes anybody. The guard (ruling 54) reads its names only to keep them out of a web search; it writes nothing.
 * **Names and a thumbnail only.** Never which facts a card holds, never its id in the clear (a key hashed from it, the
   waiting thumbnails' rule), and never an organisation's name: a card with no personal name is kept nameless.
 * **Which card has a page is derived on read**, from the ``addressbook://`` sources on the pages: a Sleep rematch, a
