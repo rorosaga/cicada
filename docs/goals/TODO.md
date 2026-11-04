@@ -1420,21 +1420,15 @@ These are attached to permanent rows instead of becoming a second queue. Older d
 A test here is not fixed and not skipped: each line says what was seen and on what basis. Look here before chasing a
 failure; add to the counts when one comes back.
 
-- **`test_phone_pairing::test_a_replay_after_a_bank_switch_runs_in_the_bank_now_open` (2026-11-04, seen on
-  `feat/g135-funnel-one-click`, PR #607).** Failed once, in a batch of 30 test files, beside a Swift build. **The error
-  text was lost:** that run's output was cut to its last lines, so which assertion failed is unknown. Not reproduced
-  since, and not patched. Whether it is that branch or a flake is not settled: the branch changes no capture or
-  bank-switch code, and the test stubs `tailnet_backend`, the part of `reach.py` that pairing calls. Next time, keep the
-  whole output.
-
-  | Run | The branch | Plain `origin/dev` (`4c99cef4`) |
-  |---|---|---|
-  | The test alone | 5/5 passed | 5/5 passed |
-  | Its module | 3/3 passed | 3/3 passed |
-  | Whole batch, no load | 2/2 passed | 2/2 passed |
-  | Whole batch, beside a Swift build | 2/2 passed | 1/1 passed |
-  | Whole batch, the failing run's reused `HOME` | 1/1 passed | not run |
-  | The original run | **1 failed** | not run |
+- **`test_phone_pairing::test_a_replay_after_a_bank_switch_runs_in_the_bank_now_open` (2026-11-04, cause found, not yet
+  fixed).** It fails with `KeyError: 'device'` at `test_phone_pairing.py:45`: `/pair` answered 429. `/pair` has one
+  process-wide bucket (`devices._wrong_codes`, 10 a minute, one back every 6 s) that every try spends, a good code too.
+  `test_device_binding` resets it per test and `test_phone_pairing` does not. So this test, after 8 pairings in its own
+  module and 3 in `test_agent_api` just before it, fails when the suite reaches it fast enough. **It is the suite, not any
+  branch:** with the bucket spent first it fails on plain `origin/dev` (`5285b158`) too, and passes with it full. Seen
+  twice on `feat/g135-funnel-one-click`, in about 8 runs of the same 30 files, never alone or in its own module. The first
+  time, the error text was lost because the output was cut to its last lines. **The fix when wanted:** the same one line
+  `test_device_binding` has, `monkeypatch.setattr(devices_router, "_WRONG_CODES", None)`, in this module's fixtures.
 
 ## Maintaining this queue
 

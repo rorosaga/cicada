@@ -679,9 +679,33 @@ def held_port():
     """A real program on a real port: what a public mapping serves once the listener is gone."""
     sock = socket.socket()
     sock.bind(("127.0.0.1", 0))
-    sock.listen(1)
+    sock.listen(16)
     yield sock.getsockname()[1]
     sock.close()
+
+
+def test_a_full_accept_queue_is_never_read_as_nothing_there():
+    """Found by the batch: with nobody accepting, a connect can be reset, and the old read took that for "free"."""
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    sock.listen(0)
+    port = sock.getsockname()[1]
+    try:
+        assert all([reach.port_accepts(port, timeout=0.1) for _ in range(12)])
+    finally:
+        sock.close()
+
+
+@pytest.mark.parametrize("error, expected", [
+    (TimeoutError(), True), (ConnectionResetError(), True), (ConnectionAbortedError(), True),
+    (ConnectionRefusedError(), False), (OSError("no such address"), False),
+])
+def test_only_a_refusal_means_the_port_is_free(monkeypatch, error, expected):
+    def connect(*a, **k):
+        raise error
+
+    monkeypatch.setattr(reach.socket, "create_connection", connect)
+    assert reach.port_accepts(8765) is expected
 
 
 def test_with_the_listener_down_another_program_on_the_port_is_said(route, stub, held_port, monkeypatch):

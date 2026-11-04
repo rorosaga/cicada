@@ -539,12 +539,17 @@ def funnel_port_taken(status: dict, https_port: int) -> bool:
 
 
 def port_accepts(port: int, *, timeout: float = 0.3) -> bool:
-    """Does anything accept on this loopback port? Connect and close, nothing sent: with the listener down, whatever is
-    here is what a public mapping of this port serves to the internet."""
+    """Could something be on this loopback port? Connect and close, nothing sent: with the listener down, whatever is here
+    is what a public mapping of this port serves to the internet. Only a refusal means free. A reset or a timeout is a
+    program whose accept queue is full, or a machine under load (measured on macOS: a listener nobody accepts from
+    sometimes resets a connect), so those err toward saying so; any other error is that address not existing here (no
+    `::1`, say)."""
     for host in ("127.0.0.1", "::1"):
         try:
             with socket.create_connection((host, port), timeout=timeout):
                 return True
+        except (TimeoutError, ConnectionResetError, ConnectionAbortedError):
+            return True
         except OSError:
             continue
     return False
