@@ -5976,6 +5976,14 @@ class RemoteStatusOut(CamelModel):
     ngrok_command: str
 
 
+class RemoteFunnelIn(CamelModel):
+    """``POST /remote/funnel`` (ruling 59). ``action`` is ``on`` or ``off``. ``shown`` is the command the person read, for
+    ``on``: compared with what would run and never run itself. There is no port and no argv to send."""
+
+    action: str
+    shown: Optional[str] = None
+
+
 class PageEditRequest(CamelModel):
     """``POST /entities/{id}/edits`` — the person's own edit of a page's words or aliases (owner rulings 2026-10-14):
     the same request ``cicada_edit_page`` takes (``page_edits``), committed alone under the person. The link-view

@@ -1,8 +1,10 @@
 """How AI apps reach this Mac (G135 R-R32) — detection only; Cicada never starts,
-stops or reconfigures a tunnel (G132 (c): the overlay is the person's) — with one
-dated exception (owner 2026-10-29, "Yes, one click"): the person's click may run
-exactly ``tailscale serve --bg --https=8443 <port>`` (tailnet only) and the
-matching off for that one mapping (:func:`run_serve`). Never ``funnel``, never ``up``.
+stops or reconfigures a tunnel (G132 (c): the overlay is the person's) — with two
+dated exceptions, each the person's click and each exactly the command shown:
+``tailscale serve --bg --https=8443 <port>`` (tailnet only; owner 2026-10-29,
+"Yes, one click"; :func:`run_serve`) and, for the connector's own port and no other,
+``tailscale funnel --bg --https=<443|10000> <port>`` (ruling 59, owner 2026-11-04;
+:func:`run_funnel`), each with the matching off for that one mapping. Never ``up``.
 
 Tailscale: on PATH, in a standard install folder (`TUNNEL_BIN_DIRS`), or the app
 bundle's own CLI — an older LaunchAgent's PATH is launchd's bare one, and
@@ -208,7 +210,7 @@ def probe(base_url: str, *, fetch=None, timeout: float = 3.0) -> bool:
 # ── G212 (owner 2026-10-29): the guided reach setup and its live check ───────────────────────────────────────────────
 # Settings → Devices walks the person through making this machine reachable on their own overlay. The backend only
 # LOOKS (two bounded, read-only CLI reads) and, on the person's ask, fetches its own served `/healthz` through that
-# overlay; it never runs `tailscale up`, `serve` or `funnel` (G132 (c), network.md). The app turns each state into the
+# overlay; this guide never runs `tailscale up`, `serve` or `funnel` (G132 (c), network.md). The app turns each state into the
 # one next step in words, and the command to copy where a command is the step.
 
 #: The guided steps, in the order a person meets them. Hyrum mode A: the words are stable, the app maps each to text.
@@ -217,9 +219,11 @@ GUIDE_STEPS = ("install", "open", "sign-in", "turn-on", "serve", "unfunnel", "re
 
 @dataclass(frozen=True)
 class TailnetState:
-    """``tailscale status --json``'s two facts the guide needs: is the daemon up and signed in, and this node's name."""
+    """``tailscale status --json``'s facts the guide needs: is the daemon up and signed in, this node's name, and the
+    client's version (ruling 59: an older CLI spells Funnel differently)."""
     tailscale: str            # "missing" | "not-running" | "logged-out" | "stopped" | "running"
     dns_name: str | None = None
+    version: str | None = None
 
 
 def tailnet_state(*, which=shutil.which, run=subprocess.run, exists=_is_executable) -> TailnetState:
@@ -244,7 +248,7 @@ def tailnet_state(*, which=shutil.which, run=subprocess.run, exists=_is_executab
     if backend != "Running":
         return TailnetState("not-running")
     name = str(_dict(_dict(status).get("Self")).get("DNSName") or "").rstrip(".")
-    return TailnetState("running", name or None)
+    return TailnetState("running", name or None, str(_dict(status).get("Version") or "") or None)
 
 
 def guide(port: int, *, state: TailnetState | None = None, backend: TailnetBackend | None = None,
@@ -420,3 +424,264 @@ def run_serve(action: str, port: int, *, which=shutil.which, run=subprocess.run,
     except OSError:
         ok, message = False, "Tailscale could not be started. Run the command yourself in a terminal."
     return {"ok": ok, "message": message, "ran": ran, "guide": guide(port, which=which, run=run, exists=exists)}
+
+
+# ── Ruling 59 (owner 2026-11-04): one click opens the connector's own port to the internet ──────────────────────────
+# claude.ai and the phone apps relay through the G135 listener (ruling 32, 57) and can only reach a public address. The
+# person's click may run EXACTLY ``tailscale funnel --bg --https=<443|10000> <the connector's port>`` — the command shown
+# before the click — and that one mapping's off. Same seam as the serve above: the argv is built here from the
+# connector's own port and the person's own ServeConfig, never from a request; argv only, 10 s cap, stdin closed; never
+# ``up``, never a login. Nothing about it is stored: every answer is read back from Tailscale.
+#
+# Three things the CLI does that this code exists to prevent (read from cmd/tailscale/cli/serve_v2.go, v1.104):
+# - a funnel on a port that already serves something REPLACES its ``/`` handler without asking, and opens every other
+#   path on that port to the internet — so a port holding anything is never used, and 8443 (the tailnet-only mapping of
+#   the backend) is not even a candidate;
+# - ``funnel --https=<p> off`` with no ``--set-path`` deletes EVERY handler on the port — so the off names ``/``;
+# - with Funnel not yet allowed it prints a URL and either waits or EXITS 0 having changed nothing — so a return code
+#   never decides success: only the ServeConfig read back does.
+
+#: The public ports the click may use, in order. Funnel allows 443, 8443 and 10000; 443 is the clean address and where
+#: the docs have always put it, 10000 only when the person's own mapping holds 443 (`headless.md` suggests one).
+FUNNEL_HTTPS_PORTS = (443, 10000)
+FUNNEL_TIMEOUT = 10.0
+FUNNEL_ACTIONS = ("on", "off")
+#: `--bg`, `--https` and `--set-path` on `tailscale funnel` arrived in 1.52; older spellings differ and are not guessed.
+FUNNEL_MIN_VERSION = (1, 52)
+#: Hyrum mode A: the words are stable. ``off`` is the one step a click may turn on; ``on`` the one it may turn off.
+FUNNEL_STEPS = ("install", "open", "sign-in", "turn-on", "update", "port", "unknown", "address", "taken", "terminal",
+                "off", "on")
+
+_FIX_HOSTS = ("login.tailscale.com", "tailscale.com")
+_HTTPS_FIX = "https://login.tailscale.com/admin/dns"
+_POLICY_FIX = "https://login.tailscale.com/admin/acls/file"
+_FUNNEL_WORDS = {
+    "install": "Install Tailscale on this machine.",
+    "open": "Open Tailscale on this machine.",
+    "sign-in": "Sign in to Tailscale on this machine.",
+    "turn-on": "Tailscale is off on this machine. Turn it on.",
+    "update": "This Tailscale is too old for this. Update it, then try again.",
+    "port": "The connector's port is also used by another part of Cicada, so it can't be opened. Change "
+            "CICADA_REMOTE_PORT.",
+    "unknown": "Tailscale did not answer. Try again.",
+    "address": "You saved your own address for this machine. Clear it first.",
+    "taken": "Ports 443 and 10000 already carry your other Tailscale mappings, and Cicada won't replace them. Free one "
+             "(`tailscale funnel status` lists them), then try again.",
+    "terminal": "This was opened from a terminal. Close it there with Ctrl+C.",
+}
+
+
+@dataclass(frozen=True)
+class FunnelState:
+    """Where the connector's public door stands, read from Tailscale. ``mapped_url`` is what the ServeConfig says, which
+    is not yet a claim that it answers: only :func:`funnel_wire` with a passed probe puts an address on the wire."""
+    step: str
+    message: str | None = None
+    command: str | None = None
+    stop_command: str | None = None
+    mapped_url: str | None = None
+
+
+def _configs(status: dict) -> list[dict]:
+    return [status] + [v for v in _dict(status.get("Foreground")).values() if isinstance(v, dict)]
+
+
+def _hostport_port(hostport: str) -> str:
+    return str(hostport).rpartition(":")[2]
+
+
+def funnel_port_taken(status: dict, https_port: int) -> bool:
+    """Does anything at all hold this port, in any config, foreground ones included? ``TCP`` carries every listener, a
+    web one too; ``Web`` and ``AllowFunnel`` are read as well, in case another writer left only those."""
+    wanted = str(https_port)
+    for config in _configs(status):
+        if wanted in _dict(config.get("TCP")):
+            return True
+        if any(_hostport_port(h) == wanted for h in (*_dict(config.get("Web")), *_dict(config.get("AllowFunnel")))):
+            return True
+    return False
+
+
+def _foreground_funnel(status: dict, port: int) -> bool:
+    return any(funnel_url_for_port(c, port) for c in _dict(status.get("Foreground")).values() if isinstance(c, dict))
+
+
+def funnel_command(https_port: int, port: int) -> str:
+    return f"tailscale funnel --bg --https={https_port} {port}"
+
+
+def funnel_stop_command(https_port: int) -> str:
+    return f"tailscale funnel --https={https_port} --set-path=/ off"
+
+
+def funnel_argv(tailscale: str, https_port: int, port: int) -> list[str]:
+    """The one place an argv that opens anything to the internet is built."""
+    if https_port not in FUNNEL_HTTPS_PORTS:
+        raise ValueError("not a port the click may use")
+    return [tailscale, "funnel", "--bg", f"--https={https_port}", str(int(port))]
+
+
+def funnel_stop_argv(tailscale: str, https_port: int) -> list[str]:
+    return [tailscale, "funnel", f"--https={https_port}", "--set-path=/", "off"]
+
+
+def _version_ok(version: str | None) -> bool:
+    """Too old only when the version parses and says so: an unknown one is left to the command's own answer."""
+    parts = str(version or "").split("-", 1)[0].split(".")
+    try:
+        return (int(parts[0]), int(parts[1])) >= FUNNEL_MIN_VERSION
+    except (IndexError, ValueError):
+        return True
+
+
+def _read_serve_config(tailscale: str, run) -> dict | None:
+    try:
+        done = run([tailscale, "funnel", "status", "--json"], capture_output=True, text=True, timeout=2.0, check=False)
+        status = json.loads(done.stdout or "{}") if done.returncode == 0 else None
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        status = None
+    return status if isinstance(status, dict) else None
+
+
+def _stopped_at(step: str) -> FunnelState:
+    return FunnelState(step, _FUNNEL_WORDS[step])
+
+
+def funnel_state(port: int, *, closed_ports: tuple[int, ...] = (), saved_url: str | None = None, which=shutil.which,
+                 run=subprocess.run, exists=_is_executable) -> FunnelState:
+    """Two bounded read-only answers, nothing changed. ``closed_ports`` are the ports that are never public, however the
+    connector's port was configured: the backend's API and the door (ruling 51f)."""
+    if port <= 0 or port in closed_ports:
+        return _stopped_at("port")
+    state = tailnet_state(which=which, run=run, exists=exists)
+    steps = {"missing": "install", "not-running": "open", "logged-out": "sign-in", "stopped": "turn-on"}
+    if state.tailscale in steps:
+        return _stopped_at(steps[state.tailscale])
+    if not _version_ok(state.version):
+        return _stopped_at("update")
+    tailscale = find_tool("tailscale", which=which, exists=exists) or TAILSCALE_APP_CLI
+    status = _read_serve_config(tailscale, run)
+    if status is None:
+        return _stopped_at("unknown")
+    url = funnel_url_for_port(status, port)
+    if url:
+        if _foreground_funnel(status, port):
+            return FunnelState("terminal", _FUNNEL_WORDS["terminal"], mapped_url=url)
+        return FunnelState("on", stop_command=funnel_stop_command(_https_port(url) or 443), mapped_url=url)
+    free = next((p for p in FUNNEL_HTTPS_PORTS if not funnel_port_taken(status, p)), None)
+    if free is None:
+        return _stopped_at("taken")
+    if saved_url and state.dns_name:
+        would_be = f"https://{state.dns_name}" + ("" if free == 443 else f":{free}")
+        if saved_url.rstrip("/") != would_be:
+            return _stopped_at("address")
+    return FunnelState("off", command=funnel_command(free, port))
+
+
+def funnel_wire(state: FunnelState, *, answers: bool | None = None, listener_up: bool = True,
+                fix_url: str | None = None) -> dict:
+    """The answer both clients read. ``url`` only when a probe through that address just passed (never the ServeConfig's
+    say-so); a mapping that does not answer says why, in words."""
+    message = state.message
+    if state.step == "on" and answers is False:
+        message = ("The address is still open, but the connector is off, so nothing answers." if not listener_up else
+                   "Set, not answering yet. The first time can take up to 10 minutes.")
+    return {"step": state.step, "message": message, "command": state.command, "stopCommand": state.stop_command,
+            "url": state.mapped_url if state.step == "on" and answers is True else None, "answers": answers,
+            "fixUrl": fix_url}
+
+
+def _fix_url(text: str) -> str | None:
+    """The address Tailscale printed for the person to enable it — only a Tailscale address is ever offered as a link."""
+    for word in text.split():
+        candidate = word.rstrip(".,)")
+        if not candidate.startswith("https://"):
+            continue
+        try:
+            host = urlparse(candidate).hostname
+        except ValueError:
+            continue
+        if host in _FIX_HOSTS:
+            return candidate
+    return None
+
+
+def _funnel_failure(stdout: str, stderr: str, command: str) -> tuple[str, str | None]:
+    """``(sentence, link)``: what the person does next, in words, with the exact place to do it."""
+    text = " ".join(f"{stderr or ''} {stdout or ''}".split())
+    lower = text.lower()
+    if "access denied" in lower or "permission denied" in lower or "--operator" in lower:
+        return ("Tailscale refused: this user may not change its settings. Run `sudo tailscale set --operator=$USER`, "
+                "then try again."), None
+    if "https must be enabled" in lower:
+        return "HTTPS certificates are off for your tailnet. Turn them on, then try again.", _HTTPS_FIX
+    if "node attribute not set" in lower or "s/no-funnel" in lower:
+        return ("Your tailnet's policy doesn't allow Funnel. Add the funnel attribute to nodeAttrs, then try again."
+                ), _POLICY_FIX
+    if "not allowed for funnel" in lower:
+        return "Your tailnet's policy doesn't allow Funnel on this port. Allow it in nodeAttrs.", _POLICY_FIX
+    fix = _fix_url(text)
+    if fix and "login.tailscale.com" in fix:
+        return "Funnel isn't on for your tailnet yet. Turn it on there, then try again.", fix
+    if "changing the serve config" in lower:
+        return "Something else was changing Tailscale's settings. Try again.", None
+    if "flag provided but not defined" in lower:
+        return _FUNNEL_WORDS["update"], None
+    return f"Tailscale did not do it. Run this in a terminal to see why: {command}", None
+
+
+def run_funnel(action: str, port: int, *, shown: str | None = None, listener_up: bool = False,
+               closed_ports: tuple[int, ...] = (), saved_url: str | None = None, which=shutil.which,
+               run=subprocess.run, exists=_is_executable) -> dict:
+    """The click's one command, then the state read back: ``{ok, message, fixUrl, ran, state}``. ``ok`` is what the
+    ServeConfig says afterwards, never the return code. ``shown`` is compared, never run: if the machine changed since
+    the person read the command, nothing runs and they read it again. Anything but the matching step runs nothing."""
+    if action not in FUNNEL_ACTIONS:
+        raise ValueError(f"action must be one of {', '.join(FUNNEL_ACTIONS)}")
+
+    def read() -> FunnelState:
+        return funnel_state(port, closed_ports=closed_ports, saved_url=saved_url, which=which, run=run, exists=exists)
+
+    def nothing(message: str | None, state: FunnelState) -> dict:
+        return {"ok": False, "message": message, "fixUrl": None, "ran": None, "state": state}
+
+    before = read()
+    tailscale = find_tool("tailscale", which=which, exists=exists) or TAILSCALE_APP_CLI
+    if action == "on":
+        if before.step == "on":
+            return nothing("The connector is already open to the internet.", before)
+        if before.step != "off":
+            return nothing(before.message, before)
+        if shown != before.command:
+            return nothing("That command is out of date. Look at the one shown now.", before)
+        if not listener_up:
+            return nothing("The connector isn't running, so nothing was opened.", before)
+        https_port = int(before.command.split("--https=", 1)[1].split()[0])
+        argv, command = funnel_argv(tailscale, https_port, port), before.command
+    else:
+        if before.step != "on":
+            return nothing(before.message or "The connector isn't open to the internet, so there is nothing to close.",
+                           before)
+        https_port = _https_port(before.mapped_url) or 443
+        argv, command = funnel_stop_argv(tailscale, https_port), before.stop_command
+    out, err, timed_out = "", "", False
+    try:
+        done = run(argv, capture_output=True, text=True, timeout=FUNNEL_TIMEOUT, check=False, stdin=subprocess.DEVNULL)
+        out, err = _text(done.stdout), _text(done.stderr)
+    except subprocess.TimeoutExpired as exc:
+        out, err, timed_out = _text(exc.stdout), _text(exc.stderr), True
+    except OSError:
+        return {"ok": False, "message": f"Tailscale could not be started. Run this in a terminal: {command}",
+                "fixUrl": None, "ran": command, "state": read()}
+    after = read()
+    if action == "on":
+        ok = after.step == "on" and _https_port(after.mapped_url) == https_port
+    else:
+        ok = after.step in ("off", "taken", "address") or (
+            after.step == "on" and _https_port(after.mapped_url) != https_port)
+    if ok:
+        return {"ok": True, "message": None, "fixUrl": None, "ran": command, "state": after}
+    message, fix = _funnel_failure(out, err, command)
+    if timed_out and fix is None and message.startswith("Tailscale did not do it"):
+        message = f"Tailscale did not answer within 10 seconds. Run this in a terminal: {command}"
+    return {"ok": False, "message": message, "fixUrl": fix, "ran": command, "state": after}
