@@ -21,6 +21,9 @@ import os
 from pathlib import Path
 
 import json
+import re
+import shutil
+import subprocess
 import sys
 
 import pytest
@@ -192,6 +195,35 @@ def _no_real_skill_tools_or_network(monkeypatch):
     monkeypatch.setattr(skill_sources, "FETCH", no_network)
     skill_tools.clear_cache()
     skill_sources._PLANS.clear()
+
+
+@pytest.fixture(autouse=True)
+def _no_real_tailscale(monkeypatch, tmp_path_factory):
+    """No test may run the developer's Tailscale: `PUT /remote/settings {"enabled": false}` closes a public address, and
+    `reach`'s `run=subprocess.run` defaults were bound at import, so only the process start itself is a seam for all of
+    them. Anything named tailscale that isn't a stand-in a test made in its own temp folder answers as a missing binary
+    does. A `run=` a test injects never gets here."""
+    made_here = tmp_path_factory.getbasetemp().resolve()
+
+    def is_real(word, env) -> bool:
+        if Path(word).name.lower() != "tailscale":
+            return False
+        found = shutil.which(word, path=(env if env is not None else os.environ).get("PATH"))
+        return found is None or not Path(found).resolve().is_relative_to(made_here)
+
+    class Guarded(subprocess.Popen):
+        def __init__(self, args, *rest, **kwargs):
+            many = not isinstance(args, (str, bytes, os.PathLike))
+            words = [os.fsdecode(a) for a in (args if many else [args])]
+            shell = kwargs.get("shell") or (len(words) > 2 and Path(words[0]).name in ("sh", "bash", "zsh")
+                                            and words[1] == "-c")
+            if shell and re.search(r"(?i)\btailscale\b", " ".join(words)):
+                raise FileNotFoundError(f"no real tailscale in tests: {words}")
+            if any(is_real(word, kwargs.get("env")) for word in words):
+                raise FileNotFoundError(f"no real tailscale in tests: {words[0]}")
+            super().__init__(args, *rest, **kwargs)
+
+    monkeypatch.setattr(subprocess, "Popen", Guarded)
 
 
 @pytest.fixture(autouse=True)

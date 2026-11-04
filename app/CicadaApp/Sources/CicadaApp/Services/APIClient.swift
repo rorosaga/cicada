@@ -2779,6 +2779,24 @@ actor APIClient {
         try await delete("/sources/contacts-local/waiting" + query)
     }
 
+    /// G154 (owner 2026-11-04): every card, for the Contacts page's faces (`contacts_book`).
+    func putContactsBook(_ payload: ContactsBookPayload) async throws {
+        let _: ContactsBookSavedAnswer = try await putData("/sources/contacts-local/book",
+                                                           json: try JSONEncoder().encode(payload))
+    }
+
+    func fetchContactsBook() async throws -> ContactsBook {
+        try await get("/sources/contacts-local/book", timeout: Self.refreshTimeout)
+    }
+
+    /// `DELETE /sources/contacts-local/book` — the forget, answered on this computer (`forgetWaitingContacts` goes to the
+    /// home on a copy).
+    func forgetContactsBook(connection: String?) async throws {
+        let query = connection.flatMap { $0.addingPercentEncoding(withAllowedCharacters: .alphanumerics) }
+            .map { "?connection=\($0)" } ?? ""
+        try await delete("/sources/contacts-local/book" + query)
+    }
+
     /// `DELETE /sources/linkedin-connections` — forget this memory's kept LinkedIn export; returns how many were kept.
     func forgetLinkedInConnections() async throws -> Int {
         let data = try await delete("/sources/linkedin-connections")
@@ -3809,6 +3827,19 @@ actor APIClient {
         if let enabled { body["enabled"] = enabled }
         if let publicBaseURL { body["publicBaseUrl"] = publicBaseURL }
         return try await put("/remote/settings", body: body)
+    }
+
+    /// Ruling 59. `check` fetches this machine's own public address, up to 3 s.
+    func fetchRemoteFunnel(check: Bool = false) async throws -> RemoteFunnel {
+        try await get("/remote/funnel" + (check ? "?check=true" : ""), timeout: check ? 15 : nil)
+    }
+
+    /// Ruling 59. The app sends the action and the command the person read, compared and never run: the backend builds
+    /// the argv from its own connector port.
+    func runRemoteFunnel(action: String, shown: String?) async throws -> RemoteFunnelRun {
+        var body: [String: Any] = ["action": action]
+        if let shown { body["shown"] = shown }
+        return try await post("/remote/funnel", body: body)
     }
 
     func fetchRemoteConnectors() async throws -> [RemoteConnector] {

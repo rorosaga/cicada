@@ -377,7 +377,9 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   already processed, so an agent's sweep is never the owner's words. Saving new rules re-derives
   every existing episode of the folder in place — frontmatter only, the hash unchanged; agent → owner
   is queued, owner → agent is parked unless Sleep already read it — in one `user` commit (trigger
-  `folder/authorship`), and the papers' why-claims follow (F2-back R-B6, R-B7). Wispr Flow: its SQLite opened
+  `folder/authorship`), and the papers' why-claims follow (F2-back R-B6, R-B7). Wispr Flow (**off for now, owner
+  2026-11-04: nothing new is read, for anyone, while `SourceCatalog.wisprOffered` is false; its episodes stay and
+  Sleep reads them as any other, `app.md`**): its SQLite opened
   read-only by the app through a column whitelist (never audio, screenshots, accessibility or pasted
   text); meetings and notes by default, dictation only when the person turns it on. A meeting line is
   `speaker:<label>:` and counts as `user` evidence only when its label is one of the owner's listed
@@ -531,6 +533,25 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   bank's `contacts.json` and thumbnails (Contacts is app-wide; token-gated like every route; counts only), so no first
   mention and no tail rematch uses a card again; what matched pages already gained stays. LinkedIn's kept export has
   its own forget, `DELETE /sources/linkedin-connections` (this bank; *Forget kept connections* in the LinkedIn panel).
+  **The page's faces are a second store, not a way into the first (owner 2026-11-04, `contacts_book`).** The waiting
+  set keeps only what Sleep could match, so a page reading it can never show a one-part name. The app also sends every
+  card's names and thumbnail, before the sync and best effort, to `PUT /sources/contacts-local/book`, kept at
+  `$CICADA_HOME/people/<bank>/contacts-book/<scope>/` (never which facts a card holds, its id only hashed, never an
+  organisation's name: a card with no personal name is kept nameless). `WaitingIndex`, `seed_page`, `rematch` and
+  `waiting_status` never read it (`test_contacts_book.py`), so the match rules and the `waiting` count mean what they
+  meant. `GET …/book` lists the cards, those with a page first; the link is read from the pages' `addressbook://`
+  sources each time (one holding only a photo joins by name when exactly one card carries it), so a rematch or a removal
+  shows at once. `GET …/book/{key}/photo` serves a thumbnail, `no-store`. It is the app's own read: the token's device
+  picks the scope, so a client of a backend elsewhere reads only the book it posted; on a copy the routes are `local`,
+  because the reader is here and not at the home. No tool, CLI row or `/v1` operation reaches it, and the remote
+  listener has no such path. **The book's own state decides when it is posted (review of #602):** a sync posts it, and a
+  launch with no sync due asks `GET …/book` and posts when the backend holds none or the last book it took is older than
+  the address book (`ContactsReader.shouldPostBook`, its own token beside the sync's). A failed post is tried again 3
+  times, a minute apart, then said in words; a refusal is final; a stopped reader asks nothing; a truly empty address book
+  posts nothing. The forget removes every scope in every bank (`DELETE …/book` is the same forget, sent too
+  because a copy forwards `/waiting` to the home); revoking a device removes its scope and stops a save already in
+  flight (`.contacts-book-revoked`, scope hashes only); a demo bank takes and shows none. Few photos is true of the book: on the owner's Mac the store files hold at most 6 raw records with one, of 969
+  raw records (count-only, 2026-11-04; size and format not measured).
   **The Contacts forget lands at once, even while Sleep runs (review of #393):** the app sends it once, so a 409 would
   keep a disconnected address book's cards. It deletes the set and then stamps a forget marker,
   `$CICADA_HOME/people/.contacts-forgotten` (ns), under the lock every save of the set takes. Every Sleep read of the
@@ -1283,9 +1304,9 @@ Cowork's settings), so its stdio server now does what the remote connector does.
 - **Why not the browser.** Anthropic's Consumer Terms §3 bar access "through automated or non-human means" except by API
   key or where explicitly permitted, so an agent paging claude.ai's list is what the ToS rail stops, unlike G166's reads.
 
-**Reaching claude.ai on the web and phone** needs a public address for the remote connector: the person's own tunnel today.
-The one-click Funnel (D6′) waits on the owner (TODO, 2026-11-03). Until then the local connection covers the desktop app
-alone; the relay there needs no address.
+**Reaching claude.ai on the web and phone** needs a public address for the remote connector: one click since ruling 59
+(`network.md`). A connector added on claude.ai also appears in the desktop and phone apps. The local connection covers the
+desktop app alone; the relay there needs no address.
 
 **Exports are one-time (ruling 58, owner 2026-11-04).** A new memory's start, or what an AI provider holds; `app.md`, "An
 export is one-time". The official export (web or desktop, never the phone apps) comes by email with a link that expires in 24
@@ -2758,7 +2779,7 @@ Measured on the copy (210 open "Possible duplicate" questions; dry run, nothing 
 no conversation); 2 carried a guess ≥ 0.9. Of the 20 between people, 4 are retired (1 owner, 3 with no conversation
 naming both) and 16 stay; their cards' conversation names both sides on 16 (10 before); 1 of them is a public handle
 a check may answer
-(proposed ruling 54, `public_handle`, `features.md`; off until the owner rules). The other 190 are thing pairs: the plan's judge (haiku) called
+(ruling 54, `public_handle`, `features.md`). The other 190 are thing pairs: the plan's judge (haiku) called
 125 different or a relation (not the same), 21 the same, 44 unsure — Stage 2's relation judge (2026-10-29) keeps new
 ones from being asked; the open ones wait for Sleep's tending judge or the person.
 

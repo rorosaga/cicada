@@ -168,7 +168,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   drops — never on the capture path, on by default only if measured better, no setting (G207).
 - **The app reads `~/Library`, the backend parses bytes.** The launchd backend has no Full Disk Access and never opens
   those paths, never stats a path a request names, never runs git in a declared repo; the app reads (browsers, Notes via
-  its own `osascript`, Calendar, Contacts, Chrome tab groups, watched folders, Wispr Flow) and posts bytes. A browser is
+  its own `osascript`, Calendar, Contacts, Chrome tab groups, watched folders; Wispr Flow's reader is off for now, `app.md`) and posts bytes. A browser is
   read only after the person turned it on. An unreadable file shows the exact fix in the app. Chrome's history is read
   from a copy, YouTube video pages only; watch history is one episode per day, never a save (G71, `capture-and-sleep.md`);
   it and saves from a platform's saved list are indexed, never read by a model (ruling 30).
@@ -218,6 +218,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   its speaker's (`speaker:<label>`), the summary the recorder's model's (`capture-and-sleep.md`).
 - **Capture never writes into a demo bank** (`demo_guard`, by `_bank.yaml`, never by name): every capture/sources
   POST/PUT answers 409; the Stop hook redirects to the real bank left most recently.
+- **The Contacts page's faces (G154, owner 2026-11-04):** every card's names and thumbnail, outside every bank, per
+  device, for the app's grid alone; no match reads them, no agent door reaches them, every forget wipes them
+  (`contacts_book`, `capture-and-sleep.md`).
 - **A ticked chat's attachments show at view time (G179, 2026-11-04):** the app opens the file the chat app holds on
   this Mac (Telegram's through the person's own session); the bank keeps names only; thumbnails outside every bank,
   gone on untick (`app.md`).
@@ -327,9 +330,11 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   world facts on plan runs (never a metered key), re-checked by use and volatility, never over the person's own words
   about their own life; a private
   person's name never reaches any service; every page says why it matters to the person, derived on read (`web_context`,
-  `page_relevance`, `storage.md`). PROPOSED ruling 54 (owner direction 2026-11-04; off until the owner rules): a public handle
-  vs a named public person, neither in a chat or contacts, may be settled by two pinned searches and a cited claim; the
-  person's own agent on their ask meanwhile (`public_handle`, `features.md`). **A tracked source's
+  `page_relevance`, `storage.md`). **Ruling 54 (owner 2026-11-04):** a handle vs a named person is worked like an
+  agent on the Claude plan only, on by default: a tool-less model reads anything in memory, every query and link it asks for
+  passes `name_guard` in code (a name known only from the person's record never leaves; a tie always blocks), ≤ 6 searches through
+  a hand holding only cleared queries; the model judges (one site is enough), its quote checked on the page; cited, undoable, never a merge (`settling_agent`, `features.md`). **54a:** a page's tracked
+  sources come first, opened directly, never a search for a private person; a walled one only by the person's agent. **A tracked source's
   dated re-check does (ruling 26):** a new dated fact; the newest evidence wins, even over the person's own words; the same
   day or undated asks once; dead = two failed visits a week apart; walled pages only by the person's agent (`storage.md`).
   **Where to check (ruling 36 D5, 2026-10-22):** an agent (`inferred`) or Sleep's engine-free step may PROPOSE a link
@@ -488,9 +493,12 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **Credentials** live in `~/.cicada/secrets.env` (0600), or the keychain where the app holds them (a connection's
   session too, ruling 47) — never in a bank, a log or the repo.
 - **Headless (G181):** the bank's **home** (a server or any computer; ruling 51 (1), phase 2) is its one writer and binds its API to 127.0.0.1 only; reach from another machine is an
-  overlay the person runs (never a public port, never funnel — only the G135 listener may be, by the person, ruling 32), and no installer creates or copies a credential (`headless.md`).
+  overlay the person runs (never a public port, never funnel — only the G135 listener may be, by the person, ruling 32, 59), and no installer creates or copies a credential (`headless.md`).
   **One click (owner 2026-10-29, amends G132 (c)):** Settings → Devices may run exactly the shown `tailscale serve --bg
-  --https=8443 <port>` (tailnet only) or that one mapping's off — argv built by the backend, 10 s, never `funnel` or `up` (`network.md`).
+  --https=8443 <port>` (tailnet only) or that one mapping's off (`--https=<its port> --set-path=/ off`) — argv built by the backend, 10 s, never `funnel` or `up` (`network.md`).
+  **Ruling 59 (owner 2026-11-04):** the person's click, or their shell, may run exactly the shown `tailscale funnel --bg --https=<443|10000> <the
+  connector's port>` or that one mapping's off (`--set-path=/`): no port or argv from a request, never over a held port, never 8443, never `up`; nothing stored, every answer read back (`network.md`).
+  The mapping outlives the listener: the connector's switch closes it too, a down listener's port is asked and another program on it said first, other public mappings shown with their off to copy, never run.
   Another machine is a client (`CICADA_API_BASE`, or the app's `api_base` file, ruling 28) with its own revocable device
   token and no bank of its own; what it posts records `device` (`headless.md`).
   **Ruling 51 (owner 2026-10-29, G132; decided, not built — amends this rail as each phase ships):** one movable home

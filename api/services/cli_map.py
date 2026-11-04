@@ -341,6 +341,14 @@ ROWS: tuple[Row, ...] = (
          mutates=True, person=True),
     _app(("connector", "sync"), "Read one now (your click: no gate, but never while Sleep holds your memory).",
          (_p("connector"),), via="backend", mutates=True, person=True),
+    # Ruling 59: the remote connector's own public address, the same one click the app has.
+    _app(("funnel", "status"), "Whether the remote connector is open to the internet through your Tailscale, checked "
+                               "through that address; the exact command `funnel on` would run.", via="backend"),
+    _app(("funnel", "on"), "Make the remote connector reachable from the internet through your Tailscale: its port "
+                           "only, its memory tools and sign-in only. Turns the connector on if it is off.",
+         via="backend", mutates=True, person=True),
+    _app(("funnel", "off"), "Close that one public address; the connector and your other Tailscale mappings stay.",
+         via="backend", mutates=True, person=True),
     # G230: repositories on the graph — connecting by a code, the synced lists, and a project's repositories. Nothing
     # is added by hand (owner 2026-11-03): every repository page comes from a sync.
     _app(("github", "connect"), "Connect GitHub with a code you enter on github.com (no token to make); then install "

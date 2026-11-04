@@ -44,6 +44,7 @@ ROUTES: dict[str, str] = {
     "POST /remote/oauth/requests/deny-all": REFUSE,
     "POST /remote/oauth/requests/{ref}/deny": REFUSE,
     "PUT /remote/settings": REFUSE,
+    "POST /remote/funnel": REFUSE,
     "POST /v1/{op}": REFUSE,
     "PUT /sync/publish": REFUSE,
     "POST /sync/publish/from-here": REFUSE,
@@ -181,6 +182,9 @@ ROUTES: dict[str, str] = {
     "POST /sources/github/connect/installation": REFUSE,  # G230: the home's sign-ins
     "DELETE /sources/github/connect": REFUSE,             # G230: the home's sign-ins
     "DELETE /sources/contacts-local/waiting": FORWARD,
+    # G154: the Contacts page's faces are this computer's own, kept where the reader is, never sent to the home.
+    "PUT /sources/contacts-local/book": LOCAL,
+    "DELETE /sources/contacts-local/book": LOCAL,
     "DELETE /sources/feeds": FORWARD,
     "DELETE /sources/folders/{folder_id}": FORWARD,
     "DELETE /sources/linkedin-connections": FORWARD,
