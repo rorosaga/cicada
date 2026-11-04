@@ -844,7 +844,6 @@ def read_line(line: str) -> dict[str, tuple[str, list[str]]]:
     for i, m in enumerate(tokens):
         before = _clause(line[tokens[i - 1].end() if i else 0:m.start()])
         after = line[m.end():tokens[i + 1].start() if i + 1 < len(tokens) else len(line)]
-        whole = _clause(line[:m.start()])
         if _FROM_BEFORE.search(before) and _CHANGED_BEFORE.search(before):
             kinds.append(PAST)
         elif i and kinds[i - 1] == PAST and _TO_BEFORE.match(before):
@@ -857,7 +856,6 @@ def read_line(line: str) -> dict[str, tuple[str, list[str]]]:
             kinds.append(ADDITIONAL)
         else:
             kinds.append(UNKNOWN)
-        del whole
     past = [m.group(1) for m, kind in zip(tokens, kinds) if kind == PAST]
     return {m.group(1): (kind, [p for p in past if p != m.group(1)] if kind == CHANGED else [])
             for m, kind in zip(tokens, kinds)}

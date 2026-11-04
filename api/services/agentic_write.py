@@ -357,7 +357,12 @@ def write_claim(
     object_raw = (object or "").strip()
     observer = (observer or "agent").strip() or "agent"
     # Proposed ruling 55: an agent's write holds no digits either, whatever door it came through.
-    number = phone_numbers.claim_value(Path(memory_path).name, predicate_raw, object_raw)
+    try:
+        number = phone_numbers.claim_value(Path(memory_path), predicate_raw, object_raw)
+    except phone_numbers.VaultUnavailable as exc:
+        # Never the digits as a claim: the sentence says why, and nothing is written.
+        return {"subject": subject_raw, "entity_id": None, "claim_id": None, "action": "error", "observer": observer,
+                "error": str(exc)}
     if number is not None:
         predicate_raw, object_raw, object_kind, text = phone_numbers.PREDICATE, number, "literal", None
     from api.config import get_settings

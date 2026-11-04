@@ -349,6 +349,9 @@ ROWS: tuple[Row, ...] = (
                                 "nothing links it back automatically), or start a new project from it.",
          (_p("full_name"), _f("project"), _f("remove", "bool")), via="backend", mutates=True, person=True),
     # Settings and engines.
+    _app(("numbers", "switch"), "Whether Cicada keeps a number you give for someone (proposed ruling 55): --state on or "
+                                "off changes it, on this Mac; every process here reads the same answer.",
+         (_f("state"),), via="backend", mutates=True, person=True),
     _app(("settings", "owner"), "Who the person is (--name, --handle, --email change it).",
          (_f("name"), _f("handle"), _f("email")), via="backend", mutates=True, person=True),
     _app(("engine", "list"), "The engines and plans Cicada can read with, whether each is ready, and what runs "

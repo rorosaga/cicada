@@ -428,20 +428,49 @@ def _this_mac_only(request: Request) -> None:
 @router.post("/people/numbers/reveal")
 def reveal_numbers(req: _RevealNumbers, request: Request, settings: Settings = Depends(get_settings)):
     """THE door from a token to its digits (`phone_numbers.reveal`): the app's, for what it is showing. Never stored,
-    never logged, never in another response."""
+    never logged, never in another response. ``problem`` is the sentence when the vault can't be used."""
     _this_mac_only(request)
     wanted = [t for t in req.tokens[:500] if phone_numbers.TOKEN_ID_RE.match(str(t))]
-    return {"numbers": phone_numbers.reveal(settings.memory_path.name, wanted)}
+    return {"numbers": phone_numbers.reveal(settings.memory_path, wanted),
+            "problem": phone_numbers.problem(settings.memory_path)}
 
 
 @router.get("/people/numbers/match-key")
 def number_match_key(request: Request, settings: Settings = Depends(get_settings)):
     """The vault's key for the app to hash a card's numbers on this Mac, so no digit crosses the wire (R-SR8). Nothing
-    while the feature is off: an app that gets none posts no keys."""
+    while the feature is off or the vault can't be used: an app that gets none posts no keys."""
     _this_mac_only(request)
     if not phone_numbers.enabled():
         return {"key": None}
-    return {"key": phone_numbers.match_key(settings.memory_path.name)}
+    try:
+        return {"key": phone_numbers.match_key(settings.memory_path)}
+    except phone_numbers.VaultUnavailable:
+        return {"key": None}
+
+
+class _NumbersSwitch(CamelModel):
+    on: bool
+
+
+@router.get("/people/numbers/switch")
+def numbers_switch(request: Request, settings: Settings = Depends(get_settings)):
+    _this_mac_only(request)
+    return {"on": phone_numbers.enabled(), "problem": phone_numbers.problem(settings.memory_path)}
+
+
+@router.put("/people/numbers/switch")
+def set_numbers_switch(req: _NumbersSwitch, request: Request, settings: Settings = Depends(get_settings)):
+    """Proposed ruling 55's yes or no, on this Mac (`phone_numbers.set_enabled`): the file every process reads."""
+    _this_mac_only(request)
+    record = phone_numbers.set_enabled(req.on)
+    return {**record, "problem": phone_numbers.problem(settings.memory_path)}
+
+
+@router.post("/people/numbers/new-vault")
+def start_new_vault(request: Request, settings: Settings = Depends(get_settings)):
+    """The person's own way out of a lost vault: the old file is set aside whole, never deleted (`phone_numbers.new_vault`)."""
+    _this_mac_only(request)
+    return phone_numbers.new_vault(settings.memory_path)
 
 
 @router.post("/sources/contacts-local/sync", response_model=ContactsLocalSyncResponse, dependencies=_DEMO_GATE)

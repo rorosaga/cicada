@@ -1116,6 +1116,17 @@ def import_chat_export(boot, args, path: Path, content: bytes) -> Result:
 
 # --- settings and engines -----------------------------------------------------------------------------------
 
+def cmd_numbers_switch(boot, args) -> Result:
+    if args.state is None:
+        now = call(boot, "GET", "/people/numbers/switch")
+        return Result(text=f"Keeping numbers: {'on' if now.get('on') else 'off'}", data=now, warnings=_warn(boot))
+    if args.state not in ("on", "off"):
+        raise UsageError("--state is on or off")
+    require_person("Changing whether numbers are kept")
+    saved = call(boot, "PUT", "/people/numbers/switch", body={"on": args.state == "on"})
+    return Result(text=f"Keeping numbers: {args.state}", data=saved, warnings=_warn(boot))
+
+
 def cmd_settings_owner(boot, args) -> Result:
     owner = call(boot, "GET", "/settings/owner")
     if args.name is None and args.handle is None and args.email is None:
@@ -1750,7 +1761,7 @@ COMMANDS = {
     "connector list": cmd_connector_list, "connector connect": cmd_connector_connect,
     "connector disconnect": cmd_connector_disconnect, "connector sync": cmd_connector_sync,
     "github connect": cmd_github_connect, "github repos": cmd_github_repos, "github project": cmd_github_project,
-    "settings owner": cmd_settings_owner, "engine list": cmd_engine_list, "engine connect": cmd_engine_connect,
+    "numbers switch": cmd_numbers_switch, "settings owner": cmd_settings_owner, "engine list": cmd_engine_list, "engine connect": cmd_engine_connect,
     "picture set": cmd_picture_set, "picture initials": cmd_picture_initials, "picture clear": cmd_picture_clear,
     "bank list": cmd_bank_list, "bank use": cmd_bank_use, "bank create": cmd_bank_create,
     "bank rename": cmd_bank_rename, "bank delete": cmd_bank_delete,

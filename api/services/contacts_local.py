@@ -356,7 +356,11 @@ def sync(memory_path: Path, payload: dict, *, bank: str | None = None) -> dict:
         for contact in contacts:
             for key in contact.get("phone_keys") or []:
                 cards.setdefault(str(key), []).append("me" if contact.get("is_me") else str(contact.get("id")))
-        phone_numbers.save_cards(bank, cards)
+        # A sync with no key at all (a client Mac, refused the key) knows nothing of this file: it never empties it.
+        if cards:
+            with _WAITING_LOCK:
+                if not forgotten_since(read_at):      # a Contacts stop after this read wins, as for the waiting cards
+                    phone_numbers.save_cards(bank, cards)
     return {"contacts": len(contacts), "matched": len(matched), "people": len(matched), "ambiguous": ambiguous,
             "unmatched": unmatched, "waiting": kept, **counts, "paths": paths}
 
@@ -517,6 +521,7 @@ def forget_waiting(connection: str | None = None) -> int:
     with _WAITING_LOCK:
         if root.is_dir():
             forgotten = _forget_files(root)
+            phone_numbers.forget_cards(root)   # proposed ruling 55: a card's hashes go with the card; no reader keeps them
         root.mkdir(mode=0o700, parents=True, exist_ok=True)
         ended = [c for c in (_marker_body().get("ended") or []) if isinstance(c, str)]
         if isinstance(connection, str) and _CONNECTION_ID.fullmatch(connection) and connection not in ended:

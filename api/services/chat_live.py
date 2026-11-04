@@ -677,7 +677,7 @@ def ingest(memory_path: Path, spec: ChatSpec, conversation: dict, messages: list
                 unreadable.add(str(e.fm.get("source_id")))
         # Proposed ruling 55: a number in the person's own new words, as its token; a stored line never moves.
         phone_numbers.tokenise_batch(batch, {m.key: m for s in stored for m in s.messages}, writer=spec.writer,
-                                     bank=memory_path.name)
+                                     bank=memory_path)
         planned, gone = plan_sittings(spec, cid, stored, batch, kept_reactions, counts,
                                       reserved=frozenset(unreadable))
         known = [p for e in mine.values() for p in participants_of(e.fm)]

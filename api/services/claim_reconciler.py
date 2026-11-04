@@ -848,19 +848,32 @@ def _number_question(new: Claim, existing: Claim | None, reason: str) -> dict:
 
 
 def _place_number(new: Claim, slot: list[Claim], settings, today: str, nudges: list[dict], audit: list[dict],
-                  untimed=frozenset()) -> Claim | None:
+                  untimed=frozenset(), revised: dict[str, str] | None = None) -> Claim | None:
     """A person's number against what their page holds. **One number is one fact**: the same token reinforces, whoever
     said it and however it was written, so a restatement can never make two current numbers. A different one follows
-    the person's line (``number_change``, `phone_numbers.annotate`): "new", "changed" closes the number it replaces;
-    "work", "also" sits beside it; "old", "former" is history; anything else asks, and the new number waits closed on the
-    page (`phone_numbers.ASKED`) so nothing reads it as current and saying it again does not ask twice. Nothing but the
-    person's answer closes a number the person confirmed (the trust table's rule). No model call."""
+    the person's own clause (`phone_numbers.read_line`): "her new number", "changed her number" closes the one it
+    replaces; "work number", "also has" sits beside it; "her old number was" is history; anything else asks, and the new
+    number waits closed on the page (`phone_numbers.ASKED`), so nothing reads it as current and saying it again does not
+    ask twice. **An unclear line asks, it never closes.** Only the person's answer closes a number the person confirmed
+    (the trust table's rule). ``revised`` (G104): a conversation that corrected itself is not a second opinion, so its
+    new number replaces the one only its removed words said, with no question, and a reworded line keeps its number
+    (Stage 3's ``revision_restated``). No model call."""
     tid = new.object
     said = str(_said(new, untimed) or new.valid_from or today)[:10]
+
+    def by_this_revision(c: Claim) -> bool:
+        return bool(revised and c.id in revised and revised[c.id] in (new.source_episodes or []))
+
+    def restated(c: Claim) -> Claim:
+        if by_this_revision(c):
+            audit.append({"action": "revision_restated", "kept": c.id})
+        return c
+
     twin = next((c for c in slot if c.id == new.id), None)
     if twin is not None:
         _merge_episodes(twin, new)
-        return twin
+        twin.evidence.extend(e for e in new.evidence if e not in twin.evidence)
+        return restated(twin)
     numbers = [c for c in slot if c.predicate == phone_numbers.PREDICATE]
     current = [c for c in numbers if open_(c)]
     same = next((c for c in current if phone_numbers.same_number(c.object, tid, settings)), None)
@@ -868,12 +881,18 @@ def _place_number(new: Claim, slot: list[Claim], settings, today: str, nudges: l
     if same is not None:
         if same.object != tid:
             same.object = tid   # a number the page held in clear (written before this rule) stops holding digits
-        if kind == phone_numbers.PAST and not is_human(same):
+        if kind == phone_numbers.PAST and not is_human(same) and not by_this_revision(same):
             same.valid_to = said
             audit.append({"action": "number_past", "closed": same.id})
             return same
         _reinforce(same, new, today=today, untimed=untimed)
-        return same
+        return restated(same)
+    corrected = [c for c in current if by_this_revision(c) and not is_human(c)]
+    if len(corrected) == 1 and kind != phone_numbers.PAST:
+        _close(corrected[0], by=_stamp_new(new, settings, today=today))
+        slot.append(new)
+        audit.append({"action": "revised", "closed": corrected[0].id, "by": new.id})
+        return new
     earlier = [c for c in numbers if c.object == tid]
     asked = next((c for c in earlier if c.context in (phone_numbers.ASKED, phone_numbers.REFUSED)), None)
     if asked is not None:
@@ -896,9 +915,13 @@ def _place_number(new: Claim, slot: list[Claim], settings, today: str, nudges: l
         slot.append(_stamp_new(new, settings, today=today))
         return new
     if ask_why is None and kind == phone_numbers.CHANGED:
-        replaced = [c for c in current if phone_numbers.token_ids(c.object)
-                    and phone_numbers.token_ids(c.object)[0] in (getattr(new, "number_replaces", None) or [])]
-        target = replaced[0] if len(replaced) == 1 else (current[0] if len(current) == 1 else None)
+        named = getattr(new, "number_replaces", None) or []
+        if named:   # the person said which one ended: that one, or ask; never another that happens to be there
+            matches = [c for c in current if phone_numbers.token_ids(c.object)
+                       and phone_numbers.token_ids(c.object)[0] in named]
+            target = matches[0] if len(matches) == 1 else None
+        else:
+            target = current[0] if len(current) == 1 else None
         if target is not None and not is_human(target):
             _stamp_new(new, settings, today=today)
             if _date_key(new.valid_from) < _date_key(target.valid_from):
@@ -1191,7 +1214,7 @@ def reconcile_stage3(
 
         if phone_numbers.is_number_claim(new):
             # Proposed ruling 55: a number has its own table — several can be true, and only the person's words close one.
-            _place_number(new, slot, settings, today, nudges, audit, untimed)
+            _place_number(new, slot, settings, today, nudges, audit, untimed, revised=revised)
             continue
 
         # Mandatory normalization-audit nudge on any auto-folded predicate.

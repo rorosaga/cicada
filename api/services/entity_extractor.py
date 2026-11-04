@@ -1036,7 +1036,7 @@ async def extract(
                 # Proposed ruling 55: what the model made of a number, resting on the person's own line or dropped;
                 # no token reaches a page's prose. Before any reading of these lists below.
                 phone_numbers.take(all_entities, all_relationships, all_values, content, ep_id,
-                                   bank=str(getattr(settings, "memory_path", "") and settings.memory_path.name or ""),
+                                   bank=getattr(settings, "memory_path", None) or "",
                                    override=authorship.of_episode(episode), gaps=gaps)
 
                 # 2026-10-28 (ruling 42): "signed up for an <event> at the <venue>" is an act on the event; the

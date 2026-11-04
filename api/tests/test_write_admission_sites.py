@@ -495,6 +495,8 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     # every Sleep read of the waiting set honours (Stage 2's index, Stage 5's seed, the rematch and its save back).
     "DELETE /sources/contacts-local/waiting": (MARKED, None),
     "POST /people/numbers/reveal": (NONE, None),   # proposed ruling 55: reads the vault, a POST so a token stays out of a URL
+    "PUT /people/numbers/switch": (OUTSIDE, None),
+    "POST /people/numbers/new-vault": (OUTSIDE, None),
     # The LinkedIn forget is the person's click in a panel that shows a refusal in words: admitted, 409 while Sleep's
     # tail may be reading the kept export.
     "DELETE /sources/linkedin-connections": (ADMITTED, None),

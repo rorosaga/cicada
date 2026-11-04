@@ -882,7 +882,7 @@ def ingest(memory_path: Path, payload: dict, *, bank: str | None = None) -> dict
                 unreadable.add(str(e.fm.get("source_id")))
         # Proposed ruling 55: a number in the person's own new words, as its token; a stored line never moves.
         phone_numbers.tokenise_batch(incoming, {m.key: m for s in stored for m in s.messages}, writer=SCRUB_WRITER,
-                                     bank=memory_path.name)
+                                     bank=Path(memory_path))
         planned, gone = plan_sittings(cid, stored, incoming, reactions, reserved=frozenset(unreadable), counts=counts)
         group = None
         if conversation.get("group"):

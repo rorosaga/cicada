@@ -422,6 +422,11 @@ def write(filepath: Path, frontmatter: dict, body: str) -> None:
     the page and lines it loses after it (``claims_ledger.write_plan``), so a crash between the two leaves a claim in
     both files, never in neither."""
     _replica_check()
+    if Path(filepath).parent.name == "entities":
+        # Proposed ruling 55: a page's prose carries no token, and while the feature is on no number, whoever wrote it.
+        from api.services import phone_numbers
+
+        body = phone_numbers.clean_page(body, Path(filepath).parent.parent)
     frontmatter, body, ledger = _split_ledger(Path(filepath), frontmatter, body)
     before = after = None
     if ledger is not None:
