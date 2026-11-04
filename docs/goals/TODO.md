@@ -12,6 +12,7 @@
 
 ## Current state and evidence
 
+- **2026-11-04 — New project is a page; an empty Projects list says nothing (G222; branch `feat/projects-new-page`).** Owner: "remove the text that appears when no projects" and "more like claude desktop app, and not two input text lines". New project opens as the detail column: the name as the H1, a large editor for the person's own paragraphs (kept as written, ≤ 4,000 characters, the page's lead; Sleep never writes it), and a picker over every page in memory by kind with each page's picture or its source's mark. Create is one `POST /projects` with `pages` (checked first, one person commit; a repository joins `repositories:` under ruling 53); `POST /projects/{id}/pages` routes a repository the same way, and the day the person started a project counts as activity, so a new one sits in Current. Verified on a scratch app (light and dark). **For the owner:** the live install suggests 750 projects; by construction that is every project page with no `mine` mark (the ~700 pre-D4 pages, `whyKind: none`) plus fallback concepts and repository births — whether legacy `none` pages are suggested at all is a ruling-45 call (G222's row).
 - **2026-11-03 — GitHub connects with a code; your repositories are pages; a project lists its repositories (ruling
   53, G230; branch `feat/g230-oauth-sync`).** Owner: "why are you asking for a token for github? cant we just do oauth?"
   and "always sync and make their initial markdowns … a project might reference several repos". Connect GitHub shows

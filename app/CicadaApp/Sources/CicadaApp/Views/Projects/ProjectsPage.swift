@@ -36,7 +36,8 @@ struct ProjectsPage: View {
     private var suggested: [SuggestedProject] { cache.displayList?.suggested ?? [] }
     /// Decision 17 — the open project's "All N" full list (Esc closes it before the project).
     @State private var detailFull: ProjectOpen.Full?
-    @State private var creating = false
+    /// Owner 2026-11-04 — New project's draft: kept while the column is closed, forgotten by Cancel or a create.
+    @State private var draft = ProjectDraft()
     @State private var naming: SuggestedProject?
     /// R-PP20 — Sleep is writing: the list's writes wait, their reason in `.help`.
     private var blocked: Bool { ProjectWriteGate.blocked(store.status.value) }
@@ -49,6 +50,8 @@ struct ProjectsPage: View {
     /// Decision 9 — "N suggested by Cicada · Review" opens the suggestions in the detail slot under this id, which no
     /// page can have (a slug never starts with a space).
     static let suggestedColumn = " suggested"
+    /// Owner 2026-11-04 — New project opens as the detail column under this id (a slug never starts with a space).
+    static let newColumn = " new"
 
     /// DR-45 — a tab switch is instant; a project the new tab does not hold closes (R-DL6: a tab is navigation).
     /// Tapping the selected tab keeps it: there is no All to fall back to.
@@ -82,7 +85,7 @@ struct ProjectsPage: View {
                     PageFindButton(isOpen: $findOpen).padding(.leading, CicadaTheme.spacingSM)
                     // DR-75 — the page adds through one labelled button: New project.
                     PageAddButton(title: Copy.ProjectsMine.newProject, help: Copy.ProjectsMine.newProjectHelp) {
-                        creating = true
+                        openProject(Self.newColumn)
                     }
                     .disabled(blocked)
                     .padding(.leading, CicadaTheme.spacingSM)
@@ -115,7 +118,15 @@ struct ProjectsPage: View {
                 .focused($focus, equals: .list)
                 .tourAnchor(.projects)
         } detail: { plan in
-            if openId == Self.suggestedColumn {
+            if openId == Self.newColumn {
+                ProjectNewColumn(
+                    draft: $draft, candidates: attachCandidates, blocked: blocked, gutter: plan.gutter,
+                    available: plan.detail, hiddenListCount: plan.listHidden ? lines.count : nil,
+                    onShowList: { showList() }, onClose: { closeProject() },
+                    onCancel: { draft = ProjectDraft(); closeProject() }, onEscape: { escape() },
+                    create: { createDraft() })
+                    .focused($focus, equals: .detail)
+            } else if openId == Self.suggestedColumn {
                 ProjectsSuggestedColumn(
                     suggested: suggested, blocked: blocked, gutter: plan.gutter,
                     hiddenListCount: plan.listHidden ? lines.count : nil, onShowList: { showList() },
@@ -156,18 +167,9 @@ struct ProjectsPage: View {
             }
         }
         .background(CicadaTheme.bgBase)
-        .sheet(isPresented: $creating) {
-            ProjectNameSheet(title: Copy.ProjectsMine.newProject) { name, description in
-                Task {
-                    if let made = await change(.create(name: name, description: description)) {
-                        openProject(made.id)
-                    }
-                }
-            }
-        }
         .sheet(item: $naming) { s in
             ProjectNameSheet(title: Copy.ProjectsMine.nameItTitle, message: Copy.ProjectsMine.nameItMessage,
-                             asksDescription: false, confirm: Copy.ProjectsMine.addToMine) { name, _ in
+                             confirm: Copy.ProjectsMine.addToMine) { name in
                 Task {
                     if let made = await change(.accept(id: s.id, name: name)) { openProject(made.id) }
                 }
@@ -184,7 +186,7 @@ struct ProjectsPage: View {
         .onChange(of: router.pendingProject) { _, _ in openPendingProject() }
         .onChange(of: cache.list?.projects.map(\.id)) { _, ids in
             guard let ids else { return }
-            columns.reconcile(present: Set(ids).union([Self.suggestedColumn]))
+            columns.reconcile(present: Set(ids).union([Self.suggestedColumn, Self.newColumn]))
             if !tabChosen { tab = ProjectsModel.defaultTab(ProjectsModel.counts(rows, today: today)) }
         }
         // R-PP3 / R-B18 — a sync version event that moved what an ETag folds asks again (a 304 costs nothing).
@@ -206,6 +208,7 @@ struct ProjectsPage: View {
         // A bank switch forgets the card or item and the open project: ids repeat across banks.
         .onChange(of: store.bank) { _, _ in
             trailing = nil
+            draft = ProjectDraft()
             columns.close()
             pastLimit = ProjectsModel.pageSize
         }
@@ -221,6 +224,24 @@ struct ProjectsPage: View {
         if ok { cache.confirmPaint(w.overlayId) }
         await cache.refreshList()
         return ok ? w.result : nil
+    }
+
+    /// Every page in memory New project can attach (the graph's nodes, with Sleep › Saved's word on each saved link).
+    private var attachCandidates: [ProjectAttachCandidate] {
+        ProjectAttachModel.candidates(nodes: store.graph.value?.nodes ?? [], media: store.sources.value ?? [])
+    }
+
+    /// Create: one request (the page and every attached page, one person-authored write on the server), then the new
+    /// project opens in place of the draft. A refusal keeps the draft and says why (the server's sentence, the toast).
+    private func createDraft() {
+        guard draft.ready, !blocked else { return }
+        let sent = draft
+        Task {
+            if let made = await change(sent.change) {
+                if draft == sent { draft = ProjectDraft() }
+                openProject(made.id)
+            }
+        }
     }
 
     private func parentName(of id: String?) -> String? {

@@ -2190,6 +2190,9 @@ class ProjectCreate(CamelModel):
     name: str
     description: str = ""
     via: Optional[str] = None    # `cli` from the person's own shell (`cicada projects new`); the app sends none
+    # New project's attached pages (owner 2026-11-04): ids or names of pages already in memory, of any kind — a
+    # repository becomes one of the project's repositories (ruling 53), every other page a hand tie. All or nothing.
+    pages: list[str] = []
 
 
 class ProjectAccept(CamelModel):

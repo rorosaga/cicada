@@ -7,7 +7,9 @@ Three layers, read at request time from what the bank already holds — pure, en
    explicit claim or participant counts, never co-occurrence (G141). The commons guard (R-PJ20) keeps a page that
    sits in a dozen projects out, as before.
 2. **user / agent / proposed** — ``entities_added`` on the project page (``project_ownership.tie_page``, its one
-   writer): the person's own tie, a trusted agent's, or another agent's proposal waiting for the person.
+   writer): the person's own tie, a trusted agent's, or another agent's proposal waiting for the person; and its
+   GitHub repositories (``repositories:``, ``github_repos.link``, ruling 53), as the person's or that agent's tie
+   (one linked by the checkout's origin counts as said).
 3. ``entities_removed`` — "Not part of it": the person's word, which wins over both layers above.
 
 The project's own tree (its sub-projects) and the owner page are never listed here: the list shows sub-projects under
@@ -61,6 +63,22 @@ def build(bank, root: str, tree: list[str], around: dict[str, dict], commons: se
             row(eid, "user", "user", n)
         else:
             row(eid, "proposed" if entry.get("proposed") else "agent", str(entry.get("by") or "agent"), n)
+    # Ruling 53: the project's GitHub repositories (`repositories:`, `github_repos` their one writer) are pages in it
+    # too — the person's link, a trusted agent's, or Cicada's own by the checkout's origin.
+    from api.services import github_repos
+
+    for n, entry in enumerate(reversed(github_repos.link_entries(fm)), start=len(order)):
+        raw = str(entry.get("entity") or "")
+        eid = bank.resolve(raw) or raw
+        if not eid or eid in rows or eid in skip or eid in removed or not bank.live(eid):
+            continue
+        how, by = str(entry.get("how") or github_repos.HOW_USER), str(entry.get("by") or "user")
+        if how == github_repos.HOW_ORIGIN:
+            row(eid, "said", None, 0)
+        elif by == "user":
+            row(eid, "user", "user", n)
+        else:
+            row(eid, "agent", by, n)
     for eid in around:
         if eid in rows or eid in skip or eid in removed or eid in commons or not bank.live(eid):
             continue

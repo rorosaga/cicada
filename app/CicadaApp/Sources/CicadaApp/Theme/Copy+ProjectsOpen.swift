@@ -72,11 +72,9 @@ extension Copy {
         }
         static let pagesHelp = "A page is part of a project when something you said ties them, or when you add it here — never because a name happens to come up."
         static let addPageTitle = "Add a page to this project"
-        static let addPagePlaceholder = "Name a person, a tool, a place…"
-        static let noPageMatches = "No page in your memory has that name."
 
         // MARK: Suggested, as one line
-        static func suggestedLine(_ n: Int) -> String { "\(UsageFormat.count(n)) suggested by Cicada" }
+        static func suggestedLine(_ n: Int) -> String { "\(UsageFormat.count(n)) suggested" }
         static let review = "Review"
         static let reviewHelp = "See the projects Cicada noticed, and add the ones that are yours"
         static let suggestedTitle = "Suggested by Cicada"

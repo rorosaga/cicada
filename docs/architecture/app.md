@@ -2194,9 +2194,30 @@ g141-7; DESIGN_RULES §9 2026-10-27).** The page is back on the rail (`PageSwitc
   reason in words (`why`), the person's located sentence for a words birth, and two neutral buttons, *Add to my
   projects* and *Not mine*. It opens the first time and is remembered (`cicada.projects.suggestedOpen`); dismissed ones
   sit behind "N dismissed · Show". A provider grouping (`kind: group`) asks for a name on accept (`ProjectNameSheet`).
-  With none of the person's own yet, the list says so above the fold (`ProjectsListState.emptyMine`).
-- **New project** is the eyebrow row's `PageAddButton`; its sheet takes a name and a description and opens the new
-  project.
+  With none of the person's own yet, the list draws no words at all (owner 2026-11-04: "just have it look empty"):
+  the column is empty and calm, the eyebrow's New project is the way in, and Cicada's suggestions stay one quiet line,
+  "N suggested · Review", its count in tertiary ink (`ProjectsSuggestedLine`).
+- **New project is a page (owner 2026-11-04, DESIGN_RULES §9 2026-11-04).** The eyebrow row's `PageAddButton` opens
+  `ProjectNewColumn` as the detail column (`ProjectsPage.newColumn`, an id no slug can take): the project page it will
+  become, before it exists. The card is the name as the page's H1 (a 22 pt field with no chrome, "Project name" in
+  tertiary ink while empty; ⏎ moves on) over a large editor for what it is about in the person's own words
+  (`cicadaEditor`, DR-76's long form: a `TextEditor` where Return starts a new line, 280 pt tall), then Cancel and the
+  one primary, Create (⌘⏎). Beside it (under it when narrow, `ProjectKnowledgeLayout`) the knowledge panel holds
+  *Pages · N* — the attached pages, each with Remove on hover and in its menu — then `ProjectPagePicker`: one search
+  field ("Find a page to add"), kind text tabs with counts (All · Videos · Articles · Papers · Repositories · People ·
+  Other, drawn only when the matches span two kinds), *Recent* (the most recently mentioned pages) while nothing is
+  typed, and rows of `ProjectAttachRow`: one leading slot as wide as a media page's 3:2 well holding the page's
+  picture, else its source's mark (a saved link's site, GitHub for a repository), then the name and where it came
+  from. The candidates are `ProjectAttachModel.candidates` over the graph's nodes and Sleep › Saved's items (the owner,
+  facets, hubs and dropped pages left out). The draft (`ProjectDraft`) lives on the page: Esc and × close and keep it,
+  Cancel forgets it, a bank switch clears it. Create is ONE `ProjectChange.create(name:description:pages:)` → `POST
+  /projects` with `pages`: the server makes the page and attaches everything in one person commit (a repository joins
+  `repositories:`, ruling 53), and the new project opens in place of the draft; a refusal keeps the draft and toasts
+  the server's sentence. The person's description is the project page's lead (`ProjectHeaderEditor`, primary ink,
+  paragraphs kept; editing it uses the same long field, ⌘⏎ saves, Esc cancels, a click away saves). The day the
+  person started it counts as activity (`project_timeline._tied_days`), so a project made a moment ago is in Current.
+  Add on *Pages in this project* opens `AddProjectPageSheet`, the same picker in a sheet. `ProjectNameSheet` now only
+  names a provider grouping on accept.
 - **The header** is `ProjectHeaderEditor`: the name and the person's description, edited in place (PATCH), a meta
   line saying how it became theirs and who last set the description (with that agent's mark). Sleep's first line shows,
   dimmer, only when the person wrote no description.
@@ -2262,8 +2283,8 @@ part is a spec and needs a Mac).** The wire is `api.md`'s g141-6. What the page 
   influences, each capped with its own "All N". Writes are `ProjectChange.tiePage` through `Store.perform`, painted at
   once (`ProjectPagesPaint`). **The list:** sub-projects sit indented under their parent, always shown (no chevron —
   amends 2026-10-19's "dropdown that moves if I press again", the owner's newer preference); the quiet projects sit
-  under a static *Gone quiet* label (`ProjectsEntry.quiet`), never a fold; Suggested is one line, "N suggested by
-  Cicada · Review" (`ProjectsSuggestedLine`), which opens the suggestions as the detail column
+  under a static *Gone quiet* label (`ProjectsEntry.quiet`), never a fold; Suggested is one line, "N suggested ·
+  Review" (`ProjectsSuggestedLine`; "by Cicada" dropped 2026-11-04), which opens the suggestions as the detail column
   (`ProjectsSuggestedColumn`: DR-74's head, text tabs Suggested · Not mine). ← on a sub-project opens its parent; →
   has nothing left to unfold. The bullets below describe v2; where they name a fold, v3's open section replaces it.
 - **The list (v2):** text tabs **Current · Past** with counts (`ProjectsModel.tabs`; tapping the selected one keeps

@@ -107,10 +107,9 @@ struct ProjectDetailColumn: View {
             }
         }
         .sheet(isPresented: $addingPage) {
-            AddProjectPageSheet(candidates: pageCandidates.filter { c in
-                !(cache.display(projectId)?.pages.contains { $0.id == c.id && !$0.isProposed } ?? false)
-            }) { id, name, type in
-                Task { await change(.tiePage(id: projectId, entity: id, name: name, type: type, remove: false)) }
+            AddProjectPageSheet(candidates: attachCandidates) { c in
+                Task { await change(.tiePage(id: projectId, entity: c.id, name: c.name, type: c.type.rawValue,
+                                             remove: false)) }
             }
         }
         // R-PP23 / DR-68 — L · M · D, the Inbox's O / L precedent (key presses on the focused column, never menu key
@@ -484,7 +483,14 @@ struct ProjectDetailColumn: View {
         }
     }
 
-    /// The pages "Add an influence" and "Add a page" offer by name: every live page but this project.
+    /// Add a page's picker (owner 2026-11-04): every page in memory but this project and the ones already part of it.
+    private var attachCandidates: [ProjectAttachCandidate] {
+        let tied = Set((cache.display(projectId)?.pages ?? []).filter { !$0.isProposed }.map(\.id))
+        return ProjectAttachModel.candidates(nodes: store.graph.value?.nodes ?? [], media: store.sources.value ?? [],
+                                             excluding: tied.union([projectId]))
+    }
+
+    /// The pages "Add an influence" offers by name: every live page but this project.
     private var pageCandidates: [(id: String, name: String, type: String)] {
         (store.graph.value?.nodes ?? []).filter { $0.id != projectId }
             .map { (id: $0.id, name: $0.name, type: $0.type.rawValue) }

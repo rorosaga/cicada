@@ -215,3 +215,79 @@ def test_conversation_days_count_each_conversation_once_on_its_newest_day(bank):
     bank_index.invalidate()
     t = project_timeline.build(bank, "alpha-project", tz_name="UTC")
     assert sum(d.n for d in t.conversation_days) == t.conversation_count
+
+
+# --- New project as a page: the person's words and the pages they attach (owner 2026-11-04) ------------------------
+
+def _repo_page(bank, eid="alpha-repo", full="bob-example/alpha-repo"):
+    _entity(bank, eid, type="media", media={"kind": "repository"},
+            github={"id": 41, "full_name": full, "owner": "bob-example"})
+    bank_index.invalidate()
+
+
+def test_new_project_attaches_pages_of_every_kind_in_one_person_commit(client, bank):
+    _repo_page(bank)
+    _entity(bank, "talk-video", type="media", media={"kind": "video"})
+    before = _git(bank, "rev-list", "--count", "HEAD")
+    r = client.post("/projects", json={"name": "Kite Lab", "description": "Why kites fly.\n\nAnd what to build next.",
+                                       "pages": ["delta-tool", "talk-video", "alpha-repo", "Carol Example"]})
+    assert r.status_code == 200, r.text
+    eid = r.json()["id"]
+    assert int(_git(bank, "rev-list", "--count", "HEAD")) == int(before) + 1      # one commit for all of it
+    message = _git(bank, "log", "-1", "--format=%B")
+    assert "Cicada-Author: user" in message and "trigger: user/companion_app" in message
+    assert f"entities/{eid}.md: created" in message and "entities/alpha-repo.md: updated" in message
+    fm = _fm(bank, eid)
+    assert set(project_ownership.pages(fm, project_ownership.PAGES_ADDED_KEY)) == {"delta-tool", "talk-video",
+                                                                                   "carol-example"}
+    assert [r["entity"] for r in fm["repositories"]] == ["alpha-repo"] and fm["repositories"][0]["by"] == "user"
+    assert _fm(bank, "alpha-repo")["github"]["projects"] == [eid]                     # the repository names it back
+    pages = _pages(bank, eid)
+    assert set(pages) == {"delta-tool", "talk-video", "alpha-repo", "carol-example"}
+    assert {p.tie for p in pages.values()} == {"user"}
+    assert fm["description"] == "Why kites fly.\n\nAnd what to build next."            # paragraphs kept
+    row = next(p for p in client.get("/projects").json()["projects"] if p["id"] == eid)
+    assert row["oneLiner"] == "Why kites fly." and row["description"].endswith("what to build next.")
+    # Made a moment ago in the app: in motion (heard the day it was made), never "Nothing heard yet" under Past.
+    assert row["lastMomentDay"] == "2026-09-23"
+
+
+def test_new_project_refuses_an_unknown_or_owner_page_before_writing_anything(client, bank):
+    before = _git(bank, "rev-parse", "HEAD")
+    for pages in (["delta-tool", "nope"], ["owner-example"]):
+        r = client.post("/projects", json={"name": "Kite Lab", "pages": pages})
+        assert r.status_code == 400
+        assert not (bank / "entities" / "kite-lab.md").exists()
+    assert _git(bank, "rev-parse", "HEAD") == before
+    r = client.post("/projects", json={"name": "Kite Lab", "pages": ["delta-tool"] * 101})
+    assert r.status_code == 400
+
+
+def test_a_repository_added_on_the_page_is_one_of_its_repositories_and_not_part_of_it_unlinks(client, bank):
+    _repo_page(bank)
+    r = client.post("/projects/alpha-project/pages", json={"entity": "alpha-repo"})
+    assert r.status_code == 200 and r.json()["action"] == "added"
+    fm = _fm(bank, "alpha-project")
+    assert [x["entity"] for x in fm["repositories"]] == ["alpha-repo"]
+    assert "alpha-repo" not in project_ownership.pages(fm, project_ownership.PAGES_ADDED_KEY)
+    assert _pages(bank)["alpha-repo"].tie == "user"
+    r = client.post("/projects/alpha-project/pages", json={"entity": "alpha-repo", "remove": True})
+    assert r.json()["action"] == "removed"
+    fm = _fm(bank, "alpha-project")
+    assert "repositories" not in fm and fm["repositories_removed"] == ["https://github.com/bob-example/alpha-repo"]
+    assert "alpha-repo" in project_ownership.pages(fm, project_ownership.PAGES_REMOVED_KEY)
+    assert "alpha-repo" not in _pages(bank)
+    # The person's add again lifts both.
+    client.post("/projects/alpha-project/pages", json={"entity": "alpha-repo"})
+    fm = _fm(bank, "alpha-project")
+    assert [x["entity"] for x in fm["repositories"]] == ["alpha-repo"] and "repositories_removed" not in fm
+    assert "alpha-repo" in _pages(bank)
+
+
+def test_a_description_keeps_its_paragraphs_within_its_cap():
+    text = "  First   line \r\n\r\n\r\n  second  para\nwith a break  "
+    assert project_ownership.clean_description(text) == "First line\n\nsecond para\nwith a break"
+    assert project_ownership.first_line("\n\nHello there\nmore") == "Hello there"
+    project_ownership.clean_description("x" * project_ownership.MAX_DESCRIPTION)
+    with pytest.raises(project_ownership.OwnershipError):
+        project_ownership.clean_description("x" * (project_ownership.MAX_DESCRIPTION + 1))
