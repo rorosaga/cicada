@@ -1576,5 +1576,37 @@
       "frontmatter": "fm",
       "disposition": "uninstrumented_guarded"
     }
+  ],
+  "services/sensitive_flags.py": [
+    {
+      "function": "note_read",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "reapply_waiting",
+      "method": "write",
+      "frontmatter": "new_fm",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "_write_item",
+      "method": "write",
+      "frontmatter": "item",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "remove_episode",
+      "method": "write",
+      "frontmatter": "new_fm",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "keep_episode",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "preserve_frontmatter_guarded"
+    }
   ]
 }

@@ -74,8 +74,9 @@ def hits_of(fm: dict, body: str) -> list[Hit]:
 
 
 def _keep_turns_last(fm: dict) -> None:
-    if "turns" in fm:
-        fm["turns"] = fm.pop("turns")   # R-PB4: the sidecar stays the last key
+    from api.services import episode_staging
+
+    episode_staging.keep_turns_last(fm)
 
 
 # ---- before the engine reads ----------------------------------------------------------------------------------------

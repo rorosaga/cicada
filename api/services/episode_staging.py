@@ -815,6 +815,12 @@ def mark_removed(path: Path, at: str | None) -> bool:
         return True
 
 
+def keep_turns_last(fm: dict) -> None:
+    """R-PB4: the sidecar stays the last key, for a writer that just added one (G235's record)."""
+    if "turns" in fm:
+        fm["turns"] = fm.pop("turns")
+
+
 @_under_episode_lock
 def _tombstone(path: Path, at: str) -> None:
     parsed = markdown_parser.parse(path)
