@@ -26,9 +26,9 @@ address rule, no redirect, no cookie, 4 s, ≤ 64 KB. The device code itself nev
 user code, the verification address and when to ask again. One sign-in at a time, held in this process only — an
 interrupted sign-in is started again, never resumed.
 
-**Until the app is registered** (a one-time owner step, ``docs/architecture/network.md``, "Connecting GitHub") the
-client id is empty: *Connect GitHub* says it is not set up in this build and the token field — the old path — is the
-fallback behind "Use a token instead".
+**The app is registered** (the owner, 2026-11-04: ``github.com/apps/cicada-memory``, Device Flow on, no client secret
+and no private key made). Only a build whose client id is blank — a fork that cleared it, an override set to nothing —
+says *Connect GitHub* is not set up and falls back to the token field behind "Use a token instead".
 """
 
 from __future__ import annotations
@@ -43,9 +43,10 @@ from loguru import logger
 
 from api.services.connectors import tier2
 
-#: The registered app's client id — public by design (it names the app on GitHub's approval page); empty until the
-#: owner registers it. :data:`CLIENT_ID_ENV` overrides it (a developer build, a fork with its own app).
-CLIENT_ID = ""
+#: The registered app's client id — public by design (it names the app on GitHub's approval page), never a secret.
+#: :data:`CLIENT_ID_ENV` overrides it (a test, a developer build, a fork with its own app). The app's numeric id is not
+#: kept: the device flow, the refresh and the install link never use it.
+CLIENT_ID = "Iv23li7D46T8IiZpTZ9D"
 #: The app's address on GitHub (``github.com/apps/<slug>``), for the install step.
 APP_SLUG = "cicada-memory"
 CLIENT_ID_ENV = "CICADA_GITHUB_CLIENT_ID"
@@ -85,15 +86,15 @@ FAILED_WORDS = "GitHub did not answer the sign-in; try again in a moment."
 
 
 def client_id() -> str:
-    return (os.environ.get(CLIENT_ID_ENV) or CLIENT_ID or "").strip()
+    return (os.environ.get(CLIENT_ID_ENV) or "").strip() or (CLIENT_ID or "").strip()
 
 
 def app_slug() -> str:
-    return (os.environ.get(APP_SLUG_ENV) or APP_SLUG or "").strip()
+    return (os.environ.get(APP_SLUG_ENV) or "").strip() or (APP_SLUG or "").strip()
 
 
 def available() -> bool:
-    """Whether this build can connect by code (its app is registered)."""
+    """Whether this build can connect by code: false only when the client id is blank."""
     return bool(client_id())
 
 
@@ -381,8 +382,8 @@ async def check_installation(client: tier2.Client, login: str | None = None) -> 
 
 
 def register_url(*, name: str = "Cicada Memory", homepage: str = "https://cicada.rorosaga.com") -> str:
-    """The one-click registration (the owner's step): GitHub's *Register new GitHub App* form, filled in by URL
-    parameters with :data:`MANIFEST`'s read-only permissions. GitHub's manifest flow says the same thing but needs a
+    """The one-click registration — done once for Cicada's own app (2026-11-04), kept for a fork registering its own:
+    GitHub's *Register new GitHub App* form, filled in by URL parameters with :data:`MANIFEST`'s read-only permissions. GitHub's manifest flow says the same thing but needs a
     POST form and a page of Cicada's to receive the result; this is a link. Device sign-in is then one tick in the
     app's settings ("Enable Device Flow"): neither form can set it."""
     params = {"name": name, "description": MANIFEST["description"], "url": homepage, "public": "true",
@@ -391,7 +392,9 @@ def register_url(*, name: str = "Cicada Memory", homepage: str = "https://cicada
 
 
 #: What the app asks for, in the manifest's own shape (``docs/architecture/network.md`` quotes it): read-only, no
-#: webhook, no events, public so anyone running Cicada can install it on their own account.
+#: webhook, no events, public so anyone running Cicada can install it on their own account. The registered app
+#: (``github.com/apps/cicada-memory``) carries exactly these permissions; until its owner makes it public on GitHub,
+#: only that account can install it.
 MANIFEST: dict = {
     "name": "Cicada Memory",
     "description": "Cicada reads your repositories and the ones you starred, read-only, into your own memory.",
