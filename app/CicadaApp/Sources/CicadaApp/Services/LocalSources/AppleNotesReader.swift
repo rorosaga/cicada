@@ -99,7 +99,24 @@ enum AppleNotesReader {
 
     /// Read here, then posted — every Sync now and onboarding's tick come through this one path.
     static func syncNow(run: Runner = runOsascript) async throws -> NoteSyncResult {
-        try await APIClient.shared.syncNotes(dump: read(run: run))
+        let (dump, accounts) = split(try await read(run: run))
+        return try await APIClient.shared.syncNotes(dump: dump, accounts: accounts)
+    }
+
+    /// 2026-11-04 — the script ends each record with the note's account; it travels BESIDE the dump (`noteAccounts`,
+    /// by note id), never in it: a backend that predates it checks a record's field count and would skip every 9-field
+    /// record, while it ignores an unknown key. Pure; tested. A record without the field passes through unchanged.
+    static func split(_ raw: String) -> (dump: String, accounts: [String: String]) {
+        var accounts: [String: String] = [:]
+        let records = raw.components(separatedBy: recordSeparator).map { record -> String in
+            var fields = record.components(separatedBy: fieldSeparator)
+            guard fields.count == 9 else { return record }
+            let account = fields.removeLast().trimmingCharacters(in: .whitespacesAndNewlines)
+            let id = fields[0].trimmingCharacters(in: .whitespacesAndNewlines)
+            if !id.isEmpty, !account.isEmpty { accounts[id] = account }
+            return fields.joined(separator: fieldSeparator)
+        }
+        return (records.joined(separator: recordSeparator), accounts)
     }
 
     /// Pure, so the mapping is tested without a real `osascript`. -1743 is `errAEEventNotPermitted`: the person

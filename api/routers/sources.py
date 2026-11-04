@@ -1714,7 +1714,7 @@ async def sync_notes(
     """
     memory_path = settings.memory_path
 
-    result = await notes_sync.sync_notes(memory_path, dump=request.notes_dump)
+    result = await notes_sync.sync_notes(memory_path, dump=request.notes_dump, accounts=request.note_accounts)
 
     sync_state.record_sync(memory_path, "notes", count=int(result.get("total") or 0))
 

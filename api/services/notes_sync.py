@@ -231,7 +231,7 @@ def _index_entry(episode_id: str, note: NoteRecord, known: dict | None = None) -
             "account": account, "folder": folder}
 
 
-async def sync_notes(memory_path: Path, *, dump: str) -> dict[str, Any]:
+async def sync_notes(memory_path: Path, *, dump: str, accounts: dict[str, str] | None = None) -> dict[str, Any]:
     """Parse ``dump`` and write one episode per new or modified note.
 
     A brand-new note id -> new episode. A previously-seen note whose
@@ -252,6 +252,11 @@ async def sync_notes(memory_path: Path, *, dump: str) -> dict[str, Any]:
     """
     memory_path = Path(memory_path)
     notes = parse_notes_dump(dump)
+    # 2026-11-04 — the app sends each note's account beside the dump (`note_accounts`), so a backend that predates it
+    # still reads the 8-field records; a ninth field in the dump itself is read too.
+    for note in notes:
+        if not note.account and accounts and (named := accounts.get(note.note_id)):
+            note.account = " ".join(str(named).split())[:120]
     excluded_folders = {
         f.strip().casefold()
         for f in os.environ.get("CICADA_NOTES_EXCLUDE_FOLDERS", "").split(",")

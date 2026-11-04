@@ -84,6 +84,17 @@ def test_notes_index_places_each_note_and_an_unchanged_note_is_placed_without_a_
 
 
 
+def test_the_route_takes_each_notes_account_beside_the_dump(client, bank):
+    """The app sends the account by note id beside 8-field records, so an older backend still reads every note."""
+    dump = RS.join([_note("n1", "Plan", "Work", fields=8), _note("n2", "List", "Notes", fields=8)])
+    r = client.post("/sources/sync-notes", json={"notesDump": dump, "noteAccounts": {"n1": "iCloud", "x": "Other"}})
+    assert r.status_code == 200, r.text
+    assert (_index(bank)["n1"]["account"], _index(bank)["n2"]["account"]) == ("iCloud", None)
+    # Without the key (an older app), nothing is placed and nothing breaks.
+    assert client.post("/sources/sync-notes", json={"notesDump": dump}).status_code == 200
+    assert _index(bank)["n1"]["account"] == "iCloud"
+
+
 def test_notes_collections_are_accounts_then_folders_and_a_folder_narrows_the_items(bank, monkeypatch):
     async def _no_commit(*a, **k):
         return None

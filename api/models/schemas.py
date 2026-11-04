@@ -5028,6 +5028,9 @@ class NotesSyncRequest(CamelModel):
     # The raw delimited dump the companion app read from Notes.app
     # (`AppleNotesReader.swift`). Required: the backend never runs osascript.
     notes_dump: str
+    # 2026-11-04 — each note's Notes account by note id ("iCloud", "On My Mac", a mail account's name), beside the dump
+    # rather than in it, so a backend that predates it ignores the key and still reads every note.
+    note_accounts: Optional[dict[str, str]] = Field(default=None, max_length=100_000)
 
 
 class NotesSyncResponse(CamelModel):

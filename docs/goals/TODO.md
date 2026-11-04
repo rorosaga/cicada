@@ -12,6 +12,20 @@
 
 ## Current state and evidence
 
+- **2026-11-04 — This Mac source pages: accounts → collections → items (G161, G154, G95; branch `this-mac-sources`,
+  PR #599, on top of `sources-standard-layout` #593).** Owner: Apple Notes, Reminders, Contacts and Calendar "should
+  have a better user experience and UI". One browser fills the standard page's content slot (`ThisMacSourceContent`):
+  accounts by real provider with their own marks → folders/calendars/lists → items, one search, the Reader as the item
+  view; Contacts as faces (photo, else monogram); recorders as recorder → folder → meetings (day · length). Backend:
+  `GET /sources/channels/{id}/collections`, `items?collection=`, Notes' account beside the dump (`noteAccounts`), the
+  calendars and lists each sync named kept in `sync_state`. Root causes fixed as classes: Contacts read Off until a
+  sync (the catalogue needed the bank's recorded sync, not the reader's own switch — every reader this Mac runs now
+  reads Connected while allowed and on); Wispr Flow's bundled mark was never claimed; app removal was read from its
+  database, which outlives the app (now LaunchServices, *Off · not installed*); Hex's folder posted every file twice
+  before a meeting showed (now *Connect Hex* reads the found folder once, ~1.9 s to the list on a scratch run).
+  Calendar's "Google account" was a standing *Add a Google account* line, retired. **Not reproduced:** Hex's "no
+  conversations" (dev with Hex-format files lists them; the owner's real folder's shapes match the parser, checked by
+  structure only). **Left for the layout PR:** move *Connect Hex* and the not-installed state into `SourceConnectArea`.
 - **2026-11-03 — GitHub connects with a code; your repositories are pages; a project lists its repositories (ruling
   53, G230; branch `feat/g230-oauth-sync`).** Owner: "why are you asking for a token for github? cant we just do oauth?"
   and "always sync and make their initial markdowns … a project might reference several repos". Connect GitHub shows
