@@ -139,6 +139,10 @@ def test_a_written_form_with_a_plus_replaces_one_without(home):
     f"Bob's number is {A}", "call him on (202) 555-0143", "202.555.0143 is Bob", "tel:+12025550143",
     "her number is 202 555 0143", "phone: 2025550143", "su celular es 202 555 0143", "Ana's new number is 2025550143",
     "call Ana at 202-555-0143", "mi móvil: 202 555 0143", "I was texting Ana on 2025550143",
+    # The owner's own scenario: how a number is really typed to a texted agent.
+    "Ana 2025550143", "add Ana, 2025550143", "Bob Example 2025550177", "she's on 2025550143", "Ana: 202 555 0143",
+    "Bob Example: 202 555 0143", "Ana at 2025550143", "add ana 2025550143", "Ana 612 345 678", "Ana 06 12 34 56 78",
+    "save my sister Ana 5550143", "Ana 2025550143 please", "he is on 2025550143",
 ])
 def test_these_are_numbers(home, line):
     out, n = phone_numbers.tokenise(line, "b")
@@ -152,8 +156,15 @@ def test_these_are_numbers(home, line):
     # G81 review, item 5: a bare run needs a positive signal, never the mere absence of a negative one.
     "my order number is 123456789", "my passport number is 123456789", "my flight number is 123456789",
     "see example.com/product-1234567890", "write to 5550100000@example.com", "it sold for 1 299 000 000",
-    "we met at 40.7128 -74.0060", "isbn 978-0-306-40615-7", "on 12 03 2026 14 30", "Bob 2025550143",
-    "Bob Example: 202 555 0143", "her membership number is 123456789", "phone: 5550100000@example.com",
+    "we met at 40.7128 -74.0060", "isbn 978-0-306-40615-7", "on 12 03 2026 14 30",
+    "her membership number is 123456789", "phone: 5550100000@example.com",
+    # G81 review 3, item 8.
+    "see example.com/x?phone=1234567890", "example.com/samsung-phone-1234567890", "tel-1234567890.pdf",
+    "call him at 1030 1100",
+    # A name's word is not enough: #502's lost words stay in both directions.
+    "Bob 1500000", "Tesla 1500000", "Sold 123456789", "Invoice 123456789", "Order 1234567890", "Monday 12 03 2026",
+    "Room 101 102 103", "Years 2024 2025 2026", "Bob 1 299 000 000", "Bob 2025550143 dollars", "Grew by 1500000 users",
+    "Ana 1999-2003-2010", "Ana 2026-10-28 10:30", "2025550143", "ping Ana 192.168.1.10", "Budget 1500000",
 ])
 def test_these_are_not(home, line):
     assert phone_numbers.tokenise(line, "b") == (line, 0)
@@ -192,7 +203,7 @@ def test_only_the_persons_own_words_are_tokened(bank, on):
 def test_a_forwarded_message_is_someone_elses_words(bank, on):
     message = SimpleNamespace(key="k", from_me=True, unsent=False, forwarded_from={"name": "x"}, text=f"call {A}")
     phone_numbers.tokenise_batch([message], {}, writer="whatsapp", bank=bank.name)
-    assert A in message.text
+    assert "[redacted]" in message.text and not phone_numbers.has_token(message.text)
 
 
 def test_no_digit_of_a_chats_number_reaches_any_file_of_the_bank(bank, on):
@@ -918,7 +929,7 @@ def test_messages_the_owners_own_case_through_the_real_reader(bank, tmp_path, on
         lines = body.split("\n")
         assert phone_numbers.has_token(lines[0]) and "[redacted]" in lines[1]
         assert A_DIGITS not in body and "202 555 0143" not in body
-        assert lines[2].endswith("and Bob Example 2025550177")   # no positive signal: the words stay, as today
+        assert phone_numbers.has_token(lines[2]) and B_DIGITS not in body
         assert sync()["updated"] == 0 and stored(bank) == before
     finally:
         db.close()
@@ -930,7 +941,7 @@ def test_messages_turning_it_on_moves_no_stored_byte(bank, tmp_path, monkeypatch
         sync()
         before = stored(bank)
         (body, _fm), = before.values()
-        assert body.startswith("user: Add Ana Diaz, her number is [redacted]") and B_DIGITS in body
+        assert body.startswith("user: Add Ana Diaz, her number is [redacted]") and B_DIGITS in body   # as it was stored
         phone_numbers.set_enabled(True)
         assert sync()["updated"] == 0
         assert stored(bank) == before
@@ -947,8 +958,8 @@ def test_messages_tokens_the_persons_words_too(tmp_path, home, on):
     message = messages_source.Message(key="k1", ts="2026-09-01T10:00:00+00:00", from_me=True, text=f"add Ana, {A}")
     agent = messages_source.Message(key="k2", ts="2026-09-01T10:00:05+00:00", from_me=False, text=f"Added Ana at {A}")
     phone_numbers.tokenise_batch([message, agent], {}, writer=messages_source.SCRUB_WRITER, bank=memory.name)
-    assert phone_numbers.has_token(message.text) and agent.text.endswith(A)
-    assert "[redacted]" in episode_scrub.scrub_for(agent.text, messages_source.SCRUB_WRITER)[0]
+    assert phone_numbers.has_token(message.text)
+    assert "[redacted]" in agent.text and not phone_numbers.has_token(agent.text)
 
 
 def test_the_note_stage_one_is_given_holds_no_digit():
@@ -1129,10 +1140,12 @@ def test_item_7_while_off_a_pages_digits_are_as_they_were(bank):
     assert A in path.read_text()
 
 
-def test_item_7_a_token_never_reaches_prose_even_while_off(bank):
+def test_round_3_item_7_while_off_not_one_byte_of_any_page_changes(bank):
     path = bank / "entities" / "x.md"
-    markdown_parser.write(path, {"name": "X", "type": "person"}, "Her number is [number:abcdefghij].")
-    assert "[number:" not in path.read_text()
+    body = f"She quotes [number:abcdefghij] and {A}."
+    markdown_parser.write(path, {"name": "X", "type": "person"}, body)
+    assert body in path.read_text()
+    assert phone_numbers.clean_page(body, bank) == body
 
 
 def test_item_7_a_digit_fact_from_a_conversation_with_no_token_leaves_the_prose(home, on):
@@ -1221,8 +1234,8 @@ def test_item_8_the_trash_keeps_the_vault_beside_the_bank_and_a_restored_bank_fi
     memory = root / "banks" / "alpha"
     (memory / "episodes").mkdir(parents=True)
     t = tok(memory, A)
-    (memory / "episodes" / "ep_2026-08-20_001.md").write_text(f"---\nid: x\n---\nuser: her number is {t}")
-    trashed = root / ".trash" / "alpha-20261104T000000"
+    (memory / "episodes" / "ep_2026-08-20_001.md").write_text(f"---\nid: x\norigin: whatsapp\n---\nuser: her number is {t}")
+    trashed = root / ".trash" / "alpha-20261104T000000Z"
     trashed.parent.mkdir(parents=True)
     phone_numbers.park_for_trash("alpha", trashed)
     parked = trashed.with_name(f"{trashed.name}.numbers.json")
@@ -1240,7 +1253,7 @@ def test_item_8_emptying_the_trash_takes_the_digits(tmp_path, home):
     memory = root / "banks" / "alpha"
     (memory / "episodes").mkdir(parents=True)
     tok(memory, A)
-    trashed = root / ".trash" / "alpha-20261104T000000"
+    trashed = root / ".trash" / "alpha-20261104T000000Z"
     trashed.parent.mkdir(parents=True)
     phone_numbers.park_for_trash("alpha", trashed)
     assert A_DIGITS[-4:] not in every_byte(people_directory.folder("alpha")).decode() if people_directory.folder("alpha").exists() else True
@@ -1391,7 +1404,7 @@ def test_item_12_a_damaged_switch_is_off(home):
 def test_item_12_the_yes_is_recorded_with_who_and_when_and_private(home):
     record = phone_numbers.set_enabled(True)
     saved = json.loads(phone_numbers._switch_path().read_text())
-    assert saved == record and saved["on"] is True and saved["by"] == "person" and saved["at"]
+    assert saved == record and saved["on"] is True and saved["by"] == "api-token" and saved["at"]
     assert stat.S_IMODE(phone_numbers._switch_path().stat().st_mode) == 0o600
 
 
@@ -1451,4 +1464,273 @@ def test_an_agent_restating_the_same_number_changes_nothing_new(memory):
                                     object_kind="literal")
     assert out["action"] != "error"
     assert [o for o, c in _phones(memory).items() if c.valid_to is None] == [t]
+
+
+# ---- the review of bb8145a2 ----
+
+def _harness_session(memory, line):
+    ep = "ep_2026-08-19_001"
+    markdown_parser.write(memory / "episodes" / f"{ep}.md", {"id": ep, "origin": "claude-code", "source": "claude-code"}, f"user: {line}")
+    return ep
+
+
+def test_round_3_the_owners_own_lines_through_a_real_ingest(bank, on):
+    ingest(bank, [row("AAA1", T0, "add Ana, 2025550143", me=True), row("AAA2", T0 + 5, "Added Ana at 2025550143"),
+                  row("AAA3", T0 + 9, "Bob Example 2025550177", me=True), row("AAA4", T0 + 14, "she's on 2025550143", me=True),
+                  row("AAA5", T0 + 20, "and my new number is 2025550166")])
+    (body, _fm), = stored(bank).values()
+    lines = body.split("\n")
+    assert phone_numbers.has_token(lines[0]) and phone_numbers.has_token(lines[2]) and phone_numbers.has_token(lines[3])
+    assert lines[0].split(", ")[1] == lines[3].split("on ")[1]     # one number, one token
+    assert "[redacted]" in lines[1] and "[redacted]" in lines[4]
+    assert "[number:" not in lines[1] and "[number:" not in lines[4]
+    raw = every_byte(bank)
+    for digits in (A_DIGITS, B_DIGITS, "2025550166"):
+        assert digits.encode() not in raw
+    # the vault holds only what the person gave
+    assert "2025550166" not in people_directory.path(bank.name, phone_numbers.VAULT_FILE).read_text()
+
+
+def test_round_3_the_echo_and_the_correspondent_posted_again_move_nothing(bank, on):
+    lines = [row("AAA1", T0, "add Ana, 2025550143", me=True), row("AAA2", T0 + 5, "Added Ana at 2025550143"),
+             row("AAA3", T0 + 9, "my new number is 2025550166")]
+    ingest(bank, lines)
+    before = stored(bank)
+    assert ingest(bank, lines)["updated"] == 0
+    assert stored(bank) == before
+
+
+def test_round_3_old_bare_lines_stored_while_off_never_move_when_switched_on(bank):
+    lines = [row("AAA1", T0, "add Ana, 2025550143", me=True), row("AAA2", T0 + 5, "Added Ana at 2025550143")]
+    ingest(bank, lines)
+    before = stored(bank)
+    (body, _fm), = before.values()
+    assert A_DIGITS in body      # as stored before the switch: it stays, and a re-read does not rewrite it
+    phone_numbers.set_enabled(True)
+    assert ingest(bank, lines)["updated"] == 0
+    assert stored(bank) == before
+
+
+def test_round_3_a_bare_number_beside_a_name_reaches_the_page_as_a_token(memory):
+    page(memory, "ana-diaz", "Ana Diaz")
+    line, n = phone_numbers.tokenise("add Ana Diaz, 2025550143", memory)
+    assert n == 1
+    t = phone_numbers.token(phone_numbers.token_ids(line)[0])
+    _file(memory, "2026-08-20", line, t)
+    assert _phones(memory)[t].valid_to is None
+
+
+def test_round_3_seven_digits_beside_a_person_this_memory_knows(memory):
+    page(memory, "ana-diaz", "Ana Diaz", aliases=["Anita"])
+    bank_index.invalidate()
+    assert phone_numbers.tokenise("Ana 5550143", memory)[1] == 1
+    assert phone_numbers.tokenise("Anita 5550143", memory)[1] == 1
+    assert phone_numbers.tokenise("Tesla 5550143", memory)[1] == 0
+
+
+def test_round_3_a_known_false_positive_is_pinned_and_the_digits_are_kept(memory):
+    """A capitalised word no list knows, then nine digits or more, ending the clause: read as a name. The vault keeps it."""
+    line, n = phone_numbers.tokenise("Tesla 2025550143", memory)
+    assert n == 1
+    tid = phone_numbers.token_ids(line)[0]
+    assert phone_numbers.reveal(memory, [tid])[tid] == "2025550143"
+
+
+def test_round_3_item_1_a_session_that_mentions_the_shape_is_no_token(memory):
+    _harness_session(memory, "the token looks like [number:abcdefghij] in the bank")
+    page(memory, "feature", "Feature", type_="concept")
+    (memory / "entities" / "note.md").write_text("---\nname: Note\n---\nIt quotes [number:klmnopqrst].\n")
+    assert phone_numbers.bank_token_ids(memory) == set()
+    assert phone_numbers.problem(memory) is None
+    assert phone_numbers.mint_many(memory, [A])
+
+
+def test_round_3_item_1_a_real_token_is_found_in_a_chat_a_claim_or_a_held_line(memory):
+    ep = "ep_2026-08-20_001"
+    markdown_parser.write(memory / "episodes" / f"{ep}.md", {"id": ep, "origin": "whatsapp", "source": "whatsapp"},
+                          "user: Ana [number:abcdefghij]\nassistant: [number:zzzzzzzzzz]")
+    assert phone_numbers.bank_token_ids(memory) == {"abcdefghij"}
+
+
+def _trashed(root, name, stamp="20261104T000000Z"):
+    trashed = root / ".trash" / f"{name}-{stamp}"
+    trashed.parent.mkdir(parents=True, exist_ok=True)
+    phone_numbers.park_for_trash(name, trashed)
+    people_directory.forget(name)
+    return trashed.with_name(f"{trashed.name}.numbers.json")
+
+
+def _bank_at(root, name):
+    memory = root / "banks" / name
+    (memory / "episodes").mkdir(parents=True, exist_ok=True)
+    return memory
+
+
+def _chat_episode(memory, t):
+    (memory / "episodes" / "ep_2026-08-20_001.md").write_text(f"---\nid: x\norigin: whatsapp\n---\nuser: Ana {t}")
+
+
+def test_round_3_item_2_a_new_bank_of_a_trashed_name_inherits_nothing(tmp_path, home):
+    root = tmp_path / "root"
+    old = _bank_at(root, "alpha")
+    t = tok(old, A)
+    _chat_episode(old, t)
+    parked = _trashed(root, "alpha")
+    # a brand new bank takes the name
+    import shutil
+
+    shutil.rmtree(old)
+    fresh = _bank_at(root, "alpha")
+    tid = phone_numbers.mint_many(fresh, [B])[B]
+    assert parked.exists() and A not in phone_numbers.reveal(fresh, phone_numbers.token_ids(t)).values()
+    assert phone_numbers.reveal(fresh, [tid]) == {tid: B}
+
+
+def test_round_3_item_2_a_similar_name_never_takes_it(tmp_path, home):
+    root = tmp_path / "root"
+    old = _bank_at(root, "work-old")
+    t = tok(old, A)
+    _chat_episode(old, t)
+    parked = _trashed(root, "work-old")
+    other = _bank_at(root, "work")
+    _chat_episode(other, t)      # even holding the same letters: the stamp is not its name's
+    assert phone_numbers.problem(other) is not None and parked.exists()
+    assert not people_directory.path("work", phone_numbers.VAULT_FILE).exists()
+
+
+def test_round_3_item_2_the_old_bank_restored_still_finds_it(tmp_path, home):
+    root = tmp_path / "root"
+    old = _bank_at(root, "alpha")
+    t = tok(old, A)
+    _chat_episode(old, t)
+    parked = _trashed(root, "alpha")
+    assert phone_numbers.problem(old) is None
+    assert not parked.exists()
+    assert phone_numbers.reveal(old, phone_numbers.token_ids(t)) == {phone_numbers.token_ids(t)[0]: A}
+
+
+@pytest.mark.parametrize("switch", [True, False])
+def test_round_3_item_3_a_re_post_with_the_vault_gone_rewrites_nothing(bank, on, switch):
+    lines = [row("AAA1", T0, f"Ana's number is {A}", me=True), row("AAA2", T0 + 5, "her number is 202 555 0177", me=True)]
+    ingest(bank, lines)
+    for path in (bank / "episodes").glob("*.md"):
+        parsed = markdown_parser.parse(path)
+        markdown_parser.write(path, {**parsed.frontmatter, "processed": True, "processed_by": "sleep"}, parsed.body)
+    bank_index.invalidate()
+    before = stored(bank)
+    people_directory.path(bank.name, phone_numbers.VAULT_FILE).unlink()
+    phone_numbers.set_enabled(switch)
+    assert ingest(bank, lines)["updated"] == 0
+    assert stored(bank) == before
+
+
+def test_round_3_item_3_after_a_new_vault_a_re_post_rewrites_nothing(bank, on):
+    lines = [row("AAA1", T0, f"Ana's number is {A}", me=True)]
+    ingest(bank, lines)
+    before = stored(bank)
+    _damage(bank)
+    phone_numbers.new_vault(bank)
+    assert ingest(bank, lines)["updated"] == 0
+    assert stored(bank) == before
+
+
+def test_round_3_item_4_a_healthy_vault_is_never_set_aside(memory, client):
+    t = tok(memory, A)
+    tid = phone_numbers.token_ids(t)[0]
+    out = client.post("/people/numbers/new-vault")
+    assert out.status_code == 409 and "fine" in out.json()["detail"]
+    assert phone_numbers.reveal(memory, [tid]) == {tid: A}
+    with pytest.raises(phone_numbers.VaultHealthy):
+        phone_numbers.new_vault(memory)
+
+
+def test_round_3_item_4_the_person_has_a_door(client):
+    from api.services import cli_map
+
+    assert "numbers new-vault" in {r.name for r in cli_map.rows() if r.person}
+
+
+def test_round_3_item_5_any_other_page_is_never_touched(memory):
+    path = memory / "entities" / "acme.md"
+    body = (f"Grew by 2025550143 users. Call [chat](https://example.com/{A_DIGITS}) or [calls](tel:+{A_DIGITS}). "
+            f"Our number is {A}. Quote [number:abcdefghij].")
+    markdown_parser.write(path, {"name": "Acme", "type": "company"}, body)
+    assert body in path.read_text()
+    assert not people_directory.path(memory.name, phone_numbers.VAULT_FILE).exists()
+
+
+def test_round_3_item_5_a_persons_page_keeps_its_links_and_other_digits(memory):
+    t = tok(memory, B)
+    path = memory / "entities" / "ana-diaz.md"
+    body = (f"[chat](https://example.com/{A_DIGITS}) and [calls](tel:+{A_DIGITS}) and https://example.com/{A_DIGITS} "
+            f"her ticket is 2025550199 and she has 2025550188 points, quoting [number:abcdefghij], her number is {t}.")
+    markdown_parser.write(path, {"name": "Ana Diaz", "type": "person"}, body)
+    text = path.read_text()
+    assert f"(https://example.com/{A_DIGITS})" in text and f"(tel:+{A_DIGITS})" in text and f"https://example.com/{A_DIGITS} " in text
+    assert "2025550199" in text and "2025550188" in text and "[number:abcdefghij]" in text
+    assert t not in text and "her number is a number" in text
+
+
+@pytest.mark.parametrize("line", [
+    "not sure if her new number is {t}", "I don't have her new number, I only have {t}",
+    "got a new phone, her number is {t}", "maybe her new number is {t}", "is her new number {t}?", "her new number might be {t}",
+    "no sé si su nuevo número es {t}", "I think she changed her number to {t}",
+])
+def test_round_3_item_6_a_hedged_line_asks(memory, line):
+    page(memory, "ana-diaz", "Ana Diaz")
+    held, said = tok(memory, A), tok(memory, B)
+    _file(memory, "2026-08-20", f"Ana Diaz's number is {held}", held)
+    out = _file(memory, "2026-08-25", "Ana Diaz: " + line.format(t=said), said)
+    numbers = _phones(memory)
+    assert numbers[held].valid_to is None and numbers[said].context == phone_numbers.ASKED
+    assert [n for n in out["nudges"] if n["action"] == "divergence_nudge"]
+
+
+@pytest.mark.parametrize("label", ["contact", "reachable_at", "sms", "signal"])
+def test_round_3_item_8_these_labels_become_tokens(memory, label):
+    page(memory, "ana-diaz", "Ana Diaz")
+    out = agentic_write.write_claim(memory, "Ana Diaz", label, A, observer="external:claude-code", object_kind="literal")
+    assert out["action"] != "error"
+    assert A_DIGITS not in (memory / "entities" / "ana-diaz.md").read_text()
+
+
+def test_round_3_item_8_a_claims_sentence_holds_no_number(memory):
+    page(memory, "ana-diaz", "Ana Diaz")
+    agentic_write.write_claim(memory, "Ana Diaz", "knows", "Bob Example", observer="external:claude-code",
+                              text="her number is 2025550143")
+    assert A_DIGITS not in (memory / "entities" / "ana-diaz.md").read_text()
+
+
+def test_round_3_item_8_the_old_one_was_when_a_number_is_on_the_line(home):
+    out, n = phone_numbers.tokenise("her new number is 2025550143, the old one was 2025550177", "b")
+    assert n == 2 and not any(c.isdigit() for c in out)
+    assert phone_numbers.tokenise("the old one was 2025550177", "b")[1] == 0
+
+
+def test_round_3_item_8_a_budget_after_a_number_stays_in_the_words(home):
+    out, n = phone_numbers.tokenise("her number is 2025550143 and 1500000 is the budget", "b")
+    assert n == 1 and "1500000" in out
+
+
+def test_round_3_item_8_a_page_born_by_write_new_is_checked_too(memory):
+    path = memory / "entities" / "new.md"
+    markdown_parser.write_new(path, {"name": "New", "type": "person"}, f"Her number is {A}.")
+    assert A_DIGITS not in path.read_text() and "202 555 0143" not in path.read_text()
+
+
+def test_round_3_item_9_the_record_says_what_asked(client):
+    client.put("/people/numbers/switch", json={"on": True})
+    assert json.loads(phone_numbers._switch_path().read_text())["by"] == "api-token"
+
+
+def test_round_3_the_count_only_script_prints_counts_only(memory):
+    from api.scripts import numbers_rule_dry_run
+
+    ep = "ep_2026-08-20_001"
+    markdown_parser.write(memory / "episodes" / f"{ep}.md", {"id": ep, "origin": "whatsapp", "source": "whatsapp"},
+                          "user: Ana 2025550143\nuser: order 2025550177\nassistant: Added Ana at 2025550143")
+    counts = numbers_rule_dry_run.run(memory)
+    assert counts["would_token"] == 1 and counts["digit_runs_left"] == 1 and counts["other_lines_would_redact"] == 1
+    assert all(isinstance(v, int) for v in counts.values())
+    assert not people_directory.path(memory.name, phone_numbers.VAULT_FILE).exists()
 

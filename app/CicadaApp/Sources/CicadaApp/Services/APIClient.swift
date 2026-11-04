@@ -2785,6 +2785,12 @@ actor APIClient {
         try? await post("/people/numbers/reveal", body: ["tokens": tokens])
     }
 
+    /// Proposed ruling 55: `POST /people/numbers/new-vault` — the person's own way out of a lost file; the old one is kept
+    /// aside, and it is refused while the file works.
+    func startNewNumberFile() async {
+        let _: Data? = try? await post("/people/numbers/new-vault")
+    }
+
     /// G154: the whole address book, as names and which facts each card holds (never a value).
     func syncLocalContacts(_ payload: ContactsSyncPayload) async throws -> ContactsSyncResult {
         try await postData("/sources/contacts-local/sync", json: try JSONEncoder().encode(payload))

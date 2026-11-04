@@ -20,19 +20,23 @@ nothing is minted and every path is byte for byte what it was. A bank that alrea
 (the note and the conversion follow the token, not the switch), so turning it off never strands them.
 
 **What counts as a number.** A token replaces the digits in the stored words, so a bare digit run needs a positive signal
-that it is a phone: a phone word right before it ("phone:", "su celular es"), a number word owned by someone ("her number
-is", "Ana's new number is", not "my order number is"), or a call to reach them ("call Ana at"). Absence of a negative is
-not a signal. The shapes the chat scrub already destroys count too: a token loses less than ``[redacted]``. A bare run
-with none of these stays in the words, exactly as today: false negatives over lost words (#502).
+that it is a phone: a phone word right before it ("phone:", "su celular es"), a number word somebody owns ("her number is",
+not "my order number is"), a call to reach them ("call Ana at"), a pronoun ("she's on"), or a person's name right beside
+it with the run ending the clause ("Ana 2025550143", "add Ana, 2025550143", "Bob Example 2025550177"): how a number is
+really typed to a texted agent. A capitalised word is a name only at nine digits or more, or when it names a person
+already in this memory, or follows "add" or "save"; a word that says the digits are something else ("Order", "Invoice",
+"Monday") is never one. Absence of a negative is not a signal. A bare run with none of these stays in the words, exactly
+as today: false negatives over lost words (#502).
 
 **Why old chats are not re-read.** A stored sitting is rebuilt from its own body, so a stored line never passes through
 here; and a line a reader posts again keeps its stored words when they are what the old scrub or this one makes of it
 (:func:`tokenise_batch`). Only a new message, or a real edit, can hold a new token. Numbers already ``[redacted]`` stay
 redacted: the app could re-post them, but that is a person-started read for the owner to ask for, not what a switch does.
 
-**Whose words.** Only the person's own lines are tokenised. An agent's reply and another speaker's line keep today's
-redaction: the agent's echo is not evidence, and a correspondent's "my new number is X" is exactly the shape of the
-"hi, it's me, new number" fraud, so it never reaches a page. A forwarded message is someone else's words too.
+**Whose words.** Only the person's own lines are tokenised. An agent's reply and another speaker's line are redacted by the
+same rule, bare digits included: the agent's echo is not evidence, and a correspondent's "my new number is X" is exactly
+the shape of the "hi, it's me, new number" fraud, so it never reaches a page. A forwarded message is someone else's words
+too.
 
 **A vault that cannot be read is never replaced.** Damaged, unreadable, or gone while the bank holds tokens:
 :class:`VaultUnavailable`, in words (:func:`problem`), the file kept, no new key. New numbers are redacted as they are
@@ -93,9 +97,9 @@ ASK_CARD = "card"
 
 #: The words that make a value a phone (:func:`is_phone_label`); the rest of a label may only qualify it.
 _PHONE_WORDS = frozenset("phone telephone tel cell cellphone mobile whatsapp movil móvil celular telefono teléfono "
-                         "telefon téléphone telephon portable handy wsp".split())
-_LABEL_FILLER = frozenset("has have the his her their is a an of at value number numbers no num nr contact work home "
-                          "personal office new current main private business second other old previous former".split())
+                         "telefon téléphone telephon portable handy wsp sms signal".split())
+_LABEL_FILLER = frozenset("has have the his her their is a an of at value number numbers no num nr contact reachable work "
+                          "home personal office new current main private business second other old previous former".split())
 _ONLY_DIGITS = re.compile(r"^(?:tel:)?[+()\d][\d .\-()]{5,22}\d$", re.IGNORECASE)
 
 
@@ -137,9 +141,10 @@ def enabled() -> bool:
     return on
 
 
-def set_enabled(on: bool, *, by: str = "person") -> dict:
-    """The one writer of the switch (`PUT /people/numbers/switch`, `cicada numbers`). The record says who and when: this
-    file is where a person's yes lives on their own Mac."""
+def set_enabled(on: bool, *, by: str = "api-token") -> dict:
+    """The one writer of the switch (`PUT /people/numbers/switch`, `cicada numbers switch`). The record says when and by
+    what: **the route cannot tell the person from anything else holding this Mac's API token**, so it records the token,
+    never "person". The CLI refuses from an agent's own shell; a process calling the route directly is not stopped."""
     global _switch_memo
     record = {"on": bool(on), "at": datetime.now(timezone.utc).isoformat(), "by": by}
     path = _switch_path()
@@ -187,16 +192,16 @@ def same_number(held: str | None, new_token: str, settings) -> bool:
 
 
 def is_phone_label(label: str | None) -> bool:
-    """Whether a claim's label says phone: "phone", "phone_number", "mobile number", "has_phone", "tel", a bare
-    "number" or "contact number". Never "membership number", "order number" or "mobile app version": every word must be a
-    phone word or a word that only qualifies one."""
+    """Whether a claim's label says phone: "phone", "phone_number", "mobile number", "has_phone", "tel", "sms", "signal",
+    "reachable_at", "contact", a bare "number" or "contact number" (a caller also requires the value to be digits). Never
+    "membership number", "order number" or "mobile app version": every word must be a phone word or only qualify one."""
     words = [w for w in re.split(r"[\s_\-/:]+", str(label or "").strip().casefold()) if w]
     if not words:
         return False
     rest = [w for w in words if w not in _LABEL_FILLER]
     if rest:
         return all(w in _PHONE_WORDS for w in rest)
-    return "number" in words or "numbers" in words
+    return bool({"number", "numbers", "contact", "reachable"} & set(words))
 
 
 def _digits(raw: str | None) -> str:
@@ -274,23 +279,57 @@ def _read(name: str) -> dict | None:
     return data
 
 
-def _holds_tokens(memory_path: Path) -> bool:
-    """Whether this bank points at a vault. Read only when the vault file is missing, so once per bank at first use."""
-    for sub in ("entities", "episodes"):
-        folder = memory_path / sub
-        if not folder.is_dir():
-            continue
-        for file in folder.iterdir():
+_CHAT_ORIGINS = ("imessage", "whatsapp", "telegram-chats")
+_FM_ORIGIN = re.compile(r"^(?:origin|source): *['\"]?([\w-]+)", re.MULTILINE)
+_PERSON_LINE = re.compile(r"^user: .*$", re.MULTILINE)
+
+
+def bank_token_ids(memory_path: Path) -> set[str]:
+    """The tokens this bank really holds: a ``phone`` claim's object, a person's own line in a ticked chat, a held claim.
+    Never a mere mention: a harness session or a page that talks about this feature can quote ``[number:<letters>]``, and
+    that points at no vault. Read only when the vault file is missing, so once per bank at first use."""
+    found: set[str] = set()
+
+    def claims_in(text: str) -> None:
+        for line in text.splitlines():
+            if '"predicate": "phone"' in line or '"predicate":"phone"' in line:
+                m = re.search(r'"object": ?"\[number:([a-z]{10})\]"', line)
+                if m:
+                    found.add(m.group(1))
+
+    entities = memory_path / "entities"
+    if entities.is_dir():
+        for file in entities.iterdir():
             try:
-                if file.is_file() and "[number:" in file.read_text(encoding="utf-8", errors="ignore"):
-                    return True
+                if file.is_file():
+                    text = file.read_text(encoding="utf-8", errors="ignore")
+                    if "[number:" in text:
+                        claims_in(text)
             except OSError:
                 continue
+    episodes = memory_path / "episodes"
+    if episodes.is_dir():
+        for file in episodes.iterdir():
+            try:
+                text = file.read_text(encoding="utf-8", errors="ignore") if file.is_file() else ""
+            except OSError:
+                continue
+            if "[number:" not in text or not text.startswith("---"):
+                continue
+            head, _sep, body = text[3:].partition("\n---")
+            if not any(o in _CHAT_ORIGINS for o in _FM_ORIGIN.findall(head)):
+                continue
+            for line in _PERSON_LINE.findall(body):
+                found.update(TOKEN_RE.findall(line))
     pending = memory_path / "pending_entities.jsonl"
     try:
-        return pending.is_file() and "[number:" in pending.read_text(encoding="utf-8", errors="ignore")
+        if pending.is_file():
+            text = pending.read_text(encoding="utf-8", errors="ignore")
+            if "[number:" in text:
+                found.update(re.findall(r'"predicate": ?"phone"[^}]*?"object": ?"\[number:([a-z]{10})\]"', text))
     except OSError:
-        return False
+        pass
+    return found
 
 
 def park_for_trash(name: str, trashed_to: Path) -> None:
@@ -310,18 +349,30 @@ def park_for_trash(name: str, trashed_to: Path) -> None:
 
 
 def _restore_parked(memory_path: Path) -> bool:
-    """A bank back from the trash finds its vault there (:func:`park_for_trash`), the newest for its name."""
+    """A bank back from the trash finds its OWN vault there (:func:`park_for_trash`). Own means: the file is stamped for
+    exactly this name (``work`` never reads ``work-old``'s) and it holds tokens this bank holds. A new bank that merely
+    reuses a trashed name holds none of them, so it inherits nothing, and the trashed vault stays for the bank it belongs
+    to. Newest first."""
+    held = bank_token_ids(memory_path)
+    if not held:
+        return False
+    stamped = re.compile(re.escape(memory_path.name) + r"-\d{8}T\d{6}Z\.numbers\.json")
     for root in (memory_path.parent, memory_path.parent.parent):
         trash = root / ".trash"
         if not trash.is_dir():
             continue
-        parked = sorted(trash.glob(f"{memory_path.name}-*.numbers.json"))
-        if parked:
-            people_directory.ensure(memory_path.name)
-            target = people_directory.path(memory_path.name, VAULT_FILE)
-            os.replace(parked[-1], target)
-            os.chmod(target, 0o600)
-            return True
+        for parked in sorted((p for p in trash.iterdir() if stamped.fullmatch(p.name)), reverse=True):
+            try:
+                data = json.loads(parked.read_text(encoding="utf-8"))
+                numbers = data.get("numbers") if isinstance(data, dict) else None
+            except (OSError, ValueError):
+                continue
+            if isinstance(numbers, dict) and held & set(numbers):
+                people_directory.ensure(memory_path.name)
+                target = people_directory.path(memory_path.name, VAULT_FILE)
+                os.replace(parked, target)
+                os.chmod(target, 0o600)
+                return True
     return False
 
 
@@ -336,7 +387,7 @@ def _load(bank) -> dict:
             data = _read(name)
             if data is not None:
                 return data
-        if _holds_tokens(bank):
+        if bank_token_ids(bank):
             raise VaultUnavailable(_GONE)
     return {"key": base64.b64encode(secrets.token_bytes(32)).decode("ascii"), "numbers": {}}
 
@@ -345,7 +396,7 @@ def problem(bank) -> str | None:
     """The sentence to show when the vault can't be used, for this bank, in words; ``None`` when it can."""
     try:
         with _vault_lock(bank):
-            if _read(_name(bank)) is None and isinstance(bank, Path) and _holds_tokens(bank):
+            if _read(_name(bank)) is None and isinstance(bank, Path) and bank_token_ids(bank):
                 if not _restore_parked(bank):
                     return _GONE
     except VaultUnavailable as exc:
@@ -353,10 +404,18 @@ def problem(bank) -> str | None:
     return None
 
 
+class VaultHealthy(Exception):
+    """A new vault was asked for while this one works: nothing was touched."""
+
+
 def new_vault(bank) -> dict:
     """The person's own act, when a vault is lost: a damaged or unreadable file is set aside whole, never deleted, and a
-    new key begins. Old tokens stay in memory and show nothing; a number said again reads as a new one and asks."""
+    new key begins. Old tokens stay in memory and read "a number"; a number said again reads as a new one and asks.
+    :class:`VaultHealthy`, changing nothing, while the vault can be used: setting aside a working one would make every
+    number on every page unreadable."""
     name = _name(bank)
+    if problem(bank) is None:
+        raise VaultHealthy("The private file that holds your numbers is fine, so nothing was changed.")
     with _vault_lock(bank):
         current = people_directory.path(name, VAULT_FILE)
         kept = None
@@ -493,6 +552,8 @@ _QUALIFIER = (r"new|old|current|work|home|personal|second|other|former|previous|
 _WHOSE = (r"[^\W\d_]+['’]s|[^\W\d_]+s['’]|my|his|her|their|your|mi|su|tu|sa|son|ma|meu|seu|mein|sein|ihre?|"
           r"(?:el|la|le|o|a)\s+(?:" + _QUALIFIER + r")?\s*(?:de|del|d['’])\s*[^\W\d_]+")
 _DIGITS = r"\+?\(?\d[\d .\-()]{5,20}\d"
+#: No dot: a decimal, a version or a coordinate is not how a bare phone beside a name is written.
+_BARE = r"\(?\d[\d \-()]{5,20}\d"
 _LINK = (r"\s*[:=\-–→,]?\s*(?:(?:it['’]?s|it is|that['’]?s|is|was|are|were|es|son|era|est|ist|é|now|ahora|from|de|desde|von|"
          r"to|a|at|on|por|al)\s+){0,3}")
 #: A positive signal, nothing less: a phone word, a number word somebody owns, or a call to reach them.
@@ -502,28 +563,62 @@ _SAID_RE = re.compile(
     rf"|(?:{_WHOSE})\s+(?:(?:{_QUALIFIER}|{_PHONE_WORD})\s+){{0,2}}(?:{_NUMBER_WORD})"
     rf"|(?:{_NUMBER_WORD})\s+de\s+[^\W\d_]+"
     r"|(?:call(?:ing)?|text(?:ing)?|ring|message|reach|llam\w*|escr[ií]b\w*)\s+(?:[^\W\d_]+\s+){0,2}(?:at|on|al|en)\s+"
-    rf"){_LINK}(?P<num>{_DIGITS})(?![\w@])(?![.\-/]\d)")
+    rf"){_LINK}(?P<num>{_DIGITS})")
+#: "the old one was 2025550177": a number only when the line already holds one or names one.
+_ONE_RE = re.compile(rf"(?i)\b(?:{_QUALIFIER})\s+one\s+(?:was|is|es|era)\s+(?P<num>{_BARE})")
+#: "she's on 2025550143", "he is at 2025550143".
+_PRONOUN_RE = re.compile(rf"(?i)(?<![\w])(?:she|he|they|ella|[eé]l|ellos)(?:['’]s|['’]re|\s+is|\s+are|\s+est[aá])?\s+"
+                         rf"(?:on|at|en|al)\s+(?P<num>{_BARE})")
+#: A word or two and then the number: "Ana 2025550143", "add Ana, 2025550143", "Bob Example: 202 555 0143", "Ana at …".
+_NAMED_RE = re.compile(rf"(?P<name>[^\W\d_][\w'’\-]*)(?:['’]s)?(?:\s*[:,\-–]\s*|\s+(?:at|on|al|en)\s+|\s+)(?P<num>{_BARE})")
 #: "from <number> to <number>", "<number> and <number>": once one is a number, the next in the list is too.
-_NEXT_RE = re.compile(rf"(?i)\s*(?:,|and|y|or|o|to|a|por|→|->|/)\s*(?P<num>{_DIGITS})(?![\w@])(?![.\-/]\d)")
-#: The word before that says this is not somebody's phone, even with a phone word near: "phone order number 12345678".
+_NEXT_RE = re.compile(rf"(?i)\s*(?:,|and|y|or|o|to|a|por|→|->|/)\s*(?P<num>{_DIGITS})")
+#: After a bare number beside a name, the clause must end: "Bob 1500000 dollars" is not a phone, nor is "1500000 is the
+#: budget". The words here are the ones that follow a phone.
+_CLAUSE_ENDS = re.compile(r"(?i)\s*(?:$|[,.;!?)\n]|(?:and|y|or|o|thanks|thank you|please|pls|gracias|por favor|merci|danke|"
+                          r"is (?:her|his|their|my)|es (?:su|mi)|now|ahora)\b)")
+#: After a strong signal the clause may go on, but not into a unit.
+_UNIT_AFTER = re.compile(r"(?i)\s*(?:%|\$|€|£|usd|eur|gbp|mxn|dollars?|euros?|pesos?|pounds?|km|kg|miles|users|people|"
+                         r"followers|views|times|visits|items|is the\b|are the\b|was the\b)")
+#: Who may ask a run of 7 or 8 digits to be a phone: too few digits for a capitalised word alone to say so.
+_ADD_VERBS = frozenset("add added adding save saved saving store stored note noted put keep remember añade añadir agrega agregar "
+                       "guarda guardar apunta apuntar ajoute enregistre".split())
+#: The word before that says this is not somebody's phone, whatever else is near.
 _NOT_A_PHONE = frozenset(
     "order orders tracking account invoice flight booking reservation reference ref case ticket confirmation serial "
     "card room rooms seat table page pages version model part sku item id code zip postcode price cost total paid pay "
     "budget amount salary rent balance year years date membership passport license licence member customer pedido vuelo "
-    "cuenta factura reserva habitación precio pagado pasaporte commande vol facture bestellung konto rechnung".split())
+    "cuenta factura reserva habitación precio pagado pasaporte commande vol facture bestellung konto rechnung "
+    "isbn iban vin nit rfc dni ssn pin otp tax lot batch receipt chapter gate bus train route product policy claim user client "
+    "sold bought raised earned spent worth grew lost gained made owes owed "
+    "monday tuesday wednesday thursday friday saturday sunday january february march april may june july august september "
+    "october november december lunes martes miércoles jueves viernes sábado domingo enero febrero marzo abril mayo "
+    "junio julio agosto septiembre octubre noviembre diciembre".split())
 _DATEISH = re.compile(r"^(?:\d{4}[-/. ]\d{1,2}[-/. ]\d{1,2}|\d{1,2}[-/. ]\d{1,2}[-/. ]\d{2,4})(?:\D|$)")
 _YEAR_GROUP = re.compile(r"^(?:19|20)\d{2}$")
 
 
 def _plausible(raw: str) -> bool:
-    """A digit run after a positive signal, still never a date, an IP address or a year list."""
+    """A digit run after a positive signal, still never a date, an IP address, a year list, a range of times or a price."""
     text = raw.strip()
     if _DATEISH.match(text) or re.fullmatch(r"\d{1,3}(?:\.\d{1,3}){3}", text):
         return False
     groups = [g for g in re.split(r"[ .\-()]+", text) if g]
     if len(groups) > 1 and all(_YEAR_GROUP.match(g) for g in groups):
         return False
+    if len(groups) == 2 and all(3 <= len(g) <= 4 and int(g) <= 2400 for g in groups):
+        return False      # "1030 1100": a time and a time
+    if len(groups) > 2 and len(groups[0]) <= 2 and all(len(g) == 3 for g in groups[1:]) and groups[0] != "0":
+        return False      # "1 299 000 000": a price. "612 345 678" keeps three digits in front, and "06 12 34" two in each
     return MIN_DIGITS <= len(_digits(text)) <= MAX_DIGITS
+
+
+def _stands_alone(text: str, start: int, end: int) -> bool:
+    """Whether the digits are a word of their own: never a piece of a link, an address, a file name or a key=value."""
+    left = text[max(text.rfind(" ", 0, start), text.rfind("\n", 0, start)) + 1:start]
+    right_end = min((i for i in (text.find(" ", end), text.find("\n", end)) if i != -1), default=len(text))
+    right = text[end:right_end]
+    return bool(re.fullmatch(r"[\w'’]*:?|\(", left)) and bool(re.fullmatch(r"[,.;:!?)]*", right))
 
 
 def _before(text: str, at: int) -> set[str]:
@@ -531,7 +626,46 @@ def _before(text: str, at: int) -> set[str]:
     return {w.lower() for w in re.findall(r"[^\W\d_]+", text[:at])[-3:]}
 
 
-def _spans(text: str) -> list[tuple[int, int, str]]:
+def _known_person(bank, word: str) -> bool:
+    """Whether ``word`` is a word of a person page's name or alias in this memory. Reads the cached index, only for a run
+    of 7 or 8 digits that nothing else vouches for."""
+    if not isinstance(bank, Path):
+        return False
+    try:
+        from api.services import bank_index
+
+        fold = word.casefold()
+        for f in bank_index.files(bank, "entities"):
+            fm = f.frontmatter or {}
+            if fm.get("type") == "person":
+                names = [str(fm.get("name") or "")] + [str(a) for a in fm.get("aliases") or []]
+                if any(fold in n.casefold().split() for n in names):
+                    return True
+    except Exception:  # noqa: BLE001 - an unreadable index vouches for nothing; the digits stay in the words
+        return False
+    return False
+
+
+def _named(text: str, m: re.Match[str], bank) -> bool:
+    """Whether the word before a bare run is a person's name, and the run a phone."""
+    word, raw = m.group("name"), m.group("num")
+    if word.casefold().rstrip("'’s") in _NOT_A_PHONE or word.casefold() in _NOT_A_PHONE:
+        return False
+    if _before(text, m.start("num")) & _NOT_A_PHONE:
+        return False
+    if not _CLAUSE_ENDS.match(text, m.end("num")):
+        return False
+    words_before = re.findall(r"[^\W\d_]+", text[:m.start("name")])
+    # "add my sister Ana": the verb may stand a word or two back.
+    asked = bool(set(w.casefold() for w in words_before[-3:]) & _ADD_VERBS)
+    capital = word[0].isupper()
+    digits = len(_digits(raw))
+    if digits >= MATCH_DIGITS and (capital or asked):
+        return True
+    return asked and capital or _known_person(bank, word)
+
+
+def _spans(text: str, bank="") -> list[tuple[int, int, str]]:
     """Every number in the person's line: ``(start, end, raw)``, earliest first, none overlapping."""
     found: list[tuple[int, int, str]] = []
 
@@ -539,26 +673,40 @@ def _spans(text: str) -> list[tuple[int, int, str]]:
         if not any(start < e and s < end for s, e, _ in found):
             found.append((start, end, raw))
 
+    def bare(m: re.Match[str]) -> bool:
+        return _plausible(m.group("num")) and _stands_alone(text, m.start("num"), m.end("num"))
+
     for rx in episode_scrub.PHONE_SHAPES:   # the shapes the chat scrub already destroys: a token loses less
         for m in rx.finditer(text):
             if episode_scrub.phone_shaped(m):
                 add(m.start(), m.end(), m.group(0))
     for m in _SAID_RE.finditer(text):
-        raw, start = m.group("num"), m.start("num")
-        if not _plausible(raw) or _before(text, m.start()) & _NOT_A_PHONE or _before(text, start) & _NOT_A_PHONE:
+        if not bare(m) or _UNIT_AFTER.match(text, m.end("num")):
             continue
-        add(start, m.end("num"), raw)
+        if _before(text, m.start()) & _NOT_A_PHONE or _before(text, m.start("num")) & _NOT_A_PHONE:
+            continue
+        add(m.start("num"), m.end("num"), m.group("num"))
         end = m.end("num")
-        while (follow := _NEXT_RE.match(text, end)) and _plausible(follow.group("num")):
+        while (follow := _NEXT_RE.match(text, end)) and bare(follow) and _CLAUSE_ENDS.match(text, follow.end("num")):
             add(follow.start("num"), follow.end("num"), follow.group("num"))
             end = follow.end("num")
+    for m in _PRONOUN_RE.finditer(text):
+        if bare(m) and _CLAUSE_ENDS.match(text, m.end("num")):
+            add(m.start("num"), m.end("num"), m.group("num"))
+    for m in _NAMED_RE.finditer(text):
+        if bare(m) and _named(text, m, bank):
+            add(m.start("num"), m.end("num"), m.group("num"))
+    if found or re.search(rf"(?i)\b(?:{_NUMBER_WORD}|{_PHONE_WORD})\b", text):
+        for m in _ONE_RE.finditer(text):
+            if bare(m) and _CLAUSE_ENDS.match(text, m.end("num")):
+                add(m.start("num"), m.end("num"), m.group("num"))
     return sorted(found)
 
 
 def tokenise(text: str, bank) -> tuple[str, int]:
     """The person's own line with each number replaced by its token; ``(text, how many)``. With a vault that can't be
     used, the numbers are redacted, as the scrub does today, and it says so: no digit reaches the bank by a failure."""
-    spans = _spans(text or "")
+    spans = _spans(text or "", bank)
     if not spans:
         return text, 0
     try:
@@ -577,10 +725,21 @@ def tokenise(text: str, bank) -> tuple[str, int]:
     return "".join(out) + text[last:], count
 
 
+def redact(text: str, bank) -> str:
+    """Somebody else's line: what this rule calls a number, redacted, bare digits included. Never in the vault: it is not
+    the person's word."""
+    spans = _spans(text or "", bank)
+    out, last = [], 0
+    for start, end, _raw in spans:
+        out += [text[last:start], episode_scrub.REDACTED]
+        last = end
+    return "".join(out) + text[last:]
+
+
 def _retoken(text: str, bank) -> str:
     """The line as this rule would store it, minting nothing: a number the vault doesn't know stays as digits."""
     out, last = [], 0
-    for start, end, raw in _spans(text or ""):
+    for start, end, raw in _spans(text or "", bank):
         tid = known_id(bank, raw)
         if tid:
             out += [text[last:start], token(tid)]
@@ -589,30 +748,43 @@ def _retoken(text: str, bank) -> str:
 
 
 def _shape(text: str) -> str:
-    """A line with its numbers, tokens and redactions all blanked: what is left to compare when the vault can't be read."""
+    """A line with its numbers, tokens and redactions all blanked: what is left to compare when the vault can't answer."""
     masked = TOKEN_RE.sub("#", text or "").replace(episode_scrub.REDACTED, "#")
     return re.sub(_DIGITS, "#", masked)
 
 
+def _vault_knows(tokens: list[str], bank) -> bool:
+    try:
+        data = _read(_name(bank))
+    except VaultUnavailable:
+        return False
+    return bool(data) and all(t in data["numbers"] for t in tokens)
+
+
 def _is_stored_line(posted: str, stored: str, writer: str, bank) -> bool:
     """Whether a line posted again is the line already stored: what today's scrub, or this rule, makes of it. The token of
-    an EDITED number differs, so a real edit is never read as a re-post while the vault can be read."""
+    an EDITED number differs, so a real edit is never read as a re-post while the vault knows the stored line's numbers.
+    While it doesn't (damaged, missing, or a new one begun), the line's words decide: a stored line is never rewritten for
+    a lost vault, in any direction. The cost: an edit to only the digits of a number waits for a vault to be readable."""
     cleaned = episode_scrub.scrub_for(posted, writer)[0]
     if cleaned == stored:
         return True
-    if not has_token(stored):
-        return False
-    try:
-        return episode_scrub.scrub_for(_retoken(posted, bank), writer)[0] == stored
-    except VaultUnavailable:
+    tokens = token_ids(stored)
+    if tokens:
+        if _vault_knows(tokens, bank):
+            return episode_scrub.scrub_for(_retoken(posted, bank), writer)[0] == stored
         return _shape(cleaned) == _shape(stored)
+    if episode_scrub.REDACTED in stored:   # a number once redacted by this rule: a lost vault, or somebody else's line
+        return episode_scrub.scrub_for(redact(posted, bank), writer)[0] == stored
+    return False
 
 
 def tokenise_batch(messages: list, stored: dict, *, writer: str, bank) -> int:
-    """Incoming chat messages, before the stager (`messages_source.ingest`, `chat_live.ingest`). Only the person's own
-    new or edited words are tokenised. A message posted again keeps its stored words (:func:`_is_stored_line`), so an old
-    sitting's body, its hash and the Sleep queue do not move: an edit in place reads as a revision, and a re-read of old
-    chats would cost a model call each. ``stored``: ``{message key: stored message}``. Returns how many were tokenised."""
+    """Incoming chat messages, before the stager (`messages_source.ingest`, `chat_live.ingest`). The person's own new or
+    edited words are tokenised; anyone else's are redacted by the same rule. A message posted again keeps its stored words
+    (:func:`_is_stored_line`), so an old sitting's body, its hash and the Sleep queue do not move: an edit in place reads
+    as a revision, and a re-read of old chats would cost a model call each. ``stored``: ``{message key: stored message}``.
+    Returns how many were tokenised."""
     on = enabled()
     if not on and not any(has_token(getattr(m, "text", "")) for m in stored.values()):
         return 0
@@ -624,9 +796,13 @@ def tokenise_batch(messages: list, stored: dict, *, writer: str, bank) -> int:
         if old is not None and _is_stored_line(m.text, old.text, writer, bank):
             m.text = old.text
             continue
-        if on and m.from_me and not getattr(m, "forwarded_from", None):
+        if not on:
+            continue
+        if m.from_me and not getattr(m, "forwarded_from", None):
             m.text, n = tokenise(m.text, bank)
             count += n
+        else:
+            m.text = redact(m.text, bank)
     return count
 
 
@@ -698,19 +874,24 @@ def _raw_person_span(content: str, raw: str, episode_id: str, *, override, gaps)
     return None
 
 
-def clean_prose(text: str, bank, *, on: bool | None = None) -> str:
-    """Prose with no token and, while the feature is on, no number: each kept in the vault (so nothing is lost) and said
-    as "a number". With the vault unavailable the digits still leave the prose: the promise is the page."""
-    text = TOKEN_RE.sub("a number", text or "")
-    if not (enabled() if on is None else on):
+_LINK_TARGET = re.compile(r"\]\([^)\n]*\)|<[a-z]+:[^>\n]*>|\b(?:https?://|www\.)\S+", re.IGNORECASE)
+
+
+def clean_prose(text: str, bank) -> str:
+    """Prose with no number, while the feature is on: each kept in the vault, so nothing is lost, and said as "a number".
+    A link's target is never touched. With the vault unavailable the words stay: a damaged file never costs a page words."""
+    text = text or ""
+    if not enabled():
         return text
-    spans = _spans(text)
+    links = [m.span() for m in _LINK_TARGET.finditer(text)]
+    spans = [s for s in _spans(text, bank) if not any(a <= s[0] < b for a, b in links)]
     if not spans:
         return text
     try:
         mint_many(bank, [raw for _s, _e, raw in spans])
     except VaultUnavailable:
-        logger.warning("A number left a page's text without being kept: the private number file can't be used")
+        logger.warning("A number stayed in a page's text: the private number file can't be used")
+        return text
     out, last = [], 0
     for start, end, _raw in spans:
         out += [text[last:start], "a number"]
@@ -719,33 +900,44 @@ def clean_prose(text: str, bank, *, on: bool | None = None) -> str:
 
 
 def clean_page(body: str, bank) -> str:
-    """An entity page's body as it may be written (`markdown_parser.write`, the one place every page goes through): its
-    prose cleaned, its claims fence untouched. The check is here so no writer has to remember it."""
+    """A person's page as it may be written (`markdown_parser`, every page writer). **Off: not one byte changes.** On: a
+    token this vault minted is said as "a number", and a number becomes one, outside the claims fence and outside a link's
+    target. Only a person's page: a company's public phone, a link or a count on any other page is not this rule's."""
+    if not enabled():
+        return body
     from api.services.claims import _CLAIMS_BLOCK_RE
 
-    on = enabled()
-    if not on and "[number:" not in (body or ""):
-        return body
+    try:
+        data = _read(_name(bank)) or {}
+    except VaultUnavailable:
+        data = {}
+    minted = data.get("numbers") or {}
+
+    def prose(text: str) -> str:
+        return clean_prose(TOKEN_RE.sub(lambda m: "a number" if m.group(1) in minted else m.group(0), text), bank)
+
     parts, last = [], 0
     for m in _CLAIMS_BLOCK_RE.finditer(body):
-        parts += [clean_prose(body[last:m.start()], bank, on=on), m.group(0)]
+        parts += [prose(body[last:m.start()]), m.group(0)]
         last = m.end()
-    parts.append(clean_prose(body[last:], bank, on=on))
+    parts.append(prose(body[last:]))
     return "".join(parts)
 
 
-def _clean_strings(value, loose: re.Pattern[str] | None, bank, on: bool):
-    """Stage 1's prose: a fact holding a number is dropped, any other string says "a number"."""
+def _clean_strings(value, loose: re.Pattern[str] | None, bank, on: bool, person: bool):
+    """Stage 1's prose: a fact holding one of this conversation's tokens is dropped, any other string says "a number". On
+    a person's entity, while on, the same for a number in digits. Another entity's digits are not this rule's."""
     def holds(text: str) -> bool:
-        return has_token(text) or bool(loose and loose.search(text)) or (on and bool(_spans(text)))
+        return bool(loose and loose.search(text)) or has_token(text) or (on and person and bool(_spans(text, bank)))
 
     if isinstance(value, str):
-        text = clean_prose(value, bank, on=on)
-        return loose.sub("a number", text) if loose else text
+        text = TOKEN_RE.sub("a number", value)
+        text = loose.sub("a number", text) if loose else text
+        return clean_prose(text, bank) if on and person else text
     if isinstance(value, list):
-        return [_clean_strings(v, loose, bank, on) for v in value if not (isinstance(v, str) and holds(v))]
+        return [_clean_strings(v, loose, bank, on, person) for v in value if not (isinstance(v, str) and holds(v))]
     if isinstance(value, dict):
-        return {k: _clean_strings(v, loose, bank, on) for k, v in value.items()}
+        return {k: _clean_strings(v, loose, bank, on, person) for k, v in value.items()}
     return value
 
 
@@ -807,7 +999,7 @@ def take(entities: list, relationships: list, values: list, content: str, episod
                  ] + entries
     for i, entity in enumerate(entities):
         if isinstance(entity, dict):
-            entities[i] = _clean_strings(entity, loose, bank, on)
+            entities[i] = _clean_strings(entity, loose, bank, on, str(entity.get("type") or "person") == "person")
     named = {str(e.get("name") or "").casefold() for e in entities if isinstance(e, dict)}
     for entry in entries:
         # What is held for a name waits on its pending line, so the name must be one Stage 2 parks.
@@ -820,31 +1012,39 @@ def take(entities: list, relationships: list, values: list, content: str, episod
 
 # ---- what the person's line says ---------------------------------------------------------------------------------
 
-_NUM = (r"(?:numbers?|n[uú]meros?|num[eé]ros?|nummer|phone|cell(?:phone)?|mobile|m[oó]vil|celular|tel[eé]fono|telefon|"
-        r"t[eé]l[eé]phone)")
+_NUM_ONLY = r"(?:numbers?|n[uú]meros?|num[eé]ros?|nummer)"
+_DEVICE = r"(?:phone|cell(?:phone)?|mobile|m[oó]vil|celular|tel[eé]fono|telefon|t[eé]l[eé]phone)"
+_NUM = rf"(?:{_NUM_ONLY}|{_DEVICE})"
 _OLD = r"(?:old|former|previous|antigu[oa]|viej[oa]|anterior|ancien(?:ne)?|velho|alte[rs]?)"
 _NEW = r"(?:new|nuev[oa]|nouveau|nouvelle|novo|nova|neue?[rs]?)"
 _CHANGE_VERB = r"(?:chang\w+|updat\w+|switch\w+|replac\w+|cambi\w+|actualiz\w+|mudou|ge[aä]ndert)"
-#: Each says it of the number word, next to it. "new job", "I was talking to Ana" and "now" alone say nothing: they ask.
+_IS = r"(?:is|es|est|ist|era|:|=|-)"
+#: Each must lead straight to the number: "new job", "got a new phone, her number is X" and "her new number, I only have X"
+#: say nothing about X, so they ask. A device word counts only when it is what is being given ("her new mobile is X").
 _CHANGED_BEFORE = re.compile(
-    rf"(?i)\b{_NEW}\s+(?:(?:phone|cell|mobile)\s+)?{_NUM}\b"
-    rf"|\b{_CHANGE_VERB}\s+(?:[^\W\d_]+\s+){{0,2}}{_NUM}\b"
-    rf"|\b{_NUM}\s+(?:[^\W\d_]+\s+)?{_CHANGE_VERB}\b"
+    rf"(?i)\b{_NEW}\s+(?:{_DEVICE}\s+)?{_NUM}(?:\s+de\s+[^\W\d_]+)?\s*(?:{_IS}|now|ahora)?\s*(?:now\s*|ahora\s*)?$"
+    rf"|\b{_CHANGE_VERB}\s+(?:[^\W\d_]+\s+){{0,2}}{_NUM}\s*(?:to|a|por|,\s*it['’]?s|,\s*now|:|=)?\s*$"
+    rf"|\b{_NUM}\s+(?:has\s+|just\s+)?{_CHANGE_VERB}\s*(?:to|a|por|:|=)?\s*$"
     rf"|\b{_NUM}\s+(?:is|es|est)\s+(?:now|ahora|maintenant)\s*$"
     rf"|\b(?:now|ahora)\s+(?:[^\W\d_]+\s+){{0,2}}{_NUM}\s+(?:is|es)\s*$")
-_CHANGED_AFTER = re.compile(rf"(?i)^\W*(?:is|es)\s+(?:[^\W\d_]+\s+)?{_NEW}\s+{_NUM}\b")
+_CHANGED_AFTER = re.compile(rf"(?i)^\W*(?:is|es)\s+(?:[^\W\d_]+\s+)?{_NEW}\s+{_NUM}\s*[.!]?\s*$")
 _PAST_BEFORE = re.compile(
     rf"(?i)\b{_OLD}\s+(?:[^\W\d_]+\s+)?(?:{_NUM}|one|uno|una)\s*(?:was|is|were|era|es|:|=|-)?\s*$"
     r"|\bused to be\s*$")
-_PAST_AFTER = re.compile(rf"(?i)^\W*(?:was|is|era|es)\s+(?:[^\W\d_]+\s+)?{_OLD}\b")
+_PAST_AFTER = re.compile(rf"(?i)^\W*(?:was|is|era|es)\s+(?:[^\W\d_]+\s+)?{_OLD}\s+{_NUM}\b")
 #: "changed from <old> to <new>": the token right after one of these, on a line a change word opens.
-_FROM_BEFORE = re.compile(r"(?i)\b(?:from|de|desde|instead of|en vez de|en lugar de|von|au lieu de)\s+$")
+_CHANGE_FROM = re.compile(rf"(?i)\b{_CHANGE_VERB}\s+(?:[^\W\d_]+\s+){{0,2}}{_NUM}\s+(?:from|de|desde|von)\s+$")
 _TO_BEFORE = re.compile(r"(?i)^\W*(?:to|a|por|→|->|zu|in)\W*$")
 _ADDITIONAL_BEFORE = re.compile(
     rf"(?i)\b(?:work|office|home|second|other|another|personal|business|landline|trabajo|oficina|casa|fij[oa]|otr[oa]|"
-    rf"segund[oa]|travail|autre|arbeit|zweite)\s+(?:[^\W\d_]+\s+)?{_NUM}\b"
-    r"|\b(?:also|too|tambi[eé]n|aussi|auch)\s+(?:has|have|uses?|tiene|usa)\b")
+    rf"segund[oa]|travail|autre|arbeit|zweite)\s+(?:[^\W\d_]+\s+)?{_NUM}\s*(?:{_IS})?\s*$"
+    r"|\b(?:also|too|tambi[eé]n|aussi|auch)\s+(?:has|have|uses?|tiene|usa)\s*$")
 _ADDITIONAL_AFTER = re.compile(r"(?i)^\W*(?:too|as well|tambi[eé]n|aussi|auch)\b")
+#: A line that doubts itself changes nothing: it asks. "not sure if her new number is X", "I don't have her new number".
+_HEDGE = re.compile(
+    r"(?i)\b(?:not sure|unsure|don['’]?t (?:have|know|think)|do not (?:have|know)|doesn['’]?t|didn['’]?t|isn['’]?t|wasn['’]?t|"
+    r"not (?:her|his|their)|maybe|might|perhaps|possibly|probably|i think|i guess|i believe|i only|if|whether|wrong|"
+    r"no s[eé]|no tengo|quiz[aá]s|tal vez|creo que|a lo mejor|peut[- ][eê]tre|vielleicht|\?)(?!\w)|\?")
 #: A clause ends at a sentence's end or an "and": what was said of someone before it says nothing of this number.
 _CLAUSE_END = re.compile(r"(?i)[.;!?]\s|\s(?:and|y|et|und|e)\s")
 
@@ -858,14 +1058,17 @@ def _clause(text: str) -> str:
 
 def read_line(line: str) -> dict[str, tuple[str, list[str]]]:
     """``{token id: (how this line relates it to what the page holds, the tokens it replaces)}``, clause by clause: each
-    number is read from the words around it, never from the whole line. A word for it next to the number word, or
-    :data:`UNKNOWN`, which asks. A miss costs one question; a wrong close would silently make the wrong number current."""
+    number is read from the words leading straight to it, never from the whole line, and a line that hedges says nothing.
+    A word for it, or :data:`UNKNOWN`, which asks. A miss costs one question; a wrong close would silently make the wrong
+    number current."""
     tokens = list(TOKEN_RE.finditer(line or ""))
+    if _HEDGE.search(TOKEN_RE.sub(" ", line or "")):
+        return {m.group(1): (UNKNOWN, []) for m in tokens}
     kinds: list[str] = []
     for i, m in enumerate(tokens):
         before = _clause(line[tokens[i - 1].end() if i else 0:m.start()])
         after = line[m.end():tokens[i + 1].start() if i + 1 < len(tokens) else len(line)]
-        if _FROM_BEFORE.search(before) and _CHANGED_BEFORE.search(before):
+        if _CHANGE_FROM.search(before):
             kinds.append(PAST)
         elif i and kinds[i - 1] == PAST and _TO_BEFORE.match(before):
             kinds.append(CHANGED)

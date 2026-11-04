@@ -460,7 +460,8 @@ def numbers_switch(request: Request, settings: Settings = Depends(get_settings))
 
 @router.put("/people/numbers/switch")
 def set_numbers_switch(req: _NumbersSwitch, request: Request, settings: Settings = Depends(get_settings)):
-    """Proposed ruling 55's yes or no, on this Mac (`phone_numbers.set_enabled`): the file every process reads."""
+    """Proposed ruling 55's yes or no, on this Mac (`phone_numbers.set_enabled`): the file every process reads. Recorded
+    as what this route knows: the API token asked, which anything holding it can do."""
     _this_mac_only(request)
     record = phone_numbers.set_enabled(req.on)
     return {**record, "problem": phone_numbers.problem(settings.memory_path)}
@@ -470,7 +471,10 @@ def set_numbers_switch(req: _NumbersSwitch, request: Request, settings: Settings
 def start_new_vault(request: Request, settings: Settings = Depends(get_settings)):
     """The person's own way out of a lost vault: the old file is set aside whole, never deleted (`phone_numbers.new_vault`)."""
     _this_mac_only(request)
-    return phone_numbers.new_vault(settings.memory_path)
+    try:
+        return phone_numbers.new_vault(settings.memory_path)
+    except phone_numbers.VaultHealthy as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.post("/sources/contacts-local/sync", response_model=ContactsLocalSyncResponse, dependencies=_DEMO_GATE)

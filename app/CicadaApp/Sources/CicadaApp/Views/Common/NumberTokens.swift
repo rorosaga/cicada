@@ -80,6 +80,12 @@ struct PersonNumbersRow: View {
                 Text(problem)
                     .font(CicadaTheme.metaFont)
                     .foregroundStyle(CicadaTheme.textSecondary)
+                TextButton(title: Copy.Graph.startNewNumberFile) {
+                    Task {
+                        await APIClient.shared.startNewNumberFile()
+                        await load()
+                    }
+                }
             }
         }
         .task(id: entityId) { await load() }

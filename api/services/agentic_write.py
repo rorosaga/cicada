@@ -365,6 +365,8 @@ def write_claim(
                 "error": str(exc)}
     if number is not None:
         predicate_raw, object_raw, object_kind, text = phone_numbers.PREDICATE, number, "literal", None
+    elif text:
+        text = phone_numbers.clean_prose(text, Path(memory_path))   # a claim's sentence holds no number either
     from api.config import get_settings
     from api.services import owner_identity
     # `get_settings()` (not `None`) so a `CICADA_OBSERVER_OWNER` power-user

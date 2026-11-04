@@ -290,7 +290,8 @@ struct EntityDetailCard: View {
                 } else {
                     PageInShort(relevance: blocks?.relevance ?? entity.relevance)
                 }
-                if entity.type == .person {
+                // Proposed ruling 55: a page with no number draws nothing and asks nothing (DR-81).
+                if entity.type == .person, entity.rawMarkdown.contains("[number:") {
                     PersonNumbersRow(entityId: entity.id)
                 }
                 if showsWhereToCheck {

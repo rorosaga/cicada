@@ -405,6 +405,17 @@ def _replica_check() -> None:
     replica_guard.check("page")
 
 
+def _person_page_body(filepath, frontmatter: dict, body: str) -> str:
+    """Proposed ruling 55: a person's page, while the feature is on, carries no number and no token in its prose, whoever
+    wrote it (`phone_numbers.clean_page`). Any other page, and every page while off, is not touched."""
+    path = Path(filepath)
+    if path.parent.name != "entities" or (frontmatter or {}).get("type") != "person":
+        return body
+    from api.services import phone_numbers
+
+    return phone_numbers.clean_page(body, path.parent.parent)
+
+
 def write(filepath: Path, frontmatter: dict, body: str) -> None:
     """Write a markdown file with YAML frontmatter — atomically (audit A02).
 
@@ -422,11 +433,7 @@ def write(filepath: Path, frontmatter: dict, body: str) -> None:
     the page and lines it loses after it (``claims_ledger.write_plan``), so a crash between the two leaves a claim in
     both files, never in neither."""
     _replica_check()
-    if Path(filepath).parent.name == "entities":
-        # Proposed ruling 55: a page's prose carries no token, and while the feature is on no number, whoever wrote it.
-        from api.services import phone_numbers
-
-        body = phone_numbers.clean_page(body, Path(filepath).parent.parent)
+    body = _person_page_body(filepath, frontmatter, body)
     frontmatter, body, ledger = _split_ledger(Path(filepath), frontmatter, body)
     before = after = None
     if ledger is not None:
@@ -491,7 +498,7 @@ def write_new(filepath: Path, frontmatter: dict, body: str) -> None:
     ``O_EXCL`` create, which still never replaces a file."""
     _replica_check()
     target = Path(filepath)
-    data = _render(frontmatter, body)
+    data = _render(frontmatter, _person_page_body(target, frontmatter, body))
     _forget(target)
     tmp = _stage(target, data)
     _wrote()
