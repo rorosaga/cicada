@@ -17,6 +17,12 @@
   Cicada runs; `name_guard` checks every query and link; a separate search hand holds only cleared queries; Cicada opens
   pages on the link rail. On by default on the Claude plan, off everywhere else. 6 searches, 6 pages, 8 turns a question; 3
   handles and 5 questions a drain. `contacts_book`'s names (#602) are guarded too. Owner decisions are in the ruling's row and the PR.
+- **2026-11-04 — one click to a public address for the connector (ruling 59, G135, G132's D6′; branch
+  `feat/g135-funnel-one-click`).** Owner: yes to D6′, since claude.ai and the phone apps can only reach a public address
+  and `/remote/status` on the live install reported no listener and no funnel. Built and proved on a stand-in binary and a
+  scratch listener; **no real funnel has run**, that is the owner's click. Read-only `tailscale status --json` on this Mac
+  (key names only): HTTPS certificates and the `funnel` attribute are not yet granted, so the first click meets the
+  tailnet step and shows Tailscale's link. Waiting on the owner: that first click and a request from a device off the tailnet.
 - **2026-11-04 — the Contacts page shows every card (G154, G161; branch `g154-contacts-grid`, PR #602).** Owner: "only 6
   contacts synced". Coordinator's numbers: 370 cards waiting, 6 matched, and the page listed the 6; one-part names were
   kept nowhere (196 + 139 raw records across two account sources, which overlap). `contacts_book` keeps every card's names
@@ -1425,6 +1431,27 @@ These are attached to permanent rows instead of becoming a second queue. Older d
 - **G133:** reproduce garbled imported-paper titles with synthetic files. **G103:** humanize raw-predicate fallback. **G76:** distinguish capture enabled from recall connected. **G145/G173:** versioning untouched generated demo data, if the stale-demo trigger persists.
 - **G7:** centrality premise remains unproved; no tracked measurement was found, so it is not archived as done.
 - **G92/G19:** old bank-history size is historical, not permission to rewrite git history. No destructive cleanup is implied.
+
+## Open on the remote listener's public face (review of #607, 2026-11-04)
+
+- **A stranger can hold `/register` at its limit** (`oauth.Limits.register`: one global bucket, 10 then 2 a minute), which
+  blocks a real app's sign-in by registration while it lasts. Pre-existing, and now one click from public. A metadata
+  document client is not affected. Not fixed in #607: a per-source bucket needs its own look, since a tunnel's forwarded
+  source is what the limit would rest on. Row growth from `/authorize` itself is fixed there.
+- **Nothing pushes "another program is public" to a person who never opens the page.** The log and `cicada funnel status`
+  say it too. A Home notice would need its own design.
+- **A notice on Home for an address left open (G135, ruling 59). Required before the one-click address goes beyond the
+  owner and testers.** The mapping is the daemon's and survives a crash, a reboot or a read that couldn't check it at the
+  moment the switch went off (`funnelNote`, seen once). With the connector down, only the page, the log and
+  `cicada funnel status` say so today.
+  Home should say it, read from Tailscale, with the off, whenever an address is open and the listener isn't up.
+
+## Known flaky tests
+
+A test here is not fixed and not skipped: each line says what was seen and on what basis. Look here before chasing a
+failure; add to the counts when one comes back.
+
+None at present.
 
 ## Maintaining this queue
 
@@ -3193,3 +3220,59 @@ A whole row moves to DONE only after its remaining implementation and required a
     **Finding a source:** the model may propose a link literally in a conversation it names, on a page of the question;
     it lands as a proposal in the one grouped review (ruling 36 D5), never opened, trusted or re-checked until taken. Never
     guessed from a name; `sources_removed` holds. A sweep writes no proposals; Sleep does.
+54. **PROPOSED — not binding until the owner says yes (owner direction 2026-11-04; G209; amends ruling 44's public test
+    for this one question; branch `fix/person-dedup-evidence`).** The owner's words, on "is <handle> the same as
+    <person>?": "could've been resolved from a search, like how claude code would solve it if i ask it rn." **Proposed
+    text:** *A question whether a public handle is a named person may be settled by a web lookup on a plan run, with a
+    cited claim, undoable — only when: both sides are person pages, one a handle and the other a full name; neither is
+    the owner, a role-only page, on the person's address book or LinkedIn import, or known personally on the record
+    (ruling 44's local checks); no chat (Messages, WhatsApp, Telegram chats, e-mail, LinkedIn, a profile read on request)
+    says either name outside a link to public content, in its title or as its correspondent; and each name is said in
+    public content the person read or saved (a saved link or bookmark, a watched video, a read page, a paper, a
+    repository, a tab group). What is sent: to the plan's own web search, exactly two pinned queries, each alone — the
+    handle with the one platform word the record links it on (or "@handle"), and the full name; the prompt goes to the
+    engine that already read those conversations, with at most two scrubbed mention lines and nobody else's name. What
+    settles: only a quote, with the link of the public page it came from, that names both the handle and the person.
+    Cicada itself checks that the quote names both, never on the model's word; whether the quote is really on the cited
+    page rests on the lookup, as in ruling 27. It writes one cited "<Name> goes by <handle>" claim on the named page and
+    never merges the pages.
+    Never a metered key; a private person's name never reaches any service.* **Built behind it** (`public_handle`,
+    `web_lookup`'s handle prompt, `cicada_record_check` with `proposed_value="same"`). **Off until the owner rules**
+    (coordinator, 2026-11-04: a privacy-rail change is built switched off and decided by the owner): Sleep's own lookup
+    runs only with `CICADA_PUBLIC_HANDLE_LOOKUP=on`; meanwhile only the person's own local agent, asked by them, may
+    settle one through `cicada_record_check`. A "yes" flips the default; declining this text removes the path.
+    **Measured** on a copy of the owner's bank: of 20 open person pairs, 1 qualifies (the example above); 11 are not a
+    handle against a name, 1 is a held mention, 1 the owner's page. **Disclosed deviation (2026-11-04):** while building
+    this, the worker ran real lookups for that one pair on the bank copy, on the plan with haiku: four calls, each
+    searching the full name alone and the handle (`<handle> twitter` twice, `@<handle>`, `<handle> github`). Each
+    answered "not sure" and nothing was written. That sent a real person's full name to the plan's web
+    search before the owner ruled on this text, which ruling 44 forbids for a person without its encyclopedia match.
+    No more lookups were run; the shipped tier (`web_check_agent_model`, sonnet) never was. **Revisit** if a settled handle is undone by the person, or a name the
+    test called public turns out to be someone they know.
+
+59. **One click may open the connector's own port to the internet (owner, 2026-11-04: "YES to one-click Tailscale Funnel
+    for the claude.ai and phone connector"; G135, G132's D6′; amends G132 (c), the headless rail's "never `funnel`" and the
+    2026-10-29 one-click rail; branch `feat/g135-funnel-one-click`).** Why: claude.ai and the phone apps relay through the
+    remote connector (ruling 32, 57) and can only reach it at a public address. **The rule:** the person's click, or
+    their own shell, may run exactly the shown `tailscale funnel --bg --https=<443|10000> <the connector's port>`, or that
+    one mapping's off (`tailscale funnel --https=<its port> --set-path=/ off`). Off until clicked; never at install, on
+    start, by an agent, or from an agent's shell. No port or argv from a request; the API's port and the door's refused;
+    never `up`, a login or `reset`; a port holding anything is never used; 8443 (the backend's tailnet mapping) is never a
+    candidate; nothing about it is stored, every answer is read back from Tailscale. What is exposed stays MCP and `/v1` on
+    that listener with its tokens and OAuth as they are, consent only in the app by typing the code. **Evidence that decides
+    the code, read from Tailscale's CLI source (v1.104, `serve_v2.go`), not its docs:** a funnel on a held port replaces
+    its `/` without asking and opens every other path on it; an off with no `--set-path` deletes every handler on the port;
+    with Funnel not allowed it prints a link and waits, or exits 0 having changed nothing, so the return code never decides.
+    The obvious `tailscale funnel --bg 8765` from our own docs fights `headless.md`'s example serve of the API on 443: it
+    would have silently taken that serve away and made the connector public there, and made public anything mounted on
+    another path of that port, an API included. Details: `network.md`. **Revisit** if embedded `tsnet` (D6′'s "later") is built, if
+    Tailscale changes those behaviours, or if an app refuses the 10000 address. **In the same PR, the same class on this
+    seam:** `/remote/status`'s `funnelCommand` no longer offers the bare command that took over a held 443 (the port the
+    click would use, or a harmless shell comment when none is safe); `cicada setup` says `cicada funnel on`; *Stop serving*
+    and the copy-only unfunnel now name `--set-path=/`, since without it the CLI deletes every handler on the port (the
+    2026-10-29 rail's shown command changes with them); and what enabling HTTPS publishes, for good, is said before the
+    click. The off keeps its confirmation, as *Stop serving* does (coordinator 2026-11-04; the owner can overrule). **Review
+    of #607, the mapping outlives the listener:** the switch now closes the connector's address in the same act (amends "the
+    switch never touches Tailscale"); a down listener's port is asked, never assumed free; other public mappings are shown
+    with their off to copy and never run, since Cicada keeps no record of what it opened; a clean quit still leaves it open,
+    because only a click may reopen it (`network.md`).
