@@ -247,3 +247,25 @@ def test_a_retired_note_is_never_indexed_for_words(memory):
     finally:
         conn.close()
     assert rows == []
+
+
+def test_a_retired_notes_words_leave_the_index_on_refresh_and_its_vectors_never_reach_a_search(memory):
+    from api.services.vector_index import SqliteVecIndexer
+
+    run(notes_sync.sync_notes(memory, dump=_record("n-later", SECRET, name=TITLE)))
+    episode = markdown_parser.parse(_episodes(memory)[0]).frontmatter["id"]
+    indexer = SqliteVecIndexer.__new__(SqliteVecIndexer)
+    indexer.memory_path = memory
+    hit = {"metadata": {"episode_id": episode}, "text": SECRET}
+    assert indexer._without_locked_notes([hit]) == [hit]
+    if search_index.fts5_available():
+        search_index.rebuild(memory)
+    run(notes_sync.sync_notes(memory, dump="", locked_ids=["n-later"]))
+    assert indexer._without_locked_notes([hit]) == []
+    if search_index.fts5_available():
+        search_index.refresh(memory)
+        conn = search_index._open(search_index.db_path(memory))
+        try:
+            assert conn.execute("SELECT doc_key FROM docs WHERE doc_key LIKE 'episodes/%'").fetchall() == []
+        finally:
+            conn.close()
