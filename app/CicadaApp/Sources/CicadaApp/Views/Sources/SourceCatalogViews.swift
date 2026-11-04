@@ -226,7 +226,8 @@ struct SourceCatalogDetail: View {
         let channel = mine.first
         let watch = channel.flatMap { watcher.state(for: $0.id) }
         let run = SourceRowText.status(channel: channel, watch: watch, run: channel.flatMap { activity?.run(for: $0.id) })
-        return SourcePageStatus.of(row: row.status, run: run, latest: latest, check: chatCheck)
+        return SourcePageStatus.of(row: row.status, run: run, latest: latest, check: chatCheck,
+                                   notInstalled: row.notInstalled)
     }
 
     private var chatCheck: ChatCheck? {
@@ -406,7 +407,12 @@ struct SourceCatalogDetail: View {
             // G95 (2026-11-03) — a meeting folder per row (the folder rows' own grammar), then the way to add one.
             VStack(alignment: .leading, spacing: 2) {
                 ForEach(mine) { FolderChannelRow(channel: $0) }
-                AddMeetingFolderRow(recorder: entry.id == SourceCatalog.hexId ? SourceCatalog.hexId : nil)
+                if entry.id == SourceCatalog.hexId, mine.isEmpty {
+                    // 2026-11-04 — Hex's folder, found and named, read at once on Connect.
+                    HexConnectRow()
+                } else {
+                    AddMeetingFolderRow(recorder: entry.id == SourceCatalog.hexId ? SourceCatalog.hexId : nil)
+                }
             }
         case "folders":
             VStack(alignment: .leading, spacing: 2) {
@@ -620,7 +626,11 @@ struct SourceCatalogDetail: View {
     /// heading — for a source with no list yet (DR-81: an empty section is not drawn); its settings say how to start.
     @ViewBuilder
     private var cameIn: some View {
-        if let overview, overview.kind == .harness {
+        if ThisMacSourceContent.handles(row.entry) {
+            // 2026-11-04 — Apple Notes, Calendar, Reminders, Contacts and the recorders browse accounts → collections
+            // → items (`SourceBrowser`), Contacts as faces, a recorder by folder.
+            ThisMacSourceContent(entry: row.entry, channels: mine)
+        } else if let overview, overview.kind == .harness {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                 SourceSearchHeader(query: $query, prompt: Copy.conversationsFind)
                 HarnessConversationsView(source: overview, onSelectEntity: onSelectEntity, query: query,

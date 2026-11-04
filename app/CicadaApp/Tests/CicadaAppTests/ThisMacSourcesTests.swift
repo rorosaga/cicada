@@ -200,6 +200,32 @@ final class ThisMacSourcesTests: XCTestCase {
         XCTAssertEqual(SourceBrowserText.duration(3_900), "1 h 05 min")
     }
 
+    /// The owner: "if we detect application and we press connect, we should be able to see what the folder for the
+    /// transcriptions is and directly read that folder".
+    func testHexsConnectAreaNamesTheFolderItFound() {
+        let home = URL(fileURLWithPath: "/Users/verify")
+        XCTAssertEqual(HexConnectText.line(found: URL(fileURLWithPath: "/Users/verify/Documents/Hex Meetings"),
+                                           home: home), "Found ~/Documents/Hex Meetings")
+        XCTAssertEqual(HexConnectText.line(found: URL(fileURLWithPath: "/Volumes/Notes/Meetings"), home: home),
+                       "Found /Volumes/Notes/Meetings")
+        XCTAssertEqual(HexConnectText.line(found: nil, home: home), Copy.SourceBrowser.hexNoFolder)
+        XCTAssertEqual(HexConnectText.display(URL(fileURLWithPath: "/Users/verifyx/a"), home: home),
+                       "/Users/verifyx/a", "a sibling of the home folder is not under it")
+    }
+
+    /// Hex's own settings name the folder; with none, Hex's default under Documents.
+    func testHexsFolderIsHexsOwnSettingElseItsDefault() throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("hex-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: home) }
+        XCTAssertEqual(LocalSourceWatcher.hexMeetingsFolder(home: home).path,
+                       home.appendingPathComponent("Documents/Hex Meetings").path)
+        let settings = home.appendingPathComponent("Library/Application Support/hex")
+        try FileManager.default.createDirectory(at: settings, withIntermediateDirectories: true)
+        try Data(#"{"meetings": {"output_folder": "/tmp/elsewhere"}}"#.utf8)
+            .write(to: settings.appendingPathComponent("settings.json"))
+        XCTAssertEqual(LocalSourceWatcher.hexMeetingsFolder(home: home).path, "/tmp/elsewhere")
+    }
+
     func testTheMeetingRowsDurationDecodes() throws {
         let json = #"{"kind": "episode", "id": "ep", "title": "T", "day": "2026-11-03", "duration_s": 1920}"#
         XCTAssertEqual(try JSONDecoder().decode(ChannelItem.self, from: Data(json.utf8)).durationS, 1920)

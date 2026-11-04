@@ -4,6 +4,64 @@ import SwiftUI
 // meetings, each with its day and how long it ran) and Contacts (the people in memory as a grid of faces). Both fill
 // the standard source page's `content` slot and read the backend's lists (`ChannelItemsCache`), never this Mac's store.
 
+/// Hex's connect area, pure (`ThisMacSourcesTests`): the folder Hex saves meetings in, said before Connect as the path
+/// the person knows it by ("Found ~/Documents/Hex Meetings"), and what Connect does — register that folder and read it
+/// at once (`LocalSourceWatcher.connectHexFolder`). No folder yet: one line saying so, and *Choose another folder…*.
+enum HexConnectText {
+    static func line(found: URL?, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> String {
+        guard let found else { return Copy.SourceBrowser.hexNoFolder }
+        return Copy.SourceBrowser.recorderFolder(display(found, home: home))
+    }
+
+    /// A path under the home folder as `~/…`.
+    static func display(_ url: URL, home: URL) -> String {
+        let path = url.standardizedFileURL.path
+        let base = home.standardizedFileURL.path
+        guard path == base || path.hasPrefix(base + "/") else { return path }
+        return "~" + path.dropFirst(base.count)
+    }
+}
+
+/// Hex not yet connected: the folder it found, one primary *Connect Hex* that registers and reads it at once (DR-5,
+/// DR-40), and *Choose another folder…* when the person keeps meetings elsewhere (the open panel, then the old sheet).
+/// The line is one line, its full path on hover (DR-59).
+struct HexConnectRow: View {
+    @Environment(LocalSourceWatcher.self) private var localSources
+    @State private var found: URL?
+    @State private var busy = false
+    @State private var failure: String?
+    @State private var choosing = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+            HStack(spacing: CicadaTheme.spacingMD) {
+                PrimaryActionButton(title: Copy.SourceBrowser.hexConnect) { Task { await connect() } }
+                    .disabled(found == nil || busy)
+                    .fixedSize()
+                SourceConnectLine(text: HexConnectText.line(found: found))
+                    .help(found?.path ?? Copy.SourceBrowser.hexNoFolder)
+                Spacer(minLength: 0)
+            }
+            if let failure { WarningLine(text: failure, warning: true) }
+            TextButton(title: Copy.SourceBrowser.otherFolder) { choosing = true }
+                .padding(.leading, -TextButton.inset(inline: false))
+            if choosing { AddMeetingFolderRow(recorder: SourceCatalog.hexId) }
+        }
+        .task { found = localSources.hexFolderFound() }
+    }
+
+    private func connect() async {
+        busy = true
+        defer { busy = false }
+        do {
+            try await localSources.connectHexFolder()
+            failure = nil
+        } catch {
+            failure = AddSourceSheet.friendlyError(error)
+        }
+    }
+}
+
 /// A recorder's meetings: its folders when it has several (one row each, DR-34), else the one folder's meetings.
 struct MeetingsBrowser: View {
     /// The recorder's meeting folders, as channels (`meetings:<id>`), with their names.

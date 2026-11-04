@@ -20,6 +20,38 @@ import SwiftUI
 // wears its own mark (DR-52: a bundled brand mark, else a system symbol — Apple's marks are never committed). No
 // paragraph anywhere (DESIGN_RULES §9 2026-11-03); counts through `UsageFormat` (DR-21).
 
+/// The content slot of a This Mac source's page, one call for every one of them: the right browser for the entry, or
+/// nothing for an entry that is not one of these (the caller draws its own content then). Drawn only once something
+/// came in (DR-81: a source with nothing in yet draws no search and no list; its connect area says how to start).
+struct ThisMacSourceContent: View {
+    let entry: SourceCatalogEntry
+    /// The entry's channels as `/sources/channels` lists them (`SourceCatalog.channelsOf`).
+    let channels: [SourceChannel]
+
+    /// Whether this view draws the entry's content (Apple Notes, Calendar, Reminders, Contacts, the recorders).
+    static func handles(_ entry: SourceCatalogEntry) -> Bool {
+        ["notes", "calendar-local", RemindersReader.channel, ContactsReader.channel, SourceCatalog.hexId,
+         SourceCatalog.meetingFoldersId].contains(entry.id)
+    }
+
+    var body: some View {
+        switch entry.id {
+        case "notes", "calendar-local", RemindersReader.channel:
+            if channels.contains(where: { $0.count > 0 || $0.connected }) {
+                // Each of these entries' id is its one channel's.
+                SourceBrowser(channel: entry.id, sourceTitle: entry.title)
+            }
+        case ContactsReader.channel:
+            if channels.contains(where: { $0.connected }) { ContactsGrid() }
+        case SourceCatalog.hexId, SourceCatalog.meetingFoldersId:
+            let folders = channels.map { (id: $0.id, label: $0.label) }
+            if !folders.isEmpty { MeetingsBrowser(folders: folders, sourceTitle: entry.title) }
+        default:
+            EmptyView()
+        }
+    }
+}
+
 /// Accounts → collections → items for one channel.
 struct SourceBrowser: View {
     /// The channel the items come from: `notes`, `calendar-local`, `reminders-local`.
