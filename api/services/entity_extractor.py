@@ -771,6 +771,8 @@ async def _extract_chunk(
         )
         raw = response.choices[0].message.content
         return _parse_json_lenient(raw)
+    except engine_errors.EngineRefused:
+        raise   # the model declined this text: asking again is paying twice for the same answer (G237)
     except _EXTRACT_RETRYABLE as e:
         if _attempt >= 1:
             raise
@@ -883,7 +885,7 @@ async def extract(
     from api.services import application_page as _application_page
 
     on_record = _application_page.standing(getattr(settings, "memory_path", None))
-    plan_name = engine_select.PLAN_NAMES.get(_engine, "Claude plan")
+    plan_name = engine_select.PLAN_NAMES.get(_engine, "The API key")
     from api.services import cli_engines
 
     _cli_spec = cli_engines.spec_for(_engine)
@@ -1204,6 +1206,8 @@ async def extract(
             # G74(a): the agent rung's failures are subprocess-shaped. Each one
             # names its own fix so the Sleep page never says "check API credits"
             # for a plan that has no credits to check.
+            except engine_errors.SpendLimitReached:
+                _note_skipped(episode)   # never sent past the person's limit: nobody's failure, it goes back to wait
             except engine_errors.EngineThrottled as e:
                 failed += 1
                 _note_failed(episode, e)

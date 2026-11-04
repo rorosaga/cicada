@@ -199,7 +199,7 @@ before it is decoded (`messages_photos.B64_MAX`, 422 as before).
 **Schedule and reading options (ruling 4b, owner decision 2).** `GET/PUT /sleep/schedule` answer the schedule plus,
 while it runs on its own, `warning` and `warningCode` when a scheduled run would have no engine it may use
 (`ScheduleResponse`, `engine_readiness`); the PUT body is unchanged and the app never sends them back.
-`GET/PUT /sleep/run-options` carry `scheduledUsePlan` (machine-wide, on unless the person turned it off — ruling 4c,
+`GET/PUT /sleep/run-options` carry `spendLimitUsd` (ROR-102: a figure, or `null` for the person's off; 422 otherwise; `sleep_spend`), and `scheduledUsePlan` (machine-wide, on unless the person turned it off — ruling 4c,
 2026-10-19; an off is stored as `false`; `null` is 422).
 `POST /ask` with no engine — an API model with no key, or Auto with no plan and no local model (ruling 31: never a key
 nobody chose) — answers that it has no engine, naming the pages it found, and calls nothing.
@@ -713,6 +713,13 @@ client that reads by id is unaffected. Their status is probed by `cli_engines.st
 spends, 8 s per command, Cursor's two side by side); the GET serves the last known state while a refresh runs, so a hung
 tool never holds the Sleep page. A scheduled preview of a chosen Grok is `none` (it reads only when you start one). Previews name `cursor-cli` / `opencode-cli` / `grok-cli` with `billing: plan`; the field is named
 `billingNote`, never a cost or price, because prices ride only `usage`/`modelPrices` (ruling 12).
+
+**A Claude key's card (G237, ruling 63; `anthropic_models`).** With a Claude model chosen, the `byok` card's `models` are the
+saved choice (first, so a tap keeps it), then the small, standard and top tiers, then every other active model, read from the
+key's own Models API answer (`catalogue.source: your key`) or a documented floor (`documented`); `modelNote` says when a saved id
+moved forward. `POST /sleep/engine/models/refresh` with `byok` re-reads it when a Claude key is held (422 otherwise, as for any
+other key). A key's save reads it in the background, and a run on the key once a day. `modelPrices[…].basis` names where a price
+Cicada keeps was read (ruling 12); `providers[…].defaultModel` for Anthropic is the list's small tier.
 
 **The model catalogue on every card (vision item 4, 2026-10-28; `model_catalogue`).** Each candidate gains an
 optional `catalogue`: `{engine, source, asOf, drift, models: [{id, source, asOf, family, firstSeen, new, resolvesTo,

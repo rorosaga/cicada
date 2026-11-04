@@ -95,6 +95,7 @@ final class SleepV5WireTests: XCTestCase {
         XCTAssertEqual(defaults.batchSizeChoices, [10, 25, 50])
         XCTAssertFalse(defaults.continueAfterReset, "ruling 15: off by default")
         XCTAssertNil(defaults.reservePct, "Leave room in my plan: off by default")
+        XCTAssertEqual(defaults.spendLimitUsd, 5, "ROR-102: the suggested figure")
         XCTAssertTrue(defaults.scheduledUsePlan, "ruling 4b, amended 2026-10-19: scheduled runs use the plan by default")
         let custom = try V5Fixture.decode(SleepRunOptions.self, "sleep-run-options.json", key: "custom")
         XCTAssertEqual(custom.batchSize, 10)
@@ -120,6 +121,8 @@ final class SleepV5WireTests: XCTestCase {
     func test_optionsChangesSendOnlyTheirField() {
         XCTAssertEqual(SleepRunOptionsChange.batchSize(50).body as? [String: Int], ["batchSize": 50])
         XCTAssertEqual(SleepRunOptionsChange.continueAfterReset(true).body as? [String: Bool], ["continueAfterReset": true])
+        XCTAssertTrue(SleepRunOptionsChange.spendLimitUsd(nil).body["spendLimitUsd"] is NSNull, "off is an explicit null")
+        XCTAssertEqual(SleepRunOptionsChange.spendLimitUsd(7.5).body["spendLimitUsd"] as? Double, 7.5)
         XCTAssertTrue(SleepRunOptionsChange.reservePct(nil).body["reservePct"] is NSNull, "off is an explicit null")
     }
 }
@@ -215,6 +218,47 @@ final class SleepV5RoomSentenceTests: XCTestCase {
         XCTAssertEqual(row.text, diagnosis)
         XCTAssertEqual(Copy.SleepV5.pauseRow(from: "3:00 AM", to: nil, reason: "offline"),
                        "Paused at 3:00 AM · this Mac was offline")
+    }
+
+    /// Review of #614: a key out of credit is told so. The row carries the backend's sentence, never the generic count,
+    /// and the plan is never named.
+    func test_aKeyLimitPauseShowsItsOwnSentence() throws {
+        let sentence = "The API key's spending limit was reached. Add credit or raise the limit with the provider, then continue."
+        for (reason, title, said) in [("key_limit", "Paused at your API key's limit", sentence),
+                                      ("spend", "Paused at your spending limit", "Spending limit reached; what was read is kept. Continue spends up to it again.")] {
+            let paused = SleepPausedRun(reason: reason, sentence: said, filed: 3, frozen: 8)
+            let rows = LastCycleRow.runRows(drain: nil, paused: paused, run: nil, detail: nil, parkedCount: 0,
+                                            runBilling: nil, reserveValue: nil, locale: V5Fixture.en)
+            let row = try XCTUnwrap(rows.first { $0.kind == .paused })
+            XCTAssertEqual(row.title, title)
+            XCTAssertEqual(row.text, said)
+            XCTAssertFalse(row.title.contains("plan"))
+        }
+    }
+
+    /// The page's own line: a short sentence whole, a long one points at Details; a limit is never a plain "Paused." alone.
+    func test_aKeyLimitPauseSaysWhyOnThePage() {
+        let short = "Spending limit reached; what was read is kept. Continue spends up to it again."
+        let long = String(repeating: "A sentence that only Details can show whole. ", count: 3)
+        for (reason, said, tail) in [("spend", short, short), ("key_limit", long, Copy.SleepV5.keyLimitTail)] {
+            var context = RoomContext(mood: .error, scheduleMode: "manual", locale: V5Fixture.en)
+            context.paused = SleepPausedRun(reason: reason, sentence: said, filed: 3, frozen: 8)
+            let line = roomSentence(context)
+            XCTAssertEqual(line.tail, tail, reason)
+            XCTAssertEqual(line.action, .openDetails(.lastCycle), reason)
+        }
+    }
+
+    /// ROR-102: only a run charged per use has the row, and a figure set from the shell stays among the choices.
+    func test_theSpendingLimitRowIsAKeysAndKeepsAFigureSetElsewhere() {
+        let status = SleepSpendStatus(limitUsd: 7.5, choices: [1, 5, 10], applies: true)
+        XCTAssertEqual(EngineQuickMenuModel.Spend.from(status, billing: "charged")?.choices, [1, 5, 7.5, 10])
+        XCTAssertEqual(EngineQuickMenuModel.Spend.from(status, billing: "charged")?.limitUsd, 7.5)
+        let notHere = SleepSpendStatus(limitUsd: 5, choices: [5], applies: false)
+        XCTAssertNil(EngineQuickMenuModel.Spend.from(notHere, billing: "plan"))
+        XCTAssertNil(EngineQuickMenuModel.Spend.from(nil, billing: "charged"), "an older backend")
+        XCTAssertEqual(Copy.SleepV5.spendChoice(5), "$5")
+        XCTAssertEqual(Copy.SleepV5.spendChoice(7.5), "$7.50")
     }
 
     /// #575 review: the lead says what the backend found — a dropping connection is not "offline".
@@ -651,7 +695,7 @@ final class SleepV5DetailsTests: XCTestCase {
         drain.startedBy = "schedule"
         let rows = LastCycleRow.runRows(drain: drain, paused: nil, run: nil, detail: nil, parkedCount: 0,
                                         runBilling: "charged", reserveValue: nil, locale: V5Fixture.en)
-        XCTAssertTrue(rows.contains { $0.kind == .scheduled && $0.text.contains("Cicada sets no limit") })
+        XCTAssertTrue(rows.contains { $0.kind == .scheduled && $0.text.contains("your spending limit") })
         let local = LastCycleRow.runRows(drain: drain, paused: nil, run: nil, detail: nil, parkedCount: 0,
                                          runBilling: "local", reserveValue: nil, locale: V5Fixture.en)
         XCTAssertFalse(local.contains { $0.kind == .scheduled })
@@ -949,7 +993,7 @@ final class SleepV5EngineMenuTests: XCTestCase {
     }
 
     func test_scheduledSpendFollowsBilling() {
-        XCTAssertTrue(Copy.SleepV5.scheduledSpend("charged")?.contains("Cicada sets no limit") == true)
+        XCTAssertTrue(Copy.SleepV5.scheduledSpend("charged")?.contains("spending limit") == true)
         XCTAssertEqual(Copy.SleepV5.scheduledSpend("local"), "It reads everything waiting, on this Mac.")
         XCTAssertNil(Copy.SleepV5.scheduledSpend("plan"), "a scheduled run never uses a plan (ruling 4)")
         XCTAssertNil(Copy.SleepV5.scheduledSpend(nil))

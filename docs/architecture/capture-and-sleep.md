@@ -2206,6 +2206,57 @@ kept off the plan (`engine_select.SCHEDULE_DEGRADED`) also names *Scheduled runs
 as a fix — named, never flipped (ruling 4b). The provider's raw text never reaches the wire. A cause outranks G117's
 "no engine chosen" guess (a refused key on such an install names both doors); no recognised cause keeps the generic
 sentence, and Cicada's own engine errors (the plan CLIs) keep their own words.
+**A Claude key (G237, ruling 63, 2026-11-04).** A key whose model is `anthropic/…` or a bare `claude-…` is served by
+Anthropic's own SDK (`anthropic_engine`), never LiteLLM: `direct_engines` is the seam, one row per provider, and every other
+key stays on LiteLLM. `providers.resolve_llm_fn` routes there only when the completion it was given is LiteLLM's own, so a
+test's fake stays the answer. It sits where a plan's CLI sits: the shared semaphore (`agent_max_concurrency`), the scope's
+breaker, the drain's seam retry, one ledger row a call (`engine: anthropic-api`, `billing: usage`, `cost_source: table`). The
+prompts are the plan's own (`marshal_prompt`, `JSON_ONLY_SUFFIX`) without `CONTEXT_GUARD`: the API attaches no context. A
+caller's "reasoning off" is `output_config.effort` at `agent_low_effort`, sent only to a model that takes it; `temperature`,
+`response_format` and `extra_body` go nowhere. Every call streams, so `max_tokens` is 64,000 (the model's own limit when the list
+gives one; output limits count tokens as they are produced, never `max_tokens`), a caller's cap gains 2,048 for thinking, and
+`timeout` is checked as a wall clock while the answer arrives. A refusal (`stop_reason: refusal`) is `EngineRefused`: the
+conversation's own `refused`, never retried; a cut-off or empty answer is `EngineProtocolError`, one retry.
+**Caching.** One breakpoint at the end of the system prompt, TTL 1 hour: the same bytes every call of a stage, and a user
+message that differs every call, so anything marked later would be written and never read. A drain's next batch reaches the
+same prompt past 5 minutes, so the 2× write pays by its second batch. The first call on a prefix goes first and the rest wait
+for its first byte (bounded 30 s): an entry is readable only once its response starts streaming, and parallel calls otherwise
+all write. Cache reads do not count toward a key's input-token rate limit. **Limits.** The SDK rides out `retry-after` (4
+retries). Past that a 429 trips the scope's breaker with `limit: key_limit` and the rate-limit sentence; a 429 or 400 naming a
+spending limit is `EngineExhausted`, and a 401/403 `EngineUnavailable`, each in `engine_cause`'s words. It stops as `plan_limit`
+for the drain's mechanics, with a pause reason of `key_limit` that never says the person's plan, and arms nothing automatic.
+A limit lifting within 2 minutes is waited out by the batch's later stages, so what was read is filed.
+**What fails, and what it costs.** A raw transport error out of an open stream, or a stream that closes before the model
+finished, is `EngineConnectionLost` or `EngineTimeout`, a pause, never the conversation's; only a status is ever called a
+refused request. A call that failed after the provider started answering carries what it reported (`exc.paid`, `_paid`) to
+the ledger, so Past reads and the limit below see a cut-off or refused call's real cost. The SDK is pinned (`api/pyproject.toml`,
+2.1.0): every 2.x sends the key as `Authorization: Bearer` on API version `2026-10-21`.
+**The spending limit (ROR-102, ruling 63 (g); `sleep_spend`).** A run on a metered engine snapshots `spend_limit_usd`
+(`sleep_run_prefs`, in `connections.json`: unset reads as the suggested $5, stored `0` is the person's off, nonsense reads
+as the suggestion) and `providers._emit` adds each call's cost to `ds.spend`. It stops on the reserve's own path:
+`DrainStop("reserve", …, limit="spend")`, pause reason `spend`, so what was read is filed and the rest wait. **How far past:**
+one read past it when reads cost about the same; if a read costs far more than any before it, every read then out, at most 3 on a Claude key and 10 on another; plus filing what was read. A call in `LINE_STAGES` (a read, In short, the web check, link reads, the inbox's judging) passes
+`sleep_spend.turn` after it holds its permit: the run's first call goes alone to learn the price, a later one goes only when
+what is spent and what is out leave room, and past the line it raises `SpendLimitReached`, never sent. A refused read goes back
+to wait, nobody's failure; one caught part way through its chunks is read again next time. Every other stage files what was
+read and is never refused. `batch_size` sizes each batch to the allowance left, at the last batch's cost per conversation, or
+at first at the most one read may write. A run past the line skips the tail's paid steps even with nothing left to read;
+link backfill runs in `sleep:<cycle>-links` on a drain, so its spend counts. A charged call whose cost cannot be read stops the
+run like a model with no price (fail closed), before any read when the models are known at the start (`guard_for`), else at the
+first unpriced call. A Continue is a new allowance; a scheduled run waits for that click, while one paused on `restart`,
+`engine` or `busy` is replaced with a fresh allowance. **Only runs are covered:** Ask, the inbox's tidy and catch-up, a click's
+web sweep, repairs and the quick read are not limited (the help says so) and are in the ledger at what they cost. One click's
+web sweep on a metered key is capped at `web_check_per_run` (`capped_at`).
+**Comparing with the plan.** `benchmarks/engine_parity.py` runs the same synthetic conversations through the production drain
+on a scratch bank per engine and compares pages, claims, evidence spans, questions and failures, with what Past reads would
+show. The one real run, once a key is entered (about $0.02 on Haiku 5.5, 19 calls, about 94k input of which 16k uncached,
+about 26k output, measured from the plan leg):
+```sh
+api/.venv/bin/python -m benchmarks.engine_parity run --leg plan --model haiku --out /tmp/cicada-parity/plan
+api/.venv/bin/python -m benchmarks.engine_parity run --leg key --model anthropic/claude-haiku-5-5 --out /tmp/cicada-parity/key \
+    --key-file ~/.cicada/secrets.env --max-input-tokens 40000 --yes-spend
+api/.venv/bin/python -m benchmarks.engine_parity compare /tmp/cicada-parity/plan /tmp/cicada-parity/key
+```
 **Connectivity (owner, 2026-10-07):** failed CLI transport diagnostics (routing discovery, exhausted reconnect
 warnings, DNS, refused/reset connections and offline/network errors) become `EngineConnectionLost`, a retryable
 `EngineFailed` subtype. The existing one-retry/2-second policy then pauses with Continue; repeated connectivity
@@ -2258,7 +2309,7 @@ engine and signed in (`engine_select.SCHEDULE_PLAN_MODES`, the switch being `SUB
 the dotfile pin) — and drains like any scheduled run; its plan-limit pause (`plan_window`, `plan_weekly`) is the
 schedule's to replace once the limit has reset (the vendor's `resets_at`, else after `ENGINE_RETRY_S`), since on a
 server nobody presses Continue; extra usage stays the person's, and continue-after-reset (ruling 15) still never arms
-from a scheduled run. The dotfile pin keeps its one batch (ruling 16); on a metered engine it spends until the queue is empty, with no limit Cicada sets, and the engine menu and Details
+from a scheduled run. The dotfile pin keeps its one batch (ruling 16); on a metered engine it spends until the queue is empty or the person's spending limit, and the engine menu and Details
 say so in words. With the switch off, a plan the person chose — or Auto's plan rungs — gives a scheduled run no engine
 (`SCHEDULE_DEGRADED`), never the metered key by itself (ruling 31); a key the person chose still reads; an explicit `CICADA_LLM_MODE` CLI
 override also reaches the transient retry/pause policy. Such a scheduled engine pause is eligible for replacement

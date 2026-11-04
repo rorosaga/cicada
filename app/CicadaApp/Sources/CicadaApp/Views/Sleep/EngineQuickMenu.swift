@@ -58,6 +58,8 @@ struct EngineQuickMenuModel: Equatable {
     var lastCycleHelp: String? = nil
     /// Sleep page v5 — *Keep plan free* (the reserve), only when a run you start would use a plan.
     var reserve: Reserve? = nil
+    /// ROR-102 — the spending limit, only when a run you start would be charged per use.
+    var spend: Spend? = nil
     /// How a scheduled run spends (ruling 16), in words from `preview.scheduled.billing`; never a provider's name.
     var scheduledSpend: String? = nil
     /// Engine picker v2 (ruling 48 part 11) — the chosen card when it has models to pick: the menu draws its list
@@ -80,6 +82,19 @@ struct EngineQuickMenuModel: Equatable {
             let value = status.pct.map { Copy.SleepV5.reserveValue($0, windows: enforced) } ?? Copy.SleepV5.off
             return Reserve(pct: status.pct, choices: status.choices.isEmpty ? [5, 10, 20, 30] : status.choices,
                            value: value, notReported: status.pct == nil ? [] : unreported)
+        }
+    }
+
+    /// The spending limit's row (ruling 12's home for its figure): a figure set elsewhere stays among the choices.
+    struct Spend: Equatable {
+        let limitUsd: Double?
+        let choices: [Double]
+
+        static func from(_ status: SleepSpendStatus?, billing: String?) -> Spend? {
+            guard let status, status.applies || billing == "charged" else { return nil }
+            let offered = status.choices.isEmpty ? [1, 5, 10, 20, 50] : status.choices.map(Double.init)
+            let all = status.limitUsd.map { offered.contains($0) ? offered : offered + [$0] } ?? offered
+            return Spend(limitUsd: status.limitUsd, choices: all.sorted())
         }
     }
 
@@ -123,8 +138,10 @@ struct EngineQuickMenuModel: Equatable {
         // R-HS10 — a model list only where the engine has one to pick from; Auto and the API key say
         // in the backend's own words how their model is decided.
         // G49/G50: the person's own Cursor, OpenCode or Grok lists its own models (live, else documented defaults).
-        let pickable = ["agent", "codex", "local"].contains(current) || chosen.map(EngineOption.isOwnTool) == true
-        let note: String? = (current == "auto" || current == "byok") ? chosen?.detail : chosen?.modelNote
+        // G237: a Claude key lists what that key can use; any other key says how its model is decided.
+        let keyList = current == "byok" && (chosen?.models.count ?? 0) > 1
+        let pickable = ["agent", "codex", "local"].contains(current) || chosen.map(EngineOption.isOwnTool) == true || keyList
+        let note: String? = (current == "auto" || current == "byok") ? (chosen?.modelNote ?? chosen?.detail) : chosen?.modelNote
         let command = chosen.flatMap { $0.id == "local" ? OllamaGuideState.from(candidate: $0).command : nil }
         let previews: [Preview] = response.preview.map { p in
             [Preview(label: Copy.EngineMenu.whenYouStart, engine: p.manual.engine,
@@ -152,10 +169,12 @@ struct EngineQuickMenuModel: Equatable {
             pinnedNote: response.isPinnedByEnvironment ? Copy.EngineMenu.pinnedByEnvironment(response.mode) : nil,
             runNote: response.runKeepsEngine ? Copy.EngineMenu.runKeepsEngine : nil,
             modelPrices: prices,
-            pricesNote: prices.isEmpty ? nil : Copy.SleepUsage.perMillionNote,
+            pricesNote: prices.isEmpty ? nil : Copy.SleepUsage.perMillionNote(
+                basis: chosen?.modelPrices.values.compactMap(\.basis).first),
             lastCycleLine: last?.line,
             lastCycleHelp: last?.help,
             reserve: Reserve.from(response.reserve, billing: response.preview?.manual.billing),
+            spend: Spend.from(response.spend, billing: response.preview?.manual.billing),
             scheduledSpend: Copy.SleepV5.scheduledSpend(response.preview?.scheduled.billing),
             listCard: pickable && !(chosen?.models ?? []).isEmpty ? chosen : nil)
     }
@@ -228,6 +247,7 @@ struct EngineQuickMenuButton: View {
                                 writeFailed: engineVM.writeFailed,
                                 choose: choose, pickModel: pickModel, openSettings: openSettings,
                                 setReserve: setReserve,
+                                setSpend: setSpend,
                                 refreshModels: { id in Task { await engineVM.refreshModels(id) } },
                                 refreshing: engineVM.refreshing != nil,
                                 refreshFailed: engineVM.refreshFailed != nil)
@@ -254,6 +274,14 @@ struct EngineQuickMenuButton: View {
     private func setReserve(_ pct: Int?) {
         store.bankTask {
             await sleepVM.updateRunOptions(.reservePct(pct))
+            await engineVM.load()
+        }
+    }
+
+    /// ROR-102 — the spending limit lives beside the reserve, and reads back the same way.
+    private func setSpend(_ usd: Double?) {
+        store.bankTask {
+            await sleepVM.updateRunOptions(.spendLimitUsd(usd))
             await engineVM.load()
         }
     }
@@ -295,6 +323,7 @@ struct EngineQuickMenu: View {
     let pickModel: (String) -> Void
     let openSettings: (SettingsSection, SettingsRowID?) -> Void
     var setReserve: (Int?) -> Void = { _ in }
+    var setSpend: (Double?) -> Void = { _ in }
     /// The person's Refresh on the listed card, and its state (`SleepEngineViewModel.refreshModels`).
     var refreshModels: (String) -> Void = { _ in }
     var refreshing = false
@@ -352,6 +381,7 @@ struct EngineQuickMenu: View {
             }
             modelSection
             reserveSection
+            spendSection
             if writeFailed {
                 Text(Copy.EngineMenu.writeFailed)
                     .font(CicadaTheme.metaFont)
@@ -433,6 +463,30 @@ struct EngineQuickMenu: View {
                         .foregroundStyle(CicadaTheme.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+            }
+            .padding(.horizontal, CicadaTheme.spacingSM)
+            .padding(.top, CicadaTheme.spacingSM)
+        }
+    }
+
+    /// ROR-102 — one line, in the reserve's place (a run is on a plan or on a key, never both, DR-81). Ruling 12: the
+    /// figure lives here alone.
+    @ViewBuilder
+    private var spendSection: some View {
+        if let spend = model.spend {
+            HStack(spacing: CicadaTheme.spacingSM) {
+                SectionLabel(Copy.SleepV5.spendLimit)
+                Spacer(minLength: CicadaTheme.spacingSM)
+                Picker(Copy.SleepV5.spendLimit, selection: Binding(get: { spend.limitUsd ?? 0 },
+                                                                   set: { setSpend($0 == 0 ? nil : $0) })) {
+                    Text(Copy.SleepV5.off).tag(0.0)
+                    ForEach(spend.choices, id: \.self) { Text(Copy.SleepV5.spendChoice($0)).tag($0) }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .fixedSize()
+                .disabled(isSaving)
+                .help(Copy.SleepV5.spendHelp)
             }
             .padding(.horizontal, CicadaTheme.spacingSM)
             .padding(.top, CicadaTheme.spacingSM)

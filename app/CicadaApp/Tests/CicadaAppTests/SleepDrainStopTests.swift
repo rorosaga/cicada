@@ -280,7 +280,7 @@ final class SleepDrainStopTests: XCTestCase {
                        + "It stays on this Mac.")
         XCTAssertEqual(Copy.scheduledReadsAll(engine: "litellm", billing: "charged"),
                        "Scheduled runs read everything waiting too, on \(Copy.engineLabel("litellm")). "
-                       + "Charged per use; Cicada sets no limit.")
+                       + "Charged per use; the spending limit is in the engine menu.")
         for billing in ["local", "charged"] {
             let text = Copy.scheduledReadsAll(engine: "litellm", billing: billing)
             XCTAssertEqual(text.components(separatedBy: "everything waiting").count - 1, 1,

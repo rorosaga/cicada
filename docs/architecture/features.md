@@ -644,7 +644,7 @@ newest unprocessed episode is ≥ `AFTER_IMPORT_SETTLE_MINUTES` (10) old — `Sl
 `PUT {enabled,hour,minute}` with no `mode` is accepted and mapped onto `daily`/`manual`. Every
 scheduled path — daily, interval, or the settle probe — passes `user_triggered=False`, so a
 scheduled cycle never spends Claude or ChatGPT plan quota (the standing ruling in `TODO.md`), **and reads everything
-waiting, in batches** (ruling 16: unattended, on the scheduled engine — on a key that is spend with no limit Cicada sets; a
+waiting, in batches** (ruling 16: unattended, on the scheduled engine — on a key that is spend up to the person's limit, `sleep_spend`; a
 paused run is left for the person to continue or end; the tail still runs over it).
 
 **The schedule is the active bank's own (follow-ups 2026-10-19).** The jobs' triggers are built from the schedule the

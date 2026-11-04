@@ -11,7 +11,7 @@ from loguru import logger
 
 from api.config import Settings
 from api.services import authorship, bank_index, episode_ids, episode_revision, episode_scrub, evidence, git_service, machine_state, markdown_parser
-from api.services import sleep_drain, sleep_reserve
+from api.services import sleep_drain, sleep_reserve, sleep_spend
 
 
 @dataclass
@@ -599,14 +599,24 @@ async def _backfill_links_safely(memory_path: Path, settings: Settings, *, user_
         # Final review H1: the tail runs after the cycle's own `sleep:<id>`
         # scope has closed, so without this it would share the never-reset
         # ``_unscoped`` bucket with Ask — one throttle there would block every
-        # later backfill until a restart. Its own scope purges on exit.
-        with agent_engine.use_scope(f"links:{uuid.uuid4().hex}"):
-            report = await link_enrichment.backfill(
-                memory_path, resolved, limit=per_cycle,
-                summarize_fn=link_enrichment._summarize_excerpt if fetch_ok else None,
-                fetch_fn=link_enrichment.default_fetch if fetch_ok else None,
-                engine=engine,
-            )
+        # later backfill until a restart. Its own scope purges on exit. On a drain
+        # its calls are the run's, like the web check's: counted, and held to the limit.
+        drain, batch_id = _state.drain, f"{_state.cycle_id}-links"
+        in_drain = drain is not None and bool(_state.cycle_id)
+        scope = f"sleep:{batch_id}" if in_drain else f"links:{uuid.uuid4().hex}"
+        if in_drain:
+            sleep_drain.register_batch(batch_id, drain)
+        try:
+            with agent_engine.use_scope(scope):
+                report = await link_enrichment.backfill(
+                    memory_path, resolved, limit=per_cycle,
+                    summarize_fn=link_enrichment._summarize_excerpt if fetch_ok else None,
+                    fetch_fn=link_enrichment.default_fetch if fetch_ok else None,
+                    engine=engine,
+                )
+        finally:
+            if in_drain:
+                sleep_drain.unregister_batch(batch_id)
         if report.selected or report.related or report.skipped:
             logger.info(
                 f"Link backfill: {report.reused} reused, {report.summarized} summarized, "
@@ -885,8 +895,10 @@ def _stage1_failure_message(engine: str, engine_detail: str | None = None, *,
     if breaker:
         n = _state.episodes_total
         # R-E22: name the plan that actually ran — the breaker is shared by
-        # both plan engines (R-E19).
-        plan = engine_select.PLAN_NAMES.get(engine, "Claude plan")
+        # both plan engines (R-E19). G237: a key's limit is the key's; its sentence says so, no plan named.
+        plan = engine_select.PLAN_NAMES.get(engine)
+        if plan is None:
+            return f"Stopped cleanly, {n} episode(s) left queued. {breaker}"
         return f"{plan} throttled — stopped cleanly, {n} episode(s) left queued. ({breaker})"
     if engine == "claude-cli":
         return (
@@ -1638,7 +1650,7 @@ async def _run_engine_independent_tail(
         # Ruling 48 part 5: In short for long, busy pages — a model call on the bank alone (nothing from outside), so a
         # demo bank gets it too; never past a run that stopped at the plan's limit.
         if skip_links:
-            logger.info("In short skipped: the run stopped at the plan's limit")
+            logger.info("In short skipped: the run stopped at its limit")
         else:
             await _in_short_safely(memory_path, settings, user_triggered=user_triggered)
         from api.services import demo_guard
@@ -1656,7 +1668,7 @@ async def _run_engine_independent_tail(
             await _source_refresh_safely(memory_path)
             # Owner ruling 2026-10-16: public-thing questions looked up and settled, before any poll's `git add -A`.
             if skip_links:
-                logger.info("web check and light context skipped: the run stopped at the plan's limit")
+                logger.info("web check and light context skipped: the run stopped at its limit")
             else:
                 await _web_check_safely(memory_path, settings, user_triggered=user_triggered)
                 # Owner ruling 44 (G121): public pages' world facts looked up and kept current, same slot.
@@ -1664,8 +1676,8 @@ async def _run_engine_independent_tail(
             await _poll_connectors_safely(memory_path)
             await _poll_feeds_and_calendars_safely(memory_path)
             if skip_links:
-                # A drain that stopped on the plan's limit: the backfill would meet the same one.
-                logger.info("link backfill skipped: the run stopped at the plan's limit")
+                # A drain that stopped on the plan's limit, or passed the person's own: the backfill would meet the same one.
+                logger.info("link backfill skipped: the run stopped at its limit")
             else:
                 await _backfill_links_safely(memory_path, settings, user_triggered=user_triggered)
             await _resolve_papers_safely(memory_path)
@@ -2347,6 +2359,8 @@ async def _drain(
                 pass
     else:
         ds.reserve_pct = None
+    if engine_lbl == "litellm":   # ROR-102: a key's run stops at the person's figure
+        ds.spend = sleep_spend.guard_for(resolved[0], opts.spend_limit_usd)
     _write_run_record(ds, memory_path, phase="running", engine_label=engine_lbl)
     _record_leg(ds, memory_path, "running")
     try:
@@ -2416,16 +2430,17 @@ async def _drain(
         ds.skipped += len(gone)
         ds.skipped_ids |= gone
         ds.settled |= gone
-        batch_ids, more = sleep_drain.next_batch_retrying(ids, waiting, ds.settled, size, ds.attempts, sizes=sizes)
+        batch_ids, more = sleep_drain.next_batch_retrying(
+            ids, waiting, ds.settled, ds.spend.batch_size(size) if ds.spend else size, ds.attempts, sizes=sizes)
         if not batch_ids:
             ds.finished = True   # a cancel that came too late has nothing left to stop
             break
         if _state.cancel_requested:
             stop = sleep_drain.DrainStop("cancelled")
             break
-        if ds.guard is not None and ds.guard.is_reached():
-            resets, kind = ds.guard.stop_values()
-            stop = sleep_drain.DrainStop("reserve", sleep_reserve.SENTENCE, resets, kind)
+        line = ds.guard or ds.spend
+        if line is not None and line.is_reached():
+            stop = _line_stop(line)
             break
 
         ds.batch += 1
@@ -2452,6 +2467,8 @@ async def _drain(
         if not last.committed:
             _state.read_by_origin, _state.episodes_total = before_read, before_total
         _fold(last, batch_ids, decays=plan.decay, links=plan.links)
+        if ds.spend is not None and last.committed:
+            ds.spend.note_filed(len(last.filed_ids))
         if last.committed and ds.owner_beliefs is not None and ds.owner_beliefs.get("after_first_batch") is None:
             _sample_owner(ds, memory_path, "after_first_batch")
         if last.committed:
@@ -2556,7 +2573,9 @@ async def _drain(
     _record_leg(ds, memory_path, _run_state(ds, stop), stop=stop, questions_leg=questions_leg)
     return _StageOutcome(
         committed=last.committed, questions_refreshed=last.questions_refreshed,
-        skip_links=bool(stop is not None and stop.reason in ("plan_limit", "reserve")),
+        # A run past the spending limit with nothing left to read ends as a finished run; its tail still stops.
+        skip_links=bool((stop is not None and stop.reason in ("plan_limit", "reserve"))
+                        or (ds.spend is not None and ds.spend.is_reached())),
     )
 
 
@@ -2753,6 +2772,12 @@ async def _wait_for_network(ds: "sleep_drain.DrainState", cause: str,
         ds.waiting = None
 
 
+def _line_stop(line) -> "sleep_drain.DrainStop":
+    """The soft stop for a line the person set: the reserve on a plan, the spending limit on a key."""
+    resets, kind = line.stop_values()
+    return sleep_drain.DrainStop("reserve", line.sentence, resets, kind)
+
+
 def _batch_hooks(live: "sleep_drain.BatchLive", guard, ds: "sleep_drain.DrainState") -> dict:
     """Stage 1's per-conversation hooks for a drain's batch: what started, what was
     read, what failed and whether that was the conversation's or the engine's, what
@@ -2812,6 +2837,7 @@ def _batch_hooks(live: "sleep_drain.BatchLive", guard, ds: "sleep_drain.DrainSta
 
     def skipped(ep: dict) -> None:
         live.skipped.add(ep["id"])
+        live.started.discard(ep["id"])   # a read the limit refused after it started is not in flight
 
     hooks = {"on_episode_started": started, "on_episode_read": read,
              "on_episode_failed": failed, "on_episode_skipped": skipped}
@@ -2846,7 +2872,7 @@ async def _run_stages(
     label = batch.label if batch is not None else ""
     ds = batch.ds if batch is not None else None
     live = ds.live if ds is not None else None
-    guard = getattr(ds, "guard", None) if ds is not None else None
+    guard = (getattr(ds, "guard", None) or getattr(ds, "spend", None)) if ds is not None else None
     decay_only = bool(batch is not None and batch.decay_only)
     # Only ever a kwarg when False: tests stub these seams with fixed signatures.
     decay_kw = {} if (batch is None or batch.decay) else {"decay": False}
@@ -3008,6 +3034,15 @@ async def _run_stages(
         if guard is not None:
             # The reserve line, read from the snapshot this pre-flight already took (no second probe).
             guard.observe_snapshot(codex_engine.last_snapshot())
+    elif engine_select.claude_key_model(settings):
+        # G237: a run on a Claude key reads the key's model list when the last answer is over a day old (a read that
+        # bills nothing, 6 s at most; a failure waits a day), and says when a retired id moved forward.
+        from api.services import anthropic_models
+
+        await asyncio.to_thread(anthropic_models.refresh_if_stale)
+        moved = anthropic_models.forwarded_sentence(engine_select.claude_key_model(settings))
+        if moved:
+            _state.engine_detail = engine_select.run_detail(engine_why, moved)
     elif _state.last_engine in engine_select.CLI_ENGINE_LABELS:
         # G49/G50: the person's own Cursor, OpenCode or Grok — installed, signed in, the saved model still offered
         # and on a plan, all BEFORE the first spawn; a refusal names the exact command or choice that fixes it.
@@ -3044,8 +3079,7 @@ async def _run_stages(
     if guard is not None and guard.is_reached() and not decay_only:
         # Still past the line before a single paid read (a Continue into a window that is
         # still full, or the ChatGPT snapshot the pre-flight just took): pause at once.
-        resets, kind = guard.stop_values()
-        return _StageOutcome(stop=sleep_drain.DrainStop("reserve", sleep_reserve.SENTENCE, resets, kind))
+        return _StageOutcome(stop=_line_stop(guard))
 
     if decay_only:
         extracted = []
@@ -3126,8 +3160,7 @@ async def _run_stages(
             unread_content[i] = live.failed.get(i, "other")   # no hook fired (a stub): unknown, content-class
         pause_class, pause_sentence = live.pause_class, live.pause_sentence
     if guard is not None and guard.is_reached() and not decay_only:
-        resets, kind = guard.stop_values()
-        reserve_stop = sleep_drain.DrainStop("reserve", sleep_reserve.SENTENCE, resets, kind)
+        reserve_stop = _line_stop(guard)
 
     # An unnamed rejection can be the input's fault only with evidence that
     # the engine works. A sole retry may use this run's already-filed work:
@@ -4283,6 +4316,9 @@ async def _finalize(
         disambig = (settings.litellm_disambiguation_model or "").strip()
         if disambig and disambig not in resolved_authors:
             resolved_authors.append(disambig)
+    from api.services import direct_engines
+
+    engine = direct_engines.trailer_engine(engine, resolved_authors) or engine
 
     message = git_service.build_commit_message(
         f"Sleep cycle {date_str}{subject_suffix}", body_lines, authors=resolved_authors,

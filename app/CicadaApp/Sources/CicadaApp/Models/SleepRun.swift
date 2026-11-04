@@ -45,6 +45,23 @@ struct SleepReserveInfo: Codable, Equatable, Hashable {
 
 /// `GET /sleep/engine`'s `reserve`: the line, its choices, whether it applies to the engine a run
 /// you start would use (a plan), and which windows the last run could enforce.
+struct SleepSpendStatus: Codable, Equatable, Hashable {
+    var limitUsd: Double?
+    var choices: [Int]
+    var applies: Bool
+
+    init(limitUsd: Double? = nil, choices: [Int] = [], applies: Bool = false) {
+        self.limitUsd = limitUsd; self.choices = choices; self.applies = applies
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        limitUsd = (try? c.decodeIfPresent(Double.self, forKey: .limitUsd)) ?? nil
+        choices = ((try? c.decodeIfPresent([Int].self, forKey: .choices)) ?? nil) ?? []
+        applies = ((try? c.decodeIfPresent(Bool.self, forKey: .applies)) ?? nil) ?? false
+    }
+}
+
 struct SleepReserveStatus: Codable, Equatable, Hashable {
     var pct: Int?
     var choices: [Int]
@@ -192,9 +209,13 @@ struct SleepRunOptions: Codable, Equatable {
     /// TODO ruling 4b (owner, 2026-10-16; amended 2026-10-19): this machine lets scheduled runs use the person's plan.
     /// On by default; only the person's explicit off stops it.
     var scheduledUsePlan: Bool
+    /// ROR-102: a run on a key stops at this figure; `nil` is the person's off.
+    var spendLimitUsd: Double?
 
     init(batchSize: Int = 25, batchSizeChoices: [Int] = [10, 25, 50], continueAfterReset: Bool = false,
-         reservePct: Int? = nil, reserveChoices: [Int] = [5, 10, 20, 30], scheduledUsePlan: Bool = true) {
+         reservePct: Int? = nil, reserveChoices: [Int] = [5, 10, 20, 30], scheduledUsePlan: Bool = true,
+         spendLimitUsd: Double? = 5) {
+        self.spendLimitUsd = spendLimitUsd
         self.batchSize = batchSize; self.batchSizeChoices = batchSizeChoices
         self.continueAfterReset = continueAfterReset; self.reservePct = reservePct; self.reserveChoices = reserveChoices
         self.scheduledUsePlan = scheduledUsePlan
@@ -209,9 +230,10 @@ struct SleepRunOptions: Codable, Equatable {
         reserveChoices = ((try? c.decodeIfPresent([Int].self, forKey: .reserveChoices)) ?? nil) ?? []
         // An older server has no such switch: its scheduled runs never used a plan.
         scheduledUsePlan = ((try? c.decodeIfPresent(Bool.self, forKey: .scheduledUsePlan)) ?? nil) ?? false
+        spendLimitUsd = (try? c.decodeIfPresent(Double.self, forKey: .spendLimitUsd)) ?? nil
     }
     enum CodingKeys: String, CodingKey {
-        case batchSize, batchSizeChoices, continueAfterReset, reservePct, reserveChoices, scheduledUsePlan
+        case batchSize, batchSizeChoices, continueAfterReset, reservePct, reserveChoices, scheduledUsePlan, spendLimitUsd
     }
 }
 
@@ -223,12 +245,15 @@ enum SleepRunOptionsChange: Equatable {
     case reservePct(Int?)
     /// Ruling 4b: the machine's "Scheduled runs may use my plan" switch.
     case scheduledUsePlan(Bool)
+    /// ROR-102: the spending limit; `nil` is off.
+    case spendLimitUsd(Double?)
 
     var body: [String: Any] {
         switch self {
         case .batchSize(let n): ["batchSize": n]
         case .continueAfterReset(let on): ["continueAfterReset": on]
         case .reservePct(let pct): ["reservePct": pct.map { $0 as Any } ?? NSNull()]
+        case .spendLimitUsd(let usd): ["spendLimitUsd": usd.map { $0 as Any } ?? NSNull()]
         case .scheduledUsePlan(let on): ["scheduledUsePlan": on]
         }
     }

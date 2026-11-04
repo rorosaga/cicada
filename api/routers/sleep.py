@@ -47,6 +47,7 @@ from api.services import (
     sleep_parked,
     sleep_run_detail,
     sleep_run_prefs,
+    sleep_spend,
     sleep_runs,
     sleep_scheduler,
     sync_service,
@@ -503,6 +504,8 @@ def _run_options_response(settings: Settings) -> SleepRunOptions:
         reserve_pct=opts.reserve_pct,
         reserve_choices=list(sleep_run_prefs.RESERVE_CHOICES),
         scheduled_use_plan=opts.scheduled_use_plan,
+        spend_limit_usd=opts.spend_limit_usd,
+        spend_limit_choices=list(sleep_spend.CHOICES),
     )
 
 
@@ -536,6 +539,10 @@ async def put_run_options(body: SleepRunOptionsUpdate, settings: Settings = Depe
         if body.scheduled_use_plan is None:
             raise HTTPException(status_code=422, detail="scheduledUsePlan must be true or false")
         changes["scheduled_use_plan"] = body.scheduled_use_plan
+    if "spend_limit_usd" in sent:
+        if body.spend_limit_usd is not None and not sleep_spend.valid(body.spend_limit_usd):
+            raise HTTPException(status_code=422, detail=f"spendLimitUsd must be null or above 0, up to {sleep_spend.MAX_USD:g}")
+        changes["spend_limit_usd"] = body.spend_limit_usd
     if changes:
         sleep_run_prefs.write(get_registry(settings), **changes)
     return _run_options_response(settings)
