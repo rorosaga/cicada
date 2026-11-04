@@ -44,6 +44,14 @@ Seven rails hold across all of them:
   document (`evidence.source_document`). Sleep runs the same retirement first in `_index_without_model_safely`, whatever
   the tree's state, before ids freeze; a failed commit keeps the retirement. A note unlocked later is simply new. Git
   history is untouched. An older app's body read from a locked note open at that moment cannot be told apart.
+  **Measured on real Notes (2026-11-04, one throwaway note, by id):** unlocked, `password protected` is false and
+  `plaintext` the full text, title first; locked and open in the session, `password protected` stays **true**, `plaintext`
+  asked directly returns the **full text**, and the reader's filter returns only the id; locked and closed, `plaintext` is
+  empty. So the filter is the guard, and any read of `plaintext` without it would leak an open note. **Locking gives a note
+  a new id** while its name and both dates survive, so an episode kept under the old id is found by a hash of the name with
+  a date (`lockedNoteKeys`, `locked_key`: hashed in the app, compared, never stored); episodes carry `note_created` for it.
+  Limits: a note edited and then locked, kept without `note_created`, is not found; a note locked after the last sync is
+  retired only by the next one, so a Sleep in that gap can still read it.
   **Where an item lives (2026-11-04, PR #599).** The script's ninth field names the note's Notes **account**
   ("iCloud", "On My Mac", a mail account's name); the app moves it out of the dump into `noteAccounts` (by note id,
   `AppleNotesReader.split`) so a backend that predates it, which checks a record's field count, still reads every note

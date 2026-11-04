@@ -28,6 +28,7 @@ import asyncio
 import hashlib
 import os
 import threading
+import unicodedata
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -222,6 +223,8 @@ def _write_note_episode(episodes_dir: Path, note: NoteRecord) -> str:
         "note_id": note.note_id,
         "folder": note.folder or None,
         "account": note.account or None,
+        # G234: the note's own creation date survives a lock, as its id does not (`locked_key`).
+        "note_created": note.created or None,
         # Folder name as a tag hint for the Sleep extractor/entity tagging —
         # mirrors bookmark_sync tagging synced items with their origin.
         "tags": [note.folder] if note.folder else [],
@@ -251,6 +254,31 @@ def locked_count(memory_path: Path) -> int:
         return max(0, int((entry or {}).get(LOCKED_COUNT_KEY) or 0))
     except (TypeError, ValueError, AttributeError):
         return 0
+
+
+def locked_key(name: str, when: str) -> str:
+    """A locked note's name with one of its dates, hashed (`AppleNotesReader.lockedKey`, the same bytes). Measured
+    2026-11-04: locking gives a note a new id while its name and both dates survive, so this is what finds an episode
+    kept under the id it had before. The app hashes it, so a name never travels."""
+    text = f"{(name or '').strip()}\x1f{(when or '').strip()}"
+    return hashlib.sha256(unicodedata.normalize("NFC", text).encode()).hexdigest()
+
+
+def _modified_line(body: str) -> str:
+    for line in (body or "").splitlines()[:6]:
+        if line.startswith("**Modified:**"):
+            return line.removeprefix("**Modified:**").strip()
+    return ""
+
+
+def _keys_of(fm: dict, body: str) -> set[str]:
+    """What identifies a kept episode's note without its id: its title with the modified date in its body, and, on an
+    episode written since this was added, with its creation date."""
+    title = str(fm.get("title") or "")
+    keys = {locked_key(title, _modified_line(body))}
+    if fm.get("note_created"):
+        keys.add(locked_key(title, str(fm["note_created"])))
+    return keys
 
 
 def is_stub(body: str) -> bool:
@@ -306,17 +334,29 @@ def _forget_in_index(memory_path: Path, retired_ids: set[str], note_ids: set[str
     return bool(gone)
 
 
-def retire_locked(memory_path: Path, note_ids: set[str]) -> Retired:
+def retire_locked(memory_path: Path, note_ids: set[str], keys: set[str] | None = None) -> Retired:
     """Retire every episode of these notes, and every Notes episode with no text. Keyed on the episodes' own `note_id`,
-    not the index, which points only at a note's latest episode. Pure files; the caller commits `paths`."""
+    not the index, which points only at a note's latest episode; `keys` (`locked_key`) find an episode kept under the
+    id the note had before it was locked, and with it every episode of that older id. Pure files; the caller commits
+    `paths`."""
     memory_path = Path(memory_path)
     out = Retired()
     at = episode_ids.utc_now_seconds()
     retired_ids: set[str] = set()
-    for f in bank_index.files(memory_path, "episodes"):
+    live = [f for f in bank_index.files(memory_path, "episodes")
+            if (f.frontmatter or {}).get("origin") == ORIGIN and not (f.frontmatter or {}).get(evidence.LOCKED_NOTE_KEY)]
+    note_ids = set(note_ids)
+    if keys:
+        for f in live:
+            fm = f.frontmatter or {}
+            older_id = str(fm.get("note_id") or "")
+            try:
+                if older_id and older_id not in note_ids and _keys_of(fm, f.body()) & keys:
+                    note_ids.add(older_id)
+            except Exception as exc:  # noqa: BLE001 — one unreadable file never stops the rest
+                logger.warning(f"Notes: could not read an episode: {type(exc).__name__}")
+    for f in live:
         fm = f.frontmatter or {}
-        if fm.get("origin") != ORIGIN or fm.get(evidence.LOCKED_NOTE_KEY):
-            continue
         try:
             if str(fm.get("note_id") or "") not in note_ids and not is_stub(f.body()):
                 continue
@@ -369,7 +409,7 @@ def _index_entry(episode_id: str, note: NoteRecord, known: dict | None = None) -
 
 
 async def sync_notes(memory_path: Path, *, dump: str, accounts: dict[str, str] | None = None,
-                     locked_ids: list[str] | None = None) -> dict[str, Any]:
+                     locked_ids: list[str] | None = None, locked_keys: list[str] | None = None) -> dict[str, Any]:
     """Parse ``dump`` and write one episode per new or modified note.
 
     A brand-new note id -> new episode. A previously-seen note whose
@@ -406,7 +446,8 @@ async def sync_notes(memory_path: Path, *, dump: str, accounts: dict[str, str] |
         readable.append(note)
     notes = readable
     locked_found = len(flagged)
-    retired = retire_locked(memory_path, flagged) if flagged else Retired()
+    keys = {str(k) for k in (locked_keys or []) if k}
+    retired = retire_locked(memory_path, flagged, keys) if flagged or keys else Retired()
     if retired.paths:
         logger.info(f"Notes: {len(retired.paths)} path(s) retired for locked notes")
         try:

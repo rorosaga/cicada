@@ -269,3 +269,65 @@ def test_a_retired_notes_words_leave_the_index_on_refresh_and_its_vectors_never_
             assert conn.execute("SELECT doc_key FROM docs WHERE doc_key LIKE 'episodes/%'").fetchall() == []
         finally:
             conn.close()
+
+
+def test_a_note_locked_after_it_was_read_is_found_though_locking_gave_it_a_new_id(memory):
+    """Measured on real Notes: the id changes at the lock; the name and both dates do not."""
+    run(notes_sync.sync_notes(memory, dump=_record("id-before", SECRET, name=TITLE, modified="m1")))
+    path = _episodes(memory)[0]
+    keys = [notes_sync.locked_key(TITLE, "c1"), notes_sync.locked_key(TITLE, "m1")]
+    result = run(notes_sync.sync_notes(memory, dump="", locked_ids=["id-after"], locked_keys=keys))
+    assert result["retired"] == 1
+    assert markdown_parser.parse(path).frontmatter[evidence.LOCKED_NOTE_KEY] is True
+    assert not history_index.waits_for_model(markdown_parser.parse(path).frontmatter)
+    assert TITLE not in (memory / "sources" / "notes_index.json").read_text()
+
+
+def test_an_episode_from_before_note_created_was_kept_is_found_by_its_modified_line(memory):
+    run(notes_sync.sync_notes(memory, dump=_record("id-before", SECRET, name=TITLE, modified="m1")))
+    path = _episodes(memory)[0]
+    parsed = markdown_parser.parse(path)
+    fm = dict(parsed.frontmatter)
+    fm.pop("note_created")
+    markdown_parser.write(path, fm, parsed.body)
+    result = run(notes_sync.sync_notes(memory, dump="", locked_ids=["id-after"],
+                                       locked_keys=[notes_sync.locked_key(TITLE, "m1")]))
+    assert result["retired"] == 1
+
+
+def test_older_episodes_of_the_same_old_id_go_with_it(memory):
+    run(notes_sync.sync_notes(memory, dump=_record("id-before", "first", name="Old title", modified="m1")))
+    run(notes_sync.sync_notes(memory, dump=_record("id-before", SECRET, name=TITLE, modified="m2")))
+    result = run(notes_sync.sync_notes(memory, dump="", locked_ids=["id-after"],
+                                       locked_keys=[notes_sync.locked_key(TITLE, "m2")]))
+    assert result["retired"] == 2
+
+
+def test_a_different_note_with_the_same_title_stays(memory):
+    run(notes_sync.sync_notes(memory, dump=_record("other", "kept words", name=TITLE, modified="m9")))
+    fm = markdown_parser.parse(_episodes(memory)[0]).frontmatter
+    run(notes_sync.sync_notes(memory, dump="", locked_ids=["id-after"],
+                              locked_keys=[notes_sync.locked_key(TITLE, "m1"), notes_sync.locked_key(TITLE, "c7")]))
+    fm = markdown_parser.parse(_episodes(memory)[0]).frontmatter
+    assert fm.get(evidence.LOCKED_NOTE_KEY) is None
+
+
+def test_the_keys_are_never_stored_and_the_stub_keeps_no_creation_date(memory):
+    key = notes_sync.locked_key(TITLE, "m1")
+    run(notes_sync.sync_notes(memory, dump=_record("id-before", "", name=TITLE, modified="m1"), locked_ids=[],
+                              locked_keys=[key]))
+    assert key not in _everything(memory)
+    run(notes_sync.sync_notes(memory, dump=_record("id-before", "text", name=TITLE, modified="m1")))
+    path = _episodes(memory)[0]
+    parsed = markdown_parser.parse(path)
+    markdown_parser.write(path, dict(parsed.frontmatter), "# T\n\n")
+    notes_sync.retire_locked(memory, set())
+    assert "note_created" not in markdown_parser.parse(path).frontmatter
+
+
+def test_the_key_is_the_apps_hash_byte_for_byte():
+    """`AppleNotesReaderTests.testALockedKeyMatchesTheBackendsHash` pins the same digest."""
+    import hashlib
+
+    want = hashlib.sha256("Caf\u00e9 note\x1fm1".encode()).hexdigest()
+    assert notes_sync.locked_key(" Cafe\u0301 note\n", " m1 ") == want

@@ -2648,8 +2648,9 @@ actor APIClient {
     /// 2026-11-04 — the same post with each note's account beside the dump (an older backend ignores the key).
     /// G234: `lockedNoteIds` always goes, an empty list included: it is how the backend knows this read asked Notes
     /// for unlocked notes only. A backend that predates it ignores the key.
-    func syncNotes(dump: String, accounts: [String: String], locked: [String]) async throws -> NoteSyncResult {
-        var body: [String: Any] = ["notesDump": dump, "lockedNoteIds": locked]
+    func syncNotes(dump: String, accounts: [String: String], locked: [String],
+                   lockedKeys: [String]) async throws -> NoteSyncResult {
+        var body: [String: Any] = ["notesDump": dump, "lockedNoteIds": locked, "lockedNoteKeys": lockedKeys]
         if !accounts.isEmpty { body["noteAccounts"] = accounts }
         return try await post("/sources/sync-notes", body: body)
     }
