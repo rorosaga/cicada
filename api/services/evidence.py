@@ -98,6 +98,11 @@ _SPEAKER_RE = re.compile(r"^speaker:[^:\n]{1,64}:")
 # quoted (`> `), so nothing inside it can open a turn. It is `page` evidence —
 # the document's words, never the person's (a pasted contract is not "You said").
 _ATTACHMENT_RE = re.compile(r"^attachment\s*\[[^\]\n]{1,128}\]\s*:", re.IGNORECASE)
+# Ruling 58 (owner, 2026-11-04): what the person said after an export upgraded their chat, as the app's model relayed it
+# (`episode_staging.append_relayed`), written `relayed [Claude]: text`. In one episode with their own imported words, so
+# no episode-wide override can say it: the marker does. It is `assistant`, the relaying model's words, never `user`.
+# Bracketed as `attachment` is, so a stored episode's plain "relayed: ..." line reads as it always did.
+_RELAYED_RE = re.compile(r"^relayed\s*\[[^\]\n]{1,64}\]\s*:", re.IGNORECASE)
 # G110 gate B2: the one line a captured session's body carries where the
 # session cap dropped its middle (`transcript_capture`). It is Cicada's line,
 # nobody's words, and it is known ONLY by the episode's own record
@@ -425,6 +430,9 @@ def _marker(line: str) -> tuple[str, str, int, str | None] | None:
     m = _ATTACHMENT_RE.match(line)
     if m:
         return "page", m.group(0)[:-1].rstrip(), m.end(), None
+    m = _RELAYED_RE.match(line)
+    if m:
+        return "assistant", m.group(0)[:-1].rstrip(), m.end(), None
     m = _TURN_RE.match(line)
     if m:
         if m.group(2):
@@ -432,6 +440,12 @@ def _marker(line: str) -> tuple[str, str, int, str | None] | None:
         role = m.group(1).lower()
         return ("assistant" if role in _ASSISTANT_ROLES else "user"), role, m.end(), None
     return None
+
+
+def quote_markers(text: str) -> str:
+    """Words that may sit after someone's own in one episode: any line that would open a turn is quoted, so a relayed
+    "user: I said so" can never read as the person's (the attachment rule)."""
+    return "\n".join(f"> {line}" if _marker(line) else line for line in text.split("\n"))
 
 
 def speaker_kind(text: str, start: int, gaps: Gaps = (), *, saved: bool = False) -> str:

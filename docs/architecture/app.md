@@ -3399,7 +3399,8 @@ other party's left in a `chatBubbleOtherFill` bubble with the resting ring (owne
 bubble hugs its words and leaves 48 pt on its far side; a long message's pieces read as one bubble, its ring drawn open
 where they meet) — the side read from each turn's written marker, not its role, because a relayed
 conversation (ruling 32) forces every role to `assistant`: `/episodes/{id}/text` carries `relay: {app, label}` until an
-export upgrades the episode, and then the person's side reads "Relayed by ChatGPT" (never "You") and the capture line
+export upgrades the episode, and then the person's side reads "Relayed by ChatGPT" (never "You"; so does each later turn of a chat
+that went on after its import, by its own `relayed [ChatGPT]` marker, ruling 58) and the capture line
 says the words came through the app's model; a run (one side and speaker, turns under 15 minutes apart) shows the face — the
 Messages chat's own picture by `MessageBubbles.face`, the chat parsed from the sitting's `imessage:<chat>:…` source id
 (`ReaderChat.messagesChat`), a monogram for a meeting speaker — or the agent's mark, the name only when it differs from

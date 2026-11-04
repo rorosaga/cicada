@@ -46,10 +46,12 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from api.services import agent_catalog, continuity_sessions, demo_guard, episode_ids, markdown_parser
+from loguru import logger
+
+from api.services import agent_catalog, continuity_sessions, demo_guard, episode_ids, evidence, markdown_parser
 from api.services import transcript_capture as tc
 from api.services.transcript_extract import (
-    _NOTE_LINE_RE, Conversation, Gap, Turn, clean_turn, window,
+    _NOTE_LINE_RE, SESSION_CAP_CHARS, Conversation, Gap, Turn, clean_turn, window,
 )
 
 #: Harnesses whose hooks post turns. Each must also be in ``episode_title.PRODUCT``.
@@ -242,6 +244,56 @@ def _entries(conv: Conversation, ids: list[str | None]) -> list[dict]:
     return out
 
 
+def _relayed_marker(relay: dict) -> str:
+    from api.remote.catalog import APPS
+
+    known = APPS.get(str(relay.get("app") or ""))
+    return f"relayed [{known.label if known is not None else 'app'}]"
+
+
+def _after_import(memory_path: Path, path: Path, stored, posted: list[Posted], relay: dict, *,
+                  said_at: str | None) -> tc.CaptureResult:
+    """Ruling 58 (owner, 2026-11-04): a chat continued after its one-time import keeps its later turns in the same
+    episode (one conversation for every count, G104): the imported part stays the person's own, each later turn is
+    marked as relayed, never theirs (`episode_staging.append_relayed`). The handle still finds this episode by its
+    session. Idempotent like every turn writer: a reply the episode already holds is not added, and a message that is the
+    last person's turn with no new reply is a re-send, even of one the export brought."""
+    from api.services import episode_staging as staging
+
+    fm, body = stored.frontmatter, stored.body
+    episode_id = str(fm.get("id") or path.stem)
+    now = said_at or episode_ids.utc_now_iso()
+    spans = evidence.turns(body)
+    words = [(t, staging._turn_key(body[t.content_start:t.end])) for t in spans if t.marker]
+    replies = {w for t, w in words if t.marker in ("assistant", "ai")}
+    person = [w for t, w in words if t.role == "user" or t.marker.startswith("relayed")]
+    marker = _relayed_marker(relay)
+    rows: list[dict] = []
+    new_reply = False
+    for p in posted:
+        turn, _counts = clean_turn(p.speaker, p.text, first=False, ts=now)
+        if turn is None:
+            continue
+        key = staging._turn_key(turn.text)
+        if p.speaker == "assistant":
+            if key not in replies:
+                new_reply = True
+                rows.append({"marker": "assistant", "speaker": "assistant", "text": turn.text, "ts": now})
+        elif new_reply or not person or key != person[-1]:
+            rows.append({"marker": marker, "speaker": "relayed", "text": turn.text, "ts": now})
+    if not rows:
+        return tc.CaptureResult("unchanged", episode_id, 0, 0, {})
+    grown = len(body) - fm[RELAY_KEY]["tail_at"] if staging.has_relayed_tail(fm) else 0
+    if grown + sum(len(r["text"]) for r in rows) > SESSION_CAP_CHARS:
+        return tc.CaptureResult("capped", episode_id, 0, 0, {})
+    before = tc._bytes_if(memory_path, path)
+    staging.append_relayed(path, fm, body, rows, at=now, project=relay.get("project"))
+    if before is not None:
+        tc.capture_commit.note_written(memory_path, path, before=before)
+    logger.info(f"capture: updated {episode_id} after its import with {len(rows)} relayed turns, re-queued")
+    return tc.CaptureResult("updated", episode_id, 0, 0, {})
+
+
 #: Ruling 57: how recently the app's other door must have written for this to be that door's same conversation.
 ELSEWHERE_WINDOW_S = 600
 
@@ -316,8 +368,8 @@ def capture_turns(
 
     ``relay`` (rulings 32, 57) marks turns a hookless app's model relayed: ``{app, connector, channel}``. Any catalog
     harness is then accepted, the episode carries the channel and ``evidence_kind: assistant``, an episode an export
-    already upgraded is left alone (``upgraded``), and a first turn the app's other connection just kept writes nothing
-    (``elsewhere``, :func:`_kept_elsewhere`).
+    already upgraded keeps its later turns after the imported part (ruling 58, :func:`_after_import`), and a first turn
+    the app's other connection just kept writes nothing (``elsewhere``, :func:`_kept_elsewhere`).
     ``utc_offset_minutes`` (ruling 34): a client's UTC offset, so a new episode's id carries the person's day.
     ``host`` (G228): the app that launched the harness, a label on the episode (``transcript_capture.host_extra``).
     ``said_at`` (rulings 34, 39): when these turns were said, for a turn that waited in an outbox; else now.
@@ -348,7 +400,7 @@ def capture_turns(
         stored = markdown_parser.parse(existing) if existing is not None else None
         if relay is not None and stored is not None and isinstance(stored.frontmatter.get(RELAY_KEY), dict) \
                 and stored.frontmatter[RELAY_KEY].get("upgraded_at"):
-            return tc.CaptureResult("upgraded", str(stored.frontmatter.get("id") or existing.stem), 0, 0, {})
+            return _after_import(memory_path, existing, stored, posted, relay, said_at=said_at)
         if stored is not None:
             state = _load(stored)
             if state is None:

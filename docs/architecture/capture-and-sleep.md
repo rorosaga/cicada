@@ -1234,9 +1234,8 @@ person message, cleaned the same way, matches exactly one not-yet-upgraded relay
 (`relay.first`, `turn_capture.relay_match_key`: letters and digits, case-folded, the first 400, at least 24) rewrites
 that episode in place — same file and id, re-queued, `evidence_kind` and `hook_turns` dropped, `relay.upgraded_at` and
 `upgraded_by` stamped — instead of adding a second copy. Two candidates, a short first message, another app or a date
-too far apart upgrade nothing (a second episode, as before). A later relay into an upgraded conversation is answered
-"already in Cicada from the export" and writes nothing: its later turns reach memory only if the person imports again,
-which nothing asks for (ruling 58). Open; TODO, ruling 58.
+too far apart upgrade nothing (a second episode, as before). A later relay into an upgraded conversation stays in that
+one episode, marked as relayed (ruling 58, below).
 
 **The Claude desktop app, on its local connection (ruling 57, owner 2026-11-04; amends ruling 32 and G105 for hookless apps
 only).** The app has no hook and keeps no chat history on disk for a claude.ai account (measured by counts on 2026-11-04,
@@ -1291,6 +1290,19 @@ alone; the relay there needs no address.
 **Exports are one-time (ruling 58, owner 2026-11-04).** A new memory's start, or what an AI provider holds; `app.md`, "An
 export is one-time". The official export (web or desktop, never the phone apps) comes by email with a link that expires in 24
 hours and has no schedule or API; its staging is per conversation and idempotent, and upgrades a relayed episode in place.
+
+**A chat that goes on after its import (ruling 58, owner 2026-11-04).** The later turns stay in the same episode: one
+conversation for every count, found by the same `lc_`/`rc_` handle. `episode_staging.append_relayed` adds them after the imported
+part, whose offsets never move (`relay.tail_at` is where they start, `relay.imported_hash` what the export wrote). The imported
+part stays `user:`/`assistant:`, the person's own; each later person turn is `relayed [Claude]: …`, which `evidence._marker` reads as
+`assistant`, the model's words, so a span, a promotion exchange and the Reader each resolve to the right kind with no episode-wide
+`evidence_kind`, which could not say both. Any line of a relayed turn that would open a turn is quoted (`> user: …`), so a model's
+words can never read as the person's own. Stamped in `turns`; a revision of itself (`revised`), so Sleep reads only what grew;
+Stage 1 is told what the marker means (`relayed_note`). A re-send is `unchanged`: a reply the episode holds, and a message that is
+its last person turn with no new reply, even one the export brought. Over the session cap on what grew, a turn is refused in words.
+**Another import** compares with `imported_hash`, so the same export is a skip. A newer one replaces the imported part (an edit in
+place, `merge_relayed_tail`): the later turns it holds are the person's own now and go, matched in order; the rest stay after it.
+The person sees each later turn in the Reader as "Relayed by Claude", never "You".
 
 **Per-turn capture (`api/services/turn_capture.py`, `POST /capture/turn`).** The hook posts `{harness, session_id,
 messages: [{speaker, text}], turn_id?, retry?, model?, cwd?, hook_event, utc_offset_minutes?}` — one turn (Cursor) or one exchange (Gemini

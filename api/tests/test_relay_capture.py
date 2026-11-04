@@ -151,10 +151,9 @@ def test_an_export_of_the_same_conversation_upgrades_the_relayed_episode(memory)
     assert fm["relay"]["upgraded_by"] == "claude" and fm["relay"]["upgraded_at"]
     assert "(full)" in stored.body
     assert {t.role for t in evidence.turns(stored.body)} == {"user", "assistant"}  # now the person's own words
-    # A later relay of that conversation leaves the export's episode alone.
-    assert _capture(runtime, connector, handle, "One more thing about the launch.", REPLY)[0].startswith(
-        "This conversation is already in Cicada")
-    assert markdown_parser.parse(path).body == stored.body
+    # Ruling 58: a later relay of that conversation stays after the export's words, which never move.
+    assert _capture(runtime, connector, handle, "One more thing about the launch.", "A later reply.")[0] == "Captured."
+    assert markdown_parser.parse(path).body.startswith(stored.body + "\n")
     # And a re-import is a plain skip by its source id.
     assert episode_staging.stage([_export()], memory / "episodes").skipped == 1
 

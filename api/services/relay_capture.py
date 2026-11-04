@@ -17,7 +17,8 @@ What differs from a hook, and why (the coordinator's conservative default until 
   for ruling 29's settling.
 * **An export upgrades it.** ``relay.first`` is the match key of the first person message
   (``turn_capture.relay_match_key``); importing the same conversation from the app's export rewrites this episode in
-  place with the export's words, which are the person's (``episode_staging``), instead of adding a second copy.
+  place with the export's words, which are the person's (``episode_staging``), instead of adding a second copy. Turns
+  relayed after that stay in the same episode, each marked as relayed (ruling 58, ``turn_capture._after_import``).
 * **Like a hook, not like a remote write:** no commit of its own (as every captured session) and no Sleep gate —
   an episode written while Sleep runs is read by the next one, exactly as a Stop hook's is. The demo guard holds.
 
@@ -57,7 +58,7 @@ _REPLIES = {
     "unchanged": "Already captured.",
     "metadata": "Captured.",
     "empty": "Nothing to capture in that turn.",
-    "upgraded": "This conversation is already in Cicada from the app's export; nothing to add.",
+    "capped": "This conversation has reached the most Cicada keeps of it after its import; this turn was not kept.",
     "elsewhere": "This conversation is already being kept through this app's other Cicada connection. Stop calling "
                  "this tool here.",
 }

@@ -19,7 +19,8 @@
   `cicada_capture_turns` by exact client name; a hook-captured harness never is, whatever it calls itself. #592's weekly
   nudge and Downloads pickup are gone; it never reached a release. **Blocked on the Funnel question (D6′, 2026-11-03):**
   claude.ai on web and phone and ChatGPT reach the relay only through a public address, today a tunnel the person runs;
-  not built here. **Open, new:** a chat resumed after its one-time import keeps no later turns (ruling 58).
+  not built here. A chat that goes on after its import keeps its later turns, marked as relayed, in the same episode
+  (ruling 58, amended the same day).
 - **2026-11-04 — This Mac source pages: accounts → collections → items (G161, G154, G95; branch `this-mac-sources`,
   PR #599, on the standard layout #593).** Owner: Apple Notes, Reminders, Contacts and Calendar "should
   have a better user experience and UI". One browser fills the standard page's content slot (`ThisMacSourceContent`):
@@ -3114,8 +3115,10 @@ A whole row moves to DONE only after its remaining implementation and required a
 58. **Exports are one-time (owner, 2026-11-04, verbatim: "never really agreed with the path of the weekly exports; exports
     should only exist for starting a brand new memory bank or importing data from AI providers like OpenAI and Anthropic.").**
     #592's weekly nudge and Downloads pickup are removed; a one-time import, its upgrade in place and the one-off *Remind
-    me* stay (that reminder predates #592 and exists because an export comes by email hours later). **Open, for the owner:**
-    #592's "the next export brings its later turns" no longer holds. A later relay into a conversation an export upgraded
-    still writes nothing, so a chat resumed after its one-time import keeps no later turns; the two ways out are a second
-    relayed episode for them (against G104's one-per-conversation) or relayed turns inside the export's own-words body
-    (against provenance), and neither is built. **Revisit** only if the owner asks for a repeating import.
+    me* stay (that reminder predates #592 and exists because an export comes by email hours later). **Amended (owner,
+    2026-11-04: "Yes I like that alternative you mention for exported chats that continue. That makes sense."):** a chat that
+    goes on after its import keeps its later turns in the same episode, marked as relayed, with the imported part still the
+    person's own words; a relay into an upgraded conversation no longer writes nothing (ruling 32's sentence). One conversation for every
+    count (G104), each part its own provenance by a `relayed [<app>]:` marker the one marker grammar reads as the model's, the
+    imported part's offsets untouched, Sleep reading only what grew, another import upgrading the turns it holds without a
+    duplicate (`capture-and-sleep.md`, "A chat that goes on after its import"). **Revisit** only if the owner asks for a repeating import.

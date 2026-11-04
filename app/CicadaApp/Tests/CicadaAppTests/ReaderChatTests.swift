@@ -246,6 +246,23 @@ final class ReaderChatTests: XCTestCase {
 
     // MARK: Relayed conversations (ruling 32)
 
+    /// Ruling 58 — a chat that went on after its import: the imported part is "You", a later turn says who relayed it.
+    func testAChatThatWentOnAfterItsImportNamesTheRelayTurnByTurn() {
+        let doc = Self.conversation([
+            Line(marker: "user", text: "Help me plan the launch.", ts: "2026-10-19T09:00:00+00:00"),
+            Line(marker: "assistant", text: "Here is a checklist.", ts: "2026-10-19T09:01:00+00:00"),
+            Line(marker: "relayed [Claude]", text: "Add a rollback step.", ts: "2026-10-21T09:02:00+00:00"),
+        ], harness: "claude-desktop", origin: "claude-export", captureKind: "transcript")
+        XCTAssertTrue(ReaderChat.isChat(doc))
+        let out = messages(rows(doc).rows)
+        XCTAssertEqual(out.map(\.side), [.person, .other, .person])
+        XCTAssertEqual(out[2].speaker, "Relayed by Claude")
+        XCTAssertNotEqual(out[0].speaker, "Relayed by Claude")
+        XCTAssertEqual(ReaderChat.relayedApp("relayed [Claude]"), "Claude")
+        XCTAssertNil(ReaderChat.relayedApp("relayed"))
+        XCTAssertNil(ReaderChat.relayedApp("user"))
+    }
+
     func testARelayedConversationIsSidedByItsWrittenMarkersAndThePersonIsNeverYou() {
         let doc = Self.conversation([
             Line(marker: "user", text: "Help me plan the launch.", ts: "2026-10-19T09:00:00+00:00"),
