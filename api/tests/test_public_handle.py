@@ -51,6 +51,7 @@ def _question(memory: Path, item_id: str = "inbox-401", a: str = "bex42", b: str
 @pytest.fixture
 def bank(tmp_path, monkeypatch):
     monkeypatch.setenv("CICADA_ALLOW_CONNECTOR_FETCH", "on")
+    monkeypatch.setenv("CICADA_PUBLIC_HANDLE_LOOKUP", "on")   # off by default until the owner rules (ruling 54)
     m = tmp_path / "memory"
     for sub in ("entities", "episodes", "inbox"):
         (m / sub).mkdir(parents=True)
@@ -110,10 +111,32 @@ def test_anything_private_keeps_it_for_the_person(bank, change, reason):
     assert web_settle.classify(bank, _fm(bank), "", _facts(bank)) == (None, "person")
 
 
-def test_the_switch_closes_it(bank, monkeypatch):
-    monkeypatch.setenv("CICADA_PUBLIC_HANDLE_LOOKUP", "off")
+@pytest.mark.parametrize("value", [None, "off", "maybe"])
+def test_sleeps_own_lookup_is_off_until_the_owner_rules(bank, monkeypatch, value):
+    if value is None:
+        monkeypatch.delenv("CICADA_PUBLIC_HANDLE_LOOKUP", raising=False)
+    else:
+        monkeypatch.setenv("CICADA_PUBLIC_HANDLE_LOOKUP", value)
     assert public_handle.test(bank, _fm(bank), _facts(bank)).reason == "off"
     assert web_settle.classify(bank, _fm(bank), "", _facts(bank)) == (None, "person")
+
+    def fn(**_kw):
+        raise AssertionError("no call while it is off")
+    report = asyncio.run(web_lookup.run_tail(bank, SimpleNamespace(web_check_per_run=8), user_triggered=True,
+                                             llm_fn=fn, engine=("resolved", "claude-cli", "plan")))
+    assert report.settled == 0 and (bank / "inbox" / "inbox-401.md").exists()
+
+
+def test_the_persons_own_agent_may_still_settle_it_while_sleeps_lookup_is_off(bank, monkeypatch):
+    monkeypatch.delenv("CICADA_PUBLIC_HANDLE_LOOKUP", raising=False)
+    c = web_settle.candidate(bank, bank / "inbox" / "inbox-401.md", _facts(bank), agent=True)
+    assert c is not None and c.handle is not None and web_settle.queries_for(c) == ("bex42 twitter", "Bea Example")
+    done = public_handle.settle(bank, "inbox-401", ref=PROFILE, quote=QUOTE, checker="claude-code",
+                                checker_kind="agent", origin="mcp")
+    assert done.entity_id == "bea-example" and not (bank / "inbox" / "inbox-401.md").exists()
+    with pytest.raises(web_settle.NotSettleable):   # Sleep's own settle stays refused while it is off
+        _question(bank, "inbox-406")
+        public_handle.settle(bank, "inbox-406", ref=PROFILE, quote=QUOTE, checker="haiku", checker_kind="sleep")
 
 
 def test_only_a_handle_against_a_full_name_and_never_the_owner_or_a_held_mention(bank):

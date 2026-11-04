@@ -250,7 +250,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **An edited conversation is a revision of itself (G104, owner 2026-11-03):** diffed against the version Sleep read
   (git), only what changed is read, spans re-anchored never fuzzily; what only removed text said is superseded by the
   same revision's value (no question) or withdrawn by a record, never deleted; still one conversation for every count;
-  another conversation's word stays an update or a conflict (`episode_revision`, `capture-and-sleep.md`).
+  another conversation's word stays an update or a conflict (`episode_revision`, `capture-and-sleep.md`). **Slice 2:** the
+  passages that said the removed words are rewritten or removed, one call a page at most, never History (it gains the
+  change, dated) and never a passage the person or an agent wrote or pinned — that is one inbox question a page (`revision_prose`).
 - **Entity promotion:** a first mention stays in the index; a page needs 2+ conversations, >3 exchanges with the person's
   own words, or a link the person made to a high-confidence page other than the owner's — counted on the conversation,
   never guessed (`promotion`) — or the person's own words naming in full exactly one waiting Contacts card, never the "me"
@@ -313,9 +315,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   world facts on plan runs (never a metered key), re-checked by use and volatility, never over the person's own words
   about their own life; a private
   person's name never reaches any service; every page says why it matters to the person, derived on read (`web_context`,
-  `page_relevance`, `storage.md`). PROPOSED ruling 54 (owner direction 2026-11-04, on until ruled): a public handle vs a
-  named public person, neither in a chat or contacts, may be settled by two pinned searches and a cited claim
-  (`public_handle`, `features.md`). **A tracked source's
+  `page_relevance`, `storage.md`). PROPOSED ruling 54 (owner direction 2026-11-04; off until the owner rules): a public handle
+  vs a named public person, neither in a chat or contacts, may be settled by two pinned searches and a cited claim; the
+  person's own agent on their ask meanwhile (`public_handle`, `features.md`). **A tracked source's
   dated re-check does (ruling 26):** a new dated fact; the newest evidence wins, even over the person's own words; the same
   day or undated asks once; dead = two failed visits a week apart; walled pages only by the person's agent (`storage.md`).
   **Where to check (ruling 36 D5, 2026-10-22):** an agent (`inferred`) or Sleep's engine-free step may PROPOSE a link

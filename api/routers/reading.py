@@ -38,7 +38,7 @@ from api.config import Settings, get_settings
 from api.routers.capture import refuse_capture_into_demo
 from api.services import (
     list_defaults, logo_service, media_ingestor, reading_asks, reading_hosts, reading_prompt, reading_queue,
-    reading_service, reading_settings, saved_lists, sync_service, youtube_lists,
+    reading_service, reading_settings, saved_lists, substack_lists, sync_service, youtube_lists,
 )
 
 router = APIRouter()
@@ -62,6 +62,9 @@ class SettingsUpdate(BaseModel):
     #: G206 (2026-10-22): a patch ``{x|instagram|linkedin: bool}`` — the saved lists on those sites the person's own
     #: agent keeps current from their signed-in browser (the Sources page's switch). Turning one on lifts its pause.
     savedLists: dict[str, bool] | None = None
+    #: G89 (2026-11-04): a patch ``{saved|history|subscriptions: bool}`` — the Substack lists the person's own agent
+    #: keeps current from their signed-in browser (the Sources page's Substack entry). Turning one on lifts the pause.
+    substackLists: dict[str, bool] | None = None
 
 
 class AskRequest(BaseModel):
@@ -80,6 +83,8 @@ def _settings_body(memory_path=None) -> dict:
         body["youtube"] = youtube_lists.status(memory_path)
         # G206: the same for each saved list on X, Instagram and LinkedIn, with the day's bounded read count.
         body["saved"] = saved_lists.status(memory_path)
+        # G89: the same for each Substack list (saved posts, reading history, subscriptions).
+        body["substack"] = substack_lists.status(memory_path)
     return body
 
 
@@ -109,7 +114,8 @@ async def put_reading_settings(update: SettingsUpdate, settings: Settings = Depe
         reading_settings.update(
             agent_enabled_=update.agentEnabled, acknowledge=update.acknowledge, sites=update.sites,
             surfaced=surfaced, explore_signed_in_=update.exploreSignedIn, never_explore_=update.neverExplore,
-            youtube_lists_=update.youtubeLists, saved_lists_=update.savedLists)
+            youtube_lists_=update.youtubeLists, saved_lists_=update.savedLists,
+            substack_lists_=update.substackLists)
     except reading_settings.SettingsError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     for site, on in (update.sites or {}).items():
@@ -119,6 +125,8 @@ async def put_reading_settings(update: SettingsUpdate, settings: Settings = Depe
         youtube_lists.resume()
     if update.savedLists and any(update.savedLists.values()):
         saved_lists.resume([k for k, on in update.savedLists.items() if on])
+    if update.substackLists and any(update.substackLists.values()):
+        substack_lists.resume()
     return _settings_body(memory_path)
 
 

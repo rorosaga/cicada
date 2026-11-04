@@ -499,7 +499,8 @@ def _local_description(fm: dict, page: dict | None, body: str) -> str:
     return " ".join(parts)
 
 
-def classify(memory_path: Path, fm: dict, body: str, facts: BankFacts) -> tuple[str | None, str]:
+def classify(memory_path: Path, fm: dict, body: str, facts: BankFacts, *,
+             agent: bool = False) -> tuple[str | None, str]:
     """``(scope, reason)``: ``public`` (a lookup may answer it), ``repo`` (a trusted local agent may, from the repo's
     history) or ``None`` with the enum that kept it for the person. Engine-free, network-free."""
     kind = str(fm.get("kind") or "")
@@ -519,7 +520,7 @@ def classify(memory_path: Path, fm: dict, body: str, facts: BankFacts) -> tuple[
     if page is not None and page.get("owner") is True:
         return None, "owner"
     if kind == PAIR:
-        return _classify_pair(fm, body, facts, name, page, memory_path)
+        return _classify_pair(fm, body, facts, name, page, memory_path, agent=agent)
     options = inbox_questions.normalize_options(fm.get("options"))
     labels = [str(o.get("label") or "") for o in options]
     asked = " ".join([str(fm.get("question") or ""), str(fm.get("title") or ""), name, *labels])
@@ -585,7 +586,7 @@ def _own_work(name: str, facts: BankFacts) -> bool:
 
 
 def _classify_pair(fm: dict, body: str, facts: BankFacts, name: str, page: dict | None,
-                   memory_path: Path | None = None) -> tuple[str | None, str]:
+                   memory_path: Path | None = None, *, agent: bool = False) -> tuple[str | None, str]:
     """A "same as?" question (2026-10-29) may be looked up only when BOTH sides are public things: a company, tool,
     concept or work on each side; neither the owner, a person, the person's own project (or a part of it, by name), a
     file, a path or a repository's state; never two things that share one title (G227: only the person knows which
@@ -602,11 +603,12 @@ def _classify_pair(fm: dict, body: str, facts: BankFacts, name: str, page: dict 
     types = (_subject_type(fm, page), str(other.get("type") or "").strip().lower())
     if "person" in types:
         # Proposed ruling 54 (owner direction 2026-11-04): a public handle and a named public person — the one person
-        # pair a lookup may answer (`public_handle`); every other person pair stays for the person.
+        # pair a lookup may answer (`public_handle`; Sleep's own lookup off until the owner rules, the person's own
+        # agent on their ask either way); every other person pair stays for the person.
         if memory_path is not None and types == ("person", "person"):
             from api.services import public_handle
 
-            if public_handle.test(Path(memory_path), fm, facts).public:
+            if public_handle.test(Path(memory_path), fm, facts, agent=agent).public:
                 return "public", public_handle.REASON
         return None, "person"
     for n in (name, other_name):
@@ -762,20 +764,22 @@ def context_category(c: "Candidate", context: list[str]) -> list[str]:
     return []
 
 
-def candidate(memory_path: Path, item_path: Path, facts: BankFacts) -> Candidate | None:
+def candidate(memory_path: Path, item_path: Path, facts: BankFacts, *, agent: bool = False) -> Candidate | None:
+    """``agent``: read for the person's own local agent (``cicada_record_check``), which may answer a public-handle
+    question while Sleep's own lookup is off (proposed ruling 54)."""
     try:
         parsed = markdown_parser.parse(item_path)
     except Exception:  # noqa: BLE001
         return None
     fm = parsed.frontmatter
-    scope, why = classify(memory_path, fm, parsed.body, facts)
+    scope, why = classify(memory_path, fm, parsed.body, facts, agent=agent)
     if scope is None:
         return None
     handle = None
     if why == "public_handle":
         from api.services import public_handle
 
-        handle = public_handle.test(Path(memory_path), fm, facts)
+        handle = public_handle.test(Path(memory_path), fm, facts, agent=agent)
     entity_id = str(fm.get("entity_id") or "")
     page = facts.pages.get(entity_id)
     etype = _subject_type(fm, page)

@@ -1301,8 +1301,9 @@ def _merge_entity_payload(base: dict, incoming: dict) -> dict:
         base.get("source_episode_timestamp"),
         incoming.get("source_episode_timestamp"),
     )
+    # `split`: a sentence of a summary that lost becomes a key fact above, and keeps that summary's rows (G104 slice 2).
     merged[section_provenance.INPUTS] = section_provenance.merge_selected(
-        base, incoming, merged,
+        base, incoming, merged, split=True,
     )
     return merged
 

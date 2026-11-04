@@ -199,6 +199,32 @@ final class ReadingAgentTests: XCTestCase {
         XCTAssertTrue(old.allowedSites.isEmpty)
     }
 
+    /// G89 (2026-11-04) — the Substack lists' switches and status decode, and their words follow the YouTube lists'.
+    func testTheSubstackListsDecodeAndReadInWords() throws {
+        let json = """
+        {"agentEnabled":true,"substackLists":{"saved":true,"history":false,"subscriptions":true},
+         "substack":{"pausedUntil":null,"lists":{"saved":{"lastReadAt":"2026-11-03T10:00:00+00:00","lastOutcome":"read",
+         "items":4},"history":{"lastReadAt":null}}}}
+        """
+        let s = try JSONDecoder().decode(ReadingSettingsResponse.self, from: Data(json.utf8))
+        XCTAssertTrue(s.isOn(.saved))
+        XCTAssertFalse(s.isOn(.history))
+        XCTAssertTrue(s.isOn(.subscriptions))
+        XCTAssertEqual(s.substack?.lists["saved"]?.items, 4)
+        XCTAssertTrue(SubstackListWords.detail(.saved, on: true, status: s.substack).hasPrefix("Last read by your agent"))
+        XCTAssertEqual(SubstackListWords.detail(.subscriptions, on: true, status: s.substack), Copy.Reading.youtubeWaiting)
+        XCTAssertEqual(SubstackListWords.detail(.history, on: false, status: s.substack), Copy.Reading.substackHistoryOff)
+        let paused = SubstackListsStatus(pausedUntil: "2026-11-11T10:00:00+00:00")
+        XCTAssertTrue(SubstackListWords.detail(.saved, on: true, status: paused).contains("wasn't signed in to Substack"))
+        // An older backend sends neither: everything off, never a failure.
+        let old = try JSONDecoder().decode(ReadingSettingsResponse.self, from: Data(#"{"agentEnabled":true}"#.utf8))
+        XCTAssertTrue(old.substackLists.isEmpty)
+        XCTAssertNil(old.substack)
+        let body = APIClient.readingSettingsBody(substackLists: ["history": true])
+        XCTAssertEqual(body["substackLists"] as? [String: Bool], ["history": true])
+        XCTAssertNil(body["sites"], "a Substack list is never a site grant")
+    }
+
     func testTheSitesFixtureDecodesAndReadsInWords() throws {
         let list = try JSONDecoder().decode(ReadingSitesResponse.self, from: fixtureData("reading_sites.json"))
         XCTAssertEqual(list.sites.map(\.site), ["linkedin", "paperfold.io", "tiktok"])

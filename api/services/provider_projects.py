@@ -122,7 +122,8 @@ def adopt_claude(memory_path: Path, projects: list[dict], episode_ids: dict[str,
         fm = dict(parsed.frontmatter)
         changed = project_ownership.add_provider(fm, entry)
         if project.get("description") and not project_ownership.description(fm):
-            fm[project_ownership.DESCRIPTION_KEY] = project_ownership.clean_description(project["description"])
+            fm[project_ownership.DESCRIPTION_KEY] = project_ownership.clean_description(project["description"],
+                                                                                             bank=memory_path.name)
             fm[project_ownership.DESCRIPTION_BY_KEY] = {"by": "user", "day": (today or date.today()).isoformat()}
             changed = True
         if (project_ownership.CLAUDE_EXPORT_MINE and not project_ownership.dismissed(fm)

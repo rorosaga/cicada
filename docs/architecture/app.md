@@ -503,6 +503,60 @@ Settings' local-folder picker — and check only the chosen file or folder
 (`IntakeRouter.refusedRoot(of:)`); a watched folder that *contains* a refused root is still walked
 (open, G125).
 
+**The awaited export, picked up from Downloads, and a weekly nudge (G197 layer c, 2026-11-04).** claude.ai, the Claude
+desktop app's chats and ChatGPT keep their history on the vendor's servers and run no hook, so the person's own export
+is the one way in that needs no model's cooperation (G105; `capture-and-sleep.md`, "Hookless chat apps"). Two steps
+make it a habit rather than a seed, with no new setting.
+
+**(1) The pickup** (`Support/ExportArrivals.swift`). `ExportArrivalWatcher` keeps one FSEvents watch on the top of
+`~/Downloads`. It is open only while a wait the person opened **in this run** of the app (*Remind me* or the weekly
+nudge's tap; `ExportWaitStore.armedVendors` / `armedUntil`) is unexpired in the open memory. A wait left by an earlier
+launch therefore never lists Downloads, or raises macOS's Files and Folders prompt, at launch. The watch closes:
+
+- when the last wait clears;
+- at its 14-day expiry, by its own timer, with no folder event needed;
+- at any look that finds nothing awaited, before anything is read;
+- on a memory switch (`sync`).
+
+A look that awaited across a close never reopens it (an epoch guard). The watcher lists names, sizes and dates only.
+The baseline is taken when the watch opens, so an export already there is never offered. A new `.zip` that keeps its
+size for one 1.5 s look (`ArrivalTracker`) has its **central directory** read (`ZipMembers`: member names only, never
+a member's bytes, zip64 included, ≤ 32 MB of directory). Every bound in `ZipMembers` is checked by subtraction, so a
+crafted offset near `UInt64.max` answers nil rather than trapping. `ExportArrivals.vendor(members:)` names the vendor
+by the files each export carries:
+
+- Claude: `conversations.json` + `users.json`;
+- ChatGPT: `conversations.json` + `user.json`, `chat.html` or `message_feedback.json`;
+- Takeout's Gemini Apps activity;
+- both account files at once is nobody's.
+
+Only a vendor being waited on is offered, through `IntakeRouter.offerArrival`. That is the drop's door
+(`accept(urls:from: .reminder(vendor))`, so the preview, *Into* and Import are the drop's own, and the sniff clears
+the wait) with two differences, because nobody dropped it:
+
+- it is silent while the router is busy: no "finish the import" toast;
+- it never takes the panel from a sniff, preview or import the person has open.
+
+Either way it answers `.wait`, and the file is offered again at the next look. Every other file is offered once.
+When Cicada is not in front, one notification says the export arrived. It is posted only after it `.opened` (never
+after a refusal), only when notifications were already allowed, and its tap brings the window. If macOS refuses
+Downloads, one line says so ("Cicada can't see Downloads, so drop the export on Cicada when it comes."), nothing is
+read, and the drop and picker work as before.
+
+**(2) Every week** is the last item of every *Remind me* menu (`WeeklyReminderItems`, the same three hosts). It is
+saved only when notifications are allowed, because a weekly reminder that cannot fire is not on. A refusal saves
+nothing and says so in one line ("A weekly reminder needs Cicada's notifications, which are off."), never the
+one-off delays' "waits here". On a grant it records an `ExportHabit` (defaults `cicada.exportHabits`, per bank ×
+vendor, the weekday it was turned on, at 9:00) and one repeating local notification ("Time for a fresh Claude
+export."). At launch, the saved habits are scheduled again (`refreshWeekly`). If notifications are no longer allowed,
+they are dropped instead, and launch never asks for the permission. The nudge carries its memory: tapping it opens
+that vendor's export page in the person's own browser (Cicada clicks nothing there) and opens a wait in the memory it
+was set in (*Tomorrow at 9:00*), which arms the pickup. Once on, the same menu reads *Stop the weekly reminder*.
+
+Taps carry a kind (`ReminderTapKind`: `due` · `weekly` · `arrived`); a reminder from before this change carries none
+and is `due`. Because staging is idempotent per conversation, a weekly full export re-imports only what is new or
+grew, and a relayed conversation is upgraded in place (ruling 32).
+
 **Recordings and videos (meaning index 2, 2026-10-28).** **File → Add Recording or Video…** (2026-10-29) is the
 keyboard and VoiceOver twin: the intake's own open panel (`IntakePicker.chooseMedia`, audio and video types, no folders)
 hands what was chosen to `IntakeRouter.accept`, so the menu takes the drop's door and its rules. An audio or video file among a drop (by its type; a folder
@@ -1944,6 +1998,21 @@ the website's logo … Clicking again on Sources takes me back to the main Sourc
   PUT answers 422 with that sentence otherwise). The accent is not used here beyond the toggle's own tint (DR-5); no
   new mark (the family's bundled mark already heads the column, DR-52). A `needs_login` lands as the G205 agent
   request in the Inbox, not on this row.
+- **Substack (G89, built 2026-11-04).** One Accounts entry, *Substack* (`SourceCatalog.substackId`, origin
+  `substack-saved`, the overview's `substack` saves and `substack-history` reading days; no `site`, so no per-site page
+  grant is drawn). Its detail holds, only while it is off, one line on why the agent reads it (Substack gives readers no
+  way to connect another app), then the three lists' switches the YouTube row's way (`substackListToggle`, words
+  from the pure `SubstackListWords`: *Keep Saved current*, *Keep reading history current*, *Follow my subscriptions*;
+  under each, off — "Off — your agent never opens …", on — the last read's day (DR-58), "Waiting for your agent", or
+  "Your agent wasn't signed in to Substack. Paused until <day> — turn it on again to try sooner."), each bound to
+  `GET /reading/settings` `substackLists.<list>` and written by `PUT /reading/settings {"substackLists": {…}}` (not a
+  Store domain, in memory; never a `sites` grant). Turning one on with agent reading off or its sheet unacknowledged
+  opens the first-use sheet first (`ReadingFirstUseSheet(substackList:)`), whose Turn on enables agent reading and that
+  list. Under the switches, once any publication is followed: "Following N publications through their public feeds"
+  (`SubstackFollowing.count` over the Store's `feeds`, tag `substack`). The row reads Off until a list is on, *On ·
+  waits for your agent* with no local agent, Connected with one (`savedListsOn` holds `substack`), and Connected once
+  its saves or reading days are in memory. The mark is a symbol (`newspaper.fill`, tinted 0xFF6719): no Substack logo
+  is bundled (DR-52). Applies DR-5, DR-20, DR-40, DR-58, DR-81.
 - **Watch history is never a save.** YouTube and TikTok history days are their own captured rows (*YouTube history*,
   *TikTok history*), headlined by their days ("30 watched days", `SourceOverview.isWatchHistory`), and their detail
   lists those days by title under the row's own id (`GET /sources/channels/youtube-history/items`, each opening in the
@@ -2194,9 +2263,33 @@ g141-7; DESIGN_RULES §9 2026-10-27).** The page is back on the rail (`PageSwitc
   reason in words (`why`), the person's located sentence for a words birth, and two neutral buttons, *Add to my
   projects* and *Not mine*. It opens the first time and is remembered (`cicada.projects.suggestedOpen`); dismissed ones
   sit behind "N dismissed · Show". A provider grouping (`kind: group`) asks for a name on accept (`ProjectNameSheet`).
-  With none of the person's own yet, the list says so above the fold (`ProjectsListState.emptyMine`).
-- **New project** is the eyebrow row's `PageAddButton`; its sheet takes a name and a description and opens the new
-  project.
+  With none of the person's own yet, the list draws no words at all (owner 2026-11-04: "just have it look empty"):
+  the column is empty and calm, the eyebrow's New project is the way in, and Cicada's suggestions stay one quiet line,
+  "N suggested · Review", its count in tertiary ink (`ProjectsSuggestedLine`).
+- **New project is a page (owner 2026-11-04, DESIGN_RULES §9 2026-11-04).** The eyebrow row's `PageAddButton` opens
+  `ProjectNewColumn` as the detail column (`ProjectsPage.newColumn`, an id no slug can take): the project page it will
+  become, before it exists. The card is the name as the page's H1 (a 22 pt field with no chrome, "Project name" in
+  tertiary ink while empty; ⏎ moves on) over a large editor for what it is about in the person's own words
+  (`cicadaEditor`, DR-76's long form: a `TextEditor` where Return starts a new line, 280 pt tall), then Cancel and the
+  one primary, Create (⌘⏎). Beside it (under it when narrow, `ProjectKnowledgeLayout`) the knowledge panel holds
+  *Pages · N* — the attached pages, each with Remove on hover and in its menu — then `ProjectPagePicker`: one search
+  field ("Find a page to add"), kind text tabs with counts (All · Videos · Articles · Papers · Repositories · People ·
+  Other, drawn only when the matches span two kinds), *Recent* (the most recently mentioned pages) while nothing is
+  typed, and rows of `ProjectAttachRow`: one leading slot as wide as a media page's 3:2 well holding the page's
+  picture, else its source's mark (a saved link's site, GitHub for a repository), then the name and where it came
+  from. The candidates are `ProjectAttachModel.candidates` over the graph's nodes and Sleep › Saved's items (the owner,
+  facets, hubs and dropped pages left out). The draft (`ProjectDraft`) lives on the page: Esc and × close and keep it,
+  Cancel forgets it, a bank switch clears it. Create is ONE `ProjectChange.create(name:description:pages:)` → `POST
+  /projects` with `pages`: the server makes the page and attaches everything in one person commit (a repository joins
+  `repositories:`, ruling 53), and the new project opens in place of the draft; a refusal keeps the draft and toasts
+  the server's sentence. The picker ranks again only when its query, kind, attached set or candidates move
+  (`ProjectPickerMemo`), and the candidates are built once per graph and saved-items load (`ProjectAttachCache`). The person's description is the project page's lead (`ProjectHeaderEditor`, primary ink,
+  paragraphs kept; editing it uses the same long field, ⌘⏎ saves, Esc cancels, a click away saves). The day the
+  person started it counts as activity (`project_timeline._tied_days`), so a project made a moment ago is in Current;
+  that day is one of the moment days `project_state.median_gap` reads, so it also sets the rhythm a quiet project's
+  follow-up is measured against until other activity arrives.
+  Add on *Pages in this project* opens `AddProjectPageSheet`, the same picker in a sheet. `ProjectNameSheet` now only
+  names a provider grouping on accept.
 - **The header** is `ProjectHeaderEditor`: the name and the person's description, edited in place (PATCH), a meta
   line saying how it became theirs and who last set the description (with that agent's mark). Sleep's first line shows,
   dimmer, only when the person wrote no description.
@@ -2262,8 +2355,8 @@ part is a spec and needs a Mac).** The wire is `api.md`'s g141-6. What the page 
   influences, each capped with its own "All N". Writes are `ProjectChange.tiePage` through `Store.perform`, painted at
   once (`ProjectPagesPaint`). **The list:** sub-projects sit indented under their parent, always shown (no chevron —
   amends 2026-10-19's "dropdown that moves if I press again", the owner's newer preference); the quiet projects sit
-  under a static *Gone quiet* label (`ProjectsEntry.quiet`), never a fold; Suggested is one line, "N suggested by
-  Cicada · Review" (`ProjectsSuggestedLine`), which opens the suggestions as the detail column
+  under a static *Gone quiet* label (`ProjectsEntry.quiet`), never a fold; Suggested is one line, "N suggested ·
+  Review" (`ProjectsSuggestedLine`; "by Cicada" dropped 2026-11-04), which opens the suggestions as the detail column
   (`ProjectsSuggestedColumn`: DR-74's head, text tabs Suggested · Not mine). ← on a sub-project opens its parent; →
   has nothing left to unfold. The bullets below describe v2; where they name a fold, v3's open section replaces it.
 - **The list (v2):** text tabs **Current · Past** with counts (`ProjectsModel.tabs`; tapping the selected one keeps

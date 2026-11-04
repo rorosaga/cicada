@@ -404,8 +404,8 @@ conversations (at most two scrubbed mention lines, other people's names out); pl
 named page ("<Name> goes by “<handle>” online", its object the handle's page, observer `agent`, `external`,
 `web-check`), never a merge; while it stands the pair is not asked again (`pair_evidence.answered_by_check`); undo
 under "Settled by a check". The person's own agent settles it the same way (`cicada_record_check`,
-`proposed_value="same"`). On by the owner's direction while the ruling is proposed; `CICADA_PUBLIC_HANDLE_LOOKUP=off`
-closes it. Measured on a copy of the owner's bank: 1 of the 20 open person pairs qualifies; one real
+`proposed_value="same"`). **Off until the owner rules:** Sleep's own lookup runs only with
+`CICADA_PUBLIC_HANDLE_LOOKUP=on`; meanwhile only the person's own local agent, asked by them, may settle one. Measured on a copy of the owner's bank: 1 of the 20 open person pairs qualifies; one real
 lookup on the plan with haiku made exactly the two pinned searches and answered "not sure" (nothing written; the
 shipped lookup tier is `web_check_agent_model`, sonnet, not run here).
 The settled question moves to `inbox/settled/<id>.md` with a `settled:` block naming exactly what it wrote, and is

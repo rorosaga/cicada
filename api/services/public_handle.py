@@ -42,7 +42,8 @@ question returns, never checked again). Never a merge: the two pages stay, and t
 if they want (a handle page may also hold other things, such as an agent named after the handle). While the claim
 stands, the pair is not asked again (``pair_evidence.answered_by_check``). Any other answer settles nothing.
 
-On by the owner's direction while the ruling is proposed; ``CICADA_PUBLIC_HANDLE_LOOKUP=off`` closes it (:func:`enabled`).
+Sleep's own lookup is OFF until the owner rules (``CICADA_PUBLIC_HANDLE_LOOKUP=on`` turns it on, :func:`enabled`); the
+person's own local agent, asked by them, may settle one through ``cicada_record_check`` either way.
 """
 from __future__ import annotations
 
@@ -181,17 +182,19 @@ def _site_in(text: str, handle: str) -> str:
 
 
 def enabled() -> bool:
-    """On by the owner's direction (2026-11-04) while ruling 54 is proposed; ``CICADA_PUBLIC_HANDLE_LOOKUP=off`` closes
-    it and every handle question stays for the person."""
-    return os.environ.get("CICADA_PUBLIC_HANDLE_LOOKUP", "on").strip().lower() not in ("off", "0", "false", "no")
+    """Sleep's own lookup: OFF until the owner rules on proposed ruling 54 (coordinator, 2026-11-04: a privacy-rail
+    change is built switched off and decided by the owner); ``CICADA_PUBLIC_HANDLE_LOOKUP=on`` turns it on."""
+    return os.environ.get("CICADA_PUBLIC_HANDLE_LOOKUP", "off").strip().lower() in ("on", "1", "true", "yes")
 
 
-def test(memory_path: Path, fm: dict, facts) -> Pair:
-    """Proposed ruling 54's test for one ``merge_suggestion``: :attr:`Pair.public` when a lookup may answer it."""
+def test(memory_path: Path, fm: dict, facts, *, agent: bool = False) -> Pair:
+    """Proposed ruling 54's test for one ``merge_suggestion``: :attr:`Pair.public` when a lookup may answer it.
+    ``agent``: the person's own local agent asked, on their ask (``cicada_record_check``) — the same test, whatever the
+    switch; Sleep's own lookup only when :func:`enabled`."""
     from api.services import web_context
 
     memory_path = Path(memory_path)
-    if not enabled():
+    if not agent and not enabled():
         return Pair("off")
     if fm.get("held_mention"):
         return Pair("held_mention")
@@ -273,10 +276,12 @@ def settle(memory_path: Path, item_id: str, *, ref: str, quote: str, checker: st
         raise web_settle.NotSettleable("That question is no longer open.")
     facts = facts or web_settle.bank_facts(memory_path)
     parsed_item = markdown_parser.parse(item_path)
-    if web_settle.classify(memory_path, parsed_item.frontmatter, parsed_item.body, facts) != ("public", REASON):
+    agent = checker_kind == "agent"
+    if web_settle.classify(memory_path, parsed_item.frontmatter, parsed_item.body, facts,
+                           agent=agent) != ("public", REASON):
         raise web_settle.NotSettleable("That question is not about a public handle a lookup may answer; it stays for "
                                        "the person.")
-    pair = test(memory_path, parsed_item.frontmatter, facts)
+    pair = test(memory_path, parsed_item.frontmatter, facts, agent=agent)
     ref, host = web_settle.check_ref(ref, "public")
     quote = web_settle.clean_quote(quote)
     if not quote:

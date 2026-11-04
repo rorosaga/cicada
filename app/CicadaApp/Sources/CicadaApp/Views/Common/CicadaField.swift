@@ -76,3 +76,47 @@ extension View {
         modifier(CicadaField(isFocused: isFocused, prompt: prompt, isEmpty: isEmpty))
     }
 }
+
+/// DR-76's one field in its long form (owner 2026-11-04: "a better bigger page view for describing this"): a
+/// `TextEditor`, where Return starts a new line, drawn on the very same surface — `detailBodyFont`, the `bgBase` fill,
+/// the input ring turning the accent at 70 % while focused, the prompt in `textTertiary` while empty. Its caller binds
+/// the focus (`.focused(_:)`) and passes it, as `cicadaField(isFocused:)` does.
+struct CicadaEditor: ViewModifier {
+    let isFocused: Bool
+    let prompt: String
+    let isEmpty: Bool
+    var minHeight: CGFloat = 160
+
+    /// NSTextView's own line-fragment padding: the prompt sits where the first typed letter will.
+    static let textInset: CGFloat = 5
+
+    func body(content: Content) -> some View {
+        content
+            .font(CicadaTheme.detailBodyFont)
+            .scrollContentBackground(.hidden)
+            .accessibilityLabel(prompt)
+            .background(alignment: .topLeading) {
+                if isEmpty {
+                    Text(prompt)
+                        .font(CicadaTheme.detailBodyFont)
+                        .foregroundStyle(CicadaField.promptInk)
+                        .padding(.leading, Self.textInset)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+            }
+            .padding(.horizontal, CicadaTheme.scaled(10) - Self.textInset)
+            .padding(.vertical, CicadaTheme.scaled(7))
+            .frame(minHeight: CicadaTheme.scaled(minHeight), alignment: .topLeading)
+            .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(CicadaTheme.bgBase))
+            .overlay(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
+                .strokeBorder(CicadaField.ring(focused: isFocused), lineWidth: 1))
+    }
+}
+
+extension View {
+    /// DR-76's long form (see `CicadaEditor`), for a `TextEditor` whose focus the caller binds.
+    func cicadaEditor(isFocused: Bool, prompt: String, isEmpty: Bool, minHeight: CGFloat = 160) -> some View {
+        modifier(CicadaEditor(isFocused: isFocused, prompt: prompt, isEmpty: isEmpty, minHeight: minHeight))
+    }
+}
