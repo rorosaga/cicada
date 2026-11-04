@@ -13,5 +13,20 @@ extension Copy {
         static func disconnectTitle(_ source: String) -> String { "Disconnect \(source)?" }
         static let disconnectKeeps = "What already came in stays in your memory."
         static func connect(_ source: String) -> String { "Connect \(source)" }
+        static let reconnect = "Reconnect"
+        static let open = "Open…"
+        static let folders = "Folders"
+        static let history = "History"
+        static let saved = "Saved"
+        static let chooseChats = "Choose chats…"
+        static let savedList = "Keep your saved list current"
+        static let browserSettings = "Browser reading…"
+        static let browserSettingsHelp = "What your own agent may read in your signed-in browser, and how"
+        static func notesRead(new: Int, unchanged: Int) -> String {
+            "\(UsageFormat.count(new)) new · \(UsageFormat.count(unchanged)) unchanged"
+        }
+        /// The drop zone on a source's own page: what to drop, said once (the full how-to is its hover).
+        static let dropExport = "Drop the export here"
+        static let chooseFile = "Choose a file…"
     }
 }

@@ -157,4 +157,43 @@ enum SourceItemsRules {
         if let sittings = item.sittings, sittings > 0 { return Copy.SourcePage.conversations(sittings) }
         return nil
     }
+
+    /// 2026-11-04 (owner: YouTube's "All" is "a bit dense") — a long list of days reads in months: each month's rows
+    /// under its name ("November", "March 2025"; the year only when it is not this one), in the order sent. Rows with
+    /// no day keep their place in an untitled group.
+    static func byMonth(_ items: [ChannelItem], today: ISODay,
+                        locale: Locale = .autoupdatingCurrent) -> [(title: String?, items: [ChannelItem])] {
+        var groups: [(key: String?, title: String?, items: [ChannelItem])] = []
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC") ?? .current
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
+        for item in items {
+            let day = ISODay(item.day)
+            let key = day.map { "\($0.civil.year)-\($0.civil.month)" }
+            if let last = groups.last, last.key == key {
+                groups[groups.count - 1].items.append(item)
+                continue
+            }
+            var title: String?
+            if let day {
+                formatter.setLocalizedDateFormatFromTemplate(day.civil.year == today.civil.year ? "LLLL" : "LLLL yyyy")
+                title = formatter.string(from: day.date(in: calendar))
+            }
+            groups.append((key, title, [item]))
+        }
+        return groups.map { ($0.title, $0.items) }
+    }
+}
+
+/// 2026-11-04 — a source with several lists names each section once: a watched history, a saved list, else the
+/// row's own label (YouTube: History, then Saved).
+enum SourceSectionTitle {
+    static func of(_ row: SourceOverview) -> String {
+        if row.isWatchHistory { return Copy.SourceLayout.history }
+        if row.intent == .saved { return Copy.SourceLayout.saved }
+        return row.label
+    }
 }

@@ -116,8 +116,23 @@ struct SourceItemsSection: View {
                 let rows = cap.map { Array(list.items.prefix($0)) } ?? list.items
                 let today = ISODay.today()
                 let chats = ChatSourcePage.isChatSource(channel)
-                LazyVStack(spacing: saved || chats ? CicadaTheme.scaled(RowMetrics.twoLineGap) : 0) {
-                    ForEach(rows, id: \.self) { item in row(item, today: today) }
+                if cap == nil, rows.first?.videos != nil {
+                    // 2026-11-04 (owner: YouTube's "All" is "a bit dense") — every day, under its month's name.
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(SourceItemsRules.byMonth(rows, today: today).enumerated()), id: \.offset) { i, group in
+                            if let title = group.title {
+                                SectionLabel(title)
+                                    .frame(minHeight: CicadaTheme.scaled(28), alignment: .bottomLeading)
+                                    .padding(.horizontal, CicadaTheme.scaled(10))
+                                    .padding(.top, i == 0 ? 0 : CicadaTheme.scaled(14))
+                            }
+                            ForEach(group.items, id: \.self) { item in row(item, today: today) }
+                        }
+                    }
+                } else {
+                    LazyVStack(spacing: saved || chats ? CicadaTheme.scaled(RowMetrics.twoLineGap) : 0) {
+                        ForEach(rows, id: \.self) { item in row(item, today: today) }
+                    }
                 }
                 footer(list, shown: rows.count, cache: cache)
             }

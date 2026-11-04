@@ -114,13 +114,13 @@ CATALOG: tuple[SourceSpec, ...] = (
     SourceSpec("calendar", "Calendars", "feed", "calendar", ("calendar",), "calendar"),
     # G142 (round 4): Apple Calendar through EventKit, so its episodes never read as a raw id.
     SourceSpec("calendar-local", "Apple Calendar", "feed", "calendar-local", ("calendar-local",), "calendar-local"),
-    SourceSpec("telegram", "Telegram", "messaging", "telegram", ("telegram",), "telegram"),
+    SourceSpec("telegram", "Telegram bot", "messaging", "telegram", ("telegram",), "telegram"),
     # G179: the Messages conversations the person ticked — one episode per sitting.
     SourceSpec("imessage", "Messages", "messaging", "imessage", ("imessage",), "imessage"),
     # G179 (2026-10-28): WhatsApp read live from its Mac store, the Messages way.
     SourceSpec("whatsapp", "WhatsApp", "messaging", "whatsapp", ("whatsapp",), "whatsapp"),
     # Ruling 47a: the person's own Telegram one-to-one chats, through their own account.
-    SourceSpec("telegram-chats", "Telegram chats", "messaging", "telegram-chats", ("telegram-chats",),
+    SourceSpec("telegram-chats", "Telegram", "messaging", "telegram-chats", ("telegram-chats",),
                "telegram-chats"),
     SourceSpec("wispr-flow", "Wispr Flow", "voice", "wispr-flow", ("wispr-flow",), "wispr-flow"),
     SourceSpec("notes", "Apple Notes", "import", "apple-notes", ("apple-notes",), "notes"),

@@ -151,7 +151,7 @@ enum SourceCatalog {
                            verb: .connect(Copy.Catalog.addFeed)),
         SourceCatalogEntry(id: "calendar", group: .feeds, title: Copy.Catalog.calendarFeeds, origin: "calendar",
                            channels: ["calendar"], tile: .calendar, verb: .connect(Copy.Catalog.addFeed)),
-        SourceCatalogEntry(id: "telegram", group: .feeds, title: "Telegram", origin: "telegram",
+        SourceCatalogEntry(id: "telegram", group: .feeds, title: Copy.Chats.telegramBotTitle, origin: "telegram",
                            channels: ["telegram"], tile: .telegram),
         // Ruling 47a: the person's own Telegram chats, read through their own account by the backend.
         SourceCatalogEntry(id: TelegramChats.channel, group: .accounts, title: Copy.Chats.telegramTitle,
