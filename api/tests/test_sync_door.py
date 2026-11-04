@@ -187,6 +187,7 @@ def _setup(monkeypatch, platform):
 
     monkeypatch.delenv(sync_door.HOST_ENV, raising=False)
     monkeypatch.setattr(__import__("sys"), "platform", platform)
+    monkeypatch.setenv("CICADA_APP_BUNDLE_ID", "com.example.cicada")    # the agent names the app (TN3179)
     sync_routes.set_lan_allowed(True)
 
 
@@ -285,18 +286,35 @@ async def _echo_app(scope, receive, send):
     await send({"type": "http.response.body", "body": out})
 
 
-@pytest.fixture
-def live(keys, tmp_path, monkeypatch):
+def _start(keys, tmp_path, monkeypatch, *, tcp: bool):
     monkeypatch.setattr(sync_door, "HELLO_TIMEOUT_S", 0.5)
     monkeypatch.setattr(sync_door, "own_routes", lambda port=None: {"v": 1, "port": port, "lan": [], "tailnet": []})
     loop = asyncio.new_event_loop()
     threading.Thread(target=loop.run_forever, daemon=True).start()
-    server = sync_door.Server(_echo_app, tmp_path, port=0, hosts=["127.0.0.1"])
+    server = sync_door.Server(_echo_app, tmp_path, port=0, hosts=["127.0.0.1"], tcp=tcp)
     server.lookup = _lookup_for(keys["dev"])
     from api.services import device_key
 
     monkeypatch.setattr(device_key, "sign", keys["home"].sign)
     asyncio.run_coroutine_threadsafe(server.start(), loop).result(5)
+    return loop, server
+
+
+@pytest.fixture(params=["door", "door-tcp"])
+def live(request, keys, tmp_path, monkeypatch):
+    """The door on loopback; every test using it runs over UDP and over the TCP fallback."""
+    carrier = request.param
+    loop, server = _start(keys, tmp_path, monkeypatch, tcp=carrier == "door-tcp")
+    target = sync_door.Target("home1", keys["pub"], keys["home"].jwk)
+    ident = sync_door.Identity("d1", keys["dev"].jwk, keys["dev"].sign)
+    yield server, target, ident, carrier
+    asyncio.run_coroutine_threadsafe(server.stop(), loop).result(5)
+    loop.call_soon_threadsafe(loop.stop)
+
+
+@pytest.fixture
+def udp_door(keys, tmp_path, monkeypatch):
+    loop, server = _start(keys, tmp_path, monkeypatch, tcp=False)
     target = sync_door.Target("home1", keys["pub"], keys["home"].jwk)
     ident = sync_door.Identity("d1", keys["dev"].jwk, keys["dev"].sign)
     yield server, target, ident
@@ -305,6 +323,7 @@ def live(keys, tmp_path, monkeypatch):
 
 
 def _silent(port: int, data: bytes, wait: float = 1.5) -> bytes:
+    """What a TCP scanner hears."""
     s = socket.create_connection(("127.0.0.1", port), timeout=wait)
     try:
         if data:
@@ -323,8 +342,87 @@ def _silent(port: int, data: bytes, wait: float = 1.5) -> bytes:
         s.close()
 
 
-def test_a_scanner_gets_not_one_byte(live):
-    server, _t, _i = live
+def _udp_heard(port: int, datagrams: list[bytes], wait: float = 0.6) -> bytes:
+    """What a raw UDP socket hears back after sending ``datagrams`` to the door. ``refused`` would mean an ICMP
+    port-unreachable came back: the port is closed, not silent."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.connect(("127.0.0.1", port))
+    s.settimeout(wait)
+    got = b""
+    try:
+        for d in datagrams:
+            s.send(d)
+        while True:
+            got += s.recv(65536)
+    except socket.timeout:
+        pass
+    except ConnectionRefusedError:
+        return b"refused"
+    finally:
+        s.close()
+    return got
+
+
+def _unsigned(keys) -> sync_door.Identity:
+    """A device that looks right — the group's own public key — and signs nothing: an all-zero signature."""
+    zero = base64.urlsafe_b64encode(b"\0" * 64).rstrip(b"=").decode()
+    return sync_door.Identity("d1", keys["dev"].jwk, lambda _data: zero)
+
+
+def test_a_stranger_hears_nothing_at_all_from_the_udp_door(udp_door, keys):
+    """The owner's silence goal (WireGuard's): junk, an HTTP probe, an empty datagram, an old hello, a valid-looking
+    but unsigned hello, a hello from a key outside the group, a replayed good hello and packets for sessions that do
+    not exist or do not open — 0 bytes back, and no ICMP either (the port is open and silent, never closed)."""
+    from api.services import sync_door_channel as channel
+
+    server, target, ident = udp_door
+    port = server.port
+    old, _ = sync_door.client_hello(ident, keys["pub"], now=time.time() - 400)
+    unsigned, _ = sync_door.client_hello(_unsigned(keys), keys["pub"])
+    stranger_key = Key()
+    stranger, _ = sync_door.client_hello(sync_door.Identity("d9", stranger_key.jwk, stranger_key.sign), keys["pub"])
+    cases = {
+        "junk": [os.urandom(n) for n in (1, 40, 217, 218, 600, 1400)],
+        "http": [b"GET / HTTP/1.1\r\nHost: x\r\n\r\n"],
+        "empty": [b""],
+        "hello-shaped noise": [channel.hello_datagram(os.urandom(sync_door.HELLO_LEN))],
+        "an old hello": [channel.hello_datagram(old)],
+        "an unsigned hello": [channel.hello_datagram(unsigned)],
+        "a stranger's hello": [channel.hello_datagram(stranger)],
+        "no such session": [bytes([channel.DATA_T]) + os.urandom(60)],
+        "a reply shape": [bytes([channel.REPLY_T]) + os.urandom(channel.REPLY_DGRAM - 1)],
+    }
+    for name, datagrams in cases.items():
+        server.buckets.b.clear()                     # silence is the property here, not the rate limit
+        assert _udp_heard(port, datagrams) == b"", name
+    server.buckets.b.clear()
+    # A good hello answered once; the same hello again, from another socket, gets nothing.
+    good, _ = sync_door.client_hello(ident, keys["pub"])
+    assert len(_udp_heard(port, [channel.hello_datagram(good)])) == channel.REPLY_DGRAM   # one reply, smaller
+    assert channel.REPLY_DGRAM < channel.HELLO_DGRAM
+    assert _udp_heard(port, [channel.hello_datagram(good)]) == b""                       # replayed
+    # A live session's id with a packet that does not open: nothing.
+    conn = sync_door.connect("127.0.0.1", port, target, ident)
+    sid = conn.ch.sid
+    forged = bytes([channel.DATA_T]) + sid + (10 ** 6).to_bytes(8, "big") + os.urandom(40)
+    assert _udp_heard(port, [forged]) == b""
+    conn.close()
+    assert server.counts["accepted"] == 1 and server.counts["dropped"] >= 14
+
+
+def test_the_tcp_fallback_is_not_listening_unless_turned_on(udp_door, monkeypatch):
+    server, _t, _i = udp_door
+    with pytest.raises(ConnectionRefusedError):
+        socket.create_connection(("127.0.0.1", server.port), timeout=1)
+    assert server.wire()["tcp"] is None and server.carriers() == ["udp"]
+    assert sync_door.tcp_enabled({}) is False and sync_door.tcp_enabled({sync_door.TCP_ENV: "on"}) is True
+
+
+def test_a_tcp_scanner_gets_not_one_byte_from_the_fallback(live):
+    server, _t, _i, carrier = live
+    if carrier != "door-tcp":
+        pytest.skip("the TCP fallback's own scanner check")
+    assert server.carriers() == ["udp", "tcp"]
     assert _silent(server.port, b"GET / HTTP/1.1\r\nHost: x\r\n\r\n" + b"\0" * 200) == b""
     assert _silent(server.port, os.urandom(sync_door.HELLO_LEN)) == b""
     assert _silent(server.port, b"") == b""                        # says nothing: closed after the hello timeout
@@ -332,19 +430,19 @@ def test_a_scanner_gets_not_one_byte(live):
 
 
 def test_requests_run_in_process_as_the_proved_device_with_no_token(live, tmp_path):
-    server, target, ident = live
+    server, target, ident, carrier = live
     body = os.urandom(1_300_000)                                   # three body frames
     status, headers, answer = sync_door.request(
         "127.0.0.1", server.port, target, ident, "POST", "/capture/note?x=1", body=body,
         headers={"Authorization": "Bearer secret", "Idempotency-Key": "k" * 16, "Content-Type": "application/json",
-                 "X-Other": "nope"}, pool=sync_door.Pool())
+                 "X-Other": "nope"}, pool=sync_door.Pool(), carrier=carrier)
     assert status == 201 and answer["door"] == "d1" and answer["device"] == "d1" and answer["query"] == "x=1"
     assert answer["len"] == len(body) and answer["sha"] == __import__("hashlib").sha256(body).hexdigest()
     assert "authorization" not in answer["headers"] and "x-other" not in answer["headers"]
     assert "idempotency-key" in answer["headers"]
     out = tmp_path / "big.bin"
     status, _h, got = sync_door.request("127.0.0.1", server.port, target, ident, "GET", "/big", to_file=out,
-                                        pool=sync_door.Pool())
+                                        pool=sync_door.Pool(), carrier=carrier)
     assert status == 201 and got == out and out.stat().st_size == 5 * 1024 * 1024 + 7
 
 
@@ -355,61 +453,76 @@ def test_a_device_that_reaches_the_door_is_seen_with_how_and_never_an_address(li
 
     seen: list[tuple] = []
     monkeypatch.setattr(agent_seen, "stamp_device", lambda device, how: seen.append((device, how)) or True)
-    server, target, ident = live
-    status, _h, _a = sync_door.request("127.0.0.1", server.port, target, ident, "GET", "/x", pool=sync_door.Pool())
+    server, target, ident, carrier = live
+    status, _h, _a = sync_door.request("127.0.0.1", server.port, target, ident, "GET", "/x", pool=sync_door.Pool(),
+                                       carrier=carrier)
     assert status == 201
     assert seen and set(seen) == {("d1", "lan")}, seen
     assert all(how in agent_seen.HOW for _d, how in seen)
 
 
 def test_a_session_is_reused_and_the_routes_are_learned(live):
-    server, target, ident = live
+    server, target, ident, carrier = live
     learned = []
     pool = sync_door.Pool()
     for _ in range(3):
-        sync_door.request("127.0.0.1", server.port, target, ident, "GET", "/x", pool=pool,
+        sync_door.request("127.0.0.1", server.port, target, ident, "GET", "/x", pool=pool, carrier=carrier,
                           on_routes=lambda dev, r: learned.append((dev, r)))
     assert server.counts["accepted"] == 1 and server.counts["requests"] == 3
     assert learned == [("home1", {"v": 1, "port": server.port, "lan": [], "tailnet": []})]
 
 
 def test_a_door_that_is_not_the_home_is_unreachable(live):
-    server, target, ident = live
+    server, target, ident, carrier = live
     wrong = sync_door.Target("home1", target.door_pub, Key().jwk)
     with pytest.raises(sync_door.Unreachable):
-        sync_door.connect("127.0.0.1", server.port, wrong, ident)
+        sync_door.connect("127.0.0.1", server.port, wrong, ident, carrier=carrier)
+    started = time.monotonic()
     with pytest.raises(sync_door.Unreachable):
-        sync_door.connect("127.0.0.1", 9, target, ident, timeout=0.5)
+        sync_door.connect("127.0.0.1", 9, target, ident, timeout=0.5, carrier=carrier)
+    assert time.monotonic() - started < 0.6                         # nothing there: said at once or at the timeout
 
 
 def test_a_flood_from_one_source_is_cut_off(live):
-    server, target, ident = live
+    from api.services import sync_door_channel as channel
+
+    server, target, ident, carrier = live
     for _ in range(sync_door.BUCKET + 5):
-        _silent(server.port, os.urandom(sync_door.HELLO_LEN), wait=0.3)
+        if carrier == "door-tcp":
+            _silent(server.port, os.urandom(sync_door.HELLO_LEN), wait=0.3)
+        else:
+            _udp_heard(server.port, [channel.hello_datagram(os.urandom(sync_door.HELLO_LEN))], wait=0.02)
     assert server.counts["limited"] >= 1
     with pytest.raises(sync_door.Unreachable):                     # the real device waits its turn too
-        sync_door.connect("127.0.0.1", server.port, target, ident, timeout=0.5)
+        sync_door.connect("127.0.0.1", server.port, target, ident, timeout=0.5, carrier=carrier)
+
+
+def _git_head(tmp_path, sha: str) -> None:
+    git = tmp_path / ".git"
+    (git / "refs" / "heads").mkdir(parents=True, exist_ok=True)
+    (git / "HEAD").write_text("ref: refs/heads/main\n")
+    (git / "refs" / "heads" / "main").write_text(sha + "\n")
 
 
 def test_a_watch_hears_each_new_commit(live, tmp_path):
-    server, target, ident = live
-    git = tmp_path / ".git"
-    (git / "refs" / "heads").mkdir(parents=True)
-    (git / "HEAD").write_text("ref: refs/heads/main\n")
-    (git / "refs" / "heads" / "main").write_text("a" * 40 + "\n")
+    server, target, ident, carrier = live
+    _git_head(tmp_path, "a" * 40)
     heads, stop = [], threading.Event()
-    conn = sync_door.connect("127.0.0.1", server.port, target, ident)
+    conn = sync_door.connect("127.0.0.1", server.port, target, ident, carrier=carrier)
     t = threading.Thread(target=sync_door.watch, args=(conn, heads.append, stop), daemon=True)
     t.start()
     deadline = time.monotonic() + 5
     while not heads and time.monotonic() < deadline:
         time.sleep(0.05)
-    (git / "refs" / "heads" / "main").write_text("b" * 40 + "\n")
+    _git_head(tmp_path, "b" * 40)
     while len(heads) < 2 and time.monotonic() < deadline:
         time.sleep(0.05)
     assert heads[:2] == ["a" * 40, "b" * 40]
     stop.set()
-    conn.close()
+    if carrier == "door-tcp":
+        conn.close()                       # a TCP watch blocks in its read; a UDP one sees ``stop`` within a second
+    t.join(3)
+    assert not t.is_alive()
 
 
 def test_a_device_not_yet_in_the_group_is_let_in_only_with_the_qrs_secret(keys):
@@ -441,6 +554,7 @@ def test_the_door_never_binds_a_wildcard_a_public_or_a_global_address(keys, monk
 
     monkeypatch.delenv(sync_door.HOST_ENV, raising=False)
     monkeypatch.setattr(__import__("sys"), "platform", platform)
+    monkeypatch.setenv("CICADA_APP_BUNDLE_ID", "com.example.cicada")
     sync_routes.set_lan_allowed(True)
     hosts = sync_door.bind_hosts(found=FOUND)
     assert hosts == ["127.0.0.1", "::1", "192.168.1.4", "fd12:3456::7", "100.70.1.2", "fd7a:115c:a1e0::9"]
@@ -452,13 +566,19 @@ def test_the_door_never_binds_a_wildcard_a_public_or_a_global_address(keys, monk
 
 
 def test_on_a_mac_the_door_stays_on_loopback_until_the_person_allowed_the_lan(keys, monkeypatch):
-    """Binding a LAN address raises the application firewall's question: never before the app's permissions step."""
+    """Binding a LAN address raises the application firewall's question, and the UDP door's answers are outgoing
+    datagrams to the LAN, which need the Local Network privilege (TN3179): never before the app's permissions step, and
+    never while this backend's agent does not name the app (the question would come under no app's name)."""
     from api.services import sync_routes
 
     monkeypatch.delenv(sync_door.HOST_ENV, raising=False)
+    monkeypatch.delenv(sync_routes.LAN_DIAL_ENV, raising=False)
+    monkeypatch.delenv("CICADA_APP_BUNDLE_ID", raising=False)
     monkeypatch.setattr(__import__("sys"), "platform", "darwin")
     assert sync_door.bind_hosts(found=FOUND) == ["127.0.0.1", "::1"]
     sync_routes.set_lan_allowed(True)
+    assert sync_door.bind_hosts(found=FOUND) == ["127.0.0.1", "::1"]          # allowed, but not attributed to the app
+    monkeypatch.setenv("CICADA_APP_BUNDLE_ID", "com.example.cicada")
     assert "192.168.1.4" in sync_door.bind_hosts(found=FOUND)
 
 
@@ -472,7 +592,7 @@ def test_a_live_door_holds_only_bindable_sockets_and_rebinds_when_the_network_ch
         run(server.start())
 
         def socknames():
-            return [sock.getsockname()[0] for srv in server.bound.values() for sock in srv.sockets]
+            return [sock.getsockname()[0] for ep in server.bound.values() for sock in ep.sockets()]
 
         assert socknames() == ["127.0.0.1"] and server.hosts() == ["127.0.0.1"]
         plan.append("::1")                                   # a new address appears: bound at the next rebind
@@ -498,19 +618,17 @@ def test_an_ipv6_source_spends_its_64s_bucket_however_many_addresses_it_rotates(
 
 
 def test_a_revoked_devices_watch_ends_at_once(live, tmp_path):
-    server, target, ident = live
-    git = tmp_path / ".git"
-    (git / "refs" / "heads").mkdir(parents=True)
-    (git / "HEAD").write_text("ref: refs/heads/main\n")
-    (git / "refs" / "heads" / "main").write_text("a" * 40 + "\n")
+    server, target, ident, carrier = live
+    _git_head(tmp_path, "a" * 40)
     heads, stop = [], threading.Event()
-    conn = sync_door.connect("127.0.0.1", server.port, target, ident)
+    conn = sync_door.connect("127.0.0.1", server.port, target, ident, carrier=carrier)
     t = threading.Thread(target=sync_door.watch, args=(conn, heads.append, stop), daemon=True)
     t.start()
     deadline = time.monotonic() + 5
     while not heads and time.monotonic() < deadline:
         time.sleep(0.05)
     started = time.monotonic()
+
     async def revoke():
         return server.close_device("d1")
 

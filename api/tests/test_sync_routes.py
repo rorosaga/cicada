@@ -115,7 +115,7 @@ def test_the_ledger_holds_enums_and_never_an_address(ledger):
     raw = json.dumps([e.refs for e in ledger])
     for leak in ("192.168", "100.70", "example", "50001", "https"):
         assert leak not in raw
-    allowed = set(sync_routes.KINDS) | {"none", "device", "moved", "queued"}
+    allowed = set(sync_routes.KINDS) | {"none", "device", "moved", "queued"} | set(sync_routes.CARRIER_ENUM.values())
     assert all(set(v for v in e.refs.values()) <= allowed for e in ledger)
 
 
@@ -128,6 +128,27 @@ def test_a_lan_route_is_dialed_only_when_this_backend_may_and_tailnet_only_on_a_
         ("lan", "127.0.0.1"), ("lan", "192.168.1.20"), ("tailnet", "100.70.1.2")]
     stale = [{"host": "127.0.0.1", "port": 50002, "at": 0}]
     assert sync_routes.door_routes(None, stale, lan_ok=True, tailnet_ok=True) == []
+
+
+def test_udp_comes_first_and_the_tcp_fallback_only_where_a_door_holds_one():
+    """Ruling 51f (owner 2026-11-03): the door is UDP; its TCP fallback is a route below it, listed only for a door
+    whose ``t`` says it answers on TCP — and a door from before UDP (no ``t``) is TCP only."""
+    now = __import__("time").time()
+    both = {"port": 50001, "key": "k", "lan": ["192.168.1.20"], "tailnet": ["100.70.1.2"], "t": ["udp", "tcp"]}
+    got = sync_routes.order(sync_routes.door_routes(both, lan_ok=True, tailnet_ok=True))
+    assert [(r.kind, r.carrier) for r in got] == [("lan", "door"), ("lan", "door-tcp"), ("tailnet", "door"),
+                                                  ("tailnet", "door-tcp")]
+    assert all(r.is_door for r in got)
+    udp = {**both, "t": ["udp"]}
+    assert [r.carrier for r in sync_routes.door_routes(udp, lan_ok=True, tailnet_ok=False)] == ["door"]
+    old = {k: v for k, v in both.items() if k != "t"}
+    assert [r.carrier for r in sync_routes.door_routes(old, lan_ok=True, tailnet_ok=False)] == ["door-tcp"]
+    assert sync_routes._clean_door({**both, "t": ["quic", 3]})["t"] == ["tcp"]          # noqa: SLF001
+    found = [{"host": "127.0.0.1", "port": 50002, "at": now},                            # found before UDP: TCP
+             {"host": "127.0.0.1", "port": 50003, "carrier": "door", "at": now}]
+    assert [(r.port, r.carrier) for r in sync_routes.order(sync_routes.door_routes(None, found, lan_ok=True,
+                                                                                   tailnet_ok=False))] == [
+        (50003, "door"), (50002, "door-tcp")]
 
 
 def test_lan_dialing_follows_the_setting(monkeypatch):

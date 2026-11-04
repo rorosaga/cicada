@@ -3,7 +3,8 @@
 
 **The list.** In this order, every route carrying the same requests:
 
-1. ``lan`` — the home's door (``sync_door``) at a private address of the network both are on;
+1. ``lan`` — the home's door (``sync_door``) at a private address of the network both are on: UDP (``door``), then
+   its TCP fallback (``door-tcp``) only when that door says it holds one;
 2. ``tailnet`` — the home's door at its tailnet address, when Tailscale already runs on both (never required);
 3. ``configured`` — the address the person set (``replica_of``, a device's registry address: their ``tailscale serve``
    or their own TLS proxy), phases 1–2's HTTP request with this device's token;
@@ -67,7 +68,7 @@ class NoAnswer(Exception):
 @dataclass(frozen=True)
 class Route:
     kind: str            # one of KINDS
-    carrier: str         # door | http | relay
+    carrier: str         # door (UDP) | door-tcp | http | relay
     host: str = ""
     port: int = 0
     base: str = ""
@@ -80,10 +81,20 @@ class Route:
     def connect_s(self) -> float:
         return LAN_CONNECT_S if self.kind == "lan" else OTHER_CONNECT_S
 
+    @property
+    def is_door(self) -> bool:
+        return self.carrier in DOOR_CARRIERS
+
+
+DOOR_CARRIERS = ("door", "door-tcp")
+#: The telemetry enum for each carrier.
+CARRIER_ENUM = {"door": "udp", "door-tcp": "tcp", "http": "http", "relay": "relay"}
+
 
 def order(routes: list[Route]) -> list[Route]:
+    """By kind (:data:`KINDS`), and within a kind UDP before its TCP fallback; the first of each key kept."""
     seen, out = set(), []
-    for r in sorted(routes, key=lambda r: KINDS.index(r.kind)):
+    for r in sorted(routes, key=lambda r: (KINDS.index(r.kind), r.carrier == "door-tcp")):
         if r.key not in seen:
             seen.add(r.key)
             out.append(r)
@@ -150,7 +161,7 @@ class Book:
                 self.moves += 1
                 self.last_move_at = time.time()
         if moved:
-            record(self.side, route=route.kind, event="moved", before=before)
+            record(self.side, route=route.kind, event="moved", before=before, carrier=CARRIER_ENUM.get(route.carrier))
 
     def failed(self, route: Route) -> None:
         with self.lock:
@@ -206,15 +217,18 @@ def drive(book: Book, routes: list[Route], attempt):
 
 # --- telemetry: enums only ------------------------------------------------------------------------------------------------
 
-def record(side: str, *, route: str, event: str, before: str | None = None) -> None:
+def record(side: str, *, route: str, event: str, before: str | None = None, carrier: str | None = None) -> None:
     """One ``sync_route`` row: ``side`` (device | door), ``route`` (a :data:`KINDS` value, ``loopback`` folded into
-    ``lan``, or ``none``), ``event`` (moved | queued | served), ``before`` (the kind it moved from). Never an address."""
+    ``lan``, or ``none``), ``event`` (moved | queued | served), ``before`` (the kind it moved from), ``carrier``
+    (udp | tcp | http | relay). Never an address."""
     try:
         from api.services import telemetry
 
         refs = {"side": side, "route": route, "event": event}
         if before:
             refs["before"] = before
+        if carrier in ("udp", "tcp", "http", "relay"):
+            refs["carrier"] = carrier
         telemetry.record(telemetry.UsageEvent(kind=TELEMETRY_KIND, stage="sync", invocations=0, billing="free",
                                               refs=refs))
     except Exception:  # noqa: BLE001 — telemetry never breaks a request
@@ -266,7 +280,10 @@ def _clean_door(info) -> dict | None:
                 if isinstance(h, str) and sync_door.address_class(h) in ("lan", "tailnet", "loopback")]
 
     key = info.get("key") if isinstance(info.get("key"), str) and len(info.get("key")) <= 64 else None
-    return {"port": port, "key": key, "lan": hosts("lan"), "tailnet": hosts("tailnet")}
+    # The carriers it answers on; a door from before UDP (#586) says none and speaks TCP only.
+    raw_t = info.get("t") if isinstance(info.get("t"), list) else ["tcp"]
+    carriers = [t for t in ("udp", "tcp") if t in raw_t] or ["tcp"]
+    return {"port": port, "key": key, "lan": hosts("lan"), "tailnet": hosts("tailnet"), "t": carriers}
 
 
 def learn(device_id: str, info: dict) -> None:
@@ -284,14 +301,15 @@ def learn(device_id: str, info: dict) -> None:
         _save(data)
 
 
-def found(device_id: str, host: str, port: int) -> None:
-    """The app found the door at ``host:port`` on this network (Bonjour) and the handshake proved it is
-    ``device_id``'s."""
+def found(device_id: str, host: str, port: int, carrier: str = "door") -> None:
+    """The app found the door at ``host:port`` on this network (Bonjour) and the handshake over ``carrier`` proved it
+    is ``device_id``'s."""
     with _FILE_LOCK:
         data = _load()
         rows = [r for r in (data.setdefault("found", {}).get(device_id) or [])
-                if (r.get("host"), r.get("port")) != (host, port)]
-        rows.insert(0, {"host": host, "port": int(port), "at": time.time()})
+                if (r.get("host"), r.get("port"), r.get("carrier") or "door-tcp") != (host, port, carrier)]
+        rows.insert(0, {"host": host, "port": int(port), "carrier": carrier if carrier in DOOR_CARRIERS else "door",
+                        "at": time.time()})
         data["found"][device_id] = rows[:8]
         _save(data)
 
@@ -341,6 +359,15 @@ def _fingerprint() -> str:
 BOOK.fingerprint = _fingerprint
 
 
+def _network_changed() -> None:
+    from api.services import sync_door_udp
+
+    sync_door_udp.network_changed()       # open UDP sessions ping now: a gone path is noticed in about a second
+
+
+BOOK.on_change = _network_changed
+
+
 TAILNET_ENV = "CICADA_SYNC_TAILNET"
 
 
@@ -360,7 +387,8 @@ def _i_am_on_a_tailnet() -> bool:
 
 def door_routes(info: dict | None, found_rows: list | None = None, *, lan_ok: bool, tailnet_ok: bool) -> list[Route]:
     """The door routes one device's door info gives: its LAN and tailnet addresses (a LAN one only when this backend
-    may dial the LAN; loopback always, it never leaves this computer), plus where the app found it."""
+    may dial the LAN; loopback always, it never leaves this computer), plus where the app found it — UDP first, the
+    TCP fallback after it only where the door says it holds one."""
     from api.services import sync_door
 
     out: list[Route] = []
@@ -368,17 +396,19 @@ def door_routes(info: dict | None, found_rows: list | None = None, *, lan_ok: bo
     candidates = []
     for row in found_rows or []:
         if isinstance(row, dict) and time.time() - float(row.get("at") or 0) < 86_400:
-            candidates.append((str(row.get("host") or ""), int(row.get("port") or 0)))
+            carrier = row.get("carrier") if row.get("carrier") in DOOR_CARRIERS else "door-tcp"
+            candidates.append((str(row.get("host") or ""), int(row.get("port") or 0), carrier))
     if info:
-        candidates += [(h, info["port"]) for h in info["lan"] + info["tailnet"]]
-    for host, port in candidates:
+        carriers = [c for c, t in (("door", "udp"), ("door-tcp", "tcp")) if t in info["t"]]
+        candidates += [(h, info["port"], c) for h in info["lan"] + info["tailnet"] for c in carriers]
+    for host, port, carrier in candidates:
         cls = sync_door.address_class(host)
         if not port or cls is None:
             continue
         if cls == "loopback" or (cls == "lan" and lan_ok):
-            out.append(Route("lan", "door", host, port))
+            out.append(Route("lan", carrier, host, port))
         elif cls == "tailnet" and tailnet_ok:
-            out.append(Route("tailnet", "door", host, port))
+            out.append(Route("tailnet", carrier, host, port))
     return out
 
 
@@ -416,7 +446,7 @@ def home_target():
         if learned and time.time() - float(learned.get("at") or 0) < LEARNED_TTL_S:
             info = dict(learned)
             if reg_door:
-                for k in ("lan", "tailnet"):
+                for k in ("lan", "tailnet", "t"):
                     info[k] = list(dict.fromkeys(list(info.get(k) or []) + list(reg_door.get(k) or [])))
                 info["key"] = info.get("key") or reg_door.get("key")
         elif reg_door:

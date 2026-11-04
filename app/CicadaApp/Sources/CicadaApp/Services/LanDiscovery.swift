@@ -24,6 +24,7 @@ final class LanDiscovery {
     private let memory: LocalNetworkMemory
     private var plan: DiscoveryPlan?
     private var browser: NWBrowser?
+    private var browsedType: String?
     private var advert: DNSServiceRef?
     private var advertKey: String?
     /// The name mDNS gave this computer's own advertisement (a conflict renames it), so a browse skips itself.
@@ -128,8 +129,12 @@ final class LanDiscovery {
             return
         }
         self.plan = plan
-        advertise(plan.advertise)
-        if browser == nil { browse(type: plan.type) }
+        advertise(plan.advertise, type: plan.type)
+        if browser == nil || browsedType != plan.type {   // the door opened or closed: its type changed with it
+            browser?.cancel()
+            browser = nil
+            browse(type: plan.type)
+        }
         schedulePost()
     }
 
@@ -145,8 +150,8 @@ final class LanDiscovery {
         resolved = [:]
     }
 
-    private func advertise(_ what: DiscoveryPlan.Advertise?) {
-        let key = what.map { "\($0.name)|\($0.port)" }
+    private func advertise(_ what: DiscoveryPlan.Advertise?, type: String) {
+        let key = what.map { "\($0.name)|\($0.port)|\(type)" }
         guard key != advertKey else { return }
         if let advert { DNSServiceRefDeallocate(advert) }
         advert = nil
@@ -155,7 +160,7 @@ final class LanDiscovery {
         guard let what, let port = UInt16(exactly: what.port) else { return }
         var ref: DNSServiceRef?
         let context = Unmanaged.passUnretained(self).toOpaque()
-        let err = DNSServiceRegister(&ref, 0, 0, what.name, LanRules.serviceType, nil, nil, port.bigEndian, 0, nil,
+        let err = DNSServiceRegister(&ref, 0, 0, what.name, type, nil, nil, port.bigEndian, 0, nil,
                                      { _, _, error, name, _, _, context in
             guard error == kDNSServiceErr_NoError, let name, let context else { return }
             let me = Unmanaged<LanDiscovery>.fromOpaque(context).takeUnretainedValue()
@@ -168,7 +173,8 @@ final class LanDiscovery {
     }
 
     private func browse(type: String) {
-        let browser = NWBrowser(for: .bonjour(type: type, domain: nil), using: .tcp)
+        browsedType = type
+        let browser = NWBrowser(for: .bonjour(type: type, domain: nil), using: LanRules.isUDP(type) ? .udp : .tcp)
         browser.browseResultsChangedHandler = { [weak self] results, _ in
             Task { @MainActor in self?.found(results) }
         }
@@ -376,7 +382,7 @@ private final class SelfProbe {
             DNSServiceSetDispatchQueue(ref, .main)
             self.ref = ref
         }
-        let browser = NWBrowser(for: .bonjour(type: LanRules.serviceType, domain: nil), using: .tcp)
+        let browser = NWBrowser(for: .bonjour(type: LanRules.serviceType, domain: nil), using: .udp)
         let wanted = name
         browser.browseResultsChangedHandler = { [weak self] results, _ in
             let hit = results.contains { if case let .service(n, _, _, _) = $0.endpoint { n == wanted } else { false } }

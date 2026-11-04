@@ -45,6 +45,9 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 SERVICE_TYPE = "_cicada._tcp"
+#: The door is UDP (ruling 51f, 2026-11-03), and DNS-SD names a service by its transport (RFC 6763 §7): a computer whose
+#: door is open advertises this type; ``SERVICE_TYPE`` stays for the configured HTTPS listener alone.
+DOOR_SERVICE_TYPE = "_cicada._udp"
 HELLO_DOMAIN = b"cicada-lan-hello-v1\x00"
 NONCE_TTL_S = 120.0
 FOUND_FILE = "discovered.json"
@@ -126,7 +129,8 @@ def plan(memory_path) -> dict | None:
     door = getattr(sys.modules.get("api.services.sync_door"), "SERVER", None)
     # Ruling 51f: the home-network door is what a device dials on the LAN; the configured https address otherwise.
     port = door.port if door is not None and door.running() else (bind[1] if bind else None)
-    return {"type": SERVICE_TYPE, "browse": instance_name(bank_id),
+    open_door = bool(door is not None and door.running())
+    return {"type": DOOR_SERVICE_TYPE if open_door else SERVICE_TYPE, "browse": instance_name(bank_id),
             "advertise": {"name": instance_name(bank_id), "port": port, "door": bool(door and door.running())}
             if port else None,
             "nonce": issue_nonce()}

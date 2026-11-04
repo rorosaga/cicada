@@ -12,6 +12,41 @@
 
 ## Current state and evidence
 
+- **2026-11-04 — the door is UDP (ruling 51f, owner decision 2026-11-03; G132; branch `g132-udp-door`, #590).**
+  Asked "keep the door on TCP until hole punching, or UDP?", the owner: *"If we can work on tcp and udp directly
+  probably best to do udp, no?"* **Ruling 51f gains:** (a) the door is a UDP port, and any datagram that is not a valid
+  signed hello or a packet that opens under an established session's key gets no reply at all (WireGuard's silence; a
+  good hello gets one reply, smaller than it, to its own address and port, and nothing more until the device's packet
+  opens); (b) reliability is our own sealed channel (`sync_door_channel`: packet numbers under the AEAD, a replay
+  window, ack ranges, RFC 9002 loss rules in small, Reno β 0.7, pacing, a receive window, one MTU probe) — **not QUIC
+  behind a pre-gate**, because behind the gate a whole QUIC + TLS parser (which answers version negotiation and retry
+  itself) is reachable by anyone forging a gated 5-tuple, it would be a second handshake and a new C-extension
+  dependency, and the phone's Network framework cannot send our hello on the flow before its QUIC; (c) sessions follow
+  the device by id (WireGuard's roaming): a new port, network or home address goes on in the same session, nothing
+  re-paired; (d) **the TCP fallback stays, off by default** (`CICADA_SYNC_DOOR_TCP=on`), listed after UDP only for a
+  door that says it holds it — slice 1 reaches the LAN and a tailnet, where UDP passes wherever TCP does, so a bound
+  TCP port would only be a port a scanner sees open; whether slice 2 maps one for UDP-blocking hotel networks is
+  decided with 2a; (e) **on a Mac the door's LAN sockets wait for `may_dial_lan`** — TN3179: sending UDP to the LAN
+  needs the Local Network privilege, accepting TCP does not — so the person's permissions step *and* the agent's
+  attribution to the app; (f) Bonjour advertises `_cicada._udp` while a door is open (#573 must switch its
+  `serviceType` and `NSBonjourServices`). Every rail of #586 and its security review holds unchanged (the bind rule,
+  CGNAT never a tailnet, the signed hello, per-direction keys, replay protection, the proven device, capture-only
+  scope, revoke closes at once, rate limits, no addresses in logs or the ledger, which now also carries a `carrier`
+  enum). Measured on loopback (`network.md`): handshake p50 1.83 ms (TCP 1.65); a 90 MB answer 0.72–0.86 s at
+  104–124 MB/s against TCP's 660–1,100 MB/s, about nine times the CPU per byte; 44–55 MB/s through a 1 % lossy path;
+  idle with a watch held 0.03–0.07 s of door CPU per 120 s (TCP 0.08); after a network switch the copy caught up in
+  436–650 ms over 6.6–7.6 KB (a full copy ~30 KB), the request in flight moved to the found door in its own session;
+  the phone's captures 11–13 ms, queued ones 29–53 ms, once each. Three-machine and phone tests 3/3. **Security
+  review of #590 (2026-11-04), one blocker fixed:** the channel's reassembly kept overlapping out-of-order pieces
+  without bound (a paired device's 20,000 overlapping 1.1 KB pieces held 22 MB, linear, ~8.6 GiB a session at worst);
+  now a piece is kept only if it overlaps none held and the held bytes stay within the window, a piece the read point
+  passed is cut, and one device holds at most 16 UDP sessions (its own oldest ends past that). The same flood now
+  holds 20.9 KB. The re-check found the count of held pieces unbounded (the byte cap counted payload only):
+  2-byte descending pieces cost 11.7 s of CPU at 400k and 47.8 s at 800k, quadratic in `insort`/`pop(0)`. Now at most
+  8,192 pieces are held, each charged 128 B beyond its bytes, a drain leaves the sorted list in one slice, and a piece
+  refused for room leaves its packet unacknowledged so it comes again (no minimum size: the door's own frames are often
+  a few bytes, and refusing an early short piece would cost an honest stream a retransmission); the same floods now
+  cost 0.24 s / 0.43 s of CPU, 8,192 held, ~1 MiB.
 - **2026-11-04 — Substack through the person's own agent (G89; branch `g89-substack`).** Owner: "a direct app
   integration is best to see history of read stuff, saved stuff, etc." Researched against current sources: Substack has
   no reader API or OAuth app programme (its OAuth serves only its own MCP connector — publisher analytics for an admin of

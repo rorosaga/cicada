@@ -21,8 +21,8 @@ import time
 import pytest
 
 from _phone_like import PhoneKey, PhoneLike
+from _udp_wire import UdpWire
 from test_replica_two_machines import Machine, _wait
-from test_sync_door_three_machines import CountingWire
 from api.services import sync_door
 
 
@@ -45,7 +45,8 @@ def home_and_phone(tmp_path, monkeypatch):
         door = made["door"]
         assert door and door["home"] and door["key"] and door["pair"] and door["port"], made
         assert door["lan"] == [] and door["tailnet"] == []           # the suite's door is on loopback only
-        here = CountingWire(door["port"])                              # the home network, as Bonjour resolves it
+        assert door["t"] == ["udp"]                                    # the door is UDP; no TCP fallback held
+        here = UdpWire(door["port"])                                   # the home network, as Bonjour resolves it
         wires.append(here)
         key = PhoneKey()
         target = sync_door.Target(door["home"], sync_door._b64d(door["key"]), door["sign"])   # noqa: SLF001
@@ -102,7 +103,7 @@ def test_captures_reach_the_queue_wait_while_the_home_sleeps_and_land_once_elsew
     # Awake on another network, at another address: the phone finds it there. Nothing is re-paired.
     here.down()
     home.start()
-    there = CountingWire(here.target)             # the same door, reached at another address
+    there = UdpWire(here.target)                  # the same door, reached at another address
     wires.append(there)
     phone.network_changed()
     phone.find("127.0.0.1", there.port)

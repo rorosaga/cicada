@@ -1,10 +1,13 @@
 """The home-network door: a sealed-frame endpoint for the person's own devices (G132, ruling 51f D3, owner 2026-11-03:
 "encryption and security above all").
 
-**What it is.** One TCP listener a computer opens only while it shares a memory (a publishing home, or a copy) and
-never for a demo. It speaks one protocol, below, and nothing else: never the HTTP API, never a token, never a bank
-path. A device proves who it is in its very first packet; anything else is closed without a byte sent back, so a
-scanner learns only that a port accepted a connection. Requests it carries run in process through the same routes a
+**What it is.** One UDP port a computer opens only while it shares a memory (a publishing home, or a copy) and never
+for a demo (owner 2026-11-03: "If we can work on tcp and udp directly probably best to do udp, no?"). It speaks one
+protocol, below, and nothing else: never the HTTP API, never a token, never a bank path. A device proves who it is in
+its very first datagram; anything else gets no answer at all, so a scanner cannot tell the port from a closed one that
+answers nothing (``sync_door_udp``; the sealed packets and their reliability are ``sync_door_channel``). A TCP fallback
+on the same port number carries the same handshake and frames, held only with ``CICADA_SYNC_DOOR_TCP=on`` (a TCP port
+shows open to a scanner; :func:`tcp_enabled`). Requests it carries run in process through the same routes a
 device token reaches (``sync_inprocess``), held to that device's rules (a capture-only phone reaches only
 ``auth.CAPTURE_ROUTES``), keyed by the same ``Idempotency-Key`` — a write carried twice, by two routes, applies once.
 
@@ -36,15 +39,17 @@ before it is read. Slice 2's "Reach my memory away from home" switch is the only
   registry holds for the device it meant to reach, so a stolen door key alone cannot pose as the home;
 * both sides derive one key per direction from ``DH(e_c, S) ‖ DH(e_c, e_s)`` and the transcript: forward secret.
 
-**Frames.** ``u32 length ‖ ChaCha20-Poly1305(key, nonce = counter)``, one counter per direction from 0 — a frame
-replayed, dropped or reordered fails to open and the connection closes. Plaintext is one type byte and its data: the
+**Frames.** Over UDP, ``u32 length ‖ type ‖ data`` records in the channel's sealed, acknowledged stream
+(``sync_door_channel``: a packet number per datagram, a replay window, the AEAD per packet). Over the TCP fallback,
+``u32 length ‖ ChaCha20-Poly1305(key, nonce = counter)``, one counter per direction from 0 — a frame replayed, dropped
+or reordered fails to open and the connection closes. Each frame's plaintext is one type byte and its data: the
 door's current routes (``R``, sent first, so a client learns where the door is now), a request head (``Q``) and its
 body (``B`` … ``E``), the answer's head (``S``) and body, a watch (``W``: the door then sends ``N`` with each new
 commit, and ``P`` to keep the connection), so a copy is told of a commit at once instead of polling.
 
-**Limits.** A hello within :data:`HELLO_TIMEOUT_S`; per source address a bucket of :data:`BUCKET` handshakes refilled
-one per :data:`REFILL_S` (a failed one costs three); at most :data:`MAX_PENDING` connections waiting for their hello
-and :data:`MAX_SESSIONS` open; a frame at most :data:`MAX_FRAME` bytes, a request body at most 32 MiB; an idle
+**Limits.** A session confirmed within :data:`HELLO_TIMEOUT_S`; per source address a bucket of :data:`BUCKET`
+handshakes refilled one per :data:`REFILL_S` (a failed one costs three); at most :data:`MAX_PENDING` sessions waiting to
+be confirmed and :data:`MAX_SESSIONS` open; a frame at most :data:`MAX_FRAME` bytes, a request body at most 32 MiB; an idle
 session closes after :data:`IDLE_S`.
 
 Nothing here logs an address, a key, a path or a body: counts and enums only.
@@ -95,10 +100,15 @@ REFILL_S = 2.0
 FAILED_COST = 3
 MAX_PENDING = 32
 MAX_SESSIONS = 128
+#: One proven device's own open UDP sessions; a new one past this ends that device's least recently heard one, so a
+#: device's memory at the door is bounded (each session holds at most a receive window and a send backlog) and a device
+#: that left sessions behind is never locked out (security review of #590).
+MAX_SESSIONS_PER_DEVICE = 16
 REPLAY_KEEP = 4096
 WATCH_POLL_S = 0.5
 DOOR_FILE = "door.json"
 DOOR_ENV = "CICADA_SYNC_DOOR"
+TCP_ENV = "CICADA_SYNC_DOOR_TCP"
 PORT_ENV = "CICADA_SYNC_DOOR_PORT"
 #: The addresses the door binds, comma-separated, instead of its own choice (:func:`bind_hosts`); ``127.0.0.1`` keeps it
 #: on this computer (the suite). An address that is not loopback, private or tailnet is never bound, named or not.
@@ -428,9 +438,17 @@ def enabled(environ=os.environ) -> bool:
     return (environ.get(DOOR_ENV) or "on").strip().lower() not in ("off", "0", "false")
 
 
+def tcp_enabled(environ=os.environ) -> bool:
+    """The TCP fallback, off unless ``CICADA_SYNC_DOOR_TCP=on``: on the LAN and a tailnet UDP always passes, and a
+    TCP port is a port a scanner sees open — the owner's silence goal wins until slice 2 reaches networks that block
+    UDP."""
+    return (environ.get(TCP_ENV) or "off").strip().lower() in ("on", "1", "true")
+
+
 def own_routes(port: int | None = None) -> dict | None:
-    """What this computer's door tells its devices: the port, the door's public key, and this computer's addresses
-    by class (slice 1: the LAN and the tailnet). None while no door is open here."""
+    """What this computer's door tells its devices: the port, the door's public key, this computer's addresses by
+    class (slice 1: the LAN and the tailnet) and the carriers it answers on (``t``: ``udp``, and ``tcp`` only while
+    the fallback is held). None while no door is open here."""
     server = SERVER
     if server is None or not server.running():
         return None
@@ -439,7 +457,7 @@ def own_routes(port: int | None = None) -> dict | None:
     # Only the addresses the door is bound to are routes (none beyond loopback, when it is loopback only).
     return {"v": 1, "port": int(port or server.port), "key": state.get("pub"),
             "lan": [h for h in bound if address_class(h) == "lan"],
-            "tailnet": [h for h in bound if address_class(h) == "tailnet"]}
+            "tailnet": [h for h in bound if address_class(h) == "tailnet"], "t": server.carriers()}
 
 
 # --- the handshake (pure: tested and fuzzed without a socket) -----------------------------------------------------------
@@ -697,13 +715,54 @@ def registry_lookup(memory_path):
     return lookup
 
 
+class TcpLink:
+    """A TCP fallback session (``CICADA_SYNC_DOOR_TCP=on``): the same framed interface as ``sync_door_udp.UdpLink``,
+    on ``u32 length ‖ sealed`` frames over the stream."""
+
+    carrier = "tcp"
+
+    def __init__(self, reader, writer, keys: Keys, device: "Peer", peer_class: str):
+        self.reader, self.writer = reader, writer
+        self.out, self.inn = Sealer(keys.send), Sealer(keys.recv)
+        self.device = device
+        self.peer_class = peer_class
+
+    async def read(self, timeout: float) -> tuple[bytes, bytes]:
+        head = await asyncio.wait_for(self.reader.readexactly(4), timeout)
+        n = frame_length(head)
+        if n is None:
+            raise ValueError("frame")
+        return self.inn.open_(await asyncio.wait_for(self.reader.readexactly(n), 30.0))
+
+    def send(self, kind: bytes, data: bytes = b"") -> None:
+        self.writer.write(self.out.seal(kind, data))
+
+    async def drain(self) -> None:
+        await self.writer.drain()
+
+    def close(self) -> None:
+        with contextlib.suppress(Exception):
+            self.writer.close()
+
+    def abort(self) -> None:
+        with contextlib.suppress(Exception):
+            self.writer.transport.abort()
+
+
 class Server:
-    def __init__(self, app, memory_path: Path, *, port: int, hosts=None):
-        """``hosts``: the addresses to bind (a list, or a callable giving them); by default :func:`bind_hosts`."""
+    def __init__(self, app, memory_path: Path, *, port: int, hosts=None, tcp: bool | None = None):
+        """``hosts``: the addresses to bind (a list, or a callable giving them); by default :func:`bind_hosts`.
+        ``tcp``: also hold the TCP fallback (default :func:`tcp_enabled`, off)."""
+        from api.services import sync_door_udp
+
         self.plan = (lambda: list(hosts)) if isinstance(hosts, (list, tuple)) else (hosts or bind_hosts)
-        self.bound: dict[str, asyncio.base_events.Server] = {}
+        self.bound: dict[str, object] = {}          # UDP: the door
+        self.tcp_bound: dict[str, asyncio.base_events.Server] = {}
+        self.with_tcp = tcp_enabled() if tcp is None else bool(tcp)
+        self.udp = sync_door_udp.Door(self)
         self.rebind_task: asyncio.Task | None = None
         self.by_device: dict[str, set] = {}
+        self.tasks: set[asyncio.Task] = set()
         self.app = app
         self.memory_path = Path(memory_path)
         self.port = port
@@ -713,7 +772,8 @@ class Server:
         self.sessions = 0
         self.watchers: set[asyncio.Queue] = set()
         self.watch_task: asyncio.Task | None = None
-        self.counts = {"accepted": 0, "dropped": 0, "refusedPeer": 0, "limited": 0, "requests": 0}
+        self.counts = {"accepted": 0, "dropped": 0, "refusedPeer": 0, "limited": 0, "requests": 0, "roamed": 0,
+                       "evicted": 0}
         self.by_route: dict[str, float] = {}
         #: How each device last reached this door (``agent_seen.HOW``), so a request it sends is stamped the same way.
         self.how_of: dict[str, str] = {}
@@ -740,14 +800,29 @@ class Server:
                 return Peer("", "pairing", False, jwk=jwk, pairing_id=pid)
         return None
 
+    def open_hello(self, hello: bytes):
+        """``(device, keys, reply)`` for a hello proving a device of the group (or a pairing), else None."""
+        from api.services import device_key
+
+        return server_open(hello, self.priv, self.pub, self.lookup, device_key.sign, self.replays,
+                           pairing=self._pairing_peer if self.pairings else None)
+
     def running(self) -> bool:
         return bool(self.bound)
 
     def hosts(self) -> list[str]:
         return list(self.bound)
 
+    def carriers(self) -> list[str]:
+        return ["udp"] + (["tcp"] if self.tcp_bound else [])
+
     async def _bind(self, host: str):
         if not bindable(host):          # never a wildcard, a public or global address, nor a carrier's 100.64/10
+            raise OSError("not a private address")
+        return await self.udp.bind(host, self.port)
+
+    async def _bind_tcp(self, host: str):
+        if not bindable(host):
             raise OSError("not a private address")
         return await asyncio.start_server(self._on_conn, host=host, port=self.port, reuse_address=True,
                                           limit=MAX_FRAME + 8)
@@ -768,7 +843,7 @@ class Server:
                 st = door_state() or {}
                 _write_private(_door_path(), {**st, "port": self.port})
                 continue
-            self.port = first.sockets[0].getsockname()[1]
+            self.port = first.sockets()[0].getsockname()[1]
             self.bound[LOOPBACK_HOSTS[0]] = first
             await self.rebind()
             self.rebind_task = asyncio.create_task(self._rebind_loop())
@@ -783,14 +858,16 @@ class Server:
             return
         if LOOPBACK_HOSTS[0] not in wanted:
             wanted.insert(0, LOOPBACK_HOSTS[0])
-        for host in [h for h in self.bound if h not in wanted]:
-            srv = self.bound.pop(host)
-            srv.close()
-        for host in [h for h in wanted if h not in self.bound]:
-            try:
-                self.bound[host] = await self._bind(host)
-            except OSError:
-                pass
+        for held, binder in ((self.bound, self._bind), (self.tcp_bound, self._bind_tcp)):
+            if held is self.tcp_bound and not self.with_tcp:
+                continue
+            for host in [h for h in held if h not in wanted]:
+                held.pop(host).close()
+            for host in [h for h in wanted if h not in held]:
+                try:
+                    held[host] = await binder(host)
+                except OSError:
+                    pass
 
     async def _rebind_loop(self) -> None:
         while self.bound:
@@ -800,29 +877,48 @@ class Server:
     async def stop(self) -> None:
         if self.rebind_task is not None:
             self.rebind_task.cancel()
-        for srv in list(self.bound.values()):
+        self.udp.close_all()
+        for links in list(self.by_device.values()):
+            for link in list(links):
+                link.abort()                    # an open TCP session would hold wait_closed forever
+        for ep in list(self.bound.values()):
+            ep.close()
+        self.bound.clear()
+        for srv in list(self.tcp_bound.values()):
             srv.close()
             with contextlib.suppress(Exception):
-                await srv.wait_closed()
-        self.bound.clear()
-        if self.watch_task is not None:
-            self.watch_task.cancel()
+                await asyncio.wait_for(srv.wait_closed(), 2.0)
+        self.tcp_bound.clear()
+        running = [t for t in list(self.tasks) + [self.watch_task] if t is not None and not t.done()]
+        for task in running:
+            task.cancel()
+        if running:
+            with contextlib.suppress(Exception):
+                await asyncio.wait(running, timeout=2.0)
 
     def close_device(self, device_id: str) -> int:
         """A revoked device's open sessions (its watch included) end at once. Returns how many."""
-        writers = self.by_device.pop(device_id, set())
-        for w in writers:
-            with contextlib.suppress(Exception):
-                w.transport.abort()
-        return len(writers)
+        links = self.by_device.pop(device_id, set())
+        for link in links:
+            link.abort()
+        return len(links)
 
     def wire(self) -> dict:
         kinds = [address_class(h) for h in self.bound]
+        tcp = [address_class(h) for h in self.tcp_bound]
         return {"open": self.running(), "port": self.port, **self.counts, "sessions": self.sessions,
-                "bound": {k: kinds.count(k) for k in BINDABLE}}
+                "bound": {k: kinds.count(k) for k in BINDABLE},
+                "tcp": {k: tcp.count(k) for k in BINDABLE} if self.tcp_bound else None}
 
-    # -- one connection ----------------------------------------------------------------------------------------------
+    # -- one session, whichever carrier --------------------------------------------------------------------------------
+    def spawn(self, link) -> None:
+        """A UDP session the device just confirmed: run it."""
+        task = asyncio.create_task(self._run(link))
+        self.tasks.add(task)
+        task.add_done_callback(self.tasks.discard)
+
     async def _on_conn(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        """The TCP fallback's connections."""
         peer = (writer.get_extra_info("peername") or ("", 0))[0]
         local = (writer.get_extra_info("sockname") or ("", 0))[0]
         if not allowed_peer(local, peer):
@@ -840,10 +936,7 @@ class Server:
             except (asyncio.TimeoutError, asyncio.IncompleteReadError, OSError):
                 hello = None
             if hello is not None:
-                from api.services import device_key
-
-                opened = server_open(hello, self.priv, self.pub, self.lookup, device_key.sign, self.replays,
-                                     pairing=self._pairing_peer if self.pairings else None)
+                opened = self.open_hello(hello)
         finally:
             self.pending -= 1
         if opened is None:
@@ -851,22 +944,31 @@ class Server:
             self.buckets.charge(who, FAILED_COST - 1)
             return self._close(writer)          # silently: not one byte was sent
         device, keys, reply = opened
+        writer.write(reply)
+        await self._run(TcpLink(reader, writer, keys, device, address_class(peer) or "lan"))
+
+    @staticmethod
+    def _close(writer) -> None:
+        with contextlib.suppress(Exception):
+            writer.close()
+
+    async def _run(self, link) -> None:
+        device = link.device
         self.counts["accepted"] += 1
         self.sessions += 1
         if device.device_id:
-            self.by_device.setdefault(device.device_id, set()).add(writer)
-        if device.kind != "pairing":
-            self._note_route(device.device_id, address_class(peer) or "lan")
-            self._seen(device.device_id, address_class(peer) or "lan")
+            self.by_device.setdefault(device.device_id, set()).add(link)
         try:
-            writer.write(reply)
-            out, inn = Sealer(keys.send), Sealer(keys.recv)
-            routes = own_routes(self.port) or {}
-            writer.write(out.seal(b"R", json.dumps(routes).encode()))
-            await writer.drain()
-            await self._session(reader, writer, out, inn, device)
+            if device.kind != "pairing":
+                self._note_route(device.device_id, link.peer_class, link.carrier)
+                self._seen(device.device_id, link.peer_class)
+            link.send(b"R", json.dumps(own_routes(self.port) or {}).encode())
+            await link.drain()
+            await self._session(link, device)
         except (asyncio.IncompleteReadError, ConnectionError, OSError, asyncio.TimeoutError, ValueError):
             pass
+        except asyncio.CancelledError:
+            raise
         except Exception as exc:  # noqa: BLE001 — one session never stops the door
             from cryptography.exceptions import InvalidTag
 
@@ -875,25 +977,20 @@ class Server:
         finally:
             self.sessions -= 1
             if device.device_id:
-                self.by_device.get(device.device_id, set()).discard(writer)
-            self._close(writer)
+                self.by_device.get(device.device_id, set()).discard(link)
+            link.close()
 
-    @staticmethod
-    def _close(writer) -> None:
-        with contextlib.suppress(Exception):
-            writer.close()
-
-    def _note_route(self, device_id: str, kind: str) -> None:
-        """Which route a device reached this door by, as an enum in the telemetry ledger (once an hour per device
-        and route; never an address)."""
-        key = f"{device_id}|{kind}"
+    def _note_route(self, device_id: str, kind: str, carrier: str) -> None:
+        """Which route and carrier a device reached this door by, as enums in the telemetry ledger (once an hour per
+        device, route and carrier; never an address)."""
+        key = f"{device_id}|{kind}|{carrier}"
         now = time.monotonic()
         if now - self.by_route.get(key, -1e9) < 3600:
             return
         self.by_route[key] = now
         from api.services import sync_routes
 
-        sync_routes.record("door", route="lan" if kind == "loopback" else kind, event="served")
+        sync_routes.record("door", route="lan" if kind == "loopback" else kind, event="served", carrier=carrier)
 
     def _seen(self, device_id: str | None, kind: str | None = None) -> None:
         """The Devices page's *how* and *last seen* for a device that reached this door (``agent_seen``, G212): a
@@ -906,38 +1003,31 @@ class Server:
 
         agent_seen.stamp_device(device_id, self.how_of.get(device_id, "lan"))
 
-    async def _read(self, reader, inn: Sealer, timeout: float = IDLE_S) -> tuple[bytes, bytes]:
-        head = await asyncio.wait_for(reader.readexactly(4), timeout)
-        n = frame_length(head)
-        if n is None:
-            raise ValueError("frame")
-        return inn.open_(await asyncio.wait_for(reader.readexactly(n), 30.0))
-
-    async def _session(self, reader, writer, out: Sealer, inn: Sealer, device: Peer) -> None:
+    async def _session(self, link, device: Peer) -> None:
         while True:
-            kind, data = await self._read(reader, inn)
+            kind, data = await link.read(IDLE_S)
             if kind == b"P":
                 continue
             if kind == b"W":
-                await self._watch(reader, writer, out, inn)
+                await self._watch(link)
                 return
             if kind != b"Q" or len(data) > MAX_HEAD:
                 raise ValueError("unexpected")
             req = json.loads(data)
             body = bytearray()
             while True:
-                k, d = await self._read(reader, inn, 30.0)
+                k, d = await link.read(30.0)
                 if k == b"E":
                     break
                 if k != b"B" or len(body) + len(d) > MAX_REQUEST_BODY:
                     raise ValueError("body")
                 body += d
             if device.kind == "pairing":
-                await self._pair(writer, out, device, req, bytes(body))
+                await self._pair(link, device, req, bytes(body))
                 return
-            await self._serve(writer, out, device, req, bytes(body))
+            await self._serve(link, device, req, bytes(body))
 
-    async def _pair(self, writer, out: Sealer, device: Peer, req: dict, body: bytes) -> None:
+    async def _pair(self, link, device: Peer, req: dict, body: bytes) -> None:
         """The one request a pairing session may make: ``POST /pair`` with the code — redeemed bound to the key the
         hello proved. The answer is the new device's id and kind; never its token."""
         from api.services import device_key, device_tokens
@@ -955,12 +1045,12 @@ class Server:
                 status, answer = 409, {"detail": "Only a phone pairs over this path."}
             except (KeyError, ValueError, TypeError):
                 pass
-        writer.write(out.seal(b"S", json.dumps({"s": status, "h": {"content-type": "application/json"}}).encode()))
-        writer.write(out.seal(b"B", json.dumps(answer).encode()))
-        writer.write(out.seal(b"E", b""))
-        await writer.drain()
+        link.send(b"S", json.dumps({"s": status, "h": {"content-type": "application/json"}}).encode())
+        link.send(b"B", json.dumps(answer).encode())
+        link.send(b"E", b"")
+        await link.drain()
 
-    async def _serve(self, writer, out: Sealer, device: Peer, req: dict, body: bytes) -> None:
+    async def _serve(self, link, device: Peer, req: dict, body: bytes) -> None:
         from api.services import sync_inprocess
 
         self.counts["requests"] += 1
@@ -974,26 +1064,26 @@ class Server:
         except Exception as exc:  # noqa: BLE001
             logger.info(f"door: a request was not served ({type(exc).__name__})")
             status, headers, answer, file = 500, {}, b"", None
-        writer.write(out.seal(b"S", json.dumps({"s": status, "h": headers}).encode()))
+        link.send(b"S", json.dumps({"s": status, "h": headers}).encode())
         try:
             if file is not None:
                 with open(file, "rb") as fh:
                     while chunk := fh.read(CHUNK):
-                        writer.write(out.seal(b"B", chunk))
-                        await writer.drain()
+                        link.send(b"B", chunk)
+                        await link.drain()
             else:
                 for i in range(0, len(answer), CHUNK):
-                    writer.write(out.seal(b"B", answer[i:i + CHUNK]))
-                    await writer.drain()
-            writer.write(out.seal(b"E", b""))
-            await writer.drain()
+                    link.send(b"B", answer[i:i + CHUNK])
+                    await link.drain()
+            link.send(b"E", b"")
+            await link.drain()
         finally:
             if file is not None:
                 with contextlib.suppress(OSError):
                     os.unlink(file)
 
-    async def _watch(self, reader, writer, out: Sealer, inn: Sealer) -> None:
-        """Tell this device of every new commit until it hangs up; a ping keeps the connection."""
+    async def _watch(self, link) -> None:
+        """Tell this device of every new commit until it hangs up; a ping keeps the session (and any NAT) alive."""
         from api.services import sync_service
 
         q: asyncio.Queue = asyncio.Queue(maxsize=4)
@@ -1001,24 +1091,28 @@ class Server:
         if self.watch_task is None or self.watch_task.done():
             self.watch_task = asyncio.create_task(self._poll_head())
         head = await asyncio.to_thread(sync_service.git_head, self.memory_path)
-        writer.write(out.seal(b"N", json.dumps({"head": head}).encode()))
-        await writer.drain()
-        hangup = asyncio.create_task(self._read(reader, inn, 10 * IDLE_S))
+        link.send(b"N", json.dumps({"head": head}).encode())
+        await link.drain()
+        hangup = asyncio.create_task(link.read(10 * IDLE_S))
+        got = None
         try:
             while True:
                 got = asyncio.create_task(q.get())
                 done, _ = await asyncio.wait({got, hangup}, timeout=PING_S, return_when=asyncio.FIRST_COMPLETED)
                 if hangup in done:
                     got.cancel()
+                    hangup.exception()          # retrieved: a hang-up is the normal end of a watch
                     return
                 if got in done:
-                    writer.write(out.seal(b"N", json.dumps({"head": got.result()}).encode()))
+                    link.send(b"N", json.dumps({"head": got.result()}).encode())
                 else:
                     got.cancel()
-                    writer.write(out.seal(b"P", b""))
-                await writer.drain()
+                    link.send(b"P", b"")
+                await link.drain()
         finally:
             hangup.cancel()
+            if got is not None:
+                got.cancel()
             self.watchers.discard(q)
 
     async def _poll_head(self) -> None:
@@ -1050,8 +1144,11 @@ SERVER: Server | None = None
 def bind_hosts(environ=os.environ, *, found: dict | None = None) -> list[str]:
     """Every address the door binds now — **never a wildcard, never a public or global address**: loopback, then this
     computer's own private (RFC 1918, IPv6 unique-local) and tailnet addresses, read from the routing table. On a Mac,
-    loopback only until the app says the person went through its permissions step (``sync_routes``' ``lanAllowed``):
-    binding a LAN address raises the application firewall's question, which nothing may ask unasked.
+    loopback only until the app says the person went through its permissions step (``sync_routes``' ``lanAllowed``)
+    **and** this backend's agent names the app as its responsible code (``sync_routes.may_dial_lan``): binding a LAN
+    address raises the application firewall's question, and the UDP door's answers are outgoing datagrams to the LAN,
+    which need the Local Network privilege (TN3179: "Sending a UDP unicast" — yes; accepting TCP — no) — nothing may
+    ask either unasked, and nothing may ask under no app's name.
     ``CICADA_SYNC_DOOR_HOST`` names the addresses instead (only the bindable ones are kept)."""
     import sys
 
@@ -1063,7 +1160,7 @@ def bind_hosts(environ=os.environ, *, found: dict | None = None) -> list[str]:
     if sys.platform == "darwin":
         from api.services import sync_routes
 
-        if not sync_routes.lan_allowed():
+        if not sync_routes.may_dial_lan(environ):
             return hosts
     found = found if found is not None else local_addresses()
     mine = frozenset(found.get("tailnet") or [])
@@ -1090,7 +1187,7 @@ async def start(app, memory_path) -> Server | None:
         logger.warning(f"door: not opened ({type(exc).__name__})")
         return None
     SERVER = server
-    logger.info("door: open for this memory's devices (loopback, home network and tailnet addresses only)")
+    logger.info("door: open for this memory's devices (UDP; loopback, home network and tailnet addresses only)")
     return server
 
 
@@ -1102,8 +1199,18 @@ async def stop() -> None:
 
 
 # --- the client (blocking: called from the follower's, the outbox's and a phone-like client's threads) -----------------
+#
+# Two carriers, one interface (``send``, ``recv``, ``settimeout``, ``close``): ``door`` — UDP, ``sync_door_udp.UdpConn``
+# — and ``door-tcp``, the fallback below (:class:`Conn`), used only toward a door that says it holds one.
+
+CARRIERS = ("door", "door-tcp")
+
 
 class Conn:
+    """A TCP fallback session."""
+
+    carrier = "door-tcp"
+
     def __init__(self, sock: socket.socket, keys: Keys, routes: dict | None):
         self.sock = sock
         self.out = Sealer(keys.send)
@@ -1111,6 +1218,11 @@ class Conn:
         self.routes = routes
         self.at = time.monotonic()
         self.broken = False
+        self.stop = None
+        self.keepalive = False
+
+    def settimeout(self, t: float) -> None:
+        self.sock.settimeout(t)
 
     def send(self, kind: bytes, data: bytes = b"") -> None:
         self.sock.sendall(self.out.seal(kind, data))
@@ -1133,12 +1245,13 @@ class Conn:
     def close(self) -> None:
         self.broken = True
         with contextlib.suppress(OSError):
+            self.sock.shutdown(socket.SHUT_RDWR)      # wakes a read blocked in another thread (a watch)
+        with contextlib.suppress(OSError):
             self.sock.close()
 
 
-def connect(host: str, port: int, target: Target, identity: Identity, *, timeout: float = 2.0,
-            on_routes=None, pair_secret: bytes | None = None) -> Conn:
-    """A session with ``target``'s door at ``host:port``: ``Unreachable`` when nothing answered as that device."""
+def _connect_tcp(host: str, port: int, target: Target, identity: Identity, *, timeout: float = 2.0,
+                 on_routes=None, pair_secret: bytes | None = None) -> Conn:
     try:
         sock = socket.create_connection((host, int(port)), timeout=timeout)
     except OSError as exc:
@@ -1173,7 +1286,21 @@ def connect(host: str, port: int, target: Target, identity: Identity, *, timeout
         raise Unreachable("handshake") from exc
 
 
-def call(conn: Conn, method: str, path_q: str, *, body: bytes | None = None, headers: dict | None = None,
+def connect(host: str, port: int, target: Target, identity: Identity, *, timeout: float = 2.0,
+            on_routes=None, pair_secret: bytes | None = None, carrier: str = "door", paths: list | None = None):
+    """A session with ``target``'s door at ``host:port``: ``Unreachable`` when nothing answered as that device.
+    ``carrier``: ``door`` (UDP) or ``door-tcp`` (the fallback). ``paths``: the target's other door addresses, which a
+    UDP session moves to when this one goes quiet."""
+    if carrier == "door-tcp":
+        return _connect_tcp(host, port, target, identity, timeout=timeout, on_routes=on_routes,
+                            pair_secret=pair_secret)
+    from api.services import sync_door_udp
+
+    return sync_door_udp.connect(host, port, target, identity, timeout=timeout, on_routes=on_routes,
+                                 pair_secret=pair_secret, paths=paths)
+
+
+def call(conn, method: str, path_q: str, *, body: bytes | None = None, headers: dict | None = None,
          timeout: float = 30.0, to_file: Path | None = None):
     """One request over an open session: ``(status, headers, body)`` — ``Dropped`` when the session ended before the
     whole answer came (the request may have landed)."""
@@ -1183,7 +1310,7 @@ def call(conn: Conn, method: str, path_q: str, *, body: bytes | None = None, hea
 
     parts = urlsplit(path_q)
     keep = {k.lower(): v for k, v in (headers or {}).items() if k.lower() in sync_inprocess.REQUEST_HEADERS}
-    conn.sock.settimeout(timeout)
+    conn.settimeout(timeout)
     try:
         conn.send(b"Q", json.dumps({"m": method, "p": parts.path, "q": parts.query, "h": keep}).encode())
         data = body or b""
@@ -1234,9 +1361,13 @@ def call(conn: Conn, method: str, path_q: str, *, body: bytes | None = None, hea
         return status, rheaders, bytes(buf)
 
 
-def watch(conn: Conn, on_head, stop: threading.Event) -> None:
-    """Hold ``conn`` as a watch: ``on_head(sha)`` for each commit the door announces, until ``stop`` or a hang-up."""
-    conn.sock.settimeout(PING_S * 2 + 5)
+def watch(conn, on_head, stop: threading.Event) -> None:
+    """Hold ``conn`` as a watch: ``on_head(sha)`` for each commit the door announces, until ``stop`` or a hang-up.
+    A UDP session pings every keepalive interval and at once on a network change, so a gone path ends the watch in
+    seconds and a NAT keeps the mapping."""
+    conn.settimeout(PING_S * 2 + 5)
+    conn.stop = stop
+    conn.keepalive = True
     try:
         conn.send(b"W")
         while not stop.is_set():
@@ -1251,15 +1382,17 @@ def watch(conn: Conn, on_head, stop: threading.Event) -> None:
 
 
 class Pool:
-    """Idle sessions kept per (address, device) for reuse; a session idle longer than :data:`REUSE_S` is closed."""
+    """Idle sessions kept per (carrier, address, device) for reuse; a session idle longer than :data:`REUSE_S` is
+    closed."""
 
     REUSE_S = 60.0
 
     def __init__(self):
         self.lock = threading.Lock()
-        self.idle: dict[tuple, list[Conn]] = {}
+        self.idle: dict[tuple, list] = {}
+        self.gen = 0          # bumped by every drop: a session taken before a network change is not kept after it
 
-    def take(self, key: tuple) -> Conn | None:
+    def take(self, key: tuple):
         with self.lock:
             conns = self.idle.get(key) or []
             while conns:
@@ -1269,8 +1402,10 @@ class Pool:
                 c.close()
         return None
 
-    def give(self, key: tuple, conn: Conn) -> None:
-        if conn.broken:
+    def give(self, key: tuple, conn, gen: int | None = None) -> None:
+        if conn.broken or (gen is not None and gen != self.gen):
+            if not conn.broken:
+                conn.close()
             return
         with self.lock:
             conns = self.idle.setdefault(key, [])
@@ -1280,6 +1415,8 @@ class Pool:
 
     def drop(self, prefix: tuple | None = None) -> None:
         with self.lock:
+            if prefix is None:
+                self.gen += 1
             for key in list(self.idle):
                 if prefix is None or key[:len(prefix)] == prefix:
                     for c in self.idle.pop(key):
@@ -1291,30 +1428,32 @@ POOL = Pool()
 
 def request(host: str, port: int, target: Target, identity: Identity, method: str, path_q: str, *,
             body: bytes | None = None, headers: dict | None = None, timeout: float = 30.0,
-            to_file: Path | None = None, connect_timeout: float = 2.0, on_routes=None, pool: Pool | None = None):
+            to_file: Path | None = None, connect_timeout: float = 2.0, on_routes=None, pool: Pool | None = None,
+            carrier: str = "door"):
     """One request through ``target``'s door, reusing an idle session when one is open. ``Unreachable`` (nothing was
     sent) or ``Dropped`` (sent, no whole answer)."""
     pool = pool or POOL
-    key = (host, int(port), target.device_id)
+    key = (carrier, host, int(port), target.device_id)
+    gen = pool.gen
     conn = pool.take(key)
     if conn is not None:
         try:
             got = call(conn, method, path_q, body=body, headers=headers, timeout=timeout, to_file=to_file)
-            pool.give(key, conn)
+            pool.give(key, conn, gen)
             return got
         except (Unreachable, Dropped):
             pass              # the idle session had gone stale: a new one, once (a write carries its key: once)
-    conn = connect(host, port, target, identity, timeout=connect_timeout, on_routes=on_routes)
+    conn = connect(host, port, target, identity, timeout=connect_timeout, on_routes=on_routes, carrier=carrier)
     got = call(conn, method, path_q, body=body, headers=headers, timeout=timeout, to_file=to_file)
-    pool.give(key, conn)
+    pool.give(key, conn, gen)
     return got
 
 
 def pair(host: str, port: int, target: Target, identity: Identity, *, secret: bytes, code: str, name: str,
-         timeout: float = 5.0) -> dict:
+         timeout: float = 5.0, carrier: str = "door") -> dict:
     """A phone in the same room pairs through the door with what the QR carried (the home's ids and keys, the door's
     address, the one-time secret and the code). Returns the new device's wire (``id``, ``kind``); never a token."""
-    conn = connect(host, port, target, identity, timeout=timeout, pair_secret=secret)
+    conn = connect(host, port, target, identity, timeout=timeout, pair_secret=secret, carrier=carrier)
     try:
         status, _h, body = call(conn, "POST", "/pair", body=json.dumps({"code": code, "name": name}).encode(),
                                 headers={"Content-Type": "application/json"}, timeout=timeout)

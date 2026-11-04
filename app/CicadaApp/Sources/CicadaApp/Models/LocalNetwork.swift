@@ -88,7 +88,16 @@ struct FoundDoor: Hashable, Sendable {
 }
 
 enum LanRules {
-    static let serviceType = "_cicada._tcp"
+    /// The home-network door is UDP (ruling 51f, owner 2026-11-03), and DNS-SD names a service by its transport
+    /// (RFC 6763 §7): a computer whose door is open advertises and browses this. `httpsServiceType` is only for a
+    /// memory shared with the door turned off (its configured HTTPS listener). `/sync/discovery`'s `type` says which.
+    static let serviceType = "_cicada._udp"
+    static let httpsServiceType = "_cicada._tcp"
+    /// Both, in the order `NSBonjourServices` lists them.
+    static let serviceTypes = [serviceType, httpsServiceType]
+
+    /// Whether a service type is carried over UDP (`._udp`) — the browse parameters follow it.
+    static func isUDP(_ type: String) -> Bool { type.hasSuffix("._udp") }
 
     /// Only an address the backend may keep: IPv4 private (RFC 1918) or IPv6 unique-local — never a link-local, public
     /// or loopback one (the backend checks again; this keeps what is posted small and honest).

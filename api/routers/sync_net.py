@@ -270,7 +270,8 @@ class DoorFound(BaseModel):
 
 class DiscoveredBody(BaseModel):
     candidates: list[Candidate] = Field(default_factory=list, max_length=16)
-    #: Ruling 51f: doors the app's Bonjour resolved on this network (``_cicada._tcp``, this memory's instance name).
+    #: Ruling 51f: doors the app's Bonjour resolved on this network (``_cicada._udp`` while a door is open, this
+    #: memory's instance name).
     #: Each is kept only after this backend's own handshake proved it is the home's door.
     doors: list[DoorFound] = Field(default_factory=list, max_length=16)
     #: The person allowed Cicada to find devices on the local network (the app's own permission state).
@@ -308,14 +309,20 @@ def _check_doors(doors: list[dict]) -> int:
         cls = sync_door.address_class(host)
         if cls not in ("loopback", "lan", "tailnet") or (cls == "lan" and not sync_routes.may_dial_lan()):
             continue
-        try:
-            conn = sync_door.connect(host, port, target, identity, timeout=sync_routes.LAN_CONNECT_S,
-                                     on_routes=sync_routes.learn)
-        except sync_door.Unreachable:
-            continue
-        conn.close()
-        sync_routes.found(target.device_id, host, port)
-        kept += 1
+        for carrier in sync_door.CARRIERS:          # UDP, then a door from before it (TCP only)
+            try:
+                conn = sync_door.connect(host, port, target, identity, timeout=sync_routes.LAN_CONNECT_S,
+                                         on_routes=sync_routes.learn, carrier=carrier)
+            except sync_door.Unreachable:
+                continue
+            conn.close()
+            sync_routes.found(target.device_id, host, port, carrier)
+            if carrier == "door":
+                from api.services import sync_door_udp
+
+                sync_door_udp.offer_path(target.device_id, host, port)   # sessions in flight move there now
+            kept += 1
+            break
     if kept:
         sync_routes.forget_target()
         sync_routes.BOOK.note_network_change()

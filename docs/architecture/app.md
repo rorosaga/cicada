@@ -441,7 +441,7 @@ question) seen in its own browse is a yes, a policy refusal that never saw it a 
 `cicada.permission.localNetwork`; macOS has no preflight). The answer goes to the backend as `lanAllowed`; the door
 stays on loopback until it is a yes. Skipped or refused, the same row sits on the devices card above *Pair a device*
 (`cicada.devices.localNetworkStepSeen`). *Bonjour, once allowed:* `DNSServiceRegister` advertises the door's port under
-`/sync/discovery`'s instance name (an `NWListener` can advertise only its own port), `NWBrowser` browses `_cicada._tcp`
+`/sync/discovery`'s instance name (an `NWListener` can advertise only its own port), `NWBrowser` browses `/sync/discovery`'s `type` — `_cicada._udp` for the door (UDP since #590), with UDP parameters; `_cicada._tcp` only with the door off —
 (a conflict-renamed "c-… (2)" matches), each match is resolved with `DNSServiceResolve` + `DNSServiceGetAddrInfo` —
 never a connection, which would spend the door's handshake budget — and private and unique-local addresses are posted
 as `doors` (`POST /sync/discovered`, at most 16, again only when the set changed or after 5 min). A refusal later in
@@ -454,7 +454,7 @@ device row's `how` reads "Same network" for a door on this network (a door reque
 `tailscale`); a copy's row says its route to its home from `/sync/routes` ("Same network · reached just now", "Tailscale",
 "Your address", "Relay", or "Queued") — the "Following <address>" line is gone — and, in `danger`, "Queue full: nothing
 waiting was lost, but new changes aren't kept until the home answers." while `outbox.full`. The bundle carries
-`NSLocalNetworkUsageDescription` and `NSBonjourServices` (`_cicada._tcp`) in both builds; the background service's
+`NSLocalNetworkUsageDescription` and `NSBonjourServices` (`_cicada._udp`, `_cicada._tcp`) in both builds; the background service's
 install passes `CICADA_APP_BUNDLE_ID` (the plist's `AssociatedBundleIdentifiers`, TN3179), and a release's plist that
 does not name the app is rewritten once. No new pattern, no motion. DR-5, DR-9, DR-10, DR-19, DR-38, DR-39, DR-40,
 DR-52, DR-59, DR-60, DR-76; §9 2026-11-03.

@@ -113,10 +113,23 @@ final class LocalNetworkTests: XCTestCase {
         XCTAssertEqual(LanRules.doors(many, instance: "c-abc").count, 16, "the backend's own bound")
     }
 
+    /// Ruling 51f (owner 2026-11-03): the door is UDP, so it is a `._udp` service browsed over UDP; the configured
+    /// HTTPS listener alone stays `._tcp`. The advertisement and the browse both follow `/sync/discovery`'s `type`.
+    func testTheDoorIsAUDPServiceAndTheAdvertisementFollowsThePlansType() throws {
+        XCTAssertEqual(LanRules.serviceType, "_cicada._udp")
+        XCTAssertEqual(LanRules.httpsServiceType, "_cicada._tcp")
+        XCTAssertTrue(LanRules.isUDP(LanRules.serviceType))
+        XCTAssertFalse(LanRules.isUDP(LanRules.httpsServiceType))
+        let text = try source("Services/LanDiscovery.swift")
+        XCTAssertTrue(text.contains("DNSServiceRegister(&ref, 0, 0, what.name, type,"), "advertised under the plan's type")
+        XCTAssertFalse(text.contains("using: .tcp)"), "no browse pinned to TCP")
+    }
+
     func testTheWireDecodesWithDefaults() throws {
         let plan = try JSONDecoder().decode(DiscoveryPlan.self, from: Data(
-            #"{"type":"_cicada._tcp","browse":"c-abc","advertise":{"name":"c-abc","port":50123},"nonce":"n"}"#.utf8))
+            #"{"type":"_cicada._udp","browse":"c-abc","advertise":{"name":"c-abc","port":50123},"nonce":"n"}"#.utf8))
         XCTAssertEqual(plan.advertise, .init(name: "c-abc", port: 50123, door: false))
+        XCTAssertEqual(plan.type, LanRules.serviceType)
         let none = try JSONDecoder().decode(DiscoveryPlan.self, from: Data(
             #"{"type":"_cicada._tcp","browse":"c-abc","advertise":null,"nonce":"n"}"#.utf8))
         XCTAssertNil(none.advertise)
@@ -208,7 +221,9 @@ final class LocalNetworkTests: XCTestCase {
                        "one plist serves the release and the developer bundle")
         XCTAssertNotNil(text.range(of: "<key>NSLocalNetworkUsageDescription</key><string>[^<]{20,}</string>",
                                    options: .regularExpression))
-        XCTAssertTrue(text.contains("<key>NSBonjourServices</key><array><string>_cicada._tcp</string></array>"))
+        XCTAssertTrue(text.contains("<key>NSBonjourServices</key><array>"
+                                    + LanRules.serviceTypes.map { "<string>\($0)</string>" }.joined() + "</array>"),
+                      "both types the backend may name: the UDP door, and HTTPS with the door off")
         XCTAssertNil(text.range(of: "<key>NSLocalNetworkUsageDescription</key><string>[^<]*Wi-Fi", options: .regularExpression))
     }
 
