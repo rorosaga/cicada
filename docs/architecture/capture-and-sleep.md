@@ -30,6 +30,20 @@ Seven rails hold across all of them:
   record adds the modification date as AppleScript's locale-free `«class isot»` and the Mac's UTC offset, so
   `notes_sync` dates the episode when the note was last written (read on time); the human `modified` string stays the
   dedup key, and a 6-field record from an older app still parses and is dated now.
+  **Locked notes (G234, 2026-11-04).** Every property the script reads is asked through `whose password protected is
+  false`, evaluated inside Notes, so no event names a locked note's body; a locked note gives only its id, moved out of
+  the dump into `lockedNoteIds` (`AppleNotesReader.split`; an older backend ignores the key and never sees those notes).
+  The bulk lists are separate events, so the ids are read again last and a folder that changed in between waits for the
+  next read; every folder refused is a failed read (`statsMark`). `notes_sync` drops a record flagged locked whatever it
+  carries, never stages a record with no text (from an older app, which sends no ids, that shape is taken as locked),
+  never stores the ids, and keeps only a count (`sync_state.json`, `notes.locked`). `retire_locked` retires every
+  episode of those notes by their own `note_id`, plus any Notes episode with no text, and drops them from
+  `notes_index.json`: `locked_note: true`, `source_deleted_at`, read by the index (`history_index.kind` `locked`). A
+  stub keeps its file but no title, folder, tags or note id; an episode with text from before the lock keeps its text,
+  hidden, because destroying it is the person's call. A retired episode is in no index, list or count and reads as no
+  document (`evidence.source_document`). Sleep runs the same retirement first in `_index_without_model_safely`, whatever
+  the tree's state, before ids freeze; a failed commit keeps the retirement. A note unlocked later is simply new. Git
+  history is untouched. An older app's body read from a locked note open at that moment cannot be told apart.
   **Where an item lives (2026-11-04, PR #599).** The script's ninth field names the note's Notes **account**
   ("iCloud", "On My Mac", a mail account's name); the app moves it out of the dump into `noteAccounts` (by note id,
   `AppleNotesReader.split`) so a backend that predates it, which checks a record's field count, still reads every note
@@ -45,7 +59,7 @@ Seven rails hold across all of them:
   by name; a collection by name; one a later sync no longer names — a list unticked — keeps its name and lists while it
   holds items), no accounts for any other channel;
   `GET …/items?collection=` narrows a page to one collection (a calendar's id, a list's id, a Notes folder's opaque
-  `nf-…` id). A meeting row carries `duration_s` (SHAPE `g161-15`). Read-only, engine-free, never a Store domain.
+  `nf-…` id). A meeting row carries `duration_s` (SHAPE `g161-16`). Read-only, engine-free, never a Store domain.
   `POST /sources/sync-bookmarks` likewise 422s without bookmark bytes (there is no local-file fallback), and no
   route stats a path the request names. Folders a page declares follow it too: `GET /entities/{id}/location`
   returns the path and the app lists it (`LocationLister`), a declared repo's git runs in the app (`GitRunner`,

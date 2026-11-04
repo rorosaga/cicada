@@ -339,6 +339,8 @@ def build_overview(memory_path: Path, *, channels: list[dict], today: _date | No
         fm = f.frontmatter
         if is_check_record(fm):
             continue   # Sources v4: a settled check's citation, not an intake (`CHECK_RECORD_SOURCES`)
+        if history_index.kind(fm) == "locked":
+            continue   # G234: a retired locked note counts nowhere
         key = source_key(fm)
         episode_key[str(fm.get("id") or f.stem)] = key
         state = states.setdefault(key, _new_state(key, labels))

@@ -104,6 +104,7 @@ struct SourceBrowser: View {
             if searching {
                 items(channel, cap: nil)
             } else {
+                lockedLine
                 switch start {
                 case .accounts:
                     SourceSection(title: Copy.SourceBrowser.accounts) { accountRows(tree?.accounts ?? []) }
@@ -121,6 +122,17 @@ struct SourceBrowser: View {
     }
 
     private var searching: Bool { !SourceSearch.normalized(query).isEmpty }
+
+    /// G234 (DR-81: nothing drawn at zero): one meta line at the source's first level, never a row, since there is
+    /// nothing behind it to open.
+    @ViewBuilder private var lockedLine: some View {
+        if let line = Copy.SourceBrowser.lockedNotes(tree?.locked ?? 0) {
+            Text(line)
+                .font(CicadaTheme.metaFont)
+                .foregroundStyle(CicadaTheme.textTertiary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
 
     private func items(_ key: String, cap: Int?) -> some View {
         SourceItemsSection(channel: key, query: query, cap: cap) { drill in

@@ -192,9 +192,9 @@ final class ThisMacSourcesTests: XCTestCase {
         let fs = AppleNotesReader.fieldSeparator, rs = AppleNotesReader.recordSeparator
         let nine = ["id-1", "Plan", "body", "c", "m", "Work", "2026-11-01T10:00:00", "0", "iCloud"].joined(separator: fs)
         let eight = ["id-2", "List", "body", "c", "m", "Notes", "2026-11-01T10:00:00", "0"].joined(separator: fs)
-        let (dump, accounts) = AppleNotesReader.split([nine, eight].joined(separator: rs))
-        XCTAssertEqual(accounts, ["id-1": "iCloud"])
-        let records = dump.components(separatedBy: rs)
+        let parts = AppleNotesReader.split([nine, eight].joined(separator: rs))
+        XCTAssertEqual(parts.accounts, ["id-1": "iCloud"])
+        let records = parts.dump.components(separatedBy: rs)
         XCTAssertEqual(records.map { $0.components(separatedBy: fs).count }, [8, 8])
         XCTAssertEqual(records[1], eight)
         XCTAssertTrue(AppleNotesReader.script.contains("set accName to name of acc"))
