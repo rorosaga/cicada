@@ -118,7 +118,37 @@ _CLI_FALLBACK_DIRS: tuple[str, ...] = (
     "~/.npm-global/bin",
     "~/.claude/local",
     "~/.codex/bin",
+    "~/.opencode/bin",   # where OpenCode's own install script puts it (its README, read 2026-11-04)
 )
+
+#: ROR-52 — where a Mac app lives. Two fixed folders, each asked only for a fixed app name below: never a path a
+#: request names, never ``~/Library``, and neither needs Full Disk Access. The backend asks because the backend is what
+#: spawns the tool (the same read as ``api/remote/reach.py``'s Tailscale app). On Linux they are simply not there.
+APP_DIRS: tuple[str, ...] = ("/Applications", "~/Applications")
+
+#: A vendor CLI a Mac app carries inside itself and does not put on PATH: logical name -> (app, path inside it).
+APP_BUNDLED_TOOLS: dict[str, tuple[str, str]] = {
+    "opencode": ("OpenCode.app", "Contents/MacOS/opencode-cli"),
+}
+
+
+def app_path(app: str) -> str | None:
+    """Where the named app is installed, from :data:`APP_DIRS`, or ``None``."""
+    for folder in APP_DIRS:
+        candidate = os.path.join(os.path.expanduser(folder), app)
+        if os.path.isdir(candidate):
+            return candidate
+    return None
+
+
+def bundled_tool(name: str) -> str | None:
+    """The executable an installed app carries for the logical CLI ``name``, or ``None``."""
+    entry = APP_BUNDLED_TOOLS.get(name)
+    where = app_path(entry[0]) if entry else None
+    if not where:
+        return None
+    candidate = os.path.join(where, entry[1])
+    return candidate if os.path.isfile(candidate) and os.access(candidate, os.X_OK) else None
 
 
 def resolve_binary(name: str) -> str | None:
@@ -127,7 +157,8 @@ def resolve_binary(name: str) -> str | None:
     A ``name`` that already contains a path separator is returned as-is when
     it exists. ``CICADA_<NAME>_CLI`` (e.g. ``CICADA_CLAUDE_CLI``) overrides
     everything, for a non-standard install. Then ``PATH``, then
-    :data:`_CLI_FALLBACK_DIRS`. Never raises.
+    :data:`_CLI_FALLBACK_DIRS`, then the copy an app carries (:func:`bundled_tool`), so a tool the person installed
+    on its own outranks the one inside the app. Never raises.
     """
     if not name:
         return None
@@ -143,7 +174,7 @@ def resolve_binary(name: str) -> str | None:
         candidate = os.path.join(os.path.expanduser(d), name)
         if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
             return candidate
-    return None
+    return bundled_tool(name)
 
 
 def _resolve_argv(argv: list[str]) -> list[str] | None:

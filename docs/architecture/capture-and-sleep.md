@@ -30,6 +30,20 @@ Seven rails hold across all of them:
   record adds the modification date as AppleScript's locale-free `«class isot»` and the Mac's UTC offset, so
   `notes_sync` dates the episode when the note was last written (read on time); the human `modified` string stays the
   dedup key, and a 6-field record from an older app still parses and is dated now.
+  **Locked notes (G234, 2026-11-04).** Every property the script reads is asked through `whose password protected is
+  false`, evaluated inside Notes, so no event names a locked note's body; a locked note gives only its id, moved out of
+  the dump into `lockedNoteIds` (`AppleNotesReader.split`; an older backend ignores the key and never sees those notes).
+  The bulk lists are separate events, so the ids are read again last and a folder that changed in between waits for the
+  next read; every folder refused is a failed read (`statsMark`). `notes_sync` drops a record flagged locked whatever it
+  carries, never stages a record with no text (from an older app, which sends no ids, that shape is taken as locked),
+  never stores the ids, and keeps only a count (`sync_state.json`, `notes.locked`). `retire_locked` retires every
+  episode of those notes by their own `note_id`, plus any Notes episode with no text, and drops them from
+  `notes_index.json`: `locked_note: true`, `source_deleted_at`, read by the index (`history_index.kind` `locked`). A
+  stub keeps its file but no title, folder, tags or note id; an episode with text from before the lock keeps its text,
+  hidden, because destroying it is the person's call. A retired episode is in no index, list or count and reads as no
+  document (`evidence.source_document`). Sleep runs the same retirement first in `_index_without_model_safely`, whatever
+  the tree's state, before ids freeze; a failed commit keeps the retirement. A note unlocked later is simply new. Git
+  history is untouched. An older app's body read from a locked note open at that moment cannot be told apart.
   **Where an item lives (2026-11-04, PR #599).** The script's ninth field names the note's Notes **account**
   ("iCloud", "On My Mac", a mail account's name); the app moves it out of the dump into `noteAccounts` (by note id,
   `AppleNotesReader.split`) so a backend that predates it, which checks a record's field count, still reads every note
@@ -45,7 +59,7 @@ Seven rails hold across all of them:
   by name; a collection by name; one a later sync no longer names — a list unticked — keeps its name and lists while it
   holds items), no accounts for any other channel;
   `GET …/items?collection=` narrows a page to one collection (a calendar's id, a list's id, a Notes folder's opaque
-  `nf-…` id). A meeting row carries `duration_s` (SHAPE `g161-15`). Read-only, engine-free, never a Store domain.
+  `nf-…` id). A meeting row carries `duration_s` (SHAPE `g161-16`). Read-only, engine-free, never a Store domain.
   `POST /sources/sync-bookmarks` likewise 422s without bookmark bytes (there is no local-file fallback), and no
   route stats a path the request names. Folders a page declares follow it too: `GET /entities/{id}/location`
   returns the path and the app lists it (`LocationLister`), a declared repo's git runs in the app (`GitRunner`,
@@ -2135,7 +2149,18 @@ person-chosen third-party model (billed separately at list price under The X Sub
 labelled before they chose it. The guard runs whatever set the mode: a `CICADA_LLM_MODE` pin counts as Auto when it is
 `auto` and as the operator's explicit choice when it is `cursor`. A tool is a rung only installed and signed in — OpenCode only with a GitHub
 Copilot or OpenCode Go model listed — else skipped, never an error and never a key; an installed tool skipped (signed
-out, only key-backed models, no answer) is named in the no-engine sentence, an absent one is not. The rungs read #494's
+out, only key-backed models, no answer) or an app here without the tool it needs is named in the no-engine sentence,
+with the line to run; an absent one is not. **Found where it is (ROR-52, 2026-11-04):** `base.resolve_binary` looks on
+PATH, then the usual folders (`~/.opencode/bin` added, where OpenCode's own installer puts it), then
+`base.APP_BUNDLED_TOOLS`: OpenCode.app carries its tool as `Contents/MacOS/opencode-cli`, and a tool on PATH outranks it.
+The backend makes this read because it is what spawns the tool: two fixed folders (`/Applications`, `~/Applications`),
+fixed app names, never a path a request names and never `~/Library`, like `reach.py`'s Tailscale. A tool found in its app
+has its full path in the sign-in line, since the app does not put it on the person's PATH. **Three states, not two:**
+`available` still means a tool Cicada can run. `Status.not_ready` (wire `notReady`, additive, with `nextCommand`) is
+`available: false` with the app here: Cursor.app with no `cursor-agent`, or a copy of OpenCode older than `--pure`, which
+refuses the whole call with its usage text (OpenCode.app 1.3.3, read from the real tool); `--pure` is never dropped to make
+it run, and it is read from the tool's own help, once per path and modification time, only on positive evidence. The
+message comes before `--file`, an array that takes every word after it. The rungs read #494's
 cached status (`cli_engines.ladder_status`): a fresh answer at once, else one background refresh for both tools at once,
 waited on at most `LADDER_WAIT_S` (9 s) by a cycle and never by the Sleep page (`cli_wait=0`; its cards warm the cache);
 an unknown or hung tool (`Status.timed_out`) is skipped for that run in words. The handshake's Now line and the cards'
@@ -2153,7 +2178,7 @@ tool's credentials; the variables that would move a tool off its sign-in (`CURSO
 / `CICADA_RECALL=off` ride every child, so Cicada's own Cursor and Gemini CLI hooks, and the Claude Code hooks Grok also
 runs, stay silent. **No tools:** every call runs in a fresh empty directory under `$CICADA_HOME/engine-scratch/<mode>`,
 deleted after; Cursor `agent -p --output-format json --mode ask --trust --workspace <dir>` without `--force`, plus a
-deny-all `.cursor/cli.json`; OpenCode `opencode run --format json --pure --dir <dir> -m <provider/model> --file
+deny-all `.cursor/cli.json`; OpenCode `opencode run <message> --format json --pure --dir <dir> -m <provider/model> --file
 <request>` with `OPENCODE_PERMISSION={"*":"deny"}` and no Claude Code or project config; Grok `grok --prompt-file
 <request> --output-format json --permission-mode dontAsk` with every tool kind denied, `--disable-web-search
 --no-subagents --no-plan --disallowed-tools Agent`. **Plan, not metered:** OpenCode counts only GitHub Copilot and

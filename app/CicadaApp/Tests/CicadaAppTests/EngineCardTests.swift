@@ -20,6 +20,47 @@ final class EngineCardTests: XCTestCase {
         )
     }
 
+    /// ROR-52 — the three states of a person's own tool, from the wire: its app without the tool, nothing at all, and a
+    /// tool that only needs a sign-in. Each says its own word and draws its own one command.
+    func testAnAppWithoutItsToolIsNotReadyNotNotInstalled() throws {
+        let tool = { (json: String) in
+            try JSONDecoder().decode(SleepEngineCandidate.self, from: Data(json.utf8))
+        }
+        let appOnly = try tool(#"""
+        {"id":"cursor","label":"Cursor","kind":"plan","available":false,"connected":false,"models":[],
+         "detail":"Cursor is here, but not the command-line tool Sleep needs.","signIn":"agent login",
+         "notReady":true,"nextCommand":"curl https://cursor.com/install -fsS | bash"}
+        """#)
+        XCTAssertEqual(EngineOption.caption(for: appOnly), Copy.Intelligence.notReady)
+        XCTAssertEqual(appOnly.stepCommand, "curl https://cursor.com/install -fsS | bash")
+
+        let nothing = try tool(#"""
+        {"id":"cursor","label":"Cursor","kind":"plan","available":false,"connected":false,"models":[],
+         "detail":"Cursor isn't installed.","signIn":"agent login"}
+        """#)
+        XCTAssertFalse(nothing.notReady, "an older backend sends neither field")
+        XCTAssertEqual(EngineOption.caption(for: nothing), Copy.Intelligence.notInstalled)
+        XCTAssertNil(nothing.stepCommand)
+
+        let signedOut = try tool(#"""
+        {"id":"opencode","label":"OpenCode","kind":"plan","available":true,"connected":false,"models":[],
+         "signIn":"/Applications/OpenCode.app/Contents/MacOS/opencode-cli auth login"}
+        """#)
+        XCTAssertEqual(EngineOption.caption(for: signedOut), "Not signed in")
+        XCTAssertEqual(signedOut.stepCommand, "/Applications/OpenCode.app/Contents/MacOS/opencode-cli auth login")
+
+        let ready = try tool(#"{"id":"opencode","label":"OpenCode","kind":"plan","available":true,"connected":true,"models":[],"signIn":"opencode auth login"}"#)
+        XCTAssertNil(ready.stepCommand)
+        XCTAssertFalse(EngineOption.isSelectable(appOnly, selectedMode: "auto"), "a tool Sleep can't run can't be chosen")
+    }
+
+    /// ROR-46 — Sources is one inbox, and never the symbol the Inbox itself wears (⌘K's `tray.full`).
+    func testSourcesIsOneInboxAndNotTheInboxPagesSymbol() {
+        XCTAssertEqual(AppTab.sources.icon, "tray")
+        XCTAssertNotEqual(AppTab.sources.icon, AppTab.inbox.icon)
+        XCTAssertEqual(Set(AppTab.allCases.map(\.icon)).count, AppTab.allCases.count, "no two pages share a symbol")
+    }
+
     func testOllamaGuideStateProgression() {
         let notInstalled = OllamaGuideState.from(candidate: candidate(available: false))
         XCTAssertEqual(notInstalled, .notInstalled)
