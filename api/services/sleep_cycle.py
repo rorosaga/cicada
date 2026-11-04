@@ -10,7 +10,7 @@ from pathlib import Path
 from loguru import logger
 
 from api.config import Settings
-from api.services import authorship, bank_index, episode_ids, episode_revision, evidence, git_service, machine_state, markdown_parser
+from api.services import authorship, bank_index, episode_ids, episode_revision, episode_scrub, evidence, git_service, machine_state, markdown_parser
 from api.services import sleep_drain, sleep_reserve
 
 
@@ -1518,6 +1518,29 @@ async def _tend_inbox_safely(memory_path: Path, settings: Settings, episodes: li
                                                                    if report.stopped else ""))
 
 
+async def _sensitive_review_safely(memory_path: Path) -> None:
+    """G235: the one review of what may be sensitive, kept in step, plus (once per detector version) a look through the
+    conversations already read, which writes nothing on them. Engine-free. One path-scoped `cicada` commit, an item dirty
+    before it ran left alone. Counts only in the log. Never raises."""
+    from api.services import sensitive_flags
+
+    skip: frozenset[str] = frozenset()
+    has_git = (memory_path / ".git").exists()
+    try:
+        if has_git:
+            skip = await _dirty_paths(memory_path)
+        await asyncio.to_thread(sensitive_flags.sweep_read, memory_path)
+        report = await asyncio.to_thread(sensitive_flags.sync_review, memory_path, skip)
+        if report.paths and has_git:
+            async with _lock:
+                await asyncio.to_thread(git_service.commit_touched_sync, memory_path,
+                                        sensitive_flags.commit_message(report, date.today()), report.paths)
+        if report.paths:
+            logger.info(f"Sensitive review: {report.rows} conversation(s) waiting")
+    except Exception as exc:
+        logger.warning(f"Sensitive review skipped: {type(exc).__name__}")
+
+
 async def _run_engine_independent_tail(
     memory_path: Path, settings: Settings, outcome: _StageOutcome, *, user_triggered: bool = True,
     skip_links: bool = False,
@@ -1609,6 +1632,8 @@ async def _run_engine_independent_tail(
         # G61 "Where to check" (ruling 36 D5): links already on the record proposed as sources — after the imports
         # above (a link they put on a page is not proposed again), before any poll's `git add -A`.
         await _where_to_check_safely(memory_path)
+        # G235: before any poll's `git add -A`, so it cannot sweep this step's item.
+        await _sensitive_review_safely(memory_path)
         # Ruling 48 part 5: In short for long, busy pages — a model call on the bank alone (nothing from outside), so a
         # demo bank gets it too; never past a run that stopped at the plan's limit.
         if skip_links:
@@ -2817,6 +2842,10 @@ async def _run_stages(
         episodes = []
     else:
         episodes = _get_unprocessed_episodes(memory_path, only_ids=set(batch.only_ids))
+    # G235: text the person removed that some writer brought back comes out again, before anything below reads it.
+    from api.services import sensitive_flags
+
+    sensitive_flags.reapply_waiting(episodes)
     # G104 (owner 2026-11-03): a conversation read before and edited since is a revision of it — diffed against the
     # version Sleep read (git's), read where it changed, its spans moved and what only the removed text said closed.
     revisions = episode_revision.attach(memory_path, episodes) if episodes else {}
@@ -2982,6 +3011,7 @@ async def _run_stages(
         origin = str(ep.get("origin") or "unknown")
         _state.read_by_origin[origin] = _state.read_by_origin.get(origin, 0) + 1
 
+    flagged: dict[str, list[str]] = {}
     reserve_stop = None
     if guard is not None and guard.is_reached() and not decay_only:
         # Still past the line before a single paid read (a Continue into a window that is
@@ -2995,11 +3025,22 @@ async def _run_stages(
         hooks: dict = {}
         if live is not None:
             hooks = _batch_hooks(live, guard, batch.ds)
+
+        def _on_sensitive(ep: dict, kinds: dict, engine: str | None, held: bool) -> None:
+            # G235: recorded before the send, so what an engine was handed is on the record whatever happens next.
+            sensitive_flags.note_read(ep, kinds, engine, held=held)
+            flagged[str(ep["id"])] = sorted(kinds)
+
+        hooks["on_sensitive"] = _on_sensitive
         extracted = await extract(
             episodes, settings, cancel_check=_cancel_requested,
             progress_callback=_tick_stage1, on_episode_done=_on_episode_done,
             **(_accepting(extract, **hooks) if hooks else {}),
         )
+    if ds is not None:
+        # G235: what the run line says, kept on the run across its batches. Ids and kinds, never a word.
+        ds.sensitive.update(flagged)
+        ds.replaced_ids.update(str(e["id"]) for e in episodes if episode_scrub.REDACTED in str(e.get("content") or ""))
     total_entities = sum(len(e.get("entities", [])) for e in extracted)
     total_rels = sum(len(e.get("relationships", [])) for e in extracted)
     logger.info(f"Stage 1 complete: {total_entities} entities, {total_rels} relationships extracted")
@@ -3510,6 +3551,15 @@ async def _run_stages(
     if index_warnings:
         _state.index_warning = "; ".join(index_warnings)
 
+    if flagged:
+        # G235: whatever a later stage wrote, a value of this batch's conversations does not reach the commit.
+        try:
+            dirty = await _dirty_paths(memory_path)
+            await asyncio.to_thread(sensitive_flags.sweep_written, memory_path,
+                                    [e for e in episodes if str(e["id"]) in flagged], dirty)
+        except Exception as exc:  # noqa: BLE001 - a guard on the way to a commit, never the reason it fails
+            logger.warning(f"Sensitive sweep skipped: {type(exc).__name__}")
+
     # Commit
     from api.services import agent_engine, engine_select
 
@@ -3627,7 +3677,7 @@ def _get_unprocessed_episodes(
     episode timestamps to set ``created`` and ``last_referenced``.
     """
     results: list[dict] = []
-    from api.services import history_index, turn_extras, turn_signals
+    from api.services import history_index, sensitive_flags, turn_extras, turn_signals
 
     files = bank_index.files(memory_path, "episodes")
     keys: turn_signals.KeyIndex | None = None
@@ -3690,6 +3740,8 @@ def _get_unprocessed_episodes(
             # reads the two stored values; nothing opens the path).
             "project_dir": fm.get("project_dir") if isinstance(fm.get("project_dir"), str) else None,
             "workspace_identity": fm.get("workspace_identity") if isinstance(fm.get("workspace_identity"), dict) else None,
+            # G235: who read what, and what the person removed (kinds and engines, never a word).
+            **({sensitive_flags.KEY: fm[sensitive_flags.KEY]} if isinstance(fm.get(sensitive_flags.KEY), dict) else {}),
             # G95/G104: the stager's edit-in-place record — which body was last consolidated (`episode_revision`).
             **({episode_revision.REVISED_KEY: fm[episode_revision.REVISED_KEY]}
                if isinstance(fm.get(episode_revision.REVISED_KEY), dict) else {}),
@@ -3833,6 +3885,8 @@ def _mark_episodes_processed(episodes: list[dict]) -> int:
     that keeps growing can never keep one drain re-reading it. A dict without
     a ``revision`` (a caller that built it by hand) retires as before.
     """
+    from api.services import sensitive_flags
+
     retired = 0
     for ep in episodes:
         filepath = ep["filepath"]
@@ -3850,6 +3904,7 @@ def _mark_episodes_processed(episodes: list[dict]) -> int:
             parsed.frontmatter["processed_by"] = "sleep"
             # G95/G104: an episode edited in place says which body was consolidated — this one, now.
             episode_revision.mark_consolidated(parsed.frontmatter)
+            sensitive_flags.mark_read(parsed.frontmatter)
             markdown_parser.write(filepath, parsed.frontmatter, parsed.body)
             retired += 1
     return retired

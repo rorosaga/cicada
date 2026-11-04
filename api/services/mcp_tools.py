@@ -4045,7 +4045,7 @@ def change_source(ctx: ToolContext, subject: str, ref: str, predicate: str | Non
 EDIT_SLEEPING = ("Nothing changed — Cicada is consolidating memory right now, and an edit made now could be swept "
                  "into its commit under the wrong name. Try again in a few minutes.")
 #: Inbox kinds only the person answers, in the app: an edit can never resolve one (nor an agent its own proposal).
-APP_ONLY_INBOX_KINDS = frozenset({"normalization", "page_edit", "agent_request"})
+APP_ONLY_INBOX_KINDS = frozenset({"normalization", "page_edit", "agent_request", "sensitive"})
 
 
 @_holding_pages

@@ -61,6 +61,7 @@ from pathlib import Path
 from loguru import logger
 
 from api.services import (entity_article, entity_body, episode_revision, evidence, markdown_parser, page_edits,
+                          sensitive_flags,
                           section_provenance)
 from api.services.claims import Evidence
 
@@ -116,12 +117,15 @@ def changes_of(rev) -> list[Change]:
     """Each replaced or removed block of ``rev`` that took a word away from the conversation."""
     if not rev.closes or rev.noop:
         return []      # a capped transcript's turns slide out by its cap, never by revision; whitespace says nothing
-    body, prior = tokens(rev.body), tokens(rev.prior)
+    # G235: this text goes to a model. What a body USED to say is masked first, so a removal never re-sends the value,
+    # and the mark is the word the new body holds, so a value is never itself a "gone" word.
+    masked_prior = sensitive_flags.masked_for_engine(rev.prior)
+    body, prior = tokens(rev.body), tokens(masked_prior)
     out = []
     for tag, i1, i2, j1, j2 in rev.blocks:
         if tag not in ("replace", "delete"):
             continue
-        before = _unmarked(rev.prior[i1:i2])
+        before = _unmarked(sensitive_flags.masked_for_engine(rev.prior[i1:i2]))
         after = _unmarked(rev.body[j1:j2]) if tag == "replace" else ""
         gone = tokens(before) - body
         if gone:

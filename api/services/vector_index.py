@@ -1184,6 +1184,35 @@ class SimilarityUnavailable(RuntimeError):
 PASSAGE_LOAD_WAIT_S = 1.5
 
 
+def forget_passages(memory_path: Path, values: tuple[str, ...]) -> int:
+    """G235: delete every stored passage holding one of these exact strings, from every table of the bank's index, with
+    ``secure_delete`` so the bytes go too. The sync that follows embeds what the files say now. No embedding model is
+    touched. Returns the rows removed; the value is a bound parameter, never in a statement or a log."""
+    index = VectorIndex(Path(memory_path))
+    if not index.db_path.exists() or not values:
+        return 0
+    removed = 0
+    with _write_lock(index.db_path):
+        conn = index._connect()
+        try:
+            conn.execute("PRAGMA secure_delete=ON")
+            tables = [r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'meta\\_%' ESCAPE '\\'")]
+            for meta in tables:
+                vec = "vec_" + meta[len("meta_"):]
+                for value in values:
+                    rows = [r[0] for r in conn.execute(
+                        f"SELECT rowid FROM {meta} WHERE instr(text, ?) > 0 OR instr(metadata, ?) > 0", (value, value))]
+                    for rowid in rows:
+                        conn.execute(f"DELETE FROM {vec} WHERE rowid = ?", (rowid,))
+                        conn.execute(f"DELETE FROM {meta} WHERE rowid = ?", (rowid,))
+                    removed += len(rows)
+            conn.commit()
+        finally:
+            conn.close()
+    return removed
+
+
 def runs_on_device(model_id: str | None) -> bool:
     """Whether ``model_id`` is a model this machine runs itself (a bundled or downloaded ONNX / Core ML model) —
     never a hosted one (OpenAI, OpenRouter), whatever its name says."""
