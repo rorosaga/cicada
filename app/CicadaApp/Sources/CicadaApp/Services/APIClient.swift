@@ -2645,6 +2645,12 @@ actor APIClient {
         return try await post("/sources/sync-notes", body: ["notesDump": dump])
     }
 
+    /// 2026-11-04 — the same post with each note's account beside the dump (an older backend ignores the key).
+    func syncNotes(dump: String, accounts: [String: String]) async throws -> NoteSyncResult {
+        guard !accounts.isEmpty else { return try await syncNotes(dump: dump) }
+        return try await post("/sources/sync-notes", body: ["notesDump": dump, "noteAccounts": accounts])
+    }
+
     // MARK: - Local sources (G133 / G134)
 
     /// `GET /sources/folders` — the active memory's watched folders.

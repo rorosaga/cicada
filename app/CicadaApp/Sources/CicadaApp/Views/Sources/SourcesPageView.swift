@@ -25,6 +25,7 @@ struct SourcesPageView: View {
     @Environment(LocalSourceWatcher.self) private var localSources
     /// 2026-11-03 — the chat whose stored conversation the right-hand panel shows (a chat source's page).
     @State private var chatPanel = ChatPanelRouter()
+    @State private var pageBack = SourcePageBack()
     /// Reading the web's switches (the master switch, the signed-in session, YouTube lists, Never explore, how the
     /// agent reads), in one sheet since D6 retired the Settings page (2026-10-22 fix round).
     @State private var showReadingSheet = false
@@ -45,7 +46,7 @@ struct SourcesPageView: View {
         return SourceCatalog.rows(entries: entries, channels: channels, overview: overview,
                                   readableSites: reading.readableSites, localReaders: localReaders,
                                   savedListsOn: reading.savedListsOn, localAgent: agents.connectedLocally,
-                                  checked: chatChecks)
+                                  checked: chatChecks, notInstalled: localSources.missingApps)
     }
 
     /// 2026-11-03 — when each chat reader on this Mac last read its ticked chats (`ChatCheck`).
@@ -133,6 +134,7 @@ struct SourcesPageView: View {
         }
         .background(CicadaTheme.bgBase)
         .environment(chatPanel)
+        .environment(pageBack)
         .onChange(of: provenance.isPresented) { _, open in if open { chatPanel.close() } }
         .onChange(of: columns.openId) { _, _ in chatPanel.close() }
         // A hand-off asking for the reading switches (`pendingReadingSheet`) still lands here, whatever is open.
@@ -148,6 +150,8 @@ struct SourcesPageView: View {
         .task { await reading.loadSettings() }
         .task { await agents.run() }
         .task { browsers = await Task.detached(priority: .userInitiated) { BrowserInventory.live() }.value }
+        // 2026-11-04 — an app removed since launch (Wispr Flow) reads Off · not installed as soon as the page opens.
+        .task { await localSources.refreshInstalledApps() }
         .onAppear { consumeAddSource() }
         .onChange(of: router.pendingAddSource) { _, _ in consumeAddSource() }
         // Track Z §7.1 — a Sleep spine's "Open in Sources ›" lands here with the tab switch.
@@ -239,7 +243,7 @@ struct SourcesPageView: View {
             }
             switch columns.escape(readerOpen: provenance.isPresented) {
             case .closeReader: provenance.close()
-            case .closeDetail: columns.close()
+            case .closeDetail: if !pageBack.run() { columns.close() }
             case .none: break
             }
         }

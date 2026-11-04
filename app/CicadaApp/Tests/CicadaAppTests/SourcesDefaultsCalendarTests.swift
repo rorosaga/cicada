@@ -113,9 +113,4 @@ final class SourcesDefaultsCalendarTests: XCTestCase {
                                              locale: Locale(identifier: "en_US")),
                        "Includes iCloud (1 calendar) · Google (3 calendars)")
     }
-
-    func testAddAGoogleAccountOpensInternetAccountsNotAPermissionPrompt() {
-        XCTAssertEqual(CalendarRow.internetAccountsURL.scheme, "x-apple.systempreferences")
-        XCTAssertTrue(CalendarRow.internetAccountsURL.absoluteString.contains("Internet-Accounts"))
-    }
 }

@@ -48,10 +48,8 @@ extension Copy {
         static let addHexFolder = "Add Hex's folder"
         static let hexHow = "Hex saves each meeting it records as a Markdown file in its meetings folder. Pick that "
             + "folder and Cicada keeps up with new and edited meetings."
-        static let hexPanel = "Choose the Hex meetings folder"
         static let meetingFolderHow = "Any recorder's transcripts: Markdown, text, subtitles (VTT or SRT) or JSON, one "
             + "meeting per file. Cicada reads the words, never the audio."
-        static let meetingFolderPanel = "Choose a folder of meeting transcripts"
         /// Said once under a meeting source: whose words they are, and that Sleep reads them (owner, 2026-11-03).
         static let meetingWords = "Lines marked You or Me are your own words; everyone else's stay theirs, and the "
             + "recorder's summary is never yours. Sleep reads every meeting like a conversation."

@@ -44,7 +44,8 @@ enum LocalReaders {
         // G219: on only while connected with at least one list ticked — nothing arrives otherwise.
         if let reminders { on[RemindersReader.channel] = reminders.isOn }
         if let calendar { on[CalendarRow.channelId] = calendarOn(calendar.status) }
-        if let contacts { on[ContactsReader.channel] = contacts.enabled }
+        // 2026-11-04 — on means allowed AND turned on: a reader whose access was taken away reads Off, never Connected.
+        if let contacts { on[ContactsReader.channel] = contactsOn(enabled: contacts.enabled, status: contacts.status) }
         if let tabGroups { on[TabGroupWatcher.channel] = tabGroups.enabled }
         if let watchHistory { on[WatchHistoryWatcher.channel] = watchHistory.enabled }
         if let notes { on[AppleNotesWatcher.channel] = notes.enabled }
@@ -61,6 +62,11 @@ enum LocalReaders {
     /// row's line and buttons already follow (`CalendarRowText`). The head read `isEnabled` (a defaults flag, not
     /// observed) beside it, so the two could say Connected and "Not connected" at once. Off and denied are off;
     /// syncing, synced and a failed read are a connected reader (a failure says why in the row's line).
+    nonisolated static func contactsOn(enabled: Bool, status: ContactsReader.Status) -> Bool {
+        // `.off` is also the reader's state before `start()` ran at launch: the turned-on switch is what counts then.
+        enabled && status != .denied
+    }
+
     nonisolated static func calendarOn(_ status: CalendarReader.Status) -> Bool {
         switch status {
         case .off, .denied: false
@@ -206,6 +212,7 @@ struct SourceCatalogDetail: View {
     @Environment(WatchHistoryWatcher.self) private var watchHistory: WatchHistoryWatcher?
     @Environment(TabGroupWatcher.self) private var tabGroups: TabGroupWatcher?
     @Environment(ContactsReader.self) private var contacts: ContactsReader?
+    @Environment(RemindersReader.self) private var remindersReader: RemindersReader?
     @Environment(IntakeRouter.self) private var intake
     /// What the footer's last Refresh said.
     @State private var feedNote: String?
@@ -348,6 +355,7 @@ struct SourceCatalogDetail: View {
         .sheet(isPresented: $showExploreSheet) {
             ExploreSheet { showExploreSheet = false }
         }
+        .sourcePageBack(active: drill != nil) { drill = nil }
         .task { await reading.loadSettings() }
         // G136 R-SU18 — a palette conversation row lands on its agent's page with the search filled.
         .onAppear { takeConversationQuery() }
@@ -384,7 +392,6 @@ struct SourceCatalogDetail: View {
         switch entry.id {
         case CalendarRow.channelId:
             CalendarSlot(slot: .connect)
-            if calendarOn { SourceConnectArea(ways: [googleCalendarWay]) }
         case ContactsReader.channel: ContactsSlot(slot: .connect)
         case RemindersReader.channel: RemindersSlot(slot: .connect)
         case AppleBooksReader.channel: AppleBooksSlot(slot: .connect, channel: mine.first)
@@ -473,17 +480,6 @@ struct SourceCatalogDetail: View {
         intake.accept(urls: urls, from: .emptyState(.sources))
     }
 
-    private var calendarOn: Bool {
-        LocalReaders.calendarOn(calendarReader?.status ?? .off)
-    }
-
-    /// Google calendars join through macOS's Internet Accounts (asks macOS for nothing).
-    private var googleCalendarWay: SourceWayIn {
-        SourceWayIn(id: "google", icon: .symbol("person.crop.circle.badge.plus"), title: Copy.calendarAddGoogle,
-                    control: .button(Copy.SourceLayout.open) { NSWorkspace.shared.open(CalendarRow.internetAccountsURL) },
-                    help: Copy.calendarGoogleHow)
-    }
-
     /// An account's ways in beyond its connector: the browser reader's per-site switch, the saved list it keeps
     /// current, and the export (the source's own mark on a file, its where-from on hover).
     private var siteWays: [SourceWayIn] {
@@ -563,14 +559,8 @@ struct SourceCatalogDetail: View {
         channels.first { $0.actions.contains("connect") || $0.actions.contains("disconnect") }
     }
 
-    /// The This Mac sources whose content is their own browser (#599: accounts → collections → items).
-    static let thisMacContent: Set<String> = [
-        CalendarRow.channelId, ContactsReader.channel, RemindersReader.channel, AppleNotesWatcher.channel,
-        SourceCatalog.hexId, LocalSourceWatcher.wisprChannel, SourceCatalog.meetingFoldersId,
-    ]
-
-    /// The content seam for the This Mac sources: until their browser lands (#599, `ThisMacSourceContent(entry:
-    /// channels:)`), the lists the page drew before.
+    /// The This Mac sources' browser (accounts → collections → items), under the one thing each still chooses: a
+    /// recorder's folders (each folder's Manage; its meetings are the browser's) and Reminders' lists.
     @ViewBuilder
     private var thisMacContent: some View {
         switch row.entry.id {
@@ -578,25 +568,26 @@ struct SourceCatalogDetail: View {
             if !mine.isEmpty {
                 SourceSection(title: Copy.SourceLayout.folders) {
                     VStack(alignment: .leading, spacing: 2) {
-                        ForEach(mine) { FolderChannelRow(channel: $0) }
+                        ForEach(mine) { FolderChannelRow(channel: $0, showsItems: false) }
                     }
                 }
                 .environment(\.sourceDetailHeadShown, true)
             }
-            cameIn
         case RemindersReader.channel:
-            RemindersRow(channel: mine.first, pickerOnly: true)
-                .environment(\.sourceDetailHeadShown, true)
-            cameIn
+            if remindersReader?.isEnabled == true {
+                RemindersRow(channel: mine.first, pickerOnly: true)
+                    .environment(\.sourceDetailHeadShown, true)
+            }
         default:
-            cameIn
+            EmptyView()
         }
+        ThisMacSourceContent(entry: row.entry, channels: mine)
     }
 
     @ViewBuilder
     private var contentSlot: some View {
         switch row.entry.id {
-        case let id where Self.thisMacContent.contains(id):
+        case _ where ThisMacSourceContent.handles(row.entry):
             thisMacContent
         case "folders":
             if !mine.isEmpty {
