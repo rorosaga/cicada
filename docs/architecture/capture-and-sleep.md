@@ -2234,10 +2234,19 @@ the ledger, so Past reads and the limit below see a cut-off or refused call's re
 **The spending limit (ROR-102, ruling 63 (g); `sleep_spend`).** A run on a metered engine snapshots `spend_limit_usd`
 (`sleep_run_prefs`, in `connections.json`: unset reads as the suggested $5, stored `0` is the person's off, nonsense reads
 as the suggestion) and `providers._emit` adds each call's cost to `ds.spend`. It stops on the reserve's own path:
-`DrainStop("reserve", …, limit="spend")`, pause reason `spend`, so what was read is filed, the rest wait, and the tail's paid
-steps are skipped. A Continue is a new allowance; a scheduled run waits for that click. A model with no known price stops the
-run, before any read when the models are known at the start (`guard_for`), else at the first unpriced call. One click's web
-sweep on a metered key is capped at `web_check_per_run` (`capped_at`).
+`DrainStop("reserve", …, limit="spend")`, pause reason `spend`, so what was read is filed and the rest wait. **How far past:**
+one read past it when reads cost about the same; if a read costs far more than any before it, every read then out, at most 3 on a Claude key and 10 on another; plus filing what was read. A call in `LINE_STAGES` (a read, In short, the web check, link reads, the inbox's judging) passes
+`sleep_spend.turn` after it holds its permit: the run's first call goes alone to learn the price, a later one goes only when
+what is spent and what is out leave room, and past the line it raises `SpendLimitReached`, never sent. A refused read goes back
+to wait, nobody's failure; one caught part way through its chunks is read again next time. Every other stage files what was
+read and is never refused. `batch_size` sizes each batch to the allowance left, at the last batch's cost per conversation, or
+at first at the most one read may write. A run past the line skips the tail's paid steps even with nothing left to read;
+link backfill runs in `sleep:<cycle>-links` on a drain, so its spend counts. A charged call whose cost cannot be read stops the
+run like a model with no price (fail closed), before any read when the models are known at the start (`guard_for`), else at the
+first unpriced call. A Continue is a new allowance; a scheduled run waits for that click, while one paused on `restart`,
+`engine` or `busy` is replaced with a fresh allowance. **Only runs are covered:** Ask, the inbox's tidy and catch-up, a click's
+web sweep, repairs and the quick read are not limited (the help says so) and are in the ledger at what they cost. One click's
+web sweep on a metered key is capped at `web_check_per_run` (`capped_at`).
 **Comparing with the plan.** `benchmarks/engine_parity.py` runs the same synthetic conversations through the production drain
 on a scratch bank per engine and compares pages, claims, evidence spans, questions and failures, with what Past reads would
 show. The one real run, once a key is entered (about $0.02 on Haiku 5.5, 19 calls, about 94k input of which 16k uncached,
