@@ -375,7 +375,7 @@ class BankFacts:
 class Candidate:
     item_id: str
     kind: str
-    scope: str                       # public | repo
+    scope: str                       # public | repo | source (54a: only the page's tracked sources)
     entity_id: str
     name: str
     entity_type: str
@@ -402,7 +402,7 @@ class Candidate:
     #: A pair question (:data:`PAIR`): the page the subject was weighed against — it always has a page.
     other_id: str = ""
     other_name: str = ""
-    #: A public handle and a named person (proposed ruling 54, ``public_handle``): what the lookup may search.
+    #: A public handle and a named person (ruling 54, ``public_handle``): the settling step's question.
     handle: "object | None" = None
 
 
@@ -602,9 +602,8 @@ def _classify_pair(fm: dict, body: str, facts: BankFacts, name: str, page: dict 
     other_name = " ".join(str(other.get("name") or other_id).split())
     types = (_subject_type(fm, page), str(other.get("type") or "").strip().lower())
     if "person" in types:
-        # Proposed ruling 54 (owner direction 2026-11-04): a public handle and a named public person — the one person
-        # pair a lookup may answer (`public_handle`; Sleep's own lookup off until the owner rules, the person's own
-        # agent on their ask either way); every other person pair stays for the person.
+        # Ruling 54 (owner 2026-11-04): a public handle and a named person — the one person pair the settling step may
+        # work (`public_handle`, `settling_agent`); every other person pair stays for the person.
         if memory_path is not None and types == ("person", "person"):
             from api.services import public_handle
 
@@ -764,15 +763,17 @@ def context_category(c: "Candidate", context: list[str]) -> list[str]:
     return []
 
 
-def candidate(memory_path: Path, item_path: Path, facts: BankFacts, *, agent: bool = False) -> Candidate | None:
+def candidate(memory_path: Path, item_path: Path, facts: BankFacts, *, agent: bool = False,
+              via_source: bool = False) -> Candidate | None:
     """``agent``: read for the person's own local agent (``cicada_record_check``), which may answer a public-handle
-    question while Sleep's own lookup is off (proposed ruling 54)."""
+    question whatever Sleep's own switch says (ruling 54). ``via_source`` (54a): a question the page's own tracked
+    sources may answer, whoever the page is about — scope ``source``; ``settling_agent`` opens only those."""
     try:
         parsed = markdown_parser.parse(item_path)
     except Exception:  # noqa: BLE001
         return None
     fm = parsed.frontmatter
-    scope, why = classify(memory_path, fm, parsed.body, facts, agent=agent)
+    scope, why = ("source", "source") if via_source else classify(memory_path, fm, parsed.body, facts, agent=agent)
     if scope is None:
         return None
     handle = None
@@ -880,6 +881,9 @@ def census(memory_path: Path, facts: BankFacts | None = None) -> dict:
         _scope, reason = classify(memory_path, parsed.frontmatter, parsed.body, facts)
         row = by_kind.setdefault(kind, {})
         row[reason] = row.get(reason, 0) + 1
+    from api.services import name_guard
+
+    name_guard.release()   # a census is one read; the scan behind a handle question is not kept for it
     return {"by_kind": {k: dict(sorted(v.items())) for k, v in sorted(by_kind.items())},
             "public": sum(v.get("public", 0) for v in by_kind.values()),
             "other_kinds": other}
@@ -951,11 +955,15 @@ def _claim_id(entity_id: str, predicate: str, obj: str, today: str) -> str:
 
 
 def _write_episode(memory_path: Path, *, c: Candidate, ref: str, host: str, quote: str, checker_label: str,
-                   checker_kind: str, origin: str, session_frontmatter: dict | None) -> str:
+                   checker_kind: str, origin: str, session_frontmatter: dict | None,
+                   also: tuple[dict, ...] = ()) -> str:
     verb = (f"Checked {c.name} in the repository's history." if c.scope == "repo"
+            else f"Checked {c.name} at the page's own source." if c.scope == "source"
             else f"Looked up {c.name} on the web.")
-    body = "\n".join([f"assistant: {verb}", "", f"attachment [{host}]: as {checker_label} read it at {ref}",
-                      f"> {quote}"])
+    lines = [f"assistant: {verb}", "", f"attachment [{host}]: as {checker_label} read it at {ref}", f"> {quote}"]
+    for row in also:
+        lines += ["", f"attachment: also, at {row.get('ref')}", f"> {clean_quote(row.get('quote'))}"]
+    body = "\n".join(lines)
     content_hash = hashlib.sha256(f"{c.item_id}\x00{ref}\x00{body}".encode("utf-8")).hexdigest()[:12]
     episodes_dir = memory_path / "episodes"
     episodes_dir.mkdir(parents=True, exist_ok=True)
@@ -993,9 +1001,12 @@ def settle(
     memory_path: Path, item_id: str, *, ref: str, quote: str, option_key: str | None = None, answer: str | None = None,
     checker: str, checker_kind: str, origin: str = "sleep", scopes: tuple[str, ...] = ("public",),
     engine: str | None = None, session_frontmatter: dict | None = None, facts: BankFacts | None = None,
+    via_source: bool = False,
 ) -> Settled:
     """Settle one question with a cited answer. The caller holds the bank (Sleep's window, or admission + page lock),
-    has checked its gates, and commits ``paths``. Raises :class:`NotSettleable` with nothing written."""
+    has checked its gates, and commits ``paths``. Raises :class:`NotSettleable` with nothing written.
+    ``via_source`` (54a, under ruling 26): the page's own tracked source answered, read today — the question's other
+    options must have been said before today; the same day or undated stays the one question it already is."""
     from api.services import pending_store
     from api.services.claims import Claim, MalformedClaimsBlockError, is_event, parse_claims, write_claims
 
@@ -1004,7 +1015,9 @@ def settle(
     if not item_path.exists():
         raise NotSettleable("That question is no longer open.")
     facts = facts or bank_facts(memory_path)
-    c = candidate(memory_path, item_path, facts)
+    c = candidate(memory_path, item_path, facts, via_source=via_source)
+    if via_source:
+        scopes = ("source",)
     if c is None or c.scope not in scopes:
         raise NotSettleable("That question is not one a lookup may answer: it is about a person, the person's own "
                             "files, projects or life, or something only their conversations know. It stays for them.")
@@ -1048,8 +1061,8 @@ def settle(
     objs = [o for o in dict.fromkeys(objs) if o]
     if not objs:
         raise NotSettleable("A conflict is settled by one of its own options: give its key.")
-    if c.kind == "conflict" and any(_SITUATION_LABEL.search(o) or _speaks_as_the_person(o) or _SITUATION.search(o)
-                                    for o in objs):
+    if c.kind == "conflict" and not via_source and any(
+            _SITUATION_LABEL.search(o) or _speaks_as_the_person(o) or _SITUATION.search(o) for o in objs):
         # "Currently uses …", "Superseded by …", "Both are true …": a person's situation, never a page's description.
         raise NotSettleable("That option says how things stand for the person, not what the thing is; it stays "
                             "for them.")
@@ -1081,6 +1094,8 @@ def settle(
             if c.kind == "conflict" and not both:
                 option_ids = {str(o.get("claim_id")) for o in inbox_questions.normalize_options(fm_item.get("options"))
                               if o.get("claim_id")}
+                if via_source:
+                    _older_than_today(memory_path, claims, option_ids - {option_claim}, today)
                 for old in claims:
                     # An event (`happened`/`milestone`) is closed only by `progress.py` (G141): never here.
                     if (old.id in option_ids and old.id != option_claim and old.valid_to is None
@@ -1125,6 +1140,20 @@ def settle(
              f"inbox/{item_id}.md: settled (source: {episode_id}, trigger: {trigger})"]
     return Settled(item_id=item_id, entity_id=c.entity_id, claim_id=claim.id, episode_id=episode_id,
                    paths=paths, lines=lines)
+
+
+def _older_than_today(memory_path: Path, claims: list, ids: set, today: str) -> None:
+    """Ruling 26's dating rule for a source's answer: every belief it would close was said before this capture. The
+    same day or no date is a clash with no clear order: it stays the one question it already is."""
+    from api.services import episode_time, source_refresh
+
+    untimed = episode_time.untimed_ids(memory_path)
+    for old in claims:
+        if old.id in ids and old.valid_to is None:
+            said = source_refresh.said_on(old, untimed)
+            if not said or said >= today:
+                raise NotSettleable("One side was said today or has no date, so a reading today does not outrank it; "
+                                    "the question stays.")
 
 
 def settle_pair(

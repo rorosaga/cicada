@@ -976,7 +976,7 @@ def _record_settle(ctx: ToolContext, memory_path: Path, item_id, source, option_
                      code="refused")
     try:
         if c.kind == web_settle.PAIR and c.handle is not None:
-            # Proposed ruling 54 (`public_handle`): a public handle and a named person — settled only when a public
+            # Ruling 54 (`public_handle`): a public handle and a named person — settled only when a public
             # page states the handle is theirs; the answer is a cited "goes by" claim, never a merge.
             from api.services import public_handle
 
