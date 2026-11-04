@@ -1693,7 +1693,7 @@ async def _index_without_model_safely(memory_path: Path) -> None:
         months = await asyncio.to_thread(watch_history.rollup, memory_path, bank=memory_path.name)
         # Ruling 62: an indexed save whose page a conversation lit since gets its one real read. After `retire`: a save
         # that just went in was checked by it.
-        woken = await asyncio.to_thread(saved_mentions.wake_lit, memory_path, at=episode_ids.utc_now_iso())
+        woken = await asyncio.to_thread(saved_mentions.wake_lit, memory_path, at=episode_ids.utc_now_iso(), skip=skip)
     except Exception as exc:
         logger.warning(f"Indexing without a model failed: {type(exc).__name__}: {exc}")
         return
@@ -3776,10 +3776,14 @@ def episode_headers(memory_path: Path, processed: bool | None = None) -> list[ba
     cycle's chronology, optionally only the waiting (``processed=False``) or the read ones. No body is read: the Sleep
     page asks for its handful of waiting rows out of thousands, and a body read per episode is what made
     ``GET /sleep/episodes`` cost seconds on a large bank (2026-10-19)."""
+    from api.services import history_index
+
     out: list[bank_index.IndexedFile] = []
     for f in bank_index.files(memory_path, "episodes"):
         if processed is not None and bool(f.frontmatter.get("processed", False)) != processed:
             continue
+        if processed is False and not history_index.waits_for_model(f.frontmatter):
+            continue   # ruling 62: a queued save a run has not yet indexed waits for nothing; no row, no count
         if f.frontmatter.get(evidence.LOCKED_NOTE_KEY):
             continue   # G234: a retired locked note is no read to list
         out.append(f)

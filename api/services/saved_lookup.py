@@ -79,7 +79,7 @@ def _about(body: str) -> str:
     return " ".join((_extract_description_section(body or "") or "").split())
 
 
-def _page_hit(memory_path: Path, ref: str) -> Hit | None:
+def page_hit(memory_path: Path, ref: str) -> Hit | None:
     entry = bank_index.file(memory_path, "entities", f"{ref}.md")
     if entry is None:
         return None
@@ -178,7 +178,7 @@ def _find(memory_path: Path, reader, stems: list[str], k: int, min_shared: int, 
         if doc is None or doc.ref in exclude:
             continue
         if doc.kind == "media" and str(doc.meta.get("status") or "active") in LIVE_STATUSES:
-            hit = _page_hit(memory_path, doc.ref)
+            hit = page_hit(memory_path, doc.ref)
         elif d in saved_docs:
             hit = _episode_hit(memory_path, doc.ref)
         else:
@@ -215,7 +215,7 @@ def by_meaning(memory_path: Path, text: str, *, k: int = 2, exclude: frozenset[s
         ref = str((row.get("metadata") or {}).get("entity_id") or "")
         if not ref or ref in exclude:
             continue
-        hit = _page_hit(Path(memory_path), ref)
+        hit = page_hit(Path(memory_path), ref)
         if hit is not None:
             out.append(hit)
         if len(out) == k:
@@ -236,4 +236,4 @@ def line(hit: Hit) -> str:
     return head
 
 
-__all__ = ["Hit", "by_meaning", "find", "line", "subject_stems"]
+__all__ = ["Hit", "by_meaning", "find", "line", "page_hit", "subject_stems"]

@@ -154,10 +154,11 @@ def page_lit(memory_path: Path, fm: dict) -> bool:
         and not quiet_pages.page_is_quiet(memory_path, page)
 
 
-def wake_lit(memory_path: Path, *, at: str) -> list[str]:
+def wake_lit(memory_path: Path, *, at: str, skip: frozenset[str] = frozenset()) -> list[str]:
     """Before a run freezes: wake each indexed save whose page a conversation lit since. A page unchanged since its save
     was indexed cannot have been lit, so most of a large bank costs one comparison of two cached stamps. A save whose
-    page is written for some other reason (a picture) answers the quiet rule and stays asleep."""
+    page is written for some other reason (a picture) answers the quiet rule and stays asleep. ``skip``: files dirty
+    before this ran keep their own author until their writer commits them; the next run takes them."""
     memory_path = Path(memory_path)
     paths: list[str] = []
     for f in bank_index.files(memory_path, "episodes"):
@@ -166,7 +167,7 @@ def wake_lit(memory_path: Path, *, at: str) -> list[str]:
             continue
         page = str(fm.get("media_entity_id") or "").strip()
         entry = bank_index.file(memory_path, "entities", f"{page}.md") if page else None
-        if entry is None or entry.mtime_ns <= f.mtime_ns:
+        if entry is None or entry.mtime_ns <= f.mtime_ns or f"episodes/{f.path.name}" in skip:
             continue
         if not quiet_pages.page_is_quiet(memory_path, page):
             path = history_index.wake(memory_path, str(fm.get("id") or f.stem), WHY_LIT, at)

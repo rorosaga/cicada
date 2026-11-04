@@ -272,9 +272,11 @@ struct SleepQueueResponse: Codable, Equatable {
     var total: Int
     var offset: Int
     var items: [SleepQueueItem]
+    /// Ruling 62 — saves kept for lookup: no model read them, and one is read when the person talks about it.
+    var kept: Int
 
-    init(total: Int = 0, offset: Int = 0, items: [SleepQueueItem] = []) {
-        self.total = total; self.offset = offset; self.items = items
+    init(total: Int = 0, offset: Int = 0, items: [SleepQueueItem] = [], kept: Int = 0) {
+        self.total = total; self.offset = offset; self.items = items; self.kept = kept
     }
 
     init(from decoder: Decoder) throws {
@@ -282,6 +284,7 @@ struct SleepQueueResponse: Codable, Equatable {
         total = ((try? c.decodeIfPresent(Int.self, forKey: .total)) ?? nil) ?? 0
         offset = ((try? c.decodeIfPresent(Int.self, forKey: .offset)) ?? nil) ?? 0
         items = ((try? c.decodeIfPresent([SleepQueueItem].self, forKey: .items)) ?? nil) ?? []
+        kept = ((try? c.decodeIfPresent(Int.self, forKey: .kept)) ?? nil) ?? 0
     }
     enum CodingKeys: String, CodingKey { case total, offset, items }
 }

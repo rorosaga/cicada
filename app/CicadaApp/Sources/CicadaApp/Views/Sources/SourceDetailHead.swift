@@ -148,6 +148,11 @@ struct SourceDetailHead: View {
                 stateLine(watch: watch, now: context.date)
             }
             .padding(.leading, indent)
+            if let kept = Copy.keptForLookup(source.kept) {
+                Text(kept).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.leading, indent)
+            }
             // R-D6 kept: the Full Disk Access fix is shown exactly where the read failed.
             if watch == .blocked, let id = source.channelId, let error = watcher.error(for: id) {
                 FullDiskAccessHint(error: error).padding(.leading, indent)

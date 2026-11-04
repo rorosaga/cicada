@@ -5108,6 +5108,11 @@ def _render_entity_summary(entities_dir: Path, hit: dict, *, ranked_ids: frozens
          else f"### {same_name.display(name, qualifier)} ({etype}, {said})") + (f" — id `{eid}`" if qualifier else ""),
     ]
     call = more_call(eid) if more_call else None
+    saved = saved_lookup.page_hit(entities_dir.parent, eid) if etype == "media" else None
+    if saved is not None and saved.url:
+        # Ruling 62: a saved page's link and what it is, so an agent can look further from recall alone.
+        lines.append(f"Link: {saved.url}" + ("" if saved.read else
+                                             f" (saved {saved.day or 'with no date'}, no reason given, nobody has read it)"))
     if related:
         lines.append(_related_line(list(related), ranked_ids, more_call(eid, start=1) if more_call else None))
     if truncated:
