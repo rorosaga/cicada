@@ -12,6 +12,13 @@
 
 ## Current state and evidence
 
+- **2026-11-04 — phone numbers on the right page, proposed ruling 55 (G81; branch `g81-phone-numbers`).** Owner: he texted
+  an agent two people's numbers and expected memory to map and follow them. Built OFF (`CICADA_PHONE_NUMBERS`), never
+  run on real data: a token in the bank, the digits in a vault on this Mac. Proved through three real Sleeps at haiku on
+  scratch state, with a restatement, a change, a held name and a question. **Needs the owner:** the four-part question at
+  ruling 55. **Pick up after a yes:** the app's display of the digits (`POST /people/numbers/reveal` is there), then
+  the sub-answers.
+
 - **2026-11-04 — one layout for every source page; GitHub syncs on connect (G161, G230; branch
   `sources-standard-layout`, PR #593).** Owner, from screenshots: "so much text", the export drop showing "the logos of
   AI companies instead of the logo of Spotify", "standardize the layout for all the sources pages". Every source page is
@@ -3022,3 +3029,120 @@ A whole row moves to DONE only after its remaining implementation and required a
     merged follows its redirect and one they removed is never made again. **Revisit** if a GitHub App user token stops
     needing an installation for the account's own repositories (the install step goes), or if the person unlinks most
     of what the origin rule links.
+
+55. **PROPOSED, off until the owner rules (coordinator, from the owner's message of 2026-11-04; G81, G154, G179): a
+    number the person gives for someone consolidates onto that person's page as a token; the digits stay in a vault on
+    this Mac, outside every bank.** The owner texted an agent the numbers of two people and expected memory to map each
+    to the right page and follow a change. Today it cannot be relied on: the chat scrub destroys a `+` number before
+    storage, a bare digit run reaches the bank and the engine in clear, and a model already writes `phone` claims with no
+    rule. Measured on the live bank by the coordinator (counts only): 86 Messages episodes hold 13 `[redacted]`; the one
+    processed episode naming those people holds one bare run and no `+` form, so whether it worked depended on how the
+    person typed it; 5 of 299 person pages carry a `phone` claim; 365 of 370 waiting cards have a number the backend
+    never sees.
+
+    **The real options.**
+
+    | | Claim in the bank | Outside every bank, nothing on the page | Hashed for matching only | **Token in the bank, digits in a vault (built)** |
+    |---|---|---|---|---|
+    | Page knows the number, and that it changed | yes | no | that one exists, not what | **yes** |
+    | The app can show it | yes | yes | no | **yes** |
+    | Git history holds it for good | **yes** | no | no | no |
+    | A model reads it | **every engine, every read** | no | no | no |
+    | A handed-over bank or a replica carries it | **yes** | no | no | no (a cost, below) |
+    | `/v1`, the remote connector, recall | each needs its own filter, for good | nothing to serve | nothing to serve | **closed by construction** |
+    | Evidence and supersession through the claim layer | yes | no | partly | **yes** |
+    | An unsalted hash is brute-forced from the bank (about 10^10 phone numbers) | n/a | n/a | **yes, unless keyed outside** | no: the key is in the vault |
+
+    **Recommended and built: the token.** It is the only option that keeps the claim layer's whole value (a page, located
+    evidence, validity, supersession, held names, questions) while no door has to remember a rule: a door can only leak
+    what the bank holds. The cost is real and is the question below: a handed-over bank carries "a number", not the
+    number, which CLAUDE.md's portability rule counts against it.
+
+    **How it works.** In the person's own new lines of a ticked chat, a number becomes `[number:<ten letters>]` before
+    the stager (`phone_numbers.tokenise_batch`, called by `messages_source.ingest` and `chat_live.ingest`); the token is
+    an HMAC of the last nine digits under the vault's key, so a number written two ways is one fact. Stage 1 is told what
+    a token is only when the conversation holds one, and files it in `values`; `take` keeps an entry only on the person's
+    own located line, whatever the model quoted (measured at haiku: it copied the ten letters without their brackets, so
+    entries are read against the tokens the conversation holds). A number with no page is held on its pending line
+    (`pending_store`), never a page on that alone.
+
+    **What "changed" means (`claim_reconciler._place_number`, no model).** The same token reinforces, so a restatement
+    can never make two current numbers. A different one follows the person's own line: "new", "changed", "now", "nuevo"
+    close the one it replaces (the one named, else the only one held; with several and none named, it asks); "work",
+    "also", "otro" sit beside it; "old", "former" are history; no such word asks. An asked number waits closed on the
+    page (`context: number_asked`), so nothing reads it as current and saying it again does not ask twice. The answer is
+    the existing two-claim path (`kind: divergence`); a number the person confirmed is closed only by the person.
+    Drain order is handled: an older change read late is history on arrival.
+
+    **Who counts.** Only the person's own lines. An agent's reply keeps today's redaction: its echo is not evidence. **A
+    correspondent's "my new number is X" keeps today's redaction too and never reaches a page**: it is not the person's
+    word, it is exactly the shape of the "hi, it's me, new number" fraud, and the person who believes it can say so in
+    one line. A forwarded message is someone else's words. **The owner's own number** ("my number is…") lands on the
+    owner's page like any other from their own line, never from another speaker's, never in the handshake, and never a
+    duplicate signal. **A first-name-only page asks**, unless the page carries a card that holds this number; a relation's
+    page does not (`role_people`). A number on a card another page carries asks. A page that is no person takes none.
+
+    **Contacts, used for identity, never for a claim.** The app hashes a card's numbers on this Mac with the vault's key
+    and posts only the hashes, to a file beside the vault: R-SR8 holds, no digit crosses the wire, and a value not shaped
+    like a hash is refused. It settles a one-word name and flags a number on another page's card. It never writes or
+    closes a claim, because the person did not say it. **A chat's own handle is not used**, for now: the app already
+    resolves a handle to one card and shows it, so a hash of it would add a fact the person did not say to every ticked
+    chat for little more than a chat with no card. It waits for evidence that gap matters. **G209 hears it:** two person
+    pages holding one current number raise one "is A the same as B?", the record raising it as `role_people` does. Never
+    a merge (a household shares a line), never the owner's page.
+
+    **No mass re-read, and what is already gone.** A stored sitting is rebuilt from its own body, so a stored line never
+    passes through the tokeniser; a line posted again keeps its stored words when they are what the old scrub or this one
+    makes of it. Proved through both real ingests (WhatsApp's and Messages' real reader): switching on and re-posting
+    every message updates 0 episodes, no byte moves, nothing is re-queued; a new message on an old sitting tokens only
+    itself. **The 13 `[redacted]` stay gone**: the app could re-post them, but this code deliberately keeps the stored
+    line, so that takes a person-started read. Recommended: leave them; the person can say a number again.
+
+    **The doors.**
+
+    | Door | What it can give | State | How it is shown |
+    |---|---|---|---|
+    | An episode's body (a ticked chat) | the token; a redaction on anyone else's line | closed | digit scan of every bank file and `git log -p` after three real Sleeps, and `test_no_digit_of_a_chats_number…` |
+    | A claim, the pending store, an inbox question, `_state.md`, a commit message | the token; a question carries no token either | closed | same scan; `test_the_question_carries_no_number…` |
+    | Page prose | nothing (`take` drops a fact holding a token, says "a number" elsewhere) | closed, on Stage 1's output | `test_no_token_stays…`; no token in any page after the real runs. There is no belt at the page writer |
+    | Model prompts (Stage 1, `cicada_ask`, every later stage) | the token | closed | `test_the_engine_is_given_the_token…`; `cicada_ask` on the scratch run answered in tokens |
+    | Handshake, `cicada_recall`, `cicada_recall_detail`, `cicada_sources`, timeline, perspective, the CLI, `GET /entities`, `GET /inbox`, `GET /graph` | the token at most | closed | every one called on the scratch run, digit-scanned; `test_the_handshake…`, `test_the_agent_tools…` |
+    | Remote connector, `/v1` | the same tool bodies, so the token; the `sources` scope still gates the words | closed | they serve what the bank holds; `test_the_reveal_is_on_the_mac_only…` |
+    | Bank export, hand-over, replicas, the sync log, a home move | the token; **the vault does not travel** | closed, at a cost | the vault is outside the bank by construction. The cost: see the question below |
+    | Derived indexes (vectors, words) | built from the bank, so the token | closed | no digit in the bank to index |
+    | Telemetry ledger | ids and enums; the scrub's count | closed | digit scan of `$CICADA_HOME` found only the vault |
+    | Logs | no number or token is logged | closed | digit scan of the run's logs; `test_a_writer_never_logs_a_number` |
+    | Web lookups (`web_context`, ruling 44) | the token, and a private person's name never leaves anyway | closed | no digit in what they read |
+    | `POST /people/numbers/reveal` | **the digits** | open by design: the one door | refuses every device token (403), on no remote listener; `test_the_reveal_route…` |
+    | `GET /people/numbers/match-key` | the vault's key, for the app to hash cards | this Mac only | same refusal; nothing while off |
+    | The vault, `$CICADA_HOME/people/<bank>/numbers.json` | the digits and the key | 0600, outside the bank and git; **in a Time Machine backup of the home folder** | `test_the_vault_is_private…`. It goes with the bank to the trash (`people_directory.forget`) |
+    | A harness session's or a note's body (a writer with no chat scrub) | **digits, exactly as today** | not closed by this change, and not widened | Its claim holds the token; its body keeps what it always kept (sub-question c) |
+    | A bare number with no word before it, in a chat (a line that is only digits) | **digits, exactly as today** | not closed, false negatives over lost words | Its claim holds the token |
+    | The 5 `phone` claims already in clear | **digits, in git for good** | not touched | a page's clear value turns into the token when the person restates it; git keeps the old bytes |
+
+    **Proved.** A real Sleep at haiku on scratch state, three cycles, every number synthetic, WhatsApp's route (Messages'
+    real reader by test): a `+` number landed on the person's page with a located span; the same number written as
+    `(202) 555-…` reinforced it; "changed her number, it's … now" superseded it, the old one kept with `valid_to`; a number
+    for a name with no page was held in the pending store and landed when two later conversations gave it a page; a
+    different number with no word asked "Did <name>'s number change?" and waited closed; answering "Use the new one"
+    closed the old and made the new one `user_stated`. A correspondent's "my new number" stayed `[redacted]`. Digit scan
+    of the bank, `git log -p`, commit messages, `$CICADA_HOME` and the logs: only the vault. Reveal returned the digits.
+
+    **Not built, on purpose:** the app's display of the digits (the route is there; where it shows is part of the answer),
+    a local agent's read, carrying the vault on a home move, tokens in harness sessions, a one-time re-read of old chats.
+
+    **The question for the owner:**
+
+    > When you tell an agent someone's number, should Cicada keep it this way: the digits in a private file on this Mac,
+    > and in your memory only a stand-in code, so the page knows "she has a number, and it changed on this day", the app
+    > shows you the digits, and no model, agent, backup of the memory or other device ever sees them?
+    > (a) **Yes, turn it on?** Recommended: yes.
+    > (b) **Should a local agent you trust be able to ask for a number**, for instance to text someone? Off, it gets the
+    > code and no digits. Recommended: yes, one local-only tool, on your ask, as a follow-up.
+    > (c) **Numbers you type to Claude Code or a note keep their digits in that conversation today.** Turn those into
+    > codes too? Recommended: yes, as a follow-up.
+    > (d) **If you hand this memory to someone or move it to another computer, the private file stays behind**, so the
+    > page says "a number". Is that right? Recommended: yes for a hand-over; carry it sealed when your own home moves.
+
+    **Revisit** on a yes (each sub-answer is its own follow-up), or if the person's words stop being enough: a measured
+    case of a number on the wrong page, or of questions asked where the line plainly said (the word lists are `classify`'s).

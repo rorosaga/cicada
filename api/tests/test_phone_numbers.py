@@ -835,6 +835,58 @@ def test_the_reveal_is_on_the_mac_only_never_the_remote_listener():
     assert "numbers/reveal" not in listener and "local_sources" not in listener
 
 
+def _messages_chat(tmp_path, memory):
+    from _imessage_fixtures import ChatDB, conversation_id, payload, read_rows, utc
+    from api.models.schemas import MessagesSyncRequest
+    from api.services import messages_source
+
+    db = ChatDB(tmp_path / "chat.db")
+    agent = db.chat("+15550100001")
+    db.message(agent, utc(2026, 9, 3, 10, 0), from_me=True, text=f"Add Ana Diaz, her number is {A}")
+    db.message(agent, utc(2026, 9, 3, 10, 1), from_me=False, text=f"Added Ana Diaz at {A}")
+    db.message(agent, utc(2026, 9, 3, 10, 2), from_me=True, text="and Bob Example 2025550177")
+    db.db.commit()
+    messages_source.update_settings(memory, conversation={"id": conversation_id(db.chat_guid(agent)), "name": "Instinct",
+                                                          "ticked": True, "history": True})
+
+    def sync():
+        guid = db.chat_guid(agent)
+        body = payload(guid, read_rows(db.path, agent))
+        out = messages_source.ingest(memory, MessagesSyncRequest.model_validate(body).model_dump(by_alias=False), bank=memory.name)
+        bank_index.invalidate()
+        return out
+    return db, sync
+
+
+def test_messages_the_owners_own_case_through_the_real_reader(bank, tmp_path, on):
+    """A texted agent: the person's numbers as tokens, the agent's echo redacted, and a re-read moves nothing."""
+    db, sync = _messages_chat(tmp_path, bank)
+    try:
+        sync()
+        before = stored(bank)
+        (body, _fm), = before.values()
+        lines = body.split("\n")
+        assert phone_numbers.has_token(lines[0]) and "[redacted]" in lines[1] and phone_numbers.has_token(lines[2])
+        assert A_DIGITS not in body and "202 555 0143" not in body and B_DIGITS not in body
+        assert sync()["updated"] == 0 and stored(bank) == before
+    finally:
+        db.close()
+
+
+def test_messages_turning_it_on_moves_no_stored_byte(bank, tmp_path, monkeypatch):
+    db, sync = _messages_chat(tmp_path, bank)
+    try:
+        sync()
+        before = stored(bank)
+        (body, _fm), = before.values()
+        assert body.startswith("user: Add Ana Diaz, her number is [redacted]") and B_DIGITS in body
+        monkeypatch.setenv("CICADA_PHONE_NUMBERS", "on")
+        assert sync()["updated"] == 0
+        assert stored(bank) == before
+    finally:
+        db.close()
+
+
 def test_messages_tokens_the_persons_words_too(tmp_path, home, on):
     """The owner's own case: a texted agent, through Messages."""
     from api.services import messages_source

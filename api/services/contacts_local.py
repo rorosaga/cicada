@@ -4,7 +4,9 @@ The address book holds the people a person knows; the graph holds the ones they 
 join: a contact is a third party's details, and hundreds of dormant cards would flood the graph — so Contacts
 **enriches a `person` page Cicada already has and never mints one**. The APP reads the address book after one
 standard prompt and posts, per contact, its names and *which* facts the card holds — never an email address or a
-phone number (R-SR8 settles G154's open question: no raw value crosses the wire, so none can land in a bank).
+phone number (R-SR8 settles G154's open question: no raw value crosses the wire, so none can land in a bank). Proposed
+ruling 55, off: a card's numbers may cross as a hash keyed on this Mac, kept beside the vault (`phone_numbers`), for
+identity only.
 
 A contact matches a page when its given and family name (either order), folded like search, equal the page's name or
 one of its aliases — exactly one page, and no other contact on that page. For each fact the card holds, the page
