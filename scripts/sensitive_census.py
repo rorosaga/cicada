@@ -61,6 +61,9 @@ def main(argv=None) -> int:
     by_session: Counter = Counter()
     shapes: Counter = Counter()
     per_conversation: Counter = Counter()
+    waiting_by_source: Counter = Counter()
+    agent_only: Counter = Counter()
+    distinct: Counter = Counter()
     for path in sorted(episodes.glob("*.md")):
         try:
             parsed = markdown_parser.parse(path)
@@ -87,6 +90,13 @@ def main(argv=None) -> int:
             conversations_by_kind[kind] += 1
             by_source[(kind, source)] += 1
             by_session[(kind, "session" if session else "not a session")] += 1
+            if unread:
+                waiting_by_source[(kind, source)] += 1
+            of_kind = [h for h in hits if h.kind == kind]
+            if all(evidence.speaker_kind(body, h.start) == "assistant" for h in of_kind):
+                agent_only[kind] += 1
+            # How many different values a conversation repeats: a count, never the values.
+            distinct[(kind, min(len({body[h.start:h.end] for h in of_kind}), 5))] += 1
         per_conversation[min(len(hits), 5)] += 1
         for hit in hits:
             by_kind[hit.kind] += 1
@@ -113,6 +123,13 @@ def main(argv=None) -> int:
     for (kind, speaker), n in sorted(by_speaker.items()):
         print(f"  {kind} {speaker}: {n}")
     print(f"password hits by shape: {dict(sorted(shapes.items()))}")
+    print("waiting for Sleep, by source:")
+    for (kind, source), n in sorted(waiting_by_source.items()):
+        print(f"  {kind} {source}: {n}")
+    print(f"conversations where only an agent's lines hold this kind: {dict(sorted(agent_only.items()))}")
+    print("conversations by how many different values of a kind they hold (5 = 5 or more):")
+    for (kind, n_values), n in sorted(distinct.items()):
+        print(f"  {kind} {n_values} different: {n}")
     return 0
 
 
