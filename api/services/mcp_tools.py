@@ -3157,7 +3157,7 @@ def project(ctx: ToolContext, project: str, since=None, tz: str | None = None) -
     head, _, rest = text.partition("\n")
     text = "\n".join([head, *extra, *([rest] if rest else [])])
     offer = None if ref_.mine or not _unstarted_page(memory_path / "entities" / f"{ref_.id}.md", {"type": "project"}) \
-        else _start_offer(ctx, ref_.id)
+        else _start_offer(ctx, ref_.id, standing=False)   # its reply already says NOT_STARTED, as data
     return Reply(text + (f"\n{offer}" if offer else ""),
                  segments=[("data", text), ("own", f"\n{offer}")] if offer else None,
                  data={"project_id": timeline.project.id, "name": timeline.project.name,
@@ -4440,7 +4440,7 @@ def _unstarted_page(path: Path, flat_fm: dict) -> bool:
 NOT_STARTED = "Not in the person's projects: they have not started it."
 
 
-def _start_offer(ctx: ToolContext, stem: str) -> str | None:
+def _start_offer(ctx: ToolContext, stem: str, *, standing: bool = True) -> str | None:
     """Ruling 56, in place of the Suggested list: one line where an agent reads a page the person never started. It is
     the agent's to offer, once and in its own words, never a list and never an inbox question. Named only where the tool
     exists (R12), and always a reply's ``own`` segment: a direction inside the reference markers is one to ignore."""
@@ -4448,8 +4448,8 @@ def _start_offer(ctx: ToolContext, stem: str) -> str | None:
         return None
     call = (f"`{_cli_spell('cicada_create_project', project=stem)}`" if ctx.is_cli
             else f"`cicada_create_project(project=\"{stem}\", reason=<what they said>)`")
-    return (f"{NOT_STARTED} If they are plainly working on it, offer once, in your own words; only on their yes, {call} "
-            "makes this page the project.")
+    offer = f"If they are plainly working on it, offer once, in your own words; only on their yes, {call} makes this page the project."
+    return f"{NOT_STARTED} {offer}" if standing else offer
 
 
 def _session_checkout(memory_path: Path, session: str | None, repo: str | None) -> dict | None:

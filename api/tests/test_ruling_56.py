@@ -108,7 +108,7 @@ def test_a_page_not_started_stays_a_page_and_stays_reachable(client, bank):
     _write(bank, "other-project", {"type": "project"})
     assert client.get("/projects/other-project/timeline").json()["project"]["mine"] is False
     reply = str(mcp_tools.project(_ctx(bank), "other-project"))
-    assert "Not in the person's projects" in reply and "offer once" in reply
+    assert reply.count("Not in the person's projects") == 1 and "offer once" in reply
     assert "cicada_create_project" in reply and "Suggested" not in reply
     assert (bank / "entities" / "other-project.md").exists()
     assert _fm(bank, "other-project")["type"] == "project"
