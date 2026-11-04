@@ -88,6 +88,70 @@ struct ContactsSyncResult: Decodable, Equatable, Sendable {
     }
 }
 
+/// `GET /sources/contacts-local/book`: every card on this Mac as a face. Not a Store domain and no ETag; held in memory
+/// by `ChannelItemsCache`, read when the page opens and when the channels move.
+struct ContactsBook: Decodable, Equatable, Sendable {
+    var total = 0
+    var inMemory = 0
+    var cards: [ContactsBookCard] = []
+
+    init() {}
+
+    enum CodingKeys: String, CodingKey { case total, inMemory, cards }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        total = c.lenient(.total, 0)
+        inMemory = c.lenient(.inMemory, 0)
+        cards = (try? c.decode([ContactsBookCard].self, forKey: .cards)) ?? []
+    }
+}
+
+/// One face: a key hashed from the card id, its name (empty when it has none), the page that carries it, and a hash of
+/// its thumbnail for the picture's address. Never a fact of the card.
+struct ContactsBookCard: Decodable, Identifiable, Equatable, Sendable {
+    let key: String
+    let name: String
+    let entityId: String?
+    let photo: String?
+    /// The name folded once when it is read, so typing in the search never folds thousands of names again.
+    let folded: String
+
+    var id: String { key }
+
+    init(key: String, name: String, entityId: String? = nil, photo: String? = nil) {
+        self.key = key; self.name = name; self.entityId = entityId; self.photo = photo
+        folded = ContactsBookSearch.fold(name)
+    }
+
+    enum CodingKeys: String, CodingKey { case key, name, entityId, photo }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(key: try c.decode(String.self, forKey: .key), name: c.lenient(.name, ""),
+                  entityId: try? c.decodeIfPresent(String.self, forKey: .entityId),
+                  photo: try? c.decodeIfPresent(String.self, forKey: .photo))
+    }
+}
+
+/// The grid's search, in memory and pure: the query never leaves the app. Every word must appear in the name, with case
+/// and accents folded; a nameless card matches only an empty query.
+enum ContactsBookSearch {
+    nonisolated static func fold(_ text: String) -> String {
+        text.folding(options: [.diacriticInsensitive, .caseInsensitive, .widthInsensitive], locale: nil)
+    }
+
+    static func filter(_ cards: [ContactsBookCard], query: String) -> [ContactsBookCard] {
+        let words = fold(SourceSearch.normalized(query)).split(whereSeparator: \.isWhitespace)
+        guard !words.isEmpty else { return cards }
+        return cards.filter { card in words.allSatisfy { card.folded.contains($0) } }
+    }
+}
+
+enum ContactsBookText {
+    static func title(_ card: ContactsBookCard) -> String { card.name.isEmpty ? Copy.SourceBrowser.contactNoName : card.name }
+}
+
 /// What the book's `PUT` answers; nothing here reads it.
 struct ContactsBookSavedAnswer: Decodable, Sendable {}
 

@@ -24,6 +24,8 @@ final class ContactsReader {
     @ObservationIgnored private let api: any ContactsSyncAPI
     /// The last forget request (`forgetWaiting`), kept so a test can await it.
     @ObservationIgnored private(set) var forgetTask: Task<Void, Never>?
+    /// Contacts stopped: what the app holds of the book in memory goes too (`CicadaApp` wires its cache here).
+    @ObservationIgnored var onForget: (@MainActor () -> Void)?
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let activity: SyncActivity?
     @ObservationIgnored private let now: () -> Date
@@ -114,7 +116,9 @@ final class ContactsReader {
         let api = self.api
         let connection = defaults.string(forKey: connectionKey)
         defaults.removeObject(forKey: connectionKey)
+        onForget?()
         forgetTask = Task {
+            await SourcePictureStore.shared.forget(pathPrefix: SourcePictures.contactPhotoPrefix)
             try? await api.forgetContactsBook(connection: connection)
             try? await api.forgetWaitingContacts(connection: connection)
         }

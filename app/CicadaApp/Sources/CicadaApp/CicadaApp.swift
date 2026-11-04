@@ -576,6 +576,7 @@ struct CicadaApp: App {
         // G71 — reads only if the person turned the YouTube history switch on.
         watchHistory.start()
         // G154 (R-SR10) — reads only after Connect, and on launch only when the book moved or a day passed.
+        contactsReader.onForget = { [channelItemsCache] in channelItemsCache.forgetContactsBook() }
         contactsReader.start()
         // G179 — reads only the conversations this memory has ticked.
         messages.start()

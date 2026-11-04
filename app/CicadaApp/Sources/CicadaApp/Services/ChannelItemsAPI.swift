@@ -15,6 +15,8 @@ protocol ChannelItemsAPI: Sendable {
     func fetchChatSittings(conversation: String, etag: String?) async throws -> Conditional<ChatSittings>
     /// 2026-11-04 — where a channel's items live: accounts, each with its collections.
     func fetchChannelCollections(channel: String, etag: String?) async throws -> Conditional<ChannelCollections>
+    /// G154 — every card on this Mac as a face (`GET /sources/contacts-local/book`). Not a Store domain, no ETag.
+    func fetchContactsBook() async throws -> ContactsBook
 }
 
 extension ChannelItemsAPI {
@@ -32,6 +34,9 @@ extension ChannelItemsAPI {
     func fetchChatSittings(conversation: String, etag: String?) async throws -> Conditional<ChatSittings> {
         throw APIError.serverUnreachable
     }
+
+    /// A fake that lists items only holds no address book.
+    func fetchContactsBook() async throws -> ContactsBook { throw APIError.serverUnreachable }
 
     /// A fake that lists items only files them nowhere: the page lists them directly.
     func fetchChannelCollections(channel: String, etag: String?) async throws -> Conditional<ChannelCollections> {

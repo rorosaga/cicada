@@ -47,7 +47,13 @@ extension Copy {
 
         static let loading = "Reading…"
         static let nothing = "Nothing here yet."
-        static let contactsNone = "No one from your Contacts is in memory yet."
+        static let contactsSearch = "Search contacts"
+        static let contactNoName = "No name"
+        /// The grid's one line: how many cards are on this Mac, and how many of them are in memory when any is.
+        static func contactsLine(total: Int, inMemory: Int, locale: Locale = .autoupdatingCurrent) -> String {
+            let cards = "\(UsageFormat.count(total, locale: locale)) \(total == 1 ? "contact" : "contacts")"
+            return inMemory > 0 ? "\(cards) · \(UsageFormat.count(inMemory, locale: locale)) in memory" : cards
+        }
         static func contactHelp(_ name: String) -> String { "Open \(name)'s page" }
 
         // Meeting recorders

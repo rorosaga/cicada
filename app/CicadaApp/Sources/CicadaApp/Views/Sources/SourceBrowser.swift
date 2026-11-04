@@ -13,7 +13,7 @@ import SwiftUI
 //   • Calendar:      account (iCloud, Google, Exchange, On My Mac, Subscribed) → calendar → events
 //   • Reminders:     account → list → reminders
 //   • Meeting recorders: recorder → folder → meetings (title, day, how long), `MeetingsBrowser`
-//   • Contacts:      the people in memory as a grid of faces — their photo, else their monogram (`ContactsGrid`)
+//   • Contacts:      every card on this Mac as a grid of faces — their photo, else their monogram (`ContactsGrid`)
 //
 // A level opens in the content's place (DR-81: never in place), "‹ <where you were>" and Esc return. Rows are DR-34's
 // one-line rows with a trailing chevron in tertiary ink (`SourceGroupRow`'s grammar), hover a fill (DR-48); an account

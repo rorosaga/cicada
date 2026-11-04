@@ -29,6 +29,10 @@ final class ChannelItemsCache {
     private(set) var trees: [String: ChannelCollections] = [:]
     @ObservationIgnored private var treeTags: [String: String] = [:]
 
+    /// G154 — the Contacts page's faces. The book's own read has no ETag; a failure keeps what is held (DR-43).
+    private(set) var contactsBook: ContactsBook?
+    private(set) var contactsBookFailure: String?
+
     private struct Tag { let limit: Int; let etag: String }
 
     @ObservationIgnored private let api: any ChannelItemsAPI
@@ -71,6 +75,30 @@ final class ChannelItemsCache {
         chatTags = [:]
         trees = [:]
         treeTags = [:]
+        contactsBook = nil
+        contactsBookFailure = nil
+    }
+
+    /// Read every card on this Mac; a failure with nothing held says so in words, else the grid stays as it is.
+    func refreshContactsBook() async {
+        let started = epoch
+        do {
+            let book = try await api.fetchContactsBook()
+            guard started == epoch else { return }
+            contactsBook = book
+            contactsBookFailure = nil
+        } catch {
+            guard started == epoch else { return }
+            contactsBookFailure = ContactsReader.failureMessage(error)
+        }
+    }
+
+    /// Contacts stopped: no name stays in memory, and an answer in flight is dropped. Empty rather than nil, so the page
+    /// draws nothing instead of a skeleton nothing will fill.
+    func forgetContactsBook() {
+        epoch &+= 1
+        contactsBook = ContactsBook()
+        contactsBookFailure = nil
     }
 
     func collections(_ channel: String) -> ChannelCollections? { trees[channel] }

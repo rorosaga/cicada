@@ -2782,6 +2782,10 @@ actor APIClient {
                                                            json: try JSONEncoder().encode(payload))
     }
 
+    func fetchContactsBook() async throws -> ContactsBook {
+        try await get("/sources/contacts-local/book", timeout: Self.refreshTimeout)
+    }
+
     /// `DELETE /sources/contacts-local/book` — the forget, answered on this computer (`forgetWaitingContacts` goes to the
     /// home on a copy).
     func forgetContactsBook(connection: String?) async throws {
