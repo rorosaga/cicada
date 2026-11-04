@@ -13,7 +13,7 @@ final class OnboardingSourceTests: XCTestCase {
         let step = try source("Views/Onboarding/SourcesStep.swift")
         XCTAssertTrue(step.contains("Copy.sourcesHowToExport"), "How to get an export")
         XCTAssertTrue(step.contains("onSeeHow(.claude)"))
-        for file in ThemeTokenTests.swiftSources() {
+        for file in try ThemeTokenTests.swiftSources() {
             let text = try String(contentsOf: file, encoding: .utf8)
             for gone in ["ExportHabit", "ExportArrivalWatcher", "WeeklyReminderItems", "offerArrival"] {
                 XCTAssertFalse(text.contains(gone), "\(gone) in \(file.lastPathComponent)")
