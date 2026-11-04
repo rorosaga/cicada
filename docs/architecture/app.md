@@ -1728,6 +1728,15 @@ the *Import a file* row's hover). **Seams for This Mac (#599):** `SourceCatalogR
 .notInstalled` ("Off · not installed", `SourceConnectState.notConnected`, no Connect — Wispr Flow's `WisprSlot`), and
 `SourceCatalogDetail.thisMacContent`, the one content seam for Calendar, Contacts, Reminders, Apple Notes, Hex, Wispr
 Flow and transcripts (`thisMacContent` ids), where their browser plugs in; Hex's connect is its `FolderSlot` case.
+**Review of #593 (2026-11-04):** a connector is found by `connect` or `disconnect` (`connectorChannel(in:)`: the backend
+sends `["connect"]` before and `["sync", "disconnect"]` after), so a connected X, Reddit or Pinterest keeps Disconnect and
+a lapsed one Reconnect; Substack (#594) is three switches (`substackWays`, the first-use sheet first) with "Following N
+publications" as the line; a browser page lists *Unmute all* as one row while the ask-why question is muted on a site
+(`BrowserWayRules.showsUnmute`); the YouTube watch-history read shows Stop while it reads and its failure under its
+switch — Full Disk Access's exact fix when that is what failed (`WatchHistoryWatcher.failure`), else its words as the
+attention line (`WatchHistoryState`, `WatchHistoryLine`), on YouTube's page and Chrome's; chat exports list each app's
+*Request your … export* as a way (`ChatExportWay`; the reminder menu stays in the intake overlay, a menu not being a
+switch or a button).
 
 **The redesign, Sources · Inbox · entity card · Sleep (G217, G205, G212, G61, G206; ruling 36 D5/D6, 2026-10-22).**
 - **Sources is the one catalogue** (`SourceCatalog`, pure; `SourceCatalogViews`). Every way in, on or off, grouped

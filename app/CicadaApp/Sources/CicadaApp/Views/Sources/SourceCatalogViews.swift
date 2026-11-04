@@ -399,7 +399,7 @@ struct SourceCatalogDetail: View {
             // Owner 2026-10-26 — once traces were ever on they have their own page; Sources keeps a link to it.
             if tracesPage { TracesSourcesLink() } else { TracesControls() }
         case "youtube":
-            SourceConnectArea(ways: youtubeWays)
+            SourceConnectArea(ways: youtubeWays) { WatchHistoryState() }
         case SourceCatalog.substackId:
             // G89 — the three lists the person's own agent keeps current, as switches; how many publications the
             // person follows is the area's one line.
@@ -416,8 +416,11 @@ struct SourceCatalogDetail: View {
                 }])
             }
         case "chat-exports":
-            // A chat export is the chat vendors' own file: their marks are the right ones here.
+            // A chat export is the chat vendors' own file: their marks are the right ones here. Each app's "request
+            // your export" is a way in (its export page; its steps on hover). The reminder menu stays in the window's
+            // intake overlay and Getting started: a menu of delays is not a switch or a button.
             IntakePanel(origin: .emptyState(.sources), compact: true, how: SourceCatalog.exportHow(entry.id))
+            SourceConnectArea(ways: ChatVendor.allCases.map(ChatExportWay.of))
         case "notion":
             // The live connection is the primary; the export is one more way in, the file chooser of the one intake.
             let export = SourceWayIn.importFile(origin: entry.origin, help: Copy.Catalog.notionHow) { chooseExport() }
@@ -442,7 +445,7 @@ struct SourceCatalogDetail: View {
                 if let spec = mine.installed.first { BrowserWays(spec: spec, inventory: mine) }
             } else if entry.overviewId != nil {
                 EmptyView()
-            } else if let connector = mine.first(where: { $0.actions.contains("connect") }) {
+            } else if let connector = Self.connectorChannel(in: mine) {
                 ConnectorSlot(slot: .connect, channel: connector, title: entry.title, ways: siteWays,
                               vendors: entry.tile?.vendors ?? [], needsSignIn: row.status == .needsSignIn)
             } else if entry.site != nil || entry.verb == .importFile {
@@ -528,12 +531,18 @@ struct SourceCatalogDetail: View {
     /// first-use sheet first while agent reading is not yet on (`flipSubstack`). What each reads is its hover; why it
     /// goes through the person's own agent (Substack offers readers no connection) is every switch's hover too.
     private var substackWays: [SourceWayIn] {
+        Self.substackWays(isOn: { reading.enabled && (reading.settings?.isOn($0) ?? false) },
+                          status: reading.settings?.substack) { flipSubstack($0, on: $1) }
+    }
+
+    static func substackWays(isOn: (SubstackList) -> Bool, status: SubstackListsStatus?,
+                             flip: @escaping (SubstackList, Bool) -> Void) -> [SourceWayIn] {
         SubstackList.allCases.map { list in
-            let on = reading.enabled && (reading.settings?.isOn(list) ?? false)
+            let on = isOn(list)
             return SourceWayIn(id: "substack-\(list.id)", icon: .symbol("globe"), title: SubstackListWords.title(list),
-                               control: .toggle(on) { flipSubstack(list, on: $0) },
-                               help: SubstackListWords.detail(list, on: on, status: reading.settings?.substack)
-                                   + " " + Copy.Reading.substackIntro)
+                               control: .toggle(on) { flip(list, $0) },
+                               help: SubstackListWords.detail(list, on: on, status: status) + " "
+                                   + Copy.Reading.substackIntro)
         }
     }
 
@@ -544,6 +553,13 @@ struct SourceCatalogDetail: View {
     }
 
     // MARK: - The content
+
+    /// A connector's channel, in either state: the backend sends `["connect"]` before it is connected and
+    /// `["sync", "disconnect"]` after (`channel_registry._connector_channel`), so matching "connect" alone lost a
+    /// connected account's Disconnect and a lapsed one's Reconnect (review of #593).
+    nonisolated static func connectorChannel(in channels: [SourceChannel]) -> SourceChannel? {
+        channels.first { $0.actions.contains("connect") || $0.actions.contains("disconnect") }
+    }
 
     /// The This Mac sources whose content is their own browser (#599: accounts → collections → items).
     static let thisMacContent: Set<String> = [
@@ -618,7 +634,7 @@ struct SourceCatalogDetail: View {
                 ConnectorSlot(slot: .footer, channel: api, title: "Notion", needsSignIn: row.status == .needsSignIn)
             }
         default:
-            if let connector = mine.first(where: { $0.actions.contains("connect") }) {
+            if let connector = Self.connectorChannel(in: mine) {
                 ConnectorSlot(slot: .footer, channel: connector, title: entry.title, needsSignIn: false)
             } else {
                 SourcePageFooter(actions: plainFooter, note: feedNote)

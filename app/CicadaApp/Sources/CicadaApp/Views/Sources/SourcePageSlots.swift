@@ -23,6 +23,8 @@ struct BrowserWays: View {
     @AppStorage(SaveWhyPrefs.enabledKey) private var askWhy = false
     /// `isEnabled` reads this Mac's defaults, which SwiftUI does not observe: a flip redraws through this.
     @State private var flips = 0
+    /// Sites the ask-why question was muted on (`SaveWhyPrefs.mutedHosts`), read when the page shows.
+    @State private var muted = 0
 
     private var channel: String { spec.bookmarksChannel ?? spec.id }
 
@@ -33,7 +35,9 @@ struct BrowserWays: View {
                 FullDiskAccessHint(error: error)
             }
             SourceConnectArea(ways: ways)
+            if spec.id == WatchHistoryWatcher.browser { WatchHistoryState() }
         }
+        .onAppear { muted = SaveWhyPrefs(defaults: .standard).mutedHosts.count }
     }
 
     private var ways: [SourceWayIn] {
@@ -65,7 +69,84 @@ struct BrowserWays: View {
                                        else { prefs.enabled = false }
                                    }, help: Copy.SaveWhy.switchDetail))
         }
+        // Review of #593: the sites the question was muted on could only be unmuted from Settings' old row. One quiet
+        // row, only while something is muted.
+        if BrowserWayRules.showsUnmute(muted: muted, hasBookmarks: spec.bookmarksChannel != nil) {
+            out.append(SourceWayIn(id: "muted", icon: .symbol("speaker.slash"), title: Copy.SaveWhy.mutedLine(muted),
+                                   control: .button(Copy.SaveWhy.unmuteAll) {
+                                       SaveWhyPrefs(defaults: .standard).mutedHosts = []
+                                       muted = 0
+                                   }))
+        }
         return out
+    }
+}
+
+/// The browser page's pure rules (review of #593).
+enum BrowserWayRules {
+    /// "Unmute all" shows only on a browser whose bookmarks are read, and only while a site is muted.
+    static func showsUnmute(muted: Int, hasBookmarks: Bool) -> Bool { hasBookmarks && muted > 0 }
+}
+
+/// What the YouTube watch-history reader is doing, said where its switch is (review of #593: the Settings row it
+/// replaced showed a failed read and offered to stop a running one; the page said nothing).
+enum WatchHistoryLine: Equatable {
+    case none
+    /// A read is running: its own words, and Stop when it can be stopped.
+    case reading(String, cancellable: Bool)
+    /// The read failed: the reader's own words, which carry their fix.
+    case failed(String)
+
+    static func of(enabled: Bool, status: WatchHistoryWatcher.Status, run: SyncActivity.Run?) -> WatchHistoryLine {
+        if let run { return .reading(run.detail ?? Copy.watchHistoryReading, cancellable: run.cancellable) }
+        guard enabled else { return .none }
+        if case .failed(let why) = status { return .failed(why) }
+        return .none
+    }
+}
+
+/// The YouTube watch-history reader's state under its switch: a running read with Stop, or a failure — Full Disk
+/// Access's exact fix when that is what failed, else the reader's words as the area's attention line.
+struct WatchHistoryState: View {
+    @Environment(WatchHistoryWatcher.self) private var watcher: WatchHistoryWatcher?
+    @Environment(SyncActivity.self) private var activity: SyncActivity?
+
+    var body: some View {
+        if let watcher {
+            switch WatchHistoryLine.of(enabled: watcher.enabled, status: watcher.status,
+                                       run: activity?.run(for: WatchHistoryWatcher.channel)) {
+            case .none:
+                EmptyView()
+            case .reading(let words, let cancellable):
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    ProgressView().controlSize(.small)
+                    SourceConnectLine(text: words)
+                    if cancellable {
+                        TextButton(title: Copy.stopSyncing, help: Copy.stopSyncingHelp) {
+                            activity?.cancel(WatchHistoryWatcher.channel)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                }
+            case .failed(let why):
+                if let error = watcher.failure, case .notReadable = error {
+                    FullDiskAccessHint(error: error) { Task { _ = try? await watcher.syncNow() } }
+                } else {
+                    SourceConnectLine(text: why, isAttention: true)
+                }
+            }
+        }
+    }
+}
+
+/// G197 — one app's "request your export" on the chat-exports page: its real mark, its name, and its export page;
+/// what the export holds and the steps are the row's hover.
+enum ChatExportWay {
+    static func of(_ vendor: ChatVendor) -> SourceWayIn {
+        SourceWayIn(id: "export-\(vendor.rawValue)", icon: .mark(vendor.origin),
+                    title: Copy.SourceLayout.requestExport(vendor.title),
+                    control: .button(Copy.intakeOpenExportPage) { NSWorkspace.shared.open(vendor.walkthrough.exportURL) },
+                    help: ([vendor.walkthrough.summary] + vendor.walkthrough.steps).joined(separator: " "))
     }
 }
 
@@ -445,7 +526,8 @@ struct TelegramSlot: View {
             }
         }
         .sheet(isPresented: $showPanel) { TelegramPanel { showPanel = false } }
-        .task { await model.refresh() }
+        // The page draws this slot twice (connect and footer): only the connect area reads Telegram's state.
+        .task { if slot == .connect { await model.refresh() } }
     }
 }
 

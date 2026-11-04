@@ -56,7 +56,7 @@ final class SourcePageRenderTests: XCTestCase {
         try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
         let channels = try JSONDecoder().decode([SourceChannel].self, from: Data("""
             [{"id": "github", "label": "GitHub", "connected": true, "count": 7, "lastSync": "\(ISO8601DateFormatter().string(from: Date()))",
-              "actions": ["connect", "sync", "disconnect"]}]
+              "actions": ["sync", "disconnect"]}]
             """.utf8))
         let sync = FakeSyncAPI()
         sync.replies[.channels] = .value(channels)
