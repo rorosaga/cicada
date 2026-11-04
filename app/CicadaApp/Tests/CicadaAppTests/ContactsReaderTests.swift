@@ -45,15 +45,20 @@ final class FakeContactsAPI: ContactsSyncAPI {
     var heldTotal = 0
     var fetchErrors: [any Error] = []
     private(set) var fetches = 0
+    /// Hold a read or a post until the test lets go. A cancelled one throws, as a real request does.
+    var holdFetch = false
+    var holdPut = false
     func putContactsBook(_ payload: ContactsBookPayload) async throws {
         calls.append("book")
         books.append(payload)
+        while holdPut { try await Task.sleep(for: .milliseconds(5)) }
         if bookFails { throw APIError.httpError(404, "") }
         if !bookReplies.isEmpty { throw bookReplies.removeFirst() }
         heldTotal = payload.cards.count
     }
     func fetchContactsBook() async throws -> ContactsBook {
         fetches += 1
+        while holdFetch { try await Task.sleep(for: .milliseconds(5)) }
         if !fetchErrors.isEmpty { throw fetchErrors.removeFirst() }
         var book = ContactsBook()
         book.total = heldTotal
@@ -201,6 +206,62 @@ final class ContactsReaderTests: XCTestCase {
         later.start()
         XCTAssertTrue(later.bookPending, "true before any await: the page never paints nothing in that moment")
         try await eventually("the post") { !later.bookPending }
+    }
+
+    /// A check cancelled by the sync that replaced it ends after that sync took over: it says nothing, so the page keeps
+    /// its skeleton until the post finishes.
+    func testACancelledCheckNeverEndsTheRunThatReplacedIt() async throws {
+        let store = FakeContactStore()
+        let defaults = self.defaults()
+        await connected(store, defaults)
+        let api = FakeContactsAPI()
+        api.holdFetch = true
+        api.holdPut = true
+        let later = relaunch(store, api, defaults)
+        later.start()
+        try await eventually("the check under way") { api.fetches == 1 }
+        let run = Task { await later.sync() }
+        try await eventually("the sync's post under way") { api.books.count == 1 }
+        try await Task.sleep(for: .milliseconds(30))   // the cancelled check has ended by now
+        XCTAssertTrue(later.bookPending)
+        api.holdPut = false
+        _ = await run.value
+        XCTAssertFalse(later.bookPending)
+    }
+
+    /// The same for a bank switch: the old memory's cancelled run says nothing about the one on screen.
+    func testABankSwitchsCancelledRunNeverEndsTheNewOne() async throws {
+        let store = FakeContactStore()
+        store.accessValue = .granted
+        let defaults = self.defaults()
+        defaults.set(true, forKey: ContactsReader.enabledKey)
+        let api = FakeContactsAPI()
+        api.holdPut = true
+        var bank = "alpha"
+        let r = ContactsReader(store: store, api: api, defaults: defaults, now: { [now] in now }, bank: { bank })
+        let first = Task { await r.sync() }
+        try await eventually("the first post under way") { api.books.count == 1 }
+        bank = "beta"
+        let second = Task { await r.sync() }
+        try await eventually("the second post under way") { api.books.count == 2 }
+        _ = await first.value
+        XCTAssertTrue(r.bookPending, "the cancelled run for the old memory ended, and said nothing")
+        api.holdPut = false
+        _ = await second.value
+        XCTAssertFalse(r.bookPending)
+    }
+
+    /// The upgrade path never paints an empty page between the post and the read that shows it.
+    func testTheBookStaysPendingUntilTheReadAfterThePostAnswers() async throws {
+        let store = FakeContactStore()
+        let defaults = self.defaults()
+        await connected(store, defaults)
+        let later = relaunch(store, FakeContactsAPI(), defaults)
+        var pendingDuringTheRead: Bool?
+        later.onBookPosted = { pendingDuringTheRead = later.bookPending }
+        later.start()
+        try await eventually("the post") { !later.bookPending }
+        XCTAssertEqual(pendingDuringTheRead, true)
     }
 
     func testABookAlreadyHeldAtTheCurrentTokenPostsNothingAndReadsNoCards() async throws {

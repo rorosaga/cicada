@@ -1776,8 +1776,9 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   with none is not (`ContactCardCell`: its thumbnail through `SourcePictureStore`, else a neutral disc in secondary ink;
   no hover, no press, no click target, static text to VoiceOver). A nameless card reads *No name*, never its
   organisation. One line beside the search: *376 contacts · 6 in memory*. `ContactsGridPhase` decides what is drawn: an
-  empty answer while the reader is still posting (`bookPending`) is the skeleton, never nothing, and an answer that
-  raced the post is dropped for the newer read (`onBookPosted`). The search is in memory, folded once when the
+  empty answer while the reader is still posting (`bookPending`) is the skeleton, never nothing; it stays until the
+  read after the post answers (`onBookPosted`, an older answer dropped for it), and if that read fails with an empty
+  book held the page says so in words. A run a newer one replaced says nothing about any of this. The search is in memory, folded once when the
   book is read, and its words never leave the app (0.015 s over 20,000 cards, debug build). `LazyVGrid`: about 85 of
   800 cells exist at once. Contacts stopping (`ContactsReader.onForget`) drops the names and thumbnails the app holds.
 - **Meeting recorders** (`MeetingsBrowser`): recorder → folder → meetings; one folder lists its meetings directly

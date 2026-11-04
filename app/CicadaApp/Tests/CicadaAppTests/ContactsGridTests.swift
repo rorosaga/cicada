@@ -114,6 +114,8 @@ final class ContactsGridTests: XCTestCase {
         XCTAssertEqual(of(empty, nil, true, nil), .loading, "connected and not yet posted: the owner's first launch")
         XCTAssertEqual(of(empty, nil, false, nil), .nothing, "stopped, or a truly empty address book")
         XCTAssertEqual(of(empty, nil, false, "no route"), .failed("no route"))
+        XCTAssertEqual(of(empty, "down", false, nil), .failed("down"), "the read after the post failed: said in words")
+        XCTAssertEqual(of(empty, "down", true, nil), .loading)
         XCTAssertEqual(of(full, "down", true, nil), .cards, "cards held always show")
     }
 
@@ -148,9 +150,15 @@ final class ContactsGridTests: XCTestCase {
         await cache.refreshContactsBook()
         await cache.refreshContactsBookIfAsked()
         XCTAssertEqual(api.reads, 2)
+        // Disconnect, then Connect with the page open: the new book is read, with nothing else to prompt it.
         cache.forgetContactsBook()
+        api.book = book([ContactsBookCard(key: "a", name: "Ann Example")])
         await cache.refreshContactsBookIfAsked()
-        XCTAssertEqual(api.reads, 2)
+        XCTAssertEqual(api.reads, 3)
+        XCTAssertEqual(cache.contactsBook?.total, 1)
+        cache.reset()
+        await cache.refreshContactsBookIfAsked()
+        XCTAssertEqual(api.reads, 3, "a bank switch starts over")
     }
 
     func testStoppingContactsLeavesNoNameInMemoryAndABankSwitchForgetsToo() async {

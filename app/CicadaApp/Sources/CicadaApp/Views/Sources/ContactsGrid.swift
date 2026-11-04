@@ -71,15 +71,15 @@ struct ContactsGrid: View {
 
 /// What the page draws, pure (review of #602). A book with cards always shows. An empty answer while the reader is still
 /// posting is "not yet": a skeleton, never nothing. An empty book with nothing on its way is nothing to draw: stopped, or a
-/// truly empty address book.
+/// truly empty address book. A read or a post that failed with nothing to show says so in words.
 enum ContactsGridPhase: Equatable {
     case loading, cards, nothing, failed(String)
 
     static func of(book: ContactsBook?, failure: String?, pending: Bool, postFailure: String?) -> ContactsGridPhase {
         if let book, book.total > 0 { return .cards }
         if pending { return .loading }
-        guard book != nil else { return failure.map(ContactsGridPhase.failed) ?? .loading }
-        return postFailure.map(ContactsGridPhase.failed) ?? .nothing
+        if let why = failure ?? postFailure { return .failed(why) }
+        return book == nil ? .loading : .nothing
     }
 }
 

@@ -108,12 +108,11 @@ final class ChannelItemsCache {
     }
 
     /// Contacts stopped: no name stays in memory, and an answer in flight is dropped. Empty rather than nil, so the page
-    /// draws nothing instead of a skeleton nothing will fill.
+    /// draws nothing instead of a skeleton nothing will fill. A page that asked stays asked: Connect's book reads again.
     func forgetContactsBook() {
         epoch &+= 1
         contactsBook = ContactsBook()
         contactsBookFailure = nil
-        contactsBookAsked = false
     }
 
     func collections(_ channel: String) -> ChannelCollections? { trees[channel] }
