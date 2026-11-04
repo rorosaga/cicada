@@ -315,8 +315,12 @@ struct FolderSlot: View {
     /// Nil: any folder (Folders); "hex" or "" — a meeting folder, Hex's own or any recorder's.
     let meetings: String?
     let hasFolders: Bool
+    @Environment(LocalSourceWatcher.self) private var localSources
     @State private var picked: PickedFolder?
     @State private var refused: String?
+    /// Where Hex says it saves meetings (`LocalSourceWatcher.hexMeetingsFolder`); never checked before the click.
+    @State private var hexFolder: URL?
+    @State private var connecting = false
 
     private var title: String {
         meetings == SourceCatalog.hexId ? Copy.Catalog.addHexFolder : Copy.Catalog.addFolder
@@ -326,7 +330,9 @@ struct FolderSlot: View {
         Group {
             switch slot {
             case .connect:
-                if !hasFolders {
+                if !hasFolders, meetings == SourceCatalog.hexId {
+                    hexConnect
+                } else if !hasFolders {
                     SourceConnectArea(primary: SourcePrimaryAction(title: title, systemImage: "folder.badge.plus",
                                                                    help: help) { pick() },
                                       line: refused, lineIsAttention: refused != nil)
@@ -345,6 +351,32 @@ struct FolderSlot: View {
             } else {
                 AddFolderSheet(url: picked.url) { self.picked = nil }
             }
+        }
+    }
+
+    /// Hex in one click (owner 2026-11-04). Opening this page never touches the folder: Hex's default sits under
+    /// Documents, so whether it is there is asked only on the person's click, by *Connect Hex*. Its path is the hover,
+    /// from Hex's own setting.
+    private var hexConnect: some View {
+        SourceConnectArea(
+            primary: SourcePrimaryAction(title: Copy.SourceBrowser.hexConnect, help: hexFolder.map(HexConnectText.display),
+                                         isDisabled: connecting) { Task { await connectHex() } },
+            line: refused, lineIsAttention: refused != nil,
+            ways: [SourceWayIn(id: "other", icon: .symbol("folder"), title: Copy.SourceBrowser.otherFolder,
+                               control: .button(Copy.SourceLayout.choose) { pick() }, help: help)])
+            .task { hexFolder = LocalSourceWatcher.hexMeetingsFolder() }
+    }
+
+    private func connectHex() async {
+        connecting = true
+        defer { connecting = false }
+        do {
+            try await localSources.connectHexFolder()
+            refused = nil
+        } catch FolderWatchError.missing {
+            refused = Copy.SourceBrowser.hexNoFolder
+        } catch {
+            refused = AddSourceSheet.friendlyError(error)
         }
     }
 

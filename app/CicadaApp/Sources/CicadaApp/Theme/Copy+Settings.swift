@@ -227,9 +227,6 @@ extension Copy {
             return "\(group.name) (\(count))"
         }.joined(separator: " · ")
     }
-    static let calendarGoogleHow = "Google calendars come in through macOS: add your Google account in Internet "
-        + "Accounts with Calendars on, and its calendars appear here."
-    static let calendarAddGoogle = "Add a Google account"
 
     // MARK: Sources → Reminders (G219)
     static let remindersTitle = "Reminders"
