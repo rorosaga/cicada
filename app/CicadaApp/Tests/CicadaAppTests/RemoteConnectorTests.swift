@@ -220,6 +220,7 @@ final class RemoteConnectorTests: XCTestCase {
 
     func testOnlyTailscalesOwnAddressIsEverALink() {
         XCTAssertNotNil(RemoteFunnel.fixLink("https://login.tailscale.com/f/funnel?node=abc"))
+        XCTAssertNotNil(RemoteFunnel.fixLink("https://console.tailscale.com/admin/acls"))
         XCTAssertNil(RemoteFunnel.fixLink("https://login.tailscale.com.evil.example/f"))
         XCTAssertNil(RemoteFunnel.fixLink("http://login.tailscale.com/f"))
         XCTAssertNil(RemoteFunnel.fixLink(nil))
@@ -232,11 +233,11 @@ final class RemoteConnectorTests: XCTestCase {
     }
 
     func testDecodesTheFunnelWire() throws {
-        let json = #"{"ok":false,"message":"Your tailnet's policy doesn't allow Funnel.","fixUrl":"https://login.tailscale.com/admin/acls/file","ran":"tailscale funnel --bg --https=443 8765","funnel":{"step":"off","message":null,"command":"tailscale funnel --bg --https=443 8765","stopCommand":null,"url":null,"answers":null,"fixUrl":"https://login.tailscale.com/admin/acls/file"}}"#
+        let json = #"{"ok":false,"message":"Your tailnet's policy doesn't allow Funnel.","fixUrl":"https://console.tailscale.com/admin/acls","ran":"tailscale funnel --bg --https=443 8765","funnel":{"step":"off","message":null,"command":"tailscale funnel --bg --https=443 8765","stopCommand":null,"url":null,"answers":null,"fixUrl":"https://console.tailscale.com/admin/acls"}}"#
         let run = try JSONDecoder().decode(RemoteFunnelRun.self, from: Data(json.utf8))
         XCTAssertFalse(run.ok)
         XCTAssertEqual(run.funnel.step, "off")
-        XCTAssertEqual(run.fixUrl, "https://login.tailscale.com/admin/acls/file")
+        XCTAssertEqual(run.fixUrl, "https://console.tailscale.com/admin/acls")
     }
 
     func testDecodesTheWirePayloads() throws {

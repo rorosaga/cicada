@@ -310,11 +310,11 @@ def test_a_serve_config_that_will_not_answer_offers_nothing(stub, monkeypatch):
 
 @pytest.mark.parametrize("mode, words, fix", [
     ("Funnel not available; HTTPS must be enabled. See https://tailscale.com/s/https.", "HTTPS certificates are off",
-     "https://login.tailscale.com/admin/dns"),
+     "https://console.tailscale.com/admin/dns"),
     ('Funnel not available; "funnel" node attribute not set. See https://tailscale.com/s/no-funnel.',
-     "policy doesn't allow Funnel", "https://login.tailscale.com/admin/acls/file"),
+     "policy doesn't allow Funnel", "https://console.tailscale.com/admin/acls"),
     ("port 443 is not allowed for funnel; allowed ports are: 8443", "doesn't allow Funnel on this port",
-     "https://login.tailscale.com/admin/acls/file"),
+     "https://console.tailscale.com/admin/acls"),
     ("Access denied: serve config denied\nUse 'sudo tailscale set --operator=$USER'", "--operator=$USER", None),
     ("Another client is changing the serve config; please try again.", "Try again", None),
     ("flag provided but not defined: -bg", "too old", None),
@@ -333,6 +333,14 @@ def test_first_run_waiting_on_the_tailnet_is_bounded_and_gives_the_link(stub, mo
     _, out = click_on(stub)
     assert out["ok"] is False and "isn't on for your tailnet yet" in out["message"]
     assert out["fixUrl"] == "https://login.tailscale.com/f/funnel?node=abc" and stub.serve == {}
+
+
+@pytest.mark.parametrize("host", ["console.tailscale.com", "login.tailscale.com"])
+def test_a_first_run_link_on_either_admin_host_is_offered(stub, host):
+    stub.set(mode=f"Funnel is not enabled on your tailnet. To enable, visit: https://{host}/f/funnel?node=abc")
+    _, out = click_on(stub)
+    assert out["ok"] is False and "isn't on for your tailnet yet" in out["message"]
+    assert out["fixUrl"] == f"https://{host}/f/funnel?node=abc"
 
 
 def test_exit_0_having_changed_nothing_is_a_failure(stub):
@@ -458,7 +466,7 @@ def test_a_failed_click_changes_nothing(route, stub):
     stub.set(mode='Funnel not available; "funnel" node attribute not set. See https://tailscale.com/s/no-funnel.')
     shown = client.get("/remote/funnel").json()
     got = client.post("/remote/funnel", json={"action": "on", "shown": shown["command"]}).json()
-    assert got["ok"] is False and got["fixUrl"] == "https://login.tailscale.com/admin/acls/file"
+    assert got["ok"] is False and got["fixUrl"] == "https://console.tailscale.com/admin/acls"
     assert got["funnel"]["fixUrl"] == got["fixUrl"] and got["funnel"]["step"] == "off"
     assert listener.up is False and store.load_settings().enabled is False
 

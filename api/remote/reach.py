@@ -452,9 +452,11 @@ FUNNEL_MIN_VERSION = (1, 52)
 FUNNEL_STEPS = ("install", "open", "sign-in", "turn-on", "update", "port", "unknown", "address", "taken", "terminal",
                 "off", "on")
 
-_FIX_HOSTS = ("login.tailscale.com", "tailscale.com")
-_HTTPS_FIX = "https://login.tailscale.com/admin/dns"
-_POLICY_FIX = "https://login.tailscale.com/admin/acls/file"
+#: Tailscale's docs name `console.tailscale.com` as the admin console; a CLI may still print `login.tailscale.com`.
+_ENABLE_HOSTS = ("console.tailscale.com", "login.tailscale.com")
+_FIX_HOSTS = (*_ENABLE_HOSTS, "tailscale.com")
+_HTTPS_FIX = "https://console.tailscale.com/admin/dns"
+_POLICY_FIX = "https://console.tailscale.com/admin/acls"
 _FUNNEL_WORDS = {
     "install": "Install Tailscale on this machine.",
     "open": "Open Tailscale on this machine.",
@@ -616,12 +618,11 @@ def _funnel_failure(stdout: str, stderr: str, command: str) -> tuple[str, str | 
     if "https must be enabled" in lower:
         return "HTTPS certificates are off for your tailnet. Turn them on, then try again.", _HTTPS_FIX
     if "node attribute not set" in lower or "s/no-funnel" in lower:
-        return ("Your tailnet's policy doesn't allow Funnel. Add the funnel attribute to nodeAttrs, then try again."
-                ), _POLICY_FIX
+        return "Your tailnet's policy doesn't allow Funnel. Add Funnel to your policy, then try again.", _POLICY_FIX
     if "not allowed for funnel" in lower:
         return "Your tailnet's policy doesn't allow Funnel on this port. Allow it in nodeAttrs.", _POLICY_FIX
     fix = _fix_url(text)
-    if fix and "login.tailscale.com" in fix:
+    if fix and urlparse(fix).hostname in _ENABLE_HOSTS:
         return "Funnel isn't on for your tailnet yet. Turn it on there, then try again.", fix
     if "changing the serve config" in lower:
         return "Something else was changing Tailscale's settings. Try again.", None

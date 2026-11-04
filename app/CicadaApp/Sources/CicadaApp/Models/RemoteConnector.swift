@@ -154,7 +154,8 @@ struct RemoteFunnel: Codable, Equatable {
     /// The only addresses offered as a link: Tailscale's own, where the person fixes what stopped the click.
     static func fixLink(_ raw: String?) -> URL? {
         guard let raw, let url = URL(string: raw), url.scheme == "https",
-              let host = url.host, host == "login.tailscale.com" || host == "tailscale.com" else { return nil }
+              let host = url.host, ["console.tailscale.com", "login.tailscale.com", "tailscale.com"].contains(host)
+        else { return nil }
         return url
     }
 }
