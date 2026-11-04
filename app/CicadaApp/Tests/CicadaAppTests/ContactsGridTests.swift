@@ -99,8 +99,10 @@ final class ContactsGridTests: XCTestCase {
     }
 
     func testTheReaderForgetsWhatTheAppHoldsWhenContactsStops() async {
+        let suite = "contacts-grid-\(UUID())"
+        addTeardownBlock { UserDefaults.standard.removePersistentDomain(forName: suite) }
         let reader = ContactsReader(store: FakeContactStore(), api: FakeContactsAPI(),
-                                    defaults: UserDefaults(suiteName: "contacts-grid-\(UUID())")!, bank: { "alpha" })
+                                    defaults: UserDefaults(suiteName: suite)!, bank: { "alpha" })
         var forgot = 0
         reader.onForget = { forgot += 1 }
         reader.disconnect()

@@ -134,6 +134,7 @@ struct ContactCardCell: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(title)
+        .accessibilityAddTraits(.isStaticText)
     }
 
     private var face: some View {

@@ -17,8 +17,10 @@
   kept nowhere (196 + 139 raw records across two account sources, which overlap). `contacts_book` keeps every card's names
   and thumbnail for the grid alone; ruling 33's match rules are untouched. Thumbnails: few is true of the book, at most
   6 of 969 raw records (count-only query of the store files; size and format not measured, because no shell here has a
-  Contacts grant). Detail: `capture-and-sleep.md`. **Pick up here:** the grid itself, on #599's `ContactsGrid`, once #599
-  has merged.
+  Contacts grant). The grid reads it: a card with a page opens it, the rest are quiet discs that are not controls.
+  Detail: `capture-and-sleep.md`, `app.md`. **Known residue:** `UserDefaults(suiteName:)` in Swift tests lands in the real
+  `~/Library/Preferences` whatever `HOME` says (cfprefsd ignores it): 5,621 `contacts-<uuid>.plist` files since 2026-09-24,
+  test values only. These two suites now empty theirs, leaving a 42-byte file; the class is not fixed.
 
 - **2026-11-04 — This Mac source pages: accounts → collections → items (G161, G154, G95; branch `this-mac-sources`,
   PR #599, on the standard layout #593).** Owner: Apple Notes, Reminders, Contacts and Calendar "should

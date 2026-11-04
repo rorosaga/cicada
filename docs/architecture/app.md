@@ -1763,9 +1763,16 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   (Track L). **Why Calendar showed a Google account:** the Calendar app holds every account in Internet Accounts, and the
   old page said so in a standing line with an *Add a Google account* button (`CalendarRow.google` and the layout's
   way row, both removed); the account list now names each account the Mac holds, Google only when there is one.
-- **Contacts** (`ContactsGrid`): the people in memory a card matched, as a grid of faces (`ContactCell`, 48 pt
-  `EntityPicture` by the one picture precedence — the Contacts photo when the card has one, else the person's monogram)
-  with the name under each, under the page's search; a face opens the person's page. Never a card's other facts (G154).
+- **Contacts** (`ContactsGrid`, G154, owner 2026-11-04): every card on this Mac as a grid of 48 pt faces with the name
+  under each, read from `GET /sources/contacts-local/book` (`capture-and-sleep.md`) into `ChannelItemsCache`: not a
+  Store domain, no ETag, in memory, read when the page opens and when the channels move. Nearly every card has no photo,
+  so the page is drawn as monograms. A card with a page comes first and is a control (`ContactPageCell`: `EntityPicture`
+  by the one picture precedence, its hue ring when there is no picture; hover a fill, a click opens the page). A card
+  with none is not (`ContactCardCell`: its thumbnail through `SourcePictureStore`, else a neutral disc in secondary ink;
+  no hover, no press, no click target, static text to VoiceOver). A nameless card reads *No name*, never its
+  organisation. One line beside the search: *376 contacts · 6 in memory*. The search is in memory, folded once when the
+  book is read, and its words never leave the app (0.015 s over 20,000 cards, debug build). `LazyVGrid`: about 85 of
+  800 cells exist at once. Contacts stopping (`ContactsReader.onForget`) drops the names and thumbnails the app holds.
 - **Meeting recorders** (`MeetingsBrowser`): recorder → folder → meetings; one folder lists its meetings directly
   (`MeetingRow`: a waveform glyph, the title, then *Tue, Nov 3 · 32 min* in meta ink, the full date on hover —
   `MeetingRowText`, `duration_s` from the episode's `meeting` record). **Hex in one click** (`FolderSlot`'s connect

@@ -61,7 +61,12 @@ final class FakeContactsAPI: ContactsSyncAPI {
 final class ContactsReaderTests: XCTestCase {
     private let now = ISO8601DateFormatter().date(from: "2026-09-24T21:40:00Z")!
 
-    private func defaults() -> UserDefaults { UserDefaults(suiteName: "contacts-\(UUID())")! }
+    /// A suite emptied afterwards: cfprefsd ignores a scratch home, so its file lands in the real Preferences folder.
+    private func defaults() -> UserDefaults {
+        let name = "contacts-\(UUID())"
+        addTeardownBlock { UserDefaults.standard.removePersistentDomain(forName: name) }
+        return UserDefaults(suiteName: name)!
+    }
 
     private func reader(_ store: FakeContactStore, _ api: FakeContactsAPI, _ defaults: UserDefaults,
                         activity: SyncActivity? = nil, debounce: Duration = .seconds(30),
