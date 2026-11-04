@@ -19,15 +19,16 @@ Otherwise it stays for the person, with the reason (``guarded_tie``, ``guarded_n
 ``proposed_source``, ``no_public_cue`` …).
 
 **What settles** (:func:`weigh`, checked here on the bytes opened, never on the model's word). Each source must be a page
-Cicada opened whose text names the person and the handle (in words, or by a link to the account's profile), with a quote
-that is really on it. Then ONE is enough only when it is: a tracked source of either page; an encyclopedia article; the
-person's own domain (their name is the domain). Otherwise TWO independent voices: different sites, not the same words,
-with an account's own pages (its profile, ``<handle>.github.io``) counting as one voice. A walled profile is never
-opened: its search result counts as that one voice only when the result is the account's own link and its title names
-the person. **A single profile never settles** (anyone can type a name into one); there is no reading of a "verified"
+Cicada opened whose text names the person and the handle (in words, or by a link to the account), with a quote that is
+really on it. Then ONE is enough only when it is: a tracked source of either page; an encyclopedia article; **the person's
+own site** — a domain at their name or at the handle (``<handle>.github.io``) — that also fits what memory says about them
+(two of the page's distinctive words, :func:`_fits`: a namesake's site does not). Otherwise TWO independent voices:
+different sites, not the same words, with an account's profile and site counting as one voice. A walled profile is
+never opened: its search result counts as that one voice only when the result is the account's own link and its title
+names the person. **A profile alone never settles** (anyone can type a name into one); there is no reading of a "verified"
 mark, since the walled sites that have one are never opened. **Parody, stale, namesake:** a source whose surroundings say
 parody, fan account, unofficial, formerly, no longer (X's own "formerly Twitter" aside) leaves it open, and the model is
-told to answer not sure for a namesake (what memory says about them does not fit). Anything else leaves it open.
+told to answer not sure for a namesake. Anything else leaves it open.
 
 **What it writes** (:func:`settle`): one cited claim on the named person's page — "<Name> goes by “<handle>” online",
 predicate ``goes-by``, its object the handle's page (observer ``agent``, ``source_trust: external``, origin
@@ -328,6 +329,22 @@ def _on(host: str, domain: str) -> bool:
     return host == domain or host.endswith(f".{domain}")
 
 
+def _handle_site(url: str, handle: str) -> bool:
+    """A site at the handle itself: ``<handle>.github.io``, ``<handle>.dev``."""
+    from api.services import reading_hosts
+
+    host = (reading_hosts.host_of(url) or "").removeprefix("www.")
+    return len(handle) >= 4 and host.split(".")[0].replace("-", "") == handle.replace("-", "").replace("_", "")
+
+
+def _fits(record: str, text: str, name: str) -> bool:
+    """Does this page fit what memory says about the person? Two distinctive words in common, past their own name."""
+    said = set(pair_evidence._fold(text))
+    own = set(pair_evidence._fold(name))
+    wanted = {w for w in pair_evidence._fold(record) if len(w) >= 4 and w not in name_guard.GENERIC and w not in own}
+    return len(wanted & said) >= 2
+
+
 def _voice(url: str, handle: str) -> tuple[str, str]:
     """``(who is speaking, kind)``: an account's own pages are one voice whatever the site."""
     from api.services import reading_hosts
@@ -336,8 +353,8 @@ def _voice(url: str, handle: str) -> tuple[str, str]:
     found = person_leads.profile_handle(url)
     if found is not None and found[1] == handle:
         return f"account:{handle}", "account"
-    if host == f"{handle}.github.io":
-        return f"account:{handle}", "account"
+    if _handle_site(url, handle):
+        return f"account:{handle}", "site"
     if any(_on(host, d) for d in _ENCYCLOPEDIA):
         return reading_hosts.site_of(url), "encyclopedia"
     return reading_hosts.site_of(url), "other"
@@ -351,8 +368,13 @@ def _own_domain(url: str, name: str) -> bool:
     return len(squeezed) >= 5 and label == squeezed
 
 
-def weigh(pair: Pair, rows, pages: dict, results: dict[str, str]) -> Weighed:
-    """Do these sources settle it? Engine-free, on the bytes Cicada opened (see the module docstring)."""
+def _links_account(links: list[str], handle: str) -> bool:
+    return any((person_leads.profile_handle(link) or ("", ""))[1] == handle or _handle_site(link, handle) for link in links)
+
+
+def weigh(pair: Pair, rows, pages: dict, results: dict[str, str], *, record: str = "") -> Weighed:
+    """Do these sources settle it? Engine-free, on the bytes Cicada opened (see the module docstring). ``record``: what
+    memory says about the named person, which the person's own site must fit."""
     from api.services import evidence
 
     name_key, handle_key = pair_evidence.spelling(pair.name), pair_evidence.spelling(pair.handle)
@@ -380,13 +402,14 @@ def weigh(pair: Pair, rows, pages: dict, results: dict[str, str]) -> Weighed:
         if _STALE.search(around):
             return Weighed(False, "stale")
         voice, kind = _voice(url, pair.handle)
-        linked = any((person_leads.profile_handle(link) or ("", ""))[1] == pair.handle for link in page.links)
+        linked = _links_account(page.links, pair.handle)
         quote_name = pair_evidence.names_in([name_key], quote)
         quote_handle = pair_evidence.names_in([handle_key], quote)
         trusted_page = bool(page.tracked_for) or kind != "other" or _own_domain(url, pair.name)
         if trusted_page:
             says = (pair_evidence.names_in([name_key], page.text)
-                    and (quote_handle or linked or kind == "account" or pair_evidence.names_in([handle_key], page.text)))
+                    and (quote_handle or linked or kind in ("account", "site")
+                         or pair_evidence.names_in([handle_key], page.text)))
         else:   # someone else's page: the quote itself says it
             says = quote_name and (quote_handle or linked)
         if not says:
@@ -396,7 +419,8 @@ def weigh(pair: Pair, rows, pages: dict, results: dict[str, str]) -> Weighed:
             continue   # the same words on two sites: one source copied the other
         quotes.add(folded)
         entry = {"ref": url, "quote": quote, "opened": True}
-        if page.tracked_for or kind == "encyclopedia" or _own_domain(url, pair.name):
+        own_site = (kind == "site" or _own_domain(url, pair.name)) and _fits(record, page.text, pair.name)
+        if page.tracked_for or kind == "encyclopedia" or own_site:
             alone = alone or entry
         current = voices.get(voice)
         if current is None or not current.get("opened"):

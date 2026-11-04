@@ -51,8 +51,10 @@ from api.services import bank_index, fact_sources, markdown_parser, name_guard, 
 SEARCH_BUDGET = 6
 PAGE_BUDGET = 6
 READ_BUDGET = 12
-TURN_BUDGET = 6
+TURN_BUDGET = 8
 CALLS_PER_TURN = 4
+#: How often a sure answer that does not hold is sent back before it counts as the answer: never a paid loop.
+SEND_BACKS = 2
 #: Queries or links the guard may drop before the question stops: a model that keeps trying is not retried.
 MAX_BLOCKED = 2
 #: Per drain or sweep, so a backlog cannot eat a plan (each question is at most TURN_BUDGET + TURN_BUDGET spawns).
@@ -78,7 +80,7 @@ HAND_PROMPT = (
 _RULES = (
     "Each turn, reply with ONE JSON object and nothing else: {\"calls\": [{\"tool\": <name>, ...}]} with at most "
     f"{CALLS_PER_TURN} calls, or {{\"answer\": {{...}}}} when you are done.\n"
-    "Tools: recall {query}: search what the person's memory holds. page {id}: read one page. conversation {id}: read "
+    "Ask for several calls in one turn when you can. Tools: recall {query}: search what the person's memory holds. page {id}: read one page. conversation {id}: read "
     "one conversation (an id like ep_2026-01-02_003). where_to_check {id}: a page's sources. contacts {name}: whether "
     "the person's address book or connections hold this name.\n"
     "These reads are private and free to use.\n"
@@ -99,8 +101,9 @@ HANDLE_RULES = (
     "Answer {\"sure\": true, \"sources\": [{\"url\": <a page you opened>, \"quote\": <its exact words that name the "
     "person and, where it says it, the handle>}]} only when pages say this handle is this person's. Say which pages "
     "you relied on: a page the person's tracked sources list; the person's own site; an encyclopedia article; or two "
-    "pages on different sites that do not copy each other. One profile saying a name is not enough: anyone can type a "
-    "name into a profile.\n"
+    "pages on different sites that do not copy each other, where the account's profile and its site count as one. A "
+    "profile alone is not enough: anyone can type a name into one. Each quote is one unbroken run of the page's own "
+    "words, with no ellipsis.\n"
     "Answer {\"sure\": false} for a parody or fan account, a namesake (a different person with this name, or an account "
     "that does not fit what memory says about them), a handle the pages say is old or was given up, or when pages do "
     "not say.\n"
@@ -168,6 +171,9 @@ class Run:
     transcript: list[str] = field(default_factory=list)
     stop: str = ""
     model: str | None = None
+    #: What :func:`public_handle.weigh` says of a sure answer, in words, when more reading could still settle it.
+    judge: Callable[[dict], str | None] | None = None
+    sent_back: int = 0
 
 
 @dataclass
@@ -444,6 +450,11 @@ async def drive(run: Run) -> Result:
             if data is None:
                 return Result(None, run, "unreadable")
             if isinstance(data.get("answer"), dict):
+                short = run.judge(data["answer"]) if run.judge and data["answer"].get("sure") is True else None
+                if short and turn < TURN_BUDGET - 1 and run.sent_back < SEND_BACKS:
+                    run.sent_back += 1
+                    run.transcript.append(short)   # what an agent would do: it keeps reading until it holds
+                    continue
                 return Result(data["answer"], run)
             calls = [c for c in (data.get("calls") or []) if isinstance(c, dict)][:CALLS_PER_TURN]
             if not calls:
@@ -489,6 +500,15 @@ def tracked_public(memory_path: Path, page_ids: tuple[str, ...]) -> tuple[dict[s
     return urls, kinds
 
 
+#: Why a sure answer does not hold yet, while reading on could still make it hold.
+_SHORT = {
+    "one_source": "Not settled: that is one voice. Find a second page on another site, not the account's own, that says "
+                  "the same, or answer not sure.",
+    "no_source": "Not settled: no page you opened says it in those words. Quote a page you opened exactly, or answer "
+                 "not sure.",
+}
+
+
 def _describe(memory_path: Path, page_id: str) -> str:
     entry = bank_index.file(Path(memory_path), "entities", f"{page_id}.md")
     if entry is None:
@@ -514,6 +534,14 @@ async def handle_question(fn, memory_path: Path, pair, *, guard: name_guard.Name
     run = Run(memory_path=Path(memory_path), fn=fn, system=system, question=question,
               allowed=(pair.name, pair.handle) if search_ok else (), tracked=tracked,
               page_ids=(pair.named_id, pair.handle_id), guard=guard, search_ok=search_ok, fetch=fetch)
+
+    def judge(answer: dict) -> str | None:
+        weighed = public_handle.weigh(pair, answer.get("sources"), run.pages, run.results,
+                                      record=_describe(memory_path, pair.named_id))
+        if weighed.ok or weighed.reason not in _SHORT:
+            return None
+        return _SHORT[weighed.reason]
+    run.judge = judge
     return await drive(run)
 
 

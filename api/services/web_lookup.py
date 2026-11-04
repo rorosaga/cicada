@@ -566,7 +566,8 @@ async def _handle_answer(fn, memory_path: Path, c: web_settle.Candidate, facts, 
     proposals = result.data.get("propose") if isinstance(result.data.get("propose"), list) else []
     if result.data.get("sure") is not True:
         return Answer(c.item_id, False, "unsure", model=result.run.model, proposals=proposals)
-    weighed = public_handle.weigh(c.handle, result.data.get("sources"), result.run.pages, result.run.results)
+    weighed = public_handle.weigh(c.handle, result.data.get("sources"), result.run.pages, result.run.results,
+                                 record=settling_agent._describe(memory_path, c.handle.named_id))
     if not weighed.ok:
         return Answer(c.item_id, False, weighed.reason, model=result.run.model, proposals=proposals)
     return Answer(c.item_id, True, url=weighed.ref, quote=weighed.quote, relation="same", also=weighed.also,

@@ -184,10 +184,16 @@ def test_two_independent_pages_settle_it():
     assert w.ok and w.ref == GH.url and w.also == ({"ref": BLOG.url, "quote": "Bea Example writes as bex42"},)
 
 
-def test_an_accounts_own_pages_are_one_voice():
-    site = _opened("https://bex42.github.io/", "Bea Example\nI am bex42 on GitHub.")
+RECORD = "Bea Example is a software engineer who gave a talk on agent workflows."
+
+
+def test_an_accounts_profile_and_site_are_one_voice_unless_the_site_fits_what_memory_says():
+    site = _opened("https://bex42.github.io/", "Bea Example\nI am bex42 on GitHub. I build agent workflows.")
     rows = [{"url": GH.url, "quote": "Bea Example bex42."}, {"url": site.url, "quote": "I am bex42 on GitHub."}]
     assert public_handle.weigh(PAIR, rows, {GH.url: GH, site.url: site}, {}).reason == "one_source"
+    assert public_handle.weigh(PAIR, rows, {GH.url: GH, site.url: site}, {}, record="A chef who runs a bakery.").reason == \
+        "one_source"                                       # a namesake's site does not fit
+    assert public_handle.weigh(PAIR, rows, {GH.url: GH, site.url: site}, {}, record=RECORD).ok
 
 
 def test_the_same_words_on_two_sites_are_one_source():
@@ -199,11 +205,11 @@ def test_the_same_words_on_two_sites_are_one_source():
 def test_an_encyclopedia_or_the_persons_own_domain_or_a_tracked_source_settles_alone():
     wiki = _opened("https://en.wikipedia.org/wiki/Bea_Example", "Bea Example\nBea Example is an engineer. GitHub profile",
                    links=["https://github.com/bex42"])
-    own = _opened("https://beaexample.dev/", "Bea Example\nI am Bea Example, bex42 everywhere.")
+    own = _opened("https://beaexample.dev/", "Bea Example\nI am Bea Example, bex42 everywhere. I build agent workflows.")
     tracked = _opened("https://bio.example.org/", "Bea\nBea Example goes by bex42.", tracked_for="bea-example")
     for page, quote in ((wiki, "Bea Example is an engineer."), (own, "I am Bea Example, bex42 everywhere."),
                         (tracked, "Bea Example goes by bex42.")):
-        assert public_handle.weigh(PAIR, [{"url": page.url, "quote": quote}], {page.url: page}, {}).ok, page.url
+        assert public_handle.weigh(PAIR, [{"url": page.url, "quote": quote}], {page.url: page}, {}, record=RECORD).ok, page.url
 
 
 def test_a_walled_profiles_search_result_counts_as_its_one_voice_and_is_never_opened():
@@ -312,6 +318,25 @@ def test_a_real_question_runs_search_open_answer_and_undo_takes_it_back(bank):
     assert target == "inbox-401" and _fm(bank).get("web_check") == "undone"
     assert parse_claims(markdown_parser.parse(bank / "entities" / "bea-example.md").body) == []
     assert web_settle.classify(bank, _fm(bank), "", _facts(bank)) == (None, "undone")
+
+
+def test_a_sure_answer_on_one_voice_is_sent_back_for_a_second_and_then_holds(bank):
+    one = {"answer": {"sure": True, "sources": [{"url": PROFILE, "quote": "Bea Example bex42."}]}}
+    two = {"answer": {"sure": True, "sources": [
+        {"url": PROFILE, "quote": "Bea Example bex42."},
+        {"url": BLOG_URL, "quote": "I am Bea Example, and I write about agents as bex42 on GitHub."}]}}
+    stub = Stub([{"calls": [{"tool": "search", "query": "bex42"}]}, {"calls": [{"tool": "open", "url": PROFILE}]}, one,
+                 {"calls": [{"tool": "open", "url": BLOG_URL}]}, two], hand={"bex42": HITS})
+    report = _run(bank, stub, {PROFILE: PROFILE_HTML, BLOG_URL: SITE_HTML})
+    assert report.settled == 1 and "one voice" in stub.reader_prompts[3]
+
+
+def test_a_sure_answer_that_never_gets_its_second_source_settles_nothing(bank):
+    one = {"answer": {"sure": True, "sources": [{"url": PROFILE, "quote": "Bea Example bex42."}]}}
+    stub = Stub([{"calls": [{"tool": "search", "query": "bex42"}]}, {"calls": [{"tool": "open", "url": PROFILE}]},
+                 one, one, one, one], hand={"bex42": HITS})
+    report = _run(bank, stub, {PROFILE: PROFILE_HTML})
+    assert report.settled == 0 and report.skipped == {"one_source": 1}
 
 
 def test_a_query_the_model_writes_with_a_guarded_name_never_reaches_the_hand_and_counts(bank):
