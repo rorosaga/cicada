@@ -382,7 +382,7 @@ async def remove_sensitive(payload: dict = Body(...), settings: Settings = Depen
     except (ValueError, sensitive_flags.RemovalRefused) as exc:
         raise HTTPException(409, str(exc)) from exc
     # A primer can hold a title from before; the cursor commits alone.
-    await state_dictionary.refresh_and_commit(settings.memory_path, settings)
+    await state_dictionary.refresh_admitted(settings.memory_path, settings)
     return answer
 
 

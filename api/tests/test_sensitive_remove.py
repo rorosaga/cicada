@@ -378,7 +378,7 @@ def test_the_route_rebuilds_the_cursor(bank, monkeypatch):
     async def refresh(memory, settings):
         called.append(memory)
 
-    monkeypatch.setattr(state_dictionary, "refresh_and_commit", refresh)
+    monkeypatch.setattr(state_dictionary, "refresh_admitted", refresh)
     rows = sf.plan(bank)
     settings = SimpleNamespace(memory_path=bank)
     asyncio.run(inbox_router.remove_sensitive({"rows": [r["row"] for r in rows], "plan": sf.plan_stamp(rows)}, settings))
@@ -401,10 +401,11 @@ def test_the_word_index_loses_it_on_the_row_too(bank):
 def test_a_reply_keeps_its_turn_after_the_offsets_move(bank):
     first = f"user: my password is {VALUE}\n"
     second = "speaker:Ana: so how was the trip\n"
-    third = "user: something else\n"
-    fourth = "user: it was fine"
-    body = first + second + third + fourth
-    extras = [{"offset": len(first + second + third), "reply_to": len(first)}]
+    third = "speaker:Bob: and something else\n"
+    fourth = "speaker:Cid: and more\n"
+    fifth = "user: it was fine"
+    body = first + second + third + fourth + fifth
+    extras = [{"offset": len(first + second + third + fourth), "reply_to": len(first)}]
     path = _ep(bank, EP, body, turn_extras=extras)
     _commit(bank)
     assert len(turn_signals.signals({"turn_extras": extras}, body)) == 1
