@@ -240,7 +240,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   ids frozen at its start, in committed batches (default 25), so a stop loses at most the batch in progress. Decay and the
   page reads run once per drain. A plan limit is a pause, not a failure. **Ruling 4: a scheduled run uses a Claude or ChatGPT plan only
   through the person's "Scheduled runs may use my plan" switch, on unless they turned it off** (4b 2026-10-16, 4c
-  2026-10-19; `SUBSCRIPTION_MODES` the one guard); on a metered engine it spends with no limit Cicada sets, said in words.
+  2026-10-19; `SUBSCRIPTION_MODES` the one guard); on a metered engine it spends up to the person's spending limit, suggested $5 a run, then pauses in words (ROR-102, ruling 63 (g), `sleep_spend`); a model with no known price stops the run.
   **Plan-first engines (ruling 31, 2026-10-19):** the default is Auto — Claude plan, ChatGPT plan — and never
   a metered key nobody chose: no engine is said in words, and a key (OpenRouter included) reads only when chosen.
   **Ruling 36 D1 (owner, 2026-10-22):** with nothing chosen, Auto uses a signed-in plan (Claude Code, then Codex) and

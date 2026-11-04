@@ -199,7 +199,7 @@ before it is decoded (`messages_photos.B64_MAX`, 422 as before).
 **Schedule and reading options (ruling 4b, owner decision 2).** `GET/PUT /sleep/schedule` answer the schedule plus,
 while it runs on its own, `warning` and `warningCode` when a scheduled run would have no engine it may use
 (`ScheduleResponse`, `engine_readiness`); the PUT body is unchanged and the app never sends them back.
-`GET/PUT /sleep/run-options` carry `scheduledUsePlan` (machine-wide, on unless the person turned it off — ruling 4c,
+`GET/PUT /sleep/run-options` carry `spendLimitUsd` (ROR-102: a figure, or `null` for the person's off; 422 otherwise; `sleep_spend`), and `scheduledUsePlan` (machine-wide, on unless the person turned it off — ruling 4c,
 2026-10-19; an off is stored as `false`; `null` is 422).
 `POST /ask` with no engine — an API model with no key, or Auto with no plan and no local model (ruling 31: never a key
 nobody chose) — answers that it has no engine, naming the pages it found, and calls nothing.

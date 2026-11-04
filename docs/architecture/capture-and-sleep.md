@@ -2116,6 +2116,18 @@ retries). Past that a 429 trips the scope's breaker with `limit: key_limit` and 
 spending limit is `EngineExhausted`, and a 401/403 `EngineUnavailable`, each in `engine_cause`'s words. It stops as `plan_limit`
 for the drain's mechanics, with a pause reason of `key_limit` that never says the person's plan, and arms nothing automatic.
 A limit lifting within 2 minutes is waited out by the batch's later stages, so what was read is filed.
+**What fails, and what it costs.** A raw transport error out of an open stream, or a stream that closes before the model
+finished, is `EngineConnectionLost` or `EngineTimeout`, a pause, never the conversation's; only a status is ever called a
+refused request. A call that failed after the provider started answering carries what it reported (`exc.paid`, `_paid`) to
+the ledger, so Past reads and the limit below see a cut-off or refused call's real cost. The SDK is pinned (`api/pyproject.toml`,
+2.1.0): every 2.x sends the key as `Authorization: Bearer` on API version `2026-10-21`.
+**The spending limit (ROR-102, ruling 63 (g); `sleep_spend`).** A run on a metered engine snapshots `spend_limit_usd`
+(`sleep_run_prefs`, in `connections.json`: unset reads as the suggested $5, stored `0` is the person's off, nonsense reads
+as the suggestion) and `providers._emit` adds each call's cost to `ds.spend`. It stops on the reserve's own path:
+`DrainStop("reserve", …, limit="spend")`, pause reason `spend`, so what was read is filed, the rest wait, and the tail's paid
+steps are skipped. A Continue is a new allowance; a scheduled run waits for that click. A model with no known price stops the
+run, before any read when the models are known at the start (`guard_for`), else at the first unpriced call. One click's web
+sweep on a metered key is capped at `web_check_per_run` (`capped_at`).
 **Comparing with the plan.** `benchmarks/engine_parity.py` runs the same synthetic conversations through the production drain
 on a scratch bank per engine and compares pages, claims, evidence spans, questions and failures, with what Past reads would
 show. The one real run, once a key is entered (about $0.02 on Haiku 5.5, 19 calls, about 94k input of which 16k uncached,
@@ -2178,7 +2190,7 @@ engine and signed in (`engine_select.SCHEDULE_PLAN_MODES`, the switch being `SUB
 the dotfile pin) — and drains like any scheduled run; its plan-limit pause (`plan_window`, `plan_weekly`) is the
 schedule's to replace once the limit has reset (the vendor's `resets_at`, else after `ENGINE_RETRY_S`), since on a
 server nobody presses Continue; extra usage stays the person's, and continue-after-reset (ruling 15) still never arms
-from a scheduled run. The dotfile pin keeps its one batch (ruling 16); on a metered engine it spends until the queue is empty, with no limit Cicada sets, and the engine menu and Details
+from a scheduled run. The dotfile pin keeps its one batch (ruling 16); on a metered engine it spends until the queue is empty or the person's spending limit, and the engine menu and Details
 say so in words. With the switch off, a plan the person chose — or Auto's plan rungs — gives a scheduled run no engine
 (`SCHEDULE_DEGRADED`), never the metered key by itself (ruling 31); a key the person chose still reads; an explicit `CICADA_LLM_MODE` CLI
 override also reaches the transient retry/pause policy. Such a scheduled engine pause is eligible for replacement

@@ -17,8 +17,11 @@
   could not have run Sleep through LiteLLM at all. `anthropic_engine` serves it now, with `direct_engines` as the seam the
   next provider's SDK slots into. Caching, the key's own model list, tiers, retired ids moved forward in words, prices with
   their basis, a 429 as a pause. Proved on stand-ins at the HTTP layer, the real SDK in between; the plan leg ran for real
-  on Haiku 5.5. **Pick up here:** the owner enters a key and runs G237's one command (a cap of 40,000 uncached tokens,
-  expected about $0.02). Nothing has reached the real API yet. **The owner decides:** the spend guard, the plan-only steps.
+  on Haiku 5.5. The review's four blockers are fixed; a run on a key now stops at the person's spending limit (ROR-102,
+  ruling 63 (g), suggested $5 a run). **Pick up here:** the owner enters a key and runs G237's one command (a cap of 40,000
+  uncached tokens, expected about $0.02), checking the SDK's Bearer header first. Nothing has reached the real API yet.
+  **The owner decides:** the plan-only steps, the web lookup a key now runs by default (ruling 63 (i)), and whether a
+  scheduled run at its limit should wait for a click, as built.
 - **2026-11-04 — rulings 54, 54a: the settling step works like an agent; what leaves is held in code; a page's own
   sources come first (G209, G61; branch `g209-ruling-54`).** A model with no tool reads anything in memory through a table
   Cicada runs; `name_guard` checks every query and link; a separate search hand holds only cleared queries; Cicada opens
@@ -1746,7 +1749,7 @@ A whole row moves to DONE only after its remaining implementation and required a
     ruling 13's "scheduled = one batch". `sleep_scheduler` passes `drain=True` from both entry points (the daily/interval
     cron and the after-import probe); `user_triggered=False` still keeps every plan engine out, so an unattended run
     reads on the scheduled engine — a key, OpenRouter or Ollama — and **on a metered engine it spends until the queue is
-    empty, with no limit Cicada sets.** That is said in words where the person chooses it (the engine menu's Scheduled
+    empty, with no limit Cicada sets** (amended by ruling 63 (g), 2026-11-04: up to the person's spending limit). That is said in words where the person chooses it (the engine menu's Scheduled
     row and Past reads' Last cycle, never a price outside them — ruling 12) rather than prevented. Consequences built with
     it: a scheduled drain pins its bank for hours and holds the same 409 on switch/export/delete as any run (disclosed,
     not fixed); a scheduled run that stops leaves a paused record and **the scheduler then starts nothing until the
@@ -3278,11 +3281,31 @@ A whole row moves to DONE only after its remaining implementation and required a
     (f) A key's rate limit is a pause with the provider-neutral words, `limit: key_limit`, never the person's plan; the SDK
     rides out `retry-after` first (4 retries), and a limit lifting within 2 minutes is waited out by the batch's later
     stages so what was already read is filed.
+    (g) **The spending limit (ROR-102; owner, 2026-11-04: "from cicada you can put a limit on spending"; amends ruling 4's
+    and ruling 16's "no limit Cicada sets").** A run on a metered engine stops at the person's figure, set on one line of
+    the engine menu or `cicada sleep options --spend-limit`: suggested $5 a run, on unless they turn it off. It is the
+    reserve's soft stop (`sleep_spend`, reason `reserve`, `limit: spend`, pause reason `spend`): Stage 1 stops starting
+    reads, what was read is filed, the rest wait, so a run ends a little past the line, by the reads in flight and their
+    filing. Per run: a Continue is the person's click and a new allowance. A scheduled run that reaches it waits for that
+    click; the schedule never replaces it. The figure is the ledger's, each call's list price with a failed call's spend
+    included. **A model with no known price stops the run, before any read when it is known up front, else at the first
+    unpriced call; tokens are not counted against a dollar figure and no price is guessed.** Choosing that was the point
+    of the review: a limit that silently stops holding on a new model is worse than a pause that says why.
+    (h) **A failed call is still a paid one.** A call that failed after the provider started answering (cut off, refused,
+    the connection lost mid-stream) reaches the ledger with what it reported (`_paid`), and Past reads and the limit read
+    that; a request refused before an answer costs nothing. A connection lost inside an open stream is the engine's,
+    never the conversation's; a stream that closes before the model finished is never an answer; only a status is ever
+    called a refused request (the #614 review measured a cut parking a conversation).
+    (i) **Disclosed, the owner has not ruled:** the price rows turn on the web lookup for a Claude key (ruling 27's own
+    `metered` path), up to `web_check_per_run` (8) questions a run, scheduled runs included, about 1¢ a search plus its
+    tokens, counted against the limit. It stays allowed under ruling 27. One click's sweep on a metered key is now capped
+    at the same 8 (`capped_at`); a plan's stays as it was. A run stopped at a limit skips these paid steps.
+    (j) **The SDK is pinned to 2.1.0** (2026-10-21; 2.5.0 was published the day this was reviewed). Every 2.x sends API
+    version `2026-10-21` and the key as `Authorization: Bearer`, never `x-api-key`, which the vendor documents and a test
+    pins on the stand-in. **Check that first on the owner's capped run**, since nothing here has reached the real API.
     **Decided against, for now:** the Message Batches API (50% off, but 29-day retention and no zero-retention option for
     a person's words, up to 24 hours a stage, and no pause; worth cents a batch on Haiku 5.5. **Revisit** for a large first
-    import on Sonnet, on the owner's word). **Not built, proposed:** a spend guard for a scheduled metered run ("stop a
-    run past $N"), since ruling 4 says a metered run spends with no limit Cicada sets: the ledger already has the figure,
-    and the drain's reserve line is the place. **Plan-only steps stay plan-only, on the owner's ruling:** ruling 44's web
+    import on Sonnet, on the owner's word). **Plan-only steps stay plan-only, on the owner's ruling:** ruling 44's web
     context (`web_context.py`, the `metered_only` branch) and proposed ruling 54's handle settling (`web_lookup.py`'s
     `why != "plan"`); each is a one-line change, costed in G237. Changed-source reads need no engine at all (`source_refresh`).
     **Not yet proved:** no call has reached the real API; G237 names the one small run that does. **Revisit** if that run
