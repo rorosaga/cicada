@@ -5096,6 +5096,9 @@ def _render_entity_summary(entities_dir: Path, hit: dict, *, ranked_ids: frozens
     # G210: when it was last said and its state, in words — never the raw confidence, which ranks nothing here.
     said = entity_bands.said_line(last_referenced=fm.get("last_referenced"), status=fm.get("status"),
                                   today=date.today())
+    saved = saved_lookup.page_hit(entities_dir.parent, eid) if etype == "media" else None
+    if saved is not None and not saved.read:
+        said = f"saved {saved.day}" if saved.day else "saved"   # ruling 62: nobody said it; its day is when it was saved
     related = fm.get("related", []) or []
 
     truncated = _type_aware_truncate(body, etype, max_chars=body_max, collapse=body_max is not None)
@@ -5108,11 +5111,9 @@ def _render_entity_summary(entities_dir: Path, hit: dict, *, ranked_ids: frozens
          else f"### {same_name.display(name, qualifier)} ({etype}, {said})") + (f" — id `{eid}`" if qualifier else ""),
     ]
     call = more_call(eid) if more_call else None
-    saved = saved_lookup.page_hit(entities_dir.parent, eid) if etype == "media" else None
     if saved is not None and saved.url:
         # Ruling 62: a saved page's link and what it is, so an agent can look further from recall alone.
-        lines.append(f"Link: {saved.url}" + ("" if saved.read else
-                                             f" (saved {saved.day or 'with no date'}, no reason given, nobody has read it)"))
+        lines.append(f"Link: {saved.url}" + ("" if saved.read else " (no reason given; nobody has read it)"))
     if related:
         lines.append(_related_line(list(related), ranked_ids, more_call(eid, start=1) if more_call else None))
     if truncated:

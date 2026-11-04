@@ -468,7 +468,12 @@ def test_ask_sees_a_save_no_claim_could_reach_and_no_engine_is_called_for_a_miss
     assert out["answer"] == "A saved link covers it."
     prompts.clear()
     miss = ask_service.answer_query(found, "what time is my dentist appointment", retrieve_fn=lambda q, k: [], llm_fn=llm,
-                                  search_fn=lambda *a, **k: None)
+                                    search_fn=lambda *a, **k: None)
+    assert prompts == [] and miss["gaps"]
+    # The vectors always hold something nearest: a line only they found is no reason to spend a call.
+    monkeypatch.setattr(saved_lookup, "by_meaning", lambda *a, **k: [saved_lookup.find(found, "crdts", min_shared=1)[0]])
+    miss = ask_service.answer_query(found, "what time is my dentist appointment", retrieve_fn=lambda q, k: [], llm_fn=llm,
+                                    search_fn=lambda *a, **k: None)
     assert prompts == [] and miss["gaps"]
 
 

@@ -29,18 +29,20 @@ DF_CAP = 1_000
 COMMON_SHARE = 0.03
 #: …never fewer than this: in a small bank no word is common.
 COMMON_FLOOR = 5
-#: Every rare word up to this many must be shared; past it this many are enough.
-FULL_WORDS = 3
 #: The share of the message's rare weight a hit must carry: two incidental words of a long paste are not its subject.
 MIN_COVER = 0.4
 #: How much of a description the final check reads.
 ABOUT_CHARS = 400
+#: In an unasked note (two words or more): the share of a title's own subject words the message must say. The body of a
+#: feed item can share words with anything; a title shared by half is what the link is about.
+TITLE_COVER = 0.5
 #: How much of a description rides on a line.
 LINE_ABOUT_CHARS = 140
 CANDIDATES = 60
-#: The vector leg: how many pages it reads, and the cosine a page must reach to be offered at all.
+#: The vector leg: how many pages it reads, and how far below its best a page may be and still be offered. Relative,
+#: since every search model has its own scale (measured on the default: unrelated text sits about 0.04 below a real hit).
 MEANING_K = 12
-MEANING_FLOOR = 0.35
+MEANING_GAP = 0.03
 
 
 @dataclass(frozen=True)
@@ -162,14 +164,13 @@ def _find(memory_path: Path, reader, stems: list[str], k: int, min_shared: int, 
     if len(weights) < min_shared:
         return []
     total = sum(weights.values())
-    need = max(min_shared, min(FULL_WORDS, len(weights)))
     score: dict[int, float] = {}
     held: dict[int, int] = {}
     for s, found in rows.items():
         for d in found:
             score[d] = score.get(d, 0.0) + weights[s]
             held[d] = held.get(d, 0) + 1
-    order = sorted((d for d in score if held[d] >= need and score[d] >= MIN_COVER * total),
+    order = sorted((d for d in score if held[d] >= min_shared and score[d] >= MIN_COVER * total),
                    key=lambda d: (-score[d], -d))[:CANDIDATES]
     docs = reader.docs(order)
     out: list[Hit] = []
@@ -188,8 +189,12 @@ def _find(memory_path: Path, reader, stems: list[str], k: int, min_shared: int, 
         # The rule again on the words a line shows, never on a prefix alone: "port" is not "portfolio".
         own = text_fold.subject_terms(f"{hit.title} {hit.about[:ABOUT_CHARS]}")
         shared = [s for s in weights if s in own]
-        if hit.page is not None and (len(shared) < need or sum(weights[s] for s in shared) < MIN_COVER * total):
+        if hit.page is not None and (len(shared) < min_shared or sum(weights[s] for s in shared) < MIN_COVER * total):
             continue
+        if hit.page is not None and min_shared > 1:
+            title = text_fold.subject_terms(hit.title)
+            if title and len(title & set(shared)) < TITLE_COVER * len(title):
+                continue
         out.append(hit)
         if len(out) == k:
             break
@@ -208,8 +213,9 @@ def by_meaning(memory_path: Path, text: str, *, k: int = 2, exclude: frozenset[s
     except Exception as exc:  # noqa: BLE001 — a leg fewer
         logger.debug(f"saved meaning leg skipped ({type(exc).__name__})")
         return []
+    best = max((float(r.get("score") or 0.0) for r in rows), default=0.0)
     media = [r for r in rows if str((r.get("metadata") or {}).get("type") or "") == "media"
-             and float(r.get("score") or 0.0) >= MEANING_FLOOR]
+             and float(r.get("score") or 0.0) >= best - MEANING_GAP]
     out: list[Hit] = []
     for row in media:
         ref = str((row.get("metadata") or {}).get("entity_id") or "")

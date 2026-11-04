@@ -1723,8 +1723,8 @@ async def _embed_indexed_episodes_safely(memory_path: Path) -> None:
     """The vector half of "indexed, not consolidated" (owner ruling 2026-10-18): an index-only episode (a watched day,
     a month's summary, a list save) never reaches a model batch, whose end is where the episode vectors are synced —
     so the tail syncs them when one was written after the vector index last was. Incremental by content hash (only
-    the new passages are embedded), with the model the table already holds (``defer_model_switch``). A bank with no
-    vector index yet waits for its first sync. No git, no model call. Never raises.
+    the new passages are embedded), with the model the table already holds (``defer_model_switch``). No git, no model
+    call. Never raises.
 
     Ruling 62: a bare save's page (``media``) is found by meaning too, and no batch may ever come to sync it: a page
     written after the last sync is embedded here, also incrementally."""
@@ -1737,9 +1737,8 @@ async def _embed_indexed_episodes_safely(memory_path: Path) -> None:
             stamps.append(p.stat().st_mtime_ns)
         except OSError:
             continue
-    if not stamps:
-        return
-    since = max(stamps)
+    # Ruling 62: with nothing but saved links in a bank, no batch ever makes the first sync: this one may.
+    since = max(stamps) if stamps else 0
 
     def sync() -> None:
         episodes = any(f.mtime_ns > since and history_index.is_index_only(f.frontmatter)

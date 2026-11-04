@@ -1178,20 +1178,20 @@ def _watch_history_lines(memory_path: Path, query: str) -> list[str]:
         return []
 
 
-def _saved_lines(memory_path: Path, query: str) -> list[str]:
-    """Ruling 62: saved links the question's words or meaning find. Engine-free, and context only: never a reason an
-    answer fails. A short question takes one rare word; a long one must share two."""
+def _saved_lines(memory_path: Path, query: str) -> tuple[list[str], list[str]]:
+    """Ruling 62: saved links the question's words find, and those only its meaning does. Engine-free, and context only:
+    never a reason an answer fails. A short question takes one rare word; a long one must share two."""
     from api.services import saved_lookup
 
     try:
         need = 1 if len(saved_lookup.subject_stems(query)) <= 2 else 2
-        hits = saved_lookup.find(memory_path, query, k=_SAVED_SHOWN, min_shared=need)
-        hits += saved_lookup.by_meaning(memory_path, query, k=_SAVED_SHOWN - len(hits),
-                                        exclude=frozenset(h.id for h in hits))
-        return [saved_lookup.line(h) for h in hits]
+        by_words = saved_lookup.find(memory_path, query, k=_SAVED_SHOWN, min_shared=need)
+        by_meaning = saved_lookup.by_meaning(memory_path, query, k=_SAVED_SHOWN - len(by_words),
+                                             exclude=frozenset(h.id for h in by_words))
+        return [saved_lookup.line(h) for h in by_words], [saved_lookup.line(h) for h in by_meaning]
     except Exception as exc:  # noqa: BLE001
         logger.debug(f"ask saved leg skipped ({type(exc).__name__})")
-        return []
+        return [], []
 
 
 def _gap_response(query: str) -> dict:
@@ -1531,7 +1531,7 @@ def answer_query(
     watched = _watch_history_lines(memory_path, query) if source_words else []
     # Ruling 62: a save no model has read holds no claim, so no leg above can reach it. A title and a link are the
     # page's, not the person's words: no scope gates them.
-    saved = _saved_lines(memory_path, query)
+    saved, saved_near = _saved_lines(memory_path, query)
 
     # 2026-10-19: the conversations the question's own words find. Ask is page-first, and a conversation's words
     # reached the model only through a shown page's evidence or provenance — when Sleep left the detail off the page,
@@ -1565,11 +1565,12 @@ def answer_query(
     if not entities and not watched and not saved and not conversations:
         # The words found nothing a turn holds: still nothing to ground on.
         return _gap_response(query)
-    if saved:
+    # A line only the vectors found never earns a model call by itself (the honest gap above), and is judged by it here.
+    if saved or saved_near:
         prompt += ("\n\nSAVED LINKS (links the person saved, found by the question's words or meaning: a line is about "
                    "the question only when it means what the question asks. Each is a title and a link with no reason "
                    "given; nobody has read them, so they say what exists, never what the person thinks or did. Name "
-                   "the link when it answers the question):\n" + "\n".join(saved))
+                   "the link when it answers the question):\n" + "\n".join([*saved, *saved_near]))
     if watched:
         from datetime import datetime
 
