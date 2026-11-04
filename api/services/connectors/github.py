@@ -4,7 +4,8 @@ The browser sees a repository page now and then; GitHub's REST API holds the per
 they own and every one they starred, with when. **The person connects with a code** (owner 2026-11-03: "cant we just
 do oauth? like a connect?"): GitHub's device flow for Cicada's own read-only GitHub App (``github_auth``) — no token to
 make, no secret, no server of Cicada's. A token the person makes themselves (fine-grained, read-only "Metadata",
-"Contents" and "Starring") is the fallback behind "Use a token instead", for a build whose app is not registered yet.
+"Contents" and "Starring") is the fallback behind "Use a token instead", or the only way in for a build whose client id
+is blank.
 Only ``GET`` requests to ``api.github.com``; Cicada never writes to GitHub. Off until the person connects, said in
 words (:data:`READS`), forgotten by Disconnect.
 
