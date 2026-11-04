@@ -63,5 +63,5 @@ def test_the_settings_route_applies_the_defaults(tmp_path, monkeypatch):
         body = TestClient(main.app).get("/reading/settings").json()
     finally:
         config.get_settings.cache_clear()
-    assert body["savedLists"] == {"x": False, "instagram": False, "linkedin": True}
-    assert body["savedListsOff"] == {"x": False, "instagram": False, "linkedin": False}
+    assert body["savedLists"] == {"x": False, "instagram": False, "linkedin": True, "reddit": False, "pinterest": False, "tiktok": False}
+    assert body["savedListsOff"] == {"x": False, "instagram": False, "linkedin": False, "reddit": False, "pinterest": False, "tiktok": False}

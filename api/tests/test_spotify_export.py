@@ -55,7 +55,7 @@ def _zip(folder: str, members: dict[str, bytes]) -> bytes:
     with zipfile.ZipFile(buf, "w") as zf:
         for name, data in members.items():
             zf.writestr(f"{folder}/{name}", data)
-        zf.writestr(f"{folder}/Playlist1.json", b'{"playlists": [{"name": "never read"}]}')
+        zf.writestr(f"{folder}/Playlist1.json", b'{"playlists": [{"name": "an empty playlist"}]}')
         zf.writestr(f"{folder}/Userdata.json", b'{"email": "never read"}')
     return buf.getvalue()
 
@@ -182,12 +182,12 @@ def test_plays_never_count_against_the_saves_cap(client, monkeypatch):
 
 
 def test_only_spotifys_listening_and_library_members_are_read():
-    for name in ("Playlist1.json", "SearchQueries.json", "Inferences.json", "Userdata.json", "Payments.json",
+    for name in ("SearchQueries.json", "Inferences.json", "Userdata.json", "Payments.json",
                  "Identifiers.json", "Follow.json"):
         assert not spotify_export.is_member(name), name
     for name in ("Streaming_History_Audio_2019-2021_0.json", "Streaming_History_Video_2020-2026.json",
                  "StreamingHistory_music_0.json", "StreamingHistory_podcast_1.json", "StreamingHistory0.json",
-                 "YourLibrary.json"):
+                 "YourLibrary.json", "Playlist1.json"):  # G232: playlists are read
         assert spotify_export.is_member(name), name
 
 

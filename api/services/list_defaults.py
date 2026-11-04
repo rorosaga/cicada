@@ -26,6 +26,10 @@ ACCOUNT_ORIGINS: dict[str, frozenset[str]] = {
     "x": frozenset({"x-bookmarks", "x-likes"}),
     "instagram": frozenset({"instagram-saved"}),
     "linkedin": frozenset({"linkedin-saved"}),
+    # G232: an export, a connector sync or an earlier list read from each.
+    "reddit": frozenset({"reddit-saved"}),
+    "pinterest": frozenset({"pinterest", "pinterest-saved"}),
+    "tiktok": frozenset({"tiktok-saved", "tiktok-history"}),
 }
 
 

@@ -798,7 +798,8 @@ import needs no Mac app).
   | TikTok | `user_data*.json` (any section wrapper) or the TXT lists (`Like List.txt`, `Favorite Videos.txt`) | link, date, `Likes`/`Favorites` |
   | YouTube (Takeout) | `playlists/*-videos.csv` (current and older layouts, `Watch later` included); `watch-history.json` or `.html` (Takeout's default) only on request | video, playlist name, added date; history as days (below) |
   | X archive | `data/like.js` (`bookmark.js` if an archive carries one) | the connector's own post URL, the post's text as title and stand-in description (scrubbed, never the person's note), no date (the archive has none), never fetched at import |
-  | Reddit | `saved_posts.csv`, `saved_comments.csv` | permalink (no title or date in the export) |
+  | Reddit | `saved_posts.csv`, `saved_comments.csv`; since G232 `post_votes.csv` (only `direction` `up`) and `subscribed_subreddits.csv` | permalink (no title or date in the export); an upvote filed `Upvoted`, a joined community `Joined communities` at `www.reddit.com/r/<name>/` (never a `u_<name>` profile) — the connector's own folders, both index-only; a lone `post_votes.csv` dropped by itself is read by this reader first, never as saves |
+  | Spotify | Extended streaming history, Account data's plays and `YourLibrary.json`; since G232 `Playlist<n>.json` | plays as days (*Listening history*); the library and each playlist's tracks and episodes as saved items, a playlist's entries filed under its name and dated the day each was added (`addedDate`), its description never read |
   | LinkedIn | a `Saved Items` CSV | link, saved date |
 - **Identity and dedup.** One saved thing is one `url_index` row keyed by its normalized URL — the identity bookmarks,
   connectors, uploads and single saves already share — so an export never forks a link saved another way, and the
@@ -820,7 +821,12 @@ import needs no Mac app).
   video (a duplicate is never looked up), 8 at a time, 5 s each, 2,000 per slice; Instagram, LinkedIn, Reddit and X
   rows are never fetched (walled, or `defer_enrich`), and Sleep's link reads skip YouTube and every walled host.
   Pinterest's export is a browse-your-content HTML archive with no stable structure, so Pinterest stays with its
-  connector.
+  connector — and, since G232, the person's agent reading their Saved Pins in their browser (`saved_lists`; Pinterest
+  documents no layout for its download, so no reader is written until a real one's member names have been seen).
+- **The Reddit connector (G232).** Reads saved (folder `r/<sub>`, read by Sleep as a connector poll, ruling 30's
+  part 1), upvoted (`Upvoted`) and joined communities (`Joined communities`), the last two index-only through
+  `history_index.LIST_FOLDERS` like the export's rows. Reddit gives no save or upvote date, so none is set (ruling 39:
+  `received_at` says when it came). Connect and the reads in `network.md`, "Connect Reddit".
 
 **Watch history (G71, owner 2026-10-16: "my watch later videos from youtube and maybe also sync history").** YouTube's
 API gives no one Watch later or watch history, so there are three doors, and they converge on one record.

@@ -164,8 +164,15 @@ Disconnect are the tier-2 connector routes (`/sources/connectors/github…`). Fo
 Both writes refuse a demo bank (`refuse_capture_into_demo`). The CLI's `cicada github repos | add | project` call these
 routes as the person (`require_person`).
 
+**Ways in (G232, 2026-11-04).** `GET /sources/ways-in` and `GET /sources/ways-in/{source}` (`spotify`, `reddit`,
+`pinterest`, `tiktok`, `instagram`; 404 otherwise) describe a source page's connect area — the official connection as
+the one `primary` action, the browser toggle and the file import as `ways`, and each way not offered with its reason
+(`app.md`, G232 line; `network.md`, "Ways in, per source"). Read-only: no write, no fetch; every action is an existing
+route (the connector routes, `PUT /reading/settings`, `POST /sources/upload`).
+
 **Auth.** Every endpoint except `GET /healthz`, `POST /capture/telegram`, an OAuth adapter's
-`GET /sources/connectors/{id}/callback`, and OpenRouter's sign-in landing
+`GET /sources/connectors/{id}/callback` (and, G232, Reddit's while the build carries its app's client id —
+`connectors.base.signs_in`), and OpenRouter's sign-in landing
 `GET /connections/byok-openrouter/callback/<nonce>` (R-AG10 — gated by its own single-use, 10-minute nonce
 carried in the path, since OpenRouter appends only `code`; the PKCE verifier never leaves the backend) requires `Authorization: Bearer <token>`, from
 `~/.cicada/api_token` (`CICADA_API_TOKEN` overrides; `CICADA_API_AUTH=off` for tests). The Telegram

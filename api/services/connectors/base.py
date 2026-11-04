@@ -255,3 +255,13 @@ def forget(secret_names: tuple[str, ...]) -> None:
 
     for name in secret_names:
         secrets.remove_secret(name)
+
+
+def signs_in(adapter) -> bool:
+    """Whether a connector finishes an OAuth sign-in through the one callback route: an ``oauth`` adapter always, and
+    an adapter whose own app sign-in this build offers (Reddit's installed app, G232: ``app_available()``) — never a
+    credentials-only adapter, so its callback stays closed (``auth._is_oauth_callback_path``)."""
+    if getattr(adapter, "LOGIN_MODE", None) == "oauth":
+        return True
+    available = getattr(adapter, "app_available", None)
+    return bool(available is not None and available())

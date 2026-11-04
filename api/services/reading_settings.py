@@ -177,7 +177,7 @@ def youtube_list_allowed(name: str) -> bool:
 
 
 #: The saved lists on walled sites an agent may be asked to read (G206; ``saved_lists.PLATFORMS``' keys).
-SAVED_LISTS = ("x", "instagram", "linkedin")
+SAVED_LISTS = ("x", "instagram", "linkedin", "reddit", "pinterest", "tiktok")
 
 
 def saved_lists() -> dict[str, str]:

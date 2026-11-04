@@ -12,6 +12,19 @@
 
 ## Current state and evidence
 
+- **2026-11-04 — ways in for Spotify, Reddit, Pinterest, TikTok and Instagram (G232; branch `feat/g232-ways-in`).**
+  Owner: "is there no way to do similar to GitHub … offer the website connection through browser harness, just like a
+  toggle switch, and then also the file export". Researched against each service's docs and terms (table in
+  `network.md`, "Ways in, per source"): only Reddit has an official sign-in a desktop app can use with no secret and no
+  server (an installed app); Spotify stays file-only (ruling 47's 2026-10-29 amendment re-checked: its User Guidelines
+  also bar automated access and AI ingestion, so no browser toggle either; Development Mode is 5 users since
+  2026-02-11); Pinterest needs a secret and blocks new apps from personal boards since 2026-09-14; TikTok and Instagram
+  APIs return no saves for a personal account. Built: Connect Reddit (installed app, saved + upvoted + joined
+  communities, revoke on Disconnect), browser lists for Reddit, Pinterest and TikTok, Reddit's votes and communities
+  and Spotify's playlists from their downloads, `GET /sources/ways-in` for #593's connect area. **Owner's step:**
+  request Reddit API access (Responsible Builder Policy), register an *installed app* with redirect
+  `http://127.0.0.1:8000/sources/connectors/reddit/callback`, put its id in `reddit.CLIENT_ID` (`network.md`,
+  "Registering Cicada's Reddit app"). **Pick up:** the app side on #593's `SourceConnectArea` (follow-up PR).
 - **2026-11-03 — GitHub connects with a code; your repositories are pages; a project lists its repositories (ruling
   53, G230; branch `feat/g230-oauth-sync`).** Owner: "why are you asking for a token for github? cant we just do oauth?"
   and "always sync and make their initial markdowns … a project might reference several repos". Connect GitHub shows

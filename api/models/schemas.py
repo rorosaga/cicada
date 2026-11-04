@@ -5688,6 +5688,11 @@ class ConnectorStatus(CamelModel):
     reads: Optional[str] = None
     token_help: Optional[str] = None
     tier: int = 1
+    # G232: this build can connect with Cicada's own app (Reddit's installed app: no fields, a browser sign-in), how
+    # the connector is connected now (``app``, ``own-app``) and whether its sign-in lapsed (Connect again).
+    app_sign_in: bool = False
+    how: Optional[str] = None
+    reconnect: bool = False
 
 
 class ConnectorsResponse(CamelModel):

@@ -608,7 +608,7 @@ walled site: X Bookmarks (`https://x.com/i/bookmarks`), Instagram Saved (the pro
 `https://www.instagram.com/` — Cicada keeps no profile name) and LinkedIn Saved posts
 (`https://www.linkedin.com/my-items/saved-posts/`). Cicada never spawns a browser, never signs in and never fetches a list
 page; it only offers. **Consent:** agent reading on (its sheet acknowledged) AND the person turned that site's list on
-(`reading.json` `saved_lists`, `{x|instagram|linkedin: day}`, on by default since 2026-10-26 on the same terms, offs in `saved_lists_off` — refused without a current acknowledgement;
+(`reading.json` `saved_lists`, `{x|instagram|linkedin|reddit|pinterest|tiktok: day}` (the last three G232), on by default since 2026-10-26 on the same terms, offs in `saved_lists_off` — refused without a current acknowledgement;
 `PUT /reading/settings` `savedLists` patch, the Sources page's switch; `GET /reading/settings` carries `savedLists`
 and `saved` — per site the last read, its outcome, item count and pause, plus `readsToday`/`dailyReads`). Like a YouTube
 list it is a **standing ask for exactly that page**, never a site grant: it lets no other page of the site be recorded.
@@ -635,6 +635,21 @@ a post an archive, a connector or a pasted link already saved is a duplicate; th
 for. The post's words become the title (≤ 80) and description (≤ 500), scrubbed; they are the post's, never the
 person's (no `note`). Committed alone as the harness with its session trailer. **Not built:** a post unsaved on the site
 stays saved here (the read only adds); the app's switch (spec in `app.md`, "Saved lists in your browser").
+
+**Reddit, Pinterest and TikTok join (G232, owner 2026-11-04: "offer the website connection through browser harness,
+just like a toggle switch").** Three more `saved_lists.PLATFORMS`, after LinkedIn in the offer's order, on the same
+terms, bound and tool: **Reddit** Saved (`https://www.reddit.com/user/me/saved/`, `reddit-saved` / `Saved posts` — the
+export's own folder; an item must be `/r/<sub>/comments/<id>[/<slug>[/<comment>]]` on reddit.com, saved at
+`www.reddit.com` with `old.reddit.com` and the bare host as aliases), **Pinterest** Saved Pins (reached from
+`https://www.pinterest.com/` through the person's profile, `pinterest-saved` / `Saved` — a new list origin in
+`history_index.LIST_ORIGINS`; `/pin/<id>/` on pinterest.com or a country host, saved at `www.pinterest.com`) and
+**TikTok** Favorites (reached from `https://www.tiktok.com/` through the profile's Favorites tab, `tiktok-saved` /
+`Favorites` — the export's; `/@<user>/video|photo/<id>`, with the export's `tiktokv.com/share/video/<id>/` as an alias,
+so a favourite the export brought in is the same row). `reading.json`'s `saved_lists` takes the three keys;
+`list_defaults` turns one on for an account the memory already shows (an export, a connector sync or an earlier read:
+`reddit-saved`; `pinterest` or `pinterest-saved`; `tiktok-saved` or `tiktok-history`), never over a recorded off.
+**Spotify has no browser list:** its User Guidelines bar "crawling" or "scraping … by automated means" and "ingesting
+Spotify Content into a machine learning or AI model" (`ways_in.SPOTIFY_TERMS`, `network.md`, "Ways in, per source").
 
 **A walled post's title (2026-10-22).** The backend never fetches an X, Instagram or LinkedIn post (R-RW4), so a saved
 one is titled from its URL alone (`media_ingestor._walled_post_title`): "Post by @<user>" for an X status (before, its

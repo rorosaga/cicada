@@ -54,12 +54,15 @@ LISTENING_PREFIX = "listening-history:"
 #: G206, a saved list on X, Instagram or LinkedIn — ``saved_lists``, which files X under the archive's ``Bookmarks``).
 #: G230: GitHub's own lists, read with the person's token — the repositories they starred (a save each) and the ones
 #: they own (a record GitHub keeps, offered as a project, never the person's words).
+#: G232: Pinterest's saved pins, read by the person's agent in their browser.
 LIST_ORIGINS = frozenset({"youtube-playlist", "instagram-saved", "tiktok-saved", "x-likes", "linkedin-saved",
-                          "spotify-saved", "github-starred", "github-owned"})
+                          "spotify-saved", "github-starred", "github-owned", "pinterest-saved"})
 #: Origins a connector shares with an export: the export's rows are told apart by the folder its reader names
 #: (the Reddit connector files under ``r/<sub>``, the X connector under no folder).
 LIST_FOLDERS: dict[str, frozenset[str]] = {
-    "reddit-saved": frozenset({"Saved posts", "Saved comments"}),
+    # G232: an upvote (a like) and a joined community (a follow), from the connector or the export, are index-only
+    # like Instagram's likes; a connector save (``r/<sub>``) is still a connector poll Sleep reads (ruling 30).
+    "reddit-saved": frozenset({"Saved posts", "Saved comments", "Upvoted", "Joined communities"}),
     "x-bookmarks": frozenset({"Bookmarks"}),
 }
 #: Frontmatter flag on a list save that carries the person's own note or reason: their words are read by Sleep.
