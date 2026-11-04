@@ -743,16 +743,27 @@ def cmd_sleep_options(boot, args) -> Result:
         changes["continueAfterReset"] = _on_off(args.continue_after_reset)
     if args.reserve is not None:
         changes["reservePct"] = None if args.reserve.strip().lower() == "off" else _int(args.reserve, "--reserve")
+    if args.spend_limit is not None:
+        changes["spendLimitUsd"] = None if args.spend_limit.strip().lower() == "off" else _usd(args.spend_limit, "--spend-limit")
     if changes:
         require_person("Changing how Sleep reads")
         opts = call(boot, "PUT", "/sleep/run-options", body=changes)
     else:
         opts = call(boot, "GET", "/sleep/run-options")
     reserve = opts.get("reservePct")
+    spend = opts.get("spendLimitUsd")
     text = (f"Batch size {opts.get('batchSize')}; continue after a plan reset: "
             f"{'on' if opts.get('continueAfterReset') else 'off'}; reserve: "
-            f"{'off' if reserve is None else str(reserve) + '%'}")
+            f"{'off' if reserve is None else str(reserve) + '%'}; a key's spending limit: "
+            f"{'off' if spend is None else f'${spend:g} a run'}")
     return Result(text=text, data=opts, warnings=_warn(boot))
+
+
+def _usd(raw: str, flag: str) -> float:
+    try:
+        return float(raw.strip().lstrip("$"))
+    except ValueError:
+        raise UsageError(f"{flag} takes a dollar figure or off") from None
 
 
 def _int(raw: str, flag: str) -> int:

@@ -2805,7 +2805,7 @@ point, drop a batch that has not begun filing), so its caption and tooltip say w
 row (only when it took more than one batch or something waits), a "Paused at your plan's limit" row carrying the vendor's whole
 sentence, a drain-aware cancel text, and no "Episode cap reached" row for a drain. Home's Getting started says "Keep reading"
 after an early stop (`FirstReadAction.keepReading`) and "Your memory has N pages now." after a full drain. Since ruling 16 the lamp's popover and the engine menu's Scheduled row say a scheduled run reads everything waiting too
-(`Copy.scheduledReadsAll`), with how it spends in words from `preview.scheduled.billing` ("charged per use; Cicada sets no limit", "on this
+(`Copy.scheduledReadsAll`), with how it spends in words from `preview.scheduled.billing` ("charged per use; the spending limit is in the engine menu", "on this
 Mac") — never a provider's name.
 **The study room's scenery (G176, owner 2026-10-02).** `Scenery.resolve(mode:clock:forecast:mood:manual:)` is pure:
 base weather · `SkyPhase` · optional overlay · effective source. The worm still means Sleep at any hour/in any weather.
@@ -2950,7 +2950,7 @@ and Saved hide at a count of zero (`SleepTab.visible(waitingHasRows:saved:export
 parked conversation, a run's block or an unreadable queue, never for the "your own page" note alone; Saved stays while
 an export is being waited on, because `ExportWaitStrip` heads it, R-IB22), so a fresh page opens on Past reads. *Options…* (`ReadingOptionsSheet`, 720 pt) sets batch size
 10/25/50 and *Continue by itself when my plan resets* (off) on change; it has no Read faster row, no engine advice and no site list. The engine
-menu's *Keep plan free* (Off or 5–30 % of the window, plan engines only, a line not a guarantee, an unreported window said so) is one of ruling
+menu's *Stop a run at* (ROR-102: one line for a run charged per use, Off or a dollar figure, suggested $5; its help says how far past a run can go and what the limit does not cover; DR-81, ruling 12's home for the figure) and *Keep plan free* (Off or 5–30 % of the window, plan engines only, a line not a guarantee, an unreported window said so) is one of ruling
 12's two homes; the page's lists are the other (Past reads and Waiting, Details until 2026-10-16): Last cycle's run rows (`LastCycleRow.runRows`, merged over the pre-v5 drain rows), per-source counts and
 per-conversation rows from `GET /sleep/queue` (refetched when the run's counts move, never per tick) with Retry for a parked one — offered only while no run reads or waits paused, since the
 server refuses it then (`LastCycleRow.canRetryParked`) — a scheduled run's spend note billed from the run's own usage, never today's preview, and Past nights

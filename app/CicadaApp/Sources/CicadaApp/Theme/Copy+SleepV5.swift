@@ -237,7 +237,7 @@ extension Copy {
         /// `scheduledSpend` stands alone in the engine menu.
         static func scheduledSpendClause(_ billing: String?) -> String? {
             switch billing {
-            case "charged": "Charged per use; Cicada sets no limit."
+            case "charged": "Charged per use; the spending limit is in the engine menu."
             case "local": "It stays on this Mac."
             default: nil
             }
@@ -251,6 +251,13 @@ extension Copy {
 
         static let keepPlanFree = "Keep plan free"
         static let off = "Off"
+        static let spendLimit = "Stop a run at"
+        static func spendChoice(_ usd: Double) -> String {
+            usd == usd.rounded() ? "$\(Int(usd))" : "$" + String(format: "%.2f", usd)
+        }
+        static let spendHelp =
+            "A run stops reading here and files what it read, so it can pass this by about one read plus that filing. Only Sleep runs count: Ask, the quick read after a chat, inbox tidying, repairs and your clicks aren't limited, and a scheduled run that was interrupted starts over with a fresh allowance. A model with no known price stops the run."
+        static let keyLimitTail = "Stopped at your API key's limit — details in Past reads."
         static func reserveChoice(_ pct: Int) -> String { "\(pct)% of the window" }
         static func reserveValue(_ pct: Int, windows: [String]) -> String {
             guard !windows.isEmpty else { return "\(pct)% of each window it reports" }
@@ -264,7 +271,7 @@ extension Copy {
         /// How a scheduled run spends (ruling 16), from `preview.scheduled.billing` — never a provider name.
         static func scheduledSpend(_ billing: String?) -> String? {
             switch billing {
-            case "charged": "It reads everything waiting and is charged per use; Cicada sets no limit."
+            case "charged": "It reads everything waiting and is charged per use, up to the spending limit here."
             case "local": "It reads everything waiting, on this Mac."
             default: nil
             }
@@ -298,7 +305,7 @@ extension Copy {
         }
         static func scheduledRunNote(_ billing: String?) -> String? {
             guard billing == "charged" else { return nil }
-            return "This run started on its schedule. It spends until the queue is empty; Cicada sets no limit."
+            return "This run started on its schedule. It spends until the queue is empty or it reaches your spending limit."
         }
         static func ownerBeliefsTitle(_ n: Int, _ locale: Locale = .autoupdatingCurrent) -> String {
             "Your page has \(count(n, locale)) \(n == 1 ? "belief" : "beliefs")"
@@ -329,6 +336,8 @@ extension Copy {
             case "user": "Paused by you"
             case "reserve": "Paused to leave room in your plan"
             case "plan_window", "plan_weekly", "overage": "Paused at your plan's limit"
+            case "key_limit": "Paused at your API key's limit"
+            case "spend": "Paused at your spending limit"
             case "plan_back": planBackLead
             case "engine": "Paused — the engine stopped"
             case "offline": "Paused — this Mac was offline"
@@ -417,6 +426,8 @@ extension Copy {
             case "user": "you paused it"
             case "reserve": "to leave room in your plan"
             case "plan_window", "plan_weekly", "overage": "the plan's limit"
+            case "key_limit": "the API key's limit"
+            case "spend": "your spending limit"
             case "engine": "the engine stopped"
             case "offline": "this Mac was offline"
             case "connection": "the connection kept dropping"
@@ -469,7 +480,8 @@ extension Copy {
         SleepV5.ownerReadyTitle, SleepV5.parkedTitle, SleepV5.readingAll, SleepV5.batchesTitle,
         SleepV5.pagesItTouched, SleepV5.whatHappened, SleepV5.took, SleepV5.calls, SleepV5.window,
         SleepV5.continueOnSleepPage, SleepV5.stagesLabel, SleepV5.filingLead, SleepV5.pausingLead,
-        SleepV5.pausedLead, SleepV5.pausedTitle("reserve"), SleepV5.pausedTitle("user"),
+        SleepV5.pausedLead, SleepV5.pausedTitle("reserve"), SleepV5.pausedTitle("user"), SleepV5.spendLimit,
+        SleepV5.pausedTitle("key_limit"), SleepV5.pausedTitle("spend"),
         SleepV5.pausedTitle("plan_window"), SleepV5.pausedTitle("plan_back"), SleepV5.pausedTitle("engine"), SleepV5.pausedTitle("restart"),
         SleepV5.pausedTitle("offline"), SleepV5.pausedTitle("connection"), SleepV5.consolidateAll(287), SleepV5.pausedMenuTitle(filed: 98, frozen: 287), SleepV5.pausedMenuPlain,
         SleepV5.scheduledRunTitle, SleepV5.retryAfterRun,

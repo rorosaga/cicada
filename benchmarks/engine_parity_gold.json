@@ -1,0 +1,14 @@
+[
+  {"about": "alpha-project", "says": ["theta-tool"], "why": "the last decision, after the switch"},
+  {"about": "alpha-project", "says": ["sqlite-tool"], "why": "the earlier tool, current or as history"},
+  {"about": "alpha-project", "says": ["primary-machine"], "why": "where it runs"},
+  {"about": "alpha-project", "says": ["bob-example"], "why": "who signed off"},
+  {"about": "beta-project", "says": ["gamma-theory"], "why": "what it uses"},
+  {"about": "beta-project", "says": ["carol-example"], "why": "who reviews it"},
+  {"about": "beta-project", "says": ["12"], "why": "the measured result"},
+  {"about": "beta-project", "says": ["delta-conference"], "why": "the talk it feeds"},
+  {"about": "carol-example", "says": ["epsilon-lab"], "why": "where she is going"},
+  {"about": "zeta-race", "says": ["14", "september"], "why": "the date of the race, in the person's words"},
+  {"about": "zeta-race", "says": ["10k"], "why": "the distance"},
+  {"about": "kappa-method", "says": ["ranking"], "why": "a saved article's point, if it got a page or a claim"}
+]

@@ -308,8 +308,8 @@ ROWS: tuple[Row, ...] = (
          (_f("mode"), _f("at"), _f("every", "int"), _f("use_plan")), via="backend", mutates=True, person=True),
     _app(("sleep", "engine"), "Which engine and model Sleep reads with; --mode and --model change it.",
          (_f("mode"), _f("model")), via="backend", mutates=True, person=True),
-    _app(("sleep", "options"), "How Sleep reads: batch size, continue after a plan reset, the reserve.",
-         (_f("batch_size", "int"), _f("continue_after_reset"), _f("reserve")), via="backend", mutates=True,
+    _app(("sleep", "options"), "How Sleep reads: batch size, continue after a plan reset, the reserve, a key's spending limit.",
+         (_f("batch_size", "int"), _f("continue_after_reset"), _f("reserve"), _f("spend_limit")), via="backend", mutates=True,
          person=True),
     _app(("sleep", "history"), "Past Sleep runs, newest first.", (_f("limit", "int"),)),
     # The search index and model.

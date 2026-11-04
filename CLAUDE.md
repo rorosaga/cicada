@@ -249,7 +249,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   ruling 62), so a stop loses at most the batch in progress. Decay and the
   page reads run once per drain. A plan limit is a pause, not a failure. **Ruling 4: a scheduled run uses a Claude or ChatGPT plan only
   through the person's "Scheduled runs may use my plan" switch, on unless they turned it off** (4b 2026-10-16, 4c
-  2026-10-19; `SUBSCRIPTION_MODES` the one guard); on a metered engine it spends with no limit Cicada sets, said in words.
+  2026-10-19; `SUBSCRIPTION_MODES` the one guard); on a metered engine it spends up to the person's spending limit, suggested $5 a run, then pauses in words (ROR-102, ruling 63 (g), `sleep_spend`); a model with no known price stops the run.
   **Plan-first engines (ruling 31, 2026-10-19):** the default is Auto — Claude plan, ChatGPT plan — and never
   a metered key nobody chose: no engine is said in words, and a key (OpenRouter included) reads only when chosen.
   **Ruling 36 D1 (owner, 2026-10-22):** with nothing chosen, Auto uses a signed-in plan (Claude Code, then Codex) and
@@ -258,6 +258,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   only), headless with no tools or MCP context, on their own sign-in; a key-billed path is refused or stops the run (`cli_engines`).
   **Ruling 46 (owner, 2026-10-28):** Auto is Claude plan → ChatGPT plan → Cursor → OpenCode (subscription model only), each
   read from cached status, an unknown or hung tool skipped in words, never a stall; Grok never on Auto (`capture-and-sleep.md`).
+  **Ruling 63 (owner 2026-11-04):** a key whose provider has an official SDK row (`direct_engines`: Claude today) is served by that
+  SDK behind the plan's own seam, every other key by LiteLLM; a Claude key's list, tiers and prices keep current without a release,
+  a retired id moves forward in words, a key's limit is a pause that never says the person's plan (`capture-and-sleep.md`, "A Claude key").
   **46a (owner 2026-10-28):** Auto and schedules run Cursor only on Cursor's own models; a third-party one there is labelled "billed separately at list price", never auto-picked. Continue-after-reset is opt-in,
   off (ruling 15). A scheduled time the Mac slept or was off through runs once, after a short settle, as a scheduled
   run — never over a pause or a running cycle (`sleep_catch_up`, owner 2026-10-19, `features.md`).
