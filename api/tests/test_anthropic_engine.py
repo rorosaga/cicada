@@ -219,6 +219,13 @@ def test_every_refusal_is_a_class_above_understands_and_says_nothing_of_the_prov
     assert body["error"]["message"] not in str(caught.value)   # the provider's raw text never reaches the wire
 
 
+def test_an_overload_inside_an_open_stream_is_the_overload_not_a_refused_request(monkeypatch):
+    stub = StubAnthropic(stream_error=error_body("overloaded_error", "Overloaded"))
+    stub.install(monkeypatch)
+    with pytest.raises(engine_errors.EngineThrottled, match="overloaded"):
+        _fn()(messages=_msgs())
+
+
 def test_a_429_trips_the_breaker_once_and_every_later_call_fails_before_anything_is_sent(monkeypatch):
     stub = StubAnthropic(fail=[(429, error_body("rate_limit_error", "slow down"), {"retry-after": "600"})])
     stub.install(monkeypatch)

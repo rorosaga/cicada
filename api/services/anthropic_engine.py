@@ -174,6 +174,9 @@ NO_ANSWER = "The provider finished without an answer."
 MODEL_REFUSED = "The model declined to read this conversation."
 
 
+_STREAM_ERRORS = {"overloaded_error": 529, "rate_limit_error": 429, "api_error": 500, "timeout_error": 504}
+
+
 def _resets_at(exc) -> int | None:
     """The provider's own reset time from its headers, when it sent one. Measured, never estimated."""
     headers = getattr(getattr(exc, "response", None), "headers", None)
@@ -219,6 +222,10 @@ def _translate(exc: Exception) -> engine_errors.EngineError:
     import anthropic
 
     status = getattr(exc, "status_code", None)
+    # An error inside an open stream arrives with the stream's own 200: its body says what it really was.
+    body = getattr(exc, "body", None)
+    kind = (body.get("error") or {}).get("type") if isinstance(body, dict) else None
+    status = _STREAM_ERRORS.get(kind, status) if status == 200 or status is None else status
     logger.warning(f"Claude API call failed: {type(exc).__name__} status={status} "
                    f"request={getattr(exc, 'request_id', None)}")
     if isinstance(exc, anthropic.APITimeoutError):

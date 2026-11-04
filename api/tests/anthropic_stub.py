@@ -95,6 +95,7 @@ class StubAnthropic:
     stop_details: dict | None = None
     search_blocks: list | None = None
     refused_models: set = field(default_factory=set)
+    stream_error: dict | None = None
     requests: list = field(default_factory=list)
     headers_seen: list = field(default_factory=list)
     _readable: set = field(default_factory=set)
@@ -112,6 +113,10 @@ class StubAnthropic:
         if failure is not None:
             status, payload, headers = failure
             return httpx2.Response(status, json=payload, headers=headers)
+        if self.stream_error is not None:
+            payload, self.stream_error = self.stream_error, None
+            return httpx2.Response(200, headers={"content-type": "text/event-stream"},
+                                   content=_sse([{"type": "ping"}, {"type": "error", "error": payload["error"]}]))
         if body["model"] in self.refused_models:
             return httpx2.Response(404, json={"type": "error", "error": {
                 "type": "not_found_error", "message": f"model: {body['model']}"}})
