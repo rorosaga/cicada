@@ -18,7 +18,7 @@
   accounts by real provider with their own marks → folders/calendars/lists → items, one search, the Reader as the item
   view; Contacts as faces (photo, else monogram); recorders as recorder → folder → meetings (day · length). Backend:
   `GET /sources/channels/{id}/collections`, `items?collection=`, Notes' account beside the dump (`noteAccounts`), the
-  calendars and lists each sync named kept in `sync_state`. Root causes fixed as classes: Contacts read Off until a
+  calendars and lists holding an item kept in `sync_state`. Root causes fixed as classes: Contacts read Off until a
   sync (the catalogue needed the bank's recorded sync, not the reader's own switch — every reader this Mac runs now
   reads Connected while allowed and on); Wispr Flow's bundled mark was never claimed; app removal was read from its
   database, which outlives the app (now LaunchServices, *Off · not installed*); Hex's folder posted every file twice
