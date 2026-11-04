@@ -36,7 +36,12 @@
   104–124 MB/s against TCP's 660–1,100 MB/s, about nine times the CPU per byte; 44–55 MB/s through a 1 % lossy path;
   idle with a watch held 0.03–0.07 s of door CPU per 120 s (TCP 0.08); after a network switch the copy caught up in
   436–650 ms over 6.6–7.6 KB (a full copy ~30 KB), the request in flight moved to the found door in its own session;
-  the phone's captures 11–13 ms, queued ones 29–53 ms, once each. Three-machine and phone tests 3/3.
+  the phone's captures 11–13 ms, queued ones 29–53 ms, once each. Three-machine and phone tests 3/3. **Security
+  review of #590 (2026-11-04), one blocker fixed:** the channel's reassembly kept overlapping out-of-order pieces
+  without bound (a paired device's 20,000 overlapping 1.1 KB pieces held 22 MB, linear, ~8.6 GiB a session at worst);
+  now a piece is kept only if it overlaps none held and the held bytes stay within the window, a piece the read point
+  passed is cut, and one device holds at most 16 UDP sessions (its own oldest ends past that). The same flood now
+  holds 20.9 KB.
 - **2026-11-03 — GitHub connects with a code; your repositories are pages; a project lists its repositories (ruling
   53, G230; branch `feat/g230-oauth-sync`).** Owner: "why are you asking for a token for github? cant we just do oauth?"
   and "always sync and make their initial markdowns … a project might reference several repos". Connect GitHub shows
@@ -48,6 +53,9 @@
   `cicada_repo_context` list them. **Owner's step (once):** register the app from `github_auth.register_url()` (the
   link in `network.md`, "Connecting GitHub"), tick "Enable Device Flow", and put its client id and slug in
   `github_auth.CLIENT_ID` / `APP_SLUG`; until then the token is the fallback behind "Use a token instead".
+  **Done 2026-11-04:** the app is registered (`github.com/apps/cicada-memory`, Device Flow on, no secret or key) and
+  its client id and slug ship in `github_auth`; a real device-code request returned a code. **Owner's step left:** make
+  the app public on GitHub, or only the owner's account can install it.
 - **2026-11-03 — routes, not a relay (ruling 51f, G132 phase 3b slice 1; branch `feat/g132-routes`, #586 (includes
   #572's one-transport work)).** Owner: "yes i think we should copy t3 code … if we can make it all run nicely and for free awesome"; the
   phone, for now, a capture device. Each device's ordered route list (the home's door on the LAN → on a tailnet if
@@ -2942,7 +2950,8 @@ A whole row moves to DONE only after its remaining implementation and required a
     on the person's account to see their repositories (GitHub: "The app can only access resources in an account where
     it is installed"); stars need no install. Until the owner registers the app (one link,
     `github_auth.register_url()`, plus "Enable Device Flow"), the pasted token stays as a fallback behind "Use a token
-    instead", never the default. **Repositories:** every repository the person owns gets a `media` page
+    instead", never the default (registered 2026-11-04: the build ships its client id; the fallback stays behind its
+    disclosure). **Repositories:** every repository the person owns gets a `media` page
     (`media.kind: repository`, `github.owned: true`) on each sync, with a first markdown — description, a summary from
     its README (read once, when the page is born), link, language, topics — that Sleep develops like any page; never by
     hand: the paste-a-link add and every per-row "Add" are removed (no strong reason to keep one for anyone else's: a

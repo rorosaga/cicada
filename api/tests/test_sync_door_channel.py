@@ -169,3 +169,52 @@ def test_an_ack_naming_packets_never_sent_costs_nothing():
         a.receive(p, 0.03)
     assert time.monotonic() - started < 0.5 and a.backlog() == 0
     assert struct.calcsize(">QQ") == 16
+
+
+def _forged(sender: ch.Channel, off: int, piece: bytes) -> bytes:
+    """A DATA packet at any offset, sealed by an authentic (but misbehaving) peer."""
+    import struct
+
+    payload = bytes([ch.C_DATA]) + struct.pack(">QH", off, len(piece)) + piece
+    pn = sender.pn
+    sender.pn += 1
+    header = bytes([ch.DATA_T]) + sender.sid + struct.pack(">Q", pn)
+    return header + sender.tx.encrypt(b"\0\0\0\0" + header[1 + ch.SID_LEN:], payload, header)
+
+
+def test_an_overlapping_offset_flood_holds_no_more_than_the_window():
+    """Security review of #590: a paired device sending ~1.1 KB pieces at offsets 1, 2, 3 … (each overlapping the
+    last, none in order) made the door hold 22 MB from 20,000 packets, growing without bound. Held bytes now stay
+    within the window, an overlapping piece is dropped, and the honest stream still arrives once offset 0 comes."""
+    b, evil = _pair()
+    piece = b"x" * 1100
+    for i in range(20_000):
+        assert b.receive(_forged(evil, 1 + i, piece), 0.001 * i)
+    assert b.segment_bytes <= ch.RECV_WINDOW
+    # Only the pieces that overlap none already held were kept: offsets 1, 1101, 2201 … (19 of 20,000).
+    assert len(b.segments) == len(b.starts) == 19 and b.segment_bytes == 19 * len(piece)
+    assert sum(len(v) for v in b.segments.values()) == b.segment_bytes
+    # The read point reaches them: each is taken whole, nothing is left behind the read point.
+    assert b.receive(_forged(evil, 0, b"y"), 21.0)
+    assert bytes(b.readable) == b"y" + piece * 19 and b.segments == {} and b.starts == [] and b.segment_bytes == 0
+
+
+def test_disjoint_pieces_too_many_for_the_window_are_refused_past_it():
+    b, evil = _pair()
+    piece = b"z" * 1100
+    off, sent = 1, 0
+    while off + len(piece) <= b.advertised:
+        b.receive(_forged(evil, off, piece), 0.0)
+        off += len(piece) + 1                              # a one-byte hole between each: disjoint, never readable
+        sent += len(piece)
+    assert sent > 0 and b.segment_bytes <= ch.RECV_WINDOW
+
+
+def test_a_piece_the_read_point_passed_is_cut_never_left_behind():
+    b, evil = _pair()
+    assert b.receive(_forged(evil, 100, bytes(range(100, 200))), 0.0)        # held: [100, 200)
+    assert b.receive(_forged(evil, 0, bytes(range(0, 150))), 0.1)            # in order, reaching past 100
+    assert bytes(b.readable) == bytes(range(0, 150)) + bytes(range(150, 200))
+    assert b.recv_off == 200 and b.segments == {} and b.starts == [] and b.segment_bytes == 0
+    assert b.receive(_forged(evil, 120, b"late"), 0.2) and b.segments == {}  # behind the read point: nothing kept
+

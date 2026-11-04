@@ -196,6 +196,7 @@ class Door:
             self._remember(digest, (None, None))
             return
         device, keys, reply = opened
+        self._make_room(device)
         sid = channel.session_id(hello)
         link = UdpLink(self, sid, keys, ep, addr, device)
         link.reply = reply
@@ -204,6 +205,16 @@ class Door:
         self._remember(digest, (link, (ep, addr)))
         with contextlib.suppress(OSError):
             ep.transport.sendto(channel.reply_datagram(sid, reply), addr)
+
+    def _make_room(self, device) -> None:
+        """At most :data:`sync_door.MAX_SESSIONS_PER_DEVICE` sessions per proven device (pairing sessions count as one
+        device): past it, that device's least recently heard session ends — its own, never another device's."""
+        mine = [link for link in self.sessions.values()
+                if not link.ended and link.device.device_id == device.device_id and link.device.kind == device.kind]
+        mine.sort(key=lambda link: link.ch.last_recv)
+        while len(mine) >= sync_door.MAX_SESSIONS_PER_DEVICE:
+            self.server.counts["evicted"] += 1
+            mine.pop(0).abort()
 
     def close_all(self) -> None:
         for link in list(self.sessions.values()):

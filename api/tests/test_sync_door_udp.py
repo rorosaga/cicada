@@ -138,3 +138,16 @@ def test_a_watch_keeps_its_nat_and_notices_a_gone_path_after_a_network_change(ud
     finally:
         stop.set()
         wire.stop()
+
+
+def test_one_device_holds_a_bounded_number_of_sessions_and_is_never_locked_out(udp_door, monkeypatch):
+    """Security review of #590: each session holds at most a window, so a device's sessions are capped; past the cap
+    its own least recently heard session ends, never another device's, and the newest still works."""
+    server, target, ident = udp_door
+    monkeypatch.setattr(sync_door, "MAX_SESSIONS_PER_DEVICE", 4)
+    monkeypatch.setattr(sync_door, "BUCKET", 10 ** 6)
+    conns = [sync_door.connect("127.0.0.1", server.port, target, ident) for _ in range(7)]
+    assert len(server.udp.sessions) <= 4 and server.counts["evicted"] >= 3
+    assert sync_door.call(conns[-1], "GET", "/x")[0] == 201
+    for c in conns:
+        c.close()

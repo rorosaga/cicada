@@ -1774,8 +1774,8 @@ agent reads (`agent_methods`), not an install.
   `Deps` injected) → connected by code but not installed, *Install on GitHub* (the app's install page) and *I installed
   it* (asks again, then syncs at once) → *Connected* (or, once GitHub refuses to renew the sign-in, *GitHub signed Cicada out* with *Reconnect*) with Refresh and Disconnect (which says the grant on GitHub is
   removed there). `GitHubConnectStep.from` decides the step from the backend's answer alone. The token
-  (`ConnectorSetupPanel`) is only behind *Use a token instead* — the fallback while the build's app is not registered,
-  never the default. Under it **`GitHubReposSection`**: *Your repositories* in their own scroll, each row's name and
+  (`ConnectorSetupPanel`) is only behind *Use a token instead* — the fallback only where the build's client id is blank
+  (the shipped build names Cicada's registered app, 2026-11-04), never the default. Under it **`GitHubReposSection`**: *Your repositories* in their own scroll, each row's name and
   "Private · Python · …", *In <project>* (a `TextButton` to each of at most two projects it belongs to, "+N" after) and
   *Open* (its page, made on sync). There is no add field and no per-row Add any more (owner 2026-11-03: "there
   shouldn't be added manually, always sync"): linking a repository to a project happens on either page. *Starred*

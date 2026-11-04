@@ -100,6 +100,10 @@ REFILL_S = 2.0
 FAILED_COST = 3
 MAX_PENDING = 32
 MAX_SESSIONS = 128
+#: One proven device's own open UDP sessions; a new one past this ends that device's least recently heard one, so a
+#: device's memory at the door is bounded (each session holds at most a receive window and a send backlog) and a device
+#: that left sessions behind is never locked out (security review of #590).
+MAX_SESSIONS_PER_DEVICE = 16
 REPLAY_KEEP = 4096
 WATCH_POLL_S = 0.5
 DOOR_FILE = "door.json"
@@ -768,7 +772,8 @@ class Server:
         self.sessions = 0
         self.watchers: set[asyncio.Queue] = set()
         self.watch_task: asyncio.Task | None = None
-        self.counts = {"accepted": 0, "dropped": 0, "refusedPeer": 0, "limited": 0, "requests": 0, "roamed": 0}
+        self.counts = {"accepted": 0, "dropped": 0, "refusedPeer": 0, "limited": 0, "requests": 0, "roamed": 0,
+                       "evicted": 0}
         self.by_route: dict[str, float] = {}
         #: How each device last reached this door (``agent_seen.HOW``), so a request it sends is stamped the same way.
         self.how_of: dict[str, str] = {}

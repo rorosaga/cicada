@@ -502,15 +502,21 @@ the app cannot see it, so it replaces nothing: no record is tombstoned for it, a
 Installed on *selected* repositories, one left out of the selection is out of sight, not deleted: never tombstoned,
 and the sync says how many "aren't shared with Cicada on GitHub".
 
-*The owner's one step (registering the app).* Open the link `github_auth.register_url()` prints — GitHub's *Register
+*The app (registered 2026-11-04).* Cicada's GitHub App is `github.com/apps/cicada-memory`; its public client id
+ships in `github_auth.CLIENT_ID` and its slug in `APP_SLUG` (`CICADA_GITHUB_CLIENT_ID` / `CICADA_GITHUB_APP_SLUG`
+override them — a test, a developer build, a fork with its own app; a blank override falls back to the shipped id). It
+asks for exactly the manifest's permissions — Repository *Contents* and *Metadata* read, Account *Starring* read — with
+Device Flow on; no client secret and no private key were made, and the numeric app id is not used anywhere. Until its
+owner makes it public on GitHub only that account can install it (the install page refuses everyone else). Only a
+build whose client id is blank says *Connect GitHub* is not set up and falls back to the token field.
+
+*Registering an app (done once for Cicada's own; kept for a fork).* Open the link `github_auth.register_url()` prints — GitHub's *Register
 new GitHub App* form, pre-filled by URL parameters: name *Cicada Memory*, homepage, public, webhook off, Metadata /
 Contents / Starring read. GitHub's App Manifest flow carries the same manifest (`github_auth.MANIFEST`) but must be a
 POST form and needs a page of Cicada's to receive its code, so the link is the one click; neither can turn on the
 device flow. Then: **Create GitHub App** → on the app's settings page tick **Enable Device Flow** → Save → copy the
 **Client ID** and the app's slug (its public page is `github.com/apps/<slug>`) into `github_auth.CLIENT_ID` and
-`APP_SLUG` (`CICADA_GITHUB_CLIENT_ID` / `CICADA_GITHUB_APP_SLUG` override them for a developer build). There is no
-secret to make or ship; the private key GitHub offers is never needed. Until then *Connect GitHub* says it is not set
-up in this build and the token field is the fallback behind "Use a token instead".
+`APP_SLUG`. There is no secret to make or ship; the private key GitHub offers is never needed.
 
 **47a amended — one-to-one chats only, each with the other person's consent (owner, 2026-10-28).** Telegram's terms, read the same day: API Terms §1.5 — "you are prohibited from using, accessing or aggregating data obtained from the Telegram platform to train … or otherwise engage in the development, enhancement or deployment of artificial intelligence, machine learning models" — and telegram.org/tos/content-licensing, "Large Language Models and AI": "Telegram firmly prohibits the scraping, indexing, harvesting, aggregation or use of data obtained from its platform to train, fine-tune, validate or otherwise engage in the development, enhancement, benchmarking or deployment of artificial intelligence, machine learning models and similar technologies. Exceptions may be granted in instances where all relevant users individually provide explicit, informed, affirmative and continued consent that is strictly limited to the specific content and chat, channel, or non-global context window for which it was requested." Sleep reads a sitting with a model, so the owner chose "1:1 with consent": group chats and channels are never offered and the backend refuses them; ticking a one-to-one chat needs the person to confirm, per chat and in plain words, that the other person agreed — explicitly, knowing what it means, for that chat only — said to be the person's responsibility, which Cicada cannot verify; the confirmation is kept with its date outside every bank (`$CICADA_HOME/telegram/consents.json`, 0600, a chat id and a time); unticking withdraws it and stops the reading. **Revisit** if Telegram grants Cicada an exception or changes those terms.
 
@@ -778,7 +784,12 @@ never a bank path**. The backend's HTTP API still binds `127.0.0.1`.
   answers version-negotiation and retry on its own, becomes reachable by anyone on the LAN who forges a gated
   5-tuple; it would be a second handshake beside ours, a new dependency tree with a C extension in the release, and
   the phone's Network framework cannot put our hello on the same flow before its own QUIC. Here the pre-auth surface
-  stays the hello alone; a reliability bug can stall a session, never admit a stranger.
+  stays the hello alone; a reliability bug can stall a session, never admit a stranger. **Memory is bounded per
+  session and per device** (security review of #590): a stream piece ahead of the read point is kept only if it
+  overlaps no piece already held and the held bytes stay within the 8 MiB window — our own sender never overlaps, a
+  retransmission carrying the same bytes at the same offset — and a piece the read point passes is cut, never left
+  behind; one proven device holds at most 16 UDP sessions, a new one past that ending its own least recently heard
+  (never locked out, never another device's).
 - **Sessions follow the device** (WireGuard's roaming). A session is its id, never an address: the door answers where
   the last *authenticated* packet came from, so a new source port (a NAT rebinding), a new network or another of the
   home's addresses goes on in the same session — no second handshake, nothing re-paired — and what waited is sent

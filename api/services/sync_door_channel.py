@@ -31,6 +31,7 @@ acked, the channel uses it.
 """
 from __future__ import annotations
 
+import bisect
 import hashlib
 import struct
 from collections import OrderedDict, deque
@@ -182,6 +183,7 @@ class Channel:
         # receiving
         self.recv_off = 0
         self.segments: dict[int, bytes] = {}
+        self.starts: list[int] = []                # the held pieces' offsets, sorted (none overlap)
         self.segment_bytes = 0
         self.readable = bytearray()
         self.consumed = 0
@@ -327,6 +329,12 @@ class Channel:
         return eliciting
 
     def _data(self, off: int, piece: bytes) -> None:
+        """One stream piece. **Held memory is bounded by the window** (security review of #590): a piece ahead of
+        what was read is kept only if it overlaps no piece already held and the held bytes stay within
+        :data:`RECV_WINDOW`; anything else is dropped (its sender's retransmission brings it again). Our own sender
+        never overlaps — a retransmission carries the same bytes at the same offset — so only a misbehaving peer is
+        refused. Disjoint pieces inside ``[recv_off, advertised)`` cannot exceed the window anyway; the byte check is
+        the second wall."""
         end = off + len(piece)
         if end <= self.recv_off:
             return                                          # already had it
@@ -335,17 +343,38 @@ class Channel:
         if off < self.recv_off:
             piece, off = piece[self.recv_off - off:], self.recv_off
         if off > self.recv_off:
-            if off not in self.segments:
-                self.segments[off] = piece
-                self.segment_bytes += len(piece)
+            if self.segment_bytes + len(piece) > RECV_WINDOW or self._overlaps(off, off + len(piece)):
+                self.counts["dropped"] += 1
+                return
+            bisect.insort(self.starts, off)
+            self.segments[off] = piece
+            self.segment_bytes += len(piece)
             return
         self.readable += piece
         self.recv_off += len(piece)
-        while self.recv_off in self.segments:
-            nxt = self.segments.pop(self.recv_off)
-            self.segment_bytes -= len(nxt)
-            self.readable += nxt
-            self.recv_off += len(nxt)
+        self._drain()
+
+    def _overlaps(self, start: int, end: int) -> bool:
+        i = bisect.bisect_left(self.starts, start)
+        if i < len(self.starts) and self.starts[i] < end:
+            return True                                     # a held piece begins inside this one
+        if i > 0:
+            prev = self.starts[i - 1]
+            return prev + len(self.segments[prev]) > start  # the one before reaches into it
+        return False
+
+    def _drain(self) -> None:
+        """Move every held piece the stream has reached into ``readable``: one starting at or behind ``recv_off`` is
+        taken off the list either way — its part already read is cut, its rest appended — so nothing is left behind
+        the read point."""
+        while self.starts and self.starts[0] <= self.recv_off:
+            start = self.starts.pop(0)
+            seg = self.segments.pop(start)
+            self.segment_bytes -= len(seg)
+            if start + len(seg) > self.recv_off:
+                tail = seg[self.recv_off - start:]
+                self.readable += tail
+                self.recv_off += len(tail)
 
     def _rtt_sample(self, rtt: float) -> None:
         self.latest_rtt = rtt

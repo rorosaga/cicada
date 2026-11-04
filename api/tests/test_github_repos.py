@@ -668,6 +668,24 @@ def test_a_cancelled_or_expired_code_connects_nothing(api, bank, sign_in):
     assert api.post("/sources/github/connect/poll").json()["state"] == "none"
 
 
+def test_the_shipped_build_names_cicadas_registered_app(api, monkeypatch):
+    """The owner registered the app (2026-11-04): the build ships its public client id and slug, so *Connect GitHub*
+    is offered with no override, and "isn't set up" is only for a blank id."""
+    monkeypatch.delenv(github_auth.CLIENT_ID_ENV, raising=False)
+    monkeypatch.delenv(github_auth.APP_SLUG_ENV, raising=False)
+    assert github_auth.CLIENT_ID == "Iv23li7D46T8IiZpTZ9D" and github_auth.APP_SLUG == "cicada-memory"
+    assert github_auth.client_id() == github_auth.CLIENT_ID and github_auth.available()
+    assert github_auth.install_url() == "https://github.com/apps/cicada-memory/installations/new"
+    assert api.get("/sources/github/connect").json()["available"] is True
+    # The override still wins (a test, a developer build, a fork with its own app); blank falls back to the shipped id.
+    monkeypatch.setenv(github_auth.CLIENT_ID_ENV, "Iv1.placeholder0000")
+    monkeypatch.setenv(github_auth.APP_SLUG_ENV, "fork-app")
+    assert github_auth.client_id() == "Iv1.placeholder0000"
+    assert github_auth.install_url() == "https://github.com/apps/fork-app/installations/new"
+    monkeypatch.setenv(github_auth.CLIENT_ID_ENV, "  ")
+    assert github_auth.client_id() == github_auth.CLIENT_ID
+
+
 def test_without_a_registered_app_the_token_is_the_fallback(api, monkeypatch):
     monkeypatch.setattr(github_auth, "CLIENT_ID", "")
     assert api.get("/sources/github/connect").json()["available"] is False
