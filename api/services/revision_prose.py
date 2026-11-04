@@ -17,15 +17,18 @@ the revised conversation at its old hash) and says a word the revision took away
 choice — #581's haiku run held the meeting as a node, never as a day — so the provenance rows are the second way the
 same fact is found: the passage came from those words, and those words are gone.
 
-**Which passages.** Only passages that say a gone word: those whose provenance cites the revised conversation, and
-those with no provenance at all on a page the revision touched (a lead the merge rewrote). A passage that cites only
-other conversations is theirs. History is never rewritten: it is the record of what was said when. Beside them, the
-passages this batch already wrote from the revision's new words (provenance at the new hash, a fresh word), so the
-writer can keep the current fact once instead of twice.
+**Which passages: provenance only** (review of #589). A passage that says a gone word is offered for rewriting only
+when its rows name the revised conversation and no other source it cites still says that word — a passage resting
+also on another conversation that says it keeps it (#581's settle rule: another conversation's word is never closed
+by this one's edit). A passage with no rows is never rewritten (legacy prose, the person's typed or edited line, a line
+a page merge carried: protection by default). History is never rewritten: it is the record of what was said when.
+Beside them, the passages this batch already wrote from the revision's new words (rows at the new hash, a fresh word),
+so the writer can keep the current fact once instead of twice.
 
 **Never over the person's or an agent's words.** A passage is held (:func:`_held`) when it sits in a Summary or Article
 someone rewrote (`entity_body.has_human_prose`), carries a pinned fix (G198 ``corrections``) about the words that
-changed, or has a line git blames on a page edit (`page_edits` commits, any door). A held passage is never rewritten:
+changed, or has a line git blames on a page edit (`page_edits` commits, any door); a passage with no rows is asked about
+only when one of these says it is the person's, and otherwise left alone. A held passage is never rewritten:
 the writer's proposal for it becomes ONE ``page_edit`` question per page in the inbox, Cicada's own (``origin:
 revision``), which the person applies or leaves with one tap. A word-level pinned fix elsewhere in a rewritten passage
 is applied again over what is written (`page_edits.apply_corrections`).
@@ -57,7 +60,8 @@ from pathlib import Path
 
 from loguru import logger
 
-from api.services import entity_article, entity_body, episode_revision, markdown_parser, page_edits, section_provenance
+from api.services import (entity_article, entity_body, episode_revision, evidence, markdown_parser, page_edits,
+                          section_provenance)
 from api.services.claims import Evidence
 
 #: Cicada's own inbox proposal for a held passage (`page_edits.write_proposal`'s ``origin``).
@@ -229,7 +233,15 @@ def _held(section: str, text: str, gone: set[str], frontmatter: dict, human: boo
 
 def page_job(memory_path: Path, entity_id: str, path: Path, revisions: dict, changes: dict[str, list[Change]],
              closed: set[str], days: dict[str, str]) -> Job | None:
-    """The page's passages that say what a revision took away, or ``None`` (nothing to do: no call)."""
+    """The page's passages that say what a revision took away, or ``None`` (nothing to do: no call).
+
+    **A passage is offered for rewriting only on its provenance** (review of #589, B2/B3): its `section_provenance`
+    rows name the revised conversation on a version before this one, and no other source it cites still says the
+    removed word — a passage resting also on another conversation that says it is that conversation's word too (#581's
+    settle rule), never settled here. A passage with no rows is never rewritten: legacy prose, the person's typed or
+    edited line (an edit drops its rows), or a line a page merge carried over — protection by default, whatever git
+    blame says. Such a passage is only *asked about* when it is identifiably the person's (a pinned fix on the changed
+    words, a hand-rewritten lead or article, a line blamed on a page edit)."""
     parsed = markdown_parser.parse(path, ledger=False)
     fm, body = parsed.frontmatter, parsed.body
     records = section_provenance.matched(fm, body)
@@ -237,6 +249,15 @@ def page_job(memory_path: Path, entity_id: str, path: Path, revisions: dict, cha
     unavailable = section_provenance.unavailable_sections(body)
     on_page: set[str] = set(closed)       # revisions that touched this page
     found: list[tuple] = []
+    texts: dict[str, set[str] | None] = {}
+
+    def still_says(ep: str) -> set[str] | None:
+        """The words an episode's current text says (``None``: unreadable, so it may say anything)."""
+        if ep not in texts:
+            text = revisions[ep].body if ep in revisions else evidence.source_text(memory_path, ep)
+            texts[ep] = None if text is None else tokens(text)
+        return texts[ep]
+
     for section in SECTIONS:
         if section in unavailable:
             continue
@@ -246,51 +267,51 @@ def page_job(memory_path: Path, entity_id: str, path: Path, revisions: dict, cha
             for row in page_edits.corrections(fm):   # a pinned fix's own words count as what the passage says
                 if row["new"] and row["new"] in item.text:
                     said |= tokens(row["old"])
-            cited = {ev.episode for ev in rows}
             old_gone: set[str] = set()
+            hand_gone: set[str] = set()
             fresh_hit = False
             for ep, chs in changes.items():
                 rev = revisions[ep]
                 gone = set().union(*(c.gone for c in chs)) & said
-                at_prior = any(ev.episode == ep and ev.hash == rev.prior_hash for ev in rows)
-                if gone and (ep in cited or not rows):
-                    old_gone |= gone
-                    if at_prior:
+                if gone and not rows:
+                    hand_gone |= gone        # asked about only if it is identifiably the person's (below)
+                elif gone and any(ev.episode == ep and ev.hash != rev.hash for ev in rows):
+                    others = {ev.episode for ev in rows if ev.episode != ep}
+                    if all((words := still_says(o)) is not None and not words & gone for o in others):
+                        old_gone |= gone
                         on_page.add(ep)
-                if (not rows or any(ev.episode == ep and ev.hash == rev.hash for ev in rows)) and \
-                        any(c.fresh & said for c in chs):
+                if any(ev.episode == ep and ev.hash == rev.hash for ev in rows) and any(c.fresh & said for c in chs):
                     fresh_hit = True
             if old_gone:
                 found.append(("old", section, item, rows, frozenset(old_gone)))
+            elif hand_gone:
+                found.append(("hand", section, item, rows, frozenset(hand_gone)))
             elif fresh_hit:
                 found.append(("new", section, item, rows, frozenset()))
-    if not on_page or not any(role == "old" for role, *_ in found):
+    if not on_page:
         return None
     page_changes = [c for ep in sorted(on_page) for c in changes.get(ep, [])]
     if not page_changes:
         return None
     gone_all = set().union(*(c.gone for c in page_changes))
-    # Only the words of the revisions that touched this page count: a passage saying another revision's word alone
-    # is that revision's, read on a page it touched.
-    found = [(role, section, item, rows, gone & gone_all if role == "old" else gone)
-             for role, section, item, rows, gone in found if role != "old" or gone & gone_all]
-    if not any(role == "old" for role, *_ in found):
+    # Only the words of the revisions that touched this page count.
+    found = [(role, section, item, rows, gone & gone_all if role in ("old", "hand") else gone)
+             for role, section, item, rows, gone in found if role == "new" or gone & gone_all]
+    if not any(role in ("old", "hand") for role, *_ in found):
         return None
     sections = entity_body.parse_sections(page_edits.split_prose(body)[0])
     human = entity_body.has_human_prose(fm, sections)
     hand = _hand_lines(memory_path, f"entities/{path.name}")
-    # The lead summarises the page, so on a page a revision touched it is read too (a merge may have written "the
-    # notes give conflicting days" from the old words and the new): rewritten only where it says a changed fact.
-    lead = next(iter(scanned.get("summary", [])), None)
-    if lead is not None and len(lead.ranges) == 1 and not any(item is lead for _, _, item, _, _ in found):
-        rows = list(records.get("summary", {}).get(lead.key, (None, []))[1])
-        found.insert(0, ("lead", "summary", lead, rows, frozenset(gone_all)))
     passages: list[Passage] = []
     for role, section, item, rows, gone in found[:MAX_PASSAGES]:
         if role == "new" and not any(c.fresh & tokens(item.text) for c in page_changes):
             continue
         held = "git could not say who wrote it" if hand is None else _held(section, item.text, gone_all, fm, human,
                                                                              hand)
+        if role == "hand":
+            if held is None or hand is None:
+                continue             # no provenance and nothing says it is the person's: left alone, not asked
+            role = "old"
         passages.append(Passage(len(passages) + 1, section, item.text, item.ranges, rows, role, held, gone))
     if not any(p.role == "old" for p in passages):
         return None
@@ -308,7 +329,7 @@ The CHANGES are the conversation's own lines before and after the edit (or remov
 - when another passage (one marked (new), or one you keep) already states what the conversation says now, take the changed fact out of this passage: rewrite it with only its other details, or return "" to remove it when nothing else is left;
 - otherwise rewrite it so it says what the conversation says now, keeping every other word, detail and [[link]] as written;
 - when the change only removed the lines, take what they said out of the passage, or return "" when nothing else is left.
-Leave a passage that does not state the changed fact out of your answer. A passage marked (new) was just written from the edited conversation and states the current fact: when two or more passages state the same changed fact, in any words, keep the one that says it best and return "" for each of the others (or rewrite one without that fact when it also says something else). A passage marked (held) was written or fixed by the person: still give the rewrite you would make (never ""); Cicada asks them before changing it. The passage marked (lead) is the page's summary: change it only where it states a changed fact or calls the changed facts conflicting or unclear, keep the rest of it word for word, and never return "" for it.
+Leave a passage that does not state the changed fact out of your answer. A passage marked (new) was just written from the edited conversation and states the current fact: when two or more passages state the same changed fact, in any words, keep the one that says it best and return "" for each of the others (or rewrite one without that fact when it also says something else). A passage marked (held) was written or fixed by the person: still give the rewrite you would make (never ""); Cicada asks them before changing it. Never return "" for a Summary passage.
 Never add a fact, name, number or link that neither the passage nor the change gives. Never write "currently", "now", "recently" or "soon".
 
 `history`: for each change listed under WRITE A HISTORY SENTENCE, one sentence saying what changed, naming what it was before and what it is now (for example "The design review meeting moved from Friday to Thursday." or "The notes no longer say the project targets Linux only."). No date: Cicada adds it.
@@ -324,7 +345,7 @@ def prompt(job: Job) -> str:
     lines += ["", "PASSAGES:"]
     for p in job.passages:
         mark = " (held)" if p.held else ""
-        mark += {"new": " (new)", "lead": " (lead)"}.get(p.role, "")
+        mark += " (new)" if p.role == "new" else ""
         title = section_provenance.TITLES[p.section]
         lines.append(f"{p.n}. [{title}]{mark} {' '.join(p.text.split())[:MAX_TEXT]}")
     relevant = [h for h in job.history if tokens(h) & set().union(*(c.gone | c.fresh for c in job.changes))]
@@ -571,7 +592,8 @@ def _inputs(job: Job, edits: dict[int, str], revisions: dict) -> list[dict]:
         p = by_n[n]
         if not text or p.section not in ("summary", "key_facts", "article"):
             continue
-        # The revisions whose words this passage said (a lead: every one the page's changes name).
+        # The revisions whose words this passage said; its rows into other conversations (none says a gone word,
+        # `page_job`) stay.
         eps = sorted({c.episode for c in job.changes if c.gone & p.gone or c.fresh & tokens(p.text)})
         rows = [ev for ev in p.rows if ev.episode not in eps]
         rows += [Evidence(episode=ep, start=-1, end=-1, kind="reasoning", hash=revisions[ep].hash) for ep in eps]

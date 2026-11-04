@@ -330,15 +330,138 @@ def test_a_held_claim_for_a_name_without_a_page_follows_its_words(tmp_path):
                                        .reanchored) == 0
 
 
-def test_an_update_resting_only_on_a_correcting_revision_asks_no_contradiction(tmp_path, monkeypatch):
-    """Stage 3: the source corrected itself, so the old page and the revision's words are no unresolvable conflict."""
+OTHER = "ep_2026-10-30_001"
+OTHER_TEXT = "user: The alpha-project team syncs every Friday."
+
+
+def _rows_bank(tmp_path, facts: dict[str, list]) -> tuple:
+    """A git bank whose alpha-project page holds ``facts`` ({Key Fact: [its G118 rows]}), with (a)'s revision and
+    another conversation that still says Friday."""
+    memory = _bank(tmp_path)
+    rev = episode_revision.build({"id": EP["a"], "content": V2["a"]}, V1["a"])
+    _write(memory, "a", V2["a"])
+    markdown_parser.write(memory / "episodes" / f"{OTHER}.md", {"id": OTHER, "processed": True}, OTHER_TEXT)
+    body = "## Summary\nalpha-project is a synthetic project.\n\n## Key Facts\n" + \
+        "".join(f"- {f}\n" for f in facts) + "\n## History\n- 2026-11-01: Notes taken.\n"
+    records = {"key_facts": {}}
+    for item in section_provenance.scan(body)["key_facts"]:
+        if facts.get(item.text):
+            records["key_facts"][item.key] = (item.text_hash, facts[item.text])
+    fm = {"name": "alpha-project", "type": "project", "status": "active",
+          "section_provenance": section_provenance.encode(records)}
+    markdown_parser.write(memory / "entities" / "alpha-project.md", fm, body)
+    _git(memory, "init", "-q")
+    _git(memory, "add", "-A")
+    _git(memory, "commit", "-qm", "Sleep cycle 2026-11-01")
+    return memory, rev
+
+
+def _prose_engine(monkeypatch, prompts: list):
+    async def fake(**kw):
+        prompts.append(kw["messages"][1]["content"])
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(
+            content=json.dumps(_rewrite(kw["messages"][1]["content"]))))])
+
+    async def no_ids(_settings):
+        return frozenset()
+    monkeypatch.setattr("api.services.conflict_resolver._litellm", lambda: SimpleNamespace(acompletion=fake))
+    monkeypatch.setattr("api.services.engine_identity.aidentities", no_ids)
+
+
+def _settings_for(memory):
+    settings = _settings(memory)
+    settings.effective_consolidation_model = "fake-engine"
+    settings.llm_mode = settings.litellm_mode = "byok"
+    return settings
+
+
+def test_only_a_passage_resting_on_the_revision_alone_is_rewritten(tmp_path, monkeypatch):
+    """Review of #589, B2: a passage that also cites a conversation still saying the old word, and a passage with no
+    provenance at all, are never offered — only the one whose rows prove it came from the edited lines."""
+    rev = episode_revision.build({"id": EP["a"], "content": V2["a"]}, V1["a"])
+    own = [evidence.reasoning(EP["a"], hash=rev.prior_hash)]
+    both = own + [evidence.reasoning(OTHER, hash=evidence.body_hash(OTHER_TEXT))]
+    memory, rev = _rows_bank(tmp_path, {
+        "The design review meeting is on Friday.": own,
+        "The design review and the team sync are both on Friday.": both,
+        "Release planning is on Friday mornings.": [],
+    })
+    prompts: list = []
+    _prose_engine(monkeypatch, prompts)
+    report = asyncio.run(revision_prose.run(memory, _settings_for(memory), {EP["a"]: rev}))
+    facts = _facts(_prose(memory))
+    assert report.calls == 1
+    assert "The design review meeting is on Friday." not in facts                  # its own: removed
+    assert "The design review and the team sync are both on Friday." in facts      # another conversation's word too
+    assert "Release planning is on Friday mornings." in facts                      # no provenance: never offered
+    assert "team sync" not in prompts[0] and "Release planning" not in prompts[0]
+
+
+def test_a_hand_edit_a_page_merge_carried_is_never_rewritten(tmp_path, monkeypatch):
+    """Review of #589, B3: after `merge_entities`, blame names the merge commit, not the person's edit — the line has
+    no provenance, so it is left as they wrote it (and nothing is asked)."""
+    from api.routers.entities import _person_edit
+    from api.services import entity_merge
+
+    rev = episode_revision.build({"id": EP["a"], "content": V2["a"]}, V1["a"])
+    own = [evidence.reasoning(EP["a"], hash=rev.prior_hash)]
+    memory, rev = _rows_bank(tmp_path, {"The design review meeting is on Friday.": own})
+    markdown_parser.write(memory / "entities" / "beta-project.md",
+                          {"name": "beta-project", "type": "project", "status": "active"},
+                          "## Summary\nbeta-project is a synthetic project.\n\n## Key Facts\n"
+                          "- The demo rehearsal is on Friday.\n")
+    _git(memory, "add", "-A")
+    _git(memory, "commit", "-qm", "Sleep cycle 2026-11-02")
+    _person_edit(memory, "beta-project", page_edits.parse_request(
+        [{"old": "rehearsal is on Friday.", "new": "rehearsal is on Friday, in the small hall.", "pin": False}]),
+        "The room.")
+    entity_merge.merge_entities(memory, loser_id="beta-project", winner_id="alpha-project")
+    _git(memory, "add", "-A")
+    _git(memory, "commit", "-qm", "Merge pages 2026-11-03")
+    assert "The demo rehearsal is on Friday, in the small hall." in _facts(_prose(memory))
+    prompts: list = []
+    _prose_engine(monkeypatch, prompts)
+    asyncio.run(revision_prose.run(memory, _settings_for(memory), {EP["a"]: rev}))
+    facts = _facts(_prose(memory))
+    assert "The demo rehearsal is on Friday, in the small hall." in facts
+    assert "The design review meeting is on Friday." not in facts
+    assert "rehearsal" not in prompts[0] and not list((memory / "inbox").rglob("inbox-*.md"))
+
+
+def test_a_contradiction_is_dropped_only_when_the_old_value_rests_on_the_revision_alone(tmp_path, monkeypatch):
+    """Stage 3 (review of #589, B1): the check is always asked; its question is dropped only when the old side is words
+    the edited conversation itself took away and nothing else the page rests on says them."""
     from datetime import datetime
 
     from api.services import conflict_resolver as cr
-    from api.tests.test_sleep_call_batching import _answer as reply, _bank as pages, _updates
+    from api.tests.test_sleep_call_batching import _answer as reply
 
-    root, existing = pages(tmp_path, 3)
-    monkeypatch.setenv("CICADA_MEMORY_PATH", str(root))
+    root = tmp_path / "bank"
+    for sub in ("entities", "episodes", "inbox"):
+        (root / sub).mkdir(parents=True)
+    rev, other, rev2 = "ep_2026-10-18_001", "ep_2026-10-17_001", "ep_2026-10-18_002"
+    for ep, text in ((rev, "user: Alpha Person moved to Lisbon."), (other, "user: Alpha Person lives in Berlin."),
+                     (rev2, "user: Alpha Person moved to Lisbon.")):
+        markdown_parser.write(root / "episodes" / f"{ep}.md", {"id": ep, "processed": True}, text)
+    pages = {
+        "page-0": [rev],                 # Berlin only ever came from the edited note: the source corrected itself
+        "page-1": [other, rev],          # another conversation still says Berlin: a real conflict
+        "page-2": [rev2],                # that edit took "Rome" away, not Berlin: a real conflict
+        "page-3": [rev],                 # the person pinned a fix on Berlin: their word, asked
+    }
+    existing = []
+    for pid, sources in pages.items():
+        fm = {"name": pid.title(), "type": "person", "status": "active", "confidence": 0.7, "created": "2026-10-01",
+              "last_referenced": "2026-10-17", "source_episodes": sources}
+        if pid == "page-3":
+            fm["corrections"] = [{"old": "Berlin.", "new": "Berlin, Mitte.", "by": "user", "on": "2026-10-17"}]
+        body = f"## Summary\n{pid.title()} lives in Berlin.\n"
+        markdown_parser.write(root / "entities" / f"{pid}.md", fm, body)
+        existing.append({"id": pid, "frontmatter": fm, "body": body})
+    updates = [{"id": pid, "action": "update", "source_episode": src[-1], "source_episodes": [src[-1]],
+                "source_episode_timestamp": "2026-10-18T09:00:00Z",
+                "entity": {"name": pid.title(), "type": "person", "summary": f"{pid.title()} moved to Lisbon."}}
+               for pid, src in pages.items()]
     calls: list = []
 
     async def synth(**kw):
@@ -348,20 +471,16 @@ def test_an_update_resting_only_on_a_correcting_revision_asks_no_contradiction(t
         user = kwargs["messages"][-1]["content"]
         calls.append(user)
         blocks = user.split("ENTITY ")[1:]
-        return reply(json.dumps({"results": [{"entity": k, "has_unresolvable_contradiction": True, "question": "Q?"}
-                                             for k in range(1, len(blocks) + 1)]}))
+        row = {"has_unresolvable_contradiction": True, "question": "Where?",
+               "options": [{"label": "Berlin"}, {"label": "Lisbon"}]}
+        return reply(json.dumps({"results": [{"entity": k, **row} for k in range(1, len(blocks) + 1)], **row}))
 
     monkeypatch.setattr(cr, "_synthesize_entity_update", synth)
     monkeypatch.setattr(cr.litellm, "acompletion", engine)
-    settings = Settings(_env_file=None, agent_max_concurrency=1, summary_synthesis_enabled=True)
-    updates = _updates(3)
-    for i, ep in ((1, "ep_2026-10-19_001"), (2, "ep_2026-10-18_002")):
-        updates[i]["source_episode"] = ep
-        updates[i]["source_episodes"] = [ep]
+    settings = Settings(_env_file=None, agent_max_concurrency=1, summary_synthesis_enabled=True, memory_path=root)
     changes = asyncio.run(cr.resolve_and_prune(updates, existing, settings, now=datetime(2026, 10, 20, 3),
                                                decay=False, tuning={},
-                                               revised={"ep_2026-10-18_001": True, "ep_2026-10-18_002": False}))
-    # page-0 rests only on a correcting revision: not checked. page-1 is another conversation, page-2 a revision that
-    # only added lines: both asked as before.
-    assert len(calls) == 1 and "Page 0" not in calls[0] and "Page 1" in calls[0] and "Page 2" in calls[0]
-    assert [c["id"] for c in changes if c["action"] == "conflict_nudge"] == ["page-1", "page-2"]
+                                               revised={rev: frozenset({"berlin", "lives"}),
+                                                        rev2: frozenset({"rome"})}))
+    assert calls and all(f"Page-{i}" in "".join(calls) for i in range(4))     # every page is still checked
+    assert [c["id"] for c in changes if c["action"] == "conflict_nudge"] == ["page-1", "page-2", "page-3"]

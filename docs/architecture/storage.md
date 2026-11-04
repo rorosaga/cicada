@@ -758,9 +758,11 @@ revision closed a claim, or whose passage was written from the version Sleep rea
 away, Sleep makes at most one call to rewrite or remove only those passages (Summary, Article, Key Facts, Open
 Questions — never History, which gains a dated line saying what changed). This is a dated exception to "the record
 sections are unioned, never shortened": a Key Fact the source itself stopped saying leaves the list, and git keeps it.
-A passage the person or an agent wrote or fixed (`has_human_prose`, a pinned `corrections` row on the changed words, a
-line git blames on a `Page edit` commit) is never rewritten; its proposal is one `page_edit` inbox item per page,
-`origin: revision`. `section_provenance` rows into a revised episode move onto its new body (`remap`): spans located
+Only a passage whose `section_provenance` rows prove Sleep wrote it from the edited conversation — and cite no other
+source still saying the removed word — is rewritten; a passage with no rows (legacy prose, an edited or typed line, a
+line a page merge carried) never is. A passage the person or an agent wrote or fixed (`has_human_prose`, a pinned
+`corrections` row on the changed words, a line git blames on a `Page edit` commit) becomes, instead, one `page_edit`
+inbox item per page, `origin: revision`. `section_provenance` rows into a revised episode move onto its new body (`remap`): spans located
 again never fuzzily, whole-conversation rows restamped — except on a passage still saying a removed word. The pending
 store's held claims take the same re-anchoring (`pending_store.reanchor_held`), only their `evidence` replaced.
 

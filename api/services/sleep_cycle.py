@@ -792,11 +792,11 @@ class BatchPlan:
     ds: "sleep_drain.DrainState | None" = None
 
 
-def _takes_words_away(rev) -> bool:
-    """A revision that replaced or removed words (G104 slice 2, `revision_prose.changes_of`)."""
+def _words_taken(rev) -> frozenset[str]:
+    """The words a revision's edit took away (G104 slice 2, `revision_prose.changes_of`); empty for none."""
     from api.services import revision_prose
 
-    return bool(revision_prose.changes_of(rev))
+    return frozenset().union(*(c.gone for c in revision_prose.changes_of(rev)))
 
 
 def _accepting(fn, **kw) -> dict:
@@ -3131,10 +3131,11 @@ async def _run_stages(
     from api.services.conflict_resolver import resolve_and_prune
     # G104 slice 2: an update resting only on revisions that took words away is the source correcting itself.
     read_ids = {e.get("episode_id") for e in extracted}
-    correcting = {i: _takes_words_away(r) for i, r in revisions.items() if i in read_ids} if revisions else {}
+    correcting = {i: g for i, r in revisions.items() if i in read_ids and (g := _words_taken(r))} \
+        if revisions else {}
     changes = await resolve_and_prune(
         resolved_changes, existing, settings, **decay_kw,
-        **(_accepting(resolve_and_prune, revised=correcting) if any(correcting.values()) else {}),
+        **(_accepting(resolve_and_prune, revised=correcting) if correcting else {}),
         # A pause must be able to land between pages (each is a paid call), and the strip counts them.
         **(_accepting(resolve_and_prune, cancel_check=_cancel_requested,
                       progress_callback=_decide_progress(live)) if live is not None else {}))

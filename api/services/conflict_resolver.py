@@ -69,15 +69,15 @@ async def resolve_and_prune(
     decay: bool = True,
     cancel_check=None,
     progress_callback=None,
-    revised: dict[str, bool] | None = None,
+    revised: dict[str, frozenset[str]] | None = None,
 ) -> list[dict]:
     """Apply conflict resolution and temporal decay to all entities.
 
-    ``revised`` (G104 slice 2): ``{episode id: whether it replaced or removed words}`` for the conversations Sleep read
-    before that this batch read again as revisions of themselves. An update resting only on them, one of which took
-    words away, is the source correcting itself, never an unresolvable contradiction: no check is asked (the claim
-    layer closes the old value without a question, #581, and Stage 5.58 rewrites the passages that said it,
-    `revision_prose`).
+    ``revised`` (G104 slice 2): ``{episode id: the words its edit took away}`` (`revision_prose.changes_of`) for the
+    conversations this batch read again as revisions of themselves. The contradiction check is still asked; a
+    contradiction it finds is filed unless the old side is only the revised conversation's own removed words
+    (:func:`_answered_by_revision`) — then the source corrected itself (the claim layer closes the old value without a
+    question, #581, and Stage 5.58 rewrites the passages that said it, `revision_prose`).
 
     The synthesis and contradiction calls — the long, paid part of this stage — overlap
     across pages, at most ``agent_max_concurrency`` calls at once (1 is one call after
@@ -171,15 +171,7 @@ async def resolve_and_prune(
     # The contradiction checks, `CONTRADICTION_BATCH` pages a call, the pages in their order (2026-10-20): each
     # page's check reads only its page as it was before the stage and its own update, never a write, so it waits
     # for no synthesis; a group is a function of the jobs' order alone, so every concurrency asks the same calls.
-    def _correcting(change: dict) -> bool:
-        sources = set(_change_source_episodes(change))
-        return bool(revised and sources and sources <= revised.keys() and any(revised[s] for s in sources))
-
-    asked = [index for index, job in enumerate(jobs) if index in decided and job["new_desc"]
-             and not _correcting(job["change"])]
-    for index, job in enumerate(jobs):
-        if index in decided and job["new_desc"] and index not in asked:
-            _page_done()   # a revision's own update: no check (`revised`)
+    asked = [index for index, job in enumerate(jobs) if index in decided and job["new_desc"]]
     groups = [asked[k:k + CONTRADICTION_BATCH] for k in range(0, len(asked), CONTRADICTION_BATCH)]
 
     async def check(group: list[int]) -> list[dict | None]:
@@ -201,6 +193,10 @@ async def resolve_and_prune(
             change["synthesized_body"] = synthesized
             if job["section_aware"]:
                 change['section_aware_synthesis'] = True
+        if (contradiction and contradiction.get("has_unresolvable_contradiction") and revised
+                and _answered_by_revision(change, contradiction, revised, existing_by_id, settings)):
+            logger.info("Stage 3: a contradiction the edited conversation itself resolved — not asked (G104)")
+            contradiction = None
         if contradiction and contradiction.get("has_unresolvable_contradiction"):
             conflicts_found += 1
             progress.set_postfix_str(f"conflicts={conflicts_found}", refresh=False)
@@ -1507,6 +1503,51 @@ def _merge_history_entries(body: str, new_entries: list[dict]) -> str:
         return body.rstrip() + "\n" + "\n".join(new_lines) + "\n"
 
     return body.rstrip() + "\n\n## History\n" + "\n".join(new_lines) + "\n"
+
+
+def _answered_by_revision(change: dict, contradiction: dict, revised: dict, existing_by_id: dict, settings) -> bool:
+    """G104 slice 2 (review of #589, B1): the contradiction is the edited conversation correcting itself — the old
+    side's words are words this batch's revision of one of the update's own conversations took away, and NOTHING else
+    the page rests on still says them: no other conversation in the page's ``source_episodes`` (their text), no claim
+    on the page in the person's own words or citing another conversation, no line the person fixed or rewrote (a
+    pinned ``corrections`` row, hand-written prose). Anything unreadable counts as saying them: the question is asked."""
+    from api.services import claim_reconciler, claims as claims_mod, entity_body, evidence, page_edits
+    from api.services.revision_prose import tokens
+
+    sources = set(_change_source_episodes(change))
+    own = {ep: revised[ep] for ep in sources if ep in revised}
+    if not own:
+        return False
+    gone = set().union(*own.values())
+    labels = []
+    for option in contradiction.get("options") or []:
+        label = option.get("label") if isinstance(option, dict) else option
+        if isinstance(label, str) and label.strip():
+            labels.append(label)
+    old_words = set().union(*(tokens(label) & gone for label in labels)) if labels else set()
+    if not old_words:
+        return False      # the old side is not something the revision removed
+    page = existing_by_id.get(change.get("id")) or {}
+    fm, body = page.get("frontmatter") or {}, page.get("body") or ""
+    if entity_body.has_human_prose(fm, entity_body.parse_sections(claims_mod.strip_claims_block(body))):
+        return False
+    if any(old_words & (tokens(row.get("new", "")) | tokens(row.get("old", ""))) for row in page_edits.corrections(fm)):
+        return False
+    memory_path = getattr(settings, "memory_path", None)
+    for ep in {str(e) for e in fm.get("source_episodes") or [] if e} - own.keys():
+        text = evidence.source_text(memory_path, ep) if memory_path else None
+        if text is None or tokens(text) & old_words:
+            return False
+    try:
+        page_claims = claims_mod.parse_claims(body)
+    except Exception:  # noqa: BLE001 - claims that cannot be read may say anything
+        return False
+    for claim in page_claims:
+        if claim.valid_to is None and tokens(f"{claim.text} {claim.object}") & old_words:
+            others = {e.episode for e in claim.evidence} | set(claim.source_episodes or [])
+            if claim_reconciler.is_human(claim) or others - own.keys():
+                return False
+    return True
 
 
 def _change_source_episodes(change: dict) -> list[str]:

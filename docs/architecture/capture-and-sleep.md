@@ -1384,15 +1384,20 @@ Sleep, Key Facts said Friday twice beside Thursday twice, "targets Linux only" t
   `revision_closed`), or one with a passage written from the version Sleep read (a `section_provenance` row into the
   revised episode at its old hash) that says a gone word. The second rung exists because the claim layer is the
   extractor's choice: #581's haiku run held the meeting as a node, never as a day, yet its Key Fact said Friday.
-- **Which passages:** in Summary, Article, Key Facts and Open Questions, those saying a gone word whose rows cite the
-  revised episode or that have no rows (a lead the merge rewrote); a passage citing only other conversations is theirs.
-  Beside them, the passages this batch wrote from the revision's fresh words (rows at the new hash), so the writer keeps
-  the current fact once, and the lead. **History is never rewritten.**
+- **Which passages — provenance only** (review of #589): in Summary, Article, Key Facts and Open Questions, a passage
+  saying a gone word is offered only when its rows name the revised episode (on a version before this one) and no other
+  source it cites still says that word — a passage resting also on another conversation that says it is that
+  conversation's word too, never settled by this edit (#581's settle rule). **A passage with no rows is never
+  rewritten**: legacy prose, the person's typed or edited line (an edit drops its rows), a line a page merge carried
+  (where `git blame` names the merge, not the person) — protection by default. Beside the offered ones, the passages
+  this batch wrote from the revision's fresh words (rows at the new hash), so the writer keeps the current fact once.
+  **History is never rewritten.**
 - **Held, never rewritten:** a passage in a Summary or Article someone rewrote (`has_human_prose`), one carrying a
   pinned fix (G198 `corrections`) about the changed words, or one with a line `git blame` puts on a page-edit commit
   (any door). Its proposed rewrite becomes ONE `page_edit` inbox item per page (`origin: revision`, Cicada's own;
-  never a second while one waits), applied or left with one tap. If git cannot answer the blame, the page's passages are
-  all held. A word-level pinned fix elsewhere is applied again over what is written (`apply_corrections`).
+  never a second while one waits), applied or left with one tap. A passage with no rows reaches the writer only when
+  one of these says it is the person's — and then only as this question. If git cannot answer the blame, the page's
+  passages are all held. A word-level pinned fix elsewhere is applied again over what is written (`apply_corrections`).
 - **One call per touched page at most** (stage `merge`, the cycle's engine and consolidation model, ≤
   `agent_max_concurrency` at once, ≤ 40 pages and 40 passages), inside Sleep's write window, committed with the batch
   under Sleep's trailers. The answer: passages rewritten or emptied (removed), and a History sentence per change.
@@ -1404,21 +1409,28 @@ Sleep, Key Facts said Friday twice beside Thursday twice, "targets Linux only" t
   was edited (the stager's `revised.at`, local), merged by date. A change History already records — a line with the
   old and new words that does not call them a conflict, or for a removal one that says the words went — gets no line.
   A failed call or a refused answer leaves the page as it was.
-- **No conflict question from a correcting revision** (`conflict_resolver.resolve_and_prune(revised=…)`): an update
-  resting only on revisions, one of which took words away, is not sent to the contradiction check (two 2026-11-04
-  runs asked "Lisbon or Porto?" and "Friday or Thursday?" of a source that had answered it). An update resting on
-  another conversation, or only on revisions that added lines, is checked as before.
+- **No conflict question when the source corrected itself** (`conflict_resolver._answered_by_revision`, review of
+  #589): the contradiction check is still asked; a contradiction it finds is not filed only when its old side is words
+  a revision of one of the update's own conversations took away, and nothing else the page rests on says them — no
+  other conversation in its `source_episodes` (their text), no open claim in the person's own words or citing another
+  conversation, no pinned fix, no hand-written lead or article. Anything unreadable counts as saying them. (Two
+  2026-11-04 runs asked "Lisbon or Porto?" and "Friday or Thursday?" of a note that had answered it; a page saying
+  "lives in Berlin" from another conversation is still asked about.)
 - **Provenance moves** (`section_provenance.remap`, `episode_revision.provenance_row`): on every page citing a revised
   episode, a span row is located again on the new body (never fuzzily) and a whole-conversation row takes the new hash,
   except on a passage still saying a gone word (it rests on the old version). A rewritten passage keeps its rows into
   other conversations plus the revision. **Held spans move too** (`pending_store.reanchor_held`, before any release):
   only a held dict's `evidence` is replaced.
-- **Measured after** (the same notes plus the pinned case, final run): outside History nothing says Friday, Linux or
-  (but for the pinned Key Fact, kept and asked about) Lisbon; History gained the three changes, dated; one prose call,
-  2,523 input / 2,651 output tokens; no conflict question. Case by case on the G104 row. `test_revision_prose.py` pins
-  the cases end to end through `sleep_cycle.run` on the engine seam, plus a pinned fix and a blame-only edit.
-- **Left:** two passages the same batch's merge wrote that say the current value in different words are not always
-  folded into one.
+- **Measured after** (the same notes plus the pinned case, run on the provenance-only rule): every passage whose rows
+  prove it came from the edited lines was corrected (Friday, Linux and the unpinned Lisbon fact removed); the pinned
+  Key Fact kept and asked about; History gained the three changes, dated; one prose call, 2,086 input / 1,215 output
+  tokens; no conflict question. Two Key Facts Stage 5 wrote with no rows still say Friday and Linux (below). Case by
+  case on the G104 row. `test_revision_prose.py` pins the cases end to end through `sleep_cycle.run` on the engine seam,
+  plus a pinned fix, a blame-only edit, a merge-carried edit, a passage citing a second conversation and one with no rows.
+- **Left:** Stage 5 writes the Key Facts it splits off an orientation (`retain_orientation`) with no `section_provenance`
+  rows, so the provenance-only rule leaves them as they are — in the measured run one of two Friday facts and one of two
+  Linux facts. Recording their rows (the incoming description's) would let them be corrected. Two passages the same
+  batch's merge wrote that say the current value in different words are not always folded into one.
 
 **A title is never joined on the name alone when it could be two things (G227, 2026-10-29).** Stage 2's exact-title
 join used to take whichever page held the name (one per title in `existing_by_name`, last writer wins), whatever its

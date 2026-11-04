@@ -31,7 +31,11 @@ the fence or the page's sections, which this tool does not do.
   the writer's: a stamped article is restamped (``entity_article.carry_stamp``), so it keeps growing with the fix in.
 * *A rewritten Summary or Article section is the editor's from then on* — ``human_edited: true``, exactly as a
   person's edit of those halves already makes a page additive-only (``entity_body.has_human_prose``). The record
-  sections (Key Facts, History, Links, Open Questions) need no mark: Sleep unions into them and never shortens them.
+  sections (Key Facts, History, Links, Open Questions) need no mark: Sleep unions into them and shortens them only in
+  one place — `revision_prose` (G104 slice 2) rewrites or removes a Key Fact or Open Question when a conversation it
+  came from was edited — and only an item whose ``section_provenance`` rows prove Sleep wrote it from that
+  conversation. An edit here drops the item's rows (its exact-text guard no longer matches), so an edited or typed
+  line is never one of them, whatever ``git blame`` says after a page merge moved it (review of #589).
 
 **Blame is git.** The edit commits alone under the harness (``Cicada-Author``), with the conversation
 (``Cicada-Session``); the reason is a ``Reason:`` line of its own and cited words are ``Evidence:`` lines (spans,
