@@ -177,8 +177,10 @@ struct RoomContext: Equatable {
     var paused: SleepPausedRun? = nil
     /// How often a run saves — the first night's tail says it.
     var batchSize: Int = 25
-    /// The paused run's reset time in words ("after 3:40 PM"), resolved by the page (clock-free).
+    /// The paused run's reset time in words ("after 3:40 PM"), resolved by the page (clock-free); nil once it has passed.
     var resetWhen: String? = nil
+    /// The paused run's limit has reset, resolved by the page: the lead and tail stop naming the limit (ROR-96).
+    var planIsBack: Bool = false
     /// When an armed automatic continue fires, in words; nil unless armed.
     var autoContinueWhen: String? = nil
     /// Pause was asked for and the run has not stopped yet.
@@ -217,7 +219,7 @@ private func sentenceLead(_ ctx: RoomContext) -> SentenceLine {
     }
     let count = { (n: Int) in UsageFormat.count(n, locale: ctx.locale) }
     if case .sleeping = ctx.mood, ctx.pausing { return SentenceLine(lead: Copy.SleepV5.pausingLead) }   // V1
-    if let paused = ctx.paused { return pausedLead(paused) }                                       // V2
+    if let paused = ctx.paused { return pausedLead(paused, planIsBack: ctx.planIsBack) }                                       // V2
     switch ctx.mood {
     case .sleeping:
         if ctx.drain?.waiting != nil {                                                           // V8 (2026-11-03)
@@ -371,8 +373,9 @@ private func countedStageLead(_ ctx: RoomContext, stage number: Int) -> Sentence
 }
 
 /// The paused run's lead, by why it paused. Never a failure's tone: a pause is a fact about a run, and it waits.
-private func pausedLead(_ paused: SleepPausedRun) -> SentenceLine {
-    switch paused.reason {
+private func pausedLead(_ paused: SleepPausedRun, planIsBack: Bool) -> SentenceLine {
+    if planIsBack { return SentenceLine(lead: Copy.SleepV5.planBackLead) }
+    return switch paused.reason {
     case "reserve": SentenceLine(lead: Copy.SleepV5.pausedReserveLead)
     case "plan_window": SentenceLine(lead: Copy.SleepV5.pausedPlanWindowLead)
     case "plan_weekly": SentenceLine(lead: Copy.SleepV5.pausedPlanWeeklyLead)
@@ -392,6 +395,10 @@ private func pausedLead(_ paused: SleepPausedRun) -> SentenceLine {
 /// part a Pause interrupted is read again (G163 SL-1).
 private func pausedTail(_ paused: SleepPausedRun, _ ctx: RoomContext) -> SentenceTail {
     let (filed, frozen, locale) = (paused.filed, paused.frozen, ctx.locale)
+    if ctx.planIsBack, ctx.autoContinueWhen == nil {
+        return SentenceTail(text: Copy.SleepV5.continueWhenYouLike(filed: filed, frozen: frozen, locale),
+                            action: .openDetails(.lastCycle))
+    }
     switch paused.reason {
     case "user":
         return SentenceTail(text: Copy.SleepV5.pausedByYouTail(filed: filed, frozen: frozen, locale))

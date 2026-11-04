@@ -7,11 +7,13 @@ and records the argv, working directory and environment it was spawned with. The
 """
 from __future__ import annotations
 
+import asyncio
 import io
 import json
 import os
 import stat
 import sys
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -25,7 +27,7 @@ from api.services.connections.base import run_cli_sync as REAL_RUN   # bound bef
 STUB = r'''#!{python}
 import json, os, sys
 mode = os.environ.get("STUB_MODE", "ok")
-name = os.path.basename(sys.argv[0])
+name = os.path.basename(sys.argv[0]).removesuffix("-cli")
 args = sys.argv[1:]
 record = {{"argv": args, "cwd": os.getcwd(), "env": dict(os.environ), "files": sorted(
     os.path.relpath(os.path.join(d, f), os.getcwd()) for d, _, fs in os.walk(os.getcwd()) for f in fs)}}
@@ -43,6 +45,8 @@ def out(obj):
 
 if args[:1] == ["--help"]:
     print(os.environ.get("STUB_HELP", "Cursor Agent - the Cursor CLI")); sys.exit(0)
+if args[:2] == ["run", "--help"]:
+    print(os.environ.get("STUB_RUN_HELP", "--format json --pure")); sys.exit(0)
 if os.environ.get("STUB_HANG") == name and args[:1] in (["status"], ["models"]):
     import time; time.sleep(30)
 if args[:1] == ["status"]:
@@ -170,7 +174,8 @@ def test_success_reads_the_answer_without_tools_capture_or_keys(stubs, spec):
 
 
 def _call_spawn(stubs):
-    return [s for s in stubs.spawns() if s["argv"][:1] not in (["--help"], ["models"], ["status"])][-1]
+    return [s for s in stubs.spawns() if s["argv"][:1] not in (["--help"], ["models"], ["status"])
+            and s["argv"][:2] != ["run", "--help"]][-1]
 
 
 def test_cursor_runs_in_ask_mode_with_a_deny_all_project_file(stubs):
@@ -191,7 +196,8 @@ def test_opencode_denies_every_tool_and_loads_no_outside_config(stubs):
     env, argv = spawn["env"], spawn["argv"]
     assert json.loads(env["OPENCODE_PERMISSION"]) == {"*": "deny"}
     assert env["OPENCODE_DISABLE_CLAUDE_CODE"] == "1" and env["OPENCODE_DISABLE_PROJECT_CONFIG"] == "1"
-    assert argv[:3] == ["run", "--format", "json"] and "--pure" in argv
+    assert argv[0] == "run" and argv[2:4] == ["--format", "json"] and "--pure" in argv
+    assert argv[-2] == "--file", "`--file` takes every word after it, so nothing may follow its one path"
     assert argv[argv.index("-m") + 1] == "github-copilot/gpt-5.5"
     assert "Extract the entities." in spawn["prompt"]
 
@@ -288,6 +294,190 @@ def test_a_missing_tool_says_how_to_install_it(tmp_path, monkeypatch):
     with pytest.raises(engine_errors.EngineUnavailable) as err:
         _call(GROK, model="grok-4.6")
     assert "isn't installed" in str(err.value)
+
+
+# --------------------------------------------------------------------------- #
+# A tool inside its app, and an app without its tool (ROR-52)
+# --------------------------------------------------------------------------- #
+
+
+@pytest.fixture
+def apps(tmp_path, monkeypatch, stubs):
+    """A scratch `/Applications`, with nothing on PATH or in the usual folders but what a test puts there."""
+    folder = tmp_path / "Applications"
+    folder.mkdir()
+    monkeypatch.setattr(base, "APP_DIRS", (str(folder),))
+    monkeypatch.setenv("HOME", str(tmp_path / "scratch-home"))
+    for name in ("agent", "opencode", "grok"):
+        (stubs.bindir / name).unlink()
+    cli_engines.invalidate()
+
+    def bundled_opencode() -> Path:
+        tool = folder / "OpenCode.app" / "Contents" / "MacOS" / "opencode-cli"
+        tool.parent.mkdir(parents=True)
+        tool.write_text(STUB.format(python=sys.executable), encoding="utf-8")
+        tool.chmod(tool.stat().st_mode | stat.S_IXUSR)
+        return tool
+
+    return SimpleNamespace(folder=folder, bundled_opencode=bundled_opencode, spawns=stubs.spawns, bindir=stubs.bindir)
+
+
+def test_opencode_is_found_inside_its_app_and_runs_like_the_tool_on_path(apps):
+    tool = apps.bundled_opencode()
+    assert base.resolve_binary("opencode") == str(tool)
+    st = cli_engines.probe_now(OPENCODE)
+    assert st.available and st.connected and st.models == ["github-copilot/gpt-5.5", "opencode-go/kimi-k3"]
+    assert not st.not_ready
+
+    parsed = _call(OPENCODE, model="github-copilot/gpt-5.5")
+    assert parsed.text == '{"entities": []}'
+    spawn = [s for s in apps.spawns() if s["argv"][:1] == ["run"] and "--help" not in s["argv"]][-1]
+    assert "--pure" in spawn["argv"] and spawn["argv"][-2] == "--file"
+    assert json.loads(spawn["env"]["OPENCODE_PERMISSION"]) == {"*": "deny"}
+    assert spawn["env"]["CICADA_CAPTURE"] == "off" and spawn["env"]["CICADA_RECALL"] == "off"
+    assert json.loads(spawn["env"]["OPENCODE_CONFIG_CONTENT"])["permission"] == {"*": "deny"}, "the person's export is gone"
+
+
+def test_a_metered_model_is_refused_before_the_tool_in_the_app_is_called(apps):
+    apps.bundled_opencode()
+    before = len(apps.spawns())
+    with pytest.raises(engine_errors.EngineUnavailable):
+        _call(OPENCODE, model="openai/gpt-5.5")
+    assert len(apps.spawns()) == before
+
+
+def test_a_tool_on_path_outranks_the_one_inside_the_app(apps):
+    apps.bundled_opencode()
+    on_path = apps.bindir / "opencode"
+    on_path.write_text(STUB.format(python=sys.executable), encoding="utf-8")
+    on_path.chmod(on_path.stat().st_mode | stat.S_IXUSR)
+    assert base.resolve_binary("opencode") == str(on_path)
+    assert cli_engines.sign_in_command(OPENCODE) == "opencode auth login"
+
+
+def test_opencode_is_found_where_its_own_installer_puts_it(apps, tmp_path):
+    home_bin = tmp_path / "scratch-home" / ".opencode" / "bin"
+    home_bin.mkdir(parents=True)
+    tool = home_bin / "opencode"
+    tool.write_text("#!/bin/sh\n", encoding="utf-8")
+    tool.chmod(0o755)
+    assert base.resolve_binary("opencode") == str(tool)
+
+
+def test_the_sign_in_line_for_a_tool_in_its_app_is_one_the_person_can_paste(apps, monkeypatch):
+    tool = apps.bundled_opencode()
+    monkeypatch.setenv("STUB_MODE", "no_plan")
+    st = cli_engines.probe_now(OPENCODE)
+    assert st.available and not st.connected
+    assert st.sign_in == f"{tool} auth login" and st.sign_in in st.detail
+
+
+def test_a_copy_too_old_for_rail_3_is_refused_in_words_and_never_run_without_it(apps, monkeypatch):
+    apps.bundled_opencode()
+    monkeypatch.setenv("STUB_RUN_HELP", "--format json --dir")
+    monkeypatch.setenv("STUB_HELP", "opencode run [message..]")
+    st = cli_engines.probe_now(OPENCODE)
+    assert not st.available and not st.connected and st.not_ready
+    assert "too old" in st.detail and st.next_command == OPENCODE.install_command
+    assert st.next_command in st.sentence
+    assert not [s for s in apps.spawns() if s["argv"][:1] == ["models"]], "a tool Sleep can't run isn't asked for models"
+
+
+def test_a_flag_listed_only_at_the_top_level_is_still_the_flag(apps, monkeypatch):
+    apps.bundled_opencode()
+    monkeypatch.setenv("STUB_RUN_HELP", "--format json --dir")
+    monkeypatch.setenv("STUB_HELP", "Options: --pure  run without external plugins")
+    assert cli_engines.probe_now(OPENCODE).connected
+
+
+def test_an_updated_app_is_read_again(apps, monkeypatch):
+    tool = apps.bundled_opencode()
+    monkeypatch.setenv("STUB_RUN_HELP", "--format json")
+    monkeypatch.setenv("STUB_HELP", "no such flag")
+    assert cli_engines.probe_now(OPENCODE).not_ready
+    monkeypatch.setenv("STUB_RUN_HELP", "--format json --pure")
+    assert cli_engines.probe_now(OPENCODE).not_ready, "the same file is not asked twice"
+    os.utime(tool, (1_900_000_000, 1_900_000_000))
+    assert cli_engines.probe_now(OPENCODE).connected
+
+
+def test_help_text_that_cant_be_read_is_not_evidence_and_a_hang_is_said(apps):
+    apps.bundled_opencode()
+
+    def unreadable(argv, *args, **kwargs):
+        return base.CliResult(0, "github-copilot/gpt-5.5\n", "") if argv[1] == "models" else base.CliResult(1, "", "boom")
+
+    assert cli_engines.probe_now(OPENCODE, runner=unreadable).connected
+
+    def hung(argv, *args, timeout=None, **kwargs):
+        return base.CliResult(124, "", "timed out")
+
+    st = cli_engines.probe_now(OPENCODE, runner=hung)
+    assert st.timed_out and st.available and not st.connected
+
+
+def test_cursors_app_without_its_tool_is_not_called_not_installed(apps):
+    (apps.folder / "Cursor.app").mkdir()
+    st = cli_engines.probe_now(CURSOR)
+    assert not st.available and not st.connected and st.not_ready
+    assert "isn't installed" not in st.detail and "Cursor is here" in st.detail
+    assert st.next_command == "curl https://cursor.com/install -fsS | bash"
+    with pytest.raises(engine_errors.EngineUnavailable) as err:
+        _call(CURSOR, model="auto")
+    assert err.value.spawned is False and st.next_command in str(err.value)
+    assert apps.spawns() == []
+
+
+def test_no_app_and_no_tool_is_still_not_installed(apps):
+    for spec in (CURSOR, OPENCODE, GROK):
+        st = cli_engines.probe_now(spec)
+        assert not st.available and not st.not_ready and st.next_command is None
+        assert "isn't installed" in st.detail and st.sentence == st.detail
+
+
+def test_the_opencode_app_with_its_tool_gone_is_a_step_away(apps):
+    (apps.folder / "OpenCode.app").mkdir()
+    st = cli_engines.probe_now(OPENCODE)
+    assert st.not_ready and "OpenCode is here" in st.detail and st.next_command == OPENCODE.install_command
+
+
+def test_the_preflight_says_the_next_step_of_a_tool_it_cant_run(apps):
+    (apps.folder / "Cursor.app").mkdir()
+    ok, sentence, _ = asyncio.run(cli_engines.preflight(CURSOR, SimpleNamespace(cli_engine_model="", cli_engine_disambiguation_model="")))
+    assert ok is False and CURSOR.install_command in sentence
+
+
+@pytest.mark.shipped_engine_default
+def test_auto_skips_an_app_without_its_tool_in_words_and_never_stalls(ladder, monkeypatch, tmp_path):
+    folder = tmp_path / "Applications"
+    (folder / "Cursor.app").mkdir(parents=True)
+    monkeypatch.setattr(base, "APP_DIRS", (str(folder),))
+    ladder.only("nothing-here")
+    started = time.monotonic()
+    resolved, _ = _resolve({})
+    assert time.monotonic() - started < cli_engines.LADDER_WAIT_S, "no tool to ask, so nothing to wait for"
+    assert engine_select.no_engine(resolved)
+    assert "Cursor is here, but not the command-line tool Sleep needs." in resolved.no_engine_reason
+    assert CURSOR.install_command in resolved.no_engine_reason
+    assert "OpenCode" not in resolved.no_engine_reason, "nothing of it here: passed over silently, as before"
+
+
+def test_the_engine_card_carries_the_state_and_its_next_step(apps, monkeypatch):
+    (apps.folder / "Cursor.app").mkdir()
+    tool = apps.bundled_opencode()
+    monkeypatch.setenv("STUB_MODE", "no_plan")
+    from api.services.connections.registry import get_registry
+    from api.services import sleep_engine_prefs
+    from api.config import Settings
+
+    cfg = Settings()
+    cards = asyncio.run(sleep_engine_prefs._candidates(cfg, get_registry(cfg), mode="auto", model=None))
+    by_id = {c.id: c.model_dump(by_alias=True) for c in cards}
+    assert by_id["cursor"]["notReady"] is True and by_id["cursor"]["available"] is False
+    assert by_id["cursor"]["nextCommand"] == CURSOR.install_command and by_id["cursor"]["signIn"] == "agent login"
+    assert by_id["opencode"]["notReady"] is False and by_id["opencode"]["available"] is True
+    assert by_id["opencode"]["signIn"] == f"{tool} auth login"
+    assert by_id["grok"]["notReady"] is False and by_id["grok"]["nextCommand"] is None
 
 
 # --------------------------------------------------------------------------- #

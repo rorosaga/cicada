@@ -227,7 +227,8 @@ struct OwnToolRow: View {
         ConnectionLine(logo: tool.mark, name: tool.label, systemFallback: "terminal",
                        detail: tool.connected ? (tool.modelNote ?? tool.billingNote) : tool.detail,
                        status: (tool.connected ? Copy.Status.connected
-                                    : tool.available ? Copy.Status.notConnected : Copy.Intelligence.notInstalled,
+                                    : tool.available ? Copy.Status.notConnected
+                                    : tool.notReady ? Copy.Intelligence.notReady : Copy.Intelligence.notInstalled,
                                 tool.connected)) {
             if inUse {
                 Text(Copy.Intelligence.inUse)
@@ -237,7 +238,7 @@ struct OwnToolRow: View {
                 TextButton(title: Copy.Intelligence.use, help: Copy.Intelligence.useHelp, inline: true, action: onUse)
             }
         } below: {
-            if tool.available, !tool.connected, let command = tool.signIn {
+            if let command = tool.stepCommand {
                 CommandBox(command: command)
             }
         }

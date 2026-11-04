@@ -116,6 +116,13 @@ def _forget_the_developers_dotenv():
 
 
 @pytest.fixture(autouse=True)
+def _no_real_apps(monkeypatch):
+    """ROR-52: `/Applications` is the one place `resolve_binary` looks that the suite's own HOME doesn't move, so no
+    test finds, let alone spawns, a tool inside a real app on the machine running it. A test of it points this at tmp."""
+    monkeypatch.setattr(_conn_base, "APP_DIRS", ())
+
+
+@pytest.fixture(autouse=True)
 def _suite_reads_with_a_chosen_key(request):
     """2026-10-19 (owner: "OpenRouter, eliminate it as the default"): the shipped ``llm_mode`` is ``auto`` — a plan,
     else the local model, never a metered key by itself. Most of this suite was written when a bare ``Settings()``

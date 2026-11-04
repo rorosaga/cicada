@@ -10,7 +10,7 @@ extension LastCycleRow {
     /// `runBilling` is how THIS run was billed (`runBilling(usage:summary:)`), never today's engine preview — changing
     /// the scheduled engine afterwards does not rewrite what an old run is said to have spent.
     static func runRows(drain: SleepDrainInfo?, paused: SleepPausedRun?, run: SleepRunRef?, detail: SleepRunDetail?,
-                        parkedCount: Int, runBilling: String?, reserveValue: String?,
+                        parkedCount: Int, runBilling: String?, reserveValue: String?, planIsBack: Bool = false,
                         locale: Locale = .autoupdatingCurrent) -> [LastCycleRow] {
         var rows: [LastCycleRow] = []
         if let drain, drain.byOrigin != nil || drain.batchState != nil {
@@ -45,7 +45,7 @@ extension LastCycleRow {
         }
         if let paused {
             let text: String
-            switch paused.reason {
+            switch planIsBack ? "plan_back" : paused.reason {
             case "reserve":
                 text = drain.map { Copy.SleepV5.pausedReserveText(batch: max(1, $0.batch), locale) }
                     ?? Copy.SleepV5.pausedText(filed: paused.filed, frozen: paused.frozen, locale)
@@ -59,7 +59,7 @@ extension LastCycleRow {
             }
             // A switch that was on but did not fire says why (`autoContinue.blocked`), never silence.
             let why = paused.autoContinue.flatMap { $0.armed ? nil : Copy.SleepV5.autoContinueBlocked($0.blocked) }
-            let titled = paused.reason == "engine" && paused.engineKind == "offline"
+            let titled = planIsBack ? "plan_back" : paused.reason == "engine" && paused.engineKind == "offline"
                 ? (paused.offlineCause == "connection" ? "connection" : "offline") : paused.reason
             rows.append(LastCycleRow(kind: .paused, title: Copy.SleepV5.pausedTitle(titled),
                                      text: [text, why].compactMap { $0 }.joined(separator: " ")))
