@@ -685,7 +685,7 @@ def rename_milestone(memory_path: Path, *, subject: str, slug: str, name: str) -
 @page_lock.locked
 def withdraw(memory_path: Path, *, subject: str, claim_id: str, author: str, reason: str, origin: str,
              session_id: str | None = None, evidence=None, today: date | None = None,
-             recorded_ts: str | None = None) -> dict:
+             recorded_ts: str | None = None, reopen_settled: bool = False) -> dict:
     """Take an event back, keeping it as history (G140 Q-R5's record).
 
     Ownership is the CALLER's check (the MCP wrapper through
@@ -694,7 +694,9 @@ def withdraw(memory_path: Path, *, subject: str, claim_id: str, author: str, rea
     `superseded_by` (§5.1: the one mutation a closed event ever receives), so
     `agentic_write.retract_claim`'s "already closed" answer could never reach
     it. A milestone state that replaced an earlier plan is refused (R-PJB28):
-    withdrawing it would leave the slot with no open head."""
+    withdrawing it would leave the slot with no open head. ``reopen_settled``:
+    a thread this event settled was only closed by it, so it opens again (a
+    book's *Not right*)."""
     try:
         memory_path = Path(memory_path)
         reason = " ".join(str(reason or "").split())[:MAX_REASON_CHARS]
@@ -722,6 +724,10 @@ def withdraw(memory_path: Path, *, subject: str, claim_id: str, author: str, rea
                                     recorded_ts=recorded_ts)
         if target.valid_to is None:
             target.valid_to = max(day, (target.valid_from or "")[:10] or day)
+        if reopen_settled:
+            for thread in claims:
+                if thread.predicate == HAPPENED and thread.status == "ongoing" and thread.superseded_by == target.id:
+                    thread.valid_to, thread.superseded_by = None, None
         target.superseded_by = record.id
         _write_claims(page, parsed, [*claims, record])
         return {"action": "retracted", "entity_id": entity_id, "claim_id": claim_id, "record_id": record.id,

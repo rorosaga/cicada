@@ -1549,6 +1549,20 @@
       "disposition": "preserve_frontmatter_guarded"
     }
   ],
+  "services/book_said.py": [
+    {
+      "function": "_stamp",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "_settle_row",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "uninstrumented_guarded"
+    }
+  ],
   "services/books.py": [
     {
       "function": "ensure_page",
@@ -1565,6 +1579,12 @@
     {
       "function": "set_status",
       "method": "write",
+      "frontmatter": "fm",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "undo_status",
+      "method": "write",
       "frontmatter": "parsed.frontmatter",
       "disposition": "preserve_frontmatter_guarded"
     },
@@ -1572,6 +1592,12 @@
       "function": "set_rating",
       "method": "write",
       "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "_stamp_local_covers",
+      "method": "write",
+      "frontmatter": "{**parsed.frontmatter, 'book': {**book, 'local_cover': sha}}",
       "disposition": "preserve_frontmatter_guarded"
     },
     {

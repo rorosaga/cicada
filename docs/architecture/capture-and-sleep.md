@@ -1546,6 +1546,59 @@ exists the resolver meets a mention of its title or any alias (each source's own
 verify run's chat naming the book was joined to its page by a normal Sleep. Ruling 42's one-conversation exception is
 not extended to books (owner decision listed in G233).
 
+**A chat changes a status (ruling 61, owner 2026-11-04; `book_said`).** "Yes, change the book status in that case. But
+it has to be in the context, we can always go back and correct." Stage 1's prompt gains an optional per-entity
+`reading_status: {status, quote, on?}`; **the model judges, in context, and there is no keyword list** (about 150 prompt
+tokens on every Stage 1 call). `book_said.at_extraction` takes the field off the entity (nothing of it reaches a page) and
+keeps it only if what a model cannot vouch for holds on the record: the quote is located (exact → whitespace → case, never
+fuzzy) inside a `user` turn — an agent's reply, a meeting's other speaker, a saved record and an agent's saved note never
+are; the title is said somewhere in the conversation; the conversation is dated; the episode is not a door's own. The mark
+rides on the extraction's result.
+
+- **Where it meets the writers.** Stage 5.565, after the claim layer and before the episodes are marked read:
+  `book_said.settle` stamps each mark on its episode (`book_said:` in the frontmatter, `{name, aliases, status, day, stated,
+  quote, joined?, page?}`; a held row's quote is a copy of words in that same file, so a revision that removes them removes
+  the row, and an applied row keeps only their hash, `said`, which with the name and status is what makes a re-read the same
+  row whatever day it gives them)
+  and `apply_waiting` applies what is clear. The status goes through `books.set_status`, the happening through
+  `books.record_happening` → `progress.record_happening`: no second writer, and the rail "only `progress.py` writes
+  `happened`/`milestone`" holds. The batch's commit carries it, under Sleep's author and engine; the claim's `authored_by` is
+  `user` because the words are.
+- **The right work.** `TitleIndex.clear_page`: exactly one book page whose name, title or alias is the name said; else one
+  whose title without its subtitle or series note is; else the book page Stage 2 joined that name to. **Two pages (a copy
+  with no shared identifier keeps its own page, B1) is unclear: nothing is written**, the mark stays held, and Stage 2's
+  same-title question (G227) is the way out.
+- **No page yet.** A first mention stays under the promotion rules: no page is made for it, Stage 1 still never produces
+  `media`, and ruling 42 is not extended. The mark stays held on the episode, nothing lost. Each door's apply and each
+  Sleep tail run `apply_waiting`, so when a scan, a library or a shelf makes that title's page the status lands there, dated
+  as it was said. A page the normal rule makes from chats is an ordinary page: it carries the words as prose and history,
+  never a `reading-status`.
+- **Dates and order.** Dated by the conversation, or by `on` when it states a day (never after the conversation). The chain
+  orders by that day, so a late read lands closed, as history, and never overrides a newer status. On one day the record
+  further along stays open (`books._RANK`: reading over want or not started, finished over reading), whichever was read
+  first; a scan's tap stays the later wins. **A real conflict** — one day, and the person's words say less than a record
+  holds ("still reading" the day the library says finished) — keeps the record open and asks once through the existing
+  conflict path; the answer stands against later writes. A later status from a door (Apple Books re-synced after the book
+  was opened again) is newer evidence and wins too.
+- **Happenings.** A finish is a "Finished reading" on its day (`stated` or `episode`); a reading is a "Started reading" only
+  on a day the conversation states (B2), else a status record alone. Both cite the located span, so an agent saying the
+  identical words first is never what they rest on. **Said again:** when the record beside that day by date holds the same
+  status, a conversation only adds its episode and span to it: no second record, no second happening (unless the page holds
+  none yet, a door's record with no date). A reading in between makes a later finish a second reading. A repeat read late
+  joins the later record, so that record keeps its own day: the one place the order of reading shows.
+- **Undo.** The book's page says the status in one line, with *Not right* when a conversation set it (`POST
+  /entities/{id}/book-status/undo`, the person's commit, the G113 `overruled` signal). The record is kept as history behind
+  a `retracts` record, the status before it opens again, its happening is withdrawn, the "Started reading" thread that
+  finish settled opens again, and neither a re-read of that conversation (whatever day or quote it gives) nor a revision
+  writes it again; another conversation saying it on a later day is a new record.
+
+**Measured (2026-11-04, verify run, Claude plan at haiku, synthetic library and turns; evidence under the run's folder):**
+"I finally finished <title> last night." → finished, dated the day before, located span of kind `user`, a "Finished reading"
+`stated`; "I started it on Sunday and I am a third of the way in." → reading, dated that Sunday, a "Started reading";
+"My friend <name> finished <title> last week", "I'd love to finish <title> some day", an assistant's "You finished <title>",
+"I watched the film of <title>" → no mark, status unchanged. A first mention with no page was held, and a later library sync
+naming that title applied it, dated as said, under the door's own commit. *Not right* reopened the earlier status.
+
 ### Sleep — 5-stage nightly batch
 1. **Entity & relationship extraction** — LLM over episode chunks, structured output.
 2. **Entity resolution & dedup** — exact name, fuzzy match, embedding similarity, LLM disambiguation

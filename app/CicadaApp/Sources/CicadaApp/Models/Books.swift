@@ -4,6 +4,16 @@ import Foundation
 
 struct AppleBooksSettingsReply: Decodable, Equatable, Sendable { let enabled: Bool }
 
+/// `GET /entities/{id}/book-status` (ruling 61): the book's open status record.
+struct BookStatusRecord: Decodable, Equatable, Sendable {
+    let status: String
+    let day: String?
+    let claimId: String
+    let fromChat: Bool
+}
+
+struct BookStatusUndoReply: Decodable, Sendable { let status: String? }
+
 /// `GET /sources/books`: book pages by their current status, and the scans whose number waits for its lookup.
 struct BooksSummary: Decodable, Equatable, Sendable {
     let books: Int
@@ -38,6 +48,15 @@ struct GoodreadsImportResult: Decodable, Equatable, Sendable {
 
 /// The Reading pages' lines, pure (`AppleBooksReaderTests`).
 enum BooksRowText {
+    /// "Finished · 20 Oct 2026 · you said so" — `books.STATUS_WORDS`, the day it is dated by, and whose word it is when
+    /// it came from a conversation rather than a door.
+    static func status(_ record: BookStatusRecord, locale: Locale = .autoupdatingCurrent) -> String {
+        let word = Copy.bookStatusWords[record.status] ?? record.status
+        let day = EntityDates.day(record.day, locale: locale)
+        return ([word, day, record.fromChat ? Copy.bookStatusFromChat : nil] as [String?]).compactMap { $0 }
+            .joined(separator: " · ")
+    }
+
     /// The connect area's one line (`SourceConnectArea`); `isProblem` when it is the one thing to fix.
     struct Line: Equatable {
         let text: String

@@ -44,6 +44,80 @@ struct AppleBooksSlot: View {
     }
 }
 
+/// Ruling 61 — a book's row in a source's list: its cover, whole, in the row's slot, or an empty slot. DR-9 (a ring,
+/// not a border), DR-12 (corners that scale), owner 2026-10-28 (no stand-in). Asked only when its row is drawn.
+struct BookCoverThumb: View {
+    let path: String?
+
+    @Environment(Store.self) private var store: Store?
+    @State private var image: NSImage?
+
+    var body: some View {
+        let height = CicadaTheme.scaled(40)
+        let shape = CicadaTheme.shape(CicadaTheme.scaled(3))
+        Group {
+            if let image {
+                Image(nsImage: image).resizable().interpolation(.high).aspectRatio(contentMode: .fit)
+                    .clipShape(shape)
+                    .overlay { shape.stroke(CicadaTheme.ring(.resting), lineWidth: 1) }
+            } else {
+                Color.clear
+            }
+        }
+        .frame(width: height * 2 / 3, height: height)
+        .accessibilityHidden(true)
+        .task(id: "\(store?.bank ?? "")|\(path ?? "")") {
+            guard let path else { image = nil; return }
+            image = await SourcePictureStore.shared.image(path: path, bank: store?.bank ?? "")
+        }
+    }
+}
+
+/// Ruling 61 — the book's status at the head of its page, in one line, and "Not right" when a conversation set it. DR-59
+/// (one line), DR-38 (said once), DR-31 (the conversation it came from opens the one Reader, from the page's sources).
+struct BookStatusLine: View {
+    let entityId: String
+    /// After a take-back: the page's article and claims read again.
+    let changed: () -> Void
+
+    @State private var record: BookStatusRecord?
+    @State private var failed = false
+
+    var body: some View {
+        Group {
+            if let record {
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    Text(BooksRowText.status(record))
+                        .font(CicadaTheme.metaFont)
+                        .foregroundStyle(failed ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
+                    if record.fromChat {
+                        TextButton(title: Copy.bookStatusNotRight, help: Copy.bookStatusNotRightHelp, inline: true) {
+                            Task { await undo(record) }
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .task(id: entityId) { await load() }
+    }
+
+    private func load() async {
+        record = try? await APIClient.shared.fetchBookStatus(id: entityId)
+    }
+
+    private func undo(_ record: BookStatusRecord) async {
+        do {
+            try await APIClient.shared.undoBookStatus(id: entityId, claimId: record.claimId)
+            failed = false
+            await load()
+            changed()
+        } catch {
+            failed = true
+        }
+    }
+}
+
 /// G233 — a Goodreads export: Goodreads has no open API since 2020, so the person's own "Export Library" file is the
 /// one way in and nothing is read from the site. *Import a file* (where the file comes from on its hover), then what
 /// it holds in counts beside *Import*.

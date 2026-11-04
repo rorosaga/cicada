@@ -662,9 +662,8 @@ async def _resolve_books_safely(memory_path: Path) -> None:
     try:
         from api.services import book_jobs, books, folder_source
 
-        if not await asyncio.to_thread(books.pending, memory_path, limit=1):
-            if not await asyncio.to_thread(books.waiting_isbns, memory_path):
-                return
+        # Ruling 61: every tail, with or without a new episode: a status a conversation said may have its page by now
+        # (a merge, an alias), a cover the app posted during the window waits for its stamp.
         await book_jobs.lookup_waiting(memory_path)
         report = await asyncio.to_thread(books.apply_pending, memory_path)
         if report["paths"]:
@@ -3408,6 +3407,17 @@ async def _run_stages(
         )
     except Exception as e:
         logger.warning(f"Stage 5.56 claim pipeline failed: {type(e).__name__}: {e}")
+
+    # Stage 5.565 (ruling 61): what the person said about a book's status, through the book writers, on the claim layer
+    # above so a page's fence is read as it now stands. The batch's commit carries it.
+    try:
+        from api.services import book_said
+        said_paths = await asyncio.to_thread(book_said.settle, memory_path, extracted,
+                                             name_to_id=resolved_result.get("name_to_id"))
+        if said_paths:
+            logger.info(f"Stage 5.565: book statuses said in a conversation, {len(said_paths)} file(s) written")
+    except Exception as e:
+        logger.warning(f"Stage 5.565 book statuses failed: {type(e).__name__}")
 
     # The decay questions this cycle opened, refreshed or turned away — the cap
     # never drops one silently: a deferred page is still below its threshold and

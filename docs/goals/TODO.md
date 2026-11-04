@@ -21,6 +21,12 @@
   54. **Pick up here:** the real bank's first run retires what waits (`history_index_dry_run` counts it first); the Swift
   suites and the two app lines want the coordinator's shell (the harness refused a scratch `HOME`); the 180-call run's split
   is in its ledger. Review: a sync no longer takes back a woken group's read; Ask shows a tab group only with `sources`.
+- **2026-11-04 — books: a chat changes a status, covers (ruling 61, ROR-95; branch `ror95-books-status-covers`).** Stage 1's
+  `reading_status` mark, checked on the record (`book_said`), through `books.set_status` and `progress.py`; held on the episode
+  when no page is clear; *Not right* on the book's page. Covers: Apple Books' own from the app, else Open Library by id or
+  ISBN, never a title. *Book scans* on Sources. Highlights quality is untouched (under separate test). Verified end to end on
+  scratch state at haiku (`capture-and-sleep.md`). **Not yet seen on screen:** the app builds, its tests and a look at the
+  cover and status line wait on the coordinator's run (a scratch `HOME` and the harness are refused in this worktree).
 - **2026-11-04 — rulings 54, 54a: the settling step works like an agent; what leaves is held in code; a page's own
   sources come first (G209, G61; branch `g209-ruling-54`).** A model with no tool reads anything in memory through a table
   Cicada runs; `name_guard` checks every query and link; a separate search hand holds only cleared queries; Cicada opens
@@ -3181,6 +3187,30 @@ A whole row moves to DONE only after its remaining implementation and required a
     person asks why something they saved was never read and a wake rule should have caught it; if `read_asked` wakes prove too
     few or too many on a real bank (count them); if a saved item the person wanted does not come up (the retrieval check is
     `test_lean_pass.py` and the G236 row's numbers); or when G163's journal of paid answers lands, which may let the bound grow.
+61. **A chat can change a book's status, and books have covers (owner, 2026-11-04; G233, G39, ROR-95).** The owner's words:
+    "Yes, change the book status in that case. But it has to be in the context, we can always go back and correct that's what
+    cicada is about." and "I want the book covers, yes." **(a)** Reverses G233's recommendation to keep status to the person's
+    explicit acts: the person saying "I finished X" changes it, **judged by Stage 1's model in context, never by keywords**
+    (the owner relies on the model as consolidation's intelligence), as a dated `reading-status` claim with a located span of
+    their own turn. Only a `user` turn counts; "my friend finished X", "I'd love to finish X", an agent's "you finished X" and
+    the film of the name do not (measured on haiku, `capture-and-sleep.md`). It lands only on one clear book page (title or
+    alias, then the title without its subtitle, then Stage 2's own join); two pages is unclear and nothing is written. A first
+    mention stays under the promotion rules and ruling 42 is not extended: the mark is held on the episode and applied when
+    a door makes the page, dated as said. Dated by the conversation or the day it states, so a late read never overrides a
+    newer status; one day's clash goes to the status further along, and the person's word saying less than a record asks
+    once (the existing conflict path). No second writer: `books.set_status`, and `progress.py` alone for happenings.
+    *Not right* takes it back, the status before and the reading thread its finish settled reopen, and that conversation never
+    writes it again, whatever day or wording a re-read gives. Said again later with nothing different between: only its episode
+    joins the record as evidence. **(b)** A book's picture: the person's own
+    copy's cover from Apple Books' cache (the app reads, the backend keeps it outside every bank; 1 of 283 assets on the owner's
+    Mac carries an ISBN, 285 cover folders, counts only), else Open Library's by cover id or ISBN behind
+    `CICADA_ALLOW_LOGO_FETCH`, under their limits. **What leaves the Mac:** a book's ISBN-13 or cover id and the address, on a
+    view of that book, Goodreads books included; a cover id redirects through `archive.org` to `ia*.us.archive.org`, so the
+    Internet Archive sees it too. A 403's `Retry-After` is honoured per book (at least an hour, a week at most), and the 90
+    asks per 5 minutes is this process's count, starting again on a restart. **No lookup by title**: not a private name, but it reveals reading beyond
+    what a scan does and answers with a guess at a work (B1). None: nothing drawn. **Revisit** (a) if the person's *Not right*
+    rate on chat-set statuses shows the model misjudging (`resolution` events, `kind: book-status`); (b) a title lookup if
+    Goodreads rows with no ISBN are common and the owner wants them drawn.
 54. **The settling step: a question worked the way an agent would, with what leaves held in code (owner, decided
     2026-11-04; G209; amends ruling 44's public test and ruling 27 for this one question; branch `g209-ruling-54`).** The
     owner, on "is <handle> the same as <person>?": "could've been resolved from a search, like how claude code would solve
