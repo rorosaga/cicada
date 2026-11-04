@@ -61,7 +61,7 @@ $CV launch [--run-id ID] [--checkout PATH] [--evidence DIR] [--port N] [--search
           [--env CICADA_AWAKE_READ=on ...]
 ```
 
-`--env KEY=VALUE` (repeatable) sets a feature's own switch in the backend's env; only `CICADA_AWAKE_*` keys pass (the
+`--env KEY=VALUE` (repeatable) sets a feature's own switch in the backend's env; only `CICADA_AWAKE_*` and `CICADA_PHONE_NUMBERS` keys pass (the
 G207 awake read: `CICADA_AWAKE_READ=on`, `CICADA_AWAKE_QUIET_S=10` to read a conversation ten seconds after its last
 turn). Never a credential, a path or an engine.
 

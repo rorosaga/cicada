@@ -269,6 +269,17 @@ def test_a_value_on_the_persons_line_becomes_a_located_number_entry(home):
     assert t in content[span["start"]:span["end"]]
 
 
+def test_a_token_copied_without_its_brackets_is_still_this_conversations_number(home):
+    """Measured on the first real run at haiku: it wrote the ten letters alone, as a ``value-of-phone-number``."""
+    t = tok(SimpleNamespace(name="b"), A)
+    bare = phone_numbers.token_ids(t)[0]
+    values = [{"entity": "Ana Diaz", "attribute": "phone number", "value": bare}]
+    entities = [{"name": "Ana Diaz", "summary": f"reachable on {bare}", "key_facts": [f"number {bare}"]}]
+    assert phone_numbers.take(entities, [], values, f"user: Ana {t}", "ep_2026-08-29_001", bank="b") == 1
+    assert values[0]["value"] == t and values[0][phone_numbers.ITEM_KEY] == bare
+    assert bare not in json.dumps(entities)
+
+
 def test_a_relationship_to_a_token_becomes_the_same_entry(home):
     t = tok(SimpleNamespace(name="b"), A)
     rels = [{"source": "Ana Diaz", "target": t, "label": "has phone"}, {"source": "Ana Diaz", "target": "Acme", "label": "works at"}]

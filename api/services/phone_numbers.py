@@ -349,7 +349,7 @@ NOTE = (
     "[Cicada's note, not part of the conversation: [number:<letters>] stands for a phone number the user typed; its "
     "digits are kept out of this text on purpose. When the user's own line says whose number it is, add one entry to "
     'values: entity = that person\'s name as the user gave it ("the user" for their own number), attribute = "phone '
-    'number", value = the token exactly as written, evidence_quote = the user\'s words. One entry per person and '
+    'number", value = the whole token, brackets included, exactly as written, evidence_quote = the user\'s words. One entry per person and '
     "number. Never guess whose it is: with no name in the user's words, leave it out. Never put the token in a summary, "
     "a key fact, a history entry, a link or an open question: a page's prose does not carry it.]\n\n")
 
@@ -402,14 +402,18 @@ def _raw_person_span(content: str, raw: str, episode_id: str, *, override, gaps)
     return None
 
 
-def _clean_strings(value):
+def _clean_strings(value, loose: re.Pattern[str] | None = None):
     """A page's prose never carries a token: a fact holding one is dropped, any other string says "a number"."""
+    def holds(text: str) -> bool:
+        return has_token(text) or bool(loose and loose.search(text))
+
     if isinstance(value, str):
-        return TOKEN_RE.sub("a number", value)
+        text = TOKEN_RE.sub("a number", value)
+        return loose.sub("a number", text) if loose else text
     if isinstance(value, list):
-        return [_clean_strings(v) for v in value if not (isinstance(v, str) and has_token(v))]
+        return [_clean_strings(v, loose) for v in value if not (isinstance(v, str) and holds(v))]
     if isinstance(value, dict):
-        return {k: _clean_strings(v) for k, v in value.items()}
+        return {k: _clean_strings(v, loose) for k, v in value.items()}
     return value
 
 
@@ -424,6 +428,14 @@ def take(entities: list, relationships: list, values: list, content: str, episod
     mine = has_token(content)
     if not mine and not enabled():
         return 0
+    # A model copies a token loosely (measured at haiku: the ten letters alone, no brackets), so what it wrote is read
+    # against the tokens this conversation actually holds, never against the token's shape alone.
+    here = set(token_ids(content))
+    loose = re.compile(r"(?<![a-z])(" + "|".join(sorted(here)) + r")(?![a-z])") if here else None
+
+    def strip(value):
+        return _clean_strings(value, loose)
+
     entries: list[dict] = []
     seen: set[tuple[str, str]] = set()
 
@@ -443,7 +455,7 @@ def take(entities: list, relationships: list, values: list, content: str, episod
                         "evidence": [span]})
 
     def read(name: str, label: str, stated: str) -> bool:
-        ids = token_ids(stated)
+        ids = (loose.findall(stated) if loose else []) or token_ids(stated)
         if ids:
             for tid in ids:
                 file(name, tid, None)
@@ -463,7 +475,7 @@ def take(entities: list, relationships: list, values: list, content: str, episod
     if mine:
         for i, entity in enumerate(entities):
             if isinstance(entity, dict):
-                entities[i] = _clean_strings(entity)
+                entities[i] = strip(entity)
     named = {str(e.get("name") or "").casefold() for e in entities if isinstance(e, dict)}
     for entry in entries:
         # What is held for a name waits on its pending line, so the name must be one Stage 2 parks.
