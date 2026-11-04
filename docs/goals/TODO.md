@@ -1406,7 +1406,7 @@ failure; add to the counts when one comes back.
   | The test alone | 5/5 passed | 5/5 passed |
   | Its module | 3/3 passed | 3/3 passed |
   | Whole batch, no load | 2/2 passed | 2/2 passed |
-  | Whole batch, beside a Swift build | 1/1 passed | 1/1 passed |
+  | Whole batch, beside a Swift build | 2/2 passed | 1/1 passed |
   | Whole batch, the failing run's reused `HOME` | 1/1 passed | not run |
   | The original run | **1 failed** | not run |
 
