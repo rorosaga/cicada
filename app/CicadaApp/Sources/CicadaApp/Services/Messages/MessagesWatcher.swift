@@ -130,7 +130,10 @@ final class MessagesWatcher {
     func start() { Task { await self.bankChanged() } }
 
     func bankChanged() async {
-        tickedIds = (try? await api.fetchMessagesSettings().tickedIds) ?? []
+        let ticks = try? await api.fetchMessagesSettings().tickedIds
+        tickedIds = ticks ?? []
+        // Chat images (2026-11-04): thumbnails of a chat unticked elsewhere go once the ticks are known.
+        if let ticks { ChatMediaCache.keepOnly(.messages, ticked: ticks) }
         waiting = []
         sharedPhotos = sharedPhotos.filter { tickedIds.contains($0.key) }
         // Another memory: its picture cache has none of this one's posts, so every ticked chat is looked up and posted.
@@ -285,6 +288,8 @@ final class MessagesWatcher {
             sharedPhotos[conversation.id] = nil
             sharedCheckedAt[conversation.id] = nil
             sharedPosted[conversation.id] = nil
+            // Chat images (2026-11-04): the thumbnails the chat panel kept of it go with the tick.
+            ChatMediaStore.shared.forget(ChatMediaSource(channel: .messages, chat: conversation.id))
         }
         await describe()
         if on {

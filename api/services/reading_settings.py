@@ -182,7 +182,11 @@ def youtube_list_allowed(name: str) -> bool:
 
 
 #: The saved lists on walled sites an agent may be asked to read (G206; ``saved_lists.PLATFORMS``' keys).
-SAVED_LISTS = ("x", "instagram", "linkedin")
+SAVED_LISTS = ("x", "instagram", "linkedin", "reddit", "pinterest", "tiktok")
+#: The saved lists :func:`apply_list_defaults` may turn on (owner 2026-10-26: onboarding pre-ticks them and an off is
+#: remembered). G232's Reddit, Pinterest and TikTok lists are off until the person turns one on: the app has no switch
+#: or onboarding row for them yet, so no consent and no visible off exist to rest a default on (review of #596).
+DEFAULT_ON_SAVED_LISTS = ("x", "instagram", "linkedin")
 
 
 def saved_lists() -> dict[str, str]:
@@ -244,7 +248,7 @@ def apply_list_defaults(*, detected: set[str], read_before: set[str] = frozenset
     changed: list[str] = []
     defaulted = data.get("lists_defaulted") if isinstance(data.get("lists_defaulted"), dict) else {}
     for family, keys, account in (("youtube", YOUTUBE_LISTS, lambda _k: "youtube"),
-                                  ("saved", SAVED_LISTS, lambda k: k)):
+                                  ("saved", DEFAULT_ON_SAVED_LISTS, lambda k: k)):
         on_key, off_key = f"{family}_lists", f"{family}_lists_off"
         on = data.get(on_key) if isinstance(data.get(on_key), dict) else {}
         off = data.get(off_key) if isinstance(data.get(off_key), dict) else {}

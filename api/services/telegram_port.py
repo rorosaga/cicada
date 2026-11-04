@@ -118,6 +118,46 @@ class TelegramPort(Protocol):
     async def disconnect(self) -> None: ...
     #: chats-ux-v2 — a one-to-one chat's small profile photo (Telegram's own ~160 px JPEG), or None when it has none.
     async def profile_photo(self, chat: int) -> bytes | None: ...
+    #: Chat images (owner 2026-11-04) — a ticked chat's messages said within ``window`` seconds of ``date`` (newest
+    #: first, their media described as :func:`_media` does: a name, a size, a duration; never a byte).
+    async def around(self, chat: int, date: float, *, window: float) -> list[TgMessage]: ...
+    #: One message's picture, in memory: a small preview (``full=False``: the photo size or video thumbnail nearest
+    #: :data:`PREVIEW_SIDE`), or the photo itself (``full=True``, images only, at most ``cap`` bytes). None = none.
+    async def media_bytes(self, chat: int, message_id: int, *, full: bool, cap: int) -> bytes | None: ...
+
+
+#: The side a chat image's preview is asked at: the smallest of Telegram's own sizes at least this big.
+PREVIEW_SIDE = 320
+
+
+def _thumb_order(size) -> tuple[int, int]:
+    """Telethon v1's own order of a photo's sizes (`_get_thumb`'s ``sort_thumbs``, by type name), so an index
+    computed here is the one ``download_media(thumb=<int>)`` takes. Sizes it drops (vector outlines) sort first."""
+    name = type(size).__name__
+    if name in ("PhotoStrippedSize", "PhotoCachedSize"):
+        return 1, len(getattr(size, "bytes", b"") or b"")
+    if name == "PhotoSize":
+        return 1, int(getattr(size, "size", 0) or 0)
+    if name == "PhotoSizeProgressive":
+        return 1, max(getattr(size, "sizes", None) or [0])
+    if name == "VideoSize":
+        return 2, int(getattr(size, "size", 0) or 0)
+    return 0, 0
+
+
+def preview_index(sizes) -> int | None:
+    """The index (in Telethon's order) of the size a preview asks for: the smallest with a side of at least
+    :data:`PREVIEW_SIDE`, else the largest with dimensions; a vector outline or a size without dimensions never."""
+    kept = sorted((s for s in sizes or () if type(s).__name__ != "PhotoPathSize"), key=_thumb_order)
+    sized = [(i, s) for i, s in enumerate(kept)
+             if isinstance(getattr(s, "w", None), int) and isinstance(getattr(s, "h", None), int)
+             and type(s).__name__ != "PhotoStrippedSize"]
+    if not sized:
+        return None
+    for i, s in sorted(sized, key=lambda pair: max(pair[1].w, pair[1].h)):
+        if max(s.w, s.h) >= PREVIEW_SIDE:
+            return i
+    return max(sized, key=lambda pair: max(pair[1].w, pair[1].h))[0]
 
 
 PortFactory = Callable[[int, str, str], TelegramPort]
@@ -152,6 +192,9 @@ def _media(message) -> dict | None:
     size = getattr(file, "size", None)
     if isinstance(size, int) and size > 0:
         entry["size"] = size
+    duration = getattr(file, "duration", None)
+    if isinstance(duration, (int, float)) and duration > 0:
+        entry["duration"] = float(duration)
     return entry
 
 
@@ -359,6 +402,41 @@ class TelethonPort:  # pragma: no cover — the real network adapter; every call
         await self._connect()
         data = await self._client.download_profile_photo(chat, file=bytes, download_big=False)
         return bytes(data) if data else None
+
+    async def around(self, chat: int, date: float, *, window: float) -> list[TgMessage]:
+        """The messages said in ``[date - window, date + window]``: ``iter_messages`` from just after it, newest first,
+        stopping at the window's start. Only ids, times, direction and media descriptions are read."""
+        from datetime import datetime, timezone
+
+        await self._connect()
+        out: list[TgMessage] = []
+        offset = datetime.fromtimestamp(date + window + 1, tz=timezone.utc)
+        async for m in self._client.iter_messages(chat, offset_date=offset, limit=20):
+            if m.date.timestamp() < date - window:
+                break
+            out.append(TgMessage(id=m.id, chat=m.chat_id, date=m.date.timestamp(), out=bool(m.out), media=_media(m),
+                                 service=m.action is not None))
+        return out
+
+    async def media_bytes(self, chat: int, message_id: int, *, full: bool, cap: int) -> bytes | None:
+        """One message's preview or full photo, in memory (``file=bytes``) — never written to disk here."""
+        await self._connect()
+        m = await self._client.get_messages(chat, ids=message_id)
+        if m is None or getattr(m, "media", None) is None:
+            return None
+        photo, document = getattr(m, "photo", None), getattr(m, "document", None)
+        if full:
+            size = getattr(getattr(m, "file", None), "size", None)
+            if photo is None or (isinstance(size, int) and size > cap):
+                return None
+            data = await self._client.download_media(m, file=bytes)
+        else:
+            thumb = preview_index(getattr(photo, "sizes", None) if photo is not None
+                                  else getattr(document, "thumbs", None) if document is not None else None)
+            if thumb is None:
+                return None
+            data = await self._client.download_media(m, file=bytes, thumb=thumb)
+        return bytes(data) if data and len(data) <= cap else None
 
     async def disconnect(self) -> None:
         result = self._client.disconnect()

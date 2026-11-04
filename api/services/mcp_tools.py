@@ -1704,8 +1704,8 @@ def _one_line(value, limit: int) -> str:
 @_holding_pages
 def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None, via: str | None = None) -> str:
     """``cicada_record_saved_list`` (G206, redesign 2026-10-22): what the person's own agent read on their saved list
-    on X (Bookmarks), Instagram (Saved) or LinkedIn (Saved posts), in their signed-in browser, after the person turned
-    that list on.
+    on X (Bookmarks), Instagram (Saved), LinkedIn (Saved posts) or, since G232, Reddit (Saved), Pinterest (Saved Pins)
+    or TikTok (Favorites), in their signed-in browser, after the person turned that list on.
 
     Refusals, in order, write nothing: a demo bank, agent reading off, an unknown platform or outcome, a list the
     person has not turned on, the day's reads spent. ``needs_login`` / ``blocked`` pause that list for a week (no bank
@@ -1723,7 +1723,7 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
         return _READING_OFF
     key = str(platform or "").strip().lower()
     if key not in saved_lists.PLATFORMS:
-        return Reply("Error: platform must be x, instagram or linkedin.", code="invalid_arguments")
+        return Reply(f"Error: platform must be one of {', '.join(saved_lists.PLATFORMS)}.", code="invalid_arguments")
     outcome = str(outcome or "").strip().lower()
     if outcome not in saved_lists.OUTCOMES:
         return Reply(f"Error: outcome must be one of {', '.join(saved_lists.OUTCOMES)}.", code="invalid_arguments")

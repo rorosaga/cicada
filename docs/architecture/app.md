@@ -1790,6 +1790,33 @@ switch or a button).
   and one line. Esc, the close button, the sidebar re-click and opening another source close it. **Decided:** the page
   and the picker stay two things — the page is what Cicada holds, from the backend (the same on a client or a replica);
   the picker (*Choose…*) is the consent act and reads this Mac's own chat list.
+  **Chat images (owner 2026-11-04, G179; `ChatMedia.swift`, `ChatMediaLocal.swift`, `ChatMediaStore.swift`,
+  `ChatMediaTile.swift`):** a chat source's attachment (`imessage`, `whatsapp`, `telegram-chats`; the sitting's origin
+  and its `<origin>:<chat>:` source id, `ChatMedia.source`) draws as the file itself under its bubble wherever the
+  sitting is drawn — this panel and the Reader — instead of its `Tag` (an export's attachment keeps its `Tag`). The
+  app resolves it at view time from what the chat app already holds on this Mac: WhatsApp's media item
+  (`ZWAMEDIAITEM`, the file under `Message/` in its group container, its `ZMOVIEDURATION`; read from the store's clone
+  like the reader) and Messages' attachment row (the file under `Attachments/` beside `chat.db`), each matched by the
+  turn's own second, the name and kind as the backend stored them and the attachment's place among that second's same
+  files — both sides count over the same set, a store's time floored to the second as the backend stored it, so a
+  burst across a second never shifts a picture (#597 review B1; `ChatMedia.files`/`pick`, Telegram's
+  `telegram_account.pick_media`; a name only one file in the chat carries wins wherever its time lands; the kind
+  when the scrub changed the name), every path resolved inside the app's own folder (a `..` or a symlink out is no
+  file). Telegram's ask the backend (`APIClient.telegramChatMedia`). Ticked chats only: the WhatsApp and Messages
+  watchers' `tickedIds` (a chat not ticked is never read and its thumbnails go), Telegram's tick the backend's.
+  Thumbnails: ImageIO's thumbnailer for a picture, else Quick Look's generator (a video's frame), ≤ 480 px, kept as
+  JPEG in `$CICADA_HOME/chat-media/<source>/<chat>/` (0700/0600, outside every bank), dropped on the app's untick and
+  for any chat the backend's ticks no longer list (`ChatMediaCache.keepOnly`, when a watcher reads the ticks); an
+  untick while a list, a thumbnail or a large photo is loading discards what lands after it (a per-chat generation
+  `forget` bumps, #597 review B2). The
+  tile (DESIGN_RULES §9 2026-11-04): a picture at its own aspect, ≤ 220 pt, the bubble's corners and resting ring; a
+  video its frame with a play mark and its length; a voice message or a file a quiet row in the side's bubble fill
+  with its length or size; a file not on this Mac the same row with *Not on this Mac*. A click opens the chat app's
+  own file in Quick Look (`ChatMediaPreview`, the app delegate the panel's controller), a Telegram photo after
+  `/media/full` (kept beside the thumbnails). A video's length without a store value is `AVURLAsset`'s duration,
+  the one AVFoundation call (`ChatMediaDuration.swift`, allowed by `AVImportLintTests`). A WhatsApp or Telegram
+  one-to-one chat's other side wears the chat's own face at the head of each run (`ReaderChatRows.chatFace`, the
+  row's `ChatFace`); a group's members keep their monograms.
   Instagram is offered with **Turn on** = the reading switch, saying the browser reader is still coming (G206) and
   offering the data export. Obsidian's entry is gone (a vault is a folder). Contacts stays (ruling 33).
 - **One catalogue (Hyrum mode B):** the *Add a source* grid opens from nowhere now. The eyebrow keeps DR-75's labelled
@@ -1865,6 +1892,15 @@ switch or a button).
   library's saved items — and `spotify-listening` — the listening days, shown as "Spotify history" within `SourceDisplayName`'s 16 characters). Its detail is the Files & links row's own
   controls (the where-it-comes-from line, then `IntakePanel`): `Copy.Catalog.howSpotify` says to ask Spotify's privacy
   settings for Extended streaming history or Account data and drop the zip it emails. The bundled `spotify` mark.
+  **G232 (2026-11-04, backend only so far):** the connect area of Spotify, Reddit, Pinterest, TikTok and Instagram is
+  served by `GET /sources/ways-in/<source>` (`ways_in.py`): `state` (`notConnected` · `connected` · `needsAttention`,
+  `SourceConnectState`'s words), `primary` (the official connection as the page's one `SourcePrimaryAction` —
+  `connect` → `POST /sources/connectors/<id>/authorize` and open the URL; `reconnect`; `connected` → none; null when no
+  official connection is offered), one short `line` (`lineIsAttention`), `ways` (`browser` → `SourceWayIn.browser`, its
+  switch `PUT /reading/settings` `savedLists`; `file` → `SourceWayIn.importFile`, `how` its hover and `requestUrl`
+  where to ask), `ownApp` (the person's own app may connect, behind "Use your own app", never the primary) and
+  `notOffered` (each missing way with its reason in words, for hover). The app side lands on #593's layout in a
+  follow-up PR.
   **G230 (2026-11-03; ruling 53):** *Accounts* gains **GitHub** (id `github`, the bundled `github` mark; origins
   `github-starred`, `github-added`, `github-owned` read "GitHub stars" / "GitHub"). Its detail is `GitHubSourcePanel`
   (`Views/Sources/GitHubRepos.swift`): **`GitHubConnectPanel`** — connecting with a code (owner 2026-11-03: "cant we

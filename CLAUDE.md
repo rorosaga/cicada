@@ -212,6 +212,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   its speaker's (`speaker:<label>`), the summary the recorder's model's (`capture-and-sleep.md`).
 - **Capture never writes into a demo bank** (`demo_guard`, by `_bank.yaml`, never by name): every capture/sources
   POST/PUT answers 409; the Stop hook redirects to the real bank left most recently.
+- **A ticked chat's attachments show at view time (G179, 2026-11-04):** the app opens the file the chat app holds on
+  this Mac (Telegram's through the person's own session); the bank keeps names only; thumbnails outside every bank,
+  gone on untick (`app.md`).
 - **Messages are read only for conversations the person ticked (G179)**: the app reads them, the backend refuses any
   other; a texted agent's words are its `assistant:` turns and its claims `external:<name>`, never the person's own —
   as are a harness session's or a chat export's assistant's (`external:<harness|app>`, 2026-10-27; relayed apps keep
@@ -402,7 +405,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   (only ruling 47's tier 2 — an official API the person connects — signs in, never as a browser session, `network.md`). Only a
   link the person asked about, or a wall page of a site they allowed, can be recorded — and (owner 2026-10-16, G71) the
   person's YouTube Watch later or history page, a standing ask once they turn that list on, stdio only; their saved list on X, Instagram or LinkedIn the same way, one site at a time, ≤ 10 reads a day, each item an
-  indexed save (G206, 2026-10-22, `mcp.md`); one person's
+  indexed save (G206, 2026-10-22, `mcp.md`) — and on Reddit, Pinterest or TikTok the same way, off by default until the
+  person turns it on (G232, 2026-11-04; never Spotify, its terms); one person's
   LinkedIn profile only through the link their page lists, on the person's ask, ≤ 10 a day, stdio only (2026-10-16,
   `mcp.md`). Imported LinkedIn connections enrich existing people only, never mint a page. The backend never fetches a
   login-walled page. **Exploring saved sites (ruling 25):** only the person's click or a trusted local agent they asked

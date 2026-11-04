@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import os
 import stat
 from dataclasses import dataclass, field
@@ -83,6 +84,15 @@ PHOTO_TTL_S = 7 * 24 * 3600
 PHOTO_MAX_BYTES = 256 * 1024
 HISTORY_CAP = 20_000
 HISTORY_BATCH = 500
+#: Chat images (owner 2026-11-04: "images throughout chat applications … should appear") — what a ticked chat's
+#: messages show, asked of Telegram when the person opens the chat and kept outside every bank
+#: (``$CICADA_HOME/telegram/media/<conversation>/``, hashes only) until the chat is unticked or the session ends. A
+#: preview is Telegram's own photo size nearest 320 px; the full photo (Quick Look) at most ``MEDIA_FULL_CAP``.
+MEDIA_DIR = "media"
+MEDIA_PREVIEW_CAP = 512 * 1024
+MEDIA_FULL_CAP = 20 * 1024 * 1024
+#: How far around a turn's second Telegram is asked for messages (`around`); the match itself is that second only.
+MEDIA_WINDOW_S = 1.5
 
 
 class SessionRefused(RuntimeError):
@@ -184,8 +194,10 @@ def forget_session() -> None:
             (folder() / name).unlink()
         except FileNotFoundError:
             pass
-    # The picker's profile photos go with the session (a ticked chat's page picture lives in `messages_photos`).
+    # The picker's profile photos go with the session (a ticked chat's page picture lives in `messages_photos`), and
+    # so does every chat image shown (each was asked on this session).
     shutil.rmtree(folder() / PHOTO_DIR, ignore_errors=True)
+    shutil.rmtree(folder() / MEDIA_DIR, ignore_errors=True)
     # A Saved Messages tick belongs to the account that was signed in (#559 review): the next account's chat with that
     # person is not its own notes. Other people's dated consents stay (they agreed to a chat, not to a session).
     for cid, entry in consents().items():
@@ -209,6 +221,61 @@ def _save_cursors(cursors: dict[str, int]) -> None:
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
         json.dump(cursors, fh)
     os.replace(tmp, path)
+
+
+def _media_folder(cid: str) -> Path | None:
+    """A ticked chat's image cache, or None for an id that is not a conversation hash (it can never reshape a path)."""
+    if not chat_live.ID_RE.match(str(cid or "")):
+        return None
+    return folder() / MEDIA_DIR / cid
+
+
+def forget_media(cid: str) -> bool:
+    """Unticking a chat (or withdrawing its consent): every image of it shown here goes. Whether anything was there."""
+    import shutil
+
+    path = _media_folder(cid)
+    if path is None or not path.exists():
+        return False
+    shutil.rmtree(path, ignore_errors=True)
+    return True
+
+
+def media_key(at: str, kind: str, name: str, n: int, full: bool) -> str:
+    import hashlib
+
+    return hashlib.sha256(f"{at}\x1f{kind}\x1f{name}\x1f{int(n)}\x1f{int(full)}".encode()).hexdigest()[:24]
+
+
+def stored_attachment(media: dict | None) -> dict | None:
+    """A message's media as the bank stored it (`telegram_source._file`, then `turn_extras.clean_attachments`): the
+    kind and name a turn's attachment carries, so a message is found by what the bank says and nothing else."""
+    from api.services import turn_extras
+
+    if not media:
+        return None
+    entry, _ = telegram_source._file(media)
+    if entry is None:
+        return None
+    cleaned = turn_extras.clean_attachments([entry])
+    return cleaned[0] if cleaned else None
+
+
+def pick_media(messages: list[TgMessage], *, at: float, kind: str, name: str, n: int) -> TgMessage | None:
+    """The message a turn's attachment is (#597 review B1: counted over the SAME set the app counts ``n`` in,
+    `ChatMedia.files`): among the chat's messages said in the turn's own second — Telegram's time floored to the
+    second, as the bank stored it (`chat_live.utc_from_unix`) — oldest first (the sitting's own order), the ``n``-th
+    whose stored kind and name are the attachment's; when the name changed on the way in (the scrub), the ``n``-th of
+    that kind in that second. ``around``'s window only fetches; it never widens the set. None when there is none."""
+    second = math.floor(at)
+    near = sorted((m for m in messages if not m.service and m.media and math.floor(m.date) == second),
+                  key=lambda m: m.id)
+    described = [(m, stored_attachment(m.media)) for m in near]
+    described = [(m, d) for m, d in described if d is not None]
+    same = [m for m, d in described if d["kind"] == kind and d["name"] == name]
+    if not same:
+        same = [m for m, d in described if d["kind"] == kind]
+    return same[n] if 0 <= n < len(same) else None
 
 
 # --- The account ------------------------------------------------------------------------------------------------
@@ -240,6 +307,10 @@ class Account:
         self._lock = asyncio.Lock()
         #: At most two profile photos asked of Telegram at once (a picker lists up to 200 chats).
         self._photos = asyncio.Semaphore(2)
+        #: At most two chat images asked of Telegram at once (an opened chat shows a few sittings).
+        self._media = asyncio.Semaphore(2)
+        #: The photo keeping a start or a sign-in began (`keep_photos`), held so it is never collected half way.
+        self._keeping: asyncio.Task | None = None
         #: How long each flush took, file event → staged, for the area doc's number (seconds, the last 200).
         self.flush_seconds: list[float] = []
 
@@ -450,6 +521,7 @@ class Account:
         self._phone = self._code_hash = None
         self.state, self.error = "connected", None
         self._start_listening()
+        self._keep_photos_soon()
 
     async def disconnect(self) -> dict:
         """Log the session out at Telegram, then forget it here. A failed log-out still forgets it, and says so."""
@@ -521,6 +593,7 @@ class Account:
         self.state = "connected"
         self._start_listening()
         asyncio.get_running_loop().create_task(self.catch_up())
+        self._keep_photos_soon()
 
     # The tick list --------------------------------------------------------------------------------------------------
 
@@ -585,6 +658,105 @@ class Account:
         os.replace(tmp, jpg)
         none.unlink(missing_ok=True)
         return data
+
+    def _keep_photos_soon(self) -> None:
+        try:
+            self._keeping = asyncio.get_running_loop().create_task(self.keep_photos())
+        except RuntimeError:      # no running loop (a synchronous caller): the next connect does it
+            pass
+
+    async def keep_photos(self, *, memory_root: Path | None = None) -> dict:
+        """Owner 2026-11-04 ("I don't know why the profile pictures don't appear in the chats") — every ticked,
+        consented chat's profile photo kept as its face and page picture (`messages_photos`, outside every bank), on
+        each sign-in and each start. Before, the photo was asked once, in the tick's own request: a chat ticked before
+        chat photos existed (#559), or whose one ask failed or came while Telegram was not connected, never got one,
+        and nothing asked again. :meth:`photo`'s week-long cache keeps this to one ask per chat a week. Never raises;
+        ``{stored, none, failed}``."""
+        import base64
+
+        from starlette.concurrency import run_in_threadpool
+
+        from api.config import get_settings
+        from api.services import bank_registry, demo_guard, messages_photos
+
+        counts = {"stored": 0, "none": 0, "failed": 0}
+        try:
+            if bank_registry.pinned_bank() is None:
+                bank_registry.pin_request_bank(memory_root or get_settings().memory_root)
+            memory_path = get_settings().memory_path
+            if demo_guard.is_demo(memory_path):
+                return counts
+            ticked = chat_live.ticked_ids(memory_path, telegram_source.SPEC) & set(consents())
+        except Exception as exc:  # noqa: BLE001 — a face without a photo draws its monogram
+            logger.warning(f"telegram: keeping chat photos failed ({type(exc).__name__})")
+            return counts
+        for cid in sorted(ticked):
+            try:
+                data = await self.photo(cid)
+                if not data:
+                    counts["none"] += 1
+                    continue
+                await run_in_threadpool(messages_photos.store, memory_path,
+                                        [{"conversation": cid, "photo_b64": base64.b64encode(data).decode()}])
+                counts["stored"] += 1
+            except Exception as exc:  # noqa: BLE001 — one chat's photo never stops the others'
+                counts["failed"] += 1
+                logger.warning(f"telegram: keeping a chat photo failed ({type(exc).__name__})")
+        return counts
+
+    async def media(self, cid: str, *, at: float, at_text: str, kind: str, name: str, n: int,
+                    full: bool = False, memory_path: Path | None = None) -> dict:
+        """One attachment of a ticked chat's turn, for the chat panel (the route checks the tick first): ``{found,
+        kind?, duration?, image}`` — ``found`` False when Telegram holds no such message, or Telegram is not connected
+        and nothing was kept; ``image`` the preview's (or, ``full``, the photo's) bytes, None when it has none (an
+        audio message, a file). Asked of Telegram by the chat's own peer and the message's time, never a name; once,
+        then kept under :data:`MEDIA_DIR` until untick."""
+        folder_path = _media_folder(cid)
+        if folder_path is None:
+            return {"found": False, "image": None}
+        key = media_key(at_text, kind, name, n, full)
+        meta_file, image_file = folder_path / f"{key}.json", folder_path / f"{key}.jpg"
+        try:
+            meta = json.loads(meta_file.read_text(encoding="utf-8"))
+            if isinstance(meta, dict) and meta.get("found"):
+                return {**meta, "image": image_file.read_bytes() if image_file.exists() else None}
+        except (OSError, ValueError):
+            pass
+        if self.state != "connected" or self.port is None:
+            return {"found": False, "image": None}
+        dialog = await self._dialog(cid)
+        if dialog is None:
+            return {"found": False, "image": None}
+        cap = MEDIA_FULL_CAP if full else MEDIA_PREVIEW_CAP
+        async with self._media:
+            try:
+                near = await self.port.around(dialog.chat, at, window=MEDIA_WINDOW_S)
+                hit = pick_media(near, at=at, kind=kind, name=name, n=n)
+                if hit is None:
+                    return {"found": False, "image": None}
+                image = await self.port.media_bytes(dialog.chat, hit.id, full=full, cap=cap)
+            except Exception as exc:  # noqa: BLE001 — the tile says the file is not here, never an error
+                logger.warning(f"telegram: a chat image failed ({type(exc).__name__})")
+                return {"found": False, "image": None}
+        if image is not None and len(image) > cap:
+            image = None
+        meta = {"found": True, "kind": (stored_attachment(hit.media) or {}).get("kind", kind)}
+        duration = (hit.media or {}).get("duration")
+        if isinstance(duration, (int, float)) and duration > 0:
+            meta["duration"] = float(duration)
+        # Kept only while the chat is still ticked and consented: an untick that landed meanwhile keeps nothing.
+        if memory_path is None:
+            from api.config import get_settings
+
+            memory_path = get_settings().memory_path
+        if cid in consents() and cid in chat_live.ticked_ids(memory_path, telegram_source.SPEC):
+            for path in (_private_dir() / MEDIA_DIR, folder_path):
+                path.mkdir(exist_ok=True)
+                os.chmod(path, 0o700)
+            if image is not None:
+                _write_private(image_file, image)
+            _write_private(meta_file, json.dumps(meta).encode("utf-8"))
+        return {**meta, "image": image}
 
     async def own_chat(self, cid: str) -> bool:
         """Whether Telegram itself lists ``cid`` as the person's Saved Messages — decided from Telegram's dialog,
@@ -764,6 +936,14 @@ class Account:
             out = await self._stage(memory_path, cid, dialog.chat, batch)
             totals = _add(totals, out, len(batch))
         return totals
+
+
+def _write_private(path: Path, data: bytes) -> None:
+    tmp = path.with_name(f".{path.name}.tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "wb") as fh:
+        fh.write(data)
+    os.replace(tmp, path)
 
 
 def _iso(ts: float) -> str:

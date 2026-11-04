@@ -39,6 +39,7 @@ final class TelegramChats {
         if let answer = try? await api.telegramStatus() { status = answer }
         if let ticks = try? await api.fetchChatTicks(source: Self.source) {
             tickedIds = ticks.tickedIds
+            ChatMediaCache.keepOnly(.telegram, ticked: ticks.tickedIds)   // chat images (2026-11-04)
             historyIds = Set(ticks.conversations.filter(\.history).map(\.id))
         }
     }
@@ -155,6 +156,8 @@ final class TelegramChats {
         do {
             let answer = try await api.telegramTick(id: chat.id, name: chat.name, ticked: on, consent: on && consent)
             tickedIds = answer.tickedIds
+            // Chat images (2026-11-04): the photos opened large here go with the tick (the backend drops its own).
+            if !on { ChatMediaStore.shared.forget(ChatMediaSource(channel: .telegram, chat: chat.id)) }
         } catch {
             self.error = Self.message(error)
         }
