@@ -66,6 +66,7 @@ from api.routers import (
     sync_net as sync_net_routes,
     tools,
     traces,
+    ways_in as ways_in_router,
 )
 from api.services import bank_binding, bank_registry, response_compression, search_index, sleep_refusal, sleep_scheduler
 from api.services.providers import warm_query_embedder
@@ -447,6 +448,7 @@ app.include_router(capture.router, tags=["capture"])
 app.include_router(books.router, tags=["books"])
 app.include_router(connectors.router, tags=["connectors"])
 app.include_router(github_repos.router, tags=["github"])
+app.include_router(ways_in_router.router, tags=["connectors"])
 app.include_router(maintenance.router, tags=["maintenance"])
 app.include_router(memory.router, tags=["memory"])
 app.include_router(connections.router, tags=["connections"])

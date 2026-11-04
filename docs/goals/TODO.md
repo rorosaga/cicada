@@ -13,6 +13,26 @@
 ## Current state and evidence
 
 - **2026-11-04 — books: scan an ISBN, Apple Books, a Goodreads export (G233, G39; branch `books-g39` + cicada-app `feat/scan-a-book`).** Owner: "integrate ISBN codes to include books I'm reading … iBooks too, to track progress … save books I want to read (maybe including Goodreads)"; then "be able to consolidate highlights and such is important", not started as its own status, the scanner in the phone app. `POST /capture/isbn` is the phone's contract (`{isbn, status?, id?}`, keep it stable); the home resolves the number behind the connector gate; `books.apply_pending` makes one `media` page per work with dated `reading-status` claims and happenings (`progress.py`). Apple Books is read by the app after Turn on; Goodreads only by its export (no API keys since 2020). Highlights are read by Sleep, revision-read as they grow. Verified on scratch state with a synthetic library, a sample export and a capture-only phone (`feature-status.md`). **Owner's steps:** the four decisions on the G233 row; a real-iPhone camera test once the Apple Developer Program signup is done.
+- **2026-11-04 — ways in for Spotify, Reddit, Pinterest, TikTok and Instagram (G232; branch `feat/g232-ways-in`).**
+  Owner: "is there no way to do similar to GitHub … offer the website connection through browser harness, just like a
+  toggle switch, and then also the file export". Researched against each service's docs and terms (table in
+  `network.md`, "Ways in, per source"): only Reddit has an official sign-in a desktop app can use with no secret and no
+  server (an installed app); Spotify stays file-only (ruling 47's 2026-10-29 amendment re-checked: its User Guidelines
+  also bar automated access and AI ingestion, so no browser toggle either; Development Mode is 5 users since
+  2026-02-11); Pinterest needs a secret and blocks new apps from personal boards since 2026-09-14; TikTok and Instagram
+  APIs return no saves for a personal account. Built: Connect Reddit (installed app, saved + upvoted + joined
+  communities, revoke on Disconnect), browser lists for Reddit, Pinterest and TikTok (off by default until the app
+  shows their switches — review of #596), Reddit's votes and communities
+  and Spotify's playlists from their downloads, `GET /sources/ways-in` for #593's connect area. **Owner's step:**
+  request Reddit API access (Responsible Builder Policy), register an *installed app* with redirect
+  `http://127.0.0.1:8000/sources/connectors/reddit/callback`, put its id in `reddit.CLIENT_ID` (`network.md`,
+  "Registering Cicada's Reddit app"). **Pick up:** the app side on #593's `SourceConnectArea` (follow-up PR).
+- **2026-11-04 — chat images and Telegram faces (G179; branch `feat/chat-panel-images`).** Owner: "I don't see images appearing when I open the chat inside the app" and "I don't know why the profile pictures don't appear in the chats" (Telegram). Attachments of WhatsApp, Messages and Telegram chats now show as the files in the chat
+  panel and the Reader, resolved by the app at view time for ticked chats only (Telegram's through the backend's
+  own connection), thumbnails outside every bank, gone on untick; nothing new is stored in the bank, so chats
+  already synced show their pictures as they are. Telegram's root cause: a ticked chat's photo was asked only in
+  the tick's own request, never again — now on every start and sign-in. **Owner's check:** open the own WhatsApp
+  chat on the Sources page; on Telegram, restart the backend once so the photos are asked.
 - **2026-11-04 — New project is a page; an empty Projects list says nothing (G222; branch `feat/projects-new-page`).** Owner: "remove the text that appears when no projects" and "more like claude desktop app, and not two input text lines". New project opens as the detail column: the name as the H1, a large editor for the person's own paragraphs (kept as written, ≤ 4,000 characters, the page's lead; Sleep never writes it), and a picker over every page in memory by kind with each page's picture or its source's mark. Create is one `POST /projects` with `pages` (checked first, one person commit; a repository joins `repositories:` under ruling 53); `POST /projects/{id}/pages` routes a repository the same way, and the day the person started a project counts as activity, so a new one sits in Current. Verified on a scratch app (light and dark). **For the owner:** the live install suggests 750 projects; by construction that is every project page with no `mine` mark (the ~700 pre-D4 pages, `whyKind: none`) plus fallback concepts and repository births — whether legacy `none` pages are suggested at all is a ruling-45 call (G222's row).
 - **2026-11-04 — Claude chats: the export picked up from Downloads, and a weekly nudge (G197 layer c, G105; branch
   `claude-desktop-capture`).** Owner: "I don't see conversations I have on Claude chats or claude.ai being captured."

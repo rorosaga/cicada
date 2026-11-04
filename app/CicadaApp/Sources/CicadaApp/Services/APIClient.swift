@@ -3008,6 +3008,28 @@ actor APIClient {
         return data
     }
 
+    /// Chat images (2026-11-04) — `GET /sources/telegram/chats/{id}/media` (or `/media/full`): one attachment of a
+    /// ticked chat's turn, found by the turn's time, its stored kind and name and its place in that second. The
+    /// preview answer is JSON; the full one the photo's bytes. 404 (not ticked, or no large copy) → nil.
+    func telegramChatMedia(chat: String, file: ChatFile, full: Bool) async throws -> Data? {
+        guard let at = file.at else { return nil }
+        var parts = URLComponents()
+        parts.queryItems = [URLQueryItem(name: "at", value: at), URLQueryItem(name: "kind", value: file.kind),
+                            URLQueryItem(name: "name", value: file.name), URLQueryItem(name: "n", value: String(file.n))]
+        // `+` in a zone offset is a space to a form decoder: spelled out, like every other reserved character.
+        let query = (parts.percentEncodedQuery ?? "").replacingOccurrences(of: "+", with: "%2B")
+        let path = "/sources/telegram/chats/\(chat.filter(\.isHexDigit))/media\(full ? "/full" : "")?\(query)"
+        var request = makeRequest(path, method: "GET", json: false)
+        request.timeoutInterval = full ? 60 : 20
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw APIError.serverUnreachable }
+        if http.statusCode == 404 { return nil }
+        guard (200...299).contains(http.statusCode) else {
+            throw APIError.httpError(http.statusCode, String(data: data, encoding: .utf8) ?? "Unknown error")
+        }
+        return data
+    }
+
     /// The default connect (owner 2026-10-29): a QR the person scans in Telegram on their phone. The status that
     /// answers carries the `tg://login` link to draw; the backend replaces it as Telegram expires it.
     func telegramQR() async throws -> TelegramStatusAnswer { try await post("/sources/telegram/qr") }

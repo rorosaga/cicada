@@ -85,6 +85,9 @@ def _status(connector_id: str, memory_path) -> ConnectorStatus:
         reads=getattr(adapter, "READS", None),
         token_help=getattr(adapter, "TOKEN_HELP", None),
         tier=int(getattr(adapter, "TIER", 1)),
+        app_sign_in=bool(getattr(adapter, "app_available", lambda: False)()),
+        how=getattr(adapter, "how", lambda: None)(),
+        reconnect=bool(getattr(adapter, "needs_reconnect", lambda: False)()),
     )
 
 
@@ -157,7 +160,15 @@ async def set_credentials(
 
 @router.delete("/{connector_id}/credentials", response_model=ConnectorStatus)
 async def forget_credentials(connector_id: str, settings: Settings = Depends(get_settings)):
-    _adapter(connector_id).forget()
+    adapter = _adapter(connector_id)
+    # G232: an adapter that can end its grant at the service (Reddit's installed app) does so first — the person's
+    # one click is both Disconnect and revoke. Never fails the forget.
+    if (revoke := getattr(adapter, "revoke", None)) is not None:
+        try:
+            await revoke()
+        except Exception as exc:  # noqa: BLE001 — the class only
+            logger.info(f"{connector_id}: revoke failed ({type(exc).__name__})")
+    adapter.forget()
     # Fix round 1, M2: same reasoning as `set_credentials` — disconnect must
     # also be visible to the SSE version vector.
     sync_state.record_credentials_changed(settings.memory_path, connector_id)
@@ -168,13 +179,14 @@ async def forget_credentials(connector_id: str, settings: Settings = Depends(get
 async def authorize(connector_id: str, settings: Settings = Depends(get_settings)):
     """Mint the vendor consent URL the app opens in the user's own browser."""
     adapter = _adapter(connector_id)
-    if adapter.LOGIN_MODE != "oauth":
+    if not base.signs_in(adapter):
         raise HTTPException(
             status_code=400,
             detail=f"{connector_id} uses credentials, not an authorization flow",
         )
+    # An OAuth adapter on the person's own app needs its fields first; Cicada's own app (G232) needs none.
     missing = [f["name"] for f in adapter.FIELDS if not secret_store.has_secret(f["name"])]
-    if missing:
+    if missing and adapter.LOGIN_MODE == "oauth":
         raise HTTPException(status_code=422, detail="Save the app credentials first")
 
     now = time.time()
@@ -184,7 +196,11 @@ async def authorize(connector_id: str, settings: Settings = Depends(get_settings
 
     state = pysecrets.token_urlsafe(24)
     base_url = f"http://{settings.host}:{settings.port}"
-    url = adapter.authorize_url(state, base_url=base_url)
+    try:
+        url = adapter.authorize_url(state, base_url=base_url)
+    except base.ConnectorError as exc:
+        # Words the person can act on (G232: this build has no app, or the backend is off the registered address).
+        raise HTTPException(status_code=422, detail=str(exc))
     _pending_states[(connector_id, state)] = now + _STATE_TTL_SECONDS
     return ConnectorAuthorizeResponse(authorize_url=url, state=state)
 
@@ -217,7 +233,7 @@ async def connector_callback(
     unknown, expired, or cross-connector-replayed state exchanges nothing.
     """
     adapter = _adapter(connector_id)
-    if adapter.LOGIN_MODE != "oauth":
+    if not base.signs_in(adapter):
         raise HTTPException(
             status_code=400,
             detail=f"{connector_id} uses credentials, not an authorization flow",

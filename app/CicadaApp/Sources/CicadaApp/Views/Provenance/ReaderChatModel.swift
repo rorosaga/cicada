@@ -147,6 +147,7 @@ enum ReaderChat {
             if self == .whole || self == .last {
                 out.reactions = extras.reactions
                 out.attachments = extras.attachments
+                out.files = extras.files
                 out.edited = extras.edited
             }
             return out.isEmpty ? nil : out
@@ -190,6 +191,9 @@ enum ReaderChat {
         var forwardedFrom: String? = nil
         var reactions: [ReactionChip] = []
         var attachments: [String] = []
+        /// Chat images (2026-11-04): a chat source's attachments, in `attachments`' order, for the tiles that show
+        /// the file itself where the chat app holds it (`ChatMediaTile`); empty for any other conversation.
+        var files: [ChatFile] = []
         var edited = false
         var isEmpty: Bool { reply == nil && forwardedFrom == nil && reactions.isEmpty && attachments.isEmpty && !edited }
     }
@@ -246,6 +250,7 @@ enum ReaderChat {
         calendar.timeZone = timeZone
         calendar.locale = locale
         let chat = messagesChat(doc) != nil
+        let files = ChatMedia.source(doc) == nil ? [:] : ChatMedia.files(doc)
 
         // A turn's blocks, grouped, so a folded turn draws one preview and a long one one bubble.
         var order: [Int] = []
@@ -275,7 +280,7 @@ enum ReaderChat {
         for (position, index) in order.enumerated() {
             guard var turnBlocks = pieces[index], let head = turnBlocks.first else { continue }
             let turn = turnsByIndex[index]
-            var extras = turn?.extras.map { chatExtras($0, doc: doc, pieces: pieces) }
+            var extras = turn?.extras.map { chatExtras($0, doc: doc, pieces: pieces, files: files[index] ?? []) }
             if extras?.isEmpty == true { extras = nil }
             if let attachments = turn?.extras?.attachments, !attachments.isEmpty, let tail = turnBlocks.last,
                let cut = withoutAttachmentNames(tail, count: attachments.count) {
@@ -376,7 +381,8 @@ enum ReaderChat {
     /// The most of a reply's target the line above the bubble quotes.
     static let replyExcerpt = 60
 
-    static func chatExtras(_ extras: EpisodeTurnExtras, doc: EpisodeText, pieces: [Int: [ReaderBlock]]) -> Extras {
+    static func chatExtras(_ extras: EpisodeTurnExtras, doc: EpisodeText, pieces: [Int: [ReaderBlock]],
+                           files: [ChatFile] = []) -> Extras {
         var out = Extras()
         if let target = extras.replyTo, let block = pieces[target]?.first {
             let who = doc.turns.first { $0.index == target }.map { partyName($0.marker ?? "user", doc: doc) }
@@ -399,6 +405,7 @@ enum ReaderChat {
         out.attachments = extras.attachments.map {
             Copy.Provenance.attachment(kind: $0.kind, name: $0.name, size: $0.size, generated: $0.generated)
         }
+        out.files = files.count == extras.attachments.count ? files : []
         if let runs = extras.codeRuns, runs > 0 { out.attachments.append(Copy.Provenance.ranCode(runs)) }
         out.edited = extras.edited
         return out
