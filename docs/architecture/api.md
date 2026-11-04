@@ -1011,3 +1011,9 @@ or future start changes currentness at midnight even if no page was edited.
 These are on-demand reads with in-memory caches, not Store domains, and add
 no VersionVector component or wire field. Search's Swift decoder now consumes
 its already-existing event day/state fields so a closed event stays dated.
+
+**Saves kept for lookup (ruling 62, 2026-11-04).** `GET /sleep/queue` and each row of `GET /sources/overview` carry `kept`:
+the saves indexed with no model read, unread until the person talks about one (`history_index.kind` `saved`,
+`capture-and-sleep.md`, *The lean pass*). `SHAPE` `overview-v17` moves the overview's ETag with the field and the app decodes
+it leniently; `/sleep/queue` has no ETag and is not a Store domain. Neither lists a kept save as waiting, and
+`GET /sleep/episodes?processed=false` no longer lists one a run has not retired yet. The hook's `reason` gains `saved`.

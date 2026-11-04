@@ -74,7 +74,8 @@ times — and Ask said "the assistant" where the episode recorded a Claude Code 
 **Every episode id reads (2026-10-27).** `cicada_sources(entity_id)` takes an episode id Cicada printed (`ep_<day>_<n>`
 from Ask, recall's excerpts, a page) and returns that conversation: a header (id, day, title), `With: <actor>`, a
 removed-from-source or not-yet-read note when true, then its words as stored — scrubbed at capture, the dropped-middle
-marker labelled (gate B2). An index-only episode (ruling 30: a watched day, a month's summary, a saved-list item, a
+marker labelled (gate B2). A bare save (ruling 62) answers one line with its title and link, an agent's way to look
+further. Any other index-only episode (ruling 30: a watched day, a month's summary, a saved-list item, a
 trace day — `history_index.kind`) answers one line saying what it is and that it is indexed for lookup, never its
 text. The door is `cicada_sources` and not a new tool: it is the `sources` scope's own tool, so a
 remote connection reads a conversation only with that scope, at R-R28's 1,000 characters, and every door fences it as

@@ -853,8 +853,7 @@ import needs no Mac app).
   Pinterest's export is a browse-your-content HTML archive with no stable structure, so Pinterest stays with its
   connector — and, since G232, the person's agent reading their Saved Pins in their browser (`saved_lists`; Pinterest
   documents no layout for its download, so no reader is written until a real one's member names have been seen).
-- **The Reddit connector (G232).** Reads saved (folder `r/<sub>`, read by Sleep as a connector poll, ruling 30's
-  part 1), upvoted (`Upvoted`) and joined communities (`Joined communities`), the last two index-only through
+- **The Reddit connector (G232).** Reads saved (folder `r/<sub>`, a bare save: indexed, ruling 62), upvoted (`Upvoted`) and joined communities (`Joined communities`), the last two index-only through
   `history_index.LIST_FOLDERS` like the export's rows. Reddit gives no save or upvote date, so none is set (ruling 39:
   `received_at` says when it came). Connect and the reads in `network.md`, "Connect Reddit".
 
@@ -1013,8 +1012,8 @@ So watch history and list saves are a record to look up, never a conversation to
   Takeout playlist, Watch later included, or the agent's read of Watch later), `instagram-saved`, `tiktok-saved`,
   `x-likes`, `linkedin-saved`, and `reddit-saved` / `x-bookmarks` only under the folder the export reader names
   (`Saved posts`/`Saved comments`, `Bookmarks`) — the Reddit and X connectors share those origins under other
-  folders and are read as before. A browser bookmark, a single URL save and a save carrying the person's own note
-  keep today's behaviour (no list door carries a note; one that did is stamped `has_note` and queued). **The
+  folders. A save carrying the person's own note is read (no list door carries a note; one that did is stamped
+  `has_note` and queued). Every other bare save is lean, the same way (*The lean pass*, ruling 62, below). **The
   person's words always win:** a list save whose frontmatter carries `saved_why`, `saved_why_earlier` or `has_note`
   is never index-only, so when they later say why they saved it (`saved_why.attach`/`edit` — e.g. a bookmark of a
   video already in their imported Watch later) or a repeat Telegram `/save` adds a reason
@@ -2199,8 +2198,13 @@ reads only engines that report windows (`RESERVE_ENGINES`: Claude, ChatGPT). Ant
 says wrapping `agy` inside another application "is not supported under consumer plans", and Gemini CLI stopped serving
 personal Google sign-ins on 2026-06-18.
 **Before the freeze:** every run that holds the bank first marks what is only ever looked up as read — watch
-history, month summaries and list saves (*Indexed, not consolidated*, above) — so they are never frozen, batched or
-counted as read by the model. **Once per drain, not per batch:** temporal decay (both engines,
+history, month summaries, list saves and bare saves (*Indexed, not consolidated* and *The lean pass*, above) — so they
+are never frozen, batched or counted as read by the model. **A batch is bounded by what it holds too (ruling 62):** at
+most the person's count (`sleep_run_prefs`, default 25) and `sleep_drain.BATCH_BYTES` (60,000 bytes of episode files,
+never fewer than one episode), because a stop loses the batch in progress and nothing is committed until Stage 5. By count
+alone a run of 22 was one batch of 22. A long session now reads alone and short ones keep the count; "Batch 3 of 7" is the
+same rule (`batches_left`). The cost is one more `skills` call and a merge per page per batch. **Not built (G163):** a
+journal of paid answers, which is what would keep the work of a batch a stop lands in. **Once per drain, not per batch:** temporal decay (both engines,
 `decay=False` on `resolve_and_prune` / `reconcile_stage3` / `run_claim_pipeline`) and Stage 5.57's page reads run only in the
 batch that empties the queue (a decay-only finishing pass covers a last batch whose ids were read elsewhere), so decay is
 charged once (TODO ruling 1) and a stopped drain never decays; **once per run:** the whole engine-independent tail, whose

@@ -1687,16 +1687,20 @@ async def _index_without_model_safely(memory_path: Path) -> None:
             logger.warning(f"Indexing without a model skipped: tree status unreadable ({type(exc).__name__})")
             return
     try:
-        from api.services import saved_mentions
-
         retired = await asyncio.to_thread(history_index.retire, memory_path, skip=skip)
         months = await asyncio.to_thread(watch_history.rollup, memory_path, bank=memory_path.name)
-        # Ruling 62: an indexed save whose page a conversation lit since gets its one real read. After `retire`: a save
-        # that just went in was checked by it.
-        woken = await asyncio.to_thread(saved_mentions.wake_lit, memory_path, at=episode_ids.utc_now_iso(), skip=skip)
     except Exception as exc:
         logger.warning(f"Indexing without a model failed: {type(exc).__name__}: {exc}")
         return
+    # Ruling 62: an indexed save whose page a conversation lit since gets its one real read. After `retire`: a save that
+    # just went in was checked by it. Its own failure never costs the commit below what `retire` wrote.
+    woken: list[str] = []
+    try:
+        from api.services import saved_mentions
+
+        woken = await asyncio.to_thread(saved_mentions.wake_lit, memory_path, at=episode_ids.utc_now_iso(), skip=skip)
+    except Exception as exc:  # noqa: BLE001 - a later run wakes it
+        logger.warning(f"Saved pages not checked for mentions: {type(exc).__name__}")
     paths = sorted(set(retired.paths) | {p for p in [*months.paths, *woken] if p not in skip})
     if retired.paths or months.created or months.updated:
         logger.info(f"Indexed without a model: {len(retired.paths)} queued episode(s) marked read "
@@ -2397,8 +2401,9 @@ async def _drain(
             break
 
         ds.batch += 1
+        taken = set(batch_ids)
         ds.batches = ds.batch + sleep_drain.batches_left(
-            [i for i in ids if i not in ds.settled and i in waiting and i not in set(batch_ids)], size, sizes)
+            [i for i in ids if i not in ds.settled and i in waiting and i not in taken], size, sizes)
         is_last = more == 0
         before_read, before_total = dict(_state.read_by_origin), _state.episodes_total
         _reset_batch_counters()

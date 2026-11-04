@@ -2205,7 +2205,8 @@ pending from that category, as a small notification."*
   (`SourceBlurb`, now with Messages, Apple Calendar and "Other agents"), then one state line with only what the row
   beside it can't say — when it last synced, the whole error in `warning`, or "Syncing now" with its × — never the
   row's own "Watching" / "Syncs when you ask" (`SourceDetailText.state`; no line at all when there is nothing), with
-  Sync now / Poll now inline, and **"Consolidate now · N waiting"** as a compact `NeutralButton` only while
+  Sync now / Poll now inline, one line for saves kept for lookup when there are any (ruling 62, `Copy.keptForLookup`,
+  the same words under the Sleep page's Waiting; DR-38, DR-51), and **"Consolidate now · N waiting"** as a compact `NeutralButton` only while
   `waiting > 0` (or a read runs); when other sources wait too it says "N here, M in all" (a read takes everything).
   The run state follows the Store's status and re-reads Sleep's status when it moves, so the button is never enabled
   during a run. The eyebrow stays the page's ("Sources · n connected") whatever is open — v3's position and group
