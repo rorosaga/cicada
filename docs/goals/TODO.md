@@ -12,6 +12,32 @@
 
 ## Current state and evidence
 
+- **2026-11-04 — Claude chats: the export picked up from Downloads, and a weekly nudge (G197 layer c, G105; branch
+  `claude-desktop-capture`).** Owner: "I don't see conversations I have on Claude chats or claude.ai being captured."
+  Diagnosis, from the live install's numbers: one relayed episode ever, and every Claude chat in the bank from one
+  October export. The remote connector was off, so claude.ai had no way in. The desktop app's only Cicada server is
+  stdio, which never serves `cicada_capture_turns`, and its primer asks for no relay. Of the four ways in
+  (`capture-and-sleep.md`, "Hookless chat apps"): the desktop app keeps no chat history on disk for a claude.ai account
+  (counts only, no content read); reading claude.ai through the person's browser by an agent is the "automated or
+  non-human means" Anthropic's Consumer Terms §3 bar; the official export is the one path with no model in it; relay
+  stays ruling 32's model-dependent exception. Built (app only): while an export wait is open, the vendor's zip in
+  Downloads, identified by its central directory's member names, opens the one intake's preview; *Every week* in every
+  *Remind me* menu nudges the person to ask for a fresh export. The review of #592 found four blockers, all fixed, each
+  with a test that failed on the pre-fix sources: a crafted zip64 offset trapped; Downloads stayed watched past a
+  wait's expiry; a busy intake toasted every retry; a refused weekly reminder said it was on. Also fixed: arming only
+  after an in-run tap, a stop during a look being undone, an open preview being replaced, an arrival notice after a
+  refusal, the nudge's memory, and a line for a refused Downloads. Tests: `ExportArrivalsTests` 22, `ExportWaitsTests`
+  7, `IntakeRouterTests` 35, `FeedGuardTests` 10, `CopyConstantsTests` 13, and `--filter Lint` 85, all green. **Needs the owner (DECIDE):**
+  (1) the remote stdio relay: should the local stdio server serve `cicada_capture_turns` to the Claude desktop app
+  (`clientInfo` `claude-ai`) with the desktop primer asking for it? That would amend ruling 32's "through the remote
+  connector" for an app that has no hook on stdio either. **Recommended yes**, as a layer under the export, never
+  instead of it. (2) Reading the person's claude.ai list through their own browser by their agent: **recommended no**
+  under the ToS rail, unless Anthropic explicitly permits it. (3) D6′ (one-click Funnel for the connector) is already
+  waiting (2026-11-03); **recommended yes**, since it is what makes the phone's claude.ai reachable at all. (4) Listing
+  `~/Downloads` (names, sizes, dates; a zip's member names) while an export wait is open, which may raise macOS's one
+  Files and Folders prompt after *Remind me*: **recommended yes**, as built. Open: the export carries no schedule or
+  API, so the person still clicks Export and the email's link once a week. For the owner's own hands: turn the
+  connector on and add it on claude.ai, and turn *Every week* on for Claude.
 - **2026-11-04 — Substack through the person's own agent (G89; branch `g89-substack`).** Owner: "a direct app
   integration is best to see history of read stuff, saved stuff, etc." Researched against current sources: Substack has
   no reader API or OAuth app programme (its OAuth serves only its own MCP connector — publisher analytics for an admin of
