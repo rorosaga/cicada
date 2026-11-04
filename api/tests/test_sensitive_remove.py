@@ -501,10 +501,17 @@ def _same(paths: list[Path]) -> dict[Path, bytes]:
     return {p: p.read_bytes() for p in paths}
 
 
-def _claim_page(bank: Path, name: str, obj: str, quote: str, ep: str = EP) -> Path:
-    line = claims._jsonl_line({"id": "c1", "subject": name, "predicate": "uses", "object": obj, "quote": quote,
-                               "evidence": [{"episode": ep, "quote": quote}]})
-    return _page(bank, name, {}, f"Prose.\n\n```claims\n{line}\n```\n")
+def _span(ep: str = EP) -> dict:
+    """Evidence as a claim stores it: offsets and a hash, none of the words."""
+    return {"episode": ep, "start": 6, "end": 36, "kind": "user", "hash": "abcd1234"}
+
+
+def _claim_line(name: str, obj: str, ep: str = EP, predicate: str = "uses") -> str:
+    return claims._jsonl_line({"id": "c1", "subject": name, "predicate": predicate, "object": obj, "evidence": [_span(ep)]})
+
+
+def _claim_page(bank: Path, name: str, obj: str, ep: str = EP, predicate: str = "uses") -> Path:
+    return _page(bank, name, {}, f"Prose.\n\n```claims\n{_claim_line(name, obj, ep, predicate)}\n```\n")
 
 
 @pytest.mark.parametrize("value", [FALSE_ALARM, "next-js15", "v0.7.3", "Madrid-2024", "k8s-prod"])
@@ -610,7 +617,7 @@ def test_the_dry_run_says_what_each_row_would_touch_and_writes_nothing(bank, cap
 
 def test_a_plain_word_password_leaves_the_claim_fence_of_a_page_citing_it(bank):
     _ep(bank, body="user: my gmail password is Cocodrilo")
-    page = _claim_page(bank, "alpha", "Cocodrilo", "my gmail password is Cocodrilo")
+    page = _claim_page(bank, "alpha", "Cocodrilo")
     _commit(bank)
     out = _remove(bank, EP)
     text = page.read_text(encoding="utf-8")
@@ -622,17 +629,76 @@ def test_a_plain_word_password_leaves_the_claim_fence_of_a_page_citing_it(bank):
 
 def test_a_claim_about_the_same_word_elsewhere_on_the_page_keeps_it(bank):
     _ep(bank, body="user: my gmail password is Cocodrilo")
-    good = claims._jsonl_line({"id": "c1", "object": "Cocodrilo", "quote": "my gmail password is Cocodrilo"})
-    other = claims._jsonl_line({"id": "c2", "object": "Cocodrilo", "quote": "saw a Cocodrilo at the zoo"})
-    page = _page(bank, "alpha", {"source": EP}, f"```claims\n{good}\n{other}\n```\n")
+    good = _claim_line("alpha", "Cocodrilo")
+    other = claims._jsonl_line({"id": "c2", "subject": "alpha", "predicate": "ate-at", "object": "Cocodrilo",
+                                "evidence": [_span(OTHER_EPS[0])]})
+    words = claims._jsonl_line({"id": "c3", "subject": "alpha", "predicate": "ate-at", "object": "lunch at Cocodrilo",
+                                "evidence": [_span()]})
+    page = _page(bank, "alpha", {}, f"```claims\n{good}\n{other}\n{words}\n```\n")
     _commit(bank)
-    _remove(bank, EP)
-    assert "saw a Cocodrilo at the zoo" in page.read_text(encoding="utf-8")
+    assert _remove(bank, EP)["still_found"] == 0
+    loaded = claims.load_fence_payload(claims._CLAIMS_BLOCK_RE.search(markdown_parser.parse(page).body).group("payload"))
+    assert [c["object"] for c in loaded] == ["[removed: password]", "Cocodrilo", "lunch at Cocodrilo"]
+
+
+@pytest.mark.parametrize("predicate", ["uses", "has-password"])
+def test_a_claim_citing_the_conversation_with_the_value_as_its_object_is_tied_in_a_ledger_too(bank, predicate):
+    _ep(bank, body="user: my gmail password is Cocodrilo")
+    (bank / "entities" / "alpha.md").write_text("---\nname: alpha\ntype: concept\n---\nProse.\n", encoding="utf-8")
+    ledger = bank / "entities" / "alpha.claims.jsonl"
+    ledger.write_text(_claim_line("alpha", "Cocodrilo", predicate=predicate) + "\n", encoding="utf-8")
+    _commit(bank)
+    assert _remove(bank, EP)["still_found"] == 0
+    assert "Cocodrilo" not in ledger.read_text(encoding="utf-8")
+
+
+def _other_description(bank: Path, value: str, text: str) -> Path:
+    return _ep(bank, OTHER_EPS[0], "user: nothing here", description=text.format(value))
+
+
+@pytest.mark.parametrize("place", [
+    lambda bank, v: _page(bank, "gmail", {}, f"# Gmail\n\nThe gmail password is {v}.\n"),
+    lambda bank, v: _other_description(bank, v, "the gmail password is {}"),
+    # YAML folds a field this long across lines, the word on one and the value on another
+    lambda bank, v: _other_description(bank, v, ("a long note " * 8) + "the gmail password is {}"),
+    lambda bank, v: _ep(bank, OTHER_EPS[0], f"user: other\nassistant: the gmail password is {v}"),
+], ids=["untied-page", "description", "folded-description", "assistant-turn"])
+@pytest.mark.parametrize("value", ["Cocodrilo", "Piñata"])
+def test_still_found_counts_a_plain_word_password_left_where_a_line_calls_it_one(bank, place, value):
+    _ep(bank, body=f"user: my gmail password is {value}")
+    left = place(bank, value)
+    _commit(bank)
+    before = _same([left])
+    out = _remove(bank, EP)
+    assert out["still_found"] == 1 and out["stayed"] == 0
+    assert _same([left]) == before                  # a count only: Remove never reached an untied file
+
+
+def test_still_found_leaves_the_same_word_on_a_page_about_something_else(bank):
+    _ep(bank, body="user: my gmail password is Cocodrilo")
+    page = _page(bank, "food", {}, "# Food\n\nCocodrilo is a restaurant in town.\n")
+    _commit(bank)
+    before = _same([page])
+    assert _remove(bank, EP)["still_found"] == 0
+    assert _same([page]) == before
+
+
+def test_a_closing_bang_leaves_with_the_value_and_an_alias_goes_whole(bank):
+    value = "Zanate2-Xq7!"
+    conversation = _ep(bank, body=f"user: my gmail password is {value}\nassistant: Logged in with {value[:-1]}.")
+    page = _page(bank, "gmail", {"aliases": [value, "mail"], "source": EP}, f"The password is {value}\n")
+    _commit(bank)
+    assert _remove(bank, EP)["still_found"] == 0
+    text = conversation.read_text(encoding="utf-8")
+    assert value[:-1] not in text and "[removed: password]!" not in text and "password]." in text
+    parsed = markdown_parser.parse(page)
+    assert parsed.frontmatter["aliases"] == ["mail"]
+    assert value[:-1] not in page.read_text(encoding="utf-8") and "[removed: password]!" not in parsed.body
 
 
 def test_still_found_counts_a_claim_line_that_does_not_parse(bank):
     _ep(bank, body="user: my gmail password is Cocodrilo")
-    good = claims._jsonl_line({"id": "c1", "object": "x", "episode": EP})
+    good = _claim_line("alpha", "x")
     _page(bank, "alpha", {}, f'```claims\n{good}\n{{"object": "the password is Cocodrilo", broken\n```\n')
     _commit(bank)
     assert _remove(bank, EP)["still_found"] == 1

@@ -1027,7 +1027,7 @@ its already-existing event day/state fields so a closed event stays dated.
 required, `plan` the dry run's stamp over each row's id, kinds with counts and unsure count. 409 when a row is gone, the
 stamp differs, the older version cannot be committed, or Sleep holds the pages; 403 for `via: agent`. Answers counts only:
 `{removed, failed, files, committed, left, still_found, stayed}` (`still_found`: files, conversations included, still holding
-what it was to take out, a key field or one that does not parse; `stayed`: tokens left in other files on purpose, unsure or
+what it was to take out: a distinctive value anywhere, any other on a line that speaks of a secret, tied or not; `stayed`: tokens left in other files on purpose, unsure or
 common in the bank). A row in the card's own resolve that could not be done answers 409 and stays.
 **Saves kept for lookup (ruling 62, 2026-11-04).** `GET /sleep/queue` and each row of `GET /sources/overview` carry `kept`:
 the saves indexed with no model read, unread until the person talks about one (`history_index.kind` `saved`,

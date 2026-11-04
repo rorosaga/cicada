@@ -47,24 +47,33 @@ def bank_files(memory_path: Path):
                 yield Path(directory) / name
 
 
-def _walk(value, marks: dict[str, str], *, key=None, speaks: bool = False):
+def _cites(entry: dict, tied: tuple[str, ...]) -> bool:
+    """Does this claim's evidence cite one of these conversations? It holds offsets and a hash, none of the words."""
+    evidence = entry.get("evidence")
+    return isinstance(evidence, list) and any(isinstance(e, dict) and e.get("episode") in tied for e in evidence)
+
+
+def _walk(value, marks: dict[str, str], *, key=None, speaks: bool = False, tied: tuple[str, ...] = ()):
     """``(value, changes)`` through a loaded structure. Keys and ids stay. A list item that was nothing but the value goes
-    (an alias of ``[removed: password]`` names nothing); a scalar field keeps its mark."""
+    (an alias of ``[removed: password]`` names nothing); a scalar field keeps its mark. A claim citing the conversation
+    (``tied``) with the value as its whole object is about that value, whatever its predicate calls it."""
     if isinstance(value, str):
         if episode_scrub._is_key_field(key):
             return value, 0
         return sensitive_text.take_out(value, marks, speaks=speaks)
     if isinstance(value, dict):
-        here = speaks or any(isinstance(v, str) and sensitive_text.speaks_of_a_secret(v) for v in value.values())
+        obj = value.get("object")
+        here = (speaks or any(isinstance(v, str) and sensitive_text.speaks_of_a_secret(v) for v in value.values())
+                or (isinstance(obj, str) and obj in marks and _cites(value, tied)))
         out, total = {}, 0
         for k, v in value.items():
-            out[k], n = _walk(v, marks, key=k, speaks=here)
+            out[k], n = _walk(v, marks, key=k, speaks=here, tied=tied)
             total += n
         return out, total
     if isinstance(value, list):
         items, total = [], 0
         for v in value:
-            got, n = _walk(v, marks, key=key, speaks=speaks)
+            got, n = _walk(v, marks, key=key, speaks=speaks, tied=tied)
             total += n
             if n and isinstance(v, str) and got in marks.values():
                 continue
@@ -73,14 +82,14 @@ def _walk(value, marks: dict[str, str], *, key=None, speaks: bool = False):
     return value, 0
 
 
-def _fields(value, marks: dict[str, str]):
+def _fields(value, marks: dict[str, str], *, tied: tuple[str, ...] = ()):
     """A whole file's top level: each field read by itself. A page's summary that says "account" says nothing about its
     other fields, where a claim's predicate does say something about its object."""
     if not isinstance(value, dict):
-        return _walk(value, marks)
+        return _walk(value, marks, tied=tied)
     out, total = {}, 0
     for k, v in value.items():
-        out[k], n = _walk(v, marks, key=k)
+        out[k], n = _walk(v, marks, key=k, tied=tied)
         total += n
     return out, total
 
@@ -100,53 +109,53 @@ def _prose(text: str, marks: dict[str, str]) -> str:
     return sensitive_text.take_out(_WIKILINK_RE.sub(link, text), marks)[0]
 
 
-def _body(body: str, marks: dict[str, str]) -> str:
+def _body(body: str, marks: dict[str, str], tied: tuple[str, ...] = ()) -> str:
     out: list[str] = []
     at = 0
     for m in claims._CLAIMS_BLOCK_RE.finditer(body):
         out.append(_prose(body[at:m.start("payload")], marks))
-        out.append(_fence(m.group("payload"), marks))
+        out.append(_fence(m.group("payload"), marks, tied))
         at = m.end("payload")
     out.append(_prose(body[at:], marks))
     return "".join(out)
 
 
-def _fence(payload: str, marks: dict[str, str]) -> str:
+def _fence(payload: str, marks: dict[str, str], tied: tuple[str, ...] = ()) -> str:
     """A claim fence by what it holds: JSON lines, each loaded, walked and written back in the one encoder only if it
     changed, or the legacy YAML list. One that does not load is left for the person to see (`residue` counts it); a
     distinctive value still goes, as text, since no parse depends on it."""
     if payload.lstrip().startswith("{"):
-        return _jsonl(payload, marks)
+        return _jsonl(payload, marks, tied)
     try:
         loaded = markdown_parser.load_yaml(payload)
     except Exception:  # noqa: BLE001
         loaded = None
     if not isinstance(loaded, list):
         return sensitive_text.take_out(payload, {k: v for k, v in marks.items() if sensitive_text.distinctive(k)})[0]
-    entries, n = _walk(loaded, marks)
+    entries, n = _walk(loaded, marks, tied=tied)
     if not n:
         return payload
     return "\n".join(claims._jsonl_line(entry) for entry in entries) + "\n"
 
 
-def _markdown(text: str, marks: dict[str, str]) -> str:
+def _markdown(text: str, marks: dict[str, str], tied: tuple[str, ...] = ()) -> str:
     m = markdown_parser._FENCED.match(text)
     if m is None:
-        return _body(text, marks)
+        return _body(text, marks, tied)
     head, body = text[:m.start(2)], m.group(2)
     try:
         fm = markdown_parser.load_yaml(m.group(1) or "")
     except Exception:  # noqa: BLE001 - broken before us: never made worse, and the residue count says so
         fm = None
     if isinstance(fm, dict):
-        kept, n = _fields(fm, marks)
+        kept, n = _fields(fm, marks, tied=tied)
         if n:
             dumped = yaml.dump(kept, default_flow_style=False, sort_keys=False).strip()
             head = f"---\n{dumped}\n---\n"
-    return head + _body(body, marks)
+    return head + _body(body, marks, tied)
 
 
-def _jsonl(text: str, marks: dict[str, str]) -> str:
+def _jsonl(text: str, marks: dict[str, str], tied: tuple[str, ...] = ()) -> str:
     out = []
     for line in text.split("\n"):
         try:
@@ -156,14 +165,14 @@ def _jsonl(text: str, marks: dict[str, str]) -> str:
         if loaded is None:
             out.append(sensitive_text.take_out(line, {k: v for k, v in marks.items() if sensitive_text.distinctive(k)})[0])
             continue
-        entry, n = _walk(loaded, marks)
+        entry, n = _walk(loaded, marks, tied=tied)
         out.append(claims._jsonl_line(entry) if n else line)
     return "\n".join(out)
 
 
-def _structured(path: Path, text: str, marks: dict[str, str]) -> str:
+def _structured(path: Path, text: str, marks: dict[str, str], tied: tuple[str, ...] = ()) -> str:
     loaded = json.loads(text) if path.suffix == ".json" else markdown_parser.load_yaml(text)
-    kept, n = _fields(loaded, marks)
+    kept, n = _fields(loaded, marks, tied=tied)
     if not n:
         return text
     if path.suffix == ".json":
@@ -171,13 +180,13 @@ def _structured(path: Path, text: str, marks: dict[str, str]) -> str:
     return yaml.dump(kept, default_flow_style=False, sort_keys=False, allow_unicode=True)
 
 
-def cleaned(path: Path, text: str, marks: dict[str, str]) -> str:
+def cleaned(path: Path, text: str, marks: dict[str, str], tied: tuple[str, ...] = ()) -> str:
     """``text``, what ``path`` holds, without the values, by what the file is. Writes nothing."""
     if path.suffix == ".md":
-        return _markdown(text, marks)
+        return _markdown(text, marks, tied)
     if path.suffix == ".jsonl":
-        return _jsonl(text, marks)
-    return _structured(path, text, marks)
+        return _jsonl(text, marks, tied)
+    return _structured(path, text, marks, tied)
 
 
 def _could_hold(text: str, marks: dict[str, str]) -> bool:
@@ -199,7 +208,7 @@ def _new_text(path: Path, text: str, marks: dict[str, str], tied_ids: tuple[str,
     if not here or not _could_hold(text, here):
         return text
     try:
-        return cleaned(path, text, here)
+        return cleaned(path, text, here, tied_ids or ())
     except Exception as exc:  # noqa: BLE001 - a file that does not parse is no reason to damage it
         logger.warning(f"Sensitive purge left a file it could not read: {type(exc).__name__}")
         return text
@@ -224,11 +233,25 @@ def clean_file(path: Path, marks: dict[str, str], *, tied_ids: tuple[str, ...] |
     return True
 
 
+def _said_as_a_secret(text: str, guarded: dict[str, str]) -> bool:
+    """Does one of these values stand on a line that speaks of a secret? Read from the raw text and, since YAML folds a long
+    field over lines and escapes a non-ASCII value, from the loaded frontmatter too."""
+    if not _could_hold(text, guarded):
+        return False
+    if sensitive_text.take_out(text, guarded)[1]:
+        return True
+    m = markdown_parser._FENCED.match(text)
+    try:
+        return bool(m and _fields(markdown_parser.load_yaml(m.group(1) or ""), guarded)[1])
+    except Exception:  # noqa: BLE001 - broken before us, and `would_change` is no worse for it
+        return False
+
+
 def residue(memory_path: Path, values, tied_ids: tuple[str, ...] = ()) -> int:
     """How many files, conversations included, still hold what Remove was to take out (a key field, a line or a file that
-    does not parse). A distinctive value anywhere; any other only where Remove would take it: in a file naming
-    ``tied_ids``, on a line that speaks of a secret. Its word elsewhere is that word. A :class:`Guarded` value left in other
-    files on purpose is the caller's other count. A count only. Reads files only."""
+    does not parse). A distinctive value anywhere; any other wherever it stands on a line that speaks of a secret, tied to
+    the conversation or not, though Remove only takes it from a tied file. Its word elsewhere is that word. A :class:`Guarded`
+    value left in other files on purpose is also the caller's other count. A count only. Reads files only."""
     free = [v for v in values if sensitive_text.distinctive(v)]
     guarded = {v: "x" for v in values if not sensitive_text.distinctive(v)}
     if not free and not guarded:
@@ -241,7 +264,7 @@ def residue(memory_path: Path, values, tied_ids: tuple[str, ...] = ()) -> int:
         except (OSError, UnicodeDecodeError):
             continue
         if (any(sensitive_text.holds(text, v) for v in free)
-                or (guarded and _names(text, tied_ids) and sensitive_text.take_out(text, guarded)[1])
+                or (guarded and _said_as_a_secret(text, guarded))
                 or would_change(path, text, marks, tied_ids=tied_ids)):
             found += 1
     return found

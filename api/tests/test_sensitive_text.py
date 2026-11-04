@@ -196,3 +196,59 @@ def test_the_samples_cover_every_vendor_shape():
 def test_a_key_of_any_vendor_shape_is_found_with_nothing_else_on_the_line(value):
     hits = st.find(f"user: look at this {value}")
     assert [(h.kind, h.sure) for h in hits] == [(st.KEY, True)]
+
+
+# ---- a password is a placeholder only as a whole, and what closes it
+
+
+def _password(line: str) -> list[str]:
+    text = f"user: {line}"
+    return [text[h.start:h.end] for h in st.find(text) if h.kind == st.PASSWORD]
+
+
+@pytest.mark.parametrize("value", [
+    "hunter2-Xq7!", "Perro123456", "Qwerty2024!", "Clave2024!", "Hunter2947", "Zanate2-Xq7!", "Password2024!",
+    "Testigo42x", "Secretaria9", "Barco-2024", "Foolproof7", "mi-Perro-9x", "Examples88",
+])
+def test_a_stated_password_that_merely_contains_a_placeholder_word_is_found(value):
+    assert _password(f"my gmail password is {value}") == [value]
+
+
+@pytest.mark.parametrize("value", [
+    "password", "password123", "Password1!", "passw0rd", "P@ssw0rd", "pa55word", "changeme", "change-me", "secret123",
+    "test1234", "test_password", "testpass", "test-only", "example123", "sample-password", "dummy1", "your-password",
+    "your_password_here", "YOUR_PASSWORD", "<your-password>", "my-secret-password", "mysecretpassword", "xxxxx",
+    "xxxx-xxxx", "xxx123", "****", "pa***rd", "abc123", "abcd1234", "abcdef", "qwerty", "qwerty123", "asdf1234", "hunter2",
+    "letmein", "123456", "12345678", "admin123", "contraseña123", "tu-clave", "mi_clave", "foobar", "mock-token",
+])
+def test_a_placeholder_as_the_whole_value_is_no_password(value):
+    assert _password(f"my gmail password is {value}") == []
+
+
+def test_a_long_run_of_a_placeholder_character_answers_at_once():
+    assert _password(f"my gmail password is {'x' * 63}y!") == [f"{'x' * 63}y"]
+
+
+@pytest.mark.parametrize("line,value", [
+    ("my gmail password is Zanate2-Xq7!", "Zanate2-Xq7!"),
+    ("my gmail password is Zanate2-Xq7!!", "Zanate2-Xq7!!"),
+    ("my gmail password is Zanate2-Xq7!.", "Zanate2-Xq7!"),
+    ("my gmail password is Zanate2-Xq7!, ok", "Zanate2-Xq7!"),
+    ("my gmail password is Zanate2-Xq7.", "Zanate2-Xq7"),
+    ("my gmail password is Zanate2-Xq7! thanks", "Zanate2-Xq7"),   # may be the sentence's own
+    ("my gmail password is Cocodrilo!", "Cocodrilo"),              # a word said loudly
+    ("my gmail password is 48210957!", "48210957"),
+])
+def test_a_closing_bang_is_part_of_a_mixed_value_with_no_space_after_it(line, value):
+    assert _password(line) == [value]
+
+
+def test_a_name_is_not_a_value_for_being_closed_by_a_bang():
+    assert _password("my gmail password is API_KEY!") == []
+
+
+def test_by_value_a_closing_bang_is_found_with_or_without_it_and_only_for_a_mixed_value():
+    assert st.take_out("in with Zanate2-Xq7! and Zanate2-Xq7.", {"Zanate2-Xq7!": "M"})[0] == "in with M and M."
+    assert st.holds("at Cocodrilo today", "Cocodrilo!") is False
+    assert st.holds("code 48210957 today", "48210957!") is False
+    assert st.holds("Zanate2-Xq7!", "Zanate2-Xq7") is True

@@ -119,6 +119,7 @@ _NOT_A_VALUE = frozenset("""
     temporal aleatoria aleatorio robada robado expirada expirado caducada caducado una un la el lo mi tu su muy
     demasiado tan siempre nunca solo sólo aqui aquí alli allí que qué cual cuál donde dónde como cómo porque cuando
     sí si no ya tambien también algo nada todo
+    latest greatest longest shortest strongest weakest bypassed passing passed tested tokenized mocked secretly
     fraca forte errada certa segura vazia nova velha mesma faible forte fausse vide nouvelle falsch richtig leer neu
 """.split())
 
@@ -129,12 +130,27 @@ _CODE_VALUE = frozenset("""
     arg args user username name email login auth credentials creds config settings prompt stdin getpass mask
 """.split())
 
-#: A fixture, an example or a placeholder rather than anyone's password. A miss is the cheap side of this.
+#: A key's value, by what it contains: ``sk-test-…``, ``your_api_key_here``. A miss is the cheap side of this. A stated
+#: password has its own, whole-value check (:func:`_placeholder_password`): people put these words in real ones.
 _PLACEHOLDER_RE = re.compile(
     r"pass(?:word)?|passw0rd|p@ss|secret|changeme|change[_-]?me|example|sample|dummy|fake|test|demo|foo|bar\b|baz|^admin\d{0,4}$|"
     r"your|my[_-]|xxx|\*\*\*|•|hunter|letmein|qwerty|123456|abc123|abcd|asdf|redacted|\[|placeholder|contrase|clave|"
     r"token|mock|stub|fixture|tu[_-]|mi[_-]|abcdef|zyxwvu|12345", re.IGNORECASE)
 
+_PLACEHOLDER_FILLER = r"your|my|mi|tu|su|the|some|super|new|old|nueva|nuevo"
+_PLACEHOLDER_WORD = (
+    r"pass|passwd|password|passphrase|passcode|passw0rd|pa55w[o0]rd|p@ss|p@ssw[o0]rd|pwd|secret|secreta|secreto|changeme|"
+    r"change[_-]?me|example|sample|dummy|fake|test|testing|only|demo|foo|bar|baz|admin|root|user|username|login|hunter|"
+    r"letmein|qwerty|qwertyuiop|asdf|asdfgh|asdfghjkl|abc|abcd|abcde|abcdef|abcdefg|zyxwvu|redacted|placeholder|"
+    r"contrase[nñ]a|clave|senha|passwort|token|mock|stub|fixture|key|value")
+_COUNTING = "|".join("1234567890"[:n] for n in range(10, 4, -1))
+#: The whole value is a placeholder: ``password123``, ``your-password-here``, ``test_secret``, ``xxxxx``, ``hunter2``.
+#: Only a counting or one-digit suffix: ``Clave2024`` and ``Hunter2947`` are someone's own.
+_PLACEHOLDER_VALUE_RE = re.compile(
+    rf"(?:(?:{_PLACEHOLDER_FILLER})[_-]?)*(?:(?:{_PLACEHOLDER_WORD})[_-]?)+(?:here|aqu[ií])?(?:[_-]?(?:{_COUNTING}|1234?|0?\d))?"
+    rf"|{_COUNTING}|admin\d{{0,4}}|x{{3,}}(?:[_-]x{{3,}})*\d*", re.IGNORECASE)
+#: Masked, wherever in the value it stands.
+_MASKED_RE = re.compile(r"\*\*\*|•")
 #: A harness session's person line that is plainly about logging in somewhere.
 _SHELL_RE = re.compile(r"\b(?:ssh|sudo)\b", re.IGNORECASE)
 _WEAK = frozenset({"clave", "contra", "pass", "pw"})
@@ -159,6 +175,24 @@ _IDENTIFIER_RE = re.compile(r"^[a-z]+(?:[A-Z][a-z]+)+$|^[A-Z][a-z]+(?:[A-Z][a-z]
 _CODE_LINE_RE = re.compile(r"""^\s{4,}\S|[{}();]\s*$|\bdef\s|\bfunction\b|\bclass\s|\bconst\s|\blet\s|\bvar\s|\breturn\b|\bimport\b|\bself\.|=>|^\s*["'][\w-]+["']\s*:|^\s*[-*]?\s*`""")
 
 
+def _placeholder_password(value: str) -> bool:
+    return _MASKED_RE.search(value) is not None or _PLACEHOLDER_VALUE_RE.fullmatch(value) is not None
+
+
+def _mixed(value: str) -> bool:
+    """Letters with a digit or a symbol: a value a closing ``!`` can belong to. A word or a number said loudly is that word."""
+    return any(c.isalpha() for c in value) and not all(c.isalpha() for c in value)
+
+
+def _closing_bang(rest: str, end: int) -> int:
+    """``end``, past a ``!`` that closes a mixed value with no space after it. "Zanate2-Xq7!" is all value; "Clave2024! Thanks"
+    may be a sentence's end, and by value both are found either way (:func:`_pattern`). A full stop is never a value's."""
+    stop = end
+    while rest[stop:stop + 1] == "!":
+        stop += 1
+    return stop if stop > end and not rest[stop:stop + 1].isspace() and _mixed(rest[:end]) else end
+
+
 def _value_after(rest: str) -> tuple[int, int, bool] | None:
     """``(start, end, quoted)`` of the value opening ``rest``, or ``None``."""
     if not rest:
@@ -175,16 +209,17 @@ def _value_after(rest: str) -> tuple[int, int, bool] | None:
     end = m.end()
     while end > 0 and rest[end - 1] in _TRAIL:
         end -= 1
-    return (0, end, False) if end else None
+    return (0, _closing_bang(rest, end), False) if end else None
 
 
 def _password_value(value: str, *, quoted: bool, mine: bool, weak: bool, ends: bool, agent: bool) -> bool:
     """Does this read as a password rather than a property of one, code, a placeholder or a test fixture?"""
+    value = value.rstrip("!") or value  # judged without what closes it: ``API_KEY!`` is still a name
     if not 4 <= len(value) <= 64 or _DATE_RE.match(value) or value.casefold() in _PASSWORD_MANAGERS:
         return False
     if quoted and any(c.isspace() for c in value) and len(value.split()) > 5:
         return False  # a sentence in quotes
-    if _CODE_CHARS_RE.search(value) or value.casefold() in _CODE_VALUE or _PLACEHOLDER_RE.search(value):
+    if _CODE_CHARS_RE.search(value) or value.casefold() in _CODE_VALUE or _placeholder_password(value):
         return False
     if _IDENTIFIER_RE.match(value) and not any(c.isdigit() for c in value):
         return False
@@ -704,20 +739,26 @@ _patterns: dict[str, re.Pattern[str]] = {}
 
 def _pattern(value: str) -> re.Pattern[str]:
     """Whole-token, case-sensitive, never fuzzy. Also finds a value as a JSON string writes it, and a long card or account
-    number whatever separates its groups (a model reformats those; nothing else about a value is loosened)."""
-    found = _patterns.get(value)
+    number whatever separates its groups (a model reformats those), and a mixed value with or without the ``!`` that closed
+    it where it was stated (an agent's echo drops it). Nothing else about a value is loosened."""
+    key = value
+    found = _patterns.get(key)
     if found is not None:
         return found
+    stem = value.rstrip("!")
+    bang = "!*" if stem != value and _mixed(stem) else ""
+    if bang:
+        value = stem
     compact = re.sub(r"[ -]", "", value)
     if len(compact) >= 12 and compact.isalnum() and sum(c.isdigit() for c in compact) * 2 >= len(compact):
         core = r"[ -]?".join(re.escape(c) for c in compact)
     else:
         spelled = {value, json.dumps(value)[1:-1], json.dumps(value, ensure_ascii=False)[1:-1]}
         core = "|".join(re.escape(v) for v in sorted(spelled, key=len, reverse=True))
-    found = re.compile(rf"(?<![\w])(?:{core})(?![\w])")
+    found = re.compile(rf"(?<![\w])(?:{core}){bang}(?![\w])")
     if len(_patterns) > 4096:
         _patterns.clear()
-    _patterns[value] = found
+    _patterns[key] = found
     return found
 
 
