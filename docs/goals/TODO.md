@@ -17,7 +17,7 @@
   through a provider"; "Yes hold them back"; "remove any sensitive data". Numbers, measured kinds and what stays open are
   on the row. Real bank: 16 conversations of 9,478 hold a hit; **precision on real data is unknown, since nobody read a
   value.** **Pick up here:** the owner's "remove any sensitive data" is applied with `scripts/sensitive_removal.py`:
-  read its dry run, then `--apply`. It removes from memory only: a password stays in the Notes app or chat that holds it,
+  read its dry run, then `--apply --plan <its stamp>`. It commits the older version first, then removes from memory only: a password stays in the Notes app or chat that holds it,
   and any real one among these should be changed, because what an engine read cannot be unread.
 - **2026-11-04 — the Contacts page shows every card (G154, G161; branch `g154-contacts-grid`, PR #602).** Owner: "only 6
   contacts synced". Coordinator's numbers: 370 cards waiting, 6 matched, and the page listed the 6; one-part names were
@@ -3120,8 +3120,10 @@ A whole row moves to DONE only after its remaining implementation and required a
     "hold back confident hits and only report unsure ones", the owner: "Yes hold them back." Before any engine read,
     `sensitive_text` finds likely credentials, card and bank numbers and ID numbers with no model. Confident
     (`Hit.sure`: a number that passed its own checksum, a vendor shape, a value in a connection URL or a secret's env line,
-    a password with letters and digits together, digits someone claimed): the engine reads a typed mark; the stored body
-    and every offset stay. Unsure (letters only, digits no one claimed, an account or ID number nothing can check): read,
+    a password with letters and digits together, digits someone claimed): every engine Cicada runs, on every job, reads a
+    typed mark wherever that value stands (one door, `sensitive_hold`, Ask's own model included); the stored body and every
+    offset stay. An agent the person talks to reads the record as stored until they remove it: their own agent, on their own
+    ask. Unsure (letters only, digits no one claimed, an account or ID number nothing can check): read,
     and the person is told. No setting. Either way the value is taken back out of what the model answered, and a flag never
     repeats it, nor a hash of it. **Why not hold back everything:** a held-back wrong alarm costs a word the record may
     need, and the detector's precision on real data is unmeasured; unsure is where that risk sits. The owner also ruled that

@@ -1012,5 +1012,8 @@ These are on-demand reads with in-memory caches, not Store domains, and add
 no VersionVector component or wire field. Search's Swift decoder now consumes
 its already-existing event day/state fields so a closed event stays dated.
 
-**`POST /sensitive/remove` (G235):** Remove on what `scripts/sensitive_removal.py` listed: `{expected, rows?}`, `expected`
-required, 409 when the plan holds another count or Sleep holds the pages, 403 for `via: agent`. Answers counts only.
+**`POST /sensitive/remove` (G235):** Remove on exactly what `scripts/sensitive_removal.py` listed: `{rows, plan}`, both
+required, `plan` the dry run's stamp over each row's id, kinds with counts and unsure count. 409 when a row is gone, the
+stamp differs, the older version cannot be committed, or Sleep holds the pages; 403 for `via: agent`. Answers counts only:
+`{removed, failed, files, committed, left, still_found}` (`still_found`: files still holding a removed value, a key field or
+one that does not parse). A row in the card's own resolve that could not be done answers 409 and stays.

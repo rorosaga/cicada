@@ -130,6 +130,12 @@ def _known(memory_path) -> tuple[dict[str, str], frozenset[str]]:
     return {}, frozenset()
 
 
+def warm(memory_path) -> None:
+    """The first look at a bank reads every conversation once (about 7 ms for 25 KB of talk about logins, worst case);
+    after that one ``os.scandir`` says what changed. Called off the loop at launch. Never raises."""
+    _known(memory_path)
+
+
 def hold_back(messages, memory_path):
     """``messages`` as an engine may read them. The same list when nothing changed; the caller's list is never touched,
     so a retry starts from what it built. System text is the caller's own: only a value on record is looked for there."""

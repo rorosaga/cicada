@@ -2026,7 +2026,7 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   only when there is one to show or to link.
 - **What may be sensitive (G235, ruling 60):** `InboxKind.sensitive` is a top card (`SensitiveReviewCard`, DR-37, DR-9,
   DR-40, DR-54): the server's title, one line of what Remove does and what it cannot, then a row per conversation, its title
-  opening the Reader, "A password held back from <their engine> · Nov 4" under it, *Remove* (neutral) and *Leave it* (text),
+  opening the Reader, "A password held back from <their engine> · Nov 4" under it, *Remove* (neutral, asks once in one line) and *Leave it* (text),
   answered optimistically; past three rows *All N* opens a sheet. A last line says how many conversations had what looked
   like a key or code replaced. A run's card says "N conversations may hold…" with *Review* outside its own button, and a
   run's detail says how many had something replaced. Naming the engine here is the person's own choice shown back, the one

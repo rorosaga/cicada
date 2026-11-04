@@ -2269,14 +2269,25 @@ Home's "Last read" shows the last batch's pages. Details' last-cycle figures —
 finds what ordinary wording gets past it and changes nothing: `Hit(kind, start, end, sure)`, never the words and never a
 hash of them. Pure and engine-free. Kinds, the reading per speaker, and the measured figures are on G235.
 
-- **The send point is `entity_extractor.extract`** (`sensitive_flags.Guard`), so Stage 1 and the quick read share it. A
-  revision is checked only in the windows it sends. A confident hit (`sure`) reaches the model as `[held back: <kind>]`,
-  on the chunk's copy only: `content`, its `revision` and every span stay on the stored body. An unsure one is read.
+- **One door to every engine (`sensitive_hold`, inside `providers.resolve_llm_fn`).** Every callable the resolver returns
+  masks the messages first, on every engine and for every job: Stage 1, a reply note, a question's evidence, a web lookup,
+  a saved reason, a page rewrite, Ask's own model; a hosted embedding model goes through `hold_texts`.
+  `test_sensitive_hold` fails on any other way to reach a model. **By value, not offset:** every confident hit on record
+  in the bank, minus what the person left, wherever the same value stands, spelled as JSON spells it, a long number whatever
+  separates its groups, and a value a length limit cut in half. A value that could be an ordinary word or a short number
+  (`distinctive`) only on a line that speaks of a secret. The prompt is also read by itself as a coding session is read,
+  for words no conversation holds yet. In memory it keeps per-file offsets keyed on the file's stamp and re-reads the few
+  files with a hit; nothing stores a value. A cold first look (at launch, off the loop) costs about 22 s on 75 MB of talk
+  about logins, 12 ms after. **What it does not cover, on purpose:** an agent the person talks to reads the record as
+  stored until they remove it (recall, `cicada_sources`, the sources Ask cites), on their own ask.
+- **Stage 1's own send** (`sensitive_flags.Guard`, shared with the quick read) records what the read holds and masks the
+  same values by offset, so a confident hit reaches the model as `[held back: <kind>]` on the chunk's copy only: `content`,
+  its `revision` and every span stay on the stored body. An unsure one is read.
 - **What the model answers is cleaned either way** (`Guard.clean`, after the spans are located): a value becomes
   `[removed]`, and a name, a link's end or a value that WAS one is dropped. `sweep_written` passes over the batch's dirty
-  pages before `_finalize`. A question's evidence lines go through `engine_view`, a revision's removed text through
-  `masked_for_engine`, and a conversation's title on its way to an agent's primer or continuation through
-  `title_for_others` (a capture's title is its first line, so it can be the line itself).
+  pages before `_finalize`, by structure. After a removal the door no longer knows the value, so a revision's removed text
+  is masked against the passage it became (`masked_for_engine`, `masked_against`), and a conversation's title on its way
+  to an agent's primer or continuation goes through `title_for_others` (a capture's title is its first line).
 - **The record** is the episode's `sensitive` frontmatter: `read: [{engine, at, kinds, held?}]` written before the send,
   under `episode_lock`, frontmatter only; `engine` omitted rather than guessed; `kept: {kind: n}`; `removed: {kinds, at,
   pending?}`. Kinds, counts, labels and dates only. A kind the person left (`kept`) is neither held back nor stripped on a
@@ -2285,18 +2296,32 @@ hash of them. Pure and engine-free. Kinds, the reading per speaker, and the meas
   trigger `sleep/sensitive-review`): ONE inbox item, kind `sensitive`, one row per conversation, each checked against the
   body as it is now. `sweep_read` finds conversations already read, once per `DETECTOR_VERSION`, kept outside every bank
   (`$CICADA_HOME/sensitive_sweep/`); it writes nothing on an episode and never runs in a demo bank.
-- **Remove** (`remove_episode`, the person's act): the marks in the body as `[removed: <kind>]`, every sidecar `offset`
-  moved, the title and strings beside it cleaned, a `revised` record, requeued, `removed.pending`. Each value leaves every
-  page, ledger, hub, backlog and inbox file by exact whole-token match at once. One commit as `user`. The word index is
-  rebuilt on a new file (`rebuild_fresh`: a dropped table's bytes stay readable in the old one) and vector passages holding
-  it are deleted (`forget_passages`, `secure_delete`). `build` sees a pending removal: nothing to read when the removal is
-  all that changed, and it closes even on a transcript, whose revisions otherwise close nothing. **Git history keeps the
+- **Remove** (`remove_rows`, the person's act), in an order that leaves the value findable and the row standing wherever
+  it stops. **First the older version is committed** with no author (`Older version kept before a removal`, a conversation
+  still waiting has no other copy), and checked against `HEAD`; no commit, or no repository, refuses with nothing changed.
+  **Then every file that repeated it**, one atomic replace each (`sensitive_purge`, by what the file is: frontmatter, YAML
+  and JSON loaded, walked and dumped; a claim fence written by its one encoder; a wikilink that held it becomes the mark
+  alone; a key or id field left; a file that does not parse left and counted). Every text store in the bank is walked:
+  pages, ledgers, hubs, backlog, inbox, nudges, clarifications, `pending_entities.jsonl`, `_index.md`. Then **every other
+  conversation holding a distinctive value** through the same revision path. **The body last**: `[removed: <kind>]`
+  wherever the value stands in it, sidecar `offset` and `reply_to` moved, title and strings beside it cleaned, a `revised`
+  record, requeued, `removed.pending`. **A common word is guarded:** it leaves only where it was called a secret, and a
+  tied file's line or claim that speaks of one; a page with no tie to the conversation keeps it. A distinctive value's exact
+  token is its own tie. One failure stops that conversation only: pages done stay done, the row stays, doing it again
+  finishes. One commit as `user`. The word index is rebuilt on a new file (`rebuild_fresh`: a dropped table's bytes stay
+  readable in the old one); the conversation's vector passages and any holding a distinctive value are deleted
+  (`forget_passages`, `secure_delete`); `_state.md` is rebuilt and commits alone. `build` sees a pending removal: nothing to
+  read when the removal is all that changed (`same_after_removal` asks the two texts, so a conversation that only repeated
+  a value qualifies), and it closes even on a transcript, whose revisions otherwise close nothing. **Git history keeps the
   older version and is never rewritten; the source still holds it; what an engine read cannot be unread.**
 - **The words stay out.** `episode_staging` and `transcript_capture.write_session` take them out of what a source re-sends
   before hashing, so an unchanged source hashes unchanged and a changed one never brings them back; `reapply_waiting`
-  catches any other writer just before a batch reads. Only the kinds the person removed.
+  catches any other writer just before a batch reads. Only the kinds the person removed, and any other line holding a value
+  the same source states. **Limit:** no value is stored, so a conversation that only repeated a value flagged elsewhere
+  cannot recognise it if its own source sends the words again.
 - **`scripts/sensitive_census.py`** counts what the detector would flag on a bank, and **`scripts/sensitive_removal.py`**
-  lists what Remove would touch and applies it through `POST /sensitive/remove`. Neither prints a value, a title or a path.
+  lists what Remove would touch and its plan stamp, and `--apply --plan <stamp>` removes exactly that through
+  `POST /sensitive/remove`. Neither prints a value, a title or a path.
 
 ### Entity promotion
 Entities are NOT extracted from every mention — that pollutes the graph. First mention stays in the

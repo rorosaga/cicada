@@ -92,7 +92,7 @@ def main(argv=None) -> int:
         f"{args.api.rstrip('/')}/sensitive/remove", data=json.dumps(body).encode(), method="POST",
         headers={"Content-Type": "application/json", "Authorization": f"Bearer {args.token_file.read_text().strip()}"})
     try:
-        with urllib.request.urlopen(request, timeout=300) as response:   # noqa: S310 - the person's own backend
+        with urllib.request.urlopen(request, timeout=1800) as response:   # noqa: S310 - the person's own backend
             answer = json.loads(response.read())
     except urllib.error.HTTPError as exc:
         print(f"refused: {exc.code}")     # never the body: nothing from the bank goes to a terminal unchecked

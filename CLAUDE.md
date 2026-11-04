@@ -267,8 +267,11 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   change, dated) and never a passage the person or an agent wrote or pinned — that is one inbox question a page (`revision_prose`).
 - **What may be sensitive (G235, ruling 60):** found with no model before an engine reads it (`sensitive_text`: offsets and a
   kind, never a value nor a hash of one); a confident hit is held back as a typed mark, the stored body untouched, an unsure
-  one reported; a page never repeats either. One review, one row per conversation, the person's alone. Remove goes through
-  the revision path; git history is never rewritten, and the copy says so (`capture-and-sleep.md`).
+  one reported; a page never repeats either. **One door:** by value, inside `providers.resolve_llm_fn`, so no engine Cicada
+  runs reads it, on any job (`sensitive_hold`, a test fails on any other way to a model); an agent the person talks to reads
+  the record as stored until they remove it. One review, one row per conversation, the person's alone. Remove commits the
+  older version first, edits by structure (`sensitive_purge`), the body last; git history is never rewritten, and the copy
+  says so (`capture-and-sleep.md`).
 - **Entity promotion:** a first mention stays in the index; a page needs 2+ conversations, >3 exchanges with the person's
   own words, or a link the person made to a high-confidence page other than the owner's — counted on the conversation,
   never guessed (`promotion`) — or the person's own words naming in full exactly one waiting Contacts card, never the "me"

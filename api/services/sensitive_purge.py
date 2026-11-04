@@ -72,6 +72,18 @@ def _walk(value, marks: dict[str, str], *, key=None, speaks: bool = False):
     return value, 0
 
 
+def _fields(value, marks: dict[str, str]):
+    """A whole file's top level: each field read by itself. A page's summary that says "account" says nothing about its
+    other fields, where a claim's predicate does say something about its object."""
+    if not isinstance(value, dict):
+        return _walk(value, marks)
+    out, total = {}, 0
+    for k, v in value.items():
+        out[k], n = _walk(v, marks, key=k)
+        total += n
+    return out, total
+
+
 def _prose(text: str, marks: dict[str, str]) -> str:
     """Prose. A link whose target or label held the value becomes the mark alone: ``[[[removed: password]]]`` links nowhere
     and reads as broken."""
@@ -108,10 +120,10 @@ def _fence(payload: str, marks: dict[str, str]) -> str:
         loaded = None
     if not isinstance(loaded, list):
         return sensitive_text.take_out(payload, {k: v for k, v in marks.items() if sensitive_text.distinctive(k)})[0]
-    cleaned, n = _walk(loaded, marks)
+    entries, n = _walk(loaded, marks)
     if not n:
         return payload
-    return "\n".join(claims._jsonl_line(entry) for entry in cleaned) + "\n"
+    return "\n".join(claims._jsonl_line(entry) for entry in entries) + "\n"
 
 
 def _markdown(text: str, marks: dict[str, str]) -> str:
@@ -124,9 +136,9 @@ def _markdown(text: str, marks: dict[str, str]) -> str:
     except Exception:  # noqa: BLE001 - broken before us: never made worse, and the residue count says so
         fm = None
     if isinstance(fm, dict):
-        cleaned, n = _walk(fm, marks)
+        kept, n = _fields(fm, marks)
         if n:
-            dumped = yaml.dump(cleaned, default_flow_style=False, sort_keys=False).strip()
+            dumped = yaml.dump(kept, default_flow_style=False, sort_keys=False).strip()
             head = f"---\n{dumped}\n---\n"
     return head + _body(body, marks)
 
@@ -141,19 +153,19 @@ def _jsonl(text: str, marks: dict[str, str]) -> str:
         if loaded is None:
             out.append(sensitive_text.take_out(line, {k: v for k, v in marks.items() if sensitive_text.distinctive(k)})[0])
             continue
-        cleaned, n = _walk(loaded, marks)
-        out.append(json.dumps(cleaned, ensure_ascii=False, default=str) if n else line)
+        entry, n = _walk(loaded, marks)
+        out.append(json.dumps(entry, ensure_ascii=False, default=str) if n else line)
     return "\n".join(out)
 
 
 def _structured(path: Path, text: str, marks: dict[str, str]) -> str:
     loaded = json.loads(text) if path.suffix == ".json" else markdown_parser.load_yaml(text)
-    cleaned, n = _walk(loaded, marks)
+    kept, n = _fields(loaded, marks)
     if not n:
         return text
     if path.suffix == ".json":
-        return json.dumps(cleaned, ensure_ascii=False, indent=2) + "\n"
-    return yaml.dump(cleaned, default_flow_style=False, sort_keys=False, allow_unicode=True)
+        return json.dumps(kept, ensure_ascii=False, indent=2) + "\n"
+    return yaml.dump(kept, default_flow_style=False, sort_keys=False, allow_unicode=True)
 
 
 def cleaned(path: Path, text: str, marks: dict[str, str]) -> str:
