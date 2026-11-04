@@ -22,6 +22,8 @@ Preconditions:
 - **Queue.** Run `$CV mcp call cicada_reading_queue '{}'`. On a fresh run: `Agent reading is off`. Turn it on in the run (the setting lives in the scratch `CICADA_HOME`) with `$CV api PUT /reading/settings '{"agentEnabled": true, "acknowledge": true}'`, then ask again: `Nothing is waiting` (a public link needs no agent).
 - **App.** On Home, `vh set_value --element_index <n> --value "https://example.com/reading"` on the `Search your memory` field and `vh press_key --key Return`. A new episode with `origin: saved-link`; `$CV app shot saved`.
 
+- **Lean pass (ruling 62).** A save with no note lands `processed_by: index` and costs no model call: `$CV sleep` ends with `processed 0`. A conversation captured with its link in the person's turn wakes it (`read_asked` on its episode) and the next `$CV sleep` reads it once. `$CV mcp call cicada_recall '{"query": "<words of its title>"}'` shows the link; `POST /capture/hook-context` with those words answers `reason: saved`.
+
 ## Gotchas
 
 - A save is the person's own act, so no gate stops it: the backend fetches the link once (its title and metadata, through `net_guard`, 4 s / 512 KB, no cookies). Save `https://example.com/...` links only. What Sleep would fetch on its own stays off (`CICADA_ALLOW_CONNECTOR_FETCH=off`).

@@ -71,7 +71,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Iterable
 
-from api.services import agent_turns, bank_index, episode_ids, episode_scrub, markdown_parser, turn_extras
+from api.services import agent_turns, bank_index, episode_ids, episode_scrub, history_index, markdown_parser, turn_extras
 
 #: Keys of one ``turns`` sidecar entry (R-PB4) — the coordination contract, exactly.
 #: Round 4 C1 adds ``model``/``effort``: written on an agent turn only, only when the
@@ -430,14 +430,23 @@ def _apply_common(fm: dict, draft: EpisodeDraft, stamps: list[dict], body: str |
     _apply_extras(fm, _extras_matching(draft, body) if body is not None else {})
     if draft.content_sha:
         fm["content_sha"] = draft.content_sha
-    if draft.queue_for_sleep:
+    if draft.queue_for_sleep or _read_owed(fm, draft):
         fm["processed"] = False
         # G114 R6: `processed_by` is written only beside `processed: true`.
         fm.pop("processed_by", None)
     else:
         fm["processed"] = True
         fm["processed_by"] = draft.processed_by
+        if draft.processed_by == history_index.INDEXED_BY:
+            # Its one read was of the old words: these are a bare save again, found and woken like any other.
+            fm.pop(history_index.WOKEN_KEY, None)
     set_turn_stamps(fm, stamps)
+
+
+def _read_owed(fm: dict, draft: EpisodeDraft) -> bool:
+    """Ruling 62: a lean writer's draft (a tab group, a saved list) says nothing about a read the person's own mention
+    or reason queued: a sync before that read leaves it queued, whatever the sync changed."""
+    return draft.processed_by == history_index.INDEXED_BY and history_index.owes_a_read(fm)
 
 
 def set_turn_stamps(fm: dict, stamps: list[dict]) -> None:
@@ -502,7 +511,7 @@ def _under_episode_lock(fn):
 #: reads the episode again, absent while no revision was ever consolidated. The earlier body is in git.
 REVISED_KEY = "revised"
 #: ``processed_by`` values that mean nothing consolidated the body (R-LS10's parser, ``history_index.INDEXED_BY``).
-_NOT_CONSOLIDATED_BY = frozenset({PARSED_ONLY, "index"})
+_NOT_CONSOLIDATED_BY = frozenset({PARSED_ONLY, history_index.INDEXED_BY})
 
 
 def revision_record(fm: dict, *, at: str | None = None) -> dict:
@@ -594,7 +603,7 @@ def _requeue_for_authorship(fm: dict, draft: EpisodeDraft) -> None:
         fm["processed"] = False
         # G114 R6: `processed_by` is written only beside `processed: true`.
         fm.pop("processed_by", None)
-    elif not draft.queue_for_sleep and not fm.get("processed"):
+    elif not draft.queue_for_sleep and not fm.get("processed") and not _read_owed(fm, draft):
         fm["processed"] = True
         fm["processed_by"] = draft.processed_by
 

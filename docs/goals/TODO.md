@@ -12,6 +12,15 @@
 
 ## Current state and evidence
 
+- **2026-11-04 — a save with no reason gets a lean pass; a batch is bounded by what it holds (ruling 62, G236; branch
+  `feat/g236-lean-pass`).** Owner: "a leaner initial pass … on those things who have no reason/user intent attached, but
+  enough info so that it can come up in a relevant conversation and an agent can look further into it." A bare save is
+  `history_index.kind` `saved`: indexed with no engine, found by recall, Ask and the hook (`saved_lookup`), read once when
+  the person talks about it (`saved_mentions`). 25 bookmarks: 57 calls and 272k input tokens before, 0 after; recall 12/12
+  both, the hook 3/12 to 12/12. A batch also stops at 60,000 bytes, so the owner's 22-item shape commits after 11 calls, not
+  54. **Pick up here:** the real bank's first run retires what waits (`history_index_dry_run` counts it first); the Swift
+  suites and the two app lines want the coordinator's shell (the harness refused a scratch `HOME`); the 180-call run's split
+  is in its ledger. Review: a sync no longer takes back a woken group's read; Ask shows a tab group only with `sources`.
 - **2026-11-04 — books: a chat changes a status, covers (ruling 61, ROR-95; branch `ror95-books-status-covers`).** Stage 1's
   `reading_status` mark, checked on the record (`book_said`), through `books.set_status` and `progress.py`; held on the episode
   when no page is clear; *Not right* on the book's page. Covers: Apple Books' own from the app, else Open Library by id or
@@ -3156,6 +3165,28 @@ A whole row moves to DONE only after its remaining implementation and required a
     search before the owner ruled on this text, which ruling 44 forbids for a person without its encyclopedia match.
     No more lookups were run; the shipped tier (`web_check_agent_model`, sonnet) never was. **Revisit** if a settled handle is undone by the person, or a name the
     test called public turns out to be someone they know.
+62. **A save with no reason gets a lean pass: indexed, findable, read once when the person talks about it (owner, 2026-11-04;
+    G236; amends rulings 13, 16 and 30 and G102).** Owner: "For chrome bookmarks, and the rest of things I told you we can do a
+    leaner initial pass for consolidation on those things who have no reason/user intent attached, but enough info so that it
+    can come up in a relevant conversation and an agent can look further into it." **1 — What is lean:** a bare save, by its
+    own record (`history_index.kind` `saved`): a bookmark, tab group, saved link, feed item, connector poll, with no note and no
+    reason. Ruling 30's "a browser bookmark, a single URL save, a connector poll … are read by Sleep as before" is replaced; a
+    save carrying a reason or an agent's note, a book's record, an agent's report and a conversation are read as before. **2 —
+    What it does:** captured read (`processed_by: index`); no model call, no engine needed, no claim, no page minted, no
+    question, and no link backfill or recon on its page (`lean_page`, narrowing G102 to saves someone said something about). It
+    keeps its title, link, site, date and any description already held, found through recall, Ask and the hook's note
+    (`saved_lookup`). **3 — The way back:** read once, normally, when the person's own words name its link or whole title, when a
+    conversation lights its page, or when they give a reason (`saved_mentions`, `read_asked`). A retrieval hit never does, and
+    nothing on a read path writes. An agent's `cicada_record_read` is its own read. A save's text stays `page`, never the
+    person's words. **4 — "Consolidate reads everything" still holds:** a lean read is a read; everything waiting when a run
+    starts is consolidated by its end, the lean part with no model. **5 — Existing items:** the first run retires what waits in
+    its existing `cicada` commits, before ids freeze, nothing else touched; a save a model already read keeps what it made and
+    is never treated as lean. **6 — A batch is bounded by what it holds too:** the person's count and 60,000 bytes of episode
+    files (`sleep_drain.BATCH_BYTES`), never fewer than one episode. Rulings 13 and 16 say a stop loses at most the batch in
+    progress, and by count alone 22 items were one batch, so a plan limit lost 180 calls' work. **Why.** Measured on scratch banks, Claude plan at haiku: 25 bookmarks cost 56 to 57 calls and about 270k input tokens to restate their titles, and recall found the same links without any of it (12/12 words, 3/3 meaning, before and after); the hook's note went from 3/12 to 12/12 because a saved page never reached it. The owner's 22-item run committed nothing because it was one batch: on the same shape the first commit comes after 54 to 66 calls by count alone, after 11 to 21 bounded. Numbers on the G236 row. **Revisit** if the
+    person asks why something they saved was never read and a wake rule should have caught it; if `read_asked` wakes prove too
+    few or too many on a real bank (count them); if a saved item the person wanted does not come up (the retrieval check is
+    `test_lean_pass.py` and the G236 row's numbers); or when G163's journal of paid answers lands, which may let the bound grow.
 61. **A chat can change a book's status, and books have covers (owner, 2026-11-04; G233, G39, ROR-95).** The owner's words:
     "Yes, change the book status in that case. But it has to be in the context, we can always go back and correct that's what
     cicada is about." and "I want the book covers, yes." **(a)** Reverses G233's recommendation to keep status to the person's

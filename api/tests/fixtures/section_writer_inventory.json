@@ -1305,6 +1305,18 @@
   ],
   "services/history_index.py": [
     {
+      "function": "wake",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "retire",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
       "function": "retire",
       "method": "write",
       "frontmatter": "fm",

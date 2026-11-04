@@ -1523,7 +1523,8 @@ Claims, all written by `books.py` (the event-readers gate names it) except happe
 
 Whose act: the span's kind comes from the episode (`authorship`). A scan is the person's act (`user`) and lights the
 page; an Apple Books or Goodreads record is `page`, and a want-to-read or not-started scan is stamped
-`media_entity_id` (a save, ruling 30) — so an imported library and a shelf stay quiet (`quiet_pages`) until the person
+`media_entity_id` (a save, ruling 30; its `book` record keeps it out of ruling 62's lean pass, whose `saved` kind is for
+what has no such record) — so an imported library and a shelf stay quiet (`quiet_pages`) until the person
 writes or talks about the book (a note, a review, a chat).
 
 ### Backlogs (G150)
@@ -2601,3 +2602,8 @@ time alone may leave them behind until the next Sleep or sync (normally at most
 one Sleep). A paused Sleep delays that refresh. Read-time vector checks still
 exclude expired results, but cannot add a previously future claim until sync.
 The graph's Store-domain ETag remains tied to its existing version vector.
+
+**`read_asked` (ruling 62, 2026-11-04).** On a bare save's episode: `{why, at}`, written once by `history_index.wake` when the
+person talked about it (`said-the-link`, `said-the-title`, `page-mentioned`). It takes the episode out of the `saved` kind for
+good, so its one real read happens once and says why. A save's page keeps `decay_class: evergreen` and stays quiet
+(`quiet_pages`) until a conversation or the person's words reach it; being indexed writes nothing on it.

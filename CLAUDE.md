@@ -171,7 +171,10 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   its own `osascript`, Calendar, Contacts, Chrome tab groups, watched folders; Wispr Flow's reader is off for now, `app.md`) and posts bytes. A browser is
   read only after the person turned it on. An unreadable file shows the exact fix in the app. Chrome's history is read
   from a copy, YouTube video pages only; watch history is one episode per day, never a save (G71, `capture-and-sleep.md`);
-  it and saves from a platform's saved list are indexed, never read by a model (ruling 30).
+  it and saves from a platform's saved list are indexed, never read by a model (ruling 30). **Ruling 62 (owner
+  2026-11-04):** so is every other save with no reason (a bookmark, tab group, saved link, feed item): no model, claim, page
+  or question, found by recall, Ask and the hook; read once when the person's own words name it, a conversation lights its
+  page or they give a reason, never for a retrieval hit; one already read keeps what it made (`capture-and-sleep.md`).
 - **Books (G39, G233):** a scanned ISBN (`/capture/isbn`, the phone's contract) resolves at the home behind the connector
   gate, cached outside every bank; Apple Books is read by the app after the person turns it on; Goodreads only by its
   export; one `media` page per work, status as dated claims, imports quiet (`capture-and-sleep.md`, "Books").
@@ -238,8 +241,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 
 - **Five stages** (extract → resolve/dedup → conflicts/decay → patterns/skills → nudges + commit) plus an
   **engine-independent tail** on every exit path, in a clean-tree-guarded slot, each step committing only its own paths.
-- **Consolidate reads everything** (rulings 13, 16): every run — the person's and a scheduled one — is a drain over the
-  ids frozen at its start, in committed batches (default 25), so a stop loses at most the batch in progress. Decay and the
+- **Consolidate reads everything** (rulings 13, 16; a lean read counts, ruling 62): every run — the person's and a
+  scheduled one — is a drain over the ids frozen at its start, in committed batches (default 25, and at most 60,000 bytes,
+  ruling 62), so a stop loses at most the batch in progress. Decay and the
   page reads run once per drain. A plan limit is a pause, not a failure. **Ruling 4: a scheduled run uses a Claude or ChatGPT plan only
   through the person's "Scheduled runs may use my plan" switch, on unless they turned it off** (4b 2026-10-16, 4c
   2026-10-19; `SUBSCRIPTION_MODES` the one guard); on a metered engine it spends with no limit Cicada sets, said in words.

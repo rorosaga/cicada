@@ -1693,7 +1693,16 @@ async def _index_without_model_safely(memory_path: Path) -> None:
     except Exception as exc:
         logger.warning(f"Indexing without a model failed: {type(exc).__name__}: {exc}")
         return
-    paths = sorted(set(retired.paths) | {p for p in months.paths if p not in skip})
+    # Ruling 62: an indexed save whose page a conversation lit since gets its one real read. After `retire`: a save that
+    # just went in was checked by it. Its own failure never costs the commit below what `retire` wrote.
+    woken: list[str] = []
+    try:
+        from api.services import saved_mentions
+
+        woken = await asyncio.to_thread(saved_mentions.wake_lit, memory_path, at=episode_ids.utc_now_iso(), skip=skip)
+    except Exception as exc:  # noqa: BLE001 - a later run wakes it
+        logger.warning(f"Saved pages not checked for mentions: {type(exc).__name__}")
+    paths = sorted(set(retired.paths) | {p for p in [*months.paths, *woken] if p not in skip})
     if retired.paths or months.created or months.updated:
         logger.info(f"Indexed without a model: {len(retired.paths)} queued episode(s) marked read "
                     f"({dict(sorted(retired.by_kind.items()))}), {months.created} month summary(ies) written, "
@@ -1703,11 +1712,13 @@ async def _index_without_model_safely(memory_path: Path) -> None:
     step = max(1, history_index.COMMIT_STEP)
     chunks = [paths[i:i + step] for i in range(0, len(paths), step)]
     today = date.today().isoformat()
+    queued = frozenset({*retired.queued, *woken})
     for n, chunk in enumerate(chunks, start=1):
         try:
             async with _lock:
                 await git_service.commit_paths(
-                    memory_path, history_index.commit_message(chunk, today, part=n, parts=len(chunks)), chunk)
+                    memory_path, history_index.commit_message(chunk, today, part=n, parts=len(chunks), queued=queued),
+                    chunk)
         except Exception as exc:
             rest = [p for c in chunks[n - 1:] for p in c]
             logger.warning(f"Indexing commit failed — restoring {len(rest)} file(s): {type(exc).__name__}: {exc}")
@@ -1719,8 +1730,11 @@ async def _embed_indexed_episodes_safely(memory_path: Path) -> None:
     """The vector half of "indexed, not consolidated" (owner ruling 2026-10-18): an index-only episode (a watched day,
     a month's summary, a list save) never reaches a model batch, whose end is where the episode vectors are synced —
     so the tail syncs them when one was written after the vector index last was. Incremental by content hash (only
-    the new passages are embedded), with the model the table already holds (``defer_model_switch``). A bank with no
-    vector index yet waits for its first sync. No git, no model call. Never raises."""
+    the new passages are embedded), with the model the table already holds (``defer_model_switch``). No git, no model
+    call. Never raises.
+
+    Ruling 62: a bare save's page (``media``) is found by meaning too, and no batch may ever come to sync it: a page
+    written after the last sync is embedded here, also incrementally."""
     from api.services import history_index, vector_index
 
     db = memory_path / vector_index.INDEX_DB_FILE
@@ -1730,15 +1744,21 @@ async def _embed_indexed_episodes_safely(memory_path: Path) -> None:
             stamps.append(p.stat().st_mtime_ns)
         except OSError:
             continue
-    if not stamps:
-        return
-    since = max(stamps)
+    # Ruling 62: with nothing but saved links in a bank, no batch ever makes the first sync: this one may.
+    since = max(stamps) if stamps else 0
 
     def sync() -> None:
-        if not any(f.mtime_ns > since and history_index.is_index_only(f.frontmatter)
-                   for f in bank_index.files(memory_path, "episodes")):
+        episodes = any(f.mtime_ns > since and history_index.is_index_only(f.frontmatter)
+                       for f in bank_index.files(memory_path, "episodes"))
+        pages = any(f.mtime_ns > since and (f.frontmatter or {}).get("type") == "media"
+                    for f in bank_index.files(memory_path, "entities"))
+        if not episodes and not pages:
             return
-        vector_index.SqliteVecIndexer(memory_path, defer_model_switch=True).index_episodes()
+        indexer = vector_index.SqliteVecIndexer(memory_path, defer_model_switch=True)
+        if episodes:
+            indexer.index_episodes()
+        if pages:
+            indexer.index_entities()
 
     try:
         await asyncio.to_thread(sync)
@@ -2252,7 +2272,9 @@ async def _drain(
         except Exception:  # noqa: BLE001
             ds.first_run = False
         _sample_owner(ds, memory_path, "at_start")
-    ds.batches = ds.batch + sleep_drain.batches_for(len(remaining), size)
+    # Ruling 62: a batch is bounded by what it holds as well as by count (`sleep_drain.BATCH_BYTES`).
+    sizes = sleep_progress.sizes_of(memory_path, remaining)
+    ds.batches = ds.batch + sleep_drain.batches_left(remaining, size, sizes)
     ds.new_since = sleep_progress.new_since_by_origin(
         {i: o for i, o in waiting_map.items() if i not in parked_now}, set(ids))
     ds.arrived_since = sum(ds.new_since.values())
@@ -2369,7 +2391,7 @@ async def _drain(
         ds.skipped += len(gone)
         ds.skipped_ids |= gone
         ds.settled |= gone
-        batch_ids, more = sleep_drain.next_batch_retrying(ids, waiting, ds.settled, size, ds.attempts)
+        batch_ids, more = sleep_drain.next_batch_retrying(ids, waiting, ds.settled, size, ds.attempts, sizes=sizes)
         if not batch_ids:
             ds.finished = True   # a cancel that came too late has nothing left to stop
             break
@@ -2382,7 +2404,9 @@ async def _drain(
             break
 
         ds.batch += 1
-        ds.batches = ds.batch + sleep_drain.batches_for(more, size)
+        taken = set(batch_ids)
+        ds.batches = ds.batch + sleep_drain.batches_left(
+            [i for i in ids if i not in ds.settled and i in waiting and i not in taken], size, sizes)
         is_last = more == 0
         before_read, before_total = dict(_state.read_by_origin), _state.episodes_total
         _reset_batch_counters()
@@ -3479,6 +3503,17 @@ async def _run_stages(
     requeued = len(episodes) - len(processed_episodes)
     _state.episodes_processed = await asyncio.to_thread(_mark_episodes_processed, processed_episodes)
     _state.episodes_requeued = requeued
+    # Ruling 62: a bare save these conversations name in the person's own words gets its one real read, next run.
+    # Inside the batch's window, committed with it (`_finalize`).
+    try:
+        from api.services import saved_mentions
+
+        woken = await asyncio.to_thread(saved_mentions.wake_mentioned, memory_path, processed_episodes,
+                                        at=episode_ids.utc_now_iso())
+        if woken:
+            logger.info(f"Saved items mentioned: {len(woken)} queued for a read")
+    except Exception as e:  # noqa: BLE001 - a later mention wakes it
+        logger.warning(f"Saved mentions skipped: {type(e).__name__}")
     # G207: Sleep's reading is the one that counts — what a quick read held provisionally for these is settled.
     try:
         from api.services import awake_read
@@ -3759,10 +3794,14 @@ def episode_headers(memory_path: Path, processed: bool | None = None) -> list[ba
     cycle's chronology, optionally only the waiting (``processed=False``) or the read ones. No body is read: the Sleep
     page asks for its handful of waiting rows out of thousands, and a body read per episode is what made
     ``GET /sleep/episodes`` cost seconds on a large bank (2026-10-19)."""
+    from api.services import history_index
+
     out: list[bank_index.IndexedFile] = []
     for f in bank_index.files(memory_path, "episodes"):
         if processed is not None and bool(f.frontmatter.get("processed", False)) != processed:
             continue
+        if processed is False and not history_index.waits_for_model(f.frontmatter):
+            continue   # ruling 62: a queued save a run has not yet indexed waits for nothing; no row, no count
         if f.frontmatter.get(evidence.LOCKED_NOTE_KEY):
             continue   # G234: a retired locked note is no read to list
         out.append(f)

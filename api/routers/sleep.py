@@ -35,6 +35,7 @@ from api.services import (
     episode_copy,
     folder_source,
     git_service,
+    history_index,
     last_cycle,
     reading_hosts,
     sleep_autocontinue,
@@ -403,10 +404,17 @@ async def sleep_queue(
     frozen = set(ds.frozen_ids) if ds is not None else set()
     in_batch = set(ds.live.ids) if ds is not None and not ds.batch_counted else set()
     rows: list[SleepQueueItem] = []
+    kept = 0
     for f in bank_index.files(settings.memory_path, "episodes"):
         fm = f.frontmatter
         ep_id = str(fm.get("id", f.stem))
         processed = bool(fm.get("processed", False))
+        # Ruling 62: a save kept for lookup is no row and waits for nothing; the page's one line counts it.
+        if history_index.kind(fm) == "saved" and not fm.get("source_deleted_at"):
+            kept += 1
+            continue
+        if not processed and not history_index.waits_for_model(fm):
+            continue
         if processed and (ds is None or ep_id not in ds.filed_ids):
             continue
         o = str(fm.get("origin") or _derive_origin(fm.get("source")))
@@ -426,7 +434,7 @@ async def sleep_queue(
             batch=ds.live.index if (ds is not None and ep_id in in_batch) else None,
         ))
     rows.sort(key=lambda r: _episode_sort_key({"timestamp": r.timestamp, "id": r.id}))
-    return SleepQueueResponse(total=len(rows), offset=offset, items=rows[offset:offset + limit])
+    return SleepQueueResponse(total=len(rows), offset=offset, items=rows[offset:offset + limit], kept=kept)
 
 
 #: Bumped when a row of `GET /sleep/episodes` gains a field or changes for the same files (folded into its ETag).
