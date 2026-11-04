@@ -396,6 +396,7 @@ struct SourceCatalogDetail: View {
         case RemindersReader.channel: RemindersSlot(slot: .connect)
         case AppleBooksReader.channel: AppleBooksSlot(slot: .connect, channel: mine.first)
         case "goodreads": GoodreadsSlot()
+        case "book-scan": SourceConnectLine(text: Copy.bookScansLine)
         case MessagesWatcher.channel: ChatPickerSlot(slot: .connect, kind: .messages)
         case WhatsAppWatcher.channel: ChatPickerSlot(slot: .connect, kind: .whatsApp)
         case TelegramChats.channel: TelegramSlot(slot: .connect)

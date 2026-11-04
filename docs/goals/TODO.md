@@ -12,6 +12,12 @@
 
 ## Current state and evidence
 
+- **2026-11-04 — books: a chat changes a status, covers (ruling 61, ROR-95; branch `ror95-books-status-covers`).** Stage 1's
+  `reading_status` mark, checked on the record (`book_said`), through `books.set_status` and `progress.py`; held on the episode
+  when no page is clear; *Not right* on the book's page. Covers: Apple Books' own from the app, else Open Library by id or
+  ISBN, never a title. *Book scans* on Sources. Highlights quality is untouched (under separate test). Verified end to end on
+  scratch state at haiku (`capture-and-sleep.md`). **Not yet seen on screen:** the app builds, its tests and a look at the
+  cover and status line wait on the coordinator's run (a scratch `HOME` and the harness are refused in this worktree).
 - **2026-11-04 — rulings 54, 54a: the settling step works like an agent; what leaves is held in code; a page's own
   sources come first (G209, G61; branch `g209-ruling-54`).** A model with no tool reads anything in memory through a table
   Cicada runs; `name_guard` checks every query and link; a separate search hand holds only cleared queries; Cicada opens
@@ -3121,6 +3127,59 @@ A whole row moves to DONE only after its remaining implementation and required a
     merged follows its redirect and one they removed is never made again. **Revisit** if a GitHub App user token stops
     needing an installation for the account's own repositories (the install step goes), or if the person unlinks most
     of what the origin rule links.
+54. **PROPOSED — not binding until the owner says yes (owner direction 2026-11-04; G209; amends ruling 44's public test
+    for this one question; branch `fix/person-dedup-evidence`).** The owner's words, on "is <handle> the same as
+    <person>?": "could've been resolved from a search, like how claude code would solve it if i ask it rn." **Proposed
+    text:** *A question whether a public handle is a named person may be settled by a web lookup on a plan run, with a
+    cited claim, undoable — only when: both sides are person pages, one a handle and the other a full name; neither is
+    the owner, a role-only page, on the person's address book or LinkedIn import, or known personally on the record
+    (ruling 44's local checks); no chat (Messages, WhatsApp, Telegram chats, e-mail, LinkedIn, a profile read on request)
+    says either name outside a link to public content, in its title or as its correspondent; and each name is said in
+    public content the person read or saved (a saved link or bookmark, a watched video, a read page, a paper, a
+    repository, a tab group). What is sent: to the plan's own web search, exactly two pinned queries, each alone — the
+    handle with the one platform word the record links it on (or "@handle"), and the full name; the prompt goes to the
+    engine that already read those conversations, with at most two scrubbed mention lines and nobody else's name. What
+    settles: only a quote, with the link of the public page it came from, that names both the handle and the person.
+    Cicada itself checks that the quote names both, never on the model's word; whether the quote is really on the cited
+    page rests on the lookup, as in ruling 27. It writes one cited "<Name> goes by <handle>" claim on the named page and
+    never merges the pages.
+    Never a metered key; a private person's name never reaches any service.* **Built behind it** (`public_handle`,
+    `web_lookup`'s handle prompt, `cicada_record_check` with `proposed_value="same"`). **Off until the owner rules**
+    (coordinator, 2026-11-04: a privacy-rail change is built switched off and decided by the owner): Sleep's own lookup
+    runs only with `CICADA_PUBLIC_HANDLE_LOOKUP=on`; meanwhile only the person's own local agent, asked by them, may
+    settle one through `cicada_record_check`. A "yes" flips the default; declining this text removes the path.
+    **Measured** on a copy of the owner's bank: of 20 open person pairs, 1 qualifies (the example above); 11 are not a
+    handle against a name, 1 is a held mention, 1 the owner's page. **Disclosed deviation (2026-11-04):** while building
+    this, the worker ran real lookups for that one pair on the bank copy, on the plan with haiku: four calls, each
+    searching the full name alone and the handle (`<handle> twitter` twice, `@<handle>`, `<handle> github`). Each
+    answered "not sure" and nothing was written. That sent a real person's full name to the plan's web
+    search before the owner ruled on this text, which ruling 44 forbids for a person without its encyclopedia match.
+    No more lookups were run; the shipped tier (`web_check_agent_model`, sonnet) never was. **Revisit** if a settled handle is undone by the person, or a name the
+    test called public turns out to be someone they know.
+61. **A chat can change a book's status, and books have covers (owner, 2026-11-04; G233, G39, ROR-95).** The owner's words:
+    "Yes, change the book status in that case. But it has to be in the context, we can always go back and correct that's what
+    cicada is about." and "I want the book covers, yes." **(a)** Reverses G233's recommendation to keep status to the person's
+    explicit acts: the person saying "I finished X" changes it, **judged by Stage 1's model in context, never by keywords**
+    (the owner relies on the model as consolidation's intelligence), as a dated `reading-status` claim with a located span of
+    their own turn. Only a `user` turn counts; "my friend finished X", "I'd love to finish X", an agent's "you finished X" and
+    the film of the name do not (measured on haiku, `capture-and-sleep.md`). It lands only on one clear book page (title or
+    alias, then the title without its subtitle, then Stage 2's own join); two pages is unclear and nothing is written. A first
+    mention stays under the promotion rules and ruling 42 is not extended: the mark is held on the episode and applied when
+    a door makes the page, dated as said. Dated by the conversation or the day it states, so a late read never overrides a
+    newer status; one day's clash goes to the status further along, and the person's word saying less than a record asks
+    once (the existing conflict path). No second writer: `books.set_status`, and `progress.py` alone for happenings.
+    *Not right* takes it back, the status before and the reading thread its finish settled reopen, and that conversation never
+    writes it again, whatever day or wording a re-read gives. Said again later with nothing different between: only its episode
+    joins the record as evidence. **(b)** A book's picture: the person's own
+    copy's cover from Apple Books' cache (the app reads, the backend keeps it outside every bank; 1 of 283 assets on the owner's
+    Mac carries an ISBN, 285 cover folders, counts only), else Open Library's by cover id or ISBN behind
+    `CICADA_ALLOW_LOGO_FETCH`, under their limits. **What leaves the Mac:** a book's ISBN-13 or cover id and the address, on a
+    view of that book, Goodreads books included; a cover id redirects through `archive.org` to `ia*.us.archive.org`, so the
+    Internet Archive sees it too. A 403's `Retry-After` is honoured per book (at least an hour, a week at most), and the 90
+    asks per 5 minutes is this process's count, starting again on a restart. **No lookup by title**: not a private name, but it reveals reading beyond
+    what a scan does and answers with a guess at a work (B1). None: nothing drawn. **Revisit** (a) if the person's *Not right*
+    rate on chat-set statuses shows the model misjudging (`resolution` events, `kind: book-status`); (b) a title lookup if
+    Goodreads rows with no ISBN are common and the owner wants them drawn.
 54. **The settling step: a question worked the way an agent would, with what leaves held in code (owner, decided
     2026-11-04; G209; amends ruling 44's public test and ruling 27 for this one question; branch `g209-ruling-54`).** The
     owner, on "is <handle> the same as <person>?": "could've been resolved from a search, like how claude code would solve

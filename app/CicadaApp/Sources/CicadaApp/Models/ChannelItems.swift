@@ -44,10 +44,14 @@ struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
     var syncedAt: String? = nil
     /// 2026-11-04 — a meeting row: how long the meeting ran, in seconds, when its recorder wrote it down.
     var durationS: Int? = nil
+    /// Ruling 61 — a book's row: it opens the book's page, and draws `cover` (Cicada's own path to the stored picture)
+    /// or nothing at all, never a stand-in. Nil for every other row and from an older backend.
+    var book: Bool? = nil
+    var cover: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case kind, id, title, day, left, host, site, why, chat, videos, sittings, video, received, messages, group
-        case ticked, pinned
+        case ticked, pinned, book, cover
         case lastAt = "last_at"
         case syncedAt = "synced_at"
         case durationS = "duration_s"
@@ -76,6 +80,8 @@ struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
         videos = try? c.decodeIfPresent(Int.self, forKey: .videos)
         sittings = try? c.decodeIfPresent(Int.self, forKey: .sittings)
         video = try? c.decodeIfPresent(Bool.self, forKey: .video)
+        book = try? c.decodeIfPresent(Bool.self, forKey: .book)
+        cover = try? c.decodeIfPresent(String.self, forKey: .cover)
         received = try? c.decodeIfPresent(String.self, forKey: .received)
         messages = try? c.decodeIfPresent(Int.self, forKey: .messages)
         group = try? c.decodeIfPresent(Bool.self, forKey: .group)

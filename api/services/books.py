@@ -27,7 +27,8 @@ opened; owner 2026-11-04):
   earlier one closed (``valid_to`` the next one's day, ``superseded_by`` it) — never deleted;
 * ``reading`` and ``finished`` are also happenings, through ``progress.record_happening`` (the one event writer, G141):
   "Started reading" (``ongoing``) and "Finished reading" (``done``, settling the open thread). ``want`` and
-  ``not_started`` are not events: nothing happened.
+  ``not_started`` are not events: nothing happened;
+* a conversation can say a status too (ruling 61, ``book_said``): the same records, through these same writers.
 
 **Whose act it is** is read from the episode's own record, never set here (``authorship``): a scan is the person's own
 act (its lines are ``user``); an Apple Books or Goodreads episode is a saved record (``page``), except the person's
@@ -57,7 +58,8 @@ from pathlib import Path
 from loguru import logger
 
 from api.services import bank_index, decay_policy, episode_ids, evidence, markdown_parser, page_lock
-from api.services.claims import Claim, MalformedClaimsBlockError, is_recovered_history, parse_claims, write_claims
+from api.services.claims import (RETRACT_PREDICATE, Claim, MalformedClaimsBlockError, is_recovered_history,
+                                 parse_claims, write_claims)
 from api.services.id_utils import sanitize_id
 
 KIND = "book"
@@ -83,6 +85,9 @@ ACTED = frozenset({READING, FINISHED})
 STATUS_PREDICATE = "reading-status"
 RATING_PREDICATE = "rated"
 HAPPENING_TEXT = {READING: "Started reading", FINISHED: "Finished reading"}
+#: How far along each status is: what decides one day's clash that has no time of day to go by (ruling 61).
+_RANK = {NOT_STARTED: 0, WANT: 0, READING: 1, FINISHED: 2}
+UNDO_REASON = "The person said this status is not right."
 #: The most book episodes one apply reads; the rest wait for the next (an import of thousands is many applies).
 MAX_APPLY = 3000
 
@@ -158,6 +163,7 @@ class BookFacts:
     published: str | None = None
     pages: int | None = None
     cover_id: int | None = None
+    local_cover: str | None = None
     apple_id: str | None = None
     goodreads_id: str | None = None
     title_from: str = "placeholder"
@@ -285,7 +291,7 @@ def ensure_page(memory_path: Path, index: BookIndex, facts: BookFacts, episode_i
         if facts.goodreads_id:
             book["goodreads"] = _merge_list(book.get("goodreads"), [facts.goodreads_id])
         upgrade = book.get("title_from") == "placeholder" and facts.title_from != "placeholder"
-        for key in ("work_id", "subtitle", "published", "pages", "cover_id"):
+        for key in ("work_id", "subtitle", "published", "pages", "cover_id", "local_cover"):
             if getattr(facts, key) and (upgrade or not book.get(key)):
                 book[key] = getattr(facts, key)
         if facts.authors and (upgrade or not book.get("authors")):
@@ -315,6 +321,7 @@ def ensure_page(memory_path: Path, index: BookIndex, facts: BookFacts, episode_i
     book = {"title": facts.title if facts.title_from != "placeholder" else None, "subtitle": facts.subtitle,
             "authors": list(facts.authors), "isbns": list(facts.isbns), "work_id": facts.work_id,
             "published": facts.published, "pages": facts.pages, "cover_id": facts.cover_id,
+            **({"local_cover": facts.local_cover} if facts.local_cover else {}),
             "apple_books": [facts.apple_id] if facts.apple_id else [],
             "goodreads": [facts.goodreads_id] if facts.goodreads_id else [], "title_from": facts.title_from}
     url = media_url(book)
@@ -359,10 +366,82 @@ def _status_claims(claims: list[Claim]) -> list[Claim]:
             and not is_recovered_history(c)]
 
 
+def _withdrawn(claims: list[Claim]) -> set[str]:
+    return {str(c.object) for c in claims if c.predicate == RETRACT_PREDICATE}
+
+
+def live_status_claims(claims: list[Claim]) -> list[Claim]:
+    """The status records in force: never one the person took back (:func:`undo_status`)."""
+    gone = _withdrawn(claims)
+    return [c for c in _status_claims(claims) if c.id not in gone]
+
+
+def _current_record(claims: list[Claim]) -> Claim | None:
+    """The record in force: the open one, else the newest by day (an edited conversation can withdraw the open record
+    from outside this module, ``episode_revision``; what it had closed is what stands until the next write re-chains)."""
+    live = live_status_claims(claims)
+    return next((c for c in live if not c.valid_to), None) or max(live, key=lambda c: c.valid_from or "", default=None)
+
+
+def _rechain(mine: list[Claim], today: str) -> bool:
+    """The newest by its day open, each earlier one closed on the next one's day. On one day, in the order they stand on
+    the page (the later tap wins), unless an answer already put one above the other (a closed record pointing at its
+    same-day winner, the conflict path)."""
+    order = {id(c): n for n, c in enumerate(mine)}
+    ordered = sorted(mine, key=lambda c: (c.valid_from or "", order[id(c)]))
+    for i in range(len(ordered) - 1):
+        a, b = ordered[i], ordered[i + 1]
+        if (a.valid_from or "") == (b.valid_from or "") and b.superseded_by == a.id:
+            ordered[i], ordered[i + 1] = b, a
+    changed = False
+    for here, nxt in zip(ordered, ordered[1:]):
+        if here.valid_to != (nxt.valid_from or today) or here.superseded_by != nxt.id:
+            here.valid_to, here.superseded_by = nxt.valid_from or today, nxt.id
+            changed = True
+    if ordered and (ordered[-1].valid_to or ordered[-1].superseded_by):
+        ordered[-1].valid_to, ordered[-1].superseded_by = None, None
+        changed = True
+    return changed
+
+
+def _said_again(mine: list[Claim], status: str, day: str) -> Claim | None:
+    """The record a conversation dated ``day`` only says again: its neighbour by day already holds this status, with
+    nothing different between them. A reading in between makes a second finish a second reading, not a repeat."""
+    ordered = sorted(mine, key=lambda c: c.valid_from or "")
+    before = [c for c in ordered if (c.valid_from or "") <= day]
+    after = [c for c in ordered if (c.valid_from or "") > day]
+    for near in (before[-1:] + after[:1]):
+        if near.object == status:
+            return near
+    return None
+
+
+def happening_stands(memory_path: Path, entity_id: str, status: str, day: str) -> bool:
+    """A chat dated ``day`` says this status again and the page already holds its happening: nothing more to record."""
+    if status not in HAPPENING_TEXT:
+        return False
+    claims = parse_claims(markdown_parser.parse(Path(memory_path) / "entities" / f"{entity_id}.md").body)
+    mine = live_status_claims(claims)
+    if _claim_id(entity_id, STATUS_PREDICATE, status, day) in {c.id for c in mine} or not _said_again(mine, status, day):
+        return False
+    from api.services.claims import HAPPENED
+
+    gone = _withdrawn(claims)
+    return any(c.predicate == HAPPENED and c.object == HAPPENING_TEXT[status].lower() and c.id not in gone
+               for c in claims)
+
+
 def set_status(memory_path: Path, entity_id: str, *, status: str, day: str, episode_id: str, quote: str,
-               observer: str, today: str) -> bool:
+               observer: str, today: str, span=None, ranked: bool = False) -> bool:
     """One dated ``reading-status`` record on the page; the newest by its day stays open, each earlier one closed on
-    the next one's day. Idempotent: the same status, day and episode change nothing."""
+    the next one's day. Idempotent: the same status, day and episode change nothing, and a record the person took back
+    is never written again.
+
+    ``span``: the located words it rests on, when the caller holds them (a conversation, ``book_said``). ``ranked``: a
+    record whose time of day means nothing (a chat read late) never closes a further-along status of the same day, so
+    what it says does not depend on when it was read; a door's record stays the later wins. It also only says a status
+    again (:func:`_said_again`), adding its episode as evidence, and what the person took back stays taken back from
+    that conversation whatever day a re-read gives it."""
     path = Path(memory_path) / "entities" / f"{entity_id}.md"
     parsed = markdown_parser.parse(path)
     try:
@@ -371,38 +450,100 @@ def set_status(memory_path: Path, entity_id: str, *, status: str, day: str, epis
         logger.warning("book page has an unreadable claims block; its status was not written")
         return False
     cid = _claim_id(entity_id, STATUS_PREDICATE, status, day)
-    mine = {c.id: c for c in _status_claims(claims)}
+    gone = _withdrawn(claims)
+    if cid in gone or (ranked and any(c.id in gone and c.object == status and episode_id in c.source_episodes
+                                      for c in _status_claims(claims))):
+        return False
+    mine = {c.id: c for c in live_status_claims(claims)}
     changed = False
-    if cid in mine:
-        old = mine[cid]
+    old = mine.get(cid) or (_said_again(list(mine.values()), status, day) if ranked else None)
+    if old is not None:
         if episode_id not in old.source_episodes:
             old.source_episodes.append(episode_id)
+            if span is not None:
+                old.evidence.append(span)
             changed = True
     else:
-        span = _span(memory_path, episode_id, quote)
         made = Claim(id=cid, text=f"{STATUS_WORDS[status]}.", subject=entity_id, predicate=STATUS_PREDICATE,
                      object=status, object_kind="literal", observer=observer, context="general",
                      epistemic="explicit", source_trust="user_stated", confidence=0.9, valid_from=day,
                      recorded_at=today, source_episodes=[episode_id], origin=PAGE_ORIGIN, authored_by="user",
-                     evidence=[span])
-        claims.append(made)
-        mine[cid] = made
+                     evidence=[span if span is not None else _span(memory_path, episode_id, quote)])
+        above = [i for i, c in enumerate(claims) if ranked and c.id in mine and (c.valid_from or "") == day
+                 and _RANK[str(c.object)] > _RANK[status]]
+        claims.insert(above[0] if above else len(claims), made)
         changed = True
-    # By the day each record gives; on one day, in the order they were recorded (the later tap wins).
-    order = {key: n for n, key in enumerate(mine)}
-    ordered = sorted(mine.values(), key=lambda c: (c.valid_from or "", order[c.id]))
-    for here, nxt in zip(ordered, ordered[1:]):
-        if here.valid_to != (nxt.valid_from or today) or here.superseded_by != nxt.id:
-            here.valid_to, here.superseded_by = nxt.valid_from or today, nxt.id
-            changed = True
-    last = ordered[-1]
-    if last.valid_to or last.superseded_by:
-        last.valid_to, last.superseded_by = None, None
-        changed = True
+    changed = _rechain(live_status_claims(claims), today) or changed
     if not changed:
         return False
-    markdown_parser.write(path, parsed.frontmatter, write_claims(parsed.body, claims))
+    fm = parsed.frontmatter
+    if span is not None and episode_id not in (fm.get("source_episodes") or []):
+        fm = {**fm, "source_episodes": [*(fm.get("source_episodes") or []), episode_id]}
+    markdown_parser.write(path, fm, write_claims(parsed.body, claims))
     return True
+
+
+def undo_status(memory_path: Path, entity_id: str, claim_id: str, *, today: str | None = None) -> dict:
+    """"Not right": the person takes a status record back. The record is kept as history (the withdrawal record, one
+    shape however many writers say it), the status before it opens again, its happening goes with it and the reading
+    thread that happening settled opens again. Returns
+    ``{action, status, paths}``; ``not_found`` for no such live record. Never written again (:func:`set_status`)."""
+    from api.services import progress
+    from api.services.agentic_write import _withdrawal_record
+    from api.services.claims import HAPPENED
+
+    memory_path = Path(memory_path)
+    today = today or date.today().isoformat()
+    path = memory_path / "entities" / f"{entity_id}.md"
+    with page_lock.page_lock(memory_path):
+        if not path.is_file():
+            return {"action": "not_found"}
+        parsed = markdown_parser.parse(path)
+        try:
+            claims = parse_claims(parsed.body, strict=True)
+        except MalformedClaimsBlockError:
+            return {"action": "error"}
+        target = next((c for c in live_status_claims(claims) if c.id == claim_id), None)
+        if target is None:
+            return {"action": "not_found"}
+        record = _withdrawal_record(target, claims, reason=UNDO_REASON, author="user", origin=PAGE_ORIGIN,
+                                    session_id=None, spans=[evidence.reasoning("")], day=today,
+                                    fallback_subject=entity_id)
+        target.valid_to, target.superseded_by = target.valid_to or max(today, target.valid_from or today), record.id
+        claims.append(record)
+        _rechain(live_status_claims(claims), today)
+        markdown_parser.write(path, parsed.frontmatter, write_claims(parsed.body, claims))
+        paths = [f"entities/{entity_id}.md"]
+        said = HAPPENING_TEXT.get(str(target.object), "").lower()
+        for c in claims:
+            if (c.predicate == HAPPENED and c.object == said and c.valid_from == target.valid_from
+                    and not c.superseded_by and set(c.source_episodes) & set(target.source_episodes)):
+                out = progress.withdraw(memory_path, subject=entity_id, claim_id=c.id, author="user",
+                                        reason=UNDO_REASON, origin=PAGE_ORIGIN, reopen_settled=True)
+                paths += [p for p in out.get("paths") or [] if p not in paths]
+        current = next((c for c in live_status_claims(parse_claims(markdown_parser.parse(path).body))
+                        if not c.valid_to), None)
+    bank_index.invalidate(memory_path)
+    return {"action": "retracted", "status": current.object if current else None, "paths": paths}
+
+
+def current_status(memory_path: Path, entity_id: str) -> dict | None:
+    """The open status record, for the book's page: ``{status, day, claimId, episode, fromChat}`` or None."""
+    entry = bank_index.file(Path(memory_path), "entities", f"{entity_id}.md")
+    if entry is None or not is_book(entry.frontmatter or {}):
+        return None
+    try:
+        claims = parse_claims(markdown_parser.parse(Path(entry.path)).body)
+    except Exception:  # noqa: BLE001 — an unreadable page says no status
+        return None
+    current = _current_record(claims)
+    if current is None:
+        return None
+    episode = (current.source_episodes or [None])[0]
+    record = bank_index.file(Path(memory_path), "episodes", f"{episode}.md") if episode else None
+    origin = str((record.frontmatter or {}).get("origin") or "") if record is not None else ""
+    return {"status": current.object, "day": current.valid_from, "claimId": current.id, "episode": episode,
+            "fromChat": bool(episode) and origin not in DOORS}
 
 
 def set_rating(memory_path: Path, entity_id: str, *, rating: int, day: str, episode_id: str, quote: str,
@@ -441,8 +582,9 @@ def _open_reading_thread(memory_path: Path, entity_id: str) -> str | None:
 
 
 def record_happening(memory_path: Path, entity_id: str, *, status: str, day: str, episode_id: str, quote: str,
-                     observer: str, basis: str = "stated") -> list[str]:
-    """``reading`` / ``finished`` as a happening, through the one event writer. Returns the paths it wrote."""
+                     observer: str, basis: str = "stated", span=None) -> list[str]:
+    """``reading`` / ``finished`` as a happening, through the one event writer. Returns the paths it wrote. ``span``:
+    the located words, so the same words said earlier by someone else are never what it cites."""
     from api.services import progress
 
     if status not in ACTED:
@@ -459,7 +601,8 @@ def record_happening(memory_path: Path, entity_id: str, *, status: str, day: str
             settles = None
     out = progress.record_happening(
         memory_path, subject=entity_id, text=HAPPENING_TEXT[status],
-        status="ongoing" if status == READING else "done", evidence=[{"episode": episode_id, "quote": quote}],
+        status="ongoing" if status == READING else "done",
+        evidence=[{"episode": episode_id, "quote": quote, **({"window": [span.start, span.end]} if span else {})}],
         observer=observer, origin=PAGE_ORIGIN, authored_by="user", source_episode=episode_id, day=on,
         date_basis=basis, settles=settles)
     if out.get("action") not in ("written", "reinforced"):
@@ -559,6 +702,28 @@ def _upgrade_placeholders(memory_path: Path, index: BookIndex, today: str) -> li
             if changed:
                 paths.append(f"entities/{entity_id}.md")
             break
+    return paths
+
+
+def _stamp_local_covers(memory_path: Path) -> list[str]:
+    """Each Apple Books page takes the cover the app last posted for its asset (``book_covers``), by the index kept
+    outside the bank. A page with none, or a changed cover, is one frontmatter write; otherwise nothing is touched."""
+    from api.services import book_covers, logo_service
+
+    covers = book_covers.read_index(logo_service.bank_name(memory_path))
+    if not covers:
+        return []
+    paths: list[str] = []
+    for f in bank_index.files(memory_path, "entities"):
+        fm = f.frontmatter or {}
+        book = fm.get("book") if is_book(fm) and isinstance(fm.get("book"), dict) else None
+        sha = next((covers[a] for a in (book or {}).get("apple_books") or [] if a in covers), None)
+        if not sha or book.get("local_cover") == sha:
+            continue
+        path = Path(f.path)
+        parsed = markdown_parser.parse(path)
+        markdown_parser.write(path, {**parsed.frontmatter, "book": {**book, "local_cover": sha}}, parsed.body)
+        paths.append(f"entities/{path.name}")
     return paths
 
 
@@ -674,7 +839,23 @@ def apply_pending(memory_path: Path, *, today: date | None = None, limit: int = 
             from api.services import tool_contract
 
             logger.warning(f"book placeholders not upgraded: {tool_contract.where(exc)}")
+        try:
+            bank_index.invalidate(memory_path)
+            paths += _stamp_local_covers(memory_path)
+        except Exception as exc:  # noqa: BLE001
+            from api.services import tool_contract
+
+            logger.warning(f"book covers not stamped: {tool_contract.where(exc)}")
     bank_index.invalidate(memory_path)
+    # Ruling 61: a page a door just made may be the one a conversation already named.
+    from api.services import book_said
+
+    try:
+        paths += book_said.apply_waiting(memory_path, today=today)
+    except Exception as exc:  # noqa: BLE001
+        from api.services import tool_contract
+
+        logger.warning(f"book statuses said in a conversation not applied: {tool_contract.where(exc)}")
     out["paths"] = list(dict.fromkeys(paths))
     return out
 
@@ -692,7 +873,8 @@ def counts(memory_path: Path) -> dict:
             claims = parse_claims(markdown_parser.parse(Path(f.path)).body)
         except Exception:  # noqa: BLE001
             continue
-        current = next((c.object for c in _status_claims(claims) if not c.valid_to), None)
+        record = _current_record(claims)
+        current = record.object if record is not None else None
         if current in by:
             by[current] += 1
     return {"books": total, **by}
