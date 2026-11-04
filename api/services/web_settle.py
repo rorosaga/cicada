@@ -402,6 +402,8 @@ class Candidate:
     #: A pair question (:data:`PAIR`): the page the subject was weighed against — it always has a page.
     other_id: str = ""
     other_name: str = ""
+    #: A public handle and a named person (proposed ruling 54, ``public_handle``): what the lookup may search.
+    handle: "object | None" = None
 
 
 def _norm(text) -> str:
@@ -497,7 +499,8 @@ def _local_description(fm: dict, page: dict | None, body: str) -> str:
     return " ".join(parts)
 
 
-def classify(memory_path: Path, fm: dict, body: str, facts: BankFacts) -> tuple[str | None, str]:
+def classify(memory_path: Path, fm: dict, body: str, facts: BankFacts, *,
+             agent: bool = False) -> tuple[str | None, str]:
     """``(scope, reason)``: ``public`` (a lookup may answer it), ``repo`` (a trusted local agent may, from the repo's
     history) or ``None`` with the enum that kept it for the person. Engine-free, network-free."""
     kind = str(fm.get("kind") or "")
@@ -517,7 +520,7 @@ def classify(memory_path: Path, fm: dict, body: str, facts: BankFacts) -> tuple[
     if page is not None and page.get("owner") is True:
         return None, "owner"
     if kind == PAIR:
-        return _classify_pair(fm, body, facts, name, page)
+        return _classify_pair(fm, body, facts, name, page, memory_path, agent=agent)
     options = inbox_questions.normalize_options(fm.get("options"))
     labels = [str(o.get("label") or "") for o in options]
     asked = " ".join([str(fm.get("question") or ""), str(fm.get("title") or ""), name, *labels])
@@ -582,7 +585,8 @@ def _own_work(name: str, facts: BankFacts) -> bool:
     return any(t in words for t in facts.project_titles)
 
 
-def _classify_pair(fm: dict, body: str, facts: BankFacts, name: str, page: dict | None) -> tuple[str | None, str]:
+def _classify_pair(fm: dict, body: str, facts: BankFacts, name: str, page: dict | None,
+                   memory_path: Path | None = None, *, agent: bool = False) -> tuple[str | None, str]:
     """A "same as?" question (2026-10-29) may be looked up only when BOTH sides are public things: a company, tool,
     concept or work on each side; neither the owner, a person, the person's own project (or a part of it, by name), a
     file, a path or a repository's state; never two things that share one title (G227: only the person knows which
@@ -598,6 +602,14 @@ def _classify_pair(fm: dict, body: str, facts: BankFacts, name: str, page: dict 
     other_name = " ".join(str(other.get("name") or other_id).split())
     types = (_subject_type(fm, page), str(other.get("type") or "").strip().lower())
     if "person" in types:
+        # Proposed ruling 54 (owner direction 2026-11-04): a public handle and a named public person — the one person
+        # pair a lookup may answer (`public_handle`; Sleep's own lookup off until the owner rules, the person's own
+        # agent on their ask either way); every other person pair stays for the person.
+        if memory_path is not None and types == ("person", "person"):
+            from api.services import public_handle
+
+            if public_handle.test(Path(memory_path), fm, facts, agent=agent).public:
+                return "public", public_handle.REASON
         return None, "person"
     for n in (name, other_name):
         if _norm(n) in facts.person_names or _names_a_person(n, facts.person_names):
@@ -752,15 +764,22 @@ def context_category(c: "Candidate", context: list[str]) -> list[str]:
     return []
 
 
-def candidate(memory_path: Path, item_path: Path, facts: BankFacts) -> Candidate | None:
+def candidate(memory_path: Path, item_path: Path, facts: BankFacts, *, agent: bool = False) -> Candidate | None:
+    """``agent``: read for the person's own local agent (``cicada_record_check``), which may answer a public-handle
+    question while Sleep's own lookup is off (proposed ruling 54)."""
     try:
         parsed = markdown_parser.parse(item_path)
     except Exception:  # noqa: BLE001
         return None
     fm = parsed.frontmatter
-    scope, _ = classify(memory_path, fm, parsed.body, facts)
+    scope, why = classify(memory_path, fm, parsed.body, facts, agent=agent)
     if scope is None:
         return None
+    handle = None
+    if why == "public_handle":
+        from api.services import public_handle
+
+        handle = public_handle.test(Path(memory_path), fm, facts, agent=agent)
     entity_id = str(fm.get("entity_id") or "")
     page = facts.pages.get(entity_id)
     etype = _subject_type(fm, page)
@@ -798,6 +817,7 @@ def candidate(memory_path: Path, item_path: Path, facts: BankFacts) -> Candidate
         different_things=fm.get("kind") == "conflict" and different_things(fm),
         subject_names=subject_names(fm, page),
         **(_pair_fields(fm, facts) if fm.get("kind") == PAIR else {}),
+        handle=handle,
     )
 
 
@@ -873,6 +893,10 @@ def query_for(c: Candidate) -> str:
 def queries_for(c: Candidate) -> tuple[str, ...]:
     """Every query a lookup may run: :func:`query_for`'s one — or, for a pair, each public name alone (two names that
     each pass the filter, never one sent with the other's words)."""
+    if c.kind == PAIR and c.handle is not None:
+        from api.services import public_handle
+
+        return public_handle.queries(c.handle)
     if c.kind == PAIR and c.other_name:
         return tuple(dict.fromkeys([c.name, c.other_name]))
     return (query_for(c),)
@@ -1123,7 +1147,7 @@ def settle_pair(
         raise NotSettleable("That question is no longer open.")
     facts = facts or bank_facts(memory_path)
     c = candidate(memory_path, item_path, facts)
-    if c is None or c.kind != PAIR or c.scope != "public" or not c.other_id:
+    if c is None or c.kind != PAIR or c.scope != "public" or not c.other_id or c.handle is not None:
         raise NotSettleable("That question is not one a lookup may answer: one side is a person, the person's own "
                             "project, file or life. It stays for them.")
     relation = entity_relations.clean(relation)

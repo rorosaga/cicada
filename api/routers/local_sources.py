@@ -83,6 +83,7 @@ from api.services import (
     paper_metadata,
     papers,
     reminders_local,
+    source_collections,
     sync_state,
     tab_groups,
     watch_history,
@@ -338,7 +339,11 @@ async def sync_calendar_local(req: CalendarLocalSyncRequest, settings: Settings 
                                       bank=memory_path.name)
     except calendar_local.PayloadError as exc:
         raise HTTPException(422, str(exc))
-    sync_state.record_sync(memory_path, calendar_local.CHANNEL_ID, count=out.pop("live"))
+    # 2026-11-04 — the calendars this read named, with their accounts: the Sources page's account → calendar view.
+    sync_state.record_sync(memory_path, calendar_local.CHANNEL_ID, count=out.pop("live"),
+                           extra={source_collections.KEY: source_collections.after_sync(
+                               memory_path, calendar_local.CHANNEL_ID, [c.model_dump() for c in req.calendars],
+                               {e.calendar_id for e in req.events})})
     await folder_source.commit_paths_for(memory_path, out.pop("paths"), subject="Calendar sync",
                                          trigger="capture/calendar", channel=calendar_local.CHANNEL_ID)
     return CalendarLocalSyncResponse(**out, bank=memory_path.name)
@@ -358,7 +363,10 @@ async def sync_reminders_local(req: RemindersLocalSyncRequest, settings: Setting
                                       bank=memory_path.name)
     except reminders_local.PayloadError as exc:
         raise HTTPException(422, str(exc))
-    sync_state.record_sync(memory_path, reminders_local.CHANNEL_ID, count=out.pop("live"))
+    sync_state.record_sync(memory_path, reminders_local.CHANNEL_ID, count=out.pop("live"),
+                           extra={source_collections.KEY: source_collections.after_sync(
+                               memory_path, reminders_local.CHANNEL_ID, [lst.model_dump() for lst in req.lists],
+                               {r.list_id for r in req.reminders})})
     await folder_source.commit_paths_for(memory_path, out.pop("paths"), subject="Reminders sync",
                                          trigger="capture/reminders", channel=reminders_local.CHANNEL_ID)
     return RemindersLocalSyncResponse(**out, bank=memory_path.name)

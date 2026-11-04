@@ -6,7 +6,7 @@ import Foundation
 /// (`/sources/channels`, `/sources/overview`, the browsers on this Mac, the sites an agent may read), so the words and
 /// the order are tested without a view.
 enum SourceCatalogGroup: String, CaseIterable, Identifiable {
-    case accounts, thisMac, meetings, exports, feeds, conversations
+    case accounts, thisMac, meetings, reading, exports, feeds, conversations
 
     var id: String { rawValue }
 
@@ -15,6 +15,7 @@ enum SourceCatalogGroup: String, CaseIterable, Identifiable {
         case .accounts: Copy.Catalog.accounts
         case .thisMac: Copy.Catalog.thisMac
         case .meetings: Copy.Catalog.meetings
+        case .reading: Copy.readingGroup
         case .exports: Copy.Catalog.exports
         case .feeds: Copy.Catalog.feeds
         case .conversations: Copy.Catalog.conversations
@@ -145,6 +146,13 @@ enum SourceCatalog {
                            channels: ["notes"], tile: .appleNotes, verb: .connect(Copy.Catalog.connectNotes)),
         SourceCatalogEntry(id: "folders", group: .thisMac, title: Copy.Catalog.folders, origin: "folder",
                            channels: [], verb: .connect(Copy.Catalog.addFolder)),
+        // G39 — Apple Books on this Mac, read by the app (`AppleBooksReader`) only after Connect; G233 — a Goodreads
+        // export the person chooses.
+        SourceCatalogEntry(id: AppleBooksReader.channel, group: .reading, title: Copy.appleBooksTitle,
+                           origin: AppleBooksReader.channel, channels: [AppleBooksReader.channel],
+                           verb: .connect(Copy.SourceLayout.connect(Copy.appleBooksTitle))),
+        SourceCatalogEntry(id: "goodreads", group: .reading, title: Copy.goodreadsTitle, origin: "goodreads",
+                           channels: ["goodreads"], verb: .importFile),
         SourceCatalogEntry(id: "files", group: .exports, title: Copy.Catalog.filesAndLinks, origin: "bookmark",
                            channels: ["files"], tile: .bookmarksFile, verb: .importFile),
         // G219 slice 1: a Notion export (Markdown & CSV) through the one intake; ruling 47 tier 2: or live, through the
@@ -221,6 +229,7 @@ enum SourceCatalog {
         case "tiktok": Copy.Catalog.howTikTok
         case "spotify": Copy.Catalog.howSpotify
         case "linkedin": Copy.Catalog.howLinkedIn
+        case "goodreads": Copy.goodreadsHow
         case "files": Copy.Catalog.howBookmarksFile
         case "chat-exports": Copy.Catalog.howChatExports
         default: nil
@@ -280,6 +289,12 @@ enum SourceCatalog {
         if mine.contains(where: { signInChannels.contains($0.id) && readsAsSignIn($0.lastError) }) {
             return .needsSignIn
         }
+        // 2026-11-04 (owner: "I just pressed sync contacts … it said syncing and then it turned off … now that it finished
+        // syncing, it says connected. But I don't get why it wasn't connected from the start") — a reader this Mac runs
+        // is Connected while it is on (allowed and turned on), whether or not the bank has recorded a sync yet: the
+        // backend's `connected` means "a sync was recorded", which a fresh bank, a first read still running or a read
+        // the bank refused (Sleep writing) leaves false. Off here stays Off whatever synced before (2026-10-23).
+        if entry.channels.contains(where: { localReaders[$0] == true }) { return .connected }
         if mine.contains(where: { $0.connected && localReaders[$0.id] != false }) { return .connected }
         if entry.overviewId != nil, overviewRow(for: entry, in: overview) != nil { return .connected }
         if entry.id == "chat-exports", mine.contains(where: { $0.count > 0 }) { return .connected }
@@ -325,14 +340,19 @@ enum SourceCatalog {
     static func rows(entries: [SourceCatalogEntry], channels: [SourceChannel], overview: [SourceOverview],
                      readableSites: Set<String>, localReaders: [String: Bool] = [:],
                      savedListsOn: Set<String> = [], localAgent: Bool = false,
-                     checked: [String: Date] = [:]) -> [SourceCatalogRow] {
+                     checked: [String: Date] = [:], notInstalled: Set<String> = []) -> [SourceCatalogRow] {
         entries.map { entry in
             let synced = lastSync(for: entry, channels: channels, overview: overview)
+            // 2026-11-04 — an app removed from this Mac (`LocalSourceWatcher.missingApps`) reads Off, whatever the bank's
+            // switch says: nothing more can come from it.
+            let gone = notInstalled.contains(entry.id)
             return SourceCatalogRow(entry: entry,
-                                    status: status(for: entry, channels: channels, overview: overview,
-                                                   readableSites: readableSites, localReaders: localReaders,
-                                                   savedListsOn: savedListsOn, localAgent: localAgent),
-                                    lastSync: [synced, checked[entry.id]].compactMap { $0 }.max())
+                                    status: gone ? .off : status(for: entry, channels: channels, overview: overview,
+                                                                 readableSites: readableSites,
+                                                                 localReaders: localReaders,
+                                                                 savedListsOn: savedListsOn, localAgent: localAgent),
+                                    lastSync: [synced, checked[entry.id]].compactMap { $0 }.max(),
+                                    notInstalled: gone)
         }
     }
 
@@ -359,6 +379,7 @@ enum SourceCatalog {
     /// The second line, only when it says something: when it last synced ("2 h ago"), else nothing (the status word
     /// on the right says the rest — never a sentence, design-refs pattern 4).
     static func line(_ row: SourceCatalogRow, now: Date, locale: Locale = .autoupdatingCurrent) -> String? {
+        if row.notInstalled { return Copy.SourcePage.notInstalledRow }
         guard row.status == .connected || row.status == .needsSignIn, let last = row.lastSync else { return nil }
         return ago(last, now: now, locale: locale)
     }

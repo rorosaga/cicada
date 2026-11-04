@@ -19,7 +19,10 @@ words are already the question's cause or one option's evidence).
 
 * any kind but a proposed edit — what it asks about is gone (merged away, archived, dropped): retired;
 * ``merge_suggestion`` — the same name once spelling is folded, same type, not a person: merged; else the judge reads
-  both pages: ``same`` ≥ 0.9 merges, ``different`` ≥ 0.9 keeps the pair apart; unsure stays;
+  both pages: ``same`` ≥ 0.9 merges, ``different`` ≥ 0.9 keeps the pair apart; unsure stays. A person pair that
+  should never have been asked (owner 2026-11-04, ``pair_evidence``) is retired with nothing written:
+  ``owner_unsaid`` (the owner's page, no words of theirs naming themselves so), ``no_pair_evidence`` (no conversation
+  names the two together);
 * ``normalization`` — the two labels differ only in spelling (case, separators, a plural): "Correct fold";
 * ``decay`` — a one-off nobody would miss (a concept, tool, media or company page on one conversation, never kept, no
   words of the person's on it): archived;
@@ -108,10 +111,16 @@ RULES: dict[str, str] = {
     "newest_words": "Your newest words on it say this",
     "own_settings": "About Cicada's own settings, which Cicada already knows: Settings shows them",
     "named_account": "You gave this link for them in your own words",
+    "owner_unsaid": "Nothing you said names you that: it is not a question about you",
+    "no_pair_evidence": "No conversation names the two together",
 }
+#: What the settled list says each retired "same as?" question became (owner 2026-11-04, `pair_evidence`).
+RETIRED = {"owner_unsaid": "Not asked: nothing you said names you that",
+           "no_pair_evidence": "Not asked: no conversation names them together"}
 #: The rules that read only the bank: re-run inside each settle, which goes ahead only when they still agree.
 ENGINE_FREE = frozenset({"subject_gone", "same_spelling", "spelling_fold", "seed_fold", "one_off", "newest_evidence",
-                         "multi_valued", "in_passing", "newest_words", "own_settings", "named_account"})
+                         "multi_valued", "in_passing", "newest_words", "own_settings", "named_account",
+                         "owner_unsaid", "no_pair_evidence"})
 #: The judged kinds (owner, 2026-10-17: the inbox keeps only what genuinely needs the person).
 JUDGED_KINDS = frozenset({"merge_suggestion", "conflict", "normalization", "decay"})
 MAX_REASON_CHARS = 160
@@ -339,7 +348,19 @@ def _merge_rule(memory_path: Path, item_id: str, fm: dict) -> tuple[Decision | N
     mention_fm = mention[1] if mention else {}
     mention_type = _type_of(mention_fm, str(fm.get("suggested_classification") or ""))
     target_type = _type_of(target[1])
-    if "person" in (mention_type, target_type):
+    if "person" in (mention_type, target_type) or _is_owner_page(target[1]) or _is_owner_page(mention_fm):
+        # Owner 2026-11-04 (`pair_evidence`): a question that should never have been asked is retired, nothing
+        # written — the owner's page beside someone with no words of theirs naming themselves so, or two people no
+        # conversation names together. Never a merge and never "different": who someone is stays the person's.
+        from api.services import pair_evidence
+
+        verdict = pair_evidence.judge(
+            memory_path, a_id=str(fm.get("entity_id") or ""), a_name=str(fm.get("entity_name") or ""),
+            b_id=target[0].stem, b_name=str(target[1].get("name") or ""), person=True,
+            source_episode=str(fm.get("source_episode") or ""), two_places=bool(fm.get("heard_in")))
+        if not verdict.ask:
+            return Decision(item_id, "merge_suggestion", verdict.reason, None, answer=RETIRED[verdict.reason],
+                            guard=_guard(memory_path, str(fm.get("entity_id") or ""), target[0].stem)), ""
         return None, "person"     # who someone is: only the person's own words settle it (move 1)
     if mention is not None and mention[0] == target[0]:
         return None, "same_page"
@@ -2391,6 +2412,8 @@ VETTED_RULES: dict[str, tuple[frozenset[str] | None, frozenset]] = {
     "judged_keep": (frozenset({"decay"}), frozenset({"keep_active"})),
     "said_on_record": (RECORD_KINDS, frozenset({"resolve", "answer"})),
     "named_account": (frozenset({"clarification"}), frozenset({"resolve"})),
+    "owner_unsaid": (frozenset({"merge_suggestion"}), frozenset({None})),
+    "no_pair_evidence": (frozenset({"merge_suggestion"}), frozenset({None})),
 }
 #: The rules an engine read: only these may carry the judging model and its engine as the commit's author.
 VETTED_ENGINE_RULES = frozenset({"judged_same", "judged_different", "judged_fold", "judged_conflict",

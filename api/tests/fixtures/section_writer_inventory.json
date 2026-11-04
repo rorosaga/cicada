@@ -1281,6 +1281,20 @@
       "disposition": "uninstrumented_guarded"
     }
   ],
+  "services/public_handle.py": [
+    {
+      "function": "settle",
+      "method": "write",
+      "frontmatter": "page.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "settle",
+      "method": "write",
+      "frontmatter": "{**parsed_item.frontmatter, 'settled': record}",
+      "disposition": "uninstrumented_guarded"
+    }
+  ],
   "services/linkedin_people.py": [
     {
       "function": "_apply_page",
@@ -1521,6 +1535,38 @@
       "method": "write",
       "frontmatter": "fm",
       "disposition": "preserve_frontmatter_guarded"
+    }
+  ],
+  "services/books.py": [
+    {
+      "function": "ensure_page",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "ensure_page",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "fresh_frontmatter_untracked"
+    },
+    {
+      "function": "set_status",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "set_rating",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "_stamp_episode",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
     }
   ]
 }

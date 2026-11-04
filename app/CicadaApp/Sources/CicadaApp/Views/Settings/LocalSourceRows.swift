@@ -68,6 +68,8 @@ struct PickedFolder: Identifiable {
 /// tinted, and `danger` is for destructive actions only (DR-7).
 struct FolderChannelRow: View {
     let channel: SourceChannel
+    /// A recorder's page lists the meetings itself (`MeetingsBrowser`): the row is then only the folder and its Manage.
+    var showsItems = true
     @Environment(LocalSourceWatcher.self) private var localSources
     @State private var showManage = false
 
@@ -109,7 +111,7 @@ struct FolderChannelRow: View {
                     .padding(.leading, CicadaTheme.scaled(28) + CicadaTheme.spacingMD)
             }
             // G161 — the notes the folder brought in, one row per file.
-            if channel.connected {
+            if showsItems, channel.connected {
                 CapturedItemsList(channel: channel.id)
                     .padding(.leading, CicadaTheme.scaled(28) + CicadaTheme.spacingMD)
             }
