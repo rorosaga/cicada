@@ -12,11 +12,11 @@ final class SensitiveReviewTests: XCTestCase {
      "replaced": 12,
      "sensitiveRows": [
        {"id": "s1", "episode": "ep_2026-11-01_001", "title": "Plans", "day": "2026-11-01", "kinds": ["password", "card"],
-        "readBy": ["Claude plan"], "heldFrom": [], "earlier": false},
+        "readBy": ["Claude plan"], "heldKinds": ["card"], "heldFrom": ["Claude plan"], "earlier": false},
        {"id": "s2", "episode": "ep_2026-10-01_001", "title": "A conversation", "day": "2026-10-01", "kinds": ["id"],
         "readBy": [], "heldFrom": [], "earlier": true},
        {"id": "s3", "episode": "ep_2026-09-01_001", "title": "Notes", "day": "2026-09-01", "kinds": ["bank"],
-        "readBy": [], "heldFrom": ["ChatGPT plan"], "earlier": false}]}
+        "readBy": [], "heldKinds": ["bank"], "heldFrom": ["ChatGPT plan"], "earlier": false}]}
     """
 
     func testTheReviewIsACardAboveTheQuestionsAndNeverAQuestionRow() throws {
@@ -29,9 +29,9 @@ final class SensitiveReviewTests: XCTestCase {
 
     func testARowSaysWhatKindAndWhoReadItInOneLine() throws {
         let rows = try XCTUnwrap(try decode(review).sensitiveRows)
-        XCTAssertEqual(SensitiveRow.line(rows[0]), "A password, a card number · Read by Claude plan · Nov 1")
-        XCTAssertEqual(SensitiveRow.line(rows[1]), "An ID number · Read by an earlier Sleep · Oct 1")
-        XCTAssertEqual(SensitiveRow.line(rows[2]), "A bank account · Held back from ChatGPT plan · Sep 1")
+        XCTAssertEqual(SensitiveRow.line(rows[0]), "A card number held back from Claude plan · A password read by Claude plan · Nov 1")
+        XCTAssertEqual(SensitiveRow.line(rows[1]), "An ID number read by an earlier Sleep · Oct 1")
+        XCTAssertEqual(SensitiveRow.line(rows[2]), "A bank account held back from ChatGPT plan · Sep 1")
     }
 
     func testAnOlderServersItemWithNoRowsStillDecodes() throws {

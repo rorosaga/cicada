@@ -3026,7 +3026,7 @@ async def _run_stages(
         if live is not None:
             hooks = _batch_hooks(live, guard, batch.ds)
 
-        def _on_sensitive(ep: dict, kinds: dict, engine: str | None, held: bool) -> None:
+        def _on_sensitive(ep: dict, kinds: dict, engine: str | None, held: dict) -> None:
             # G235: recorded before the send, so what an engine was handed is on the record whatever happens next.
             sensitive_flags.note_read(ep, kinds, engine, held=held)
             flagged[str(ep["id"])] = sorted(kinds)

@@ -1,14 +1,15 @@
 """G235: Sleep tells the person what may be sensitive, and which engine read it; the person can take it out.
 
 End to end through Sleep's real loader, Stage 1's real ``extract`` and Stage 3's claim write, with the model's answer
-faked (`litellm.acompletion`) so it can repeat the value on purpose. The canary is made up. It goes through every door the
-brief names: the prompt (only when it should), the app's wire, logs, commits, telemetry, the inbox, claims and pages."""
+faked (`litellm.acompletion`) so it can repeat the value on purpose. The canaries are made up. They go through every door:
+the prompt (a confident one never, ruling 60), the app's wire, logs, commits, telemetry, the inbox, claims and pages."""
 from __future__ import annotations
 
 import asyncio
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -30,6 +31,9 @@ from api.tests.test_sleep_cycle_hold import _bank, _patch, _settings
 CANARY = "Zebra7-lantern"
 EP = "ep_2026-11-01_001"
 BODY = f"user: alpha-project is on Friday. my password is {CANARY}\nassistant: Noted, I will not repeat it."
+#: Letters only: it may be a word, so the engine reads it and the person is told (ruling 60).
+UNSURE = "lanternfish"
+UNSURE_BODY = f"user: alpha-project is on Friday. my password is {UNSURE}.\nassistant: Noted, I will not repeat it."
 
 
 def _git(memory, *args) -> str:
@@ -50,13 +54,15 @@ def _answer(chunk: str) -> dict:
     vals = []
     if "on Friday" in chunk:
         vals.append({"entity": "alpha-project", "attribute": "day", "value": "Friday", "evidence_quote": "is on Friday"})
-    if CANARY in chunk:
+    for secret in (CANARY, UNSURE):
+        if secret not in chunk:
+            continue
         vals.append({"entity": "alpha-project", "attribute": "login", "value": "has one",
-                     "evidence_quote": f"my password is {CANARY}"})
-        ents[0]["summary"] += f" Its password is {CANARY}."
-        ents[0]["key_facts"] = [f"password {CANARY}"]
-        ents.append({"name": CANARY, "type": "concept", "confidence": 0.9, "summary": "x"})
-        vals.append({"entity": "alpha-project", "attribute": "password", "value": CANARY, "evidence_quote": CANARY})
+                     "evidence_quote": f"my password is {secret}"})
+        ents[0]["summary"] += f" Its password is {secret}."
+        ents[0]["key_facts"] = [f"password {secret}"]
+        ents.append({"name": secret, "type": "concept", "confidence": 0.9, "summary": "x"})
+        vals.append({"entity": "alpha-project", "attribute": "password", "value": secret, "evidence_quote": secret})
     return {"entities": ents, "relationships": [], "values": vals}
 
 
@@ -136,20 +142,20 @@ def _everything_but_the_conversation(memory) -> dict[str, str]:
 # ------------------------------------------------------------------------------ report only (the default)
 
 
-def test_report_only_the_engine_reads_it_the_review_says_so_and_nothing_repeats_it(memory, monkeypatch, capfd):
-    _episode(memory)
+def test_an_unsure_hit_the_engine_reads_the_review_says_so_and_nothing_repeats_it(memory, monkeypatch, capfd):
+    _episode(memory, body=UNSURE_BODY)
     _commit(memory)
     logs: list[str] = []
     sink = logger.add(lambda m: logs.append(str(m)), level="DEBUG")
     prompts = _sleep(memory, monkeypatch)
     logger.remove(sink)
 
-    assert any(CANARY in p for p in prompts)                     # report only: the engine did read it. That is the point.
+    assert any(UNSURE in p for p in prompts)                     # unsure: the engine did read it. That is the point.
     # the record: kinds and the engine, nothing of the value and no hash of it
     fm = markdown_parser.parse(memory / "episodes" / f"{EP}.md").frontmatter
     (read,) = fm[sf.KEY]["read"]
     assert read["kinds"] == {"password": 1} and read["engine"] == "litellm" and not read.get("held")
-    assert CANARY not in json.dumps(fm)
+    assert UNSURE not in json.dumps(fm)
     # one review, one row: which conversation, what kind, which engine
     (item,) = _review(memory)
     wire = next(i for i in inbox_service.load_inbox(memory) if i.id == item.stem)
@@ -158,21 +164,21 @@ def test_report_only_the_engine_reads_it_the_review_says_so_and_nothing_repeats_
                                                                          "2026-11-01")
     # no door repeats it: pages, claims, the inbox, every file beside the conversation
     for rel, text in _everything_but_the_conversation(memory).items():
-        assert CANARY not in text, rel
+        assert UNSURE not in text, rel
     page = (memory / "entities" / "alpha-project.md").read_text()
     assert "Friday" in page                                       # the rest of the line's memory is kept
     claims = parse_claims(markdown_parser.parse(memory / "entities" / "alpha-project.md").body)
-    assert not any(CANARY in f"{c.text} {c.object}" for c in claims)
-    assert not (memory / "entities" / f"{CANARY.lower()}.md").exists()
+    assert not any(UNSURE in f"{c.text} {c.object}" for c in claims)
+    assert not (memory / "entities" / f"{UNSURE.lower()}.md").exists()
     # logs, commits, the wire, and every file outside the bank (telemetry, run summaries)
-    assert not any(CANARY in line for line in logs)
-    assert CANARY not in "".join(capfd.readouterr())
-    assert CANARY not in _git(memory, "log", "--format=%B")
-    assert CANARY not in wire.model_dump_json()
+    assert not any(UNSURE in line for line in logs)
+    assert UNSURE not in "".join(capfd.readouterr())
+    assert UNSURE not in _git(memory, "log", "--format=%B")
+    assert UNSURE not in wire.model_dump_json()
     home = Path(os.environ["CICADA_HOME"])
     for path in home.rglob("*"):
         if path.is_file() and path.stat().st_size < 5_000_000:
-            assert CANARY.encode() not in path.read_bytes(), path.name
+            assert UNSURE.encode() not in path.read_bytes(), path.name
 
 
 def test_a_title_holding_the_value_is_never_shown(memory, monkeypatch):
@@ -275,11 +281,10 @@ def test_a_drain_counts_what_its_batches_read(memory, monkeypatch):
     assert CANARY not in json.dumps(summary)
 
 
-# ------------------------------------------------------------------------------ hold back (the switch)
+# ------------------------------------------------------------------------------ held back (ruling 60)
 
 
-def test_held_back_the_engine_reads_a_typed_mark_and_the_stored_body_is_untouched(memory, monkeypatch):
-    monkeypatch.setenv(sf.HOLD_ENV, "on")
+def test_a_confident_hit_the_engine_reads_a_typed_mark_and_the_stored_body_is_untouched(memory, monkeypatch):
     _episode(memory)
     _commit(memory)
     prompts = _sleep(memory, monkeypatch)
@@ -288,10 +293,12 @@ def test_held_back_the_engine_reads_a_typed_mark_and_the_stored_body_is_untouche
     parsed = markdown_parser.parse(memory / "episodes" / f"{EP}.md")
     assert parsed.body == BODY and parsed.frontmatter["processed"] is True
     (read,) = parsed.frontmatter[sf.KEY]["read"]
-    assert read["held"] is True
+    assert read["held"] == {"password": 1}
     (item,) = _review(memory)
     (row,) = next(i for i in inbox_service.load_inbox(memory) if i.id == item.stem).sensitive_rows
-    assert row.held_from == ["your API key"] and row.read_by == []
+    assert row.held_kinds == ["password"] and row.held_from == ["your API key"] and row.read_by == []
+    for rel, text in _everything_but_the_conversation(memory).items():
+        assert CANARY not in text, rel
     # the memory the rest of the line holds survives, with a span on the stored body
     claims = parse_claims(markdown_parser.parse(memory / "entities" / "alpha-project.md").body)
     friday = next(c for c in claims if c.object == "Friday")
@@ -299,26 +306,27 @@ def test_held_back_the_engine_reads_a_typed_mark_and_the_stored_body_is_untouche
     assert BODY[ev.start:ev.end] == "is on Friday"
 
 
-def test_the_switch_is_off_unless_turned_on(monkeypatch):
-    monkeypatch.delenv(sf.HOLD_ENV, raising=False)
-    assert sf.holds_back() is False
-    monkeypatch.setenv(sf.HOLD_ENV, "on")
-    assert sf.holds_back() is True
+def test_a_conversation_holding_both_says_which_was_read_and_which_was_not(memory, monkeypatch):
+    _episode(memory, body=f"user: my password is {CANARY}\nuser: and my other password is {UNSURE}.")
+    _commit(memory)
+    prompts = _sleep(memory, monkeypatch)
+    assert any(UNSURE in p for p in prompts) and not any(CANARY in p for p in prompts)
+    (item,) = _review(memory)
+    (row,) = next(i for i in inbox_service.load_inbox(memory) if i.id == item.stem).sensitive_rows
+    assert row.kinds == ["password"] and row.read_by == ["your API key"]    # the same kind, one of each: it was read
 
 
-def test_a_prompt_line_outside_stage_1_follows_the_switch(monkeypatch):
-    line = f"user said: my password is {CANARY}"
-    monkeypatch.delenv(sf.HOLD_ENV, raising=False)
-    assert sf.engine_view(line) == line
-    monkeypatch.setenv(sf.HOLD_ENV, "on")
-    assert CANARY not in sf.engine_view(line)
+def test_a_prompt_line_outside_stage_1_never_holds_a_confident_hit():
+    assert CANARY not in sf.engine_view(f"user said: my password is {CANARY}")
+    unsure = f"user said: my password is {UNSURE}."
+    assert sf.engine_view(unsure) == unsure
 
 
 # ------------------------------------------------------------------------------ remove
 
 
-def _slept(memory, monkeypatch):
-    _episode(memory)
+def _slept(memory, monkeypatch, body=BODY):
+    _episode(memory, body=body)
     _commit(memory)
     _sleep(memory, monkeypatch)
     (item,) = _review(memory)
@@ -356,7 +364,7 @@ def test_remove_takes_it_out_of_memory_and_git_history_keeps_the_old_version(mem
 
 
 def test_after_remove_sleep_reads_it_as_a_revision_with_no_call_and_never_resends_it(memory, monkeypatch):
-    item = _slept(memory, monkeypatch)
+    item = _slept(memory, monkeypatch, body=UNSURE_BODY)
     _resolve(memory, item, sf.REMOVE)
     prompts = _sleep(memory, monkeypatch)
     assert prompts == []
@@ -372,7 +380,7 @@ def test_after_remove_sleep_reads_it_as_a_revision_with_no_call_and_never_resend
     body = evidence.source_text(memory, EP)
     (ev,) = [e for e in friday.evidence if e.is_span() and e.hash == "sha256:" + evidence.body_hash(body)] or friday.evidence
     assert body[ev.start:ev.end] == "is on Friday"
-    assert not any(CANARY in f"{c.text} {c.object}" for c in claims)
+    assert not any(UNSURE in f"{c.text} {c.object}" for c in claims)
 
 
 def test_what_a_revision_sends_a_model_never_holds_a_value():
@@ -520,8 +528,8 @@ def test_leave_it_remembers_and_only_a_new_one_asks_again(memory, monkeypatch):
 
 
 def test_a_wrong_alarm_left_alone_stops_costing_its_word_on_the_pages(memory, monkeypatch):
-    """Both modes take a flagged value out of what a model wrote, so a wrong alarm loses that word on the pages (the
-    conversation keeps it). Once the person leaves it, a later read keeps it."""
+    """A flagged value is taken out of what a model wrote, so a wrong alarm loses that word on the pages (the conversation
+    keeps it). Once the person leaves it, a later read keeps it."""
     item = _slept(memory, monkeypatch)
     assert CANARY not in (memory / "entities" / "alpha-project.md").read_text()
     _resolve(memory, item, sf.KEEP)
@@ -530,7 +538,6 @@ def test_a_wrong_alarm_left_alone_stops_costing_its_word_on_the_pages(memory, mo
     fm = {**parsed.frontmatter, "processed": False}
     fm.pop("processed_by", None)
     markdown_parser.write(path, fm, parsed.body)     # read again, as a resumed session or an edit would
-    monkeypatch.setenv(sf.HOLD_ENV, "on")
     prompts = _sleep(memory, monkeypatch)
     assert any(CANARY in p for p in prompts)         # left alone means not held back either
     assert CANARY in (memory / "entities" / "alpha-project.md").read_text()
@@ -609,3 +616,72 @@ def test_a_demo_bank_is_not_swept(memory):
     _episode(memory, processed=True, processed_by="sleep")
     bank_index.invalidate()
     assert sf.sweep_read(memory) == {}
+
+
+# ------------------------------------------------------------------------------ the dry run, and applying it
+
+
+def _flagged_bank(memory):
+    _episode(memory, processed=True, processed_by="sleep", title=f"my password is {CANARY}")
+    _episode(memory, ep="ep_2026-11-01_002", body="user: nothing here", processed=True, processed_by="sleep")
+    _episode(memory, ep="ep_2026-11-02_001", body=f"user: mi tarjeta es 4539 1488 0343 6467 y my password is {UNSURE}.",
+             source="apple-notes", origin="apple-notes", timestamp="2026-11-02T10:00:00Z")
+    _commit(memory)
+    bank_index.invalidate()
+
+
+def test_the_dry_run_lists_kind_source_and_date_and_never_a_word(memory):
+    _flagged_bank(memory)
+    before = _git(memory, "status", "--porcelain")
+    script = Path(__file__).resolve().parents[2] / "scripts" / "sensitive_removal.py"
+    out = subprocess.run([sys.executable, str(script), "--memory", str(memory)], capture_output=True, text=True, check=True).stdout
+    assert CANARY not in out and UNSURE not in out and "4539" not in out and "Plans" not in out and str(memory) not in out
+    assert sf.row_id(EP) in out and "password:1" in out and "2026-11-02" in out and "apple-notes" in out and "waiting" in out
+    assert "conversations: 2  read: 1  waiting: 1" in out and "dry run" in out
+    assert _git(memory, "status", "--porcelain") == before
+
+
+def test_a_source_outside_the_known_list_never_prints_its_name(memory):
+    _episode(memory, source="<private-folder-name>")
+    bank_index.invalidate()
+    (row,) = sf.plan(memory)
+    assert row["source"] == "other"
+
+
+def test_remove_planned_refuses_when_the_plan_moved_and_otherwise_removes_all_of_it(memory):
+    _flagged_bank(memory)
+    with pytest.raises(ValueError):
+        sf.remove_planned(memory, None, expected=5)
+    assert CANARY in markdown_parser.parse(memory / "episodes" / f"{EP}.md").body     # refused before a word changed
+    out = sf.remove_planned(memory, None, expected=2)
+    if sf._cleanup is not None:
+        sf._cleanup.join(timeout=60)
+    assert out == {"removed": 2, "files": 2, "left": 0}
+    for path in (memory / "episodes").glob("*.md"):
+        text = path.read_text()
+        assert CANARY not in text and UNSURE not in text and "4539" not in text
+    assert "Cicada-Author: user" in _git(memory, "log", "-1", "--grep=^Sensitive removal", "--format=%B")
+    assert CANARY in _git(memory, "log", "-p", "--format=", "--", f"episodes/{EP}.md")   # history stays
+
+
+def test_remove_planned_takes_only_the_named_rows(memory):
+    _flagged_bank(memory)
+    out = sf.remove_planned(memory, [sf.row_id(EP)], expected=1)
+    if sf._cleanup is not None:
+        sf._cleanup.join(timeout=60)
+    assert out["removed"] == 1 and out["left"] == 1
+    assert UNSURE in markdown_parser.parse(memory / "episodes" / "ep_2026-11-02_001.md").body
+
+
+def test_the_route_refuses_an_agent_and_a_missing_count(memory):
+    from api.routers import inbox as inbox_router
+
+    _flagged_bank(memory)
+    settings = _settings_for(memory)
+    for payload, code in (({"expected": 2, "via": "agent"}, 403), ({}, 400), ({"expected": 9}, 409)):
+        with pytest.raises(HTTPException) as err:
+            asyncio.run(inbox_router.remove_sensitive(payload, settings))
+        assert err.value.status_code == code
+    assert asyncio.run(inbox_router.remove_sensitive({"expected": 2}, settings))["left"] == 0
+    if sf._cleanup is not None:
+        sf._cleanup.join(timeout=60)

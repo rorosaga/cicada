@@ -40,18 +40,24 @@ PASSWORD, KEY, CARD, BANK, ID = "password", "key", "card", "bank", "id"
 #: The order a row names them in. Telemetry and the wire carry these enums, never a value.
 KINDS: tuple[str, ...] = (PASSWORD, KEY, CARD, BANK, ID)
 
-#: One typed mark per kind, in what an engine reads when a hit is held back (:func:`held_text`) and in a body after the
-#: person removed it. Neither ever carries anything of the value.
+#: One typed mark per kind, in what an engine reads when a confident hit is held back (:func:`held_text`) and in a body
+#: after the person removed it. Neither ever carries anything of the value.
 HELD_MARK = "[held back: {kind}]"
 REMOVED_MARK = "[removed: {kind}]"
 
 
 @dataclass(frozen=True)
 class Hit:
-    """A likely value: where it is and what kind. Never the value."""
+    """A likely value: where it is, what kind, and how sure. Never the value.
+
+    ``sure`` decides whether an engine reads it (ruling 60): a confident hit is held back, an unsure one only reported.
+    Confident: a number that passed its own checksum, a vendor shape, a value in a connection URL or a secret's env line,
+    a statement giving a password that reads like one. Unsure: a password of letters only, or of digits only that no one
+    claimed; an account or ID number announced in words with nothing to check it against."""
     kind: str
     start: int
     end: int
+    sure: bool = True
 
 
 @dataclass(frozen=True)
@@ -190,6 +196,19 @@ def _password_value(value: str, *, quoted: bool, mine: bool, weak: bool, ends: b
     return mine and ends and value.casefold() not in _NOT_A_VALUE
 
 
+def _sure_password(value: str, *, claimed: bool, weak: bool) -> bool:
+    """Letters and digits together are a password however it is said; digits alone only when someone's or something's;
+    letters alone never (it may be a word), nor a weak word's value no one claimed."""
+    digits, letters = any(c.isdigit() for c in value), any(c.isalpha() for c in value)
+    if weak and not claimed:
+        return False
+    if digits and letters:
+        return True
+    if digits:
+        return claimed
+    return any(not c.isalnum() and not c.isspace() for c in value)
+
+
 def _year(value: str) -> bool:
     return len(value) == 4 and value[:2] in ("19", "20")
 
@@ -234,7 +253,7 @@ def _passwords(line: str, base: int, ctx: Context) -> Iterable[Hit]:
         if not _password_value(value, quoted=quoted, mine=mine or yours, weak=weak, ends=ends, agent=agent):
             continue
         at = m.start("rest") + start
-        yield Hit(PASSWORD, base + at, base + at + len(value))
+        yield Hit(PASSWORD, base + at, base + at + len(value), _sure_password(value, claimed=mine or yours or system, weak=weak))
     if agent or _CODE_LINE_RE.search(line):
         return
     for rx in (_CHANGED_RE, _LOGIN_RE):
@@ -265,7 +284,7 @@ def _passwords(line: str, base: int, ctx: Context) -> Iterable[Hit]:
         if not _password_value(value, quoted=False, mine=False, weak=word in _WEAK, ends=False, agent=False):
             continue
         at = m.start("rest") + start
-        yield Hit(PASSWORD, base + at, base + at + len(value))
+        yield Hit(PASSWORD, base + at, base + at + len(value), _sure_password(value, claimed=False, weak=word in _WEAK))
 
 
 # ---- key -----------------------------------------------------------------------------------------------------------
@@ -469,7 +488,7 @@ def _banks(line: str, base: int, ctx: Context) -> Iterable[Hit]:
     for m in _ACCOUNT_RE.finditer(line):
         digits = re.sub(r"\D", "", m.group("value"))
         if 6 <= len(digits) <= 24 and len(set(digits)) >= 3 and not digits.startswith("1234567"):
-            yield Hit(BANK, base + m.start("value"), base + m.end("value"))
+            yield Hit(BANK, base + m.start("value"), base + m.end("value"), False)   # nothing to check it against
 
 
 # ---- id ------------------------------------------------------------------------------------------------------------
@@ -519,7 +538,9 @@ def _ids(line: str, base: int, ctx: Context) -> Iterable[Hit]:
             # Only the token that opens the value: a following word is a sentence going on.
             first = re.match(r"[A-Z0-9-]+(?:\s\d[\d-]*)*", value, re.IGNORECASE)
             end = m.start("value") + (first.end() if first else len(value))
-            yield Hit(ID, base + m.start("value"), base + end)
+            # Nothing checks these numbers; a claim on it ("my", "mi", "number") is what there is.
+            claimed = re.match(r"(?:my|mi)\s|.*\b(?:number|n[uú]mero)\b", m.group(0), re.IGNORECASE) is not None
+            yield Hit(ID, base + m.start("value"), base + end, claimed)
 
 
 # ---- reading a body ------------------------------------------------------------------------------------------------
@@ -547,7 +568,7 @@ def find_in_line(line: str, base: int, ctx: Context) -> list[Hit]:
 
 def _dedupe(hits: list[Hit]) -> list[Hit]:
     out: list[Hit] = []
-    for hit in sorted(hits, key=lambda h: (h.start, -(h.end - h.start), KINDS.index(h.kind))):
+    for hit in sorted(hits, key=lambda h: (h.start, -(h.end - h.start), not h.sure, KINDS.index(h.kind))):
         if out and hit.start < out[-1].end:
             continue                # the first, longest reading of a span stands
         out.append(hit)
@@ -616,7 +637,7 @@ def replace_hits(text: str, hits: Iterable[Hit], mark: str) -> str:
 def held_text(text: str, lo: int, hi: int, hits: Iterable[Hit]) -> str:
     """``text[lo:hi]`` as an engine reads it when these are held back. A hit across the edge of the slice is covered
     for the part inside it; a value is never cut in two with half of it left showing."""
-    inside = [Hit(h.kind, max(h.start, lo) - lo, min(h.end, hi) - lo) for h in hits if h.start < hi and h.end > lo]
+    inside = [Hit(h.kind, max(h.start, lo) - lo, min(h.end, hi) - lo, h.sure) for h in hits if h.start < hi and h.end > lo]
     return replace_hits(text[lo:hi], inside, HELD_MARK)
 
 

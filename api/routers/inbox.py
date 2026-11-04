@@ -355,6 +355,35 @@ async def resolve_inbox(
     return await inbox_service.resolve(item_id, request, settings)
 
 
+@router.post("/sensitive/remove")
+async def remove_sensitive(payload: dict = Body(...), settings: Settings = Depends(get_settings)):
+    """G235: Remove on the conversations `scripts/sensitive_removal.py` lists, ``rows`` or all of them. ``expected`` is
+    required: how many the caller's dry run saw. 409 while Sleep holds the pages, or when the plan moved since. An agent
+    relaying it is refused, as on every resolve of this kind. The answer is counts only."""
+    from api.services import git_service, sensitive_flags, write_admission
+
+    if str(payload.get("via") or "").strip().lower() == "agent":
+        raise HTTPException(403, "This is the person's to answer.")
+    rows = payload.get("rows")
+    if rows is not None and not (isinstance(rows, list) and all(isinstance(r, str) for r in rows)):
+        raise HTTPException(400, "rows is a list of row ids, or absent for every conversation.")
+    expected = payload.get("expected")
+    if not isinstance(expected, int) or expected < 0:
+        raise HTTPException(400, "expected is how many conversations the dry run listed.")
+
+    async def admitted():
+        before = await git_service.snapshot_dirty(settings.memory_path)
+        return await asyncio.to_thread(sensitive_flags.remove_planned, settings.memory_path, rows, expected=expected,
+                                       before=before)
+
+    try:
+        return await write_admission.run_admitted(
+            settings.memory_path, admitted,
+            refuse=lambda: HTTPException(409, "Cicada is consolidating memory right now. Try again in a few minutes."))
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
 @router.post("/agent-requests", status_code=201)
 async def file_agent_request(payload: dict = Body(...), settings: Settings = Depends(get_settings)):
     """G205's REST door: an agent that cannot use Cicada's MCP tools asks the person to sign in to a site so it can

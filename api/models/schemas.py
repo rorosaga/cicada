@@ -2897,8 +2897,10 @@ class SensitiveRow(CamelModel):
     title: str = ""
     day: str = ""
     kinds: list[str] = Field(default_factory=list)
-    # The engines that read it, in the person's words; the ones it was held back from; read before this check existed.
+    # The engines that read something here, in the person's words; which kinds were held back, and from whom (ruling 60);
+    # read before this check existed.
     read_by: list[str] = Field(default_factory=list)
+    held_kinds: list[str] = Field(default_factory=list)
     held_from: list[str] = Field(default_factory=list)
     earlier: bool = False
 

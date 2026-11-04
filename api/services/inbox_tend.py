@@ -1177,7 +1177,7 @@ def _evidence_lines(memory_path: Path, claim, limit: int = MAX_EVIDENCE_LINES) -
         if len(out) >= limit or not ev.is_span():
             continue
         text = evidence.source_text(Path(memory_path), ev.episode) or ""
-        line = sensitive_flags.engine_view(" ".join(text[ev.start:ev.end].split()))[:240]   # G235, held back
+        line = sensitive_flags.engine_view(" ".join(text[ev.start:ev.end].split()))[:240]   # ruling 60
         if line:
             out.append(f"{ev.kind or 'text'} said: {line}")
     return out
@@ -1197,7 +1197,7 @@ def _mention_lines(memory_path: Path, fm: dict, limit: int = MAX_EVIDENCE_LINES)
         line = next((ln for ln in text.splitlines() if inbox_ask_gate.named_in(names_fm, ln)), "")
         if line:
             out.append((episode_ids.parse_episode_id(ref)[0],
-                        sensitive_flags.engine_view(" ".join(line.split()))[:240]))   # G235, held back
+                        sensitive_flags.engine_view(" ".join(line.split()))[:240]))   # ruling 60
     return out
 
 

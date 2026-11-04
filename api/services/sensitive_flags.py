@@ -7,9 +7,10 @@ every value is re-derived in memory from the body when needed.
 
 **Before the engine reads** (:class:`Guard`, at ``entity_extractor.extract``'s send point; the quick read goes through it
 too). The hits in the windows about to be sent are found, and the read is recorded on the episode (:func:`note_read`,
-Sleep only). With hold back on (:func:`holds_back`) the engine reads a typed mark where each value was; the stored body is
-untouched, so spans keep their offsets. Either way, the value is taken back out of whatever the model answered, and an item
-built only on it is dropped, so a page never repeats it (:meth:`Guard.clean`, and :func:`sweep_written` before the commit).
+Sleep only). **Ruling 60 (owner 2026-11-04):** the engine reads a typed mark where a confident hit was (``Hit.sure``); an
+unsure one it reads, and the person is told. The stored body is untouched, so spans keep their offsets. Either way, the
+value is taken back out of whatever the model answered, and an item built only on it is dropped, so a page never repeats
+it (:meth:`Guard.clean`, and :func:`sweep_written` before the commit).
 
 **The review** (:func:`sync_review`, the tail). One inbox item, one row per conversation: which conversation, what kind,
 which engine read it. Never one question per hit. A row is checked against the body as it is now, so an edit that removed
@@ -44,8 +45,6 @@ from api.services.sensitive_text import HELD_MARK, REMOVED_MARK, Hit
 KEY = "sensitive"
 KIND = "sensitive"
 REMOVE, KEEP = "remove", "keep"
-#: The owner's pending decision, as one switch: on, an engine reads a typed mark where a hit was. Off: it only reports.
-HOLD_ENV = "CICADA_SENSITIVE_HOLD_BACK"
 #: What a value becomes in what a model answered. An item that rests on nothing else is dropped.
 STRIPPED = "[removed]"
 TRIGGER_REVIEW = "sleep/sensitive-review"
@@ -58,10 +57,6 @@ _PAGE_DIRS = ("entities", "hubs", "inbox", "backlog", "skills", "projects")
 _PAGE_SUFFIXES = (".md", ".jsonl")
 #: Who read it, in the person's terms. A name only ever says the person's own current or past choice.
 _LOCAL_ENGINE = "ollama"
-
-
-def holds_back(environ=os.environ) -> bool:
-    return str(environ.get(HOLD_ENV) or "").strip().lower() in ("1", "on", "true", "yes")
 
 
 def _record(fm: dict | None) -> dict:
@@ -102,29 +97,30 @@ class Guard:
     """One episode's hits at the send point. Holds the values in memory for as long as this read takes."""
     hits: tuple[Hit, ...] = ()
     values: tuple[str, ...] = ()
-    held: bool = False
 
     @classmethod
-    def of(cls, episode: dict, spans, *, hold: bool) -> "Guard":
+    def of(cls, episode: dict, spans) -> "Guard":
         """The hits inside what is about to be sent (``spans``, the chunks' ranges). A failure here is no hit: it
         logs its class and costs the report, never the read."""
         try:
             content = str(episode.get("content") or "")
             hits = tuple(h for h in _still_flagged(episode)
                          if any(h.start < hi and h.end > lo for lo, hi in spans))
-            return cls(hits, sensitive_text.values_of(content, hits), hold and bool(hits))
+            return cls(hits, sensitive_text.values_of(content, hits))
         except Exception as exc:  # noqa: BLE001 - the detector never fails a read
             logger.warning(f"Sensitive check skipped: {type(exc).__name__}")
             return cls()
 
     def chunk(self, masked: str, lo: int, hi: int) -> str:
         """``masked[lo:hi]`` as the engine reads it."""
-        if not self.held:
-            return masked[lo:hi]
-        return sensitive_text.held_text(masked, lo, hi, self.hits)
+        held = [h for h in self.hits if h.sure]
+        return sensitive_text.held_text(masked, lo, hi, held) if held else masked[lo:hi]
 
     def kinds(self) -> dict[str, int]:
         return dict(Counter(h.kind for h in self.hits))
+
+    def held(self) -> dict[str, int]:
+        return dict(Counter(h.kind for h in self.hits if h.sure))
 
     def clean(self, entities: list, relationships: list, values: list) -> tuple[list, list, list]:
         """A model's answer without the values. A name, an end of a link or a value that WAS one is dropped: a page
@@ -149,9 +145,10 @@ def _marked(text) -> bool:
     return isinstance(text, str) and (STRIPPED in text or "[held back:" in text)
 
 
-def note_read(episode: dict, kinds: dict[str, int], engine: str | None, *, held: bool = False) -> None:
-    """Record on the episode that this engine is about to read these kinds. Frontmatter only, so the body, its hash and
-    its queue state stay as they are. ``engine`` omitted rather than guessed (the ``Cicada-Engine`` rule). Never raises."""
+def note_read(episode: dict, kinds: dict[str, int], engine: str | None, *, held: dict[str, int] | None = None) -> None:
+    """Record on the episode what this engine is about to be handed: ``kinds``, of which ``held`` are held back.
+    Frontmatter only, so the body, its hash and its queue state stay as they are. ``engine`` omitted rather than guessed
+    (the ``Cicada-Engine`` rule). Never raises."""
     path = Path(str(episode.get("filepath") or ""))
     try:
         with episode_ids.episode_lock(path.parent):
@@ -163,7 +160,7 @@ def note_read(episode: dict, kinds: dict[str, int], engine: str | None, *, held:
             if engine:
                 row["engine"] = engine
             if held:
-                row["held"] = True
+                row["held"] = dict(held)
             record["read"] = [*reads, row]
             fm[KEY] = record
             _keep_turns_last(fm)
@@ -174,11 +171,11 @@ def note_read(episode: dict, kinds: dict[str, int], engine: str | None, *, held:
 
 
 def engine_view(text: str) -> str:
-    """A line of a stored conversation on its way into a prompt outside Stage 1 (a question's evidence): with hold back
-    on, without what it holds. Off, unchanged."""
-    if not holds_back() or not text:
+    """A line of a stored conversation on its way into a prompt outside Stage 1 (a question's evidence): without the
+    confident hits it holds (ruling 60)."""
+    if not text:
         return text
-    return sensitive_text.replace_hits(text, sensitive_text.find(text), HELD_MARK)
+    return sensitive_text.replace_hits(text, [h for h in sensitive_text.find(text) if h.sure], HELD_MARK)
 
 
 def title_for_others(title: str) -> str:
@@ -477,15 +474,23 @@ def _row(fm: dict, body: str, stem: str) -> dict | None:
     if not kinds:
         return None
     reads = [r for r in record.get("read") or [] if isinstance(r, dict)]
-    names = list(dict.fromkeys(n for n in (engine_name(r.get("engine")) for r in reads if not r.get("held")) if n))
-    held_from = list(dict.fromkeys(n for n in (engine_name(r.get("engine")) for r in reads if r.get("held")) if n))
+    def _held(r: dict) -> dict:
+        return r["held"] if isinstance(r.get("held"), dict) else {}
+    def _named(rows) -> list[str]:
+        return list(dict.fromkeys(n for n in (engine_name(r.get("engine")) for r in rows) if n))
+    # What each engine was really handed: a kind counted beyond what was held back from it, it read.
+    held_kinds = [k for k in kinds if reads and all(int(_held(r).get(k) or 0) >= int((r.get("kinds") or {}).get(k) or 0)
+                                                    for r in reads)]
+    read_rows = [r for r in reads if any(int((r.get("kinds") or {}).get(k) or 0) > int(_held(r).get(k) or 0) for k in kinds)]
     episode = str(fm.get("id") or stem)
     row: dict = {"id": row_id(episode), "episode": episode, "title": safe_title(fm, body, hits),
                  "day": str(fm.get("timestamp") or "")[:10], "kinds": kinds}
-    if names:
-        row["read_by"] = names
-    if held_from and not names:
-        row["held_from"] = held_from
+    if read_rows and _named(read_rows):
+        row["read_by"] = _named(read_rows)
+    if held_kinds:
+        row["held_kinds"] = held_kinds
+        if _named(reads):
+            row["held_from"] = _named(reads)
     if not reads and str(fm.get("processed_by") or "") == "sleep":
         row["earlier"] = True    # read before this check existed: which engine is not guessed
     return row
@@ -557,7 +562,7 @@ def _body(rows: list[dict]) -> str:
     lines = []
     for r in rows:
         said = ", ".join(KIND_WORDS[k] for k in r["kinds"])
-        who = r.get("read_by") or r.get("held_from")
+        who = r.get("read_by") or r.get("held_from")   # engine names only; never a word of the conversation
         lines.append(f"- {r['title']} ({r['day']}): {said}" + (f", {', '.join(who)}" if who else ""))
     return "\n".join(lines) + "\n"
 
@@ -765,6 +770,80 @@ def answer(memory_path: Path, path: Path, fm: dict, target: list[dict], label: s
     if all_marks:
         _cleanup = threading.Thread(target=forget_in_indexes, args=(memory_path, all_marks), daemon=True)
         _cleanup.start()
+
+
+def plan(memory_path: Path) -> list[dict]:
+    """Every conversation holding something the person has not left, read or waiting: what Remove would touch. No value,
+    title or path: a row id, the kinds with their counts and how sure, the source as an enum (anything unknown ``other``,
+    so a folder's name cannot reach it), the day, and whether Sleep has read it. Reads files only."""
+    from api.services import source_overview
+
+    known = {o for spec in source_overview.CATALOG for o in spec.origins} | set(episode_scrub.WRITERS) | _SESSION_SOURCES
+    out: list[dict] = []
+    for f in bank_index.files(Path(memory_path), "episodes"):
+        fm = f.frontmatter or {}
+        try:
+            body = f.body() or ""
+            hits = hits_of(fm, body)
+        except Exception as exc:  # noqa: BLE001 - one unreadable conversation is no row
+            logger.debug(f"sensitive plan skipped one: {type(exc).__name__}")
+            continue
+        kept = _record(fm).get("kept") if isinstance(_record(fm).get("kept"), dict) else {}
+        counts = Counter(h.kind for h in hits)
+        live = [h for h in hits if counts[h.kind] > int(kept.get(h.kind) or 0)]
+        if not live:
+            continue
+        source = str(fm.get("source") or "unknown")
+        out.append({"row": row_id(str(fm.get("id") or f.stem)), "episode": str(fm.get("id") or f.stem),
+                    "kinds": dict(Counter(h.kind for h in live)), "unsure": sum(not h.sure for h in live),
+                    "source": source if source in known else "other", "day": str(fm.get("timestamp") or "")[:10],
+                    "read": fm.get("processed") is True})
+    out.sort(key=lambda r: r["day"], reverse=True)
+    return out
+
+
+_SESSION_SOURCES = frozenset({"claude-code", "codex", "cursor", "gemini", "gemini-cli", "opencode", "chatgpt", "claude",
+                              "mcp", "mcp-remote", "cli"})
+
+
+def remove_planned(memory_path: Path, rows: list[str] | None, *, expected: int | None = None, before=None) -> dict:
+    """Remove on the conversations :func:`plan` lists: named ``rows``, or every one. ``expected`` is how many the caller's
+    dry run saw; anything else refuses before a word changes, so nothing is removed that was never looked at. Commits as
+    the person's, the conversations and every page that repeated a value together, and brings the review in step."""
+    global _cleanup
+    from api.services import git_service, page_lock
+
+    memory_path = Path(memory_path)
+    listed = plan(memory_path)
+    wanted = set(rows) if rows is not None else {r["row"] for r in listed}
+    target = [r for r in listed if r["row"] in wanted]
+    if expected is not None and len(target) != expected:
+        raise ValueError(f"expected {expected} conversation(s), the plan now holds {len(target)}")
+    touched: list[str] = []
+    all_marks: dict[str, str] = {}
+    with page_lock.page_lock(memory_path):
+        for row in target:
+            written, marks = remove_episode(memory_path, row["episode"])
+            all_marks.update(marks)
+            touched.extend(w for w in written if w not in touched)
+        bank_index.invalidate(memory_path)
+        review = sync_review(memory_path)
+        touched.extend(p for p in review.paths if p not in touched)
+        if touched and (memory_path / ".git").exists():
+            day = date.today().isoformat()
+            message = git_service.build_commit_message(f"Sensitive removal {day}",
+                                                       [f"{rel}: updated (trigger: {TRIGGER_REMOVED})" for rel in touched],
+                                                       authors=["user"])
+            try:
+                git_service.commit_touched_sync(memory_path, message, touched, before=before,
+                                                kept_subject=f"Uncommitted edit kept apart {day}",
+                                                kept_trigger="inbox/kept-apart")
+            except Exception as exc:  # noqa: BLE001 - never restore: that would put the words back
+                logger.warning(f"Sensitive removal left uncommitted: {type(exc).__name__}")
+    if all_marks:
+        _cleanup = threading.Thread(target=forget_in_indexes, args=(memory_path, all_marks), daemon=True)
+        _cleanup.start()
+    return {"removed": len(target), "files": len(touched), "left": len(plan(memory_path))}
 
 
 def forget_in_indexes(memory_path: Path, marks: dict[str, str]) -> None:

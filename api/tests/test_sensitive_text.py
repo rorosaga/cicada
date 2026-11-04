@@ -40,7 +40,30 @@ def test_a_hit_holds_offsets_and_a_kind_never_the_value():
     (hit,) = st.find(body)
     assert body[hit.start:hit.end] == "gato1234" and hit.kind == st.PASSWORD
     assert "gato1234" not in repr(hit)
-    assert {f for f in hit.__dataclass_fields__} == {"kind", "start", "end"}
+    assert {f for f in hit.__dataclass_fields__} == {"kind", "start", "end", "sure"}
+
+
+@pytest.mark.parametrize("body,sure", [
+    ("user: my password is Kp92mQzx", True),                  # letters and digits, however it is said
+    ("user: the password is Kp92mQzx", True),
+    ("user: password: Kp92mQzx", True),
+    ("user: my password is sunshine.", False),                # letters alone may be a word
+    ("user: the password is 'blue heron'", False),
+    ("user: my passcode is 482913", True),                    # digits, and someone's
+    ("user: la clave del cajero es 8842", True),
+    ("user: la clave es 77889944", False),                    # a weak word no one claimed
+    ("user: my card is 4539 1488 0343 6467", True),           # checksums
+    ("user: DE75512108001245126199", True),
+    ("user: mi DNI es 12345678Z", True),
+    ("user: my account number is 000123456789", False),       # nothing to check it against
+    ("user: my passport number is X4829173", True),           # a named ID claimed
+    ("user: pasaporte: G48291735", False),                    # a named ID no one claimed
+    ("user: DB_PASSWORD=Kp92mQzxL7", True),                   # shapes
+    ("user: postgres://app:Kp92mQzxL@db.internal:5432/main", True),
+])
+def test_how_sure_a_hit_is_decides_whether_an_engine_reads_it(body, sure):
+    (hit,) = st.find(body)
+    assert hit.sure is sure
 
 
 def test_offsets_are_right_on_a_later_line_of_a_marked_body():

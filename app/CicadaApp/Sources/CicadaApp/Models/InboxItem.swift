@@ -320,6 +320,7 @@ struct SensitiveRow: Codable, Equatable, Identifiable {
     var day: String
     var kinds: [String]
     var readBy: [String]
+    var heldKinds: [String]
     var heldFrom: [String]
     var earlier: Bool
 
@@ -331,15 +332,16 @@ struct SensitiveRow: Codable, Equatable, Identifiable {
         day = ((try? c.decodeIfPresent(String.self, forKey: .day)) ?? nil) ?? ""
         kinds = ((try? c.decodeIfPresent([String].self, forKey: .kinds)) ?? nil) ?? []
         readBy = ((try? c.decodeIfPresent([String].self, forKey: .readBy)) ?? nil) ?? []
+        heldKinds = ((try? c.decodeIfPresent([String].self, forKey: .heldKinds)) ?? nil) ?? []
         heldFrom = ((try? c.decodeIfPresent([String].self, forKey: .heldFrom)) ?? nil) ?? []
         earlier = ((try? c.decodeIfPresent(Bool.self, forKey: .earlier)) ?? nil) ?? false
     }
 
-    /// "A password · Read by Claude plan · Nov 1".
+    /// "A password held back from Claude plan · Nov 1".
     static func line(_ row: SensitiveRow) -> String {
         let day = row.day.isEmpty ? nil : SleepHistoryPresentation.dateText(row.day)
-        return [Copy.Sensitive.kinds(row.kinds),
-                Copy.Sensitive.who(readBy: row.readBy, heldFrom: row.heldFrom, earlier: row.earlier), day]
+        return [Copy.Sensitive.fate(kinds: row.kinds, heldKinds: row.heldKinds, readBy: row.readBy,
+                                    heldFrom: row.heldFrom, earlier: row.earlier), day]
             .compactMap { $0 }.joined(separator: " · ")
     }
 }

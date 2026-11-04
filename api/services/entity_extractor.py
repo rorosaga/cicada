@@ -787,7 +787,7 @@ async def extract(
     on_episode_read: Callable[[dict], None] | None = None,
     on_episode_failed: Callable[[dict, BaseException], None] | None = None,
     on_episode_skipped: Callable[[dict], None] | None = None,
-    on_sensitive: Callable[[dict, dict, str | None, bool], None] | None = None,
+    on_sensitive: Callable[[dict, dict, str | None, dict], None] | None = None,
     stop_check: Callable[[], bool] | None = None,
     today: date | None = None,
     stage: str = "extraction",
@@ -945,9 +945,9 @@ async def extract(
         # G110 gate B2: blank the episode's own gap range on the WHOLE body, then slice.
         gaps = tuple(episode.get("gaps") or ())
         masked = evidence.mask_gaps(content, gaps)
-        # G235: what these windows hold that is likely sensitive, found with no model before any is sent. Held back
-        # (the owner's switch), the engine reads a typed mark there; the stored body and every offset stay as they are.
-        guard = sensitive_flags.Guard.of(episode, spans, hold=sensitive_flags.holds_back())
+        # G235: what these windows hold that is likely sensitive, found with no model before any is sent. Ruling 60: the
+        # engine reads a typed mark where a confident hit was; the stored body and every offset stay as they are.
+        guard = sensitive_flags.Guard.of(episode, spans)
         chunks = [guard.chunk(masked, s, e) for s, e in spans]
         # G194 A1: every chunk is told when the conversation took place and what day it is now.
         ep_day = source_dates.episode_day(episode)
@@ -994,7 +994,7 @@ async def extract(
             if on_episode_started is not None:
                 on_episode_started(episode)
             if guard.hits and on_sensitive is not None:
-                on_sensitive(episode, guard.kinds(), _engine, guard.held)   # before the send: the record outlives a crash
+                on_sensitive(episode, guard.kinds(), _engine, guard.held())   # before the send: the record outlives a crash
             try:
                 # Extract from all chunks and merge results
                 all_entities = []

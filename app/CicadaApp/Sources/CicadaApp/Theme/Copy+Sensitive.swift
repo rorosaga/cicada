@@ -29,11 +29,22 @@ extension Copy {
             return ([first] + words.dropFirst().map { $0.prefix(1).lowercased() + $0.dropFirst() }).joined(separator: ", ")
         }
 
-        /// Who read it: "Read by Claude plan", "Held back from Claude plan", "Read by an earlier Sleep", or nothing.
-        static func who(readBy: [String], heldFrom: [String], earlier: Bool) -> String? {
-            if !readBy.isEmpty { return "Read by \(readBy.joined(separator: ", "))" }
-            if !heldFrom.isEmpty { return "Held back from \(heldFrom.joined(separator: ", "))" }
-            return earlier ? "Read by an earlier Sleep" : nil
+        /// What became of it, per kind: "A password held back from Claude plan · An ID number read by Claude plan".
+        /// Ruling 60: a confident hit is held back, an unsure one read. An older read names no engine it never recorded.
+        static func fate(kinds raw: [String], heldKinds: [String], readBy: [String], heldFrom: [String], earlier: Bool) -> String {
+            let held = raw.filter(heldKinds.contains)
+            let rest = raw.filter { !heldKinds.contains($0) }
+            var parts: [String] = []
+            if !held.isEmpty {
+                let from = heldFrom.isEmpty ? "held back" : "held back from \(heldFrom.joined(separator: ", "))"
+                parts.append("\(kinds(held)) \(from)")
+            }
+            if !rest.isEmpty {
+                let by = !readBy.isEmpty ? "read by \(readBy.joined(separator: ", "))"
+                    : earlier ? "read by an earlier Sleep" : nil
+                parts.append(by.map { "\(kinds(rest)) \($0)" } ?? kinds(rest))
+            }
+            return parts.joined(separator: " · ")
         }
 
         static func runLine(conversations n: Int, kinds raw: [String], _ locale: Locale = .autoupdatingCurrent) -> String {
