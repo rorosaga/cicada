@@ -11,7 +11,8 @@ import pytest
 from _synthetic_bank import _bank, _entity
 from drain_harness import git, install, seed_bank, settings
 
-from api.services import (bank_index, history_index, link_enrichment, link_recon, markdown_parser, media_ingestor,
+from api.services import (bank_index, episode_staging, history_index, link_enrichment, link_recon, markdown_parser,
+                          media_ingestor,
                           saved_lookup, saved_mentions, search_index, sleep_cycle, sleep_drain, sleep_progress,
                           source_overview, tab_groups)
 from api.services.media_ingestor import MediaMeta, PreparedItem, RawItem
@@ -128,6 +129,108 @@ def test_a_tab_group_is_indexed_when_captured_and_when_it_changes(tmp_path):
     fm = markdown_parser.parse(path).frontmatter
     assert (fm["processed"], fm["processed_by"]) == (True, "index")
     assert history_index.waits_for_model(fm) is False
+
+
+def _group(memory, tabs, *, title="Espresso research"):
+    bank_index.invalidate()
+    return tab_groups.sync(memory, {"browser": "chrome", "profile": "Default", "groups": [] if tabs is None else [
+        {"title": title, "color": "blue", "saved_guid": "guid-1",
+         "tabs": [{"title": t, "url": f"https://example.com/{t.replace(' ', '-')}"} for t in tabs]}]})
+
+
+def _group_id(memory):
+    return next(p.stem for p in (memory / "episodes").glob("*.md")
+                if markdown_parser.parse(p).frontmatter.get("source") == "tab-group")
+
+
+def test_a_woken_group_that_changes_before_its_read_stays_queued_and_found(tmp_path):
+    memory = _bank(tmp_path)
+    _group(memory, ["grind size notes"])
+    eid = _group_id(memory)
+    said = _conversation(memory, "ep_2026-12-01_001", "user: look at https://example.com/grind-size-notes again")
+    bank_index.invalidate()
+    assert saved_mentions.wake_mentioned(memory, [said], at=AT) == [f"episodes/{eid}.md"]
+
+    assert _group(memory, ["grind size notes", "water hardness chart"])["updated"] == 1
+    fm = _fm(memory, eid)
+    assert fm["processed"] is False and "processed_by" not in fm
+    assert fm["read_asked"] == {"why": saved_mentions.WHY_LINK, "at": AT}
+    assert history_index.waits_for_model(fm)
+    bank_index.invalidate()
+    search_index.refresh(memory)
+    hits = saved_lookup.find(memory, "espresso water hardness", episodes=True)
+    assert [h.episode for h in hits] == [eid]
+    assert any(e["id"] == eid for e in sleep_cycle._get_unprocessed_episodes(memory))
+
+
+def test_a_woken_group_closed_and_reopened_unchanged_stays_queued(tmp_path):
+    memory = _bank(tmp_path)
+    _group(memory, ["grind size notes"])
+    eid = _group_id(memory)
+    bank_index.invalidate()
+    assert history_index.wake(memory, eid, saved_mentions.WHY_TITLE, AT)
+    assert _group(memory, None)["tombstoned"] == 1
+    _group(memory, ["grind size notes"])
+    fm = _fm(memory, eid)
+    assert fm["processed"] is False and fm["read_asked"]["why"] == saved_mentions.WHY_TITLE
+    assert not fm.get("source_deleted_at")
+
+
+def test_a_group_that_changes_after_its_read_is_a_bare_save_again(tmp_path):
+    memory = _bank(tmp_path)
+    _group(memory, ["grind size notes"])
+    eid = _group_id(memory)
+    bank_index.invalidate()
+    assert history_index.wake(memory, eid, saved_mentions.WHY_LINK, AT)
+    bank_index.invalidate()
+    ep = next(e for e in sleep_cycle._get_unprocessed_episodes(memory) if e["id"] == eid)
+    assert sleep_cycle._mark_episodes_processed([ep]) == 1
+
+    # The same words again, nothing moves: the read stands.
+    assert _group(memory, ["grind size notes"])["unchanged"] == 1
+    assert _fm(memory, eid)["processed_by"] == "sleep"
+
+    # New tabs: no model read them, so they cost nothing, can be found, and a later mention wakes them.
+    _group(memory, ["grind size notes", "water hardness chart"])
+    fm = _fm(memory, eid)
+    assert (fm["processed"], fm["processed_by"]) == (True, "index") and "read_asked" not in fm
+    assert history_index.kind(fm) == "saved"
+    bank_index.invalidate()
+    search_index.refresh(memory)
+    assert [h.episode for h in saved_lookup.find(memory, "espresso water hardness", episodes=True)] == [eid]
+    bank_index.invalidate()
+    assert history_index.wake(memory, eid, saved_mentions.WHY_LINK, AT)
+
+
+def test_a_lean_resync_leaves_a_save_the_person_gave_a_reason_queued_and_parks_the_rest(tmp_path):
+    """The class: every lean stager's draft goes through the same two flips, an edit and a same-body refresh."""
+    memory = _bank(tmp_path)
+    episodes = memory / "episodes"
+
+    def draft(body, sid):
+        return episode_staging.EpisodeDraft(
+            title="A saved post", source_id=sid, source="saved-list", origin="x-saved", body=body,
+            queue_for_sleep=False, processed_by=history_index.INDEXED_BY, writer="saved-list")
+
+    result = episode_staging.stage([draft("one", "s:with"), draft("one", "s:bare")], episodes)
+    with_reason, bare = result.episode_ids["s:with"], result.episode_ids["s:bare"]
+    for eid in (with_reason, bare):
+        fm = _fm(memory, eid)
+        fm.update(processed=False)
+        fm.pop("processed_by")
+        if eid == with_reason:
+            fm["saved_why"] = {"text": "a reason"}
+        markdown_parser.write(episodes / f"{eid}.md", fm, "one")
+    bank_index.invalidate()
+    episode_staging.stage([draft("two", "s:with"), draft("two", "s:bare")], episodes)
+    assert _fm(memory, with_reason)["processed"] is False and "processed_by" not in _fm(memory, with_reason)
+    assert _fm(memory, bare)["processed_by"] == "index"
+
+
+def test_the_manifest_says_queued_for_what_it_left_waiting():
+    message = history_index.commit_message(["episodes/a.md", "episodes/b.md"], "2026-12-01",
+                                           queued=frozenset({"episodes/b.md"}))
+    assert "episodes/a.md: indexed (source: n/a" in message and "episodes/b.md: queued (source: n/a" in message
 
 
 # --- what is already in a bank ---------------------------------------------------------------------------------------
@@ -384,10 +487,10 @@ def test_a_lookup_takes_one_rare_word_and_the_unasked_note_two(found):
 
 
 def test_a_tab_group_is_found_by_its_words_and_only_for_a_caller_with_the_source_scope(found):
-    hits = saved_lookup.find(found, "espresso grind size")
+    hits = saved_lookup.find(found, "espresso grind size", episodes=True)
     assert [h.title for h in hits] == ["Tab group: Espresso research"] and hits[0].page is None
     assert hits[0].episode and saved_lookup.line(hits[0]).endswith(f"`{hits[0].episode}`")
-    assert saved_lookup.find(found, "espresso grind size", episodes=False) == []
+    assert saved_lookup.find(found, "espresso grind size") == []   # the safe default: a caller says it may see one
 
 
 def test_an_archived_or_shown_page_is_left_out(found):
@@ -475,6 +578,30 @@ def test_ask_sees_a_save_no_claim_could_reach_and_no_engine_is_called_for_a_miss
     miss = ask_service.answer_query(found, "what time is my dentist appointment", retrieve_fn=lambda q, k: [], llm_fn=llm,
                                     search_fn=lambda *a, **k: None)
     assert prompts == [] and miss["gaps"]
+
+
+def test_ask_shows_a_tab_group_only_to_a_caller_with_the_source_scope(found):
+    """G135: Ask's saved leg gates a tab group as recall does. A remote token without ``sources`` still sees a page."""
+    from api.services import ask_service
+
+    prompts: list[str] = []
+
+    def llm(prompt):
+        prompts.append(prompt)
+        return '{"answer": "A saved link covers it.", "confidence": 0.5, "used_entities": []}'
+
+    def ask(question, **kw):
+        prompts.clear()
+        return ask_service.answer_query(found, question, retrieve_fn=lambda q, k: [], llm_fn=llm,
+                                        search_fn=lambda *a, **k: None, **kw)
+
+    ask("what about my espresso research", source_words=True)
+    assert "Tab group: Espresso research" in prompts[0]
+    # No other leg holds anything: nothing to ground on, no model call, and no word of the group in the answer.
+    out = ask("what about my espresso research", source_words=False)
+    assert prompts == [] and out["gaps"] and "Tab group" not in str(out)
+    ask("what have I saved about crdts", source_words=False)
+    assert "https://example.com/crdts" in prompts[0] and "Tab group" not in prompts[0]
 
 
 # --- what the pages say ----------------------------------------------------------------------------------------------

@@ -20,7 +20,7 @@
   both, the hook 3/12 to 12/12. A batch also stops at 60,000 bytes, so the owner's 22-item shape commits after 11 calls, not
   54. **Pick up here:** the real bank's first run retires what waits (`history_index_dry_run` counts it first); the Swift
   suites and the two app lines want the coordinator's shell (the harness refused a scratch `HOME`); the 180-call run's split
-  is in its ledger.
+  is in its ledger. Review: a sync no longer takes back a woken group's read; Ask shows a tab group only with `sources`.
 - **2026-11-04 — rulings 54, 54a: the settling step works like an agent; what leaves is held in code; a page's own
   sources come first (G209, G61; branch `g209-ruling-54`).** A model with no tool reads anything in memory through a table
   Cicada runs; `name_guard` checks every query and link; a separate search hand holds only cleared queries; Cicada opens

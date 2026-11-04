@@ -151,6 +151,18 @@ def is_index_only(fm: dict | None) -> bool:
     return kind(fm) is not None
 
 
+def owes_a_read(fm: dict | None) -> bool:
+    """Ruling 62: a save queued for its real read that no model has taken yet: woken, or given a reason. A later sync
+    re-stages it as a bare save; that never takes the read back (``episode_staging``)."""
+    return (isinstance(fm, dict) and not fm.get("processed", False) and kind(fm) is None
+            and (bool(fm.get(WOKEN_KEY)) or any(fm.get(key) for key in PERSON_KEYS)))
+
+
+def is_unread_save(fm: dict | None) -> bool:
+    """A save no claim holds yet, so only ``saved_lookup`` can bring it up: a bare one, or one woken and still waiting."""
+    return kind(fm) == "saved" or (owes_a_read(fm) and bool(fm.get(WOKEN_KEY)))
+
+
 def has_person_words(body: str | None) -> bool:
     """Does a save's body hold a section the person wrote (why they saved it, a reason, a note)?"""
     lines = {ln.strip() for ln in (body or "").splitlines()}
@@ -262,6 +274,8 @@ class Retired:
     skipped_dirty: int = 0
     #: list saves whose body holds the person's own words: stamped theirs and left for the model
     returned: int = 0
+    #: the ``paths`` left queued for a read rather than marked read (the manifest's word for them)
+    queued: list[str] = field(default_factory=list)
 
 
 def retire(memory_path: Path, *, skip: frozenset[str] = frozenset()) -> Retired:
@@ -299,6 +313,7 @@ def retire(memory_path: Path, *, skip: frozenset[str] = frozenset()) -> Retired:
                 mark_person_words(fm)
                 markdown_parser.write(f.path, fm, parsed.body)
                 out.paths.append(rel)
+                out.queued.append(rel)
                 out.returned += 1
                 continue
             if k == "saved" and saved_mentions.page_lit(memory_path, fm):
@@ -306,6 +321,7 @@ def retire(memory_path: Path, *, skip: frozenset[str] = frozenset()) -> Retired:
                 fm[WOKEN_KEY] = {"why": saved_mentions.WHY_LIT, "at": _now()}
                 markdown_parser.write(f.path, fm, parsed.body)
                 out.paths.append(rel)
+                out.queued.append(rel)
                 out.returned += 1
                 continue
             fm["processed"] = True
@@ -320,15 +336,16 @@ TRIGGER = "sleep/index"
 AUTHOR = "cicada"
 
 
-def commit_message(paths: list[str], day: str, *, part: int = 1, parts: int = 1) -> str:
+def commit_message(paths: list[str], day: str, *, part: int = 1, parts: int = 1,
+                   queued: frozenset[str] = frozenset()) -> str:
     """``Indexed without a model <date>``: one manifest line per file, ``Cicada-Author: cicada``, no engine trailer
-    (no model ran — the G85 shape)."""
+    (no model ran — the G85 shape). ``queued``: files this left waiting for a read, which were not indexed."""
     from api.services import git_service
 
     suffix = f" (part {part} of {parts})" if parts > 1 else ""
     return git_service.build_commit_message(
         f"Indexed without a model {day}{suffix}",
-        [f"{p}: indexed (source: n/a, trigger: {TRIGGER})" for p in paths],
+        [f"{p}: {'queued' if p in queued else 'indexed'} (source: n/a, trigger: {TRIGGER})" for p in paths],
         authors=[AUTHOR],
     )
 
@@ -362,6 +379,6 @@ def restore(memory_path: Path, paths: list[str]) -> None:
 
 
 __all__ = ["AUTHOR", "COMMIT_STEP", "Count", "HISTORY_SOURCE", "INDEXED_BY", "LIST_FOLDERS", "LIST_ORIGINS",
-           "MONTH_SOURCE", "NOTE_KEY", "PERSON_KEYS", "PERSON_SECTIONS", "Retired", "WOKEN_KEY", "has_a_reason",
+           "MONTH_SOURCE", "NOTE_KEY", "PERSON_KEYS", "PERSON_SECTIONS", "Retired", "WOKEN_KEY", "has_a_reason", "is_unread_save", "owes_a_read",
            "has_person_words", "mark_person_words", "TRIGGER", "commit_message", "count", "is_index_only", "kind",
            "restore", "retire", "waits_for_model", "wake"]

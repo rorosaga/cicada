@@ -1052,13 +1052,17 @@ the folder, and `covers` claims from the title's own words. Recall found the sam
   words, 60% of that weight and half of the title's own subject words. Three doors: **recall** (a media page a leg ranks shows `Link:`, its
   saved day and "nobody has read it"; the rest under *Saved links on this*, at most 3, one rare word enough; a save is no
   *conversation excerpt*), **Ask** (`SAVED LINKS`, at most 4, words then meaning; a line only the vectors found never earns a
-  model call by itself), **the hook's note** (at most 2 lines under the note's own 400-token cap and a 40 ms reserve, reason
+  model call by itself; a tab group, which holds no page, only for a caller with the `sources` scope, as recall (G135), and
+  `saved_lookup.find` leaves it out unless the caller says it may see one), **the hook's note** (at most 2 lines under the note's own 400-token cap and a 40 ms reserve, reason
   `saved`, ids joining the session's window so a link is not repeated turn after turn). `cicada_sources(<id>)` answers one line
   with the title and link. Vectors: the tail's `_embed_indexed_episodes_safely` also embeds a media page newer than the
   index, and makes the first sync of a bank that holds nothing but saves, since no batch ever would.
 - **The way back: read once, when the person talks about it (`saved_mentions`).** `read_asked: {why, at}` takes the episode out
   of `saved` for good and queues it for the next run (`history_index.wake`, under the episode lock), where it is read like any
-  conversation and is `processed_by: sleep` after. Three things wake it: one of the person's own turns (`evidence.turns`, role
+  conversation and is `processed_by: sleep` after. A sync never takes that read back: a lean writer's draft (a tab group's, a
+  saved list's) leaves a save `history_index.owes_a_read` queued, whatever it changed, and `saved_lookup` still finds it until
+  the read (`is_unread_save`). A group that changes after its read goes back to a bare save, `read_asked` dropped: no model read
+  the new tabs, they spend nothing, are found, and a later mention wakes them. Three things wake it: one of the person's own turns (`evidence.turns`, role
   `user`, never an agent's reply or another speaker's line) holds its link or says its whole title of at least three subject
   words (`said-the-link`, `said-the-title`, after a batch is read, committed with it, at most 5 per conversation so a paste of
   fifty links is not fifty reads); a conversation lit its page, so it is no longer quiet (`page-mentioned`, before a run freezes,

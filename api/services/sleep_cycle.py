@@ -1713,11 +1713,13 @@ async def _index_without_model_safely(memory_path: Path) -> None:
     step = max(1, history_index.COMMIT_STEP)
     chunks = [paths[i:i + step] for i in range(0, len(paths), step)]
     today = date.today().isoformat()
+    queued = frozenset({*retired.queued, *woken})
     for n, chunk in enumerate(chunks, start=1):
         try:
             async with _lock:
                 await git_service.commit_paths(
-                    memory_path, history_index.commit_message(chunk, today, part=n, parts=len(chunks)), chunk)
+                    memory_path, history_index.commit_message(chunk, today, part=n, parts=len(chunks), queued=queued),
+                    chunk)
         except Exception as exc:
             rest = [p for c in chunks[n - 1:] for p in c]
             logger.warning(f"Indexing commit failed — restoring {len(rest)} file(s): {type(exc).__name__}: {exc}")

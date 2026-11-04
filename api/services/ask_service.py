@@ -1178,14 +1178,15 @@ def _watch_history_lines(memory_path: Path, query: str) -> list[str]:
         return []
 
 
-def _saved_lines(memory_path: Path, query: str) -> tuple[list[str], list[str]]:
+def _saved_lines(memory_path: Path, query: str, *, episodes: bool) -> tuple[list[str], list[str]]:
     """Ruling 62: saved links the question's words find, and those only its meaning does. Engine-free, and context only:
-    never a reason an answer fails. A short question takes one rare word; a long one must share two."""
+    never a reason an answer fails. A short question takes one rare word; a long one must share two. ``episodes``: also
+    tab groups, only for a caller with the source scope, as recall (G135)."""
     from api.services import saved_lookup
 
     try:
         need = 1 if len(saved_lookup.subject_stems(query)) <= 2 else 2
-        by_words = saved_lookup.find(memory_path, query, k=_SAVED_SHOWN, min_shared=need)
+        by_words = saved_lookup.find(memory_path, query, k=_SAVED_SHOWN, min_shared=need, episodes=episodes)
         by_meaning = saved_lookup.by_meaning(memory_path, query, k=_SAVED_SHOWN - len(by_words),
                                              exclude=frozenset(h.id for h in by_words))
         return [saved_lookup.line(h) for h in by_words], [saved_lookup.line(h) for h in by_meaning]
@@ -1529,9 +1530,9 @@ def answer_query(
     # engine-free (`watch_history.lookup`) — the lines are what the platform recorded, never the person's words,
     # and go to the model only for a caller that may see the record's own text (`source_words`).
     watched = _watch_history_lines(memory_path, query) if source_words else []
-    # Ruling 62: a save no model has read holds no claim, so no leg above can reach it. A title and a link are the
-    # page's, not the person's words: no scope gates them.
-    saved, saved_near = _saved_lines(memory_path, query)
+    # Ruling 62: a save no model has read holds no claim, so no leg above can reach it. A page's title and link are the
+    # page's, not the person's words: no scope gates them. A tab group's is the same record recall gates (G135).
+    saved, saved_near = _saved_lines(memory_path, query, episodes=source_words)
 
     # 2026-10-19: the conversations the question's own words find. Ask is page-first, and a conversation's words
     # reached the model only through a shown page's evidence or provenance — when Sleep left the detail off the page,

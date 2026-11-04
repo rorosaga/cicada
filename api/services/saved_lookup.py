@@ -108,7 +108,7 @@ def _episode_hit(memory_path: Path, ref: str) -> Hit | None:
     if entry is None:
         return None
     fm = entry.frontmatter or {}
-    if history_index.kind(fm) != "saved" or fm.get("source_deleted_at"):
+    if not history_index.is_unread_save(fm) or fm.get("source_deleted_at"):
         return None
     return Hit(id=ref, title=str(fm.get("title") or ref), url=str(fm.get("url") or "") or None, site=None,
                day=str(fm.get("timestamp") or "")[:10] or None, about="", page=None, episode=ref, read=False)
@@ -135,10 +135,10 @@ def _weights(conn, stems: list[str], saved_docs: dict[int, str]) -> tuple[dict[s
 
 
 def find(memory_path: Path, text: str, *, k: int = 3, min_shared: int = 2,
-         exclude: frozenset[str] = frozenset(), episodes: bool = True, reader=None) -> list[Hit]:
+         exclude: frozenset[str] = frozenset(), episodes: bool = False, reader=None) -> list[Hit]:
     """At most ``k`` saved items the words of ``text`` are about, best first. ``min_shared``: rare words a hit must share
     (recall's lookup takes one, the hook's unasked note two). ``exclude``: ids already shown. ``episodes``: also tab groups,
-    which hold no page (a caller without the source scope reads pages only). Never raises."""
+    which hold no page and whose words are the person's tabs: only for a caller with the source scope. Never raises."""
     try:
         stems = subject_stems(text)
         if len(stems) < min_shared:

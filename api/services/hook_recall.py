@@ -728,7 +728,7 @@ def _with_saved(reader, memory_path: Path, prompt: str, note: Injection, *, rece
         return note
     try:
         hits = saved_lookup.find(memory_path, prompt_window(prompt), k=SAVED_LINES, min_shared=TOPIC_MIN_SHARED,
-                                 exclude=recent | frozenset(note.injected), reader=reader)
+                                 exclude=recent | frozenset(note.injected), episodes=True, reader=reader)
     except Exception as exc:  # noqa: BLE001 — K9: the class, never the message
         logger.warning(f"hook-context: saved leg failed ({type(exc).__name__})")
         return note
