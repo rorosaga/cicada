@@ -277,11 +277,6 @@ def nickname_candidates(memory_path: Path, report: NicknameReport | None = None)
     return out
 
 
-def _newest_episode(fm: dict) -> str:
-    eps = sorted((str(e) for e in fm.get("source_episodes") or [] if str(e).startswith("ep_")), reverse=True)
-    return eps[0] if eps else ""
-
-
 def propose_nicknames(memory_path: Path, today: date, *, budget: Budget, skip: frozenset[str] = frozenset(),
                       dry_run: bool = False) -> NicknameReport:
     """Ask "Are A and B the same person?" for pairs spelling alone suggests, within the drain's budget and
@@ -304,8 +299,17 @@ def propose_nicknames(memory_path: Path, today: date, *, budget: Budget, skip: f
         if not budget.take("nickname"):
             report.skip("drain_budget")
             continue
-        open_count += 1
         asked, target = (a, b) if use.get(a, 0.0) <= use.get(b, 0.0) else (b, a)
+        # Owner 2026-11-04 (`pair_evidence`): two people are asked about only on a conversation naming both — the card's
+        # evidence; one name beginning the other is the reason to look, never the evidence.
+        from api.services import pair_evidence
+
+        verdict = pair_evidence.judge(memory_path, a_id=asked, a_name="", b_id=target, person=True,
+                                      source_episode="", base=0.5)
+        if verdict.episode is None:
+            report.skip("no_pair_evidence")
+            continue
+        open_count += 1
         if dry_run:
             report.written.append("inbox/<new nickname pair>")
             continue
@@ -317,7 +321,7 @@ def propose_nicknames(memory_path: Path, today: date, *, budget: Budget, skip: f
 
         inbox_dir.mkdir(parents=True, exist_ok=True)
         path = inbox_dir / f"inbox-{inbox_service.next_inbox_num(inbox_dir):03d}.md"
-        episode = _newest_episode(fma) or _newest_episode(fmb)
+        episode = verdict.episode
         markdown_parser.write(path, {
             "kind": "merge_suggestion", "required_input": "merge", "status": "pending", "priority": 0.5,
             "entity_id": asked, "entity_name": name_a, "title": f"Is {name_a} the same as {name_b}?",

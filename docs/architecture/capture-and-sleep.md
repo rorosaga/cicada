@@ -2527,10 +2527,12 @@ listed as an alias. Four gaps caused it, each closed:
   never a merge. A pair the person called different (`merge_rejections`) is never asked again. A mention of the name
   closes an open duplicate question only when it merged into the page that question proposed
   (`check_organic_resolution(merged_into=)`).
-- **A linked account is a lead.** A profile link on a person page (`x.com/<h>`, its `/status/` posts,
-  `github.com/<h>` but not a repository under it, `instagram.com/<h>`, `linkedin.com/in/<h>`, in `sources:` or in the
-  body) makes a new person name equal to that handle a question, never a page: the name parks as a pending line, and the
-  question context names the account. A handle is never derived from a name; it must already be written on the page.
+- **A linked account is a lead.** A profile link on a person page (`x.com/<h>`, `github.com/<h>` but not a repository
+  under it, `instagram.com/<h>`, `linkedin.com/in/<h>`, in `sources:` or in the body; a `/status/` post link only in
+  `sources:` — one written in the body is a post BY that account the subject shared, never theirs,
+  `person_leads.account_links`, owner 2026-11-04) makes a new person name equal to that handle a question, never a
+  page: the name parks as a pending line, and the question context names the account. A handle is never derived from a
+  name; it must already be written on the page.
 - **`Full Name (handle)` / `handle (Full Name)`** in a person extraction (`person_leads.split_named_handle`: one side a
   handle, `@x` or one lowercase token that is not a relation word, and the other two or more words) is keyed by the
   full name with the handle as its alias. The raw spelling still resolves edges and claims (`name_to_id`). A pending
@@ -2573,6 +2575,40 @@ listed as an alias. Four gaps caused it, each closed:
   "Is the <name> in your group chat the same <name> you talked to Claude about?" (`inbox_wording`). A model's trailing
   note on the name ("<name> (unnamed surname)") is ignored for this. Seen on haiku through the real doors
   (`/sources/messages/sync`, `/capture/turn`, Sleep, `GET /inbox`), synthetic chat and session, 2026-10-29.
+
+**What a question between two people rests on (owner 2026-11-04, `pair_evidence`).** "Is <handle> the same as <owner>?"
+reached the inbox at "Cicada's guess 0.90" with a chat with someone else, naming neither, as its evidence ("why tf would
+<handle> be me?"). Measured on a copy of the owner's bank (real values redacted): a link to a post BY the handle,
+written on the owner's page, read as the owner's account; `leads_for` fired whenever any conversation matched the
+owner's page, so the question took that conversation; and the guess was the matched mention's extraction confidence.
+Three rules, read by every producer through `ClarificationManager.create` (and by Stage 2 before it holds a mention:
+a question that may not be asked holds nothing back — the name goes on by the usual rule, `_unaskable_pair`):
+- **The owner's page is never paired with another person** without the person's own words naming themselves by that
+  name or handle: a located line of their own turn ("I'm <h>", "my handle is <h>", "soy <h>", "me llamo <h>" … the
+  name ending the phrase; never an agent's words, never "<h>'s fan"), or the name/handle they gave Cicada for
+  themselves (`owner.json`) — `self_named`. A link, an alias Sleep wrote or a shared word is not that.
+- **The evidence names both sides:** one conversation naming a spelling of each (name, aliases, the mention as said,
+  whole words) — the item's own, then each page's own conversations, then the lexical index — becomes the question's
+  `source_episode` (`pair_episode`). For two people none means no question. A question the record raises with no
+  conversation (`role_people`'s one-at-a-time relation) is exempt, and so is a first name heard in one place against a
+  full name heard in another (one person across sources, below): its evidence is the two conversations, said in the
+  question's words (`heard_in`). An older card whose own conversation names neither
+  shows one that names both, derived on read (`InboxContext._pair_episode`: each page's six newest conversations,
+  then the lexical index as it is, never a wait).
+- **"Cicada's guess" is about the pair** (`guess`): each lead's base (`BASE_GUESS`: a named handle 0.8, a profile 0.7,
+  an alias 0.6, a given name 0.5, the judge unsure 0.5, a first name across sources 0.4), never above 0.8 — below
+  ruling 29's act threshold (0.9), since a question exists because Cicada cannot tell — and never above 0.4 when no
+  conversation names both (a thing pair is still asked then). An older card's guess is shown capped the same way.
+Sleep retires the open ones that should never have been asked (`inbox_tend`, `owner_unsaid`, `no_pair_evidence`,
+engine-free, nothing written but the record, undoable under "Settled by Sleep").
+Measured on the copy (210 open "Possible duplicate" questions; dry run, nothing written): 1 paired the owner's page
+(retired, `owner_unsaid`); 148 rested on a conversation that did not name both sides (145 named one or neither, 3 had
+no conversation); 2 carried a guess ≥ 0.9. Of the 20 between people, 4 are retired (1 owner, 3 with no conversation
+naming both) and 16 stay; their cards' conversation names both sides on 16 (10 before); 1 of them is a public handle
+a check may answer
+(proposed ruling 54, `public_handle`, `features.md`; off until the owner rules). The other 190 are thing pairs: the plan's judge (haiku) called
+125 different or a relation (not the same), 21 the same, 44 unsure — Stage 2's relation judge (2026-10-29) keeps new
+ones from being asked; the open ones wait for Sleep's tending judge or the person.
 
 Nothing here settles who a person is (ruling 29): every lead ends in the person's question. A duplicate question about
 a name still parked below the promotion bar is live while its pending line exists (`inbox_service._subject_gone`,

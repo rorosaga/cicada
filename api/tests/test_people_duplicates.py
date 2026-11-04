@@ -32,6 +32,9 @@ from api.services import entity_resolver as er
 from api.services import inbox_tend, markdown_parser, merge_rejections, role_people
 from api.services.claims import Claim, write_claims
 
+#: How a lead is found; that its conversation names both sides is `test_pair_evidence`'s.
+pytestmark = pytest.mark.usefixtures("pair_conversations")
+
 
 # ---------- 1. close spellings and shared aliases ----------
 

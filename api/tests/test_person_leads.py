@@ -14,6 +14,9 @@ from api.services import entity_resolver as er
 from api.services import markdown_parser, pending_store, person_leads
 from api.services.vector_index import PendingEntity
 
+#: How a lead is found; that its conversation names both sides is `test_pair_evidence`'s.
+pytestmark = pytest.mark.usefixtures("pair_conversations")
+
 
 # ---------- the leads themselves ----------
 

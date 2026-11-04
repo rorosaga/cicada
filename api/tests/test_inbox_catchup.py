@@ -328,11 +328,19 @@ def test_spelling_proposes_a_same_person_question_once_and_never_over_a_rejectio
     from api.services import merge_rejections
 
     merge_rejections.add_rejected(bank, "ben", "benjamin")
+    page(bank, "tom", name="Tom", type_="person")
+    page(bank, "tomas-example", name="Tomas Example", type_="person")
+    # Owner 2026-11-04 (`pair_evidence`): the evidence is a conversation naming both; Tom/Tomas has none.
+    markdown_parser.write(bank / "episodes" / f"ep_{d(-3)}_001.md", {"id": f"ep_{d(-3)}_001", "source": "claude-code"},
+                          "user: Samantha Example (Sam) sent the slides")
+    bank_index.invalidate()
     report = inbox_catchup.propose_nicknames(bank, TODAY, budget=inbox_catchup.Budget())
-    assert len(report.written) == 1 and report.skipped == {"person_said_two_people": 1}
+    assert len(report.written) == 1
+    assert report.skipped == {"person_said_two_people": 1, "no_pair_evidence": 1}
     fm = markdown_parser.parse(bank / report.written[0]).frontmatter
     assert fm["kind"] == "merge_suggestion" and fm["detected"] == "spelling"
     assert (fm["entity_id"], fm["merge_target_hint"]) == ("sam", "samantha-example")   # the less-used one is asked
+    assert fm["source_episode"] == f"ep_{d(-3)}_001"
     assert inbox_catchup.propose_nicknames(bank, TODAY, budget=inbox_catchup.Budget()).written == []
 
 
