@@ -34,7 +34,7 @@ private enum V5Fixture {
     static let now = Date(timeIntervalSince1970: 1_790_000_000)
 
     static func page(_ status: SleepStatusResponse?, sse: SleepEventPayload? = nil, pausing: Bool = false,
-                     batchSize: Int? = nil) -> SleepPageModel {
+                     batchSize: Int? = nil, now: Date = V5Fixture.now) -> SleepPageModel {
         SleepPageModel.resolve(
             status: status, sse: sse, queued: [], schedule: ScheduleConfig(mode: "manual", hour: 3, minute: 0),
             enginePreview: nil, history: [], storeStatus: nil, queueLoad: .loaded(count: 0),
@@ -388,6 +388,48 @@ final class SleepV5PausedStateTests: XCTestCase {
         object?["paused"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(paused))
         return try JSONDecoder().decode(SleepStatusResponse.self,
                                         from: JSONSerialization.data(withJSONObject: try XCTUnwrap(object)))
+    }
+}
+
+// MARK: - After the plan's reset (ROR-96)
+
+/// A pause outlives its limit (ruling 15: a weekly limit waits for the person's click). Once the reset has passed the
+/// page says the plan is back, never "used up" and never a time that has gone by.
+final class SleepV5PlanBackTests: XCTestCase {
+    /// An hour and a half past the fixture's reset (1_790_003_600), the same UTC day: the owner's report.
+    private let later = Date(timeIntervalSince1970: 1_790_003_600 + 5_400)
+    /// Two days past it: the reset's words would be a weekday, which reads as the coming one.
+    private let daysLater = Date(timeIntervalSince1970: 1_790_003_600 + 2 * 86_400)
+
+    private func status(_ reason: String) throws -> SleepStatusResponse {
+        var object = try XCTUnwrap(try XCTUnwrap(V5Fixture.object("sleep-status-paused.json") as? [String: Any])["plan_window"]
+            as? [String: Any])
+        var paused = try XCTUnwrap(object["paused"] as? [String: Any])
+        paused["reason"] = reason
+        paused["autoContinue"] = NSNull()
+        object["paused"] = paused
+        return try JSONDecoder().decode(SleepStatusResponse.self, from: JSONSerialization.data(withJSONObject: object))
+    }
+
+    private func assertNoPastTime(_ text: String, _ message: String, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertFalse(text.contains("used up"), "\(message): \(text)", file: file, line: line)
+        XCTAssertFalse(text.contains("Resets"), "\(message): \(text)", file: file, line: line)
+        XCTAssertFalse(text.contains("full"), "\(message): \(text)", file: file, line: line)
+        XCTAssertNil(text.range(of: #"\d:\d\d"#, options: .regularExpression), "\(message): \(text)", file: file, line: line)
+    }
+
+    func test_aPassedResetNeverSaysUsedUpOrAPastTime() throws {
+        for reason in ["plan_weekly", "plan_window", "overage", "reserve"] {
+            for now in [later, daysLater] {
+                let line = V5Fixture.sentence(V5Fixture.page(try status(reason), now: now))
+                assertNoPastTime(line.spoken, reason)
+            }
+        }
+    }
+
+    func test_aPassedWeeklyResetLetsContinueThrough() throws {
+        XCTAssertTrue(V5Fixture.page(try status("plan_weekly")).continueWaitsForReset)
+        XCTAssertFalse(V5Fixture.page(try status("plan_weekly"), now: later).continueWaitsForReset)
     }
 }
 
