@@ -30,6 +30,7 @@ read. **Git history keeps the older version; history is never rewritten.** What 
 **Leave it** records how many of each kind the person saw (``kept``), so only a new one asks again."""
 from __future__ import annotations
 
+import difflib
 import hashlib
 import json
 import os
@@ -427,8 +428,18 @@ def same_after_removal(prior: str, body: str, episode: dict | None = None) -> bo
     return 0 <= len(prior) - len(pieces[-1]) - at <= _MAX_REMOVED_CHARS
 
 
-def is_removal_mark(text: str) -> bool:
-    return _REMOVED_RE.search(text) is not None
+def masked_against(before: str, after: str) -> str:
+    """What a passage used to say, with whatever the passage it became marks as removed replaced by that mark. After a
+    removal nothing else knows the value, and this needs only the two texts."""
+    if not _REMOVED_RE.search(after):
+        return before
+    pattern = re.compile(r"\[removed: \w+\]|\S+|\s+")
+    old, new = pattern.findall(before), pattern.findall(after)
+    out: list[str] = []
+    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, old, new, autojunk=False).get_opcodes():
+        marks = [t for t in new[j1:j2] if _REMOVED_RE.fullmatch(t)] if tag != "equal" else []
+        out.extend(marks or old[i1:i2])
+    return "".join(out)
 
 
 def masked_for_engine(text: str) -> str:

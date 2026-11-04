@@ -126,9 +126,8 @@ def changes_of(rev) -> list[Change]:
         if tag not in ("replace", "delete"):
             continue
         after = _unmarked(rev.body[j1:j2]) if tag == "replace" else ""
-        if sensitive_flags.is_removal_mark(after):
-            continue    # the pages lost this word at Remove; and a value with no hit here must not be quoted to a model
-        before = _unmarked(sensitive_flags.masked_for_engine(rev.prior[i1:i2]))
+        # A value with no hit of its own (an echo of one flagged elsewhere) must not be quoted to a model either.
+        before = _unmarked(sensitive_flags.masked_against(sensitive_flags.masked_for_engine(rev.prior[i1:i2]), rev.body[j1:j2]))
         gone = tokens(before) - body
         if gone:
             out.append(Change(rev.episode_id, before, after, frozenset(gone), frozenset(tokens(after) - prior)))

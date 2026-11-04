@@ -137,3 +137,33 @@ def test_this_repository_talking_about_passwords_raises_no_password_alarm():
                 alarms.update(h.kind for h in st.find_in_line(line, 0, ctx))
     assert alarms[st.PASSWORD] == 0, alarms
     assert alarms[st.CARD] == alarms[st.BANK] == alarms[st.ID] == 0, alarms
+
+
+@pytest.mark.parametrize("line", [
+    "my season pass is A1B2C3",
+    "my mountain pass is K2base",
+    "boarding pass: G12A",
+    "the ski pass is G12A9",
+    "pw: 2024-11-01",
+    "my passport expires 2031-05-01",
+    "checking account 2024-11-04",
+    "my password is Bitwarden.",
+    "my password is 1Password.",
+])
+def test_things_that_are_not_a_password_are_not_found(line):
+    assert st.find(f"user: {line}") == []
+
+
+@pytest.mark.parametrize("line", ["mi contraseña es guatemala.", "my password is sunshine."])
+def test_a_plain_word_called_a_password_is_unsure_at_most(line):
+    assert all(not h.sure for h in st.find(f"user: {line}"))
+
+
+@pytest.mark.parametrize("line", [
+    "my wifi pass is K2base9", "my new pass is K2base9", "my pass is K2base9", "pw: K2base9x", "the vpn pw is K2base9x"])
+def test_a_real_pass_is_still_found(line):
+    assert [h.kind for h in st.find(f"user: {line}")] == ["password"]
+
+
+def test_a_passport_number_is_still_found():
+    assert [h.kind for h in st.find("user: my passport number is G1239876")] == ["id"]
