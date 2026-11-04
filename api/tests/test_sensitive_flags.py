@@ -182,7 +182,36 @@ def test_a_title_holding_the_value_is_never_shown(memory, monkeypatch):
     (item,) = _review(memory)
     assert CANARY not in item.read_text()
     (row,) = next(i for i in inbox_service.load_inbox(memory) if i.id == item.stem).sensitive_rows
-    assert row.title == "A conversation"
+    assert row.title == "my password is •••"
+
+
+@pytest.mark.parametrize("title,shown", [
+    ("Plans", "Plans"),
+    (f"alpha ships. my password is {CANARY} for the st…", "alpha ships. my password is ••• for the st…"),
+    (f"alpha ships. my password is {CANARY[:9]}…", "alpha ships. my password is •••…"),
+    ("alpha ships. my password is Z…", "alpha ships. my password is •••"),
+    (CANARY, "A conversation"),
+    ("", "A conversation"),
+])
+def test_a_rows_title_never_holds_any_of_the_value(title, shown):
+    hits = st.find(BODY)
+    assert sf.safe_title({"title": title}, BODY, hits) == shown
+
+
+def test_a_title_cut_through_the_value_goes_on_removal_and_never_reaches_an_agents_primer(memory, monkeypatch):
+    from api.services import state_dictionary
+
+    cut = f"alpha ships. my password is {CANARY[:9]}…"
+    _episode(memory, title=cut, processed=True, processed_by="sleep", session_id="s-title", harness="cursor",
+             capture_kind="transcript", source="cursor", last_seen="2026-11-01T10:00:00Z")
+    _commit(memory)
+    bank_index.invalidate()
+    assert CANARY[:9] not in sf.title_for_others(cut) and "alpha ships" in sf.title_for_others(cut)
+    for row in state_dictionary._conversations(memory, 5):
+        assert CANARY[:9] not in row["title"]
+    sf.remove_episode(memory, EP)
+    title = markdown_parser.parse(memory / "episodes" / f"{EP}.md").frontmatter["title"]
+    assert CANARY[:9] not in title and "alpha ships" in title
 
 
 def test_a_conversation_with_only_code_talk_raises_nothing(memory, monkeypatch):
@@ -488,6 +517,24 @@ def test_leave_it_remembers_and_only_a_new_one_asks_again(memory, monkeypatch):
     bank_index.invalidate()
     sf.sync_review(memory)
     assert len(_review(memory)) == 1
+
+
+def test_a_wrong_alarm_left_alone_stops_costing_its_word_on_the_pages(memory, monkeypatch):
+    """Both modes take a flagged value out of what a model wrote, so a wrong alarm loses that word on the pages (the
+    conversation keeps it). Once the person leaves it, a later read keeps it."""
+    item = _slept(memory, monkeypatch)
+    assert CANARY not in (memory / "entities" / "alpha-project.md").read_text()
+    _resolve(memory, item, sf.KEEP)
+    path = memory / "episodes" / f"{EP}.md"
+    parsed = markdown_parser.parse(path)
+    fm = {**parsed.frontmatter, "processed": False}
+    fm.pop("processed_by", None)
+    markdown_parser.write(path, fm, parsed.body)     # read again, as a resumed session or an edit would
+    monkeypatch.setenv(sf.HOLD_ENV, "on")
+    prompts = _sleep(memory, monkeypatch)
+    assert any(CANARY in p for p in prompts)         # left alone means not held back either
+    assert CANARY in (memory / "entities" / "alpha-project.md").read_text()
+    assert _review(memory) == []
 
 
 def test_one_row_answered_leaves_the_others(memory, monkeypatch):

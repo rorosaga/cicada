@@ -86,6 +86,17 @@ def _keep_turns_last(fm: dict) -> None:
 # ---- before the engine reads ----------------------------------------------------------------------------------------
 
 
+def _still_flagged(episode: dict) -> list[Hit]:
+    """A Sleep episode's hits, without the kinds the person already looked at and left: a wrong alarm costs its word on
+    the pages only until they say so (`Leave it`)."""
+    hits = sensitive_text.find_in_episode(episode)
+    kept = _record(episode).get("kept")
+    if not isinstance(kept, dict) or not hits:
+        return hits
+    counts = Counter(h.kind for h in hits)
+    return [h for h in hits if counts[h.kind] > int(kept.get(h.kind) or 0)]
+
+
 @dataclass
 class Guard:
     """One episode's hits at the send point. Holds the values in memory for as long as this read takes."""
@@ -99,7 +110,7 @@ class Guard:
         logs its class and costs the report, never the read."""
         try:
             content = str(episode.get("content") or "")
-            hits = tuple(h for h in sensitive_text.find_in_episode(episode)
+            hits = tuple(h for h in _still_flagged(episode)
                          if any(h.start < hi and h.end > lo for lo, hi in spans))
             return cls(hits, sensitive_text.values_of(content, hits), hold and bool(hits))
         except Exception as exc:  # noqa: BLE001 - the detector never fails a read
@@ -170,6 +181,14 @@ def engine_view(text: str) -> str:
     return sensitive_text.replace_hits(text, sensitive_text.find(text), HELD_MARK)
 
 
+def title_for_others(title: str) -> str:
+    """A conversation's stored title on its way to an agent (the primer, a continuation). A capture's title is its first
+    line, so it can be the line that holds the value. Whatever the switch: this is a list, not a read the person chose."""
+    if not title:
+        return title
+    return sensitive_text.replace_hits(title, sensitive_text.find(title), HELD_MARK)
+
+
 def sweep_written(memory_path: Path, episodes: list[dict], dirty) -> int:
     """Before the batch's commit, one engine-free pass over what it wrote: any value of the batch's conversations left
     in a page by any stage comes out. Stage 1's answer is cleaned already; this holds for every later writer. Returns
@@ -178,7 +197,7 @@ def sweep_written(memory_path: Path, episodes: list[dict], dirty) -> int:
         values: list[str] = []
         for ep in episodes:
             content = str(ep.get("content") or "")
-            values.extend(sensitive_text.values_of(content, sensitive_text.find_in_episode(ep)))
+            values.extend(sensitive_text.values_of(content, _still_flagged(ep)))
         if not values:
             return 0
         ordered = tuple(sorted(set(values), key=len, reverse=True))
@@ -296,6 +315,9 @@ def _mapper(hits: list[Hit], mark: str):
     return shift
 
 
+_SAID_FIELDS = frozenset({"title", "description", "summary"})
+
+
 def _strip_fm_strings(value, marks: dict[str, str], *, key=None):
     """A value out of the strings a writer keeps beside the body (a title, a description). Keys and ids stay."""
     if isinstance(value, str):
@@ -303,6 +325,9 @@ def _strip_fm_strings(value, marks: dict[str, str], *, key=None):
             return value
         for found, mark in marks.items():
             value, _n = sensitive_text.strip_values(value, (found,), mark)
+        if str(key or "") in _SAID_FIELDS:
+            # A title is cut to a length, so it can hold a value cut in two that no exact match finds.
+            value = sensitive_text.replace_hits(value, sensitive_text.find(value), REMOVED_MARK)
         return value
     if isinstance(value, dict):
         return {k: _strip_fm_strings(v, marks, key=k) for k, v in value.items()}
@@ -421,14 +446,23 @@ def engine_name(label: str | None) -> str | None:
     return engine_select.PLAN_NAMES.get(label) or None
 
 
+#: Where a value was, in a row's title. The row already says what kind.
+_TITLE_DOTS = "•••"
+
+
 def safe_title(fm: dict, body: str, hits: list[Hit]) -> str:
-    """The conversation's title, or a plain stand-in when the title itself may hold the value: a first line is often
-    what a title is made from, and the review must never repeat it."""
+    """The conversation's title without the value, so two rows can still be told apart. A capture's title is its first
+    line, so it can hold the value whole, or cut in two by the title's length limit. Nothing left: a plain stand-in."""
     title = str(fm.get("title") or "").strip()
-    values = sensitive_text.values_of(body, hits)
-    if not title or any(v in title for v in values) or sensitive_text.find(title):
-        return "A conversation"
-    return title
+    title, _n = sensitive_text.strip_values(title, sensitive_text.values_of(body, hits), _TITLE_DOTS)
+    title = sensitive_text.replace_hits(title, sensitive_text.find(title), _TITLE_DOTS)
+    bare = title.rstrip("…. ")
+    for value in sensitive_text.values_of(body, hits):
+        for n in range(len(value) - 1, 0, -1):    # the last characters kept before the cut are the value's first
+            if bare.endswith(value[:n]) and not bare[-n - 1:-n].isalnum():
+                title = bare[:-n] + _TITLE_DOTS
+                break
+    return title if title.replace(_TITLE_DOTS, "").strip() else "A conversation"
 
 
 def _row(fm: dict, body: str, stem: str) -> dict | None:
