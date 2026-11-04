@@ -120,7 +120,7 @@ from api.services.channel_registry import CHANNEL_IDS
 #: `g161-14`: G39, G233 — Apple Books, Goodreads and book scans list their books.
 #: `g161-15`: 2026-11-04 — a meeting row carries `duration_s`; `collection` narrows a page to one calendar, list or
 #: Notes folder (`collections`).
-SHAPE = "g161-15"
+SHAPE = "g161-16"
 LIMIT_DEFAULT = 50
 LIMIT_MAX = 200
 TITLE_CAP = 120
@@ -480,6 +480,8 @@ def _notes(memory_path: Path) -> list[dict]:
     rows = []
     for f in found:
         fm = f.frontmatter or {}
+        if history_index.kind(fm) == "locked":
+            continue   # G234: never a row, never in a folder's count
         row = _episode_row(fm, f.stem)
         entry = placed.get(str(fm.get("id") or f.stem)) or {}
         account = str(entry.get("account") or fm.get("account") or "").strip()
@@ -1124,6 +1126,9 @@ def collections(memory_path: Path, channel_id: str) -> dict | None:
         accounts.append({"name": acct["name"], "provider": acct["provider"],
                          "count": sum(c["count"] for c in colls), "collections": colls})
     accounts.sort(key=_account_order)
+    if channel_id == "notes":
+        # G234: how many locked notes the last read found, kept only as this count (`notes_sync.locked_count`).
+        return {"channel": channel_id, "accounts": accounts, "locked": notes_sync.locked_count(memory_path)}
     return {"channel": channel_id, "accounts": accounts}
 
 

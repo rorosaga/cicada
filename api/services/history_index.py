@@ -82,10 +82,12 @@ COMMIT_STEP = 500
 def kind(fm: dict | None) -> str | None:
     """``history`` (a watched day), ``month`` (a month's summary), ``list`` (a save from a platform's saved list),
     ``traces`` (an index-only trace day written before 2026-10-28), ``reading`` (a reading day), ``listening``
-    (a listening day, G32), or ``None`` — an
+    (a listening day, G32), ``locked`` (a retired locked note, G234: never read, never indexed), or ``None`` — an
     episode Sleep reads with a model."""
     if not isinstance(fm, dict):
         return None
+    if fm.get(_evidence.LOCKED_NOTE_KEY):
+        return "locked"
     source = str(fm.get("source") or "")
     sid = str(fm.get("source_id") or "")
     if source == HISTORY_SOURCE or sid.startswith(HISTORY_PREFIX):
