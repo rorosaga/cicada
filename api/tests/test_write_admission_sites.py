@@ -678,6 +678,8 @@ TOOLS: dict[str, tuple[str, str | None]] = {
     "cicada_record_youtube_list": (ADMITTED, "record_youtube_list"),
     # G206 (2026-10-22): saved posts become media pages and their episodes — committed alone, in one hold.
     "cicada_record_saved_list": (ADMITTED, "record_saved_list"),
+    # G89 (2026-11-04): Substack saves, reading days and followed feeds — committed alone, in one hold.
+    "cicada_record_substack_list": (ADMITTED, "record_substack_list"),
     # 2026-10-16: one person's LinkedIn profile — an episode and their page, committed alone, in one hold.
     "cicada_record_profile": (ADMITTED, "record_profile"),
     # G110: reads the bank's transcript episodes only (projection + paging); its metadata index and session registry

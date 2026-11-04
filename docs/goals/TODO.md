@@ -13,6 +13,47 @@
 ## Current state and evidence
 
 - **2026-11-04 — New project is a page; an empty Projects list says nothing (G222; branch `feat/projects-new-page`).** Owner: "remove the text that appears when no projects" and "more like claude desktop app, and not two input text lines". New project opens as the detail column: the name as the H1, a large editor for the person's own paragraphs (kept as written, ≤ 4,000 characters, the page's lead; Sleep never writes it), and a picker over every page in memory by kind with each page's picture or its source's mark. Create is one `POST /projects` with `pages` (checked first, one person commit; a repository joins `repositories:` under ruling 53); `POST /projects/{id}/pages` routes a repository the same way, and the day the person started a project counts as activity, so a new one sits in Current. Verified on a scratch app (light and dark). **For the owner:** the live install suggests 750 projects; by construction that is every project page with no `mine` mark (the ~700 pre-D4 pages, `whyKind: none`) plus fallback concepts and repository births — whether legacy `none` pages are suggested at all is a ruling-45 call (G222's row).
+- **2026-11-04 — Claude chats: the export picked up from Downloads, and a weekly nudge (G197 layer c, G105; branch
+  `claude-desktop-capture`).** Owner: "I don't see conversations I have on Claude chats or claude.ai being captured."
+  Diagnosis, from the live install's numbers: one relayed episode ever, and every Claude chat in the bank from one
+  October export. The remote connector was off, so claude.ai had no way in. The desktop app's only Cicada server is
+  stdio, which never serves `cicada_capture_turns`, and its primer asks for no relay. Of the four ways in
+  (`capture-and-sleep.md`, "Hookless chat apps"): the desktop app keeps no chat history on disk for a claude.ai account
+  (counts only, no content read); reading claude.ai through the person's browser by an agent is the "automated or
+  non-human means" Anthropic's Consumer Terms §3 bar; the official export is the one path with no model in it; relay
+  stays ruling 32's model-dependent exception. Built (app only): while an export wait is open, the vendor's zip in
+  Downloads, identified by its central directory's member names, opens the one intake's preview; *Every week* in every
+  *Remind me* menu nudges the person to ask for a fresh export. The review of #592 found four blockers, all fixed, each
+  with a test that failed on the pre-fix sources: a crafted zip64 offset trapped; Downloads stayed watched past a
+  wait's expiry; a busy intake toasted every retry; a refused weekly reminder said it was on. Also fixed: arming only
+  after an in-run tap, a stop during a look being undone, an open preview being replaced, an arrival notice after a
+  refusal, the nudge's memory, and a line for a refused Downloads. Tests: `ExportArrivalsTests` 22, `ExportWaitsTests`
+  7, `IntakeRouterTests` 35, `FeedGuardTests` 10, `CopyConstantsTests` 13, and `--filter Lint` 85, all green. **Needs the owner (DECIDE):**
+  (1) the remote stdio relay: should the local stdio server serve `cicada_capture_turns` to the Claude desktop app
+  (`clientInfo` `claude-ai`) with the desktop primer asking for it? That would amend ruling 32's "through the remote
+  connector" for an app that has no hook on stdio either. **Recommended yes**, as a layer under the export, never
+  instead of it. (2) Reading the person's claude.ai list through their own browser by their agent: **recommended no**
+  under the ToS rail, unless Anthropic explicitly permits it. (3) D6′ (one-click Funnel for the connector) is already
+  waiting (2026-11-03); **recommended yes**, since it is what makes the phone's claude.ai reachable at all. (4) Listing
+  `~/Downloads` (names, sizes, dates; a zip's member names) while an export wait is open, which may raise macOS's one
+  Files and Folders prompt after *Remind me*: **recommended yes**, as built. Open: the export carries no schedule or
+  API, so the person still clicks Export and the email's link once a week. For the owner's own hands: turn the
+  connector on and add it on claude.ai, and turn *Every week* on for Claude.
+- **2026-11-04 — Substack through the person's own agent (G89; branch `g89-substack`).** Owner: "a direct app
+  integration is best to see history of read stuff, saved stuff, etc." Researched against current sources: Substack has
+  no reader API or OAuth app programme (its OAuth serves only its own MCP connector — publisher analytics for an admin of
+  a Bestseller publication, no profile data), no reader export (a privacy request by email only), no Mac app, and terms
+  that forbid scraping; the only "direct" route to history and saved posts is the private reader API with the person's
+  cookie — scraping behind authentication, so not built. Built instead, on G166/G206's rails: `cicada_record_substack_list`
+  (stdio only) — Saved as indexed saves (`substack-saved`), History as one index-only reading day per day
+  (`reading-history:substack:<day>`, the page's day or first-seen, said so), Subscriptions as followed public feeds
+  (tag `substack`; `feeds.yaml` remembers an unfollow and no automatic writer undoes it); off until the person turns a
+  list on in Sources → Substack; one site's list at a time and the shared 10 reads a day; `needs_login` pauses all three
+  and asks for a sign-in (its "I signed in" now lifts a saved list's pause too). Feeds: every item names its
+  publication; a paid post's stub is dropped as a body. **DECIDE for the owner (G89 row):** A (built, recommended) the
+  agent-read path; B also take Substack's personal-data copy as an import once a real file shows its format; C let
+  activity traces file substack.com post reads into the same record; D the private reader API — ruled out by the ToS
+  rail. Verified on scratch state with fixtures only (never the owner's account).
 - **2026-11-03 — GitHub connects with a code; your repositories are pages; a project lists its repositories (ruling
   53, G230; branch `feat/g230-oauth-sync`).** Owner: "why are you asking for a token for github? cant we just do oauth?"
   and "always sync and make their initial markdowns … a project might reference several repos". Connect GitHub shows
