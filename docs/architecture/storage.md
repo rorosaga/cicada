@@ -1479,7 +1479,6 @@ Round 4 (C2–C4):
   `source_deleted_at`, and a section's `content_sha` — see the Awake rails; on a conversation, `turn_extras` and
   `unsent_turns` (2026-10-20, above).
 
-<<<<<<< HEAD
 ### Phone numbers (G81, PROPOSED ruling 55, off until the owner rules)
 
 `CICADA_PHONE_NUMBERS=on` turns it on. Off, every path is byte for byte what it was. `phone_numbers` is the one module.
@@ -1527,7 +1526,7 @@ card, never for a claim.
 | The 5 `phone` claims already in clear | **digits, in git for good** | not touched | a page's clear value turns into the token when the person restates it; git keeps the old bytes |
 
 Also held in clear and not touched: what ruling 55 lists as not closed. The reasoning and the owner's question are there.
-=======
+
 #### Book pages (G39, G233, 2026-11-04)
 
 A book is a `media` page with `media.kind: book` (the paper's shape: no new entity type in the closed set) and a
@@ -1557,7 +1556,6 @@ Whose act: the span's kind comes from the episode (`authorship`). A scan is the 
 page; an Apple Books or Goodreads record is `page`, and a want-to-read or not-started scan is stamped
 `media_entity_id` (a save, ruling 30) — so an imported library and a shelf stay quiet (`quiet_pages`) until the person
 writes or talks about the book (a note, a review, a chat).
->>>>>>> origin/dev
 
 ### Backlogs (G150)
 

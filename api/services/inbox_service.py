@@ -31,11 +31,8 @@ from api.services import (
     inbox_questions,
     inbox_review,
     markdown_parser,
-<<<<<<< HEAD
-    phone_numbers,
-=======
     pair_evidence,
->>>>>>> origin/dev
+    phone_numbers,
     predicates,
     quiet_pages,
     same_name_pick,
