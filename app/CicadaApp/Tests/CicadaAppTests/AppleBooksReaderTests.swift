@@ -103,12 +103,25 @@ final class AppleBooksReaderTests: XCTestCase {
     func testTheRowSaysWhatCameIn() {
         let now = Date()
         XCTAssertEqual(BooksRowText.appleBooks(.off, now: now), Copy.appleBooksOff)
-        let line = BooksRowText.appleBooks(.synced(at: now, books: 284, highlights: 1), now: now,
+        let line = BooksRowText.appleBooks(.synced(at: now, books: 284, highlights: 1, notKept: 0), now: now,
                                            locale: Locale(identifier: "en_US"))
         XCTAssertTrue(line.hasSuffix("· 284 books · 1 highlight"), line)
+        // Re-check of #600: what a book's cap left out is said on the row, never silent.
+        let over = BooksRowText.appleBooks(.synced(at: now, books: 2, highlights: 3000, notKept: 26), now: now,
+                                           locale: Locale(identifier: "en_US"))
+        XCTAssertTrue(over.hasSuffix("· 3,000 highlights · 26 highlights past a book's limit not kept"), over)
         let preview = GoodreadsPreview(books: 3, finished: 1, reading: 1, want: 1, reviews: 1, rated: 1)
         XCTAssertEqual(BooksRowText.goodreadsPreview(preview, locale: Locale(identifier: "en_US")),
                        "3 books: 1 finished · 1 reading · 1 want to read · 1 review")
+    }
+
+    func testTheSyncAnswerCarriesWhatACapLeftOutPerBook() throws {
+        let json = #"{"books": 1, "created": 1, "updated": 0, "unchanged": 0, "highlights": 3000, "notes": 0, "#
+            + #""trimmed": 25, "trimmedBooks": {"CAP": 25}}"#
+        let result = try JSONDecoder().decode(AppleBooksSyncResult.self, from: Data(json.utf8))
+        XCTAssertEqual(result.trimmedBooks, ["CAP": 25])
+        let older = #"{"books": 1, "created": 1, "updated": 0, "unchanged": 0, "highlights": 1, "notes": 0}"#
+        XCTAssertNil(try JSONDecoder().decode(AppleBooksSyncResult.self, from: Data(older.utf8)).trimmedBooks)
     }
 
     func testReadingIsItsOwnSectionWithAppleBooksAndGoodreads() {

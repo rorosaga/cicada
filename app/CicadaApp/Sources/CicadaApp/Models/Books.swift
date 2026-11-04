@@ -43,13 +43,14 @@ enum BooksRowText {
         case .off: return Copy.appleBooksOff
         case .syncing: return Copy.appleBooksSyncing
         case .failed(let why): return why
-        case .synced(let at, let books, let highlights):
+        case .synced(let at, let books, let highlights, let notKept):
             let relative = RelativeDateTimeFormatter()
             relative.unitsStyle = .full
             relative.dateTimeStyle = .named
             relative.locale = locale
-            return Copy.appleBooksSynced(relative.localizedString(for: at, relativeTo: now), books: books,
-                                         highlights: highlights, locale: locale)
+            let line = Copy.appleBooksSynced(relative.localizedString(for: at, relativeTo: now), books: books,
+                                             highlights: highlights, locale: locale)
+            return notKept > 0 ? line + " · " + Copy.appleBooksNotKept(notKept, locale: locale) : line
         }
     }
 

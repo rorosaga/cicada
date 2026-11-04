@@ -529,6 +529,37 @@ def test_a_book_with_thousands_of_long_highlights_is_trimmed_and_never_refuses_t
     assert {p.frontmatter["name"] for p in _books(memory).values()} == {"Very Highlighted", "Small Book"}
 
 
+def test_what_a_cap_left_out_is_said_in_the_sync_answer_and_in_the_books_own_words(client):
+    """Re-check of #600: trimming is never silent. The oldest highlights are kept (an edit stays an edit); the count of
+    those left out comes back from the sync for the Apple Books row, and the body says so in one line that does not
+    change as more arrive."""
+    c, memory, _ = client
+    c.put("/sources/apple-books/settings", json={"enabled": True})
+    over = apple_books.MAX_ANNOTATIONS + 25
+    big = _ab_book("CAP", "Over The Cap", "Ada Example", annotations=[
+        _hl(f"h{n:05d}", f"Highlight number {n}.", f"2026-08-{1 + n // 1000:02d}T00:00:{n % 60:02d}Z") for n in range(over)])
+    out = c.post("/sources/apple-books/sync", json={"books": [big]}).json()
+    assert out["trimmed"] == 25 and out["highlights"] == apple_books.MAX_ANNOTATIONS
+    assert out["trimmedBooks"] == {"CAP": 25}
+    ep = next(p for p in (memory / "episodes").glob("*.md")
+              if markdown_parser.parse(p).frontmatter.get("source_id") == "apple-books:CAP")
+    first = markdown_parser.parse(ep)
+    assert first.frontmatter["book"]["trimmed"] == 25
+    assert first.body.rstrip().endswith(apple_books.NOT_KEPT_LINE)
+    assert "Highlight number 0." in first.body and f"Highlight number {over - 1}." not in first.body
+    # One more highlight past the cap: counted, and the body (so Sleep's queue) does not move.
+    big["annotations"].append(_hl("h99999", "One more.", "2026-09-30T00:00:00Z"))
+    again = c.post("/sources/apple-books/sync", json={"books": [big]}).json()
+    assert again["trimmed"] == 26 and again["updated"] == 0
+    assert markdown_parser.parse(ep).body == first.body
+    # Under the cap, nothing is said.
+    c.post("/sources/apple-books/sync", json={"books": [_ab_book("OK", "Under The Cap", "Bea Sample", annotations=[
+        _hl("u1", "Just one.", "2026-08-01T00:00:00Z")])]})
+    small = next(p for p in (memory / "episodes").glob("*.md")
+                 if markdown_parser.parse(p).frontmatter.get("source_id") == "apple-books:OK")
+    assert apple_books.NOT_KEPT_LINE not in markdown_parser.parse(small).body
+
+
 def test_the_lookup_paces_the_redirect_hop_and_shares_its_pacer_across_runs(monkeypatch):
     waits = []
 

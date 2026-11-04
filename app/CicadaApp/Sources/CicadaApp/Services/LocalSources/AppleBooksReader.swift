@@ -71,6 +71,9 @@ struct AppleBooksSyncResult: Decodable, Equatable, Sendable {
     let unchanged: Int
     let highlights: Int
     let notes: Int
+    /// Re-check of #600: highlights past a book's cap that were not kept, per book (asset id → count); absent from a
+    /// server before the cap was said.
+    let trimmedBooks: [String: Int]?
 }
 
 enum AppleBooksReadError: Error, LocalizedError, Equatable {
@@ -203,13 +206,17 @@ final class AppleBooksReader {
     enum Status: Equatable {
         case off
         case syncing
-        case synced(at: Date, books: Int, highlights: Int)
+        /// `notKept`: highlights past their book's cap, said on the row (never silent).
+        case synced(at: Date, books: Int, highlights: Int, notKept: Int)
         case failed(String)
     }
 
     nonisolated static let channel = "apple-books"
     nonisolated static let enabledKey = "cicada.appleBooks.enabled"
     nonisolated static let sentKey = "cicada.appleBooks.sent"
+    /// Per memory: the books over their cap and how many highlights each left out, so a book not sent again (unchanged)
+    /// still counts.
+    nonisolated static let notKeptKey = "cicada.appleBooks.notKept"
     static let shared = AppleBooksReader()
 
     private(set) var status: Status = .off
@@ -304,14 +311,20 @@ final class AppleBooksReader {
         var sent = (defaults.dictionary(forKey: sentKey()) as? [String: String]) ?? [:]
         let changed = resend ? books : AppleBooksStore.changed(books, sent: sent)
         var highlights = 0
+        let notKeptKey = Self.notKeptKey + "." + bank()
+        var notKept = (defaults.dictionary(forKey: notKeptKey) as? [String: Int]) ?? [:]
         do {
             for start in stride(from: 0, to: changed.count, by: 500) {
                 let chunk = Array(changed[start..<min(start + 500, changed.count)])
                 let result = try await api.syncAppleBooks(AppleBooksSyncPayload(books: chunk))
                 guard gen == generation else { return }
                 highlights += result.highlights
-                for book in chunk { sent[book.assetId] = AppleBooksStore.fingerprint(book) }
+                for book in chunk {
+                    sent[book.assetId] = AppleBooksStore.fingerprint(book)
+                    notKept[book.assetId] = result.trimmedBooks?[book.assetId]
+                }
                 defaults.set(sent, forKey: sentKey())
+                defaults.set(notKept, forKey: notKeptKey)
             }
         } catch {
             guard gen == generation else { return }
@@ -319,7 +332,8 @@ final class AppleBooksReader {
             return
         }
         let total = books.reduce(0) { $0 + $1.annotations.filter { !($0.selectedText ?? "").isEmpty }.count }
-        status = .synced(at: now(), books: books.filter { !$0.isHidden }.count, highlights: max(total, highlights))
+        status = .synced(at: now(), books: books.filter { !$0.isHidden }.count, highlights: max(total, highlights),
+                         notKept: notKept.values.reduce(0, +))
     }
 
     static func failureMessage(_ error: Error) -> String {

@@ -1403,7 +1403,11 @@ its `content_hash`, so the queue is derived from the bank — a move or a restor
   library). Only a finish with `ZDATEFINISHED` is also a dated "Finished reading" happening; Apple Books keeps no day a
   reading began, so a reading or an undated finish is a status record only (review of #600, B2). One book is trimmed on
   its own — the oldest 3,000 highlights, each cut at 4,000 characters, the body at 400k — so it never refuses the
-  rest of its request. A book with a highlight or a note is queued for Sleep; a library entry with neither lands read
+  rest of its request. **Never silent** (re-check of #600): the body ends with one `**Not kept:**` line (no count, so a
+  later highlight does not re-queue the book), the record keeps `trimmed`, the sync answers `trimmed` and
+  `trimmedBooks` (asset id → count), and the Apple Books row says "N highlights past a book's limit not kept". The
+  oldest are kept rather than a rolling window: rolling would drop the earliest highlights on every sync, and Sleep
+  reads a removal as the source withdrawing what it said. A book with a highlight or a note is queued for Sleep; a library entry with neither lands read
   (`processed_by: index`).
 - **Goodreads** (`goodreads_export`). Its public API stopped issuing keys in December 2020 and its pages are walled, so
   the way in is the member's own "Export Library" CSV, picked in the app (`POST /sources/goodreads/preview` counts,

@@ -17,6 +17,10 @@ extension Copy {
         let h = highlights == 1 ? "1 highlight" : "\(UsageFormat.count(highlights, locale: locale)) highlights"
         return "Synced \(when) · \(b) · \(h)"
     }
+    /// Re-check of #600: a book over its cap keeps its oldest highlights; the rest are said, never silently dropped.
+    static func appleBooksNotKept(_ n: Int, locale: Locale = .autoupdatingCurrent) -> String {
+        (n == 1 ? "1 highlight" : "\(UsageFormat.count(n, locale: locale)) highlights") + " past a book's limit not kept"
+    }
     static let appleBooksMissing = "Apple Books has no library on this Mac yet. Open Apple Books once, then Sync now."
     static let appleBooksUnreadable = "Cicada couldn't read Apple Books' library. If macOS asked about another app's "
         + "data, allow it, then Sync now."

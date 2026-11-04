@@ -43,10 +43,18 @@ SETTINGS_FILENAME = "apple_books.json"
 MAX_BOOKS = 5000
 #: Per book, so one book never stops another (review of #600): the oldest highlights first (new ones append, so a
 #: revision stays a revision), each highlight and note cut at :data:`MAX_TEXT`, the body stopped at
-#: :data:`MAX_BODY_CHARS`; what is past a cap is left out, counted in ``trimmed``.
+#: :data:`MAX_BODY_CHARS`. Never silent (re-check of #600): what is past a cap is counted in the record's ``trimmed``,
+#: returned by the sync and shown on the Apple Books row, and the body says so in one line (:data:`NOT_KEPT_LINE`).
+#: The oldest are kept rather than a window rolled forward: a rolled window would drop the earliest highlights on every
+#: sync, and Sleep would read each drop as the source withdrawing what it said (``episode_revision`` closes claims
+#: only the removed text supported).
 MAX_ANNOTATIONS = 3000
 MAX_TEXT = 4000
 MAX_BODY_CHARS = 400_000
+#: The body's own words for a book over its cap. No count in it: a number here would change the body with every later
+#: highlight and send the whole book back to Sleep for a line that says nothing new (the count is in ``trimmed``).
+NOT_KEPT_LINE = ("**Not kept:** later highlights past this book's cap (3,000 highlights or 400,000 characters) were "
+                 "not kept.")
 _URN_ISBN = re.compile(r"(?:urn:isbn:|isbn[:\s]*)?([0-9Xx\- ]{10,17})$", re.IGNORECASE)
 
 
@@ -151,11 +159,13 @@ def draft_for(book: dict, *, now: datetime) -> EpisodeDraft | None:
     for at, _, text, note in notes:
         part = f"\n## Highlight, {books.utc_day(at.isoformat())}\n{_block(text)}\n" if text else ""
         part += f"\n## User note\n{note}\n" if note else ""
-        if len(body) + len(part) > MAX_BODY_CHARS:
+        if len(body) + len(part) + len(NOT_KEPT_LINE) + 2 > MAX_BODY_CHARS:
             break
         body += part
         kept += 1
     notes = notes[:kept]
+    if total > kept:
+        body += f"\n{NOT_KEPT_LINE}\n"
     isbn = isbn_of(book.get("epubId"))
     moment = max((n[0] for n in notes), default=None) or on or _instant(book.get("addedAt")) or now
     kind = {1: "book", 3: "pdf", 5: "audiobook"}.get(book.get("contentType"), "book")
@@ -183,4 +193,9 @@ def sync(memory_path: Path, payload: dict, *, bank: str | None = None, now: date
     return {"books": len(drafts), "created": result.created, "updated": result.updated,
             "unchanged": result.skipped, "highlights": sum(d.extra[books.EPISODE_KEY]["highlights"] for d in drafts),
             "notes": sum(d.extra[books.EPISODE_KEY]["notes"] for d in drafts),
-            "queued": sum(1 for d in drafts if d.queue_for_sleep), "paths": list(result.paths)}
+            "queued": sum(1 for d in drafts if d.queue_for_sleep),
+            "trimmed": sum(d.extra[books.EPISODE_KEY].get("trimmed", 0) for d in drafts),
+            # Per book, so the app can keep the count for books a later sync does not send again (unchanged).
+            "trimmedBooks": {d.extra[books.EPISODE_KEY]["asset_id"]: d.extra[books.EPISODE_KEY]["trimmed"]
+                             for d in drafts if d.extra[books.EPISODE_KEY].get("trimmed")},
+            "paths": list(result.paths)}
