@@ -541,3 +541,29 @@ def test_an_identified_agents_profile_link_does_vouch(client):
     idx = linkedin_people._index(memory)
     conn = [x for x in linkedin_people.parse(_csv()).connections if x.url.endswith("carol-example-1a2b3c")][0]
     assert linkedin_people.basis(idx, "carol-example", conn) == "link"
+
+
+def test_an_alias_only_link_is_named_and_writes_no_facts_until_the_person_takes_it(tmp_path, monkeypatch):
+    """Ruling 54a's review: reading an unconfirmed guess must not write `works-at` and `role` as the newest facts."""
+    from types import SimpleNamespace
+
+    from api.services import linkedin_people, markdown_parser, mcp_tools, reading_settings
+
+    memory = tmp_path / "memory"
+    (memory / "entities").mkdir(parents=True)
+    (memory / "episodes").mkdir()
+    url = "https://www.linkedin.com/in/nora-hidden"
+    source = {"ref": url, "kind": "url", "predicate": "linkedin", "added_by": "cicada", "match": "alias"}
+    markdown_parser.write(memory / "entities" / "nora.md", {"name": "Nora", "type": "person", "status": "active",
+                                                            "sources": [source]}, "## Summary\nx\n")
+    assert linkedin_people.alias_only(memory, "nora", url)
+    monkeypatch.setattr(reading_settings, "agent_enabled", lambda: True)
+    ctx = SimpleNamespace(memory_path=lambda: memory, sleep_answer=None)
+    monkeypatch.setattr(mcp_tools, "_demo_refusal", lambda _m: None)
+    reply = mcp_tools.record_profile.__wrapped__(ctx, "nora", url, "read", company="Globex") \
+        if hasattr(mcp_tools.record_profile, "__wrapped__") else mcp_tools.record_profile(ctx, "nora", url, "read", company="Globex")
+    assert "alias" in str(reply) and "works-at" not in (memory / "entities" / "nora.md").read_text()
+    assert list((memory / "episodes").glob("*.md")) == []
+    markdown_parser.write(memory / "entities" / "nora.md", {"name": "Nora", "type": "person", "status": "active",
+                                                            "sources": [{**source, "match": "name"}]}, "## Summary\nx\n")
+    assert not linkedin_people.alias_only(memory, "nora", url)

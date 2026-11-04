@@ -243,7 +243,7 @@ def self_named(memory_path: Path | None, names: list[str], *, fresh: bool = True
     return None
 
 
-#: The cited claim a public-handle check writes (proposed ruling 54, ``web_settle.settle_handle``): "<Name> goes by
+#: The cited claim a public-handle check writes (ruling 54, ``web_settle.settle_handle``): "<Name> goes by
 #: <handle>", on the named page, its object the handle's page. While it stands, the pair is not asked again.
 GOES_BY = "goes-by"
 
