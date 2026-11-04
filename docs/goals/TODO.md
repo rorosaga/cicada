@@ -12,7 +12,6 @@
 
 ## Current state and evidence
 
-<<<<<<< HEAD
 - **2026-11-04 — Sleep on a Claude key through the official SDK (G237, ruling 63; branch `g237-claude-key-parity`).** Owner:
   "having cicada work the same or as good as through Claude code is crucial and priority." The audit found a Claude key
   could not have run Sleep through LiteLLM at all. `anthropic_engine` serves it now, with `direct_engines` as the seam the
@@ -20,7 +19,6 @@
   their basis, a 429 as a pause. Proved on stand-ins at the HTTP layer, the real SDK in between; the plan leg ran for real
   on Haiku 5.5. **Pick up here:** the owner enters a key and runs G237's one command (a cap of 40,000 uncached tokens,
   expected about $0.02). Nothing has reached the real API yet. **The owner decides:** the spend guard, the plan-only steps.
-=======
 - **2026-11-04 — the Contacts page shows every card (G154, G161; branch `g154-contacts-grid`, PR #602).** Owner: "only 6
   contacts synced". Coordinator's numbers: 370 cards waiting, 6 matched, and the page listed the 6; one-part names were
   kept nowhere (196 + 139 raw records across two account sources, which overlap). `contacts_book` keeps every card's names
@@ -42,7 +40,6 @@
   there needs evidence, so it offers nothing), so an older app keeps working. Wispr's own hosted connector stays among the
   recommended skills: it is not a source Cicada reads, and the owner's words were about sources.
 
->>>>>>> origin/dev
 - **2026-11-04 — three owner reports: a tool inside its app, a plan that is back, one inbox (G50, ROR-52, ROR-96, ROR-46;
   branch `fix/g50-bundled-tool-detection`).** OpenCode.app's `opencode-cli` is found; an app without the tool Sleep needs
   says *Not ready* and the line to run, on the cards and in Auto's skip sentence (`Status.not_ready`). The real bundled
