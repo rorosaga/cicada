@@ -14,7 +14,8 @@ from tqdm import tqdm
 
 from api.config import Settings
 from api.services import (act_object, authorship, contact_identity, turn_signals, correspondents, decay_policy, engine_errors, entity_types, episode_time,
-                          episode_revision, evidence, fact_policy, participation, project_birth, promotion, section_provenance, source_dates)
+                          episode_revision, evidence, fact_policy, participation, phone_numbers, project_birth, promotion, section_provenance,
+                          source_dates)
 from api.services.json_parse import parse_json_object
 
 EXTRACTION_SYSTEM_PROMPT = """You are an entity extraction system for a personal knowledge graph.
@@ -971,6 +972,8 @@ async def extract(
             source_note = group_note(members) + (source_note or "")
         if revision is not None:
             source_note = (source_note or "") + episode_revision.REVISION_NOTE
+        if phone_numbers.has_token(episode.get("content")):
+            source_note = (source_note or "") + phone_numbers.NOTE   # proposed ruling 55: only with a token to explain
         their_observer = assistant_observer(episode)
         session_id = str(episode.get("session_id") or "").strip() or None
         # The owner, 2026-10-28: replies, reactions, forwards and unsends, told to each chunk they fall in.
@@ -1029,6 +1032,12 @@ async def extract(
                         evidence.attach_relationship_evidence(value, ep_id, content, window=window,
                                                               kind_override=authorship.of_episode(episode), gaps=gaps)
                     all_values.extend(chunk_values)
+
+                # Proposed ruling 55: what the model made of a number, resting on the person's own line or dropped;
+                # no token reaches a page's prose. Before any reading of these lists below.
+                phone_numbers.take(all_entities, all_relationships, all_values, content, ep_id,
+                                   bank=str(getattr(settings, "memory_path", "") and settings.memory_path.name or ""),
+                                   override=authorship.of_episode(episode), gaps=gaps)
 
                 # 2026-10-28 (ruling 42): "signed up for an <event> at the <venue>" is an act on the event; the
                 # venue or organiser gets the event's link, never the act (`act_object`).
@@ -1413,7 +1422,8 @@ def _value_claim(value: dict, episode_id: str, origin: str, to_id: Callable[[str
     entity = str(value.get("entity", "") or "").strip()
     attribute = str(value.get("attribute", "") or "").strip()
     stated = " ".join(str(value.get("value", "") or "").split())
-    predicate = value_predicate(attribute)
+    # Proposed ruling 55: a number is a fact of its own, not a value one later value replaces (a person has several).
+    predicate = "phone" if value.get("number_token") else value_predicate(attribute)
     if not entity or not predicate or not stated or len(stated) > 120:
         return None
     subject = str(value.get("source_page") or "") or to_id(entity)

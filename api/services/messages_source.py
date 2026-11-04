@@ -63,8 +63,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from api.services import (agent_detectors, contact_identity, episode_ids, episode_staging, evidence, markdown_parser, turn_extras,
-                          typedstream)
+from api.services import (agent_detectors, contact_identity, episode_ids, episode_staging, evidence, markdown_parser, phone_numbers,
+                          turn_extras, typedstream)
 from api.services.agent_detectors import Actor, ConversationMeta
 from api.services.episode_staging import EpisodeDraft, Turn
 from api.services.id_utils import sanitize_id
@@ -880,6 +880,9 @@ def ingest(memory_path: Path, payload: dict, *, bank: str | None = None) -> dict
                 stored.append(sitting)
             else:
                 unreadable.add(str(e.fm.get("source_id")))
+        # Proposed ruling 55: a number in the person's own new words, as its token; a stored line never moves.
+        phone_numbers.tokenise_batch(incoming, {m.key: m for s in stored for m in s.messages}, writer=SCRUB_WRITER,
+                                     bank=memory_path.name)
         planned, gone = plan_sittings(cid, stored, incoming, reactions, reserved=frozenset(unreadable), counts=counts)
         group = None
         if conversation.get("group"):

@@ -31,6 +31,7 @@ from api.services import (
     inbox_questions,
     inbox_review,
     markdown_parser,
+    phone_numbers,
     predicates,
     quiet_pages,
     same_name_pick,
@@ -2439,7 +2440,23 @@ async def _resolve_divergence(path, parsed, request, settings, item_id: str) -> 
     new = by_id.get(_opt_str(fm.get("claim_id")) or "")
     existing = by_id.get(_opt_str(fm.get("existing_claim_id")) or "")
     today = str(date.today())
-    if new is not None and existing is not None:
+    if new is not None and new.context == phone_numbers.ASKED:
+        # Proposed ruling 55: the number waited closed on the page; the answer opens it or leaves it closed, in the
+        # person's own hand. "1" also ends the one it was asked against; "2" keeps both.
+        if key == "0":
+            new.context = phone_numbers.REFUSED
+            if existing is not None:
+                existing.confidence = max(float(existing.confidence or 0), 0.9)
+        else:
+            new.context, new.valid_to, new.source_trust, new.origin = "general", None, "user_stated", "clarification"
+            new.confidence = max(float(new.confidence or 0), 0.9)
+            if key == "1" and existing is not None:
+                _close_today(existing, by=new, today=today)
+        efm = entity.frontmatter
+        efm["last_referenced"] = today
+        efm["version"] = int(efm.get("version", 1) or 1) + 1
+        markdown_parser.write(entity_path, efm, write_claims(entity.body, claims))
+    elif new is not None and existing is not None:
         if key == "0":  # keep my statement: the new reading loses
             _close_today(new, by=existing, today=today)
             existing.confidence = max(float(existing.confidence or 0), 0.9)

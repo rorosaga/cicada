@@ -46,7 +46,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from api.services import (agent_detectors, contact_identity, episode_ids, episode_staging, evidence, markdown_parser, messages_source,
-                          turn_extras)
+                          phone_numbers, turn_extras)
 from api.services.agent_detectors import Actor, Detection
 from api.services.episode_staging import EpisodeDraft, Turn
 from api.services.id_utils import sanitize_id
@@ -675,6 +675,9 @@ def ingest(memory_path: Path, spec: ChatSpec, conversation: dict, messages: list
                 stored.append(sitting)
             else:
                 unreadable.add(str(e.fm.get("source_id")))
+        # Proposed ruling 55: a number in the person's own new words, as its token; a stored line never moves.
+        phone_numbers.tokenise_batch(batch, {m.key: m for s in stored for m in s.messages}, writer=spec.writer,
+                                     bank=memory_path.name)
         planned, gone = plan_sittings(spec, cid, stored, batch, kept_reactions, counts,
                                       reserved=frozenset(unreadable))
         known = [p for e in mine.values() for p in participants_of(e.fm)]

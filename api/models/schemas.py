@@ -5599,6 +5599,9 @@ class ContactRecord(CamelModel):
     #: Owner ruling 2026-10-20 — the address book's own "me" card (`CNContactStore.unifiedMeContact`): it belongs to
     #: the owner's page (G169), is never matched to a namesake and never waits. A flag about the owner, not a card fact.
     is_me: bool = False
+    #: Proposed ruling 55: the card's numbers as the keyed hash the app makes on this Mac (`phone_numbers`), never a
+    #: digit: R-SR8 holds. Empty unless the feature is on; anything not shaped like a hash is refused at the door.
+    phone_keys: list[str] = []
 
 
 class ContactsLocalSyncRequest(CamelModel):

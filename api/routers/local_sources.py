@@ -29,7 +29,7 @@ LinkedIn connections (2026-10-16, G154's pattern): the person picks their export
 
 from __future__ import annotations
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, Request, UploadFile
 from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
@@ -76,6 +76,7 @@ from api.services import (
     messages_photos,
     messages_source,
     paper_metadata,
+    phone_numbers,
     papers,
     reminders_local,
     sync_state,
@@ -401,6 +402,36 @@ async def sync_watch_history(req: WatchHistorySyncRequest, settings: Settings = 
     await folder_source.commit_paths_for(memory_path, out.pop("paths"), subject="Watch history sync",
                                          trigger="capture/watch-history", channel=channel)
     return WatchHistorySyncResponse(**out, bank=memory_path.name)
+
+
+class _RevealNumbers(CamelModel):
+    tokens: list[str] = []
+
+
+def _this_mac_only(request: Request) -> None:
+    """Proposed ruling 55: a number is shown on the Mac that holds the vault. A device token, a client of this server by
+    any route, is refused, and neither route is on the remote listener (it serves MCP and `/v1` alone)."""
+    if request_device(request) is not None:
+        raise HTTPException(status_code=403, detail="A number is shown only on the Mac that holds it.")
+
+
+@router.post("/people/numbers/reveal")
+def reveal_numbers(req: _RevealNumbers, request: Request, settings: Settings = Depends(get_settings)):
+    """THE door from a token to its digits (`phone_numbers.reveal`): the app's, for what it is showing. Never stored,
+    never logged, never in another response."""
+    _this_mac_only(request)
+    wanted = [t for t in req.tokens[:500] if phone_numbers.TOKEN_ID_RE.match(str(t))]
+    return {"numbers": phone_numbers.reveal(settings.memory_path.name, wanted)}
+
+
+@router.get("/people/numbers/match-key")
+def number_match_key(request: Request, settings: Settings = Depends(get_settings)):
+    """The vault's key for the app to hash a card's numbers on this Mac, so no digit crosses the wire (R-SR8). Nothing
+    while the feature is off: an app that gets none posts no keys."""
+    _this_mac_only(request)
+    if not phone_numbers.enabled():
+        return {"key": None}
+    return {"key": phone_numbers.match_key(settings.memory_path.name)}
 
 
 @router.post("/sources/contacts-local/sync", response_model=ContactsLocalSyncResponse, dependencies=_DEMO_GATE)

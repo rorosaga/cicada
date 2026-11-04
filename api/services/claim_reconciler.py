@@ -36,7 +36,7 @@ from typing import Callable
 from loguru import logger
 
 from api.models.schemas import DecayClass
-from api.services import decay_policy, episode_time, inbox_questions, predicates
+from api.services import decay_policy, episode_time, inbox_questions, phone_numbers, predicates
 from api.services.claims import (HAPPENED, MILESTONE, Claim, Evidence, event_cardinality, is_event, is_record,
                                  is_value_claim, same_value_attribute, stated_end)
 
@@ -825,6 +825,103 @@ def _place_claim(new: Claim, slot: list[Claim], settings, today: str, cardinalit
     return None
 
 
+def _number_question(new: Claim, existing: Claim | None, reason: str) -> dict:
+    """One question about a number, through the two-claim answer path (``kind: divergence``, `inbox_service`), in words
+    with no digit and no token: the card opens the conversation it came from, where the app shows the number."""
+    name = _entity_name(new)
+    if existing is not None:
+        question = f"Did {name}'s number change?"
+        context = f"You gave a different number for {name} from the one on their page."
+        options = ["Keep the one on the page", "Use the new one", "Both are right"]
+    elif reason == phone_numbers.ASK_CARD:
+        question = f"Is this number {name}'s?"
+        context = f"You gave this number for {name}, and another card in your Contacts holds it."
+        options = [f"Not {name}'s", f"Yes, {name}'s"]
+    else:
+        question = f"Is this number the {name} on this page?"
+        context = f"You gave a number for {name}, and more than one person can go by that name."
+        options = [f"Not this {name}", f"Yes, this {name}"]
+    return {"id": new.subject, "action": "divergence_nudge", "entity": {"name": name}, "predicate": new.predicate,
+            "question": question, "conflict_context": context, "options": options,
+            "source_episode": (new.source_episodes or [""])[-1], "trigger": "sleep/phone_number", "claim_id": new.id,
+            "existing_claim_id": existing.id if existing is not None else None}
+
+
+def _place_number(new: Claim, slot: list[Claim], settings, today: str, nudges: list[dict], audit: list[dict],
+                  untimed=frozenset()) -> Claim | None:
+    """A person's number against what their page holds. **One number is one fact**: the same token reinforces, whoever
+    said it and however it was written, so a restatement can never make two current numbers. A different one follows
+    the person's line (``number_change``, `phone_numbers.annotate`): "new", "changed" closes the number it replaces;
+    "work", "also" sits beside it; "old", "former" is history; anything else asks, and the new number waits closed on the
+    page (`phone_numbers.ASKED`) so nothing reads it as current and saying it again does not ask twice. Nothing but the
+    person's answer closes a number the person confirmed (the trust table's rule). No model call."""
+    tid = new.object
+    said = str(_said(new, untimed) or new.valid_from or today)[:10]
+    twin = next((c for c in slot if c.id == new.id), None)
+    if twin is not None:
+        _merge_episodes(twin, new)
+        return twin
+    numbers = [c for c in slot if c.predicate == phone_numbers.PREDICATE]
+    current = [c for c in numbers if open_(c)]
+    same = next((c for c in current if phone_numbers.same_number(c.object, tid, settings)), None)
+    kind = getattr(new, "number_change", phone_numbers.UNKNOWN)
+    if same is not None:
+        if same.object != tid:
+            same.object = tid   # a number the page held in clear (written before this rule) stops holding digits
+        if kind == phone_numbers.PAST and not is_human(same):
+            same.valid_to = said
+            audit.append({"action": "number_past", "closed": same.id})
+            return same
+        _reinforce(same, new, today=today, untimed=untimed)
+        return same
+    earlier = [c for c in numbers if c.object == tid]
+    asked = next((c for c in earlier if c.context in (phone_numbers.ASKED, phone_numbers.REFUSED)), None)
+    if asked is not None:
+        _merge_episodes(asked, new)
+        return asked
+    closed = next((c for c in earlier if c.valid_to and said <= str(c.valid_to)[:10]), None)
+    if closed is not None:
+        _merge_episodes(closed, new)      # said while it was the number: history, read again or read late
+        return closed
+    ask_why = getattr(new, "number_ask", None)
+    if ask_why is None and earlier:
+        kind = phone_numbers.UNKNOWN      # back to a number closed earlier: the person's line must say so, so ask
+    if ask_why is None and kind == phone_numbers.PAST:
+        _stamp_new(new, settings, today=today)
+        new.valid_to = said
+        slot.append(new)
+        audit.append({"action": "number_past", "kept_closed": new.id})
+        return new
+    if ask_why is None and (not current or kind == phone_numbers.ADDITIONAL) and not earlier:
+        slot.append(_stamp_new(new, settings, today=today))
+        return new
+    if ask_why is None and kind == phone_numbers.CHANGED:
+        replaced = [c for c in current if phone_numbers.token_ids(c.object)
+                    and phone_numbers.token_ids(c.object)[0] in (getattr(new, "number_replaces", None) or [])]
+        target = replaced[0] if len(replaced) == 1 else (current[0] if len(current) == 1 else None)
+        if target is not None and not is_human(target):
+            _stamp_new(new, settings, today=today)
+            if _date_key(new.valid_from) < _date_key(target.valid_from):
+                # Said before the number the page holds (a drain reads in any order): history, closed on arrival.
+                new.valid_to, new.superseded_by = target.valid_from, target.id
+                slot.append(new)
+                audit.append({"action": "superseded_on_arrival", "kept": target.id, "closed": new.id})
+                return new
+            _close(target, by=new)
+            slot.append(new)
+            audit.append({"action": "supersede", "closed": target.id, "by": new.id})
+            return new
+    # The person's line does not say, several numbers could be the one replaced, or the person confirmed the one held.
+    existing = current[-1] if current and ask_why is None else None
+    _stamp_new(new, settings, today=today)
+    new.context = phone_numbers.ASKED
+    new.valid_to = said
+    slot.append(new)
+    nudges.append(_number_question(new, existing, ask_why or "change"))
+    audit.append({"action": "number_asked", "asked": new.id})
+    return new
+
+
 def _adopt_value_attribute(new: Claim, slot: list[Claim]) -> None:
     """A stated value takes the predicate of the open value on its slot that names the same attribute in other words
     (``claims.same_value_attribute``) — the extractor reads each conversation alone, so "korean restaurants tried"
@@ -1090,6 +1187,11 @@ def reconcile_stage3(
             # milestone slot, settles) — the K table would read two milestones
             # of one project as a conflict.
             reconcile_events(new, slot, settings, today=today, nudges=nudges, audit=audit, absorbed=absorbed)
+            continue
+
+        if phone_numbers.is_number_claim(new):
+            # Proposed ruling 55: a number has its own table — several can be true, and only the person's words close one.
+            _place_number(new, slot, settings, today, nudges, audit, untimed)
             continue
 
         # Mandatory normalization-audit nudge on any auto-folded predicate.

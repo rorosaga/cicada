@@ -43,7 +43,7 @@ from pathlib import Path
 
 import yaml
 
-from api.services import bank_index, fact_sources, markdown_parser, people_directory
+from api.services import bank_index, fact_sources, markdown_parser, people_directory, phone_numbers
 from api.services.auth import cicada_home
 
 CHANNEL_ID = "contacts-local"
@@ -349,6 +349,12 @@ def sync(memory_path: Path, payload: dict, *, bank: str | None = None) -> dict:
         if _write_page(memory_path, eid, contact, photo, bank=bank, refused=refused, today=today, counts=counts):
             paths.append(f"entities/{eid}.md")
     kept = save_waiting(bank, waiting, read_at=read_at)
+    if phone_numbers.enabled():
+        cards: dict[str, list[str]] = {}
+        for contact in contacts:
+            for key in contact.get("phone_keys") or []:
+                cards.setdefault(str(key), []).append("me" if contact.get("is_me") else str(contact.get("id")))
+        phone_numbers.save_cards(bank, cards)
     return {"contacts": len(contacts), "matched": len(matched), "people": len(matched), "ambiguous": ambiguous,
             "unmatched": unmatched, "waiting": kept, **counts, "paths": paths}
 
