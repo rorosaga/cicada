@@ -12,6 +12,7 @@
 
 ## Current state and evidence
 
+- **2026-11-04 — stale backlog tags corrected, checked against code and git (docs only).** 26 rows carried tags older than their work: DONE or REDIRECT where a merged PR or a later ruling settles it, VERIFY where only a live check is left. Rows the quick pass called finished but a second look could not prove stay as they were: G1 (cross-bank references unbuilt), G84, G87, G146, G161 (its open work is #602) and G204 (`_determine_action` still reports a fold as `written`). The owner also keeps a private tracker for bigger pieces as a log of where things stand; this backlog keeps the reasoning and the rulings, and decisions stay in chat.
 - **2026-11-04 — This Mac source pages: accounts → collections → items (G161, G154, G95; branch `this-mac-sources`,
   PR #599, on the standard layout #593).** Owner: Apple Notes, Reminders, Contacts and Calendar "should
   have a better user experience and UI". One browser fills the standard page's content slot (`ThisMacSourceContent`):
