@@ -450,6 +450,8 @@ async def put_telegram_settings(req: ChatSettingsUpdate, background: BackgroundT
         telegram_account.set_consent(c.id, True, own=own)
     elif c.ticked is False or c.consent is False:
         telegram_account.set_consent(c.id, False)
+        # Chat images (2026-11-04): what the chat panel showed of it goes with the tick.
+        telegram_account.forget_media(c.id)
     if req.conversation.history:
         background.add_task(_read_history, req.conversation.id)
     if c.ticked is True:
@@ -490,6 +492,73 @@ async def telegram_chat_photo(cid: str, request: Request):
     if request.headers.get("if-none-match") == etag:
         return Response(status_code=304, headers=headers)
     return Response(content=data, media_type="image/jpeg", headers=headers)
+
+
+class TelegramMediaResponse(CamelModel):
+    """One attachment of a ticked chat's turn, as the chat panel draws it: whether Telegram holds it, its kind and
+    duration, and a small preview (base64 JPEG) when it has one. Never a path, never a name sent anywhere."""
+    found: bool
+    kind: str | None = None
+    duration: float | None = None
+    preview: str | None = None
+
+
+def _media_args(cid: str, at: str, kind: str, name: str, n: int, memory_path) -> float:
+    """The checks every chat-image ask passes (2026-11-04): a conversation hash, a turn time, a known kind, and a chat
+    ticked AND consented now — strictly; anything else is 404, nothing asked of Telegram."""
+    from datetime import datetime
+
+    from api.services import turn_extras
+
+    if not chat_live.ID_RE.match(cid or "") or kind not in turn_extras.ATTACHMENT_KINDS or not (0 <= n < 1000) \
+            or len(name) > turn_extras.NAME_CAP:
+        raise HTTPException(404, "no such attachment")
+    try:
+        when = datetime.fromisoformat(at.replace("Z", "+00:00"))
+    except ValueError:
+        raise HTTPException(404, "no such attachment")
+    if when.tzinfo is None:
+        raise HTTPException(404, "no such attachment")
+    ticked = chat_live.ticked_ids(memory_path, telegram_source.SPEC) & set(telegram_account.consents())
+    if cid not in ticked:
+        raise HTTPException(404, "This chat isn't ticked, so nothing of it is shown.")
+    return when.timestamp()
+
+
+@router.get("/sources/telegram/chats/{cid}/media", response_model=TelegramMediaResponse)
+async def telegram_chat_media(cid: str, at: str = Query(..., max_length=40), kind: str = Query(..., max_length=16),
+                              name: str = Query("", max_length=200), n: int = Query(0),
+                              settings: Settings = Depends(get_settings)):
+    """Chat images (owner 2026-11-04) — one attachment of a ticked Telegram chat's turn, found by the turn's time, the
+    attachment's stored kind and name and its place among that second's (`telegram_account.pick_media`), asked of
+    Telegram when the person opens the chat and kept outside every bank until untick (`telegram_account.media`). A
+    ticked chat only (404 otherwise); ``found: false`` = the quiet placeholder with the file's name."""
+    import base64
+
+    when = _media_args(cid, at, kind, name, n, settings.memory_path)
+    out = await telegram_account.ACCOUNT.media(cid, at=when, at_text=at, kind=kind, name=name, n=n,
+                                               memory_path=settings.memory_path)
+    image = out.get("image")
+    return TelegramMediaResponse(found=bool(out.get("found")), kind=out.get("kind"), duration=out.get("duration"),
+                                 preview=base64.b64encode(image).decode() if image else None)
+
+
+@router.get("/sources/telegram/chats/{cid}/media/full")
+async def telegram_chat_media_full(cid: str, at: str = Query(..., max_length=40), kind: str = Query(..., max_length=16),
+                                   name: str = Query("", max_length=200), n: int = Query(0),
+                                   settings: Settings = Depends(get_settings)):
+    """The photo itself, for Quick Look (images only, at most `telegram_account.MEDIA_FULL_CAP`), under the same
+    checks and cache as the preview. 404 = show the preview only."""
+    if kind not in ("image", "sticker"):
+        raise HTTPException(404, "only a photo opens large")
+    when = _media_args(cid, at, kind, name, n, settings.memory_path)
+    out = await telegram_account.ACCOUNT.media(cid, at=when, at_text=at, kind=kind, name=name, n=n, full=True,
+                                               memory_path=settings.memory_path)
+    image = out.get("image")
+    if not out.get("found") or not image:
+        raise HTTPException(404, "Telegram has no large copy of this one")
+    media_type = "image/png" if image.startswith(b"\x89PNG") else "image/jpeg"
+    return Response(content=image, media_type=media_type, headers={"Cache-Control": "no-store"})
 
 
 async def _read_history(cid: str) -> None:

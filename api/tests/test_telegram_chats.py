@@ -126,6 +126,19 @@ class FakePort:
         self.calls.append("profile_photo")
         return self.photos.get(chat)
 
+    #: Chat images (2026-11-04) — the messages each peer holds for `around`, and each message id's picture bytes.
+    held: dict = {}
+    pictures: dict = {}
+
+    async def around(self, chat, date, *, window):
+        self.calls.append("around")
+        return [m for m in self.held.get(chat, []) if abs(m.date - date) <= window]
+
+    async def media_bytes(self, chat, message_id, *, full, cap):
+        self.calls.append("media_full" if full else "media_preview")
+        data = self.pictures.get((message_id, full))
+        return data if data and len(data) <= cap else None
+
 
 @pytest.fixture
 def home(tmp_path, monkeypatch):
@@ -820,3 +833,164 @@ def test_a_ticked_chats_photo_becomes_its_pages_picture_and_goes_on_untick(home,
     r = client.put("/sources/telegram/settings", json={"conversation": {"id": cid, "ticked": False}})
     assert r.status_code == 200
     assert cid not in messages_photos.read_meta(logo_service.bank_name(bank))
+
+
+# --- Chat images and profile photos (owner 2026-11-04) ------------------------------------------------------------
+
+
+def _jpeg(side=160):
+    import struct
+
+    app0 = b"\xff\xe0" + struct.pack(">H", 16) + b"JFIF\x00" + b"\x00" * 9
+    return b"\xff\xd8" + app0 + b"\xff\xc0" + struct.pack(">HBHH", 17, 8, side, side) + b"\x03" + b"\x00" * 9 + b"\xff\xd9"
+
+
+def _turn_at(ts):
+    return chat_live.utc_from_unix(ts)
+
+
+def test_a_ticked_chats_attachment_is_found_by_its_turn_shown_and_kept_outside_the_bank(home, bank, live_account):
+    """"I don't see images appearing when I open the chat": a Telegram turn's attachment is asked of Telegram when the
+    chat opens — by the turn's second and the attachment's stored kind, name and place — never by a name, and kept
+    outside every bank until the chat is unticked."""
+    cid = tick(bank, FRIEND)
+    at = T0 + 500
+    photo = TgMessage(id=50, chat=FRIEND, date=at, out=False, media={"kind": "image", "name": "", "size": 9000})
+    second = TgMessage(id=51, chat=FRIEND, date=at, out=False, media={"kind": "image", "name": "", "size": 9000})
+    voice = TgMessage(id=52, chat=FRIEND, date=at + 60, out=True,
+                      media={"kind": "audio", "name": "voice.ogg", "mime": "audio/ogg", "duration": 7.0})
+    live_account.port.held = {FRIEND: [photo, second, voice]}
+    live_account.port.pictures = {(50, False): _jpeg(320), (51, False): _jpeg(321), (50, True): _jpeg(900)}
+    client = TestClient(main.app)
+    url = f"/sources/telegram/chats/{cid}/media"
+    r = client.get(url, params={"at": _turn_at(at), "kind": "image", "name": "unnamed", "n": 0})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    import base64
+
+    assert body["found"] is True and body["kind"] == "image" and base64.b64decode(body["preview"]) == _jpeg(320)
+    r = client.get(url, params={"at": _turn_at(at), "kind": "image", "name": "unnamed", "n": 1})
+    assert base64.b64decode(r.json()["preview"]) == _jpeg(321), "the second photo of that second is the second turn's"
+    asked = live_account.port.calls.count("around")
+    again = client.get(url, params={"at": _turn_at(at), "kind": "image", "name": "unnamed", "n": 0})
+    assert again.json() == body and live_account.port.calls.count("around") == asked, "kept, not asked twice"
+    audio = client.get(url, params={"at": _turn_at(at + 60), "kind": "audio", "name": "voice.ogg"}).json()
+    assert audio["found"] is True and audio["duration"] == 7.0 and audio["preview"] is None
+    missing = client.get(url, params={"at": _turn_at(at + 3600), "kind": "image", "name": "unnamed"}).json()
+    assert missing["found"] is False, "a message Telegram doesn't hold is the quiet placeholder"
+    full = client.get(f"{url}/full", params={"at": _turn_at(at), "kind": "image", "name": "unnamed"})
+    assert full.status_code == 200 and full.content == _jpeg(900) and full.headers["content-type"] == "image/jpeg"
+    assert client.get(f"{url}/full", params={"at": _turn_at(at + 60), "kind": "audio",
+                                             "name": "voice.ogg"}).status_code == 404
+    kept = home / "telegram" / "media" / cid
+    assert kept.is_dir() and oct(kept.stat().st_mode & 0o777) == "0o700"
+    assert all(oct(f.stat().st_mode & 0o777) == "0o600" for f in kept.iterdir())
+    assert not any(p.suffix == ".jpg" for p in bank.rglob("*")), "never in a bank"
+    r = client.put("/sources/telegram/settings", json={"conversation": {"id": cid, "ticked": False}})
+    assert r.status_code == 200
+    assert not kept.exists(), "unticking takes every image of the chat with it"
+
+
+def test_an_unticked_or_unconsented_chat_shows_nothing_and_asks_telegram_nothing(home, bank, live_account):
+    client = TestClient(main.app)
+    other = telegram_source.conversation_id(OTHER)
+    params = {"at": _turn_at(T0), "kind": "image", "name": "unnamed"}
+    assert client.get(f"/sources/telegram/chats/{other}/media", params=params).status_code == 404
+    no_consent = tick(bank, BOT, consent=False)
+    assert client.get(f"/sources/telegram/chats/{no_consent}/media", params=params).status_code == 404
+    assert client.get("/sources/telegram/chats/not-an-id/media", params=params).status_code == 404
+    friend = tick(bank, FRIEND)
+    assert client.get(f"/sources/telegram/chats/{friend}/media",
+                      params={**params, "kind": "location"}).status_code == 404
+    assert client.get(f"/sources/telegram/chats/{friend}/media",
+                      params={**params, "at": "2026-01-01T00:00:00"}).status_code == 404, "a time without its zone"
+    assert "around" not in live_account.port.calls and "media_preview" not in live_account.port.calls
+
+
+def test_pick_media_matches_the_stored_attachment_then_its_kind():
+    at = T0
+    named = TgMessage(id=3, chat=FRIEND, date=at, out=False, media={"kind": "", "name": "plan.pdf",
+                                                                     "mime": "application/pdf"})
+    photo = TgMessage(id=2, chat=FRIEND, date=at, out=False, media={"kind": "image", "name": ""})
+    late = TgMessage(id=4, chat=FRIEND, date=at + 5, out=False, media={"kind": "image", "name": ""})
+    service = TgMessage(id=5, chat=FRIEND, date=at, out=False, service=True, media={"kind": "image", "name": ""})
+    pick = telegram_account.pick_media
+    msgs = [named, photo, late, service]
+    assert pick(msgs, at=at, kind="file", name="plan.pdf", n=0) is named
+    assert pick(msgs, at=at, kind="image", name="unnamed", n=0) is photo
+    assert pick(msgs, at=at, kind="image", name="unnamed", n=1) is None, "outside the second, or a service message"
+    assert pick(msgs, at=at, kind="file", name="renamed by the scrub", n=0) is named, "the kind when the name moved"
+
+
+def test_every_start_keeps_each_ticked_chats_profile_photo(home, bank, made, monkeypatch):
+    """The root cause of "the profile pictures don't appear in the chats": the photo was asked once, in the tick's own
+    request — a chat ticked before #559, or whose one ask failed, never got one. Each start (and sign-in) now keeps
+    every ticked, consented chat's photo in the one chat-photo store the Sources rows draw."""
+    from api.services import logo_service, messages_photos
+
+    messages_photos._MEMO.clear()
+    cid = tick(bank, FRIEND)
+    unconsented = tick(bank, OTHER, consent=False)
+    telegram_account.save_session("SESSION-STRING-PLACEHOLDER")
+    ports, factory = made
+    FakePort.photos = {FRIEND: _jpeg(), OTHER: _jpeg()}
+    try:
+        account = telegram_account.Account(factory)
+
+        async def go():
+            await account.resume()
+            await account._keeping
+            await account.stop()
+        run(go())
+    finally:
+        FakePort.photos = {}
+    meta = messages_photos.read_meta(logo_service.bank_name(bank))
+    assert cid in meta, "the ticked chat's photo is its face now"
+    assert unconsented not in meta, "a chat without consent is never asked"
+    assert ports[-1].calls.count("profile_photo") == 1
+
+
+def test_a_preview_asks_telegrams_own_size_nearest_320_px_in_telethons_order():
+    from api.services import telegram_port
+
+    def size(name, **kw):
+        return type(name, (), kw)()
+    stripped = size("PhotoStrippedSize", bytes=b"x" * 40, w=40, h=40)
+    small = size("PhotoSize", w=90, h=67, size=1200)
+    middle = size("PhotoSize", w=320, h=240, size=9000)
+    large = size("PhotoSizeProgressive", w=1280, h=960, sizes=[20000, 90000])
+    outline = size("PhotoPathSize", w=512, h=512)
+    order = sorted([small, middle, large, stripped], key=telegram_port._thumb_order)
+    i = telegram_port.preview_index([large, outline, small, stripped, middle])
+    assert order[i] is middle
+    two = sorted([small, stripped], key=telegram_port._thumb_order)
+    assert two[telegram_port.preview_index([small, stripped])] is small, "nothing at 320 px: the largest"
+    assert telegram_port.preview_index([stripped, outline]) is None, "never a stripped blur or a vector outline"
+
+
+def test_a_burst_across_a_second_shows_each_photo_under_its_own_turn():
+    """#597 review B1: photos A and B said at T and C at T+1 — every one "unnamed", timed to the whole second. The app
+    counts a turn's place only among turns of the same second (`ChatMedia.files`), so the backend counts over the same
+    set: C is the first photo of T+1, never A."""
+    a = TgMessage(id=10, chat=FRIEND, date=T0, out=False, media={"kind": "image", "name": ""})
+    b = TgMessage(id=11, chat=FRIEND, date=T0, out=False, media={"kind": "image", "name": ""})
+    c = TgMessage(id=12, chat=FRIEND, date=T0 + 1, out=False, media={"kind": "image", "name": ""})
+    pick = telegram_account.pick_media
+    for msgs in ([a, b, c], [c, b, a]):
+        assert pick(msgs, at=T0, kind="image", name="unnamed", n=0) is a
+        assert pick(msgs, at=T0, kind="image", name="unnamed", n=1) is b
+        assert pick(msgs, at=T0 + 1, kind="image", name="unnamed", n=0) is c
+        assert pick(msgs, at=T0 + 1, kind="image", name="unnamed", n=1) is None
+
+
+def test_a_telegram_chats_id_is_always_a_hash_never_a_signed_peer_id():
+    """A report said a Telegram group's id is negative (`-100…`), so the app's hex-only photo path would drop its
+    photo. The bank never holds a peer id: every Telegram conversation id is a hash (hex), a group is never listed or
+    ticked (ruling 47a), and the one chat-photo store refuses anything else — so the app's hex guard is right."""
+    from api.services import messages_photos, messages_source
+
+    for peer in (FRIEND, GROUP, -1001234567890):
+        assert messages_source.CONVERSATION_ID_RE.match(telegram_source.conversation_id(peer))
+    assert telegram_source.listed(TgDialog(GROUP, "Weekend crew", True, last=T0)) is None
+    with pytest.raises(messages_photos.PayloadError):
+        messages_photos.store("/nonexistent", [{"conversation": "-1001234567890", "photo_b64": None}])
