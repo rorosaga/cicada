@@ -103,7 +103,10 @@ class GuardUnreadable(Exception):
 
 
 def fold(text) -> str:
-    decomposed = unicodedata.normalize("NFKD", str(text or ""))
+    text = str(text or "")
+    if text.isascii():   # most of a bank, and its own NFKD: a per-character pass over all of it took 17 s at 9,478 episodes
+        return text.lower()
+    decomposed = unicodedata.normalize("NFKD", text)
     bare = "".join(c for c in decomposed if not unicodedata.combining(c))
     return bare.casefold().translate(TRANSLIT)
 

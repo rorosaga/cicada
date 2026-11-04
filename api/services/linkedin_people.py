@@ -384,6 +384,15 @@ def _name_keys(c: Connection) -> set[str]:
     return people_directory.name_keys(c.first, c.last)
 
 
+def from_connections(source: dict) -> bool:
+    """The link the person's own connections put on a page they matched confidently: their data, so it counts as given
+    (a photo, and where to look this person up), never an alias-only guess. It is no tracked source: nothing re-reads it on
+    a schedule (ruling 54a, owner 2026-11-04). A visit stays on the person's ask, ≤ 10 a day (``cicada_record_profile``)."""
+    return (str(source.get("added_by") or "").strip().lower() == AUTHOR
+            and str(source.get("predicate") or "").strip().lower() == SOURCE_PREDICATE
+            and source.get(MATCH_KEY) in CONFIDENT_MATCHES)
+
+
 def basis(idx: _Index, entity_id: str, c: Connection) -> str | None:
     """How ``c`` is this page's connection: the person or an identified agent already listed its link as their account (``link``, :func:`_vouched`), its full name
     is the page's own name (``name``), or only an alias (``alias``). ``None`` when only Cicada's own earlier link ties

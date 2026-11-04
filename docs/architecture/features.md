@@ -424,6 +424,7 @@ passing `check_url`, not removed from the page. All on the link rail (`_stream_h
 |---|---|---|
 | Open tracked page | Opened by Cicada on the link rail, first; the model answers from it | May settle |
 | Walled or blocked tracked page | Never requested; already on ruling 26's listing for the person's agent, under their Reading switches | Stays |
+| LinkedIn link from the person's connections (confident match) | Kept as a place to check, counted as given; never requested and never on a re-check list; read only on the person's ask (`cicada_record_profile`) | Stays, or a public handle may search |
 | Proposed source | Never opened; waits in the grouped review | Stays, or a public handle may search |
 | No source | No model call for a conflict or a private pair | Stays, or a public handle may search |
 

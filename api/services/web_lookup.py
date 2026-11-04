@@ -505,7 +505,7 @@ def source_items(memory_path: Path, facts: web_settle.BankFacts, *, already: set
     """Ruling 54a: an open conflict no search may touch (a private person, a private predicate) that the page's own
     tracked sources may answer. A proposed, walled or missing source answers nothing here: the question stays, and a
     walled tracked source is already on ruling 26's list for the person's agent. ``kinds`` counts what each conflict
-    held (``open``, ``walled``, ``proposed``, ``none``)."""
+    held (``open``, ``walled``, ``on_ask``, ``proposed``, ``none``)."""
     from api.services import inbox_service, markdown_parser, predicates, settling_agent
 
     memory_path = Path(memory_path)
@@ -530,7 +530,8 @@ def source_items(memory_path: Path, facts: web_settle.BankFacts, *, already: set
             continue
         tracked, held = settling_agent.tracked_public(memory_path, (entity_id,))
         if kinds is not None:
-            key = "open" if tracked else "walled" if held["walled"] else "proposed" if held["proposed"] else "none"
+            key = ("open" if tracked else "walled" if held["walled"] else "on_ask" if held["on_ask"]
+                   else "proposed" if held["proposed"] else "none")
             kinds[key] = kinds.get(key, 0) + 1
         if not tracked or path.stem in already:
             continue

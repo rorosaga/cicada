@@ -219,9 +219,13 @@ def _read_sources(memory_path: Path, page_id: str) -> str:
     entry = bank_index.file(memory_path, "entities", f"{page_id}.md")
     if entry is None:
         return "No such page."
+    from api.services import linkedin_people
+
     rows = []
     for source in fact_sources.as_sources((entry.frontmatter or {}).get("sources")):
-        state = "trusted" if fact_sources.trusted(source) else "proposed, waiting for the person"
+        state = ("trusted" if fact_sources.trusted(source)
+                 else "from their LinkedIn connections, read only when they ask" if linkedin_people.from_connections(source)
+                 else "waiting for the person")
         rows.append(f"{source.get('ref')} ({source.get('predicate') or 'page'}; {state})")
     return "\n".join(rows) or "No sources listed."
 
@@ -483,14 +487,20 @@ async def drive(run: Run) -> Result:
 
 def tracked_public(memory_path: Path, page_ids: tuple[str, ...]) -> tuple[dict[str, str], dict[str, int]]:
     """``({url: page id} of the sources Cicada itself may open, counts by kind)`` for the question's pages.
-    ``walled``: tracked, read only by the person's agent. ``proposed``: waiting for the person, never opened."""
+    ``walled``: tracked, read only by the person's agent. ``on_ask``: a LinkedIn link from the person's connections, read
+    only when they ask. ``proposed``: waiting for the person, never opened."""
+    from api.services import linkedin_people
+
     urls: dict[str, str] = {}
-    kinds = {"open": 0, "walled": 0, "proposed": 0}
+    kinds = {"open": 0, "walled": 0, "on_ask": 0, "proposed": 0}
     for page_id in page_ids:
         entry = bank_index.file(Path(memory_path), "entities", f"{page_id}.md")
         for source in fact_sources.as_sources((entry.frontmatter or {}).get("sources") if entry else None):
             if fact_sources.is_proposed(source):
                 kinds["proposed"] += 1
+                continue
+            if linkedin_people.from_connections(source):
+                kinds["on_ask"] += 1
                 continue
             if not source_refresh.tracked(source) or source_refresh.dead(source):
                 continue

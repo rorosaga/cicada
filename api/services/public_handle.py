@@ -257,7 +257,8 @@ def _settling_test(memory_path: Path, facts, handle_id: str, handle: str, named_
             why = next((f"guarded_{r}" for r in (guard.clears(name), guard.clears(handle)) if r), None)
     tracked, kinds = settling_agent.tracked_public(memory_path, (named_id, handle_id))
     if why is not None and not tracked:
-        return Pair("walled_source" if kinds["walled"] else "proposed_source" if kinds["proposed"] else why)
+        return Pair("walled_source" if kinds["walled"] else "on_ask_source" if kinds["on_ask"]
+                    else "proposed_source" if kinds["proposed"] else why)
     return Pair(REASON, handle_id=handle_id, handle=handle, named_id=named_id, name=name,
                 site=_site_on_record(memory_path, facts.pages.get(handle_id) or {}, handle), searchable=why is None)
 

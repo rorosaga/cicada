@@ -358,3 +358,32 @@ def test_works_at_is_no_conflict_two_places_at_once_are_two_facts(bank):
     bank_index.invalidate(bank)
     kinds: dict = {}
     assert web_lookup.source_items(bank, web_settle.bank_facts(bank), already=set(), kinds=kinds) == [] and kinds == {}
+
+
+IMPORTED = {"ref": "https://www.linkedin.com/in/nora-hidden", "kind": "url", "predicate": "linkedin", "added_by": "cicada",
+            "added_at": "2026-09-01", "match": "name"}
+
+
+def test_a_linkedin_link_from_the_connections_is_kept_as_where_to_check_and_read_only_on_ask(bank):
+    """Owner, 2026-11-04: "do save the links as resources to check". Counted as given on a confident match; never a tracked
+    source, so nothing lists it for a visit; never requested."""
+    from api.services import linkedin_people, person_photo
+
+    _page(bank, [IMPORTED])
+    _question(bank)
+    assert linkedin_people.from_connections(IMPORTED) and person_photo.is_own_account(IMPORTED)
+    assert not source_refresh.tracked(IMPORTED) and source_refresh.due(bank) == []
+    opened: list[str] = []
+
+    def fn(**_kw):
+        raise AssertionError("no call")
+    report = _run(bank, fn, opened)
+    assert opened == [] and report.source_kinds == {"on_ask": 1}
+    assert "read only when they ask" in settling_agent._read_sources(bank, "nora-hidden")
+
+
+@pytest.mark.parametrize("change", [{"match": "alias"}, {"predicate": "website"}, {"added_by": "agent"}])
+def test_an_alias_only_match_or_any_other_link_is_not_counted_as_given(change):
+    from api.services import linkedin_people
+
+    assert not linkedin_people.from_connections({**IMPORTED, **change})

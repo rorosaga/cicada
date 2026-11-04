@@ -3135,9 +3135,17 @@ A whole row moves to DONE only after its remaining implementation and required a
     `web_context` reads a public page's tracked sources before its pinned search. `org_sites` and `source_proposals` are
     unchanged. No second refresher.
     **Walled:** a tracked walled source is never requested. It is already on ruling 26's listing (`agent_due`), gated by the
-    person's Reading switches, so Sleep queues nothing and the question stays open. The rail "one person's LinkedIn profile
-    on the person's ask" is kept: a link from the connections import is `added_by: cicada`, not trusted, so it is not on
-    that listing and Sleep does not ask for it; a standing ask would be the owner's to decide.
+    person's Reading switches, so Sleep queues nothing and the question stays open.
+    **Imported LinkedIn links (owner, 2026-11-04):** "maybe for LinkedIn only when asked or limit it to the most frequently
+    talked about people, and do save the links as resources to check." Saving already existed (`linkedin_people`, existing
+    people only, never minting a page, a removal remembered). A link on a confident match now counts as given as a place to
+    check, the photo rung's own rule (`from_connections`); an alias-only one stays what it was, a guess saved with `match:
+    alias` that counts for nothing until the person takes it. It is deliberately NOT `trusted`: that would make it a tracked
+    source, which ruling 26 lists for a visit on a cadence. **Reading one stays on the person's ask** (`cicada_record_profile`,
+    ≤ 10 a day, stdio only, their own agent and browser). A standing read of the most talked-about people is a small later
+    switch, not built: automated visits risk the person's LinkedIn account.
+    **First names (owner, 2026-11-04: "Yeah leave it allowed"):** a first name said only in chats does not block a full name
+    public content says. A name known only from chats or contacts stays blocked.
     **Finding a source:** the model may propose a link literally in a conversation it names, on a page of the question;
     it lands as a proposal in the one grouped review (ruling 36 D5), never opened, trusted or re-checked until taken. Never
     guessed from a name; `sources_removed` holds. A sweep writes no proposals; Sleep does.
