@@ -23,6 +23,9 @@
   `cicada_repo_context` list them. **Owner's step (once):** register the app from `github_auth.register_url()` (the
   link in `network.md`, "Connecting GitHub"), tick "Enable Device Flow", and put its client id and slug in
   `github_auth.CLIENT_ID` / `APP_SLUG`; until then the token is the fallback behind "Use a token instead".
+  **Done 2026-11-04:** the app is registered (`github.com/apps/cicada-memory`, Device Flow on, no secret or key) and
+  its client id and slug ship in `github_auth`; a real device-code request returned a code. **Owner's step left:** make
+  the app public on GitHub, or only the owner's account can install it.
 - **2026-11-03 — routes, not a relay (ruling 51f, G132 phase 3b slice 1; branch `feat/g132-routes`, #586 (includes
   #572's one-transport work)).** Owner: "yes i think we should copy t3 code … if we can make it all run nicely and for free awesome"; the
   phone, for now, a capture device. Each device's ordered route list (the home's door on the LAN → on a tailnet if
@@ -2918,7 +2921,8 @@ A whole row moves to DONE only after its remaining implementation and required a
     on the person's account to see their repositories (GitHub: "The app can only access resources in an account where
     it is installed"); stars need no install. Until the owner registers the app (one link,
     `github_auth.register_url()`, plus "Enable Device Flow"), the pasted token stays as a fallback behind "Use a token
-    instead", never the default. **Repositories:** every repository the person owns gets a `media` page
+    instead", never the default (registered 2026-11-04: the build ships its client id; the fallback stays behind its
+    disclosure). **Repositories:** every repository the person owns gets a `media` page
     (`media.kind: repository`, `github.owned: true`) on each sync, with a first markdown — description, a summary from
     its README (read once, when the page is born), link, language, topics — that Sleep develops like any page; never by
     hand: the paste-a-link add and every per-row "Add" are removed (no strong reason to keep one for anyone else's: a
