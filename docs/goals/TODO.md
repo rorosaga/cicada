@@ -12,6 +12,25 @@
 
 ## Current state and evidence
 
+- **2026-11-04 — This Mac source pages: accounts → collections → items (G161, G154, G95; branch `this-mac-sources`,
+  PR #599, on the standard layout #593).** Owner: Apple Notes, Reminders, Contacts and Calendar "should
+  have a better user experience and UI". One browser fills the standard page's content slot (`ThisMacSourceContent`):
+  accounts by real provider with their own marks → folders/calendars/lists → items, one search, the Reader as the item
+  view; Contacts as faces (photo, else monogram); recorders as recorder → folder → meetings (day · length). Backend:
+  `GET /sources/channels/{id}/collections`, `items?collection=`, Notes' account beside the dump (`noteAccounts`), the
+  calendars and lists holding an item kept in `sync_state`. Root causes fixed as classes: Contacts read Off until a
+  sync (the catalogue needed the bank's recorded sync, not the reader's own switch — every reader this Mac runs now
+  reads Connected while allowed and on); Wispr Flow's bundled mark was never claimed; app removal was read from its
+  database, which outlives the app (now LaunchServices, *Off · not installed*); Hex's folder posted every file twice
+  before a meeting showed (now *Connect Hex* reads Hex's folder once, on the click, 0.9 s to the list on a scratch run; opening the page never touches the folder).
+  Calendar's "Google account" was a standing *Add a Google account* line, retired. **Not reproduced:** Hex's "no
+  conversations" (dev with Hex-format files lists them; the owner's real folder's shapes match the parser, checked by
+  structure only). *Connect Hex* and the not-installed state sit in the standard connect area. Found re-verifying on
+  the layout, fixed: Esc closed the whole page from any level, because the focused detail column takes it ahead of a back
+  button (`SourcePageBack`, drills too); an unticked list's items fell under "Other", because each sync replaced the
+  names kept for the last one (`source_collections.after_sync`). Calendar's Google way row from #593 is gone too, so
+  Cicada no longer links to Internet Accounts: a Google calendar still comes in through macOS.
+- **2026-11-04 — books: scan an ISBN, Apple Books, a Goodreads export (G233, G39; branch `books-g39` + cicada-app `feat/scan-a-book`).** Owner: "integrate ISBN codes to include books I'm reading … iBooks too, to track progress … save books I want to read (maybe including Goodreads)"; then "be able to consolidate highlights and such is important", not started as its own status, the scanner in the phone app. `POST /capture/isbn` is the phone's contract (`{isbn, status?, id?}`, keep it stable); the home resolves the number behind the connector gate; `books.apply_pending` makes one `media` page per work with dated `reading-status` claims and happenings (`progress.py`). Apple Books is read by the app after Connect; Goodreads only by its export (no API keys since 2020); both on the standard source page (`BooksSlots.swift`). Highlights are read by Sleep, revision-read as they grow. Verified on scratch state with a synthetic library, a sample export and a capture-only phone (`feature-status.md`). **Owner's steps:** the four decisions on the G233 row; a real-iPhone camera test once the Apple Developer Program signup is done.
 - **2026-11-04 — a question about two people rests on a conversation naming both; never the owner without their own
   words (G209; branch `fix/person-dedup-evidence`).** Owner: "why tf would <handle> be me?" about "Is <handle> the same
   as <owner>?" (guess 0.90, evidence a chat naming neither). Cause: a post BY the handle linked on the owner's page read

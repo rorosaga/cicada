@@ -42,12 +42,15 @@ struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
     var pinned: Bool? = nil
     var lastAt: String? = nil
     var syncedAt: String? = nil
+    /// 2026-11-04 — a meeting row: how long the meeting ran, in seconds, when its recorder wrote it down.
+    var durationS: Int? = nil
 
     enum CodingKeys: String, CodingKey {
         case kind, id, title, day, left, host, site, why, chat, videos, sittings, video, received, messages, group
         case ticked, pinned
         case lastAt = "last_at"
         case syncedAt = "synced_at"
+        case durationS = "duration_s"
     }
 
     init(kind: Kind, id: String, title: String, day: String? = nil, left: String? = nil, host: String? = nil,
@@ -80,6 +83,7 @@ struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
         pinned = try? c.decodeIfPresent(Bool.self, forKey: .pinned)
         lastAt = try? c.decodeIfPresent(String.self, forKey: .lastAt)
         syncedAt = try? c.decodeIfPresent(String.self, forKey: .syncedAt)
+        durationS = try? c.decodeIfPresent(Int.self, forKey: .durationS)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -103,6 +107,7 @@ struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
         try c.encodeIfPresent(pinned, forKey: .pinned)
         try c.encodeIfPresent(lastAt, forKey: .lastAt)
         try c.encodeIfPresent(syncedAt, forKey: .syncedAt)
+        try c.encodeIfPresent(durationS, forKey: .durationS)
     }
 }
 

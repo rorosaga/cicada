@@ -955,10 +955,9 @@ installed app's icon, `anomaly.hex`), **Wispr Flow** (moved here from This Mac, 
 folders: a meeting folder (`FolderRegistration.isMeetings`, `kind: meetings`) syncs as `meetings:<id>`, so it never
 counts for Folders; Hex's own (`recorder: hex`) speak for Hex, the rest for the folder of transcripts. The detail lists
 each meeting folder with the folder rows' own `FolderChannelRow` ("3 meetings · …"; its Manage drops the agent
-checklist and Save, DR-38/DR-40) and `AddMeetingFolderRow`: how it works and whose words they are, one compact
-`NeutralButton` (*Add Hex's folder* / *Add a folder*, DR-40) that opens the open panel — in the Hex meetings folder
-when it is there (`LocalSourceWatcher.hexMeetingsFolder()`: Hex's own `meetings.output_folder`, the one key the app
-reads of Hex's settings file, else Hex's default) — then `AddMeetingFolderSheet` (a sheet, DR-33/R-HS16): its name in
+checklist and Save, DR-38/DR-40) and `FolderSlot`: Hex's one click (*This Mac's pages* below; `LocalSourceWatcher.
+hexMeetingsFolder()`: Hex's own `meetings.output_folder`, the one key the app reads of Hex's settings file, else Hex's
+default), or *Add Hex's folder* / *Add a folder* (DR-40), the open panel, then `AddMeetingFolderSheet` (a sheet, DR-33/R-HS16): its name in
 `cicadaField` (DR-76), *Look inside* (counts only: "Found 3 meetings · 1 file holds no transcript", `MeetingFolderText`),
 then *Start watching*, the sheet's one primary action (DR-40); closing it before that removes the registration the sheet made, never a folder that was already watched (a re-pick);
 a folder already watched as notes is refused by the backend and its words shown. The
@@ -1724,10 +1723,11 @@ connect:content:footer:)` — four slots, top to bottom, and nothing else on the
 A source plugs in by building those three slots from its own state in its own file (GitHub: `GitHubSourcePage`); the
 catalogue's dispatcher (`SourceCatalogDetail`) picks the page by entry id. Words go in `Copy.SourceLayout` or the
 source's own `Copy` namespace, short, provider-neutral (CLAUDE.md), never a how-to paragraph (an export's where-from is
-the *Import a file* row's hover). **Seams for This Mac (#599):** `SourceCatalogRow.notInstalled` → `SourcePageStatus
+the *Import a file* row's hover). **This Mac on the layout (#599):** `SourceCatalogRow.notInstalled` → `SourcePageStatus
 .notInstalled` ("Off · not installed", `SourceConnectState.notConnected`, no Connect — Wispr Flow's `WisprSlot`), and
-`SourceCatalogDetail.thisMacContent`, the one content seam for Calendar, Contacts, Reminders, Apple Notes, Hex, Wispr
-Flow and transcripts (`thisMacContent` ids), where their browser plugs in; Hex's connect is its `FolderSlot` case.
+`SourceCatalogDetail.thisMacContent`, the content for every entry `ThisMacSourceContent.handles`: a recorder's *Folders*
+(each row only the folder and its Manage) or Reminders' list picker, then the browser. Wispr Flow keeps the plain list.
+Hex's connect is its `FolderSlot` case.
 **Review of #593 (2026-11-04):** a connector is found by `connect` or `disconnect` (`connectorChannel(in:)`: the backend
 sends `["connect"]` before and `["sync", "disconnect"]` after), so a connected X, Reddit or Pinterest keeps Disconnect and
 a lapsed one Reconnect; Substack (#594) is three switches (`substackWays`, the first-use sheet first) with "Following N
@@ -1737,6 +1737,54 @@ switch — Full Disk Access's exact fix when that is what failed (`WatchHistoryW
 attention line (`WatchHistoryState`, `WatchHistoryLine`), on YouTube's page and Chrome's; chat exports list each app's
 *Request your … export* as a way (`ChatExportWay`; the reminder menu stays in the intake overlay, a menu not being a
 switch or a button).
+
+**This Mac's pages: accounts → collections → items (owner 2026-11-04; G161, G154, G95, G142, G219; PR #599;
+`Views/Sources/SourceBrowser.swift`, `SourceBrowserLists.swift`, `Models/SourceAccounts.swift`, `Copy.SourceBrowser`).**
+Owner: *"replicate this layout inside Apple Notes, starting from those that are iCloud … then you go into it, and then you
+can see the notes … or you can see folders … if we can standardize so that this view maybe translates to … the
+transcriptions … for hex or whisperflow"*. Apple Notes, Calendar, Reminders, Contacts and the meeting recorders fill the
+standard page's **content** slot with one call, `ThisMacSourceContent(entry:channels:)` (`handles(entry)` says which):
+- **One browser** (`SourceBrowser(channel:sourceTitle:)`): the page's one search, then **Accounts** — one DR-34 row each
+  (`SourceBrowserRow`: the account's mark, its name, *N notes/events/reminders*, a chevron) — and **Recent** (DR-81's
+  five rows, then *All N*); an account opens its **collections** (a Notes folder, a calendar, a Reminders list — a
+  folder, calendar or list glyph), a collection its **items**; each level opens in the content's place with *‹ <where
+  you were>* and Esc (`SourceBrowserHead`; the focused detail column takes Esc ahead of a back button, so an open level
+  tells the page through `SourcePageBack`, and Esc closes the page only with no level open), and an item opens in the Reader. It starts where there is something to
+  choose (`SourceBrowserText.start`): several accounts → accounts; one account with several collections → its
+  collections; one collection → its items; nothing filed → the plain list. The tree is read from the backend
+  (`GET /sources/channels/{id}/collections`, `ChannelItemsCache.refreshCollections`, never a Store domain), so a client or
+  a replica shows what Cicada holds; one collection's list is asked with `collection=` under its own cache key
+  (`SourceListKey`). Searching an account reads the whole source (the backend narrows by collection only) and says so.
+- **Each account by its real provider, with its own mark** (`SourceAccountProvider`): Calendar and Reminders post the kind
+  from EventKit's source type (`of(sourceType:title:)`: local, Exchange, CalDAV — iCloud when it says so, Google when its
+  name is Google's or a Google address — MobileMe as iCloud, subscribed and birthdays as Subscribed); Notes names only its
+  account, so its kind is read from the name (`of(posted:name:)`). Google draws the bundled *Google Calendar* mark (Gmail's
+  on Notes); iCloud, this Mac, Exchange and the rest a system symbol on the dense tile — Apple's marks are never committed
+  (Track L). **Why Calendar showed a Google account:** the Calendar app holds every account in Internet Accounts, and the
+  old page said so in a standing line with an *Add a Google account* button (`CalendarRow.google` and the layout's
+  way row, both removed); the account list now names each account the Mac holds, Google only when there is one.
+- **Contacts** (`ContactsGrid`): the people in memory a card matched, as a grid of faces (`ContactCell`, 48 pt
+  `EntityPicture` by the one picture precedence — the Contacts photo when the card has one, else the person's monogram)
+  with the name under each, under the page's search; a face opens the person's page. Never a card's other facts (G154).
+- **Meeting recorders** (`MeetingsBrowser`): recorder → folder → meetings; one folder lists its meetings directly
+  (`MeetingRow`: a waveform glyph, the title, then *Tue, Nov 3 · 32 min* in meta ink, the full date on hover —
+  `MeetingRowText`, `duration_s` from the episode's `meeting` record). **Hex in one click** (`FolderSlot`'s connect
+  area): *Connect Hex* (the one primary), the folder on its hover — Hex's own `meetings.output_folder`, else its default
+  (`LocalSourceWatcher.hexMeetingsFolder`, which reads only Hex's setting). **Opening the page never touches that folder**,
+  because Hex's default is under Documents; the click checks it (`hexFolderFound`), registers it and reads it at once
+  (`connectHexFolder`): one pass that posts each meeting once, where the open panel → name → *Look inside* → *Start
+  watching* path posted every file twice before a meeting could show. No folder there: *Hex hasn't saved a meeting on
+  this Mac yet*, in the connect area's line. The way row *Another folder* keeps the open panel.
+- **Status is the reader's own, from the start** (`SourceCatalog.status`): a reader this Mac runs is Connected while it is
+  allowed and turned on (`localReaders[channel] == true`; Contacts `LocalReaders.contactsOn`: on and not refused), whether
+  or not the bank has recorded a sync — the backend's `connected` means "a sync was recorded", which a fresh bank, a first
+  read still running or a read the bank refused leaves false. Off here stays Off whatever synced before.
+- **An app removed from this Mac** (`LocalSourceWatcher.wisprAppInstalled`, a LaunchServices lookup on each reload and
+  each time the Sources page opens, `refreshInstalledApps`; `missingApps` → `SourceCatalog.rows(notInstalled:)`): Wispr
+  Flow reads Off with *Not installed* on its row and *Off · not installed* on its page (`SourcePageStatus.notInstalled`).
+  Its database stays in `~/Library` after the app is removed, so `wisprInstalled` (the database) could not tell. Its
+  mark is the vendor's bundled one (`OriginIconography.logoName("wispr-flow") == "wispr"`), so it shows with the app gone.
+`ThisMacSourcesTests`, `test_source_collections.py`.
 
 **The redesign, Sources · Inbox · entity card · Sleep (G217, G205, G212, G61, G206; ruling 36 D5/D6, 2026-10-22).**
 - **Sources is the one catalogue** (`SourceCatalog`, pure; `SourceCatalogViews`). Every way in, on or off, grouped
@@ -1856,12 +1904,29 @@ switch or a button).
   where the platform hands the file out (`SourceCatalog.exportHow`: YouTube's Takeout, Instagram's Export your
   information, TikTok's Download your data in JSON, LinkedIn's Get a copy of your data, a browser's bookmarks export;
   Notion keeps `notionHow`); the walkthroughs name TikTok's file `user_data_tiktok.json` and Instagram's Export your
-  information. *Calendar:* `CalendarRow` lists the accounts the last read included (`CalendarReader.accounts`,
-  `CalendarAccountGroup.groups`: "Includes iCloud (3 calendars) · …", On My Mac last; shown on this Mac only, never
-  posted) and, always, "Google calendars come in through macOS…" with *Add a Google account*, which opens System
-  Settings → Internet Accounts (`CalendarRow.internetAccountsURL`) and asks macOS for nothing. A Google calendar's
+  information. *Calendar:* ~~`CalendarRow` lists the accounts the last read included and, always, "Google calendars
+  come in through macOS…" with *Add a Google account*~~ — retired 2026-11-04 (owner: *"I don't know why there's an Ada
+  Google account for the macOS calendar"*): the page lists each account the Mac holds with its own mark (*This Mac's
+  pages* above); Google calendars still come in through macOS's Internet Accounts. A Google calendar's
   secret iCal address through Calendar feeds is not offered: a feed subscription is stored in the bank's
   `calendars.yaml`, and that address is a credential.
+- **Reading: Apple Books and Goodreads (G39, G233; 2026-11-04).** A Sources group of its own, *Reading*, between
+  Meeting recorders and Exports (`SourceCatalogGroup.reading`; the backend's `reading` kind sits before `import`).
+  Both are standard source pages (`Views/Sources/BooksSlots.swift`, in `SourceCatalogDetail`'s connect and footer
+  slots; the content is what came in). *Apple Books* (`AppleBooksSlot`, `AppleBooksReader.shared` in the environment):
+  *Connect Apple Books* (what is read on its hover) PUTs the bank's switch, then
+  the reader copies Apple Books' two stores (found by prefix under `NSHomeDirectory()`'s
+  `Library/Containers/com.apple.iBooksX/Data/Documents`, so a verify run's scratch home is honoured) with their WAL into
+  a temporary folder, folds the WAL into the copy, reads only `AppleBooksColumns`' whitelist read-only, and posts the
+  books whose fingerprint changed (status, dates, highlights — never the progress figure), 500 a request; on launch,
+  every 3 hours, on a bank switch and on Refresh. macOS asks once whether Cicada may read another app's data, with the
+  first read. The area's one line is `BooksRowText.appleBooks`: the read in progress, then "N books · N highlights"
+  and what a book's cap left out, or the failure. The footer's Disconnect (asked first) stops it and deletes nothing.
+  *Goodreads* (`GoodreadsSlot`): one *Import a file* way, the source's mark on a file, where the export comes from on
+  its hover (a file importer); then the preview's counts as the line beside *Import*. No footer: nothing to refresh or
+  disconnect. Book scans have no control on the Mac and no catalogue entry (the phone scans; its overview row stays).
+  A book page shows no link preview (`MediaBlock.isBook`, the paper rule). The Mac camera scanner was made optional by the owner
+  (2026-11-04) and is not built; the phone app scans (`cicada-app`, "Scan a book").
 - **Reminders and Notion (G219, ruling 38: one way in, never written back; 2026-10-23).** *This Mac* gains
   **Reminders** after Contacts (`SourceCatalog.fixed`, id `reminders-local`, the installed Reminders app's icon,
   `com.apple.reminders`). Its detail is `RemindersRow`: `CalendarRow`'s line and buttons (Connect · Refresh ·

@@ -416,6 +416,10 @@ def build_channels(
     rows.append(_local_channel(reminders_local.CHANNEL_ID, reminders_local.LABEL, state, "reminder"))
     # G219: a Notion export, imported through the one intake — connected once an import fed memory, like a chat export.
     rows.append(_origin_channel("notion", "Notion export", "notion-export", by_origin, "page"))
+    # G233: a Goodreads export, imported by the person — connected once an import fed memory, like a Notion export.
+    from api.services import goodreads_export
+
+    rows.append(_origin_channel(goodreads_export.CHANNEL_ID, "Goodreads export", "goodreads", by_origin, "book"))
     # Round 4 (C9, R-SR15): a Chromium-family browser beyond Chrome gets its row
     # once it has synced — the app's `BrowserInventory` offers it before that, so
     # an install without Brave never carries a Brave row. Appended like every
@@ -444,6 +448,13 @@ def build_channels(
     wispr_on = bool(wispr_flow.load_settings(memory_path)["enabled"])
     if wispr_on or state.get(wispr_flow.CHANNEL_ID):
         rows.append(_switched(_local_channel(wispr_flow.CHANNEL_ID, "Wispr Flow", state, "capture"), on=wispr_on,
+                              off_detail="Turned off"))
+    # G39: Apple Books — the Wispr Flow rule: a row once the person turned it on or it ever synced.
+    from api.services import apple_books
+
+    books_on = bool(apple_books.load_settings(memory_path)["enabled"])
+    if books_on or state.get(apple_books.CHANNEL_ID):
+        rows.append(_switched(_local_channel(apple_books.CHANNEL_ID, apple_books.LABEL, state, "book"), on=books_on,
                               off_detail="Turned off"))
     # G179: shown once a conversation is ticked (or it has ever synced) — an untouched Messages is no row. With every
     # conversation unticked nothing is read, so it is not connected (2026-10-23).

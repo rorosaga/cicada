@@ -40,11 +40,12 @@ struct SourceFace: Codable, Hashable, Sendable {
 }
 
 enum SourceKind: String, Codable, CaseIterable {
-    case harness, browser, social, feed, messaging, voice, `import`, unknown
+    case harness, browser, social, feed, messaging, voice, reading, `import`, unknown
 
     /// Grid order = the backend's `KIND_ORDER`; `unknown` sorts last. `voice`
     /// (G134) holds note-takers: meetings and dictation.
-    static let order: [SourceKind] = [.harness, .browser, .social, .feed, .messaging, .voice, .import, .unknown]
+    static let order: [SourceKind] = [.harness, .browser, .social, .feed, .messaging, .voice, .reading, .import,
+                                      .unknown]
 }
 
 /// Mirror of `api/models/schemas.py::SourceOverview` (G124). Every field but
@@ -368,6 +369,7 @@ enum SourceSections {
         .feed: "Feeds & calendars",
         .messaging: "Messaging",
         .voice: "Voice & meetings",
+        .reading: "Reading",
         .import: "Files & imports",
         .unknown: "Other",
     ]

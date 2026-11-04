@@ -39,7 +39,7 @@ TOOLS_TTL_S = 8 * 24 * 3600
 
 #: Review of #566: the capture routes a copy's outbox (or a phone's queue) may send again, days later, with the key
 #: it sent first — kept as long as a tool door key, so an answer lost and resent after a day is still applied once.
-LONG_ROUTES = frozenset({"/capture/note", "/capture/file", "/sources/save"})
+LONG_ROUTES = frozenset({"/capture/note", "/capture/file", "/capture/isbn", "/sources/save"})
 
 
 def _long(route: str) -> bool:

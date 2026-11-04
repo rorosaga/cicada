@@ -51,15 +51,13 @@ struct CalendarRow: View {
     /// System Settings → Privacy & Security → Calendars.
     static let privacyURL = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars")!
 
-    /// System Settings → Internet Accounts (macOS 13+), where a Google account's calendars join the Calendar app.
-    /// Opening it asks macOS for nothing.
-    static let internetAccountsURL =
-        URL(string: "x-apple.systempreferences:com.apple.Internet-Accounts-Settings.extension")!
-
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
+            // 2026-11-04 (owner: "I don't know why there's an Ada Google account for the macOS calendar, they should be
+            // separate using the respective logos") — the standing "Google calendars come in through macOS…" line and
+            // its *Add a Google account* button are gone: the page lists each account the Mac holds, Google's only when
+            // there is one, with its own mark (`SourceBrowser`).
             row
-            google
             // G161 — the events Cicada brought in, by title and day.
             if channel?.connected == true {
                 CapturedItemsList(channel: Self.channelId)
@@ -125,27 +123,6 @@ struct CalendarRow: View {
             }
             disconnectButton
         }
-    }
-
-    /// 2026-10-26 (owner: "make sure I can connect Google Calendar if possible, not only the macOS Calendar") — EventKit
-    /// already holds every account in Internet Accounts, Google's included: the accounts the last read included, then
-    /// how a Google account joins and the one click that opens Internet Accounts (no permission prompt).
-    private var google: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-            if !reader.accounts.isEmpty {
-                Text(Copy.calendarIncludes(reader.accounts))
-                    .font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Text(Copy.calendarGoogleHow)
-                .font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
-            NeutralButton(title: Copy.calendarAddGoogle, size: .compact) {
-                NSWorkspace.shared.open(Self.internetAccountsURL)
-            }
-        }
-        .padding(.horizontal, headShown ? 0 : CicadaTheme.spacingMD)
-        .padding(.bottom, CicadaTheme.spacingSM)
     }
 
     private var connectButton: some View {
