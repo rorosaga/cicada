@@ -324,6 +324,13 @@ struct SleepRunRef: Codable, Equatable {
     var questionsRaised: Int?
     var usageSummary: CycleUsageSummary?
     var models: [String] = []
+    /// G235 — how many conversations this run read holding something likely sensitive, and which kinds; `nil`: none.
+    var sensitive: Sensitive? = nil
+
+    struct Sensitive: Codable, Equatable {
+        var conversations: Int
+        var kinds: [String]
+    }
 
     init(id: String, batches: Int = 0, filed: Int = 0, parked: Int = 0, frozen: Int = 0, pauses: Int = 0,
          readMs: Int = 0, pausedMs: Int = 0, startedAt: String? = nil, finishedAt: String? = nil,
@@ -353,8 +360,10 @@ struct SleepRunRef: Codable, Equatable {
         questionsRaised = (try? c.decodeIfPresent(Int.self, forKey: .questionsRaised)) ?? nil
         usageSummary = (try? c.decodeIfPresent(CycleUsageSummary.self, forKey: .usageSummary)) ?? nil
         models = ((try? c.decodeIfPresent([String].self, forKey: .models)) ?? nil) ?? []
+        sensitive = (try? c.decodeIfPresent(Sensitive.self, forKey: .sensitive)) ?? nil
     }
     enum CodingKeys: String, CodingKey {
+        case sensitive
         case id, batches, filed, parked, frozen, pauses, readMs, pausedMs, startedAt, finishedAt, state, startedBy
         case catchUpFor, created, updated, questionsRaised, usageSummary, models
     }
@@ -448,6 +457,8 @@ struct SleepRunDetail: Codable, Equatable {
     var pausedMs: Int?
     var pauses: [Pause]
     var questionsRaised: Int?
+    /// G235 — conversations in this run holding something replaced before it was stored; `nil`: not recorded.
+    var replaced: Int?
     var owner: SleepOwnerPageCount?
     var batches: [Batch]
     var models: [CycleUsageModel]
@@ -467,6 +478,7 @@ struct SleepRunDetail: Codable, Equatable {
         calls = opt(.calls); readMs = opt(.readMs); pausedMs = opt(.pausedMs)
         pauses = ((try? c.decodeIfPresent([Pause].self, forKey: .pauses)) ?? nil) ?? []
         questionsRaised = opt(.questionsRaised)
+        replaced = opt(.replaced)
         owner = (try? c.decodeIfPresent(SleepOwnerPageCount.self, forKey: .owner)) ?? nil
         batches = ((try? c.decodeIfPresent([Batch].self, forKey: .batches)) ?? nil) ?? []
         models = ((try? c.decodeIfPresent([CycleUsageModel].self, forKey: .models)) ?? nil) ?? []
@@ -476,6 +488,6 @@ struct SleepRunDetail: Codable, Equatable {
 
     enum CodingKeys: String, CodingKey {
         case id, startedBy, startedAt, finishedAt, state, filed, frozen, parked, skipped, calls, readMs, pausedMs
-        case pauses, questionsRaised, owner, batches, models, usage, pages
+        case pauses, questionsRaised, replaced, owner, batches, models, usage, pages
     }
 }

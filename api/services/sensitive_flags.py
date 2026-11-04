@@ -734,13 +734,13 @@ def answer(memory_path: Path, path: Path, fm: dict, target: list[dict], label: s
 
 
 def forget_in_indexes(memory_path: Path, marks: dict[str, str]) -> None:
-    """The derived indexes hold text too. The word index is rebuilt from the files; the passages in the vector index
-    that hold a value are deleted now (the next sync re-embeds what is left). Disposable, so a failure logs its class
-    and never undoes the removal."""
+    """The derived indexes hold text too. The word index is rebuilt on a new file (a dropped table's bytes stay in the
+    old one); the passages in the vector index that hold a value are deleted now, their bytes overwritten (the next
+    sync re-embeds what is left). Disposable, so a failure logs its class and never undoes the removal."""
     from api.services import search_index, vector_index
 
     try:
-        search_index.rebuild(Path(memory_path))
+        search_index.rebuild_fresh(Path(memory_path))
     except Exception as exc:  # noqa: BLE001
         logger.warning(f"Search index rebuild after a removal failed: {type(exc).__name__}")
     try:

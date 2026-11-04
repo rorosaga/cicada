@@ -148,6 +148,13 @@ final class AppRouter {
         activateMainWindow()
     }
 
+    /// G235 — a run's line about what may be sensitive opens the one review.
+    func routeToInbox() {
+        closeSettings()
+        pendingTab = .inbox
+        activateMainWindow()
+    }
+
     /// Sleep page v5 — every door but the Sleep page lands here while a run is paused (`SleepViewModel.onPausedDoor`):
     /// the page holds the reason for the pause and the one Continue.
     func routeToSleep() {

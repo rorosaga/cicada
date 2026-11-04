@@ -48,6 +48,8 @@ struct RunCardModel: Equatable, Identifiable {
     let outcome: Outcome
     /// The run's batch commits (a plain cycle's one), newest first — their own figures sit in the dropdown's details.
     let members: [SleepHistoryEntry]
+    /// G235 — "1 conversation may hold a password"; `nil` when this run has nothing to say.
+    var sensitiveLine: String? = nil
 
     /// "Claude Code (your plan) · claude-haiku-5-5" — the engine in words (the person's own choice, `Copy.engineLabel`)
     /// and the models the ledger says ran; `nil` when neither was recorded.
@@ -114,7 +116,8 @@ struct RunCardModel: Equatable, Identifiable {
                 engine: newest.engine ?? ref.usageSummary?.engine, models: models,
                 usage: ref.usageSummary ?? (members.count == 1 ? newest.usageSummary : nil),
                 durationMs: ref.readMs > 0 ? ref.readMs : nil,
-                outcome: outcome(ref, detail: detail ?? details[ref.id]), members: members)
+                outcome: outcome(ref, detail: detail ?? details[ref.id]), members: members,
+                sensitiveLine: ref.sensitive.map { Copy.Sensitive.runLine(conversations: $0.conversations, kinds: $0.kinds, locale) })
         }
     }
 
@@ -246,10 +249,22 @@ struct RunCardView: View {
 
     @State private var hovering = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(AppRouter.self) private var router: AppRouter?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             head
+            // G235: one quiet line, outside the card's own button, and the way to the one review.
+            if let line = card.sensitiveLine {
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    Text(line)
+                        .font(CicadaTheme.metaFont)
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                    InlineLink(title: Copy.Sensitive.review) { router?.routeToInbox() }
+                }
+                .padding(.horizontal, CicadaTheme.scaled(14))
+                .padding(.bottom, CicadaTheme.scaled(10))
+            }
             if isOpen {
                 RunItemsView(card: card, items: items, failed: itemsFailed, runDetail: runDetail,
                              cycleDetail: cycleDetail, onSelectEntity: onSelectEntity)
@@ -393,6 +408,9 @@ struct RunItemsView: View {
             }
             if detailsOpen {
                 details.transition(.opacity)
+            }
+            if let replaced = runDetail?.replaced, replaced > 0 {
+                note(Copy.Sensitive.replaced(replaced))
             }
         }
     }

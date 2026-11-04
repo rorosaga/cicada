@@ -332,7 +332,7 @@ def _keys(line: str, base: int, ctx: Context) -> Iterable[Hit]:
     if not ctx.fenced:
         for m in _SAID_KEY_RE.finditer(line):
             value = m.group("value")
-            if (any(c.isdigit() for c in value) and any(c.isalpha() for c in value)
+            if (any(c.isdigit() for c in value) and any(c.isalpha() for c in value) and not value.endswith("...")
                     and not _IDENTIFIER_RE.match(value) and not _PLACEHOLDER_RE.search(value)):
                 yield Hit(KEY, base + m.start("value"), base + m.end("value"))
     m = _ENV_LINE_RE.match(line)

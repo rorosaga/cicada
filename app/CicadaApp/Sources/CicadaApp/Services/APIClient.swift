@@ -2450,6 +2450,11 @@ actor APIClient {
 
     /// G61 "Where to check" (#422) — one row of the grouped review answered: `yes` takes that link on its page, `no`
     /// removes it (remembered, never proposed again). The item keeps the rows not answered.
+    /// G235 — one conversation of the sensitive review: `remove` or `keep`.
+    func resolveSensitiveRow(id: String, row: String, key: String) async throws {
+        try await post("/inbox/\(encodedID(id))/resolve", body: ["action": "resolve", "optionKey": key, "row": row])
+    }
+
     func resolveWhereToCheckRow(id: String, row: String, take: Bool) async throws {
         try await post("/inbox/\(encodedID(id))/resolve",
                        body: ["action": take ? "resolve" : "dismiss", "optionKey": take ? "yes" : "no", "row": row])

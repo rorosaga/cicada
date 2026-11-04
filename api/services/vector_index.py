@@ -1208,6 +1208,7 @@ def forget_passages(memory_path: Path, values: tuple[str, ...]) -> int:
                         conn.execute(f"DELETE FROM {meta} WHERE rowid = ?", (rowid,))
                     removed += len(rows)
             conn.commit()
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")   # the deleted text does not linger in the log either
         finally:
             conn.close()
     return removed
