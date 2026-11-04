@@ -2745,7 +2745,7 @@ Measured on the copy (210 open "Possible duplicate" questions; dry run, nothing 
 no conversation); 2 carried a guess ≥ 0.9. Of the 20 between people, 4 are retired (1 owner, 3 with no conversation
 naming both) and 16 stay; their cards' conversation names both sides on 16 (10 before); 1 of them is a public handle
 a check may answer
-(proposed ruling 54, `public_handle`, `features.md`; off until the owner rules). The other 190 are thing pairs: the plan's judge (haiku) called
+(ruling 54, `public_handle`, `features.md`). The other 190 are thing pairs: the plan's judge (haiku) called
 125 different or a relation (not the same), 21 the same, 44 unsure — Stage 2's relation judge (2026-10-29) keeps new
 ones from being asked; the open ones wait for Sleep's tending judge or the person.
 

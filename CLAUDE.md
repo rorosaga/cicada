@@ -327,9 +327,11 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   world facts on plan runs (never a metered key), re-checked by use and volatility, never over the person's own words
   about their own life; a private
   person's name never reaches any service; every page says why it matters to the person, derived on read (`web_context`,
-  `page_relevance`, `storage.md`). PROPOSED ruling 54 (owner direction 2026-11-04; off until the owner rules): a public handle
-  vs a named public person, neither in a chat or contacts, may be settled by two pinned searches and a cited claim; the
-  person's own agent on their ask meanwhile (`public_handle`, `features.md`). **A tracked source's
+  `page_relevance`, `storage.md`). **Ruling 54 (owner 2026-11-04):** a handle vs a named person is worked like an
+  agent on the Claude plan only, on by default: a tool-less model reads anything in memory, every query and link it asks for
+  passes `name_guard` in code (a name known only from the person's record never leaves; a tie always blocks), ≤ 6 searches through
+  a hand holding only cleared queries; the model judges (one site is enough), its quote checked on the page; cited, undoable, never a merge (`settling_agent`, `features.md`). **54a:** a page's tracked
+  sources come first, opened directly, never a search for a private person; a walled one only by the person's agent. **A tracked source's
   dated re-check does (ruling 26):** a new dated fact; the newest evidence wins, even over the person's own words; the same
   day or undated asks once; dead = two failed visits a week apart; walled pages only by the person's agent (`storage.md`).
   **Where to check (ruling 36 D5, 2026-10-22):** an agent (`inferred`) or Sleep's engine-free step may PROPOSE a link

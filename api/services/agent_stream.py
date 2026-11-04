@@ -58,6 +58,10 @@ class StreamResult:
     tool_uses: list[tuple[str, dict]] = field(default_factory=list)
     #: How many links each ``tool_result`` block carried (the web lookup's ``--trace-raw`` diagnostic): counts only.
     tool_results: list[int] = field(default_factory=list)
+    #: What each search returned, as the CLI itself reports it (``tool_use_result``): ``{query, links: [{title, url}],
+    #: text, count}``. The settling step (ruling 54) may open only a link a search returned, and counts ``count`` — a
+    #: search tool may run several searches for one call. Never logged.
+    search_results: list[dict] = field(default_factory=list)
 
 
 def _number(raw) -> float | None:
@@ -175,6 +179,25 @@ def _tool_results(message) -> list[int]:
     return out
 
 
+def _search_result(raw) -> dict | None:
+    """One ``tool_use_result`` of the plan's web search: ``{"query", "results": [{"content": [{title, url}]}, "prose"],
+    "searchCount"}`` (read off the CLI's stream, 2.1.318). Anything else is no search result."""
+    if not isinstance(raw, dict) or "query" not in raw or not isinstance(raw.get("results"), list):
+        return None
+    links: list[dict] = []
+    text: list[str] = []
+    for row in raw["results"]:
+        if isinstance(row, str):
+            text.append(row)
+        elif isinstance(row, dict):
+            for hit in row.get("content") if isinstance(row.get("content"), list) else []:
+                if isinstance(hit, dict) and hit.get("url"):
+                    links.append({"title": str(hit.get("title") or ""), "url": str(hit["url"])})
+    count = _number(raw.get("searchCount"))
+    return {"query": str(raw.get("query") or ""), "links": links, "text": "\n".join(text),
+            "count": int(count) if count is not None else 1}
+
+
 def parse_stream(stdout: str | None) -> StreamResult:
     """NDJSON (or one json-mode object) → the envelope plus every signal."""
     out = StreamResult()
@@ -200,6 +223,8 @@ def parse_stream(stdout: str | None) -> StreamResult:
             out.tool_uses.extend(_tool_uses(obj.get("message")))
         elif kind == "user":
             out.tool_results.extend(_tool_results(obj.get("message")))
+            if (found := _search_result(obj.get("tool_use_result"))) is not None:
+                out.search_results.append(found)
         elif kind == "system" and obj.get("subtype") == "init":
             source = obj.get("apiKeySource")
             out.api_key_source = source if isinstance(source, str) else None
