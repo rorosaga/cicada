@@ -296,7 +296,7 @@ enum CycleUsageText {
         let asOf = parseAsOf(u.asOf)
         let resetDate = u.resetsAt.map { Date(timeIntervalSince1970: TimeInterval($0)) }
         var help = head
-        if let resetDate { help += " · " + Copy.SleepUsage.resets(resetText(u.resetsAt ?? 0, now: now, locale: locale, timeZone: timeZone)) }
+        if let resetDate, resetDate > now { help += " · " + Copy.SleepUsage.resets(resetText(u.resetsAt ?? 0, now: now, locale: locale, timeZone: timeZone)) }
         if let asOf { help += " · " + Copy.SleepUsage.asOf(relative(asOf, now: now, locale: locale)) }
         if let resetDate, resetDate <= now { return (Copy.SleepUsage.windowReset, help) }
         if let asOf, now.timeIntervalSince(asOf) > staleAfter {

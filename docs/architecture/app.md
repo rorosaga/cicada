@@ -38,6 +38,8 @@ Agents page, ⌘9, `AppTab.agents`, appended so no shortcut moved — DR-22).
   may use my plan* (ruling 4c), *Keep going on extra usage* (R-E13, only under a plan) and *Use my Claude plan when I
   start* (only under a key). The Sleep page's engine menu is a label that opens this page (`EngineLabelButton`); the
   full menu stays in Sleep → Options, which keeps the plan reserve and the model prices (ruling 12).
+  **An app without its tool (ROR-52, 2026-11-04):** the row says *Not ready* (`notReady`), never *Not installed*, with the
+  backend's line and the one command to run (`stepCommand`: `nextCommand`, else the sign-in); `capture-and-sleep.md` has the states.
   **Your agent tools (G49/G50, 2026-10-28)** sits between Plans and API keys: one `OwnToolRow` per Cursor, OpenCode or
   Grok card from `GET /sleep/engine` (mark, *Connected* / *Not connected* / *Not installed*, the tool's billing note or
   a stale saved model in words, *Use* once signed in, and — signed out — the sign-in command in a `CommandBox`; Cicada
@@ -2923,7 +2925,13 @@ failure renders an exception class, CLI command or raw diagnosis in the page's s
 instead says "Reading stopped" / "See what needs a fix in Past reads, then try again", in warning tone (DR-7, DR-59);
 the existing Last cycle rows retain the full diagnosis (DR-37/48). **One
 primary at a time (DR-40):** Consolidate / Pause (a drain's cancel, "Pausing…") / Continue (named for the manual engine; held while a weekly limit's
-reset is ahead) with *End this run* beside it. `SleepViewModel.continueRun()` is the only sender of `{"continue": true}`; **every other door goes
+reset is ahead) with *End this run* beside it. **Past the reset (ROR-96, 2026-11-04):** a weekly pause stays paused (ruling 15),
+so its words follow the clock, never the reason alone: "Paused. Your plan is back." and "Continue when you like. N of M filed.",
+for a window, a week, extra usage or the reserve line alike (`SleepPausedRun.planIsBack`, the reset's own second counting as
+passed; no vendor time never says it). A time gone by is never said: `resetWhen` and `autoContinueWhen` are nil once past, the
+vendor's sentence leaves Details, and the engine menu's help drops its "resets". `SleepPageModel.nextClockEdge` is the soonest
+of a pause's reset, an armed continue and a plan stop's reset still ahead; `SleepView` sleeps until it and redraws, so nothing
+has to be reopened. No animation of its own; the sentence slot's own cross-fade carries the change. `SleepViewModel.continueRun()` is the only sender of `{"continue": true}`; **every other door goes
 through `triggerManually()`, which routes to the Sleep page while a run is paused** (`AppRouter.routeToSleep`), and the menu bar, the intake card's
 and Home's *Read now* say what the click reads — "Consolidate now — all 287", "Reads all 318 waiting, oldest first, saving every 25." (`SleepDoor`,
 readable = waiting minus parked, M7; a pause whose record has not loaded says only "Paused", and an unknown batch size is left out, never a

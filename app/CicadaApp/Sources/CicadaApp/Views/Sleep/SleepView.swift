@@ -191,6 +191,9 @@ struct SleepView: View {
     /// Track Z Z10 — Increase Contrast hides the optional sky band (§11).
     @Environment(\.colorSchemeContrast) private var contrast
     @State private var loadedOnce: Bool = false
+    /// ROR-96 — the last of the page's own clock edges to pass (`SleepPageModel.nextClockEdge`). Reading it in `body`
+    /// is what redraws the page at a reset with nothing else changing.
+    @State private var clockTurned = Date.distantPast
     /// When the page last refetched for a moved Sleep time (`SleepPageRefresh`).
     @State private var lastRefetch: Date?
     // PR #19 review: rapid live-count changes (a capture landing, then
@@ -241,7 +244,7 @@ struct SleepView: View {
     /// Three stages, so the type checker never faces one chain of every modifier (ContentView's `lifecycleStage`
     /// reason): the page and its sheet, then the hand-offs, then the load and the cycle's edges.
     var body: some View {
-        let page = resolvePage()
+        let page = resolvePage(now: max(.now, clockTurned))
         return lifecycle(handoffs(pageStack(page)), page: page)
     }
 
@@ -317,6 +320,11 @@ struct SleepView: View {
 
     private func lifecycle(_ content: some View, page: SleepPageModel) -> some View {
         reconciles(followsRun(loads(content)))
+            .task(id: page.nextClockEdge) {
+                guard let edge = page.nextClockEdge else { return }
+                try? await Task.sleep(for: .seconds(max(0, edge.timeIntervalSinceNow)))
+                if !Task.isCancelled { clockTurned = edge }
+            }
     }
 
     /// The page's loads and Sleep's running → idle edge — split from `lifecycle`, whose one modifier chain sat near
@@ -1189,7 +1197,8 @@ struct SleepView: View {
             ?? (drain?.active == true ? preview?.scheduled.billing : nil)
         return LastCycleRow.runRows(drain: drain, paused: page.paused, run: run, detail: detail,
                                     parkedCount: page.parkedCount, runBilling: billing,
-                                    reserveValue: reserve?.pct != nil ? reserve?.value : nil)
+                                    reserveValue: reserve?.pct != nil ? reserve?.value : nil,
+                                    planIsBack: page.planIsBack)
     }
 
     /// The run's part of Waiting shows while a run reads in batches or waits paused.
